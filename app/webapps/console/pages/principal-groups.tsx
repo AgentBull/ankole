@@ -51,7 +51,7 @@ import { requestErrorMessage } from '../../common/request-errors'
 import { ErrorBlock, formatConsoleDate } from '../console-primitives'
 import { ConfirmDeleteButton, LabeledField, ReadOnlyValue, ResourceEditorPage } from '../console-form'
 import { ResourceListPage, ResourceSearch, RowActions } from '../console-list-page'
-import { matchesResourceSearch } from '../state/resource-search'
+import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
 import {
   PrincipalGroupEditorModel,
   type PrincipalGroupEditorDraft,
@@ -66,8 +66,9 @@ export function PrincipalGroupsListPage() {
   const groups = useQuery(ankoleWebAuthZGroupControllerIndexOptions())
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
+  const searchQuery = effectiveResourceSearchQuery(query, deferredQuery)
   const rows = (groups.data?.principal_groups ?? []).filter(group =>
-    matchesResourceSearch(deferredQuery, group.name, group.display_name, group.description, group.kind)
+    matchesResourceSearch(searchQuery, group.name, group.display_name, group.description, group.kind)
   )
   const deleteGroup = useMutation({
     ...ankoleWebAuthZGroupControllerDeleteMutation(),
@@ -234,7 +235,7 @@ export function PrincipalGroupEditorPage() {
       contentWidth={mode === 'edit' ? 'wide' : 'form'}
       supplementary={
         mode === 'edit' && loadedGroup ? (
-          <div className="grid gap-10 border-t border-border pt-8">
+          <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-10 border-t border-border pt-8 [&>*]:min-w-0">
             <GroupMembersSection group={loadedGroup} />
             <GroupGrantsSection group={loadedGroup} />
           </div>

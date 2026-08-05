@@ -1500,9 +1500,18 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           plugin_id: %Schema{type: :string},
           config_key: %Schema{type: :string},
           enabled: %Schema{type: :boolean},
-          config: JSONValue
+          config: JSONValue,
+          stored_secret_paths: %Schema{type: :array, items: %Schema{type: :string}}
         },
-        required: [:provider_id, :adapter_id, :plugin_id, :config_key, :enabled, :config],
+        required: [
+          :provider_id,
+          :adapter_id,
+          :plugin_id,
+          :config_key,
+          :enabled,
+          :config,
+          :stored_secret_paths
+        ],
         additionalProperties: false
       },
       struct?: false
@@ -1711,6 +1720,27 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           signal_binding: SignalBindingItem
         },
         required: [:signal_binding],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule SignalBindingDetailResponse do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "SignalBindingDetailResponse",
+        type: :object,
+        properties: %{
+          signal_binding: SignalBindingItem,
+          config: JSONValue,
+          stored_secret_paths: %Schema{type: :array, items: %Schema{type: :string}}
+        },
+        required: [:signal_binding, :config, :stored_secret_paths],
         additionalProperties: false
       },
       struct?: false

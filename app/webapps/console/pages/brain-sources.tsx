@@ -36,7 +36,7 @@ import type { BrainSourceEntry } from '../api/generated/types.gen'
 import { PageStack } from '../console-page'
 import { ErrorBlock, formatJSON } from '../console-primitives'
 import { LabeledField, ResourceEditorPage } from '../console-form'
-import { ResourceListPage, RowActions } from '../console-list-page'
+import { ResourceListPage, RowViewAction } from '../console-list-page'
 import { defaultBrainOwnerUID, setBrainFilter } from '../state/brain-editor-model'
 import {
   BrainOwnerField,
@@ -118,9 +118,9 @@ export function BrainSourcesPage() {
           <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
             {formatBrainDate(source.captured_at)}
           </TableCell>
-          <RowActions
-            editLabel={t('common.open')}
-            editTo={`/brain/sources/${encodeURIComponent(source.document_id)}?owner=${encodeURIComponent(ownerUID)}`}
+          <RowViewAction
+            label={t('common.view_details_for', { name: source.title })}
+            to={`/brain/sources/${encodeURIComponent(source.document_id)}?owner=${encodeURIComponent(ownerUID)}`}
           />
         </TableRow>
       ))}

@@ -128,6 +128,7 @@ import {
   ankoleWebSignalBindingControllerIndex,
   ankoleWebSignalBindingControllerPutBinding,
   ankoleWebSignalBindingControllerPutChannelStandingOrders,
+  ankoleWebSignalBindingControllerShow,
   ankoleWebSignalBindingControllerShowChannelStandingOrders,
   ankoleWebSignalBindingControllerUpdateBinding,
   ankoleWebWebhookEndpointControllerDelete,
@@ -498,6 +499,9 @@ import type {
   AnkoleWebSignalBindingControllerShowChannelStandingOrdersData,
   AnkoleWebSignalBindingControllerShowChannelStandingOrdersError,
   AnkoleWebSignalBindingControllerShowChannelStandingOrdersResponse,
+  AnkoleWebSignalBindingControllerShowData,
+  AnkoleWebSignalBindingControllerShowError,
+  AnkoleWebSignalBindingControllerShowResponse,
   AnkoleWebSignalBindingControllerUpdateBindingData,
   AnkoleWebSignalBindingControllerUpdateBindingError,
   AnkoleWebSignalBindingControllerUpdateBindingResponse,
@@ -2983,8 +2987,36 @@ export const ankoleWebSignalBindingControllerDeleteMutation = (
   return mutationOptions
 }
 
+export const ankoleWebSignalBindingControllerShowQueryKey = (
+  options: Options<AnkoleWebSignalBindingControllerShowData>
+) => createQueryKey('ankoleWebSignalBindingControllerShow', options)
+
 /**
- * Reconfigure or move one signal binding
+ * Read one signal binding for editing
+ */
+export const ankoleWebSignalBindingControllerShowOptions = (
+  options: Options<AnkoleWebSignalBindingControllerShowData>
+) =>
+  queryOptions<
+    AnkoleWebSignalBindingControllerShowResponse,
+    AnkoleWebSignalBindingControllerShowError,
+    AnkoleWebSignalBindingControllerShowResponse,
+    ReturnType<typeof ankoleWebSignalBindingControllerShowQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebSignalBindingControllerShow({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebSignalBindingControllerShowQueryKey(options)
+  })
+
+/**
+ * Edit or move one signal binding
  */
 export const ankoleWebSignalBindingControllerUpdateBindingMutation = (
   options?: Partial<Options<AnkoleWebSignalBindingControllerUpdateBindingData>>

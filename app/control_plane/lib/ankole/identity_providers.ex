@@ -8,12 +8,13 @@ defmodule Ankole.IdentityProviders do
   alias Ankole.IdentityProviders.Jobs.SyncProvider
   alias Ankole.Logging
   alias Ankole.Plugins
+  alias Ankole.Plugins.ConfigSecrets
 
   @adapter_contract_id "principals.identity_provider"
   @credential_check_capability "credential_check"
   @directory_full_sync_capability "directory_full_sync"
   @directory_realtime_sync_capability "directory_realtime_sync"
-  @secret_mask "********"
+  @legacy_secret_mask "********"
 
   @type adapter :: %{
           adapter_id: String.t(),
@@ -691,6 +692,8 @@ defmodule Ankole.IdentityProviders do
   defp provider_projection(provider) do
     with {:ok, adapter} <- fetch_adapter(provider["adapter_id"]),
          {:ok, config} <- provider_config(provider) do
+      {config, stored_secret_paths} = ConfigSecrets.redact(adapter.fields, config)
+
       {:ok,
        %{
          "provider_id" => provider["provider_id"],
@@ -698,7 +701,8 @@ defmodule Ankole.IdentityProviders do
          "plugin_id" => provider["plugin_id"],
          "config_key" => provider["config_key"],
          "enabled" => provider["enabled"] != false,
-         "config" => mask_encrypted_config(adapter, config)
+         "config" => config,
+         "stored_secret_paths" => stored_secret_paths
        }}
     end
   end
@@ -706,7 +710,7 @@ defmodule Ankole.IdentityProviders do
   defp provider_config_for_write(adapter, config_key, config) do
     case AppConfigure.get_by_key(config_key) do
       {:ok, existing} when is_map(existing) ->
-        {:ok, preserve_encrypted_config(adapter, config, existing)}
+        {:ok, ConfigSecrets.preserve(adapter.fields, config, existing, [@legacy_secret_mask])}
 
       :error ->
         {:ok, config}
@@ -714,73 +718,6 @@ defmodule Ankole.IdentityProviders do
       {:error, _reason} = error ->
         error
     end
-  end
-
-  defp preserve_encrypted_config(adapter, config, existing) do
-    adapter
-    |> encrypted_field_paths()
-    |> Enum.reduce(config, fn path, acc ->
-      case {secret_placeholder?(get_path(acc, path)), get_path(existing, path)} do
-        {true, value} when not is_nil(value) -> put_path(acc, path, value)
-        _value -> acc
-      end
-    end)
-  end
-
-  defp mask_encrypted_config(adapter, config) do
-    adapter
-    |> encrypted_field_paths()
-    |> Enum.reduce(config, fn path, acc ->
-      case is_nil(get_path(acc, path)) do
-        true -> acc
-        false -> put_path(acc, path, @secret_mask)
-      end
-    end)
-  end
-
-  defp encrypted_field_paths(%{fields: fields}), do: encrypted_field_paths(fields)
-
-  defp encrypted_field_paths(fields) when is_list(fields) do
-    fields
-    |> Enum.filter(&(value(&1, :encrypted) == true))
-    |> Enum.map(&value(&1, :path))
-    |> Enum.filter(&is_binary/1)
-  end
-
-  defp encrypted_field_paths(_fields), do: []
-
-  defp secret_placeholder?(nil), do: true
-  defp secret_placeholder?(""), do: true
-  defp secret_placeholder?(@secret_mask), do: true
-  defp secret_placeholder?(_value), do: false
-
-  defp get_path(source, path) when is_map(source) and is_binary(path) do
-    path
-    |> String.split(".")
-    |> Enum.reduce_while(source, fn segment, value ->
-      case value do
-        value when is_map(value) -> {:cont, Map.get(value, segment)}
-        _value -> {:halt, nil}
-      end
-    end)
-  end
-
-  defp get_path(_source, _path), do: nil
-
-  defp put_path(source, path, value) when is_map(source) and is_binary(path) do
-    do_put_path(source, String.split(path, "."), value)
-  end
-
-  defp do_put_path(source, [segment], value), do: Map.put(source, segment, value)
-
-  defp do_put_path(source, [segment | rest], value) do
-    child =
-      case Map.get(source, segment) do
-        child when is_map(child) -> child
-        _value -> %{}
-      end
-
-    Map.put(source, segment, do_put_path(child, rest, value))
   end
 
   defp sync_reason(value) when is_atom(value), do: Atom.to_string(value)

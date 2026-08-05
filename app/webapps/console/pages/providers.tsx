@@ -70,7 +70,7 @@ import {
 } from '../console-form'
 import { ResourceListPage, ResourceSearch, RowActions } from '../console-list-page'
 import { nextProviderID, ProviderEditorModel } from '../state/provider-editor-model'
-import { matchesResourceSearch } from '../state/resource-search'
+import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
 import { ProviderSettingField } from './provider-setting-field'
 import {
   buildConnectionOptions,
@@ -97,10 +97,14 @@ export function ProvidersListPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const providers = useQuery(providerIndexOptions())
+  const providerKinds = useQuery(providerKindsOptions())
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
+  const searchQuery = effectiveResourceSearchQuery(query, deferredQuery)
+  const kindByID = new Map((providerKinds.data?.provider_kinds ?? []).map(kind => [kind.provider_kind, kind]))
   const rows = (providers.data?.ai_gateway_providers ?? []).filter(provider => {
     const pool = provider.credential_pool
+    const kind = kindByID.get(provider.provider_kind)
     const entrySearch = pool.entries.flatMap(entry => [
       entry.id,
       entry.label,
@@ -110,9 +114,10 @@ export function ProvidersListPage() {
     ])
 
     return matchesResourceSearch(
-      deferredQuery,
+      searchQuery,
       provider.provider_id,
       provider.provider_kind,
+      kind ? providerKindLabel(kind) : undefined,
       provider.disabled_at ? 'disabled' : 'enabled',
       pool.strategy,
       ...entrySearch
@@ -146,7 +151,7 @@ export function ProvidersListPage() {
         t('console.providers.pool'),
         t('console.providers.state')
       ]}
-      isLoading={providers.isLoading}
+      isLoading={providers.isLoading || providerKinds.isLoading}
       isEmpty={rows.length === 0}
       count={rows.length}
       emptyTitle={t('console.providers.empty_title')}
@@ -165,6 +170,7 @@ export function ProvidersListPage() {
       }>
       {rows.map(provider => {
         const entries = provider.credential_pool.entries
+        const kind = kindByID.get(provider.provider_kind)
         const usable = entries.filter(entry => entry.status === 'ok').length
 
         return (
@@ -176,7 +182,7 @@ export function ProvidersListPage() {
                 {provider.provider_id}
               </Link>
             </TableCell>
-            <TableCell>{provider.provider_kind}</TableCell>
+            <TableCell>{kind ? providerKindLabel(kind) : provider.provider_kind}</TableCell>
             <TableCell>
               <div className="grid gap-1">
                 <span>
@@ -596,7 +602,7 @@ function CredentialPoolEditor({
                 </div>
               </div>
 
-              <div className="grid gap-2 text-sm md:grid-cols-2">
+              <dl className="grid gap-3 text-sm md:grid-cols-2">
                 <CredentialFact label={t('console.providers.account_id')} value={entry.account_id} />
                 <CredentialFact label={t('console.providers.email')} value={entry.email} />
                 <CredentialFact label={t('console.providers.plan_type')} value={entry.plan_type} />
@@ -607,10 +613,6 @@ function CredentialPoolEditor({
                 <CredentialFact label={t('console.providers.request_count')} value={String(entry.request_count ?? 0)} />
                 <CredentialFact label={t('console.providers.token_usage')} value={formatCredentialUsage(entry.usage)} />
                 <CredentialFact
-                  label={t('console.providers.rate_limits')}
-                  value={formatRateLimits(entry.rate_limits)}
-                />
-                <CredentialFact
                   label={t('console.providers.last_selected_at')}
                   value={formatTimestamp(entry.last_selected_at)}
                 />
@@ -619,7 +621,12 @@ function CredentialPoolEditor({
                   label={t('console.providers.last_refresh')}
                   value={formatTimestamp(entry.last_refresh)}
                 />
-              </div>
+              </dl>
+
+              <CredentialDiagnostics
+                label={t('console.providers.rate_limits')}
+                value={formatRateLimits(entry.rate_limits)}
+              />
 
               {entry.last_error_code || entry.last_error_reason || entry.last_error_message ? (
                 <div className="grid gap-1 border-l-2 border-warning px-3 text-xs">
@@ -752,7 +759,7 @@ function CredentialEditorDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent closeLabel={t('common.close')}>
         <DialogHeader>
           <DialogTitle>
             {entry ? t('console.providers.edit_credential') : t('console.providers.add_credential')}
@@ -907,7 +914,7 @@ function ChatGPTLoginDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent closeLabel={t('common.close')}>
         <form
           className="contents"
           noValidate
@@ -1092,7 +1099,7 @@ function EnterpriseCredentialDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent closeLabel={t('common.close')}>
         <DialogHeader>
           <DialogTitle>
             {entry ? t('console.providers.reauthenticate') : t('console.providers.add_enterprise_token')}
@@ -1167,10 +1174,23 @@ function CredentialFact({ label, value }: { label: string; value: string | null 
   if (!value) return null
 
   return (
-    <div className="grid grid-cols-[minmax(8rem,0.4fr)_1fr] gap-3">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="break-all font-mono tabular-nums">{value}</span>
+    <div className="grid gap-1 sm:grid-cols-[minmax(8rem,0.4fr)_1fr] sm:gap-3">
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd className="break-all font-mono tabular-nums">{value}</dd>
     </div>
+  )
+}
+
+function CredentialDiagnostics({ label, value }: { label: string; value: string | undefined }) {
+  if (!value) return null
+
+  return (
+    <details>
+      <summary className="cursor-pointer text-sm font-medium">{label}</summary>
+      <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-all border border-border bg-muted p-3 text-xs">
+        {value}
+      </pre>
+    </details>
   )
 }
 
@@ -1220,7 +1240,7 @@ function formatRateLimits(value: Record<string, unknown>): string | undefined {
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([name, limit]) => `${name.replace(/^x-codex-/, '')}: ${limit}`)
 
-  return parts.length > 0 ? parts.join(' · ') : undefined
+  return parts.length > 0 ? parts.join('\n') : undefined
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {

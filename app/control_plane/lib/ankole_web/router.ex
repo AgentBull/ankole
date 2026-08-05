@@ -302,6 +302,10 @@ defmodule AnkoleWeb.Router do
 
     get "/agents/:agent_uid/signal-bindings", SignalBindingController, :index
 
+    get "/agents/:agent_uid/signal-bindings/:binding_name",
+        SignalBindingController,
+        :show
+
     put "/agents/:agent_uid/signal-bindings/:adapter_id/:binding_name",
         SignalBindingController,
         :put_binding

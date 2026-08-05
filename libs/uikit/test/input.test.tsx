@@ -56,4 +56,19 @@ describe('Input', () => {
     expect(groupHTML).toContain('has-[:user-invalid]:border-b-destructive')
     expect(textareaHTML).toContain('user-invalid:border-b-destructive')
   })
+
+  test('removes the active underline from disabled text controls', () => {
+    const inputHTML = renderToStaticMarkup(<Input disabled />)
+    const groupHTML = renderToStaticMarkup(
+      <InputGroup>
+        <InputGroupInput disabled />
+      </InputGroup>
+    )
+    const textareaHTML = renderToStaticMarkup(<Textarea disabled />)
+
+    expect(inputHTML).toContain('disabled:border-b-transparent')
+    expect(inputHTML).toContain('disabled:text-fg-disabled')
+    expect(groupHTML).toContain('has-[input:disabled]:border-b-transparent')
+    expect(textareaHTML).toContain('disabled:border-b-transparent')
+  })
 })

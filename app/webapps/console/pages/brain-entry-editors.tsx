@@ -301,7 +301,7 @@ function BlockEditor({
         </div>
       </form>
       <Dialog open={retireOpen} onOpenChange={setRetireOpen}>
-        <DialogContent>
+        <DialogContent closeLabel={t('common.close')}>
           <DialogHeader>
             <DialogTitle>{t('console.brain.retire_block_title')}</DialogTitle>
             <DialogDescription>{t('console.brain.retire_block_description')}</DialogDescription>

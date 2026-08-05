@@ -48,9 +48,11 @@ function DialogOverlay({ className, ...props }: DialogPrimitive.Backdrop.Props) 
 function DialogContent({
   className,
   children,
+  closeLabel = 'Close',
   showCloseButton = true,
   ...props
 }: DialogPrimitive.Popup.Props & {
+  closeLabel?: string
   showCloseButton?: boolean
 }) {
   return (
@@ -69,7 +71,7 @@ function DialogContent({
             data-slot="dialog-close"
             render={<Button variant="ghost" className="absolute top-0 right-0" size="icon" />}>
             <RiCloseLine />
-            <span className="sr-only">Close</span>
+            <span className="sr-only">{closeLabel}</span>
           </DialogPrimitive.Close>
         )}
       </DialogPrimitive.Popup>
@@ -83,10 +85,12 @@ function DialogHeader({ className, ...props }: React.ComponentProps<'div'>) {
 
 function DialogFooter({
   className,
+  closeLabel = 'Close',
   showCloseButton = false,
   children,
   ...props
 }: React.ComponentProps<'div'> & {
+  closeLabel?: string
   showCloseButton?: boolean
 }) {
   return (
@@ -97,7 +101,9 @@ function DialogFooter({
         className
       )}
       {...props}>
-      {showCloseButton && <DialogPrimitive.Close render={<Button variant="secondary" />}>Close</DialogPrimitive.Close>}
+      {showCloseButton && (
+        <DialogPrimitive.Close render={<Button variant="secondary" />}>{closeLabel}</DialogPrimitive.Close>
+      )}
       {children}
     </div>
   )

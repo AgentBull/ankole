@@ -6,6 +6,7 @@ defmodule Ankole.SignalsGateway.Bindings do
   alias Ecto.Adapters.SQL
   alias Ankole.Repo
   alias Ankole.AppConfigure
+  alias Ankole.Plugins.ConfigSecrets
   alias Ankole.Principals
   alias Ankole.SignalsGateway.Actors
   alias Ankole.SignalsGateway.Adapters
@@ -118,6 +119,34 @@ defmodule Ankole.SignalsGateway.Bindings do
 
   def update_binding(_source_agent_uid, _target_agent_uid, _binding_name, _attrs),
     do: {:error, :invalid_signal_binding}
+
+  @spec get_binding_configuration(String.t(), String.t()) ::
+          {:ok, %{binding: Binding.t(), config: map(), stored_secret_paths: [String.t()]}}
+          | {:error, term()}
+  def get_binding_configuration(agent_uid, binding_name)
+      when is_binary(agent_uid) and is_binary(binding_name) do
+    with {:ok, %{principal: principal}} <- Principals.get_agent(agent_uid),
+         %Binding{} = binding <-
+           Repo.get_by(Binding, agent_uid: principal.uid, name: binding_name),
+         {:ok, definition} <- Adapters.fetch(binding.adapter),
+         {:ok, config} <- stored_binding_config(binding) do
+      {config, stored_secret_paths} = ConfigSecrets.redact(definition.fields, config)
+
+      {:ok,
+       %{
+         binding: binding,
+         config: config,
+         stored_secret_paths: stored_secret_paths
+       }}
+    else
+      nil -> {:error, :binding_not_found}
+      {:error, :not_found} -> {:error, :agent_not_found}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  def get_binding_configuration(_agent_uid, _binding_name),
+    do: {:error, :binding_not_found}
 
   @spec get_binding(String.t(), String.t()) :: {:ok, Binding.t()} | {:error, term()}
   def get_binding(agent_uid, binding_name) do
@@ -355,7 +384,10 @@ defmodule Ankole.SignalsGateway.Bindings do
                 {:ok, normalized_config} <-
                   validate_binding_config(
                     definition,
-                    merge_binding_config(current_config, config_patch)
+                    merge_binding_config(
+                      current_config,
+                      ConfigSecrets.preserve(definition.fields, config_patch, current_config)
+                    )
                   ),
                 :ok <-
                   ensure_target_binding_available(
@@ -417,6 +449,17 @@ defmodule Ankole.SignalsGateway.Bindings do
   end
 
   defp binding_config_in_tx(_repo, %Binding{}), do: {:error, :binding_config_unavailable}
+
+  defp stored_binding_config(%Binding{config_ref: "app-config://" <> key}) do
+    case AppConfigure.get_by_key(key) do
+      {:ok, config} when is_map(config) -> {:ok, config}
+      {:ok, _config} -> {:error, :binding_config_unavailable}
+      :error -> {:error, :binding_config_unavailable}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp stored_binding_config(%Binding{}), do: {:error, :binding_config_unavailable}
 
   defp merge_binding_config(current, patch) when is_map(current) and is_map(patch) do
     Map.merge(current, patch, fn _key, current_value, patch_value ->

@@ -50,8 +50,8 @@ import { ankoleWebWorkerFileControllerDownload } from '../api/generated/sdk.gen'
 import type { AgentComputerWorkerItem, WorkerFileEntry } from '../api/generated/types.gen'
 import { requestErrorMessage } from '../../common/request-errors'
 import { StatusIndicator } from '../console-form'
-import { ResourceListPage, ResourceSearch } from '../console-list-page'
-import { matchesResourceSearch } from '../state/resource-search'
+import { ResourceListPage, ResourceSearch, RowViewAction } from '../console-list-page'
+import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
 import {
   agentUIDFromWorkerFilePath,
   workerFileRootPath,
@@ -67,8 +67,9 @@ export function WorkersListPage() {
   })
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
+  const searchQuery = effectiveResourceSearchQuery(query, deferredQuery)
   const rows = (workers.data?.workers ?? []).filter(worker =>
-    matchesResourceSearch(deferredQuery, worker.worker_id, worker.status, worker.version)
+    matchesResourceSearch(searchQuery, worker.worker_id, worker.status, worker.version)
   )
 
   return (
@@ -117,13 +118,10 @@ export function WorkersListPage() {
           <TableCell>{formatSlots(worker)}</TableCell>
           <TableCell>{formatActiveTurns(worker)}</TableCell>
           <TableCell className="text-xs text-muted-foreground">{formatHeartbeat(worker)}</TableCell>
-          <TableCell className="text-right">
-            <Link
-              to={`${encodeURIComponent(worker.worker_id)}/files`}
-              className={cn(buttonVariants({ size: 'xs', variant: 'ghost' }))}>
-              {t('console.workers.browse_files')}
-            </Link>
-          </TableCell>
+          <RowViewAction
+            label={t('console.workers.browse_files_for', { name: worker.worker_id })}
+            to={`${encodeURIComponent(worker.worker_id)}/files`}
+          />
         </TableRow>
       ))}
     </ResourceListPage>
@@ -201,6 +199,7 @@ export function WorkerFilesPage() {
   const path = pathAgentUID ? requestedPath : agentUID ? workerFileRootPath(root, agentUID) : ''
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
+  const searchQuery = effectiveResourceSearchQuery(query, deferredQuery)
 
   const files = useQuery({
     ...ankoleWebWorkerFileControllerIndexOptions({
@@ -217,7 +216,7 @@ export function WorkerFilesPage() {
 
   const allEntries = files.data?.file_listing.entries ?? []
   const entries = allEntries.filter(entry =>
-    matchesResourceSearch(deferredQuery, entry.relative_path, entry.kind, basename(entry.relative_path))
+    matchesResourceSearch(searchQuery, entry.relative_path, entry.kind, basename(entry.relative_path))
   )
   const truncated = files.data?.file_listing.truncated === true
 
@@ -596,7 +595,7 @@ function FileRow({
           t={t}
         />
         <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-          <DialogContent>
+          <DialogContent closeLabel={t('common.close')}>
             <DialogHeader>
               <DialogTitle>{t('console.worker_files.delete_title')}</DialogTitle>
               <DialogDescription>
@@ -662,7 +661,7 @@ function UploadDialog({
         <RiUploadCloud2Line className="size-4" data-icon="inline-start" />
         {t('console.worker_files.upload')}
       </Button>
-      <DialogContent>
+      <DialogContent closeLabel={t('common.close')}>
         <DialogHeader>
           <DialogTitle>{t('console.worker_files.upload_title')}</DialogTitle>
           <DialogDescription>{t('console.worker_files.upload_hint')}</DialogDescription>
@@ -737,7 +736,7 @@ function RenameDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent closeLabel={t('common.close')}>
         <DialogHeader>
           <DialogTitle>{t('console.worker_files.rename_title')}</DialogTitle>
         </DialogHeader>

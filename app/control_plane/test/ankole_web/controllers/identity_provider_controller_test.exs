@@ -129,9 +129,12 @@ defmodule AnkoleWeb.IdentityProviderControllerTest do
                "adapter_id" => "lark",
                "config_key" => "principals.identity_providers.lark.lark-main",
                "enabled" => true,
-               "config" => %{"appID" => "cli_identity_console", "appSecret" => "********"}
+               "config" => %{"appID" => "cli_identity_console"},
+               "stored_secret_paths" => ["appSecret"]
              }
            } = json_response(conn, 200)
+
+    refute conn.resp_body =~ "secret-console"
 
     assert_enqueued(
       worker: SyncProvider,
@@ -145,12 +148,17 @@ defmodule AnkoleWeb.IdentityProviderControllerTest do
 
     assert %{
              "identity_providers" => [
-               %{"provider_id" => "lark-main", "config" => listed_config}
+               %{
+                 "provider_id" => "lark-main",
+                 "config" => listed_config,
+                 "stored_secret_paths" => ["appSecret"]
+               }
              ]
            } =
              json_response(conn, 200)
 
-    assert listed_config["appSecret"] == "********"
+    refute Map.has_key?(listed_config, "appSecret")
+    refute conn.resp_body =~ "secret-console"
 
     conn =
       conn
@@ -170,7 +178,7 @@ defmodule AnkoleWeb.IdentityProviderControllerTest do
     )
   end
 
-  test "saving an existing provider preserves masked secret fields", %{conn: conn} do
+  test "saving an existing provider preserves blank secret fields", %{conn: conn} do
     conn =
       conn
       |> bearer_conn()
@@ -183,8 +191,40 @@ defmodule AnkoleWeb.IdentityProviderControllerTest do
         }
       })
 
-    assert %{"identity_provider" => %{"config" => %{"appSecret" => "********"}}} =
+    assert %{
+             "identity_provider" => %{
+               "config" => %{"appID" => "cli_identity_console"},
+               "stored_secret_paths" => ["appSecret"]
+             }
+           } =
              json_response(conn, 200)
+
+    conn =
+      conn
+      |> recycle_api()
+      |> put(~p"/api/v1/identity-providers/lark-main", %{
+        "adapter_id" => "lark",
+        "enabled" => true,
+        "config" => %{
+          "appID" => "cli_identity_console_renamed",
+          "appSecret" => "",
+          "sync" => %{"contacts" => true}
+        }
+      })
+
+    assert %{
+             "identity_provider" => %{
+               "config" => %{"appID" => "cli_identity_console_renamed"},
+               "stored_secret_paths" => ["appSecret"]
+             }
+           } =
+             json_response(conn, 200)
+
+    refute conn.resp_body =~ "secret-console"
+
+    assert {:ok, config} = AppConfigure.get_by_key(LarkConfig.identity_config_key("lark-main"))
+    assert config["appID"] == "cli_identity_console_renamed"
+    assert config["appSecret"] == "secret-console"
 
     conn =
       conn
@@ -199,11 +239,10 @@ defmodule AnkoleWeb.IdentityProviderControllerTest do
         }
       })
 
-    assert %{"identity_provider" => %{"config" => %{"appSecret" => "********"}}} =
+    assert %{"identity_provider" => %{"stored_secret_paths" => ["appSecret"]}} =
              json_response(conn, 200)
 
     assert {:ok, config} = AppConfigure.get_by_key(LarkConfig.identity_config_key("lark-main"))
-    assert config["appID"] == "cli_identity_console_renamed"
     assert config["appSecret"] == "secret-console"
   end
 

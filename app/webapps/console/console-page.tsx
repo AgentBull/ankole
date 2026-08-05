@@ -6,7 +6,9 @@ import { useTranslation } from 'react-i18next'
 
 /** One page-level vertical rhythm for list, editor, detail, and dashboard routes. */
 export function PageStack({ className, ...props }: ComponentProps<'div'>) {
-  return <div {...props} className={cn('grid w-full min-w-0 gap-5', className)} />
+  return (
+    <div {...props} className={cn('grid w-full min-w-0 grid-cols-[minmax(0,1fr)] gap-5 [&>*]:min-w-0', className)} />
+  )
 }
 
 export function PageHeader({
@@ -34,6 +36,7 @@ export function RefreshButton() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [refreshing, setRefreshing] = useState(false)
+  const refreshLabel = t(refreshing ? 'console.aria.refreshing' : 'console.aria.refresh')
 
   const refresh = () => {
     setRefreshing(true)
@@ -45,7 +48,8 @@ export function RefreshButton() {
       <TooltipTrigger
         render={
           <Button
-            aria-label={t('console.aria.refresh')}
+            aria-busy={refreshing}
+            aria-label={refreshLabel}
             disabled={refreshing}
             size="icon-sm"
             type="button"
@@ -55,7 +59,7 @@ export function RefreshButton() {
         onClick={refresh}>
         <RiRefreshLine className={cn(refreshing && 'animate-spin')} />
       </TooltipTrigger>
-      <TooltipContent>{t('console.aria.refresh')}</TooltipContent>
+      <TooltipContent>{refreshLabel}</TooltipContent>
     </Tooltip>
   )
 }

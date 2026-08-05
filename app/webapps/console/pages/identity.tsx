@@ -40,15 +40,16 @@ import type { IdentityProviderAdapterItem, IdentityProviderItem } from '../api/g
 import { LabeledField, ReadOnlyValue, ResourceEditorPage, StatusIndicator } from '../console-form'
 import { ResourceListPage, ResourceSearch, RowActions } from '../console-list-page'
 import { IdentityEditorModel, type IdentityEditorDraft } from '../state/identity-editor-model'
-import { matchesResourceSearch } from '../state/resource-search'
+import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
 
 export function IdentityProvidersListPage() {
   const { t } = useTranslation()
   const providers = useQuery(ankoleWebIdentityProviderControllerIndexOptions())
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
+  const searchQuery = effectiveResourceSearchQuery(query, deferredQuery)
   const rows = (providers.data?.identity_providers ?? []).filter(provider =>
-    matchesResourceSearch(deferredQuery, provider.provider_id, provider.adapter_id, provider.enabled)
+    matchesResourceSearch(searchQuery, provider.provider_id, provider.adapter_id, provider.enabled)
   )
 
   return (
@@ -264,6 +265,8 @@ export function IdentityProviderEditorPage() {
           fields={activeFields}
           locale={locale}
           onChange={(path, value) => (model.config.value = setPath(model.config.value, path, value))}
+          preservedSecretPaths={selected?.stored_secret_paths}
+          preservedSecretPlaceholder={t('common.secret_saved_placeholder')}
         />
       ) : null}
     </ResourceEditorPage>

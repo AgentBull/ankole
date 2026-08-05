@@ -5,6 +5,7 @@ defmodule Ankole.AIGateway.Providers.AzureOpenAI do
 
   use Ankole.AIGateway.ProviderDSL
 
+  alias Ankole.AIGateway.OpenAIRequestOptions
   alias Ankole.AIGateway.ProviderConnectionCheck
   alias Ankole.AIGateway.ReasoningEffort
   alias Ankole.AIGateway.UniversalAIRequest
@@ -33,10 +34,22 @@ defmodule Ankole.AIGateway.Providers.AzureOpenAI do
       scope: :request
     )
 
-    setting(:reasoningSummary, scope: :request)
+    setting(:reasoningSummary,
+      type: :select,
+      options: OpenAIRequestOptions.reasoning_summary_values(),
+      scope: :request,
+      advanced: true
+    )
+
     setting(:serviceTier, scope: :request, advanced: true)
     setting(:strictJSONSchema, type: :boolean, scope: :request, advanced: true)
-    setting(:textVerbosity, scope: :request)
+
+    setting(:textVerbosity,
+      type: :select,
+      options: OpenAIRequestOptions.text_verbosity_values(),
+      scope: :request
+    )
+
     setting(:truncation, scope: :request, advanced: true)
 
     language_model do
@@ -65,6 +78,7 @@ defmodule Ankole.AIGateway.Providers.AzureOpenAI do
       )
       |> put_auth(ctx)
       |> ReasoningEffort.put_provider_options(ctx, target: target_for_endpoint(endpoint_mode))
+      |> OpenAIRequestOptions.put_provider_options(endpoint_target(endpoint_mode))
     end
   end
 
@@ -98,6 +112,9 @@ defmodule Ankole.AIGateway.Providers.AzureOpenAI do
 
   defp target_for_endpoint("responses"), do: :reasoning
   defp target_for_endpoint(_mode), do: :reasoning_effort
+
+  defp endpoint_target("responses"), do: :responses
+  defp endpoint_target(_mode), do: :chat_completions
 
   # Azure deployments may use either bearer tokens or the legacy `api-key`
   # header. A credential already prefixed with `Bearer ` is treated as bearer

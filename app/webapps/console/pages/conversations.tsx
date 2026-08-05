@@ -23,9 +23,10 @@ import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import { PageStack } from '../console-page'
 import { ErrorBlock, formatConsoleDate } from '../console-primitives'
+import { conversationDisplayName } from '../conversation-presentation'
 import { MarkdownBody } from '../markdown-body'
 import { StatusIndicator } from '../console-form'
-import { CursorPagination, ResourceListPage, ResourceSearch } from '../console-list-page'
+import { CursorPagination, ResourceListPage, ResourceSearch, RowViewAction } from '../console-list-page'
 import {
   cursorPageNumber,
   hasPreviousCursor,
@@ -181,6 +182,8 @@ export function ConversationsListPage() {
 function ConversationRow({ conversation }: { conversation: AIGatewayConversationItem }) {
   const { t } = useTranslation()
   const active = conversation.ended_at == null
+  const displayName = conversationDisplayName(conversation)
+  const hasDisplayName = displayName !== conversation.conversation_key
 
   return (
     <TableRow>
@@ -189,16 +192,21 @@ function ConversationRow({ conversation }: { conversation: AIGatewayConversation
           <div className="flex min-w-0 items-center gap-1.5">
             <Link
               className={cn(
-                'truncate text-foreground hover:text-link hover:underline',
-                conversation.display_name ? 'font-medium' : 'font-mono text-xs'
+                'block min-w-0 max-w-64 truncate text-foreground hover:text-link hover:underline',
+                hasDisplayName ? 'font-medium' : 'font-mono text-xs'
               )}
+              title={displayName}
               to={encodeURIComponent(conversation.id)}>
-              {conversation.display_name ?? conversation.conversation_key}
+              {displayName}
             </Link>
             <ConversationKindTags conversation={conversation} />
           </div>
-          {conversation.display_name ? (
-            <span className="truncate font-mono text-xs text-muted-foreground">{conversation.conversation_key}</span>
+          {hasDisplayName ? (
+            <span
+              className="block max-w-64 truncate font-mono text-xs text-muted-foreground"
+              title={conversation.conversation_key}>
+              {conversation.conversation_key}
+            </span>
           ) : null}
         </div>
       </TableCell>
@@ -219,6 +227,10 @@ function ConversationRow({ conversation }: { conversation: AIGatewayConversation
       <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
         {formatConsoleDate(conversation.updated_at)}
       </TableCell>
+      <RowViewAction
+        label={t('common.view_details_for', { name: displayName })}
+        to={encodeURIComponent(conversation.id)}
+      />
     </TableRow>
   )
 }
@@ -250,6 +262,39 @@ function ConversationKindTags({ conversation }: { conversation: AIGatewayConvers
         </Badge>
       ) : null}
     </>
+  )
+}
+
+function ConversationHeader({ conversation }: { conversation: AIGatewayConversationItem }) {
+  const { t } = useTranslation()
+  const displayName = conversationDisplayName(conversation)
+  const hasDisplayName = displayName !== conversation.conversation_key
+
+  return (
+    <header className="grid gap-3 border-b border-border pb-6">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <h2 className="min-w-0 break-all text-xl leading-8 font-semibold tracking-normal text-foreground">
+          {displayName}
+        </h2>
+        <StatusIndicator tone={conversation.ended_at == null ? 'positive' : 'neutral'}>
+          {conversation.ended_at == null
+            ? t('console.conversations.status_active')
+            : t('console.conversations.status_ended')}
+        </StatusIndicator>
+        <ConversationKindTags conversation={conversation} />
+      </div>
+      <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
+        {hasDisplayName ? (
+          <>
+            <span className="break-all font-mono text-xs">{conversation.conversation_key}</span>
+            <span aria-hidden>·</span>
+          </>
+        ) : null}
+        <span className="break-all">{conversation.subject_uid}</span>
+        <span aria-hidden>·</span>
+        <span className="break-all font-mono text-xs">{conversation.id}</span>
+      </p>
+    </header>
   )
 }
 
@@ -306,30 +351,7 @@ export function ConversationDetailPage() {
         <Skeleton className="h-40 w-full" />
       ) : (
         <>
-          <header className="grid gap-3 border-b border-border pb-6">
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-              <h2 className="min-w-0 break-all text-xl leading-8 font-semibold tracking-normal text-foreground">
-                {detail.display_name ?? detail.conversation_key}
-              </h2>
-              <StatusIndicator tone={detail.ended_at == null ? 'positive' : 'neutral'}>
-                {detail.ended_at == null
-                  ? t('console.conversations.status_active')
-                  : t('console.conversations.status_ended')}
-              </StatusIndicator>
-              <ConversationKindTags conversation={detail} />
-            </div>
-            <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
-              {detail.display_name ? (
-                <>
-                  <span className="break-all font-mono text-xs">{detail.conversation_key}</span>
-                  <span aria-hidden>·</span>
-                </>
-              ) : null}
-              <span className="break-all">{detail.subject_uid}</span>
-              <span aria-hidden>·</span>
-              <span className="break-all font-mono text-xs">{detail.id}</span>
-            </p>
-          </header>
+          <ConversationHeader conversation={detail} />
 
           <section className="grid gap-3" aria-label={t('console.conversations.details')}>
             <h3 className="text-base font-semibold">{t('console.conversations.details')}</h3>

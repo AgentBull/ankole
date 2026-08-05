@@ -379,7 +379,7 @@ function AgentPluginCard({
             and the button primitive gave the anchor button semantics instead.
             The per-card label also stops every card announcing one same phrase. */}
         <Link
-          aria-label={t('console.agent_library_capabilities.view_details_for', { name })}
+          aria-label={t('common.view_details_for', { name })}
           className={cn(buttonVariants({ size: 'sm', variant: 'outline' }))}
           to={agentLibraryScopeQuery(`/agent-library/agent-plugins/${plugin.id}`, scope)}>
           {t('console.agent_library_capabilities.view_details')}

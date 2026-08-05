@@ -359,6 +359,9 @@ import type {
   AnkoleWebSignalBindingControllerShowChannelStandingOrdersData,
   AnkoleWebSignalBindingControllerShowChannelStandingOrdersErrors,
   AnkoleWebSignalBindingControllerShowChannelStandingOrdersResponses,
+  AnkoleWebSignalBindingControllerShowData,
+  AnkoleWebSignalBindingControllerShowErrors,
+  AnkoleWebSignalBindingControllerShowResponses,
   AnkoleWebSignalBindingControllerUpdateBindingData,
   AnkoleWebSignalBindingControllerUpdateBindingErrors,
   AnkoleWebSignalBindingControllerUpdateBindingResponses,
@@ -2632,7 +2635,33 @@ export const ankoleWebSignalBindingControllerDelete = <ThrowOnError extends bool
   })
 
 /**
- * Reconfigure or move one signal binding
+ * Read one signal binding for editing
+ */
+export const ankoleWebSignalBindingControllerShow = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebSignalBindingControllerShowData, ThrowOnError>
+): RequestResult<
+  AnkoleWebSignalBindingControllerShowResponses,
+  AnkoleWebSignalBindingControllerShowErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).get<
+    AnkoleWebSignalBindingControllerShowResponses,
+    AnkoleWebSignalBindingControllerShowErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/agents/{agent_uid}/signal-bindings/{binding_name}',
+    ...options
+  })
+
+/**
+ * Edit or move one signal binding
  */
 export const ankoleWebSignalBindingControllerUpdateBinding = <ThrowOnError extends boolean = false>(
   options: Options<AnkoleWebSignalBindingControllerUpdateBindingData, ThrowOnError>

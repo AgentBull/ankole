@@ -1,3 +1,4 @@
+import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import {
   Input,
   Select,
@@ -10,7 +11,7 @@ import {
   TableRow,
   toast
 } from '@ankole/uikit'
-import { RiBroadcastLine } from '@remixicon/react'
+import { RiBroadcastLine, RiPauseCircleLine, RiPlayCircleLine } from '@remixicon/react'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -33,25 +34,29 @@ import {
   ankoleWebSignalBindingControllerDeleteMutation,
   ankoleWebSignalBindingControllerIndexOptions,
   ankoleWebSignalBindingControllerPutBindingMutation,
+  ankoleWebSignalBindingControllerShowOptions,
   ankoleWebSignalBindingControllerUpdateBindingMutation
 } from '../api/generated/@tanstack/react-query.gen'
-import type { SignalAdapterItem } from '../api/generated/types.gen'
+import type { SignalAdapterItem, SignalBindingItem } from '../api/generated/types.gen'
 import { FormSection, LabeledField, ReadOnlyValue, ResourceEditorPage, StatusIndicator } from '../console-form'
-import { ResourceListPage, ResourceSearch, RowActions } from '../console-list-page'
+import { FilterSwitch, ResourceListPage, ResourceSearch, RowActions } from '../console-list-page'
 import {
   defaultSignalBindingAgentUID,
+  groupMessageModeFromPolicy,
   SignalBindingEditorModel,
   type GroupMessageMode,
   type SignalBindingAdapterDraft
 } from '../state/signal-binding-editor-model'
-import { matchesResourceSearch } from '../state/resource-search'
+import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
 
 export function SignalsListPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
   const [query, setQuery] = useState('')
+  const [showDisabled, setShowDisabled] = useState(false)
   const deferredQuery = useDeferredValue(query)
+  const searchQuery = effectiveResourceSearchQuery(query, deferredQuery)
   const agents = useQuery(ankoleWebAgentControllerIndexOptions())
   const agentList = agents.data?.agents ?? []
   const agentUID = searchParams.get('agent') ?? agentList[0]?.uid ?? ''
@@ -59,20 +64,30 @@ export function SignalsListPage() {
     ...ankoleWebSignalBindingControllerIndexOptions({ path: { agent_uid: agentUID } }),
     enabled: Boolean(agentUID)
   })
-  const rows = (bindings.data?.signal_bindings ?? []).filter(binding =>
-    matchesResourceSearch(
-      deferredQuery,
-      binding.name,
-      binding.adapter,
-      binding.unaddressed_group_message_policy,
-      binding.confidential_memory,
-      binding.enabled
+  const rows = (bindings.data?.signal_bindings ?? [])
+    .filter(binding => showDisabled || binding.enabled)
+    .filter(binding =>
+      matchesResourceSearch(
+        searchQuery,
+        binding.name,
+        binding.adapter,
+        binding.unaddressed_group_message_policy,
+        binding.confidential_memory,
+        binding.enabled
+      )
     )
-  )
-  const deleteBinding = useMutation({
+  const disableBinding = useMutation({
     ...ankoleWebSignalBindingControllerDeleteMutation(),
     onSuccess: (_data, variables) => {
-      toast.success(t('console.signals.deleted', { name: variables.path.binding_name }))
+      toast.success(t('console.signals.disabled', { name: variables.path.binding_name }))
+      void queryClient.invalidateQueries()
+    },
+    onError: error => toast.error(requestErrorMessage(error))
+  })
+  const enableBinding = useMutation({
+    ...ankoleWebSignalBindingControllerUpdateBindingMutation(),
+    onSuccess: (_data, variables) => {
+      toast.success(t('console.signals.enabled', { name: variables.path.binding_name }))
       void queryClient.invalidateQueries()
     },
     onError: error => toast.error(requestErrorMessage(error))
@@ -96,12 +111,15 @@ export function SignalsListPage() {
       isLoading={bindings.isLoading || agents.isLoading}
       isEmpty={rows.length === 0}
       count={rows.length}
-      emptyTitle={t('console.signals.empty_title')}
+      emptyTitle={t(showDisabled ? 'console.signals.empty_title' : 'console.signals.empty_active_title')}
       emptyIcon={<RiBroadcastLine aria-hidden />}
-      emptyDescription={t('console.signals.empty_description')}
+      emptyDescription={t(
+        showDisabled ? 'console.signals.empty_description' : 'console.signals.empty_active_description'
+      )}
       error={agents.error ?? bindings.error}
       isFiltered={Boolean(query.trim())}
       onClearFilters={() => setQuery('')}
+      toolbarCanRevealRows
       toolbar={
         <ResourceSearch
           label={t('console.signals.search')}
@@ -109,18 +127,25 @@ export function SignalsListPage() {
           value={query}
           onChange={setQuery}
           filters={
-            <Select value={agentUID} onValueChange={value => selectAgent(String(value))}>
-              <SelectTrigger aria-label={t('console.agents.agent')} className="w-56">
-                <SelectValue placeholder={t('console.signals.select_agent')} />
-              </SelectTrigger>
-              <SelectContent emptyLabel={agents.isLoading ? t('common.loading') : t('common.select_no_agents')}>
-                {agentList.map(agent => (
-                  <SelectItem key={agent.uid} value={agent.uid}>
-                    {agent.uid}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <>
+              <Select value={agentUID} onValueChange={value => selectAgent(String(value))}>
+                <SelectTrigger aria-label={t('console.agents.agent')} className="w-56">
+                  <SelectValue placeholder={t('console.signals.select_agent')} />
+                </SelectTrigger>
+                <SelectContent emptyLabel={agents.isLoading ? t('common.loading') : t('common.select_no_agents')}>
+                  {agentList.map(agent => (
+                    <SelectItem key={agent.uid} value={agent.uid}>
+                      {agent.uid}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <FilterSwitch
+                checked={showDisabled}
+                label={t('console.signals.show_disabled')}
+                onChange={setShowDisabled}
+              />
+            </>
           }
         />
       }>
@@ -129,7 +154,7 @@ export function SignalsListPage() {
           <TableCell className="font-mono text-xs">
             <Link
               className="text-foreground hover:text-link hover:underline"
-              to={reconfigureTo(agentUID, binding.adapter, binding.name)}>
+              to={editTo(agentUID, binding.adapter, binding.name)}>
               {binding.name}
             </Link>
           </TableCell>
@@ -147,15 +172,32 @@ export function SignalsListPage() {
             </StatusIndicator>
           </TableCell>
           <RowActions
-            editTo={reconfigureTo(agentUID, binding.adapter, binding.name)}
-            editLabel={t('console.signals.reconfigure')}
-            deletePending={deleteBinding.isPending}
-            deleteConfirm={{
-              title: t('console.signals.delete_title'),
-              description: t('console.signals.delete_description', { name: binding.name }),
-              confirmLabel: t('common.delete')
-            }}
-            onDelete={() => deleteBinding.mutate({ path: { agent_uid: agentUID, binding_name: binding.name } })}
+            action={
+              binding.enabled
+                ? {
+                    icon: <RiPauseCircleLine />,
+                    label: t('common.disable'),
+                    pending: disableBinding.isPending,
+                    onAction: () => disableBinding.mutate({ path: { agent_uid: agentUID, binding_name: binding.name } })
+                  }
+                : {
+                    icon: <RiPlayCircleLine />,
+                    label: t('common.enable'),
+                    pending: enableBinding.isPending,
+                    onAction: () =>
+                      enableBinding.mutate({
+                        path: { agent_uid: agentUID, binding_name: binding.name },
+                        body: {
+                          target_agent_uid: agentUID,
+                          config: {},
+                          group_message_mode: groupMessageModeFromPolicy(binding.unaddressed_group_message_policy),
+                          confidential_memory: binding.confidential_memory
+                        }
+                      })
+                  }
+            }
+            editTo={editTo(agentUID, binding.adapter, binding.name)}
+            editLabel={t('common.edit')}
           />
         </TableRow>
       ))}
@@ -175,36 +217,43 @@ export function SignalBindingEditorPage() {
   const sourceAgentUID = searchParams.get('agent') ?? ''
   const lockedAdapter = searchParams.get('adapter') ?? undefined
   const lockedName = searchParams.get('name') ?? undefined
-  const reconfigure = Boolean(lockedName)
+  const editing = Boolean(lockedName)
 
   const agents = useQuery(ankoleWebAgentControllerIndexOptions())
   const agentList = agents.data?.agents ?? []
   const defaultAgentUID = defaultSignalBindingAgentUID(agentList, sourceAgentUID)
   const adapters = useQuery(ankoleWebSignalBindingControllerAdaptersOptions())
   const signalAdapters = adapters.data?.signal_adapters ?? []
-  const currentBindings = useQuery({
-    ...ankoleWebSignalBindingControllerIndexOptions({ path: { agent_uid: sourceAgentUID } }),
-    enabled: reconfigure && Boolean(sourceAgentUID)
+  const bindingDetail = useQuery({
+    ...ankoleWebSignalBindingControllerShowOptions({
+      path: { agent_uid: sourceAgentUID, binding_name: lockedName ?? '' }
+    }),
+    enabled: editing && Boolean(sourceAgentUID),
+    retry: false
   })
-  const currentBinding = currentBindings.data?.signal_bindings.find(
-    binding => binding.adapter === lockedAdapter && binding.name === lockedName
-  )
+  const currentBinding = bindingDetail.data?.signal_binding
 
   const activeAdapter =
-    signalAdapters.find(adapter => adapter.adapter_id === model.adapterID.value) ?? signalAdapters[0]
+    signalAdapters.find(adapter => adapter.adapter_id === model.adapterID.value) ??
+    (editing ? undefined : signalAdapters[0])
 
-  const ready =
-    agents.data !== undefined && signalAdapters.length > 0 && (!reconfigure || currentBindings.data !== undefined)
+  const ready = agents.data !== undefined && signalAdapters.length > 0 && (!editing || bindingDetail.data !== undefined)
   useEffect(() => {
     if (!ready) return
-    const adapter = signalAdapters.find(item => item.adapter_id === lockedAdapter) ?? signalAdapters[0]
+    const adapterID = currentBinding?.adapter ?? lockedAdapter
+    const adapter = signalAdapters.find(item => item.adapter_id === adapterID) ?? signalAdapters[0]
+    const draft =
+      editing && currentBinding ? formFromBinding(currentBinding, bindingDetail.data?.config) : formFromAdapter(adapter)
     model.initialize(`binding:${sourceAgentUID}:${lockedAdapter ?? ''}:${lockedName ?? 'new'}`, {
-      agentUID: defaultAgentUID,
-      ...formFromAdapter(adapter, lockedName, currentBinding?.confidential_memory ?? false)
+      agentUID: editing ? defaultSignalBindingAgentUID(agentList, currentBinding?.agent_uid ?? '') : defaultAgentUID,
+      ...draft
     })
   }, [
-    currentBinding?.confidential_memory,
+    agentList,
+    bindingDetail.data?.config,
+    currentBinding,
     defaultAgentUID,
+    editing,
     lockedAdapter,
     lockedName,
     model,
@@ -249,11 +298,11 @@ export function SignalBindingEditorPage() {
       return
     }
     const body = {
-      config: reconfigure ? model.configPatch.value : model.config.value,
+      config: editing ? model.configPatch.value : model.config.value,
       group_message_mode: groupMessageMode,
       confidential_memory: model.confidentialMemory.value
     }
-    if (reconfigure) {
+    if (editing) {
       updateBinding.mutate({
         body: { ...body, target_agent_uid: targetAgentUID },
         path: { agent_uid: sourceAgentUID, binding_name: name }
@@ -268,18 +317,18 @@ export function SignalBindingEditorPage() {
 
   const targetAgentUID = model.agentUID.value || defaultAgentUID
   const activeFields = asConfigFields(activeAdapter?.fields ?? [])
-  const submitDisabled = reconfigure && !model.dirty.value
+  const submitDisabled = editing && !model.dirty.value
 
   return (
     <ResourceEditorPage
-      title={reconfigure ? t('console.signals.reconfigure') : t('console.signals.new')}
-      description={reconfigure ? t('console.signals.reconfigure_hint') : t('console.signals.editor_description')}
+      title={editing ? t('common.edit') : t('console.signals.new')}
+      description={editing ? t('console.signals.edit_hint') : t('console.signals.editor_description')}
       backTo={`/signals?agent=${encodeURIComponent(targetAgentUID)}`}
       error={
         model.validationError.value ??
         agents.error ??
         adapters.error ??
-        currentBindings.error ??
+        bindingDetail.error ??
         createBinding.error ??
         updateBinding.error
       }
@@ -304,8 +353,8 @@ export function SignalBindingEditorPage() {
               </SelectContent>
             </Select>
           </LabeledField>
-          <LabeledField label={t('console.signals.adapter')} required={!reconfigure}>
-            {reconfigure ? (
+          <LabeledField label={t('console.signals.adapter')} required={!editing}>
+            {editing ? (
               <ReadOnlyValue>
                 {activeAdapter
                   ? localizedUnknown(activeAdapter.display_name, locale, activeAdapter.adapter_id)
@@ -331,9 +380,9 @@ export function SignalBindingEditorPage() {
               </Select>
             )}
           </LabeledField>
-          <LabeledField label={t('console.signals.binding_name')} required>
-            {reconfigure ? (
-              <ReadOnlyValue mono>{model.name.value}</ReadOnlyValue>
+          <LabeledField label={t('console.signals.binding_name')} required={!editing}>
+            {editing ? (
+              <ReadOnlyValue>{model.name.value}</ReadOnlyValue>
             ) : (
               <Input required value={model.name.value} onChange={event => (model.name.value = event.target.value)} />
             )}
@@ -380,6 +429,8 @@ export function SignalBindingEditorPage() {
               fields={activeFields}
               locale={locale}
               onChange={(path, value) => model.changeConfig(path, value)}
+              preservedSecretPaths={bindingDetail.data?.stored_secret_paths}
+              preservedSecretPlaceholder={t('common.secret_saved_placeholder')}
             />
           </FormSection>
         </>
@@ -388,7 +439,7 @@ export function SignalBindingEditorPage() {
   )
 }
 
-function reconfigureTo(agentUID: string, adapter: string, name: string): string {
+function editTo(agentUID: string, adapter: string, name: string): string {
   const query = new URLSearchParams({ agent: agentUID, adapter, name })
   return `new?${query.toString()}`
 }
@@ -397,19 +448,29 @@ function emptyForm(): SignalBindingAdapterDraft {
   return { adapterID: '', name: '', groupMessageMode: '', confidentialMemory: false, config: {} }
 }
 
-function formFromAdapter(
-  adapter: SignalAdapterItem | undefined,
-  name?: string,
-  confidentialMemory = false
-): SignalBindingAdapterDraft {
+function formFromAdapter(adapter: SignalAdapterItem | undefined): SignalBindingAdapterDraft {
   if (!adapter) return emptyForm()
   return {
     adapterID: adapter.adapter_id,
-    name: name ?? `${adapter.adapter_id}-main`,
+    name: `${adapter.adapter_id}-main`,
     groupMessageMode: defaultGroupMessageMode(adapter),
-    confidentialMemory,
+    confidentialMemory: false,
     config: defaultConfig(asConfigFields(adapter.fields))
   }
+}
+
+function formFromBinding(binding: SignalBindingItem, config: unknown): SignalBindingAdapterDraft {
+  return {
+    adapterID: binding.adapter,
+    name: binding.name,
+    groupMessageMode: groupMessageModeFromPolicy(binding.unaddressed_group_message_policy),
+    confidentialMemory: binding.confidential_memory,
+    config: asJSONObject(config)
+  }
+}
+
+function asJSONObject(value: unknown): JSONObject {
+  return value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as JSONObject) : {}
 }
 
 function asConfigFields(fields: readonly unknown[]): ConfigFieldDefinition[] {

@@ -45,6 +45,7 @@ export type ConfigFieldDefinition = {
   advanced?: boolean
   default?: unknown
   description?: LocalizedText
+  encrypted?: boolean
   label?: LocalizedText
   max?: number
   min?: number
@@ -63,6 +64,8 @@ export function ConfigFields({
   fields,
   locale,
   onChange,
+  preservedSecretPaths = [],
+  preservedSecretPlaceholder,
   showAdvancedCount = true
 }: {
   advancedLabel?: string
@@ -71,6 +74,8 @@ export function ConfigFields({
   fields: ConfigFieldDefinition[]
   locale: string
   onChange(path: string, value: unknown, field: ConfigFieldDefinition): void
+  preservedSecretPaths?: readonly string[]
+  preservedSecretPlaceholder?: string
   showAdvancedCount?: boolean
 }) {
   const basicFields = fields.filter(field => !field.advanced)
@@ -101,12 +106,15 @@ export function ConfigFields({
   )
 
   function renderConfigField(field: ConfigFieldDefinition) {
+    const preservedSecret = field.encrypted === true && preservedSecretPaths.includes(field.path)
+
     return (
       <ConfigField
         field={field}
         key={field.path}
         locale={locale}
-        required={configFieldRequired(field, config)}
+        placeholder={preservedSecret ? preservedSecretPlaceholder : undefined}
+        required={configFieldRequired(field, config) && !preservedSecret}
         value={getPath(config, field.path)}
         onChange={value => onChange(field.path, value, field)}
       />
@@ -118,12 +126,14 @@ export function ConfigField({
   field,
   locale,
   onChange,
+  placeholder,
   required = field.required === true,
   value
 }: {
   field: ConfigFieldDefinition
   locale: string
   onChange(value: unknown): void
+  placeholder?: string
   required?: boolean
   value: unknown
 }) {
@@ -135,6 +145,7 @@ export function ConfigField({
   const inputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [showValidationError, setShowValidationError] = useState(false)
+  const secret = field.encrypted === true || field.type === 'secret'
   const validationError =
     required || !field.requiredWhen?.length ? configFieldValidationMessage(field, value, locale) : undefined
   const describedBy = [
@@ -246,10 +257,13 @@ export function ConfigField({
         ref={inputRef}
         aria-describedby={describedBy || undefined}
         aria-invalid={showValidationError && validationError ? true : undefined}
+        autoComplete={secret ? 'new-password' : undefined}
         max={field.max}
         min={field.min}
+        placeholder={placeholder}
         required={required}
-        type={field.type === 'secret' ? 'password' : field.type === 'integer' ? 'number' : 'text'}
+        spellCheck={secret ? false : undefined}
+        type={secret ? 'password' : field.type === 'integer' ? 'number' : 'text'}
         value={value == null ? '' : String(value)}
         onChange={event => onChange(field.type === 'integer' ? Number(event.target.value) : event.target.value)}
         onBlur={() => setShowValidationError(Boolean(validationError))}

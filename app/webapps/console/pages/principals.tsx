@@ -38,8 +38,8 @@ import { requestErrorMessage } from '../../common/request-errors'
 import { PageStack } from '../console-page'
 import { ErrorBlock } from '../console-primitives'
 import { ConfirmDeleteButton, StatusIndicator } from '../console-form'
-import { ResourceListPage, ResourceSearch, SubNav } from '../console-list-page'
-import { matchesResourceSearch } from '../state/resource-search'
+import { ResourceListPage, ResourceSearch, RowViewAction, SubNav } from '../console-list-page'
+import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
 import { PermissionGrantsSection } from './permission-grant-editor'
 
 /**
@@ -53,6 +53,7 @@ export function AccessSubNav() {
   const { t } = useTranslation()
   return (
     <SubNav
+      ariaLabel={t('console.aria.access_sections')}
       items={[
         { to: '/access/groups', label: t('console.principal_groups.title') },
         { to: '/access/principals', label: t('console.principals.title') }
@@ -66,8 +67,9 @@ export function PrincipalsListPage() {
   const principals = useQuery(ankoleWebPrincipalControllerIndexOptions())
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
+  const searchQuery = effectiveResourceSearchQuery(query, deferredQuery)
   const rows = (principals.data?.principals ?? []).filter(principal =>
-    matchesResourceSearch(deferredQuery, principal.uid, principal.display_name, principal.type, principal.status)
+    matchesResourceSearch(searchQuery, principal.uid, principal.display_name, principal.type, principal.status)
   )
 
   return (
@@ -117,7 +119,10 @@ export function PrincipalsListPage() {
               {t(`console.status.${principal.status}`)}
             </StatusIndicator>
           </TableCell>
-          <TableCell className="w-12" />
+          <RowViewAction
+            label={t('common.view_details_for', { name: principal.display_name ?? principal.uid })}
+            to={encodeURIComponent(principal.uid)}
+          />
         </TableRow>
       ))}
     </ResourceListPage>

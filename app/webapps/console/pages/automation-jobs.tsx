@@ -22,7 +22,7 @@ import { AgentFilter, useAgentScope } from '../console-agent-scope'
 import { resourceID } from '../console-route-loaders'
 import { StatusIndicator } from '../console-form'
 import { ErrorBlock, formatConsoleDate, formatJSON } from '../console-primitives'
-import { FilterSwitch, ResourceListPage, ResourceSearch, ScopeBar } from '../console-list-page'
+import { FilterSwitch, ResourceListPage, ResourceSearch, RowViewAction, ScopeBar } from '../console-list-page'
 import { matchesResourceSearch } from '../state/resource-search'
 
 export function AutomationJobsPage() {
@@ -120,7 +120,7 @@ export function AutomationJobsPage() {
       </ResourceListPage>
 
       <Sheet open={selectedID !== undefined} onOpenChange={open => !open && closeJob()}>
-        <SheetContent className="w-full data-[side=right]:sm:max-w-[min(64rem,92vw)]">
+        <SheetContent closeLabel={t('common.close')} className="w-full data-[side=right]:sm:max-w-[min(64rem,92vw)]">
           <SheetHeader className="gap-3 border-b border-border pb-6">
             <SheetTitle>{detail.data?.automation_job.label ?? t('console.automation_jobs.detail_title')}</SheetTitle>
             <SheetDescription>
@@ -174,6 +174,7 @@ function AutomationJobRow({ job, onOpen }: { job: AutomationJobItem; onOpen: () 
         </StatusIndicator>
       </TableCell>
       <TableCell>{formatConsoleDate(job.created_at)}</TableCell>
+      <RowViewAction label={t('common.view_details_for', { name: job.label })} onOpen={onOpen} />
     </TableRow>
   )
 }

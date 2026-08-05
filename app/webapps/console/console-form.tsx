@@ -51,7 +51,8 @@ import { formatJSONDraft, inspectJSONDraft } from './state/json-editor'
 
 /**
  * Editor-page frame: back link, header, error surface, the form body, and a
- * sticky footer with the primary submit plus a cancel link back to the list.
+ * sticky footer with the primary submit. The header back link owns navigation
+ * away from the editor.
  * Destructive and out-of-band actions (delete, sync) slot into `secondary`.
  */
 export function ResourceEditorPage({
@@ -134,9 +135,6 @@ export function ResourceEditorPage({
             type="submit">
             {submitLabel ?? t('common.save')}
           </SaveButton>
-          <Link to={backTo} className={cn(buttonVariants({ size: 'sm', variant: 'ghost' }))}>
-            {t('common.cancel')}
-          </Link>
           {disabledReason ? (
             <p id={disabledReasonID} className="basis-full text-xs leading-5 text-muted-foreground" aria-live="polite">
               {disabledReason}
@@ -322,8 +320,8 @@ export function ReadOnlyValue({ children, mono = false }: { children: ReactNode;
   return (
     <div
       className={cn(
-        'min-h-10 border-b border-input bg-background px-4 py-2 text-sm leading-6 text-foreground',
-        mono && 'font-mono text-xs'
+        'flex min-h-10 cursor-default items-center border-b border-input bg-muted px-4 py-2 text-sm leading-5 text-muted-foreground',
+        mono && 'font-mono text-xs leading-5'
       )}>
       {children === null || children === undefined || children === '' ? '—' : children}
     </div>
@@ -450,7 +448,7 @@ export function ConfirmDeleteButton({
         }}>
         <RiDeleteBin6Line />
       </Button>
-      <DialogContent onClick={event => event.stopPropagation()}>
+      <DialogContent closeLabel={t('common.close')} onClick={event => event.stopPropagation()}>
         <DialogHeader>
           <DialogTitle>{confirm.title}</DialogTitle>
           {confirm.description ? <DialogDescription>{confirm.description}</DialogDescription> : null}

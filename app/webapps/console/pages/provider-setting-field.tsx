@@ -1,10 +1,38 @@
 import { Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@ankole/uikit'
+import type { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
 import { JSONField, LabeledField, SecretInput } from '../console-form'
 import { humanizeKey, settingDraftValue, type ProviderSetting } from './provider-settings'
 
 const UNSET_BOOLEAN = '__unset__'
 const UNSET_SELECT = '__unset_select__'
+
+export function providerSettingPresentation(t: TFunction, key: string): { label: string; description?: string } {
+  switch (key) {
+    case 'reasoningEffort':
+      return {
+        label: t('console.providers.reasoning_effort'),
+        description: t('console.providers.reasoning_effort_hint')
+      }
+    case 'reasoningSummary':
+      return {
+        label: t('console.providers.reasoning_summary'),
+        description: t('console.providers.reasoning_summary_hint')
+      }
+    case 'serviceTier':
+      return {
+        label: t('console.providers.service_tier'),
+        description: t('console.providers.service_tier_hint')
+      }
+    case 'textVerbosity':
+      return {
+        label: t('console.providers.text_verbosity'),
+        description: t('console.providers.text_verbosity_hint')
+      }
+    default:
+      return { label: humanizeKey(key) }
+  }
+}
 
 /** Renders one ProviderDSL setting using its projected type and storage metadata. */
 export function ProviderSettingField({
@@ -19,8 +47,7 @@ export function ProviderSettingField({
   value: unknown
 }) {
   const { t } = useTranslation()
-  const label = setting.key === 'reasoningEffort' ? t('console.providers.reasoning_effort') : humanizeKey(setting.key)
-  const description = setting.key === 'reasoningEffort' ? t('console.providers.reasoning_effort_hint') : undefined
+  const { label, description } = providerSettingPresentation(t, setting.key)
   const draft = settingDraftValue(value)
   const defaultDraft = settingDraftValue(setting.default)
 

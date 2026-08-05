@@ -15,6 +15,7 @@ defmodule AnkoleWeb.SignalBindingController do
   alias AnkoleWeb.ConsolePolicy
   alias AnkoleWeb.Schemas.ConsoleAPI.ErrorEnvelope
   alias AnkoleWeb.Schemas.ConsoleAPI.SignalAdapterListResponse
+  alias AnkoleWeb.Schemas.ConsoleAPI.SignalBindingDetailResponse
   alias AnkoleWeb.Schemas.ConsoleAPI.SignalBindingListResponse
   alias AnkoleWeb.Schemas.ConsoleAPI.SignalBindingResponse
   alias AnkoleWeb.Schemas.ConsoleAPI.SignalBindingUpdateRequest
@@ -48,6 +49,21 @@ defmodule AnkoleWeb.SignalBindingController do
       unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
       forbidden: {"Forbidden", "application/json", ErrorEnvelope},
       not_found: {"Not found", "application/json", ErrorEnvelope}
+    ]
+  )
+
+  operation(:show,
+    summary: "Read one signal binding for editing",
+    parameters: [
+      agent_uid: [in: :path, type: :string, required: true],
+      binding_name: [in: :path, type: :string, required: true]
+    ],
+    responses: [
+      ok: {"Signal binding", "application/json", SignalBindingDetailResponse},
+      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
+      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
+      not_found: {"Not found", "application/json", ErrorEnvelope},
+      service_unavailable: {"Adapter registry unavailable", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -85,7 +101,7 @@ defmodule AnkoleWeb.SignalBindingController do
   )
 
   operation(:update_binding,
-    summary: "Reconfigure or move one signal binding",
+    summary: "Edit or move one signal binding",
     parameters: [
       agent_uid: [in: :path, type: :string, required: true],
       binding_name: [in: :path, type: :string, required: true]
@@ -148,6 +164,23 @@ defmodule AnkoleWeb.SignalBindingController do
            ConsolePolicy.authorize(conn, "agent:#{agent_uid}:signal_gateway_bindings", "read"),
          {:ok, bindings} <- SignalsGateway.list_agent_bindings(agent_uid) do
       json(conn, %{signal_bindings: Enum.map(bindings, &signal_binding_json/1)})
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  def show(conn, params) do
+    with {:ok, agent_uid} <- text_param(params, "agent_uid"),
+         {:ok, binding_name} <- text_param(params, "binding_name"),
+         :ok <-
+           ConsolePolicy.authorize(conn, "agent:#{agent_uid}:signal_gateway_bindings", "update"),
+         {:ok, result} <-
+           SignalsGateway.get_binding_configuration(agent_uid, binding_name) do
+      json(conn, %{
+        signal_binding: signal_binding_json(result.binding),
+        config: result.config,
+        stored_secret_paths: result.stored_secret_paths
+      })
     else
       {:error, reason} -> error(conn, reason)
     end

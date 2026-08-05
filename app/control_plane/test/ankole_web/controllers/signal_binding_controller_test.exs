@@ -101,6 +101,76 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     assert {:error, :binding_disabled} = SignalsGateway.get_binding(agent.uid, "lark-main")
   end
 
+  test "admin edits a disabled binding without exposing or replacing its secret", %{conn: conn} do
+    %{principal: agent} = agent_fixture()
+
+    original_config =
+      lark_config("editable")
+      |> Map.put("domain", "feishu")
+
+    conn =
+      conn
+      |> bearer_conn()
+      |> put_binding(agent.uid, "lark", "lark-main", original_config)
+
+    assert response(conn, 200)
+
+    conn =
+      conn
+      |> recycle_api()
+      |> delete(~p"/api/v1/agents/#{agent.uid}/signal-bindings/lark-main")
+
+    assert %{"signal_binding" => %{"enabled" => false}} = json_response(conn, 200)
+
+    conn =
+      conn
+      |> recycle_api()
+      |> get(~p"/api/v1/agents/#{agent.uid}/signal-bindings/lark-main")
+
+    assert %{
+             "signal_binding" => %{
+               "agent_uid" => agent_uid,
+               "name" => "lark-main",
+               "adapter" => "lark",
+               "enabled" => false
+             },
+             "config" => %{
+               "appID" => "cli_editable",
+               "domain" => "feishu",
+               "platformSubjectNamespace" => "namespace-editable",
+               "userName" => "Bot editable"
+             },
+             "stored_secret_paths" => ["appSecret"]
+           } = json_response(conn, 200)
+
+    assert agent_uid == agent.uid
+    refute conn.resp_body =~ original_config["appSecret"]
+
+    conn =
+      conn
+      |> recycle_api()
+      |> patch(~p"/api/v1/agents/#{agent.uid}/signal-bindings/lark-main", %{
+        "target_agent_uid" => agent.uid,
+        "config" => %{"appSecret" => "", "domain" => "lark"},
+        "group_message_mode" => "observe_all",
+        "confidential_memory" => true
+      })
+
+    assert %{
+             "signal_binding" => %{
+               "enabled" => true,
+               "confidential_memory" => true,
+               "unaddressed_group_message_policy" => "record_only"
+             }
+           } = json_response(conn, 200)
+
+    assert {:ok, stored_config} =
+             LarkConfig.load_chat_config_ref(LarkConfig.chat_config_key(agent.uid))
+
+    assert stored_config["appSecret"] == original_config["appSecret"]
+    assert stored_config["domain"] == "lark"
+  end
+
   test "unknown signal adapter remains a 404", %{conn: conn} do
     %{principal: agent} = agent_fixture()
 

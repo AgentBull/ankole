@@ -68,6 +68,17 @@ A binding update treats `config` as a patch. It keeps fields that the request
 does not contain, so an operator can change routing without re-entering stored
 provider secrets.
 
+The Console edit read returns normal configuration values, omits every
+adapter-declared encrypted value, and lists only the paths that already contain
+a secret. A binding update keeps the stored encrypted value when its patch
+omits that field or sends an empty value. The browser never receives the stored
+secret.
+
+Disabling a binding sets its enabled flag to false. It does not remove the
+binding, its configuration, or the `(agent_uid, binding_name)` history key. The
+Console hides disabled bindings by default and lets an operator show, edit, or
+enable them again.
+
 When a binding update changes group memory between shared and confidential,
 the next turn in each affected group starts a new AIGateway conversation. This
 prevents the old transcript and Brain snapshot from crossing the new memory

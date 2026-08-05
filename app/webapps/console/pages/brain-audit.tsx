@@ -273,7 +273,7 @@ export function BrainAuditPage() {
       ) : null}
 
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-        <DialogContent>
+        <DialogContent closeLabel={t('common.close')}>
           <DialogHeader>
             <DialogTitle>{t('console.brain.restore_selected_title')}</DialogTitle>
             <DialogDescription>
