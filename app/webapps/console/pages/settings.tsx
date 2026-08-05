@@ -63,7 +63,7 @@ import {
   type SettingGroup
 } from '../state/setting-groups'
 import { SettingEditorModel } from '../state/setting-editor-model'
-import { matchesResourceSearch } from '../state/resource-search'
+import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
 import { settingDescription } from '../state/setting-description'
 import { SettingValueEditor } from './setting-value-editors'
 
@@ -82,9 +82,10 @@ function SettingsList() {
   const list = useQuery(ankoleWebAppConfigurationControllerIndexOptions())
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
+  const searchQuery = effectiveResourceSearchQuery(query, deferredQuery)
   const items = (list.data?.app_configurations ?? []).filter(item =>
     matchesResourceSearch(
-      deferredQuery,
+      searchQuery,
       item.key,
       settingDescription(t, item),
       item.kind,
@@ -470,7 +471,7 @@ export function SettingEditorDrawer() {
       </Drawer>
 
       <Dialog open={restoreDefaultOpen} onOpenChange={setRestoreDefaultOpen}>
-        <DialogContent>
+        <DialogContent closeLabel={t('common.close')}>
           <DialogHeader>
             <DialogTitle>{t('console.settings.restore_default_title')}</DialogTitle>
             <DialogDescription>
@@ -496,7 +497,7 @@ export function SettingEditorDrawer() {
       </Dialog>
 
       <Dialog open={blocker.state === 'blocked'}>
-        <DialogContent>
+        <DialogContent closeLabel={t('common.close')}>
           <DialogHeader>
             <DialogTitle>{t('console.settings.discard_title')}</DialogTitle>
             <DialogDescription>{t('console.settings.discard_description')}</DialogDescription>
@@ -712,7 +713,7 @@ export function SettingGroupDrawer() {
       </Drawer>
 
       <Dialog open={Boolean(restoreItem)} onOpenChange={open => !open && setRestoreItem(undefined)}>
-        <DialogContent>
+        <DialogContent closeLabel={t('common.close')}>
           <DialogHeader>
             <DialogTitle>{t('console.settings.restore_default_title')}</DialogTitle>
             <DialogDescription>
@@ -737,7 +738,7 @@ export function SettingGroupDrawer() {
       </Dialog>
 
       <Dialog open={blocker.state === 'blocked'}>
-        <DialogContent>
+        <DialogContent closeLabel={t('common.close')}>
           <DialogHeader>
             <DialogTitle>{t('console.settings.discard_title')}</DialogTitle>
             <DialogDescription>{t('console.settings.discard_description')}</DialogDescription>

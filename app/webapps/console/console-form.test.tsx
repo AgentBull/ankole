@@ -2,7 +2,8 @@ import { describe, expect, test } from 'bun:test'
 import { Input } from '@ankole/uikit'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router'
-import { LabeledField, ResourceEditorPage } from './console-form'
+import { ConfigFields } from '../common/config-fields'
+import { LabeledField, ReadOnlyValue, ResourceEditorPage } from './console-form'
 
 describe('console forms', () => {
   test('lets application validation handle required fields on editor submit', () => {
@@ -32,6 +33,18 @@ describe('console forms', () => {
     expect(html).toContain('Name is required')
   })
 
+  test('connects a disabled field to the reason it is unavailable', () => {
+    const html = renderToStaticMarkup(
+      <LabeledField label="Context length" description="Select a provider first.">
+        <Input disabled value="" readOnly />
+      </LabeledField>
+    )
+
+    expect(html).toContain('disabled=""')
+    expect(html).toContain('aria-describedby=')
+    expect(html).toContain('Select a provider first.')
+  })
+
   test('gives configuration-heavy editors the workspace width', () => {
     const html = renderToStaticMarkup(
       <MemoryRouter>
@@ -42,5 +55,50 @@ describe('console forms', () => {
     )
 
     expect(html).toContain('max-w-6xl')
+  })
+
+  test('does not duplicate the header back link with a footer cancel action', () => {
+    const html = renderToStaticMarkup(
+      <MemoryRouter>
+        <ResourceEditorPage backTo="/resources" onSubmit={() => {}} title="Edit resource">
+          <Input value="Changed value" readOnly />
+        </ResourceEditorPage>
+      </MemoryRouter>
+    )
+
+    expect(html.match(/href="\/resources"/g)).toHaveLength(1)
+  })
+
+  test('centers read-only values within the same control height as inputs', () => {
+    const html = renderToStaticMarkup(<ReadOnlyValue mono>slack-main</ReadOnlyValue>)
+
+    expect(html).toContain('min-h-10')
+    expect(html).toContain('items-center')
+    expect(html).toContain('bg-muted')
+    expect(html).not.toContain('bg-transparent')
+    expect(html).not.toContain('bg-background')
+    expect(html).toContain('cursor-default')
+    expect(html).toContain('text-muted-foreground')
+    expect(html).not.toContain('text-foreground')
+    expect(html).toContain('leading-5')
+  })
+
+  test('keeps a stored secret out of the editable input value', () => {
+    const html = renderToStaticMarkup(
+      <ConfigFields
+        config={{}}
+        fields={[{ encrypted: true, path: 'botToken', required: true, type: 'secret' }]}
+        locale="en-US"
+        preservedSecretPaths={['botToken']}
+        preservedSecretPlaceholder="Saved — enter a new value to replace"
+        onChange={() => {}}
+      />
+    )
+
+    expect(html).toContain('type="password"')
+    expect(html).toContain('autoComplete="new-password"')
+    expect(html).toContain('placeholder="Saved — enter a new value to replace"')
+    expect(html).toContain('value=""')
+    expect(html).not.toContain('required=""')
   })
 })

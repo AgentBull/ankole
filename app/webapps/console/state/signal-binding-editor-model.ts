@@ -1,7 +1,7 @@
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import { batch, computed, createModel, signal } from '@preact/signals-react'
 import { setPath } from '../../common/config-fields'
-import type { SignalBindingWriteRequest } from '../api/generated/types.gen'
+import type { SignalBindingItem, SignalBindingWriteRequest } from '../api/generated/types.gen'
 
 export type GroupMessageMode = NonNullable<SignalBindingWriteRequest['group_message_mode']>
 
@@ -18,6 +18,14 @@ export type SignalBindingAdapterDraft = Omit<SignalBindingEditorDraft, 'agentUID
 
 export function defaultSignalBindingAgentUID(agents: readonly { uid: string }[], queryAgentUID: string): string {
   return agents.some(agent => agent.uid === queryAgentUID) ? queryAgentUID : (agents[0]?.uid ?? '')
+}
+
+export function groupMessageModeFromPolicy(
+  policy: SignalBindingItem['unaddressed_group_message_policy']
+): GroupMessageMode {
+  if (policy === 'ignore') return 'addressed_only'
+  if (policy === 'record_only') return 'observe_all'
+  return 'may_intervene'
 }
 
 export const SignalBindingEditorModel = createModel(() => {

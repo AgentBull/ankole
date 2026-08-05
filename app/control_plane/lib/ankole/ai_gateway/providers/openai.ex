@@ -5,6 +5,7 @@ defmodule Ankole.AIGateway.Providers.OpenAI do
 
   use Ankole.AIGateway.ProviderDSL
 
+  alias Ankole.AIGateway.OpenAIRequestOptions
   alias Ankole.AIGateway.ProviderConnectionCheck
   alias Ankole.AIGateway.ReasoningEffort
   alias Ankole.AIGateway.UniversalAIRequest
@@ -28,12 +29,24 @@ defmodule Ankole.AIGateway.Providers.OpenAI do
       scope: :request
     )
 
-    setting(:reasoningSummary, scope: :request)
+    setting(:reasoningSummary,
+      type: :select,
+      options: OpenAIRequestOptions.reasoning_summary_values(),
+      scope: :request,
+      advanced: true
+    )
+
     setting(:promptCacheKey, scope: :request, advanced: true)
     setting(:promptCacheRetention, scope: :request, advanced: true)
     setting(:serviceTier, scope: :request, advanced: true)
     setting(:strictJSONSchema, type: :boolean, scope: :request, advanced: true)
-    setting(:textVerbosity, scope: :request)
+
+    setting(:textVerbosity,
+      type: :select,
+      options: OpenAIRequestOptions.text_verbosity_values(),
+      scope: :request
+    )
+
     setting(:truncation, scope: :request, advanced: true)
     setting(:systemMessageMode, scope: :request, advanced: true)
     setting(:forceReasoning, type: :boolean, scope: :request, advanced: true)
@@ -67,6 +80,7 @@ defmodule Ankole.AIGateway.Providers.OpenAI do
         |> openai_headers()
         |> UniversalAIRequest.bearer_auth()
         |> ReasoningEffort.put_provider_options(ctx, target: :reasoning)
+        |> OpenAIRequestOptions.put_provider_options(:responses)
 
       _endpoint ->
         prepare_sse_language_model(ctx)
@@ -104,6 +118,7 @@ defmodule Ankole.AIGateway.Providers.OpenAI do
         |> openai_headers()
         |> UniversalAIRequest.bearer_auth()
         |> ReasoningEffort.put_provider_options(ctx, target: :reasoning_effort)
+        |> OpenAIRequestOptions.put_provider_options(:chat_completions)
 
       _endpoint_kind ->
         ctx
@@ -111,6 +126,7 @@ defmodule Ankole.AIGateway.Providers.OpenAI do
         |> openai_headers()
         |> UniversalAIRequest.bearer_auth()
         |> ReasoningEffort.put_provider_options(ctx, target: :reasoning)
+        |> OpenAIRequestOptions.put_provider_options(:responses)
     end
   end
 

@@ -23,6 +23,7 @@ import {
 } from '../api/generated/@tanstack/react-query.gen'
 import type { BackgroundAgentJobItem } from '../api/generated/types.gen'
 import { ErrorBlock, formatConsoleDate } from '../console-primitives'
+import { conversationDisplayName } from '../conversation-presentation'
 import { StatusIndicator } from '../console-form'
 import { PageHeader, PageStack, RefreshButton } from '../console-page'
 
@@ -206,25 +207,29 @@ export function HomePage() {
             <PanelEmpty>{t('console.conversations.empty_title')}</PanelEmpty>
           ) : (
             <ul className="grid">
-              {(conversations.data?.conversations ?? []).map(conversation => (
-                <li key={conversation.id}>
-                  <Link
-                    to={`/conversations/${encodeURIComponent(conversation.id)}`}
-                    className="grid gap-1 border-b border-border px-4 py-3 last:border-b-0 hover:bg-accent">
-                    <div className="flex min-w-0 items-start justify-between gap-3">
-                      <span className="min-w-0 truncate text-sm text-foreground">
-                        {conversation.display_name ?? conversation.conversation_key}
+              {(conversations.data?.conversations ?? []).map(conversation => {
+                const displayName = conversationDisplayName(conversation)
+
+                return (
+                  <li key={conversation.id}>
+                    <Link
+                      to={`/conversations/${encodeURIComponent(conversation.id)}`}
+                      className="grid gap-1 border-b border-border px-4 py-3 last:border-b-0 hover:bg-accent">
+                      <div className="flex min-w-0 items-start justify-between gap-3">
+                        <span className="min-w-0 truncate text-sm text-foreground" title={displayName}>
+                          {displayName}
+                        </span>
+                        <span className="shrink-0 text-xs text-muted-foreground">
+                          {t('console.home.message_count', { count: conversation.message_count })}
+                        </span>
+                      </div>
+                      <span className="truncate font-mono text-xs text-muted-foreground">
+                        {conversation.subject_uid} · {formatConsoleDate(conversation.updated_at)}
                       </span>
-                      <span className="shrink-0 text-xs text-muted-foreground">
-                        {t('console.home.message_count', { count: conversation.message_count })}
-                      </span>
-                    </div>
-                    <span className="truncate font-mono text-xs text-muted-foreground">
-                      {conversation.subject_uid} · {formatConsoleDate(conversation.updated_at)}
-                    </span>
-                  </Link>
-                </li>
-              ))}
+                    </Link>
+                  </li>
+                )
+              })}
             </ul>
           )}
         </Panel>

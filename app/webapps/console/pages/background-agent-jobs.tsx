@@ -259,7 +259,7 @@ export function BackgroundAgentJobsPage() {
         attribute selector wins — so the panel silently stayed at `max-w-sm`.
       */}
       <Sheet open={selectedID !== undefined} onOpenChange={open => !open && closeBackgroundAgentJob()}>
-        <SheetContent className="w-full data-[side=right]:sm:max-w-[min(80rem,92vw)]">
+        <SheetContent closeLabel={t('common.close')} className="w-full data-[side=right]:sm:max-w-[min(80rem,92vw)]">
           <SheetHeader className="gap-3 border-b border-border pb-6">
             <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 pr-10">
               <SheetTitle className="min-w-0 break-words">
@@ -309,7 +309,7 @@ export function BackgroundAgentJobsPage() {
       </Sheet>
 
       <Dialog open={Boolean(cancelTarget)} onOpenChange={open => !open && setCancelTargetID(undefined)}>
-        <DialogContent>
+        <DialogContent closeLabel={t('common.close')}>
           <DialogHeader>
             <DialogTitle>{t('console.background_agent_jobs.cancel_title')}</DialogTitle>
             <DialogDescription>

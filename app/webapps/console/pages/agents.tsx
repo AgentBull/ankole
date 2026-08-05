@@ -23,7 +23,7 @@ import { blankToNull } from '../console-primitives'
 import { LabeledField, ReadOnlyValue, ResourceEditorPage, StatusIndicator } from '../console-form'
 import { ResourceListPage, ResourceSearch, RowActions } from '../console-list-page'
 import { agentUIDError, AgentEditorModel, type AgentEditorDraft } from '../state/agent-editor-model'
-import { matchesResourceSearch } from '../state/resource-search'
+import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
 import { AgentLibraryEditor } from './agent-library-editor'
 import { CustomModelProfilesEditor } from './custom-model-profiles-editor'
 import { ModelProfilesEditor } from './model-profiles-editor'
@@ -35,8 +35,9 @@ export function AgentsListPage() {
   const agents = useQuery(ankoleWebAgentControllerIndexOptions())
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
+  const searchQuery = effectiveResourceSearchQuery(query, deferredQuery)
   const rows = (agents.data?.agents ?? []).filter(agent =>
-    matchesResourceSearch(deferredQuery, agent.uid, agent.display_name, agent.role, agent.status)
+    matchesResourceSearch(searchQuery, agent.uid, agent.display_name, agent.role, agent.status)
   )
   const deleteAgent = useMutation({
     ...ankoleWebAgentControllerDeleteMutation(),
@@ -219,7 +220,7 @@ export function AgentEditorPage() {
       contentWidth={mode === 'edit' ? 'wide' : 'form'}
       supplementary={
         mode === 'edit' && selectedAgent ? (
-          <div className="grid gap-10 border-t border-border pt-8">
+          <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-10 border-t border-border pt-8 [&>*]:min-w-0">
             <AgentLibraryEditor agentUID={selectedAgent.uid} />
             <ModelProfilesEditor
               agent={selectedAgent}

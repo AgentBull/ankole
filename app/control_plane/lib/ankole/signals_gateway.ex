@@ -109,6 +109,17 @@ defmodule Ankole.SignalsGateway do
     to: Bindings
 
   @doc """
+  Loads one binding and its operator-editable configuration.
+
+  Encrypted values never leave the control plane. The result lists only the
+  paths that already have a stored value.
+  """
+  @spec get_binding_configuration(String.t(), String.t()) ::
+          {:ok, %{binding: Binding.t(), config: map(), stored_secret_paths: [String.t()]}}
+          | {:error, term()}
+  defdelegate get_binding_configuration(agent_uid, binding_name), to: Bindings
+
+  @doc """
   Loads an enabled binding by route key.
   """
   @spec get_binding(String.t(), String.t()) :: {:ok, Binding.t()} | {:error, term()}

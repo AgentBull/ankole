@@ -1,5 +1,43 @@
 # Changelog
 
+## Version 0.60.0 (2026-08-06)
+
+- Shorten the shared Drawer overlay and panel transitions to the Console's existing 150 ms and 200 ms motion rhythm. Limit the panel transition to transform and opacity, remove the full-screen backdrop blur and permanent compositor hint, and enable `will-change` only during an active swipe.
+
+- Give every read-only data-table row that opens another view one shared compact trailing arrow action. Apply it to Conversations, Principals, Automation Jobs, Brain Sources, and Worker file browsers; replace the Brain Source pencil and Worker text action, fill the missing Automation Job action cell, and name each icon for its resource. Keep edit rows on their existing pencil or overflow actions, and match loading placeholders to the real action size.
+
+- Remove the duplicate Cancel action from the shared Console resource editor footer. The header Back link is now the single way to leave these pages; dialogs, drawers, and inline editors keep Cancel when it closes or discards a real local state.
+
+- Use one dedicated muted-layer fill and the secondary text token for every shared read-only Console value, so immutable identifiers stay distinct from editable, disabled, and static content without using the white input fill. Keep the read-only Signal Routing rule name aligned with the adjacent adapter value in size, weight, and font family.
+
+- Keep stored Signal Routing and Identity Provider secrets out of edit responses and the browser DOM. Both APIs now use one plugin-owned encrypted-field implementation to omit secret fields, return only their stored paths, and preserve stored values when an edit leaves them blank. Replacement inputs opt out of password reuse, and adapter forms use one shared saved-secret prompt. Vertically center shared read-only values so immutable rule names and IDs align with adjacent controls, and do not mark an immutable rule name as required on the edit form.
+
+- Give managed conversations operator-facing names instead of promoting internal session keys to titles. Name Dreaming rows from their resolved channel, peer, or knowledge scope, keep the full key as secondary technical information, and apply the Console's bounded single-line truncation rule to both names and keys.
+
+- Make Signal Routing use normal edit and lifecycle actions without deleting its durable recovery key. Show enabled routes by default, add the Show disabled filter, and offer Edit and Disable for enabled routes or Edit and Enable for disabled routes. Add an authorized binding-detail API that restores normal connection settings, omits adapter-declared secrets, returns only their stored paths, and preserves stored secrets when an edit omits them or sends an empty value. Keep the development OpenAPI operation lookup aligned with hot-reloaded routes, regenerate the typed client, and document and test the soft-disable and safe edit contracts.
+
+- Explain disabled model and context-length controls inside the controls without adding a second line below either field. Both controls now prompt for a provider while they are unavailable, and the context-length column stays compact and equal in height to the adjacent fields.
+
+- Keep the model, provider, and context-length fields at the same visual height. Remove the duplicate provider prerequisite from inside the context field and restore the compact numeric column; the provider selector and provider-options guidance remain the single visible explanation of the dependency.
+
+- Keep a sticky Console action cell in the same active background as its row while its menu is open. Moving the pointer into the portalled menu no longer makes the three-dot area flash back to the lighter card layer.
+
+- Keep the Console row-action trigger transparent while its menu is open, so hovering a menu item does not leave a separate rectangle around the three-dot icon. Replace the fixed-width context-length column with a content-compatible flexible track so its dependency guidance stays readable without changing the guidance.
+
+- Keep the sticky Console table action cell in the same hover and selection state as its row instead of leaving a contrasting block at the edge. Make disabled text controls use the existing disabled text token and remove their active underline, and explain that model-profile context length becomes available after a model provider is selected.
+
+- Clear client-side Console resource filters immediately instead of rendering one stale deferred-query frame. Keep non-empty search input deferred, preserve the shared focus return, and prevent the toolbar, empty state, and result table from flashing during reset.
+
+- Keep shared Console pages inside their narrow viewport by making route and supplementary grid tracks shrink with their content. Restore focus to the row-action trigger after its confirmation dialog closes, and move focus back into the visible toolbar after an empty filtered list clears its filter.
+
+- Replace the free-form OpenAI and Azure OpenAI reasoning-summary and answer-detail fields with ProviderDSL-owned choices and bilingual guidance. Keep reasoning summary in the advanced group because it applies only to the Responses API. Convert the public model-profile option names to the native Responses or Chat Completions request shape before dispatch, and reject a Responses-only reasoning summary on Chat Completions instead of sending an invalid camelCase field upstream.
+
+- Make the Console model-provider path readable without changing its visual system or provider contracts. Show each provider kind's localized registry label in the list, let credential labels and values use the full phone width before they become paired columns, and keep raw upstream quota headers in a bounded disclosure instead of letting internal diagnostic values dominate every credential card.
+
+- Keep Agent model profiles understandable in both Console languages. Replace fixed profile IDs in card summaries and persistence notices with role names, mark required model inputs for assistive technology, give icon-only combobox clear actions a translated name instead of exposing an i18n key, and explain the advanced service-tier override with localized helper text instead of an unexplained English input.
+
+- Keep Console navigation and action state explicit for assistive technology without changing the Ankole visual system. Give the Access sibling navigation a unique bilingual landmark name, report page refresh progress on the initiating control, and let Console dialogs and sheets pass the active locale to their built-in close button instead of announcing an English-only label.
+
 ## Version 0.59.0 (2026-08-06)
 
 - Move Codex Job collaboration wait policy out of model instructions. Keep the shared `AGENT_JOB.md` template as an empty extension point, set the native wait minimum to one minute and the default to two minutes, and leave the maximum unset so Codex keeps its default. This reduces repeated model re-entry after empty waits tracked in openai/codex#35259.

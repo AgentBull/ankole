@@ -583,6 +583,7 @@ export type IdentityProviderItem = {
   enabled: boolean
   plugin_id: string
   provider_id: string
+  stored_secret_paths: Array<string>
 }
 
 /**
@@ -1603,6 +1604,15 @@ export type IdentityProviderAdapterItem = {
  */
 export type AgentLibrarySkillOverlaysResponse = {
   skill_overlays: Array<AgentLibrarySkillOverlayItem>
+}
+
+/**
+ * SignalBindingDetailResponse
+ */
+export type SignalBindingDetailResponse = {
+  config: JsonValue
+  signal_binding: SignalBindingItem
+  stored_secret_paths: Array<string>
 }
 
 /**
@@ -5194,6 +5204,48 @@ export type AnkoleWebSignalBindingControllerDeleteResponses = {
 
 export type AnkoleWebSignalBindingControllerDeleteResponse =
   AnkoleWebSignalBindingControllerDeleteResponses[keyof AnkoleWebSignalBindingControllerDeleteResponses]
+
+export type AnkoleWebSignalBindingControllerShowData = {
+  body?: never
+  path: {
+    agent_uid: string
+    binding_name: string
+  }
+  query?: never
+  url: '/api/v1/agents/{agent_uid}/signal-bindings/{binding_name}'
+}
+
+export type AnkoleWebSignalBindingControllerShowErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+  /**
+   * Adapter registry unavailable
+   */
+  503: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebSignalBindingControllerShowError =
+  AnkoleWebSignalBindingControllerShowErrors[keyof AnkoleWebSignalBindingControllerShowErrors]
+
+export type AnkoleWebSignalBindingControllerShowResponses = {
+  /**
+   * Signal binding
+   */
+  200: SignalBindingDetailResponse
+}
+
+export type AnkoleWebSignalBindingControllerShowResponse =
+  AnkoleWebSignalBindingControllerShowResponses[keyof AnkoleWebSignalBindingControllerShowResponses]
 
 export type AnkoleWebSignalBindingControllerUpdateBindingData = {
   /**

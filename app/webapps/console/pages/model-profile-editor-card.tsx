@@ -193,9 +193,7 @@ export function ModelProfileEditorCard({
           ) : null}
           {formError ? <ErrorBlock error={formError} /> : null}
           <div
-            className={
-              configurableModel ? 'grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_128px]' : 'grid gap-4'
-            }>
+            className={configurableModel ? 'grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_9rem]' : 'grid gap-4'}>
             <LabeledField label={t('console.models.provider')} error={providerError} required>
               <Select
                 value={draft.providerID}
@@ -231,8 +229,13 @@ export function ModelProfileEditorCard({
                     ariaLabel={t('console.models.model')}
                     clearLabel={t('common.clear')}
                     disabled={!providerID}
+                    required
                     options={modelOptions}
-                    placeholder={t('console.models.model_placeholder')}
+                    placeholder={
+                      providerID
+                        ? t('console.models.model_placeholder')
+                        : t('console.models.provider_required_placeholder')
+                    }
                     emptyLabel={t('console.models.model_empty')}
                     createLabel={value => t('console.models.model_use', { model: value })}
                     triggerLabel={t('common.open')}
@@ -244,6 +247,7 @@ export function ModelProfileEditorCard({
                   <Input
                     disabled={!providerID}
                     inputMode="numeric"
+                    placeholder={providerID ? undefined : t('console.models.provider_required_placeholder')}
                     value={draft.contextLength}
                     onChange={event => onUpdate({ contextLength: event.target.value })}
                   />

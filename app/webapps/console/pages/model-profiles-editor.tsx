@@ -29,8 +29,8 @@ import { profileUsesConfigurableModel } from './model-profile-options'
 
 const REQUIRED_PROFILES = new Set<string>(['primary', 'light', 'heavy'])
 
-function profileLabel(t: TFunction, profile: ProfileName) {
-  return profile === 'coding' ? t('console.models.background_agent_jobs') : profile
+export function modelProfileLabel(t: TFunction, profile: ProfileName) {
+  return t(`console.models.${profile}_label`)
 }
 
 function profileDescription(t: TFunction, profile: ProfileName) {
@@ -74,7 +74,7 @@ export function ModelProfilesEditor({
     if (currentAgentUID.current === savedAgentUID) {
       const result = model.markSaved(profile, draftFromProfile(recordValue(persistedProfile) ?? {}), submission)
       const messageKey = result.hasUnsavedChanges ? `${action}_with_unsaved_changes` : action
-      const label = profileLabel(t, profile)
+      const label = modelProfileLabel(t, profile)
 
       if (result.hasUnsavedChanges) toast.info(t(`console.models.${messageKey}`, { profile: label }))
       else toast.success(t(`console.models.${messageKey}`, { profile: label }))
@@ -161,14 +161,14 @@ export function ModelProfilesEditor({
   const persistencePending = saveProfile.isPending || clearProfile.isPending
 
   return (
-    <section id="model-profiles" className="grid scroll-mt-16 gap-4">
+    <section id="model-profiles" className="grid min-w-0 scroll-mt-16 grid-cols-[minmax(0,1fr)] gap-4 [&>*]:min-w-0">
       <div className="grid gap-1">
         <h3 className="text-lg font-semibold tracking-normal">{t('console.models.title')}</h3>
         <p className="text-sm leading-6 text-muted-foreground">{t('console.models.description')}</p>
       </div>
       <ErrorBlock error={error ?? saveProfile.error ?? clearProfile.error} />
       {loading ? <span className="text-xs text-muted-foreground">{t('common.loading')}</span> : null}
-      <div className="grid gap-4">
+      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4 [&>*]:min-w-0">
         {PROFILE_NAMES.map(profile => {
           const signals = model.profiles[profile]
           const draft: ProfileDraft = {
@@ -187,7 +187,7 @@ export function ModelProfilesEditor({
             <ModelProfileEditorCard
               key={profile}
               profile={profile}
-              label={profileLabel(t, profile)}
+              label={modelProfileLabel(t, profile)}
               draft={draft}
               dirty={signals.dirty.value}
               required={required}

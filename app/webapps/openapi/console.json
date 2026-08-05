@@ -735,9 +735,18 @@
           "config_key": { "type": "string" },
           "enabled": { "type": "boolean" },
           "plugin_id": { "type": "string" },
-          "provider_id": { "type": "string" }
+          "provider_id": { "type": "string" },
+          "stored_secret_paths": { "items": { "type": "string" }, "type": "array" }
         },
-        "required": ["provider_id", "adapter_id", "plugin_id", "config_key", "enabled", "config"],
+        "required": [
+          "provider_id",
+          "adapter_id",
+          "plugin_id",
+          "config_key",
+          "enabled",
+          "config",
+          "stored_secret_paths"
+        ],
         "title": "IdentityProviderItem",
         "type": "object"
       },
@@ -1995,6 +2004,17 @@
         },
         "required": ["skill_overlays"],
         "title": "AgentLibrarySkillOverlaysResponse",
+        "type": "object"
+      },
+      "SignalBindingDetailResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "config": { "$ref": "#/components/schemas/JSONValue" },
+          "signal_binding": { "$ref": "#/components/schemas/SignalBindingItem" },
+          "stored_secret_paths": { "items": { "type": "string" }, "type": "array" }
+        },
+        "required": ["signal_binding", "config", "stored_secret_paths"],
+        "title": "SignalBindingDetailResponse",
         "type": "object"
       },
       "BrainSourceEntryResponse": {
@@ -5417,6 +5437,41 @@
         "summary": "Disable one signal binding for an agent",
         "tags": ["Signal Bindings"]
       },
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.SignalBindingController.show",
+        "parameters": [
+          { "description": "", "in": "path", "name": "agent_uid", "required": true, "schema": { "type": "string" } },
+          { "description": "", "in": "path", "name": "binding_name", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/SignalBindingDetailResponse" } }
+            },
+            "description": "Signal binding"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Not found"
+          },
+          "503": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Adapter registry unavailable"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Read one signal binding for editing",
+        "tags": ["Signal Bindings"]
+      },
       "patch": {
         "callbacks": {},
         "operationId": "AnkoleWeb.SignalBindingController.update_binding",
@@ -5462,7 +5517,7 @@
           }
         },
         "security": [{ "consoleBearer": [] }],
-        "summary": "Reconfigure or move one signal binding",
+        "summary": "Edit or move one signal binding",
         "tags": ["Signal Bindings"]
       }
     },

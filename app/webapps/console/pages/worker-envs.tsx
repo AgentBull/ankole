@@ -41,7 +41,7 @@ import { ConfirmDeleteButton, JSONField, LabeledField, ResourceEditorPage } from
 import { ResourceListPage, ResourceSearch, RowActions } from '../console-list-page'
 import { WorkerEnvEditorModel } from '../state/worker-env-editor-model'
 import { workerEnvValueText } from '../state/worker-env-visibility'
-import { matchesResourceSearch } from '../state/resource-search'
+import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
 
 export const WORKER_ENV_NAME_FORMAT = /^[A-Za-z_][A-Za-z0-9_]*$/
 
@@ -82,7 +82,7 @@ export function WorkerEnvPlaintextConfirmDialog({
   const { t } = useTranslation()
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent closeLabel={t('common.close')}>
         <DialogHeader>
           <DialogTitle>{t('console.worker_envs.plaintext_confirm_title')}</DialogTitle>
           <DialogDescription>{t('console.worker_envs.plaintext_confirm_description')}</DialogDescription>
@@ -104,9 +104,10 @@ export function WorkerEnvsListPage() {
   const list = useQuery(ankoleWebWorkerEnvControllerIndexOptions())
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
+  const searchQuery = effectiveResourceSearchQuery(query, deferredQuery)
   const items = (list.data?.worker_envs ?? []).filter(item =>
     matchesResourceSearch(
-      deferredQuery,
+      searchQuery,
       item.name,
       item.description,
       item.kind,

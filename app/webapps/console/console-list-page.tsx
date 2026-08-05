@@ -28,8 +28,15 @@ import {
   TableRow,
   cn
 } from '@ankole/uikit'
-import { RiCloseLine, RiDeleteBin6Line, RiMore2Fill, RiPencilLine, RiSearchLine } from '@remixicon/react'
-import { useState, type ReactNode } from 'react'
+import {
+  RiArrowRightLine,
+  RiCloseLine,
+  RiDeleteBin6Line,
+  RiMore2Fill,
+  RiPencilLine,
+  RiSearchLine
+} from '@remixicon/react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, NavLink } from 'react-router'
 import { PageHeader, PageStack, RefreshButton } from './console-page'
@@ -94,6 +101,8 @@ export function ResourceListPage({
   toolbarCanRevealRows?: boolean
 }) {
   const { t } = useTranslation()
+  const toolbarRef = useRef<HTMLDivElement>(null)
+  const restoreToolbarFocus = useRef(false)
   const hasError = Boolean(error)
   // Hide a toolbar that can only search an empty source. Keep it when a filter
   // is active or one of its controls can broaden the server query.
@@ -102,6 +111,23 @@ export function ResourceListPage({
   // explanation; populated lists keep it in the page header. Filtered empty
   // lists show only the action that clears the filter.
   const showHeaderCreate = Boolean(createTo) && !hasError && (!isEmpty || isLoading)
+
+  useEffect(() => {
+    if (isFiltered || !showToolbar || !restoreToolbarFocus.current) return
+
+    const focusTarget = toolbarRef.current?.querySelector<HTMLElement>(
+      'input[type="search"]:not([disabled]), input:not([disabled]), button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'
+    )
+    if (!focusTarget) return
+
+    restoreToolbarFocus.current = false
+    focusTarget.focus()
+  }, [isFiltered, showToolbar])
+
+  const clearFilters = () => {
+    restoreToolbarFocus.current = true
+    onClearFilters?.()
+  }
 
   return (
     <PageStack>
@@ -121,7 +147,11 @@ export function ResourceListPage({
       />
 
       {subNav}
-      {showToolbar ? toolbar : null}
+      {showToolbar ? (
+        <div ref={toolbarRef} className="contents">
+          {toolbar}
+        </div>
+      ) : null}
       {showToolbar && count !== undefined && !isLoading ? <ResultCount count={count} /> : null}
       <ErrorBlock error={error} />
 
@@ -141,7 +171,7 @@ export function ResourceListPage({
               A filtered list falls back to nothing: offering "create" to someone
               whose search missed answers a question they did not ask. */}
           {isFiltered && onClearFilters ? (
-            <Button size="sm" type="button" variant="outline" onClick={onClearFilters}>
+            <Button size="sm" type="button" variant="outline" onClick={clearFilters}>
               {t('console.empty.clear_filters')}
             </Button>
           ) : (
@@ -158,7 +188,7 @@ export function ResourceListPage({
           <p className="text-xs text-muted-foreground sm:hidden">{t('console.table.scroll_hint')}</p>
           <Table
             aria-busy={isLoading}
-            className="min-w-[640px] [&_td:last-child]:sticky [&_td:last-child]:right-0 [&_td:last-child]:bg-card [&_th:last-child]:sticky [&_th:last-child]:right-0 [&_th:last-child]:z-10 [&_th:last-child]:bg-muted"
+            className="min-w-[640px] [&_td:last-child]:sticky [&_td:last-child]:right-0 [&_td:last-child]:bg-card [&_td:last-child]:transition-colors [&_tbody_tr:hover_td:last-child]:bg-accent [&_tbody_tr:has([aria-expanded=true])_td:last-child]:bg-accent [&_tbody_tr[data-state=selected]_td:last-child]:bg-muted [&_th:last-child]:sticky [&_th:last-child]:right-0 [&_th:last-child]:z-10 [&_th:last-child]:bg-muted"
             containerClassName="border border-border bg-card"
             containerLabel={t('console.table.region_label', { title })}>
             <TableHeader>
@@ -181,7 +211,7 @@ export function ResourceListPage({
                         </TableCell>
                       ))}
                       <TableCell>
-                        <Skeleton className="ml-auto size-7" />
+                        <Skeleton className="ml-auto size-9" />
                       </TableCell>
                     </TableRow>
                   ))
@@ -202,9 +232,9 @@ export function ResourceListPage({
  * becomes unreachable — which is how the principal list sat orphaned behind a
  * URL nothing linked to.
  */
-export function SubNav({ items }: { items: { to: string; label: string }[] }) {
+export function SubNav({ ariaLabel, items }: { ariaLabel: string; items: { to: string; label: string }[] }) {
   return (
-    <nav className="-mt-1 flex min-w-0 flex-wrap gap-1 border-b border-border">
+    <nav aria-label={ariaLabel} className="-mt-1 flex min-w-0 flex-wrap gap-1 border-b border-border">
       {items.map(item => (
         <NavLink
           key={item.to}
@@ -405,14 +435,45 @@ export function FilterSwitch({
   )
 }
 
-/** Right-aligned row actions cell: an edit link plus a confirmed delete. */
+/** One compact trailing action for a row that opens a read-only view. */
+export function RowViewAction(
+  props: { label: string } & ({ onOpen: () => void; to?: never } | { onOpen?: never; to: string })
+) {
+  return (
+    <TableCell className="w-12 text-right" onClick={event => event.stopPropagation()}>
+      {props.to !== undefined ? (
+        <Link
+          aria-label={props.label}
+          className={cn(buttonVariants({ size: 'icon-sm', variant: 'ghost' }))}
+          title={props.label}
+          to={props.to}>
+          <RiArrowRightLine aria-hidden />
+        </Link>
+      ) : (
+        <Button
+          aria-label={props.label}
+          size="icon-sm"
+          title={props.label}
+          type="button"
+          variant="ghost"
+          onClick={props.onOpen}>
+          <RiArrowRightLine aria-hidden />
+        </Button>
+      )}
+    </TableCell>
+  )
+}
+
+/** Right-aligned edit link that becomes a menu when the row has another action. */
 export function RowActions({
+  action,
   deleteConfirm,
   deletePending,
   editLabel,
   editTo,
   onDelete
 }: {
+  action?: { icon?: ReactNode; label: string; pending?: boolean; onAction: () => void }
   deleteConfirm?: { title: string; description?: string; confirmLabel: string }
   deletePending?: boolean
   editLabel: string
@@ -421,11 +482,12 @@ export function RowActions({
 }) {
   const { t } = useTranslation()
   const [confirmOpen, setConfirmOpen] = useState(false)
+  const actionTriggerRef = useRef<HTMLButtonElement>(null)
 
   // A menu that holds one item charges two clicks for one action and hides it
   // behind a label that names no action. With nothing to choose between, the
   // edit link goes straight into the row.
-  if (!onDelete || !deleteConfirm) {
+  if (!action && (!onDelete || !deleteConfirm)) {
     return (
       <TableCell className="w-12 text-right" onClick={event => event.stopPropagation()}>
         <Link
@@ -445,7 +507,9 @@ export function RowActions({
         <DropdownMenuTrigger
           render={
             <Button
+              ref={actionTriggerRef}
               aria-label={t('common.more_actions')}
+              className="aria-expanded:bg-transparent hover:aria-expanded:bg-transparent"
               title={t('common.more_actions')}
               size="icon-sm"
               type="button"
@@ -459,36 +523,51 @@ export function RowActions({
             <RiPencilLine />
             {editLabel}
           </DropdownMenuItem>
-          <DropdownMenuItem variant="destructive" disabled={deletePending} onClick={() => setConfirmOpen(true)}>
-            <RiDeleteBin6Line />
-            {deleteConfirm.confirmLabel}
-          </DropdownMenuItem>
+          {action ? (
+            <DropdownMenuItem disabled={action.pending} onClick={action.onAction}>
+              {action.icon}
+              {action.label}
+            </DropdownMenuItem>
+          ) : null}
+          {onDelete && deleteConfirm ? (
+            <DropdownMenuItem variant="destructive" disabled={deletePending} onClick={() => setConfirmOpen(true)}>
+              <RiDeleteBin6Line />
+              {deleteConfirm.confirmLabel}
+            </DropdownMenuItem>
+          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
-      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{deleteConfirm.title}</DialogTitle>
-            {deleteConfirm.description ? <DialogDescription>{deleteConfirm.description}</DialogDescription> : null}
-          </DialogHeader>
-          <DialogFooter>
-            <DialogClose className={cn(buttonVariants({ size: 'sm', variant: 'ghost' }))}>
-              {t('common.cancel')}
-            </DialogClose>
-            <Button
-              disabled={deletePending}
-              size="sm"
-              type="button"
-              variant="destructive"
-              onClick={() => {
-                setConfirmOpen(false)
-                onDelete()
-              }}>
-              {deleteConfirm.confirmLabel}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {onDelete && deleteConfirm ? (
+        <Dialog
+          open={confirmOpen}
+          onOpenChange={setConfirmOpen}
+          onOpenChangeComplete={open => {
+            if (!open) actionTriggerRef.current?.focus()
+          }}>
+          <DialogContent closeLabel={t('common.close')}>
+            <DialogHeader>
+              <DialogTitle>{deleteConfirm.title}</DialogTitle>
+              {deleteConfirm.description ? <DialogDescription>{deleteConfirm.description}</DialogDescription> : null}
+            </DialogHeader>
+            <DialogFooter>
+              <DialogClose className={cn(buttonVariants({ size: 'sm', variant: 'ghost' }))}>
+                {t('common.cancel')}
+              </DialogClose>
+              <Button
+                disabled={deletePending}
+                size="sm"
+                type="button"
+                variant="destructive"
+                onClick={() => {
+                  setConfirmOpen(false)
+                  onDelete()
+                }}>
+                {deleteConfirm.confirmLabel}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      ) : null}
     </TableCell>
   )
 }

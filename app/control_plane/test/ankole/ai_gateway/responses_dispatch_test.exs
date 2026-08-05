@@ -5749,7 +5749,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert {:ok, _profile} =
              ModelProfiles.put_model_profile(agent.uid, "primary", %{
                provider_id: "azure-openai-deployment",
-               model: "gpt-5.5"
+               model: "gpt-5.5",
+               provider_options: %{"textVerbosity" => "low"}
              })
 
     assert {:ok, %{body: body}} =
@@ -5762,7 +5763,9 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     refute Map.has_key?(request.headers, "authorization")
     refute Map.has_key?(request.body, "model")
     assert request.body["reasoning_effort"] == "high"
+    assert request.body["verbosity"] == "low"
     refute Map.has_key?(request.body, "reasoningEffort")
+    refute Map.has_key?(request.body, "textVerbosity")
     assert get_in(body, ["output", Access.at(0), "content", Access.at(0), "text"]) == "azure"
 
     assert {:ok, _openai_path_provider} =
@@ -5827,7 +5830,11 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert {:ok, _profile} =
              ModelProfiles.put_model_profile(agent.uid, "primary", %{
                provider_id: "azure-openai-v1",
-               model: "gpt-5.5"
+               model: "gpt-5.5",
+               provider_options: %{
+                 "reasoningSummary" => "detailed",
+                 "textVerbosity" => "high"
+               }
              })
 
     assert {:ok, events} =
@@ -5841,8 +5848,11 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     refute Map.has_key?(request.headers, "api-key")
     assert request.body["model"] == "gpt-5.5"
     assert request.body["store"] == false
-    assert request.body["reasoning"] == %{"effort" => "high"}
+    assert request.body["reasoning"] == %{"effort" => "high", "summary" => "detailed"}
+    assert request.body["text"] == %{"verbosity" => "high"}
     refute Map.has_key?(request.body, "reasoningEffort")
+    refute Map.has_key?(request.body, "reasoningSummary")
+    refute Map.has_key?(request.body, "textVerbosity")
     assert List.last(events)["type"] == "response.completed"
     assert v1_body["id"] == "resp_azure_v1"
   end
