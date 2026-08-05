@@ -5,7 +5,7 @@ import {
   backgroundAgentJobPathHandoff,
   boundedBackgroundAgentJobPaths
 } from '../src/core/background-agent-job-handoff'
-import { boundedFilesChangedFromCodexDiff } from '../src/tools/codex/protocol'
+import { boundedFilesChangedFromCodexDiff } from '../src/core/codex-runner/protocol'
 
 describe('@ankole/agent-computer BackgroundAgentJob path handoff', () => {
   it('bounds hostile path sets by count and serialized bytes without hiding the total', () => {

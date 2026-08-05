@@ -31,12 +31,7 @@ describe('source learning turn toolset', () => {
       'memory_browse'
     ])
     const update = learning.tools.find(tool => tool.name === 'memory_update')!
-    expect(update.description).toContain('the exact marker src:source_1')
-    expect(update.description).not.toContain('brain-source:source-1')
     expect(update.isDestructive).toBe(true)
-    for (const tool of learning.tools) {
-      expect(tool.description).not.toContain('The long-term memory system (codename Brain)')
-    }
   })
 
   test('gates memory_update on complete reading and fails an unfinished turn', async () => {

@@ -1,7 +1,32 @@
 use super::*;
 use crate::common::{base64_url_safe_decode, base64_url_safe_encode};
 
-const CHAT_REASONING_PREFIX: &str = "ankole-aigateway-chat-reasoning-v1:";
+const CHAT_REASONING_PREFIX: &str = "ankole-aigateway-chat-reasoning:";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ChatReasoningSource {
+    provider_type: String,
+    model_id: String,
+}
+
+impl ChatReasoningSource {
+    fn from_context(context: &ResponseContext) -> Option<Self> {
+        let source = context
+            .request
+            .get("__ankole_reasoning_source")?
+            .as_object()?;
+        let provider_type = source.get("provider_type")?.as_str()?.trim();
+        let model_id = source.get("model_id")?.as_str()?.trim();
+        if provider_type.is_empty() || model_id.is_empty() {
+            return None;
+        }
+
+        Some(Self {
+            provider_type: provider_type.to_string(),
+            model_id: model_id.to_string(),
+        })
+    }
+}
 
 #[derive(Debug, Clone, Default)]
 struct ChatReasoning {
@@ -52,65 +77,53 @@ impl ChatReasoning {
         Ok(reasoning)
     }
 
-    fn encoded_content(&self) -> String {
+    fn encoded_content(&self, context: &ResponseContext) -> Option<String> {
+        let source = ChatReasoningSource::from_context(context)?;
         let payload = json!({
+            "provider_type": source.provider_type,
+            "model_id": source.model_id,
             "reasoning_details": self.details,
             "reasoning": self.text
         });
         let encoded = payload.to_string();
 
-        format!(
+        Some(format!(
             "{CHAT_REASONING_PREFIX}{}",
             base64_url_safe_encode(encoded.as_bytes())
-        )
+        ))
     }
 
-    fn decode_item(item: &Map<String, Value>) -> Result<Self, StreamError> {
-        let encoded = item
-            .get("encrypted_content")
-            .and_then(Value::as_str)
-            .ok_or_else(|| {
-                invalid_chat_reasoning("reasoning replay requires AIGateway encrypted_content")
-            })?;
-        let payload = encoded.strip_prefix(CHAT_REASONING_PREFIX).ok_or_else(|| {
-            invalid_chat_reasoning(
-                "AIGateway cannot replay reasoning from another provider implementation",
-            )
-        })?;
-        let decoded = base64_url_safe_decode(payload)
-            .map_err(|_| invalid_chat_reasoning("reasoning encrypted_content is not Base64URL"))?;
-        let value: Value = serde_json::from_slice(&decoded)
-            .map_err(|_| invalid_chat_reasoning("reasoning encrypted_content is not valid JSON"))?;
-        let object = value.as_object().ok_or_else(|| {
-            invalid_chat_reasoning("reasoning encrypted_content must contain an object")
-        })?;
+    fn decode_item(item: &Map<String, Value>, context: &ResponseContext) -> Option<Self> {
+        let current_source = ChatReasoningSource::from_context(context)?;
+        let encoded = item.get("encrypted_content").and_then(Value::as_str)?;
+        let payload = encoded.strip_prefix(CHAT_REASONING_PREFIX)?;
+        let decoded = base64_url_safe_decode(payload).ok()?;
+        let value: Value = serde_json::from_slice(&decoded).ok()?;
+        let object = value.as_object()?;
+        let source = ChatReasoningSource {
+            provider_type: object.get("provider_type")?.as_str()?.to_string(),
+            model_id: object.get("model_id")?.as_str()?.to_string(),
+        };
+        if source != current_source {
+            return None;
+        }
 
         let details = match object.get("reasoning_details") {
             Some(Value::Array(details)) => details.clone(),
             Some(Value::Null) | None => Vec::new(),
-            Some(_invalid) => {
-                return Err(invalid_chat_reasoning(
-                    "reasoning encrypted_content has invalid reasoning_details",
-                ));
-            }
+            Some(_invalid) => return None,
         };
         let text = match object.get("reasoning") {
             Some(Value::String(text)) => text.clone(),
             Some(Value::Null) | None => String::new(),
-            Some(_invalid) => {
-                return Err(invalid_chat_reasoning(
-                    "reasoning encrypted_content has invalid reasoning text",
-                ));
-            }
+            Some(_invalid) => return None,
         };
 
         let reasoning = Self { details, text };
         if reasoning.is_empty() {
-            return Err(invalid_chat_reasoning(
-                "reasoning encrypted_content contains no replayable reasoning",
-            ));
+            return None;
         }
-        Ok(reasoning)
+        Some(reasoning)
     }
 
     fn extend(&mut self, mut other: Self) {
@@ -471,7 +484,7 @@ impl ChatState {
                 "response.output_item.done",
                 json!({
                     "output_index": output_index,
-                    "item": self.reasoning_item("completed")
+                    "item": self.reasoning_item(context, "completed")
                 }),
             ));
         }
@@ -574,7 +587,7 @@ impl ChatState {
         if !self.reasoning.is_empty() {
             indexed_output.push((
                 self.reasoning_output_index.unwrap_or(0),
-                self.reasoning_item(item_status),
+                self.reasoning_item(context, item_status),
             ));
         }
         if self.content_started {
@@ -630,17 +643,20 @@ impl ChatState {
         })
     }
 
-    fn reasoning_item(&self, status: &str) -> Value {
-        json!({
+    fn reasoning_item(&self, context: &ResponseContext, status: &str) -> Value {
+        let mut item = json!({
             "id": self
                 .reasoning_item_id
                 .clone()
                 .unwrap_or_else(|| generated_id("rs")),
             "type": "reasoning",
             "status": status,
-            "encrypted_content": self.reasoning.encoded_content(),
             "summary": []
-        })
+        });
+        if let Some(content) = self.reasoning.encoded_content(context) {
+            item["encrypted_content"] = json!(content);
+        }
+        item
     }
 
     fn event(&mut self, event_type: &str, fields: Value) -> Value {
@@ -755,7 +771,7 @@ fn chat_output_items(context: &ResponseContext, message: &Value) -> Result<Value
     let reasoning = ChatReasoning::from_message(message)?;
 
     if !reasoning.is_empty() {
-        items.push(chat_reasoning_item(&reasoning, "completed"));
+        items.push(chat_reasoning_item(context, &reasoning, "completed"));
     }
 
     if !content_parts.is_empty() {
@@ -806,14 +822,21 @@ fn chat_output_items(context: &ResponseContext, message: &Value) -> Result<Value
     Ok(Value::Array(items))
 }
 
-fn chat_reasoning_item(reasoning: &ChatReasoning, status: &str) -> Value {
-    json!({
+fn chat_reasoning_item(
+    context: &ResponseContext,
+    reasoning: &ChatReasoning,
+    status: &str,
+) -> Value {
+    let mut item = json!({
         "id": generated_id("rs"),
         "type": "reasoning",
         "status": status,
-        "encrypted_content": reasoning.encoded_content(),
         "summary": []
-    })
+    });
+    if let Some(content) = reasoning.encoded_content(context) {
+        item["encrypted_content"] = json!(content);
+    }
+    item
 }
 
 fn invalid_chat_reasoning(message: impl Into<String>) -> StreamError {
@@ -1013,7 +1036,9 @@ fn chat_messages(
                                     &mut pending_tool_calls,
                                     &mut pending_reasoning,
                                 );
-                                pending_reasoning.extend(ChatReasoning::decode_item(map)?);
+                                if let Some(reasoning) = ChatReasoning::decode_item(map, context) {
+                                    pending_reasoning.extend(reasoning);
+                                }
                                 continue;
                             }
                             Some("function_call") => {

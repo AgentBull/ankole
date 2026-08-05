@@ -363,7 +363,6 @@ defmodule AnkoleWeb.Router do
     pipe_through :ai_gateway_api
 
     get "/models", AIGatewayController, :models
-    get "/web_tools", AIGatewayController, :web_tools
     get "/files", AIGatewayFilesController, :index
     post "/files", AIGatewayFilesController, :create
     get "/files/:file_id/content", AIGatewayFilesController, :content

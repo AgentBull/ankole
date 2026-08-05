@@ -341,8 +341,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnv do
   Declared and custom variables carry explicit encryption metadata, so this
   reads only AppConfigure and the custom variable table. Binding-derived
   provider tokens are outside this set. They are short-lived credentials that
-  the adapter mints for the Worker shell, and resolving them here would make an
-  unrelated caller depend on provider health.
+  the adapter supplies to the trusted Worker for execution-local projection,
+  and resolving them here would make an unrelated caller depend on provider
+  health.
   """
   @spec sensitive_values(String.t()) :: {:ok, [String.t()]} | {:error, term()}
   def sensitive_values(agent_uid) do

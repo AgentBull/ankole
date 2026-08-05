@@ -3,6 +3,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionReset do
 
   import Ankole.SignalsGateway.ActorRuntime.Common, only: [collect_results: 1]
 
+  alias Ankole.AIGateway
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.Actors
   alias Ankole.SignalsGateway.ActorEvent
@@ -247,7 +248,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionReset do
                  "session.reset_due"
                ),
              {:ok, conversation} <-
-               AIGatewayLink.end_active_conversation_in_tx(
+               AIGateway.end_active_conversation_in_tx(
                  repo,
                  actor_key.agent_uid,
                  actor_key.session_id,

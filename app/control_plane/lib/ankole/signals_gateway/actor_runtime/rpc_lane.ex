@@ -28,7 +28,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
 
   alias Ankole.AutomationJobs.RPCBroker, as: AutomationJobRPCBroker
   alias Ankole.Brain.RPCBroker, as: BrainRPCBroker
-  alias Ankole.Kernel.RuntimeFabric
   alias Ankole.Logging
   alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.Schedule.RPCBroker, as: ScheduleRPCBroker
@@ -229,17 +228,29 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
         result
 
       _unexpected ->
-        log_invalid_handler_result(request.method, ctx.route)
-        {:error, handler_failure_payload(ctx.request_id, request.method)}
+        failure_id = Ecto.UUID.generate()
+        log_invalid_handler_result(request.method, ctx.route, failure_id)
+        {:error, handler_failure_payload(ctx.request_id, request.method, failure_id)}
     end
   rescue
     exception ->
-      log_handler_failure(request.method, ctx.route, :error, exception, __STACKTRACE__)
-      {:error, handler_failure_payload(ctx.request_id, request.method)}
+      failure_id = Ecto.UUID.generate()
+
+      log_handler_failure(
+        request.method,
+        ctx.route,
+        failure_id,
+        :error,
+        exception,
+        __STACKTRACE__
+      )
+
+      {:error, handler_failure_payload(ctx.request_id, request.method, failure_id)}
   catch
     kind, reason ->
-      log_handler_failure(request.method, ctx.route, kind, reason, __STACKTRACE__)
-      {:error, handler_failure_payload(ctx.request_id, request.method)}
+      failure_id = Ecto.UUID.generate()
+      log_handler_failure(request.method, ctx.route, failure_id, kind, reason, __STACKTRACE__)
+      {:error, handler_failure_payload(ctx.request_id, request.method, failure_id)}
   end
 
   defp dispatch_method(request, ctx) do
@@ -320,12 +331,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
 
   defp rpc_response_envelope(request_id, payload) do
     %FabricProto.Envelope{
-      protocol_version: RuntimeFabric.protocol_version(),
       message_id: "rpc-response-#{Ecto.UUID.generate()}",
       correlation_id: request_id,
-      lane: :LANE_RPC,
       sent_at_unix_ms: System.system_time(:millisecond),
-      durability: :CONTROL_EPHEMERAL,
       body:
         {:rpc_response,
          %FabricProto.RPCResponse{
@@ -336,20 +344,23 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
   end
 
   defp rpc_error_envelope(request_id, error_payload) do
+    details =
+      error_payload
+      |> RPCWire.map_value("details_json", %{})
+      |> RPCWire.stringify_keys()
+      |> Map.put_new("retryable", false)
+
     %FabricProto.Envelope{
-      protocol_version: RuntimeFabric.protocol_version(),
       message_id: "rpc-error-#{Ecto.UUID.generate()}",
       correlation_id: request_id,
-      lane: :LANE_RPC,
       sent_at_unix_ms: System.system_time(:millisecond),
-      durability: :CONTROL_EPHEMERAL,
       body:
         {:rpc_error,
          %FabricProto.RPCError{
            request_id: RPCWire.text(error_payload, "request_id") || request_id,
            code: RPCWire.text(error_payload, "code") || "rpc_request_failed",
            message: RPCWire.text(error_payload, "message") || "RPC request failed",
-           details_json: Torque.encode!(RPCWire.map_value(error_payload, "details_json", %{}))
+           details_json: Torque.encode!(details)
          }}
     }
   end
@@ -361,20 +372,37 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
     )
   end
 
-  defp handler_failure_payload(request_id, method) do
+  defp handler_failure_payload(request_id, method, failure_id) do
     %{
       "request_id" => request_id,
       "code" => "rpc_handler_failed",
       "message" => "RPC handler failed",
-      "details_json" => %{"method" => method}
+      "details_json" => %{
+        "failure_id" => failure_id,
+        "method" => method,
+        "retryable" => retryable_handler_failure?(method)
+      }
     }
   end
 
-  defp log_handler_failure(method, route, kind, reason, stacktrace) do
+  # Only read operations are known to be side-effect free. Retrying a write or
+  # completion after an internal exception could repeat an effect whose commit
+  # outcome is unknown, so those failures remain terminal.
+  @doc false
+  @spec retryable_handler_failure?(String.t()) :: boolean()
+  def retryable_handler_failure?(method) do
+    case Map.get(@rpc_operations, method) do
+      {_module, _function, :turn_read, _request_mod} -> true
+      _operation -> false
+    end
+  end
+
+  defp log_handler_failure(method, route, failure_id, kind, reason, stacktrace) do
     Logging.error(
       "runtime_fabric.rpc_handler_failed",
       "runtime fabric rpc handler failed",
       %{
+        failure_id: failure_id,
         method: method,
         route: route,
         reason: Exception.format(kind, reason, stacktrace)
@@ -382,11 +410,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
     )
   end
 
-  defp log_invalid_handler_result(method, route) do
+  defp log_invalid_handler_result(method, route, failure_id) do
     Logging.error(
       "runtime_fabric.rpc_handler_invalid_result",
       "runtime fabric rpc handler returned an invalid result",
       %{
+        failure_id: failure_id,
         method: method,
         route: route
       }

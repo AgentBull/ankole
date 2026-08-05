@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+TOOL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+export HARBOR_TELEMETRY=0
+export PYTHONPATH="$TOOL_DIR/src${PYTHONPATH:+:$PYTHONPATH}"
+
+exec uv run --project "$TOOL_DIR" --python 3.12 --frozen python -m ankole_eval.cli "$@"

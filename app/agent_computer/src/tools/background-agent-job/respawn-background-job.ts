@@ -5,6 +5,7 @@ import { jsonToolResult } from '../../core/tool-result'
 import { assertCodexJobProjectResumeState, codexJobProjectLocation } from '../../core/codex-runner/job-project'
 import type { TurnStart } from '../../lanes/actor_lane'
 import { rpcMethods, type RPCRequester, type RPCRequestInit } from '../../lanes/rpc_lane'
+import { BackgroundAgentJobStatusSchema, type BackgroundAgentJobStatus } from './status'
 
 const RespawnBackgroundJobParamsSchema = z
   .object({
@@ -16,20 +17,15 @@ const RespawnBackgroundJobParamsSchema = z
   })
   .strict()
 
-const BackgroundAgentJobStatusSchema = z.enum([
-  'queued',
-  'running',
-  'waiting_on_user',
+const TerminalBackgroundAgentJobStatusSchema = BackgroundAgentJobStatusSchema.extract([
   'succeeded',
   'failed',
   'stopped'
 ])
 
-const TerminalBackgroundAgentJobStatusSchema = z.enum(['succeeded', 'failed', 'stopped'])
-
 type RespawnBackgroundJobResult = {
   job_id: number
-  status: z.output<typeof BackgroundAgentJobStatusSchema>
+  status: BackgroundAgentJobStatus
 }
 
 export type RespawnBackgroundJobToolOptions = {
@@ -43,13 +39,15 @@ export function createRespawnBackgroundJobTool(
 ): AgentTool<typeof RespawnBackgroundJobParamsSchema, RespawnBackgroundJobResult> {
   return {
     name: 'respawn_background_job',
-    description:
-      'Respawn one succeeded, failed, or stopped background agent job as a new background agent job. The new background agent job resumes the exact Codex thread and reuses the exact existing workspace. The source background agent job stays terminal. message is sent verbatim as the next Codex user message.',
+    description: [
+      'Respawn one non-running background agent job as a new one.',
+      'It uses the same workspace and thread, and sends the message as the next user input.'
+    ].join(' '),
     schema: RespawnBackgroundJobParamsSchema,
     executionMode: 'sequential',
     isReadOnly: false,
     isDestructive: false,
-    describeActivity: () => '重新启动后台 Agent 任务',
+    describeActivity: () => ({ key: 'signals_gateway.reply.activity.background_job_respawn' }),
     async execute(toolCallID, params) {
       const source = await opts.rpc(
         rpcMethods.backgroundAgentJobGet,

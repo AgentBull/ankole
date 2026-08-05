@@ -45,7 +45,6 @@ defmodule Ankole.AIGateway.Providers.Claude do
       scope: :request
     )
 
-    setting(:cacheControl, scope: :request, advanced: true)
     setting(:structuredOutputMode, scope: :request, advanced: true)
     setting(:toolStreaming, type: :boolean, scope: :request, advanced: true)
     setting(:taskBudget, scope: :request, advanced: true)

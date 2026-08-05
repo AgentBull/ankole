@@ -141,7 +141,8 @@ defmodule Ankole.Schedule.Normalizer do
          {:ok, delivery} <- normalize_cron_delivery(Attrs.map_value(attrs, "delivery")),
          {:ok, status} <- normalize_cron_status(Attrs.map_text(attrs, "status") || "active"),
          {:ok, automation_job_id} <- optional_positive_integer(attrs, "automation_job_id"),
-         {:ok, next_fire_at} <- Planner.next_fire_after(schedule, timezone, now) do
+         {:ok, next_fire_at} <- Planner.next_fire_after(schedule, timezone, now),
+         :ok <- reject_exhausted_bound(schedule, next_fire_at) do
       {:ok,
        %{
          status: status,
@@ -186,6 +187,20 @@ defmodule Ankole.Schedule.Normalizer do
 
   defp next_fire_at_for_status("active", %DateTime{} = next_fire_at), do: next_fire_at
   defp next_fire_at_for_status(_status, _next_fire_at), do: nil
+
+  # A schedule whose cutoff precedes its first occurrence would complete without
+  # ever firing; that is a caller error, not a schedule.
+  defp reject_exhausted_bound(schedule, %DateTime{} = first_fire_at) do
+    case Planner.occurrences_bound(schedule) do
+      {:until, until} ->
+        if DateTime.compare(first_fire_at, until) == :gt,
+          do: {:error, :schedule_occurrences_exhausted},
+          else: :ok
+
+      _count_or_none ->
+        :ok
+    end
+  end
 
   defp normalize_cron_status(status) when status in ["active", "paused"], do: {:ok, status}
   defp normalize_cron_status(_status), do: {:error, :invalid_cron_status}

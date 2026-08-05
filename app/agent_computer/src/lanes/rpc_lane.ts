@@ -12,11 +12,9 @@ import type { ActorTurnRef } from './actor_lane'
 import { actorTurnRefToProto } from './actor_lane'
 import {
   createEnvelope,
-  DurabilityClass,
   envelopeHeader,
   jsonBytes,
   jsonObjectFromBytes,
-  Lane,
   RPCErrorSchema,
   RPCRequestSchema,
   RPCResponseSchema,
@@ -88,6 +86,7 @@ import {
   SkillOverlayAppendRequestSchema,
   SkillOverlayReplaceRequestSchema,
   SkillOverlayResolveRequestSchema,
+  SkillOverlayResolveResponseSchema,
   SkillOverlayResponseSchema,
   WebhookEndpointCreateRequestSchema,
   WebhookEndpointListRequestSchema,
@@ -407,7 +406,7 @@ export const rpcSchemas = {
   [rpcMethods.skillsOverlayAppend]: { request: SkillOverlayAppendRequestSchema, response: SkillOverlayResponseSchema },
   [rpcMethods.skillsOverlayResolve]: {
     request: SkillOverlayResolveRequestSchema,
-    response: SkillOverlayResponseSchema
+    response: SkillOverlayResolveResponseSchema
   },
   [rpcMethods.skillsOverlayReplace]: {
     request: SkillOverlayReplaceRequestSchema,
@@ -546,11 +545,16 @@ export function rpcRejectedMessage(label: string, rejection: { code: string; mes
  * typed access instead of parsing the message.
  */
 export class RPCRejectedError extends Error {
+  /** Whether the control plane marked the rejection safe to retry. */
+  readonly retryable: boolean
+
   constructor(
     label: string,
     readonly rejection: RPCRejection
   ) {
     super(rpcRejectedMessage(label, rejection))
+    this.name = 'RPCRejectedError'
+    this.retryable = rejection.details?.retryable === true
   }
 }
 
@@ -627,12 +631,7 @@ export class RuntimeRPCClient {
     try {
       await this.sendEnvelope(
         createEnvelope({
-          ...envelopeHeader(
-            `rpc-request-${crypto.randomUUID()}`,
-            Lane.RPC,
-            DurabilityClass.CONTROL_EPHEMERAL,
-            requestID
-          ),
+          ...envelopeHeader(`rpc-request-${crypto.randomUUID()}`, requestID),
           body: {
             case: 'rpcRequest',
             value: create(RPCRequestSchema, {
@@ -741,12 +740,7 @@ async function sendWorkerRPCResponse(
 ): Promise<void> {
   await sendEnvelope(
     createEnvelope({
-      ...envelopeHeader(
-        `rpc-reply-${crypto.randomUUID()}`,
-        Lane.RPC,
-        DurabilityClass.CONTROL_EPHEMERAL,
-        request.requestId
-      ),
+      ...envelopeHeader(`rpc-reply-${crypto.randomUUID()}`, request.requestId),
       body: {
         case: 'rpcResponse',
         value: create(RPCResponseSchema, {
@@ -767,12 +761,7 @@ async function sendWorkerRPCError(
 ): Promise<void> {
   await sendEnvelope(
     createEnvelope({
-      ...envelopeHeader(
-        `rpc-reply-${crypto.randomUUID()}`,
-        Lane.RPC,
-        DurabilityClass.CONTROL_EPHEMERAL,
-        request.requestId
-      ),
+      ...envelopeHeader(`rpc-reply-${crypto.randomUUID()}`, request.requestId),
       body: {
         case: 'rpcError',
         value: create(RPCErrorSchema, {
@@ -824,6 +813,7 @@ export type {
   InstalledSkillReplaceResponse,
   MemoryUpdateRequest,
   RuntimeSkillSummary,
+  SkillOverlayResolveResponse,
   SkillOverlayResponse,
   WorkerEnvResolveResponse
 } from '../fabric/generated/ankole/runtime_fabric/v1/rpc_pb'

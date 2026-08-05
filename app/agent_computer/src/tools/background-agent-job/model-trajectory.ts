@@ -1,3 +1,19 @@
+import { z } from 'zod'
+
+export const BackgroundAgentJobTrajectorySchema = z.object({
+  format: z.literal('ankole_chatml'),
+  version: z.literal(1),
+  metadata: z
+    .object({
+      redacted: z.boolean().optional(),
+      content_truncated: z.boolean().optional()
+    })
+    .optional(),
+  messages: z.array(z.record(z.string(), z.unknown()))
+})
+
+export type BackgroundAgentJobTrajectory = z.output<typeof BackgroundAgentJobTrajectorySchema>
+
 type Trajectory = {
   messages: Array<Record<string, unknown>>
 }

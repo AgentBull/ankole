@@ -355,6 +355,9 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
 
   defp recovered_preview_target(actor_event_id) do
     case Repo.get(ActorEvent, actor_event_id) do
+      %ActorEvent{reply_preview_checkpoint: %{"presentation_owner" => false}} ->
+        :ok
+
       %ActorEvent{
         input_state: "open",
         completed_at: nil,
@@ -602,10 +605,60 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
         {:ok, _result} ->
           :ok
 
+        {:error, {:cardkit_plain_text_fallback, detail}} ->
+          delegate_delivery_to_outbox(event, detail)
+
         {:error, reason} = error ->
           unless rich_retryable?(reason), do: block_recovery(event, reason)
           error
       end
+    end
+  end
+
+  # Preview recovery deliberately has no OutboxEntry, so it cannot perform a
+  # provider-visible plain-text fallback itself. Hand eventual terminal
+  # delivery to the durable outbox instead of classifying the binding limit as
+  # an operator-repair block. The open provider checkpoint is retained so the
+  # outbox finalizer can calculate and send only the undelivered text tail.
+  defp delegate_delivery_to_outbox(%ActorEvent{} = event, detail) do
+    delegated_at = DateTime.utc_now(:microsecond) |> DateTime.to_iso8601()
+
+    Repo.transact(fn repo ->
+      case Actors.lock_actor_event_in_tx(repo, event.id) do
+        %ActorEvent{reply_preview_checkpoint: checkpoint} = locked when is_map(checkpoint) ->
+          checkpoint =
+            checkpoint
+            |> Map.delete("refresh_pending")
+            |> Map.delete("refresh_reason")
+            |> Map.put("presentation_owner", false)
+            |> Map.put("recovery_state", %{
+              "state" => "delegated",
+              "reason" => "plain_text_fallback",
+              "detail" => detail,
+              "delegated_at" => delegated_at
+            })
+
+          Actors.put_reply_preview_checkpoint_in_tx(repo, locked, checkpoint)
+
+        %ActorEvent{} ->
+          {:error, :reply_preview_checkpoint_missing}
+
+        nil ->
+          {:error, :actor_event_not_found}
+      end
+    end)
+    |> case do
+      {:ok, _event} ->
+        Logging.info(
+          "signals_gateway.ai_reply_preview.delivery_delegated",
+          "AI reply preview delegated terminal delivery to durable outbox",
+          actor_event_fields(event, %{reason: "plain_text_fallback"})
+        )
+
+        :ok
+
+      {:error, _reason} = error ->
+        error
     end
   end
 
@@ -661,9 +714,6 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
       case reason do
         {:reply_delivery, :operator_action_required, detail} ->
           {"operator_action_required", detail}
-
-        {:cardkit_plain_text_fallback, detail} ->
-          {"plain_text_fallback", detail}
       end
 
     %{

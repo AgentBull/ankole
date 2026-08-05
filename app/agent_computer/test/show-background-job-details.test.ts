@@ -68,6 +68,7 @@ describe('@ankole/agent-computer show background job details tool', () => {
       recent_trajectory: {
         format: 'ankole_chatml',
         version: 1,
+        metadata: { redacted: true, content_truncated: true },
         messages: [
           { role: 'assistant', content: 'Checking evidence.' },
           { role: 'assistant', content: 'Running verification.' }
@@ -122,6 +123,7 @@ function response() {
       trajectory_page: {
         format: 'ankole_chatml',
         version: 1,
+        metadata: { redacted: true, content_truncated: true },
         messages: [
           {
             id: '019f0000-0000-7000-8000-000000000020',

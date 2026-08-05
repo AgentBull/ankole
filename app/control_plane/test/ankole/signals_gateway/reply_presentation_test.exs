@@ -1,6 +1,7 @@
 defmodule Ankole.SignalsGateway.ReplyPresentationTest do
   use ExUnit.Case, async: true
 
+  alias Ankole.I18n
   alias Ankole.SignalsGateway.ReplyPresentation
 
   test "merges live answer and reasoning while excluding reasoning from recovery and terminal truth" do
@@ -100,25 +101,28 @@ defmodule Ankole.SignalsGateway.ReplyPresentationTest do
 
   test "semantic tool activity and confirmed receipts retain safe projections only" do
     presentation =
-      ReplyPresentation.new()
-      |> ReplyPresentation.apply_event("tool.activity", %{
-        "operation_id" => "call-1",
-        "revision" => 1,
-        "phase" => "running",
-        "label" => "读取文件：core/agent-loop.ts",
-        "arguments" => %{
-          "path" => "/agents/agent-1/sessions/session-1/src/core/agent-loop.ts",
-          "token" => "must-not-survive"
-        },
-        "raw_tool_name" => "internal_secret_tool"
-      })
-      |> ReplyPresentation.apply_event("memory.mutation_receipt", %{
-        "operation_id" => "call-2",
-        "revision" => 2,
-        "phase" => "confirmed",
-        "summary" => "已更新项目偏好",
-        "scope" => "当前用户"
-      })
+      I18n.with_locale("zh-Hans-CN", fn ->
+        ReplyPresentation.new()
+        |> ReplyPresentation.apply_event("tool.activity", %{
+          "operation_id" => "call-1",
+          "revision" => 1,
+          "phase" => "running",
+          "label_key" => "signals_gateway.reply.activity.file_read_target",
+          "label_bindings" => %{"path" => "core/agent-loop.ts"},
+          "arguments" => %{
+            "path" => "/agents/agent-1/sessions/session-1/src/core/agent-loop.ts",
+            "token" => "must-not-survive"
+          },
+          "raw_tool_name" => "internal_secret_tool"
+        })
+        |> ReplyPresentation.apply_event("memory.mutation_receipt", %{
+          "operation_id" => "call-2",
+          "revision" => 2,
+          "phase" => "confirmed",
+          "summary_key" => "signals_gateway.reply.activity.memory_updated",
+          "scope_key" => "signals_gateway.reply.activity.memory_scope"
+        })
+      end)
 
     assert get_in(presentation, ["activities", "call-1", "label"]) ==
              "读取文件：core/agent-loop.ts"
@@ -126,7 +130,7 @@ defmodule Ankole.SignalsGateway.ReplyPresentationTest do
     refute get_in(presentation, ["activities", "call-1"]) |> Map.has_key?("arguments")
     refute get_in(presentation, ["activities", "call-1"]) |> Map.has_key?("raw_tool_name")
 
-    assert [%{"summary" => "已更新项目偏好", "scope" => "当前用户"}] =
+    assert [%{"summary" => "已更新记忆", "scope" => "长期记忆（代号 Brain）"}] =
              presentation["receipts"]
 
     terminal = ReplyPresentation.terminal(presentation, "completed", "完成。")

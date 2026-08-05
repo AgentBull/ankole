@@ -125,7 +125,10 @@ export function createBrainSourceLearningReader(
     executionMode: 'sequential',
     isReadOnly: true,
     isDestructive: false,
-    describeActivity: () => `读取资料：${descriptor.title}`,
+    describeActivity: () => ({
+      key: 'signals_gateway.reply.activity.source_read',
+      bindings: { title: descriptor.title }
+    }),
     async execute(_toolCallID, _params): Promise<AgentToolResult<SourceReadDetails>> {
       if (state === 'complete') throw new Error('retained source has already been read completely')
       if (state === 'failed') throw new Error('retained source cannot continue after an extraction failure')

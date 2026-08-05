@@ -68,7 +68,7 @@
         "additionalProperties": false,
         "properties": {
           "id": { "format": "uuid", "type": "string" },
-          "inserted_at": { "format": "date_time", "type": "string" },
+          "inserted_at": { "format": "date-time", "type": "string" },
           "predicate": { "type": "string" },
           "source_entry_id": { "format": "uuid", "type": "string" },
           "source_name": { "nullable": true, "type": "string" },
@@ -479,7 +479,7 @@
         "properties": {
           "aliases": { "items": { "type": "string" }, "type": "array" },
           "id": { "format": "uuid", "type": "string" },
-          "inserted_at": { "format": "date_time", "type": "string" },
+          "inserted_at": { "format": "date-time", "type": "string" },
           "lock_version": { "minimum": 1, "type": "integer" },
           "name": { "type": "string" },
           "owner_uid": { "type": "string" },
@@ -487,7 +487,7 @@
           "store_key": { "type": "string" },
           "summary": { "type": "string" },
           "type": { "type": "string" },
-          "updated_at": { "format": "date_time", "type": "string" }
+          "updated_at": { "format": "date-time", "type": "string" }
         },
         "required": [
           "id",
@@ -776,7 +776,7 @@
           "block_id": { "format": "uuid", "nullable": true, "type": "string" },
           "entry_id": { "format": "uuid", "nullable": true, "type": "string" },
           "id": { "format": "uuid", "type": "string" },
-          "inserted_at": { "format": "date_time", "type": "string" },
+          "inserted_at": { "format": "date-time", "type": "string" },
           "metadata": { "additionalProperties": true, "type": "object" },
           "owner_uid": { "type": "string" },
           "relation_id": { "format": "uuid", "nullable": true, "type": "string" },
@@ -1478,7 +1478,7 @@
         "description": "Share of dreaming block writes that survived human review, overall and per run. Survival is judged only on writes older than the horizon; younger writes are pending.",
         "properties": {
           "corrected_block_writes": { "minimum": 0, "type": "integer" },
-          "generated_at": { "format": "date_time", "type": "string" },
+          "generated_at": { "format": "date-time", "type": "string" },
           "horizon_days": { "minimum": 1, "type": "integer" },
           "lookback_days": { "minimum": 1, "type": "integer" },
           "matured_block_writes": { "minimum": 0, "type": "integer" },
@@ -1730,7 +1730,7 @@
           "author": { "additionalProperties": true, "type": "object" },
           "byte_size": { "nullable": true, "type": "integer" },
           "capture_method": { "nullable": true, "type": "string" },
-          "captured_at": { "format": "date_time", "nullable": true, "type": "string" },
+          "captured_at": { "format": "date-time", "nullable": true, "type": "string" },
           "captured_by_uid": { "nullable": true, "type": "string" },
           "connector_id": { "nullable": true, "type": "string" },
           "document_id": { "type": "string" },
@@ -1749,7 +1749,7 @@
             "type": "array"
           },
           "kind": { "enum": ["retained_source", "signal_message"], "type": "string" },
-          "last_synced_at": { "format": "date_time", "nullable": true, "type": "string" },
+          "last_synced_at": { "format": "date-time", "nullable": true, "type": "string" },
           "learning_actor_event_id": { "format": "uuid", "nullable": true, "type": "string" },
           "learning_status": {
             "enum": ["stored", "learning", "integrated", "no_change", "incomplete", "failed"],
@@ -2208,10 +2208,10 @@
           "embedding_state": { "enum": ["pending", "synced", "failed"], "type": "string" },
           "entry_id": { "format": "uuid", "type": "string" },
           "id": { "format": "uuid", "type": "string" },
-          "inserted_at": { "format": "date_time", "type": "string" },
+          "inserted_at": { "format": "date-time", "type": "string" },
           "lock_version": { "minimum": 1, "type": "integer" },
           "position": { "minimum": 0, "type": "integer" },
-          "updated_at": { "format": "date_time", "type": "string" }
+          "updated_at": { "format": "date-time", "type": "string" }
         },
         "required": [
           "id",
@@ -2362,8 +2362,8 @@
         "description": "One dreaming run's block writes and how they fared under human review.",
         "properties": {
           "corrected_block_writes": { "minimum": 0, "type": "integer" },
-          "first_written_at": { "format": "date_time", "nullable": true, "type": "string" },
-          "last_written_at": { "format": "date_time", "nullable": true, "type": "string" },
+          "first_written_at": { "format": "date-time", "nullable": true, "type": "string" },
+          "last_written_at": { "format": "date-time", "nullable": true, "type": "string" },
           "matured_block_writes": { "minimum": 0, "type": "integer" },
           "pending_block_writes": { "minimum": 0, "type": "integer" },
           "produced_block_writes": { "minimum": 0, "type": "integer" },
@@ -2956,14 +2956,14 @@
             "in": "query",
             "name": "inserted_after",
             "required": false,
-            "schema": { "format": "date_time", "type": "string" }
+            "schema": { "format": "date-time", "type": "string" }
           },
           {
             "description": "",
             "in": "query",
             "name": "inserted_before",
             "required": false,
-            "schema": { "format": "date_time", "type": "string" }
+            "schema": { "format": "date-time", "type": "string" }
           },
           { "description": "", "in": "query", "name": "cursor", "required": false, "schema": { "type": "string" } },
           {
@@ -5631,26 +5631,6 @@
         "tags": ["AIGateway"]
       }
     },
-    "/api/v1/ai-gateway/web_tools": {
-      "get": {
-        "callbacks": {},
-        "operationId": "AnkoleWeb.AIGatewayController.web_tools",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "content": { "application/json": { "schema": { "additionalProperties": true, "type": "object" } } },
-            "description": "Web tool availability"
-          },
-          "401": {
-            "content": { "application/json": { "schema": { "additionalProperties": true, "type": "object" } } },
-            "description": "Unauthorized"
-          }
-        },
-        "security": [{ "aiGatewayBearer": [] }, { "consoleBearer": [] }],
-        "summary": "List provider-backed web tools available to this AIGateway subject",
-        "tags": ["AIGateway"]
-      }
-    },
     "/api/v1/agents/{agent_uid}/signal-bindings/{adapter_id}/{binding_name}": {
       "put": {
         "callbacks": {},
@@ -5985,7 +5965,7 @@
             "in": "query",
             "name": "updated",
             "required": false,
-            "schema": { "type": "string" }
+            "schema": { "format": "date-time", "type": "string" }
           },
           { "description": "", "in": "query", "name": "cursor", "required": false, "schema": { "type": "string" } },
           {
@@ -6816,14 +6796,14 @@
             "in": "query",
             "name": "inserted_after",
             "required": false,
-            "schema": { "format": "date_time", "type": "string" }
+            "schema": { "format": "date-time", "type": "string" }
           },
           {
             "description": "",
             "in": "query",
             "name": "inserted_before",
             "required": false,
-            "schema": { "format": "date_time", "type": "string" }
+            "schema": { "format": "date-time", "type": "string" }
           },
           { "description": "", "in": "query", "name": "cursor", "required": false, "schema": { "type": "string" } },
           {

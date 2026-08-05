@@ -1,6 +1,6 @@
 ---
 name: ocr
-description: "Recognize text in images with the local PP-OCRv6 model: photos, screenshots, scanned page images, receipts, and whiteboard shots. Use when text must be read out of pixels. For any PDF, even a fully scanned one, start with the pdf Skill; its triage hands scanned pages here itself."
+description: "Recognize text in images: screenshots, scanned copy, receipts, etc. Use when text must be read out of pixels. For any PDF, start with the pdf Skill."
 default_enabled: true
 category: productivity
 tags: [OCR, Documents, Images, PDF, Text-Extraction, Productivity]

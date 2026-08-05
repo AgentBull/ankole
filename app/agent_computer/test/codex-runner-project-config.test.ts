@@ -22,6 +22,7 @@ describe('@ankole/agent-computer Codex job project config', () => {
         '[features.multi_agent_v2]',
         'enabled = false',
         'max_concurrent_threads_per_session = 99',
+        'max_wait_timeout_ms = 999999',
         '',
         '[mcp_servers.stale-template-server]',
         'url = "https://stale.example.test/mcp"',
@@ -46,10 +47,13 @@ describe('@ankole/agent-computer Codex job project config', () => {
       expect(config.features.plugins).toBe(false)
       expect(config.features.code_mode).toEqual({ enabled: true })
       expect(config.features.multi_agent_v2).toEqual({
+        default_wait_timeout_ms: 120_000,
         enabled: true,
         hide_spawn_agent_metadata: true,
-        max_concurrent_threads_per_session: 99
+        max_concurrent_threads_per_session: 99,
+        min_wait_timeout_ms: 60_000
       })
+      expect(config.features.multi_agent_v2.max_wait_timeout_ms).toBeUndefined()
       expect(config.agents).toBeUndefined()
       expect(config.mcp_servers).toBeUndefined()
       expect(readFileSync(configPath, 'utf8')).not.toContain('secret-value')
@@ -84,9 +88,12 @@ describe('@ankole/agent-computer Codex job project config', () => {
       expect(config.model).toBeUndefined()
       expect(config.model_provider).toBeUndefined()
       expect(config.features.multi_agent_v2).toEqual({
+        default_wait_timeout_ms: 120_000,
         enabled: true,
-        hide_spawn_agent_metadata: true
+        hide_spawn_agent_metadata: true,
+        min_wait_timeout_ms: 60_000
       })
+      expect(config.features.multi_agent_v2.max_wait_timeout_ms).toBeUndefined()
       expect(config.mcp_servers).toBeUndefined()
     } finally {
       rmSync(root, { recursive: true, force: true })

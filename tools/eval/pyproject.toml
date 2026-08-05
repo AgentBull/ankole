@@ -1,0 +1,11 @@
+[project]
+name = "ankole-eval"
+version = "0.1.0"
+description = "Reproducible Harbor evaluation runs for Ankole"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "harbor==0.20.0",
+]
+
+[tool.uv]
+package = false

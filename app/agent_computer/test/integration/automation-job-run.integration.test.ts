@@ -8,6 +8,7 @@ import {
 } from '../../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import { jsonBytes, jsonObjectFromBytes } from '../../src/fabric/envelope_proto'
 import { runAutomationJob } from '../../src/automation-jobs/run'
+import { LARK_TENANT_TOKEN_ENV } from '../../src/core/turns/lark-credential'
 import { rpcMethods, type RPCRequester } from '../../src/lanes/rpc_lane'
 import type { WorkerConfig } from '../../src/worker/config'
 
@@ -98,6 +99,43 @@ console.log(JSON.stringify({ config: process.env.MCPORTER_CONFIG, result: JSON.p
       content: [{ type: 'text', text: 'stdio response' }]
     })
     expect(existsSync(output.config)).toBe(false)
+  })
+
+  it('projects a refreshed Lark file instead of a raw token across bubblewrap', async () => {
+    const fixture = runFixture(`
+const proc = Bun.spawn(["lark-cli", "--version"], { stdout: "pipe", stderr: "pipe" })
+const [exitCode, stdout, stderr] = await Promise.all([
+  proc.exited,
+  new Response(proc.stdout).text(),
+  new Response(proc.stderr).text()
+])
+console.log(JSON.stringify({
+  appID: process.env.LARKSUITE_CLI_APP_ID,
+  rawToken: process.env.LARKSUITE_CLI_TENANT_ACCESS_TOKEN ?? null,
+  tokenFile: process.env.ANKOLE_RUNTIME_LARK_TENANT_ACCESS_TOKEN_FILE,
+  exitCode,
+  stdout,
+  stderr
+}))
+`)
+    root = fixture.root
+
+    const result = await runAutomationJob(request(fixture.directory, {}), {
+      config: fixture.config,
+      rpc: rpcStub([], { larkToken: 'tenant-token' })
+    })
+
+    expect(result.status).toBe('succeeded')
+    const output = JSON.parse(result.stdout)
+    expect(output).toMatchObject({
+      appID: 'cli_worker',
+      rawToken: null,
+      exitCode: 0,
+      stdout: 'lark-cli version 1.0.84\n',
+      stderr: ''
+    })
+    expect(output.tokenFile).toStartWith(`${fixture.config.agentsRoot}/agent-1/runtime-materials/credentials/`)
+    expect(existsSync(output.tokenFile)).toBe(false)
   })
 
   it('treats a script exception as one terminal script result', async () => {
@@ -200,10 +238,18 @@ function request(directoryPath: string, data: Record<string, unknown>) {
   })
 }
 
-function rpcStub(emitted: unknown[]): RPCRequester {
+function rpcStub(emitted: unknown[], opts: { larkToken?: string } = {}): RPCRequester {
   const requester = async (method: string, payload: unknown) => {
     if (method === rpcMethods.workerEnvResolve) {
-      return { vars: { AUTOMATION_TEST_VALUE: 'available' } }
+      const operatorVars = { AUTOMATION_TEST_VALUE: 'available' }
+      const bindingVars = opts.larkToken
+        ? {
+            LARKSUITE_CLI_APP_ID: 'cli_worker',
+            LARKSUITE_CLI_BRAND: 'feishu',
+            [LARK_TENANT_TOKEN_ENV]: opts.larkToken
+          }
+        : {}
+      return { vars: { ...operatorVars, ...bindingVars }, operatorVars, bindingVars }
     }
     if (method === rpcMethods.automationJobEmit) {
       const request = payload as { payloadJson: Uint8Array }

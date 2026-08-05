@@ -97,9 +97,6 @@ import type {
   AnkoleWebAiGatewayControllerWebSearchData,
   AnkoleWebAiGatewayControllerWebSearchErrors,
   AnkoleWebAiGatewayControllerWebSearchResponses,
-  AnkoleWebAiGatewayControllerWebToolsData,
-  AnkoleWebAiGatewayControllerWebToolsErrors,
-  AnkoleWebAiGatewayControllerWebToolsResponses,
   AnkoleWebAiGatewayConversationControllerIndexData,
   AnkoleWebAiGatewayConversationControllerIndexErrors,
   AnkoleWebAiGatewayConversationControllerIndexResponses,
@@ -2795,37 +2792,6 @@ export const ankoleWebAiGatewayControllerWebSearch = <ThrowOnError extends boole
       'Content-Type': 'application/json',
       ...options.headers
     }
-  })
-
-/**
- * List provider-backed web tools available to this AIGateway subject
- */
-export const ankoleWebAiGatewayControllerWebTools = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebAiGatewayControllerWebToolsData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayControllerWebToolsResponses,
-  AnkoleWebAiGatewayControllerWebToolsErrors,
-  ThrowOnError
-> =>
-  (options?.client ?? client).get<
-    AnkoleWebAiGatewayControllerWebToolsResponses,
-    AnkoleWebAiGatewayControllerWebToolsErrors,
-    ThrowOnError
-  >({
-    security: [
-      {
-        key: 'aiGatewayBearer',
-        scheme: 'bearer',
-        type: 'http'
-      },
-      {
-        key: 'consoleBearer',
-        scheme: 'bearer',
-        type: 'http'
-      }
-    ],
-    url: '/api/v1/ai-gateway/web_tools',
-    ...options
   })
 
 /**

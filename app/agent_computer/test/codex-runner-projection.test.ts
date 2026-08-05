@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test'
 import { z } from 'zod'
 import type { AgentTool } from '../src/core'
 import { buildCodexJobProjection } from '../src/core/codex-runner/projection'
+import { createWebTools } from '../src/tools/web/web-tools'
 
 describe('@ankole/agent-computer Codex job capability projection', () => {
   it('projects the exact Job allowlist and rejects browser and foreground-only tools', async () => {
@@ -189,6 +190,50 @@ describe('@ankole/agent-computer Codex job capability projection', () => {
     )
     expect(result).toEqual({ contentItems: [{ type: 'inputText', text: 'inspected' }], success: true })
     expect(called).toBe(true)
+  })
+
+  it('executes a Background web call through its AIGateway semantic selector', async () => {
+    const requests: Array<{ url: string; body: unknown }> = []
+    const webTools = await createWebTools({
+      aiGateway: {
+        baseURL: 'https://control.test/api/v1/ai-gateway',
+        fetch: async (input, init) => {
+          requests.push({
+            url: input instanceof Request ? input.url : String(input),
+            body: JSON.parse(String(init?.body))
+          })
+          return new Response(
+            JSON.stringify({
+              success: true,
+              results: [{ title: 'Ankole', url: 'https://example.com', snippet: 'Result' }]
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } }
+          )
+        }
+      },
+      workspaceRoot: '/tmp'
+    })
+    const projection = buildCodexJobProjection({ tools: webTools })
+
+    const result = await projection.handleToolCall(
+      {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        callId: 'call-web-search',
+        namespace: null,
+        tool: 'web_search',
+        arguments: { query: 'ankole' }
+      },
+      new AbortController().signal
+    )
+
+    expect(result.success).toBe(true)
+    expect(requests).toEqual([
+      {
+        url: 'https://control.test/api/v1/ai-gateway/web_search',
+        body: { model: 'web_search.default', query: 'ankole' }
+      }
+    ])
   })
 
   it('quarantines only identities that the pinned Codex dynamic-tool boundary rejects', () => {

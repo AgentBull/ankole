@@ -4,7 +4,8 @@ import { randomUUID } from 'node:crypto'
 import { jsonBytes, jsonObjectFromBytes } from '../fabric/envelope_proto'
 import { agentHomePaths, WORKER_SHARE_ROOT } from '../core/agent-home-paths'
 import { pathIsWithin } from '../core/path-boundary'
-import { resolveAgentWorkerEnv } from '../core/turns/worker_env'
+import { materializeLarkCredential } from '../core/turns/lark-credential'
+import { resolveAgentWorkerEnvParts } from '../core/turns/worker_env'
 import { bubblewrapArgv } from '../tools/computer/bubblewrap'
 import { commandEnv } from '../tools/computer/env'
 import { loadEnabledSkillMCPServers, materializeMCPorterConfig, type MaterializedMCPorterConfig } from '../tools/mcp'
@@ -47,7 +48,14 @@ export async function runAutomationJob(
     return failedResult(errorMessage(error))
   }
 
-  const workerEnv = await resolveAgentWorkerEnv(request.agentUid, opts.rpc)
+  const resolvedWorkerEnv = await resolveAgentWorkerEnvParts(request.agentUid, opts.rpc)
+  const larkCredential = materializeLarkCredential({
+    agentUID: request.agentUid,
+    agentHome: execution.agentHome,
+    rpc: opts.rpc,
+    workerEnv: resolvedWorkerEnv
+  })
+  const workerEnv = larkCredential.workerEnv.vars
   const contextPath = join(WORKER_SHARE_ROOT, `ankole-aj-context-${randomUUID()}.json`)
   let mcporterConfig: MaterializedMCPorterConfig
 
@@ -62,6 +70,7 @@ export async function runAutomationJob(
     })
     mcporterConfig = materializeMCPorterConfig(skillMCPServers)
   } catch (error) {
+    larkCredential.cleanup()
     return failedResult(errorMessage(error))
   }
 
@@ -85,14 +94,19 @@ export async function runAutomationJob(
         execution,
         { ...workerEnv, ...mcporterConfig.env },
         contextPath,
-        emitBridge.socketPath
+        emitBridge.socketPath,
+        larkCredential.runtimeEnv
       )
     } finally {
       emitBridge.close()
       if (existsSync(contextPath)) unlinkSync(contextPath)
     }
   } finally {
-    mcporterConfig.cleanup()
+    try {
+      mcporterConfig.cleanup()
+    } finally {
+      larkCredential.cleanup()
+    }
   }
 }
 
@@ -135,14 +149,16 @@ async function runProcess(
   execution: ValidatedExecution,
   workerEnv: Record<string, string>,
   contextPath: string,
-  socketPath: string
+  socketPath: string,
+  larkRuntimeEnv: Record<string, string>
 ): Promise<RunResult> {
   const timeoutMs = Math.max(1, request.timeoutMs)
   const env = commandEnv(undefined, {
     workerEnv,
     runtimeEnv: {
       [contextFileEnv]: contextPath,
-      [emitSocketEnv]: socketPath
+      [emitSocketEnv]: socketPath,
+      ...larkRuntimeEnv
     },
     home: execution.agentHome,
     ankoleAgentHome: execution.agentHome

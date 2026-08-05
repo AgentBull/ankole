@@ -594,6 +594,225 @@ defmodule Ankole.ScheduleTest do
       assert failed.status == "failed"
     end
 
+    test "a count bound completes the schedule after its due slots, ignoring manual runs" do
+      %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
+      first_slot = DateTime.add(@base_time, 1, :minute)
+
+      assert {:ok, %{cron_schedule: schedule}} =
+               Schedule.create_cron_schedule(
+                 cron_attrs(agent.uid,
+                   name: "count-bounded",
+                   idempotency_key: "count-bounded",
+                   schedule: %{
+                     "kind" => "every",
+                     "every_ms" => 60_000,
+                     "anchor_at" => DateTime.to_iso8601(first_slot),
+                     "occurrences" => %{"count" => 2}
+                   }
+                 ),
+                 now: @base_time
+               )
+
+      assert schedule.schedule["occurrences"] == %{"count" => 2}
+
+      # A manual run is outside the recurrence and must not spend the budget.
+      assert {:ok, %{status: :scheduled, scheduled_event: manual}} =
+               Schedule.run_cron_schedule(schedule.id, tool_call_id: "manual-1", now: @base_time)
+
+      assert {:ok, %{status: :fired}} = Schedule.fire_due_event(manual.id, now: @base_time)
+
+      [event] =
+        for run <- Schedule.list_cron_runs(schedule.id, 10), run.status == "scheduled", do: run
+
+      assert {:ok, %{status: :fired}} = Schedule.fire_due_event(event.id, now: first_slot)
+
+      assert {:ok, after_first} = Schedule.get_cron_schedule(schedule.id)
+      assert after_first.status == "active"
+      second_slot = DateTime.add(first_slot, 1, :minute)
+      assert after_first.next_fire_at == second_slot
+
+      [second] =
+        for run <- Schedule.list_cron_runs(schedule.id, 10), run.status == "scheduled", do: run
+
+      assert {:ok, %{status: :fired}} = Schedule.fire_due_event(second.id, now: second_slot)
+
+      assert {:ok, completed} = Schedule.get_cron_schedule(schedule.id)
+      assert completed.status == "completed"
+      assert completed.next_fire_at == nil
+
+      assert [] ==
+               for(
+                 run <- Schedule.list_cron_runs(schedule.id, 10),
+                 run.status == "scheduled",
+                 do: run
+               )
+
+      # Terminal state: only removal remains available.
+      assert {:error, :cron_schedule_completed} =
+               Schedule.pause_cron_schedule(schedule.id, now: second_slot)
+
+      assert {:error, :cron_schedule_completed} =
+               Schedule.resume_cron_schedule(schedule.id, now: second_slot)
+
+      assert {:error, :cron_schedule_completed} =
+               Schedule.run_cron_schedule(schedule.id, tool_call_id: "manual-2", now: second_slot)
+
+      assert {:error, :cron_schedule_completed} =
+               Schedule.update_cron_schedule(schedule.id, %{"payload" => %{"task" => "late"}},
+                 now: second_slot
+               )
+
+      assert {:ok, removed} = Schedule.remove_cron_schedule(schedule.id, now: second_slot)
+      assert removed.status == "deleted"
+    end
+
+    test "a count bound treats a terminally failed slot as consumed" do
+      %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
+      first_slot = DateTime.add(@base_time, 1, :minute)
+
+      assert {:ok, %{cron_schedule: schedule}} =
+               Schedule.create_cron_schedule(
+                 cron_attrs(agent.uid,
+                   name: "count-bounded-failure",
+                   idempotency_key: "count-bounded-failure",
+                   schedule: %{
+                     "kind" => "every",
+                     "every_ms" => 60_000,
+                     "anchor_at" => DateTime.to_iso8601(first_slot),
+                     "occurrences" => %{"count" => 1}
+                   }
+                 ),
+                 now: @base_time
+               )
+
+      [event] = Schedule.list_cron_runs(schedule.id, 10)
+
+      ScheduledEvent
+      |> where([scheduled_event], scheduled_event.id == ^event.id)
+      |> Repo.update_all(set: [binding_name: ""])
+
+      assert {:error, %Ecto.Changeset{}} =
+               Schedule.fire_due_event(event.id,
+                 now: first_slot,
+                 attempt: 10,
+                 max_attempts: 10
+               )
+
+      assert Repo.get!(ScheduledEvent, event.id).status == "failed"
+
+      assert {:ok, completed} = Schedule.get_cron_schedule(schedule.id)
+      assert completed.status == "completed"
+      assert completed.next_fire_at == nil
+    end
+
+    test "an until bound stops after the cutoff and rejects a cutoff before the first occurrence" do
+      %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
+      first_slot = DateTime.add(@base_time, 1, :minute)
+      cutoff = DateTime.add(@base_time, 90, :second)
+
+      assert {:error, :schedule_occurrences_exhausted} =
+               Schedule.create_cron_schedule(
+                 cron_attrs(agent.uid,
+                   name: "until-before-first",
+                   idempotency_key: "until-before-first",
+                   schedule: %{
+                     "kind" => "every",
+                     "every_ms" => 60_000,
+                     "anchor_at" => DateTime.to_iso8601(first_slot),
+                     "occurrences" => %{"until" => DateTime.to_iso8601(@base_time)}
+                   }
+                 ),
+                 now: @base_time
+               )
+
+      assert {:ok, %{cron_schedule: schedule}} =
+               Schedule.create_cron_schedule(
+                 cron_attrs(agent.uid,
+                   name: "until-bounded",
+                   idempotency_key: "until-bounded",
+                   schedule: %{
+                     "kind" => "every",
+                     "every_ms" => 60_000,
+                     "anchor_at" => DateTime.to_iso8601(first_slot),
+                     "occurrences" => %{"until" => DateTime.to_iso8601(cutoff)}
+                   }
+                 ),
+                 now: @base_time
+               )
+
+      [event] = Schedule.list_cron_runs(schedule.id, 10)
+      assert {:ok, %{status: :fired}} = Schedule.fire_due_event(event.id, now: first_slot)
+
+      assert {:ok, completed} = Schedule.get_cron_schedule(schedule.id)
+      assert completed.status == "completed"
+      assert completed.next_fire_at == nil
+    end
+
+    test "resume completes a paused schedule whose bound ran out while paused" do
+      %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
+      first_slot = DateTime.add(@base_time, 1, :minute)
+      cutoff = DateTime.add(@base_time, 90, :second)
+      after_cutoff = DateTime.add(@base_time, 10, :minute)
+
+      assert {:ok, %{cron_schedule: schedule}} =
+               Schedule.create_cron_schedule(
+                 cron_attrs(agent.uid,
+                   name: "resume-past-until",
+                   idempotency_key: "resume-past-until",
+                   schedule: %{
+                     "kind" => "every",
+                     "every_ms" => 60_000,
+                     "anchor_at" => DateTime.to_iso8601(first_slot),
+                     "occurrences" => %{"until" => DateTime.to_iso8601(cutoff)}
+                   }
+                 ),
+                 now: @base_time
+               )
+
+      assert {:ok, paused} = Schedule.pause_cron_schedule(schedule.id, now: @base_time)
+      assert paused.status == "paused"
+
+      assert {:ok, resumed} = Schedule.resume_cron_schedule(schedule.id, now: after_cutoff)
+      assert resumed.status == "completed"
+      assert resumed.next_fire_at == nil
+    end
+
+    test "an update whose new bound is already spent is rejected" do
+      %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
+      first_slot = DateTime.add(@base_time, 1, :minute)
+
+      assert {:ok, %{cron_schedule: schedule}} =
+               Schedule.create_cron_schedule(
+                 cron_attrs(agent.uid,
+                   name: "update-spent-bound",
+                   idempotency_key: "update-spent-bound",
+                   schedule: every_schedule(first_slot)
+                 ),
+                 now: @base_time
+               )
+
+      [event] = Schedule.list_cron_runs(schedule.id, 10)
+      assert {:ok, %{status: :fired}} = Schedule.fire_due_event(event.id, now: first_slot)
+
+      assert {:error, :schedule_occurrences_exhausted} =
+               Schedule.update_cron_schedule(
+                 schedule.id,
+                 %{
+                   "schedule" => %{
+                     "kind" => "every",
+                     "every_ms" => 60_000,
+                     "anchor_at" => DateTime.to_iso8601(first_slot),
+                     "occurrences" => %{"count" => 1}
+                   }
+                 },
+                 now: DateTime.add(first_slot, 5, :second)
+               )
+
+      assert {:ok, unchanged} = Schedule.get_cron_schedule(schedule.id)
+      assert unchanged.status == "active"
+      assert unchanged.schedule["occurrences"] == nil
+    end
+
     @tag ownership_timeout: 10_000
     test "a concurrent recurring fire and payload update serialize without a deadlock" do
       parent = self()

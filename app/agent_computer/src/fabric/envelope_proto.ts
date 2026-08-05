@@ -2,9 +2,7 @@ import { create, fromBinary, toBinary } from '@bufbuild/protobuf'
 
 export { create } from '@bufbuild/protobuf'
 import {
-  DurabilityClass,
   EnvelopeSchema,
-  Lane,
   type ActorEventEnvelope as ActorEventEnvelopeMessage,
   type ActorTurnRef as ActorTurnRefMessage,
   type Envelope,
@@ -67,8 +65,6 @@ export type {
   WorkerProgress as WorkerProgressMessage
 } from './generated/ankole/runtime_fabric/v1/envelope_pb'
 
-export const envelopeProtocolVersion = 4
-
 export function encodeEnvelope(envelope: Envelope): Buffer {
   return Buffer.from(toBinary(EnvelopeSchema, envelope))
 }
@@ -79,19 +75,16 @@ export function decodeEnvelope(bytes: Uint8Array): Envelope {
 
 /**
  * Builds the shared envelope header; body construction stays with the caller.
+ * The kernel seals lane, durability, and protocol version from the body at
+ * send time, so the header carries only the ids and the send instant.
  */
 export function envelopeHeader(
   messageID: string,
-  lane: Lane,
-  durability: DurabilityClass,
   correlationID?: string
-): Pick<Envelope, 'protocolVersion' | 'messageId' | 'correlationId' | 'lane' | 'durability' | 'sentAtUnixMs'> {
+): Pick<Envelope, 'messageId' | 'correlationId' | 'sentAtUnixMs'> {
   return {
-    protocolVersion: envelopeProtocolVersion,
     messageId: messageID,
     correlationId: correlationID ?? messageID,
-    lane,
-    durability,
     sentAtUnixMs: BigInt(Date.now())
   }
 }

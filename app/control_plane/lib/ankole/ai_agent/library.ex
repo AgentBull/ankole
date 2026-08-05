@@ -458,15 +458,46 @@ defmodule Ankole.AIAgent.Library do
   """
   @spec skill_overlay(String.t(), String.t(), keyword()) :: {:ok, map() | nil} | {:error, term()}
   def skill_overlay(agent_uid, skill_name, opts \\ []) do
+    with {:ok, overlays} <- skill_overlays(agent_uid, [skill_name], opts) do
+      [overlay] = Map.values(overlays)
+      {:ok, overlay}
+    end
+  end
+
+  @doc """
+  Returns active overlays for an enabled Skill set in one registry sync and two batch reads.
+
+  Validation is all-or-nothing: an invalid, missing, or disabled Skill rejects the
+  whole set instead of returning a partial materialization.
+  """
+  @spec skill_overlays(String.t(), [String.t()], keyword()) ::
+          {:ok, %{optional(String.t()) => AgentSkillOverlay.t() | nil}} | {:error, term()}
+  def skill_overlays(agent_uid, skill_names, opts \\ [])
+
+  def skill_overlays(agent_uid, skill_names, opts) when is_list(skill_names) do
     repo = Keyword.get(opts, :repo, Repo)
 
     with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
+         {:ok, skill_names} <- normalize_skill_names(skill_names),
          {:ok, _result} <- sync_agent_skills(agent_uid, opts),
-         {:ok, skill_name} <- SourceReader.normalize_skill_name(skill_name),
-         {:ok, _skill} <- enabled_skill(repo, agent_uid, skill_name, opts) do
-      {:ok, active_skill_overlay(repo, agent_uid, skill_name)}
+         {:ok, agent_plugins} <- AgentPlugins.capabilities_for_agent(agent_uid, opts),
+         {:ok, defaults} <- library_defaults(opts),
+         parent_enabled = Map.new(agent_plugins, &{&1["id"], &1["effective_enabled"]}),
+         {:ok, _skills} <-
+           enabled_skills(repo, agent_uid, skill_names, defaults, parent_enabled) do
+      overlays =
+        AgentSkillOverlay
+        |> where([overlay], overlay.agent_uid == ^agent_uid)
+        |> where([overlay], overlay.skill_name in ^skill_names)
+        |> where([overlay], is_nil(overlay.deleted_at))
+        |> repo.all()
+        |> Map.new(&{&1.skill_name, &1})
+
+      {:ok, Map.new(skill_names, &{&1, Map.get(overlays, &1)})}
     end
   end
+
+  def skill_overlays(_agent_uid, _skill_names, _opts), do: {:error, :invalid_skill_names}
 
   @doc """
   Lists the active skill overlays of one agent, most recently changed first.
@@ -951,6 +982,50 @@ defmodule Ankole.AIAgent.Library do
 
       nil ->
         {:error, :skill_not_found}
+    end
+  end
+
+  defp enabled_skills(repo, agent_uid, skill_names, defaults, parent_enabled) do
+    skills =
+      AgentSkill
+      |> where([skill], skill.agent_uid == ^agent_uid)
+      |> where([skill], skill.skill_name in ^skill_names)
+      |> repo.all()
+      |> Map.new(&{&1.skill_name, &1})
+
+    Enum.reduce_while(skill_names, {:ok, []}, fn skill_name, {:ok, acc} ->
+      case Map.get(skills, skill_name) do
+        %AgentSkill{} = skill ->
+          if effective_skill_enabled?(skill, defaults, parent_enabled) do
+            {:cont, {:ok, [skill | acc]}}
+          else
+            {:halt, {:error, :skill_not_enabled}}
+          end
+
+        nil ->
+          {:halt, {:error, :skill_not_found}}
+      end
+    end)
+  end
+
+  defp normalize_skill_names(skill_names) do
+    skill_names
+    |> Enum.reduce_while({:ok, []}, fn skill_name, {:ok, acc} ->
+      case SourceReader.normalize_skill_name(skill_name) do
+        {:ok, normalized} -> {:cont, {:ok, [normalized | acc]}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, normalized} ->
+        normalized = Enum.reverse(normalized)
+
+        if Enum.uniq(normalized) == normalized,
+          do: {:ok, normalized},
+          else: {:error, :duplicate_skill_name}
+
+      {:error, _reason} = error ->
+        error
     end
   end
 

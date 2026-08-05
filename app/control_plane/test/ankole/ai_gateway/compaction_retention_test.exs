@@ -52,11 +52,76 @@ defmodule Ankole.AIGateway.CompactionRetentionTest do
     assert selected == [user]
   end
 
+  test "selects the newest clarify pair with no user message after it" do
+    {call, output} = clarify_pair("call_1", "Which market?")
+
+    assert [^call, ^output] =
+             CompactionRetention.collect_pending_clarify([
+               user_item("analyze the market"),
+               call,
+               output
+             ])
+  end
+
+  test "returns nothing when a later user message answered the clarify" do
+    {call, output} = clarify_pair("call_1", "Which market?")
+
+    assert [] ==
+             CompactionRetention.collect_pending_clarify([
+               call,
+               output,
+               user_item("A shares")
+             ])
+  end
+
+  test "selects only the newest of several clarify exchanges" do
+    {answered_call, answered_output} = clarify_pair("call_1", "Which market?")
+    {pending_call, pending_output} = clarify_pair("call_2", "Which horizon?")
+
+    assert [^pending_call, ^pending_output] =
+             CompactionRetention.collect_pending_clarify([
+               answered_call,
+               answered_output,
+               user_item("A shares"),
+               pending_call,
+               pending_output
+             ])
+  end
+
+  test "ignores a clarify call without its output and non-clarify calls" do
+    {call, _output} = clarify_pair("call_1", "Which market?")
+
+    assert [] == CompactionRetention.collect_pending_clarify([call])
+
+    assert [] ==
+             CompactionRetention.collect_pending_clarify([
+               %{"type" => "function_call", "name" => "web_search", "call_id" => "call_2"},
+               %{"type" => "function_call_output", "call_id" => "call_2", "output" => "{}"}
+             ])
+  end
+
   defp user_item(text) do
     %{
       "type" => "message",
       "role" => "user",
       "content" => [%{"type" => "input_text", "text" => text}]
     }
+  end
+
+  defp clarify_pair(call_id, question) do
+    call = %{
+      "type" => "function_call",
+      "name" => "clarify",
+      "call_id" => call_id,
+      "arguments" => ~s({"question":"#{question}"})
+    }
+
+    output = %{
+      "type" => "function_call_output",
+      "call_id" => call_id,
+      "output" => ~s({"tool":"clarify","question":"#{question}","choices":[]})
+    }
+
+    {call, output}
   end
 end

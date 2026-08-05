@@ -12,7 +12,12 @@ import {
   symlinkSync,
   writeFileSync
 } from 'node:fs'
-import { runtimeFabricValidateEnvelope, zstdCompressBlock, zstdDecompressBlock } from '@ankole/kernel'
+import {
+  runtimeFabricProtocolVersion,
+  runtimeFabricSealEnvelope,
+  zstdCompressBlock,
+  zstdDecompressBlock
+} from '@ankole/kernel'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createFileTransferLane } from '../src/lanes/file'
@@ -20,10 +25,10 @@ import { runtimeFabricFileProtocol } from '../src/fabric/fabric'
 import {
   ActorEventEnvelopeSchema,
   createEnvelope,
+  decodeEnvelope,
   DurabilityClass,
   encodeEnvelope,
   envelopeHeader,
-  envelopeProtocolVersion,
   EnvelopeSchema,
   jsonBytes,
   jsonObjectFromBytes,
@@ -45,14 +50,21 @@ import type { WorkerConfig } from '../src/worker/config'
 import { prepareActorWorkspace, prepareTurnWorkspace } from '../src/worker/workspace'
 import { actorTurnRefToProto, mailboxUpdatedFromEnvelope, turnStartFromEnvelope } from '../src/lanes/actor_lane'
 import type { TurnStart } from '../src/lanes/actor_lane'
-import { startTurnProgress, turnFailureDetails, type ActiveTurn } from '../src/worker/active_turns'
+import {
+  pushTurnSteering,
+  startTurnProgress,
+  turnFailureDetails,
+  waitForTurnSteering,
+  type ActiveTurn
+} from '../src/worker/active_turns'
 import { BackgroundAgentJobTurnPersistenceError } from '../src/core/codex-runner/turn-recorder'
+import { RPCRejectedError } from '../src/lanes/rpc_lane'
 import { agentHomePaths } from '../src/core/agent-home-paths'
 
-function validatedBytes(envelope: Envelope): Buffer {
-  const bytes = encodeEnvelope(envelope)
-  runtimeFabricValidateEnvelope(bytes)
-  return bytes
+// Runs the same seal the dealer send path applies, so assertions read the
+// header the control plane receives, not the partial header the host built.
+function sealed(envelope: Envelope): Envelope {
+  return decodeEnvelope(runtimeFabricSealEnvelope(encodeEnvelope(envelope)))
 }
 
 describe('@ankole/agent-computer runtime', () => {
@@ -72,8 +84,8 @@ describe('@ankole/agent-computer runtime', () => {
     expect(ready.body.case).toBe('workerReady')
     expect(heartbeat.body.case).toBe('workerHeartbeat')
     expect(capacity.body.case).toBe('workerCapacity')
-    expect(envelopeProtocolVersion).toBe(4)
-    expect(ready.protocolVersion).toBe(envelopeProtocolVersion)
+    expect(runtimeFabricProtocolVersion()).toBe(4)
+    expect(sealed(ready).protocolVersion).toBe(runtimeFabricProtocolVersion())
     expect(ready.body.value).toMatchObject({ incarnationId: 'incarnation-a' })
     expect(heartbeat.body.value).toMatchObject({ incarnationId: 'incarnation-a' })
     expect(capacity.body.value).toMatchObject({ incarnationId: 'incarnation-a' })
@@ -95,9 +107,9 @@ describe('@ankole/agent-computer runtime', () => {
     expect(capacity.body.value.maxTurns).toBe(9)
     expect(capacity.body.value.activeTurns).toBe(0)
     expect(capacity.body.value.availableTurnSlots).toBe(9)
-    expect(validatedBytes(ready)).toBeInstanceOf(Buffer)
-    expect(validatedBytes(heartbeat)).toBeInstanceOf(Buffer)
-    expect(validatedBytes(capacity)).toBeInstanceOf(Buffer)
+    expect(sealed(ready).lane).toBe(Lane.CONTROL)
+    expect(sealed(heartbeat).durability).toBe(DurabilityClass.CONTROL_EPHEMERAL)
+    expect(sealed(capacity).lane).toBe(Lane.CONTROL)
   })
 
   it('reports available capacity from configured concurrent turn slots', () => {
@@ -111,11 +123,25 @@ describe('@ankole/agent-computer runtime', () => {
   })
 
   it('classifies exhausted BackgroundAgentJob Turn persistence as retryable worker infrastructure failure', () => {
-    const details = turnFailureDetails(new BackgroundAgentJobTurnPersistenceError(new Error('RPC timed out')))
+    const failure = new BackgroundAgentJobTurnPersistenceError(
+      new RPCRejectedError('checkpoint rejected', {
+        code: 'rpc_handler_failed',
+        details: { failure_id: 'failure-1', retryable: true }
+      })
+    )
+    const details = turnFailureDetails(failure)
 
     expect(details).toMatchObject({
       error_code: 'background_agent_job_turn_persistence_failed',
-      retryable: true
+      retryable: true,
+      aigateway: {
+        code: 'background_agent_job_turn_persistence_failed',
+        details_json: {
+          retryable: true,
+          rpc_code: 'rpc_handler_failed',
+          rpc_details: { failure_id: 'failure-1', retryable: true }
+        }
+      }
     })
   })
 
@@ -146,8 +172,8 @@ describe('@ankole/agent-computer runtime', () => {
       stage: 'llm'
     })
 
-    expect(envelope.lane).toBe(Lane.PROGRESS)
-    expect(envelope.durability).toBe(DurabilityClass.CONTROL_EPHEMERAL)
+    expect(sealed(envelope).lane).toBe(Lane.PROGRESS)
+    expect(sealed(envelope).durability).toBe(DurabilityClass.CONTROL_EPHEMERAL)
     expect(envelope.correlationId).toBe('turn-start-1')
     if (envelope.body.case !== 'workerProgress') throw new Error('expected workerProgress body')
     expect(envelope.body.value).toMatchObject({
@@ -156,7 +182,7 @@ describe('@ankole/agent-computer runtime', () => {
     })
     expect(envelope.body.value.turn).toMatchObject({ actorEventId: turn.actor_event_id })
     expect(jsonObjectFromBytes(envelope.body.value.refsJson, 'refs_json')).toEqual({ stage: 'llm' })
-    expect(validatedBytes(envelope)).toBeInstanceOf(Buffer)
+    expect(sealed(envelope).protocolVersion).toBe(runtimeFabricProtocolVersion())
   })
 
   it('encodes renderer-safe reply presentation progress for the control plane', () => {
@@ -168,19 +194,19 @@ describe('@ankole/agent-computer runtime', () => {
       }
     })
 
-    expect(envelope.lane).toBe(Lane.PROGRESS)
-    expect(envelope.durability).toBe(DurabilityClass.CONTROL_EPHEMERAL)
-    expect(validatedBytes(envelope)).toBeInstanceOf(Buffer)
+    expect(sealed(envelope).lane).toBe(Lane.PROGRESS)
+    expect(sealed(envelope).durability).toBe(DurabilityClass.CONTROL_EPHEMERAL)
+    expect(sealed(envelope).protocolVersion).toBe(runtimeFabricProtocolVersion())
   })
 
   it('reports process drain as ephemeral control traffic', () => {
     const envelope = controlShutdownEnvelope('sigterm')
 
-    expect(envelope.lane).toBe(Lane.CONTROL)
-    expect(envelope.durability).toBe(DurabilityClass.CONTROL_EPHEMERAL)
+    expect(sealed(envelope).lane).toBe(Lane.CONTROL)
+    expect(sealed(envelope).durability).toBe(DurabilityClass.CONTROL_EPHEMERAL)
     if (envelope.body.case !== 'controlShutdown') throw new Error('expected controlShutdown body')
     expect(envelope.body.value.reason).toBe('sigterm')
-    expect(validatedBytes(envelope)).toBeInstanceOf(Buffer)
+    expect(sealed(envelope).protocolVersion).toBe(runtimeFabricProtocolVersion())
   })
 
   it('renews a silent BackgroundAgentJob Turn independently of Codex notifications', async () => {
@@ -189,6 +215,7 @@ describe('@ankole/agent-computer runtime', () => {
       turnStart: { turn: actorTurnRef() } as TurnStart,
       correlationID: 'turn-start-1',
       steeringUpdates: [],
+      steeringWaiters: new Set(),
       disabledSkillNames: [],
       changedSkillNames: [],
       abortController: new AbortController(),
@@ -208,6 +235,36 @@ describe('@ankole/agent-computer runtime', () => {
     const stoppedAt = sent.length
     await Bun.sleep(12)
     expect(sent).toHaveLength(stoppedAt)
+  })
+
+  it('wakes foreground observation without consuming the queued steer update', async () => {
+    const turn = actorTurnRef()
+    const active = {
+      turnStart: { turn } as TurnStart,
+      correlationID: 'turn-start-steering',
+      steeringUpdates: [],
+      steeringWaiters: new Set(),
+      disabledSkillNames: [],
+      changedSkillNames: [],
+      abortController: new AbortController(),
+      controlledStopRequested: false
+    } satisfies ActiveTurn
+
+    const waiting = waitForTurnSteering(active)
+    pushTurnSteering(active, {
+      turn: { ...turn, revision: turn.revision + 1 },
+      actorEvent: {
+        actor_event_id: '00000000-0000-0000-0000-000000000102',
+        queue_sequence: 2,
+        type: 'command.steer',
+        source_event_id: 'steer-source'
+      }
+    })
+
+    await waiting
+    expect(active.steeringUpdates).toHaveLength(1)
+    expect(active.steeringWaiters.size).toBe(0)
+    await expect(waitForTurnSteering(active)).resolves.toBeUndefined()
   })
 
   it('prepares session workspace without projecting enabled skills', () => {
@@ -292,7 +349,7 @@ describe('@ankole/agent-computer runtime', () => {
     expect(() =>
       mailboxUpdatedFromEnvelope(
         createEnvelope({
-          ...envelopeHeader('mailbox-updated-missing-event', Lane.TURN, DurabilityClass.CONTROL_EPHEMERAL),
+          ...envelopeHeader('mailbox-updated-missing-event'),
           body: {
             case: 'mailboxUpdated',
             value: create(MailboxUpdatedSchema, {
@@ -309,7 +366,7 @@ describe('@ankole/agent-computer runtime', () => {
     expect(() =>
       turnStartFromEnvelope(
         createEnvelope({
-          ...envelopeHeader('turn-start-missing-turn', Lane.TURN, DurabilityClass.CONTROL_REPLAYABLE),
+          ...envelopeHeader('turn-start-missing-turn'),
           body: {
             case: 'turnStart',
             value: create(TurnStartSchema, {
@@ -330,7 +387,7 @@ describe('@ankole/agent-computer runtime', () => {
   it('decodes turn runtime environment values from turn_start', () => {
     const turnStart = turnStartFromEnvelope(
       createEnvelope({
-        ...envelopeHeader('turn-start-runtime-env', Lane.TURN, DurabilityClass.CONTROL_REPLAYABLE),
+        ...envelopeHeader('turn-start-runtime-env'),
         body: {
           case: 'turnStart',
           value: create(TurnStartSchema, {
@@ -356,7 +413,7 @@ describe('@ankole/agent-computer runtime', () => {
   it('accepts only the image generation hosted-tool declaration on turn_start', () => {
     const hostedToolsEnvelope = (hostedTools: unknown): Envelope =>
       createEnvelope({
-        ...envelopeHeader('turn-start-hosted-tools', Lane.TURN, DurabilityClass.CONTROL_REPLAYABLE),
+        ...envelopeHeader('turn-start-hosted-tools'),
         body: {
           case: 'turnStart',
           value: create(TurnStartSchema, {
@@ -393,7 +450,7 @@ describe('@ankole/agent-computer runtime', () => {
     }, request)
 
     expect(sent).toHaveLength(1)
-    expect(sent[0]!.lane).toBe(Lane.RPC)
+    expect(sealed(sent[0]!).lane).toBe(Lane.RPC)
     expect(sent[0]!.correlationId).toBe('worker-rpc-1')
     const body = sent[0]!.body
     if (body.case !== 'rpcError') throw new Error('expected rpcError body')
@@ -402,7 +459,7 @@ describe('@ankole/agent-computer runtime', () => {
       code: 'unknown_rpc_method'
     })
     expect(jsonObjectFromBytes(body.value.detailsJson, 'details_json')).toEqual({ method: 'test.probe' })
-    expect(validatedBytes(sent[0]!)).toBeInstanceOf(Buffer)
+    expect(sealed(sent[0]!).protocolVersion).toBe(runtimeFabricProtocolVersion())
   })
 
   it('returns RPC errors for unknown worker methods', async () => {
@@ -426,7 +483,7 @@ describe('@ankole/agent-computer runtime', () => {
       code: 'unknown_rpc_method'
     })
     expect(jsonObjectFromBytes(body.value.detailsJson, 'details_json')).toEqual({ method: 'worker.unknown' })
-    expect(validatedBytes(sent[0]!)).toBeInstanceOf(Buffer)
+    expect(sealed(sent[0]!).protocolVersion).toBe(runtimeFabricProtocolVersion())
   })
 
   it('handles worker file lane WRITE and READ through zstd DATA credit', async () => {

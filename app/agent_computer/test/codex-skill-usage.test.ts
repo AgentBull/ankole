@@ -63,6 +63,46 @@ describe('@ankole/agent-computer Codex Skill usage', () => {
     expect(tracker.observeItem({ type: 'mcpToolCall', server: 'shared', tool: 'open' })).toEqual([])
   })
 
+  it('marks the browser Skill used when a command invokes the runtime-injected CLI', () => {
+    const tracker = new CodexSkillUsageTracker({
+      availableSkillNames: ['browser', 'pdf'],
+      mcpServers: []
+    })
+
+    expect(
+      tracker.observeItem({
+        type: 'commandExecution',
+        cwd: '/jobs/1000',
+        command: "ankole-browser open 'https://example.com' && ankole-browser snapshot -i"
+      })
+    ).toEqual(['browser'])
+
+    const bounded = new CodexSkillUsageTracker({ availableSkillNames: ['browser'], mcpServers: [] })
+    expect(
+      bounded.observeItem({
+        type: 'commandExecution',
+        cwd: '/jobs/1000',
+        command: 'cat ankole-browser-notes.md'
+      })
+    ).toEqual([])
+    expect(
+      bounded.observeItem({
+        type: 'commandExecution',
+        cwd: '/jobs/1000',
+        command: '/usr/local/bin/ankole-browser open https://example.com'
+      })
+    ).toEqual(['browser'])
+
+    const withoutBrowser = new CodexSkillUsageTracker({ availableSkillNames: ['pdf'], mcpServers: [] })
+    expect(
+      withoutBrowser.observeItem({
+        type: 'commandExecution',
+        cwd: '/jobs/1000',
+        command: 'ankole-browser open https://example.com'
+      })
+    ).toEqual([])
+  })
+
   it('rebuilds bounded prior-attempt usage without marking every available Skill as used', () => {
     const tracker = new CodexSkillUsageTracker({
       availableSkillNames: ['docx', 'pdf'],

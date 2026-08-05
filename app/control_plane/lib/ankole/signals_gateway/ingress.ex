@@ -6,6 +6,13 @@ defmodule Ankole.SignalsGateway.Ingress do
   resolves the binding route, constructs typed ingress facts, applies binding
   filters, updates the provider mirror, manages inbound batches, and appends
   actor-facing events when the accepted fact should wake an actor.
+
+  The pipeline order is deliberate: a signal becomes a normalized fact first,
+  so binding filters compare durable, atom-free fields instead of raw provider
+  maps, and admission is decided before any DB write, so a rejected signal
+  leaves no trace. The accept work then runs in one Repo transaction. A stored
+  plan or a second queue would only add a second source of truth and a
+  recovery path nobody needs.
   """
 
   alias Ankole.SignalsGateway.ActorRuntime.TurnRetry
@@ -16,8 +23,9 @@ defmodule Ankole.SignalsGateway.Ingress do
   alias Ankole.SignalsGateway.Bindings
   alias Ankole.SignalsGateway.Commands
   alias Ankole.SignalsGateway.FactNormalizer
+  alias Ankole.SignalsGateway.BindingFilters
   alias Ankole.SignalsGateway.InboundBatches
-  alias Ankole.SignalsGateway.IngressPipeline
+  alias Ankole.SignalsGateway.IngressFact
   alias Ankole.SignalsGateway.Projection
   alias Ankole.SignalsGateway.ReplyReference
   alias Ankole.SignalsGateway.ReplyInteractions
@@ -46,9 +54,9 @@ defmodule Ankole.SignalsGateway.Ingress do
     now = Keyword.get(options, :now, DateTime.utc_now(:microsecond))
 
     with {:ok, binding} <- Bindings.get_binding(agent_uid, binding_name),
-         {:ok, fact} <-
-           IngressPipeline.construct(:entry, binding, input, now, &FactNormalizer.entry/3),
-         :match <- IngressPipeline.filter(binding, fact) do
+         {:ok, attrs} <- FactNormalizer.entry(binding, input, now),
+         {:ok, fact} <- IngressFact.entry(attrs),
+         :match <- BindingFilters.match?(binding.filters, fact) do
       binding
       |> accept_entry(fact, now)
       |> TurnRetry.dispatch_retry_controls()
@@ -91,9 +99,9 @@ defmodule Ankole.SignalsGateway.Ingress do
     now = Keyword.get(options, :now, DateTime.utc_now(:microsecond))
 
     with {:ok, binding} <- Bindings.get_binding(agent_uid, binding_name),
-         {:ok, fact} <-
-           IngressPipeline.construct(:reaction, binding, input, now, &FactNormalizer.reaction/3),
-         :match <- IngressPipeline.filter(binding, fact) do
+         {:ok, attrs} <- FactNormalizer.reaction(binding, input, now),
+         {:ok, fact} <- IngressFact.reaction(attrs),
+         :match <- BindingFilters.match?(binding.filters, fact) do
       Repo.transact(fn repo ->
         # Advisory lock on the entry key serializes concurrent reaction folds for
         # the same message so two simultaneous add/removes can't clobber the
@@ -128,9 +136,9 @@ defmodule Ankole.SignalsGateway.Ingress do
     now = Keyword.get(options, :now, DateTime.utc_now(:microsecond))
 
     with {:ok, binding} <- Bindings.get_binding(agent_uid, binding_name),
-         {:ok, fact} <-
-           IngressPipeline.construct(:action, binding, input, now, &FactNormalizer.action/3),
-         :match <- IngressPipeline.filter(binding, fact) do
+         {:ok, attrs} <- FactNormalizer.action(binding, input, now),
+         {:ok, fact} <- IngressFact.action(attrs),
+         :match <- BindingFilters.match?(binding.filters, fact) do
       Repo.transact(fn repo ->
         # Keep the same channel -> actor-session -> ActorEvent lock order as
         # ordinary message ingress. Managed callbacks take the session lock so
@@ -169,8 +177,9 @@ defmodule Ankole.SignalsGateway.Ingress do
 
     with {:ok, binding} <- Bindings.get_binding(agent_uid, binding_name),
          constructor <- lifecycle_constructor(provider_lifecycle_kind),
-         {:ok, fact} <- IngressPipeline.construct(:lifecycle, binding, input, now, constructor),
-         :match <- IngressPipeline.filter(binding, fact) do
+         {:ok, attrs} <- constructor.(binding, input, now),
+         {:ok, fact} <- IngressFact.lifecycle(attrs),
+         :match <- BindingFilters.match?(binding.filters, fact) do
       binding
       |> accept_lifecycle(fact, now)
       |> TurnRetry.dispatch_retry_controls()

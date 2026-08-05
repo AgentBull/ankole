@@ -143,7 +143,8 @@ Each Job then performs only thread-owned selection:
 1. Resolve its projected Plugin IDs and Background-eligible members against the
    current catalog.
 2. Atomically rebuild a stable Job package view that contains only those
-   members and their current database-backed overlays.
+   members and their current database-backed overlays. Initial overlay
+   resolution uses one complete RuntimeFabric batch.
 3. Pass the Job package roots through
    `thread/start.selectedCapabilityRoots` with environment ID `local`.
 

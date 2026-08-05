@@ -103,7 +103,6 @@ describe('@ankole/agent-computer create_background_job tool', () => {
 
     expect(jsonSchema.properties.model_profile.enum).toEqual(['deepseek', 'kimi'])
     expect(jsonSchema.required).not.toContain('model_profile')
-    expect(tool.description).toContain('kimi (Long-context coding.)')
     expect(tool.schema.safeParse({ title: 'Research', task: 'Do it.', model_profile: 'coding' }).success).toBe(false)
 
     await tool.execute(

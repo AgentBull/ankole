@@ -14,7 +14,7 @@
  */
 
 import { Buffer } from 'node:buffer'
-import { createHash, randomBytes } from 'node:crypto'
+import { createHash } from 'node:crypto'
 import {
   safeJsonParse as safeJSONParse,
   safeJsonStringify as safeJSONStringify,
@@ -25,6 +25,7 @@ import { errorMessage } from '../common/errors'
 import {
   assistantText,
   createModelTurn,
+  describeTruncatedToolCalls,
   MAX_TOOL_ARGUMENT_BYTES,
   validateToolArgumentsWithRepair,
   type Message,
@@ -70,6 +71,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
   let sawToolResults = false
   let nudgedEmptyAfterTools = false
   let repairedFinalResponse = false
+  let salvagedTruncatedToolCall = false
   const repeatedFailureState: RepeatedToolFailureState = { count: 0 }
   const maxModelIterations = config.maxModelIterations
   const toolByName = config.tools?.length ? agentToolMap(config.tools) : undefined
@@ -93,7 +95,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
       payload: {
         operation_id: 'turn',
         state: 'working',
-        label: '正在理解请求'
+        label_key: 'signals_gateway.reply.activity.turn_understanding'
       }
     })
 
@@ -198,6 +200,25 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
           continue
         }
 
+        const truncatedToolCalls = latestAssistant.truncatedToolCalls
+        if (!salvagedTruncatedToolCall && truncatedToolCalls?.length) {
+          // The same request would hit the same limit, so the retry only helps
+          // when the model learns where its arguments stopped.
+          salvagedTruncatedToolCall = true
+          config.logger?.warning(
+            'worker.tool_call_truncated',
+            'worker discarded tool calls cut off by the output limit',
+            {
+              model_iteration: modelIterations,
+              response_id: latestResponseID,
+              tool_names: truncatedToolCalls.map(call => call.name),
+              cut_fields: truncatedToolCalls.map(call => call.cutField ?? '')
+            }
+          )
+          pendingMessages = [{ role: 'user', content: describeTruncatedToolCalls(truncatedToolCalls) }]
+          continue
+        }
+
         if (!repairedFinalResponse && latestAssistant.stopReason === 'stop') {
           const repairMessage = config.repairFinalResponse?.(latestAssistant)
           if (repairMessage) {
@@ -298,7 +319,10 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
         payload: {
           operation_id: 'turn',
           state: 'working',
-          label: '正在整理结果'
+          label_key:
+            steeringMessages.length > 0
+              ? 'signals_gateway.reply.activity.turn_reprocessing'
+              : 'signals_gateway.reply.activity.turn_finishing'
         }
       })
     }
@@ -547,7 +571,7 @@ async function executeToolCall(
         role: 'tool',
         toolCallID: toolCall.id,
         toolCallType: toolCall.type,
-        result: toolOutputForCaller(formatToolError(message), toolCall.caller),
+        result: formatToolError(message),
         ...(toolCall.caller ? { caller: toolCall.caller } : {})
       },
       followUpMessages: [],
@@ -576,7 +600,7 @@ async function executeToolCall(
         role: 'tool',
         toolCallID: toolCall.id,
         toolCallType: toolCall.type,
-        result: toolOutputForCaller(formatToolError(message), toolCall.caller),
+        result: formatToolError(message),
         ...(toolCall.caller ? { caller: toolCall.caller } : {})
       },
       followUpMessages: [],
@@ -619,7 +643,7 @@ async function executeToolCall(
         role: 'tool',
         toolCallID: toolCall.id,
         toolCallType: toolCall.type,
-        result: toolOutputForCaller(formatToolError(message), toolCall.caller),
+        result: formatToolError(message),
         ...(toolCall.caller ? { caller: toolCall.caller } : {})
       },
       followUpMessages: [],
@@ -715,7 +739,7 @@ async function executeToolCall(
       role: 'tool',
       toolCallID: toolCall.id,
       toolCallType: toolCall.type,
-      result: toolOutputForCaller(resultText || safeJSONStringify(toolResult.details), toolCall.caller),
+      result: resultText || safeJSONStringify(toolResult.details),
       ...(toolCall.caller ? { caller: toolCall.caller } : {})
     },
     followUpMessages,
@@ -798,7 +822,7 @@ function presentationEmitter(config: AgentLoopConfig): PresentationEmitter {
  * suppress its row with `null`; raw arguments remain inside the trace boundary.
  */
 function toolActivity(toolCall: ToolCall, tool: AgentTool, parsedArgs: unknown): JSONObject | null {
-  let described: string | null | undefined
+  let described: ReturnType<AgentTool['describeActivity']> | undefined
   try {
     described = tool.describeActivity(parsedArgs)
   } catch {
@@ -806,11 +830,10 @@ function toolActivity(toolCall: ToolCall, tool: AgentTool, parsedArgs: unknown):
   }
 
   if (described === null) return null
-  const label = described?.trim() || '处理请求'
 
   return {
     operation_id: toolCall.id,
-    label,
+    ...activityDescriptionPayload(described),
     consequential: tool.isDestructive === true
   }
 }
@@ -829,31 +852,27 @@ function completedToolActivity(
 
   try {
     const described = tool.describeCompletedActivity(parsedArgs, details)
-    const label = described?.trim()
-    return label ? { ...activity, label } : activity
+    return described ? { ...activity, ...activityDescriptionPayload(described) } : activity
   } catch {
     return activity
   }
 }
 
+function activityDescriptionPayload(description: ReturnType<AgentTool['describeActivity']> | undefined): JSONObject {
+  if (typeof description === 'string') {
+    const label = description.trim()
+    return label ? { label } : { label_key: 'signals_gateway.reply.activity.processing' }
+  }
+
+  if (!description) return { label_key: 'signals_gateway.reply.activity.processing' }
+  return {
+    label_key: description.key,
+    ...(description.bindings ? { label_bindings: description.bindings } : {})
+  }
+}
+
 function formatToolError(message: string): string {
   return `${message}\n${TOOL_ERROR_RECOVERY_HINT}`
-}
-
-/**
- * Adds a nonce-bearing trust boundary around tool text before it is stored back
- * into the model transcript. A malicious page/file/command output can include a
- * fake closing delimiter, but it cannot predict the per-call nonce.
- */
-function wrapUntrustedToolOutput(text: string): string {
-  const nonce = randomBytes(8).toString('hex')
-  return `<ankole_untrusted_tool_output nonce="${nonce}">\n${text}\n</ankole_untrusted_tool_output nonce="${nonce}">`
-}
-
-function toolOutputForCaller(text: string, caller: ToolCall['caller']): string {
-  // AIGateway removes nested program outputs from the model transcript and
-  // sends them only to the isolated program runtime. Keep the value decodable.
-  return caller?.type === 'program' ? text : wrapUntrustedToolOutput(text)
 }
 
 function repeatedToolFailureNudges(results: ExecutedToolCall[], state: RepeatedToolFailureState): UserMessage[] {

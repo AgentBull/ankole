@@ -2,7 +2,6 @@
   "name": "@ankole/kernel",
   "version": "0.1.0",
   "private": true,
-  "type": "commonjs",
   "license": "MIT",
   "files": [
     "README.md",
@@ -10,6 +9,7 @@
     "main.js",
     "index.d.ts"
   ],
+  "type": "commonjs",
   "main": "./index.js",
   "types": "./index.d.ts",
   "scripts": {

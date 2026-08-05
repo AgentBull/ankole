@@ -38,6 +38,18 @@ export declare function genericHash(data: Buffer): string
  */
 export declare function runtimeFabricValidateEnvelope(bytes: Buffer): void
 
+/**
+ * Seals host-encoded envelope bytes for the wire.
+ *
+ * The kernel writes lane, durability, and protocol version from the body,
+ * then validates the result. The dealer send path applies the same seal;
+ * this export lets host tests observe the sealed header.
+ */
+export declare function runtimeFabricSealEnvelope(bytes: Buffer): Buffer
+
+/** Returns the only RuntimeFabric protocol version this kernel speaks. */
+export declare function runtimeFabricProtocolVersion(): number
+
 /** Evaluates a SignalsGateway CEL admission filter. */
 export declare function signalsGatewayFilterMatch(filterSource: string, context: any): boolean
 

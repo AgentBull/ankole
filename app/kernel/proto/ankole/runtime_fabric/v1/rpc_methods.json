@@ -328,7 +328,7 @@
     "scope": "turn",
     "effect": "read",
     "request_type": "ankole.runtime_fabric.v1.SkillOverlayResolveRequest",
-    "response_type": "ankole.runtime_fabric.v1.SkillOverlayResponse"
+    "response_type": "ankole.runtime_fabric.v1.SkillOverlayResolveResponse"
   },
   {
     "method": "webhook.endpoint.cancel",

@@ -6,6 +6,7 @@ import type {
   ResponseOutputMessage,
   Response as OpenAIResponse
 } from 'openai/resources/responses/responses'
+import { readTruncatedToolCall, type TruncatedToolCall } from './partial-tool-input'
 import type { AssistantMessage, ModelCallResult, ModelUsage, ResponseToolCall, StopReason } from './types'
 
 export class AIGatewayWebSocketError extends Error {
@@ -80,12 +81,21 @@ export function parseOutputItems(
   }
 
   const incompleteToolCall = observedToolCalls.some(call => !completedToolCall(call))
-  const effectiveTerminalStatus = incompleteToolCall ? 'error' : terminalStatus
+  // A declared terminal already explains an incomplete call, and `length` in
+  // particular names a cause the same request would reproduce. Only an
+  // undeclared terminal turns incompleteness into an error of its own.
+  const effectiveTerminalStatus = terminalStatus ?? (incompleteToolCall ? 'error' : undefined)
   const toolCalls = effectiveTerminalStatus === undefined ? observedToolCalls.filter(completedToolCall) : []
   const text = textParts.join('') || textFallback
   const stopReason = effectiveTerminalStatus ?? (toolCalls.length > 0 ? 'toolUse' : 'stop')
   const effectiveErrorMessage =
-    errorMessage ?? (incompleteToolCall ? 'AIGateway response ended with an incomplete tool call' : undefined)
+    errorMessage ??
+    (effectiveTerminalStatus === 'error' && incompleteToolCall
+      ? 'AIGateway response ended with an incomplete tool call'
+      : undefined)
+  // Calls that the output limit discarded. They are never executable; they
+  // only tell the model where its previous attempt stopped.
+  const truncatedToolCalls = stopReason === 'length' ? observedToolCalls.map(truncatedToolCallOf) : []
   const message: AssistantMessage = {
     role: 'assistant',
     content: text ? [{ type: 'text', text }] : [],
@@ -103,7 +113,8 @@ export function parseOutputItems(
     usage,
     stopReason,
     model: modelName,
-    ...(effectiveErrorMessage ? { errorMessage: effectiveErrorMessage } : {})
+    ...(effectiveErrorMessage ? { errorMessage: effectiveErrorMessage } : {}),
+    ...(truncatedToolCalls.length > 0 ? { truncatedToolCalls } : {})
   }
 
   return { message, toolCalls, hasToolCalls: toolCalls.length > 0 }
@@ -130,6 +141,16 @@ function responseTerminalProjection(response: OpenAIResponse): {
   }
 
   return {}
+}
+
+function truncatedToolCallOf(call: ResponseToolCall): TruncatedToolCall {
+  const value = call as unknown as JSONObject
+  const args = call.type === 'custom_tool_call' ? value.input : value.arguments
+  return readTruncatedToolCall({
+    name: stringValue(value.name) ?? 'unknown',
+    ...(call.namespace ? { namespace: call.namespace } : {}),
+    arguments: stringValue(args) ?? ''
+  })
 }
 
 function completedToolCall(call: ResponseToolCall): boolean {

@@ -146,9 +146,33 @@ defmodule Ankole.Schedule.Store do
     |> repo.one()
   end
 
-  @spec reject_deleted(CronSchedule.t()) :: :ok | {:error, :cron_schedule_deleted}
-  def reject_deleted(%CronSchedule{status: "deleted"}), do: {:error, :cron_schedule_deleted}
-  def reject_deleted(%CronSchedule{}), do: :ok
+  @spec reject_terminal(CronSchedule.t()) ::
+          :ok | {:error, :cron_schedule_deleted | :cron_schedule_completed}
+  def reject_terminal(%CronSchedule{status: "deleted"}), do: {:error, :cron_schedule_deleted}
+  def reject_terminal(%CronSchedule{status: "completed"}), do: {:error, :cron_schedule_completed}
+  def reject_terminal(%CronSchedule{}), do: :ok
+
+  @doc """
+  Counts the recurrence's consumed due slots.
+
+  A slot is consumed when its scheduled fire was claimed, whatever happened
+  next: `firing`, `fired`, and `failed` rows all count once, while retries of
+  one slot reuse its row and never count again. Manually requested fires are
+  outside the recurrence and do not count. This is what an occurrence `count`
+  bound measures.
+  """
+  @spec count_consumed_cron_slots(module(), Ecto.UUID.t()) :: non_neg_integer()
+  def count_consumed_cron_slots(repo, cron_schedule_id) do
+    ScheduledEvent
+    |> where([event], event.kind == "cron_fire")
+    |> where([event], event.cron_schedule_id == ^cron_schedule_id)
+    |> where([event], event.status in ["firing", "fired", "failed"])
+    |> where(
+      [event],
+      fragment("COALESCE(?->>'trigger', 'scheduled') = 'scheduled'", event.wake_payload)
+    )
+    |> repo.aggregate(:count)
+  end
 
   @spec cron_source_event_id(Ecto.UUID.t(), DateTime.t()) :: String.t()
   def cron_source_event_id(cron_schedule_id, %DateTime{} = slot_at) do

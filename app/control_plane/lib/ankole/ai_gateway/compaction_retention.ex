@@ -1,9 +1,16 @@
 defmodule Ankole.AIGateway.CompactionRetention do
   @moduledoc """
-  Selects verbatim user originals to replay alongside compaction summaries.
+  Selects verbatim originals to replay alongside compaction summaries.
+
+  Two selections exist. User originals replay recent user messages inside a
+  token budget. The pending clarify pair replays the newest `clarify` exchange
+  whose answer has not yet entered the history, because the next user message
+  answers that question and stays uninterpretable without it.
   """
 
   alias Ankole.AIGateway.CompactionRender
+
+  @clarify_tool "clarify"
 
   @spec collect_user_originals([map()], pos_integer()) :: {[map()], non_neg_integer()}
   def collect_user_originals(items, budget_tokens)
@@ -32,6 +39,41 @@ defmodule Ankole.AIGateway.CompactionRetention do
   end
 
   def collect_user_originals(_items, _budget_tokens), do: {[], 0}
+
+  @doc """
+  Selects the newest still-unanswered `clarify` call/output pair.
+
+  A clarify question ends its turn, and the answer arrives as a later user
+  message. When compaction folds the question while the answer sits in the
+  retained tail or the current input, the model reads an answer to an invisible
+  question. This returns the newest clarify pair with no user message after it,
+  so the caller can replay it verbatim; any later user message closes the
+  exchange and the summary alone carries it. The pair is returned together to
+  keep call/output pairing valid, and it stays unbudgeted because the clarify
+  tool contract bounds the question and choices.
+  """
+  @spec collect_pending_clarify([map()]) :: [map()]
+  def collect_pending_clarify(items) when is_list(items) do
+    items
+    |> Enum.reduce(nil, fn
+      %{"type" => "function_call", "name" => @clarify_tool, "call_id" => call_id} = call, _pending
+      when is_binary(call_id) and call_id != "" ->
+        {call, call_id, nil}
+
+      %{"type" => "function_call_output", "call_id" => call_id} = output, {call, pending_id, nil}
+      when call_id == pending_id ->
+        {call, pending_id, output}
+
+      item, pending ->
+        if user_original?(item), do: nil, else: pending
+    end)
+    |> case do
+      {call, _call_id, %{} = output} -> [call, output]
+      _incomplete_or_answered -> []
+    end
+  end
+
+  def collect_pending_clarify(_items), do: []
 
   defp user_original?(%{"role" => "user"} = item), do: Map.get(item, "type") in [nil, "message"]
   defp user_original?(_item), do: false

@@ -777,6 +777,16 @@ defmodule Ankole.SignalsGateway.Actors do
     end
   end
 
+  @doc false
+  @spec next_ready_steer_event(String.t(), String.t(), DateTime.t()) :: ActorEvent.t() | nil
+  def next_ready_steer_event(agent_uid, session_id, now \\ DateTime.utc_now(:microsecond)) do
+    agent_uid
+    |> ready_event_candidates(session_id, now)
+    |> where([input, _delivery], input.type == "command.steer")
+    |> limit(1)
+    |> Repo.one()
+  end
+
   defp ready_event_candidates(agent_uid, session_id, now) do
     delivery_states = ["created", "sent", "accepted"]
 

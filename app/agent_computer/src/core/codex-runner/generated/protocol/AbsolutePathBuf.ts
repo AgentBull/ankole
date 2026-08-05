@@ -11,4 +11,4 @@
  * deserialization will fail unless the path being deserialized is already
  * absolute.
  */
-export type AbsolutePathBuf = string;
+export type AbsolutePathBuf = string

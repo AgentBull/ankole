@@ -12,8 +12,8 @@ import {
   materializeCodexConfig,
   refreshCodexAgentRuntimeCredential,
   resetCodexAgentRuntimeConfig
-} from '../src/tools/codex/config'
-import type { CodexRuntimeConfig } from '../src/tools/codex/runtime-config'
+} from '../src/core/codex-runner/agent-home-config'
+import type { CodexRuntimeConfig } from '../src/core/codex-runner/runtime-config'
 
 function aigatewayRuntime(): CodexRuntimeConfig {
   return {
@@ -29,6 +29,12 @@ function aigatewayRuntime(): CodexRuntimeConfig {
         nested: { preserved: true }
       },
       supportsParallelToolCalls: true,
+      inputModalities: ['text'],
+      visionFallback: {
+        selector: 'openrouter-vision/google/gemini-3-flash-preview',
+        providerOptions: {},
+        inputModalities: ['text', 'image']
+      },
       modelReasoningEffort: 'xhigh'
     }
   }
@@ -153,7 +159,13 @@ describe('@ankole/agent-computer Codex config', () => {
           reasoningEffort: 'xhigh',
           nested: { preserved: true }
         },
-        supports_parallel_tool_calls: true
+        supports_parallel_tool_calls: true,
+        input_modalities: ['text'],
+        vision_fallback: {
+          selector: 'openrouter-vision/google/gemini-3-flash-preview',
+          provider_options: {},
+          input_modalities: ['text', 'image']
+        }
       })
       expect(threadConfig.model_reasoning_effort).toBe('xhigh')
       expect(threadConfig.shell_environment_policy).toEqual({ inherit: 'all', set: { JOB: 'one' } })

@@ -5,7 +5,15 @@ import {
   AutomationJobRunResponseSchema,
   RuntimeSkillSummarySchema
 } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
-import { DurabilityClass, Lane, RPCRequestSchema, type Envelope } from '../src/fabric/envelope_proto'
+import {
+  decodeEnvelope,
+  DurabilityClass,
+  encodeEnvelope,
+  Lane,
+  RPCRequestSchema,
+  type Envelope
+} from '../src/fabric/envelope_proto'
+import { runtimeFabricSealEnvelope } from '@ankole/kernel'
 import { handleWorkerRPCRequest, rpcMethods } from '../src/lanes/rpc_lane'
 
 describe('automation job worker RPC', () => {
@@ -59,7 +67,8 @@ describe('automation job worker RPC', () => {
     )
 
     expect(sent).toHaveLength(1)
-    expect(sent[0]).toMatchObject({
+    // The kernel seals the reply at send time; assert the wire header shape.
+    expect(decodeEnvelope(runtimeFabricSealEnvelope(encodeEnvelope(sent[0]!)))).toMatchObject({
       correlationId: 'automation-run-request',
       lane: Lane.RPC,
       durability: DurabilityClass.CONTROL_EPHEMERAL

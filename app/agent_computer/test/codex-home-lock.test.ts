@@ -7,7 +7,7 @@ import {
   CODEX_LOGS2_DATABASE_NAMES,
   codexHomeLockedCommandArgv,
   codexHomeLockedLogsDeleteArgv
-} from '../src/tools/codex/codex-home-lock'
+} from '../src/core/codex-runner/codex-home-lock'
 
 const previousFlockBinary = process.env.ANKOLE_FLOCK_BINARY
 

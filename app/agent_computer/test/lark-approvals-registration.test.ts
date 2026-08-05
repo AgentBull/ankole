@@ -6,7 +6,7 @@ import {
 } from '../../library/agent-plugins/lark/skills/lark-approvals/scripts/app-registration'
 
 describe('Lark PersonalAgent app registration', () => {
-  it('starts the same PersonalAgent registration protocol as lark-cli v1.0.69', async () => {
+  it('starts the same PersonalAgent registration protocol as lark-cli v1.0.84', async () => {
     const calls: Array<{ url: string; body: string }> = []
     const fetcher = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
       calls.push({ url: input.toString(), body: String(init?.body) })
@@ -34,7 +34,7 @@ describe('Lark PersonalAgent app registration', () => {
       interval: 7
     })
     expect(result.verification_url).toBe(
-      'https://open.larksuite.com/page/cli?user_code=user-code&lpv=1.0.69&ocv=1.0.69&from=cli'
+      'https://open.larksuite.com/page/cli?user_code=user-code&lpv=1.0.84&ocv=1.0.84&from=cli'
     )
   })
 

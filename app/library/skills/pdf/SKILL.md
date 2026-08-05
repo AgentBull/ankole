@@ -1,6 +1,6 @@
 ---
 name: pdf
-description: "Create, check, edit, and read PDF files. Use when a deliverable must ship as a PDF, when a generated PDF needs verification, when an existing PDF needs a text correction, or when an inbound PDF needs its text extracted or its scanned pages triaged for OCR."
+description: "Create, check, edit, and read PDF files. Use when a deliverable must ship as a PDF, or when an inbound PDF needs its text extracted or its scanned pages triaged for OCR."
 default_enabled: true
 category: productivity
 tags: [PDF, Documents, Publishing, Productivity]

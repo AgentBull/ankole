@@ -1,8 +1,8 @@
 ---
 name: jupyter-live-kernel
-description: Use for iterative Python via a live Jupyter notebook kernel, especially data science, DataFrame inspection, notebook editing, and stateful API exploration. Prefer a one-shot Python process for stateless scripts.
+description: Use for iterative Python via a live Jupyter notebook kernel, especially data science, DataFrame inspection, and stateful API exploration. Prefer a one-shot Python process for stateless scripts.
 default_enabled: true
-ankole-runtime: background_job
+ankole-runtime: main
 tags:
   - python
   - jupyter

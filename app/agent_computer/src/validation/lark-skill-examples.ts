@@ -1,7 +1,7 @@
 import { readdir, readFile } from 'node:fs/promises'
 import { join, relative } from 'node:path'
 
-export const supportedLarkCLIVersion = '1.0.69'
+export const supportedLarkCLIVersion = '1.0.84'
 
 export interface LarkCommandExample {
   file: string
@@ -303,7 +303,7 @@ function validateRawAPIExample(example: LarkCommandExample, run: CommandRunner):
     ])
 
     if (result.exitCode !== 0) return [`raw API bot dry-run failed: ${oneLine(result.output)}`]
-    if (!result.output.includes('"as": "bot"')) return ['raw API dry-run did not select bot identity']
+    if (!result.output.includes('"identity": "bot"')) return ['raw API dry-run did not select bot identity']
     return []
   }
 
@@ -319,7 +319,7 @@ function validateRawAPIExample(example: LarkCommandExample, run: CommandRunner):
   const result = run(['api', method, path, '--as', 'bot', '--dry-run', '--format', 'json'])
 
   if (result.exitCode !== 0) return [`raw API bot dry-run failed: ${oneLine(result.output)}`]
-  if (!result.output.includes('"as": "bot"')) return ['raw API dry-run did not select bot identity']
+  if (!result.output.includes('"identity": "bot"')) return ['raw API dry-run did not select bot identity']
   return []
 }
 

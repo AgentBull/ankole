@@ -7,6 +7,7 @@ tags: [lark, im, contact, calendar, vc, minutes]
 metadata:
   upstream: https://github.com/larksuite/cli/tree/v1.0.69/skills
   upstream_tag: v1.0.69
+  validated_against: v1.0.84
   modified_for: Ankole bot-only Agent Plugin runtime
 ---
 
@@ -32,7 +33,9 @@ Before the first command, read [references/bot-runtime.md](references/bot-runtim
 
 ## Completeness contract
 
-The curated references cover common workflows, but they do not freeze the CLI surface. For any IM, Contact, Calendar, VC, or Minutes operation:
+Every `lark-cli` command line shown in this skill's references is validated against the image's pinned CLI version at build time. Run a referenced command directly with your values; do not re-verify it with `--help` first.
+
+The references do not freeze the CLI surface. For an IM, Contact, Calendar, VC, or Minutes operation the references do not cover:
 
 1. Run `lark-cli <service> --help` to find the shortcut or typed resource.
 2. Run command-level `--help` and require that the identity line includes `bot`.

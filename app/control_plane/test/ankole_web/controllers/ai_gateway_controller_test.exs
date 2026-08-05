@@ -129,7 +129,8 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
           "reasoningEffort" => "xhigh",
           "textVerbosity" => "low"
         },
-        "supports_parallel_tool_calls" => true
+        "supports_parallel_tool_calls" => true,
+        "input_modalities" => ["text"]
       }
       |> Ankole.JSON.encode!()
       |> Base.url_encode64(padding: false)
@@ -702,17 +703,6 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
 
     conn =
       conn
-      |> put_req_header("authorization", "Bearer #{api_key.api_key}")
-      |> get(~p"/api/v1/ai-gateway/web_tools")
-
-    assert %{
-             "web_search" => %{"available" => true, "model" => "web_search.default"},
-             "web_fetch" => %{"available" => true, "model" => "web_fetch.default"}
-           } = json_response(conn, 200)
-
-    conn =
-      conn
-      |> recycle()
       |> put_req_header("authorization", "Bearer #{api_key.api_key}")
       |> post(~p"/api/v1/ai-gateway/web_search", %{
         "model" => "web_search.default",
@@ -1974,7 +1964,8 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
       %{
         "selector" => "openrouter/openai/gpt-5.6-sol",
         "provider_options" => %{"reasoningEffort" => "xhigh"},
-        "supports_parallel_tool_calls" => true
+        "supports_parallel_tool_calls" => true,
+        "input_modalities" => ["text"]
       }
       |> Ankole.JSON.encode!()
       |> Base.url_encode64(padding: false)
@@ -2009,7 +2000,8 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     assert binding == %{
              "selector" => "openrouter/openai/gpt-5.6-sol",
              "provider_options" => %{"reasoningEffort" => "xhigh"},
-             "supports_parallel_tool_calls" => true
+             "supports_parallel_tool_calls" => true,
+             "input_modalities" => ["text"]
            }
   end
 

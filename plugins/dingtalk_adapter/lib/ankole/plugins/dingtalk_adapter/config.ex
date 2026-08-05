@@ -16,6 +16,9 @@ defmodule Ankole.Plugins.DingTalkAdapter.Config do
   alias Ankole.SignalsGateway.Binding
   alias DingTalkOpenAPI.Client
 
+  import Ankole.Plugins.MapHelpers,
+    only: [required_string: 2, optional_string: 3, optional_boolean: 3, integer_between: 5]
+
   @chat_key_pattern ~r/\Asignals_gateway\.dingtalk\.bindings\.[A-Za-z0-9_.:-]+\z/
   @identity_key_pattern ~r/\Aprincipals\.identity_providers\.dingtalk\.[A-Za-z0-9_.:-]+\z/
   @group_message_modes ["addressed_only"]
@@ -241,57 +244,12 @@ defmodule Ankole.Plugins.DingTalkAdapter.Config do
     end)
   end
 
-  defp required_string(map, key) do
-    case MapHelpers.fetch_value(map, key) do
-      value when is_binary(value) ->
-        case String.trim(value) do
-          "" -> {:error, {:missing, key}}
-          trimmed -> {:ok, trimmed}
-        end
-
-      _value ->
-        {:error, {:missing, key}}
-    end
-  end
-
-  defp optional_string(map, key, default) do
-    case MapHelpers.fetch_value(map, key) do
-      value when is_binary(value) ->
-        case String.trim(value) do
-          "" -> {:ok, default}
-          trimmed -> {:ok, trimmed}
-        end
-
-      nil ->
-        {:ok, default}
-
-      _value ->
-        {:error, {:invalid_string, key}}
-    end
-  end
-
   defp enum_string(map, key, values, default) do
     with {:ok, value} <- optional_string(map, key, default) do
       case value in values do
         true -> {:ok, value}
         false -> {:error, {:invalid_enum, key, values}}
       end
-    end
-  end
-
-  defp optional_boolean(map, key, default) do
-    case MapHelpers.fetch_value(map, key) do
-      value when is_boolean(value) -> {:ok, value}
-      nil -> {:ok, default}
-      _value -> {:error, {:invalid_boolean, key}}
-    end
-  end
-
-  defp integer_between(map, key, default, min, max) do
-    case MapHelpers.fetch_value(map, key) do
-      value when is_integer(value) and value >= min and value <= max -> {:ok, value}
-      nil -> {:ok, default}
-      _value -> {:error, {:invalid_integer_range, key, min, max}}
     end
   end
 end

@@ -11,18 +11,24 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SkillOverlayBroker do
   alias Ankole.SignalsGateway.ActorRuntime.TurnRef
 
   @spec handle_resolve(TurnRef.t(), FabricProto.SkillOverlayResolveRequest.t(), map()) ::
-          {:ok, FabricProto.SkillOverlayResponse.t()} | {:error, map()}
+          {:ok, FabricProto.SkillOverlayResolveResponse.t()} | {:error, map()}
   def handle_resolve(
         %TurnRef{} = turn_ref,
         %FabricProto.SkillOverlayResolveRequest{} = request,
         ctx
       ) do
-    with_skill(ctx, request.skill_name, fn skill_name ->
-      case Library.skill_overlay(turn_ref.agent_uid, skill_name) do
-        {:ok, overlay} -> {:ok, response(skill_name, overlay)}
-        {:error, reason} -> error(ctx.request_id, reason, %{"skill_name" => skill_name})
-      end
-    end)
+    case Library.skill_overlays(turn_ref.agent_uid, request.skill_names) do
+      {:ok, overlays} ->
+        responses =
+          overlays
+          |> Enum.sort_by(&elem(&1, 0))
+          |> Enum.map(fn {skill_name, overlay} -> response(skill_name, overlay) end)
+
+        {:ok, %FabricProto.SkillOverlayResolveResponse{overlays: responses}}
+
+      {:error, reason} ->
+        error(ctx.request_id, reason, %{"skill_names" => request.skill_names})
+    end
   end
 
   @spec handle_append(TurnRef.t(), FabricProto.SkillOverlayAppendRequest.t(), map()) ::

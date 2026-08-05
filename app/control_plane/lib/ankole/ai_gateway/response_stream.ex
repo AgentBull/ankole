@@ -22,6 +22,8 @@ defmodule Ankole.AIGateway.ResponseStream do
   alias Ankole.AIGateway.UniversalAIRequest
   alias Ankole.Kernel.UniversalAIClient
 
+  require Ankole.Kernel.UniversalAIClient
+
   @heartbeat_ms 60_000
   @terminal_shutdown_ms 5_000
   @cancel_shutdown_ms 1_000
@@ -605,37 +607,13 @@ defmodule Ankole.AIGateway.ResponseStream do
     {:stop, :normal, cancel_state(state, reason)}
   end
 
+  # All native stream messages enter through one clause. The kernel facade
+  # translates the wire tuples into typed events exactly once, and the state
+  # machine below dispatches on the events; a shape the facade does not know
+  # raises there instead of dead-lettering into the final catch-all.
   @impl true
-  def handle_info(
-        {:universal_ai_client, ref, :ready, meta},
-        %{opening: %{native_stream: %{ref: ref}} = opening} = state
-      ) do
-    promote_open(state, opening.native_stream, meta, opening.context, opening.spec)
-  end
-
-  def handle_info(
-        {:universal_ai_client, ref, :error, reason},
-        %{opening: %{native_stream: %{ref: ref}}} = state
-      ) do
-    begin_open_recovery(state, UniversalAIRequest.normalize_stream_error(reason))
-  end
-
-  def handle_info(
-        {:universal_ai_client, ref, :aborted},
-        %{opening: %{native_stream: %{ref: ref}}} = state
-      ) do
-    begin_open_recovery(state, :stream_aborted)
-  end
-
-  def handle_info(
-        {:universal_ai_client, ref, :done, _summary},
-        %{opening: %{native_stream: %{ref: ref}}} = state
-      ) do
-    begin_open_recovery(state, %{
-      "code" => "provider_stream_closed_without_terminal",
-      "stage" => "open",
-      "message" => "provider stream closed before ready"
-    })
+  def handle_info(message, state) when UniversalAIClient.is_stream_message(message) do
+    native_stream_event(UniversalAIClient.stream_event(message), state)
   end
 
   def handle_info(
@@ -742,56 +720,6 @@ defmodule Ankole.AIGateway.ResponseStream do
   end
 
   def handle_info(
-        {:universal_ai_client, ref, :chunk, _sequence, _kind, _chunk},
-        %{native_stream: %{ref: ref}, semantic: %{terminal?: true}} = state
-      ) do
-    {:noreply, state}
-  end
-
-  # A local task can coexist with a native stream only after that provider
-  # round has produced its terminal fact. Drain any trailing native messages;
-  # the frozen local-effect context is the only fact the task may settle.
-  def handle_info(
-        {:universal_ai_client, ref, :chunk, _sequence, _kind, _chunk},
-        %{
-          native_stream: %{ref: ref},
-          program_task: %{}
-        } = state
-      ) do
-    {:noreply, consume_credit(state)}
-  end
-
-  def handle_info(
-        {:universal_ai_client, ref, :done, summary},
-        %{
-          native_stream: %{ref: ref},
-          program_task: %{}
-        } = state
-      ) do
-    {:noreply, state |> emit_summary_once(summary) |> Map.put(:native_done?, true)}
-  end
-
-  def handle_info(
-        {:universal_ai_client, ref, :error, _reason},
-        %{
-          native_stream: %{ref: ref},
-          program_task: %{}
-        } = state
-      ) do
-    {:noreply, %{state | native_done?: true}}
-  end
-
-  def handle_info(
-        {:universal_ai_client, ref, :aborted},
-        %{
-          native_stream: %{ref: ref},
-          program_task: %{}
-        } = state
-      ) do
-    {:noreply, %{state | native_done?: true}}
-  end
-
-  def handle_info(
         {:program_execution, ref, outcomes},
         %{program_task: %{ref: ref} = task} = state
       ) do
@@ -806,118 +734,6 @@ defmodule Ankole.AIGateway.ResponseStream do
     state = %{state | program_task: nil}
 
     {:noreply, fail_program_execution(state, {:program_task_terminated, reason})}
-  end
-
-  def handle_info(
-        {:universal_ai_client, ref, :chunk, sequence, :websocket_text, chunk},
-        %{native_stream: %{ref: ref}} = state
-      ) do
-    state = consume_credit(state)
-
-    case decode_event(chunk) do
-      {:ok, event} ->
-        state = %{state | provider_output?: true}
-
-        state =
-          state
-          |> record_credential_success(event)
-          |> record_event_credential_failure(event)
-
-        observe_event(state, event, sequence)
-
-      {:error, reason} ->
-        stop_with_failure(state, "invalid_response_stream_event: #{reason}")
-    end
-  end
-
-  def handle_info(
-        {:universal_ai_client, ref, :chunk, _sequence, kind, _chunk},
-        %{native_stream: %{ref: ref}} = state
-      ) do
-    stop_with_failure(state, "unexpected_chunk_kind: #{inspect(kind)}",
-      code: "unexpected_downstream_chunk_kind"
-    )
-  end
-
-  def handle_info(
-        {:universal_ai_client, ref, :done, summary},
-        %{native_stream: %{ref: ref}} = state
-      ) do
-    if State.terminal?(state.semantic) do
-      {:stop, :normal, emit_summary_once(state, summary)}
-    else
-      if not state.provider_output? do
-        reopen_stream(state, %{
-          "code" => "provider_stream_closed_without_terminal",
-          "stage" => "read",
-          "message" => "provider stream closed without a terminal event"
-        })
-      else
-        {state, events, outcome} =
-          fail_stream(state, "provider_stream_closed_without_terminal",
-            code: "provider_stream_closed_without_terminal",
-            retryable: true
-          )
-
-        send_events(state, events, {:terminal, outcome})
-        {:stop, :normal, state}
-      end
-    end
-  end
-
-  def handle_info(
-        {:universal_ai_client, ref, :error, error},
-        %{native_stream: %{ref: ref}} = state
-      ) do
-    if State.terminal?(state.semantic) do
-      {:stop, :normal, state}
-    else
-      cond do
-        hosted_credential_failure?(state, error) ->
-          stop_after_hosted_failure(state, error)
-
-        not state.provider_output? ->
-          reopen_stream(state, error)
-
-        true ->
-          state = state |> log_failure_once(error) |> emit_failure_once(error)
-
-          {state, events, outcome} =
-            fail_stream(state, "provider_stream_error: #{inspect(error)}",
-              code: "provider_stream_error",
-              retryable: true
-            )
-
-          send_events(state, events, {:terminal, outcome})
-          {:stop, :normal, state}
-      end
-    end
-  end
-
-  def handle_info(
-        {:universal_ai_client, ref, :aborted},
-        %{native_stream: %{ref: ref}} = state
-      ) do
-    if state.closing? or State.terminal?(state.semantic) do
-      {:stop, :normal, state}
-    else
-      if not state.provider_output? do
-        reopen_stream(state, %{
-          "code" => "stream_aborted",
-          "stage" => "read",
-          "message" => "provider stream aborted"
-        })
-      else
-        {state, events, outcome} =
-          fail_stream(state, "stream_aborted",
-            code: "provider_stream_aborted",
-            retryable: true
-          )
-
-        send_events(state, events, {:terminal, outcome})
-        {:stop, :normal, state}
-      end
-    end
   end
 
   def handle_info(:response_stream_shutdown, state) do
@@ -974,6 +790,198 @@ defmodule Ankole.AIGateway.ResponseStream do
   end
 
   def handle_info(_message, state), do: {:noreply, state}
+
+  # Typed native stream events, in the order the raw tuple clauses held before
+  # the facade translation. A known event whose ref matches no live stream
+  # falls to the final clause: stale messages from a replaced stream drop.
+  defp native_stream_event(
+         %UniversalAIClient.Ready{ref: ref, meta: meta},
+         %{opening: %{native_stream: %{ref: ref}} = opening} = state
+       ) do
+    promote_open(state, opening.native_stream, meta, opening.context, opening.spec)
+  end
+
+  defp native_stream_event(
+         %UniversalAIClient.StreamError{ref: ref, reason: reason},
+         %{opening: %{native_stream: %{ref: ref}}} = state
+       ) do
+    begin_open_recovery(state, UniversalAIRequest.normalize_stream_error(reason))
+  end
+
+  defp native_stream_event(
+         %UniversalAIClient.Aborted{ref: ref},
+         %{opening: %{native_stream: %{ref: ref}}} = state
+       ) do
+    begin_open_recovery(state, :stream_aborted)
+  end
+
+  defp native_stream_event(
+         %UniversalAIClient.Done{ref: ref},
+         %{opening: %{native_stream: %{ref: ref}}} = state
+       ) do
+    begin_open_recovery(state, %{
+      "code" => "provider_stream_closed_without_terminal",
+      "stage" => "open",
+      "message" => "provider stream closed before ready"
+    })
+  end
+
+  defp native_stream_event(
+         %UniversalAIClient.Chunk{ref: ref},
+         %{native_stream: %{ref: ref}, semantic: %{terminal?: true}} = state
+       ) do
+    {:noreply, state}
+  end
+
+  # A local task can coexist with a native stream only after that provider
+  # round has produced its terminal fact. Drain any trailing native messages;
+  # the frozen local-effect context is the only fact the task may settle.
+  defp native_stream_event(
+         %UniversalAIClient.Chunk{ref: ref},
+         %{native_stream: %{ref: ref}, program_task: %{}} = state
+       ) do
+    {:noreply, consume_credit(state)}
+  end
+
+  defp native_stream_event(
+         %UniversalAIClient.Done{ref: ref, summary: summary},
+         %{native_stream: %{ref: ref}, program_task: %{}} = state
+       ) do
+    {:noreply, state |> emit_summary_once(summary) |> Map.put(:native_done?, true)}
+  end
+
+  defp native_stream_event(
+         %UniversalAIClient.StreamError{ref: ref},
+         %{native_stream: %{ref: ref}, program_task: %{}} = state
+       ) do
+    {:noreply, %{state | native_done?: true}}
+  end
+
+  defp native_stream_event(
+         %UniversalAIClient.Aborted{ref: ref},
+         %{native_stream: %{ref: ref}, program_task: %{}} = state
+       ) do
+    {:noreply, %{state | native_done?: true}}
+  end
+
+  defp native_stream_event(
+         %UniversalAIClient.Chunk{
+           ref: ref,
+           sequence: sequence,
+           kind: :websocket_text,
+           payload: chunk
+         },
+         %{native_stream: %{ref: ref}} = state
+       ) do
+    state = consume_credit(state)
+
+    case decode_event(chunk) do
+      {:ok, event} ->
+        state = %{state | provider_output?: true}
+
+        state =
+          state
+          |> record_credential_success(event)
+          |> record_event_credential_failure(event)
+
+        observe_event(state, event, sequence)
+
+      {:error, reason} ->
+        stop_with_failure(state, "invalid_response_stream_event: #{reason}")
+    end
+  end
+
+  defp native_stream_event(
+         %UniversalAIClient.Chunk{ref: ref, kind: kind},
+         %{native_stream: %{ref: ref}} = state
+       ) do
+    stop_with_failure(state, "unexpected_chunk_kind: #{inspect(kind)}",
+      code: "unexpected_downstream_chunk_kind"
+    )
+  end
+
+  defp native_stream_event(
+         %UniversalAIClient.Done{ref: ref, summary: summary},
+         %{native_stream: %{ref: ref}} = state
+       ) do
+    if State.terminal?(state.semantic) do
+      {:stop, :normal, emit_summary_once(state, summary)}
+    else
+      if not state.provider_output? do
+        reopen_stream(state, %{
+          "code" => "provider_stream_closed_without_terminal",
+          "stage" => "read",
+          "message" => "provider stream closed without a terminal event"
+        })
+      else
+        {state, events, outcome} =
+          fail_stream(state, "provider_stream_closed_without_terminal",
+            code: "provider_stream_closed_without_terminal",
+            retryable: true
+          )
+
+        send_events(state, events, {:terminal, outcome})
+        {:stop, :normal, state}
+      end
+    end
+  end
+
+  defp native_stream_event(
+         %UniversalAIClient.StreamError{ref: ref, reason: error},
+         %{native_stream: %{ref: ref}} = state
+       ) do
+    if State.terminal?(state.semantic) do
+      {:stop, :normal, state}
+    else
+      cond do
+        hosted_credential_failure?(state, error) ->
+          stop_after_hosted_failure(state, error)
+
+        not state.provider_output? ->
+          reopen_stream(state, error)
+
+        true ->
+          state = state |> log_failure_once(error) |> emit_failure_once(error)
+
+          {state, events, outcome} =
+            fail_stream(state, "provider_stream_error: #{inspect(error)}",
+              code: "provider_stream_error",
+              retryable: true
+            )
+
+          send_events(state, events, {:terminal, outcome})
+          {:stop, :normal, state}
+      end
+    end
+  end
+
+  defp native_stream_event(
+         %UniversalAIClient.Aborted{ref: ref},
+         %{native_stream: %{ref: ref}} = state
+       ) do
+    if state.closing? or State.terminal?(state.semantic) do
+      {:stop, :normal, state}
+    else
+      if not state.provider_output? do
+        reopen_stream(state, %{
+          "code" => "stream_aborted",
+          "stage" => "read",
+          "message" => "provider stream aborted"
+        })
+      else
+        {state, events, outcome} =
+          fail_stream(state, "stream_aborted",
+            code: "provider_stream_aborted",
+            retryable: true
+          )
+
+        send_events(state, events, {:terminal, outcome})
+        {:stop, :normal, state}
+      end
+    end
+  end
+
+  defp native_stream_event(_event, state), do: {:noreply, state}
 
   @impl true
   def terminate(_reason, state) do

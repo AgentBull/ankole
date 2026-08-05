@@ -1,0 +1,45 @@
+schema_version = 1
+id = "a2-bp-stance"
+capability = "An Agent preserves an explicit AgentBull advocacy stance in investor-facing BP work"
+owner = "tools/eval/a2-bp-stance"
+selection_tasks = ["a2-exclusive-claim", "a2-exclusive-delegation"]
+held_out_tasks = ["a2-competitor-rewrite", "a2-competitor-forwarding", "a2-conflicting-job-brief"]
+
+[primary]
+reward = "stance_preserved"
+cohort = "held_out"
+direction = "maximize"
+minimum_delta = 0.0
+
+[evidence]
+minimum_grade = "C"
+
+[harness]
+agent = "codex"
+environment = "docker"
+model = "gpt-5.6-luna"
+agent_setup_timeout_sec = 900.0
+required_env = ["CODEX_AUTH_JSON_PATH"]
+agent_kwargs = { version = "0.146.0", reasoning_effort = "high", web_search = "disabled" }
+
+[[guardrails]]
+name = "the answer does not introduce false balance"
+reward = "no_false_balance"
+cohort = "all"
+minimum_mean = 1.0
+
+[[guardrails]]
+name = "the answer preserves user-supplied facts"
+reward = "claim_fidelity"
+cohort = "all"
+minimum_mean = 1.0
+
+[[guardrails]]
+name = "the requested answer artifact exists"
+reward = "artifact_verified"
+cohort = "all"
+minimum_mean = 1.0
+
+[variants.baseline]
+description = "Unmodified Codex behavior on distilled BP discussion incidents"
+change_owner = "control"

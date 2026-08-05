@@ -1,7 +1,7 @@
 ---
 name: lark-approvals
 version: 1.2.0
-description: "Feishu approvals: Query and process pending and completed approval tasks and approval instances as the human who started the current Turn. Search for approval definitions that the user can initiate, view definition details, upload attachments, and create native approval instances. Also use this Skill to process invoice or receipt archives and submit reimbursement requests after the user confirms. Approval tasks are not Feishu Tasks; use lark-oa for non-approval to-dos. Create approval definitions outside this Skill. Submit third-party approval definitions through their external links instead of the native flow."
+description: "Feishu approvals: query and act on pending/done approval tasks and instances; search/initiate native approvals; archive invoices/receipts and submit confirmed reimbursements. Non-approval to-dos go to lark-oa."
 default_enabled: true
 category: productivity
 tags: [lark, feishu, approval, workflow]

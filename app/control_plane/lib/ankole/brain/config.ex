@@ -21,7 +21,6 @@ defmodule Ankole.Brain.Config do
 
   @default_dreaming %{
     "enabled" => nil,
-    "material_limit" => 240,
     "token_limit" => 0,
     "mutation_limit" => 0,
     "curation_silence_minutes" => 30,
@@ -199,7 +198,6 @@ defmodule Ankole.Brain.Config do
     Schema.new(fn
       value when is_map(value) ->
         with {:ok, enabled} <- optional_boolean(value, "enabled"),
-             {:ok, material_limit} <- integer(value, "material_limit", 1, 10_000),
              {:ok, token_limit} <- integer(value, "token_limit", 0, 10_000_000),
              {:ok, mutation_limit} <- integer(value, "mutation_limit", 0, 100_000),
              {:ok, curation_silence_minutes} <-
@@ -222,7 +220,6 @@ defmodule Ankole.Brain.Config do
           {:ok,
            %{
              "enabled" => enabled,
-             "material_limit" => material_limit,
              "token_limit" => token_limit,
              "mutation_limit" => mutation_limit,
              "curation_silence_minutes" => curation_silence_minutes,

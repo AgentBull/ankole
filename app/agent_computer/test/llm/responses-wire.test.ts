@@ -1239,7 +1239,7 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
     expect(result.message.errorMessage).toBeUndefined()
   })
 
-  it('maps max_output_tokens with a partial function call to error instead of executable length output', async () => {
+  it('reports max_output_tokens with a partial function call as length with a truncation record, never executable output', async () => {
     const model = createModel({
       apiKey: 'unused',
       baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
@@ -1280,10 +1280,20 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
       }
     })
 
-    expect(result.message.stopReason).toBe('error')
+    expect(result.message.stopReason).toBe('length')
     expect(result.message.toolCalls).toBeUndefined()
     expect(result.hasToolCalls).toBe(false)
-    expect(result.message.errorMessage).toBe('AIGateway response ended with an incomplete tool call')
+    expect(result.message.errorMessage).toBeUndefined()
+    expect(result.message.truncatedToolCalls).toEqual([
+      {
+        name: 'patch',
+        argumentsComplete: false,
+        argumentChars: 19,
+        completedFields: [],
+        cutField: 'path',
+        cutFieldChars: 10
+      }
+    ])
   })
 
   it('treats an unkeyed function-call fragment as a malformed terminal instead of dropping it', async () => {

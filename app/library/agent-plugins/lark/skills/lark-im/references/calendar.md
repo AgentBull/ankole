@@ -1,6 +1,6 @@
 # Calendar
 
-Start with `lark-cli calendar --help`. The bot operates application-visible calendars; it does not inherit a human's personal calendar.
+The bot operates application-visible calendars (`lark-cli calendar --help` lists operations not shown here); it does not inherit a human's personal calendar.
 
 The typed surface covers calendars, events, attendees, meeting chat linkage, free/busy, exchange bindings, and calendar access controls. Use help and schema before each resource call:
 

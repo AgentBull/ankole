@@ -100,6 +100,68 @@ defmodule Ankole.Schedule.PlannerTest do
     assert DateTime.compare(actual, ~U[2026-06-15 09:00:00Z]) == :eq
   end
 
+  test "normalizes an occurrence bound to one canonical form" do
+    base = %{"kind" => "cron", "expression" => "0 9 * * *", "timezone" => "Etc/UTC"}
+
+    assert {:ok, normalized, "Etc/UTC"} =
+             Planner.normalize_schedule_json(
+               Map.put(base, "occurrences", %{"count" => 3}),
+               %{},
+               []
+             )
+
+    assert normalized["occurrences"] == %{"count" => 3}
+    assert Planner.occurrences_bound(normalized) == {:count, 3}
+
+    # A local wall-clock cutoff resolves in the schedule timezone to UTC.
+    assert {:ok, normalized, "Asia/Shanghai"} =
+             Planner.normalize_schedule_json(
+               %{
+                 "kind" => "cron",
+                 "expression" => "0 9 * * *",
+                 "timezone" => "Asia/Shanghai",
+                 "occurrences" => %{"until" => "2026-09-01T09:00:00"}
+               },
+               %{},
+               []
+             )
+
+    assert {:until, until} = Planner.occurrences_bound(normalized)
+    assert DateTime.compare(until, ~U[2026-09-01 01:00:00Z]) == :eq
+
+    assert {:ok, unbounded, "Etc/UTC"} = Planner.normalize_schedule_json(base, %{}, [])
+    assert unbounded["occurrences"] == nil
+    assert Planner.occurrences_bound(unbounded) == nil
+  end
+
+  test "rejects an occurrence bound that is not exactly count or until" do
+    base = %{"kind" => "cron", "expression" => "0 9 * * *", "timezone" => "Etc/UTC"}
+
+    assert {:error, :occurrences_count_or_until} =
+             Planner.normalize_schedule_json(
+               Map.put(base, "occurrences", %{"count" => 3, "until" => "2026-09-01T00:00:00Z"}),
+               %{},
+               []
+             )
+
+    assert {:error, :occurrences_count_or_until} =
+             Planner.normalize_schedule_json(Map.put(base, "occurrences", %{}), %{}, [])
+
+    assert {:error, :invalid_occurrences_count} =
+             Planner.normalize_schedule_json(
+               Map.put(base, "occurrences", %{"count" => 0}),
+               %{},
+               []
+             )
+
+    assert {:error, :invalid_occurrences_until} =
+             Planner.normalize_schedule_json(
+               Map.put(base, "occurrences", %{"until" => "not-a-time"}),
+               %{},
+               []
+             )
+  end
+
   defp assert_next_fire(expression, after_at, expected) do
     schedule = %{"kind" => "cron", "expression" => expression}
 

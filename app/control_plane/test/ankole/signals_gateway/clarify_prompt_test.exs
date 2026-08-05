@@ -16,7 +16,6 @@ defmodule Ankole.SignalsGateway.ClarifyPromptTest do
         ]
       }
       |> Ankole.JSON.encode!()
-      |> untrusted_tool_output()
 
     assert {:ok, prompt} =
              ClarifyPrompt.from_response_items([
@@ -112,16 +111,5 @@ defmodule Ankole.SignalsGateway.ClarifyPromptTest do
                  }
                }
              ])
-  end
-
-  defp untrusted_tool_output(text) do
-    nonce = "clarify-test"
-
-    """
-    <ankole_untrusted_tool_output nonce="#{nonce}">
-    #{text}
-    </ankole_untrusted_tool_output nonce="#{nonce}">
-    """
-    |> String.trim()
   end
 end

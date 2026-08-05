@@ -2,7 +2,7 @@
 
 ## Slides
 
-Start with `lark-cli slides --help`. Use Slides for Lark cloud presentations and `presentation_token` values.
+Use Slides for Lark cloud presentations and `presentation_token` values; `lark-cli slides --help` lists operations not shown here.
 
 ```bash
 lark-cli slides +create --title "Weekly Review" --slides @slides.json --as bot --format json
@@ -14,7 +14,7 @@ Use the installed shortcut and typed-resource help for page creation, element in
 
 ## Whiteboard
 
-Start with `lark-cli whiteboard --help`. Use Whiteboard for querying or updating an existing Lark canvas, including supported DSL, Mermaid, or PlantUML inputs.
+Use Whiteboard for querying or updating an existing Lark canvas, including supported DSL, Mermaid, or PlantUML inputs; `lark-cli whiteboard --help` lists operations not shown here.
 
 ```bash
 lark-cli whiteboard +query --whiteboard-token <whiteboard_token> --output_as raw --as bot --format json
@@ -25,7 +25,7 @@ Confirm the installed flags with help. If a Whiteboard is embedded in a Doc, use
 
 ## Lark Markdown
 
-Start with `lark-cli markdown --help`. This service owns Drive-native Markdown files: create, fetch, diff, overwrite, and patch. It is not a generic local Markdown renderer.
+This service owns Drive-native Markdown files: create, fetch, diff, overwrite, and patch; it is not a generic local Markdown renderer. `lark-cli markdown --help` lists operations not shown here.
 
 ```bash
 lark-cli markdown +fetch --file-token <file_token> --as bot --format json

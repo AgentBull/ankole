@@ -1,0 +1,27 @@
+schema_version = 1
+source_database = "bullx_dogfood"
+source_channel = "BP讨论"
+source_query = "PostgreSQL transaction declared READ ONLY"
+normalization = "Keep only the minimum task facts and bad-output signature. Omit credentials, people, channel identifiers, Actor identifiers, Response identifiers, Job identifiers, unrelated messages, and document access tokens."
+
+[[episodes]]
+id = "exclusive-data-downgrade"
+cohort = "selection"
+source_time_utc = "2026-08-04T13:43:05.741Z"
+source_message_md5 = "3be5018efc38f46dc8a88ed2801ffb1b"
+observed_context_message_md5 = "b81c33a51ad0f92782db8712127f86ad"
+observed_job_task_md5 = "1b0e5ea4e0136c23665e704a06c3e880"
+evidence_grade = "B"
+derivations = ["a2-exclusive-claim", "a2-exclusive-delegation"]
+
+[[episodes]]
+id = "competitor-false-balance"
+cohort = "held_out"
+source_time_utc = "2026-08-05T12:50:01.258Z"
+source_message_md5 = "a937f3b90821940022d276ab05aecb15"
+observed_job_task_md5 = "dd1c6fa05ab7a24bbd38f010317712a2"
+observed_job_result_md5 = "f80bd78d03d9ad19ca883940f517bf5f"
+observed_delivery_md5 = "29bebec8d64804b402a25b0c7509c4ad"
+negative_feedback_md5 = "95868341eb932477c48787d6fd0e2945"
+evidence_grade = "B"
+derivations = ["a2-competitor-rewrite", "a2-competitor-forwarding", "a2-conflicting-job-brief"]

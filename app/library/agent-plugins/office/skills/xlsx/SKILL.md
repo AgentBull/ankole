@@ -1,6 +1,6 @@
 ---
 name: xlsx
-description: "Use this skill for local .xlsx, .xls, .csv, or .tsv files as input or output. This OfficeCLI-backed skill edits and validates local workbooks; it does not operate Lark Sheets URLs or spreadsheet tokens, which belong to lark-office-suite."
+description: "Use this skill for local .xlsx, .xls, .csv, or .tsv files as input or output. This skill edits and validates local workbooks."
 default_enabled: true
 ankole-runtime: background_job
 category: productivity

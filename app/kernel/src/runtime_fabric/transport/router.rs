@@ -57,14 +57,16 @@ impl RouterHandle {
 
     /// Sends an envelope to one worker route and reports mandatory-send errors.
     ///
-    /// The host-encoded payload passes protocol validation before it reaches
-    /// the socket thread, so transport code never sees partially valid envelopes.
+    /// The host-encoded payload is sealed before it reaches the socket thread:
+    /// the kernel writes lane, durability, and protocol version from the body
+    /// and validates the result, so transport code never sees partially valid
+    /// envelopes.
     pub fn send_mandatory(
         &self,
         transport_route: impl Into<String>,
         payload: Vec<u8>,
     ) -> Result<SendOutcome, TransportError> {
-        runtime_fabric::validate_envelope_bytes(&payload)
+        let payload = runtime_fabric::seal_envelope_bytes(&payload)
             .map_err(TransportError::invalid_envelope)?;
         let (reply_tx, reply_rx) = mpsc::channel();
 

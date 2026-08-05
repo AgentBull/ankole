@@ -1,0 +1,8 @@
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "context-dev"
+      description: "Context.dev web data and brand intelligence MCP server"
+      transport: "streamable_http"
+      url: "https://mcp.context.dev/mcp"
+      bearer_token_env_var: "CONTEXT_DEV_API_KEY"

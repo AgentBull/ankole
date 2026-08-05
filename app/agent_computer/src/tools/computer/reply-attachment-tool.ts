@@ -44,7 +44,9 @@ export function createReplyAttachmentTool(
     isDestructive: false,
     describeActivity: params => {
       const path = compactActivityPath(params.path)
-      return path ? `准备交付文件：${path}` : '准备交付文件'
+      return path
+        ? { key: 'signals_gateway.reply.activity.attachment_prepare_target', bindings: { path } }
+        : { key: 'signals_gateway.reply.activity.attachment_prepare' }
     },
     async execute(_toolCallId, params, signal): Promise<AgentToolResult<ReplyAttachmentDetails>> {
       const computer = await context.getComputer(signal)

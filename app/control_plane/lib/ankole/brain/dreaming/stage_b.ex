@@ -60,10 +60,10 @@ defmodule Ankole.Brain.Dreaming.StageB do
   - remove_relation: operation, predicate, exactly one of entry_name or entry_ref, and target_entry_name.
   """
   @run_lease_seconds 3_600
+  @material_batch_rows 25
   @skill_token_budget 2_000
   @locator_preview_characters 500
-  @locator_min_output_tokens 4_096
-  @locator_max_output_tokens 8_192
+  @locator_output_tokens 32_768
   @curator_min_output_tokens 8_192
   @curator_max_output_tokens 16_384
   @curator_attempts 3
@@ -118,8 +118,9 @@ defmodule Ankole.Brain.Dreaming.StageB do
       when is_binary(principal_uid) and is_map(config) do
     cursor = Repo.get_by(Cursor, scope_kind: :principal, scope_key: principal_uid)
     backlog_rows = Map.fetch!(config, "curation_backlog_rows")
-    limit = max(Map.fetch!(config, "material_limit"), backlog_rows)
-    %{materials: materials, task_scan: task_scan} = load_materials(principal_uid, cursor, limit)
+
+    %{materials: materials, task_scan: task_scan} =
+      load_materials(principal_uid, cursor, backlog_rows)
 
     observed_at_values =
       materials
@@ -148,10 +149,10 @@ defmodule Ankole.Brain.Dreaming.StageB do
 
   defp run_claimed(scope, cursor, run_id, config, now, opts) do
     try do
-      load = load_materials(scope.owner_uid, cursor, config["material_limit"])
+      load = load_materials(scope.owner_uid, cursor, @material_batch_rows)
       maybe_curate(scope, load, run_id, config, now, opts)
     after
-      release_run(scope.owner_uid, run_id)
+      finish_run(scope.owner_uid, run_id)
     end
   end
 
@@ -594,19 +595,29 @@ defmodule Ankole.Brain.Dreaming.StageB do
     end
   end
 
-  defp release_run(owner_uid, run_id) do
+  defp finish_run(owner_uid, run_id) do
+    now = DateTime.utc_now(:microsecond)
+
     Repo.transact(fn repo ->
-      case claimed_cursor_for_update(repo, owner_uid, run_id) do
-        {:ok, cursor} ->
-          metadata = clear_run_lease(cursor.metadata)
+      with {:ok, _ended_count} <-
+             AIGateway.end_active_conversations_by_key_prefix_in_tx(
+               repo,
+               owner_uid,
+               "#{@conversation_prefix}#{run_id}:",
+               now
+             ) do
+        case claimed_cursor_for_update(repo, owner_uid, run_id) do
+          {:ok, cursor} ->
+            metadata = clear_run_lease(cursor.metadata)
 
-          case repo.update(Cursor.changeset(cursor, %{metadata: metadata})) do
-            {:ok, cursor} -> {:ok, cursor}
-            {:error, reason} -> {:error, reason}
-          end
+            case repo.update(Cursor.changeset(cursor, %{metadata: metadata})) do
+              {:ok, cursor} -> {:ok, cursor}
+              {:error, reason} -> {:error, reason}
+            end
 
-        {:error, :dreaming_run_superseded} ->
-          {:ok, :already_released}
+          {:error, :dreaming_run_superseded} ->
+            {:ok, :already_finished}
+        end
       end
     end)
   end
@@ -659,12 +670,11 @@ defmodule Ankole.Brain.Dreaming.StageB do
         |> episodes_for_materials(store_materials)
 
       input = locator_input(store_materials, episodes, run_context)
-      max_output_tokens = locator_output_reserve(length(store_materials))
 
       request_spec(
         store_materials,
         input,
-        max_output_tokens,
+        @locator_output_tokens,
         store_policy(store_key),
         ResponseFormat.stage_b_locator()
       )
@@ -731,13 +741,6 @@ defmodule Ankole.Brain.Dreaming.StageB do
   end
 
   defp total_request_cost(specs), do: Enum.sum(Enum.map(specs, & &1.request_cost))
-
-  defp locator_output_reserve(material_count) do
-    material_count
-    |> Kernel.*(64)
-    |> max(@locator_min_output_tokens)
-    |> min(@locator_max_output_tokens)
-  end
 
   defp curator_output_reserve(material_count, config) do
     expected_mutations =
@@ -1289,15 +1292,7 @@ defmodule Ankole.Brain.Dreaming.StageB do
          result <-
            AIGateway.create_response(model_uid, request, Keyword.get(opts, :request_opts, [])),
          {:ok, %{body: body}} <- commit_dreaming_trace(response_run, result) do
-      case response_text(body) do
-        {:ok, text} ->
-          Ankole.JSON.decode(String.trim(text))
-
-        {:error, :missing_dreaming_response_text} ->
-          {:error,
-           {:missing_dreaming_response_text, phase,
-            Map.take(body, ["status", "incomplete_details", "error", "usage"])}}
-      end
+      decode_dreaming_response(body, phase)
     end
   end
 
@@ -2587,6 +2582,24 @@ defmodule Ankole.Brain.Dreaming.StageB do
   defp commit_dreaming_trace(response_run, {:error, reason}) do
     _result = StatefulResponses.commit_error(response_run.id, [], %{"reason" => inspect(reason)})
     {:error, reason}
+  end
+
+  defp decode_dreaming_response(%{"status" => "completed"} = body, phase) do
+    case response_text(body) do
+      {:ok, text} ->
+        Ankole.JSON.decode(String.trim(text))
+
+      {:error, :missing_dreaming_response_text} ->
+        {:error,
+         {:missing_dreaming_response_text, phase,
+          Map.take(body, ["status", "incomplete_details", "error", "usage"])}}
+    end
+  end
+
+  defp decode_dreaming_response(body, phase) do
+    {:error,
+     {:dreaming_response_not_completed, phase,
+      Map.take(body, ["status", "incomplete_details", "error", "usage"])}}
   end
 
   defp response_text(%{"output_text" => text}) when is_binary(text), do: {:ok, text}

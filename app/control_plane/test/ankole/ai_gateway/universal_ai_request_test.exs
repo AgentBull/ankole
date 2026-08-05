@@ -1,6 +1,9 @@
 defmodule Ankole.AIGateway.UniversalAIRequestTest do
   use ExUnit.Case, async: true
 
+  alias Ankole.AIGateway.PrepareContext
+  alias Ankole.AIGateway.Providers
+  alias Ankole.AIGateway.Providers.OpenRouter
   alias Ankole.AIGateway.UniversalAIRequest
 
   test "non-stream model specs include a high-thinking timeout cap" do
@@ -49,6 +52,35 @@ defmodule Ankole.AIGateway.UniversalAIRequestTest do
              |> UniversalAIRequest.to_spec()
 
     assert spec.response_context.provider_options == %{"reasoningEffort" => "minimal"}
+  end
+
+  test "response context identifies the reasoning source by provider type and model" do
+    assert {:ok, provider} = Providers.fetch("openrouter")
+
+    runtime = %{
+      "model" => "test-model",
+      "provider_options" => %{},
+      "connection_options" => %{"base_url" => "https://api.example.test/v1"}
+    }
+
+    assert {:ok, ctx} =
+             PrepareContext.build(
+               provider,
+               :language_model,
+               runtime,
+               %{"input" => "hello"},
+               stream?: false
+             )
+
+    assert {:ok, spec} =
+             ctx
+             |> OpenRouter.prepare_language_model()
+             |> UniversalAIRequest.to_spec()
+
+    assert spec.response_context.request["__ankole_reasoning_source"] == %{
+             "provider_type" => "openrouter",
+             "model_id" => "test-model"
+           }
   end
 
   test "credential header helpers omit missing optional settings" do
@@ -146,6 +178,7 @@ defmodule Ankole.AIGateway.UniversalAIRequestTest do
         %{base_url: "https://api.example.test/v1"}
         |> maybe_put(:api_key, Keyword.get(opts, :api_key)),
       model: "test-model",
+      provider: %{provider_kind: "openrouter"},
       request: %{"input" => "hello"},
       provider_options: %{},
       stream?: Keyword.fetch!(opts, :stream?)

@@ -228,7 +228,13 @@ The runtimes generate codecs from the same file:
 Generate committed TypeScript output with `bun run gen:proto`.
 A sidecar hash pins the source and generator inputs.
 
-The Rust kernel checks every envelope before sending and after receiving it:
+The Rust kernel seals every envelope at the send boundary: a host supplies
+only the ids, the send time, and the body, and the kernel writes
+`protocol_version`, lane, and durability from its `BodySpec` table. A host
+cannot choose a wrong header field, because the kernel overwrites all three.
+
+The kernel then validates every envelope before sending and after receiving
+it:
 
 - `protocol_version` must equal the kernel's current `PROTOCOL_VERSION`.
 - `message_id`, lane, durability, and body must exist.
@@ -337,7 +343,8 @@ selected name again when it handles `background_agent_job.create`.
 `BackgroundAgentJobCreateRequest.model_profile` carries only that logical
 custom name. An empty value selects `coding`. `BackgroundAgentJobResponse`
 returns the persisted logical name. The Job Turn's model reference carries the
-resolved provider, model, options, and reasoning effort instead of a caller
+resolved provider, model, options, reasoning effort, direct input modalities,
+and an optional directly image-capable vision fallback instead of a caller
 supplied raw model.
 
 The Session workspace ID names `/agents/<agent-key>/sessions/<workspace-id>`.
@@ -375,6 +382,33 @@ Agent Computer validates the namespace before it injects these values. A
 per-command environment map cannot replace them. Shell code can still change
 its own process environment, so a consumer must also validate the value that it
 uses.
+
+### Refresh the Lark Bot Credential
+
+The Lark adapter resolves the current tenant access token through the control
+plane token manager. It requires at least ten minutes of shortened safe
+validity. The `worker_env.resolve` response carries that token only on the
+trusted RPC path.
+
+Agent Computer removes the raw token before it builds a shell or Codex thread
+environment. For each active main Turn, Background Agent Job attempt, or
+Automation Job attempt that has a Lark bot token, it writes one private file in
+the Agent Home and refreshes that file every minute through the same WorkerEnv
+RPC. Each successful write uses an atomic rename. Cleanup stops the refresh and
+deletes the file. If the binding changes to another Lark app or domain during
+an execution, Agent Computer removes the file and requires a new execution
+instead of combining the old app identity with the new token.
+
+The environment contains only
+`ANKOLE_RUNTIME_LARK_TENANT_ACCESS_TOKEN_FILE`. The Worker image `lark-cli`
+launcher reads that file for each command and rejects a file that has not been
+confirmed for five minutes. It then passes the token only to the short-lived
+official CLI process. A stalled refresh therefore fails as
+`authentication/credential_unavailable` before it sends a stale token.
+
+The control plane remains the credential owner. Agent Computer creates no app
+secret, Job credential, or authoritative token record. The execution file is
+a disposable runtime projection, not a new authorization subject.
 
 ### Reject Writes from an Old Turn
 
@@ -536,6 +570,15 @@ Memory and schedule RPCs use `JSONPassthroughResponse`. The worker passes
 
 The RPC lane does not carry conversation history or compaction commits.
 AIGateway owns both concerns.
+
+Every `rpc_error.details_json` contains an explicit `retryable` boolean. Domain
+validation and authorization errors default to false. If a control-plane
+handler crashes or returns an invalid result, the error also contains one
+`failure_id` that matches the control-plane log. Only a `turn_read` handler
+failure is retryable. Worker-agent operations, writes, and completion stay
+non-retryable because the control plane cannot prove that repeating them is
+safe. Agent Computer preserves the code, retryability, details, and failure ID
+when the error reaches Actor or Background Agent Job recovery.
 
 Worker-originated RPC calls use the normal 300-second timeout. An automation
 job execution is a control-plane-originated RPC. Its timeout is ten minutes
@@ -700,9 +743,15 @@ Agent Home and reads them when it prepares a run.
 
 The worker uses these overlay RPC methods:
 
-- `skills.overlay.resolve` reads the database overlay.
+- `skills.overlay.resolve` reads a complete requested Skill set in one batch.
 - `skills.overlay.append` appends one durable note.
 - `skills.overlay.replace` replaces the complete overlay.
+
+The resolve response contains exactly one entry for each unique requested name.
+The control plane synchronizes the Agent registry once and performs set reads
+for the Skill and overlay rows. A missing, disabled, invalid, or duplicate name
+rejects the whole request. The worker rejects a partial, duplicate, or
+unexpected response instead of materializing a mixed snapshot.
 
 `skill_view` combines `SKILL.md` with the database note. `skill_append` changes
 that note and does not write `AGENT_APPEND.md`.

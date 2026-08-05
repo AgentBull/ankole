@@ -436,7 +436,10 @@ defmodule Ankole.AIGateway.Compaction do
       conversation_id: conversation_id,
       summary_text: summary.text,
       retained_items: messages_to_items(candidate.retained_tail),
-      retained_user_originals: candidate.retained_user_originals,
+      # The replayed originals may end with a still-unanswered clarify
+      # call/output pair; "user_message_count" counts only user messages.
+      retained_user_originals:
+        candidate.retained_user_originals ++ candidate.retained_pending_clarify,
       retention: %{
         "strategy" => "tail_rows",
         "requested" => candidate.tail_rows_requested,
@@ -454,7 +457,8 @@ defmodule Ankole.AIGateway.Compaction do
       conversation_id: store_context.conversation_id,
       summary_text: summary.text,
       retained_items: candidate.retained_tail,
-      retained_user_originals: candidate.retained_user_originals,
+      retained_user_originals:
+        candidate.retained_user_originals ++ candidate.retained_pending_clarify,
       retention:
         %{
           "strategy" => "standalone_user_messages",
@@ -962,10 +966,11 @@ defmodule Ankole.AIGateway.Compaction do
          prefix = Enum.take(rows_after_compaction, prefix_count),
          %Message{} = _covers_until <- List.last(prefix) do
       retained_tail = Enum.drop(rows_after_compaction, length(prefix))
+      prefix_items = messages_to_items(prefix)
 
       {retained_user_originals, _used_tokens} =
         CompactionRetention.collect_user_originals(
-          messages_to_items(prefix),
+          prefix_items,
           user_message_budget_tokens()
         )
 
@@ -975,6 +980,7 @@ defmodule Ankole.AIGateway.Compaction do
          prefix: prefix,
          retained_tail: retained_tail,
          retained_user_originals: retained_user_originals,
+         retained_pending_clarify: CompactionRetention.collect_pending_clarify(prefix_items),
          recent_items: messages_to_items(retained_tail) ++ input_items(current_input),
          previous_chat_history: previous_compaction_summary(subject_uid, history),
          tail_rows_requested: tail_rows()
@@ -1409,6 +1415,7 @@ defmodule Ankole.AIGateway.Compaction do
          prefix_items: prefix_items,
          retained_tail: [],
          retained_user_originals: retained_user_originals,
+         retained_pending_clarify: CompactionRetention.collect_pending_clarify(original_region),
          previous_chat_history: previous_chat_history,
          previous_summary_discarded: previous_summary_discarded,
          tail_rows_requested: 0

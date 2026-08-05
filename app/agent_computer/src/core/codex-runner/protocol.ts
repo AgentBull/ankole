@@ -2,10 +2,7 @@ import { jsonObject, match } from '@agentbull/active-support'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import type { JSONRPCMessage } from './app-server-client'
 import type { BackgroundAgentJobStatus, BackgroundAgentJobTurnUsage } from '../../lanes/rpc_lane'
-import {
-  boundedBackgroundAgentJobPaths,
-  type BackgroundAgentJobPathHandoff
-} from '../../core/background-agent-job-handoff'
+import { boundedBackgroundAgentJobPaths, type BackgroundAgentJobPathHandoff } from '../background-agent-job-handoff'
 
 export type CodexNotificationProjection =
   | { type: 'stderr'; params: JSONObject }

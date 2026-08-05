@@ -38,7 +38,6 @@ All routes live under `/api/v1/ai-gateway`. The transport an endpoint uses is pa
 | Method | Path | Transport | Purpose |
 |---|---|---|---|
 | `GET` | `/models` | HTTP | List model selectors visible to this subject |
-| `GET` | `/web_tools` | HTTP | List provider-backed web tools available to this subject |
 | `POST` | `/responses` | HTTP or SSE | Create a response; stream when `"stream": true` |
 | `GET` | `/responses` | WebSocket | Stateful streaming responses |
 | `GET` | `/responses/:response_id` | HTTP | Retrieve a stored stateful response (`resp_{uuid}`) |
@@ -117,7 +116,7 @@ Both paths use the same public stream events and generated-image persistence. Mo
 
 ## Web tools, files, and the other capabilities
 
-The same subject and token drive the adjacent capabilities. `POST /web_search` takes a `query` (length-bounded) and returns provider-backed results; `POST /web_fetch` takes one to five public HTTPS URLs and returns page content. `POST /embeddings` accepts text, token arrays, or input blocks; `POST /rerank` reranks a non-empty document array and takes a positive integer `top_n`. `GET /web_tools` tells the caller which of these the current subject can actually use.
+The same subject and token drive the adjacent capabilities. `POST /web_search` takes a `query` (length-bounded) and returns provider-backed results; `POST /web_fetch` takes one to five public HTTPS URLs and returns page content. `POST /embeddings` accepts text, token arrays, or input blocks; `POST /rerank` reranks a non-empty document array and takes a positive integer `top_n`. Each request uses its capability-specific semantic selector, such as `web_search.default` or `web_fetch.default`; AIGateway resolves the current Agent profile when the call arrives.
 
 Files are first-class: `POST /files` uploads, `GET /files` lists, `GET /files/:id` and `GET /files/:id/content` read metadata and bytes, and `DELETE /files/:id` removes one. All are scoped to the subject.
 

@@ -39,7 +39,6 @@ import {
   ankoleWebAiGatewayControllerRetrieveResponse,
   ankoleWebAiGatewayControllerWebFetch,
   ankoleWebAiGatewayControllerWebSearch,
-  ankoleWebAiGatewayControllerWebTools,
   ankoleWebAiGatewayConversationControllerIndex,
   ankoleWebAiGatewayConversationControllerMessages,
   ankoleWebAiGatewayConversationControllerShow,
@@ -237,9 +236,6 @@ import type {
   AnkoleWebAiGatewayControllerWebSearchData,
   AnkoleWebAiGatewayControllerWebSearchError,
   AnkoleWebAiGatewayControllerWebSearchResponse,
-  AnkoleWebAiGatewayControllerWebToolsData,
-  AnkoleWebAiGatewayControllerWebToolsError,
-  AnkoleWebAiGatewayControllerWebToolsResponse,
   AnkoleWebAiGatewayConversationControllerIndexData,
   AnkoleWebAiGatewayConversationControllerIndexError,
   AnkoleWebAiGatewayConversationControllerIndexResponse,
@@ -3150,34 +3146,6 @@ export const ankoleWebAiGatewayControllerWebSearchMutation = (
   }
   return mutationOptions
 }
-
-export const ankoleWebAiGatewayControllerWebToolsQueryKey = (
-  options?: Options<AnkoleWebAiGatewayControllerWebToolsData>
-) => createQueryKey('ankoleWebAiGatewayControllerWebTools', options)
-
-/**
- * List provider-backed web tools available to this AIGateway subject
- */
-export const ankoleWebAiGatewayControllerWebToolsOptions = (
-  options?: Options<AnkoleWebAiGatewayControllerWebToolsData>
-) =>
-  queryOptions<
-    AnkoleWebAiGatewayControllerWebToolsResponse,
-    AnkoleWebAiGatewayControllerWebToolsError,
-    AnkoleWebAiGatewayControllerWebToolsResponse,
-    ReturnType<typeof ankoleWebAiGatewayControllerWebToolsQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebAiGatewayControllerWebTools({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebAiGatewayControllerWebToolsQueryKey(options)
-  })
 
 /**
  * Create or update one signal binding for an agent

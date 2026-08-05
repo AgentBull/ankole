@@ -128,7 +128,7 @@ describe('Lark skill example validation', () => {
   })
 
   it('allows only the audited Minutes transcript raw API path', () => {
-    const run: CommandRunner = () => ({ exitCode: 0, output: '{"as": "bot"}' })
+    const run: CommandRunner = () => ({ exitCode: 0, output: '{"identity": "bot"}' })
 
     expect(validateLarkCommandExample(rawAPIExample('/open-apis/minutes/v1/minutes/<token>/transcript'), run)).toEqual(
       []
@@ -154,7 +154,7 @@ describe('Lark skill example validation', () => {
       call = args
       return {
         exitCode: 0,
-        output: args.includes('/open-apis/approval/v4/files/upload') ? '{"as": "bot"}' : ''
+        output: args.includes('/open-apis/approval/v4/files/upload') ? '{"identity": "bot"}' : ''
       }
     }
 

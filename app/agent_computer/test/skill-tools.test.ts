@@ -7,6 +7,7 @@ import { createSkillTools } from '../src/tools/library/skill-tools'
 import { jsonBytes, jsonObjectFromBytes } from '../src/fabric/envelope_proto'
 import {
   RuntimeSkillSummarySchema,
+  SkillOverlayResolveResponseSchema,
   SkillOverlayResponseSchema
 } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import { rpcMethods, type RPCRequester } from '../src/lanes/rpc_lane'
@@ -27,12 +28,16 @@ const unusedRPC = (async () => {
 function overlayResolveRPC(text?: string): RPCRequester {
   return (async (method: unknown, payload: unknown) => {
     expect(method).toBe(rpcMethods.skillsOverlayResolve)
-    const request = payload as { skillName: string }
-    return create(SkillOverlayResponseSchema, {
-      skillName: request.skillName,
-      hasOverlay: Boolean(text),
-      overlayJson: jsonBytes(text ? { text } : {}),
-      contentHash: 'overlay-hash'
+    const request = payload as { skillNames: string[] }
+    return create(SkillOverlayResolveResponseSchema, {
+      overlays: request.skillNames.map(skillName =>
+        create(SkillOverlayResponseSchema, {
+          skillName,
+          hasOverlay: Boolean(text),
+          overlayJson: jsonBytes(text ? { text } : {}),
+          contentHash: 'overlay-hash'
+        })
+      )
     })
   }) as RPCRequester
 }
@@ -47,13 +52,17 @@ describe('@ankole/agent-computer skill tools', () => {
     const viewActivity = view.describeActivity(
       view.schema.parse({ name: 'openai-docs', filePath: 'references/private/internal.md' })
     )
-    expect(viewActivity).toContain('openai-docs')
-    expect(viewActivity).not.toContain('references/private/internal.md')
+    expect(viewActivity).toEqual({
+      key: 'signals_gateway.reply.activity.skill_load',
+      bindings: { name: 'openai-docs' }
+    })
 
     for (const tool of [append, replace]) {
       const activity = tool.describeActivity(tool.schema.parse({ name: 'openai-docs', content: 'do-not-leak' }))
-      expect(activity).toContain('openai-docs')
-      expect(activity).not.toContain('do-not-leak')
+      expect(activity).toEqual({
+        key: 'signals_gateway.reply.activity.skill_update',
+        bindings: { name: 'openai-docs' }
+      })
     }
   })
 
@@ -176,11 +185,15 @@ describe('@ankole/agent-computer skill tools', () => {
         rpc: (async (method: unknown) => {
           if (method === rpcMethods.skillsOverlayResolve) {
             overlayReads += 1
-            return create(SkillOverlayResponseSchema, {
-              skillName: 'long-report',
-              hasOverlay: true,
-              overlayJson: jsonBytes({ text: 'private overlay' }),
-              contentHash: 'overlay-hash'
+            return create(SkillOverlayResolveResponseSchema, {
+              overlays: [
+                create(SkillOverlayResponseSchema, {
+                  skillName: 'long-report',
+                  hasOverlay: true,
+                  overlayJson: jsonBytes({ text: 'private overlay' }),
+                  contentHash: 'overlay-hash'
+                })
+              ]
             })
           }
           overlayWrites += 1
@@ -376,12 +389,16 @@ describe('@ankole/agent-computer skill tools', () => {
       ],
       rpc: (async (method: unknown, payload: unknown) => {
         if (method === rpcMethods.skillsOverlayResolve) {
-          const request = payload as { skillName: string }
-          return create(SkillOverlayResponseSchema, {
-            skillName: request.skillName,
-            hasOverlay: true,
-            overlayJson: jsonBytes({ text: 'Old duplicated notes.' }),
-            contentHash: 'current-hash'
+          const request = payload as { skillNames: string[] }
+          return create(SkillOverlayResolveResponseSchema, {
+            overlays: request.skillNames.map(skillName =>
+              create(SkillOverlayResponseSchema, {
+                skillName,
+                hasOverlay: true,
+                overlayJson: jsonBytes({ text: 'Old duplicated notes.' }),
+                contentHash: 'current-hash'
+              })
+            )
           })
         }
         expect(method).toBe(rpcMethods.skillsOverlayReplace)

@@ -320,8 +320,9 @@ enabled by default and can have a scoped `brain.dreaming` override.
 
 A run becomes eligible after 30 minutes of material silence or 50 queued rows
 by default. This microbatch gate avoids one model call for every new message.
-The run processes at most 240 material rows by default. Optional token and
-mutation budgets use `0` to mean no operator limit.
+Each run processes at most 25 material rows. The locator always requests a
+32,768-token output limit. Optional token and mutation budgets use `0` to mean
+no operator limit.
 
 Task outcomes admit only completed `im.message.addressed`,
 `signal.action.invoked`, `check_back_later.wakeup`, and `cron.fire` events that
@@ -348,6 +349,11 @@ The curator follows these rules:
 One global token and mutation budget covers all store calls in a run. One final
 transaction applies the complete valid plan and advances the cursor. Model,
 validation, budget, or commit failure leaves selected material for retry.
+
+Stage B stores its model-call audit trail in finite
+`brain.dreaming:<run_id>:<store_key>` AIGateway conversations. The run ends all
+of these trace conversations when it completes or returns an error. A Dreaming
+trace is not an Actor session and does not enter daily session reset.
 
 At the end of every run, Stage B checks the `self` pinned memo. If it exceeds
 the configured budget, Stage B makes one compaction attempt. The status surface
@@ -441,7 +447,6 @@ The `episode_` settings therefore have no per-Agent effect.
 | Setting | Default |
 | --- | ---: |
 | `enabled` | `true` for an Agent; non-Agent owners are unsupported |
-| `material_limit` | 240 |
 | `token_limit` | 0 |
 | `mutation_limit` | 0 |
 | `curation_silence_minutes` | 30 |

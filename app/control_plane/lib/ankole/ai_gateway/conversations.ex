@@ -111,6 +111,48 @@ defmodule Ankole.AIGateway.Conversations do
     |> repo.one()
   end
 
+  @doc false
+  @spec end_active_conversation_in_tx(module(), String.t(), String.t(), DateTime.t()) ::
+          {:ok, Conversation.t() | nil} | {:error, term()}
+  def end_active_conversation_in_tx(repo, subject_uid, conversation_key, %DateTime{} = now) do
+    case active_conversation_for_update(repo, subject_uid, conversation_key) do
+      %Conversation{} = conversation ->
+        conversation
+        |> Ecto.Changeset.change(ended_at: now)
+        |> repo.update()
+
+      nil ->
+        {:ok, nil}
+    end
+  end
+
+  @doc false
+  @spec end_active_conversations_by_key_prefix_in_tx(
+          module(),
+          String.t(),
+          String.t(),
+          DateTime.t()
+        ) :: {:ok, non_neg_integer()}
+  def end_active_conversations_by_key_prefix_in_tx(
+        repo,
+        subject_uid,
+        conversation_key_prefix,
+        %DateTime{} = now
+      )
+      when is_binary(conversation_key_prefix) and conversation_key_prefix != "" do
+    {count, _rows} =
+      Conversation
+      |> where([conversation], conversation.subject_uid == ^normalize_uid(subject_uid))
+      |> where([conversation], is_nil(conversation.ended_at))
+      |> where(
+        [conversation],
+        like(conversation.conversation_key, ^"#{conversation_key_prefix}%")
+      )
+      |> repo.update_all(set: [ended_at: now, updated_at: now])
+
+    {:ok, count}
+  end
+
   @doc """
   Lists active conversations using only generic conversation attributes.
 
@@ -127,9 +169,6 @@ defmodule Ankole.AIGateway.Conversations do
     |> maybe_filter_subject_uid(Keyword.get(opts, :subject_uid))
     |> maybe_filter_conversation_key(Keyword.get(opts, :conversation_key))
     |> maybe_filter_inserted_before(Keyword.get(opts, :inserted_before))
-    |> maybe_exclude_conversation_key_prefixes(
-      Keyword.get(opts, :exclude_conversation_key_prefixes, [])
-    )
     |> order_by(
       [conversation],
       asc: conversation.subject_uid,
@@ -169,18 +208,6 @@ defmodule Ankole.AIGateway.Conversations do
     do: where(query, [conversation], conversation.inserted_at < ^inserted_before)
 
   defp maybe_filter_inserted_before(query, _inserted_before), do: query
-
-  defp maybe_exclude_conversation_key_prefixes(query, prefixes) when is_list(prefixes) do
-    Enum.reduce(prefixes, query, fn
-      prefix, query when is_binary(prefix) and prefix != "" ->
-        where(query, [conversation], not like(conversation.conversation_key, ^"#{prefix}%"))
-
-      _prefix, query ->
-        query
-    end)
-  end
-
-  defp maybe_exclude_conversation_key_prefixes(query, _prefixes), do: query
 
   defp maybe_lock(query, true), do: lock(query, "FOR UPDATE")
   defp maybe_lock(query, false), do: query

@@ -45,6 +45,7 @@ type SharedTurnOptions = {
   logger?: AgentLoopLogger
   agentConversationContext?: AgentConversationContextResponse
   pollSteering?: () => TurnSteerUpdate[]
+  waitForSteering?: (signal?: AbortSignal) => Promise<void>
   onSteeringApplied?: (update: TurnSteerUpdate) => Promise<void>
   pollDisabledSkills?: () => string[]
   pollChangedSkills?: () => string[]
@@ -59,6 +60,8 @@ export type TextTurnLoopOptions = SharedTurnOptions & {
 
 export type CodexJobOptions = SharedTurnOptions & {
   onTurnActivity?: (description?: string) => void
+  /** Internal host/test override; production uses the bounded Codex first-progress deadline. */
+  firstCodexProgressTimeoutMs?: number
 }
 
 export type TurnHandlerOptions = TextTurnLoopOptions & CodexJobOptions

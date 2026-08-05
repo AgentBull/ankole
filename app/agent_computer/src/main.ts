@@ -18,10 +18,12 @@ import { resolveBubblewrapSupport } from './tools/computer/bubblewrap'
 import { syncInstalledSkillsForTurn } from './skills/installed_skill_sync'
 import {
   availableTurnSlots,
+  pushTurnSteering,
   startTurnProgress,
   turnFailureDetails,
   turnFailureLogFields,
   turnKey,
+  waitForTurnSteering,
   type ActiveTurn
 } from './worker/active_turns'
 import { workerLogger } from './worker/logging'
@@ -44,7 +46,7 @@ import {
   TurnCompletionRejectedError,
   TurnTerminalRejectedError
 } from './worker/turn_completion'
-import { deleteCodexLogs2AtDailyReset } from './tools/codex/fix-codex-logs2-sqlite-bug'
+import { deleteCodexLogs2AtDailyReset } from './core/codex-runner/fix-codex-logs2-sqlite-bug'
 
 const heartbeatIntervalMs = 15_000
 
@@ -334,6 +336,7 @@ async function startTurn(
     turnStart,
     correlationID,
     steeringUpdates: [],
+    steeringWaiters: new Set(),
     disabledSkillNames: [],
     changedSkillNames: [],
     abortController: new AbortController(),
@@ -504,6 +507,7 @@ async function runActiveTurn(
       requestAIGatewayAPIKey: (agentUid, options) => requestAIGatewayAPIKey(rpcClient, agentUid, options),
       logger: workerLogger,
       pollSteering: () => active.steeringUpdates.splice(0),
+      waitForSteering: signal => waitForTurnSteering(active, signal),
       pollDisabledSkills: () => active.disabledSkillNames.splice(0),
       pollChangedSkills: () => active.changedSkillNames.splice(0),
       onSteeringApplied: update =>
@@ -595,7 +599,7 @@ async function handleMailboxUpdated(activeTurns: Map<string, ActiveTurn>, envelo
 
   // Active steer carries the single already-journaled actor event that caused
   // this revision bump.
-  active.steeringUpdates.push({
+  pushTurnSteering(active, {
     turn: update.turn,
     actorEvent: update.actor_event,
     correlationID: envelope.messageId

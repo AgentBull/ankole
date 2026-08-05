@@ -8,7 +8,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnEnvelope do
   `*_json` bytes here and nowhere else.
   """
 
-  alias Ankole.Kernel.RuntimeFabric
   alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery
@@ -41,12 +40,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnEnvelope do
       end
 
     %FabricProto.Envelope{
-      protocol_version: RuntimeFabric.protocol_version(),
       message_id: message_id,
       correlation_id: message_id,
-      lane: :LANE_TURN,
       sent_at_unix_ms: System.system_time(:millisecond),
-      durability: :CONTROL_REPLAYABLE,
       body:
         {:turn_start,
          %FabricProto.TurnStart{
@@ -71,12 +67,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnEnvelope do
     message_id = "mailbox-updated-" <> Ecto.UUID.generate()
 
     %FabricProto.Envelope{
-      protocol_version: RuntimeFabric.protocol_version(),
       message_id: message_id,
       correlation_id: message_id,
-      lane: :LANE_TURN,
       sent_at_unix_ms: System.system_time(:millisecond),
-      durability: :CONTROL_EPHEMERAL,
       body:
         {:mailbox_updated,
          %FabricProto.MailboxUpdated{
@@ -98,12 +91,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnEnvelope do
     message_id = "turn-control-" <> Ecto.UUID.generate()
 
     %FabricProto.Envelope{
-      protocol_version: RuntimeFabric.protocol_version(),
       message_id: message_id,
       correlation_id: message_id,
-      lane: :LANE_CONTROL,
       sent_at_unix_ms: System.system_time(:millisecond),
-      durability: :CONTROL_DURABLE,
       body:
         {:turn_control,
          %FabricProto.TurnControl{

@@ -17,7 +17,7 @@
     "@agentbull/active-support": "^1.6.0",
     "@ankole/uikit": "workspace:*",
     "@formisch/react": "^1.0.0-rc.0",
-    "@preact/signals-react": "3.11.1",
+    "@preact/signals-react": "3.12.0",
     "@remixicon/react": "4.9.0",
     "@tanstack/react-query": "5.101.4",
     "date-fns": "^4.4.0",

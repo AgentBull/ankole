@@ -425,6 +425,3 @@ Spreadsheets style header rows like `table-header`, freeze them, and set numeric
 
 Write UI text and artifact copy the way the system looks: plain, precise, calm. Lead buttons and section titles with the point ("Create agent", "Latency dropped 40%"); state errors as what happened plus the next step; avoid exclamation marks and marketing adjectives. In Chinese copy use full-width punctuation, half-width digits, and a space between CJK and Latin or numerals（例如 "部署 3 个 Agent"）. Dates prefer ISO order (2026-07-15). Localize whole sentences; never mix languages mid-sentence in labels.
 
-## Operator note
-
-This document is the factory default for every agent in this installation. Operators replace or extend it in Console → Agents → DESIGN; keep exact tokens in the YAML frontmatter and rationale in prose, and validate edits with `npx @google/design.md lint DESIGN.md`.

@@ -58,6 +58,7 @@ import type {
   BackgroundAgentJobTurnUsageBreakdown
 } from '../api/generated/types.gen'
 import { ErrorBlock, formatConsoleDate, formatJSON } from '../console-primitives'
+import { resourceID } from '../console-route-loaders'
 import { MarkdownBody } from '../markdown-body'
 import { StatusIndicator } from '../console-form'
 import { ResourceSearch } from '../console-list-page'
@@ -86,7 +87,7 @@ export function BackgroundAgentJobsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const routeAgentFilter = searchParams.get('agent') ?? ''
   const [agentFilter, setAgentFilter] = useState(routeAgentFilter)
-  const selectedID = backgroundAgentJobID(searchParams.get('job'))
+  const selectedID = resourceID(searchParams.get('job'))
   const [cancelTargetID, setCancelTargetID] = useState<number>()
   const list = useQuery({
     ...ankoleWebBackgroundAgentJobControllerIndexOptions({
@@ -886,13 +887,6 @@ function cancellable(status: JobStatus): boolean {
 function distinguishesStatus(status: JobStatus): boolean {
   const column = columns.find(candidate => candidate.statuses.includes(status))
   return (column?.statuses.length ?? 0) > 1
-}
-
-function backgroundAgentJobID(value: string | null): number | undefined {
-  if (!value || !/^[1-9][0-9]*$/.test(value)) return undefined
-
-  const id = Number(value)
-  return Number.isSafeInteger(id) && id >= 1000 ? id : undefined
 }
 
 function formatDuration(seconds: number): string {

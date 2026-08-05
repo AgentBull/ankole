@@ -396,14 +396,32 @@ defmodule Ankole.AIGateway.UniversalAIRequest do
   # Rust uses response context only to fill normalized Responses fields. It is
   # not allowed to mutate the upstream request from this data.
   defp response_context(ctx, include_model?, provider_options_override) do
+    model = map_get(ctx, :model) || ""
+
     %{
-      model: map_get(ctx, :model) || "",
-      request: map_get(ctx, :request) || %{},
+      model: model,
+      request:
+        put_reasoning_source(
+          map_get(ctx, :request) || %{},
+          ctx |> map_get(:provider) |> map_get(:provider_kind),
+          model
+        ),
       provider_options: provider_options_override || map_get(ctx, :provider_options) || %{},
       stream: map_get(ctx, :stream?) || false,
       include_model: include_model?
     }
   end
+
+  defp put_reasoning_source(request, provider_type, model_id)
+       when is_map(request) and is_binary(provider_type) and provider_type != "" and
+              is_binary(model_id) and model_id != "" do
+    Map.put(request, "__ankole_reasoning_source", %{
+      "provider_type" => provider_type,
+      "model_id" => model_id
+    })
+  end
+
+  defp put_reasoning_source(request, _provider_type, _model_id), do: request
 
   defp ctx_settings(%{settings: settings}) when is_map(settings), do: settings
   defp ctx_settings(%{"settings" => settings}) when is_map(settings), do: atomize_keys(settings)
@@ -546,6 +564,10 @@ defmodule Ankole.AIGateway.UniversalAIRequest do
   # The native task monitors the receiver after open, but this caller still
   # cancels on ready timeout so an upstream socket is not left alive when the
   # Phoenix side has already given up.
+  #
+  # This is a selective receive: the patterns must stay raw tuples so messages
+  # for other refs remain queued. `UniversalAIClient.stream_event/1` declares
+  # the same shapes as the typed contract.
   defp wait_ready(stream, receive_timeout_ms) do
     receive do
       {:universal_ai_client, ref, :ready, meta} when ref == stream.ref ->

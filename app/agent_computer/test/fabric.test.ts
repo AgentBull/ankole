@@ -10,12 +10,12 @@ import {
 import {
   AgentComputerWorkerReadySchema,
   createEnvelope,
-  DurabilityClass,
+  decodeEnvelope,
   encodeEnvelope,
   envelopeHeader,
-  Lane,
   type Envelope
 } from '../src/fabric/envelope_proto'
+import { runtimeFabricSealEnvelope } from '@ankole/kernel'
 import { Buffer } from 'node:buffer'
 
 describe('RuntimeFabric host adapter', () => {
@@ -52,11 +52,13 @@ describe('RuntimeFabric host adapter', () => {
 
   it('classifies timeout and decodes a single envelope frame through the native codec', async () => {
     const transport = new TestRuntimeFabricTransport()
-    transport.receives.push(null, [encodeEnvelope(testEnvelope())])
+    // A received frame always left a peer's kernel, so it arrives sealed.
+    const wireFrame = runtimeFabricSealEnvelope(encodeEnvelope(testEnvelope()))
+    transport.receives.push(null, [Buffer.from(wireFrame)])
     const fabric = createRuntimeFabricHost(transport)
 
     expect(await fabric.receive(5)).toEqual({ kind: 'timeout' })
-    expect(await fabric.receive(5)).toEqual({ kind: 'envelope', envelope: testEnvelope() })
+    expect(await fabric.receive(5)).toEqual({ kind: 'envelope', envelope: decodeEnvelope(wireFrame) })
   })
 
   it('owns an idempotent dealer stop and rejects later transport operations', async () => {
@@ -176,7 +178,7 @@ class TestRuntimeFabricTransport implements RuntimeFabricPhysicalTransport {
 
 function testEnvelope(): Envelope {
   return createEnvelope({
-    ...envelopeHeader('worker-ready-test', Lane.CONTROL, DurabilityClass.CONTROL_EPHEMERAL),
+    ...envelopeHeader('worker-ready-test'),
     sentAtUnixMs: 0n,
     body: {
       case: 'workerReady',

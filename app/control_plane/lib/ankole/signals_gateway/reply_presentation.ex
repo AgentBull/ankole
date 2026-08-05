@@ -11,6 +11,8 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
   delivery.
   """
 
+  alias Ankole.I18n
+
   @schema_version 1
   @terminal_states ~w(awaiting_input completed continued failed stopped scheduled)
   @states ["debouncing", "working" | @terminal_states]
@@ -295,7 +297,7 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
       presentation
       |> Map.put("state", state)
       |> Map.put("revision", max(presentation["revision"], revision))
-      |> maybe_put_meta("status", bounded_optional_text(value(payload, "label"), 160))
+      |> maybe_put_meta("status", localized_optional_text(payload, "label", 160))
       |> remove_transient_fields_unless_working()
     end
   end
@@ -347,7 +349,8 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
         "operation_id" => operation_id,
         "revision" => incoming_revision,
         "phase" => normalize_in(value(payload, "phase"), @activity_phases, "running"),
-        "label" => bounded_text(value(payload, "label") || "处理请求", @max_activity_label_chars),
+        "label" =>
+          localized_text(payload, "label", default_activity_label(), @max_activity_label_chars),
         "consequential" => value(payload, "consequential") == true
       }
 
@@ -372,7 +375,10 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
         "operation_id" => operation_id,
         "revision" => revision(payload),
         "phase" => phase,
-        "label" => value(payload, "label") || "回忆相关上下文",
+        "label" => value(payload, "label"),
+        "label_key" =>
+          value(payload, "label_key") || "signals_gateway.reply.activity.memory_search",
+        "label_bindings" => value(payload, "label_bindings"),
         "consequential" => false
       })
 
@@ -394,11 +400,17 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
           "kind" => kind,
           "operation_id" => operation_id,
           "revision" => revision(payload),
-          "summary" => bounded_text(value(payload, "summary") || "已完成", 500)
+          "summary" =>
+            localized_text(
+              payload,
+              "summary",
+              I18n.t("signals_gateway.reply.activity.completed"),
+              500
+            )
         }
-        |> maybe_put("scope", bounded_optional_text(value(payload, "scope"), 160))
+        |> maybe_put("scope", localized_optional_text(payload, "scope", 160))
         |> maybe_put("target", bounded_optional_text(value(payload, "target"), 240))
-        |> maybe_put("follow_up", bounded_optional_text(value(payload, "follow_up"), 240))
+        |> maybe_put("follow_up", localized_optional_text(payload, "follow_up", 240))
 
       receipts = upsert_by_id(presentation["receipts"], receipt, "operation_id", @max_receipts)
 
@@ -494,7 +506,10 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
             "revision" => revision(activity),
             "phase" => normalize_in(value(activity, "phase"), @activity_phases, "running"),
             "label" =>
-              bounded_text(value(activity, "label") || "处理请求", @max_activity_label_chars),
+              bounded_text(
+                value(activity, "label") || default_activity_label(),
+                @max_activity_label_chars
+              ),
             "consequential" => value(activity, "consequential") == true
           }
 
@@ -508,6 +523,35 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
   end
 
   defp normalize_activities(_activities), do: %{}
+
+  defp localized_text(payload, field, default, max_chars) do
+    localized_optional_text(payload, field, max_chars) || bounded_text(default, max_chars)
+  end
+
+  defp localized_optional_text(payload, field, max_chars) do
+    key = bounded_optional_text(value(payload, "#{field}_key"), 160)
+
+    text =
+      if is_binary(key) and String.starts_with?(key, "signals_gateway.reply.activity.") do
+        I18n.t(key, activity_bindings(value(payload, "#{field}_bindings")))
+      else
+        value(payload, field)
+      end
+
+    bounded_optional_text(text, max_chars)
+  end
+
+  defp activity_bindings(bindings) when is_map(bindings) do
+    bindings
+    |> Enum.take(8)
+    |> Map.new(fn {key, value} ->
+      {bounded_text(key, 64), scalar_text(value, @max_activity_label_chars)}
+    end)
+  end
+
+  defp activity_bindings(_bindings), do: %{}
+
+  defp default_activity_label, do: I18n.t("signals_gateway.reply.activity.processing")
 
   defp normalize_results(results),
     do:

@@ -51,6 +51,111 @@ defmodule FeishuOpenAPI.TokenManagerTest do
     assert Agent.get(counter, & &1) == 1
   end
 
+  test "minimum validity refreshes a cached tenant token before its safe expiry", %{
+    app_id: app_id
+  } do
+    {:ok, counter} = Agent.start_link(fn -> 0 end)
+
+    Req.Test.stub(FeishuOpenAPI.TokenManagerTest, fn conn ->
+      Agent.update(counter, &(&1 + 1))
+
+      Req.Test.json(conn, %{
+        "code" => 0,
+        "tenant_access_token" => "fresh-token",
+        "expire" => 7200
+      })
+    end)
+
+    client =
+      Client.new(app_id, "secret",
+        req_options: [plug: {Req.Test, FeishuOpenAPI.TokenManagerTest}]
+      )
+
+    on_exit(fn -> cleanup_client_entries(client) end)
+
+    :ets.insert(
+      TokenStore.table(),
+      {tenant_key(client), "aging-token", now_ms() + :timer.minutes(5)}
+    )
+
+    {:ok, manager_pid} =
+      DynamicSupervisor.start_child(
+        FeishuOpenAPI.TokenManager.Supervisor,
+        {TokenManager, client}
+      )
+
+    Req.Test.allow(FeishuOpenAPI.TokenManagerTest, self(), manager_pid)
+
+    assert {:ok, "fresh-token"} =
+             TokenManager.get_tenant_token(client, nil, min_validity_ms: :timer.minutes(10))
+
+    assert {:ok, "fresh-token"} =
+             TokenManager.get_tenant_token(client, nil, min_validity_ms: :timer.minutes(10))
+
+    assert Agent.get(counter, & &1) == 1
+  end
+
+  test "minimum validity rejects an upstream token that is too short", %{app_id: app_id} do
+    Req.Test.stub(FeishuOpenAPI.TokenManagerTest, fn conn ->
+      Req.Test.json(conn, %{
+        "code" => 0,
+        "tenant_access_token" => "short-token",
+        "expire" => 240
+      })
+    end)
+
+    client =
+      Client.new(app_id, "secret",
+        req_options: [plug: {Req.Test, FeishuOpenAPI.TokenManagerTest}]
+      )
+
+    on_exit(fn -> cleanup_client_entries(client) end)
+
+    {:ok, manager_pid} =
+      DynamicSupervisor.start_child(
+        FeishuOpenAPI.TokenManager.Supervisor,
+        {TokenManager, client}
+      )
+
+    Req.Test.allow(FeishuOpenAPI.TokenManagerTest, self(), manager_pid)
+
+    assert {:error, %FeishuOpenAPI.Error{code: :token_validity_too_short}} =
+             TokenManager.get_tenant_token(client, nil, min_validity_ms: :timer.minutes(2))
+  end
+
+  test "failed early refresh keeps the aging token for callers with a smaller requirement", %{
+    app_id: app_id
+  } do
+    Req.Test.stub(FeishuOpenAPI.TokenManagerTest, fn conn ->
+      Req.Test.json(conn, %{"code" => 99_999, "msg" => "refresh unavailable"})
+    end)
+
+    client =
+      Client.new(app_id, "secret",
+        req_options: [plug: {Req.Test, FeishuOpenAPI.TokenManagerTest}]
+      )
+
+    on_exit(fn -> cleanup_client_entries(client) end)
+
+    :ets.insert(
+      TokenStore.table(),
+      {tenant_key(client), "aging-token", now_ms() + :timer.minutes(5)}
+    )
+
+    {:ok, manager_pid} =
+      DynamicSupervisor.start_child(
+        FeishuOpenAPI.TokenManager.Supervisor,
+        {TokenManager, client}
+      )
+
+    Req.Test.allow(FeishuOpenAPI.TokenManagerTest, self(), manager_pid)
+
+    assert {:error, %FeishuOpenAPI.Error{code: 99_999}} =
+             TokenManager.get_tenant_token(client, nil, min_validity_ms: :timer.minutes(10))
+
+    assert {:ok, "aging-token"} = TokenManager.get_tenant_token(client)
+  end
+
   test "bang-style invalidation clears the ETS cache", %{app_id: app_id} do
     client = Client.new(app_id, "s")
     on_exit(fn -> cleanup_client_entries(client) end)
@@ -107,6 +212,8 @@ defmodule FeishuOpenAPI.TokenManagerTest do
   defp tenant_key(client, tenant_key \\ nil) do
     {:tenant, Client.cache_namespace(client), tenant_key}
   end
+
+  defp now_ms, do: System.monotonic_time(:millisecond)
 
   defp cleanup_client_entries(client) do
     cache_namespace = Client.cache_namespace(client)

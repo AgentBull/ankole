@@ -61,7 +61,7 @@ RUN bun run build \
 
 FROM ${BASE_IMAGE}
 
-ARG LARK_CLI_VERSION=v1.0.69
+ARG LARK_CLI_VERSION=v1.0.84
 ARG BROWSER_NODE_VERSION
 ARG TARGETARCH
 ARG ANKOLE_RELEASE_REVISION=development
@@ -83,11 +83,16 @@ RUN set -eux; \
   expected="$(awk -v asset="${asset}" '$2 == asset { print $1; exit }' /tmp/lark-cli-checksums.txt)"; \
   test -n "${expected}"; \
   printf '%s  %s\n' "${expected}" "/tmp/${asset}" | sha256sum -c -; \
-  mkdir -p /tmp/lark-cli; \
+  mkdir -p /tmp/lark-cli /usr/local/libexec; \
   tar -xzf "/tmp/${asset}" -C /tmp/lark-cli; \
-  install -m 0755 /tmp/lark-cli/lark-cli /usr/local/bin/lark-cli; \
-  test "$(lark-cli --version)" = "lark-cli version ${version}"; \
+  install -m 0755 /tmp/lark-cli/lark-cli /usr/local/libexec/lark-cli; \
+  test "$(/usr/local/libexec/lark-cli --version)" = "lark-cli version ${version}"; \
   rm -rf /tmp/lark-cli /tmp/lark-cli-checksums.txt "/tmp/${asset}"
+
+COPY app/agent_computer/scripts/lark-cli.sh /usr/local/bin/lark-cli
+
+RUN chmod 0755 /usr/local/bin/lark-cli \
+  && test "$(lark-cli --version)" = "lark-cli version ${LARK_CLI_VERSION#v}"
 
 COPY --from=build /repo/app/kernel/index.js ./app/kernel/index.js
 COPY --from=build /repo/app/kernel/main.js ./app/kernel/main.js

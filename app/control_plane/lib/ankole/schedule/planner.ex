@@ -29,25 +29,29 @@ defmodule Ankole.Schedule.Planner do
       "every" ->
         with {:ok, timezone} <- schedule_timezone(schedule, attrs, opts),
              {:ok, every_ms} <- Attrs.positive_integer(schedule, "every_ms"),
-             {:ok, anchor_at} <- absolute_datetime(Attrs.map_text(schedule, "anchor_at")) do
+             {:ok, anchor_at} <- absolute_datetime(Attrs.map_text(schedule, "anchor_at")),
+             {:ok, occurrences} <- normalize_occurrences(schedule, timezone) do
           {:ok,
            %{
              "kind" => "every",
              "every_ms" => every_ms,
              "anchor_at" => DateTime.to_iso8601(anchor_at)
-           }, timezone}
+           }
+           |> Attrs.maybe_put("occurrences", occurrences), timezone}
         end
 
       "cron" ->
         with {:ok, timezone} <- schedule_timezone(schedule, attrs, opts),
              {:ok, expression} <- Attrs.required_text(schedule, "expression"),
-             {:ok, normalized_expression} <- validate_cron_expression(expression) do
+             {:ok, normalized_expression} <- validate_cron_expression(expression),
+             {:ok, occurrences} <- normalize_occurrences(schedule, timezone) do
           {:ok,
            %{
              "kind" => "cron",
              "expression" => normalized_expression,
              "timezone" => timezone
-           }, timezone}
+           }
+           |> Attrs.maybe_put("occurrences", occurrences), timezone}
         end
 
       _kind ->
@@ -56,6 +60,62 @@ defmodule Ankole.Schedule.Planner do
   end
 
   def normalize_schedule_json(_schedule, _attrs, _opts), do: {:error, :invalid_schedule}
+
+  @doc """
+  Reads a normalized schedule's occurrence bound.
+
+  Returns nil for an unbounded schedule, `{:count, n}` for a due-slot budget, or
+  `{:until, datetime}` for an inclusive cutoff instant.
+  """
+  @spec occurrences_bound(map()) :: nil | {:count, pos_integer()} | {:until, DateTime.t()}
+  def occurrences_bound(schedule) when is_map(schedule) do
+    case Attrs.map_value(schedule, "occurrences") do
+      %{"count" => count} when is_integer(count) and count > 0 ->
+        {:count, count}
+
+      %{"until" => until} when is_binary(until) ->
+        case DateTime.from_iso8601(until) do
+          {:ok, datetime, _offset} -> {:until, datetime}
+          {:error, _reason} -> nil
+        end
+
+      _absent_or_invalid ->
+        nil
+    end
+  end
+
+  def occurrences_bound(_schedule), do: nil
+
+  # Normalizes the optional occurrence bound of a recurring schedule: exactly one
+  # of "count" (a positive integer of due slots) or "until" (an instant, resolved
+  # in the schedule timezone when given as a local time, stored as UTC ISO 8601).
+  defp normalize_occurrences(schedule, timezone) do
+    case Attrs.map_value(schedule, "occurrences") do
+      nil ->
+        {:ok, nil}
+
+      %{"count" => _count, "until" => _until} ->
+        {:error, :occurrences_count_or_until}
+
+      %{"count" => count} = bound when map_size(bound) == 1 ->
+        case count do
+          value when is_integer(value) and value > 0 and value <= 9_007_199_254_740_991 ->
+            {:ok, %{"count" => value}}
+
+          _invalid ->
+            {:error, :invalid_occurrences_count}
+        end
+
+      %{"until" => until} = bound when map_size(bound) == 1 and is_binary(until) ->
+        case parse_at(until, timezone) do
+          {:ok, %DateTime{} = datetime} -> {:ok, %{"until" => DateTime.to_iso8601(datetime)}}
+          {:error, _reason} -> {:error, :invalid_occurrences_until}
+        end
+
+      _invalid ->
+        {:error, :occurrences_count_or_until}
+    end
+  end
 
   @spec parse_checkback_due(map(), String.t(), DateTime.t(), keyword()) ::
           {:ok, DateTime.t()} | {:error, term()}

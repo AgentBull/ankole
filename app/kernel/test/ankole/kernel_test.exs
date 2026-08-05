@@ -273,7 +273,7 @@ defmodule Ankole.KernelTest do
     assert {:ok, ^envelope} = RuntimeFabric.decode_envelope(encoded)
   end
 
-  test "runtime fabric router validates envelope semantics before the socket send" do
+  test "runtime fabric router seals headers and validates body semantics before the socket send" do
     assert {:ok, router} =
              RuntimeFabric.router_start("tcp://127.0.0.1:*", self(),
                worker_auth_key: "test-token",
@@ -303,8 +303,10 @@ defmodule Ankole.KernelTest do
     assert reason =~ "invalid_envelope"
     assert reason =~ "steer payload must be empty"
 
+    # The seal writes lane, durability, and protocol version from the body, so
+    # a host cannot pick a wrong lane. The corrected envelope passes protocol
+    # validation and the send fails later, on the missing route.
     wrong_lane = %V1.Envelope{
-      protocol_version: RuntimeFabric.protocol_version(),
       message_id: "turn-start-wrong-lane",
       correlation_id: "turn-start-wrong-lane",
       lane: :LANE_CONTROL,
@@ -318,10 +320,8 @@ defmodule Ankole.KernelTest do
          }}
     }
 
-    assert {:error, reason} =
+    assert {:error, :unknown_route} =
              RuntimeFabric.router_send_mandatory(router, "missing-worker", wrong_lane)
-
-    assert reason =~ "turn_start must use lane LANE_TURN"
 
     missing_event = %V1.Envelope{
       protocol_version: RuntimeFabric.protocol_version(),
@@ -342,6 +342,9 @@ defmodule Ankole.KernelTest do
 
     assert reason =~ "mailbox_updated.actor_event is required"
 
+    # The seal stamps the current protocol version on every send, so a sender
+    # cannot emit an unsupported version; the receive path owns that
+    # rejection. A legacy envelope fails the send on its real semantic gap.
     legacy_v1 =
       Path.expand("../../proto/golden", __DIR__)
       |> Path.join("worker_ready.v1.bin")
@@ -351,7 +354,7 @@ defmodule Ankole.KernelTest do
     assert {:error, reason} =
              RuntimeFabric.router_send_mandatory(router, "missing-worker", legacy_v1)
 
-    assert reason =~ "unsupported runtime fabric protocol version: 1"
+    assert reason =~ "worker_ready.max_turns must be positive"
   end
 
   test "runtime fabric golden bytes decode to the same structs across runtimes" do

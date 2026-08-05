@@ -101,6 +101,24 @@ pub fn js_runtime_fabric_validate_envelope(bytes: Buffer) -> Result<()> {
     runtime_fabric::validate_envelope_bytes(bytes.as_ref()).map_err(napi_error)
 }
 
+/// Seals host-encoded envelope bytes for the wire.
+///
+/// The kernel writes lane, durability, and protocol version from the body,
+/// then validates the result. The dealer send path applies the same seal;
+/// this export lets host tests observe the sealed header.
+#[napi(js_name = "runtimeFabricSealEnvelope", ts_args_type = "bytes: Buffer")]
+pub fn js_runtime_fabric_seal_envelope(bytes: Buffer) -> Result<Buffer> {
+    runtime_fabric::seal_envelope_bytes(bytes.as_ref())
+        .map(Buffer::from)
+        .map_err(napi_error)
+}
+
+/// Returns the only RuntimeFabric protocol version this kernel speaks.
+#[napi(js_name = "runtimeFabricProtocolVersion")]
+pub fn js_runtime_fabric_protocol_version() -> u32 {
+    runtime_fabric::PROTOCOL_VERSION
+}
+
 /// Bun/Node DEALER-side RuntimeFabric client.
 #[napi(js_name = "RuntimeFabricDealer")]
 pub struct JsRuntimeFabricDealer {
@@ -135,12 +153,12 @@ impl JsRuntimeFabricDealer {
 
     #[napi(ts_args_type = "envelope: Buffer")]
     pub fn send_envelope(&self, envelope: Buffer) -> Result<()> {
-        runtime_fabric::validate_envelope_bytes(envelope.as_ref()).map_err(|error| {
+        let sealed = runtime_fabric::seal_envelope_bytes(envelope.as_ref()).map_err(|error| {
             runtime_fabric_error(TransportError::InvalidEnvelope(error.to_string()))
         })?;
 
         self.handle
-            .send_payload(envelope.to_vec())
+            .send_payload(sealed)
             .map(|_| ())
             .map_err(runtime_fabric_error)
     }

@@ -2,7 +2,7 @@
 
 ## Docs
 
-Start with `lark-cli docs --help`. Prefer the high-level shortcuts for document content:
+Prefer the high-level shortcuts for document content; `lark-cli docs --help` lists operations not shown here:
 
 ```bash
 lark-cli docs +fetch --doc <url-or-token> --as bot --format json
@@ -27,9 +27,10 @@ Use Drive search to find documents; do not depend on a person-scoped Docs search
 
 ## Drive
 
-Start with `lark-cli drive --help`. The bot-capable surface covers files, folders, search, copy, move, delete, upload, download, import, export, versions, comments, and members where the bot has access.
+The bot-capable surface covers files, folders, search, copy, move, delete, upload, download, import, export, versions, comments, and members where the bot has access; `lark-cli drive --help` lists operations not shown here. Resolve any Lark URL or bare token first with `+inspect`, which returns the object type and canonical token with Wiki unwrapping:
 
 ```bash
+lark-cli drive +inspect --url <url-or-token> --as bot --format json
 lark-cli drive +search --query "quarterly plan" --as bot --format json
 lark-cli drive files list --folder-token <folder_token> --page-all --as bot --format json
 lark-cli drive +upload --file artifacts/report.pdf --folder-token <folder_token> --as bot --format json
@@ -41,7 +42,7 @@ Use typed resources and schema for copy, move, delete, comments, permissions, an
 
 ## Wiki
 
-Start with `lark-cli wiki --help`. Supported bot workflows include listing visible spaces, getting a space, listing/searching nodes, creating/copying/moving nodes, resolving a Wiki token to its underlying object, and managing members when command help lists bot.
+Supported bot workflows (`lark-cli wiki --help` lists the rest) include listing visible spaces, getting a space, listing/searching nodes, creating/copying/moving nodes, resolving a Wiki token to its underlying object, and managing members when command help lists bot.
 
 ```bash
 lark-cli wiki +space-list --as bot --format json

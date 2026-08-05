@@ -16,8 +16,8 @@ import {
   CodexAppServerExitError,
   CodexAppServerRPCError,
   type JSONRPCMessage
-} from '../../tools/codex/app-server-client'
-import type { DynamicToolCallParams } from '../../tools/codex/generated/protocol/v2/DynamicToolCallParams'
+} from './app-server-client'
+import type { DynamicToolCallParams } from './generated/protocol/v2/DynamicToolCallParams'
 import {
   boundedBackgroundAgentJobPaths,
   emptyBackgroundAgentJobPathHandoff,
@@ -25,13 +25,7 @@ import {
   type BackgroundAgentJobPathHandoff
 } from '../background-agent-job-handoff'
 import { pathIsWithin } from '../path-boundary'
-import {
-  approvalAcceptance,
-  approvalRequestMethod,
-  projectCodexNotification,
-  stringValue,
-  textInput
-} from '../../tools/codex/protocol'
+import { approvalAcceptance, approvalRequestMethod, projectCodexNotification, stringValue, textInput } from './protocol'
 import type { TurnHandlerResult } from '../turns/turn_options'
 import { pendingParentInputFromDynamicTool, PARENT_INPUT_TOOL_NAME } from './parent-input'
 import {
@@ -54,6 +48,7 @@ import { CodexSkillUsageTracker, skillDisabledNotice, type DiscoveredCodexSkill 
 
 const steerPollIntervalMs = 250
 const maxMCPStartupErrorBytes = 2_048
+const defaultFirstCodexProgressTimeoutMs = 60_000
 
 export async function runCodexJobSession(input: PreparedCodexJobExecution): Promise<TurnHandlerResult> {
   return new CodexJobSession(input).run()
@@ -90,6 +85,8 @@ class CodexJobSession implements AgentCodexRuntimeSession {
   private readonly toolAbortController = new AbortController()
   private turnResult: TurnHandlerResult | undefined
   private steerTimer: ReturnType<typeof setInterval> | undefined
+  private firstProgressTimer: ReturnType<typeof setTimeout> | undefined
+  private leadRuntimeProgressVersion = 0
   private steerInFlight = false
   private resolveCompaction: (() => void) | undefined
   private rejectCompaction: ((error: Error) => void) | undefined
@@ -163,6 +160,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
     }
 
     if (this.steerTimer) clearInterval(this.steerTimer)
+    this.clearFirstProgressDeadline()
     this.input.opts.abortSignal?.removeEventListener('abort', this.onAbort)
     this.closing = true
 
@@ -267,22 +265,22 @@ class CodexJobSession implements AgentCodexRuntimeSession {
   private async resumeExistingThread(): Promise<boolean> {
     if (!this.runtimeThreadID || !this.client || !this.runtimeLease) return false
     const resumedThreadID = this.runtimeThreadID
-    this.runtimeLease.runtime.registerRoot(resumedThreadID, this)
     try {
-      await this.client.request('thread/resume', {
-        ['threadId']: resumedThreadID,
-        cwd: this.input.jobProject.codexCwd,
-        runtimeWorkspaceRoots: [this.input.jobProject.codexCwd],
-        approvalPolicy: 'never',
-        sandbox: 'danger-full-access',
-        modelProvider: 'ankole_aigateway',
-        config: this.input.threadConfig,
-        ...(this.threadModel ? { model: this.threadModel } : {})
+      await this.runtimeLease.runtime.resumeRoot(resumedThreadID, this, async () => {
+        await this.client!.request('thread/resume', {
+          ['threadId']: resumedThreadID,
+          cwd: this.input.jobProject.codexCwd,
+          runtimeWorkspaceRoots: [this.input.jobProject.codexCwd],
+          approvalPolicy: 'never',
+          sandbox: 'danger-full-access',
+          modelProvider: 'ankole_aigateway',
+          config: this.input.threadConfig,
+          ...(this.threadModel ? { model: this.threadModel } : {})
+        })
       })
       this.input.opts.onTurnActivity?.('codex:thread_resumed')
       return false
     } catch (error) {
-      this.runtimeLease.runtime.unregisterThread(resumedThreadID, this)
       const decision = transitionCodexRecovery({
         stage: 'resume',
         failure: classifyCodexRecoveryFailure(
@@ -424,13 +422,15 @@ class CodexJobSession implements AgentCodexRuntimeSession {
     )
     this.runtimeThreadID = stringValue(jsonObject(started.thread).id)
     if (!this.runtimeThreadID) throw new Error('codex app-server did not return a thread id')
-    this.runtimeLease.runtime.registerRoot(this.runtimeThreadID, this)
+    await this.runtimeLease.runtime.registerRoot(this.runtimeThreadID, this)
     this.input.opts.onTurnActivity?.('codex:thread_started')
   }
 
   private async startCodexTurn(input: string): Promise<void> {
     if (!this.client || !this.runtimeThreadID) throw new Error('codex thread is not available')
     const clientUserMessageID = turnClientUserMessageID(this.input.turnStart)
+    const progressVersion = this.leadRuntimeProgressVersion
+    this.clearFirstProgressDeadline()
     const startedTurn = jsonObject(
       await this.client.request('turn/start', {
         ['threadId']: this.runtimeThreadID,
@@ -449,7 +449,40 @@ class CodexJobSession implements AgentCodexRuntimeSession {
     this.codexTurnID = stringValue(jsonObject(startedTurn.turn).id)
     if (!this.codexTurnID) throw new Error('codex app-server did not return a turn id')
     this.turnRecorder.recordTurnStarted(this.runtimeThreadID, jsonObject(startedTurn.turn), input, clientUserMessageID)
+    if (this.leadRuntimeProgressVersion === progressVersion) this.armFirstProgressDeadline()
     this.input.opts.onTurnActivity?.('codex:turn_started')
+  }
+
+  private armFirstProgressDeadline(): void {
+    const timeoutMs = this.input.opts.firstCodexProgressTimeoutMs ?? defaultFirstCodexProgressTimeoutMs
+    this.firstProgressTimer = setTimeout(() => {
+      this.firstProgressTimer = undefined
+      if (this.finalizing || this.closing) return
+      const error = new CodexTurnNoProgressError(timeoutMs)
+      this.input.opts.logger?.warning(
+        'worker.codex_turn_first_progress_timed_out',
+        'Codex turn produced no runtime progress after turn/start',
+        {
+          job_id: this.input.jobID,
+          runtime_thread_id: this.runtimeThreadID,
+          runtime_turn_id: this.codexTurnID,
+          timeout_ms: timeoutMs
+        }
+      )
+      this.rejectDone(error)
+    }, timeoutMs)
+    this.firstProgressTimer.unref?.()
+  }
+
+  private noteLeadRuntimeProgress(): void {
+    this.leadRuntimeProgressVersion += 1
+    this.clearFirstProgressDeadline()
+  }
+
+  private clearFirstProgressDeadline(): void {
+    if (!this.firstProgressTimer) return
+    clearTimeout(this.firstProgressTimer)
+    this.firstProgressTimer = undefined
   }
 
   private async compactThread(): Promise<void> {
@@ -605,6 +638,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
     const projection = projectCodexNotification(message)
     if (projection.type !== 'ignored') {
       this.input.opts.onTurnActivity?.(`codex:${isLeadNotification ? '' : 'child:'}${projection.type}`)
+      if (isLeadNotification) this.noteLeadRuntimeProgress()
     }
 
     if (message.method === 'item/started') {
@@ -691,6 +725,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
     const params = jsonObject(message.params)
     const requestThreadID = stringValue(params.threadId)
     const isLeadRequest = !requestThreadID || requestThreadID === this.runtimeThreadID
+    if (isLeadRequest) this.noteLeadRuntimeProgress()
     this.input.opts.onTurnActivity?.(`codex:${method || 'server_request'}`)
 
     const dynamicToolParams = method === 'item/tool/call' ? (message.params as DynamicToolCallParams) : undefined
@@ -1126,6 +1161,16 @@ class CodexJobTransientError extends Error {
       { cause: cause instanceof Error ? cause : undefined }
     )
     this.name = 'CodexJobTransientError'
+  }
+}
+
+class CodexTurnNoProgressError extends Error {
+  readonly code = 'codex_turn_no_progress'
+  readonly retryable = true
+
+  constructor(timeoutMs: number) {
+    super(`Codex turn produced no runtime progress within ${timeoutMs}ms after turn/start`)
+    this.name = 'CodexTurnNoProgressError'
   }
 }
 

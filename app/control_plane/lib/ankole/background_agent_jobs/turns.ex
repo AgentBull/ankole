@@ -241,16 +241,23 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
       |> order_by([group], asc: group.position)
       |> Repo.all()
       |> Enum.map(fn group ->
+        {messages, content_truncated} =
+          group.content["messages"]
+          |> OpaqueContent.reveal()
+          |> bound_group()
+
         %{
           turn_id: group.turn_id,
           position: group.position,
-          messages: group.content["messages"] |> OpaqueContent.reveal() |> bound_group()
+          messages: messages,
+          content_truncated: content_truncated
         }
       end)
 
     selected = select_page_groups(groups, @trajectory_max_limit)
     messages = Enum.flat_map(selected, & &1.messages)
     header = turn.trajectory || empty_trajectory()
+    header = mark_content_truncated(header, Enum.any?(selected, & &1.content_truncated))
 
     {Map.put(header, "messages", messages), length(groups) > length(selected)}
   end
@@ -899,14 +906,22 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
           |> Enum.group_by(& &1.turn_id)
 
         Enum.flat_map(lead_turns, fn turn ->
+          metadata = get_in(turn.trajectory || %{}, ["metadata"])
+          redacted = is_map(metadata) and metadata["redacted"] == true
+          source_truncated = is_map(metadata) and metadata["content_truncated"] == true
+
           stored_by_turn
           |> Map.get(turn.id, [])
           |> Enum.sort_by(& &1.position)
           |> Enum.map(fn group ->
+            {messages, projection_truncated} = bound_group(group.content["messages"])
+
             %{
               turn_id: group.turn_id,
               position: group.position,
-              messages: bound_group(group.content["messages"])
+              messages: messages,
+              redacted: redacted,
+              content_truncated: source_truncated or projection_truncated
             }
           end)
         end)
@@ -916,11 +931,21 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
       selected = select_page_groups(older_groups, limit)
       has_more = length(older_groups) > length(selected)
 
-      page = %{
-        format: "ankole_chatml",
-        version: 1,
-        messages: selected |> Enum.flat_map(& &1.messages)
-      }
+      metadata =
+        %{}
+        |> maybe_put_true("redacted", Enum.any?(selected, & &1.redacted))
+        |> maybe_put_true(
+          "content_truncated",
+          Enum.any?(selected, & &1.content_truncated)
+        )
+
+      page =
+        %{
+          format: "ankole_chatml",
+          version: 1,
+          messages: selected |> Enum.flat_map(& &1.messages)
+        }
+        |> maybe_put(:metadata, if(metadata == %{}, do: nil, else: metadata))
 
       {:ok,
        if has_more and selected != [] do
@@ -977,17 +1002,20 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
   defp bound_group(messages) do
     trimmed = trim_group(messages, 16)
 
-    [@model_string_bytes, 2_000, 1_000, 500, 200, 64]
-    |> Enum.find_value(fn limit ->
-      bounded = Enum.map(trimmed, &bound_value(&1, limit))
+    bounded =
+      [@model_string_bytes, 2_000, 1_000, 500, 200, 64]
+      |> Enum.find_value(fn limit ->
+        candidate = Enum.map(trimmed, &bound_value(&1, limit))
 
-      if encoded_bytes(bounded) <= @trajectory_page_bytes - @trajectory_page_reserve_bytes,
-        do: bounded
-    end)
-    |> case do
-      nil -> minimal_group(trimmed)
-      bounded -> bounded
-    end
+        if encoded_bytes(candidate) <= @trajectory_page_bytes - @trajectory_page_reserve_bytes,
+          do: candidate
+      end)
+      |> case do
+        nil -> minimal_group(trimmed)
+        candidate -> candidate
+      end
+
+    {bounded, bounded != messages}
   end
 
   defp trim_group(
@@ -1062,6 +1090,16 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
   end
 
   defp bound_value(value, _limit), do: value
+
+  defp mark_content_truncated(header, false), do: header
+
+  defp mark_content_truncated(header, true) do
+    metadata = if is_map(header["metadata"]), do: header["metadata"], else: %{}
+    Map.put(header, "metadata", Map.put(metadata, "content_truncated", true))
+  end
+
+  defp maybe_put_true(map, key, true), do: Map.put(map, key, true)
+  defp maybe_put_true(map, _key, false), do: map
 
   defp encode_trajectory_cursor(%{turn_id: turn_id, position: position}, attempt) do
     %{

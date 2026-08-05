@@ -92,7 +92,12 @@ class AIGatewayResponsesTurn implements ModelTurn {
     await options.beforeCall?.(params)
 
     const result = await this.withSingleFlight(() => this.callOverWebSocket(params))
-    if (result.responseID && result.message.stopReason !== 'error') this.advanceAnchor(result.responseID)
+    // A response that holds a truncated tool call must not become the anchor:
+    // the stored thread would end on a function call without an output, and
+    // upstream providers reject that on continuation. The salvage message
+    // continues from the previous anchor, on the same path as an error retry.
+    const anchorable = result.message.stopReason !== 'error' && !result.message.truncatedToolCalls?.length
+    if (result.responseID && anchorable) this.advanceAnchor(result.responseID)
     return result
   }
 

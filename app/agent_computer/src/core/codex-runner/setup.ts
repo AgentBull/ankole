@@ -7,9 +7,9 @@ import {
   type BackgroundAgentJobResponse,
   type RuntimeSkillSummary
 } from '../../lanes/rpc_lane'
-import { materializeCodexConfig } from '../../tools/codex/config'
-import { resolveCodexRuntimeConfig } from '../../tools/codex/runtime-config'
-import { codexAgentRuntimeSandboxSpec, codexJobThreadEnv } from '../../tools/codex/sandbox'
+import { materializeCodexConfig } from './agent-home-config'
+import { resolveCodexRuntimeConfig } from './runtime-config'
+import { codexAgentRuntimeSandboxSpec, codexJobThreadEnv } from './sandbox'
 import { createMemoryTools } from '../../tools/memory/memory-tools'
 import {
   browserSandboxRuntime,
@@ -19,6 +19,13 @@ import {
 import { httpClientFromAIGatewayAPIKey } from '../ai_gateway_transport'
 import { resolveAgentConversationContext } from '../turns/turn_context'
 import { createTurnWebTools, resolveRenderedFetchRuntimeConfig } from '../turns/rendered_fetch_runtime_config'
+import {
+  materializeLarkCredential,
+  sameLarkBindingIdentity,
+  withoutLarkTenantToken,
+  withoutLarkTenantTokenValue,
+  type MaterializedLarkCredential
+} from '../turns/lark-credential'
 import { resolveAgentWorkerEnvParts } from '../turns/worker_env'
 import type { CodexJobOptions } from '../turns/turn_options'
 import { join } from 'node:path'
@@ -125,16 +132,17 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput) {
   )
   const renderedFetchRuntimeConfig = await resolveRenderedFetchRuntimeConfig(turnStart, opts.rpc)
   opts.abortSignal?.throwIfAborted()
-  const currentWorkerEnv = await resolveAgentWorkerEnvParts(job.agentUid, opts.rpc)
-  const workerEnv = projectWorkerEnv(runtimeProjection, currentWorkerEnv)
+  const resolvedWorkerEnv = await resolveAgentWorkerEnvParts(job.agentUid, opts.rpc)
+  const currentWorkerEnv = withoutLarkTenantToken(resolvedWorkerEnv)
+  const workerEnv = withoutLarkTenantTokenValue(projectWorkerEnv(runtimeProjection, currentWorkerEnv))
   opts.abortSignal?.throwIfAborted()
   const codexWorkerEnv = withoutBrowserMaterialSourceEnv(workerEnv)
   const baseWebTools = await createTurnWebTools({
     aiGateway: projectionAIGateway,
     renderedFetchRuntimeConfig,
     workerEnv,
-    browserRuntime: opts.browserRuntime,
-    abortSignal: opts.abortSignal
+    workspaceRoot: jobProject.root,
+    browserRuntime: opts.browserRuntime
   })
   opts.abortSignal?.throwIfAborted()
   const projectedTools = [
@@ -177,10 +185,27 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput) {
   )
   const mcporterConfig = materializeMCPorterConfig(skillMCPServers, { directory: join(jobProject.root, 'temp') })
   let browserRuntimeMaterial: MaterializedBrowserRuntime | undefined
+  let larkCredential: MaterializedLarkCredential | undefined
   let agentRuntimeSandbox: ReturnType<typeof codexAgentRuntimeSandboxSpec>
   let threadEnv: Record<string, string>
   try {
     opts.abortSignal?.throwIfAborted()
+    // The thread env carries the binding identity of the first resolve above,
+    // because projectWorkerEnv overlays current binding vars. The credential
+    // file must agree with that identity, so this second live resolve is
+    // compared with the first resolve, not with the frozen projection. When
+    // the operator rebound the Lark app between the two resolves, the token is
+    // dropped and the file refresh fetches one for the current binding.
+    const currentLarkWorkerEnv = await resolveAgentWorkerEnvParts(job.agentUid, opts.rpc)
+    opts.abortSignal?.throwIfAborted()
+    larkCredential = materializeLarkCredential({
+      agentUID: job.agentUid,
+      agentHome: opts.agentHome,
+      rpc: opts.rpc,
+      workerEnv: sameLarkBindingIdentity(resolvedWorkerEnv, currentLarkWorkerEnv)
+        ? currentLarkWorkerEnv
+        : withoutLarkTenantToken(currentLarkWorkerEnv)
+    })
     browserRuntimeMaterial = await opts.browserRuntime?.materializePersistent({
       scopeRoot: jobProject.root,
       artifactRoot: join(jobProject.root, 'browser'),
@@ -205,10 +230,11 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput) {
     threadEnv = codexJobThreadEnv({
       materialized,
       workerEnv: { ...codexWorkerEnv, ...mcporterConfig.env },
-      runtimeEnv: opts.runtimeEnv,
+      runtimeEnv: { ...opts.runtimeEnv, ...larkCredential.runtimeEnv },
       ...(browserSandbox ? { browserEnv: browserSandbox.env } : {})
     })
   } catch (error) {
+    larkCredential?.cleanup()
     await browserRuntimeMaterial?.cleanup().catch(() => undefined)
     mcporterConfig.cleanup()
     runtimeFiles.cleanup()
@@ -232,6 +258,11 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput) {
     }
     try {
       mcporterConfig.cleanup()
+    } catch (error) {
+      firstError ??= error
+    }
+    try {
+      larkCredential?.cleanup()
     } catch (error) {
       firstError ??= error
     }

@@ -76,6 +76,7 @@ defmodule Ankole.AIGateway.Providers.OpenRouter do
     |> UniversalAIRequest.bearer_auth()
     |> ReasoningEffort.put_provider_options(ctx, target: :reasoning)
     |> put_prompt_cache_key(ctx)
+    |> put_anthropic_cache_control(ctx)
   end
 
   # OpenAI requires `prompt_cache_key` for reliable prompt-cache routing on
@@ -98,6 +99,35 @@ defmodule Ankole.AIGateway.Providers.OpenRouter do
         request
     end
   end
+
+  # Anthropic-family upstreams cache a prompt only when the request carries an
+  # explicit cache annotation, so a request without one repays the full prompt
+  # prefix every turn. The top-level `cache_control` field selects OpenRouter
+  # automatic caching: OpenRouter puts the breakpoint on the last cacheable
+  # block and moves it forward as the conversation grows, on each Anthropic
+  # host it routes to (Anthropic, Bedrock, Vertex, Azure). This stays an
+  # OpenRouter-scoped rule keyed on the OpenRouter author segment; other
+  # OpenAI-compatible upstreams may reject the field.
+  defp put_anthropic_cache_control({:error, _reason} = error, _ctx), do: error
+
+  defp put_anthropic_cache_control(%UniversalAIRequest{} = request, ctx) do
+    if anthropic_model?(ctx.model) do
+      UniversalAIRequest.put_provider_options(
+        request,
+        Map.put(request.provider_options, "cache_control", %{"type" => "ephemeral"})
+      )
+    else
+      request
+    end
+  end
+
+  defp anthropic_model?(model) when is_binary(model) do
+    model
+    |> String.trim_leading("~")
+    |> String.starts_with?("anthropic/")
+  end
+
+  defp anthropic_model?(_model), do: false
 
   @doc """
   Builds an OpenRouter embeddings request.

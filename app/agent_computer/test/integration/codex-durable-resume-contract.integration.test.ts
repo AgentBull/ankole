@@ -7,16 +7,16 @@ import {
   CODEX_OPT_OUT_NOTIFICATION_METHODS,
   CodexAppServerClient,
   type JSONRPCMessage
-} from '../../src/tools/codex/app-server-client'
-import type { DynamicToolCallParams } from '../../src/tools/codex/generated/protocol/v2/DynamicToolCallParams'
-import type { DynamicToolCallResponse } from '../../src/tools/codex/generated/protocol/v2/DynamicToolCallResponse'
-import type { ThreadResumeParams } from '../../src/tools/codex/generated/protocol/v2/ThreadResumeParams'
-import type { ThreadResumeResponse } from '../../src/tools/codex/generated/protocol/v2/ThreadResumeResponse'
-import type { ThreadStartParams } from '../../src/tools/codex/generated/protocol/v2/ThreadStartParams'
-import type { ThreadStartResponse } from '../../src/tools/codex/generated/protocol/v2/ThreadStartResponse'
-import type { TurnStartParams } from '../../src/tools/codex/generated/protocol/v2/TurnStartParams'
-import type { TurnStartResponse } from '../../src/tools/codex/generated/protocol/v2/TurnStartResponse'
-import type { TurnSteerResponse } from '../../src/tools/codex/generated/protocol/v2/TurnSteerResponse'
+} from '../../src/core/codex-runner/app-server-client'
+import type { DynamicToolCallParams } from '../../src/core/codex-runner/generated/protocol/v2/DynamicToolCallParams'
+import type { DynamicToolCallResponse } from '../../src/core/codex-runner/generated/protocol/v2/DynamicToolCallResponse'
+import type { ThreadResumeParams } from '../../src/core/codex-runner/generated/protocol/v2/ThreadResumeParams'
+import type { ThreadResumeResponse } from '../../src/core/codex-runner/generated/protocol/v2/ThreadResumeResponse'
+import type { ThreadStartParams } from '../../src/core/codex-runner/generated/protocol/v2/ThreadStartParams'
+import type { ThreadStartResponse } from '../../src/core/codex-runner/generated/protocol/v2/ThreadStartResponse'
+import type { TurnStartParams } from '../../src/core/codex-runner/generated/protocol/v2/TurnStartParams'
+import type { TurnStartResponse } from '../../src/core/codex-runner/generated/protocol/v2/TurnStartResponse'
+import type { TurnSteerResponse } from '../../src/core/codex-runner/generated/protocol/v2/TurnSteerResponse'
 import { PARENT_INPUT_TOOL_NAME, parentInputToolSpec } from '../../src/core/codex-runner/parent-input'
 
 describe('@ankole/agent-computer Codex durable resume contract', () => {

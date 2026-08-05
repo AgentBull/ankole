@@ -64,12 +64,12 @@ export function createTurnWebTools(opts: {
   aiGateway: AIGatewayHTTPClient
   renderedFetchRuntimeConfig: RenderedFetchRuntimeConfig
   workerEnv: Record<string, string>
+  workspaceRoot: string
   browserRuntime?: BrowserRuntime
-  abortSignal?: AbortSignal
 }) {
   return createWebTools({
     aiGateway: opts.aiGateway,
-    abortSignal: opts.abortSignal,
+    workspaceRoot: opts.workspaceRoot,
     ...(opts.browserRuntime
       ? {
           renderedFallback: opts.browserRuntime.renderedWebFetchFallback(

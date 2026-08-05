@@ -837,6 +837,7 @@ function statusTone(status: string): 'positive' | 'warning' | 'neutral' | 'dange
     case 'paused':
       return 'warning'
     case 'deleted':
+    case 'completed':
       return 'neutral'
     case 'failed':
       return 'danger'

@@ -4,10 +4,8 @@ import { actorTurnRefToProto } from '../lanes/actor_lane'
 import {
   createEnvelope,
   ControlShutdownSchema,
-  DurabilityClass,
   envelopeHeader,
   jsonBytes,
-  Lane,
   TurnAcceptedSchema,
   WorkerProgressSchema,
   type Envelope
@@ -22,7 +20,7 @@ export function controlShutdownEnvelope(reason: string): Envelope {
   const messageID = `control-shutdown-${crypto.randomUUID()}`
 
   return createEnvelope({
-    ...envelopeHeader(messageID, Lane.CONTROL, DurabilityClass.CONTROL_EPHEMERAL),
+    ...envelopeHeader(messageID),
     body: {
       case: 'controlShutdown',
       value: create(ControlShutdownSchema, { reason })
@@ -36,12 +34,7 @@ export function controlShutdownEnvelope(reason: string): Envelope {
  */
 export function turnAcceptedEnvelope(turn: ActorTurnRef, correlationID?: string): Envelope {
   return createEnvelope({
-    ...envelopeHeader(
-      `turn-accepted-${crypto.randomUUID()}`,
-      Lane.TURN,
-      DurabilityClass.CONTROL_REPLAYABLE,
-      correlationID
-    ),
+    ...envelopeHeader(`turn-accepted-${crypto.randomUUID()}`, correlationID),
     body: {
       case: 'turnAccepted',
       value: create(TurnAcceptedSchema, { turn: actorTurnRefToProto(turn) })
@@ -63,12 +56,7 @@ export function workerProgressEnvelope(
   refs?: JSONObject
 ): Envelope {
   return createEnvelope({
-    ...envelopeHeader(
-      `worker-progress-${crypto.randomUUID()}`,
-      Lane.PROGRESS,
-      DurabilityClass.CONTROL_EPHEMERAL,
-      correlationID
-    ),
+    ...envelopeHeader(`worker-progress-${crypto.randomUUID()}`, correlationID),
     body: {
       case: 'workerProgress',
       value: create(WorkerProgressSchema, {

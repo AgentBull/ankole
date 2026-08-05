@@ -22,6 +22,7 @@ import {
   normalizeEnabledSkill,
   resolveSkillFilesystemRoot,
   resolveSkillOverlayText,
+  resolveSkillOverlayTexts,
   type SkillFileRoots
 } from '../../skills/effective-skill'
 
@@ -144,9 +145,14 @@ async function materializeSkills(
     }
   }
 
+  const overlays = await resolveSkillOverlayTexts(
+    enabledSkills.map(skill => skill.skillName),
+    { turn: input.turn, rpc: input.rpc }
+  )
+
   return await Promise.all(
     enabledSkills.map(async skill => {
-      const materialPath = await refreshAgentSkillMaterial(input, skill)
+      const materialPath = await refreshAgentSkillMaterial(input, skill, overlays.get(skill.skillName))
       if (!projectSkillNames.has(skill.skillName)) {
         return { name: skill.skillName, sourcePath: materialPath }
       }
@@ -159,7 +165,8 @@ async function materializeSkills(
 
 async function refreshAgentSkillMaterial(
   input: Parameters<typeof materializeCodexJobRuntimeFiles>[0],
-  skill: RuntimeSkillSummary
+  skill: RuntimeSkillSummary,
+  resolvedOverlay?: string
 ): Promise<string> {
   assertValidSkillName(skill.skillName)
   const materialPath = join(input.agentSkillsRoot, skill.skillName)
@@ -174,7 +181,8 @@ async function refreshAgentSkillMaterial(
 
       mkdirSync(materialPath, { recursive: true, mode: 0o700 })
       reconcileSkillResources(sourcePath, materialPath)
-      const overlay = await resolveSkillOverlayText(skill.skillName, { turn: input.turn, rpc: input.rpc })
+      const overlay =
+        resolvedOverlay ?? (await resolveSkillOverlayText(skill.skillName, { turn: input.turn, rpc: input.rpc }))
       replaceEffectiveSkillFile(materialPath, sourceSkillPath, overlay)
     })
   skillMaterialUpdates.set(materialPath, update)

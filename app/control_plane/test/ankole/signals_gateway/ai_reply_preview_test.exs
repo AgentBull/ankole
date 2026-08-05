@@ -1023,6 +1023,160 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     assert Enum.any?(Actors.recoverable_reply_preview_events(), &(&1.id == actor_event.id))
   end
 
+  test "a plain-text fallback delegates preview recovery to durable outbox ownership" do
+    original_state = :sys.get_state(Ankole.Plugins.Registry)
+    {:ok, spec} = Spec.from_module(RecoverySignalProviderPlugin)
+
+    :sys.replace_state(Ankole.Plugins.Registry, fn _state ->
+      %{
+        discovered: %{spec.id => spec},
+        active: %{spec.id => spec},
+        enabled_ids: MapSet.new([spec.id])
+      }
+    end)
+
+    RecoveryReplyPreview.put_recipient(self())
+
+    RecoveryReplyPreview.put_refresh_result(
+      {:error,
+       {:cardkit_plain_text_fallback,
+        %{
+          "code" => 230_099,
+          "message" =>
+            "Failed to create card content; ErrCode: 200780; ErrMsg: card binding biz count over limit"
+        }}}
+    )
+
+    on_exit(fn ->
+      RecoveryReplyPreview.delete_recipient()
+      RecoveryReplyPreview.delete_refresh_result()
+      :sys.replace_state(Ankole.Plugins.Registry, fn _state -> original_state end)
+    end)
+
+    %{subject: subject, actor_event: actor_event} = addressed_actor_event("fallback-recover")
+
+    {:ok, conversation} =
+      StatefulResponses.ensure_conversation(subject.uid, actor_event.session_id)
+
+    terminal =
+      ReplyPresentation.new(state: "working")
+      |> ReplyPresentation.terminal("completed", "六张表的最终结论")
+      |> ReplyPresentation.checkpoint()
+
+    checkpoint = %{
+      "subject_uid" => subject.uid,
+      "conversation_id" => conversation.id,
+      "card_id" => "card-fallback",
+      "message_id" => "message-fallback",
+      "streaming_state" => "open",
+      "presentation_owner" => true,
+      "presentation" => terminal,
+      "cards" => [
+        %{
+          "index" => 0,
+          "card_id" => "card-fallback",
+          "message_id" => "message-fallback",
+          "streaming_state" => "open"
+        }
+      ],
+      "active_card_index" => 0
+    }
+
+    actor_event =
+      actor_event
+      |> ActorEvent.changeset(%{
+        completed_at: DateTime.utc_now(:microsecond),
+        reply_preview_checkpoint: checkpoint,
+        reply_preview_source_entry_id: "message-fallback"
+      })
+      |> Repo.update!()
+
+    outbox =
+      Repo.insert!(%OutboxEntry{
+        agent_uid: actor_event.agent_uid,
+        binding_name: actor_event.binding_name,
+        outbound_key: "fallback-recover:#{actor_event.id}",
+        delivery_class: :durable_ai_reply,
+        operation: :edit,
+        status: :created,
+        signal_channel_id: actor_event.signal_channel_id,
+        target_source_entry_id: "message-fallback",
+        source_actor_event_id: actor_event.id,
+        payload: %{
+          "reply_presentation" => terminal,
+          "metadata" => %{"source" => "ai_gateway_final_reply"}
+        },
+        fallback_visible_text: "六张表的最终结论",
+        idempotency_key: "fallback-recover:#{actor_event.id}",
+        attempt_count: 0,
+        max_attempts: 10,
+        last_error: %{},
+        recovery_state: %{}
+      })
+
+    assert Enum.any?(Actors.recoverable_reply_preview_events(), &(&1.id == actor_event.id))
+    assert :ok = AIReplyPreview.recover(actor_event.id)
+
+    assert_receive {:recovery_refresh, request}
+    assert request.mode == :terminal
+    assert request.checkpoint["refresh_reason"] == "terminal_recovery"
+
+    delegated = Repo.get!(ActorEvent, actor_event.id).reply_preview_checkpoint
+    assert delegated["presentation_owner"] == false
+    assert delegated["streaming_state"] == "open"
+    assert delegated["recovery_state"]["state"] == "delegated"
+    assert delegated["recovery_state"]["reason"] == "plain_text_fallback"
+    assert delegated["recovery_state"]["detail"]["code"] == 230_099
+    refute Map.has_key?(delegated, "refresh_pending")
+
+    refute Enum.any?(Actors.recoverable_reply_preview_events(), &(&1.id == actor_event.id))
+
+    assert Repo.get_by!(OutboxEntry,
+             agent_uid: outbox.agent_uid,
+             binding_name: outbox.binding_name,
+             outbound_key: outbox.outbound_key
+           ).status == :created
+
+    assert {:error, :reply_preview_not_recoverable} = AIReplyPreview.recover(actor_event.id)
+    refute_receive {:recovery_refresh, _request}
+
+    %{subject: open_subject, actor_event: open_event} =
+      addressed_actor_event("fallback-open-recover")
+
+    {:ok, open_conversation} =
+      StatefulResponses.ensure_conversation(open_subject.uid, open_event.session_id)
+
+    working =
+      ReplyPresentation.new(state: "working")
+      |> ReplyPresentation.replace_answer("仍在生成")
+      |> ReplyPresentation.checkpoint()
+
+    open_event =
+      open_event
+      |> ActorEvent.changeset(%{
+        reply_preview_checkpoint: %{
+          "subject_uid" => open_subject.uid,
+          "conversation_id" => open_conversation.id,
+          "card_id" => "card-open-fallback",
+          "message_id" => "message-open-fallback",
+          "streaming_state" => "open",
+          "presentation_owner" => true,
+          "presentation" => working
+        },
+        reply_preview_source_entry_id: "message-open-fallback"
+      })
+      |> Repo.update!()
+
+    assert :ok = AIReplyPreview.recover(open_event.id)
+    assert_receive {:recovery_refresh, open_request}
+    assert open_request.mode == :working
+    assert Registry.lookup(Ankole.SignalsGateway.PreviewRegistry, open_event.id) == []
+
+    open_delegated = Repo.get!(ActorEvent, open_event.id).reply_preview_checkpoint
+    assert open_delegated["presentation_owner"] == false
+    assert open_delegated["recovery_state"]["state"] == "delegated"
+  end
+
   test "stop drains an in-flight rich mutation before terminal outbox takes over" do
     %{subject: subject, actor_event: actor_event} = addressed_actor_event("rich-stop-drain")
     %{pid: pid} = start_dispatched_preview(subject.uid, actor_event)

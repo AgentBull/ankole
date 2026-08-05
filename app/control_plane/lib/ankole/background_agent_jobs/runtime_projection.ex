@@ -9,6 +9,7 @@ defmodule Ankole.BackgroundAgentJobs.RuntimeProjection do
 
   alias Ankole.AIAgent.Library
   alias Ankole.AIAgent.Library.AgentPlugins
+  alias Ankole.AIAgent.ModelProfiles
   alias Ankole.SignalsGateway.ActorRuntime.WorkerEnv
 
   @version 1
@@ -42,14 +43,24 @@ defmodule Ankole.BackgroundAgentJobs.RuntimeProjection do
     end
   end
 
-  @spec turn_start_overrides(map()) :: {:ok, map()} | {:error, term()}
+  @spec turn_start_overrides(map(), keyword()) :: {:ok, map()} | {:error, term()}
+  def turn_start_overrides(projection, opts \\ [])
+
   def turn_start_overrides(
         %{
           "version" => @version,
           "model_ref" => %{} = model_ref,
           "runtime_policy" => %{} = runtime_policy
-        } = projection
+        } = projection,
+        opts
       ) do
+    model_ref =
+      if legacy_model_ref?(model_ref) do
+        complete_legacy_model_ref(model_ref, current_model_ref(model_ref, opts))
+      else
+        model_ref
+      end
+
     with {:ok, hosted_tool_overrides} <- hosted_tool_overrides(projection) do
       {:ok,
        Map.merge(
@@ -62,8 +73,91 @@ defmodule Ankole.BackgroundAgentJobs.RuntimeProjection do
     end
   end
 
-  def turn_start_overrides(_projection),
+  def turn_start_overrides(_projection, _opts),
     do: {:error, :background_agent_job_runtime_projection_invalid}
+
+  @doc false
+  @spec complete_legacy_capabilities(map(), map()) :: map()
+  def complete_legacy_capabilities(
+        %{"model_ref" => %{} = frozen_ref} = projection,
+        %{model_ref: %{} = turn_model_ref}
+      ) do
+    if legacy_model_ref?(frozen_ref) and same_model?(frozen_ref, turn_model_ref) do
+      Map.put(projection, "model_ref", copy_model_capabilities(frozen_ref, turn_model_ref))
+    else
+      projection
+    end
+  end
+
+  def complete_legacy_capabilities(projection, _turn_start_spec), do: projection
+
+  defp current_model_ref(model_ref, opts) do
+    case Keyword.get(opts, :current_model_ref) do
+      %{} = current ->
+        current
+
+      _missing ->
+        case Keyword.get(opts, :agent_uid) do
+          agent_uid when is_binary(agent_uid) ->
+            ModelProfiles.complete_legacy_model_ref(agent_uid, model_ref)
+
+          _unavailable ->
+            nil
+        end
+    end
+  end
+
+  defp complete_legacy_model_ref(model_ref, current_model_ref) do
+    cond do
+      not legacy_model_ref?(model_ref) ->
+        model_ref
+
+      same_model?(model_ref, current_model_ref) ->
+        copy_model_capabilities(model_ref, current_model_ref)
+
+      true ->
+        Map.put(model_ref, "input_modalities", ["text"])
+    end
+  end
+
+  defp copy_model_capabilities(model_ref, current_model_ref) do
+    model_ref
+    |> Map.put(
+      "input_modalities",
+      normalize_input_modalities(Map.get(current_model_ref, "input_modalities"))
+    )
+    |> copy_optional_capability(current_model_ref, "vision_fallback_model_ref")
+  end
+
+  defp copy_optional_capability(model_ref, current_model_ref, key) do
+    case Map.get(current_model_ref, key) do
+      %{} = value -> Map.put(model_ref, key, value)
+      _missing -> Map.delete(model_ref, key)
+    end
+  end
+
+  defp normalize_input_modalities(modalities) when is_list(modalities) do
+    modalities = modalities |> Enum.map(&to_string/1) |> Enum.uniq()
+    if "text" in modalities, do: modalities, else: ["text" | modalities]
+  end
+
+  defp normalize_input_modalities(_modalities), do: ["text"]
+
+  defp legacy_model_ref?(model_ref) do
+    case Map.get(model_ref, "input_modalities") do
+      [_ | _] -> false
+      _missing -> true
+    end
+  end
+
+  defp same_model?(frozen_ref, current_ref) when is_map(current_ref) do
+    Enum.all?(["provider_kind", "model"], fn key ->
+      value = Map.get(frozen_ref, key)
+      is_binary(value) and value != "" and value == Map.get(current_ref, key)
+    end)
+  end
+
+  defp same_model?(_frozen_ref, _current_ref), do: false
 
   defp maybe_put_hosted_tools(projection, turn_start_spec) do
     case Map.fetch(turn_start_spec, :hosted_tools) do

@@ -1,6 +1,6 @@
 ---
 name: pptx
-description: "Use this skill any time a .pptx file is involved -- as input, output, or both. This OfficeCLI-backed skill covers creating, reading, editing, combining, and splitting PowerPoint decks. Trigger whenever the user mentions deck, slides, presentation, pitch, or references a .pptx filename."
+description: "Use this skill any time a .pptx file is involved -- as input, output, or both. This skill covers creating, reading, editing, combining, and splitting PowerPoint decks."
 default_enabled: true
 category: productivity
 ankole-runtime: background_job

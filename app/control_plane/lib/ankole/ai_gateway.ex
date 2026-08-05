@@ -15,8 +15,6 @@ defmodule Ankole.AIGateway do
   alias Ankole.AIGateway.HostedToolTelemetry
   alias Ankole.AIGateway.MapUtils
   alias Ankole.AIGateway.Models
-  alias Ankole.AIAgent.ModelProfiles
-  alias Ankole.AIGateway.ModelSelectors
   alias Ankole.AIGateway.Providers
   alias Ankole.AIGateway.Resolver
   alias Ankole.AIGateway.ResponsesPreparation
@@ -256,6 +254,19 @@ defmodule Ankole.AIGateway do
   @doc false
   defdelegate active_conversation_for_update(repo, subject_uid, conversation_key),
     to: Conversations
+
+  @doc false
+  defdelegate end_active_conversation_in_tx(repo, subject_uid, conversation_key, now),
+    to: Conversations
+
+  @doc false
+  defdelegate end_active_conversations_by_key_prefix_in_tx(
+                repo,
+                subject_uid,
+                conversation_key_prefix,
+                now
+              ),
+              to: Conversations
 
   @doc false
   defdelegate lock_conversation(repo, conversation_id), to: Conversations
@@ -596,18 +607,6 @@ defmodule Ankole.AIGateway do
   def create_web_fetch(_subject_uid, _request, _opts), do: {:error, :invalid_request_body}
 
   @doc """
-  Returns provider-backed web tool availability for an agent runtime.
-  """
-  @spec web_tools(String.t()) :: {:ok, map()}
-  def web_tools(subject_uid) when is_binary(subject_uid) do
-    {:ok,
-     %{
-       "web_search" => web_tool(subject_uid, "web_search"),
-       "web_fetch" => web_tool(subject_uid, "web_fetch")
-     }}
-  end
-
-  @doc """
   Lists OpenRouter-shaped model selectors available through AIGateway.
   """
   @spec list_models(String.t(), String.t(), map()) :: {:ok, map()}
@@ -776,33 +775,4 @@ defmodule Ankole.AIGateway do
       }
     }
   end
-
-  defp web_tool(subject_uid, capability) do
-    profile = capability
-
-    case ModelProfiles.resolve_runtime_profile(subject_uid, profile) do
-      {:ok, runtime} ->
-        %{
-          "available" => true,
-          "model" => ModelSelectors.public_selector(capability, profile),
-          "provider_id" => runtime["provider_id"],
-          "provider_kind" => runtime["provider_kind"]
-        }
-
-      {:error, reason} ->
-        %{
-          "available" => false,
-          "reason" => unavailable_web_tool_reason(reason)
-        }
-    end
-  end
-
-  defp unavailable_web_tool_reason(:model_profile_not_configured),
-    do: "model_profile_not_configured"
-
-  defp unavailable_web_tool_reason(:invalid_model_profile), do: "invalid_model_profile"
-  defp unavailable_web_tool_reason(:agent_not_found), do: "agent_not_found"
-  defp unavailable_web_tool_reason(:provider_disabled), do: "provider_disabled"
-  defp unavailable_web_tool_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
-  defp unavailable_web_tool_reason(reason), do: inspect(reason)
 end

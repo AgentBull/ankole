@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import type { AgentTool, AgentToolResult } from '../../core'
-import { commandActivityLabel } from '../activity-summary'
+import { commandActivityDescription } from '../activity-summary'
 import type { ComputerToolContext } from './context'
 import { truncateOutput } from './format'
 
@@ -46,7 +46,7 @@ export function createCommandTool(context: ComputerToolContext): AgentTool<typeo
     executionMode: 'sequential',
     isReadOnly: false,
     isDestructive: true,
-    describeActivity: params => commandActivityLabel(params.command),
+    describeActivity: params => commandActivityDescription(params.command),
     async execute(_toolCallId, params, signal): Promise<AgentToolResult<CommandDetails>> {
       const computer = await context.getComputer(signal)
 

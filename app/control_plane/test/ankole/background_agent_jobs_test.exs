@@ -5,8 +5,10 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
   alias Ankole.AIAgent.Library.AgentPlugins
   alias Ankole.AgentHomePaths
+  alias Ankole.AIGateway.ModelMetadata.Cache, as: ModelMetadataCache
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.BackgroundAgentJobs
+  alias Ankole.BackgroundAgentJobs.RuntimeProjection
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.BackgroundAgentJobs.Schemas.TrajectoryGroup
   alias Ankole.BackgroundAgentJobs.Schemas.Turn
@@ -1242,6 +1244,123 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert second_attempt.runtime_projection["model_ref"]["model"] == "openai/gpt-5.6-sol"
   end
 
+  test "a legacy projection freezes inferred modalities on its next claim" do
+    %{principal: agent} = background_agent_fixture()
+    job = create_job!(agent.uid, "legacy-runtime-modalities")
+
+    assert {:ok, runtime_profile} = ModelProfiles.resolve_runtime_profile(agent.uid, "coding")
+    provider_id = runtime_profile["provider_id"]
+
+    :ok =
+      ModelMetadataCache.put(
+        {:model_metadata_source, provider_id, :openrouter, "models?output_modalities=all"},
+        [
+          %{
+            "id" => "openai/gpt-5.6-sol",
+            "architecture" => %{"input_modalities" => ["text", "image"]}
+          }
+        ],
+        :timer.hours(1)
+      )
+
+    legacy_spec =
+      runtime_turn_start_spec("openai/gpt-5.6-sol")
+      |> put_in([:model_ref, "provider_id"], provider_id)
+      |> put_in([:request_context, "model_ref", "provider_id"], provider_id)
+      |> update_in([:model_ref], &Map.delete(&1, "input_modalities"))
+      |> update_in([:request_context, "model_ref"], &Map.delete(&1, "input_modalities"))
+
+    assert {:ok, first_attempt} =
+             BackgroundAgentJobs.claim_attempt_in_tx(Repo, job.id, agent.uid, 1, legacy_spec)
+
+    refute Map.has_key?(first_attempt.runtime_projection["model_ref"], "input_modalities")
+
+    assert {:ok, _changed_profile} =
+             ModelProfiles.put_model_profile(agent.uid, "coding", %{
+               provider_id: provider_id,
+               model: "different/model"
+             })
+
+    wrong_type_projection =
+      put_in(
+        first_attempt.runtime_projection,
+        ["model_ref", "provider_kind"],
+        "openai"
+      )
+
+    assert {:ok, wrong_type_overrides} =
+             RuntimeProjection.turn_start_overrides(wrong_type_projection,
+               agent_uid: agent.uid
+             )
+
+    assert wrong_type_overrides.model_ref["input_modalities"] == ["text"]
+
+    assert {:ok, frozen_overrides} =
+             RuntimeProjection.turn_start_overrides(first_attempt.runtime_projection,
+               agent_uid: agent.uid
+             )
+
+    assert frozen_overrides.model_ref["model"] == "openai/gpt-5.6-sol"
+    assert frozen_overrides.model_ref["input_modalities"] == ["text", "image"]
+
+    current_ref =
+      Map.merge(legacy_spec.model_ref, %{
+        "input_modalities" => ["text"],
+        "vision_fallback_model_ref" => %{
+          "profile" => "vision_fallback",
+          "provider_id" => "openrouter-vision",
+          "provider_kind" => "openrouter",
+          "model" => "google/gemini-3-flash-preview",
+          "input_modalities" => ["text", "image"]
+        }
+      })
+
+    assert {:ok, mismatched_overrides} =
+             RuntimeProjection.turn_start_overrides(first_attempt.runtime_projection,
+               current_model_ref: %{current_ref | "model" => "different/model"}
+             )
+
+    assert mismatched_overrides.model_ref["input_modalities"] == ["text"]
+    refute Map.has_key?(mismatched_overrides.model_ref, "vision_fallback_model_ref")
+
+    assert {:ok, overrides} =
+             RuntimeProjection.turn_start_overrides(first_attempt.runtime_projection,
+               current_model_ref: current_ref
+             )
+
+    assert overrides.model_ref["input_modalities"] == ["text"]
+
+    assert overrides.model_ref["vision_fallback_model_ref"] ==
+             current_ref["vision_fallback_model_ref"]
+
+    upgraded_spec =
+      runtime_turn_start_spec("openai/gpt-5.6-sol")
+      |> Map.put(:model_ref, frozen_overrides.model_ref)
+      |> put_in([:request_context, "model_ref"], frozen_overrides.model_ref)
+
+    assert {:ok, second_attempt} =
+             BackgroundAgentJobs.claim_continuation_in_tx(
+               Repo,
+               job.id,
+               agent.uid,
+               2,
+               upgraded_spec
+             )
+
+    assert second_attempt.runtime_projection["model_ref"]["input_modalities"] == [
+             "text",
+             "image"
+           ]
+
+    refute Map.has_key?(
+             second_attempt.runtime_projection["model_ref"],
+             "vision_fallback_model_ref"
+           )
+
+    assert second_attempt.runtime_projection["model_ref"]["model"] ==
+             first_attempt.runtime_projection["model_ref"]["model"]
+  end
+
   test "claiming a continuation stops when the lead thread only fails" do
     %{principal: agent} = background_agent_fixture()
 
@@ -1648,17 +1767,33 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
     job = Repo.get!(Job, job.id)
 
-    insert_custom_turn!(job, %{
-      runtime_thread_id: "thread-large",
-      runtime_turn_id: "turn-large",
-      status: "completed",
-      completed_at: DateTime.utc_now(:microsecond),
-      trajectory_groups: [[assistant_message(String.duplicate("大", 80_000))]]
+    large_turn =
+      insert_custom_turn!(job, %{
+        runtime_thread_id: "thread-large",
+        runtime_turn_id: "turn-large",
+        status: "completed",
+        completed_at: DateTime.utc_now(:microsecond),
+        trajectory_groups: [[assistant_message(String.duplicate("大", 80_000))]]
+      })
+
+    large_turn
+    |> Turn.changeset(%{
+      trajectory: %{
+        "format" => "ankole_chatml",
+        "version" => 1,
+        "metadata" => %{"redacted" => true}
+      }
     })
+    |> Repo.update!()
 
     assert {:ok, execution} = Turns.execution_projection(job)
     assert byte_size(Ankole.JSON.encode!(execution.trajectory_page)) <= 24 * 1_024
     assert execution.trajectory_page.messages != []
+
+    assert execution.trajectory_page.metadata == %{
+             "redacted" => true,
+             "content_truncated" => true
+           }
   end
 
   test "message result waits through the status commit window and then reports continuation" do
@@ -1698,6 +1833,17 @@ defmodule Ankole.BackgroundAgentJobsTest do
         ]
       })
 
+    causal_turn =
+      causal_turn
+      |> Turn.changeset(%{
+        trajectory: %{
+          "format" => "ankole_chatml",
+          "version" => 1,
+          "metadata" => %{"redacted" => true, "content_truncated" => true}
+        }
+      })
+      |> Repo.update!()
+
     assert {:ok, %{ready: false, status: "running"}} =
              BackgroundAgentJobs.message_result(job, command_event.id, job.owner_session_id)
 
@@ -1718,6 +1864,11 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert result.status == "running"
     assert result.lifecycle_actor_event_id == nil
     assert result.last_turn_trajectory["format"] == "ankole_chatml"
+
+    assert result.last_turn_trajectory["metadata"] == %{
+             "redacted" => true,
+             "content_truncated" => true
+           }
 
     assert Enum.any?(
              result.last_turn_trajectory["messages"],

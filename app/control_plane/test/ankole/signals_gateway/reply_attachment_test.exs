@@ -61,7 +61,6 @@ defmodule Ankole.SignalsGateway.ReplyAttachmentTest do
         "attachments" => [attachment]
       }
       |> Ankole.JSON.encode!()
-      |> untrusted_tool_output()
 
     assert {:ok, [^attachment]} =
              ReplyAttachment.attachments_from_response_items([
@@ -112,7 +111,6 @@ defmodule Ankole.SignalsGateway.ReplyAttachmentTest do
         ]
       }
       |> Ankole.JSON.encode!()
-      |> untrusted_tool_output()
 
     assert {:ok, []} =
              ReplyAttachment.attachments_from_response_items([
@@ -203,16 +201,5 @@ defmodule Ankole.SignalsGateway.ReplyAttachmentTest do
                  }
                ]
              )
-  end
-
-  defp untrusted_tool_output(text) do
-    nonce = "test-nonce"
-
-    """
-    <ankole_untrusted_tool_output nonce="#{nonce}">
-    #{text}
-    </ankole_untrusted_tool_output nonce="#{nonce}">
-    """
-    |> String.trim()
   end
 end

@@ -12,7 +12,13 @@ defmodule Ankole.AIGateway.CodexModelBindingTest do
           "nested" => %{"preserved" => true},
           "values" => ["one", 2, false]
         },
-        "supports_parallel_tool_calls" => true
+        "supports_parallel_tool_calls" => true,
+        "input_modalities" => ["text"],
+        "vision_fallback" => %{
+          "selector" => "openrouter/google/gemini-3-flash-preview",
+          "provider_options" => %{"serviceTier" => "priority"},
+          "input_modalities" => ["text", "image"]
+        }
       }
       |> Ankole.JSON.encode!()
       |> Base.url_encode64(padding: false)
@@ -26,7 +32,13 @@ defmodule Ankole.AIGateway.CodexModelBindingTest do
                "nested" => %{"preserved" => true},
                "values" => ["one", 2, false]
              },
-             "supports_parallel_tool_calls" => true
+             "supports_parallel_tool_calls" => true,
+             "input_modalities" => ["text"],
+             "vision_fallback" => %{
+               "selector" => "openrouter/google/gemini-3-flash-preview",
+               "provider_options" => %{"serviceTier" => "priority"},
+               "input_modalities" => ["text", "image"]
+             }
            }
   end
 
@@ -37,7 +49,13 @@ defmodule Ankole.AIGateway.CodexModelBindingTest do
         "reasoningEffort" => "xhigh",
         "textVerbosity" => "low"
       },
-      "supports_parallel_tool_calls" => true
+      "supports_parallel_tool_calls" => true,
+      "input_modalities" => ["text"],
+      "vision_fallback" => %{
+        "selector" => "openrouter/google/gemini-3-flash-preview",
+        "provider_options" => %{},
+        "input_modalities" => ["text", "image"]
+      }
     }
 
     assert CodexModelBinding.apply(
@@ -55,7 +73,15 @@ defmodule Ankole.AIGateway.CodexModelBindingTest do
                "reasoningEffort" => "xhigh",
                "textVerbosity" => "low"
              },
-             "reasoning" => %{"effort" => "xhigh", "summary" => "auto"}
+             "reasoning" => %{"effort" => "xhigh", "summary" => "auto"},
+             "__ankole_codex_vision" => %{
+               "input_modalities" => ["text"],
+               "vision_fallback" => %{
+                 "selector" => "openrouter/google/gemini-3-flash-preview",
+                 "provider_options" => %{},
+                 "input_modalities" => ["text", "image"]
+               }
+             }
            }
   end
 
@@ -63,7 +89,8 @@ defmodule Ankole.AIGateway.CodexModelBindingTest do
     binding = %{
       "selector" => "openrouter/openai/gpt-5.6-sol",
       "provider_options" => %{},
-      "supports_parallel_tool_calls" => false
+      "supports_parallel_tool_calls" => false,
+      "input_modalities" => ["text", "image"]
     }
 
     request = %{"reasoning" => %{"effort" => "low", "summary" => "auto"}}
@@ -75,7 +102,8 @@ defmodule Ankole.AIGateway.CodexModelBindingTest do
     binding = %{
       "selector" => "openrouter/openai/gpt-5.6-sol",
       "provider_options" => %{},
-      "supports_parallel_tool_calls" => true
+      "supports_parallel_tool_calls" => true,
+      "input_modalities" => ["text"]
     }
 
     request = %{
@@ -96,5 +124,24 @@ defmodule Ankole.AIGateway.CodexModelBindingTest do
     for value <- ["not-base64", Base.url_encode64("{}", padding: false)] do
       assert {:error, :invalid_codex_model_binding} = CodexModelBinding.decode(value)
     end
+  end
+
+  test "rejects a fallback that cannot receive images" do
+    encoded =
+      %{
+        "selector" => "openrouter/openai/gpt-5.6-sol",
+        "provider_options" => %{},
+        "supports_parallel_tool_calls" => true,
+        "input_modalities" => ["text"],
+        "vision_fallback" => %{
+          "selector" => "openrouter/text-only",
+          "provider_options" => %{},
+          "input_modalities" => ["text"]
+        }
+      }
+      |> Ankole.JSON.encode!()
+      |> Base.url_encode64(padding: false)
+
+    assert {:error, :invalid_codex_model_binding} = CodexModelBinding.decode(encoded)
   end
 end

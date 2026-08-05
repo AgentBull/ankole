@@ -144,7 +144,8 @@ browser binaries, and the Agent Computer Bun workdir. An internal image or
 development mount can set `ANKOLE_INTERNAL_SKILLS_ROOT` when it provides that
 optional Skill root. Operator-managed WorkerEnv values are resolved per Agent
 and injected below explicit tool inputs; reserved runtime variables cannot be
-overridden.
+overridden. A binding-derived Lark tenant token is refreshed in a private
+execution file and is not frozen in a long-lived shell environment.
 
 Devkit resolves the immutable GHCR image for the current Git inputs when one is
 published. If the Worker inputs changed, it builds a content-addressed local

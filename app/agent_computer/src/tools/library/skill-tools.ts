@@ -9,6 +9,7 @@ import { rpcMethods, type RPCRequester, type RuntimeSkillSummary } from '../../l
 import {
   ankoleSkillRuntime,
   enabledSkillByName,
+  resolveSkillOverlay,
   resolveSkillFilesystemRoot,
   resolveSkillOverlayText,
   stripSkillFrontmatter,
@@ -79,7 +80,10 @@ function createSkillViewTool(opts: CreateSkillToolsOptions): AgentTool<typeof Sk
     executionMode: 'parallel',
     isReadOnly: true,
     isDestructive: false,
-    describeActivity: params => `加载 Skill：${params.name}`,
+    describeActivity: params => ({
+      key: 'signals_gateway.reply.activity.skill_load',
+      bindings: { name: params.name }
+    }),
     async execute(_toolCallId, params): Promise<AgentToolResult<SkillToolDetails>> {
       const filePath = normalizeSkillFilePath(params.filePath ?? 'SKILL.md')
       const skill = enabledSkill(params.name, opts)
@@ -127,7 +131,10 @@ function createSkillAppendTool(opts: CreateSkillToolsOptions): AgentTool<typeof 
     executionMode: 'sequential',
     isReadOnly: false,
     isDestructive: false,
-    describeActivity: params => `更新 Skill：${params.name}`,
+    describeActivity: params => ({
+      key: 'signals_gateway.reply.activity.skill_update',
+      bindings: { name: params.name }
+    }),
     async execute(_toolCallId, params): Promise<AgentToolResult<SkillToolDetails>> {
       enabledInlineSkillForOverlay(params.name, opts)
       await opts.rpc(
@@ -156,10 +163,13 @@ function createSkillReplaceTool(opts: CreateSkillToolsOptions): AgentTool<typeof
     executionMode: 'sequential',
     isReadOnly: false,
     isDestructive: true,
-    describeActivity: params => `更新 Skill：${params.name}`,
+    describeActivity: params => ({
+      key: 'signals_gateway.reply.activity.skill_update',
+      bindings: { name: params.name }
+    }),
     async execute(_toolCallID, params): Promise<AgentToolResult<SkillToolDetails>> {
       enabledInlineSkillForOverlay(params.name, opts)
-      const current = await opts.rpc(rpcMethods.skillsOverlayResolve, { skillName: params.name }, { turn: opts.turn })
+      const current = await resolveSkillOverlay(params.name, opts)
       await opts.rpc(
         rpcMethods.skillsOverlayReplace,
         {

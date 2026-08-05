@@ -231,7 +231,7 @@ defmodule Ankole.Brain.StageBTest do
       end
     )
 
-    configure_dreaming!(agent.uid, agent.uid, %{"material_limit" => 20})
+    configure_dreaming!(agent.uid, agent.uid)
 
     assert {:ok, %{status: :completed, material_count: 4}} = StageB.run(agent.uid)
   end
@@ -258,7 +258,6 @@ defmodule Ankole.Brain.StageBTest do
     configure_model!(agent, fn _request -> response_summary(empty_plan()) end)
 
     configure_dreaming!(agent.uid, agent.uid, %{
-      "material_limit" => 1,
       "curation_silence_minutes" => 30,
       "curation_backlog_rows" => 50
     })
@@ -267,6 +266,81 @@ defmodule Ankole.Brain.StageBTest do
     assert StageB.eligible?(agent.uid, config, DateTime.add(material_time, 30, :minute))
     assert {:ok, %{status: :completed, material_count: 1}} = StageB.run(agent.uid)
     assert principal_cursor!(agent.uid).metadata["task_actor_event_id"] == allowed.id
+  end
+
+  test "Stage B processes fixed 25-row batches with a 32K locator output limit" do
+    %{principal: agent} = agent_fixture()
+    test_pid = self()
+
+    materials =
+      for index <- 0..25 do
+        task_outcome_material!(
+          agent.uid,
+          "stage-b-fixed-batch-#{index}",
+          "durable material #{index}",
+          completed_at: DateTime.add(@base_time, index, :second)
+        )
+      end
+
+    configure_model!(
+      agent,
+      fn _request -> response_summary(empty_plan()) end,
+      locator: fn request ->
+        send(test_pid, {:fixed_batch_locator, request})
+        select_all_locator_response(request)
+      end
+    )
+
+    configure_dreaming!(agent.uid, agent.uid)
+
+    assert {:ok, %{status: :completed, material_count: 25}} = StageB.run(agent.uid)
+    assert_receive {:fixed_batch_locator, first_request}
+    assert first_request.body["max_output_tokens"] == 32_768
+    assert first_request |> request_payload() |> Map.fetch!("material_index") |> length() == 25
+
+    assert principal_cursor!(agent.uid).metadata["task_actor_event_id"] ==
+             Enum.at(materials, 24).id
+
+    assert {:ok, %{status: :completed, material_count: 1}} = StageB.run(agent.uid)
+    assert_receive {:fixed_batch_locator, second_request}
+    assert second_request.body["max_output_tokens"] == 32_768
+    assert second_request |> request_payload() |> Map.fetch!("material_index") |> length() == 1
+    assert principal_cursor!(agent.uid).metadata["task_actor_event_id"] == List.last(materials).id
+  end
+
+  test "an incomplete locator response cannot commit a partial selection" do
+    %{principal: agent} = agent_fixture()
+    material = task_outcome_material!(agent.uid, "stage-b-incomplete-locator", "durable material")
+
+    configure_model!(
+      agent,
+      fn _request -> flunk("the curator must not run after an incomplete locator response") end,
+      locator: fn request ->
+        assert request.body["max_output_tokens"] == 32_768
+
+        refs =
+          request
+          |> request_payload()
+          |> Map.fetch!("material_index")
+          |> Enum.map(& &1["material_ref"])
+
+        incomplete_response_summary(%{
+          "material_refs" => refs,
+          "topics" => [%{"query" => "durable material", "material_refs" => refs}]
+        })
+      end
+    )
+
+    configure_dreaming!(agent.uid, agent.uid)
+
+    assert {:error,
+            {:dreaming_response_not_completed, :locator,
+             %{
+               "status" => "incomplete",
+               "incomplete_details" => %{"reason" => "max_output_tokens"}
+             }}} = StageB.run(agent.uid)
+
+    refute principal_cursor!(agent.uid).metadata["task_actor_event_id"] == material.id
   end
 
   test "an invalid curator mutation is retried before the material cursor advances" do
@@ -609,6 +683,33 @@ defmodule Ankole.Brain.StageBTest do
     refute_receive {:curator_waiting, _pid, _request}, 100
   end
 
+  test "a failed Stage B run ends its model trace" do
+    %{principal: agent} = agent_fixture()
+    _message = task_outcome_material!(agent.uid, "stage-b-failed-trace", "one external fact")
+
+    configure_model!(agent, fn _request ->
+      response_summary(%{
+        "operations" => [%{"operation" => "unsupported"}],
+        "skill_updates" => []
+      })
+    end)
+
+    configure_dreaming!(agent.uid, agent.uid)
+
+    assert {:error, _reason} = StageB.run(agent.uid)
+
+    assert [trace] =
+             AIGatewayConversation
+             |> where(
+               [conversation],
+               conversation.subject_uid == ^agent.uid and
+                 like(conversation.conversation_key, "brain.dreaming:%")
+             )
+             |> Repo.all()
+
+    assert %DateTime{} = trace.ended_at
+  end
+
   test "token budgeting consumes only a complete material prefix" do
     %{principal: agent} = agent_fixture()
 
@@ -621,7 +722,7 @@ defmodule Ankole.Brain.StageBTest do
       )
 
     configure_model!(agent, fn _request -> response_summary(empty_plan()) end)
-    configure_dreaming!(agent.uid, agent.uid, %{"token_limit" => 20_000})
+    configure_dreaming!(agent.uid, agent.uid, %{"token_limit" => 60_000})
 
     assert {:ok, %{status: :completed, material_count: 1}} = StageB.run(agent.uid)
     assert principal_cursor!(agent.uid).metadata["task_actor_event_id"] == first.id
@@ -955,7 +1056,7 @@ defmodule Ankole.Brain.StageBTest do
       end
     )
 
-    configure_dreaming!(agent.uid, agent.uid, %{"token_limit" => 20_000})
+    configure_dreaming!(agent.uid, agent.uid, %{"token_limit" => 60_000})
 
     assert {:ok, %{status: :completed, material_count: 1}} = StageB.run(agent.uid)
 
@@ -964,7 +1065,7 @@ defmodule Ankole.Brain.StageBTest do
 
     requests = receive_budgeted_requests([])
     assert length(requests) == 2
-    assert Enum.sum(Enum.map(requests, &request_token_cost/1)) <= 20_000
+    assert Enum.sum(Enum.map(requests, &request_token_cost/1)) <= 60_000
 
     assert {:error, :dreaming_token_limit_too_small} = StageB.run(agent.uid)
 
@@ -1295,6 +1396,7 @@ defmodule Ankole.Brain.StageBTest do
       |> Repo.all()
 
     assert length(traces) == 2
+    assert Enum.all?(traces, &match?(%DateTime{}, &1.ended_at))
 
     assert traces
            |> Map.new(&{&1.metadata["brain"]["visibility"], &1.metadata["brain"]})
@@ -2396,6 +2498,28 @@ defmodule Ankole.Brain.StageBTest do
   end
 
   defp response_summary(plan), do: plan |> Ankole.JSON.encode!() |> response_text()
+
+  defp incomplete_response_summary(plan) do
+    text = Ankole.JSON.encode!(plan)
+
+    {:json, 200,
+     %{
+       "id" => "resp_stage_b_#{System.unique_integer([:positive])}",
+       "object" => "response",
+       "status" => "incomplete",
+       "incomplete_details" => %{"reason" => "max_output_tokens"},
+       "output" => [
+         %{
+           "type" => "message",
+           "role" => "assistant",
+           "content" => [
+             %{"type" => "output_text", "text" => text, "annotations" => []}
+           ]
+         }
+       ],
+       "usage" => %{"input_tokens" => 10, "output_tokens" => 32_768, "total_tokens" => 32_778}
+     }}
+  end
 
   defp response_text(text) do
     {:json, 200,

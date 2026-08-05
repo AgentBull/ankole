@@ -50,7 +50,7 @@ export function createApplyPatchTool(
     executionMode: 'sequential',
     isReadOnly: false,
     isDestructive: true,
-    describeActivity: () => '更新文件',
+    describeActivity: () => ({ key: 'signals_gateway.reply.activity.file_update' }),
     async execute(_toolCallID, patch, signal): Promise<AgentToolResult<ApplyPatchDetails>> {
       const computer = await context.getComputer(signal)
       const result = await computer.runCommand({

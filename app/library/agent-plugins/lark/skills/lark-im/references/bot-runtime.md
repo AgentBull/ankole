@@ -1,6 +1,6 @@
 # Bot runtime contract
 
-Ankole installs `lark-cli` in the Agent Computer image and injects the app ID and tenant token derived from this Agent's available Lark signal binding. The application belongs to the digital employee; it is not the human operator's identity.
+Ankole installs `lark-cli` in the Agent Computer image and injects the app ID and a refreshed tenant-token file derived from this Agent's available Lark signal binding. The application belongs to the digital employee; it is not the human operator's identity.
 
 For an inbound Lark Turn, `<agent_environment_info>` includes the canonical `signal_channel_id`. Remove the leading `lark:` before passing that current chat ID to a CLI `--chat-id` flag. Do not search for or guess the current chat ID when this value is present.
 
@@ -8,7 +8,7 @@ For an inbound Lark Turn, `<agent_environment_info>` includes the canonical `sig
 
 ```bash
 lark-cli --version
-test -n "${LARKSUITE_CLI_APP_ID:-}" && test -n "${LARKSUITE_CLI_TENANT_ACCESS_TOKEN:-}"
+test -n "${LARKSUITE_CLI_APP_ID:-}" && test -n "${ANKOLE_RUNTIME_LARK_TENANT_ACCESS_TOKEN_FILE:-}"
 ```
 
 If either variable is absent, stop and report that this Agent has no available Lark signal binding. Do not run CLI setup, credential initialization, or interactive authorization commands.
@@ -20,7 +20,7 @@ Always run `lark-cli` through the one-shot `command` tool. The main agent does n
 - Pass `--as bot` explicitly, even though the runtime default is also bot.
 - Prefer `--format json`; use `--jq` only after confirming the returned shape.
 - Success is process exit code zero or top-level `ok: true`. Do not look for a legacy top-level numeric code.
-- Never print, persist, copy, or inspect the tenant token. Do not ask the operator for credentials already owned by the binding.
+- Never read, print, persist, or copy the token file. Do not ask the operator for credentials already owned by the binding.
 - Do not run the CLI self-update command; the Agent Computer image pins the supported version.
 - Input and output paths must be relative to the current workspace. Use stdin or `@relative-file.json` for large payloads.
 - Use `--dry-run` before a write when the request body or target is uncertain.

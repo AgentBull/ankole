@@ -1,28 +1,9 @@
 import { rpcMethods, type RPCRequester } from '../../lanes/rpc_lane'
-import type { TurnStart } from '../../lanes/actor_lane'
-
-/**
- * Resolves the operator-managed shell environment for this turn's agent.
- *
- * The control plane owns merge semantics (declared AppConfigure exports,
- * custom global rows, custom agent rows); the worker receives one flat map
- * with secrets already decrypted and keeps it in memory for the turn.
- */
-export async function resolveWorkerEnv(turnStart: TurnStart, rpc: RPCRequester): Promise<Record<string, string>> {
-  return (await resolveAgentWorkerEnvParts(turnStart.turn.actor.agent_uid, rpc)).vars
-}
 
 export type ResolvedAgentWorkerEnv = {
   vars: Record<string, string>
   operatorVars: Record<string, string>
   bindingVars: Record<string, string>
-}
-
-/**
- * Resolves the current Agent-level WorkerEnv without requiring a turn.
- */
-export async function resolveAgentWorkerEnv(agentUID: string, rpc: RPCRequester): Promise<Record<string, string>> {
-  return (await resolveAgentWorkerEnvParts(agentUID, rpc)).vars
 }
 
 export async function resolveAgentWorkerEnvParts(agentUID: string, rpc: RPCRequester): Promise<ResolvedAgentWorkerEnv> {

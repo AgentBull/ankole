@@ -24,8 +24,8 @@ defmodule AnkoleWeb.Schemas.BrainConsoleAPI do
           aliases: %Schema{type: :array, items: %Schema{type: :string}},
           properties: %Schema{type: :object, additionalProperties: true},
           lock_version: %Schema{type: :integer, minimum: 1},
-          inserted_at: %Schema{type: :string, format: :date_time},
-          updated_at: %Schema{type: :string, format: :date_time}
+          inserted_at: %Schema{type: :string, format: :"date-time"},
+          updated_at: %Schema{type: :string, format: :"date-time"}
         },
         required: [
           :id,
@@ -68,8 +68,8 @@ defmodule AnkoleWeb.Schemas.BrainConsoleAPI do
           embedding_state: %Schema{type: :string, enum: ["pending", "synced", "failed"]},
           embedding_error: %Schema{type: :string, nullable: true},
           lock_version: %Schema{type: :integer, minimum: 1},
-          inserted_at: %Schema{type: :string, format: :date_time},
-          updated_at: %Schema{type: :string, format: :date_time}
+          inserted_at: %Schema{type: :string, format: :"date-time"},
+          updated_at: %Schema{type: :string, format: :"date-time"}
         },
         required: [
           :id,
@@ -104,7 +104,7 @@ defmodule AnkoleWeb.Schemas.BrainConsoleAPI do
           predicate: %Schema{type: :string},
           target_entry_id: %Schema{type: :string, format: :uuid},
           target_name: %Schema{type: :string, nullable: true},
-          inserted_at: %Schema{type: :string, format: :date_time}
+          inserted_at: %Schema{type: :string, format: :"date-time"}
         },
         required: [:id, :source_entry_id, :predicate, :target_entry_id, :inserted_at],
         additionalProperties: false
@@ -139,7 +139,7 @@ defmodule AnkoleWeb.Schemas.BrainConsoleAPI do
           before: %Schema{type: :object, additionalProperties: true, nullable: true},
           after: %Schema{type: :object, additionalProperties: true, nullable: true},
           metadata: %Schema{type: :object, additionalProperties: true},
-          inserted_at: %Schema{type: :string, format: :date_time}
+          inserted_at: %Schema{type: :string, format: :"date-time"}
         },
         required: [
           :id,
@@ -185,14 +185,14 @@ defmodule AnkoleWeb.Schemas.BrainConsoleAPI do
             enum: ["current", "deleted", "access_lost", "failed"],
             nullable: true
           },
-          last_synced_at: %Schema{type: :string, format: :date_time, nullable: true},
+          last_synced_at: %Schema{type: :string, format: :"date-time", nullable: true},
           original_name: %Schema{type: :string, nullable: true},
           media_type: %Schema{type: :string},
           byte_size: %Schema{type: :integer, nullable: true},
           sha256: %Schema{type: :string, nullable: true},
           text: %Schema{type: :string, nullable: true},
           captured_by_uid: %Schema{type: :string, nullable: true},
-          captured_at: %Schema{type: :string, format: :date_time, nullable: true},
+          captured_at: %Schema{type: :string, format: :"date-time", nullable: true},
           learning_status: %Schema{
             type: :string,
             enum: ["stored", "learning", "integrated", "no_change", "incomplete", "failed"],
@@ -622,8 +622,8 @@ defmodule AnkoleWeb.Schemas.BrainConsoleAPI do
           corrected_block_writes: %Schema{type: :integer, minimum: 0},
           survived_block_writes: %Schema{type: :integer, minimum: 0},
           survival_rate: %Schema{type: :number, minimum: 0, maximum: 1, nullable: true},
-          first_written_at: %Schema{type: :string, format: :date_time, nullable: true},
-          last_written_at: %Schema{type: :string, format: :date_time, nullable: true}
+          first_written_at: %Schema{type: :string, format: :"date-time", nullable: true},
+          last_written_at: %Schema{type: :string, format: :"date-time", nullable: true}
         },
         required: [
           :produced_block_writes,
@@ -652,7 +652,7 @@ defmodule AnkoleWeb.Schemas.BrainConsoleAPI do
         properties: %{
           horizon_days: %Schema{type: :integer, minimum: 1},
           lookback_days: %Schema{type: :integer, minimum: 1},
-          generated_at: %Schema{type: :string, format: :date_time},
+          generated_at: %Schema{type: :string, format: :"date-time"},
           produced_block_writes: %Schema{type: :integer, minimum: 0},
           matured_block_writes: %Schema{type: :integer, minimum: 0},
           pending_block_writes: %Schema{type: :integer, minimum: 0},

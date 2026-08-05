@@ -1,4 +1,4 @@
-const cliVersion = '1.0.69'
+const cliVersion = '1.0.84'
 const registrationPath = '/oauth/v1/app/registration'
 const registrationRequestTimeoutMs = 30_000
 

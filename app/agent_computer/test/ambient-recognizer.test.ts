@@ -94,26 +94,14 @@ describe('ambient intervention recognizer', () => {
       { currentTime: new Date('2026-07-18T12:34:00Z') }
     )
 
-    const instructions = String(bodies[0]!.instructions)
     const modelInput = JSON.stringify(bodies[0]!.input)
 
-    expect(instructions).toContain('<display_name>Research Agent</display_name>')
-    expect(instructions).toContain('Be calm and exact.')
-    expect(instructions).toContain('Help the group make sound decisions.')
-    expect(instructions.match(/Research Agent/g)).toHaveLength(1)
-    expect(instructions.match(/Decide whether/g)).toHaveLength(1)
-    expect(instructions).not.toContain('current_time:')
-    expect(instructions).not.toContain('group_name:')
-    expect(instructions).not.toContain('The group prefers evidence before action.')
-    expect(instructions).not.toContain('should_proactively_speak')
-    expect(instructions).not.toContain('2020-01-01')
     expect(modelInput).toContain('current_time: 2026-07-18 20:34')
     expect(modelInput).toContain('platform: Lark / Feishu')
     expect(modelInput).toContain('group_name: Ops')
     expect(modelInput).toContain('The group prefers evidence before action.')
     expect(modelInput).toContain('20:00 [human] Unknown')
     expect(modelInput).not.toContain('019f0000-0000-7000-8000-000000000041')
-    expect(modelInput).not.toContain('Decide whether')
   })
 
   it('renders standing orders, backdrop, id tags, and unreplied pressure', async () => {
@@ -203,14 +191,10 @@ describe('ambient intervention recognizer', () => {
     )
 
     const modelInput = JSON.stringify(bodies[0]!.input)
-    expect(modelInput).toContain('Standing Orders (operator policy for this room):')
     expect(modelInput).toContain('Only speak when CI turns red.')
-    expect(modelInput).toContain('Earlier Context (already reviewed — do not act on these alone):')
     expect(modelInput).toContain('Yesterday the deploy went fine.')
-    expect(modelInput).toContain('New Messages (not yet judged — decide on these):')
     expect(modelInput).toContain('[id:msg-2]')
     expect(modelInput).not.toContain('[id:msg-0]')
-    expect(modelInput).toContain('1 human message since the Agent')
 
     expect(result.decision.intervene).toBe(true)
     expect(result.decision.askedBy).toEqual({

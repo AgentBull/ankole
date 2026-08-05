@@ -1599,6 +1599,69 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     refute Map.has_key?(keyless_request.body, "prompt_cache_key")
   end
 
+  test "OpenRouter chat requests annotate Anthropic models for prompt caching" do
+    %{principal: agent} = agent_fixture()
+
+    base_url =
+      start_recording_upstream(self(), fn request ->
+        {:json, 200,
+         %{
+           "id" => "chatcmpl_cache_control",
+           "object" => "chat.completion",
+           "created" => 1_764_967_971,
+           "model" => request.body["model"],
+           "choices" => [
+             %{
+               "index" => 0,
+               "message" => %{"role" => "assistant", "content" => "ok"},
+               "finish_reason" => "stop"
+             }
+           ],
+           "usage" => %{"prompt_tokens" => 3, "completion_tokens" => 1, "total_tokens" => 4}
+         }}
+      end)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openrouter-cache-control",
+               provider_kind: "openrouter",
+               base_url: base_url,
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openrouter"}]
+               },
+               connection_options: %{
+                 "transport" => %{"http_versions" => ["h1"]}
+               }
+             })
+
+    for model <- ["anthropic/claude-opus-5", "~anthropic/claude-opus-latest"] do
+      assert {:ok, _profile} =
+               ModelProfiles.put_model_profile(agent.uid, "primary", %{
+                 provider_id: "openrouter-cache-control",
+                 model: model
+               })
+
+      assert {:ok, %{body: _body}} =
+               AIGateway.create_response(agent.uid, %{"model" => "primary", "input" => "hello"})
+
+      assert_receive {:gateway_request, request}
+      assert request.body["model"] == model
+      assert request.body["cache_control"] == %{"type" => "ephemeral"}
+    end
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openrouter-cache-control",
+               model: "openai/gpt-5.6-sol"
+             })
+
+    assert {:ok, %{body: _openai_body}} =
+             AIGateway.create_response(agent.uid, %{"model" => "primary", "input" => "hello"})
+
+    assert_receive {:gateway_request, openai_request}
+    refute Map.has_key?(openai_request.body, "cache_control")
+  end
+
   test "stateless responses preserve the Codex encrypted reasoning round trip" do
     %{principal: agent} = agent_fixture()
 

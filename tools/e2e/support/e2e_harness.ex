@@ -887,8 +887,7 @@ defmodule Ankole.E2E.Harness do
   def tool_result_error?(%{result: nil}), do: true
 
   def tool_result_error?(%{result: %{"raw" => raw}}) when is_binary(raw) do
-    String.starts_with?(raw, "Error:") or
-      Regex.match?(~r/<ankole_untrusted_tool_output[^>]*>\s*Error:/, raw)
+    String.starts_with?(raw, "Error:")
   end
 
   # `show_background_job_details` and other Job tools always carry a declared
@@ -943,8 +942,6 @@ defmodule Ankole.E2E.Harness do
   defp decode_json_or_raw(nil), do: nil
 
   defp decode_json_or_raw(value) when is_binary(value) do
-    value = unwrap_untrusted_tool_output(value) || value
-
     case JSON.decode(value) do
       {:ok, decoded} when is_map(decoded) -> decoded
       {:ok, decoded} -> %{"value" => decoded}
@@ -953,21 +950,6 @@ defmodule Ankole.E2E.Harness do
   end
 
   defp decode_json_or_raw(value) when is_map(value), do: value
-
-  defp unwrap_untrusted_tool_output(value) do
-    value = String.trim(value)
-    prefix = ~s(<ankole_untrusted_tool_output nonce=")
-
-    with true <- String.starts_with?(value, prefix),
-         rest <- String.replace_prefix(value, prefix, ""),
-         [nonce, body_with_suffix] <- String.split(rest, ~s(">\n), parts: 2),
-         suffix <- ~s(\n</ankole_untrusted_tool_output nonce="#{nonce}">),
-         true <- String.ends_with?(body_with_suffix, suffix) do
-      String.replace_suffix(body_with_suffix, suffix, "")
-    else
-      _not_wrapped -> nil
-    end
-  end
 
   defp decode_exit_code_output(value) do
     case Regex.run(~r/\Aexit_code=(\d+)(?:\n(.*))?\z/s, value) do

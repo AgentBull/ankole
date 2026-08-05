@@ -16,9 +16,9 @@ import {
   type BackgroundAgentJobTurnUsage,
   type RPCRequestInit
 } from '../../lanes/rpc_lane'
-import type { JSONRPCMessage } from '../../tools/codex/app-server-client'
-import { boundedFilesChangedFromCodexDiff, normalizeCodexThreadUsage } from '../../tools/codex/protocol'
-import type { ThreadItem } from '../../tools/codex/generated/protocol/v2/ThreadItem'
+import type { JSONRPCMessage } from './app-server-client'
+import { boundedFilesChangedFromCodexDiff, normalizeCodexThreadUsage } from './protocol'
+import type { ThreadItem } from './generated/protocol/v2/ThreadItem'
 import { boundedBackgroundAgentJobPaths } from '../background-agent-job-handoff'
 
 const checkpointDelayMs = 5_000
@@ -67,6 +67,8 @@ type ItemEntry = {
   key: string
   item: JSONObject
 }
+
+type CollabAgentToolCall = Extract<ThreadItem, { type: 'collabAgentToolCall' }>
 
 export class BackgroundAgentJobTurnRecorder {
   private readonly turns = new Map<string, RuntimeTurn>()
@@ -283,8 +285,9 @@ export class BackgroundAgentJobTurnRecorder {
     const turn = this.turn(params)
     const item = jsonObject(params.item)
     const id = stringValue(item.id)
+    if (!turn || !id || !shouldRecordItem(item)) return
     const name = toolName(item)
-    if (!turn || !id || !name) return
+    if (!name) return
     if (turn.activeItem?.id === id && turn.activeItem.name === name) return
     turn.activeItem = { id, name }
     this.markDirty(turn, true)
@@ -294,7 +297,7 @@ export class BackgroundAgentJobTurnRecorder {
     const turn = this.turn(params)
     const rawItem = jsonObject(params.item)
     const id = stringValue(rawItem.id)
-    if (!turn || !id) return
+    if (!turn || !id || !shouldRecordItem(rawItem)) return
     const redacted = turn.redacted
     const truncated = turn.contentTruncated
     const item = this.canonicalItem(turn, rawItem)
@@ -395,7 +398,9 @@ export class BackgroundAgentJobTurnRecorder {
   private itemEntries(value: unknown, turn: RuntimeTurn, completed: boolean): ItemEntry[] {
     const entries: ItemEntry[] = []
     for (const raw of arrayValue(value)) {
-      const item = this.canonicalItem(turn, jsonObject(raw))
+      const rawItem = jsonObject(raw)
+      if (!shouldRecordItem(rawItem)) continue
+      const item = this.canonicalItem(turn, rawItem)
       const key = itemKey(item)
       if (!key) continue
       if (completed) this.trackCompletedItem(turn, item)
@@ -504,10 +509,13 @@ export class BackgroundAgentJobTurnRecorder {
             persisted = true
             break
           } catch (error) {
-            // A control-plane rejection is authoritative; only transport
-            // failures are worth retrying.
             if (error instanceof RPCRejectedError) {
-              throw new BackgroundAgentJobTurnPersistenceRejectedError(error.rejection)
+              // Domain rejections are authoritative. An explicitly retryable
+              // internal read rejection is infrastructure failure and follows
+              // the same bounded retry path as transport loss.
+              if (!error.retryable) {
+                throw new BackgroundAgentJobTurnPersistenceRejectedError(error.rejection)
+              }
             }
             lastError = error
             if (attempt < 3) await Bun.sleep(50 * 2 ** (attempt - 1))
@@ -599,8 +607,6 @@ function toolName(value: JSONObject): string | undefined {
     }
     case 'collabAgentToolCall':
       return stringValue(value.tool) ? `collaboration.${stringValue(value.tool)}` : undefined
-    case 'subAgentActivity':
-      return 'background_agent_job_activity'
     case 'webSearch':
       return 'web_search'
     case 'imageView':
@@ -731,23 +737,7 @@ function projectThreadItem(value: JSONObject, state: SanitizeState): JSONObject[
       )
     }
     case 'collabAgentToolCall':
-      return toolPair(
-        item.id,
-        toolName(value) ?? `collaboration.${item.tool}`,
-        { prompt: item.prompt, model: item.model },
-        item.agentsStates,
-        { status: item.status, receiver_thread_ids: item.receiverThreadIds },
-        state
-      )
-    case 'subAgentActivity':
-      return toolPair(
-        item.id,
-        toolName(value) ?? 'background_agent_job_activity',
-        { kind: item.kind, agent_path: item.agentPath },
-        '',
-        { agent_thread_id: item.agentThreadId },
-        state
-      )
+      return collabAgentToolPair(item, state)
     case 'webSearch':
       return toolPair(
         item.id,
@@ -779,6 +769,58 @@ function projectThreadItem(value: JSONObject, state: SanitizeState): JSONObject[
     default:
       return []
   }
+}
+
+function collabAgentToolPair(item: CollabAgentToolCall, state: SanitizeState): JSONObject[] {
+  return toolPair(
+    item.id,
+    `collaboration.${item.tool}`,
+    collabAgentToolArguments(item),
+    collabAgentToolOutcome(item),
+    { status: item.status },
+    state
+  )
+}
+
+function collabAgentToolArguments(item: CollabAgentToolCall): JSONObject {
+  switch (item.tool) {
+    case 'spawnAgent':
+      return jsonObject({
+        ...(item.prompt === null ? {} : { prompt: item.prompt }),
+        ...(item.model === null ? {} : { model: item.model }),
+        ...(item.reasoningEffort === null ? {} : { reasoning_effort: item.reasoningEffort })
+      })
+    case 'sendInput':
+      return jsonObject({
+        receiver_thread_ids: item.receiverThreadIds,
+        ...(item.prompt === null ? {} : { input: item.prompt })
+      })
+    case 'resumeAgent':
+    case 'wait':
+    case 'closeAgent':
+      return jsonObject({ receiver_thread_ids: item.receiverThreadIds })
+    default:
+      return unsupportedCollabAgentTool(item.tool)
+  }
+}
+
+function collabAgentToolOutcome(item: CollabAgentToolCall): JSONObject {
+  const threadIDs = [...new Set([...item.receiverThreadIds, ...Object.keys(item.agentsStates)])]
+  return jsonObject({
+    status: item.status,
+    agents: threadIDs.map(threadID => {
+      const agent = item.agentsStates[threadID]
+      return {
+        thread_id: threadID,
+        ...(agent ? { status: agent.status } : {}),
+        ...(agent?.message === null || agent?.message === undefined ? {} : { message: agent.message })
+      }
+    })
+  })
+}
+
+function unsupportedCollabAgentTool(tool: never): never {
+  throw new Error(`Unsupported collaboration tool: ${String(tool)}`)
 }
 
 function assistantPhase(id: string, content: string, phase: string): JSONObject {
@@ -840,6 +882,10 @@ function itemKey(item: JSONObject): string | undefined {
   const id = stringValue(item.id)
   if (!id) return undefined
   return item.type === 'userMessage' && stringValue(item.clientId) ? `client:${stringValue(item.clientId)}` : id
+}
+
+function shouldRecordItem(item: JSONObject): boolean {
+  return item.type !== 'subAgentActivity'
 }
 
 function turnKind(items: JSONObject[]): BackgroundAgentJobTurnKind {
@@ -1000,21 +1046,37 @@ function now(): string {
 class BackgroundAgentJobTurnPersistenceRejectedError extends Error {
   readonly code = 'background_agent_job_turn_persistence_rejected'
   readonly retryable = false
+  readonly details: JSONObject
 
-  constructor(response: { code: string; message?: string }) {
+  constructor(response: { code: string; message?: string; details?: JSONObject }) {
     super(rpcRejectedMessage('background agent job turn checkpoint rejected', response))
     this.name = 'BackgroundAgentJobTurnPersistenceRejectedError'
+    this.details = persistenceRejectionDetails(response, false)
   }
 }
 
 export class BackgroundAgentJobTurnPersistenceError extends Error {
   readonly code = 'background_agent_job_turn_persistence_failed'
   readonly retryable = true
+  readonly details: JSONObject
 
   constructor(cause: unknown) {
     super(`BackgroundAgentJob Turn persistence failed: ${cause instanceof Error ? cause.message : String(cause)}`, {
       cause: cause instanceof Error ? cause : undefined
     })
     this.name = 'BackgroundAgentJobTurnPersistenceError'
+    this.details =
+      cause instanceof RPCRejectedError ? persistenceRejectionDetails(cause.rejection, true) : { retryable: true }
+  }
+}
+
+function persistenceRejectionDetails(
+  response: { code: string; message?: string; details?: JSONObject },
+  retryable: boolean
+): JSONObject {
+  return {
+    retryable,
+    rpc_code: response.code,
+    ...(response.details ? { rpc_details: response.details } : {})
   }
 }

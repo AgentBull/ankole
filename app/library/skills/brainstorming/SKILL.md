@@ -1,6 +1,7 @@
 ---
 name: brainstorming
 description: Use only when the human explicitly asks to brainstorm, explore, pressure-test, or shape an idea without moving into implementation.
+default_enabled: true
 ---
 
 # Brainstorming

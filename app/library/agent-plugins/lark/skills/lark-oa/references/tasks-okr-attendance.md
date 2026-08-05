@@ -2,7 +2,7 @@
 
 ## Tasks
 
-Start with `lark-cli task --help`. Bot-useful shortcuts include create, get/update, complete/reopen, assign, followers, comments, reminders, attachments, ancestors, tasklists, and tasklist membership when command help lists bot.
+Bot-useful shortcuts (`lark-cli task --help` lists the rest) include create, get/update, complete/reopen, assign, followers, comments, reminders, attachments, ancestors, tasklists, and tasklist membership when command help lists bot.
 
 ```bash
 lark-cli task +create --summary "Prepare weekly update" --assignee ou_xxx --idempotency-key <stable-key> --as bot --format json
@@ -16,7 +16,7 @@ Confirm exact flags with help. The typed surface also covers tasks, tasklists, s
 
 ## OKRs
 
-Start with `lark-cli okr --help`. The bot-capable surface includes cycles, objectives, key results, alignments, indicators, weights, ordering, and progress records.
+The bot-capable surface (`lark-cli okr --help` lists the rest) includes cycles, objectives, key results, alignments, indicators, weights, ordering, and progress records.
 
 ```bash
 lark-cli okr +cycle-list --user-id ou_xxx --user-id-type open_id --as bot --format json

@@ -164,7 +164,6 @@ describe('brain dreaming editor', () => {
   test('reports the field that is out of range', () => {
     const value = {
       enabled: null,
-      material_limit: 240,
       token_limit: 0,
       mutation_limit: 0,
       curation_silence_minutes: 30,
@@ -181,7 +180,6 @@ describe('brain dreaming editor', () => {
     expect(brainDreamingValidationError(value)).toBeUndefined()
     expect(brainDreamingValidationError({ ...value, episode_window_max_rows: 501 })).toBe('episode_window_max_rows')
     expect(brainDreamingValidationError({ ...value, episode_cold_start_lookback_days: null })).toBeUndefined()
-    expect(brainDreamingValidationError({ ...value, material_limit: null })).toBe('material_limit')
     expect(brainDreamingValidationError([])).toBe('invalid')
   })
 })

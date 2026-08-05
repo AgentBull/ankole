@@ -7,6 +7,7 @@ import type {
   ResponseCustomToolCall,
   ResponseFunctionToolCall
 } from 'openai/resources/responses/responses'
+import type { TruncatedToolCall } from './partial-tool-input'
 
 export interface TextContent {
   type: 'text'
@@ -42,6 +43,12 @@ export interface AssistantMessage {
   role: 'assistant'
   content: TextContent[]
   toolCalls?: ToolCall[]
+  /**
+   * Calls the output-token limit discarded, present only when `stopReason` is
+   * `length`. They record where the model stopped writing arguments and are
+   * never executable.
+   */
+  truncatedToolCalls?: TruncatedToolCall[]
   usage?: ModelUsage
   stopReason?: StopReason
   model?: string

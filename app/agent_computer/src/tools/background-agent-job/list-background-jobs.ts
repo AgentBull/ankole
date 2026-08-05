@@ -4,6 +4,7 @@ import { modelIntegerIDFromWire } from '../../core/model-integer-id'
 import { jsonToolResult } from '../../core/tool-result'
 import type { TurnStart } from '../../lanes/actor_lane'
 import { rpcMethods, type RPCRequester, type RPCRequestInit } from '../../lanes/rpc_lane'
+import { BackgroundAgentJobStatusSchema, type BackgroundAgentJobStatus } from './status'
 
 const ListBackgroundJobsParamsSchema = z
   .object({
@@ -21,20 +22,11 @@ const ListBackgroundJobsParamsSchema = z
   })
   .strict()
 
-const BackgroundAgentJobStatusSchema = z.enum([
-  'queued',
-  'running',
-  'waiting_on_user',
-  'succeeded',
-  'failed',
-  'stopped'
-])
-
 type ListBackgroundJobsResult = {
   jobs: Array<{
     job_id: number
     title: string
-    status: z.output<typeof BackgroundAgentJobStatusSchema>
+    status: BackgroundAgentJobStatus
   }>
   next_page: string | null
 }
@@ -60,7 +52,7 @@ export function createListBackgroundJobsTool(
     executionMode: 'parallel',
     isReadOnly: true,
     isDestructive: false,
-    describeActivity: () => '查看后台 Agent 任务',
+    describeActivity: () => ({ key: 'signals_gateway.reply.activity.background_job_list' }),
     async execute(_toolCallID, params) {
       const request: RPCRequestInit<'background_agent_job.list'> = {
         status: params.status ?? 'live',

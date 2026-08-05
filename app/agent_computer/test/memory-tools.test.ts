@@ -47,12 +47,6 @@ describe('Brain memory tools', () => {
     expect(browseSchema.properties).toHaveProperty('page')
     expect(browseSchema.properties).not.toHaveProperty('document_id')
     expect(browseSchema.properties).not.toHaveProperty('channel_id')
-
-    for (const tool of tools) {
-      expect(tool.description).not.toContain('entry_id')
-      expect(tool.description).not.toContain('document_id')
-      expect(tool.description).not.toContain('lock version')
-    }
   })
 
   it('maps source documents and browse cursors to turn-local aliases', async () => {
@@ -331,7 +325,7 @@ describe('Brain memory tools', () => {
         kind: 'memory.lookup',
         payload: {
           phase: 'completed',
-          label: '回忆相关上下文',
+          label_key: 'signals_gateway.reply.activity.memory_search',
           source_count: 1
         }
       }

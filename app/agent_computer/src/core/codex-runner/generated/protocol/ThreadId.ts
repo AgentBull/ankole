@@ -7,4 +7,4 @@
  *
  * Codex-generated thread IDs are UUIDv7, and some use cases rely on that.
  */
-export type ThreadId = string;
+export type ThreadId = string

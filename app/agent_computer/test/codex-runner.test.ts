@@ -25,6 +25,7 @@ import {
   BackgroundAgentJobResponseSchema,
   BackgroundAgentJobTurnUpsertResponseSchema,
   RuntimeSkillSummarySchema,
+  SkillOverlayResolveResponseSchema,
   SkillOverlayResponseSchema,
   WorkerEnvResolveResponseSchema
 } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
@@ -64,6 +65,7 @@ type FakeCodexBehavior = {
   interruptCompletionRace?: boolean
   mcpStartupFailure?: { name: string; error: string }
   cleanupError?: boolean
+  suppressTurnNotifications?: boolean
 }
 
 function parsedJSON(bytes: Uint8Array | undefined): JSONObject | undefined {
@@ -175,6 +177,27 @@ describe('@ankole/agent-computer Codex job runner', () => {
       expect(result).toEqual({ kind: 'noop_completed', reason: 'background_agent_job_committed' })
       expect(statusUpdates.map(update => update.status)).toEqual(['running', 'succeeded'])
       expect(parsedJSON(statusUpdates.at(-1)?.resultJson)?.output_text).toBe('done before cleanup failure')
+    } finally {
+      fixture.cleanup()
+    }
+  })
+
+  it('durably retries a Codex turn that accepts turn/start but produces no runtime progress', async () => {
+    const fixture = prepareFixture('never delivered', { suppressTurnNotifications: true })
+    const statusUpdates: RecordedStatusUpdate[] = []
+    const turnUpserts: RecordedTurnUpsert[] = []
+    const opts = options(fixture.root, statusUpdates, turnUpserts)
+    opts.firstCodexProgressTimeoutMs = 20
+
+    try {
+      await expect(runCodexJob(turnStart(), opts)).rejects.toMatchObject({
+        name: 'CodexTurnNoProgressError',
+        code: 'codex_turn_no_progress',
+        retryable: true
+      })
+      expect(statusUpdates.map(update => update.status)).toEqual(['running'])
+      expect(turnUpserts.at(-1)?.status).toBe('failed')
+      expect(parsedJSON(turnUpserts.at(-1)?.errorJson)?.summary).toContain('no runtime progress')
     } finally {
       fixture.cleanup()
     }
@@ -910,11 +933,19 @@ function options(
         case rpcMethods.agentPluginList:
           return create(AgentPluginListResponseSchema, { agentPlugins: [] })
         case rpcMethods.skillsOverlayResolve:
-          return create(SkillOverlayResponseSchema, {
-            skillName: (payload as { skillName: string }).skillName,
-            ...(overlayText
-              ? { hasOverlay: true, overlayJson: jsonBytes({ text: overlayText() }), contentHash: 'overlay-hash' }
-              : {})
+          return create(SkillOverlayResolveResponseSchema, {
+            overlays: (payload as { skillNames: string[] }).skillNames.map(skillName =>
+              create(SkillOverlayResponseSchema, {
+                skillName,
+                ...(overlayText
+                  ? {
+                      hasOverlay: true,
+                      overlayJson: jsonBytes({ text: overlayText() }),
+                      contentHash: 'overlay-hash'
+                    }
+                  : {})
+              })
+            )
           })
         default:
           throw new Error(`unexpected RPC method: ${String(method)}`)
@@ -1106,6 +1137,7 @@ const steerCompletionRace = ${JSON.stringify(behavior.steerCompletionRace)}
 const interruptCompletionRace = ${JSON.stringify(behavior.interruptCompletionRace)}
 const mcpStartupFailure = ${JSON.stringify(behavior.mcpStartupFailure)}
 const cleanupError = ${JSON.stringify(behavior.cleanupError)}
+const suppressTurnNotifications = ${JSON.stringify(behavior.suppressTurnNotifications)}
 function write(message) { process.stdout.write(JSON.stringify(message) + '\\n') }
 function handle(message) {
   if (message.id === 101 && Object.hasOwn(message, 'result')) {
@@ -1163,6 +1195,7 @@ function handle(message) {
     if (turnCount === 1) writeFileSync(process.env.CODEX_HOME + '/turn-input.txt', input || '')
     const turnID = 'turn-' + turnCount
     write({ id: message.id, result: { turn: { id: turnID, status: 'in_progress' } } })
+    if (suppressTurnNotifications) return
     if (turnError) {
       setTimeout(() => {
         write({

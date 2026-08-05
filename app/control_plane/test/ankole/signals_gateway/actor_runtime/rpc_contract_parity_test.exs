@@ -47,6 +47,15 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCContractParityTest do
     end
   end
 
+  test "only side-effect-free turn reads make internal handler failures retryable" do
+    for {method, {_module, _function, scope, _request_mod}} <- RPCLane.operations() do
+      assert RPCLane.retryable_handler_failure?(method) == (scope == :turn_read),
+             "#{method} has an unsafe handler-failure retry policy"
+    end
+
+    refute RPCLane.retryable_handler_failure?("unknown.rpc.method")
+  end
+
   defp contract_projection(:worker_agent, request_mod),
     do: {"worker_agent", nil, proto_type_name(request_mod)}
 

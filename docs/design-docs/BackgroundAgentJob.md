@@ -34,7 +34,11 @@ It replaces UUID-shaped tokens in system failure diagnostics with
 `[internal-id]`. It does not rewrite successful results or assistant content.
 `recent_trajectory` is an `ankole_chatml` trajectory built from the latest three
 stored semantic trajectory groups. It removes stored message IDs, maps tool-call
-correlation to turn-local `call_N` aliases, and contains no cursor.
+correlation to turn-local `call_N` aliases, and contains no cursor. It preserves
+the trajectory-level `metadata.redacted` and `metadata.content_truncated` facts.
+The control-plane projection sets `content_truncated` when it must reduce
+selected message content to keep the page within its byte limit. The fixed
+three-group selection does not set this content flag.
 
 `create_background_job` creates one durable Job. Its input contains only:
 
@@ -58,6 +62,8 @@ input contains only:
 - `message`: the text to send to Codex
 - `wait_reply`: whether to wait for the Codex Turn that receives this message;
   the default is `true`
+- `wait_timeout_ms`: the foreground observation window when `wait_reply=true`;
+  the default is 30,000, the minimum is 10,000, and the maximum is 150,000
 
 The tool accepts only a `running` or `waiting_on_user` Job. For a running Job,
 the message steers the active Codex Turn. For a waiting Job, the message answers
@@ -66,14 +72,24 @@ terminal Job.
 
 With `wait_reply=false`, the tool returns `job_id` and the current concrete
 status immediately after it stores the message. With `wait_reply=true`, the
-tool waits for the exact Codex Turn that receives the message. It then returns
-`job_id`, the current concrete status, `last_turn_trajectory`,
-`earlier_trajectory_omitted`, and `continues_running`.
+tool observes the exact Codex Turn until its result is ready, a new parent steer
+arrives, the parent Turn is canceled, or `wait_timeout_ms` expires. A steer or
+deadline ends only foreground observation. It never retracts or resends the
+already stored message and it never stops the Job.
+
+A ready result returns `job_id`, the current concrete status,
+`last_turn_trajectory`, `earlier_trajectory_omitted`, `continues_running`,
+`reply_ready=true`, and `wait_outcome=reply_ready`. A deadline or steer returns
+`reply_ready=false`, `wait_outcome=timed_out|steered`, the current status, and
+whether the Job continues running. The parent records that tool result before
+applying queued steering to its next model input.
 
 `last_turn_trajectory` contains at most the latest 20 trajectory groups from
 that one Turn. Its serialized size is at most 24 KiB. The tool states when it
-omits earlier groups. If the Job is still running, the tool also states that the
-Job continues in the background.
+omits earlier groups. It also preserves `metadata.redacted` and
+`metadata.content_truncated`; the latter remains true when Worker recording or
+control-plane projection reduced message content. If the Job is still running,
+the tool also states that the Job continues in the background.
 
 `respawn_background_job` starts a new Job from one terminal Job. Its input
 contains only:
@@ -174,12 +190,15 @@ it is absent. It also stores status, attempts, timestamps, result, error, and
 metadata.
 
 A Job does not store provider credentials. Its runtime projection stores the
-resolved provider, model, effort, options, Plugin and Skill selection, MCP
+resolved provider, model, effort, options, direct input modalities, optional
+directly image-capable vision fallback, Plugin and Skill selection, MCP
 selection, and non-secret Worker and browser parameters. Retry, continuation,
 and Worker migration use those values instead of silently reading a new Agent
 configuration. A respawn inherits `model_profile` but captures a new projection
 from its current binding. Credentials and mutable Skill content still come from
-their current owners.
+their current owners. A Lark tenant token stays out of the Codex thread
+environment: Agent Computer refreshes an execution-local file, and each
+`lark-cli` command reads the current file.
 
 Each execution intersects the projected Skills with the Agent's current
 effective set. Skills with an absent `ankole-runtime` value, `any`, or
@@ -193,6 +212,15 @@ package hash, package bytes, overlay bytes, Hook state, or Plugin cache state.
 the semantic `ankole_chatml` history selected from Codex events, not a copy of
 raw app-server frames. Each Turn row stores the trajectory header. Append-only
 trajectory-group rows store its messages.
+
+Completed Codex collaboration tool items stay in the caller Turn as one tool
+call and result pair. A spawn call keeps its prompt, model, and reasoning
+effort. A send call keeps its receivers and input. Resume, wait, and close
+calls keep their receivers. The result keeps the call status and one entry for
+each known receiver, with the available Agent status and message. The receiver
+thread links the call to the existing child Turn, which remains the owner of
+the child's work. Ankole does not store `subAgentActivity` display markers as
+tools or completed items.
 
 Each Turn also identifies its Job, attempt, Codex thread, and Codex turn. The API
 rebuilds trajectory pages from the header and message groups.
@@ -240,10 +268,18 @@ Each Agent owns one active Codex app-server process through
 process. Child threads inherit the owning Job from their parent. Different
 Agents use different Codex Homes and different app-server processes.
 
-When a Job tree is removed, the runtime keeps retired thread IDs until the
+When a Job tree is removed, the runtime keeps retired child thread IDs until the
 app-server exits. If Codex reports a late child whose parent is retired, the
 runtime interrupts and unsubscribes that child. A late child cannot become an
 unowned thread while another Job keeps the shared app-server alive.
+
+A durable root thread is different. A later retry or respawn can explicitly
+reclaim that same root after the prior owner finishes cleanup. The runtime
+serializes cleanup, new-root registration, resume registration, and late
+retired-thread cleanup by thread ID. Registration happens before Codex resume
+events can arrive. A stale cleanup cannot retire or unsubscribe a root after a
+new Job owns it. A failed resume restores a reclaimable root tombstone, while
+child tombstones stay closed.
 
 `AgentCodexRuntime` serializes app-server initialization, official Plugin
 installation, Hook trust, Plugin cache changes, and Codex user-config changes.
@@ -314,16 +350,26 @@ but MCP-backed Skills do not enter that tool registry. A Job follows the Skill
 and runs mcporter through its terminal. Code mode remains the Codex client-side
 programmatic calling path for eligible local tools. It is not the Responses API
 `programmatic_tool_calling` wire type, which Codex 0.146 does not consume.
+Projected `web_search` and `web_fetch` calls send their semantic selectors
+directly to AIGateway. A Job does not query or cache a separate web-tool catalog.
 
 For AIGateway, the Agent Codex Home selects the `ankole_aigateway` provider.
 The Job configuration contains the real Codex model name and its supported
-reasoning effort. The runner never sends a logical profile name to Codex. It attaches the
-Job's exact provider and model selector, all stored provider options, and the
-stored parallel-tool-call capability to each AIGateway request. AIGateway
-applies that binding before it resolves the provider. The frozen binding wins
-over conflicting Codex model, provider-option, and reasoning-effort values. It
-sets `parallel_tool_calls` from the provider capability unless Codex marks the
-request as Responses Lite.
+reasoning effort. The runner never sends a logical profile name to Codex. It
+attaches the Job's exact provider and model selector, all stored provider
+options, and the stored parallel-tool-call capability to each AIGateway
+request. The same binding carries the main model's direct input modalities and
+its optional frozen vision fallback. AIGateway applies that binding before it
+resolves the provider. The frozen binding wins over conflicting Codex model,
+provider-option, and reasoning-effort values. It sets `parallel_tool_calls`
+from the provider capability unless Codex marks the request as Responses Lite.
+It sends images to the main model only when the direct modalities permit that
+input; otherwise it uses the frozen fallback to produce untrusted text.
+When a persisted projection predates the modality fields, the next admission
+may complete those fields only when its frozen provider ID still resolves to
+the same provider type and model ID, then persists that completed binding. If
+that identity cannot be proved, the legacy Job remains text-only; it never
+borrows visual capability from a different model.
 
 Worker placement selects the normal owner, and the per-Agent `flock` on the
 shared Codex Home is the final cross-process exclusion boundary. An app-server
@@ -339,14 +385,15 @@ optional workspace template supplies the first part. The runner appends the
 rendered Job context after it: the Agent SOUL and MISSION documents, the
 durable Brain context, and the execution-context facts.
 
-The rendered Job context ends with a `Job Guidance` section. Its body is the
+The rendered Job context can end with a `Job Guidance` section. Its body is the
 shared template `app/library/templates/AGENT_JOB.md`, read from the builtin
-library root in the Worker image. The template carries deployment-wide
-execution guidance for every Job; the current content gives the model the
-turn-cost model and the long-blocking-wait contract for subagent coordination.
-A missing or empty template only removes the section. A resumed thread keeps
-the existing project `AGENTS.md`; the template applies when a Job initializes
-its Workspace.
+library root in the Worker image. An empty template omits the section. The
+shipped template is empty. The Codex project config sets the native subagent
+wait minimum to one minute and the default to two minutes. It does not set the
+maximum, so Codex keeps its default. This reduces repeated model turns after
+empty waits, as tracked in [openai/codex#35259](https://github.com/openai/codex/issues/35259).
+A resumed thread keeps the existing project `AGENTS.md`; the template applies
+when a Job initializes its Workspace.
 
 ## Prepare Skills for Each Run
 
@@ -372,6 +419,12 @@ Agent material root. Its `SKILL.md` combines the source instructions with the
 current database note. The Job projects standalone Skills into
 `.agents/skills`, and Codex discovers them through native project discovery.
 The runner does not use the process-global `skills/extraRoots/set` method.
+
+Initial preparation resolves all selected Skill overlays in one RuntimeFabric
+batch. The control plane synchronizes the Agent Skill registry once, reads the
+selected Skill rows once, and reads the overlay rows once. It rejects the whole
+set when one requested Skill is missing, disabled, invalid, or duplicated.
+Refreshing one changed Skill uses the same batch contract with one name.
 
 ## Prepare Agent Plugins for Each Run
 
@@ -428,6 +481,11 @@ A retryable worker failure waits before the next execution attempt. Job
 sessions wait on a fixed ladder from one minute to two hours, so the five
 attempts span some hours and a Job survives an upstream outage. Other actor
 events keep a short exponential backoff, because a user waits on them.
+
+An internal RuntimeFabric handler failure is retryable only for a turn-scoped
+read. Its durable error keeps the control-plane `failure_id`. Domain rejections,
+turn writes, and turn completion stay terminal because their effect or commit
+outcome cannot be repeated safely.
 
 One control-plane transaction stores the final state and the notification.
 If a worker disappears, the control plane dispatches the Job again.
@@ -519,8 +577,22 @@ key. A retry of the same parent Turn returns the existing command event and does
 not send the message twice.
 
 When `wait_reply=true`, Agent Computer reads the persisted result once per
-second. It stops reading when the parent Turn is canceled, but it does not undo
-the stored message. There is no fixed business timeout.
+second. The foreground observation window defaults to 30 seconds and is
+bounded to 10–150 seconds. This is not a Job execution timeout. On expiry the
+Job remains durable and continues running. A new parent steer wakes the wait
+immediately without consuming the steer; the normal agent-loop boundary records
+the tool result and then applies and acknowledges that steer.
+
+After a new worker Turn is committed and sent, the control plane immediately
+drains already-persisted `command.steer` events into that activation. The
+ordinary ready-event wakeup handles steering that arrives later. Periodic
+recovery is therefore a fallback, not the correctness path for the short gap
+between replacing a delivery and starting its successor.
+
+Codex must produce a lead runtime notification within 60 seconds after
+`turn/start` succeeds. Missing first progress is a retryable runtime failure;
+it cannot leave a Job indefinitely `running` merely because the Worker process
+continues to emit generic heartbeats.
 
 The result is ready when the causal Turn is terminal and the Job has committed
 `waiting_on_user`, `succeeded`, `failed`, or `stopped`. It is also ready when a

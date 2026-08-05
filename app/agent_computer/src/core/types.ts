@@ -200,12 +200,17 @@ export interface AgentTool<TParameters extends z.ZodType = z.ZodType, TDetails =
   isReadOnly?: boolean
   isDestructive?: boolean
   /** Builds one bounded user-facing activity label from schema-validated parameters. */
-  describeActivity: (params: z.output<TParameters>) => string | null
+  describeActivity: (params: z.output<TParameters>) => ActivityDescription | string | null
   /** Optionally replaces the activity label with a bounded summary of the completed result. */
-  describeCompletedActivity?: (params: z.output<TParameters>, details: TDetails) => string | null
+  describeCompletedActivity?: (params: z.output<TParameters>, details: TDetails) => ActivityDescription | string | null
   execute: (
     toolCallID: string,
     params: z.output<TParameters>,
     signal?: AbortSignal
   ) => Promise<AgentToolResult<TDetails>>
+}
+
+export type ActivityDescription = {
+  key: string
+  bindings?: JSONObject
 }

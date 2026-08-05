@@ -140,21 +140,6 @@ defmodule AnkoleWeb.AIGatewayController do
     end
   end
 
-  operation(:web_tools,
-    summary: "List provider-backed web tools available to this AIGateway subject",
-    responses: [
-      ok: {"Web tool availability", "application/json", @json_object},
-      unauthorized: {"Unauthorized", "application/json", @json_object}
-    ]
-  )
-
-  def web_tools(conn, _params) do
-    subject_uid = conn.assigns.current_ai_gateway_subject_uid
-
-    {:ok, body} = AIGateway.web_tools(subject_uid)
-    json(conn, body)
-  end
-
   operation(:web_search,
     summary: "Search the web through AIGateway",
     request_body: {"Web search request", "application/json", @json_object, required: true},

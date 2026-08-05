@@ -30,7 +30,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobTurn do
         Keyword.put(
           opts,
           :turn_start_overrides,
-          RuntimeProjection.turn_start_overrides(projection)
+          RuntimeProjection.turn_start_overrides(projection, agent_uid: job.agent_uid)
         )
 
       _missing ->

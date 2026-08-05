@@ -5,7 +5,12 @@ import { jsonToolResult } from '../../core/tool-result'
 import { jsonObjectFromBytes } from '../../fabric/envelope_proto'
 import type { TurnStart } from '../../lanes/actor_lane'
 import { rpcMethods, type RPCRequester, type RPCRequestInit } from '../../lanes/rpc_lane'
-import { modelVisibleTrajectory } from './model-trajectory'
+import {
+  BackgroundAgentJobTrajectorySchema,
+  modelVisibleTrajectory,
+  type BackgroundAgentJobTrajectory
+} from './model-trajectory'
+import { BackgroundAgentJobStatusSchema, type BackgroundAgentJobStatus } from './status'
 
 const ShowBackgroundJobDetailsParamsSchema = z
   .object({
@@ -13,29 +18,14 @@ const ShowBackgroundJobDetailsParamsSchema = z
   })
   .strict()
 
-const BackgroundAgentJobStatusSchema = z.enum([
-  'queued',
-  'running',
-  'waiting_on_user',
-  'succeeded',
-  'failed',
-  'stopped'
-])
-
-const RecentTrajectorySchema = z.object({
-  format: z.literal('ankole_chatml'),
-  version: z.literal(1),
-  messages: z.array(z.record(z.string(), z.unknown()))
-})
-
 const ExecutionSchema = z.object({
   attempt: z.number().int().nonnegative(),
-  trajectory_page: RecentTrajectorySchema
+  trajectory_page: BackgroundAgentJobTrajectorySchema
 })
 
 type ShowBackgroundJobDetailsResult = {
   title: string
-  status: z.output<typeof BackgroundAgentJobStatusSchema>
+  status: BackgroundAgentJobStatus
   continued_from_job_id: number | null
   workspace_owner_job_id: number
   attempts: number
@@ -46,7 +36,7 @@ type ShowBackgroundJobDetailsResult = {
     turn_statuses: string[]
     summary: string
   }>
-  recent_trajectory: z.output<typeof RecentTrajectorySchema>
+  recent_trajectory: BackgroundAgentJobTrajectory
 }
 
 export type ShowBackgroundJobDetailsToolOptions = {
@@ -59,13 +49,12 @@ export function createShowBackgroundJobDetailsTool(
 ): AgentTool<typeof ShowBackgroundJobDetailsParamsSchema, ShowBackgroundJobDetailsResult> {
   return {
     name: 'show_background_job_details',
-    description:
-      'Show one background agent job. Returns its title, concrete status, continuation and workspace ownership, attempts, prior attempt history, current error, and an ankole_chatml trajectory built from its latest three stored semantic trajectory groups.',
+    description: 'Show job details: title, status, attempt history and its latest 3-turn conversation trajectory',
     schema: ShowBackgroundJobDetailsParamsSchema,
     executionMode: 'parallel',
     isReadOnly: true,
     isDestructive: false,
-    describeActivity: () => '查看后台 Agent 任务详情',
+    describeActivity: () => ({ key: 'signals_gateway.reply.activity.background_job_show' }),
     async execute(_toolCallID, params) {
       const request: RPCRequestInit<'background_agent_job.get'> = {
         jobId: modelIntegerIDToWire(params.job_id),

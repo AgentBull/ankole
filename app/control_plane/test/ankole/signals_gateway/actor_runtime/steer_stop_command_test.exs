@@ -34,6 +34,59 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SteerStopCommandTest do
       assert turn_start_payload!(envelope).turn.actor_event_id == steer_event.id
     end
 
+    test "a turn start immediately drains steer persisted before its delivery existed" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
+      route = unique_route()
+
+      :ok = Broker.register_local_worker(route, self())
+      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      assert {:ok, _worker} = admit_worker(route)
+
+      assert {:ok, %{actor_event: input}} =
+               emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "start work", explicit: true}),
+                 now: @base_time
+               )
+
+      assert {:ok, %{actor_event: steer_event}} =
+               emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "/steer use the correction", explicit: true}),
+                 now: DateTime.add(@base_time, 1, :second)
+               )
+
+      process_at = DateTime.add(@base_time, 2, :second)
+
+      assert {:ok, %{turn_ref: initial_turn}} =
+               process_ready_events_once(
+                 now: process_at,
+                 lease_seconds: @long_lease_seconds
+               )
+
+      assert_receive {:actor_lane, turn_envelope}, 2_000
+      assert envelope_body_type(turn_envelope) == :turn_start
+      assert_receive {:actor_lane, mailbox_envelope}, 2_000
+      assert envelope_body_type(mailbox_envelope) == :mailbox_updated
+
+      assert initial_turn.actor_event_id == input.id
+      assert envelope_body!(mailbox_envelope, :mailbox_updated).turn.actor_event_id == input.id
+
+      assert envelope_body!(mailbox_envelope, :mailbox_updated).turn.revision ==
+               initial_turn.revision + 1
+
+      assert envelope_body!(mailbox_envelope, :mailbox_updated).actor_event.actor_event_id ==
+               steer_event.id
+
+      assert %ActorEventDelivery{state: "sent", actor_event_id_fence: input_id} =
+               Repo.get_by!(ActorEventDelivery, actor_event_id: steer_event.id)
+
+      assert input_id == input.id
+    end
+
     test "active steer switches the card owner before its mailbox update" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")

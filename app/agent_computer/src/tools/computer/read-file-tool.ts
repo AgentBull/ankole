@@ -37,7 +37,9 @@ export function createReadFileTool(context: ComputerToolContext): AgentTool<type
     isDestructive: false,
     describeActivity: params => {
       const path = compactActivityPath(params.path)
-      return path ? `读取文件：${path}` : '读取文件'
+      return path
+        ? { key: 'signals_gateway.reply.activity.file_read_target', bindings: { path } }
+        : { key: 'signals_gateway.reply.activity.file_read' }
     },
     async execute(_toolCallId, params, signal): Promise<AgentToolResult<ReadFileDetails>> {
       const computer = await context.getComputer(signal)

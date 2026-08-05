@@ -58,7 +58,6 @@ Stateless HTTP and SSE reject the stateful fields (`previous_response_id`, `conv
 | `POST /rerank` | Rerank documents |
 | `POST /web_search` | Search the web |
 | `POST /web_fetch` | Fetch web pages |
-| `GET /web_tools` | List available web tools |
 
 Each is documented in the [AIGateway](../ai-gateway/) concept page and the relevant User-guide feature page.
 

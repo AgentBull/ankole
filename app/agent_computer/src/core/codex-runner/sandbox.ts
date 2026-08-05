@@ -1,8 +1,8 @@
 import { existsSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
-import { bubblewrapArgv } from '../computer/bubblewrap'
-import { commandEnv } from '../computer/env'
-import { codexConfigCLIOverrides, type MaterializedCodexConfig } from './config'
+import { bubblewrapArgv } from '../../tools/computer/bubblewrap'
+import { commandEnv } from '../../tools/computer/env'
+import { codexConfigCLIOverrides, type MaterializedCodexConfig } from './agent-home-config'
 
 export type CodexAppServerSandboxSpec = {
   cwd: string

@@ -35,7 +35,6 @@ export type BrainDreamingField = {
 }
 
 export const BRAIN_DREAMING_FIELDS: BrainDreamingField[] = [
-  { key: 'material_limit', min: 1, max: 10_000, section: 'stage_b' },
   { key: 'token_limit', min: 0, max: 10_000_000, section: 'stage_b', unlimited: 'zero' },
   { key: 'mutation_limit', min: 0, max: 100_000, section: 'stage_b', unlimited: 'zero' },
   { key: 'curation_silence_minutes', min: 0, max: 1_440, section: 'stage_b' },

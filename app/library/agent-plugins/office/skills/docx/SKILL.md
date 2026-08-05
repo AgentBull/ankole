@@ -1,6 +1,6 @@
 ---
 name: docx
-description: "Use this skill for local .docx files as input or output. This OfficeCLI-backed skill creates, reads, edits, and validates Word files; it does not operate Lark Docs URLs or cloud document tokens, which belong to lark-office-suite."
+description: "Use this skill for local .docx files as input or output. This skill covers creates, reads, edits, and validates Word files."
 default_enabled: true
 category: productivity
 ankole-runtime: background_job

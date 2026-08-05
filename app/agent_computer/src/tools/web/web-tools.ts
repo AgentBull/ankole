@@ -7,29 +7,20 @@ import {
   safeJsonStringify as safeJSONStringify
 } from '@agentbull/active-support'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
-import type { AgentTool, AgentToolResult } from '../../core'
+import type { ActivityDescription, AgentTool, AgentToolResult } from '../../core'
 import type { AIGatewayHTTPClient } from '../../core/ai_gateway_transport'
 import { errorMessage } from '../../common/errors'
+import { WEB_FETCH_BUDGET_CHARS, fetchedPageHost, renderFetchedPages, stringField } from './fetched-page-text'
 
 type WebToolDetails = JSONObject
-
-interface WebToolAvailability {
-  available?: boolean
-  model?: string
-  reason?: string
-}
-
-interface WebToolsResponse {
-  web_search?: WebToolAvailability
-  web_fetch?: WebToolAvailability
-}
-
-type WebToolsAvailabilityResolver = (signal?: AbortSignal) => Promise<WebToolsResponse>
 const RenderedFallbackSource = 'rendered_fallback'
+const WebSearchSelector = 'web_search.default'
+const WebFetchSelector = 'web_fetch.default'
 
 export interface CreateWebToolsOptions {
   aiGateway: AIGatewayHTTPClient
-  abortSignal?: AbortSignal
+  /** Session or Job workspace that receives the full text of a truncated page. */
+  workspaceRoot: string
   renderedFallback?: RenderedWebFetchOptions
 }
 
@@ -61,24 +52,17 @@ const WebFetchParams = z.object({
 })
 
 /**
- * Creates a stable web-tool catalog and resolves provider availability lazily.
+ * Creates a stable web-tool catalog that uses AIGateway semantic selectors.
  *
- * Provider configuration may change between turns, but the model-facing tool
- * definitions must not. Each turn memoizes the first availability lookup;
- * web_fetch can fall back to an internal rendered-page extractor, while web_search remains
- * provider-backed because the worker does not own a search index.
+ * AIGateway resolves current provider configuration when the tool runs.
+ * web_fetch can fall back to an internal rendered-page extractor, while
+ * web_search remains provider-backed because the worker does not own a search index.
  */
 export async function createWebTools(opts: CreateWebToolsOptions): Promise<AgentTool<any>[]> {
-  let availabilityPromise: Promise<WebToolsResponse> | undefined
-  const resolveAvailability: WebToolsAvailabilityResolver = signal => {
-    availabilityPromise ??= fetchWebToolsAvailability(opts.aiGateway, signal ?? opts.abortSignal)
-    return availabilityPromise
-  }
-
   return [
-    createWebSearchTool(opts.aiGateway, resolveAvailability),
+    createWebSearchTool(opts.aiGateway),
     createWebFetchTool(opts.aiGateway, {
-      resolveAvailability,
+      workspaceRoot: opts.workspaceRoot,
       renderedFallback: opts.renderedFallback
     })
   ]
@@ -87,10 +71,7 @@ export async function createWebTools(opts: CreateWebToolsOptions): Promise<Agent
 /**
  * Builds the provider-backed web_search tool.
  */
-function createWebSearchTool(
-  aiGateway: AIGatewayHTTPClient,
-  resolveAvailability: WebToolsAvailabilityResolver
-): AgentTool<typeof WebSearchParams, WebToolDetails> {
+function createWebSearchTool(aiGateway: AIGatewayHTTPClient): AgentTool<typeof WebSearchParams, WebToolDetails> {
   return {
     name: 'web_search',
     description: 'Search the public web through the configured AIGateway web search provider.',
@@ -98,15 +79,16 @@ function createWebSearchTool(
     executionMode: 'parallel',
     isReadOnly: true,
     isDestructive: false,
-    describeActivity: params => `搜索网页：“${activityExcerpt(params.query, 48)}”`,
+    describeActivity: params => ({
+      key: 'signals_gateway.reply.activity.web_search',
+      bindings: { query: activityExcerpt(params.query, 48) }
+    }),
     async execute(_toolCallId, params, signal): Promise<AgentToolResult<WebToolDetails>> {
-      const availability = await resolveAvailability(signal)
-      const model = configuredProviderModel('web_search', availability.web_search)
       const body = await postAIGatewayJSON(
         aiGateway,
         '/web_search',
         {
-          model,
+          model: WebSearchSelector,
           query: params.query,
           ...(params.limit ? { limit: params.limit } : {})
         },
@@ -131,14 +113,13 @@ function createWebSearchTool(
 function createWebFetchTool(
   aiGateway: AIGatewayHTTPClient,
   config: {
-    resolveAvailability: WebToolsAvailabilityResolver
+    workspaceRoot: string
     renderedFallback?: RenderedWebFetchOptions
   }
 ): AgentTool<typeof WebFetchParams, WebToolDetails> {
   return {
     name: 'web_fetch',
-    description:
-      'Extract and return readable text from HTTPS web pages through AIGateway, with an internal rendered-page fallback when the provider is unavailable. This tool returns text only, never binary file content. Do not use web_fetch for PDFs, archives, images, audio/video, executables, or other binary files; use the command shell tool to run aria2c for those downloads. Pass all needed text-page URLs in one call.',
+    description: `Extract and return readable text from HTTPS web pages through AIGateway, with an internal rendered-page fallback when the provider is unavailable. This tool returns text only, never binary file content. Do not use web_fetch for PDFs, archives, images, audio/video, executables, or other binary files; use the command shell tool to run aria2c for those downloads. Pass all needed text-page URLs in one call. One call returns at most about ${WEB_FETCH_BUDGET_CHARS} characters of page text; a longer page shows its start and its end, its full text is saved in the workspace, and the result gives the file path and the read_file call that shows the omitted middle.`,
     schema: WebFetchParams,
     executionMode: 'sequential',
     isReadOnly: true,
@@ -147,51 +128,22 @@ function createWebFetchTool(
     describeCompletedActivity: (params, details) => completedWebFetchActivity(params.urls, details),
     async execute(_toolCallId, params, signal): Promise<AgentToolResult<WebToolDetails>> {
       let body: unknown
-      let providerModel: string | undefined
 
       try {
-        const availability = await config.resolveAvailability(signal)
-        providerModel = optionalProviderModel(availability.web_fetch)
-        if (!providerModel && !config.renderedFallback) {
-          configuredProviderModel('web_fetch', availability.web_fetch)
-        }
+        body = await postAIGatewayJSON(aiGateway, '/web_fetch', { model: WebFetchSelector, urls: params.urls }, signal)
       } catch (error) {
         if (signal?.aborted || !config.renderedFallback) throw error
         body = await renderedFallbackFetch(params.urls, config.renderedFallback, signal, errorMessage(error))
       }
 
-      if (body === undefined && providerModel) {
-        try {
-          body = await postAIGatewayJSON(aiGateway, '/web_fetch', { model: providerModel, urls: params.urls }, signal)
-        } catch (error) {
-          if (signal?.aborted) throw error
-          if (!config.renderedFallback) throw error
-          body = await renderedFallbackFetch(params.urls, config.renderedFallback, signal, errorMessage(error))
-        }
-      } else if (body === undefined && config.renderedFallback) {
-        body = await renderedFallbackFetch(params.urls, config.renderedFallback, signal)
-      }
+      const rendered = renderFetchedPages(body, { workspaceRoot: config.workspaceRoot })
 
       return {
-        content: [{ type: 'text', text: formatFetchResults(body) }],
-        details: detailsObject(body)
+        content: [{ type: 'text', text: rendered.text }],
+        details: rendered.details
       }
     }
   }
-}
-
-/** Returns a configured provider model or explains why the tool cannot run. */
-function configuredProviderModel(name: 'web_search' | 'web_fetch', availability?: WebToolAvailability): string {
-  const model = optionalProviderModel(availability)
-  if (model) return model
-
-  const reason = availability?.reason?.trim()
-  throw new Error(`${name} is unavailable: ${reason || 'no AIGateway provider model is configured'}`)
-}
-
-/** Reads a usable provider model from one availability entry. */
-function optionalProviderModel(availability?: WebToolAvailability): string | undefined {
-  return availability?.available && availability.model?.trim() ? availability.model.trim() : undefined
 }
 
 /**
@@ -300,25 +252,6 @@ function normalizeRenderedFetchResult(url: string, value: unknown): JSONObject {
 }
 
 /**
- * Reads the web-tool availability document from AIGateway.
- */
-async function fetchWebToolsAvailability(
-  aiGateway: AIGatewayHTTPClient,
-  signal?: AbortSignal
-): Promise<WebToolsResponse> {
-  const response = await aiGateway.fetch(aiGatewayURL(aiGateway, '/web_tools'), { signal })
-  const text = await response.text()
-  const body = parseJSON(text)
-
-  if (!response.ok) {
-    throw new Error(gatewayErrorMessage(body, response.status))
-  }
-  if (!isRecord(body)) throw new Error('AIGateway web tool availability returned a non-object response')
-
-  return body as WebToolsResponse
-}
-
-/**
  * Sends a JSON POST to an AIGateway web-tool endpoint and parses the response.
  */
 async function postAIGatewayJSON(
@@ -364,38 +297,6 @@ function formatSearchResults(body: unknown): string {
 }
 
 /**
- * Formats fetched page text and errors for direct model consumption.
- */
-function formatFetchResults(body: unknown): string {
-  const bodyRecord = isRecord(body) ? body : {}
-  const bodySource = stringField(bodyRecord, 'source')
-  const results = Array.isArray(isRecord(body) ? body.results : undefined)
-    ? (body as { results: unknown[] }).results
-    : []
-  if (results.length === 0) return 'No web fetch results.'
-
-  return results
-    .map(result => {
-      const item = isRecord(result) ? result : {}
-      const metadata = isRecord(item.metadata) ? item.metadata : {}
-      const url = stringField(item, 'url')
-      const title = stringField(item, 'title')
-      const error = stringField(item, 'error')
-      const text = stringField(item, 'text')
-      const source = stringField(metadata, 'source') || bodySource
-      if (error) {
-        return [`URL: ${url || '(unknown)'}`, source ? `Source: ${source}` : '', `Error: ${error}`]
-          .filter(Boolean)
-          .join('\n')
-      }
-      return [`URL: ${url || '(unknown)'}`, source ? `Source: ${source}` : '', title ? `Title: ${title}` : '', text]
-        .filter(Boolean)
-        .join('\n')
-    })
-    .join('\n\n---\n\n')
-}
-
-/**
  * Parses JSON, preserving raw text when the gateway returns non-JSON content.
  */
 function parseJSON(text: string): unknown {
@@ -432,32 +333,43 @@ function detailsObject(value: unknown): JSONObject {
 }
 
 /** Builds a parameter-only label before web_fetch returns page metadata. */
-function webFetchActivity(urls: string[]): string {
-  const domain = webDomain(urls[0])
-  const target = domain || '网页'
-  return urls.length === 1 ? `读取网页：${target}` : `读取网页：${target} 等 ${urls.length} 个网页`
+function webFetchActivity(urls: string[]): ActivityDescription {
+  const domain = fetchedPageHost(urls[0])
+  const target = domain || undefined
+  return {
+    key:
+      urls.length === 1
+        ? target
+          ? 'signals_gateway.reply.activity.web_fetch_target'
+          : 'signals_gateway.reply.activity.web_fetch'
+        : target
+          ? 'signals_gateway.reply.activity.web_fetch_many_target'
+          : 'signals_gateway.reply.activity.web_fetch_many',
+    ...(target ? { bindings: { target, count: urls.length } } : { bindings: { count: urls.length } })
+  }
 }
 
 /** Adds a returned page title without exposing fetched body text or URL parameters. */
-function completedWebFetchActivity(urls: string[], details: WebToolDetails): string {
+function completedWebFetchActivity(urls: string[], details: WebToolDetails): ActivityDescription {
   const results = Array.isArray(details.results) ? details.results : []
   const firstTitled = results.find(result => isRecord(result) && stringField(result, 'title'))
   const firstResult = firstTitled ?? results.find(isRecord)
   const record = isRecord(firstResult) ? firstResult : undefined
   const title = record ? stringField(record, 'title') : undefined
-  const domain = webDomain(record ? stringField(record, 'url') : undefined) || webDomain(urls[0])
+  const domain = fetchedPageHost(record ? stringField(record, 'url') : undefined) || fetchedPageHost(urls[0])
   const titlePart = title ? `《${activityExcerpt(title, 40)}》` : undefined
-  const target = [titlePart, domain].filter(Boolean).join(' · ') || '网页'
+  const target = [titlePart, domain].filter(Boolean).join(' · ') || undefined
 
-  return urls.length === 1 ? `读取网页：${target}` : `读取网页：${target} 等 ${urls.length} 个网页`
-}
-
-function webDomain(value?: string): string | undefined {
-  if (!value) return undefined
-  try {
-    return webURLFacts(value).host || undefined
-  } catch {
-    return undefined
+  return {
+    key:
+      urls.length === 1
+        ? target
+          ? 'signals_gateway.reply.activity.web_fetch_target'
+          : 'signals_gateway.reply.activity.web_fetch'
+        : target
+          ? 'signals_gateway.reply.activity.web_fetch_many_target'
+          : 'signals_gateway.reply.activity.web_fetch_many',
+    ...(target ? { bindings: { target, count: urls.length } } : { bindings: { count: urls.length } })
   }
 }
 
@@ -471,14 +383,6 @@ function activityExcerpt(value: string, maxCharacters: number): string {
   return characters.length <= maxCharacters
     ? normalized
     : `${characters.slice(0, Math.max(0, maxCharacters - 1)).join('')}…`
-}
-
-/**
- * Reads a non-empty string field from a JSON object.
- */
-function stringField(record: JSONObject, key: string): string | undefined {
-  const value = record[key]
-  return typeof value === 'string' && value.trim() ? value : undefined
 }
 
 /** Hides renderer implementation details from model-visible fallback errors. */

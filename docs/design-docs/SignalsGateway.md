@@ -29,6 +29,7 @@ SignalsGateway stores these tables in PostgreSQL:
 | `signal_gateway_webhook_endpoints` | Callback capabilities that wake one Agent session |
 | `actor_events` | Work that an Agent session must process |
 | `actor_event_deliveries` | Attempts to send that work to a worker |
+| `actor_session_workspaces` | Stable workspace identity for one Agent session |
 | `signal_gateway_outbox_entries` | Operations that Ankole must send to a provider |
 
 ## Use a Different ID for Each Record
@@ -328,6 +329,18 @@ and keeps the row as history.
 ActorRuntime orders open events with `queue_sequence` for each Session. Each
 delivery row records one worker attempt and its turn fence.
 
+An `actor_session_workspaces` row identifies a real Actor session. Some Actor
+sessions, such as Background Agent Jobs, do not have an AIGateway conversation.
+The daily reset selects an active conversation only when its subject and key
+match an Actor session workspace. It also excludes Background Agent Job
+execution sessions. AIGateway conversations that store internal traces do not
+enter this lifecycle.
+
+At the configured 04:30 local boundary, daily reset enqueues one
+`session.reset_due` lifecycle barrier for each due session. The barrier waits
+behind earlier work. It then ends the current conversation and creates the
+successor under the same session key.
+
 A Worker `actor_turn.abort` leaves the ActorEvent open. ActorRuntime tries again
 and invalidates the old turn fence. The legacy `turn_error` envelope delegates
 to the same operation during rolling upgrades.
@@ -424,6 +437,12 @@ outbox records its retries and final result.
 
 A live preview can show model progress, but Ankole can lose it. It is not the
 final reply record.
+
+Agent Computer sends progress text as an i18n key with bounded display
+bindings. `ReplyPresentation` resolves the key with the installation locale
+before it stores or renders the projection. It accepts a literal label from an
+older Worker, but new tool activity, Turn phases, memory receipts, and schedule
+receipts do not own translated text.
 
 The preview follows one immutable AIGateway Turn stream. Its presentation owner
 is one ActorEvent and can change when `/steer` adds a visible reply fragment.

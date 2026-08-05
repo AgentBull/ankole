@@ -34,6 +34,21 @@ export function sanitizeBinaryOutput(text: string): string {
 }
 
 /**
+ * Renders third-party catalog text as one bounded, prompt-safe line.
+ *
+ * Catalog entries (skill descriptions, plugin template descriptions) come from
+ * installed third-party packages and are injected into model-visible prompts.
+ * The producer is asked to keep them short and plain, but the host does not
+ * trust that: this strips hidden and control characters through
+ * `sanitizeBinaryOutput`, collapses all whitespace to single spaces, and caps
+ * the length so one oversized entry cannot starve the rest of its catalog.
+ */
+export function sanitizeCatalogLine(text: string, maxChars: number): string {
+  const cleaned = sanitizeBinaryOutput(text).replace(/\s+/g, ' ').trim()
+  return truncateUtf16Safe(cleaned, maxChars)
+}
+
+/**
  * Truncates to at most `maxChars` UTF-16 code units without slicing through a
  * surrogate pair.
  *
@@ -54,6 +69,22 @@ export function truncateUtf16Safe(text: string, maxChars: number): string {
   // pair: step back one so the split character is excluded entirely.
   if (previous >= 0xd800 && previous <= 0xdbff && next >= 0xdc00 && next <= 0xdfff) end--
   return text.slice(0, end)
+}
+
+/**
+ * Keeps at most `maxChars` UTF-16 code units from the end of the text without
+ * slicing through a surrogate pair.
+ *
+ * The tail counterpart of `truncateUtf16Safe`. A cut that lands between the two
+ * halves of an astral character leaves a lone low surrogate at the front of the
+ * result, which renders as a replacement glyph, so the orphan half is dropped.
+ */
+export function truncateUtf16SafeTail(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text
+  if (maxChars <= 0) return ''
+  const start = text.length - maxChars
+  const first = text.charCodeAt(start)
+  return first >= 0xdc00 && first <= 0xdfff ? text.slice(start + 1) : text.slice(start)
 }
 
 /** Returns the UTF-8 byte length used by JSON-RPC and durable text payloads. */

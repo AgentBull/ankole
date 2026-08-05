@@ -1,11 +1,14 @@
 import { z } from 'zod'
+import { sanitizeCatalogLine } from '../../common/text-sanitize'
 import type { AgentTool } from '../../core'
 import { modelIntegerIDFromWire } from '../../core/model-integer-id'
 import { jsonToolResult } from '../../core/tool-result'
 import type { TurnStart } from '../../lanes/actor_lane'
 import { rpcMethods, type AgentPluginCatalogEntry, type RPCRequester, type RPCRequestInit } from '../../lanes/rpc_lane'
+import { BackgroundAgentJobStatusSchema, type BackgroundAgentJobStatus } from './status'
 
 const identifier = /^[a-z][a-z0-9_-]{0,63}$/
+const CATALOG_DESCRIPTION_MAX_CHARS = 400
 const CustomModelProfileSchema = z
   .object({
     name: z.string().regex(identifier),
@@ -13,18 +16,9 @@ const CustomModelProfileSchema = z
   })
   .strict()
 
-const BackgroundAgentJobStatusSchema = z.enum([
-  'queued',
-  'running',
-  'waiting_on_user',
-  'succeeded',
-  'failed',
-  'stopped'
-])
-
 type CreateBackgroundJobResult = {
   job_id: number
-  status: z.output<typeof BackgroundAgentJobStatusSchema>
+  status: BackgroundAgentJobStatus
 }
 
 export type CreateBackgroundJobToolOptions = {
@@ -42,10 +36,9 @@ export function createCreateBackgroundJobTool(
   return {
     name: 'create_background_job',
     description: [
-      'Create durable background work and return immediately.',
+      'Delegate a durable job to a background agent.',
       'title is only a management label and is not sent to Codex.',
-      'task is sent verbatim as the first Codex user prompt, so it must contain the complete requirements and acceptance criteria.',
-      'The background agent job automatically receives every current enabled Skill that permits background agent jobs.',
+      'task is the work handed off to the background agent to complete.',
       modelProfileDescription(customModelProfiles),
       workspaceTemplateDescription(workspaceTemplates)
     ].join(' '),
@@ -53,7 +46,7 @@ export function createCreateBackgroundJobTool(
     executionMode: 'sequential',
     isReadOnly: false,
     isDestructive: false,
-    describeActivity: () => '创建后台 Agent 任务',
+    describeActivity: () => ({ key: 'signals_gateway.reply.activity.background_job_create' }),
     async execute(toolCallID, params) {
       const request: RPCRequestInit<'background_agent_job.create'> = {
         sourceToolCallId: toolCallID,
@@ -125,9 +118,15 @@ function availableCustomModelProfiles(turnStart: TurnStart): CustomModelProfile[
 }
 
 function availableWorkspaceTemplates(catalog: AgentPluginCatalogEntry[]): WorkspaceTemplate[] {
+  // Template descriptions come from installed plugin packages and are injected
+  // into the tool description, so the host re-normalizes them; ids are already
+  // held to the strict identifier grammar below.
   const templates = catalog
     .filter(entry => entry.hasWorkspaceTemplate)
-    .map(entry => ({ id: entry.id, description: entry.description }))
+    .map(entry => ({
+      id: entry.id,
+      description: sanitizeCatalogLine(entry.description, CATALOG_DESCRIPTION_MAX_CHARS)
+    }))
     .sort((left, right) => compareCodePoints(left.id, right.id))
 
   for (const template of templates) {

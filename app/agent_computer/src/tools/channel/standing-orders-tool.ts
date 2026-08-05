@@ -40,7 +40,7 @@ export function createStandingOrdersTools(opts: CreateStandingOrdersToolsOptions
     executionMode: 'sequential',
     isReadOnly: false,
     isDestructive: false,
-    describeActivity: () => '更新频道常驻指令',
+    describeActivity: () => ({ key: 'signals_gateway.reply.activity.standing_orders_update' }),
     async execute(_toolCallID, params): Promise<AgentToolResult<JSONObject>> {
       const response = await opts.requestSignalChannelRPC(rpcMethods.signalChannelStandingOrdersSet, {
         orders: params.orders

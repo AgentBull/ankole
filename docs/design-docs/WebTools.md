@@ -10,11 +10,11 @@ BackgroundAgentJob. The `ankole-browser` process supports both paths.
 
 AIGateway owns provider selection, credentials, and these HTTP endpoints:
 
-- `/web_tools`
 - `/web_search`
 - `/web_fetch`
 
-Agent Computer owns the model schemas, availability cache, cancellation, result format, and rendered `web_fetch` fallback.
+Agent Computer owns the model schemas, cancellation, result format, and rendered
+`web_fetch` fallback.
 
 `ankole-browser` manages browser sessions and extracts text from rendered pages.
 It identifies each session with an opaque route ID. It does not understand
@@ -27,7 +27,8 @@ The control plane owns `security.ssrf_filter` and
 `worker.rendered_fetch_idle_ttl_ms`.
 
 Provider credentials stay in AIGateway. Agent Computer receives an Agent-scoped
-AIGateway key and a list of available providers.
+AIGateway key and uses the semantic `web_search.default` and
+`web_fetch.default` selectors.
 
 ## `web_search`
 
@@ -47,12 +48,41 @@ does not keep a second search index.
 
 Do not use this tool for PDFs, archives, images, audio, video, or executable files. Use the command tool for explicit downloads.
 
-Agent Computer first asks the fetch provider selected by AIGateway. If no
-provider is available or the request fails, it opens the page in a browser.
+Agent Computer first calls AIGateway with `web_fetch.default`. If AIGateway
+cannot resolve that selector or the provider request fails, Agent Computer opens
+the page in a browser.
 
 Both paths return the URL, title, text or error, and source. The rendered path uses the `rendered_fallback` source name.
 
 The model does not receive browser endpoints, credentials, process details, or local renderer state.
+
+## Keep Page Text Inside a Fixed Budget
+
+One `web_fetch` call returns at most 40,000 characters of page text. Page text
+is untrusted input of unbounded size, the result is sent again on each model
+iteration of the turn, and compaction later reduces it to about 2,000 tokens. An
+unbounded page is therefore charged many times and still does not survive.
+
+The budget belongs to the call, not to each URL. Every page that fits inside an
+equal share is returned whole, and the larger pages divide what the smaller
+pages did not use. One URL can therefore use the whole budget, while five URLs
+each keep a useful window.
+
+A page that does not fit keeps its start and its end, cut on line boundaries.
+Agent Computer writes the complete text to
+`<workspace>/temp/web-fetch/<host>-<hash>.md` and puts a note above the page
+text that states the shown and total sizes, the file path, and the `read_file`
+call that shows the omitted middle. The note is above the text because the Codex
+Job projection keeps the head of a tool result and cuts its tail.
+
+A stored page holds at most 2,000,000 characters. If the workspace cannot be
+written, the result stays bounded and the note says that the full text is
+missing; the fetch itself still succeeds.
+
+The complete page text has one owner: the workspace file. Result metadata
+records the URL, title, sizes, and stored path, and does not repeat the text.
+The stored page is rebuildable worker-local state, so nothing durable depends
+on it.
 
 ## Read a Page in a Browser When Fetch Fails
 
@@ -134,9 +164,11 @@ not turn its text into a system instruction or a stored fact.
 
 Credentials and decrypted settings must not appear in model output, result metadata, logs, or Workspace files.
 
-## Keep Tool Availability Stable During a Turn
+## Resolve Web Providers at Call Time
 
-The web-tool list stays stable during one turn. Agent Computer resolves provider availability lazily and caches the first result for that turn.
+The model-facing web-tool list is stable. Each call sends its semantic selector
+directly to AIGateway, which resolves the current Agent profile and provider.
+There is no separate availability lookup or Worker cache.
 
 `web_search` requires a provider. `web_fetch` remains usable when the rendered fallback is available.
 
@@ -144,8 +176,11 @@ The web-tool list stays stable during one turn. Agent Computer resolves provider
 
 Tests verify:
 
-- availability caching and provider request mapping
+- direct semantic-selector request mapping
 - fallback activation and source labels
+- page-text budget, budget division across URLs, and whole small pages
+- full-text storage, stored-size limit, and the `read_file` offset that continues the page
+- bounded results and a stated missing full text when storage fails
 - route material injection and source-variable removal
 - partial URL failure and result order
 - bounded extraction and cancellation

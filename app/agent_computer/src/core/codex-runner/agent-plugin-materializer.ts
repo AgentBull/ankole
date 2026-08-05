@@ -12,7 +12,7 @@ import {
 } from 'node:fs'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import type { AgentPluginCatalogEntry } from '../../lanes/rpc_lane'
-import type { CodexAppServerClient } from '../../tools/codex/app-server-client'
+import type { CodexAppServerClient } from './app-server-client'
 import { sanitizePathSegment } from '../agent-home-paths'
 
 export const BUILTIN_AGENT_PLUGINS_ROOT = '/repo/app/library/agent-plugins'

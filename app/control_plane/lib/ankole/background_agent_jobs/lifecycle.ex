@@ -594,8 +594,12 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
     end
   end
 
-  defp ensure_runtime_projection(_repo, %Job{runtime_projection: %{} = projection}, _spec),
-    do: {:ok, projection}
+  defp ensure_runtime_projection(
+         _repo,
+         %Job{runtime_projection: %{} = projection},
+         %{} = turn_start_spec
+       ),
+       do: {:ok, RuntimeProjection.complete_legacy_capabilities(projection, turn_start_spec)}
 
   defp ensure_runtime_projection(repo, %Job{} = job, %{} = turn_start_spec),
     do: RuntimeProjection.capture(repo, job.agent_uid, turn_start_spec)

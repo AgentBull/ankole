@@ -10,8 +10,10 @@ defmodule Ankole.AIAgent.ModelProfiles do
   import Ecto.Query, warn: false
 
   alias Ankole.AIGateway.ImageModelCatalog
+  alias Ankole.AIGateway.ModelMetadata
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.ProviderConfigs.Provider
+  alias Ankole.AIGateway.ProviderDefinition
   alias Ankole.AIGateway.Providers
   alias Ankole.AIGateway.Resolver
   alias Ankole.Principals
@@ -142,6 +144,179 @@ defmodule Ankole.AIAgent.ModelProfiles do
       Resolver.resolve_request_model(agent_uid, capability, %{"model" => selector})
     end
   end
+
+  @doc """
+  Resolves the frozen model reference used by Worker turns.
+
+  `input_modalities` describes only the selected model. A text-only model gets
+  a separate vision fallback reference only when that profile resolves to a
+  model that accepts image input directly.
+  """
+  @spec resolve_runtime_model_ref(String.t(), profile()) :: {:ok, map()} | {:error, term()}
+  def resolve_runtime_model_ref(agent_uid, profile) do
+    with {:ok, runtime_profile} <- resolve_runtime_profile(agent_uid, profile) do
+      model_ref = model_ref_from_runtime_profile(runtime_profile)
+      {:ok, maybe_put_vision_fallback_model_ref(model_ref, agent_uid)}
+    end
+  end
+
+  @doc "Returns the modalities that the model and its frozen fallback can handle."
+  @spec effective_input_modalities(map()) :: [String.t()]
+  def effective_input_modalities(model_ref) when is_map(model_ref) do
+    direct = Map.get(model_ref, "input_modalities", ["text"])
+
+    fallback_modalities =
+      model_ref
+      |> get_in(["vision_fallback_model_ref", "input_modalities"])
+      |> List.wrap()
+
+    if "image" in direct or "image" in fallback_modalities do
+      Enum.uniq(direct ++ ["image"])
+    else
+      direct
+    end
+  end
+
+  def effective_input_modalities(_model_ref), do: ["text"]
+
+  @doc false
+  @spec complete_legacy_model_ref(String.t(), map()) :: map()
+  def complete_legacy_model_ref(agent_uid, model_ref)
+      when is_binary(agent_uid) and is_map(model_ref) do
+    model_ref
+    |> Map.delete("vision_fallback_model_ref")
+    |> Map.put("input_modalities", input_modalities_for_frozen_model_ref(model_ref))
+    |> maybe_put_vision_fallback_model_ref(agent_uid)
+  end
+
+  defp input_modalities_for_frozen_model_ref(%{
+         "provider_id" => provider_id,
+         "provider_kind" => provider_kind,
+         "model" => model
+       })
+       when is_binary(provider_id) and is_binary(provider_kind) and is_binary(model) do
+    case ProviderConfigs.fetch_active_provider(provider_id) do
+      {:ok, %Provider{provider_kind: ^provider_kind} = provider} ->
+        input_modalities(provider, model)
+
+      _unavailable_or_changed ->
+        ["text"]
+    end
+  end
+
+  defp input_modalities_for_frozen_model_ref(_model_ref), do: ["text"]
+
+  @doc false
+  @spec model_ref_from_runtime_profile(map()) :: map()
+  def model_ref_from_runtime_profile(runtime_profile) when is_map(runtime_profile) do
+    %{
+      "profile" => runtime_profile["profile"],
+      "provider_id" => runtime_profile["provider_id"],
+      "provider_kind" => runtime_profile["provider_kind"],
+      "model" => runtime_profile["model"],
+      "input_modalities" => input_modalities_for_runtime_profile(runtime_profile),
+      "provider_options" => Map.get(runtime_profile, "provider_options", %{}),
+      "supports_parallel_tool_calls" => supports_parallel_tool_calls?(runtime_profile)
+    }
+    |> maybe_put("context_length", Map.get(runtime_profile, "context_length"))
+    |> maybe_put(
+      "max_completion_tokens",
+      max_completion_tokens_for_runtime_profile(runtime_profile)
+    )
+  end
+
+  defp maybe_put_vision_fallback_model_ref(model_ref, agent_uid) do
+    if "image" in Map.get(model_ref, "input_modalities", []) do
+      model_ref
+    else
+      case resolve_runtime_profile(agent_uid, "vision_fallback") do
+        {:ok, fallback_runtime_profile} ->
+          fallback_ref = model_ref_from_runtime_profile(fallback_runtime_profile)
+
+          if "image" in fallback_ref["input_modalities"] do
+            Map.put(model_ref, "vision_fallback_model_ref", fallback_ref)
+          else
+            model_ref
+          end
+
+        {:error, _reason} ->
+          model_ref
+      end
+    end
+  end
+
+  defp input_modalities_for_runtime_profile(%{
+         "provider" => %Provider{} = provider,
+         "model" => model
+       }),
+       do: input_modalities(provider, model)
+
+  defp input_modalities_for_runtime_profile(%{"provider_id" => provider_id, "model" => model})
+       when is_binary(provider_id) do
+    case ProviderConfigs.fetch_active_provider(provider_id) do
+      {:ok, provider} -> input_modalities(provider, model)
+      {:error, _reason} -> ["text"]
+    end
+  end
+
+  defp input_modalities_for_runtime_profile(_runtime_profile), do: ["text"]
+
+  defp input_modalities(%Provider{} = provider, model) when is_binary(model) do
+    case ModelMetadata.model_metadata(provider, model) do
+      {:ok, %{"architecture" => %{"input_modalities" => [_ | _] = modalities}}} ->
+        Enum.map(modalities, &to_string/1)
+
+      _metadata ->
+        ["text"]
+    end
+  end
+
+  defp input_modalities(_provider, _model), do: ["text"]
+
+  defp max_completion_tokens_for_runtime_profile(%{
+         "provider" => %Provider{} = provider,
+         "model" => model
+       }),
+       do: max_completion_tokens(provider, model)
+
+  defp max_completion_tokens_for_runtime_profile(%{
+         "provider_id" => provider_id,
+         "model" => model
+       })
+       when is_binary(provider_id) do
+    case ProviderConfigs.fetch_active_provider(provider_id) do
+      {:ok, provider} -> max_completion_tokens(provider, model)
+      {:error, _reason} -> nil
+    end
+  end
+
+  defp max_completion_tokens_for_runtime_profile(_runtime_profile), do: nil
+
+  defp max_completion_tokens(%Provider{} = provider, model) when is_binary(model) do
+    case ModelMetadata.model_metadata(provider, model) do
+      {:ok, %{"top_provider" => %{"max_completion_tokens" => value}}} -> positive_integer(value)
+      _metadata -> nil
+    end
+  end
+
+  defp max_completion_tokens(_provider, _model), do: nil
+
+  defp positive_integer(value) when is_integer(value) and value > 0, do: value
+  defp positive_integer(_value), do: nil
+
+  defp supports_parallel_tool_calls?(%{"provider_kind" => provider_kind}) do
+    with {:ok, provider} <- Providers.fetch(provider_kind),
+         {:ok, capability} <- ProviderDefinition.capability(provider, :language_model) do
+      capability.supports_parallel_tool_calls?
+    else
+      _error -> false
+    end
+  end
+
+  defp supports_parallel_tool_calls?(_runtime_profile), do: false
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp fetch_agent(agent_uid) do
     with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid) do

@@ -13,18 +13,17 @@ defmodule Ankole.Kernel.RuntimeFabric do
   alias Ankole.Kernel
   alias Ankole.RuntimeFabric.V1.Envelope
 
-  @protocol_version 4
-
   @type router :: reference()
 
   @doc """
   Returns the only RuntimeFabric protocol version this runtime admits.
 
-  A wire-incompatible worker or control plane must fail before worker
-  scheduling; RuntimeFabric does not negotiate mixed protocol versions.
+  The native kernel owns the constant and stamps it into every sealed
+  envelope. A wire-incompatible worker or control plane must fail before
+  worker scheduling; RuntimeFabric does not negotiate mixed protocol versions.
   """
   @spec protocol_version() :: pos_integer()
-  def protocol_version, do: @protocol_version
+  def protocol_version, do: Kernel.runtime_fabric_protocol_version()
 
   @doc """
   Encodes a RuntimeFabric envelope struct as protobuf bytes.
@@ -79,7 +78,7 @@ defmodule Ankole.Kernel.RuntimeFabric do
 
     case Kernel.runtime_fabric_router_send_mandatory(router, transport_route, envelope_bytes) do
       "sent_or_queued" -> {:ok, :sent_or_queued}
-      {:error, reason} -> {:error, normalize_transport_error(reason)}
+      {:error, reason} -> {:error, reason}
       other -> {:error, other}
     end
   end
@@ -96,7 +95,7 @@ defmodule Ankole.Kernel.RuntimeFabric do
       when is_binary(transport_route) and is_list(frames) do
     case Kernel.runtime_fabric_router_send_file_frame(router, transport_route, frames) do
       "sent_or_queued" -> {:ok, :sent_or_queued}
-      {:error, reason} -> {:error, normalize_transport_error(reason)}
+      {:error, reason} -> {:error, reason}
       other -> {:error, other}
     end
   end
@@ -108,7 +107,7 @@ defmodule Ankole.Kernel.RuntimeFabric do
   def router_stop(router) do
     case Kernel.runtime_fabric_router_stop(router) do
       true -> :ok
-      {:error, reason} -> {:error, normalize_transport_error(reason)}
+      {:error, reason} -> {:error, reason}
       other -> {:error, other}
     end
   end
@@ -116,10 +115,4 @@ defmodule Ankole.Kernel.RuntimeFabric do
   defp stringify_keys(map) do
     Map.new(map, fn {key, value} -> {to_string(key), value} end)
   end
-
-  defp normalize_transport_error("unknown_route"), do: :unknown_route
-  defp normalize_transport_error("backpressure"), do: :backpressure
-  defp normalize_transport_error("timeout"), do: :timeout
-  defp normalize_transport_error("socket_closed"), do: :socket_closed
-  defp normalize_transport_error(reason), do: reason
 end

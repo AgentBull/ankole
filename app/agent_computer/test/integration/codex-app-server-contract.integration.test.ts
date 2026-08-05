@@ -2,11 +2,13 @@ import { TOML } from 'bun'
 import { describe, expect, it } from 'bun:test'
 import { create } from '@bufbuild/protobuf'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
+import { estimateO200kBaseTokens } from '@ankole/kernel'
 import { jsonBytes } from '../../src/fabric/envelope_proto'
 import {
   AIGatewayAPIKeyResponseSchema,
   AgentPluginCatalogEntrySchema,
   RuntimeSkillSummarySchema,
+  SkillOverlayResolveResponseSchema,
   SkillOverlayResponseSchema
 } from '../../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import {
@@ -22,17 +24,17 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
-import { CodexAppServerClient, type JSONRPCMessage } from '../../src/tools/codex/app-server-client'
-import { codexHomeRuntimeLockPath } from '../../src/tools/codex/codex-home-lock'
-import type { ListMcpServerStatusResponse } from '../../src/tools/codex/generated/protocol/v2/ListMcpServerStatusResponse'
-import type { McpServerToolCallResponse } from '../../src/tools/codex/generated/protocol/v2/McpServerToolCallResponse'
-import type { ThreadStartResponse } from '../../src/tools/codex/generated/protocol/v2/ThreadStartResponse'
+import { CodexAppServerClient, type JSONRPCMessage } from '../../src/core/codex-runner/app-server-client'
+import { codexHomeRuntimeLockPath } from '../../src/core/codex-runner/codex-home-lock'
+import type { ListMcpServerStatusResponse } from '../../src/core/codex-runner/generated/protocol/v2/ListMcpServerStatusResponse'
+import type { McpServerToolCallResponse } from '../../src/core/codex-runner/generated/protocol/v2/McpServerToolCallResponse'
+import type { ThreadStartResponse } from '../../src/core/codex-runner/generated/protocol/v2/ThreadStartResponse'
 import {
   materializeCodexConfig,
   refreshCodexAgentRuntimeCredential,
   resetCodexAgentRuntimeConfig
-} from '../../src/tools/codex/config'
-import { codexAgentRuntimeSandboxSpec, codexJobThreadEnv } from '../../src/tools/codex/sandbox'
+} from '../../src/core/codex-runner/agent-home-config'
+import { codexAgentRuntimeSandboxSpec, codexJobThreadEnv } from '../../src/core/codex-runner/sandbox'
 import { materializeCodexJobRuntimeFiles, renderCodexJobAgents } from '../../src/core/codex-runner/runtime-files'
 import { prepareCodexJobProject } from '../../src/core/codex-runner/job-project'
 import { materializeCodexJobProjectConfig, readCodexJobProjectConfig } from '../../src/core/codex-runner/project-config'
@@ -49,9 +51,9 @@ import {
   type AgentCodexRuntimeLease
 } from '../../src/core/codex-runner/agent-runtime-manager'
 import { rpcMethods, type RPCRequester } from '../../src/lanes/rpc_lane'
-import type { CodexRuntimeConfig } from '../../src/tools/codex/runtime-config'
+import type { CodexRuntimeConfig } from '../../src/core/codex-runner/runtime-config'
 
-const checkedInProtocolRoot = join(import.meta.dir, '../../src/tools/codex/generated/protocol')
+const checkedInProtocolRoot = join(import.meta.dir, '../../src/core/codex-runner/generated/protocol')
 
 describe('@ankole/agent-computer Codex app-server protocol contract', () => {
   it('runs the Codex version pinned by the worker image', async () => {
@@ -65,6 +67,88 @@ describe('@ankole/agent-computer Codex app-server protocol contract', () => {
     expect(exitCode).toBe(0)
     expect(`${stdout}${stderr}`.trim()).toBe('codex-cli 0.146.0')
   })
+
+  it('applies request and model limits to model-visible code-mode output', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ankole-codex-exec-output-'))
+    const workspace = join(root, 'workspace')
+    const codexHome = join(root, 'codex-home')
+    const requests: JSONObject[] = []
+    const notifications: JSONRPCMessage[] = []
+    const provider = createExecOutputResponsesProvider(requests)
+    if (typeof provider.port !== 'number') throw new Error('Exec output provider did not bind a TCP port')
+    let client: CodexAppServerClient | undefined
+
+    try {
+      mkdirSync(workspace, { recursive: true })
+      mkdirSync(codexHome, { recursive: true })
+      const baseURL = `http://127.0.0.1:${provider.port}/v1`
+      resetCodexAgentRuntimeConfig(codexHome, baseURL)
+      refreshCodexAgentRuntimeCredential(codexHome, 'contract-key')
+
+      const runtime = pluginTestRuntime(baseURL)
+      const config = codexJobThreadConfig({ cwd: workspace, codexHome, env: {}, runtime }) as Record<string, any>
+      config.model_providers.ankole_aigateway.supports_websockets = false
+      client = new CodexAppServerClient({
+        cwd: workspace,
+        env: {
+          PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin',
+          HOME: workspace,
+          CODEX_HOME: codexHome,
+          CODEX_UNSAFE_ALLOW_NO_SANDBOX: '1',
+          LANG: 'C.UTF-8'
+        },
+        onNotification: notification => notifications.push(notification)
+      })
+
+      await client.initialize()
+      const thread = (await client.request('thread/start', {
+        cwd: workspace,
+        model: runtime.modelProfile.model,
+        modelProvider: 'ankole_aigateway',
+        approvalPolicy: 'never',
+        sandbox: 'danger-full-access',
+        config
+      })) as ThreadStartResponse
+      const turn = (await client.request('turn/start', {
+        threadId: thread.thread.id,
+        input: [{ type: 'text', text: 'Run the output contract probe.', text_elements: [] }],
+        cwd: workspace,
+        approvalPolicy: 'never',
+        sandboxPolicy: { type: 'dangerFullAccess' }
+      })) as { turn: { id: string } }
+      await waitForPluginTurn(notifications, turn.turn.id)
+
+      expect(requests).toHaveLength(3)
+
+      const modelLimitedOutput = customToolOutputTexts(requests[1]!, modelLimitedExecOutputCallID).at(-1)
+      expect(modelLimitedOutput).toBeString()
+      expect(modelLimitedOutput).toContain('tokens truncated')
+      const modelLimitedTokens = estimateO200kBaseTokens(modelLimitedOutput!)
+      expect(modelLimitedTokens).toBeGreaterThan(9_000)
+      expect(modelLimitedTokens).toBeLessThanOrEqual(10_100)
+
+      const requestLimitedOutput = customToolOutputTexts(requests[2]!, requestLimitedExecOutputCallID).at(-1)
+      expect(requestLimitedOutput).toBeString()
+      expect(requestLimitedOutput).toContain('tokens truncated')
+      const requestLimitedTokens = estimateO200kBaseTokens(requestLimitedOutput!)
+      expect(requestLimitedTokens).toBeGreaterThan(3_500)
+      expect(requestLimitedTokens).toBeLessThanOrEqual(4_100)
+    } catch (error) {
+      const stderr = notifications
+        .filter(notification => notification.method === '$stderr' && isObject(notification.params))
+        .flatMap(notification =>
+          isObject(notification.params) && typeof notification.params.text === 'string'
+            ? [notification.params.text]
+            : []
+        )
+        .join('')
+      throw new Error(`${error instanceof Error ? error.message : String(error)}\n${stderr}`)
+    } finally {
+      await client?.close()
+      provider.stop(true)
+      rmSync(root, { recursive: true, force: true })
+    }
+  }, 60_000)
 
   it('can execute the Codex Linux sandbox inside the worker container', async () => {
     const proc = Bun.spawn(['codex', 'sandbox', '/bin/true'], { stdout: 'pipe', stderr: 'pipe' })
@@ -516,13 +600,17 @@ test ! -e ./AGENTS.override.md
       },
       rpc: (async (method: unknown, payload: unknown) => {
         if (method !== rpcMethods.skillsOverlayResolve) throw new Error(`unexpected RPC method: ${String(method)}`)
-        const request = payload as { skillName: string }
-        return create(SkillOverlayResponseSchema, {
-          skillName: request.skillName,
-          hasOverlay: request.skillName === 'pptx',
-          ...(request.skillName === 'pptx'
-            ? { overlayJson: jsonBytes({ text: 'PG_OVERLAY_MARKER' }), contentHash: 'overlay-hash' }
-            : {})
+        const request = payload as { skillNames: string[] }
+        return create(SkillOverlayResolveResponseSchema, {
+          overlays: request.skillNames.map(skillName =>
+            create(SkillOverlayResponseSchema, {
+              skillName,
+              hasOverlay: skillName === 'pptx',
+              ...(skillName === 'pptx'
+                ? { overlayJson: jsonBytes({ text: 'PG_OVERLAY_MARKER' }), contentHash: 'overlay-hash' }
+                : {})
+            })
+          )
         })
       }) as RPCRequester
     }
@@ -533,6 +621,7 @@ test ! -e ./AGENTS.override.md
         selector: 'openrouter/openai/gpt-5.6-sol',
         providerOptions: { reasoningEffort: 'xhigh' },
         supportsParallelToolCalls: true,
+        inputModalities: ['text'],
         modelReasoningEffort: 'xhigh'
       },
       aiGatewayKey: create(AIGatewayAPIKeyResponseSchema, {
@@ -745,9 +834,161 @@ function pluginTestRuntime(baseURL: string, model = 'gpt-5.4', reasoningEffort?:
       selector: model,
       providerOptions: reasoningEffort ? { reasoningEffort } : {},
       supportsParallelToolCalls: false,
+      inputModalities: ['text'],
       ...(reasoningEffort ? { modelReasoningEffort: reasoningEffort } : {})
     }
   }
+}
+
+const modelLimitedExecOutputCallID = 'exec-output-model-limit'
+const requestLimitedExecOutputCallID = 'exec-output-request-limit'
+
+function createExecOutputResponsesProvider(requests: JSONObject[]) {
+  return Bun.serve({
+    hostname: '127.0.0.1',
+    port: 0,
+    async fetch(request) {
+      const url = new URL(request.url)
+      if (request.method === 'GET' && url.pathname === '/v1/models') {
+        return Response.json({
+          models: [execOutputModelCard('gpt-5.4')]
+        })
+      }
+      if (request.method !== 'POST' || url.pathname !== '/v1/responses') {
+        return Response.json({ error: { message: 'not found' } }, { status: 404 })
+      }
+
+      const body = (await request.json()) as JSONObject
+      requests.push(body)
+      const model = typeof body.model === 'string' ? body.model : 'gpt-5.4'
+
+      if (requests.length === 1) {
+        return execOutputResponse('exec-output-model-limit-call', model, [
+          {
+            type: 'custom_tool_call',
+            call_id: modelLimitedExecOutputCallID,
+            name: 'exec',
+            input: execOutputCode(20_000)
+          }
+        ])
+      }
+
+      if (requests.length === 2) {
+        return execOutputResponse('exec-output-request-limit-call', model, [
+          {
+            type: 'custom_tool_call',
+            call_id: requestLimitedExecOutputCallID,
+            name: 'exec',
+            input: execOutputCode(4_000)
+          }
+        ])
+      }
+
+      return execOutputResponse('exec-output-done', model, [
+        {
+          id: 'exec-output-message',
+          type: 'message',
+          status: 'completed',
+          role: 'assistant',
+          content: [{ type: 'output_text', text: 'Output contract checked.', annotations: [] }]
+        }
+      ])
+    }
+  })
+}
+
+function execOutputCode(maxOutputTokens: number): string {
+  return [
+    'const result = await tools.exec_command({',
+    '  cmd: "python3 -c \\"import sys; sys.stdout.write(\' the\' * 30000)\\"",',
+    `  max_output_tokens: ${maxOutputTokens}`,
+    '});',
+    'text(result.output);'
+  ].join('\n')
+}
+
+function execOutputModelCard(model: string): JSONObject {
+  return {
+    slug: model,
+    display_name: model,
+    description: null,
+    supported_reasoning_levels: [],
+    shell_type: 'default',
+    visibility: 'none',
+    supported_in_api: true,
+    priority: 99,
+    availability_nux: null,
+    upgrade: null,
+    base_instructions:
+      '`max_output_tokens` is a requested upper limit. Model-visible tool output is limited to 10000 tokens.',
+    default_reasoning_summary: 'auto',
+    support_verbosity: false,
+    default_verbosity: null,
+    apply_patch_tool_type: 'freeform',
+    web_search_tool_type: 'text',
+    truncation_policy: { mode: 'tokens', limit: 10_000 },
+    supports_parallel_tool_calls: false,
+    context_window: 272_000,
+    max_context_window: 272_000,
+    effective_context_window_percent: 95,
+    experimental_supported_tools: [],
+    input_modalities: ['text'],
+    supports_search_tool: true,
+    use_responses_lite: false
+  }
+}
+
+function execOutputResponse(responseID: string, model: string, items: JSONObject[]): Response {
+  const response = {
+    id: responseID,
+    object: 'response',
+    created_at: 1_764_967_971,
+    completed_at: null,
+    status: 'in_progress',
+    model,
+    previous_response_id: null,
+    output: [],
+    usage: null
+  }
+  const events = [
+    { type: 'response.created', sequence_number: 0, response },
+    ...items.map((item, index) => ({
+      type: 'response.output_item.done',
+      sequence_number: index + 1,
+      output_index: index,
+      item
+    })),
+    {
+      type: 'response.completed',
+      sequence_number: items.length + 1,
+      response: {
+        ...response,
+        completed_at: 1_764_967_972,
+        status: 'completed',
+        output: items,
+        usage: {
+          input_tokens: 1,
+          input_tokens_details: { cached_tokens: 0 },
+          output_tokens: 1,
+          output_tokens_details: { reasoning_tokens: 0 },
+          total_tokens: 2
+        }
+      }
+    }
+  ]
+  return new Response(events.map(event => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join(''), {
+    headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' }
+  })
+}
+
+function customToolOutputTexts(request: JSONObject, callID: string): string[] {
+  const input = Array.isArray(request.input) ? request.input : []
+  const output = input
+    .filter(isObject)
+    .find(item => item.type === 'custom_tool_call_output' && item.call_id === callID)?.output
+  if (typeof output === 'string') return [output]
+  if (!Array.isArray(output)) return []
+  return output.filter(isObject).flatMap(item => (typeof item.text === 'string' ? [item.text] : []))
 }
 
 function createPluginResponsesProvider(requests: JSONObject[]) {
@@ -775,7 +1016,7 @@ function createPluginResponsesProvider(requests: JSONObject[]) {
             default_verbosity: null,
             apply_patch_tool_type: 'freeform',
             web_search_tool_type: 'text',
-            truncation_policy: { mode: 'bytes', limit: 10_000 },
+            truncation_policy: { mode: 'tokens', limit: 10_000 },
             supports_parallel_tool_calls: false,
             context_window: 272_000,
             max_context_window: 272_000,

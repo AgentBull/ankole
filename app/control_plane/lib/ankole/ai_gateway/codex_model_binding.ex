@@ -18,17 +18,22 @@ defmodule Ankole.AIGateway.CodexModelBinding do
          %{
            "selector" => selector,
            "provider_options" => provider_options,
-           "supports_parallel_tool_calls" => supports_parallel_tool_calls
+           "supports_parallel_tool_calls" => supports_parallel_tool_calls,
+           "input_modalities" => input_modalities
          } <- binding,
          true <- is_binary(selector) and selector != "",
          true <- is_map(provider_options),
-         true <- is_boolean(supports_parallel_tool_calls) do
-      {:ok,
-       %{
-         "selector" => selector,
-         "provider_options" => provider_options,
-         "supports_parallel_tool_calls" => supports_parallel_tool_calls
-       }}
+         true <- is_boolean(supports_parallel_tool_calls),
+         {:ok, input_modalities} <- decode_modalities(input_modalities),
+         {:ok, vision_fallback} <- decode_vision_fallback(Map.get(binding, "vision_fallback")) do
+      decoded = %{
+        "selector" => selector,
+        "provider_options" => provider_options,
+        "supports_parallel_tool_calls" => supports_parallel_tool_calls,
+        "input_modalities" => input_modalities
+      }
+
+      {:ok, maybe_put(decoded, "vision_fallback", vision_fallback)}
     else
       _value -> {:error, :invalid_codex_model_binding}
     end
@@ -51,11 +56,51 @@ defmodule Ankole.AIGateway.CodexModelBinding do
     |> Map.put("model", Map.fetch!(binding, "selector"))
     |> put_provider_options(defaults)
     |> put_reasoning_effort(defaults)
+    |> Map.put("__ankole_codex_vision", %{
+      "input_modalities" => Map.fetch!(binding, "input_modalities"),
+      "vision_fallback" => Map.get(binding, "vision_fallback")
+    })
     |> Map.put(
       "parallel_tool_calls",
       Map.fetch!(binding, "supports_parallel_tool_calls") and not responses_lite?
     )
   end
+
+  defp decode_vision_fallback(nil), do: {:ok, nil}
+
+  defp decode_vision_fallback(%{
+         "selector" => selector,
+         "provider_options" => provider_options,
+         "input_modalities" => input_modalities
+       })
+       when is_binary(selector) and selector != "" and is_map(provider_options) do
+    with {:ok, input_modalities} <- decode_modalities(input_modalities),
+         true <- "image" in input_modalities do
+      {:ok,
+       %{
+         "selector" => selector,
+         "provider_options" => provider_options,
+         "input_modalities" => input_modalities
+       }}
+    else
+      _value -> {:error, :invalid_codex_model_binding}
+    end
+  end
+
+  defp decode_vision_fallback(_value), do: {:error, :invalid_codex_model_binding}
+
+  defp decode_modalities(modalities) when is_list(modalities) do
+    if modalities != [] and Enum.all?(modalities, &(is_binary(&1) and &1 != "")) do
+      {:ok, Enum.uniq(modalities)}
+    else
+      {:error, :invalid_codex_model_binding}
+    end
+  end
+
+  defp decode_modalities(_value), do: {:error, :invalid_codex_model_binding}
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp responses_lite_request?(request) do
     case Map.get(request, "client_metadata") do

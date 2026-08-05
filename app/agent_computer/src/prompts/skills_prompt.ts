@@ -7,6 +7,8 @@
  * large, so this module keeps Ankole's hard size caps and graceful degradation:
  * first count-limit, then description compaction, then prefix trimming.
  */
+import { sanitizeBinaryOutput, sanitizeCatalogLine } from '../common/text-sanitize'
+
 export type SkillPromptEntry = {
   name: string
   description: string
@@ -21,6 +23,10 @@ const MAX_SKILLS_IN_PROMPT = 150
 const MAX_SKILLS_PROMPT_CHARS = 18_000
 const COMPACT_DESCRIPTION_MAX_CHARS = 220
 const COMPACT_DESCRIPTION_MIN_CHARS = 4
+// Per-entry caps keep one oversized third-party entry from starving the shared
+// prompt budget and forcing every other description into compaction.
+const ENTRY_DESCRIPTION_MAX_CHARS = 400
+const ENTRY_CATEGORY_MAX_CHARS = 100
 
 type SkillsPromptFormat = { kind: 'full' } | { kind: 'compact'; descriptionMaxChars: number }
 
@@ -32,11 +38,33 @@ type SkillsPromptFormat = { kind: 'full' } | { kind: 'compact'; descriptionMaxCh
  * the caller omit the section entirely.
  */
 export function formatSkillsForSystemPrompt(skills: SkillPromptEntry[]): string {
-  const visibleSkills = skills.filter(skill => !skill.disableModelInvocation).toSorted(compareSkills)
+  const visibleSkills = skills
+    .filter(skill => !skill.disableModelInvocation)
+    .flatMap(skill => sanitizeSkillEntry(skill) ?? [])
+    .toSorted(compareSkills)
   if (visibleSkills.length === 0) return ''
 
   const limited = applySkillsPromptLimits(visibleSkills)
   return renderSkillsPrompt(limited.skills, visibleSkills.length, limited.format)
+}
+
+/**
+ * Re-normalizes one entry at the host boundary, trusting no producer.
+ *
+ * The name is the exact string the model must pass back to `skill_view`, so it
+ * cannot be rewritten: an entry whose name carries hidden or control characters
+ * is not addressable as displayed and is dropped instead. Descriptions and
+ * categories are presentation text, so they are sanitized and capped.
+ */
+function sanitizeSkillEntry(skill: SkillPromptEntry): SkillPromptEntry | null {
+  if (sanitizeBinaryOutput(skill.name) !== skill.name || skill.name.trim() === '') return null
+  const category =
+    skill.category === undefined ? undefined : sanitizeCatalogLine(skill.category, ENTRY_CATEGORY_MAX_CHARS)
+  return {
+    ...skill,
+    description: sanitizeCatalogLine(skill.description, ENTRY_DESCRIPTION_MAX_CHARS),
+    ...(category !== undefined ? { category } : {})
+  }
 }
 
 /** Renders one exact prompt candidate so budget checks include all framing and warnings. */

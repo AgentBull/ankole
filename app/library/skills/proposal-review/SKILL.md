@@ -1,5 +1,6 @@
 ---
 name: proposal-review
+default_enabled: true
 description: Use only when a human explicitly asks the Agent to review, evaluate, comment on, or discuss an existing proposal, plan, candidate choice, recommendation, or claim-bearing artifact. At least one candidate direction or claim must already exist. Align the review object and material context through conversation before giving review comments. Do not use this Skill to create a proposal from scratch.
 ---
 

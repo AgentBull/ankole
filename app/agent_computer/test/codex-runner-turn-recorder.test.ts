@@ -5,8 +5,10 @@ import { jsonFromBytes } from '../src/fabric/envelope_proto'
 import { BackgroundAgentJobTurnUpsertResponseSchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import type { ActorTurnRef } from '../src/lanes/actor_lane'
 import type { RPCRequestInit } from '../src/lanes/rpc_lane'
-import { CODEX_OPT_OUT_NOTIFICATION_METHODS } from '../src/tools/codex/app-server-client'
+import { CODEX_OPT_OUT_NOTIFICATION_METHODS } from '../src/core/codex-runner/app-server-client'
+import type { ThreadItem } from '../src/core/codex-runner/generated/protocol/v2/ThreadItem'
 import { BackgroundAgentJobTurnRecorder } from '../src/core/codex-runner/turn-recorder'
+import { RPCRejectedError } from '../src/lanes/rpc_lane'
 
 /**
  * Decoded snake_case view of one recorded upsert so assertions read the JSON
@@ -28,6 +30,8 @@ type DecodedUpsert = {
   started_at?: string
   completed_at?: string
 }
+
+type CollabAgentToolItem = Extract<ThreadItem, { type: 'collabAgentToolCall' }>
 
 function decodedUpsert(request: RPCRequestInit<'background_agent_job.turn.upsert'>): DecodedUpsert {
   const doc = (bytes: Uint8Array | undefined) => (bytes?.length ? (jsonFromBytes(bytes) as JSONObject) : undefined)
@@ -74,6 +78,43 @@ describe('@ankole/agent-computer durable BackgroundAgentJob Turn recorder', () =
       'item/fileChange/patchUpdated',
       'item/mcpToolCall/progress'
     ])
+  })
+
+  it('retries an explicitly retryable control-plane checkpoint failure and preserves its failure id', async () => {
+    const { recorder, attempts } = rejectingFixture({
+      code: 'rpc_handler_failed',
+      details: { failure_id: 'failure-read-1', retryable: true }
+    })
+    recorder.recordTurnStarted('thread-1', startedTurn(), '原始任务', 'event-1')
+
+    await expect(recorder.flush()).rejects.toMatchObject({
+      code: 'background_agent_job_turn_persistence_failed',
+      retryable: true,
+      details: {
+        retryable: true,
+        rpc_code: 'rpc_handler_failed',
+        rpc_details: { failure_id: 'failure-read-1', retryable: true }
+      }
+    })
+    expect(attempts()).toBe(3)
+  })
+
+  it('does not retry an authoritative domain checkpoint rejection', async () => {
+    const { recorder, attempts } = rejectingFixture({
+      code: 'background_agent_job_turn_stale_revision',
+      details: { retryable: false }
+    })
+    recorder.recordTurnStarted('thread-1', startedTurn(), '原始任务', 'event-1')
+
+    await expect(recorder.flush()).rejects.toMatchObject({
+      code: 'background_agent_job_turn_persistence_rejected',
+      retryable: false,
+      details: {
+        retryable: false,
+        rpc_code: 'background_agent_job_turn_stale_revision'
+      }
+    })
+    expect(attempts()).toBe(1)
   })
 
   it('ignores opted-out notifications without changing revision, trajectory, progress, or checkpoint count', async () => {
@@ -140,6 +181,168 @@ describe('@ankole/agent-computer durable BackgroundAgentJob Turn recorder', () =
     )
     await recorder.flush()
     expect(upserts).toHaveLength(checkpointCount)
+  })
+
+  it('round-trips every collaboration tool through the serialized Turn upsert', async () => {
+    const { recorder, upserts } = fixture()
+    recorder.recordTurnStarted('thread-1', startedTurn(), '委派并收取结果', 'event-1')
+
+    const items = [
+      collabItem('collab-spawn', 'spawnAgent', {
+        receiverThreadIds: ['thread-child-1'],
+        prompt: '研究 B2',
+        model: 'gpt-5.6',
+        reasoningEffort: 'high',
+        agentsStates: {}
+      }),
+      collabItem('collab-send', 'sendInput', {
+        receiverThreadIds: ['thread-child-1'],
+        prompt: '补充核对 qm',
+        agentsStates: { 'thread-child-1': { status: 'running', message: '补充已收到' } }
+      }),
+      collabItem('collab-resume', 'resumeAgent', {
+        status: 'failed',
+        receiverThreadIds: ['thread-child-1'],
+        agentsStates: { 'thread-child-1': { status: 'notFound', message: 'child missing' } }
+      }),
+      collabItem('collab-wait', 'wait', {
+        receiverThreadIds: ['thread-child-1'],
+        agentsStates: { 'thread-child-1': { status: 'completed', message: '最终结论' } }
+      }),
+      collabItem('collab-close', 'closeAgent', {
+        receiverThreadIds: ['thread-child-1'],
+        agentsStates: { 'thread-child-1': { status: 'shutdown', message: null } }
+      })
+    ]
+
+    for (const item of items) recorder.handleNotification(notification('item/completed', { item }))
+    await recorder.flush()
+
+    const expected = [
+      {
+        id: 'collab-spawn',
+        name: 'collaboration.spawnAgent',
+        arguments: { prompt: '研究 B2', model: 'gpt-5.6', reasoning_effort: 'high' },
+        outcome: {
+          status: 'completed',
+          agents: [{ thread_id: 'thread-child-1' }]
+        }
+      },
+      {
+        id: 'collab-send',
+        name: 'collaboration.sendInput',
+        arguments: { receiver_thread_ids: ['thread-child-1'], input: '补充核对 qm' },
+        outcome: {
+          status: 'completed',
+          agents: [{ thread_id: 'thread-child-1', status: 'running', message: '补充已收到' }]
+        }
+      },
+      {
+        id: 'collab-resume',
+        name: 'collaboration.resumeAgent',
+        arguments: { receiver_thread_ids: ['thread-child-1'] },
+        outcome: {
+          status: 'failed',
+          agents: [{ thread_id: 'thread-child-1', status: 'notFound', message: 'child missing' }]
+        }
+      },
+      {
+        id: 'collab-wait',
+        name: 'collaboration.wait',
+        arguments: { receiver_thread_ids: ['thread-child-1'] },
+        outcome: {
+          status: 'completed',
+          agents: [{ thread_id: 'thread-child-1', status: 'completed', message: '最终结论' }]
+        }
+      },
+      {
+        id: 'collab-close',
+        name: 'collaboration.closeAgent',
+        arguments: { receiver_thread_ids: ['thread-child-1'] },
+        outcome: {
+          status: 'completed',
+          agents: [{ thread_id: 'thread-child-1', status: 'shutdown' }]
+        }
+      }
+    ]
+    const groups = upserts
+      .flatMap(request => request.trajectory_groups)
+      .filter(group => String(group.item_key).startsWith('collab-'))
+
+    expect(groups).toHaveLength(expected.length)
+    for (const [index, projection] of expected.entries()) {
+      expect(groups[index]?.messages).toEqual([
+        expect.objectContaining({
+          role: 'assistant',
+          tool_calls: [
+            {
+              id: projection.id,
+              type: 'function',
+              function: { name: projection.name, arguments: JSON.stringify(projection.arguments) }
+            }
+          ]
+        }),
+        expect.objectContaining({
+          role: 'tool',
+          tool_call_id: projection.id,
+          name: projection.name,
+          content: JSON.stringify(projection.outcome),
+          metadata: { status: projection.outcome.status }
+        })
+      ])
+    }
+    expect(upserts.at(-1)?.progress).toMatchObject({
+      tool_calls: 5,
+      tools_used: [
+        { name: 'collaboration.closeAgent', calls: 1 },
+        { name: 'collaboration.resumeAgent', calls: 1 },
+        { name: 'collaboration.sendInput', calls: 1 },
+        { name: 'collaboration.spawnAgent', calls: 1 },
+        { name: 'collaboration.wait', calls: 1 }
+      ]
+    })
+  })
+
+  it('does not persist sub-agent activity as a tool, trajectory item, or progress item', async () => {
+    const { recorder, upserts } = fixture()
+    recorder.recordTurnStarted('thread-1', startedTurn(), '观察子 Agent', 'event-1')
+    await recorder.flush()
+    const checkpointCount = upserts.length
+    const activity = {
+      type: 'subAgentActivity',
+      id: 'activity-1',
+      kind: 'interacted',
+      agentThreadId: 'thread-child-1',
+      agentPath: `root/${'researcher'.repeat(8_000)}`
+    }
+
+    recorder.handleNotification(notification('item/started', { item: activity }))
+    recorder.handleNotification(notification('item/completed', { item: activity }))
+    await recorder.flush()
+
+    expect(upserts).toHaveLength(checkpointCount)
+
+    recorder.handleNotification(
+      notification('turn/completed', {
+        turn: {
+          ...startedTurn(),
+          status: 'completed',
+          items: [activity],
+          completedAt: Date.now() / 1_000
+        }
+      })
+    )
+    await recorder.flush()
+
+    expect(upserts.at(-1)?.progress).toEqual({
+      completed_items: 0,
+      tool_calls: 0,
+      tools_used: [],
+      files_changed: []
+    })
+    expect(upserts.at(-1)?.trajectory).toEqual({ format: 'ankole_chatml', version: 1 })
+    expect(JSON.stringify(trajectoryMessages(upserts))).not.toContain('background_agent_job_activity')
+    expect(JSON.stringify(trajectoryMessages(upserts))).not.toContain('researcher')
   })
 
   it('checkpoints the bounded set of Skills with runtime usage evidence', async () => {
@@ -409,6 +612,24 @@ function fixture(delayMs = 5) {
   return { recorder, upserts }
 }
 
+function rejectingFixture(rejection: { code: string; message?: string; details?: JSONObject }): {
+  recorder: BackgroundAgentJobTurnRecorder
+  attempts: () => number
+} {
+  let attemptCount = 0
+  const recorder = new BackgroundAgentJobTurnRecorder({
+    jobID: '1000',
+    attempt: 1,
+    actorTurn,
+    checkpointDelayMs: 0,
+    upsert: async () => {
+      attemptCount += 1
+      throw new RPCRejectedError('checkpoint rejected', rejection)
+    }
+  })
+  return { recorder, attempts: () => attemptCount }
+}
+
 function trajectoryMessages(upserts: DecodedUpsert[]) {
   return upserts.flatMap(request => request.trajectory_groups.flatMap(group => group.messages))
 }
@@ -470,5 +691,25 @@ function commandItem(id: string, command: string, aggregatedOutput: string, stat
     aggregatedOutput,
     exitCode: status === 'completed' ? 0 : null,
     durationMs: status === 'completed' ? 1 : null
+  }
+}
+
+function collabItem(
+  id: string,
+  tool: 'spawnAgent' | 'sendInput' | 'resumeAgent' | 'wait' | 'closeAgent',
+  overrides: Partial<CollabAgentToolItem>
+): CollabAgentToolItem {
+  return {
+    type: 'collabAgentToolCall',
+    id,
+    tool,
+    status: 'completed',
+    senderThreadId: 'thread-1',
+    receiverThreadIds: [],
+    prompt: null,
+    model: null,
+    reasoningEffort: null,
+    agentsStates: {},
+    ...overrides
   }
 }

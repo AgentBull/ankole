@@ -5,6 +5,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
   import Ankole.SignalsGateway.ActorRuntime.Common, only: [reason_text: 1]
 
   alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway
   alias Ankole.AIGateway.Compaction
   alias Ankole.I18n
   alias Ankole.SignalsGateway.Actors
@@ -26,6 +27,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
   alias Ankole.SignalsGateway.Outbox
   alias Ankole.Repo
   alias Ankole.SignalsGateway
+
+  @post_start_steer_limit 100
 
   def process_new_command(actor_key, %ActorEvent{} = input, opts) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
@@ -380,6 +383,41 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
           other ->
             other
         end
+    end
+  end
+
+  @doc false
+  @spec drain_pending_steers(map(), keyword()) :: :ok | {:error, term()}
+  def drain_pending_steers(actor_key, opts \\ []) do
+    now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
+
+    drain_pending_steers(
+      actor_key,
+      Keyword.put(opts, :now, now),
+      now,
+      @post_start_steer_limit
+    )
+  end
+
+  defp drain_pending_steers(_actor_key, _opts, _now, 0), do: :ok
+
+  defp drain_pending_steers(actor_key, opts, now, remaining) do
+    case Actors.next_ready_steer_event(actor_key.agent_uid, actor_key.session_id, now) do
+      %ActorEvent{} = event ->
+        case process_steer_command(actor_key, event, opts) do
+          {:ok, %{status: status}}
+          when status in [:idle, :waiting_for_generation] ->
+            :ok
+
+          {:ok, _result} ->
+            drain_pending_steers(actor_key, opts, now, remaining - 1)
+
+          {:error, _reason} = error ->
+            error
+        end
+
+      nil ->
+        :ok
     end
   end
 
@@ -1043,7 +1081,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
         with {:ok, cancellation} <-
                cancel_live_turn(repo, actor_key, now, "command.new"),
              {:ok, _conversation} <-
-               AIGatewayLink.end_active_conversation_in_tx(
+               AIGateway.end_active_conversation_in_tx(
                  repo,
                  actor_key.agent_uid,
                  actor_key.session_id,

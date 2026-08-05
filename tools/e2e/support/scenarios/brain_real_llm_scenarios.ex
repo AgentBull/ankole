@@ -112,7 +112,6 @@ defmodule Ankole.E2E.Scenarios.BrainRealLLM do
     configured =
       current
       |> Map.put("enabled", true)
-      |> Map.put("material_limit", 240)
       |> Map.put("token_limit", 0)
       |> Map.put("mutation_limit", 0)
 

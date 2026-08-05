@@ -24,6 +24,7 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.Actors
   alias Ankole.SignalsGateway.ActorRuntime.TurnRef
+  alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionWorkspace
   alias Ankole.SignalsGateway.AIReplyText
   alias Ankole.SignalsGateway.Channel
   alias Ankole.SignalsGateway.ClarifyPrompt
@@ -550,27 +551,35 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
   @doc false
   @spec daily_reset_candidates_in_tx(module(), DateTime.t(), keyword()) :: [Conversation.t()]
   def daily_reset_candidates_in_tx(repo, %DateTime{} = boundary_at, opts \\ []) do
-    AIGateway.list_active_conversations(repo,
-      inserted_before: boundary_at,
-      exclude_conversation_key_prefixes: [BackgroundAgentJobs.job_session_prefix()],
-      limit: Keyword.get(opts, :limit, 1_000),
-      lock: true
+    limit =
+      case Keyword.get(opts, :limit, 1_000) do
+        value when is_integer(value) and value > 0 -> value
+        _invalid -> 1_000
+      end
+
+    Conversation
+    |> join(:inner, [conversation], workspace in ActorSessionWorkspace,
+      on:
+        workspace.agent_uid == conversation.subject_uid and
+          workspace.session_id == conversation.conversation_key
     )
-  end
-
-  @doc false
-  @spec end_active_conversation_in_tx(module(), String.t(), String.t(), DateTime.t()) ::
-          {:ok, Conversation.t() | nil} | {:error, term()}
-  def end_active_conversation_in_tx(repo, subject_uid, conversation_key, %DateTime{} = now) do
-    case active_conversation_for_update(repo, subject_uid, conversation_key) do
-      %Conversation{} = conversation ->
-        conversation
-        |> Ecto.Changeset.change(ended_at: now)
-        |> repo.update()
-
-      nil ->
-        {:ok, nil}
-    end
+    |> where([conversation], is_nil(conversation.ended_at))
+    |> where([conversation], conversation.inserted_at < ^boundary_at)
+    |> where(
+      [conversation],
+      not like(
+        conversation.conversation_key,
+        ^"#{BackgroundAgentJobs.job_session_prefix()}%"
+      )
+    )
+    |> order_by(
+      [conversation],
+      asc: conversation.subject_uid,
+      asc: conversation.conversation_key
+    )
+    |> limit(^limit)
+    |> lock("FOR UPDATE")
+    |> repo.all()
   end
 
   @doc false

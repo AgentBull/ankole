@@ -157,7 +157,19 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
 
       assert {:ok, response} = RPCLane.handle_request(request, "worker-route")
       assert envelope_body_type(response) == :rpc_error
-      assert envelope_body!(response, :rpc_error).code == "rpc_handler_failed"
+
+      assert %FabricProto.RPCError{
+               code: "rpc_handler_failed",
+               details_json: details_json
+             } = envelope_body!(response, :rpc_error)
+
+      assert %{
+               "failure_id" => failure_id,
+               "method" => "ai_gateway.api_key_for.create_or_find_by_agent",
+               "retryable" => false
+             } = Torque.decode!(details_json)
+
+      assert {:ok, _failure_id} = Ecto.UUID.cast(failure_id)
 
       broker_pid = Process.whereis(Broker)
       :ok = Broker.register_local_worker("worker-route", self())

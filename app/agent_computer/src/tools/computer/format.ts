@@ -1,7 +1,7 @@
 // oxlint-disable no-control-regex
 /** Shared formatting helpers for the computer tools (output limits, line numbering). */
 
-import { sanitizeBinaryOutput, truncateUtf16Safe } from '@/common/text-sanitize'
+import { sanitizeBinaryOutput, truncateUtf16Safe, truncateUtf16SafeTail } from '@/common/text-sanitize'
 import { basename, dirname, isAbsolute } from 'node:path'
 
 // Output the model reads (command stdout/stderr) is capped at 50K chars; a single
@@ -53,14 +53,7 @@ export function truncateOutput(text: string, max = MAX_OUTPUT_CHARS): string {
   const tail = max - head
   const omitted = cleaned.length - max
   const prefix = truncateUtf16Safe(cleaned, head)
-  const suffixStart = cleaned.length - tail
-  // The tail cut can land in the middle of a surrogate pair (e.g. an emoji), leaving a
-  // lone low surrogate at the front of the suffix. Drop that orphan so the output stays
-  // valid UTF-16 rather than starting with a replacement character.
-  const suffix =
-    suffixStart > 0 && isLowSurrogate(cleaned.charCodeAt(suffixStart))
-      ? cleaned.slice(suffixStart + 1)
-      : cleaned.slice(suffixStart)
+  const suffix = truncateUtf16SafeTail(cleaned, tail)
   return `${prefix}\n... [output truncated — ${omitted} chars omitted of ${cleaned.length} total] ...\n${suffix}`
 }
 
@@ -116,11 +109,6 @@ export function numberLines(content: string, offset: number, limit: number): Num
  */
 export function looksBinary(buffer: Buffer): boolean {
   return buffer.subarray(0, 8192).includes(0)
-}
-
-/** True for a UTF-16 low surrogate code unit (the trailing half of a surrogate pair). */
-function isLowSurrogate(value: number): boolean {
-  return value >= 0xdc00 && value <= 0xdfff
 }
 
 /**

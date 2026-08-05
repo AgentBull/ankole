@@ -6,7 +6,8 @@ defmodule AnkoleWeb.BrainController do
   use AnkoleWeb, :controller
   use OpenAPISpex.ControllerSpecs
 
-  alias AnkoleWeb.BrainController.Adapter
+  alias Ankole.Brain
+  alias Ankole.WorkerFiles
   alias AnkoleWeb.ConsoleErrors
   alias AnkoleWeb.ConsolePolicy
   alias AnkoleWeb.Schemas.BrainConsoleAPI.AuditLogResponse
@@ -51,12 +52,12 @@ defmodule AnkoleWeb.BrainController do
     run_id: [in: :query, schema: %Schema{type: :string, format: :uuid}, required: false],
     inserted_after: [
       in: :query,
-      schema: %Schema{type: :string, format: :date_time},
+      schema: %Schema{type: :string, format: :"date-time"},
       required: false
     ],
     inserted_before: [
       in: :query,
-      schema: %Schema{type: :string, format: :date_time},
+      schema: %Schema{type: :string, format: :"date-time"},
       required: false
     ]
   ]
@@ -83,7 +84,7 @@ defmodule AnkoleWeb.BrainController do
           ],
           updated: [
             in: :query,
-            type: :string,
+            schema: %Schema{type: :string, format: :"date-time"},
             required: false,
             description: "ISO-8601 lower bound for entry updated_at"
           ]
@@ -303,20 +304,21 @@ defmodule AnkoleWeb.BrainController do
   )
 
   def index(conn, params) do
-    with {:ok, owner_uid} <- Adapter.required_text(params, "owner_uid"),
+    with {:ok, owner_uid} <- required_text(params, "owner_uid"),
          :ok <- ConsolePolicy.authorize(conn, brain_resource(owner_uid), "read"),
-         {:ok, payload} <- Adapter.list_entries(owner_uid, params) do
-      json(conn, payload)
+         {:ok, cursor} <- page_cursor(params),
+         {:ok, page} <- Brain.list_entries(owner_uid, entry_list_opts(params, cursor)) do
+      json(conn, %{entries: page.entries, next_cursor: encode_cursor(page.next_cursor)})
     else
       {:error, reason} -> error(conn, reason)
     end
   end
 
   def show(conn, params) do
-    with {:ok, owner_uid} <- Adapter.required_text(params, "owner_uid"),
-         {:ok, entry_id} <- Adapter.required_text(params, "id"),
+    with {:ok, owner_uid} <- required_text(params, "owner_uid"),
+         {:ok, entry_id} <- required_text(params, "id"),
          :ok <- ConsolePolicy.authorize(conn, brain_resource(owner_uid), "read"),
-         {:ok, payload} <- Adapter.open_entry(owner_uid, entry_id) do
+         {:ok, payload} <- Brain.open_entry(owner_uid, entry_id) do
       json(conn, payload)
     else
       {:error, reason} -> error(conn, reason)
@@ -324,22 +326,29 @@ defmodule AnkoleWeb.BrainController do
   end
 
   def apply_operations(conn, params) do
-    with {:ok, owner_uid} <- Adapter.required_text(params, "owner_uid"),
+    with {:ok, owner_uid} <- required_text(params, "owner_uid"),
          :ok <- ConsolePolicy.authorize(conn, brain_resource(owner_uid), "update"),
          {:ok, actor_uid} <- current_principal_uid(conn),
-         {:ok, payload} <-
-           Adapter.apply_operations(owner_uid, params, conn.body_params, actor_uid) do
-      json(conn, payload)
+         {:ok, operations} <- operations(conn.body_params),
+         {:ok, result} <-
+           Brain.apply_human_operations(
+             owner_uid,
+             operations,
+             actor_uid,
+             store_key: optional_text(params, "store"),
+             reason: optional_text(conn.body_params, "reason")
+           ) do
+      json(conn, json_safe(result))
     else
       {:error, reason} -> error(conn, reason)
     end
   end
 
   def audit_log(conn, params) do
-    with {:ok, owner_uid} <- Adapter.required_text(params, "owner_uid"),
-         {:ok, entry_id} <- Adapter.required_text(params, "id"),
+    with {:ok, owner_uid} <- required_text(params, "owner_uid"),
+         {:ok, entry_id} <- required_text(params, "id"),
          :ok <- ConsolePolicy.authorize(conn, brain_resource(owner_uid), "read"),
-         {:ok, payload} <- Adapter.list_audit(owner_uid, params, entry_id) do
+         {:ok, payload} <- audit_page(owner_uid, params, entry_id) do
       json(conn, payload)
     else
       {:error, reason} -> error(conn, reason)
@@ -347,9 +356,9 @@ defmodule AnkoleWeb.BrainController do
   end
 
   def audit_index(conn, params) do
-    with {:ok, owner_uid} <- Adapter.required_text(params, "owner_uid"),
+    with {:ok, owner_uid} <- required_text(params, "owner_uid"),
          :ok <- ConsolePolicy.authorize(conn, brain_resource(owner_uid), "read"),
-         {:ok, payload} <- Adapter.list_audit(owner_uid, params) do
+         {:ok, payload} <- audit_page(owner_uid, params, nil) do
       json(conn, payload)
     else
       {:error, reason} -> error(conn, reason)
@@ -357,41 +366,41 @@ defmodule AnkoleWeb.BrainController do
   end
 
   def source(conn, params) do
-    with {:ok, owner_uid} <- Adapter.required_text(params, "owner_uid"),
-         {:ok, document_id} <- Adapter.required_text(params, "document_id"),
+    with {:ok, owner_uid} <- required_text(params, "owner_uid"),
+         {:ok, document_id} <- required_text(params, "document_id"),
          :ok <- ConsolePolicy.authorize(conn, brain_resource(owner_uid), "read"),
-         {:ok, payload} <- Adapter.source(owner_uid, document_id) do
-      json(conn, payload)
+         {:ok, source} <- Brain.resolve_source(owner_uid, document_id) do
+      json(conn, %{source: source})
     else
       {:error, reason} -> error(conn, reason)
     end
   end
 
   def source_index(conn, params) do
-    with {:ok, owner_uid} <- Adapter.required_text(params, "owner_uid"),
+    with {:ok, owner_uid} <- required_text(params, "owner_uid"),
          :ok <- ConsolePolicy.authorize(conn, brain_resource(owner_uid), "read"),
-         {:ok, payload} <- Adapter.list_sources(owner_uid) do
-      json(conn, payload)
+         {:ok, sources} <- Brain.list_sources(owner_uid) do
+      json(conn, %{sources: sources})
     else
       {:error, reason} -> error(conn, reason)
     end
   end
 
   def status(conn, params) do
-    with {:ok, owner_uid} <- Adapter.required_text(params, "owner_uid"),
+    with {:ok, owner_uid} <- required_text(params, "owner_uid"),
          :ok <- ConsolePolicy.authorize(conn, brain_resource(owner_uid), "read"),
-         {:ok, payload} <- Adapter.status(owner_uid) do
-      json(conn, payload)
+         {:ok, status} <- Brain.status(owner_uid) do
+      json(conn, %{memory_status: status})
     else
       {:error, reason} -> error(conn, reason)
     end
   end
 
   def source_raw(conn, params) do
-    with {:ok, owner_uid} <- Adapter.required_text(params, "owner_uid"),
-         {:ok, document_id} <- Adapter.required_text(params, "document_id"),
+    with {:ok, owner_uid} <- required_text(params, "owner_uid"),
+         {:ok, document_id} <- required_text(params, "document_id"),
          :ok <- ConsolePolicy.authorize(conn, brain_resource(owner_uid), "read"),
-         {:ok, raw} <- Adapter.source_raw(owner_uid, document_id) do
+         {:ok, raw} <- Brain.source_raw(owner_uid, document_id) do
       conn
       |> put_resp_content_type(raw.media_type)
       |> put_resp_header(
@@ -405,72 +414,75 @@ defmodule AnkoleWeb.BrainController do
   end
 
   def create_source(conn, params) do
-    with {:ok, owner_uid} <- Adapter.required_text(params, "owner_uid"),
-         {:ok, store_key} <- Adapter.required_text(params, "store"),
+    with {:ok, owner_uid} <- required_text(params, "owner_uid"),
+         {:ok, store_key} <- required_text(params, "store"),
          :ok <- ConsolePolicy.authorize(conn, brain_resource(owner_uid), "update"),
          {:ok, actor_uid} <- current_principal_uid(conn),
-         {:ok, payload} <-
-           Adapter.create_source(
-             owner_uid,
-             store_key,
-             conn.body_params || %{},
-             actor_uid
-           ) do
-      conn |> put_status(:created) |> json(payload)
+         {:ok, attrs} <- source_attrs(conn.body_params || %{}),
+         {:ok, material} <- Brain.capture_source(owner_uid, store_key, attrs, actor_uid) do
+      conn |> put_status(:created) |> json(material)
     else
       {:error, reason} -> error(conn, reason)
     end
   end
 
   def learn_source(conn, params) do
-    with {:ok, owner_uid} <- Adapter.required_text(params, "owner_uid"),
-         {:ok, document_id} <- Adapter.required_text(params, "document_id"),
+    with {:ok, owner_uid} <- required_text(params, "owner_uid"),
+         {:ok, document_id} <- required_text(params, "document_id"),
          :ok <- ConsolePolicy.authorize(conn, brain_resource(owner_uid), "update"),
-         {:ok, payload} <- Adapter.learn_source(owner_uid, document_id) do
-      json(conn, payload)
+         {:ok, source} <- Brain.learn_source(owner_uid, document_id) do
+      json(conn, %{source: source})
     else
       {:error, reason} -> error(conn, reason)
     end
   end
 
   def restore_audit(conn, params) do
-    with {:ok, owner_uid} <- Adapter.required_text(params, "owner_uid"),
-         {:ok, audit_id} <- Adapter.required_text(params, "audit_id"),
+    with {:ok, owner_uid} <- required_text(params, "owner_uid"),
+         {:ok, audit_id} <- required_text(params, "audit_id"),
          :ok <- ConsolePolicy.authorize(conn, brain_resource(owner_uid), "update"),
          {:ok, actor_uid} <- current_principal_uid(conn),
-         {:ok, payload} <- Adapter.restore_audit(owner_uid, audit_id, actor_uid) do
-      json(conn, payload)
+         {:ok, restoration} <- Brain.restore_audit(owner_uid, audit_id, actor_uid) do
+      json(conn, %{restoration: json_safe(restoration)})
     else
       {:error, reason} -> error(conn, reason)
     end
   end
 
   def restore_audits(conn, params) do
-    with {:ok, owner_uid} <- Adapter.required_text(params, "owner_uid"),
+    with {:ok, owner_uid} <- required_text(params, "owner_uid"),
          :ok <- ConsolePolicy.authorize(conn, brain_resource(owner_uid), "update"),
          {:ok, actor_uid} <- current_principal_uid(conn),
-         {:ok, payload} <- Adapter.restore_audits(owner_uid, conn.body_params, actor_uid) do
-      json(conn, payload)
+         {:ok, audit_ids} <- audit_ids(conn.body_params),
+         {:ok, restoration} <- Brain.restore_audits(owner_uid, audit_ids, actor_uid) do
+      json(conn, %{restoration: json_safe(restoration)})
     else
       {:error, reason} -> error(conn, reason)
     end
   end
 
   def run_dreaming(conn, params) do
-    with {:ok, owner_uid} <- Adapter.required_text(params, "owner_uid"),
+    with {:ok, owner_uid} <- required_text(params, "owner_uid"),
          :ok <- ConsolePolicy.authorize(conn, brain_resource(owner_uid), "update"),
-         {:ok, payload} <- Adapter.run_dreaming(owner_uid) do
-      json(conn, payload)
+         {:ok, result} <- Brain.run_dreaming(owner_uid) do
+      json(conn, %{run: json_safe(result)})
     else
       {:error, reason} -> error(conn, reason)
     end
   end
 
   def dreaming_fitness(conn, params) do
-    with {:ok, owner_uid} <- Adapter.required_text(params, "owner_uid"),
+    opts =
+      [
+        horizon_days: param(params, "horizon_days"),
+        lookback_days: param(params, "lookback_days")
+      ]
+      |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+
+    with {:ok, owner_uid} <- required_text(params, "owner_uid"),
          :ok <- ConsolePolicy.authorize(conn, brain_resource(owner_uid), "read"),
-         {:ok, payload} <- Adapter.dreaming_fitness(owner_uid, params) do
-      json(conn, payload)
+         {:ok, fitness} <- Brain.dreaming_fitness(owner_uid, opts) do
+      json(conn, %{fitness: json_safe(fitness)})
     else
       {:error, reason} -> error(conn, reason)
     end
@@ -481,6 +493,261 @@ defmodule AnkoleWeb.BrainController do
        do: {:ok, uid}
 
   defp brain_resource(owner_uid), do: "brain:#{owner_uid}"
+
+  @author_kinds ~w(human agent dreaming)
+  @server_owned_operation_keys ~w(
+    owner_uid store_key author_kind author_uid actor_kind actor_uid
+  )
+
+  defp audit_page(owner_uid, params, entry_id) do
+    with {:ok, cursor} <- page_cursor(params),
+         {:ok, page} <- Brain.list_audit(owner_uid, audit_list_opts(params, entry_id, cursor)) do
+      {:ok, %{audit_log: page.audit_log, next_cursor: encode_cursor(page.next_cursor)}}
+    end
+  end
+
+  defp entry_list_opts(params, cursor) do
+    author = optional_text(params, "author")
+
+    [
+      query: optional_text(params, "query"),
+      type: optional_text(params, "type"),
+      store_key: optional_text(params, "store"),
+      author_kind: author_kind(author),
+      author_uid: author_uid(author),
+      updated_after: param(params, "updated"),
+      cursor: cursor,
+      limit: page_limit(params)
+    ]
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+  end
+
+  defp audit_list_opts(params, entry_id, cursor) do
+    actor = optional_text(params, "actor")
+
+    [
+      entry_id: entry_id,
+      store_key: optional_text(params, "store"),
+      action: optional_text(params, "action"),
+      actor_kind: author_kind(actor),
+      actor_uid: author_uid(actor),
+      run_id: optional_text(params, "run_id"),
+      inserted_after: param(params, "inserted_after"),
+      inserted_before: param(params, "inserted_before"),
+      cursor: cursor,
+      limit: page_limit(params)
+    ]
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+  end
+
+  defp author_kind("human"), do: :human
+  defp author_kind("agent"), do: :agent
+  defp author_kind("dreaming"), do: :dreaming
+  defp author_kind(_author), do: nil
+
+  defp author_uid(author) when is_binary(author) and author not in @author_kinds, do: author
+  defp author_uid(_author), do: nil
+
+  # CastAndValidate already rejects a non-integer or out-of-range limit, and
+  # it casts the `date-time` parameters to DateTime structs before the action.
+  defp page_limit(params), do: param(params, "limit") || 50
+
+  defp page_cursor(params) do
+    case optional_text(params, "cursor") do
+      nil ->
+        {:ok, nil}
+
+      cursor ->
+        with {:ok, decoded} <- Base.url_decode64(cursor, padding: false),
+             [iso, id] <- String.split(decoded, "|", parts: 2),
+             {:ok, datetime, _offset} <- DateTime.from_iso8601(iso),
+             {:ok, id} <- Ecto.UUID.cast(id) do
+          {:ok, {datetime, id}}
+        else
+          _invalid -> {:error, :invalid_page_cursor}
+        end
+    end
+  end
+
+  defp encode_cursor(nil), do: nil
+
+  defp encode_cursor({datetime, id}) do
+    Base.url_encode64("#{DateTime.to_iso8601(datetime)}|#{id}", padding: false)
+  end
+
+  defp operations(body) when is_map(body) do
+    case param(body, "operations") do
+      operations when is_list(operations) and operations != [] ->
+        operations
+        |> Enum.reduce_while({:ok, []}, fn
+          operation, {:ok, acc} when is_map(operation) ->
+            sanitized =
+              operation
+              |> stringify_keys()
+              |> Map.drop(@server_owned_operation_keys)
+              |> drop_create_nil_defaults()
+
+            {:cont, {:ok, [sanitized | acc]}}
+
+          _operation, _acc ->
+            {:halt, {:error, :invalid_operations}}
+        end)
+        |> case do
+          {:ok, sanitized} -> {:ok, Enum.reverse(sanitized)}
+          {:error, reason} -> {:error, reason}
+        end
+
+      _value ->
+        {:error, :invalid_operations}
+    end
+  end
+
+  defp operations(_body), do: {:error, :invalid_operations}
+
+  defp source_attrs(body) when is_map(body) do
+    case optional_text(body, "kind") do
+      "file" -> source_file_attrs(body)
+      "paste" -> source_text_attrs(body)
+      "url" -> source_url_attrs(body)
+      _invalid -> {:error, :invalid_source_kind}
+    end
+  end
+
+  defp source_attrs(_body), do: {:error, :invalid_source}
+
+  defp source_file_attrs(body) do
+    case param(body, "file") do
+      %Plug.Upload{} = upload ->
+        max_bytes = WorkerFiles.max_transfer_bytes()
+
+        with {:ok, %{size: size}} <- File.stat(upload.path),
+             true <- size > 0 and size <= max_bytes,
+             {:ok, content} <- File.read(upload.path) do
+          {:ok,
+           %{
+             kind: "file",
+             title: optional_text(body, "title") || upload.filename,
+             original_name: upload.filename,
+             media_type: upload.content_type || "application/octet-stream",
+             content: content
+           }}
+        else
+          false -> {:error, {:invalid_source_file_size, max_bytes}}
+          {:error, reason} -> {:error, {:source_file_read_failed, reason}}
+        end
+
+      _missing ->
+        {:error, {:missing, "file"}}
+    end
+  end
+
+  defp source_text_attrs(body) do
+    with {:ok, title} <- required_text(body, "title"),
+         {:ok, content} <- required_source_content(body, "content") do
+      {:ok, %{kind: "paste", title: title, content: content}}
+    end
+  end
+
+  defp source_url_attrs(body) do
+    with {:ok, url} <- required_text(body, "url") do
+      {:ok, %{kind: "url", title: optional_text(body, "title"), url: url}}
+    end
+  end
+
+  defp required_source_content(params, key) do
+    case param(params, key) do
+      value when is_binary(value) ->
+        if String.trim(value) == "", do: {:error, {:missing, key}}, else: {:ok, value}
+
+      _missing ->
+        {:error, {:missing, key}}
+    end
+  end
+
+  defp audit_ids(body) when is_map(body) do
+    case param(body, "audit_ids") do
+      ids when is_list(ids) and ids != [] ->
+        if Enum.all?(ids, &is_binary/1), do: {:ok, ids}, else: {:error, :invalid_audit_selection}
+
+      _invalid ->
+        {:error, :invalid_audit_selection}
+    end
+  end
+
+  defp audit_ids(_body), do: {:error, :invalid_audit_selection}
+
+  defp drop_create_nil_defaults(%{"operation" => operation_name} = operation)
+       when operation_name in ["create_entry", :create_entry] do
+    Enum.reduce(["summary", "aliases", "properties"], operation, fn key, acc ->
+      if Map.get(acc, key) == nil, do: Map.delete(acc, key), else: acc
+    end)
+  end
+
+  defp drop_create_nil_defaults(operation), do: operation
+
+  defp json_safe(nil), do: nil
+  defp json_safe(value) when is_binary(value) or is_number(value) or is_boolean(value), do: value
+  defp json_safe(%DateTime{} = value), do: DateTime.to_iso8601(value)
+  defp json_safe(%NaiveDateTime{} = value), do: NaiveDateTime.to_iso8601(value)
+  defp json_safe(value) when is_atom(value), do: Atom.to_string(value)
+  defp json_safe(value) when is_list(value), do: Enum.map(value, &json_safe/1)
+
+  defp json_safe(value) when is_map(value) do
+    Map.new(value, fn {key, item} -> {string_key(key), json_safe(item)} end)
+  end
+
+  defp json_safe(value), do: inspect(value)
+
+  defp stringify_keys(value) do
+    Map.new(value, fn {key, item} -> {string_key(key), item} end)
+  end
+
+  defp required_text(params, key) do
+    case param(params, key) do
+      value when is_binary(value) ->
+        case String.trim(value) do
+          "" -> {:error, {:missing, key}}
+          text -> {:ok, text}
+        end
+
+      _value ->
+        {:error, {:missing, key}}
+    end
+  end
+
+  defp optional_text(params, key) do
+    case param(params, key) do
+      value when is_binary(value) ->
+        case String.trim(value) do
+          "" -> nil
+          text -> text
+        end
+
+      _value ->
+        nil
+    end
+  end
+
+  # Cast params carry atom keys and multipart bodies carry string keys; one
+  # reader accepts both so every call site stays shape-agnostic.
+  defp param(params, key) do
+    case Map.fetch(params, key) do
+      {:ok, value} ->
+        value
+
+      :error ->
+        Enum.find_value(params, fn {candidate, value} ->
+          if string_key(candidate) == key, do: {:found, value}
+        end)
+        |> case do
+          {:found, value} -> value
+          nil -> nil
+        end
+    end
+  end
+
+  defp string_key(key) when is_atom(key), do: Atom.to_string(key)
+  defp string_key(key), do: to_string(key)
 
   defp error(conn, :forbidden), do: ConsoleErrors.render(conn, 403, "forbidden", "access denied")
 
@@ -530,14 +797,6 @@ defmodule AnkoleWeb.BrainController do
 
   defp error(conn, {:missing, key}) do
     ConsoleErrors.render(conn, 422, "validation_failed", "#{key} is required")
-  end
-
-  defp error(conn, {:invalid_datetime, key}) do
-    ConsoleErrors.render(conn, 422, "validation_failed", "#{key} must be an ISO-8601 datetime")
-  end
-
-  defp error(conn, {:invalid_integer, key}) do
-    ConsoleErrors.render(conn, 422, "validation_failed", "#{key} must be a positive integer")
   end
 
   defp error(conn, reason) when reason in [:invalid_horizon_days, :invalid_lookback_days] do

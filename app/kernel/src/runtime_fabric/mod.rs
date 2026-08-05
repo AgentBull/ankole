@@ -19,6 +19,6 @@ pub mod proto {
 pub mod transport;
 
 pub(crate) use codec::decode_envelope_view;
-pub use codec::validate_envelope_bytes;
+pub use codec::{seal_envelope_bytes, validate_envelope_bytes};
 
 pub const PROTOCOL_VERSION: u32 = 4;

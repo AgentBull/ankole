@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import { readFileSync } from 'node:fs'
-import { decodeEnvelope, envelopeProtocolVersion } from '../src/fabric/envelope_proto'
+import { runtimeFabricProtocolVersion } from '@ankole/kernel'
+import { decodeEnvelope } from '../src/fabric/envelope_proto'
 import { turnStartFromEnvelope } from '../src/lanes/actor_lane'
 
 /**
@@ -11,19 +12,16 @@ import { turnStartFromEnvelope } from '../src/lanes/actor_lane'
  * wire bytes. The proto generation check owns generated-code staleness.
  */
 describe('RuntimeFabric generated codec contract', () => {
-  it('keeps protocol version mirrors aligned with the Rust kernel owner', () => {
+  it('keeps deployment version pins aligned with the Rust kernel owner', () => {
+    // The kernel constant is the only code copy: it stamps every sealed
+    // envelope, and both hosts read it through their kernel bindings. The
+    // Dockerfile ARGs stay as deployment pins on the same source line.
     const kernelVersion = sourceVersion(
       new URL('../../kernel/src/runtime_fabric/mod.rs', import.meta.url),
       /^pub const PROTOCOL_VERSION: u32 = (\d+);$/m
     )
 
-    expect(envelopeProtocolVersion).toBe(kernelVersion)
-    expect(
-      sourceVersion(
-        new URL('../../kernel/lib/ankole/kernel/runtime_fabric.ex', import.meta.url),
-        /^  @protocol_version (\d+)$/m
-      )
-    ).toBe(kernelVersion)
+    expect(runtimeFabricProtocolVersion()).toBe(kernelVersion)
 
     for (const dockerfile of [
       new URL('../Dockerfile', import.meta.url),

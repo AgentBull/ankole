@@ -90,7 +90,11 @@ defmodule Ankole.AIGateway.CredentialTest do
 
     assert envelope_body_type(envelope) == :rpc_error
     assert envelope_body!(envelope, :rpc_error).code == "missing_agent_uid"
-    assert rpc_error_payload!(envelope)["details_json"] == %{"agent_uid" => ""}
+
+    assert rpc_error_payload!(envelope)["details_json"] == %{
+             "agent_uid" => "",
+             "retryable" => false
+           }
   end
 
   test "RuntimeFabric rejects RPC methods outside the declared contract" do

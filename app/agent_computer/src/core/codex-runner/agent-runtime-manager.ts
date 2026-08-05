@@ -1,17 +1,17 @@
 import { jsonObject } from '@agentbull/active-support'
 import { errorMessage } from '../../common/errors'
 import type { AgentLoopLogger } from '../types'
-import { CodexAppServerClient, CodexAppServerExitError, type JSONRPCMessage } from '../../tools/codex/app-server-client'
-import type { CodexAppServerSandboxSpec } from '../../tools/codex/sandbox'
-import { CODEX_HOME_LOCK_BUSY_EXIT_CODE, codexHomeLockedCommandArgv } from '../../tools/codex/codex-home-lock'
-import { stringValue } from '../../tools/codex/protocol'
-import { installCodexLogs2LowLevelFilter } from '../../tools/codex/fix-codex-logs2-sqlite-bug'
+import { CodexAppServerClient, CodexAppServerExitError, type JSONRPCMessage } from './app-server-client'
+import type { CodexAppServerSandboxSpec } from './sandbox'
+import { CODEX_HOME_LOCK_BUSY_EXIT_CODE, codexHomeLockedCommandArgv } from './codex-home-lock'
+import { stringValue } from './protocol'
+import { installCodexLogs2LowLevelFilter } from './fix-codex-logs2-sqlite-bug'
 import {
   codexAgentRuntimeBootstrapEnv,
   codexAgentRuntimeConfigPath,
   codexAIGatewayTokenPath,
   refreshCodexAgentRuntimeCredential
-} from '../../tools/codex/config'
+} from './agent-home-config'
 import {
   installTrustAndDisableAgentPlugins,
   materializeAgentPluginPackages,
@@ -233,6 +233,8 @@ export class AgentCodexRuntime {
   private readonly retiredThreadIDs = new Set<string>()
   private readonly retiredThreadCleanupVersions = new Map<string, number>()
   private readonly retiredThreadCleanupTasks = new Map<string, Promise<void>>()
+  private readonly threadTransitions = new Map<string, Promise<void>>()
+  private readonly sessionCleanupTasks = new Map<AgentCodexRuntimeSession, Promise<void>>()
   private pendingThreadNotificationCount = 0
   private agentSetup = Promise.resolve()
   private pluginsInitialized = false
@@ -247,12 +249,46 @@ export class AgentCodexRuntime {
     private readonly logger?: AgentLoopLogger
   ) {}
 
-  registerRoot(threadID: string, session: AgentCodexRuntimeSession): void {
-    if (this.lost) throw this.lost
-    const owner = this.threadOwners.get(threadID)
-    if (owner && owner !== session) throw new Error(`Codex thread ${threadID} is already owned by another Job`)
-    this.registerThread(threadID, session)
-    this.drainPendingThreadNotifications(threadID)
+  async registerRoot(threadID: string, session: AgentCodexRuntimeSession): Promise<void> {
+    await this.runThreadTransition(threadID, async () => {
+      if (this.lost) throw this.lost
+      const owner = this.threadOwners.get(threadID)
+      if (owner && owner !== session) throw new Error(`Codex thread ${threadID} is already owned by another Job`)
+      this.retiredThreadIDs.delete(threadID)
+      this.retiredThreadCleanupVersions.delete(threadID)
+      this.registerThread(threadID, session)
+      this.drainPendingThreadNotifications(threadID)
+    })
+  }
+
+  async resumeRoot(threadID: string, session: AgentCodexRuntimeSession, resume: () => Promise<void>): Promise<void> {
+    const currentOwner = this.threadOwners.get(threadID)
+    const retiringOwner = currentOwner && currentOwner !== session ? currentOwner : undefined
+    const pendingCleanup = retiringOwner ? this.sessionCleanupTasks.get(retiringOwner) : undefined
+    if (pendingCleanup) await pendingCleanup.catch(() => undefined)
+
+    await this.runThreadTransition(threadID, async () => {
+      if (this.lost) throw this.lost
+      const owner = this.threadOwners.get(threadID)
+      if (owner && owner !== session) {
+        throw new Error(`Codex thread ${threadID} is already owned by another Job`)
+      }
+
+      this.retiredThreadIDs.delete(threadID)
+      this.retiredThreadCleanupVersions.delete(threadID)
+      this.registerThread(threadID, session)
+      this.drainPendingThreadNotifications(threadID)
+
+      try {
+        await resume()
+      } catch (error) {
+        this.unregisterThread(threadID, session)
+        this.retiredThreadIDs.add(threadID)
+        this.dropPendingThreadNotifications(threadID)
+        this.scheduleRetiredThreadCleanup(threadID)
+        throw error
+      }
+    })
   }
 
   async ensureAgentPlugins(input: { cwd: string; prepared: PreparedAgentPlugins }): Promise<void> {
@@ -368,7 +404,18 @@ export class AgentCodexRuntime {
     await pending
   }
 
-  async cleanupSession(session: AgentCodexRuntimeSession): Promise<void> {
+  cleanupSession(session: AgentCodexRuntimeSession): Promise<void> {
+    const current = this.sessionCleanupTasks.get(session)
+    if (current) return current
+
+    const cleanup = this.doCleanupSession(session).finally(() => {
+      if (this.sessionCleanupTasks.get(session) === cleanup) this.sessionCleanupTasks.delete(session)
+    })
+    this.sessionCleanupTasks.set(session, cleanup)
+    return cleanup
+  }
+
+  private async doCleanupSession(session: AgentCodexRuntimeSession): Promise<void> {
     session.prepareForRuntimeCleanup()
     let firstError: unknown
 
@@ -383,13 +430,19 @@ export class AgentCodexRuntime {
       const threadID = threads ? [...threads].at(-1) : undefined
       if (!threadID) break
       try {
-        await this.cleanupThreadRuntime(threadID)
+        await this.runThreadTransition(threadID, async () => {
+          if (this.threadOwners.get(threadID) !== session) return
+          try {
+            await this.cleanupThreadRuntime(threadID)
+          } finally {
+            this.retiredThreadIDs.add(threadID)
+            this.unregisterThread(threadID, session)
+            this.dropPendingThreadNotifications(threadID)
+          }
+        })
       } catch (error) {
         firstError ??= error
       }
-      this.retiredThreadIDs.add(threadID)
-      this.unregisterThread(threadID, session)
-      this.dropPendingThreadNotifications(threadID)
     }
     try {
       await this.settlePendingServerRequests(session)
@@ -461,25 +514,40 @@ export class AgentCodexRuntime {
   private async cleanupRetiredThreadUntilStable(threadID: string): Promise<void> {
     while (true) {
       const version = this.retiredThreadCleanupVersions.get(threadID) ?? 0
-      try {
-        await this.cleanupThreadRuntime(threadID)
-      } catch (error) {
-        this.logger?.warning(
-          'worker.codex_runtime_retired_thread_cleanup_failed',
-          'Codex runtime could not clean a late child thread',
-          {
-            agent_uid: this.agentUID,
-            thread_id: threadID,
-            error: error instanceof Error ? error : new Error(String(error))
-          }
-        )
-      } finally {
-        this.dropPendingThreadNotifications(threadID)
-      }
+      await this.runThreadTransition(threadID, async () => {
+        if (!this.retiredThreadIDs.has(threadID)) return
+        try {
+          await this.cleanupThreadRuntime(threadID)
+        } catch (error) {
+          this.logger?.warning(
+            'worker.codex_runtime_retired_thread_cleanup_failed',
+            'Codex runtime could not clean a late child thread',
+            {
+              agent_uid: this.agentUID,
+              thread_id: threadID,
+              error: error instanceof Error ? error : new Error(String(error))
+            }
+          )
+        } finally {
+          this.dropPendingThreadNotifications(threadID)
+        }
+      })
+      if (!this.retiredThreadIDs.has(threadID)) return
       if ((this.retiredThreadCleanupVersions.get(threadID) ?? 0) === version) {
         this.activeTurns.delete(threadID)
         return
       }
+    }
+  }
+
+  private async runThreadTransition(threadID: string, transition: () => Promise<void>): Promise<void> {
+    const previous = this.threadTransitions.get(threadID) ?? Promise.resolve()
+    const current = previous.catch(() => undefined).then(transition)
+    this.threadTransitions.set(threadID, current)
+    try {
+      await current
+    } finally {
+      if (this.threadTransitions.get(threadID) === current) this.threadTransitions.delete(threadID)
     }
   }
 

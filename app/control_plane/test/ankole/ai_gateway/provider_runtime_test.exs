@@ -14,6 +14,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
   import Ankole.PrincipalsFixtures
 
   alias Ankole.AIAgent.Library
+  alias Ankole.AIGateway.CodexModels
   alias Ankole.AIGateway.ModelMetadata.Cache, as: ModelMetadataCache
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.ProviderConfigs.Crypto
@@ -872,6 +873,22 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
            } = turn_start_spec.model_ref["vision_fallback_model_ref"]
 
     assert "image" in input_modalities
+
+    assert {:ok, %{"models" => manifest_models}} = CodexModels.manifest(agent.uid, "agent")
+
+    assert Enum.find(manifest_models, &(&1["slug"] == "text-only-local"))["input_modalities"] == [
+             "text",
+             "image"
+           ]
+
+    assert {:ok, %{profile: nil}} =
+             ModelProfiles.put_model_profile(agent.uid, "vision_fallback", nil)
+
+    assert {:ok, %{"models" => manifest_models}} = CodexModels.manifest(agent.uid, "agent")
+
+    assert Enum.find(manifest_models, &(&1["slug"] == "text-only-local"))["input_modalities"] == [
+             "text"
+           ]
   end
 
   test "turn start specs declare image generation when the primary or fallback route supports it" do
@@ -1193,15 +1210,21 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
                rpc_request(
                  "skill-overlay-resolve-1",
                  "skills.overlay.resolve",
-                 %FabricProto.SkillOverlayResolveRequest{skill_name: "pdf"},
+                 %FabricProto.SkillOverlayResolveRequest{skill_names: ["pdf", "xlsx"]},
                  turn: mixed_case_turn
                ),
                route
              )
 
-    assert Torque.decode!(
-             rpc_response_payload!(resolve_envelope, FabricProto.SkillOverlayResponse).overlay_json
-           ) == %{"text" => "Prefer page-by-page verification."}
+    resolve_payload =
+      rpc_response_payload!(resolve_envelope, FabricProto.SkillOverlayResolveResponse)
+
+    assert Enum.map(resolve_payload.overlays, & &1.skill_name) == ["pdf", "xlsx"]
+
+    assert Torque.decode!(hd(resolve_payload.overlays).overlay_json) ==
+             %{"text" => "Prefer page-by-page verification."}
+
+    refute List.last(resolve_payload.overlays).has_overlay
   end
 
   test "runtime RPCLane rejects agent conversation context requests from an unassigned worker route" do

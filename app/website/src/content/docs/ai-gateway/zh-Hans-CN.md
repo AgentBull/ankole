@@ -38,7 +38,6 @@ curl https://ankole.example.com/api/v1/ai-gateway/responses \
 | 方法 | 路径 | 传输 | 用途 |
 |---|---|---|---|
 | `GET` | `/models` | HTTP | 列出该主体可见的模型选择符 |
-| `GET` | `/web_tools` | HTTP | 列出该主体可用的 provider 支持的 web 工具 |
 | `POST` | `/responses` | HTTP 或 SSE | 创建响应；`"stream": true` 时走流式 |
 | `GET` | `/responses` | WebSocket | 有状态的流式响应 |
 | `GET` | `/responses/:response_id` | HTTP | 取回一个已存储的有状态响应（`resp_{uuid}`） |
@@ -117,7 +116,7 @@ AIGateway 在任何上游调用之前，先把模型选择符解析到一个真�
 
 ## web 工具、文件，以及其他能力
 
-同一个主体和 token 也驱动相邻的能力。`POST /web_search` 接收一个（有长度上限的）`query`，返回 provider 支持的搜索结果；`POST /web_fetch` 接收一到五个公网 HTTPS URL，返回页面内容。`POST /embeddings` 接受文本、token 数组或输入块；`POST /rerank` 对一个非空文档数组重排，并接收一个正整数 `top_n`。`GET /web_tools` 告诉调用方，当前主体实际能用其中哪几样。
+同一个主体和 token 也驱动相邻的能力。`POST /web_search` 接收一个（有长度上限的）`query`，返回 provider 支持的搜索结果；`POST /web_fetch` 接收一到五个公网 HTTPS URL，返回页面内容。`POST /embeddings` 接受文本、token 数组或输入块；`POST /rerank` 对一个非空文档数组重排，并接收一个正整数 `top_n`。每次调用都使用能力专属的语义选择符，例如 `web_search.default` 或 `web_fetch.default`；请求到达时，AIGateway 再解析当前 Agent 档案。
 
 文件是一等公民：`POST /files` 上传，`GET /files` 列出，`GET /files/:id` 和 `GET /files/:id/content` 读取元数据和字节，`DELETE /files/:id` 删除。它们都按主体限定范围。
 

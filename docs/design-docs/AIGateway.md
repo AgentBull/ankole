@@ -80,6 +80,13 @@ length, and the provider parallel-tool-call capability. A retry uses this
 snapshot. A new or respawned Job resolves the current profile at its own first
 execution admission.
 
+The snapshot also stores the selected model's direct input modalities. A
+text-only model stores a separate `vision_fallback` target only when that
+configured model accepts image input directly. The Codex model manifest reports
+effective modalities: it reports image input when the selected model accepts
+images or when this usable fallback exists. It reports text only when neither
+path can accept an image.
+
 Agent Computer puts the real model in the Job project configuration and selects
 the `ankole_aigateway` Codex provider. It sends the frozen binding in the
 `x-ankole-aigateway-model-binding` header. AIGateway applies this binding before
@@ -90,6 +97,21 @@ execution, but AIGateway remains the authority for the upstream request. The
 runner removes `model_catalog_json` from the Job project configuration, so a
 workspace template cannot replace the AIGateway-owned model cards. The
 logical profile name never enters Codex as a model.
+
+The AIGateway model card owns one model-visible tool-output limit of 10,000
+tokens. `max_output_tokens` is a requested upper limit. A smaller value reduces
+the output, but a larger value does not raise the model-visible limit. The card
+instructions state the same limit. Codex processes larger output in code before
+it returns the result, or it writes that output to a Job Workspace file.
+
+The binding also carries the direct modalities and the optional frozen vision
+fallback. AIGateway sends an image directly only when the selected model
+accepts it. For a text-only model, AIGateway makes one stateless request to the
+frozen fallback and replaces all current image parts with one untrusted text
+description. The main model never receives the original image. If no usable
+fallback exists or that request fails, AIGateway replaces the image with an
+explicit unavailable marker. Stateful history stores the replacement text, so
+later turns do not replay an unsupported image to the text model.
 
 The same path handles API-key providers and `chatgpt_subscription`. Agent
 Computer does not resolve, store, refresh, or write back provider
@@ -295,7 +317,6 @@ All runtime routes use `/api/v1/ai-gateway`.
 The current routes are:
 
 - `GET /models`
-- `GET /web_tools`
 - `GET /files`
 - `POST /files`
 - `GET /files/:file_id`
@@ -410,6 +431,10 @@ wins the race, compaction does not change history.
 
 Only one active row can use the same `(subject_uid, conversation_key)`.
 A caller can create a new active row under the same key after the conversation ends.
+
+An active Conversation is an AIGateway storage state. It does not identify an
+Actor session. A caller that uses a Conversation for a finite internal trace
+ends that Conversation when its work ends.
 
 `ai_gateway_messages` stores each Response run, tool-result journal, or compaction checkpoint.
 
@@ -788,9 +813,12 @@ For Chat providers that return `reasoning_details`, the adapter concatenates
 the streamed detail objects in order and emits one Responses `reasoning` item.
 Its AIGateway-owned `encrypted_content` carries the provider state without
 exposing a new public item type. A continuation decodes that item and restores
-the exact detail sequence on the assistant tool-call message. A missing,
-corrupt, or foreign adapter token fails with `invalid_reasoning_replay` instead
-of sending an invalid continuation. An explicit public
+the exact detail sequence on the assistant tool-call message. The envelope is
+bound to the upstream provider type and model ID. Two provider rows of the same
+type can share it when they use the same model ID; a provider-row ID is not part
+of the scope. A missing, corrupt, old, or mismatched envelope discards only the
+private reasoning state and keeps the visible assistant message and tool
+history. It never sends foreign reasoning to the next provider. An explicit public
 `reasoning.effort` value overrides the route's `reasoningEffort` default.
 If reasoning has no assistant content or tool call, the adapter discards it
 during replay. It cannot attach that state to a valid Chat message, and some

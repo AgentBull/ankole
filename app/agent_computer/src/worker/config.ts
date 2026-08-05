@@ -5,9 +5,7 @@ import {
   AgentComputerWorkerHeartbeatSchema,
   AgentComputerWorkerReadySchema,
   createEnvelope,
-  DurabilityClass,
   envelopeHeader,
-  Lane,
   type Envelope
 } from '../fabric/envelope_proto'
 import { AGENTS_ROOT, BUILTIN_SKILLS_ROOT } from '../core/agent-home-paths'
@@ -136,7 +134,7 @@ export function workerReadyEnvelope(config: WorkerConfig, availableTurnSlots = c
   const available = clampAvailableSlots(config, availableTurnSlots)
 
   return createEnvelope({
-    ...envelopeHeader(`worker-ready-${crypto.randomUUID()}`, Lane.CONTROL, DurabilityClass.CONTROL_EPHEMERAL),
+    ...envelopeHeader(`worker-ready-${crypto.randomUUID()}`),
     body: {
       case: 'workerReady',
       value: create(AgentComputerWorkerReadySchema, {
@@ -165,7 +163,7 @@ export function workerHeartbeatEnvelope(
   const available = clampAvailableSlots(config, config.maxConcurrentTurns - activeTurns)
 
   return createEnvelope({
-    ...envelopeHeader(`worker-heartbeat-${crypto.randomUUID()}`, Lane.CONTROL, DurabilityClass.CONTROL_EPHEMERAL),
+    ...envelopeHeader(`worker-heartbeat-${crypto.randomUUID()}`),
     body: {
       case: 'workerHeartbeat',
       value: create(AgentComputerWorkerHeartbeatSchema, {
@@ -196,7 +194,7 @@ export function workerCapacityEnvelope(
   const available = clampAvailableSlots(config, availableTurnSlots)
 
   return createEnvelope({
-    ...envelopeHeader(`worker-capacity-${crypto.randomUUID()}`, Lane.CONTROL, DurabilityClass.CONTROL_EPHEMERAL),
+    ...envelopeHeader(`worker-capacity-${crypto.randomUUID()}`),
     body: {
       case: 'workerCapacity',
       value: create(AgentComputerWorkerCapacitySchema, {

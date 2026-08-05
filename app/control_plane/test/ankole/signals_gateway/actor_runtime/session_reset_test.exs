@@ -2,6 +2,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionResetTest do
   use Ankole.SignalsGateway.ActorRuntimeCase
 
   alias Ankole.Schedule
+  alias Ankole.SignalsGateway.ActorRuntime.SessionWorkspaces
 
   setup {Ankole.SignalsGateway.ActorRuntimeCase, :use_mock_signal_provider_plugin}
 
@@ -11,6 +12,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionResetTest do
       session_id = "manual-session:daily-reset"
 
       assert {:ok, "Asia/Shanghai"} = SystemConfig.put_timezone("Asia/Shanghai")
+      assert {:ok, _workspace} = SessionWorkspaces.ensure(agent.uid, session_id)
 
       assert {:ok, conversation} =
                Ankole.AIGateway.Conversations.ensure_conversation(agent.uid, session_id)
@@ -53,12 +55,34 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionResetTest do
 
     test "daily reset never enumerates BackgroundAgentJob execution sessions" do
       %{principal: agent} = agent_fixture()
+      session_id = Ankole.BackgroundAgentJobs.job_session_id(1000)
+
+      assert {:ok, _workspace} = SessionWorkspaces.ensure(agent.uid, session_id)
 
       assert {:ok, conversation} =
                Ankole.AIGateway.Conversations.ensure_conversation(
                  agent.uid,
-                 Ankole.BackgroundAgentJobs.job_session_id(1000)
+                 session_id
                )
+
+      Repo.update_all(
+        from(stored in Conversation, where: stored.id == ^conversation.id),
+        set: [
+          inserted_at: ~U[2026-06-25 20:00:00.000000Z],
+          updated_at: ~U[2026-06-25 20:00:00.000000Z]
+        ]
+      )
+
+      assert {:ok, %{due_sessions: 0, actor_events: []}} =
+               ActorRuntime.enqueue_daily_session_resets(now: ~U[2026-06-25 20:30:30.000000Z])
+    end
+
+    test "daily reset never enumerates AIGateway conversations without actor session identity" do
+      %{principal: agent} = agent_fixture()
+      conversation_key = "brain.dreaming:#{Ecto.UUID.generate()}:self"
+
+      assert {:ok, conversation} =
+               Ankole.AIGateway.Conversations.ensure_conversation(agent.uid, conversation_key)
 
       Repo.update_all(
         from(stored in Conversation, where: stored.id == ^conversation.id),
@@ -77,6 +101,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionResetTest do
       session_id = "manual-session:daily-reset-job"
 
       assert {:ok, "Asia/Shanghai"} = SystemConfig.put_timezone("Asia/Shanghai")
+      assert {:ok, _workspace} = SessionWorkspaces.ensure(agent.uid, session_id)
 
       assert {:ok, conversation} =
                Ankole.AIGateway.Conversations.ensure_conversation(agent.uid, session_id)
@@ -109,6 +134,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionResetTest do
       session_id = "manual-session:daily-reset-custom-time"
 
       assert {:ok, "Asia/Shanghai"} = SystemConfig.put_timezone("Asia/Shanghai")
+      assert {:ok, _workspace} = SessionWorkspaces.ensure(agent.uid, session_id)
 
       assert {:ok, conversation} =
                Ankole.AIGateway.Conversations.ensure_conversation(agent.uid, session_id)

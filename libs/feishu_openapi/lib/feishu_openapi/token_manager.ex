@@ -84,17 +84,21 @@ defmodule FeishuOpenAPI.TokenManager do
     }
   end
 
-  @spec get_tenant_token(Client.t(), String.t() | nil) ::
+  @spec get_tenant_token(Client.t(), String.t() | nil, keyword()) ::
           {:ok, String.t()} | {:error, Error.t()}
   @doc """
   Returns a tenant access token, fetching it through the per-app manager on miss.
-  """
-  def get_tenant_token(%Client{} = client, tenant_key \\ nil) do
-    key = tenant_token_key(client, tenant_key)
 
-    case lookup(key) do
+  `:min_validity_ms` rejects a cached or newly fetched token whose shortened
+  safe lifetime is below the requested duration.
+  """
+  def get_tenant_token(%Client{} = client, tenant_key \\ nil, opts \\ []) do
+    key = tenant_token_key(client, tenant_key)
+    min_validity_ms = minimum_validity_ms!(opts)
+
+    case lookup(key, min_validity_ms) do
       {:ok, token} -> {:ok, token}
-      :miss -> call_manager(client, {:fetch, key})
+      :miss -> call_manager(client, {:fetch, key, min_validity_ms})
     end
   end
 
@@ -217,7 +221,15 @@ defmodule FeishuOpenAPI.TokenManager do
 
   @impl true
   def handle_call({:fetch, key}, from, state) do
-    case lookup(key) do
+    handle_fetch_call(key, 0, from, state)
+  end
+
+  def handle_call({:fetch, key, min_validity_ms}, from, state) do
+    handle_fetch_call(key, min_validity_ms, from, state)
+  end
+
+  defp handle_fetch_call(key, min_validity_ms, from, state) do
+    case lookup(key, min_validity_ms) do
       {:ok, token} ->
         {:reply, {:ok, token}, state}
 
@@ -225,7 +237,7 @@ defmodule FeishuOpenAPI.TokenManager do
         # Calls for the same cold key are coalesced. The first caller starts the
         # task; later callers wait for the same task result instead of creating
         # a thundering herd against Feishu.
-        {:noreply, enqueue_waiter(state, key, from)}
+        {:noreply, enqueue_waiter(state, key, from, min_validity_ms)}
     end
   end
 
@@ -247,14 +259,11 @@ defmodule FeishuOpenAPI.TokenManager do
     state = %{state | fetches: fetches}
 
     # A single in-flight fetch serves everyone queued on this key. Real callers
-    # are stored as `{:waiter, from}` and get GenServer.reply'd — this is what
-    # deduplicates a concurrent burst into one upstream request. A proactive
-    # refresh enqueues an empty waiter list, so this loop just warms the cache
-    # without replying to anyone. (`:refresh` is a defensive no-op clause; the
-    # bare atom is never actually placed in the waiter list.)
+    # carry their minimum-validity requirement and get GenServer.reply'd. A
+    # proactive refresh enqueues no waiters and only warms the cache.
     Enum.each(waiters, fn
-      {:waiter, from} -> GenServer.reply(from, client_result(result))
-      :refresh -> :ok
+      {:waiter, from, min_validity_ms} ->
+        GenServer.reply(from, client_result(result, min_validity_ms))
     end)
 
     state =
@@ -273,8 +282,22 @@ defmodule FeishuOpenAPI.TokenManager do
 
   # Internal
 
-  defp client_result({:ok, token, _expires_at}), do: {:ok, token}
-  defp client_result({:error, _} = err), do: err
+  defp client_result({:ok, token, expires_at}, min_validity_ms) do
+    remaining_ms = expires_at - System.monotonic_time(:millisecond)
+
+    if remaining_ms > 0 and remaining_ms >= min_validity_ms do
+      {:ok, token}
+    else
+      {:error,
+       %Error{
+         code: :token_validity_too_short,
+         msg: "token safe lifetime is shorter than the required minimum",
+         details: %{minimum_ms: min_validity_ms, remaining_ms: max(remaining_ms, 0)}
+       }}
+    end
+  end
+
+  defp client_result({:error, _} = err, _min_validity_ms), do: err
 
   defp via_tuple(cache_namespace),
     do: {:via, Registry, {FeishuOpenAPI.TokenRegistry, cache_namespace}}
@@ -302,19 +325,30 @@ defmodule FeishuOpenAPI.TokenManager do
     end
   end
 
-  defp lookup(key) do
+  defp lookup(key), do: lookup(key, 0)
+
+  defp lookup(key, min_validity_ms) do
     case :ets.lookup(TokenStore.table(), key) do
       [{^key, token, :infinity}] ->
         {:ok, token}
 
       [{^key, token, expires_at}] ->
-        if System.monotonic_time(:millisecond) < expires_at do
-          {:ok, token}
-        else
-          # Expired rows are deleted on read so later callers take the normal
-          # miss path and join a single fetch task.
-          :ets.delete(TokenStore.table(), key)
-          :miss
+        remaining_ms = expires_at - System.monotonic_time(:millisecond)
+
+        cond do
+          remaining_ms <= 0 ->
+            # Expired rows are deleted on read so later callers take the normal
+            # miss path and join a single fetch task.
+            :ets.delete(TokenStore.table(), key)
+            :miss
+
+          remaining_ms < min_validity_ms ->
+            # Keep a still-valid token available to callers with a smaller
+            # requirement while this caller refreshes it through the manager.
+            :miss
+
+          true ->
+            {:ok, token}
         end
 
       [] ->
@@ -322,13 +356,26 @@ defmodule FeishuOpenAPI.TokenManager do
     end
   end
 
-  defp enqueue_waiter(state, key, from) do
+  defp enqueue_waiter(state, key, from, min_validity_ms) do
+    waiter = {:waiter, from, min_validity_ms}
+
     case Map.fetch(state.fetches, key) do
       {:ok, waiters} ->
-        %{state | fetches: Map.put(state.fetches, key, [{:waiter, from} | waiters])}
+        %{state | fetches: Map.put(state.fetches, key, [waiter | waiters])}
 
       :error ->
-        start_fetch(state, key, [{:waiter, from}])
+        start_fetch(state, key, [waiter])
+    end
+  end
+
+  defp minimum_validity_ms!(opts) do
+    case Keyword.get(opts, :min_validity_ms, 0) do
+      value when is_integer(value) and value >= 0 ->
+        value
+
+      value ->
+        raise ArgumentError,
+              "min_validity_ms must be a non-negative integer, got: #{inspect(value)}"
     end
   end
 

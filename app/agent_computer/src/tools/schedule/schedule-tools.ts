@@ -21,12 +21,13 @@ const JSONMap = z.record(z.string(), z.unknown())
 const AUTOMATION_JOB_POINTER =
   "If you judge that a script you write could perform this trigger's check equally well and at lower token cost than waking you each time, run `create-automation-job-cli --help` before creating the trigger to confirm the fit. The script can still wake you when its result needs judgment."
 const CRON_DESCRIPTION = [
-  'Manage recurring schedules for this conversation: list, inspect, create, update, pause, resume, remove, manually run, or view run history.',
-  'Use this tool when the user asks about standing work, recurring tasks, monitors, routines, scheduled jobs, or cron-like follow-up in the current conversation.',
-  'Recurring schedules support kind=every and kind=cron only.',
-  'After add or update, summarize the saved schedule in the visible reply: name, schedule/timezone, and whether quiet_success is enabled.',
-  'Use quiet_success=true for recurring monitors that should stay quiet on success and visibly report failures, blockers, or meaningful state changes.',
-  AUTOMATION_JOB_POINTER
+  'Manage recurring schedules for this conversation (list, inspect, create, update, pause, resume, remove, run, view history).',
+  'Use when asked about standing work, recurring tasks, monitors, routines, scheduled jobs, or cron follow-ups.',
+  'Supports kind=every/cron only. For bounded repetitions ("ten times", "until Sept"), set schedule.occurrences with count/until (auto-completes when spent).',
+  'After add/update, summarize in visible reply: name, schedule/timezone, and quiet_success status.',
+  'Use quiet_success=true for monitors to stay quiet on success and report only failures, blockers, or state changes.',
+  AUTOMATION_JOB_POINTER,
+  'In principle, a polling interval of less than 30 minutes should only be used for script tasks (create-automation-job), as frequently waking up an LLM can be quite costly.'
 ].join('\n')
 
 const CheckBackDelay = z.object({
@@ -68,17 +69,18 @@ const CheckBackCreateParams = z.object({
   )
 })
 
-const CheckBackUpdateFields = z
+const CheckBackUpdateParams = z
   .object({
-    reason: z.string().min(1).max(2000).describe('Why this checkback is being scheduled.'),
-    check: z.string().min(1).max(4000).optional().describe('Replacement wakeup instructions.'),
-    context_summary: z.string().max(8000).nullable().optional().describe('Replacement compact wakeup context.'),
+    action: z.literal('update'),
+    checkback_id: ModelIntegerID,
+    reason: z.string().min(1).max(2000).optional(),
+    check: z.string().min(1).max(4000).optional(),
+    context_summary: z.string().max(8000).nullable().optional(),
     schedule: CheckBackSchedule.optional(),
     quiet_success: z.boolean().optional(),
     automation_job_id: ModelIntegerID.nullable().optional()
   })
-  .partial()
-  .refine(updates => Object.keys(updates).length > 0, {
+  .refine(params => checkBackUpdatesFromFlat(params) !== undefined, {
     message: 'provide at least one checkback update'
   })
 
@@ -92,11 +94,7 @@ const CheckBackLaterOperationParams = z.discriminatedUnion('action', [
     action: z.literal('get'),
     checkback_id: ModelIntegerID
   }),
-  z.object({
-    action: z.literal('update'),
-    checkback_id: ModelIntegerID,
-    updates: CheckBackUpdateFields
-  }),
+  CheckBackUpdateParams,
   z.object({
     action: z.literal('cancel'),
     checkback_id: ModelIntegerID
@@ -106,6 +104,7 @@ const CheckBackLaterOperationParams = z.discriminatedUnion('action', [
 // OpenAI-compatible function tools require the parameters schema itself to be
 // an object. Keep the precise per-action validator above for execution, but
 // expose one object-shaped model boundary instead of a root-level `oneOf`.
+// Update reuses the create-shaped fields: only provided fields change.
 const CheckBackLaterParams = z
   .object({
     action: z.enum(['create', 'list', 'get', 'update', 'cancel']).describe('Checkback management action.'),
@@ -114,11 +113,22 @@ const CheckBackLaterParams = z
     ),
     reason: z.string().min(1).max(2000).optional().describe('Required for create: why the checkback is useful.'),
     check: z.string().min(1).max(4000).optional().describe('Required for create: what to do at wakeup.'),
-    context_summary: z.string().max(8000).nullable().optional().describe('Optional compact create-time context.'),
+    context_summary: z
+      .string()
+      .max(8000)
+      .nullable()
+      .optional()
+      .describe('Optional compact context carried to the wakeup. On update, null clears it.'),
     schedule: CheckBackSchedule.optional().describe('Required for create: the one-shot wakeup time.'),
-    quiet_success: z.boolean().optional().describe('Optional create-time quiet-success policy.'),
-    automation_job_id: ModelIntegerID.optional().describe('Optional create-time automation job consumer.'),
-    updates: CheckBackUpdateFields.optional().describe('Required for update; provide at least one changed field.'),
+    quiet_success: z
+      .boolean()
+      .optional()
+      .describe(
+        'Allow finishing without a visible reply when nothing needs attention. Set true only when the user explicitly asked for no update on normal/no-change outcomes; failures, blockers, human decisions, meaningful changes, and time-sensitive risks stay visible.'
+      ),
+    automation_job_id: ModelIntegerID.nullable()
+      .optional()
+      .describe('Optional automation job that consumes this trigger. On update, null detaches it.'),
     limit: z.number().int().positive().max(25).optional().describe('Optional list result limit, at most 25.')
   })
   .superRefine((params, context) => {
@@ -130,16 +140,46 @@ const CheckBackLaterParams = z
     }
   })
 
+/**
+ * Collects the explicitly provided update fields, preserving null as "clear".
+ * Returns undefined when the update carries no field.
+ */
+function checkBackUpdatesFromFlat(params: {
+  reason?: string
+  check?: string
+  context_summary?: string | null
+  schedule?: z.output<typeof CheckBackSchedule>
+  quiet_success?: boolean
+  automation_job_id?: number | null
+}): JSONObject | undefined {
+  const updates: JSONObject = {}
+  if (params.reason !== undefined) updates.reason = params.reason
+  if (params.check !== undefined) updates.check = params.check
+  if (params.context_summary !== undefined) updates.context_summary = params.context_summary
+  if (params.schedule !== undefined) updates.schedule = params.schedule
+  if (params.quiet_success !== undefined) updates.quiet_success = params.quiet_success
+  if (params.automation_job_id !== undefined) updates.automation_job_id = params.automation_job_id
+  return Object.keys(updates).length > 0 ? updates : undefined
+}
+
+const ScheduleOccurrences = z
+  .union([z.object({ count: z.number().int().positive() }).strict(), z.object({ until: z.string().min(1) }).strict()])
+  .describe(
+    'Optional finite bound for the recurrence: count is a budget of due occurrences (a due occurrence spends it whether its delivery then succeeds or fails; retries of one occurrence spend nothing more), until is an inclusive cutoff instant (ISO 8601, or a local wall-clock time resolved in the schedule timezone). Give one or the other, never both. The schedule reports status completed once the bound is spent.'
+  )
+
 const EverySchedule = z.object({
   kind: z.literal('every'),
   every_ms: z.number().int().positive(),
-  anchor_at: z.string()
+  anchor_at: z.string(),
+  occurrences: ScheduleOccurrences.optional()
 })
 
 const CronSchedule = z.object({
   kind: z.literal('cron'),
   expression: z.string().min(1),
-  timezone: z.string().optional()
+  timezone: z.string().optional(),
+  occurrences: ScheduleOccurrences.optional()
 })
 
 const DeliveryParams = z.object({
@@ -198,20 +238,17 @@ function createCheckBackLaterTool(
   return {
     name: 'check_back_later',
     description: [
-      'Manage one-shot delayed self-wakeups for this conversation: create, list, inspect, update, or cancel pending checkbacks.',
-      'Use this tool when the user asks you to wait, remind yourself, follow up later, re-check something after time passes, or changes/revokes an already scheduled checkback.',
-      'Use list/get before update/cancel when you do not know the checkback_id.',
-      'For create provide reason, check, and schedule. For get/update/cancel provide checkback_id; update also requires a non-empty updates object.',
-      'For create/update schedules, use at for a named clock time, market close, deadline, or exact instant; use after only for a genuinely relative delay.',
-      'A conversational correction does not change durable work by itself. Never claim a checkback was created, updated, or cancelled until the corresponding tool action returns a confirmed result.',
-      'Checkbacks are visible by default. Use quiet_success=true only when the user explicitly asked not to be notified for normal or unchanged outcomes.',
+      'Manage one-shot delayed self-wakeups for this conversation (create, list, inspect, update, cancel pending checkbacks).',
+      'Use when asked to wait, remind yourself, follow up later, re-check after time passes, or modify/cancel scheduled checkbacks.',
+      'update only modifies provided fields.',
+      "Conversational corrections alone don't change durable work. Never claim creation, update, or cancellation until tool confirms success.",
       AUTOMATION_JOB_POINTER
     ].join('\n'),
     schema: CheckBackLaterParams,
     executionMode: 'sequential',
     isReadOnly: false,
     isDestructive: false,
-    describeActivity: () => '安排后续工作',
+    describeActivity: () => ({ key: 'signals_gateway.reply.activity.schedule_follow_up' }),
     async execute(toolCallID, params): Promise<AgentToolResult<ScheduleToolDetails>> {
       const operation = CheckBackLaterOperationParams.parse(params)
       const call = opts.requestScheduleRPC
@@ -241,11 +278,13 @@ function createCheckBackLaterTool(
         })
         .with({ action: 'update' }, value => {
           const replyRoute = requiredCheckBackReplyRoute(opts.turnStart)
+          const updates = checkBackUpdatesFromFlat(value)
+          if (!updates) throw new Error('provide at least one checkback update')
           return call(rpcMethods.scheduleCheckBackLaterUpdate, {
             scheduledEventId: modelIntegerIDToWire(value.checkback_id),
             toolCallId: toolCallID,
-            idempotencyKey: defaultCheckBackUpdateIdempotencyKey(opts.turnStart, value),
-            updatesJson: jsonBytes(value.updates),
+            idempotencyKey: defaultCheckBackUpdateIdempotencyKey(opts.turnStart, value.checkback_id, updates),
+            updatesJson: jsonBytes(updates),
             replyRouteJson: jsonBytes(replyRoute)
           })
         })
@@ -281,17 +320,14 @@ function defaultCheckBackIdempotencyKey(turnStart: TurnStart, params: z.output<t
   return `check_back_later:${turnStart.turn.actor_event_id}:${stableHash(stableInput)}`
 }
 
-function defaultCheckBackUpdateIdempotencyKey(
-  turnStart: TurnStart,
-  params: Extract<z.output<typeof CheckBackLaterOperationParams>, { action: 'update' }>
-): string {
+function defaultCheckBackUpdateIdempotencyKey(turnStart: TurnStart, checkbackID: number, updates: JSONObject): string {
   const stableInput = {
     actor_event_id: turnStart.turn.actor_event_id,
-    checkback_id: params.checkback_id,
-    updates: params.updates
+    checkback_id: checkbackID,
+    updates
   }
 
-  return `check_back_later:update:${params.checkback_id}:${turnStart.turn.actor_event_id}:${stableHash(stableInput)}`
+  return `check_back_later:update:${checkbackID}:${turnStart.turn.actor_event_id}:${stableHash(stableInput)}`
 }
 
 /**
@@ -311,7 +347,7 @@ function createCronTool(
     executionMode: 'sequential',
     isReadOnly: cronOrigin,
     isDestructive: false,
-    describeActivity: () => '安排后续工作',
+    describeActivity: () => ({ key: 'signals_gateway.reply.activity.schedule_follow_up' }),
     async execute(toolCallID, params): Promise<AgentToolResult<ScheduleToolDetails>> {
       rejectCronOriginMutation(params, opts.turnStart)
       const call = opts.requestScheduleRPC
@@ -354,9 +390,12 @@ function checkBackEffectPresentation(
         kind: 'effect.receipt',
         payload: {
           phase: 'confirmed',
-          summary: '已安排后续检查',
-          scope: checkBackScheduleScope(params.schedule),
-          follow_up: params.quiet_success === true ? '仅在异常、阻塞或有变化时通知' : '到时会反馈检查结果'
+          summary_key: 'signals_gateway.reply.activity.check_back_created',
+          ...localizedReceiptField('scope', checkBackScheduleScope(params.schedule)),
+          follow_up_key:
+            params.quiet_success === true
+              ? 'signals_gateway.reply.activity.notify_on_change'
+              : 'signals_gateway.reply.activity.report_check_result'
         }
       }
     ]
@@ -368,14 +407,14 @@ function checkBackEffectPresentation(
         kind: 'effect.receipt',
         payload: compactRecord({
           phase: 'confirmed',
-          summary: '已更新后续检查',
+          summary_key: 'signals_gateway.reply.activity.check_back_updated',
           target: params.checkback_id,
-          scope: params.updates.schedule ? checkBackScheduleScope(params.updates.schedule) : undefined,
-          follow_up:
-            params.updates.quiet_success === true
-              ? '仅在异常、阻塞或有变化时通知'
-              : params.updates.quiet_success === false
-                ? '到时会反馈检查结果'
+          ...(params.schedule ? localizedReceiptField('scope', checkBackScheduleScope(params.schedule)) : {}),
+          follow_up_key:
+            params.quiet_success === true
+              ? 'signals_gateway.reply.activity.notify_on_change'
+              : params.quiet_success === false
+                ? 'signals_gateway.reply.activity.report_check_result'
                 : undefined
         })
       }
@@ -388,7 +427,7 @@ function checkBackEffectPresentation(
         kind: 'effect.receipt',
         payload: {
           phase: 'confirmed',
-          summary: '已取消后续检查',
+          summary_key: 'signals_gateway.reply.activity.check_back_cancelled',
           target: params.checkback_id
         }
       }
@@ -398,21 +437,14 @@ function checkBackEffectPresentation(
   return []
 }
 
-function checkBackScheduleScope(schedule: z.output<typeof CheckBackSchedule>): string {
+function checkBackScheduleScope(schedule: z.output<typeof CheckBackSchedule>): LocalizedPresentationText | string {
   if ('at' in schedule) return schedule.timezone ? `${schedule.at} (${schedule.timezone})` : schedule.at
 
   const after = schedule.after
-  const unit =
-    {
-      millisecond: '毫秒',
-      second: '秒',
-      minute: '分钟',
-      hour: '小时',
-      day: '天',
-      week: '周'
-    }[after.unit] ?? after.unit
-
-  return `${after.value} ${unit}后`
+  return {
+    key: `signals_gateway.reply.activity.schedule_after_${after.unit}`,
+    bindings: { value: after.value }
+  }
 }
 
 function requiredCheckBackReplyRoute(turnStart: TurnStart): ReplyRoute {
@@ -427,12 +459,12 @@ function cronEffectPresentation(
   params: z.output<typeof CronParams>
 ): AgentToolResult<ScheduleToolDetails>['presentation'] {
   const summaries: Partial<Record<z.output<typeof CronParams>['action'], string>> = {
-    add: '已创建定期任务',
-    update: '已更新定期任务',
-    pause: '已暂停定期任务',
-    resume: '已恢复定期任务',
-    remove: '已删除定期任务',
-    run: '已启动一次定期任务运行'
+    add: 'signals_gateway.reply.activity.cron_created',
+    update: 'signals_gateway.reply.activity.cron_updated',
+    pause: 'signals_gateway.reply.activity.cron_paused',
+    resume: 'signals_gateway.reply.activity.cron_resumed',
+    remove: 'signals_gateway.reply.activity.cron_removed',
+    run: 'signals_gateway.reply.activity.cron_run_started'
   }
   const summary = summaries[params.action]
 
@@ -443,32 +475,49 @@ function cronEffectPresentation(
       kind: 'effect.receipt',
       payload: compactRecord({
         phase: 'confirmed',
-        summary,
+        summary_key: summary,
         target: params.name?.trim() || undefined,
-        scope: cronScheduleScope(params.schedule),
-        follow_up: params.delivery?.quiet_success === true ? '常规成功时保持安静，异常或变化会通知' : undefined
+        ...localizedReceiptField('scope', cronScheduleScope(params.schedule)),
+        follow_up_key:
+          params.delivery?.quiet_success === true ? 'signals_gateway.reply.activity.quiet_success' : undefined
       })
     }
   ]
 }
 
-function cronScheduleScope(schedule: z.output<typeof EverySchedule> | z.output<typeof CronSchedule> | undefined) {
+function cronScheduleScope(
+  schedule: z.output<typeof EverySchedule> | z.output<typeof CronSchedule> | undefined
+): LocalizedPresentationText | string | undefined {
   if (!schedule) return undefined
-  if (schedule.kind === 'every') return `每 ${humanInterval(schedule.every_ms)}`
+  if (schedule.kind === 'every') return humanInterval(schedule.every_ms)
   return schedule.timezone ? `${schedule.expression} (${schedule.timezone})` : schedule.expression
 }
 
-function humanInterval(milliseconds: number): string {
+function humanInterval(milliseconds: number): LocalizedPresentationText {
   const units = [
-    { milliseconds: 7 * 24 * 60 * 60 * 1000, label: '周' },
-    { milliseconds: 24 * 60 * 60 * 1000, label: '天' },
-    { milliseconds: 60 * 60 * 1000, label: '小时' },
-    { milliseconds: 60 * 1000, label: '分钟' },
-    { milliseconds: 1000, label: '秒' }
+    { milliseconds: 7 * 24 * 60 * 60 * 1000, unit: 'week' },
+    { milliseconds: 24 * 60 * 60 * 1000, unit: 'day' },
+    { milliseconds: 60 * 60 * 1000, unit: 'hour' },
+    { milliseconds: 60 * 1000, unit: 'minute' },
+    { milliseconds: 1000, unit: 'second' }
   ]
 
   const exact = units.find(unit => milliseconds >= unit.milliseconds && milliseconds % unit.milliseconds === 0)
-  return exact ? `${milliseconds / exact.milliseconds} ${exact.label}` : `${milliseconds} 毫秒`
+  return {
+    key: `signals_gateway.reply.activity.schedule_every_${exact?.unit ?? 'millisecond'}`,
+    bindings: { value: exact ? milliseconds / exact.milliseconds : milliseconds }
+  }
+}
+
+type LocalizedPresentationText = { key: string; bindings?: JSONObject }
+
+function localizedReceiptField(field: 'scope', text: LocalizedPresentationText | string | undefined): JSONObject {
+  if (!text) return {}
+  if (typeof text === 'string') return { [field]: text }
+  return {
+    [`${field}_key`]: text.key,
+    ...(text.bindings ? { [`${field}_bindings`]: text.bindings } : {})
+  }
 }
 
 /**

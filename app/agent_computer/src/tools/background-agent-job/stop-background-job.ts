@@ -4,6 +4,7 @@ import { ModelIntegerID, modelIntegerIDFromWire, modelIntegerIDToWire } from '..
 import { jsonToolResult } from '../../core/tool-result'
 import type { TurnStart } from '../../lanes/actor_lane'
 import { rpcMethods, type RPCRequester, type RPCRequestInit } from '../../lanes/rpc_lane'
+import { BackgroundAgentJobStatusSchema, type BackgroundAgentJobStatus } from './status'
 
 const StopBackgroundJobParamsSchema = z
   .object({
@@ -11,18 +12,9 @@ const StopBackgroundJobParamsSchema = z
   })
   .strict()
 
-const BackgroundAgentJobStatusSchema = z.enum([
-  'queued',
-  'running',
-  'waiting_on_user',
-  'succeeded',
-  'failed',
-  'stopped'
-])
-
 type StopBackgroundJobResult = {
   job_id: number
-  status: z.output<typeof BackgroundAgentJobStatusSchema>
+  status: BackgroundAgentJobStatus
 }
 
 export type StopBackgroundJobToolOptions = {
@@ -35,13 +27,12 @@ export function createStopBackgroundJobTool(
 ): AgentTool<typeof StopBackgroundJobParamsSchema, StopBackgroundJobResult> {
   return {
     name: 'stop_background_job',
-    description:
-      'Stop one queued, running, or waiting_on_user background agent job. A terminal background agent job is an idempotent no-op.',
+    description: 'Stop running job. A terminal job is an idempotent no-op.',
     schema: StopBackgroundJobParamsSchema,
     executionMode: 'sequential',
     isReadOnly: false,
     isDestructive: true,
-    describeActivity: () => '停止后台 Agent 任务',
+    describeActivity: () => ({ key: 'signals_gateway.reply.activity.background_job_stop' }),
     async execute(_toolCallID, params) {
       const request: RPCRequestInit<'background_agent_job.stop'> = { jobId: modelIntegerIDToWire(params.job_id) }
       const response = await opts.rpc(rpcMethods.backgroundAgentJobStop, request, { turn: opts.turnStart.turn })

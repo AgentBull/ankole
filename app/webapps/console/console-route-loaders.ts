@@ -177,7 +177,9 @@ export function createConsoleRouteLoaders(queryClient: QueryClient) {
   }
 }
 
-function resourceID(value: string | null): number | undefined {
+/** Parses a route or search parameter into a resource id. Real resource ids
+ * are integers that start at 1000; anything else means "nothing selected". */
+export function resourceID(value: string | null): number | undefined {
   if (!value || !/^[1-9][0-9]*$/.test(value)) return undefined
 
   const parsed = Number(value)

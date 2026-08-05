@@ -19,7 +19,7 @@ describe('lark-approvals wrapper', () => {
     expect(result.exitCode).toBe(0)
     const trace = await readFile(fixture.trace, 'utf8')
     expect(trace).toContain(`--profile ${profile} approval tasks query --params {"topic":"1"} --format json --as user`)
-    expect(trace).toContain('BOT_ENV=||||||||')
+    expect(trace).toContain('BOT_ENV=|||||||||')
     expect(trace).not.toContain('config strict-mode')
     expect(await Bun.file(join(fixture.home, '.lark-cli/.ankole-account.lock')).exists()).toBe(false)
   })
@@ -63,7 +63,7 @@ describe('lark-approvals wrapper', () => {
     expect(trace).toContain(
       `--profile ${profile} api POST /open-apis/approval/v4/files/upload --file content=./invoice.pdf --data {"name":"invoice.pdf","type":"attachment"} --format json --as bot`
     )
-    expect(trace).toContain('BOT_ENV=||||||||')
+    expect(trace).toContain('BOT_ENV=|||||||||')
     expect(await Bun.file(join(fixture.home, '.lark-cli/.ankole-account.lock')).exists()).toBe(false)
   })
 
@@ -90,7 +90,7 @@ async function wrapperFixture(): Promise<{ root: string; home: string; bin: stri
     join(bin, 'lark-cli'),
     `#!/bin/sh
 printf '%s\\n' "$*" >> "$TRACE_FILE"
-printf 'BOT_ENV=%s|%s|%s|%s|%s|%s|%s|%s|%s\\n' \
+printf 'BOT_ENV=%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\\n' \
   "\${LARKSUITE_CLI_APP_ID:-}" \
   "\${LARKSUITE_CLI_APP_SECRET:-}" \
   "\${LARKSUITE_CLI_BRAND:-}" \
@@ -99,7 +99,8 @@ printf 'BOT_ENV=%s|%s|%s|%s|%s|%s|%s|%s|%s\\n' \
   "\${LARKSUITE_CLI_DEFAULT_AS:-}" \
   "\${LARKSUITE_CLI_STRICT_MODE:-}" \
   "\${LARKSUITE_CLI_AUTH_PROXY:-}" \
-  "\${LARKSUITE_CLI_PROXY_KEY:-}" >> "$TRACE_FILE"
+  "\${LARKSUITE_CLI_PROXY_KEY:-}" \
+  "\${ANKOLE_RUNTIME_LARK_TENANT_ACCESS_TOKEN_FILE:-}" >> "$TRACE_FILE"
 case "$*" in
   *"config show"*) exit 0 ;;
 esac
@@ -134,6 +135,7 @@ function runWrapper(
       LARKSUITE_CLI_STRICT_MODE: 'bot',
       LARKSUITE_CLI_AUTH_PROXY: 'http://127.0.0.1:1234',
       LARKSUITE_CLI_PROXY_KEY: 'proxy-key',
+      ANKOLE_RUNTIME_LARK_TENANT_ACCESS_TOKEN_FILE: '/runtime/lark-token',
       ...overrides
     },
     stdout: 'pipe',

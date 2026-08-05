@@ -1,7 +1,7 @@
 import { Buffer } from 'node:buffer'
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { agentHomePaths } from '../../core/agent-home-paths'
+import { agentHomePaths } from '../agent-home-paths'
 import type { CodexRuntimeConfig } from './runtime-config'
 import { CODEX_RUNTIME_CONFIG_TOML_ENV, CODEX_RUNTIME_TOKEN_ENV } from './codex-home-lock'
 
@@ -148,7 +148,17 @@ export function encodeAIGatewayModelBinding(runtime: CodexRuntimeConfig): string
     JSON.stringify({
       selector: runtime.modelProfile.selector,
       provider_options: runtime.modelProfile.providerOptions,
-      supports_parallel_tool_calls: runtime.modelProfile.supportsParallelToolCalls
+      supports_parallel_tool_calls: runtime.modelProfile.supportsParallelToolCalls,
+      input_modalities: runtime.modelProfile.inputModalities,
+      ...(runtime.modelProfile.visionFallback
+        ? {
+            vision_fallback: {
+              selector: runtime.modelProfile.visionFallback.selector,
+              provider_options: runtime.modelProfile.visionFallback.providerOptions,
+              input_modalities: runtime.modelProfile.visionFallback.inputModalities
+            }
+          }
+        : {})
     }),
     'utf8'
   ).toString('base64url')

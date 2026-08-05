@@ -48,6 +48,45 @@ defmodule Ankole.Plugins.MapHelpers do
 
   def presence(_value), do: nil
 
+  @spec required_string(term(), String.t()) ::
+          {:ok, String.t()} | {:error, {:missing, String.t()}}
+  def required_string(map, key) do
+    case optional_text(map, key) do
+      nil -> {:error, {:missing, key}}
+      value -> {:ok, value}
+    end
+  end
+
+  @spec optional_string(term(), String.t(), term()) ::
+          {:ok, term()} | {:error, {:invalid_string, String.t()}}
+  def optional_string(map, key, default) do
+    case fetch_value(map, key) do
+      nil -> {:ok, default}
+      value when is_binary(value) -> {:ok, presence(value) || default}
+      _value -> {:error, {:invalid_string, key}}
+    end
+  end
+
+  @spec optional_boolean(term(), String.t(), term()) ::
+          {:ok, term()} | {:error, {:invalid_boolean, String.t()}}
+  def optional_boolean(map, key, default) do
+    case fetch_value(map, key) do
+      value when is_boolean(value) -> {:ok, value}
+      nil -> {:ok, default}
+      _value -> {:error, {:invalid_boolean, key}}
+    end
+  end
+
+  @spec integer_between(term(), String.t(), term(), integer(), integer()) ::
+          {:ok, term()} | {:error, {:invalid_integer_range, String.t(), integer(), integer()}}
+  def integer_between(map, key, default, min, max) do
+    case fetch_value(map, key) do
+      value when is_integer(value) and value >= min and value <= max -> {:ok, value}
+      nil -> {:ok, default}
+      _value -> {:error, {:invalid_integer_range, key, min, max}}
+    end
+  end
+
   @spec compact_map(map()) :: map()
   def compact_map(map), do: Map.reject(map, fn {_key, value} -> is_nil(value) end)
 

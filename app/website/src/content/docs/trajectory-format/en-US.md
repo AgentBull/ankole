@@ -51,6 +51,7 @@ The model does not see the stored rows. `modelVisibleTrajectory` in the worker p
 - **Strips stored protocol identities** — internal message ids, wire-protocol fields, anything the model should not act on.
 - **Replaces tool-call ids with turn-local aliases** — `call_1`, `call_2`, and so on. The model sees which tool result belongs to which tool call (the only useful relationship), without the internal UUIDs that wire them.
 - **Preserves content and role** — the actual messages, the tool calls and their results, in the order they happened.
+- **Preserves bounded-content facts** — trajectory-level `metadata.redacted` and `metadata.content_truncated` stay visible. The control-plane projection sets `content_truncated` when it must reduce selected message content to meet its page limit.
 
 The moduledoc is explicit: "Turn-local call aliases preserve the only useful relationship: which tool result belongs to which tool call." Everything else the storage row carries is for the system, not the model.
 

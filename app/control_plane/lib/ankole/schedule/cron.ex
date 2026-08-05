@@ -74,7 +74,7 @@ defmodule Ankole.Schedule.Cron do
 
     Repo.transact(fn repo ->
       with %CronSchedule{} = schedule <- Store.lock_cron_schedule(repo, cron_schedule_id),
-           :ok <- Store.reject_deleted(schedule),
+           :ok <- Store.reject_terminal(schedule),
            {:ok, attrs} <- Normalizer.cron_schedule_update_attrs(schedule, attrs, now, opts),
            :ok <-
              validate_updated_automation_job(repo, schedule, attrs, now),
@@ -100,7 +100,7 @@ defmodule Ankole.Schedule.Cron do
 
     Repo.transact(fn repo ->
       with %CronSchedule{} = schedule <- Store.lock_cron_schedule(repo, cron_schedule_id),
-           :ok <- Store.reject_deleted(schedule),
+           :ok <- Store.reject_terminal(schedule),
            {:ok, schedule} <- put_schedule_status(repo, schedule, "paused"),
            {:ok, schedule} <- sync_next_event_in_tx(repo, schedule, nil, now, opts) do
         {:ok, schedule}
@@ -120,17 +120,25 @@ defmodule Ankole.Schedule.Cron do
       case Store.lock_cron_schedule(repo, cron_schedule_id) do
         %CronSchedule{status: "paused"} = schedule ->
           with {:ok, next_fire_at} <-
-                 Planner.next_fire_after(schedule.schedule, schedule.timezone, now),
-               {:ok, schedule} <- put_schedule_status(repo, schedule, "active"),
-               {:ok, schedule} <-
-                 sync_next_event_in_tx(repo, schedule, next_fire_at, now, opts) do
-            {:ok, schedule}
+                 Planner.next_fire_after(schedule.schedule, schedule.timezone, now) do
+            # A bound that ran out while the schedule was paused makes resume
+            # complete it: that is the schedule's true state, not an error.
+            if bound_spent?(repo, schedule, next_fire_at) do
+              complete_schedule_in_tx(repo, schedule, now, opts)
+            else
+              with {:ok, schedule} <- put_schedule_status(repo, schedule, "active") do
+                sync_next_event_in_tx(repo, schedule, next_fire_at, now, opts)
+              end
+            end
           end
 
         %CronSchedule{status: "active"} = schedule ->
           with :ok <- assert_recurring_invariant_in_tx(repo, schedule) do
             {:ok, schedule}
           end
+
+        %CronSchedule{status: "completed"} ->
+          {:error, :cron_schedule_completed}
 
         %CronSchedule{status: "deleted"} ->
           {:error, :cron_schedule_deleted}
@@ -167,7 +175,7 @@ defmodule Ankole.Schedule.Cron do
 
     Repo.transact(fn repo ->
       with %CronSchedule{} = schedule <- Store.lock_cron_schedule(repo, cron_schedule_id),
-           :ok <- Store.reject_deleted(schedule),
+           :ok <- Store.reject_terminal(schedule),
            {:ok, request_id} <- manual_request_id(opts),
            {:ok, result} <- arm_manual_cron_fire_in_tx(repo, schedule, request_id, now, opts) do
         {:ok, result}
@@ -207,10 +215,8 @@ defmodule Ankole.Schedule.Cron do
              {:ok, schedule} <-
                schedule
                |> CronSchedule.changeset(%{last_fire_at: event.cron_fire_slot_at})
-               |> repo.update(),
-             {:ok, schedule} <-
-               sync_next_event_in_tx(repo, schedule, next_fire_at, now, opts) do
-          {:ok, schedule}
+               |> repo.update() do
+          advance_within_bound(repo, schedule, next_fire_at, now, opts)
         end
     end
   end
@@ -234,7 +240,7 @@ defmodule Ankole.Schedule.Cron do
       "scheduled" ->
         with {:ok, next_fire_at} <-
                Planner.next_fire_after(schedule.schedule, schedule.timezone, now) do
-          sync_next_event_in_tx(repo, schedule, next_fire_at, now, opts)
+          advance_within_bound(repo, schedule, next_fire_at, now, opts)
         end
 
       "manual" ->
@@ -250,6 +256,40 @@ defmodule Ankole.Schedule.Cron do
         _opts
       ),
       do: {:ok, schedule}
+
+  # Arms the next slot, or completes the schedule when the occurrence bound is
+  # spent. The bound counts due slots, so the check runs after the current
+  # slot's event row reached a consumed status.
+  defp advance_within_bound(
+         repo,
+         %CronSchedule{} = schedule,
+         %DateTime{} = next_fire_at,
+         now,
+         opts
+       ) do
+    if bound_spent?(repo, schedule, next_fire_at) do
+      complete_schedule_in_tx(repo, schedule, now, opts)
+    else
+      sync_next_event_in_tx(repo, schedule, next_fire_at, now, opts)
+    end
+  end
+
+  # Whether the recurrence must not arm the next slot: the count budget is used
+  # up by consumed slots, or the next occurrence falls past the inclusive
+  # cutoff. Unbounded schedules never spend out.
+  defp bound_spent?(repo, %CronSchedule{} = schedule, %DateTime{} = next_fire_at) do
+    case Planner.occurrences_bound(schedule.schedule) do
+      {:count, count} -> Store.count_consumed_cron_slots(repo, schedule.id) >= count
+      {:until, until} -> DateTime.compare(next_fire_at, until) == :gt
+      nil -> false
+    end
+  end
+
+  defp complete_schedule_in_tx(repo, schedule, now, opts) do
+    with {:ok, schedule} <- put_schedule_status(repo, schedule, "completed") do
+      sync_next_event_in_tx(repo, schedule, nil, now, opts)
+    end
+  end
 
   @spec sync_next_event_in_tx(
           module(),
@@ -289,7 +329,7 @@ defmodule Ankole.Schedule.Cron do
           do: :ok,
           else: {:error, :cron_schedule_invariant_broken}
 
-      {status, nil, []} when status in ["paused", "deleted"] ->
+      {status, nil, []} when status in ["paused", "deleted", "completed"] ->
         :ok
 
       _state ->
@@ -324,9 +364,11 @@ defmodule Ankole.Schedule.Cron do
         sync_next_event_in_tx(repo, schedule, slot_at, now, opts)
 
       [] ->
+        # Reconcile heals an active schedule with no armed slot; a spent bound
+        # means the correct healed state is completed, not a new slot.
         with {:ok, next_fire_at} <-
                Planner.next_fire_after(schedule.schedule, schedule.timezone, now) do
-          sync_next_event_in_tx(repo, schedule, next_fire_at, now, opts)
+          advance_within_bound(repo, schedule, next_fire_at, now, opts)
         end
 
       events ->
@@ -347,7 +389,13 @@ defmodule Ankole.Schedule.Cron do
        ) do
     with {:ok, next_fire_at} <-
            Planner.next_fire_after(schedule.schedule, schedule.timezone, now) do
-      sync_next_event_in_tx(repo, schedule, next_fire_at, now, opts)
+      # An update that leaves no occurrence to run is a caller error: the new
+      # bound is below the already-consumed slots or before the next fire.
+      if bound_spent?(repo, schedule, next_fire_at) do
+        {:error, :schedule_occurrences_exhausted}
+      else
+        sync_next_event_in_tx(repo, schedule, next_fire_at, now, opts)
+      end
     end
   end
 

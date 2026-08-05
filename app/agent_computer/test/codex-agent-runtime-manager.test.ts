@@ -4,11 +4,11 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, wr
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { AgentPluginCatalogEntrySchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
-import type { CodexAppServerClient, JSONRPCMessage } from '../src/tools/codex/app-server-client'
-import type { CodexAppServerSandboxSpec } from '../src/tools/codex/sandbox'
+import type { CodexAppServerClient, JSONRPCMessage } from '../src/core/codex-runner/app-server-client'
+import type { CodexAppServerSandboxSpec } from '../src/core/codex-runner/sandbox'
 import { prepareAgentPlugins } from '../src/core/codex-runner/agent-plugin-materializer'
-import { codexAIGatewayTokenPath } from '../src/tools/codex/config'
-import { codexHomeLockedCommandArgv } from '../src/tools/codex/codex-home-lock'
+import { codexAIGatewayTokenPath } from '../src/core/codex-runner/agent-home-config'
+import { codexHomeLockedCommandArgv } from '../src/core/codex-runner/codex-home-lock'
 import {
   AgentCodexRuntime,
   AgentCodexRuntimeManager,
@@ -172,9 +172,9 @@ describe('@ankole/agent-computer Agent Codex runtime manager', () => {
       const firstSession = session()
       const secondSession = session()
       const thirdSession = session()
-      first.runtime.registerRoot('thread-1', firstSession)
-      second.runtime.registerRoot('thread-2', secondSession)
-      third.runtime.registerRoot('thread-3', thirdSession)
+      await first.runtime.registerRoot('thread-1', firstSession)
+      await second.runtime.registerRoot('thread-2', secondSession)
+      await third.runtime.registerRoot('thread-3', thirdSession)
 
       await first.runtime.cleanupSession(firstSession)
       await first.release()
@@ -341,8 +341,8 @@ describe('@ankole/agent-computer Agent Codex thread router', () => {
     const second = session()
 
     runtime.routeNotification({ method: 'mcpServer/startupStatus/updated', params: { threadId: 'root-1' } })
-    runtime.registerRoot('root-1', first)
-    runtime.registerRoot('root-2', second)
+    await runtime.registerRoot('root-1', first)
+    await runtime.registerRoot('root-2', second)
     expect(first.notifications.map(message => message.method)).toEqual(['mcpServer/startupStatus/updated'])
 
     runtime.routeNotification({
@@ -415,7 +415,7 @@ describe('@ankole/agent-computer Agent Codex thread router', () => {
     } as unknown as CodexAppServerClient
     const runtime = new AgentCodexRuntime('agent-1', fakeClient)
     const owner = session()
-    runtime.registerRoot('root-1', owner)
+    await runtime.registerRoot('root-1', owner)
 
     await runtime.cleanupSession(owner)
 
@@ -441,7 +441,7 @@ describe('@ankole/agent-computer Agent Codex thread router', () => {
     } as unknown as CodexAppServerClient
     const runtime = new AgentCodexRuntime('agent-1', fakeClient)
     const owner = session()
-    runtime.registerRoot('root-1', owner)
+    await runtime.registerRoot('root-1', owner)
     await runtime.cleanupSession(owner)
     calls.length = 0
 
@@ -460,6 +460,108 @@ describe('@ankole/agent-computer Agent Codex thread router', () => {
         calls.some(call => call.method === 'thread/unsubscribe' && call.params.threadId === 'late-child')
     )
     expect(owner.notifications).toEqual([])
+  })
+
+  it('reclaims a retired durable root for a later Job session', async () => {
+    const calls: string[] = []
+    const fakeClient = {
+      async request(method: string, params: Record<string, unknown>) {
+        calls.push(`${method}:${params.threadId ?? ''}`)
+        if (method === 'thread/backgroundTerminals/list') return { data: [], nextCursor: null }
+        return {}
+      },
+      async closeAndWait() {}
+    } as unknown as CodexAppServerClient
+    const runtime = new AgentCodexRuntime('agent-1', fakeClient)
+    const first = session()
+    const resumed = session()
+
+    await runtime.registerRoot('durable-root', first)
+    await runtime.cleanupSession(first)
+    calls.length = 0
+
+    await runtime.resumeRoot('durable-root', resumed, async () => {
+      calls.push('resume:durable-root')
+    })
+    runtime.routeNotification({
+      method: 'turn/completed',
+      params: { threadId: 'durable-root', turn: { id: 'resumed-turn' } }
+    })
+
+    expect(calls).toEqual(['resume:durable-root'])
+    expect(resumed.notifications.map(message => message.method)).toEqual(['turn/completed'])
+  })
+
+  it('serializes a later resume behind overlapping cleanup of the prior owner', async () => {
+    const calls: string[] = []
+    let releaseCleanup = (): void => undefined
+    const cleanupReleased = new Promise<void>(resolve => {
+      releaseCleanup = resolve
+    })
+    let cleanupStarted = false
+    const fakeClient = {
+      async request(method: string, params: Record<string, unknown>) {
+        calls.push(`${method}:${params.threadId ?? ''}`)
+        if (method === 'thread/backgroundTerminals/list') {
+          cleanupStarted = true
+          await cleanupReleased
+          return { data: [], nextCursor: null }
+        }
+        return {}
+      },
+      async closeAndWait() {}
+    } as unknown as CodexAppServerClient
+    const runtime = new AgentCodexRuntime('agent-1', fakeClient)
+    const first = session()
+    const resumed = session()
+    await runtime.registerRoot('durable-root', first)
+
+    const cleanup = runtime.cleanupSession(first)
+    await waitUntil(() => cleanupStarted)
+    let resumeStarted = false
+    const resume = runtime.resumeRoot('durable-root', resumed, async () => {
+      resumeStarted = true
+    })
+    await Promise.resolve()
+    expect(resumeStarted).toBe(false)
+
+    releaseCleanup()
+    await Promise.all([cleanup, resume])
+    runtime.routeNotification({ method: 'turn/started', params: { threadId: 'durable-root', turn: { id: 'next' } } })
+
+    expect(resumeStarted).toBe(true)
+    expect(resumed.notifications.at(-1)?.method).toBe('turn/started')
+  })
+
+  it('keeps a failed resume tombstone reclaimable by a later attempt', async () => {
+    const fakeClient = {
+      async request(method: string) {
+        if (method === 'thread/backgroundTerminals/list') return { data: [], nextCursor: null }
+        return {}
+      },
+      async closeAndWait() {}
+    } as unknown as CodexAppServerClient
+    const runtime = new AgentCodexRuntime('agent-1', fakeClient)
+    const first = session()
+    const failed = session()
+    const resumed = session()
+    await runtime.registerRoot('durable-root', first)
+    await runtime.cleanupSession(first)
+
+    await expect(
+      runtime.resumeRoot('durable-root', failed, async () => {
+        throw new Error('temporary resume failure')
+      })
+    ).rejects.toThrow('temporary resume failure')
+
+    await runtime.resumeRoot('durable-root', resumed, async () => undefined)
+    runtime.routeNotification({
+      method: 'turn/completed',
+      params: { threadId: 'durable-root', turn: { id: 'recovered' } }
+    })
+
+    expect(failed.notifications).toEqual([])
+    expect(resumed.notifications.at(-1)?.method).toBe('turn/completed')
   })
 })
 

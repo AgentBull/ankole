@@ -23,9 +23,72 @@ defmodule Ankole.Kernel.UniversalAIClient do
             }
   end
 
+  defmodule Ready do
+    @moduledoc "Upstream accepted the request; `meta` carries response facts."
+    @enforce_keys [:ref, :meta]
+    defstruct [:ref, :meta]
+  end
+
+  defmodule Chunk do
+    @moduledoc "One downstream-ready payload chunk in stream order."
+    @enforce_keys [:ref, :sequence, :kind, :payload]
+    defstruct [:ref, :sequence, :kind, :payload]
+  end
+
+  defmodule Done do
+    @moduledoc "The upstream closed after a complete response."
+    @enforce_keys [:ref, :summary]
+    defstruct [:ref, :summary]
+  end
+
+  defmodule StreamError do
+    @moduledoc "The stream failed; `reason` is the normalized error map."
+    @enforce_keys [:ref, :reason]
+    defstruct [:ref, :reason]
+  end
+
+  defmodule Aborted do
+    @moduledoc "The stream ended through cancel."
+    @enforce_keys [:ref]
+    defstruct [:ref]
+  end
+
   @type stream :: Stream.t()
+  @type stream_event ::
+          %Ready{} | %Chunk{} | %Done{} | %StreamError{} | %Aborted{}
   @type error :: map() | String.t()
   @type open_opts :: [receiver: pid()]
+
+  @doc """
+  Returns whether a raw mailbox message belongs to a native stream.
+  """
+  defguard is_stream_message(message)
+           when is_tuple(message) and tuple_size(message) >= 3 and
+                  elem(message, 0) == :universal_ai_client
+
+  @doc """
+  Translates one raw native stream message into its typed event.
+
+  This function is the only Elixir reader of the native tuple shapes, so
+  domain processes match on the typed events instead of wire atoms. A message
+  this clause head does not know raises, because the native kernel is the only
+  sender and an unknown shape means the seam changed on one side only.
+  """
+  @spec stream_event(tuple()) :: stream_event()
+  def stream_event({:universal_ai_client, ref, :ready, meta}), do: %Ready{ref: ref, meta: meta}
+
+  def stream_event({:universal_ai_client, ref, :chunk, sequence, kind, payload})
+      when kind in [:sse, :websocket_text] do
+    %Chunk{ref: ref, sequence: sequence, kind: kind, payload: payload}
+  end
+
+  def stream_event({:universal_ai_client, ref, :done, summary}),
+    do: %Done{ref: ref, summary: summary}
+
+  def stream_event({:universal_ai_client, ref, :error, reason}),
+    do: %StreamError{ref: ref, reason: reason}
+
+  def stream_event({:universal_ai_client, ref, :aborted}), do: %Aborted{ref: ref}
 
   @spec model_request(map(), keyword()) :: {:ok, map()} | {:error, error()}
   def model_request(spec, _opts \\ []) when is_map(spec) do

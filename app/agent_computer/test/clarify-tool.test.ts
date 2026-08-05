@@ -3,47 +3,12 @@ import { z } from 'zod'
 import { createClarifyTool } from '../src/tools/clarify/clarify-tool'
 
 describe('@ankole/agent-computer clarify tool', () => {
-  it('publishes the clarification policy in the model-visible tool contract', () => {
+  it('publishes the clarification schema', () => {
     const tool = createClarifyTool()
 
-    expect(tool.description).toBe(
-      [
-        'Ask the user one question only when the answer is necessary to choose the intended result or next action.',
-        'Use the request and prior conversation before asking. Do not ask about a preference the user already gave or when a safe low-risk default is available.',
-        'For post-task feedback, ask only when the answer will decide whether to accept, revise, or continue the work.',
-        'On success it returns the normalized question and choices, records them durably, and ends the current turn. Do not emit another answer or call more tools; the user reply arrives as the next user message.'
-      ].join('\n')
-    )
-    expect(z.toJSONSchema(tool.schema)).toMatchObject({
-      properties: {
-        question: {
-          description: 'One self-contained question with only the context needed to answer it.'
-        },
-        choices: {
-          minItems: 2,
-          maxItems: 4,
-          description:
-            'Two to four materially different choices. Omit this field for an open-ended question. Include a no-action choice when the user may decline the action.',
-          items: {
-            anyOf: [
-              {
-                description: 'A short label that identifies the choice without rereading the question.'
-              },
-              {
-                properties: {
-                  label: {
-                    description: 'A short label that identifies the choice without rereading the question.'
-                  },
-                  description: {
-                    description: 'The result or tradeoff of selecting this choice.'
-                  }
-                }
-              }
-            ]
-          }
-        }
-      }
-    })
+    const schema = z.toJSONSchema(tool.schema) as { properties: Record<string, Record<string, unknown>> }
+    expect(schema.properties.question).toBeDefined()
+    expect(schema.properties.choices).toMatchObject({ minItems: 2, maxItems: 4 })
   })
 
   it('returns schema-defined choices and declares the turn-ending contract', async () => {

@@ -4,35 +4,34 @@ import { ModelIntegerID, modelIntegerIDFromWire, modelIntegerIDToWire } from '..
 import { jsonObjectFromBytes } from '../../fabric/envelope_proto'
 import type { TurnStart } from '../../lanes/actor_lane'
 import { rpcMethods, type RPCRequester, type RPCRequestInit } from '../../lanes/rpc_lane'
-import { modelVisibleTrajectory } from './model-trajectory'
+import {
+  BackgroundAgentJobTrajectorySchema,
+  modelVisibleTrajectory,
+  type BackgroundAgentJobTrajectory
+} from './model-trajectory'
+import { BackgroundAgentJobStatusSchema, type BackgroundAgentJobStatus } from './status'
 
 const POLL_INTERVAL_MS = 1_000
+const DEFAULT_WAIT_TIMEOUT_MS = 30_000
+const MIN_WAIT_TIMEOUT_MS = 10_000
+const MAX_WAIT_TIMEOUT_MS = 150_000
 
 const SendMessageToBackgroundJobParamsSchema = z
   .object({
     job_id: ModelIntegerID.describe('Background agent job id.'),
     message: z.string().min(1).describe('Message to send to the background agent job.'),
-    wait_reply: z.boolean().describe('Wait for the Codex Turn that receives this message.').default(true)
+    wait_reply: z.boolean().describe('Wait for the Codex Turn that receives this message.').default(true),
+    wait_timeout_ms: z
+      .number()
+      .int()
+      .min(MIN_WAIT_TIMEOUT_MS)
+      .max(MAX_WAIT_TIMEOUT_MS)
+      .describe('Foreground observation window in milliseconds. The background job keeps running after it expires.')
+      .default(DEFAULT_WAIT_TIMEOUT_MS)
   })
   .strict()
 
-const BackgroundAgentJobStatusSchema = z.enum([
-  'queued',
-  'running',
-  'waiting_on_user',
-  'succeeded',
-  'failed',
-  'stopped'
-])
-
-const TurnTrajectorySchema = z.object({
-  format: z.literal('ankole_chatml'),
-  version: z.literal(1),
-  messages: z.array(z.record(z.string(), z.unknown()))
-})
-
-type BackgroundAgentJobStatus = z.output<typeof BackgroundAgentJobStatusSchema>
-type TurnTrajectory = z.output<typeof TurnTrajectorySchema>
+type WaitOutcome = 'reply_ready' | 'timed_out' | 'steered'
 
 type SendMessageToBackgroundJobResult =
   | {
@@ -42,14 +41,25 @@ type SendMessageToBackgroundJobResult =
   | {
       job_id: number
       status: BackgroundAgentJobStatus
-      last_turn_trajectory: TurnTrajectory
+      last_turn_trajectory: BackgroundAgentJobTrajectory
       earlier_trajectory_omitted: boolean
       continues_running: boolean
+      reply_ready: true
+      wait_outcome: 'reply_ready'
+    }
+  | {
+      job_id: number
+      status: BackgroundAgentJobStatus
+      continues_running: boolean
+      reply_ready: false
+      wait_outcome: Exclude<WaitOutcome, 'reply_ready'>
     }
 
 export type SendMessageToBackgroundJobToolOptions = {
   turnStart: TurnStart
   rpc: RPCRequester
+  waitForSteering?: (signal?: AbortSignal) => Promise<void>
+  now?: () => number
 }
 
 export function createSendMessageToBackgroundJobTool(
@@ -58,18 +68,32 @@ export function createSendMessageToBackgroundJobTool(
   return {
     name: 'send_message_to_background_job',
     description: [
-      'Send one message to a running background agent job or answer one that is waiting_on_user.',
-      'wait_reply defaults to true and waits for the exact Codex Turn that receives this message.',
-      'Use wait_reply=false only when the Turn result is not needed now.'
+      'Send a message to a running job or answer one waiting_on_user.',
+      'wait_reply (default: true) observes the exact background Turn for up to wait_timeout_ms (default: 30s).',
+      'timeout only ends foreground observation while the Job keeps running.',
+      'set wait_reply=false if the Turn result is not needed immediately.'
     ].join(' '),
     schema: SendMessageToBackgroundJobParamsSchema,
     executionMode: 'sequential',
     isReadOnly: false,
     isDestructive: false,
     describeActivity: params =>
-      params.wait_reply ? '向后台 Agent 任务发送消息并等待回应中...' : '向后台 Agent 任务发送消息',
-    describeCompletedActivity: params =>
-      params.wait_reply ? '已收到后台 Agent 任务回应' : '已向后台 Agent 任务发送消息',
+      params.wait_reply
+        ? {
+            key: 'signals_gateway.reply.activity.background_job_wait',
+            bindings: { job: params.job_id, seconds: formatWaitSeconds(params.wait_timeout_ms) }
+          }
+        : { key: 'signals_gateway.reply.activity.background_job_send' },
+    describeCompletedActivity: (params, details) => {
+      if (!params.wait_reply) return { key: 'signals_gateway.reply.activity.background_job_sent' }
+      if ('wait_outcome' in details && details.wait_outcome === 'timed_out') {
+        return { key: 'signals_gateway.reply.activity.background_job_async' }
+      }
+      if ('wait_outcome' in details && details.wait_outcome === 'steered') {
+        return { key: 'signals_gateway.reply.activity.background_job_steered' }
+      }
+      return { key: 'signals_gateway.reply.activity.background_job_replied' }
+    },
     async execute(toolCallID, params, signal): Promise<AgentToolResult<SendMessageToBackgroundJobResult>> {
       const sendRequest: RPCRequestInit<'background_agent_job.message.send'> = {
         jobId: modelIntegerIDToWire(params.job_id),
@@ -95,74 +119,203 @@ export function createSendMessageToBackgroundJobTool(
         }
       }
 
-      while (true) {
-        throwIfAborted(signal)
-        const resultRequest: RPCRequestInit<'background_agent_job.message.result'> = {
-          jobId: sent.jobId,
-          commandEventId: sent.commandEventId
-        }
-        const response = await opts.rpc(rpcMethods.backgroundAgentJobMessageResult, resultRequest, {
-          turn: opts.turnStart.turn
-        })
+      const now = opts.now ?? Date.now
+      const deadlineAt = now() + params.wait_timeout_ms
+      const gate = createObservationGate(deadlineAt, now, opts.waitForSteering, signal)
+      let lastStatus = sentStatus
 
-        if (response.ready) {
-          const status = BackgroundAgentJobStatusSchema.parse(response.status)
-          const trajectory = modelVisibleTrajectory(
-            TurnTrajectorySchema.parse(
-              jsonObjectFromBytes(
-                response.lastTurnTrajectoryJson,
-                'background_agent_job.message.result.last_turn_trajectory_json'
+      try {
+        while (true) {
+          const resultRequest: RPCRequestInit<'background_agent_job.message.result'> = {
+            jobId: sent.jobId,
+            commandEventId: sent.commandEventId
+          }
+          const observed = await Promise.race([
+            opts
+              .rpc(rpcMethods.backgroundAgentJobMessageResult, resultRequest, {
+                turn: opts.turnStart.turn
+              })
+              .then(response => ({ kind: 'response' as const, response })),
+            gate.outcome
+          ])
+
+          if (observed.kind !== 'response') {
+            return interruptedWaitResult(observed, sent.jobId, lastStatus)
+          }
+
+          const response = observed.response
+          lastStatus = BackgroundAgentJobStatusSchema.parse(response.status)
+
+          if (response.ready) {
+            const trajectory = modelVisibleTrajectory(
+              BackgroundAgentJobTrajectorySchema.parse(
+                jsonObjectFromBytes(
+                  response.lastTurnTrajectoryJson,
+                  'background_agent_job.message.result.last_turn_trajectory_json'
+                )
               )
             )
-          )
-          const continuesRunning = status === 'running'
-          const details = {
-            job_id: modelIntegerIDFromWire(response.jobId, 'background agent job id'),
-            status,
-            last_turn_trajectory: trajectory,
-            earlier_trajectory_omitted: response.earlierTrajectoryOmitted,
-            continues_running: continuesRunning
-          }
-          const lines = [`Last turn trajectory:\n${JSON.stringify(trajectory)}`]
-          if (response.earlierTrajectoryOmitted) lines.push('Earlier trajectory items were omitted.')
-          if (continuesRunning) lines.push('The job continues to run in the background.')
+            const continuesRunning = lastStatus === 'running'
+            const details = {
+              job_id: modelIntegerIDFromWire(response.jobId, 'background agent job id'),
+              status: lastStatus,
+              last_turn_trajectory: trajectory,
+              earlier_trajectory_omitted: response.earlierTrajectoryOmitted,
+              continues_running: continuesRunning,
+              reply_ready: true as const,
+              wait_outcome: 'reply_ready' as const
+            }
+            const lines = [`Last turn trajectory:\n${JSON.stringify(trajectory)}`]
+            if (response.earlierTrajectoryOmitted) lines.push('Earlier trajectory items were omitted.')
+            if (continuesRunning) lines.push('The job continues to run in the background.')
 
-          return {
-            content: [{ type: 'text', text: lines.join('\n') }],
-            details,
-            ...(response.lifecycleActorEventId ? { completeActorEventIDs: [response.lifecycleActorEventId] } : {})
+            return {
+              content: [{ type: 'text', text: lines.join('\n') }],
+              details,
+              ...(response.lifecycleActorEventId ? { completeActorEventIDs: [response.lifecycleActorEventId] } : {})
+            }
+          }
+
+          if (now() >= deadlineAt) {
+            return interruptedWaitResult({ kind: 'timed_out' }, sent.jobId, lastStatus)
+          }
+
+          const delayed = await pollOrObservationGate(gate, POLL_INTERVAL_MS)
+          if (delayed.kind !== 'poll') {
+            return interruptedWaitResult(delayed, sent.jobId, lastStatus)
           }
         }
-
-        await pollDelay(signal)
+      } finally {
+        gate.close()
       }
     }
   }
 }
 
-function pollDelay(signal?: AbortSignal): Promise<void> {
-  if (signal?.aborted) return Promise.reject(abortError(signal))
+type ObservationOutcome =
+  | { kind: 'timed_out' }
+  | { kind: 'steered' }
+  | { kind: 'aborted'; error: Error }
+  | { kind: 'failed'; error: Error }
+  | { kind: 'closed' }
 
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(done, POLL_INTERVAL_MS)
-
-    function done(): void {
-      signal?.removeEventListener('abort', aborted)
-      resolve()
-    }
-
-    function aborted(): void {
-      clearTimeout(timer)
-      signal?.removeEventListener('abort', aborted)
-      reject(abortError(signal))
-    }
-
-    signal?.addEventListener('abort', aborted, { once: true })
-  })
+type ObservationGate = {
+  outcome: Promise<ObservationOutcome>
+  close: () => void
 }
 
-function throwIfAborted(signal?: AbortSignal): void {
-  if (signal?.aborted) throw abortError(signal)
+function createObservationGate(
+  deadlineAt: number,
+  now: () => number,
+  waitForSteering: ((signal?: AbortSignal) => Promise<void>) | undefined,
+  signal?: AbortSignal
+): ObservationGate {
+  const steeringAbort = new AbortController()
+  let settled = false
+  // oxlint-disable-next-line prefer-const
+  let deadlineTimer: ReturnType<typeof setTimeout> | undefined
+  let settle!: (outcome: ObservationOutcome) => void
+  const outcome = new Promise<ObservationOutcome>(resolve => {
+    settle = value => {
+      if (settled) return
+      settled = true
+      if (deadlineTimer) clearTimeout(deadlineTimer)
+      signal?.removeEventListener('abort', aborted)
+      steeringAbort.abort()
+      resolve(value)
+    }
+  })
+  deadlineTimer = setTimeout(() => settle({ kind: 'timed_out' }), Math.max(deadlineAt - now(), 0))
+  deadlineTimer.unref?.()
+
+  function aborted(): void {
+    settle({ kind: 'aborted', error: abortError(signal) })
+  }
+
+  if (signal?.aborted) {
+    aborted()
+  } else {
+    signal?.addEventListener('abort', aborted, { once: true })
+  }
+
+  if (waitForSteering) {
+    void waitForSteering(steeringAbort.signal).then(
+      () => settle({ kind: 'steered' }),
+      error => {
+        if (!steeringAbort.signal.aborted) {
+          settle({ kind: 'failed', error: error instanceof Error ? error : new Error(String(error)) })
+        }
+      }
+    )
+  }
+
+  return {
+    outcome,
+    close: () => settle({ kind: 'closed' })
+  }
+}
+
+async function pollOrObservationGate(
+  gate: ObservationGate,
+  intervalMs: number
+): Promise<{ kind: 'poll' } | ObservationOutcome> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      new Promise<{ kind: 'poll' }>(resolve => {
+        timer = setTimeout(() => resolve({ kind: 'poll' }), intervalMs)
+        timer.unref?.()
+      }),
+      gate.outcome
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
+function interruptedWaitResult(
+  outcome: ObservationOutcome,
+  jobIDWire: string,
+  status: BackgroundAgentJobStatus
+): AgentToolResult<SendMessageToBackgroundJobResult> {
+  if (outcome.kind === 'aborted' || outcome.kind === 'failed') throw outcome.error
+  if (outcome.kind === 'closed') throw new Error('Background job observation closed before producing a result')
+
+  const jobID = modelIntegerIDFromWire(jobIDWire, 'background agent job id')
+  const continuesRunning = !isTerminalStatus(status)
+  const waitOutcome = outcome.kind
+  const reason =
+    waitOutcome === 'steered' ? 'new user steering is pending' : 'the foreground observation window expired'
+  const details = {
+    job_id: jobID,
+    status,
+    continues_running: continuesRunning,
+    reply_ready: false as const,
+    wait_outcome: waitOutcome
+  }
+
+  return {
+    content: [
+      {
+        type: 'text',
+        text: [
+          `Stopped waiting for background job ${jobID} because ${reason}.`,
+          `Current job status: ${status}.`,
+          'The message was already delivered; do not resend it.',
+          ...(continuesRunning ? ['The job continues to run in the background.'] : [])
+        ].join('\n')
+      }
+    ],
+    details
+  }
+}
+
+function formatWaitSeconds(timeoutMs: number): number {
+  return timeoutMs / 1_000
+}
+
+function isTerminalStatus(status: BackgroundAgentJobStatus): boolean {
+  return status === 'succeeded' || status === 'failed' || status === 'stopped'
 }
 
 function abortError(signal?: AbortSignal): Error {

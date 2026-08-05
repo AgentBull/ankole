@@ -1,17 +1,17 @@
 # Bot runtime contract
 
-Ankole injects the app ID and tenant token derived from this Agent's available Lark signal binding.
+Ankole injects the app ID and a refreshed tenant-token file derived from this Agent's available Lark signal binding.
 
 ```bash
 lark-cli --version
-test -n "${LARKSUITE_CLI_APP_ID:-}" && test -n "${LARKSUITE_CLI_TENANT_ACCESS_TOKEN:-}"
+test -n "${LARKSUITE_CLI_APP_ID:-}" && test -n "${ANKOLE_RUNTIME_LARK_TENANT_ACCESS_TOKEN_FILE:-}"
 ```
 
 If preflight fails, stop and report that this Agent has no available Lark signal binding. Do not initialize CLI credentials or start an interactive authorization flow.
 
 Always run `lark-cli` through the one-shot `command` tool. The main agent does not expose a persistent shell across Turns, so every invocation must be self-contained.
 
-Every executable call must use `--as bot --format json`. Decide success from exit code zero or top-level `ok: true`. Inspect `--help` and `schema` before constructing payloads. Use only relative paths for request files and outputs. Never print or persist the tenant token, and never ask the operator for credentials already owned by the binding.
+Every executable call must use `--as bot --format json`. Decide success from exit code zero or top-level `ok: true`. Inspect `--help` and `schema` before constructing payloads. Use only relative paths for request files and outputs. Never read, print, or copy the token file, and never ask the operator for credentials already owned by the binding.
 
 Do not run the CLI self-update command; the Agent Computer image pins the supported version.
 

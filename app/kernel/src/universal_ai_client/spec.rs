@@ -359,6 +359,7 @@ impl ResponseContext {
 
         request.remove("previous_response_id");
         request.remove("provider_options");
+        request.remove("__ankole_reasoning_source");
 
         if let Some(stream) = self.stream {
             request.insert("stream".to_string(), json!(stream));

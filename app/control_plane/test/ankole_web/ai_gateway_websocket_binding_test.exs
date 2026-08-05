@@ -72,7 +72,8 @@ defmodule AnkoleWeb.AIGatewayWebSocketBindingTest do
       %{
         "selector" => "openrouter/openai/gpt-5.6-sol",
         "provider_options" => %{"reasoningEffort" => "xhigh"},
-        "supports_parallel_tool_calls" => true
+        "supports_parallel_tool_calls" => true,
+        "input_modalities" => ["text"]
       }
       |> Ankole.JSON.encode!()
       |> Base.url_encode64(padding: false)
@@ -100,7 +101,8 @@ defmodule AnkoleWeb.AIGatewayWebSocketBindingTest do
     assert initialized_state.codex_model_binding == %{
              "selector" => "openrouter/openai/gpt-5.6-sol",
              "provider_options" => %{"reasoningEffort" => "xhigh"},
-             "supports_parallel_tool_calls" => true
+             "supports_parallel_tool_calls" => true,
+             "input_modalities" => ["text"]
            }
 
     assert initialized_state.request_context["downstream_transport"] == "websocket"
@@ -128,7 +130,8 @@ defmodule AnkoleWeb.AIGatewayWebSocketBindingTest do
       codex_model_binding: %{
         "selector" => "#{provider_id}/gpt-frozen",
         "provider_options" => %{"reasoningEffort" => "high"},
-        "supports_parallel_tool_calls" => false
+        "supports_parallel_tool_calls" => false,
+        "input_modalities" => ["text"]
       },
       request_context: RequestContext.from_headers([], "websocket")
     }

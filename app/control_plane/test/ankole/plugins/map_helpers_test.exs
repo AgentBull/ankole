@@ -72,4 +72,37 @@ defmodule Ankole.Plugins.MapHelpersTest do
     assert MapHelpers.collect_results([{:ok, 1}, {:error, :boom}, {:ok, 2}]) == {:error, :boom}
     assert MapHelpers.collect_results([]) == {:ok, []}
   end
+
+  test "required_string trims and rejects missing, blank, and non-string values" do
+    assert MapHelpers.required_string(%{"a" => " x "}, "a") == {:ok, "x"}
+    assert MapHelpers.required_string(%{"a" => "  "}, "a") == {:error, {:missing, "a"}}
+    assert MapHelpers.required_string(%{}, "a") == {:error, {:missing, "a"}}
+    assert MapHelpers.required_string(%{"a" => 1}, "a") == {:error, {:missing, "a"}}
+  end
+
+  test "optional_string trims, falls back to the default, and rejects non-strings" do
+    assert MapHelpers.optional_string(%{"a" => " x "}, "a", "d") == {:ok, "x"}
+    assert MapHelpers.optional_string(%{"a" => "  "}, "a", "d") == {:ok, "d"}
+    assert MapHelpers.optional_string(%{}, "a", "d") == {:ok, "d"}
+    assert MapHelpers.optional_string(%{"a" => 1}, "a", "d") == {:error, {:invalid_string, "a"}}
+  end
+
+  test "optional_boolean keeps booleans, falls back, and rejects other values" do
+    assert MapHelpers.optional_boolean(%{"a" => false}, "a", true) == {:ok, false}
+    assert MapHelpers.optional_boolean(%{}, "a", true) == {:ok, true}
+
+    assert MapHelpers.optional_boolean(%{"a" => "yes"}, "a", true) ==
+             {:error, {:invalid_boolean, "a"}}
+  end
+
+  test "integer_between enforces the inclusive range and falls back on nil" do
+    assert MapHelpers.integer_between(%{"a" => 3}, "a", 1, 1, 5) == {:ok, 3}
+    assert MapHelpers.integer_between(%{}, "a", 1, 1, 5) == {:ok, 1}
+
+    assert MapHelpers.integer_between(%{"a" => 6}, "a", 1, 1, 5) ==
+             {:error, {:invalid_integer_range, "a", 1, 5}}
+
+    assert MapHelpers.integer_between(%{"a" => "3"}, "a", 1, 1, 5) ==
+             {:error, {:invalid_integer_range, "a", 1, 5}}
+  end
 end

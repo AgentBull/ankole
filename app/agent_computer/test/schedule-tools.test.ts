@@ -4,6 +4,7 @@ import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import { jsonFromBytes } from '../src/fabric/envelope_proto'
 import { zodToJSONSchema } from '../src/core/llm/tool-schema'
 import { rpcMethods, type ScheduleRPCMethod } from '../src/lanes/rpc_lane'
+import type { z } from 'zod'
 import { createScheduleTools } from '../src/tools/schedule/schedule-tools'
 
 describe('schedule tools', () => {
@@ -125,10 +126,8 @@ describe('schedule tools', () => {
     const updated = await checkBackLater!.execute('call_update', {
       action: 'update',
       checkback_id: checkbackID,
-      updates: {
-        check: 'Let the evidence determine the PDF length.',
-        context_summary: 'The user removed the 6–12 page constraint.'
-      }
+      check: 'Let the evidence determine the PDF length.',
+      context_summary: 'The user removed the 6–12 page constraint.'
     })
     const cancelled = await checkBackLater!.execute('call_cancel', {
       action: 'cancel',
@@ -164,7 +163,7 @@ describe('schedule tools', () => {
         kind: 'effect.receipt',
         payload: {
           phase: 'confirmed',
-          summary: '已更新后续检查',
+          summary_key: 'signals_gateway.reply.activity.check_back_updated',
           target: checkbackID
         }
       }
@@ -174,7 +173,7 @@ describe('schedule tools', () => {
         kind: 'effect.receipt',
         payload: {
           phase: 'confirmed',
-          summary: '已取消后续检查',
+          summary_key: 'signals_gateway.reply.activity.check_back_cancelled',
           target: checkbackID
         }
       }
@@ -190,15 +189,14 @@ describe('schedule tools', () => {
     expect(
       checkBackLater?.schema.safeParse({
         action: 'update',
-        checkback_id: 1000,
-        updates: {}
+        checkback_id: 1000
       }).success
     ).toBe(false)
     expect(
       checkBackLater?.schema.safeParse({
         action: 'update',
         checkback_id: 1000,
-        updates: { check: 'Use the corrected requirement.' }
+        check: 'Use the corrected requirement.'
       }).success
     ).toBe(true)
 
@@ -246,13 +244,57 @@ describe('schedule tools', () => {
         kind: 'effect.receipt',
         payload: {
           phase: 'confirmed',
-          summary: '已创建定期任务',
+          summary_key: 'signals_gateway.reply.activity.cron_created',
           target: 'market-open-check',
-          scope: '每 1 天',
-          follow_up: '常规成功时保持安静，异常或变化会通知'
+          scope_key: 'signals_gateway.reply.activity.schedule_every_day',
+          scope_bindings: { value: 1 },
+          follow_up_key: 'signals_gateway.reply.activity.quiet_success'
         }
       }
     ])
+  })
+
+  it('passes an occurrence bound through the schedule JSON and rejects malformed bounds', async () => {
+    const requests: JSONObject[] = []
+    const tools = createScheduleTools({
+      turnStart: turnStartForScheduleTool(),
+      requestScheduleRPC: async (_method: ScheduleRPCMethod, request: Record<string, unknown>): Promise<JSONObject> => {
+        requests.push(request)
+        return { status: 'created' }
+      }
+    })
+    const cron = tools.find(tool => tool.name === 'cron')!
+    const baseSchedule = {
+      kind: 'every' as const,
+      every_ms: 86_400_000,
+      anchor_at: '2026-07-03T01:30:00Z'
+    }
+
+    await cron.execute('call_bounded', {
+      action: 'add' as const,
+      name: 'bounded-report',
+      schedule: { ...baseSchedule, occurrences: { count: 10 } }
+    })
+
+    expect(requests).toHaveLength(1)
+    const scheduleJson = JSON.parse(Buffer.from(requests[0]!.scheduleJson as Uint8Array).toString('utf8'))
+    expect(scheduleJson.occurrences).toEqual({ count: 10 })
+
+    const schema = cron.schema as z.ZodType
+    expect(
+      schema.safeParse({
+        action: 'add',
+        name: 'x',
+        schedule: { ...baseSchedule, occurrences: { count: 3, until: '2026-09-01T00:00:00Z' } }
+      }).success
+    ).toBe(false)
+    expect(
+      schema.safeParse({
+        action: 'add',
+        name: 'x',
+        schedule: { ...baseSchedule, occurrences: { until: '2026-09-30T17:00:00' } }
+      }).success
+    ).toBe(true)
   })
 
   it('keeps cron idempotency keys out of the model contract', async () => {
@@ -324,7 +366,6 @@ describe('schedule tools', () => {
     expect(schema.properties.action?.enum).toEqual(['list', 'get', 'runs'])
     expect(Object.keys(schema.properties).sort()).toEqual(['action', 'limit', 'name'])
     expect(cron!.isReadOnly).toBe(true)
-    expect(cron!.description).not.toContain('create')
     expect(cron!.schema.safeParse({ action: 'add' }).success).toBe(false)
 
     await expect(

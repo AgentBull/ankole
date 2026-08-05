@@ -21,21 +21,21 @@ defmodule Ankole.AIGateway.CodexModelsTest do
   end
 
   test "card carries every serde-required field of the pinned ModelInfo" do
-    card = CodexModels.card("gpt-main")
+    card = CodexModels.card("gpt-main", ["text"])
 
     for field <- @required_card_fields do
       assert Map.has_key?(card, field), "missing required card field #{field}"
     end
   end
 
-  test "card reproduces the codex fallback baseline and opens the search gate" do
-    card = CodexModels.card("gpt-main")
+  test "card declares the pinned baseline and the AIGateway output contract" do
+    card = CodexModels.card("gpt-main", ["text", "image"])
 
     assert card["slug"] == "gpt-main"
     assert card["display_name"] == "gpt-main"
     assert card["shell_type"] == "default"
     assert card["visibility"] == "none"
-    assert card["truncation_policy"] == %{"mode" => "bytes", "limit" => 10_000}
+    assert card["truncation_policy"] == %{"mode" => "tokens", "limit" => 10_000}
     assert card["context_window"] == 272_000
     assert card["input_modalities"] == ["text", "image"]
     assert card["supports_search_tool"] == true
@@ -43,18 +43,30 @@ defmodule Ankole.AIGateway.CodexModelsTest do
     assert card["use_responses_lite"] == false
     assert is_binary(card["base_instructions"])
     assert byte_size(card["base_instructions"]) > 10_000
+
+    assert card["base_instructions"] =~
+             "Model-visible tool output is limited to 10000 tokens."
   end
 
   test "cards follow the pinned Codex responses-lite model set" do
     for slug <- ~w(gpt-5.6-sol gpt-5.6-terra gpt-5.6-luna) do
-      assert CodexModels.card(slug)["use_responses_lite"]
+      assert CodexModels.card(slug, ["text"])["use_responses_lite"]
     end
 
-    refute CodexModels.card("gpt-5.5")["use_responses_lite"]
+    refute CodexModels.card("gpt-5.5", ["text"])["use_responses_lite"]
   end
 
   test "cards serialize to JSON without atoms or structs" do
-    assert {:ok, encoded} = Ankole.JSON.encode(CodexModels.card("gpt-main"))
+    assert {:ok, encoded} = Ankole.JSON.encode(CodexModels.card("gpt-main", ["text"]))
     assert encoded =~ "supports_search_tool"
+  end
+
+  test "cards advertise only effective Codex input modalities" do
+    assert CodexModels.card("text-only", ["text", "pdf"])["input_modalities"] == ["text"]
+
+    assert CodexModels.card("vision", ["text", "image", "pdf"])["input_modalities"] == [
+             "text",
+             "image"
+           ]
   end
 end

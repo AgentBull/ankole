@@ -12,12 +12,61 @@ export type ActiveTurn = {
   turnStart: TurnStart
   correlationID: string
   steeringUpdates: TurnSteerUpdate[]
+  steeringWaiters: Set<() => void>
   disabledSkillNames: string[]
   changedSkillNames: string[]
   abortController: AbortController
   controlledStopRequested: boolean
   controlledStopCommand?: string
   controlledStopReason?: string
+}
+
+/**
+ * Stores one durable steering update and wakes any foreground observation
+ * without consuming the update. The agent loop remains the single consumer.
+ */
+export function pushTurnSteering(active: ActiveTurn, update: TurnSteerUpdate): void {
+  active.steeringUpdates.push(update)
+  // oxlint-disable-next-line unicorn/no-useless-spread
+  for (const wake of [...active.steeringWaiters]) wake()
+}
+
+/**
+ * Waits until steering is queued for this turn. Existing queued steering wins
+ * immediately, so a tool cannot miss an update that arrived before it began
+ * observing.
+ */
+export function waitForTurnSteering(active: ActiveTurn, signal?: AbortSignal): Promise<void> {
+  if (active.steeringUpdates.length > 0) return Promise.resolve()
+  if (signal?.aborted) return Promise.reject(abortReason(signal))
+
+  return new Promise((resolve, reject) => {
+    let settled = false
+
+    const cleanup = (): void => {
+      active.steeringWaiters.delete(steered)
+      signal?.removeEventListener('abort', aborted)
+    }
+    const steered = (): void => {
+      if (settled) return
+      settled = true
+      cleanup()
+      resolve()
+    }
+    const aborted = (): void => {
+      if (settled) return
+      settled = true
+      cleanup()
+      reject(abortReason(signal))
+    }
+
+    active.steeringWaiters.add(steered)
+    signal?.addEventListener('abort', aborted, { once: true })
+  })
+}
+
+function abortReason(signal?: AbortSignal): Error {
+  return signal?.reason instanceof Error ? signal.reason : new Error('Steering wait was aborted')
 }
 
 /**

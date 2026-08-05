@@ -1,5 +1,5 @@
-import { codexAIGatewayAuthConfig, encodeAIGatewayModelBinding } from '../../tools/codex/config'
-import type { CodexRuntimeConfig } from '../../tools/codex/runtime-config'
+import { codexAIGatewayAuthConfig, encodeAIGatewayModelBinding } from './agent-home-config'
+import type { CodexRuntimeConfig } from './runtime-config'
 
 export function codexJobThreadConfig(input: {
   cwd: string

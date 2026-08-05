@@ -1,6 +1,7 @@
 use serde_json::json;
 
 use super::*;
+use crate::common::base64_url_safe_decode;
 
 fn encrypted_send_message_tool() -> Value {
     json!({
@@ -16,6 +17,21 @@ fn encrypted_send_message_tool() -> Value {
             "required": ["message"]
         }
     })
+}
+
+fn chat_reasoning_context(provider_type: &str, model: &str, mut request: Value) -> ResponseContext {
+    request.as_object_mut().unwrap().insert(
+        "__ankole_reasoning_source".to_string(),
+        json!({"provider_type": provider_type, "model_id": model}),
+    );
+
+    ResponseContext {
+        model: model.to_string(),
+        request,
+        provider_options: json!({}),
+        stream: Some(false),
+        include_model: true,
+    }
 }
 
 #[test]
@@ -804,11 +820,11 @@ fn openai_chat_stream_round_trips_reasoning_details_with_tool_calls() {
             "index": 1
         }
     ]);
-    let mut resolver = APIResolver::new(
-        APIResolverKind::OpenAIChatCompletions,
-        ResponseContext {
-            model: "gemini-test".to_string(),
-            request: json!({
+    let mut resolver = APIResolver::new(APIResolverKind::OpenAIChatCompletions, {
+        let mut context = chat_reasoning_context(
+            "openrouter",
+            "gemini-test",
+            json!({
                 "tools": [{
                     "type": "function",
                     "name": "get_weather",
@@ -816,11 +832,10 @@ fn openai_chat_stream_round_trips_reasoning_details_with_tool_calls() {
                 }],
                 "input": "Get the weather."
             }),
-            provider_options: json!({}),
-            stream: Some(true),
-            include_model: true,
-        },
-    );
+        );
+        context.stream = Some(true);
+        context
+    });
 
     let events = resolver
         .ingest(json!({
@@ -866,8 +881,17 @@ fn openai_chat_stream_round_trips_reasoning_details_with_tool_calls() {
         output[0]["encrypted_content"]
             .as_str()
             .unwrap()
-            .starts_with("ankole-aigateway-chat-reasoning-v1:")
+            .starts_with("ankole-aigateway-chat-reasoning:")
     );
+    let encoded = output[0]["encrypted_content"].as_str().unwrap();
+    let payload = encoded
+        .strip_prefix("ankole-aigateway-chat-reasoning:")
+        .unwrap();
+    let decoded: Value = serde_json::from_slice(&base64_url_safe_decode(payload).unwrap()).unwrap();
+    assert_eq!(decoded["provider_type"], "openrouter");
+    assert_eq!(decoded["model_id"], "gemini-test");
+    assert!(decoded.get("version").is_none());
+    assert!(decoded.get("provider_id").is_none());
 
     let mut replay_input = output.clone();
     replay_input.push(json!({
@@ -877,9 +901,10 @@ fn openai_chat_stream_round_trips_reasoning_details_with_tool_calls() {
     }));
     let replay = APIResolver::new(
         APIResolverKind::OpenAIChatCompletions,
-        ResponseContext {
-            model: "gemini-test".to_string(),
-            request: json!({
+        chat_reasoning_context(
+            "openrouter",
+            "gemini-test",
+            json!({
                 "tools": [{
                     "type": "function",
                     "name": "get_weather",
@@ -887,10 +912,7 @@ fn openai_chat_stream_round_trips_reasoning_details_with_tool_calls() {
                 }],
                 "input": replay_input
             }),
-            provider_options: json!({}),
-            stream: Some(false),
-            include_model: true,
-        },
+        ),
     );
     let replay_body = Value::Object(replay.build_body().unwrap());
     let replay_messages = replay_body["messages"].as_array().unwrap();
@@ -918,13 +940,11 @@ fn openai_chat_non_streaming_round_trips_reasoning_details() {
     }]);
     let mut resolver = APIResolver::new(
         APIResolverKind::OpenAIChatCompletions,
-        ResponseContext {
-            model: "gemini-test".to_string(),
-            request: json!({"tools": tools.clone(), "input": "Look it up."}),
-            provider_options: json!({}),
-            stream: Some(false),
-            include_model: true,
-        },
+        chat_reasoning_context(
+            "openrouter",
+            "gemini-test",
+            json!({"tools": tools.clone(), "input": "Look it up."}),
+        ),
     );
 
     let response = resolver
@@ -956,9 +976,10 @@ fn openai_chat_non_streaming_round_trips_reasoning_details() {
 
     let replay = APIResolver::new(
         APIResolverKind::OpenAIChatCompletions,
-        ResponseContext {
-            model: "gemini-test".to_string(),
-            request: json!({
+        chat_reasoning_context(
+            "openrouter",
+            "gemini-test",
+            json!({
                 "tools": tools,
                 "input": [
                     response["output"][0].clone(),
@@ -970,10 +991,7 @@ fn openai_chat_non_streaming_round_trips_reasoning_details() {
                     }
                 ]
             }),
-            provider_options: json!({}),
-            stream: Some(false),
-            include_model: true,
-        },
+        ),
     );
     let replay_body = Value::Object(replay.build_body().unwrap());
 
@@ -1056,27 +1074,72 @@ fn openai_chat_drops_reasoning_that_has_no_message_or_tool_call() {
 }
 
 #[test]
-fn openai_chat_rejects_foreign_reasoning_replay() {
+fn openai_chat_drops_foreign_reasoning_replay() {
     let resolver = APIResolver::new(
         APIResolverKind::OpenAIChatCompletions,
-        ResponseContext {
-            model: "openrouter-test".to_string(),
-            request: json!({
+        chat_reasoning_context(
+            "openrouter",
+            "openrouter-test",
+            json!({
                 "input": [{
                     "type": "reasoning",
                     "encrypted_content": "foreign-provider-state",
                     "summary": []
                 }]
             }),
-            provider_options: json!({}),
-            stream: Some(false),
-            include_model: true,
-        },
+        ),
     );
 
-    let error = resolver.build_body().unwrap_err();
-    assert_eq!(error.code, "invalid_reasoning_replay");
-    assert!(error.message.contains("another provider implementation"));
+    let body = Value::Object(resolver.build_body().unwrap());
+    assert_eq!(body["messages"], json!([]));
+}
+
+#[test]
+fn openai_chat_drops_reasoning_when_provider_type_or_model_changes() {
+    let mut source = APIResolver::new(
+        APIResolverKind::OpenAIChatCompletions,
+        chat_reasoning_context(
+            "openrouter",
+            "deepseek/model-a",
+            json!({"input": "Answer."}),
+        ),
+    );
+    let response = source
+        .normalize_body(
+            200,
+            json!({
+                "choices": [{
+                    "message": {
+                        "role": "assistant",
+                        "content": "Visible answer.",
+                        "reasoning": "Hidden reasoning."
+                    },
+                    "finish_reason": "stop"
+                }],
+                "usage": {}
+            }),
+        )
+        .unwrap();
+
+    for (provider_type, model_id) in [
+        ("openrouter", "deepseek/model-b"),
+        ("openai", "deepseek/model-a"),
+    ] {
+        let replay = APIResolver::new(
+            APIResolverKind::OpenAIChatCompletions,
+            chat_reasoning_context(
+                provider_type,
+                model_id,
+                json!({"input": response["output"].clone()}),
+            ),
+        );
+        let body = Value::Object(replay.build_body().unwrap());
+        let message = &body["messages"][0];
+        assert_eq!(message["role"], "assistant");
+        assert_eq!(message["content"], "Visible answer.");
+        assert!(message.get("reasoning").is_none());
+        assert!(message.get("reasoning_details").is_none());
+    }
 }
 
 #[test]

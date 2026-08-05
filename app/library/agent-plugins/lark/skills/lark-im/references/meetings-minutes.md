@@ -2,7 +2,7 @@
 
 ## Video meetings
 
-Start with `lark-cli vc --help`. The `vc` service includes both ordinary meeting APIs and application-bot meeting actions; there is no separate runtime namespace for the meeting agent.
+The `vc` service (`lark-cli vc --help` lists operations not shown here) includes both ordinary meeting APIs and application-bot meeting actions; there is no separate runtime namespace for the meeting agent.
 
 ```bash
 lark-cli vc +meeting-list-active --as bot --format json
@@ -19,7 +19,7 @@ For broader VC resources, use `lark-cli vc <resource> <method> --help` and its s
 
 ## Minutes
 
-Start with `lark-cli minutes --help`. A minute token normally comes from a Minutes URL or from bot-visible meeting artifacts.
+A minute token (`lark-cli minutes --help` lists operations not shown here) normally comes from a Minutes URL or from bot-visible meeting artifacts.
 
 ```bash
 lark-cli minutes minutes get --minute-token <minute_token> --as bot --format json

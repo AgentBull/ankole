@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import type { DynamicToolCallParams } from '../src/tools/codex/generated/protocol/v2/DynamicToolCallParams'
+import type { DynamicToolCallParams } from '../src/core/codex-runner/generated/protocol/v2/DynamicToolCallParams'
 import {
   pendingParentInputFromDynamicTool,
   PARENT_INPUT_TOOL_NAME,
@@ -15,7 +15,6 @@ describe('@ankole/agent-computer BackgroundAgentJob parent-input bridge', () => 
       name: PARENT_INPUT_TOOL_NAME
     })
     if (spec.type !== 'function') throw new Error('parent-input bridge must be a function tool')
-    expect(spec.description).toContain('instead of request_user_input')
     expect(spec.inputSchema).toMatchObject({
       type: 'object',
       required: ['questions'],

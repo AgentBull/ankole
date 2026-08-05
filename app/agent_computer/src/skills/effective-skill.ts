@@ -3,7 +3,13 @@ import { create } from '@bufbuild/protobuf'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import { jsonObjectFromBytes } from '../fabric/envelope_proto'
 import type { ActorTurnRef } from '../lanes/actor_lane'
-import { rpcMethods, RuntimeSkillSummarySchema, type RPCRequester, type RuntimeSkillSummary } from '../lanes/rpc_lane'
+import {
+  rpcMethods,
+  RuntimeSkillSummarySchema,
+  type RPCRequester,
+  type RuntimeSkillSummary,
+  type SkillOverlayResponse
+} from '../lanes/rpc_lane'
 
 export interface SkillFileRoots {
   builtinSkillsRoot: string
@@ -84,7 +90,50 @@ export async function resolveSkillOverlayText(
   name: string,
   input: { turn: ActorTurnRef; rpc: RPCRequester }
 ): Promise<string> {
-  const response = await input.rpc(rpcMethods.skillsOverlayResolve, { skillName: name }, { turn: input.turn })
+  return (await resolveSkillOverlayTexts([name], input)).get(name)!
+}
+
+export async function resolveSkillOverlayTexts(
+  names: string[],
+  input: { turn: ActorTurnRef; rpc: RPCRequester }
+): Promise<Map<string, string>> {
+  const responses = await resolveSkillOverlayResponses(names, input)
+  return new Map([...responses].map(([name, response]) => [name, overlayText(response)]))
+}
+
+async function resolveSkillOverlayResponses(
+  names: string[],
+  input: { turn: ActorTurnRef; rpc: RPCRequester }
+): Promise<Map<string, SkillOverlayResponse>> {
+  names.forEach(assertValidSkillName)
+  if (new Set(names).size !== names.length) throw new Error('skill overlay names must be unique')
+  if (names.length === 0) return new Map()
+
+  const response = await input.rpc(rpcMethods.skillsOverlayResolve, { skillNames: names }, { turn: input.turn })
+  const requested = new Set(names)
+  const overlays = new Map<string, SkillOverlayResponse>()
+
+  for (const overlay of response.overlays) {
+    if (!requested.has(overlay.skillName)) throw new Error(`unexpected skill overlay response: ${overlay.skillName}`)
+    if (overlays.has(overlay.skillName)) throw new Error(`duplicate skill overlay response: ${overlay.skillName}`)
+    overlays.set(overlay.skillName, overlay)
+  }
+
+  for (const name of names) {
+    if (!overlays.has(name)) throw new Error(`missing skill overlay response: ${name}`)
+  }
+  return overlays
+}
+
+export async function resolveSkillOverlay(
+  name: string,
+  input: { turn: ActorTurnRef; rpc: RPCRequester }
+): Promise<SkillOverlayResponse> {
+  return (await resolveSkillOverlayResponses([name], input)).get(name)!
+}
+
+function overlayText(response: SkillOverlayResponse): string {
+  if (!response.hasOverlay) return ''
   const overlay = jsonObjectFromBytes(response.overlayJson, 'skill_overlay.overlay_json')
   const text = overlay?.text
   return typeof text === 'string' ? text.trim() : ''

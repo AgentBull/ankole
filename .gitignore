@@ -44,6 +44,7 @@ node_modules/
 !.yarn/versions
 .pnp.*
 .bundle/
+/tools/eval/.venv/
 
 # Dev-only files
 tsconfig.tsbuildinfo

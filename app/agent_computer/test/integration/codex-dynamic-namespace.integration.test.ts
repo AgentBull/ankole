@@ -6,12 +6,12 @@ import { join } from 'node:path'
 import { z } from 'zod'
 import { buildCodexJobProjection, type CodexJobProjection } from '../../src/core/codex-runner/projection'
 import type { AgentTool } from '../../src/core/types'
-import { CodexAppServerClient, type JSONRPCMessage } from '../../src/tools/codex/app-server-client'
-import type { DynamicToolCallParams } from '../../src/tools/codex/generated/protocol/v2/DynamicToolCallParams'
-import type { ThreadStartParams } from '../../src/tools/codex/generated/protocol/v2/ThreadStartParams'
-import type { ThreadStartResponse } from '../../src/tools/codex/generated/protocol/v2/ThreadStartResponse'
-import type { TurnStartParams } from '../../src/tools/codex/generated/protocol/v2/TurnStartParams'
-import type { TurnStartResponse } from '../../src/tools/codex/generated/protocol/v2/TurnStartResponse'
+import { CodexAppServerClient, type JSONRPCMessage } from '../../src/core/codex-runner/app-server-client'
+import type { DynamicToolCallParams } from '../../src/core/codex-runner/generated/protocol/v2/DynamicToolCallParams'
+import type { ThreadStartParams } from '../../src/core/codex-runner/generated/protocol/v2/ThreadStartParams'
+import type { ThreadStartResponse } from '../../src/core/codex-runner/generated/protocol/v2/ThreadStartResponse'
+import type { TurnStartParams } from '../../src/core/codex-runner/generated/protocol/v2/TurnStartParams'
+import type { TurnStartResponse } from '../../src/core/codex-runner/generated/protocol/v2/TurnStartResponse'
 
 const searchCallID = 'analysis-search'
 const analysisCallID = 'analysis-inspect-call'
@@ -412,7 +412,7 @@ function codexModelsManifest(): JSONObject {
         default_verbosity: null,
         apply_patch_tool_type: 'freeform',
         web_search_tool_type: 'text',
-        truncation_policy: { mode: 'bytes', limit: 10_000 },
+        truncation_policy: { mode: 'tokens', limit: 10_000 },
         supports_parallel_tool_calls: false,
         context_window: 272_000,
         max_context_window: 272_000,

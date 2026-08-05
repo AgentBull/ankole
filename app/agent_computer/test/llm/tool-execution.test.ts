@@ -201,7 +201,6 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
     const output = (sentPayloads[1]!.input as Array<JSONObject>)[0]!.output
     expect(output).toContain('Invalid arguments for tool lookup')
     expect(output).toContain('expected string')
-    expectWrappedToolOutput(output)
     expect(sentPayloads[2]).toMatchObject({
       type: 'response.create',
       previous_response_id: 'resp_bad_args_results',
@@ -577,7 +576,6 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
     const outputs = sentPayloads[1]!.input as Array<JSONObject>
     outputs.forEach((output, index) => {
       expect(output.output).toContain(`result-${index}`)
-      expectWrappedToolOutput(output.output)
     })
   })
 
@@ -1048,12 +1046,12 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
     expect(presentation.filter(event => event.kind === 'tool.activity').map(event => event.payload)).toEqual([
       expect.objectContaining({
         operation_id: 'call_fallback_tool',
-        label: '处理请求',
+        label_key: 'signals_gateway.reply.activity.processing',
         phase: 'running'
       }),
       expect.objectContaining({
         operation_id: 'call_fallback_tool',
-        label: '处理请求',
+        label_key: 'signals_gateway.reply.activity.processing',
         phase: 'completed'
       })
     ])
@@ -1138,9 +1136,3 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
     ).rejects.toThrow('duplicate provider tool name: a__b')
   })
 })
-
-function expectWrappedToolOutput(output: unknown): void {
-  expect(String(output)).toMatch(
-    /^<ankole_untrusted_tool_output nonce="[0-9a-f]{16}">\n[\s\S]*\n<\/ankole_untrusted_tool_output nonce="[0-9a-f]{16}">$/
-  )
-}

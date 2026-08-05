@@ -6,6 +6,9 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Config do
   alias Ankole.Plugins.MapHelpers
   alias MicrosoftOpenAPI.Client
 
+  import Ankole.Plugins.MapHelpers,
+    only: [required_string: 2, optional_string: 3, optional_boolean: 3, integer_between: 5]
+
   @chat_key_pattern ~r/\Asignals_gateway\.teams\.bindings\.[A-Za-z0-9_.:-]+\z/
   @identity_key_pattern ~r/\Aprincipals\.identity_providers\.entra-id\.[A-Za-z0-9_.:-]+\z/
   @subscription_key_pattern ~r/\Aprincipals\.entra_id\.graph_subscriptions\.[A-Za-z0-9_.:-]+\z/
@@ -239,21 +242,6 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Config do
   defp require_when(true, nil, key), do: {:error, {:missing, key}}
   defp require_when(_enabled, _value, _key), do: :ok
 
-  defp required_string(map, key) do
-    case MapHelpers.optional_text(map, key) do
-      nil -> {:error, {:missing, key}}
-      value -> {:ok, value}
-    end
-  end
-
-  defp optional_string(map, key, default) do
-    case MapHelpers.fetch_value(map, key) do
-      nil -> {:ok, default}
-      value when is_binary(value) -> {:ok, MapHelpers.presence(value) || default}
-      _value -> {:error, {:invalid_string, key}}
-    end
-  end
-
   defp optional_base_url(map, key) do
     with {:ok, value} <- optional_string(map, key, nil) do
       case value do
@@ -270,22 +258,6 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Config do
               {:error, {:invalid_base_url, key}}
           end
       end
-    end
-  end
-
-  defp optional_boolean(map, key, default) do
-    case MapHelpers.fetch_value(map, key) do
-      value when is_boolean(value) -> {:ok, value}
-      nil -> {:ok, default}
-      _value -> {:error, {:invalid_boolean, key}}
-    end
-  end
-
-  defp integer_between(map, key, default, min, max) do
-    case MapHelpers.fetch_value(map, key) do
-      value when is_integer(value) and value >= min and value <= max -> {:ok, value}
-      nil -> {:ok, default}
-      _value -> {:error, {:invalid_integer_range, key, min, max}}
     end
   end
 

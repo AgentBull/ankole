@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import type { TurnStart } from '../../lanes/actor_lane'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
-import type { AgentTool, AgentToolResult } from '../../core'
+import type { ActivityDescription, AgentTool, AgentToolResult } from '../../core'
 import type { ReplyPresentationEvent } from '../../core/types'
 import { jsonToolResult } from '../../core/tool-result'
 import { jsonBytes } from '../../fabric/envelope_proto'
@@ -20,12 +20,12 @@ const memorySelfStoreDescription =
   "Select self only for knowledge about this Agent that must apply across its conversations, such as the Agent's own operating rule, skill, or self-knowledge. Omit store for knowledge about people, requests, conversations, or channel context. The control plane then uses the current conversation's default writable store: shared for a public group, dm:<uid> for a DM, or channel:<id> for a confidential channel. Never pass current, shared, dm:<uid>, or channel:<id>; self is the only explicit selection."
 
 const MemoryActivity = {
-  search: '回忆相关上下文',
-  open: '读取记忆内容',
-  update: '更新记忆',
-  browse: '浏览对话记忆',
-  healthCheck: '检查记忆状态'
-} as const
+  search: { key: 'signals_gateway.reply.activity.memory_search' },
+  open: { key: 'signals_gateway.reply.activity.memory_open' },
+  update: { key: 'signals_gateway.reply.activity.memory_update' },
+  browse: { key: 'signals_gateway.reply.activity.memory_browse' },
+  healthCheck: { key: 'signals_gateway.reply.activity.memory_health_check' }
+} as const satisfies Record<string, ActivityDescription>
 
 const MemorySearchParams = z.object({
   query: z.string().min(1).max(1000),
@@ -521,12 +521,13 @@ function memoryToolResult(
   return jsonToolResult(details, { textPrefix: notice, presentation })
 }
 
-function memoryLookupEvent(label: string, details: JSONObject): ReplyPresentationEvent {
+function memoryLookupEvent(activity: ActivityDescription, details: JSONObject): ReplyPresentationEvent {
   return {
     kind: 'memory.lookup',
     payload: {
       phase: 'completed',
-      label,
+      label_key: activity.key,
+      ...(activity.bindings ? { label_bindings: activity.bindings } : {}),
       source_count: memorySourceCount(details)
     }
   }
@@ -545,39 +546,39 @@ function memoryMutationReceipt(operation: string): ReplyPresentationEvent {
     kind: 'memory.mutation_receipt',
     payload: {
       phase: 'confirmed',
-      summary: memoryMutationSummary(operation),
-      scope: '长期记忆（代号 Brain）'
+      summary_key: memoryMutationSummaryKey(operation),
+      scope_key: 'signals_gateway.reply.activity.memory_scope'
     }
   }
 }
 
-function memoryMutationSummary(operation: string): string {
+function memoryMutationSummaryKey(operation: string): string {
   switch (operation) {
     case 'create_entry':
-      return '已创建记忆条目'
+      return 'signals_gateway.reply.activity.memory_created'
     case 'delete_entry':
-      return '已删除记忆条目'
+      return 'signals_gateway.reply.activity.memory_deleted'
     case 'append_block':
-      return '已追加记忆内容'
+      return 'signals_gateway.reply.activity.memory_appended'
     case 'edit_block':
-      return '已更正记忆内容'
+      return 'signals_gateway.reply.activity.memory_edited'
     case 'delete_block':
-      return '已删除记忆内容'
+      return 'signals_gateway.reply.activity.memory_content_deleted'
     case 'set_property':
-      return '已更新记忆属性'
+      return 'signals_gateway.reply.activity.memory_property_updated'
     case 'add_relation':
-      return '已建立记忆关联'
+      return 'signals_gateway.reply.activity.memory_relation_added'
     case 'remove_relation':
-      return '已移除记忆关联'
+      return 'signals_gateway.reply.activity.memory_relation_removed'
     case 'set_summary':
-      return '已更新记忆摘要'
+      return 'signals_gateway.reply.activity.memory_summary_updated'
     case 'set_aliases':
-      return '已更新记忆别名'
+      return 'signals_gateway.reply.activity.memory_aliases_updated'
     case 'set_name':
-      return '已更新记忆名称'
+      return 'signals_gateway.reply.activity.memory_name_updated'
     case 'set_type':
-      return '已更新记忆类型'
+      return 'signals_gateway.reply.activity.memory_type_updated'
     default:
-      return '已更新记忆'
+      return 'signals_gateway.reply.activity.memory_updated'
   }
 }

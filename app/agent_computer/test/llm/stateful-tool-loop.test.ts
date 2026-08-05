@@ -599,7 +599,6 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
       input: [{ type: 'function_call_output', call_id: 'call_1' }]
     })
     expect((sentPayloads[1]!.input as Array<JSONObject>)[0]!.output).toContain('sunny')
-    expectWrappedToolOutput((sentPayloads[1]!.input as Array<JSONObject>)[0]!.output)
     expect(sentPayloads[1]!.conversation).toBeUndefined()
     expect(JSON.stringify(sentPayloads[1]!.input)).not.toContain('what is the weather?')
     expect(sentPayloads[2]).toMatchObject({
@@ -1019,7 +1018,6 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
       input: [{ type: 'function_call_output', call_id: 'call_bigint' }]
     })
     expect((sentPayloads[1]!.input as Array<JSONObject>)[0]!.output).toContain('1')
-    expectWrappedToolOutput((sentPayloads[1]!.input as Array<JSONObject>)[0]!.output)
     expect(sentPayloads[2]).toMatchObject({
       type: 'response.create',
       previous_response_id: 'resp_tool_bigint_results',
@@ -1142,6 +1140,223 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
     })
     expect(responseCreates[3]!.tools).toBeUndefined()
     expect(JSON.stringify(responseCreates[3]!.input)).toContain('maximum number of tool-calling iterations')
+  })
+
+  it('salvages a tool call cut by the output limit with one described continuation', async () => {
+    const sentPayloads: JSONObject[] = []
+    let toolExecutions = 0
+    const model = createModel({
+      apiKey: 'unused',
+      baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
+      selector: 'primary',
+      responseWebSocket: {
+        kind: 'aigateway-websocket',
+        url: 'ws://aigateway.invalid/api/v1/ai-gateway/responses',
+        authorization: () => 'Bearer agent-key',
+        createWebSocket: (_url, init) =>
+          fakeResponseSocket(init, data => {
+            const payload = JSON.parse(data) as JSONObject
+            sentPayloads.push(payload)
+
+            const index = sentPayloads.filter(sent => sent.type === 'response.create').length
+            if (index === 1) {
+              return [
+                {
+                  type: 'response.incomplete',
+                  response: {
+                    id: 'resp_cut',
+                    status: 'incomplete',
+                    incomplete_details: { reason: 'max_output_tokens' },
+                    output: [
+                      {
+                        type: 'function_call',
+                        id: 'fc_cut',
+                        call_id: 'call_cut',
+                        name: 'write_file',
+                        status: 'in_progress',
+                        arguments: '{"path": "report.md", "content": "# Report\\nThe first'
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+
+            return [
+              {
+                type: 'response.completed',
+                response: {
+                  id: 'resp_after_salvage',
+                  status: 'completed',
+                  output: [
+                    {
+                      type: 'message',
+                      role: 'assistant',
+                      content: [{ type: 'output_text', text: 'done in smaller pieces' }]
+                    }
+                  ]
+                }
+              }
+            ]
+          })
+      }
+    })
+
+    const final = await runAgentLoop({
+      model,
+      messages: [{ role: 'user', content: 'write the report' }],
+      stateful: {
+        actorEventID: '00000000-0000-0000-0000-000000000021',
+        conversationID: '21212121-2121-2121-2121-212121212121'
+      },
+      maxModelIterations: 90,
+      tools: [
+        {
+          name: 'write_file',
+          description: 'Write one file',
+          schema: z.object({ path: z.string(), content: z.string() }),
+          describeActivity: () => '测试写文件',
+          execute: async () => {
+            toolExecutions += 1
+            return { content: [{ type: 'text', text: 'written' }], details: {} }
+          }
+        }
+      ]
+    })
+
+    const responseCreates = sentPayloads.filter(payload => payload.type === 'response.create')
+    expect(final.message.content).toEqual([{ type: 'text', text: 'done in smaller pieces' }])
+    expect(final.message.stopReason).toBe('stop')
+    expect(final.responseID).toBe('resp_after_salvage')
+    expect(toolExecutions).toBe(0)
+    expect(responseCreates).toHaveLength(2)
+
+    // The truncated response is not the anchor: the salvage continuation keeps
+    // the conversation anchor, so the stored thread never ends on a function
+    // call without an output.
+    expect(responseCreates[1]!.previous_response_id).toBeUndefined()
+    expect(responseCreates[1]!.conversation).toBe('conv_21212121-2121-2121-2121-212121212121')
+
+    const salvageText = JSON.stringify(responseCreates[1]!.input)
+    expect(salvageText).toContain('did not run')
+    expect(salvageText).toContain('write_file')
+    expect(salvageText).toContain('completed fields: path')
+    expect(salvageText).toContain('stopped inside the value of')
+  })
+
+  it('breaks after a second output-limit cut instead of describing it again', async () => {
+    const sentPayloads: JSONObject[] = []
+    const cutFrame = (id: string) => ({
+      type: 'response.incomplete',
+      response: {
+        id,
+        status: 'incomplete',
+        incomplete_details: { reason: 'max_output_tokens' },
+        output: [
+          {
+            type: 'function_call',
+            id: `fc_${id}`,
+            call_id: `call_${id}`,
+            name: 'write_file',
+            status: 'in_progress',
+            arguments: '{"path": "report.md", "content": "# Report'
+          }
+        ]
+      }
+    })
+    const model = createModel({
+      apiKey: 'unused',
+      baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
+      selector: 'primary',
+      responseWebSocket: {
+        kind: 'aigateway-websocket',
+        url: 'ws://aigateway.invalid/api/v1/ai-gateway/responses',
+        authorization: () => 'Bearer agent-key',
+        createWebSocket: (_url, init) =>
+          fakeResponseSocket(init, data => {
+            const payload = JSON.parse(data) as JSONObject
+            sentPayloads.push(payload)
+            const index = sentPayloads.filter(sent => sent.type === 'response.create').length
+            return [cutFrame(index === 1 ? 'resp_cut_first' : 'resp_cut_second')]
+          })
+      }
+    })
+
+    const final = await runAgentLoop({
+      model,
+      messages: [{ role: 'user', content: 'write the report' }],
+      stateful: {
+        actorEventID: '00000000-0000-0000-0000-000000000022',
+        conversationID: '22222222-2222-2222-2222-222222222222'
+      },
+      maxModelIterations: 90,
+      tools: [
+        {
+          name: 'write_file',
+          description: 'Write one file',
+          schema: z.object({ path: z.string(), content: z.string() }),
+          describeActivity: () => '测试写文件',
+          execute: async () => ({ content: [{ type: 'text', text: 'written' }], details: {} })
+        }
+      ]
+    })
+
+    const responseCreates = sentPayloads.filter(payload => payload.type === 'response.create')
+    expect(responseCreates).toHaveLength(2)
+    expect(final.message.stopReason).toBe('length')
+    expect(final.message.toolCalls).toBeUndefined()
+    expect(final.responseID).toBe('resp_cut_second')
+  })
+
+  it('repairs an empty final response once and accepts the second empty as final', async () => {
+    const sentPayloads: JSONObject[] = []
+    let repairCalls = 0
+    const emptyFrame = (id: string) => ({
+      type: 'response.completed',
+      response: {
+        id,
+        status: 'completed',
+        output: [{ type: 'message', role: 'assistant', content: [] }]
+      }
+    })
+    const model = createModel({
+      apiKey: 'unused',
+      baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
+      selector: 'primary',
+      responseWebSocket: {
+        kind: 'aigateway-websocket',
+        url: 'ws://aigateway.invalid/api/v1/ai-gateway/responses',
+        authorization: () => 'Bearer agent-key',
+        createWebSocket: (_url, init) =>
+          fakeResponseSocket(init, data => {
+            const payload = JSON.parse(data) as JSONObject
+            sentPayloads.push(payload)
+            const index = sentPayloads.filter(sent => sent.type === 'response.create').length
+            return [emptyFrame(index === 1 ? 'resp_empty_first' : 'resp_empty_second')]
+          })
+      }
+    })
+
+    const final = await runAgentLoop({
+      model,
+      messages: [{ role: 'user', content: 'answer me' }],
+      stateful: {
+        actorEventID: '00000000-0000-0000-0000-000000000023',
+        conversationID: '23232323-2323-2323-2323-232323232323'
+      },
+      maxModelIterations: 90,
+      repairFinalResponse: () => {
+        repairCalls += 1
+        return { role: 'user', content: 'You must end this turn with a visible reply.' }
+      }
+    })
+
+    const responseCreates = sentPayloads.filter(payload => payload.type === 'response.create')
+    expect(repairCalls).toBe(1)
+    expect(responseCreates).toHaveLength(2)
+    expect(JSON.stringify(responseCreates[1]!.input)).toContain('visible reply')
+    expect(final.responseID).toBe('resp_empty_second')
+    expect(final.message.stopReason).toBe('stop')
   })
 
   it('completes normally when the last allowed model iteration returns final text', async () => {
@@ -1356,9 +1571,3 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
     })
   })
 })
-
-function expectWrappedToolOutput(output: unknown): void {
-  expect(String(output)).toMatch(
-    /^<ankole_untrusted_tool_output nonce="[0-9a-f]{16}">\n[\s\S]*\n<\/ankole_untrusted_tool_output nonce="[0-9a-f]{16}">$/
-  )
-}

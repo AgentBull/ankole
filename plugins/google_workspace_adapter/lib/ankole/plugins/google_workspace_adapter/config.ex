@@ -7,6 +7,9 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapter.Config do
   alias Ankole.Plugins.MapHelpers
   alias GoogleOpenAPI.Client
 
+  import Ankole.Plugins.MapHelpers,
+    only: [required_string: 2, optional_boolean: 3, integer_between: 5]
+
   @identity_key_pattern ~r/\Aprincipals\.identity_providers\.google-workspace\.[A-Za-z0-9_.:-]+\z/
 
   @default_oidc_scopes ["openid", "email", "profile"]
@@ -193,29 +196,6 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapter.Config do
 
   defp required_when(map, key, true), do: required_string(map, key)
   defp required_when(map, key, false), do: {:ok, MapHelpers.optional_text(map, key)}
-
-  defp required_string(map, key) do
-    case MapHelpers.optional_text(map, key) do
-      nil -> {:error, {:missing, key}}
-      value -> {:ok, value}
-    end
-  end
-
-  defp optional_boolean(map, key, default) do
-    case MapHelpers.fetch_value(map, key) do
-      value when is_boolean(value) -> {:ok, value}
-      nil -> {:ok, default}
-      _value -> {:error, {:invalid_boolean, key}}
-    end
-  end
-
-  defp integer_between(map, key, default, min, max) do
-    case MapHelpers.fetch_value(map, key) do
-      value when is_integer(value) and value >= min and value <= max -> {:ok, value}
-      nil -> {:ok, default}
-      _value -> {:error, {:invalid_integer_range, key, min, max}}
-    end
-  end
 
   defp string_array(map, key, default) do
     case MapHelpers.fetch_value(map, key) do

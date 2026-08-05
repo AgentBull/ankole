@@ -58,7 +58,6 @@ curl -N https://ankole.example.com/api/v1/ai-gateway/responses \
 | `POST /rerank` | 重排文档 |
 | `POST /web_search` | 搜索网页 |
 | `POST /web_fetch` | 抓取网页 |
-| `GET /web_tools` | 列出可用 web 工具 |
 
 各自在 [AIGateway](../ai-gateway/) 概念页和相关的 User-guide 功能页中文档化。
 

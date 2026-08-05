@@ -1,0 +1,4 @@
+interface:
+  display_name: "Audit Ankole Trajectories"
+  short_description: "Find and filter Ankole trajectory problems"
+  default_prompt: "Use $audit-ankole-trajectories to audit a comparable Ankole trajectory cohort and propose one evidence-backed validation experiment."

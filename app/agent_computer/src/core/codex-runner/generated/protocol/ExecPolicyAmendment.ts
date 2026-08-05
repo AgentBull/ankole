@@ -9,4 +9,4 @@
  * `prefix_rule(..., decision="allow")`, letting the agent bypass approval for
  * commands that start with this token sequence.
  */
-export type ExecPolicyAmendment = Array<string>;
+export type ExecPolicyAmendment = Array<string>

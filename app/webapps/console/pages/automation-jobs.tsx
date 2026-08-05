@@ -19,6 +19,7 @@ import {
 } from '../api/generated/@tanstack/react-query.gen'
 import type { AutomationJobItem, AutomationJobRunItem } from '../api/generated/types.gen'
 import { AgentFilter, useAgentScope } from '../console-agent-scope'
+import { resourceID } from '../console-route-loaders'
 import { StatusIndicator } from '../console-form'
 import { ErrorBlock, formatConsoleDate, formatJSON } from '../console-primitives'
 import { FilterSwitch, ResourceListPage, ResourceSearch, ScopeBar } from '../console-list-page'
@@ -30,7 +31,7 @@ export function AutomationJobsPage() {
   const [query, setQuery] = useState('')
   const [includeFinished, setIncludeFinished] = useState(false)
   const scope = useAgentScope()
-  const selectedID = automationJobID(searchParams.get('job'))
+  const selectedID = resourceID(searchParams.get('job'))
 
   const jobs = useQuery({
     ...ankoleWebAutomationJobControllerIndexOptions({
@@ -265,12 +266,6 @@ function Fact({ label, value, mono = false }: { label: string; value: string; mo
       <dd className={mono ? 'break-all font-mono text-xs' : ''}>{value}</dd>
     </div>
   )
-}
-
-function automationJobID(value: string | null): number | undefined {
-  if (!value || !/^[1-9][0-9]*$/.test(value)) return undefined
-  const parsed = Number(value)
-  return Number.isSafeInteger(parsed) && parsed >= 1000 ? parsed : undefined
 }
 
 function jobStatusTone(status: AutomationJobItem['status']): 'danger' | 'info' | 'neutral' | 'positive' | 'warning' {

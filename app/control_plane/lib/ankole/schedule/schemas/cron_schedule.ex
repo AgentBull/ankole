@@ -16,7 +16,7 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
   @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
   @foreign_key_type :string
   @timestamps_opts [type: :utc_datetime_usec]
-  @statuses ~w(active paused deleted)
+  @statuses ~w(active paused deleted completed)
 
   schema "actor_cron_schedules" do
     field :status, :string, default: "active"

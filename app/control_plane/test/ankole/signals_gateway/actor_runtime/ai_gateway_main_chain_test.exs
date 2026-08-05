@@ -210,13 +210,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
             "type" => "function_call_output",
             "call_id" => "call_reply_attachment",
             "output" =>
-              untrusted_tool_output(
-                Ankole.JSON.encode!(%{
-                  "tool" => "reply_attachment",
-                  "ok" => true,
-                  "attachments" => [attachment]
-                })
-              )
+              Ankole.JSON.encode!(%{
+                "tool" => "reply_attachment",
+                "ok" => true,
+                "attachments" => [attachment]
+              })
           }
         ]
       })
@@ -319,13 +317,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
                    "type" => "function_call_output",
                    "call_id" => "call_reply_attachment_journal",
                    "output" =>
-                     untrusted_tool_output(
-                       Ankole.JSON.encode!(%{
-                         "tool" => "reply_attachment",
-                         "ok" => true,
-                         "attachments" => [attachment]
-                       })
-                     )
+                     Ankole.JSON.encode!(%{
+                       "tool" => "reply_attachment",
+                       "ok" => true,
+                       "attachments" => [attachment]
+                     })
                  }
                ]
              })
@@ -431,17 +427,15 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
             "type" => "function_call_output",
             "call_id" => "call_clarify_audience",
             "output" =>
-              untrusted_tool_output(
-                Ankole.JSON.encode!(%{
-                  "tool" => "clarify",
-                  "ok" => true,
-                  "question" => "Who should this brief target?",
-                  "choices" => [
-                    %{"label" => "Operators"},
-                    %{"label" => "Executives"}
-                  ]
-                })
-              )
+              Ankole.JSON.encode!(%{
+                "tool" => "clarify",
+                "ok" => true,
+                "question" => "Who should this brief target?",
+                "choices" => [
+                  %{"label" => "Operators"},
+                  %{"label" => "Executives"}
+                ]
+              })
           }
         ]
       })
@@ -619,15 +613,4 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
   end
 
   defp refute_final_mirror(_ai_message_id, 0), do: :ok
-
-  defp untrusted_tool_output(text) do
-    nonce = "test-nonce"
-
-    """
-    <ankole_untrusted_tool_output nonce="#{nonce}">
-    #{text}
-    </ankole_untrusted_tool_output nonce="#{nonce}">
-    """
-    |> String.trim()
-  end
 end

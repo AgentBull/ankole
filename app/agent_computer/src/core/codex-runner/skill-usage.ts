@@ -1,7 +1,7 @@
 import { relative, resolve } from 'node:path'
 import type { BackgroundAgentJobAttemptHistoryEntry } from '../../fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import type { MCPServerConfig } from '../../tools/mcp'
-import type { ThreadItem } from '../../tools/codex/generated/protocol/v2/ThreadItem'
+import type { ThreadItem } from './generated/protocol/v2/ThreadItem'
 
 export type DiscoveredCodexSkill = {
   name: string
@@ -9,6 +9,14 @@ export type DiscoveredCodexSkill = {
   path: string
   enabled: boolean
 }
+
+/**
+ * Commands that the Worker runtime injects into the Job PATH for one owning
+ * Skill. The Skill file only documents such a CLI, so path and MCP detection
+ * cannot see its use. Generalize this map into runtime-registered command
+ * names only when a second injected CLI exists.
+ */
+const runtimeInjectedSkillCommands = new Map([['browser', ['ankole-browser']]])
 
 /** Tracks the difference between a Job's available and observed Skills. */
 export class CodexSkillUsageTracker {
@@ -77,11 +85,16 @@ export class CodexSkillUsageTracker {
 
     const evidence = itemPathEvidence(item)
     if (!evidence) return []
-    return this.markUsed(
-      [...this.skillPaths.entries()].flatMap(([name, paths]) =>
+    return this.markUsed([
+      ...[...this.skillPaths.entries()].flatMap(([name, paths]) =>
         paths.some(path => pathReference(evidence, path)) ? [name] : []
-      )
-    )
+      ),
+      ...(item.type === 'commandExecution'
+        ? [...runtimeInjectedSkillCommands.entries()].flatMap(([name, commands]) =>
+            commands.some(command => boundedTokenReference(item.command, command)) ? [name] : []
+          )
+        : [])
+    ])
   }
 
   pendingDisabledNotices(): string[] {
@@ -112,8 +125,12 @@ export function skillDisabledNotice(name: string): string {
 }
 
 export function explicitSkillReference(text: string, name: string): boolean {
-  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  return new RegExp(`(^|[^\\p{L}\\p{N}_-])\\$${escaped}(?=$|[^\\p{L}\\p{N}_-])`, 'u').test(text)
+  return boundedTokenReference(text, `$${name}`)
+}
+
+function boundedTokenReference(text: string, token: string): boolean {
+  const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return new RegExp(`(^|[^\\p{L}\\p{N}_-])${escaped}(?=$|[^\\p{L}\\p{N}_-])`, 'u').test(text)
 }
 
 function itemPathEvidence(item: ThreadItem): string | undefined {

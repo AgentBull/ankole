@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex};
 use crate::authz;
 use crate::common;
 use crate::runtime_fabric;
-use crate::runtime_fabric::transport::{RouterEvent, RouterHandle};
+use crate::runtime_fabric::transport::{RouterEvent, RouterHandle, TransportError};
 use crate::signals_gateway;
 use crate::universal_ai_client;
 
@@ -35,6 +35,10 @@ mod atoms {
         metadata,
         private,
         public,
+        unknown_route,
+        backpressure,
+        timeout,
+        socket_closed,
     }
 }
 
@@ -245,10 +249,17 @@ pub fn runtime_fabric_router_endpoint(
     Ok(router.0.endpoint().to_string())
 }
 
+/// Returns the only RuntimeFabric protocol version this kernel speaks.
+#[rustler::nif]
+pub fn runtime_fabric_protocol_version() -> u32 {
+    runtime_fabric::PROTOCOL_VERSION
+}
+
 /// Sends a RuntimeFabric envelope to one ROUTER identity with mandatory routing.
 ///
 /// The envelope arrives as protobuf bytes produced by the Elixir generated
-/// codec; the router validates protocol invariants before the socket send.
+/// codec; the router seals the header from the body and validates protocol
+/// invariants before the socket send.
 #[rustler::nif(schedule = "DirtyIo")]
 pub fn runtime_fabric_router_send_mandatory(
     router: ResourceArc<RuntimeFabricRouterResource>,
@@ -262,7 +273,7 @@ pub fn runtime_fabric_router_send_mandatory(
         .0
         .send_mandatory(transport_route, envelope_bytes.as_slice().to_vec())
         .map(|_| "sent_or_queued".to_string())
-        .map_err(|error| error_message(error.ffi_message()))
+        .map_err(transport_error_term)
 }
 
 /// Sends raw RuntimeFabric worker-file multipart frames to one ROUTER identity.
@@ -279,7 +290,7 @@ pub fn runtime_fabric_router_send_file_frame(
         .0
         .send_file_frame(transport_route, frames)
         .map(|_| "sent_or_queued".to_string())
-        .map_err(|error| error_message(error.ffi_message()))
+        .map_err(transport_error_term)
 }
 
 /// Stops a ROUTER socket owner thread.
@@ -287,11 +298,7 @@ pub fn runtime_fabric_router_send_file_frame(
 pub fn runtime_fabric_router_stop(
     router: ResourceArc<RuntimeFabricRouterResource>,
 ) -> NIFResult<bool> {
-    router
-        .0
-        .stop()
-        .map(|_| true)
-        .map_err(|error| error_message(error.ffi_message()))
+    router.0.stop().map(|_| true).map_err(transport_error_term)
 }
 
 /// Opens a native UniversalAIClient stream from a prepared request spec.
@@ -662,6 +669,21 @@ fn error(error: common::KernelError) -> Error {
 /// Builds a Rustler term error from a message intended for Elixir callers.
 fn error_message(message: impl Into<String>) -> Error {
     Error::Term(Box::new(message.into()))
+}
+
+/// Encodes a transport error for Elixir callers.
+///
+/// The closed scheduling codes cross the seam as atoms, so the host matches
+/// them without a string parse. Parameterized errors keep the
+/// `"code: reason"` diagnostic string.
+fn transport_error_term(error: TransportError) -> Error {
+    match error {
+        TransportError::UnknownRoute => Error::Term(Box::new(atoms::unknown_route())),
+        TransportError::Backpressure => Error::Term(Box::new(atoms::backpressure())),
+        TransportError::Timeout => Error::Term(Box::new(atoms::timeout())),
+        TransportError::SocketClosed => Error::Term(Box::new(atoms::socket_closed())),
+        parameterized => error_message(parameterized.ffi_message()),
+    }
 }
 
 fn send_router_event(owner_pid: LocalPid, event: RouterEvent) {

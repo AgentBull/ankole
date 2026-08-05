@@ -94,6 +94,51 @@ fn accepts_mailbox_updated_and_rejects_missing_actor_event() {
 }
 
 #[test]
+fn seals_headers_from_the_body_spec() {
+    // A host supplies only ids, send time, and body. The seal writes lane,
+    // durability, and protocol version from the BodySpec table, and it also
+    // overwrites a host-set value, so the table stays the only owner.
+    let mut envelope = base_envelope(
+        "seal-1",
+        "seal-1",
+        proto::Lane::Unspecified,
+        proto::DurabilityClass::DurabilityUnspecified,
+        proto::envelope::Body::TurnNoopCompleted(proto::TurnNoopCompleted {
+            turn: Some(turn_ref()),
+            reason: "ambient_silent".into(),
+        }),
+    );
+    envelope.protocol_version = 0;
+
+    let sealed_bytes = seal_envelope_bytes(&envelope.encode_to_vec()).expect("seal must succeed");
+    let sealed = proto::Envelope::decode(sealed_bytes.as_slice()).expect("sealed must decode");
+    assert_eq!(sealed.protocol_version, PROTOCOL_VERSION);
+    assert_eq!(sealed.lane, proto::Lane::Turn as i32);
+    assert_eq!(
+        sealed.durability,
+        proto::DurabilityClass::ControlReplayable as i32
+    );
+    validate_envelope_bytes(&sealed_bytes).expect("sealed envelope must validate");
+
+    let mut wrong = envelope.clone();
+    wrong.lane = proto::Lane::Control as i32;
+    let corrected = proto::Envelope::decode(
+        seal_envelope_bytes(&wrong.encode_to_vec())
+            .expect("seal must correct a wrong host lane")
+            .as_slice(),
+    )
+    .expect("corrected envelope must decode");
+    assert_eq!(corrected.lane, proto::Lane::Turn as i32);
+
+    let bodyless = proto::Envelope {
+        body: None,
+        ..envelope
+    };
+    let error = seal_envelope_bytes(&bodyless.encode_to_vec()).expect_err("bodyless must fail");
+    assert!(error.to_string().contains("envelope body is required"));
+}
+
+#[test]
 fn accepts_turn_noop_completed() {
     let envelope = base_envelope(
         "turn-noop-completed-1",

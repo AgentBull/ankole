@@ -584,9 +584,11 @@ function ToolItemView({ item }: { item: ResponseItem }) {
     )
   }
 
-  // Function call outputs are wrapped in the untrusted-content envelope; show
-  // the inner payload and keep the nonce as provenance instead of dumping the
-  // wrapper markup into the reading column.
+  // The runtime stopped writing the untrusted-content envelope in 0.59.0, but
+  // conversation rows stored before that change still carry it. Unwrap those
+  // rows and keep the nonce as provenance instead of dumping the wrapper
+  // markup into the reading column. Remove this unwrap when no stored
+  // conversation carries the envelope.
   const envelope = type === 'function_call_output' ? stripUntrustedEnvelope(raw) : null
   const body = envelope ? envelope.body : raw
 

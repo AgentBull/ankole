@@ -5433,37 +5433,6 @@ export type AnkoleWebAiGatewayControllerWebSearchResponses = {
 export type AnkoleWebAiGatewayControllerWebSearchResponse =
   AnkoleWebAiGatewayControllerWebSearchResponses[keyof AnkoleWebAiGatewayControllerWebSearchResponses]
 
-export type AnkoleWebAiGatewayControllerWebToolsData = {
-  body?: never
-  path?: never
-  query?: never
-  url: '/api/v1/ai-gateway/web_tools'
-}
-
-export type AnkoleWebAiGatewayControllerWebToolsErrors = {
-  /**
-   * Unauthorized
-   */
-  401: {
-    [key: string]: unknown
-  }
-}
-
-export type AnkoleWebAiGatewayControllerWebToolsError =
-  AnkoleWebAiGatewayControllerWebToolsErrors[keyof AnkoleWebAiGatewayControllerWebToolsErrors]
-
-export type AnkoleWebAiGatewayControllerWebToolsResponses = {
-  /**
-   * Web tool availability
-   */
-  200: {
-    [key: string]: unknown
-  }
-}
-
-export type AnkoleWebAiGatewayControllerWebToolsResponse =
-  AnkoleWebAiGatewayControllerWebToolsResponses[keyof AnkoleWebAiGatewayControllerWebToolsResponses]
-
 export type AnkoleWebSignalBindingControllerPutBindingData = {
   /**
    * Signal binding

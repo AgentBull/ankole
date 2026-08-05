@@ -7,6 +7,7 @@ tags: [lark, task, okr, attendance, oa]
 metadata:
   upstream: https://github.com/larksuite/cli/tree/v1.0.69/skills
   upstream_tag: v1.0.69
+  validated_against: v1.0.84
   modified_for: Ankole bot-only Agent Plugin runtime
 ---
 
@@ -23,7 +24,9 @@ Before the first command, read [references/bot-runtime.md](references/bot-runtim
 
 ## Completeness contract
 
-For every operation:
+Every `lark-cli` command line shown in this skill's references is validated against the image's pinned CLI version at build time. Run a referenced command directly with your values; do not re-verify it with `--help` first.
+
+For an operation the references do not cover:
 
 1. Run `lark-cli task|okr|attendance --help`.
 2. Inspect the exact command's help and require bot identity support.

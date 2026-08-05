@@ -8,6 +8,7 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
 
   alias Ankole.AIGateway.CompactionArtifacts
   alias Ankole.AIGateway.ChatGPTProtocol
+  alias Ankole.AIGateway.CodexVision
   alias Ankole.AIGateway.CredentialAttempts
   alias Ankole.AIGateway.HostedTools.ImageGeneration
   alias Ankole.AIGateway.MapUtils
@@ -57,7 +58,8 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
 
     runtime = Map.put(runtime, "request_context", request_context)
 
-    with {:ok, request} <- CompactionArtifacts.resolve_request_input_handles(subject_uid, request) do
+    with {:ok, request} <- CompactionArtifacts.resolve_request_input_handles(subject_uid, request),
+         {:ok, request} <- CodexVision.adapt(subject_uid, request) do
       build(subject_uid, runtime, request, opts)
     end
   end
@@ -76,7 +78,8 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
              subject_uid,
              "llm",
              Map.put(request, "__ankole_request_context", request_context)
-           ) do
+           ),
+         {:ok, request} <- CodexVision.adapt(subject_uid, request) do
       {:ok, request, runtime}
     end
   end

@@ -24,4 +24,4 @@
  * path text remains valid until an operation such as [`Self::to_path_uri`]
  * requires an absolute path.
  */
-export type LegacyAppPathString = string;
+export type LegacyAppPathString = string

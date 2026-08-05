@@ -87,9 +87,6 @@ describe('computer tools', () => {
     const context = contextFor(new FakeComputer())
     const applyPatch = createApplyPatchTool(context)
 
-    expect(applyPatch.description).toBe(
-      'The `apply_patch` tool can be used to edit files. This is a FREEFORM tool, so do not wrap the patch in JSON.'
-    )
     expect(applyPatch.schema.safeParse('*** Begin Patch\n*** Delete File: a.ts\n*** End Patch\n').success).toBe(true)
     expect(applyPatch.schema.safeParse({ patch: 'private patch body' }).success).toBe(false)
     expect(applyPatch.schema.safeParse('x'.repeat(256 * 1024 + 1)).success).toBe(false)
@@ -110,15 +107,19 @@ describe('computer tools', () => {
 
     expect(
       readFile.describeActivity(readFile.schema.parse({ path: '/agents/agent-1/sessions/session-1/app.ts' }))
-    ).toContain('session-1/app.ts')
+    ).toEqual({
+      key: 'signals_gateway.reply.activity.file_read_target',
+      bindings: { path: 'session-1/app.ts' }
+    })
     const patchBodySummary = applyPatch.describeActivity(applyPatch.schema.parse('private patch body'))
-    expect(patchBodySummary).toBeTruthy()
-    expect(patchBodySummary).not.toContain('private patch body')
+    expect(patchBodySummary).toEqual({ key: 'signals_gateway.reply.activity.file_update' })
     const attachmentSummary = attachment.describeActivity(
       attachment.schema.parse({ path: '/agents/agent-1/user-files/reports/weekly.pdf', name: 'private-name.pdf' })
     )
-    expect(attachmentSummary).toContain('reports/weekly.pdf')
-    expect(attachmentSummary).not.toContain('private-name')
+    expect(attachmentSummary).toEqual({
+      key: 'signals_gateway.reply.activity.attachment_prepare_target',
+      bindings: { path: 'reports/weekly.pdf' }
+    })
 
     const commandSummaries = [
       command.describeActivity(
@@ -136,14 +137,14 @@ describe('computer tools', () => {
     ]
 
     expect(commandSummaries).toEqual([
-      expect.stringContaining('mix test'),
-      expect.stringContaining('rg'),
-      expect.stringContaining('git diff'),
-      expect.stringContaining('run-secret'),
-      expect.stringContaining('echo')
+      { key: 'signals_gateway.reply.activity.command_test_family', bindings: { family: 'mix test' } },
+      { key: 'signals_gateway.reply.activity.command_search_code_family', bindings: { family: 'rg' } },
+      { key: 'signals_gateway.reply.activity.command_check_changes_family', bindings: { family: 'git diff' } },
+      { key: 'signals_gateway.reply.activity.command_execute_family', bindings: { family: 'run-secret' } },
+      { key: 'signals_gateway.reply.activity.command_execute_family', bindings: { family: 'echo' } }
     ])
-    expect(commandSummaries.join(' ')).not.toContain('private')
-    expect(commandSummaries.join(' ')).not.toContain('do-not-leak')
+    expect(JSON.stringify(commandSummaries)).not.toContain('private')
+    expect(JSON.stringify(commandSummaries)).not.toContain('do-not-leak')
   })
 
   it('adds duration and expected nonzero exit-code notes to command output', async () => {

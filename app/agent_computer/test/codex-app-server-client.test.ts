@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { CodexAppServerClient } from '../src/tools/codex/app-server-client'
+import { CodexAppServerClient } from '../src/core/codex-runner/app-server-client'
 
 describe('Codex app-server client transport', () => {
   it('rejects pending requests immediately when stdin write fails', async () => {
