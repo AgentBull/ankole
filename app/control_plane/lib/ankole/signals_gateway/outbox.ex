@@ -678,10 +678,10 @@ defmodule Ankole.SignalsGateway.Outbox do
     |> merge_terminal_meta(original)
   end
 
-  # A stopped card is useful with status and progress metadata alone. The text
+  # A stopped rich reply is useful with status and progress metadata alone. The text
   # fallback remains available to providers that cannot render the rich card,
   # but a late preview checkpoint must not turn that fallback concern into a
-  # fabricated CardKit answer.
+  # fabricated answer.
   defp preserve_empty_stopped_answer(presentation, "stopped", ""),
     do: Map.put(presentation, "answer", "")
 
@@ -698,7 +698,8 @@ defmodule Ankole.SignalsGateway.Outbox do
     original_meta = Map.get(original, "meta")
 
     if is_map(original_meta) do
-      Map.put(presentation, "meta", Map.merge(presentation["meta"] || %{}, original_meta))
+      terminal_meta = Map.delete(original_meta, "status")
+      Map.put(presentation, "meta", Map.merge(presentation["meta"] || %{}, terminal_meta))
     else
       presentation
     end
@@ -1372,6 +1373,7 @@ defmodule Ankole.SignalsGateway.Outbox do
           %{
             status: :succeeded,
             created_source_entry_id: created_source_entry_id_after_success(outbox, result),
+            provider_thread_id: provider_thread_id_after_success(outbox, result),
             payload: payload,
             last_error: %{},
             next_attempt_at: nil,
@@ -1540,6 +1542,10 @@ defmodule Ankole.SignalsGateway.Outbox do
   defp created_source_entry_id_after_success(%OutboxEntry{} = outbox, result) do
     result_text(result, :created_source_entry_id) ||
       outbox.created_source_entry_id
+  end
+
+  defp provider_thread_id_after_success(%OutboxEntry{} = outbox, result) do
+    result_text(result, :provider_thread_id) || outbox.provider_thread_id
   end
 
   # Exponential backoff: delay = 5s * 2^(attempt-1), clamped to the 5m ceiling

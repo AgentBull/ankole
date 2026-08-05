@@ -64,7 +64,7 @@ defmodule Ankole.E2E.FakeSlack.Router do
   post("/api/reactions.add", do: with_auth(conn, :bot, &ok(&1, %{})))
   post("/api/reactions.remove", do: with_auth(conn, :bot, &ok(&1, %{})))
 
-  post "/api/files.getUploadURLExternal" do
+  get "/api/files.getUploadURLExternal" do
     with_auth(conn, :bot, fn conn ->
       file_id = State.reserve_upload(state(conn), conn.params["filename"])
 

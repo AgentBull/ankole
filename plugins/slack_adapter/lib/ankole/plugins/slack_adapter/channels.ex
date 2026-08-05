@@ -23,6 +23,7 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
     "member_joined_channel",
     "member_left_channel",
     "channel_rename",
+    "group_rename",
     "channel_deleted",
     "channel_archive"
   ]
@@ -216,7 +217,8 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
     end
   end
 
-  defp handle_event(consumer, "channel_rename", event) do
+  defp handle_event(consumer, event_type, event)
+       when event_type in ["channel_rename", "group_rename"] do
     channel_id = get_in(event.content || %{}, ["channel", "id"])
     enqueue_refresh_result(consumer, channel_id, "channel_renamed")
   end

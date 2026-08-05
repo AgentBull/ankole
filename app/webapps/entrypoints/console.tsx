@@ -1,4 +1,4 @@
 import { mountApp } from '../common/mount'
-import { ConsoleApp } from '../console/app'
+import { ConsoleApp, createConsoleRouter } from '../console/app'
 
-mountApp(<ConsoleApp />)
+mountApp(queryClient => <ConsoleApp router={createConsoleRouter(queryClient)} />)

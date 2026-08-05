@@ -1,23 +1,31 @@
 defmodule Ankole.Plugins.SlackAdapterTest do
   use Ankole.DataCase, async: false
 
+  import Ankole.PrincipalsFixtures
+  import Ankole.SignalsGatewayFixtures
+
   alias Ankole.AuthZ
   alias Ankole.AuthZ.Membership
   alias Ankole.Plugins.SlackAdapter
 
   alias Ankole.Plugins.SlackAdapter.{
     BlockKit,
+    Channels,
     Config,
+    Dispatcher,
     Emoji,
+    ErrorPolicy,
     IdentityProvider,
     Inbound,
     Mrkdwn,
-    Outbox
+    Outbox,
+    ReplyPreview
   }
 
   alias Ankole.Repo
-  alias Ankole.SignalsGateway.{AdapterContext, OutboxEntry}
+  alias Ankole.SignalsGateway.{AdapterContext, InboundBatch, OutboxEntry}
   alias SlackOpenAPI.Event
+  alias SlackOpenAPI.SocketMode.Dispatcher, as: SocketDispatcher
 
   setup do
     previous = Req.default_options()
@@ -27,6 +35,21 @@ defmodule Ankole.Plugins.SlackAdapterTest do
   end
 
   describe "plugin and config contracts" do
+    test "dispatches app mentions through the message receiver" do
+      dispatcher = Dispatcher.build([])
+
+      envelope =
+        {:envelope,
+         %{
+           "type" => "events_api",
+           "payload" => %{"event" => %{"type" => "app_mention"}}
+         }}
+
+      assert "app_mention" in Dispatcher.event_types()
+      assert "group_rename" in Dispatcher.event_types()
+      assert {:ok, []} = SocketDispatcher.dispatch(dispatcher, envelope)
+    end
+
     test "declares chat and identity contracts" do
       assert SlackAdapter.plugin_id() == "slack-adapter"
 
@@ -41,8 +64,15 @@ defmodule Ankole.Plugins.SlackAdapterTest do
 
       assert Enum.all?(SlackAdapter.app_config_patterns(), & &1.encrypted)
 
-      [_chat, identity] = SlackAdapter.adapter_declarations()
+      [chat, identity] = SlackAdapter.adapter_declarations()
+      chat_fields = Map.new(chat.fields, &{&1.path, &1})
       fields = Map.new(identity.fields, &{&1.path, &1})
+
+      assert chat_fields["botToken"].advanced == false
+      assert chat_fields["appToken"].advanced == false
+      assert chat_fields["platformSubjectNamespace"].advanced == true
+      assert chat_fields["userName"].advanced == true
+      assert chat.reply_preview_module == ReplyPreview
 
       assert fields["botToken"].requiredWhen == [%{path: "sync.contacts", value: true}]
       assert fields["botToken"].validation.pattern == "^xoxb-"
@@ -195,6 +225,90 @@ defmodule Ankole.Plugins.SlackAdapterTest do
       assert length(second) == 1
     end
 
+    test "Block Kit renders Slack reply state and durable choice callbacks" do
+      presentation = %{
+        "state" => "awaiting_input",
+        "prompt" => "Choose one",
+        "interaction_status" => "pending",
+        "actions" => [
+          %{
+            "type" => "button",
+            "id" => "approve",
+            "label" => "Approve",
+            "style" => "primary",
+            "interaction_id" => "interaction-1",
+            "source_actor_event_id" => "019fbd9e-5800-7000-8000-000000000001",
+            "control_id" => "decision",
+            "selected_option_id" => "approve",
+            "option_value" => "yes",
+            "revision" => 4
+          }
+        ]
+      }
+
+      assert {:ok, blocks} = BlockKit.render(%{"reply_presentation" => presentation})
+
+      button =
+        blocks |> Enum.find(&(&1["type"] == "actions")) |> get_in(["elements", Access.at(0)])
+
+      assert button["style"] == "primary"
+
+      assert Torque.decode!(button["value"]) == %{
+               "version" => "ankole.interactive_output.action.v1",
+               "answerKind" => "choice",
+               "interactionId" => "interaction-1",
+               "interactionVersion" => 4,
+               "controlId" => "decision",
+               "selectedOptionId" => "approve",
+               "optionValue" => "yes",
+               "sourceActorEventId" => "019fbd9e-5800-7000-8000-000000000001"
+             }
+    end
+
+    test "Block Kit does not retain a working status after the reply terminates" do
+      for {state, expected_status} <- [
+            {"completed", nil},
+            {"failed", "Failed"},
+            {"stopped", "Stopped"},
+            {"awaiting_input", "Waiting for input"},
+            {"scheduled", "Scheduled"}
+          ] do
+        presentation = %{
+          "state" => state,
+          "answer" => "Done",
+          "meta" => %{"status" => "正在理解请求"}
+        }
+
+        assert {:ok, blocks} = BlockKit.render(%{"reply_presentation" => presentation})
+        rendered = Torque.encode!(blocks)
+
+        refute rendered =~ "正在理解请求"
+        assert rendered =~ "Done"
+
+        if expected_status do
+          assert rendered =~ expected_status
+        end
+      end
+    end
+
+    test "Block Kit localizes the Slack-owned starting state" do
+      assert :ok =
+               Ankole.I18n.with_locale("zh-Hans-CN", fn ->
+                 assert {:ok, blocks} =
+                          BlockKit.render(%{
+                            "reply_presentation" => %{
+                              "state" => "debouncing",
+                              "answer" => ""
+                            }
+                          })
+
+                 rendered = Torque.encode!(blocks)
+                 assert rendered =~ "正在接收请求"
+                 refute rendered =~ "Starting"
+                 :ok
+               end)
+    end
+
     test "emoji mapping strips skin tone and round-trips stable keys" do
       assert Emoji.normalize("thumbsup::skin-tone-3") == "thumbs_up"
       assert Emoji.normalize("custom") == "custom"
@@ -203,6 +317,39 @@ defmodule Ankole.Plugins.SlackAdapterTest do
   end
 
   describe "inbound and outbox normalization" do
+    test "blocks missing Slack scopes with the required scope visible" do
+      error = %SlackOpenAPI.Error{
+        reason: "missing_scope",
+        status: 200,
+        raw: %{
+          "needed" => "files:write",
+          "provided" => "chat:write,files:read",
+          "token" => "must-not-be-stored"
+        }
+      }
+
+      assert {:error,
+              {:reply_delivery, :operator_action_required,
+               %{
+                 "code" => "missing_scope",
+                 "http_status" => 200,
+                 "needed_scope" => "files:write"
+               }}} = ErrorPolicy.normalize_delivery_result({:error, error})
+    end
+
+    test "keeps transient Slack failures retryable" do
+      assert {:error,
+              {:reply_delivery, :retryable,
+               %{"code" => "rate_limited", "retry_after_seconds" => 30}}} =
+               ErrorPolicy.normalize_delivery_result({:error, {:rate_limited, 30}})
+
+      assert {:error,
+              {:reply_delivery, :retryable, %{"code" => "transport", "http_status" => 503}}} =
+               ErrorPolicy.normalize_delivery_result(
+                 {:error, %SlackOpenAPI.Error{reason: :transport, status: 503}}
+               )
+    end
+
     test "normalizes group mention, thread, files and Slack link text" do
       consumer = chat_consumer(%{"runtimeBotUserID" => "UBOT"})
 
@@ -305,6 +452,126 @@ defmodule Ankole.Plugins.SlackAdapterTest do
                    target_source_entry_id: "1.1",
                    payload: %{"reaction_key" => "thumbs_up"}
                })
+    end
+
+    test "keeps every long reply chunk in the same Slack thread" do
+      text = String.duplicate("a", 24_001)
+
+      assert {:ok, requests} =
+               Outbox.requests_for_outbox(%OutboxEntry{
+                 operation: :reply,
+                 signal_channel_id: "slack:C1",
+                 reply_to_source_entry_id: "1.1",
+                 payload: %{},
+                 fallback_visible_text: text
+               })
+
+      assert length(requests) == 3
+      assert Enum.all?(requests, &(&1.body["thread_ts"] == "1.1"))
+      assert Enum.all?(requests, &(&1.reply? == true))
+    end
+
+    test "records an attachment before its Slack download starts" do
+      parent = self()
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "slack", :record_only, adapter: "slack")
+      consumer = Inbound.chat_consumer(adapter_context(agent.uid), chat_config())
+
+      Req.default_options(
+        plug: fn conn ->
+          pending =
+            Repo.get_by!(InboundBatch,
+              agent_uid: agent.uid,
+              binding_name: "slack",
+              signal_channel_id: "slack:C1",
+              batch_state: "open"
+            )
+
+          send(parent, {:slack_pending_attachment, pending})
+          Plug.Conn.send_resp(conn, 400, "download unavailable")
+        end
+      )
+
+      incoming =
+        event(%{
+          "channel" => "C1",
+          "channel_type" => "channel",
+          "user" => "U1",
+          "text" => "file",
+          "ts" => "1700000000.009900",
+          "files" => [
+            %{
+              "id" => "F99",
+              "name" => "pending.pdf",
+              "url_private" => "https://files.test/F99",
+              "mimetype" => "application/pdf",
+              "size" => 10
+            }
+          ]
+        })
+
+      assert {:ok, [%{status: :recorded, signal_entry: entry}]} =
+               Inbound.handle_message_receive("message", incoming, [consumer])
+
+      assert_receive {:slack_pending_attachment, pending}
+
+      assert get_in(List.first(pending.entries), [
+               "metadata",
+               "attachment_materialization",
+               "state"
+             ]) ==
+               "pending"
+
+      assert entry.metadata["attachment_materialization"]["state"] == "failed"
+      assert [%{"attachment_id" => attachment_id}] = entry.attachments
+      assert attachment_id >= 10_000
+    end
+
+    test "Slack actions carry an authorized Principal identity" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "slack", :ignore, adapter: "slack")
+      consumer = Inbound.chat_consumer(adapter_context(agent.uid), chat_config())
+
+      action = %Event{
+        id: "Ev-action-1",
+        type: "block_actions",
+        content: %{
+          "user" => %{"id" => "U-ACTION"},
+          "container" => %{"channel_id" => "C1", "message_ts" => "1.1"},
+          "actions" => [
+            %{
+              "action_id" => "custom",
+              "action_ts" => "2.2",
+              "value" => Torque.encode!(%{"custom" => "value"})
+            }
+          ]
+        },
+        raw: %{}
+      }
+
+      assert {:ok, [%{status: :accepted, actor_event: actor_event}]} =
+               Inbound.handle_block_action("block_actions", action, [consumer])
+
+      assert actor_event.payload["data"]["action"]["operator_id"] == "U-ACTION"
+      assert actor_event.payload["data"]["action"]["operator_principal_uid"] == "u-action"
+      assert actor_event.payload["data"]["action"]["value"] == %{"custom" => "value"}
+    end
+
+    test "private-channel rename schedules a Slack channel refresh" do
+      %{principal: agent} = agent_fixture()
+      consumer = Inbound.chat_consumer(adapter_context(agent.uid), chat_config())
+
+      rename = %Event{
+        id: "Ev-group-rename-1",
+        type: "group_rename",
+        content: %{"channel" => %{"id" => "G1", "name" => "renamed-private"}},
+        raw: %{}
+      }
+
+      assert {:ok, [%{status: :refresh_enqueued, job_id: job_id}]} =
+               Channels.handle_im_event("group_rename", rename, [consumer])
+
+      assert is_integer(job_id)
     end
   end
 
@@ -433,6 +700,15 @@ defmodule Ankole.Plugins.SlackAdapterTest do
       )
 
     Inbound.chat_consumer(context, Map.merge(chat_config(), overrides))
+  end
+
+  defp adapter_context(agent_uid) do
+    AdapterContext.new(
+      agent_uid: agent_uid,
+      binding_name: "slack",
+      adapter: "slack",
+      user_name: "Slack"
+    )
   end
 
   defp stub_slack_download(conn) do

@@ -98,19 +98,18 @@ defmodule Ankole.AIGateway.Providers.ChatGPTSubscription do
   end
 
   @impl true
+  def models_metadata_source(ctx) when is_map(ctx) do
+    {:ok, {:codex, codex_models_source(ctx)}}
+  end
+
+  @impl true
   def prepare_connection_check(ctx) when is_map(ctx) do
-    headers =
-      ctx
-      |> UniversalAIRequest.raw_headers()
-      |> UniversalAIRequest.put_header("Authorization", bearer(ctx.settings[:access_token]))
-      |> maybe_put_account_header(ctx.settings)
-      |> maybe_put_identity_headers(ctx.settings, %{})
-      |> maybe_put_fedramp(ctx.settings)
+    source = codex_models_source(ctx)
 
     ProviderConnectionCheck.get(
       ctx,
-      "models?client_version=#{@codex_version}",
-      headers: headers
+      source.path,
+      headers: source.headers
     )
   end
 
@@ -134,6 +133,20 @@ defmodule Ankole.AIGateway.Providers.ChatGPTSubscription do
       true ->
         :ok
     end
+  end
+
+  defp codex_models_source(ctx) do
+    path = "models?client_version=#{@codex_version}"
+
+    headers =
+      ctx
+      |> UniversalAIRequest.raw_headers()
+      |> UniversalAIRequest.put_header("Authorization", bearer(ctx.settings[:access_token]))
+      |> maybe_put_account_header(ctx.settings)
+      |> maybe_put_identity_headers(ctx.settings, %{})
+      |> maybe_put_fedramp(ctx.settings)
+
+    %{ctx: ctx, path: path, headers: headers, cache_key: {path, ctx.settings[:account_id]}}
   end
 
   defp put_protocol_headers(request, ctx, protocol, websocket?) do

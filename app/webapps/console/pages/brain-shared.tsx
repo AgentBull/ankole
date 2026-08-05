@@ -18,8 +18,8 @@ import {
   Skeleton,
   cn
 } from '@ankole/uikit'
-import { RiArrowDownSLine, RiFilter3Line, RiHistoryLine, RiRefreshLine } from '@remixicon/react'
-import { type ReactNode } from 'react'
+import { RiArrowDownSLine, RiCloseLine, RiFilter3Line, RiHistoryLine, RiRefreshLine } from '@remixicon/react'
+import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router'
 import type { BrainAuditLog, PrincipalItem } from '../api/generated/types.gen'
@@ -92,10 +92,10 @@ export function BrainOwnerField({
   return (
     <LabeledField label={t('console.brain.owner')}>
       <Select value={ownerUID} onValueChange={value => onChange(String(value))}>
-        <SelectTrigger className="w-full" disabled={options.length === 0}>
+        <SelectTrigger className="w-full">
           <SelectValue placeholder={t('console.brain.owner_placeholder')} />
         </SelectTrigger>
-        <SelectContent>
+        <SelectContent emptyLabel={t('common.select_empty')}>
           {options.map(principal => (
             <SelectItem key={principal.uid} value={principal.uid}>
               {principal.display_name ? `${principal.display_name} · ${principal.uid}` : principal.uid}
@@ -201,26 +201,57 @@ export const RESTORABLE_AUDIT_ACTIONS = new Set([
   'remove_relation'
 ])
 
+export type ActiveFilter = {
+  id: string
+  label: string
+  value: string
+  onRemove: () => void
+}
+
 export function FilterDisclosure({
-  count,
+  filters,
   onClear,
   children
 }: {
-  count: number
-  onClear: () => void
+  filters: ActiveFilter[]
+  onClear?: () => void
   children: ReactNode
 }) {
   const { t } = useTranslation()
+  const [open, setOpen] = useState(false)
+
   return (
-    <Collapsible defaultOpen={count > 0} className="grid gap-3 border-t border-border pt-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <CollapsibleTrigger className="inline-flex h-9 items-center gap-2 px-2 text-sm font-medium outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/40">
-          <RiFilter3Line aria-hidden />
-          {t('console.brain.more_filters')}
-          {count > 0 ? <Badge variant="info">{count}</Badge> : null}
-          <RiArrowDownSLine aria-hidden />
-        </CollapsibleTrigger>
-        {count > 0 ? (
+    <Collapsible open={open} onOpenChange={setOpen} className="grid gap-3 border-t border-border pt-3">
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <CollapsibleTrigger className="group inline-flex h-10 items-center gap-2 px-2 text-sm font-medium outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/40">
+            <RiFilter3Line aria-hidden />
+            {t('console.brain.more_filters')}
+            {filters.length > 0 ? <Badge variant="info">{filters.length}</Badge> : null}
+            <RiArrowDownSLine
+              aria-hidden
+              className="transition-transform duration-200 group-aria-expanded:rotate-180 motion-reduce:transition-none"
+            />
+          </CollapsibleTrigger>
+          {filters.map(filter => (
+            <Badge
+              key={filter.id}
+              variant="secondary"
+              render={
+                <button
+                  type="button"
+                  aria-label={t('console.brain.remove_filter', { label: filter.label, value: filter.value })}
+                  onClick={filter.onRemove}
+                />
+              }>
+              <span className="truncate">
+                {filter.label}: {filter.value}
+              </span>
+              <RiCloseLine aria-hidden />
+            </Badge>
+          ))}
+        </div>
+        {filters.length > 0 && onClear ? (
           <Button type="button" size="xs" variant="ghost" onClick={onClear}>
             {t('console.brain.clear_filters')}
           </Button>

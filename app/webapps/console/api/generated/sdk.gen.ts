@@ -273,6 +273,9 @@ import type {
   AnkoleWebBrainControllerStatusData,
   AnkoleWebBrainControllerStatusErrors,
   AnkoleWebBrainControllerStatusResponses,
+  AnkoleWebConsoleReadinessControllerShowData,
+  AnkoleWebConsoleReadinessControllerShowErrors,
+  AnkoleWebConsoleReadinessControllerShowResponses,
   AnkoleWebControlPlanePluginControllerIndexData,
   AnkoleWebControlPlanePluginControllerIndexErrors,
   AnkoleWebControlPlanePluginControllerIndexResponses,
@@ -4040,5 +4043,31 @@ export const ankoleWebAuthZGroupControllerGrants = <ThrowOnError extends boolean
       }
     ],
     url: '/api/v1/principal-groups/{name}/grants',
+    ...options
+  })
+
+/**
+ * Read the console readiness snapshot
+ */
+export const ankoleWebConsoleReadinessControllerShow = <ThrowOnError extends boolean = false>(
+  options?: Options<AnkoleWebConsoleReadinessControllerShowData, ThrowOnError>
+): RequestResult<
+  AnkoleWebConsoleReadinessControllerShowResponses,
+  AnkoleWebConsoleReadinessControllerShowErrors,
+  ThrowOnError
+> =>
+  (options?.client ?? client).get<
+    AnkoleWebConsoleReadinessControllerShowResponses,
+    AnkoleWebConsoleReadinessControllerShowErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/console-readiness',
     ...options
   })

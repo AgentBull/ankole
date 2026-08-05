@@ -91,6 +91,14 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
       refute "outbound_reconciliation" in chat.outbound_capabilities
       assert Enum.all?(Microsoft365Adapter.app_config_patterns(), & &1.encrypted)
 
+      chat_fields = Map.new(chat.fields, &{&1.path, &1})
+      assert chat_fields["appID"].advanced == false
+      assert chat_fields["appPassword"].advanced == false
+      assert chat_fields["botTenancy"].advanced == false
+      assert chat_fields["tenantID"].advanced == false
+      assert chat_fields["platformSubjectNamespace"].advanced == true
+      assert chat_fields["userName"].advanced == true
+
       identity = Enum.find(declarations, &(&1.contract_id == "principals.identity_provider"))
       fields = Map.new(identity.fields, &{&1.path, &1})
 

@@ -3,9 +3,9 @@ defmodule Ankole.SignalsGateway.ReplyPreviewAdapter do
   Provider-neutral lifecycle contract for one mutable AI reply surface.
 
   SignalsGateway owns the semantic presentation and its PostgreSQL checkpoint;
-  adapters own only the provider handle and CardKit mutations. This keeps Lark
-  card JSON out of worker events and lets another IM adapter implement the same
-  lifecycle without inheriting Lark-specific sequence rules.
+  adapters own only the provider handle and provider-native mutations. This
+  keeps Slack Block Kit and Lark CardKit data out of worker events while each IM
+  adapter implements its own transport rules.
   """
 
   alias Ankole.SignalsGateway.ActorEvent

@@ -19,8 +19,8 @@ import {
   ankoleWebPrincipalControllerIndexOptions
 } from '../api/generated/@tanstack/react-query.gen'
 import type { AgentLibrarySkillOverlayItem } from '../api/generated/types.gen'
+import { PageHeader, PageStack, RefreshButton } from '../console-page'
 import { ErrorBlock } from '../console-primitives'
-import { PageHeader, RefreshButton } from '../console-list-page'
 import { defaultBrainOwnerUID, setBrainFilter } from '../state/brain-editor-model'
 import { BrainOwnerField, BrainTaskNavigation, formatBrainDate } from './brain-shared'
 
@@ -50,7 +50,7 @@ export function BrainSkillExperiencePage() {
   }, [ownerUID, searchParams, setSearchParams])
 
   return (
-    <div className="grid min-w-0 gap-6">
+    <PageStack>
       <PageHeader
         title={t('console.brain.experience_title')}
         description={t('console.brain.experience_description')}
@@ -81,7 +81,7 @@ export function BrainSkillExperiencePage() {
           ))}
         </div>
       )}
-    </div>
+    </PageStack>
   )
 }
 

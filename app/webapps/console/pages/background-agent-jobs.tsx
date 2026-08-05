@@ -41,8 +41,8 @@ import {
   RiUser3Line
 } from '@remixicon/react'
 import { match } from '@agentbull/active-support'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { type ReactNode, useMemo, useState } from 'react'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { type ReactNode, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router'
 import { requestErrorMessage } from '../../common/request-errors'
@@ -60,7 +60,8 @@ import type {
 import { ErrorBlock, formatConsoleDate, formatJSON } from '../console-primitives'
 import { MarkdownBody } from '../markdown-body'
 import { StatusIndicator } from '../console-form'
-import { PageHeader, RefreshButton, ResourceSearch } from '../console-list-page'
+import { ResourceSearch } from '../console-list-page'
+import { PageHeader, PageStack, RefreshButton } from '../console-page'
 
 type JobStatus = BackgroundAgentJobItem['status']
 
@@ -83,13 +84,15 @@ export function BackgroundAgentJobsPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
-  const agentFilter = searchParams.get('agent') ?? ''
+  const routeAgentFilter = searchParams.get('agent') ?? ''
+  const [agentFilter, setAgentFilter] = useState(routeAgentFilter)
   const selectedID = backgroundAgentJobID(searchParams.get('job'))
   const [cancelTargetID, setCancelTargetID] = useState<number>()
   const list = useQuery({
     ...ankoleWebBackgroundAgentJobControllerIndexOptions({
-      query: { agent: agentFilter.trim() || undefined, limit: 100 }
+      query: { agent: routeAgentFilter.trim() || undefined, limit: 100 }
     }),
+    placeholderData: keepPreviousData,
     refetchInterval: 5_000
   })
   const detail = useQuery({
@@ -114,11 +117,36 @@ export function BackgroundAgentJobsPage() {
   const cancelTarget =
     jobs.find(job => job.id === cancelTargetID) ?? (selected?.id === cancelTargetID ? selected : undefined)
 
-  const setAgentFilter = (value: string) => {
-    const next = new URLSearchParams(searchParams)
-    if (value) next.set('agent', value)
-    else next.delete('agent')
-    setSearchParams(next, { replace: true })
+  useEffect(() => setAgentFilter(routeAgentFilter), [routeAgentFilter])
+
+  useEffect(() => {
+    if (agentFilter === routeAgentFilter) return
+
+    const timeout = window.setTimeout(() => {
+      setSearchParams(
+        current => {
+          const next = new URLSearchParams(current)
+          if (agentFilter) next.set('agent', agentFilter)
+          else next.delete('agent')
+          return next
+        },
+        { replace: true }
+      )
+    }, 300)
+
+    return () => window.clearTimeout(timeout)
+  }, [agentFilter, routeAgentFilter, setSearchParams])
+
+  const clearAgentFilter = () => {
+    setAgentFilter('')
+    setSearchParams(
+      current => {
+        const next = new URLSearchParams(current)
+        next.delete('agent')
+        return next
+      },
+      { replace: true }
+    )
   }
 
   const openBackgroundAgentJob = (id: number) => {
@@ -142,7 +170,7 @@ export function BackgroundAgentJobsPage() {
   )
 
   return (
-    <div className="grid min-w-0 gap-6">
+    <PageStack>
       <PageHeader
         title={t('console.background_agent_jobs.title')}
         description={t('console.background_agent_jobs.description')}
@@ -174,7 +202,7 @@ export function BackgroundAgentJobsPage() {
           </EmptyHeader>
           {agentFilter ? (
             <EmptyContent className="items-start">
-              <Button type="button" size="sm" variant="outline" onClick={() => setAgentFilter('')}>
+              <Button type="button" size="sm" variant="outline" onClick={clearAgentFilter}>
                 {t('console.empty.clear_search')}
               </Button>
             </EmptyContent>
@@ -300,7 +328,7 @@ export function BackgroundAgentJobsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </PageStack>
   )
 }
 

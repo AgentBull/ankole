@@ -306,15 +306,23 @@ defmodule Ankole.SignalsGatewayOutboxMirrorTest do
                    fallback_visible_text: "reply visible"
                  },
                  [:reply_entry],
-                 %{created_source_entry_id: "reply-msg"}
+                 %{
+                   created_source_entry_id: "reply-msg",
+                   provider_thread_id: "lark:chat:group-a:msg-1"
+                 }
                )
 
       assert reply.status == :succeeded
+      assert reply.provider_thread_id == "lark:chat:group-a:msg-1"
 
-      assert Repo.get_by!(Entry,
-               signal_channel_id: "lark:chat:group-a",
-               source_entry_id: "reply-msg"
-             ).text == "reply visible"
+      assert %Entry{
+               text: "reply visible",
+               provider_thread_id: "lark:chat:group-a:msg-1"
+             } =
+               Repo.get_by!(Entry,
+                 signal_channel_id: "lark:chat:group-a",
+                 source_entry_id: "reply-msg"
+               )
 
       assert {:ok, edited} =
                commit_and_dispatch(

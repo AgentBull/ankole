@@ -104,4 +104,53 @@ defmodule SlackOpenAPITest do
              Pagination.stream(client, "users.list", query: [limit: 2], items: ["members"])
              |> Enum.to_list()
   end
+
+  test "external upload follows Slack's URL request and completion protocol", %{client: client} do
+    Req.Test.stub(__MODULE__, fn conn ->
+      case conn.request_path do
+        "/api/files.getUploadURLExternal" ->
+          assert conn.method == "GET"
+
+          assert URI.decode_query(conn.query_string) == %{
+                   "filename" => "report.pdf",
+                   "length" => "11"
+                 }
+
+          Req.Test.json(conn, %{
+            "ok" => true,
+            "file_id" => "F1",
+            "upload_url" => "https://slack.test/upload/F1"
+          })
+
+        "/upload/F1" ->
+          assert conn.method == "POST"
+          assert Plug.Conn.get_req_header(conn, "content-type") == ["application/octet-stream"]
+          {:ok, body, conn} = Plug.Conn.read_body(conn)
+          assert body == "pdf-content"
+          Plug.Conn.send_resp(conn, 200, "ok")
+
+        "/api/files.completeUploadExternal" ->
+          assert conn.method == "POST"
+          {:ok, body, conn} = Plug.Conn.read_body(conn)
+
+          assert Torque.decode!(body) == %{
+                   "channel_id" => "C1",
+                   "files" => [%{"id" => "F1", "title" => "report.pdf"}],
+                   "initial_comment" => "attached",
+                   "thread_ts" => "1.1"
+                 }
+
+          Req.Test.json(conn, %{"ok" => true, "files" => [%{"id" => "F1"}]})
+      end
+    end)
+
+    assert {:ok, %{"files" => [%{"id" => "F1"}]}} =
+             SlackOpenAPI.upload_external(client,
+               filename: "report.pdf",
+               content: "pdf-content",
+               channel_id: "C1",
+               thread_ts: "1.1",
+               initial_comment: "attached"
+             )
+  end
 end

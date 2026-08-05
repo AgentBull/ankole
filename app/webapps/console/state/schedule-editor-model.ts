@@ -153,6 +153,11 @@ export const ScheduleEditorModel = createModel(() => {
     clearValidation() {
       validationError.value = undefined
     },
+    isComplete(): boolean {
+      return Boolean(
+        bindingName.value.trim() && name.value.trim() && buildSchedule() && buildDelivery() && buildPayload() !== null
+      )
+    },
     toCreateBody(): CronCreateBody | null {
       const schedule = buildSchedule()
       const delivery = buildDelivery()

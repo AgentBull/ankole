@@ -664,12 +664,12 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
         type: :object,
         properties: %{
           uid: %Schema{type: :string},
-          display_name: %Schema{type: :string, nullable: true},
+          display_name: %Schema{type: :string},
           avatar_url: %Schema{type: :string, nullable: true},
           role: %Schema{type: :string},
           options: %Schema{type: :object, additionalProperties: true}
         },
-        required: [:uid, :role],
+        required: [:uid, :display_name, :role],
         additionalProperties: false
       },
       struct?: false
@@ -686,7 +686,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
         title: "AgentUpdateRequest",
         type: :object,
         properties: %{
-          display_name: %Schema{type: :string, nullable: true},
+          display_name: %Schema{type: :string},
           avatar_url: %Schema{type: :string, nullable: true},
           role: %Schema{type: :string},
           options: %Schema{type: :object, additionalProperties: true}
@@ -2687,6 +2687,143 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           :load,
           :inserted_at,
           :updated_at
+        ],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule ConsoleReadinessProvider do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "ConsoleReadinessProvider",
+        type: :object,
+        properties: %{
+          complete: %Schema{type: :boolean},
+          provider_id: %Schema{type: :string, nullable: true}
+        },
+        required: [:complete, :provider_id],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule ConsoleReadinessAgent do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "ConsoleReadinessAgent",
+        type: :object,
+        properties: %{
+          complete: %Schema{type: :boolean},
+          uid: %Schema{type: :string, nullable: true},
+          display_name: %Schema{type: :string, nullable: true}
+        },
+        required: [:complete, :uid, :display_name],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule ConsoleReadinessModelProfiles do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "ConsoleReadinessModelProfiles",
+        type: :object,
+        properties: %{
+          complete: %Schema{type: :boolean},
+          agent_uid: %Schema{type: :string, nullable: true},
+          missing_profiles: %Schema{type: :array, items: %Schema{type: :string}}
+        },
+        required: [:complete, :agent_uid, :missing_profiles],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule ConsoleReadinessWorker do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "ConsoleReadinessWorker",
+        type: :object,
+        properties: %{
+          complete: %Schema{type: :boolean},
+          ready_count: %Schema{type: :integer, minimum: 0}
+        },
+        required: [:complete, :ready_count],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule ConsoleReadinessSignalRoute do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "ConsoleReadinessSignalRoute",
+        type: :object,
+        properties: %{
+          complete: %Schema{type: :boolean},
+          agent_uid: %Schema{type: :string, nullable: true}
+        },
+        required: [:complete, :agent_uid],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule ConsoleReadinessResponse do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "ConsoleReadinessResponse",
+        type: :object,
+        properties: %{
+          ready: %Schema{type: :boolean},
+          completed_core_steps: %Schema{type: :integer, minimum: 0},
+          total_core_steps: %Schema{type: :integer, minimum: 1},
+          provider: ConsoleReadinessProvider,
+          agent: ConsoleReadinessAgent,
+          model_profiles: ConsoleReadinessModelProfiles,
+          worker: ConsoleReadinessWorker,
+          signal_route: ConsoleReadinessSignalRoute
+        },
+        required: [
+          :ready,
+          :completed_core_steps,
+          :total_core_steps,
+          :provider,
+          :agent,
+          :model_profiles,
+          :worker,
+          :signal_route
         ],
         additionalProperties: false
       },

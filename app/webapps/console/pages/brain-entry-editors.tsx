@@ -57,11 +57,11 @@ export function MetadataEditor({
       </CardHeader>
       <CardContent className="grid gap-5">
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <LabeledField label={t('console.brain.name')}>
-            <Input value={name} onChange={event => onNameChange(event.target.value)} />
+          <LabeledField label={t('console.brain.name')} required>
+            <Input required value={name} onChange={event => onNameChange(event.target.value)} />
           </LabeledField>
-          <LabeledField label={t('console.brain.type')}>
-            <Input value={type} onChange={event => onTypeChange(event.target.value)} />
+          <LabeledField label={t('console.brain.type')} required>
+            <Input required value={type} onChange={event => onTypeChange(event.target.value)} />
           </LabeledField>
         </div>
         <LabeledField label={t('console.brain.summary')}>
@@ -196,35 +196,36 @@ export function BlocksEditor({
         {blocks.map(block => (
           <BlockEditor key={`${block.id}:${block.lock_version}`} block={block} pending={pending} onApply={onApply} />
         ))}
-        <div className="grid gap-2 border border-dashed border-border p-4">
+        <form
+          className="grid gap-2 border border-dashed border-border p-4"
+          onSubmit={event => {
+            event.preventDefault()
+            if (!newBody.trim()) return
+            onApply(
+              [
+                {
+                  operation: 'append_block',
+                  entry_id: entry.id,
+                  body: newBody.trim(),
+                  expected_entry_lock_version: entry.lock_version
+                }
+              ],
+              () => setNewBody('')
+            )
+          }}>
           <Textarea
+            aria-label={t('console.brain.body')}
             className="min-h-32"
             placeholder={t('console.brain.new_block_placeholder')}
+            required
             value={newBody}
             onChange={event => setNewBody(event.target.value)}
           />
-          <Button
-            type="button"
-            size="sm"
-            className="w-fit"
-            disabled={pending || !newBody.trim()}
-            onClick={() => {
-              onApply(
-                [
-                  {
-                    operation: 'append_block',
-                    entry_id: entry.id,
-                    body: newBody.trim(),
-                    expected_entry_lock_version: entry.lock_version
-                  }
-                ],
-                () => setNewBody('')
-              )
-            }}>
+          <Button type="submit" size="sm" className="w-fit" disabled={pending} incomplete={!newBody.trim() && !pending}>
             <RiAddLine />
             {t('console.brain.add_block')}
           </Button>
-        </div>
+        </form>
       </CardContent>
     </Card>
   )
@@ -243,6 +244,8 @@ function BlockEditor({
   const [body, setBody] = useState(block.body)
   const [reason, setReason] = useState('')
   const [retireOpen, setRetireOpen] = useState(false)
+  const incomplete = !body.trim()
+  const unchanged = body === block.body
   return (
     <article className="grid gap-3 border border-border p-4">
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
@@ -254,37 +257,49 @@ function BlockEditor({
         </div>
         <Badge variant={block.embedding_state === 'failed' ? 'destructive' : 'outline'}>{block.embedding_state}</Badge>
       </div>
-      <Textarea className="min-h-40" value={body} onChange={event => setBody(event.target.value)} />
-      <LabeledField label={t('console.brain.correction_reason')} description={t('console.brain.reason_optional')}>
-        <Input value={reason} onChange={event => setReason(event.target.value)} />
-      </LabeledField>
-      <div className="flex flex-wrap gap-2">
-        <Button
-          type="button"
-          size="sm"
-          disabled={pending || !body.trim() || body === block.body}
-          onClick={() =>
-            onApply(
-              [
-                {
-                  operation: 'edit_block',
-                  entry_id: block.entry_id,
-                  block_id: block.id,
-                  body: body.trim(),
-                  expected_block_lock_version: block.lock_version
-                }
-              ],
-              () => setReason(''),
-              reason
-            )
-          }>
-          {t('console.brain.correct_block')}
-        </Button>
-        <Button type="button" size="sm" variant="destructive" disabled={pending} onClick={() => setRetireOpen(true)}>
-          <RiDeleteBin6Line />
-          {t('console.brain.no_longer_valid')}
-        </Button>
-      </div>
+      <form
+        className="contents"
+        onSubmit={event => {
+          event.preventDefault()
+          if (incomplete || unchanged) return
+          onApply(
+            [
+              {
+                operation: 'edit_block',
+                entry_id: block.entry_id,
+                block_id: block.id,
+                body: body.trim(),
+                expected_block_lock_version: block.lock_version
+              }
+            ],
+            () => setReason(''),
+            reason
+          )
+        }}>
+        <Textarea
+          aria-label={t('console.brain.body')}
+          className="min-h-40"
+          required
+          value={body}
+          onChange={event => setBody(event.target.value)}
+        />
+        <LabeledField label={t('console.brain.correction_reason')} description={t('console.brain.reason_optional')}>
+          <Input value={reason} onChange={event => setReason(event.target.value)} />
+        </LabeledField>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="submit"
+            size="sm"
+            disabled={pending || (unchanged && !incomplete)}
+            incomplete={incomplete && !pending}>
+            {t('console.brain.correct_block')}
+          </Button>
+          <Button type="button" size="sm" variant="destructive" disabled={pending} onClick={() => setRetireOpen(true)}>
+            <RiDeleteBin6Line />
+            {t('console.brain.no_longer_valid')}
+          </Button>
+        </div>
+      </form>
       <Dialog open={retireOpen} onOpenChange={setRetireOpen}>
         <DialogContent>
           <DialogHeader>
@@ -381,15 +396,39 @@ export function RelationsEditor({
             />
           ))}
         </div>
-        <div className="grid grid-cols-1 gap-3 border border-dashed border-border p-4 md:grid-cols-[1fr_1.5fr_auto]">
+        <form
+          className="grid grid-cols-1 gap-3 border border-dashed border-border p-4 md:grid-cols-[1fr_1.5fr_auto]"
+          onSubmit={event => {
+            event.preventDefault()
+            if (!predicate.trim() || !targetEntryID.trim()) return
+            onApply(
+              [
+                {
+                  operation: 'add_relation',
+                  entry_id: entry.id,
+                  target_entry_id: targetEntryID.trim(),
+                  predicate: predicate.trim(),
+                  expected_entry_lock_version: entry.lock_version
+                }
+              ],
+              () => {
+                setPredicate('')
+                setTargetEntryID('')
+              }
+            )
+          }}>
           <Input
+            aria-label={t('console.brain.predicate')}
             placeholder={t('console.brain.predicate')}
+            required
             value={predicate}
             onChange={event => setPredicate(event.target.value)}
           />
           <Input
+            aria-label={t('console.brain.target_entry_id')}
             list={targetListID}
             placeholder={t('console.brain.target_entry_id')}
+            required
             value={targetEntryID}
             onChange={event => setTargetEntryID(event.target.value)}
           />
@@ -401,30 +440,14 @@ export function RelationsEditor({
             ))}
           </datalist>
           <Button
-            type="button"
+            type="submit"
             size="sm"
-            disabled={pending || !predicate.trim() || !targetEntryID.trim()}
-            onClick={() => {
-              onApply(
-                [
-                  {
-                    operation: 'add_relation',
-                    entry_id: entry.id,
-                    target_entry_id: targetEntryID.trim(),
-                    predicate: predicate.trim(),
-                    expected_entry_lock_version: entry.lock_version
-                  }
-                ],
-                () => {
-                  setPredicate('')
-                  setTargetEntryID('')
-                }
-              )
-            }}>
+            disabled={pending}
+            incomplete={(!predicate.trim() || !targetEntryID.trim()) && !pending}>
             <RiLinkM />
             {t('console.brain.add_relation')}
           </Button>
-        </div>
+        </form>
         <section className="grid gap-2">
           <h4 className="text-sm font-medium">{t('console.brain.backlinks')}</h4>
           {backlinks.length === 0 ? (

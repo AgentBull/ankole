@@ -42,6 +42,14 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
       assert chat.outbound_capabilities == ["post_entry", "delete_entry", "card"]
       assert chat.reply_preview_module == Ankole.Plugins.DingTalkAdapter.AICard
 
+      chat_fields = Map.new(chat.fields, &{&1.path, &1})
+      assert chat_fields["clientId"].advanced == false
+      assert chat_fields["clientSecret"].advanced == false
+      assert chat_fields["robotCode"].advanced == true
+      assert chat_fields["cardTemplateId"].advanced == true
+      assert chat_fields["platformSubjectNamespace"].advanced == true
+      assert chat_fields["userName"].advanced == true
+
       assert identity.contract_id == "principals.identity_provider"
 
       assert identity.capabilities == [

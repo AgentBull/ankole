@@ -574,13 +574,12 @@ export const identityTabs = [
         {
           title: '授予通讯录权限并取得 Bot Token',
           body: [
-            '仍在 OAuth & Permissions 中，找到 Bot Token Scopes，依次添加下面四项。然后选择 Install to Workspace，并批准安装。'
+            '仍在 OAuth & Permissions 中，找到 Bot Token Scopes，依次添加下面三项。然后选择 Install to Workspace，并批准安装。'
           ],
           copyItems: [
             { value: 'users:read', description: '读取成员资料' },
             { value: 'users:read.email', description: '读取成员邮箱' },
-            { value: 'usergroups:read', description: '读取用户组及成员关系' },
-            { value: 'team:read', description: '读取 workspace 基本信息' }
+            { value: 'usergroups:read', description: '读取用户组及成员关系' }
           ],
           caution: '安装完成后，复制 Bot User OAuth Token。它必须以 xoxb- 开头。以后每次增加 scope，都要重新安装应用。'
         },
@@ -1287,26 +1286,61 @@ export const channelTabs = [
           ]
         },
         {
-          title: '订阅机器人收消息所需的事件',
-          body: ['进入 Event Subscriptions → Subscribe to bot events，逐项添加下面两个事件。'],
+          title: '订阅聊天和频道状态事件',
+          body: [
+            '进入 Event Subscriptions → Subscribe to bot events，逐项添加。这个集合与 Slack 适配器当前实现的消息、reaction 和频道状态能力一致。'
+          ],
           copyItems: [
-            { value: 'app_mention', description: '在频道里 @ 机器人' },
-            { value: 'message.im', description: '给机器人发私信' }
+            { value: 'app_mention', description: '接收频道中的 @ 消息' },
+            { value: 'message.channels', description: '接收公开频道消息' },
+            { value: 'message.groups', description: '接收私有频道消息' },
+            { value: 'message.im', description: '接收私聊消息' },
+            { value: 'message.mpim', description: '接收多人私聊消息' },
+            { value: 'reaction_added', description: '接收新增 reaction' },
+            { value: 'reaction_removed', description: '接收移除 reaction' },
+            { value: 'member_joined_channel', description: '同步频道成员加入' },
+            { value: 'member_left_channel', description: '同步频道成员离开' },
+            { value: 'channel_rename', description: '同步频道改名' },
+            { value: 'group_rename', description: '同步私有频道改名' },
+            { value: 'channel_deleted', description: '同步频道删除' },
+            { value: 'channel_archive', description: '同步频道归档' }
           ]
         },
         {
-          title: '添加 scope，并安装应用',
+          title: '启用私聊入口',
           body: [
-            '在 OAuth & Permissions → Bot Token Scopes 中逐项添加。前两项必需；其余项目按准备使用的会话类型添加。'
+            '进入 App Home → Show Tabs，打开 Display Messages tab，并勾选 Allow users to send Slash commands and messages from the messages tab。只打开 Messages tab 会展示消息页，但用户仍不能向 Agent 发送私聊。'
+          ]
+        },
+        {
+          title: '启用 Slack 原生交互',
+          body: [
+            '进入 Interactivity & Shortcuts 并启用 Interactivity。Socket Mode 会通过现有 WebSocket 交付 Block Kit 按钮点击，不需要填写公共 Request URL。'
+          ]
+        },
+        {
+          title: '添加完整聊天 scope，并安装应用',
+          body: [
+            '在 OAuth & Permissions → Bot Token Scopes 中逐项添加。这个集合只覆盖 Ankole 实际调用的 Slack API；不要添加未使用的 assistant、工作流、文档或会议权限。'
           ],
           copyItems: [
-            { value: 'app_mentions:read', description: '读取频道中发给机器人的 @ 消息' },
-            { value: 'chat:write', description: '发送机器人回复' },
-            { value: 'channels:history', description: '读取公开频道消息' },
-            { value: 'groups:history', description: '需要读取私有频道时添加' },
-            { value: 'im:history', description: '需要读取私聊时添加' }
+            { value: 'app_mentions:read', description: '读取发给机器人的 @ 消息' },
+            { value: 'channels:read', description: '同步公开频道及成员' },
+            { value: 'channels:history', description: '读取公开频道消息并核对回信' },
+            { value: 'groups:read', description: '同步私有频道及成员' },
+            { value: 'groups:history', description: '读取私有频道消息并核对回信' },
+            { value: 'im:read', description: '同步私聊会话' },
+            { value: 'im:history', description: '读取私聊消息并核对回信' },
+            { value: 'mpim:read', description: '同步多人私聊会话及成员' },
+            { value: 'mpim:history', description: '读取多人私聊消息并核对回信' },
+            { value: 'chat:write', description: '发送、更新和撤回机器人消息' },
+            { value: 'reactions:read', description: '接收 reaction 变化' },
+            { value: 'reactions:write', description: '添加和移除 reaction' },
+            { value: 'files:read', description: '读取消息中的文件' },
+            { value: 'files:write', description: '上传 Agent 发送的文件' },
+            { value: 'users:read', description: '识别频道成员并排除机器人账号' }
           ],
-          caution: '修改 scope 后，要重新安装应用到 workspace，新权限才会生效。'
+          caution: '修改 scope 后，必须重新安装应用到 workspace，并把新的 Bot Token 写回 Ankole。'
         },
         {
           title: '准备 Console 字段',
@@ -1326,18 +1360,26 @@ export const channelTabs = [
       ]
     },
     advanced: {
-      title: '读取群聊、身份映射和 Slack IdP',
-      summary: '需要让 Agent 读取没有 @ 它的消息，或要用 Slack 登录 Console 时，再看这里。',
+      title: '消息策略、身份映射和 Slack IdP',
+      summary: 'Slack 负责交付事件；信号路由规则仍决定 Agent 如何处理没有 @ 它的消息。',
       steps: [
         {
-          title: '读取没有 @ Agent 的频道消息',
+          title: '选择未直接提及 Agent 时的策略',
           body: [
-            '要使用 observe_all 或 may_intervene，在 Event Subscriptions 中添加消息事件，并在 OAuth & Permissions 中添加对应的 history scope。第一次测试请使用 addressed_only。'
-          ],
+            '上面的事件和 scope 允许 Slack 交付完整会话，但不会替代 Ankole 的信号路由策略。第一次测试使用 addressed_only；只有明确需要旁听或主动介入时，才选择 observe_all 或 may_intervene。'
+          ]
+        },
+        {
+          title: '同一个 App 也承担 Slack IdP 时补充权限',
+          body: ['建议正式环境使用独立 IdP App。确需复用时，额外添加下面的 Bot scopes 和通讯录事件。'],
           copyItems: [
-            { value: 'message.channels', description: '订阅公开频道中的普通消息' },
-            { value: 'channels:history', description: '读取公开频道历史' },
-            { value: 'groups:history', description: '还要读取私有频道时添加' }
+            { value: 'users:read.email', description: '同步成员邮箱' },
+            { value: 'usergroups:read', description: '同步用户组及成员关系' },
+            { value: 'team_join', description: '接收成员加入事件' },
+            { value: 'user_change', description: '接收成员资料变化' },
+            { value: 'subteam_created', description: '接收用户组创建' },
+            { value: 'subteam_updated', description: '接收用户组更新' },
+            { value: 'subteam_members_changed', description: '接收用户组成员变化' }
           ]
         },
         {
@@ -1464,18 +1506,28 @@ export const channelTabs = [
           body: ['创建企业自建应用，启用机器人，并把测试用户加入应用可用范围。']
         },
         {
-          title: '批量添加消息权限',
-          body: ['进入「权限管理」，选择「批量导入 / 导出权限」，粘贴下面的 JSON 并确认导入。'],
+          title: '批量添加完整聊天权限',
+          body: [
+            '进入「权限管理」，选择「批量导入 / 导出权限」，粘贴下面的 JSON 并确认导入。这个集合与适配器实际调用的机器人、消息、reaction、文件、卡片、群聊和成员 API 一致；聊天应用不需要通讯录写入、文档、会议或加急消息权限。'
+          ],
           batchImport: {
             label: '批量导入 JSON',
             content: `{
   "scopes": {
     "tenant": [
+      "application:bot.basic_info:read",
+      "cardkit:card:write",
+      "im:chat:read",
+      "im:chat.members:bot_access",
+      "im:chat.members:read",
       "im:message:send_as_bot",
       "im:message:readonly",
       "im:message:update",
+      "im:message:recall",
       "im:message.group_at_msg:readonly",
       "im:message.p2p_msg:readonly",
+      "im:message.reactions:read",
+      "im:message.reactions:write_only",
       "im:resource"
     ],
     "user": []
@@ -1484,12 +1536,22 @@ export const channelTabs = [
           }
         },
         {
-          title: '启用长连接，并添加消息事件',
+          title: '启用长连接，并添加适配器事件',
           body: [
             '在「事件与回调」中选择「使用长连接接收事件」，再逐项添加下面的事件。平台检查连接状态时，请保持 Ankole 控制面运行。'
           ],
           copyItems: [
-            { value: 'im.message.receive_v1', description: '接收发给机器人的消息' }
+            { value: 'im.message.receive_v1', description: '接收发给机器人的消息' },
+            { value: 'im.message.recalled_v1', description: '接收消息撤回' },
+            { value: 'im.message.reaction.created_v1', description: '接收新增 reaction' },
+            { value: 'im.message.reaction.deleted_v1', description: '接收移除 reaction' },
+            { value: 'im.chat.member.bot.added_v1', description: '同步机器人进群' },
+            { value: 'im.chat.member.bot.deleted_v1', description: '同步机器人被移出群' },
+            { value: 'im.chat.member.user.added_v1', description: '同步用户进群' },
+            { value: 'im.chat.member.user.deleted_v1', description: '同步用户离群' },
+            { value: 'im.chat.updated_v1', description: '同步群信息变化' },
+            { value: 'im.chat.disbanded_v1', description: '同步群解散' },
+            { value: 'card.action.trigger', description: '接收卡片交互' }
           ]
         },
         {
@@ -1862,6 +1924,8 @@ export const signalAdvanced = {
   tabs={deploymentTabs}
 />
 
+<span id="identity-providers" aria-hidden="true" />
+
 ## 2. 先设置身份源提供商
 
 Ankole 的核心设计目标是服务企业内部的私有化部署。每家企业拥有一套实例。在同一个实例内，Agent、人类员工和系统服务都表示为主体，并由授权管理模块（AuthZ）统一管控权限。
@@ -1886,6 +1950,7 @@ Ankole 的核心设计目标是服务企业内部的私有化部署。每家企�
   ariaLabel="选择身份源提供商"
   defaultValue="slack"
   labels={quickstartLabels}
+  queryParam="idp"
   tabs={identityTabs}
 />
 
@@ -1913,6 +1978,8 @@ Agent 的模型档案只保存模型引用，因此要先添加模型提供商�
   section={modelAdvanced}
 />
 
+<span id="chat-channels" aria-hidden="true" />
+
 ## 4. 连接聊天渠道并创建信号路由规则
 
 先在 Console 中启用聊天平台对应的 Control Plane Plugin，再去该平台创建机器人或应用。即使 IdP 和聊天渠道来自同一平台，正式使用时也建议分别创建应用。这样，登录和通讯录权限不会与机器人权限混在一起，凭证轮换和应用发布也互不影响。
@@ -1924,6 +1991,7 @@ Agent 的模型档案只保存模型引用，因此要先添加模型提供商�
   ariaLabel="选择聊天渠道"
   defaultValue="slack"
   labels={quickstartLabels}
+  queryParam="channel"
   tabs={channelTabs}
 />
 

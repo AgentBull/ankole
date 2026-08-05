@@ -140,5 +140,6 @@ describe('provider settings', () => {
   test('humanizes snake case and camel case option keys', () => {
     expect(humanizeKey('reasoningEffort')).toBe('Reasoning effort')
     expect(humanizeKey('strictJSONSchema')).toBe('Strict JSON schema')
+    expect(humanizeKey('oauth')).toBe('OAuth')
   })
 })

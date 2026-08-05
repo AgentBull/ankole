@@ -1,32 +1,46 @@
 use std::collections::HashMap;
+use std::env;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
+use base64_simd::STANDARD;
 use bytes::Bytes;
 use futures_util::{StreamExt, stream::BoxStream};
+use no_proxy::NoProxy;
 use reqwest::Method;
 use reqwest::Url as URL;
 use reqwest::header::HeaderMap;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream as TCPStream;
 use tokio::time::timeout;
+use tokio_socks::tcp::Socks5Stream;
 use tokio_tungstenite::tungstenite::Error as WebSocketError;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_tungstenite::tungstenite::http::header::HeaderName;
-use tokio_tungstenite::{MaybeTlsStream as MaybeTLSStream, WebSocketStream, connect_async};
+use tokio_tungstenite::{
+    MaybeTlsStream as MaybeTLSStream, WebSocketStream, client_async_tls_with_config,
+};
 
 use super::error::StreamError;
 use super::spec::{
     CompressionPreference, HTTPVersionPreference, StreamSpec, TransportSpec, UpstreamSpec,
 };
 
-pub type UpstreamWebSocket = WebSocketStream<MaybeTLSStream<TCPStream>>;
+pub(crate) trait AsyncIO: AsyncRead + AsyncWrite + Send + Unpin {}
+
+impl<T> AsyncIO for T where T: AsyncRead + AsyncWrite + Send + Unpin {}
+
+pub(crate) type BoxedIO = Box<dyn AsyncIO>;
+
+pub type UpstreamWebSocket = WebSocketStream<MaybeTLSStream<BoxedIO>>;
 
 static HTTP_CLIENTS: OnceLock<Mutex<HashMap<ClientKey, reqwest::Client>>> = OnceLock::new();
 static ALT_SVC_CACHE: OnceLock<Mutex<HashMap<String, AltSvcEntry>>> = OnceLock::new();
 
 const MAX_HTTP_CLIENT_CACHE_ENTRIES: usize = 64;
 const MAX_ALT_SVC_CACHE_ENTRIES: usize = 256;
+const MAX_PROXY_RESPONSE_HEADER_BYTES: usize = 16 * 1_024;
 const HTTP3_AVAILABLE: bool = cfg!(feature = "universal_ai_client_http3");
 
 pub struct HTTPStream {
@@ -288,6 +302,91 @@ impl TransportAttemptError {
     }
 }
 
+#[derive(Debug, Clone, Default)]
+struct ProxyEnvironment {
+    https_proxy: Option<String>,
+    http_proxy: Option<String>,
+    all_proxy: Option<String>,
+    no_proxy: NoProxy,
+}
+
+impl ProxyEnvironment {
+    fn from_process() -> Self {
+        Self {
+            https_proxy: environment_value(&["HTTPS_PROXY", "https_proxy"]),
+            http_proxy: environment_value(&["HTTP_PROXY", "http_proxy"]),
+            all_proxy: environment_value(&["ALL_PROXY", "all_proxy"]),
+            no_proxy: environment_value(&["NO_PROXY", "no_proxy"])
+                .map(NoProxy::from)
+                .unwrap_or_default(),
+        }
+    }
+
+    fn resolve(
+        &self,
+        target: &URL,
+        explicit_proxy: Option<&str>,
+    ) -> Result<Option<URL>, StreamError> {
+        let Some(host) = target.host_str() else {
+            return Err(StreamError::new(
+                "invalid_url",
+                "connect",
+                "upstream URL does not contain a host",
+            ));
+        };
+
+        if self.no_proxy.matches(host) {
+            return Ok(None);
+        }
+
+        let environment_proxy = match target.scheme() {
+            "https" | "wss" => self
+                .https_proxy
+                .as_deref()
+                .or(self.all_proxy.as_deref())
+                .or(self.http_proxy.as_deref()),
+            "http" | "ws" => self.http_proxy.as_deref().or(self.all_proxy.as_deref()),
+            _ => None,
+        };
+        let Some(raw_proxy) = nonempty(explicit_proxy).or_else(|| nonempty(environment_proxy))
+        else {
+            return Ok(None);
+        };
+
+        let proxy =
+            URL::parse(raw_proxy).map_err(|_reason| invalid_proxy("proxy URL is invalid"))?;
+        match proxy.scheme() {
+            "http" | "https" | "socks5" | "socks5h" => Ok(Some(proxy)),
+            _ => Err(invalid_proxy("proxy URL scheme is unsupported")),
+        }
+    }
+}
+
+fn environment_value(names: &[&str]) -> Option<String> {
+    names
+        .iter()
+        .filter_map(|name| env::var(name).ok())
+        .find_map(|value| nonempty(Some(value.as_str())).map(str::to_owned))
+}
+
+fn nonempty(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|value| !value.is_empty())
+}
+
+fn resolved_proxy(upstream: &UpstreamSpec) -> Result<Option<URL>, StreamError> {
+    let target = parse_upstream_url(&upstream.url)?;
+    ProxyEnvironment::from_process().resolve(&target, upstream.transport.proxy.as_deref())
+}
+
+fn parse_upstream_url(value: &str) -> Result<URL, StreamError> {
+    URL::parse(value)
+        .map_err(|_reason| StreamError::new("invalid_url", "connect", "upstream URL is invalid"))
+}
+
+fn invalid_proxy(message: &str) -> StreamError {
+    StreamError::new("invalid_proxy", "connect", message)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct ClientKey {
     mode: ClientMode,
@@ -297,18 +396,19 @@ struct ClientKey {
 }
 
 impl ClientKey {
-    fn from_upstream(upstream: &UpstreamSpec, mode: ClientMode) -> Self {
+    fn from_upstream(upstream: &UpstreamSpec, mode: ClientMode, proxy: Option<&URL>) -> Self {
         Self {
             mode,
             compression: upstream.transport.compression.clone(),
-            proxy: upstream.transport.proxy.clone(),
+            proxy: proxy.map(URL::to_string),
             connect_ms: upstream.timeout.connect_ms,
         }
     }
 }
 
 fn client_for(upstream: &UpstreamSpec, mode: ClientMode) -> Result<reqwest::Client, StreamError> {
-    let key = ClientKey::from_upstream(upstream, mode);
+    let proxy = resolved_proxy(upstream)?;
+    let key = ClientKey::from_upstream(upstream, mode, proxy.as_ref());
     let clients = HTTP_CLIENTS.get_or_init(|| Mutex::new(HashMap::new()));
     let mut clients = match clients.lock() {
         Ok(clients) => clients,
@@ -319,7 +419,7 @@ fn client_for(upstream: &UpstreamSpec, mode: ClientMode) -> Result<reqwest::Clie
         return Ok(client);
     }
 
-    let client = build_client(upstream, mode)?;
+    let client = build_client(upstream, mode, proxy.as_ref())?;
     if clients.len() >= MAX_HTTP_CLIENT_CACHE_ENTRIES
         && let Some(old_key) = clients.keys().next().cloned()
     {
@@ -334,6 +434,8 @@ pub async fn open_websocket(
     spec: &StreamSpec,
 ) -> Result<(UpstreamWebSocket, u16, Vec<(String, String)>), StreamError> {
     ensure_rustls_crypto_provider()?;
+    let proxy = resolved_proxy(&spec.upstream)?;
+    let target = parse_upstream_url(&spec.upstream.url)?;
 
     let mut request = spec
         .upstream
@@ -360,26 +462,278 @@ pub async fn open_websocket(
         request.headers_mut().insert(header_name, header_value);
     }
 
-    let (websocket, response) = timeout(
-        spec.upstream.timeout.first_byte_duration(),
-        connect_async(request),
-    )
-    .await
-    .map_err(|_| {
-        StreamError::new(
-            "first_byte_timeout",
-            "connect",
-            "upstream WebSocket timeout",
-        )
-        .retry_through_credential_pool()
-    })?
-    .map_err(websocket_connect_error)?;
+    let connect = async {
+        let stream = websocket_transport_stream(&target, proxy.as_ref()).await?;
+        client_async_tls_with_config(request, stream, None, None)
+            .await
+            .map_err(websocket_connect_error)
+    };
+    let (websocket, response) = timeout(spec.upstream.timeout.first_byte_duration(), connect)
+        .await
+        .map_err(|_| {
+            StreamError::new(
+                "first_byte_timeout",
+                "connect",
+                "upstream WebSocket timeout",
+            )
+            .retry_through_credential_pool()
+        })??;
 
     Ok((
         websocket,
         response.status().as_u16(),
         codex_header_map(response.headers()),
     ))
+}
+
+async fn websocket_transport_stream(
+    target: &URL,
+    proxy: Option<&URL>,
+) -> Result<BoxedIO, StreamError> {
+    let (target_host, target_port) = url_host_and_port(target, false)?;
+    let Some(proxy) = proxy else {
+        return TCPStream::connect((target_host.as_str(), target_port))
+            .await
+            .map(|stream| Box::new(stream) as BoxedIO)
+            .map_err(|reason| websocket_transport_error("direct connection failed", reason));
+    };
+
+    match proxy.scheme() {
+        "http" => open_http_proxy_tunnel(proxy, &target_host, target_port).await,
+        "socks5" | "socks5h" => open_socks5_proxy_tunnel(proxy, &target_host, target_port).await,
+        "https" => Err(invalid_proxy(
+            "HTTPS proxies are not supported for upstream WebSocket connections",
+        )),
+        _ => Err(invalid_proxy("proxy URL scheme is unsupported")),
+    }
+}
+
+async fn open_http_proxy_tunnel(
+    proxy: &URL,
+    target_host: &str,
+    target_port: u16,
+) -> Result<BoxedIO, StreamError> {
+    let (proxy_host, proxy_port) = url_host_and_port(proxy, true)?;
+    let mut stream = TCPStream::connect((proxy_host.as_str(), proxy_port))
+        .await
+        .map_err(|reason| websocket_transport_error("proxy connection failed", reason))?;
+    let authority = host_authority(target_host, target_port);
+    let mut request = format!(
+        "CONNECT {authority} HTTP/1.1\r\nHost: {authority}\r\nProxy-Connection: Keep-Alive\r\n"
+    );
+
+    if let Some(authorization) = proxy_basic_authorization(proxy)? {
+        request.push_str("Proxy-Authorization: Basic ");
+        request.push_str(&authorization);
+        request.push_str("\r\n");
+    }
+    request.push_str("\r\n");
+    stream
+        .write_all(request.as_bytes())
+        .await
+        .map_err(|reason| websocket_transport_error("proxy CONNECT write failed", reason))?;
+
+    let response = read_proxy_response_header(&mut stream).await?;
+    let status = proxy_response_status(&response)?;
+    if status != 200 {
+        let message = if status == 407 {
+            "upstream WebSocket proxy requires authentication"
+        } else {
+            "upstream WebSocket proxy rejected CONNECT"
+        };
+        return Err(StreamError::new(
+            "websocket_proxy_rejected",
+            "connect",
+            message,
+        ));
+    }
+
+    Ok(Box::new(stream))
+}
+
+async fn open_socks5_proxy_tunnel(
+    proxy: &URL,
+    target_host: &str,
+    target_port: u16,
+) -> Result<BoxedIO, StreamError> {
+    let (proxy_host, proxy_port) = url_host_and_port(proxy, true)?;
+    let username = decode_userinfo(proxy.username())?;
+    let password = proxy
+        .password()
+        .map(decode_userinfo)
+        .transpose()?
+        .unwrap_or_default();
+    let result = if username.is_empty() && password.is_empty() {
+        Socks5Stream::connect(
+            (proxy_host.as_str(), proxy_port),
+            (target_host, target_port),
+        )
+        .await
+    } else {
+        Socks5Stream::connect_with_password(
+            (proxy_host.as_str(), proxy_port),
+            (target_host, target_port),
+            &username,
+            &password,
+        )
+        .await
+    };
+
+    result
+        .map(|stream| Box::new(stream) as BoxedIO)
+        .map_err(|reason| websocket_transport_error("SOCKS5 connection failed", reason))
+}
+
+async fn read_proxy_response_header(stream: &mut TCPStream) -> Result<Vec<u8>, StreamError> {
+    let mut response = Vec::new();
+    let mut byte = [0_u8; 1];
+
+    while response.len() < MAX_PROXY_RESPONSE_HEADER_BYTES {
+        let read = stream
+            .read(&mut byte)
+            .await
+            .map_err(|reason| websocket_transport_error("proxy CONNECT read failed", reason))?;
+        if read == 0 {
+            return Err(StreamError::new(
+                "websocket_connect_failed",
+                "connect",
+                "upstream WebSocket proxy closed during CONNECT",
+            )
+            .retry_through_credential_pool());
+        }
+        response.push(byte[0]);
+        if response.ends_with(b"\r\n\r\n") {
+            return Ok(response);
+        }
+    }
+
+    Err(StreamError::new(
+        "websocket_connect_failed",
+        "connect",
+        "upstream WebSocket proxy response header is too large",
+    ))
+}
+
+fn proxy_response_status(response: &[u8]) -> Result<u16, StreamError> {
+    let response = std::str::from_utf8(response).map_err(|_reason| {
+        StreamError::new(
+            "websocket_connect_failed",
+            "connect",
+            "upstream WebSocket proxy returned an invalid response",
+        )
+    })?;
+    let status = response
+        .lines()
+        .next()
+        .and_then(|line| line.split_whitespace().nth(1))
+        .and_then(|value| value.parse().ok())
+        .ok_or_else(|| {
+            StreamError::new(
+                "websocket_connect_failed",
+                "connect",
+                "upstream WebSocket proxy returned an invalid status",
+            )
+        })?;
+    Ok(status)
+}
+
+fn proxy_basic_authorization(proxy: &URL) -> Result<Option<String>, StreamError> {
+    let username = decode_userinfo(proxy.username())?;
+    let password = proxy.password().map(decode_userinfo).transpose()?;
+    if username.is_empty() && password.is_none() {
+        return Ok(None);
+    }
+
+    Ok(Some(STANDARD.encode_to_string(format!(
+        "{username}:{}",
+        password.unwrap_or_default()
+    ))))
+}
+
+fn decode_userinfo(value: &str) -> Result<String, StreamError> {
+    let mut decoded = Vec::with_capacity(value.len());
+    let bytes = value.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' {
+            let Some(high) = bytes.get(index + 1).and_then(|value| hex_digit(*value)) else {
+                return Err(invalid_proxy(
+                    "proxy credentials contain invalid percent encoding",
+                ));
+            };
+            let Some(low) = bytes.get(index + 2).and_then(|value| hex_digit(*value)) else {
+                return Err(invalid_proxy(
+                    "proxy credentials contain invalid percent encoding",
+                ));
+            };
+            decoded.push((high << 4) | low);
+            index += 3;
+        } else {
+            decoded.push(bytes[index]);
+            index += 1;
+        }
+    }
+
+    String::from_utf8(decoded)
+        .map_err(|_reason| invalid_proxy("proxy credentials are not valid UTF-8"))
+}
+
+fn hex_digit(value: u8) -> Option<u8> {
+    match value {
+        b'0'..=b'9' => Some(value - b'0'),
+        b'a'..=b'f' => Some(value - b'a' + 10),
+        b'A'..=b'F' => Some(value - b'A' + 10),
+        _ => None,
+    }
+}
+
+fn url_host_and_port(url: &URL, proxy: bool) -> Result<(String, u16), StreamError> {
+    let host = url.host_str().ok_or_else(|| {
+        if proxy {
+            invalid_proxy("proxy URL does not contain a host")
+        } else {
+            StreamError::new(
+                "invalid_url",
+                "connect",
+                "upstream URL does not contain a host",
+            )
+        }
+    })?;
+    let port = url.port().or_else(|| match url.scheme() {
+        "http" | "ws" => Some(80),
+        "https" | "wss" => Some(443),
+        "socks5" | "socks5h" => Some(1080),
+        _ => None,
+    });
+    let port = port.ok_or_else(|| {
+        if proxy {
+            invalid_proxy("proxy URL does not contain a port")
+        } else {
+            StreamError::new(
+                "invalid_url",
+                "connect",
+                "upstream URL does not contain a port",
+            )
+        }
+    })?;
+    Ok((host.to_owned(), port))
+}
+
+fn host_authority(host: &str, port: u16) -> String {
+    if host.contains(':') && !host.starts_with('[') {
+        format!("[{host}]:{port}")
+    } else {
+        format!("{host}:{port}")
+    }
+}
+
+fn websocket_transport_error(message: &str, reason: impl std::fmt::Display) -> StreamError {
+    StreamError::new(
+        "websocket_connect_failed",
+        "connect",
+        format!("upstream WebSocket {message}: {reason}"),
+    )
+    .retry_through_credential_pool()
 }
 
 fn websocket_connect_error(reason: WebSocketError) -> StreamError {
@@ -405,10 +759,15 @@ fn websocket_connect_error(reason: WebSocketError) -> StreamError {
     }
 }
 
-fn build_client(upstream: &UpstreamSpec, mode: ClientMode) -> Result<reqwest::Client, StreamError> {
+fn build_client(
+    upstream: &UpstreamSpec,
+    mode: ClientMode,
+    proxy: Option<&URL>,
+) -> Result<reqwest::Client, StreamError> {
     ensure_rustls_crypto_provider()?;
 
     let mut builder = reqwest::Client::builder()
+        .no_proxy()
         .use_rustls_tls()
         .connect_timeout(upstream.timeout.connect_duration())
         .gzip(has_compression(
@@ -424,13 +783,9 @@ fn build_client(upstream: &UpstreamSpec, mode: ClientMode) -> Result<reqwest::Cl
             CompressionPreference::Zstd,
         ));
 
-    if let Some(proxy) = &upstream.transport.proxy {
-        builder = builder.proxy(reqwest::Proxy::all(proxy).map_err(|reason| {
-            StreamError::new(
-                "invalid_proxy",
-                "connect",
-                format!("invalid proxy URL: {reason}"),
-            )
+    if let Some(proxy) = proxy {
+        builder = builder.proxy(reqwest::Proxy::all(proxy.as_str()).map_err(|_reason| {
+            StreamError::new("invalid_proxy", "connect", "proxy URL is invalid")
         })?);
     }
 
@@ -691,6 +1046,133 @@ fn parse_same_authority_h3_alt_svc(value: &str) -> Option<u64> {
 mod tests {
     use super::*;
     use crate::universal_ai_client::spec::{TimeoutSpec, UpstreamKind};
+
+    #[test]
+    fn proxy_resolution_prefers_explicit_then_scheme_specific_then_all() {
+        let environment = ProxyEnvironment {
+            https_proxy: Some("http://https-proxy.test:8443".to_string()),
+            http_proxy: Some("http://http-proxy.test:8080".to_string()),
+            all_proxy: Some("socks5://all-proxy.test:1080".to_string()),
+            no_proxy: NoProxy::default(),
+        };
+        let secure_target = URL::parse("wss://provider.test/responses").unwrap();
+        let plain_target = URL::parse("ws://provider.test/responses").unwrap();
+
+        assert_eq!(
+            environment
+                .resolve(&secure_target, Some("socks5://explicit.test:1080"))
+                .unwrap()
+                .unwrap()
+                .as_str(),
+            "socks5://explicit.test:1080"
+        );
+        assert_eq!(
+            environment
+                .resolve(&secure_target, None)
+                .unwrap()
+                .unwrap()
+                .as_str(),
+            "http://https-proxy.test:8443/"
+        );
+        assert_eq!(
+            environment
+                .resolve(&plain_target, None)
+                .unwrap()
+                .unwrap()
+                .as_str(),
+            "http://http-proxy.test:8080/"
+        );
+
+        let all_only = ProxyEnvironment {
+            https_proxy: None,
+            http_proxy: None,
+            all_proxy: environment.all_proxy,
+            no_proxy: NoProxy::default(),
+        };
+        assert_eq!(
+            all_only
+                .resolve(&secure_target, None)
+                .unwrap()
+                .unwrap()
+                .as_str(),
+            "socks5://all-proxy.test:1080"
+        );
+    }
+
+    #[test]
+    fn no_proxy_bypasses_explicit_and_environment_proxies() {
+        let environment = ProxyEnvironment {
+            https_proxy: Some("http://proxy.test:8080".to_string()),
+            http_proxy: None,
+            all_proxy: None,
+            no_proxy: NoProxy::from("provider.test,127.0.0.1"),
+        };
+        let target = URL::parse("wss://api.provider.test/responses").unwrap();
+
+        assert!(
+            environment
+                .resolve(&target, Some("http://explicit.test:8080"))
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn websocket_http_proxy_uses_connect_tunnel_and_basic_auth() {
+        let target_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let target_address = target_listener.local_addr().unwrap();
+        let target_task = tokio::spawn(async move {
+            let (mut stream, _) = target_listener.accept().await.unwrap();
+            let mut request = [0_u8; 4];
+            stream.read_exact(&mut request).await.unwrap();
+            assert_eq!(&request, b"ping");
+            stream.write_all(b"pong").await.unwrap();
+        });
+
+        let proxy_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let proxy_address = proxy_listener.local_addr().unwrap();
+        let (connect_tx, connect_rx) = tokio::sync::oneshot::channel();
+        let proxy_task = tokio::spawn(async move {
+            let (mut client, _) = proxy_listener.accept().await.unwrap();
+            let request = read_test_header(&mut client).await;
+            connect_tx.send(request).unwrap();
+            let mut target = TCPStream::connect(target_address).await.unwrap();
+            client
+                .write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n")
+                .await
+                .unwrap();
+            tokio::io::copy_bidirectional(&mut client, &mut target)
+                .await
+                .unwrap();
+        });
+
+        let target = URL::parse(&format!("ws://{target_address}/responses")).unwrap();
+        let proxy = URL::parse(&format!("http://user:pass@{proxy_address}")).unwrap();
+        let mut stream = websocket_transport_stream(&target, Some(&proxy))
+            .await
+            .unwrap();
+        stream.write_all(b"ping").await.unwrap();
+        let mut response = [0_u8; 4];
+        stream.read_exact(&mut response).await.unwrap();
+        assert_eq!(&response, b"pong");
+        drop(stream);
+
+        let connect_request = String::from_utf8(connect_rx.await.unwrap()).unwrap();
+        assert!(connect_request.starts_with(&format!("CONNECT {target_address} HTTP/1.1\r\n")));
+        assert!(connect_request.contains("Proxy-Authorization: Basic dXNlcjpwYXNz\r\n"));
+        target_task.await.unwrap();
+        proxy_task.await.unwrap();
+    }
+
+    async fn read_test_header(stream: &mut TCPStream) -> Vec<u8> {
+        let mut response = Vec::new();
+        let mut byte = [0_u8; 1];
+        while !response.ends_with(b"\r\n\r\n") {
+            stream.read_exact(&mut byte).await.unwrap();
+            response.push(byte[0]);
+        }
+        response
+    }
 
     #[tokio::test]
     async fn exhausted_connect_failure_stays_retryable_for_the_credential_pool() {

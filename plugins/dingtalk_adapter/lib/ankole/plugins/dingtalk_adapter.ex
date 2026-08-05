@@ -130,7 +130,7 @@ defmodule Ankole.Plugins.DingTalkAdapter do
           "zh-Hans-CN" => "机器人编码；企业内部应用机器人默认与 AppKey 相同，仅特例需要覆盖。"
         },
         :string,
-        []
+        advanced: true
       ),
       field(
         "cardTemplateId",
@@ -141,7 +141,7 @@ defmodule Ankole.Plugins.DingTalkAdapter do
           "zh-Hans-CN" => "卡片平台的 AI 卡片模板 id；为空时 AI 回复降级为纯 Markdown 消息。"
         },
         :string,
-        []
+        advanced: true
       ),
       field(
         "group_message_mode",
@@ -167,7 +167,8 @@ defmodule Ankole.Plugins.DingTalkAdapter do
           "zh-Hans-CN" => "映射钉钉用户到 Ankole 主体时使用的命名空间。"
         },
         :string,
-        default: "dingtalk-main"
+        default: "dingtalk-main",
+        advanced: true
       ),
       field(
         "userName",
@@ -177,7 +178,8 @@ defmodule Ankole.Plugins.DingTalkAdapter do
           "zh-Hans-CN" => "发送 provider 消息时显示的名称。"
         },
         :string,
-        default: "钉钉 / DingTalk"
+        default: "钉钉 / DingTalk",
+        advanced: true
       )
     ]
   end

@@ -1,5 +1,5 @@
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
-import { batch, createModel, signal } from '@preact/signals-react'
+import { batch, computed, createModel, signal } from '@preact/signals-react'
 
 export type IdentityEditorDraft = {
   adapterID: string
@@ -14,7 +14,18 @@ export const IdentityEditorModel = createModel(() => {
   const providerID = signal('')
   const enabled = signal(true)
   const config = signal<JSONObject>({})
+  const initialDraft = signal<IdentityEditorDraft>()
   const validationError = signal<string>()
+  const dirty = computed(() => {
+    const source = initialDraft.value
+    return Boolean(
+      source &&
+      (adapterID.value !== source.adapterID ||
+        providerID.value !== source.providerID ||
+        enabled.value !== source.enabled ||
+        JSON.stringify(config.value) !== JSON.stringify(source.config))
+    )
+  })
 
   const apply = (draft: IdentityEditorDraft) => {
     batch(() => {
@@ -22,6 +33,7 @@ export const IdentityEditorModel = createModel(() => {
       providerID.value = draft.providerID
       enabled.value = draft.enabled
       config.value = draft.config
+      initialDraft.value = { ...draft, config: { ...draft.config } }
       validationError.value = undefined
     })
   }
@@ -32,6 +44,7 @@ export const IdentityEditorModel = createModel(() => {
     providerID,
     enabled,
     config,
+    dirty,
     validationError,
     initialize(nextSourceKey: string, draft: IdentityEditorDraft) {
       if (sourceKey.value === nextSourceKey) return

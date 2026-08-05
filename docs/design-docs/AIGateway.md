@@ -228,6 +228,12 @@ refresh token twice.
 Both Responses requests and the model-catalog connection check send
 `X-OpenAI-Fedramp: true` for a FedRAMP credential.
 
+The model catalog uses the same account-scoped Codex `/models` endpoint as the
+connection check. It lists models that the selected subscription account marks
+as visible and supported in the API, and caches the normalized list for one
+hour. The Console shows these entries in its model combobox and keeps manual
+model entry available when the upstream catalog is unavailable.
+
 A permanent refresh error marks the entry `dead`. An HTTP 429 refresh response
 keeps the credential and marks it temporarily exhausted. A refresh transport
 or endpoint failure leaves credential health unchanged and returns that
@@ -762,6 +768,15 @@ It rejects a provider completion that contains an incomplete client tool call.
 OpenAI Responses mode can use an upstream WebSocket transport.
 Other providers adapt their native protocols to the same public Response
 contract.
+
+The kernel resolves one proxy route for HTTP and WebSocket requests.
+`NO_PROXY` bypasses all proxies. For other targets, an explicit
+`transport.proxy` wins. Otherwise, secure requests use `HTTPS_PROXY`, then
+`ALL_PROXY`, then `HTTP_PROXY`; plain requests use `HTTP_PROXY`, then
+`ALL_PROXY`. Lowercase environment-variable names are accepted. HTTP proxy
+URLs and SOCKS5 proxy URLs work for WebSocket requests. If no proxy applies,
+the kernel connects directly. Provider code does not contain local proxy
+product names or ports.
 
 The OpenAI Chat Completions adapter lowers a custom tool to a function with one
 required `input` string. It restores the provider function call as a

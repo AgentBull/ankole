@@ -1,4 +1,4 @@
-import { batch, createModel, signal } from '@preact/signals-react'
+import { batch, computed, createModel, signal } from '@preact/signals-react'
 
 export type ProviderEditorDraft = {
   providerID: string
@@ -25,7 +25,18 @@ export const ProviderEditorModel = createModel(() => {
   const providerKind = signal(initial.providerKind)
   const baseURL = signal(initial.baseURL)
   const options = signal(initial.options)
+  const initialDraft = signal<ProviderEditorDraft>()
   const validationError = signal<string>()
+  const dirty = computed(() => {
+    const source = initialDraft.value
+    return Boolean(
+      source &&
+      (providerID.value !== source.providerID ||
+        providerKind.value !== source.providerKind ||
+        baseURL.value !== source.baseURL ||
+        JSON.stringify(options.value) !== JSON.stringify(source.options))
+    )
+  })
 
   const apply = (draft: ProviderEditorDraft) => {
     batch(() => {
@@ -33,6 +44,10 @@ export const ProviderEditorModel = createModel(() => {
       providerKind.value = draft.providerKind
       baseURL.value = draft.baseURL
       options.value = draft.options
+      initialDraft.value = {
+        ...draft,
+        options: { ...draft.options }
+      }
       validationError.value = undefined
     })
   }
@@ -43,6 +58,7 @@ export const ProviderEditorModel = createModel(() => {
     providerKind,
     baseURL,
     options,
+    dirty,
     validationError,
     initialize(nextSourceKey: string, draft: ProviderEditorDraft) {
       if (sourceKey.value === nextSourceKey) return
@@ -57,6 +73,14 @@ export const ProviderEditorModel = createModel(() => {
     },
     clearValidation() {
       validationError.value = undefined
+    },
+    markSaved() {
+      initialDraft.value = {
+        providerID: providerID.value,
+        providerKind: providerKind.value,
+        baseURL: baseURL.value,
+        options: { ...options.value }
+      }
     }
   }
 })

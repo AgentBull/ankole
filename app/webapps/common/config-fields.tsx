@@ -184,7 +184,10 @@ export function ConfigField({
     return (
       <Field>
         <FieldLabel htmlFor={controlID}>{labelContent}</FieldLabel>
-        <Select value={typeof value === 'string' ? value : ''} onValueChange={next => onChange(next ?? '')}>
+        <Select
+          required={required}
+          value={typeof value === 'string' ? value : ''}
+          onValueChange={next => onChange(next ?? '')}>
           <SelectTrigger
             id={controlID}
             aria-describedby={description ? descriptionID : undefined}
@@ -192,7 +195,7 @@ export function ConfigField({
             className="w-full">
             <SelectValue />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent emptyLabel={i18n.t('common.select_empty')}>
             {options.map(option => (
               <SelectItem key={option.value} value={option.value}>
                 {localizedText(option.label, locale) ?? option.value}
@@ -299,6 +302,14 @@ export function configFieldRequired(field: ConfigFieldDefinition, config: JSONOb
   if (!field.requiredWhen?.length) return false
 
   return field.requiredWhen.every(requirement => getPath(config, requirement.path) === requirement.value)
+}
+
+export function configFieldsValid(fields: ConfigFieldDefinition[], config: JSONObject, locale: string): boolean {
+  return fields.every(field => {
+    const value = getPath(config, field.path)
+    if (configFieldRequired(field, config) && configFieldValueEmpty(value)) return false
+    return !configFieldValidationMessage(field, value, locale)
+  })
 }
 
 function configFieldValueEmpty(value: unknown): boolean {

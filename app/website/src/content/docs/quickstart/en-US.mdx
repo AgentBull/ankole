@@ -582,13 +582,12 @@ export const identityTabs = [
         {
           title: 'Grant directory access and get the Bot Token',
           body: [
-            'On OAuth & Permissions, add the four scopes below under Bot Token Scopes. Then select Install to Workspace and approve the installation.'
+            'On OAuth & Permissions, add the three scopes below under Bot Token Scopes. Then select Install to Workspace and approve the installation.'
           ],
           copyItems: [
             { value: 'users:read', description: 'Read member profiles' },
             { value: 'users:read.email', description: 'Read member email addresses' },
-            { value: 'usergroups:read', description: 'Read user groups and their members' },
-            { value: 'team:read', description: 'Read basic workspace information' }
+            { value: 'usergroups:read', description: 'Read user groups and their members' }
           ],
           caution: 'Copy the Bot User OAuth Token after installation. It must start with xoxb-. Reinstall the app after each scope change.'
         },
@@ -1302,26 +1301,61 @@ export const channelTabs = [
           ]
         },
         {
-          title: 'Subscribe to the first message events',
-          body: ['Open Event Subscriptions → Subscribe to bot events. Add each event below.'],
+          title: 'Subscribe to chat and channel-state events',
+          body: [
+            'Open Event Subscriptions → Subscribe to bot events. Add each event below. This set matches the message, reaction, and channel-state capabilities implemented by the Slack adapter.'
+          ],
           copyItems: [
             { value: 'app_mention', description: 'Receive channel @-mentions' },
-            { value: 'message.im', description: 'Receive direct messages' }
+            { value: 'message.channels', description: 'Receive public-channel messages' },
+            { value: 'message.groups', description: 'Receive private-channel messages' },
+            { value: 'message.im', description: 'Receive direct messages' },
+            { value: 'message.mpim', description: 'Receive multi-person direct messages' },
+            { value: 'reaction_added', description: 'Receive added reactions' },
+            { value: 'reaction_removed', description: 'Receive removed reactions' },
+            { value: 'member_joined_channel', description: 'Sync members who join a channel' },
+            { value: 'member_left_channel', description: 'Sync members who leave a channel' },
+            { value: 'channel_rename', description: 'Sync channel renames' },
+            { value: 'group_rename', description: 'Sync private-channel renames' },
+            { value: 'channel_deleted', description: 'Sync channel deletion' },
+            { value: 'channel_archive', description: 'Sync channel archival' }
           ]
         },
         {
-          title: 'Grant scopes and install the app',
+          title: 'Enable direct messages',
           body: [
-            'Under OAuth & Permissions → Bot Token Scopes, add each scope that matches the conversations you will use. The first two are required.'
+            'Open App Home → Show Tabs. Turn on Display Messages tab and select Allow users to send Slash commands and messages from the messages tab. The Messages tab alone shows the surface but does not let users send direct messages to the Agent.'
+          ]
+        },
+        {
+          title: 'Enable Slack-native interactivity',
+          body: [
+            'Open Interactivity & Shortcuts and enable Interactivity. Socket Mode delivers Block Kit button actions over the existing WebSocket, so a public Request URL is not required.'
+          ]
+        },
+        {
+          title: 'Grant the complete chat scopes and install the app',
+          body: [
+            'Under OAuth & Permissions → Bot Token Scopes, add each scope below. This set covers only Slack APIs that Ankole calls. Do not grant unused assistant, workflow, document, or meeting scopes.'
           ],
           copyItems: [
-            { value: 'app_mentions:read', description: 'Read channel messages that mention the bot' },
-            { value: 'chat:write', description: 'Send bot replies' },
-            { value: 'channels:history', description: 'Read public channel messages' },
-            { value: 'groups:history', description: 'Add when the bot must read private channels' },
-            { value: 'im:history', description: 'Add when the bot must read direct messages' }
+            { value: 'app_mentions:read', description: 'Read messages that mention the bot' },
+            { value: 'channels:read', description: 'Sync public channels and their members' },
+            { value: 'channels:history', description: 'Read public-channel messages and reconcile replies' },
+            { value: 'groups:read', description: 'Sync private channels and their members' },
+            { value: 'groups:history', description: 'Read private-channel messages and reconcile replies' },
+            { value: 'im:read', description: 'Sync direct-message conversations' },
+            { value: 'im:history', description: 'Read direct messages and reconcile replies' },
+            { value: 'mpim:read', description: 'Sync multi-person direct messages and their members' },
+            { value: 'mpim:history', description: 'Read multi-person direct messages and reconcile replies' },
+            { value: 'chat:write', description: 'Send, update, and delete bot messages' },
+            { value: 'reactions:read', description: 'Receive reaction changes' },
+            { value: 'reactions:write', description: 'Add and remove reactions' },
+            { value: 'files:read', description: 'Read files attached to messages' },
+            { value: 'files:write', description: 'Upload files sent by the Agent' },
+            { value: 'users:read', description: 'Identify channel members and exclude bot accounts' }
           ],
-          caution: 'Install the app to the workspace after each scope change.'
+          caution: 'After a scope change, reinstall the app to the workspace and write the new Bot Token to Ankole.'
         },
         {
           title: 'Collect the Console fields',
@@ -1341,18 +1375,26 @@ export const channelTabs = [
       ]
     },
     advanced: {
-      title: 'Observation modes, subject mapping, and Slack as IdP',
-      summary: 'Expand when the Agent must observe more than direct mentions or Slack also supplies identity.',
+      title: 'Message policy, subject mapping, and Slack as IdP',
+      summary: 'Slack delivers events, but the signal routing rule still decides how Ankole handles unaddressed messages.',
       steps: [
         {
-          title: 'Observe unaddressed channel messages',
+          title: 'Choose the policy for messages that do not mention the Agent',
           body: [
-            'Add the message event under Event Subscriptions and the matching history scopes under OAuth & Permissions before you use observe_all or may_intervene. Start with addressed_only.'
-          ],
+            'The events and scopes above let Slack deliver complete conversations, but they do not replace the Ankole signal routing policy. Start with addressed_only. Select observe_all or may_intervene only when the Agent must observe or intervene without a direct mention.'
+          ]
+        },
+        {
+          title: 'Add identity permissions when one app also serves as the Slack IdP',
+          body: ['Use a separate IdP app in production. If one app must serve both roles, add the Bot scopes and directory events below.'],
           copyItems: [
-            { value: 'message.channels', description: 'Receive normal messages from public channels' },
-            { value: 'channels:history', description: 'Read public channel history' },
-            { value: 'groups:history', description: 'Add when the bot must also read private channels' }
+            { value: 'users:read.email', description: 'Sync member email addresses' },
+            { value: 'usergroups:read', description: 'Sync user groups and their members' },
+            { value: 'team_join', description: 'Receive member-join events' },
+            { value: 'user_change', description: 'Receive member-profile changes' },
+            { value: 'subteam_created', description: 'Receive user-group creation' },
+            { value: 'subteam_updated', description: 'Receive user-group updates' },
+            { value: 'subteam_members_changed', description: 'Receive user-group membership changes' }
           ]
         },
         {
@@ -1483,18 +1525,28 @@ export const channelTabs = [
           ]
         },
         {
-          title: 'Import the baseline message scopes',
-          body: ['Open Permissions, select the bulk import or export action, paste the JSON below, and confirm the import.'],
+          title: 'Import the complete chat scopes',
+          body: [
+            'Open Permissions, select the bulk import or export action, paste the JSON below, and confirm the import. This set matches the bot, message, reaction, file, card, room, and membership APIs that the adapter calls. Do not add directory write, document, meeting, or urgent-message permissions to the chat app.'
+          ],
           batchImport: {
             label: 'Bulk import JSON',
             content: `{
   "scopes": {
     "tenant": [
+      "application:bot.basic_info:read",
+      "cardkit:card:write",
+      "im:chat:read",
+      "im:chat.members:bot_access",
+      "im:chat.members:read",
       "im:message:send_as_bot",
       "im:message:readonly",
       "im:message:update",
+      "im:message:recall",
       "im:message.group_at_msg:readonly",
       "im:message.p2p_msg:readonly",
+      "im:message.reactions:read",
+      "im:message.reactions:write_only",
       "im:resource"
     ],
     "user": []
@@ -1503,12 +1555,22 @@ export const channelTabs = [
           }
         },
         {
-          title: 'Choose long connection and add the message event',
+          title: 'Choose long connection and add the implemented events',
           body: [
-            'In Events and Callbacks, choose long connection and add the event below. Keep the Ankole control plane running while the platform detects the client.'
+            'In Events and Callbacks, choose long connection and add each event below. Keep the Ankole control plane running while the platform detects the client.'
           ],
           copyItems: [
-            { value: 'im.message.receive_v1', description: 'Receive messages sent to the bot' }
+            { value: 'im.message.receive_v1', description: 'Receive messages sent to the bot' },
+            { value: 'im.message.recalled_v1', description: 'Receive message recall events' },
+            { value: 'im.message.reaction.created_v1', description: 'Receive added reactions' },
+            { value: 'im.message.reaction.deleted_v1', description: 'Receive removed reactions' },
+            { value: 'im.chat.member.bot.added_v1', description: 'Sync rooms that add the bot' },
+            { value: 'im.chat.member.bot.deleted_v1', description: 'Sync rooms that remove the bot' },
+            { value: 'im.chat.member.user.added_v1', description: 'Sync members who join a room' },
+            { value: 'im.chat.member.user.deleted_v1', description: 'Sync members who leave a room' },
+            { value: 'im.chat.updated_v1', description: 'Sync room changes' },
+            { value: 'im.chat.disbanded_v1', description: 'Sync room deletion' },
+            { value: 'card.action.trigger', description: 'Receive interactive-card actions' }
           ]
         },
         {
@@ -1883,6 +1945,8 @@ Use Docker Compose for one host or Kubernetes for an enterprise deployment. Inst
   tabs={deploymentTabs}
 />
 
+<span id="identity-providers" aria-hidden="true" />
+
 ## 2. Set up the identity provider first
 
 Ankole is designed for private deployment inside an enterprise. Each enterprise operates one instance. Inside that instance, Agents, employees, and system services are represented as Principals, and the authorization module manages their permissions.
@@ -1907,6 +1971,7 @@ If you enable the adapter for the first time, restart the control plane after th
   ariaLabel="Choose an identity provider"
   defaultValue="slack"
   labels={quickstartLabels}
+  queryParam="idp"
   tabs={identityTabs}
 />
 
@@ -1934,6 +1999,8 @@ All three are required before the Agent can run. For the first conversation, you
   section={modelAdvanced}
 />
 
+<span id="chat-channels" aria-hidden="true" />
+
 ## 4. Connect a chat channel and create its signal routing rule
 
 Enable the chat platform's Control Plane Plugin in the Console, and then create the bot or application on that platform. Use separate apps for the IdP and chat roles, even when both use the same platform. This separation keeps sign-in and directory permissions away from bot permissions. It also separates credential rotation and app releases.
@@ -1945,6 +2012,7 @@ One chat app usually represents one bot identity. If several Agents need differe
   ariaLabel="Choose a channel provider"
   defaultValue="slack"
   labels={quickstartLabels}
+  queryParam="channel"
   tabs={channelTabs}
 />
 

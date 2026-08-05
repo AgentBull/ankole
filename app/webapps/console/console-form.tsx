@@ -26,7 +26,8 @@ import {
   RiEyeLine,
   RiEyeOffLine,
   RiInformationLine,
-  RiLoaderLine
+  RiLoaderLine,
+  RiSave3Line
 } from '@remixicon/react'
 import {
   Children,
@@ -34,6 +35,8 @@ import {
   isValidElement,
   useEffect,
   useId,
+  useLayoutEffect,
+  useRef,
   useState,
   type ComponentProps,
   type FormEvent,
@@ -42,6 +45,7 @@ import {
 } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router'
+import { PageStack } from './console-page'
 import { ErrorBlock } from './console-primitives'
 import { formatJSONDraft, inspectJSONDraft } from './state/json-editor'
 
@@ -53,27 +57,40 @@ import { formatJSONDraft, inspectJSONDraft } from './state/json-editor'
 export function ResourceEditorPage({
   backTo,
   children,
+  contentWidth = 'form',
   description,
   error,
   onSubmit,
   secondary,
   supplementary,
+  submitDisabled,
+  submitDisabledReason,
+  submitUnavailable,
   submitLabel,
   submitting,
   title
 }: {
   backTo: string
   children: ReactNode
+  contentWidth?: 'form' | 'wide'
   description?: string
   error?: unknown
   onSubmit: () => void
   secondary?: ReactNode
   supplementary?: ReactNode
+  submitDisabled?: boolean
+  submitDisabledReason?: string
+  submitUnavailable?: boolean
   submitLabel?: string
   submitting?: boolean
   title: string
 }) {
   const { t } = useTranslation()
+  const disabledReasonID = useId()
+  const formCompleteness = useFormCompleteness()
+  const disabledForNoChanges = Boolean(submitDisabled && !formCompleteness.incomplete)
+  const saveDisabled = Boolean(submitting || submitUnavailable || disabledForNoChanges)
+  const disabledReason = disabledForNoChanges ? (submitDisabledReason ?? t('common.save_disabled')) : undefined
 
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault()
@@ -81,7 +98,7 @@ export function ResourceEditorPage({
   }
 
   return (
-    <div className="mx-auto grid max-w-4xl gap-6">
+    <PageStack className={cn('mx-auto w-full', contentWidth === 'wide' ? 'max-w-6xl' : 'max-w-3xl')}>
       <div className="grid gap-3">
         <Link
           to={backTo}
@@ -98,21 +115,96 @@ export function ResourceEditorPage({
         </div>
       </div>
 
-      <form className="grid gap-6" onSubmit={handleSubmit}>
+      <form
+        ref={formCompleteness.formRef}
+        className="grid gap-6"
+        noValidate
+        onChange={formCompleteness.refresh}
+        onInput={formCompleteness.refresh}
+        onSubmit={handleSubmit}>
         <ErrorBlock error={error} />
         <div className="grid gap-5 border border-border bg-card p-5 md:p-6">{children}</div>
-        <div className="sticky bottom-0 flex flex-wrap items-center gap-3 border-t border-border bg-background/95 py-4 backdrop-blur">
-          <Button disabled={submitting} size="sm" type="submit">
-            {submitting ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
+        <div className="sticky bottom-0 flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-border bg-background/95 py-4 backdrop-blur">
+          <SaveButton
+            aria-describedby={disabledReason ? disabledReasonID : undefined}
+            disabled={saveDisabled}
+            incomplete={formCompleteness.incomplete && !submitting && !submitUnavailable}
+            loading={submitting}
+            size="sm"
+            type="submit">
             {submitLabel ?? t('common.save')}
-          </Button>
+          </SaveButton>
           <Link to={backTo} className={cn(buttonVariants({ size: 'sm', variant: 'ghost' }))}>
             {t('common.cancel')}
           </Link>
+          {disabledReason ? (
+            <p id={disabledReasonID} className="basis-full text-xs leading-5 text-muted-foreground" aria-live="polite">
+              {disabledReason}
+            </p>
+          ) : null}
         </div>
       </form>
       {supplementary}
-    </div>
+    </PageStack>
+  )
+}
+
+export function useFormCompleteness() {
+  const formRef = useRef<HTMLFormElement>(null)
+  const [incomplete, setIncomplete] = useState(false)
+  const refresh = () => setIncomplete(Boolean(formRef.current?.querySelector(':invalid')))
+
+  useLayoutEffect(refresh)
+
+  return { formRef, incomplete, refresh }
+}
+
+export function SaveButton({
+  children,
+  className,
+  disabled,
+  loading = false,
+  size,
+  ...props
+}: ComponentProps<typeof Button> & { loading?: boolean }) {
+  const { t } = useTranslation()
+  const showIcon = size !== 'xs'
+
+  return (
+    <Button
+      className={cn(disabled && !loading && 'disabled:bg-muted disabled:text-muted-foreground', className)}
+      disabled={loading || disabled}
+      size={size}
+      {...props}>
+      {loading ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
+      {!loading && showIcon ? <RiSave3Line data-icon="inline-start" /> : null}
+      {children ?? t('common.save')}
+    </Button>
+  )
+}
+
+/** A visual and semantic group inside a long editor without adding a nested card. */
+export function FormSection({
+  children,
+  description,
+  title
+}: {
+  children: ReactNode
+  description?: string
+  title: string
+}) {
+  const titleID = useId()
+
+  return (
+    <section className="grid gap-4 border-t border-border pt-5 first:border-t-0 first:pt-0" aria-labelledby={titleID}>
+      <div className="grid gap-1">
+        <h3 id={titleID} className="text-sm font-semibold text-foreground">
+          {title}
+        </h3>
+        {description ? <p className="text-xs leading-5 text-muted-foreground">{description}</p> : null}
+      </div>
+      {children}
+    </section>
   )
 }
 
@@ -140,12 +232,22 @@ export function LabeledField({
   // The label rendered next to the control but was tied to nothing: no caller
   // passed `htmlFor`, and the plain `Input` children carried no `id`, so a
   // screen reader reached an unnamed text box on every form in the console.
-  // Adopting the first element child covers every plain input and textarea,
-  // including the fields that render a sibling `datalist` or hint next to the
-  // control; composite controls that name their own trigger are left alone.
+  // Adopting the first element child covers plain and composite controls,
+  // including fields that render a sibling `datalist` or hint. The adopted
+  // control owns the label, required state, description, and error relation.
   const childList = Children.toArray(children)
-  const child = childList.find(node => isValidElement<{ id?: string }>(node) && !node.props.id) as
-    | ReactElement<{ id?: string; 'aria-describedby'?: string }>
+  const child = childList.find(
+    node =>
+      isValidElement<{ id?: string }>(node) &&
+      !node.props.id &&
+      (typeof node.type !== 'string' || ['input', 'select', 'textarea'].includes(node.type))
+  ) as
+    | ReactElement<{
+        id?: string
+        'aria-describedby'?: string
+        'aria-invalid'?: boolean
+        required?: boolean
+      }>
     | undefined
   const adoptable = child !== undefined
   const controlID = htmlFor ?? (adoptable ? generatedID : undefined)
@@ -163,7 +265,12 @@ export function LabeledField({
       {adoptable
         ? childList.map(node =>
             node === child
-              ? cloneElement(child, { id: generatedID, 'aria-describedby': describedBy || undefined })
+              ? cloneElement(child, {
+                  id: generatedID,
+                  'aria-describedby': describedBy || undefined,
+                  'aria-invalid': error ? true : child.props['aria-invalid'],
+                  required: required || child.props.required
+                })
               : node
           )
         : children}
@@ -263,6 +370,7 @@ export function JSONField({
   label,
   minRows = 8,
   onChange,
+  required,
   value
 }: {
   description?: string
@@ -270,15 +378,22 @@ export function JSONField({
   label: string
   minRows?: number
   onChange: (value: string) => void
+  required?: boolean
   value: string
 }) {
   const { t } = useTranslation()
+  const controlID = useId()
   const draft = inspectJSONDraft(value)
   const syntaxError = draft.kind === 'invalid' ? draft.error : undefined
   const formatted = draft.kind === 'valid' ? formatJSONDraft(value) : undefined
 
   return (
-    <LabeledField label={label} description={description} error={error ?? syntaxError}>
+    <LabeledField
+      htmlFor={controlID}
+      label={label}
+      description={description}
+      error={error ?? syntaxError}
+      required={required}>
       <div className="grid gap-2">
         <div className="flex min-h-7 items-center justify-end gap-2">
           {draft.kind === 'valid' ? <Badge variant="success">{t('console.settings.valid_json')}</Badge> : null}
@@ -293,7 +408,9 @@ export function JSONField({
           </Button>
         </div>
         <Textarea
+          id={controlID}
           aria-invalid={error || syntaxError ? true : undefined}
+          required={required}
           className="max-h-[50dvh] overflow-auto font-mono text-xs [resize:vertical]"
           spellCheck={false}
           style={{ minHeight: `${minRows * 1.5}rem` }}

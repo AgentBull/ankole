@@ -23,6 +23,7 @@ import {
 } from '../api/generated/@tanstack/react-query.gen'
 import type { WorkerEnvItem } from '../api/generated/types.gen'
 import { requestErrorMessage } from '../../common/request-errors'
+import { SaveButton } from '../console-form'
 import { ErrorBlock } from '../console-primitives'
 import { ENCRYPTED_VALUE_MASK, EncryptedValueInput, isEncryptedValueMask } from '../encrypted-value-input'
 import { workerEnvValueText } from '../state/worker-env-visibility'
@@ -56,6 +57,8 @@ export function WorkerEnvAgentSection({ agentUID }: { agentUID: string }) {
   const revealTimers = useRef<Record<string, number>>({})
   const [draftError, setDraftError] = useState<string>()
   const [plaintextConfirmOpen, setPlaintextConfirmOpen] = useState(false)
+  const nameInput = useRef<HTMLInputElement>(null)
+  const valueInput = useRef<HTMLInputElement>(null)
 
   const refresh = () => void queryClient.invalidateQueries()
   const save = useMutation({
@@ -155,14 +158,17 @@ export function WorkerEnvAgentSection({ agentUID }: { agentUID: string }) {
     const name = draft.name.trim()
     if (!WORKER_ENV_NAME_FORMAT.test(name)) {
       setDraftError(t('console.worker_envs.name_invalid'))
+      nameInput.current?.focus()
       return
     }
     if (draft.value.length === 0) {
       setDraftError(t('console.worker_envs.value_required'))
+      valueInput.current?.focus()
       return
     }
     if (!draft.secret && isEncryptedValueMask(draft.value)) {
       setDraftError(t('console.worker_envs.plaintext_reveal_required'))
+      valueInput.current?.focus()
       return
     }
     if (!draft.secret) {
@@ -172,73 +178,105 @@ export function WorkerEnvAgentSection({ agentUID }: { agentUID: string }) {
     persistDraft()
   }
 
-  const draftRow = (mode: 'add' | 'edit') => (
-    <TableRow>
-      <TableCell>
-        {mode === 'add' ? (
-          <Input
-            className="font-mono"
-            placeholder="SOME_ENV_VAR"
-            spellCheck={false}
-            value={draft.name}
-            onChange={event => setDraft(current => ({ ...current, name: event.target.value }))}
-          />
-        ) : (
-          <span className="font-mono text-xs">{draft.name}</span>
-        )}
-      </TableCell>
-      <TableCell colSpan={2}>
-        <div className="grid min-w-64 gap-2">
-          {draft.secret || isEncryptedValueMask(draft.value) ? (
-            <EncryptedValueInput
+  const draftRow = (mode: 'add' | 'edit') => {
+    const source = mode === 'edit' ? items.find(item => item.name === editing) : undefined
+    const sourceValue = source?.secret
+      ? (revealed[source.name] ?? ENCRYPTED_VALUE_MASK)
+      : typeof source?.value === 'string'
+        ? source.value
+        : ''
+    const unchanged = Boolean(
+      source && draft.name === source.name && draft.value === sourceValue && draft.secret === source.secret
+    )
+    const incomplete =
+      !WORKER_ENV_NAME_FORMAT.test(draft.name.trim()) ||
+      draft.value.length === 0 ||
+      (!draft.secret && isEncryptedValueMask(draft.value))
+    const disabled = save.isPending || (unchanged && !incomplete)
+
+    return (
+      <TableRow>
+        <TableCell>
+          {mode === 'add' ? (
+            <Input
+              ref={nameInput}
+              aria-label={t('console.worker_envs.name')}
+              required
               className="font-mono"
-              revealLabel={t('console.worker_envs.reveal')}
-              revealed={revealed[draft.name] !== undefined && !isEncryptedValueMask(draft.value)}
-              revealing={decrypt.isPending}
-              value={draft.value}
-              onChange={event => setDraft(current => ({ ...current, value: event.target.value }))}
-              onReveal={editing ? () => decrypt.mutate({ path: { agent_uid: agentUID, name: editing } }) : undefined}
+              placeholder="SOME_ENV_VAR"
+              spellCheck={false}
+              value={draft.name}
+              onChange={event => setDraft(current => ({ ...current, name: event.target.value }))}
             />
           ) : (
-            <Input
-              className="font-mono"
-              spellCheck={false}
-              value={draft.value}
-              onChange={event => setDraft(current => ({ ...current, value: event.target.value }))}
-            />
+            <span className="font-mono text-xs">{draft.name}</span>
           )}
-          {!draft.secret ? <WorkerEnvPlaintextWarning compact /> : null}
-        </div>
-      </TableCell>
-      <TableCell>
-        <label className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Checkbox
-            checked={draft.secret}
-            onCheckedChange={checked => setDraft(current => ({ ...current, secret: checked === true }))}
-          />
-          {t('console.worker_envs.secret')}
-        </label>
-      </TableCell>
-      <TableCell className="text-right">
-        <div className="flex items-center justify-end gap-1">
-          <Button disabled={save.isPending} size="xs" type="button" onClick={submitDraft}>
-            {t('common.save')}
-          </Button>
-          <Button
-            size="xs"
-            type="button"
-            variant="ghost"
-            onClick={() => {
-              setDraft(emptyDraft)
-              setEditing(undefined)
-              setDraftError(undefined)
-            }}>
-            {t('common.cancel')}
-          </Button>
-        </div>
-      </TableCell>
-    </TableRow>
-  )
+        </TableCell>
+        <TableCell colSpan={2}>
+          <div className="grid min-w-64 gap-2">
+            {draft.secret || isEncryptedValueMask(draft.value) ? (
+              <EncryptedValueInput
+                ref={valueInput}
+                aria-label={t('console.worker_envs.value')}
+                required
+                className="font-mono"
+                revealLabel={t('console.worker_envs.reveal')}
+                revealed={revealed[draft.name] !== undefined && !isEncryptedValueMask(draft.value)}
+                revealing={decrypt.isPending}
+                value={draft.value}
+                onChange={event => setDraft(current => ({ ...current, value: event.target.value }))}
+                onReveal={editing ? () => decrypt.mutate({ path: { agent_uid: agentUID, name: editing } }) : undefined}
+              />
+            ) : (
+              <Input
+                ref={valueInput}
+                aria-label={t('console.worker_envs.value')}
+                required
+                className="font-mono"
+                spellCheck={false}
+                value={draft.value}
+                onChange={event => setDraft(current => ({ ...current, value: event.target.value }))}
+              />
+            )}
+            {!draft.secret ? <WorkerEnvPlaintextWarning compact /> : null}
+          </div>
+        </TableCell>
+        <TableCell>
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Checkbox
+              checked={draft.secret}
+              onCheckedChange={checked => setDraft(current => ({ ...current, secret: checked === true }))}
+            />
+            {t('console.worker_envs.secret')}
+          </label>
+        </TableCell>
+        <TableCell className="text-right">
+          <div className="flex items-center justify-end gap-1">
+            <SaveButton
+              disabled={disabled}
+              incomplete={incomplete && !disabled}
+              loading={save.isPending}
+              size="xs"
+              type="button"
+              onClick={submitDraft}>
+              {t('common.save')}
+            </SaveButton>
+            <Button
+              size="xs"
+              type="button"
+              variant="ghost"
+              onClick={() => {
+                setDraft(emptyDraft)
+                setEditing(undefined)
+                setDraftError(undefined)
+              }}>
+              {t('common.cancel')}
+            </Button>
+          </div>
+        </TableCell>
+      </TableRow>
+    )
+  }
 
   return (
     <section className="grid gap-4">

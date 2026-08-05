@@ -68,7 +68,8 @@ records.
 ## Receive Messages and Learn Channels
 
 The adapter accepts messages, deletions, reactions, Block Kit actions, and
-channel events. It also accepts user and user-group events for
+channel events. Public and private channel rename events use their separate
+Slack event types. The adapter also accepts user and user-group events for
 directory sync.
 
 The adapter normalizes each accepted chat event and submits it through
@@ -81,17 +82,24 @@ Thread identity uses the channel ID and root timestamp.
 
 Direct messages give explicit input. A mention of the current bot makes a group
 message explicit. SignalsGateway applies the configured group policy to other
-group messages.
+group messages. After the Agent replies in a Slack thread, later human replies
+in that thread stay explicit without another mention.
+
+Slack App Home must display the Messages tab and allow users to send messages
+from that tab. The `message.im` event and `im:*` scopes deliver those messages,
+but they do not enable the Slack composer.
 
 The adapter ignores bot and app senders. It also ignores `message_changed`
 because the common input format has no entry-edit event. A `message_deleted` event
 becomes `entry_removed`.
 
-The adapter downloads inbound files and stores successful downloads through
-WorkerFiles. If a download fails, it logs the failure and keeps the provider
-reference without a local file. A message that refers to a recent file or image
-can reuse up to three attachments from the same sender and channel from the
-previous 120 seconds.
+Before the adapter downloads an inbound file, it writes a pending attachment
+projection with a stable attachment ID. It then stores successful downloads
+through WorkerFiles and replaces the pending state with `complete`. If a
+download fails, it records `failed` and keeps the Slack file reference without a
+local file. A message that refers to a recent file or image can reuse up to
+three attachments from the same sender and channel from the previous 120
+seconds.
 
 Startup and refresh jobs materialize channel projections and AuthZ memberships
 in PostgreSQL. Slack only transports the source events.
@@ -100,16 +108,51 @@ in PostgreSQL. Slack only transports the source events.
 
 The adapter sends only operations already stored in the outbox. It uses
 `chat.postMessage`, `chat.update`, `chat.delete`, and reaction methods. It
-renders cards as Block Kit and text as Slack `mrkdwn`.
+renders rich replies with its own Block Kit renderer and text with Slack
+`mrkdwn`. It does not call another chat adapter or translate another provider's
+card payload.
+
+One in-progress Agent reply owns one or more Slack messages. The adapter edits
+those messages with `chat.update`, keeps every page in the source thread, and
+stores their Slack timestamps in the PostgreSQL reply checkpoint. A restart can
+therefore repaint the same Slack messages. A terminal reply updates that same
+surface instead of posting a duplicate final message.
+
+Slack Block Kit buttons carry the complete Ankole interaction protocol. The
+adapter resolves the Slack user to an active Principal before it accepts a
+managed action, and it repaints answered or superseded controls. Slack message
+blocks do not provide a submit action for free-text input, so a free-text prompt
+asks the user to reply in the same Slack thread.
 
 The adapter supports one outbound attachment per outbox row. It uses Slack
-external upload operations for that attachment. Long text can create more than
-one Slack message.
+external upload operations for that attachment: it requests an upload URL with
+`files.getUploadURLExternal`, uploads the bytes, and completes the upload with
+`files.completeUploadExternal`. The file row does not repeat the final answer as
+an `initial_comment`; the rich or text reply owns the answer. Long text can
+create more than one Slack message, and all reply chunks keep the same thread.
+
+Retryable transport, rate-limit, and server failures keep their retry schedule.
+Deterministic Slack rejections, including a missing `files:write` scope, block
+the outbox row until an operator repairs and saves the binding. The stored error
+contains the Slack error code and required scope without storing the raw response.
 
 Slack has no general idempotency key for `chat.postMessage`. Reconciliation
 uses the recorded provider timestamp to check message history. A row without a
 provider timestamp or a history response without that message returns
 `unknown`. A Slack API failure returns an error.
+
+## Slack App Capabilities
+
+The App-Level Token needs `connections:write`. The Bot Token needs
+`app_mentions:read`, channel and message read scopes for every supported
+conversation kind, `chat:write`, `reactions:read`, `reactions:write`,
+`files:read`, `files:write`, and `users:read`. Directory sync adds
+`users:read.email` and `usergroups:read`.
+
+Enable Socket Mode, Event Subscriptions, and Interactivity. Socket Mode carries
+Events API and Block Kit interaction payloads over the same outbound WebSocket,
+so the adapter does not need a public Slack request URL. The complete event and
+scope list is in the website Quick start guide.
 
 ## Import People and User Groups
 

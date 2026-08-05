@@ -21,11 +21,18 @@ import {
   Textarea,
   toast
 } from '@ankole/uikit'
-import { RiAddLine, RiArrowDownSLine, RiExternalLinkLine, RiLoaderLine, RiRefreshLine } from '@remixicon/react'
+import {
+  RiAddLine,
+  RiArrowDownSLine,
+  RiExternalLinkLine,
+  RiLoaderLine,
+  RiRefreshLine,
+  RiSparkling2Line
+} from '@remixicon/react'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useDeferredValue, useEffect, useMemo, useState } from 'react'
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams } from 'react-router'
 import {
@@ -57,6 +64,7 @@ import {
   LabeledField,
   ReadOnlyValue,
   ResourceEditorPage,
+  SaveButton,
   SecretInput,
   StatusIndicator
 } from '../console-form'
@@ -69,6 +77,7 @@ import {
   buildSettingOptions,
   connectionSettings,
   credentialSettings,
+  humanizeKey,
   initialSettingValue,
   type ProviderSetting,
   type SettingValidationError
@@ -141,9 +150,11 @@ export function ProvidersListPage() {
       isEmpty={rows.length === 0}
       count={rows.length}
       emptyTitle={t('console.providers.empty_title')}
+      emptyIcon={<RiSparkling2Line aria-hidden />}
       emptyDescription={t('console.providers.empty_description')}
       error={providers.error}
       isFiltered={Boolean(query.trim())}
+      onClearFilters={() => setQuery('')}
       toolbar={
         <ResourceSearch
           label={t('console.providers.search')}
@@ -261,6 +272,7 @@ export function ProviderEditorPage() {
     ...putProviderMutation(),
     onSuccess: response => {
       toast.success(t('console.providers.saved', { id: response.ai_gateway_provider.provider_id }))
+      model.markSaved()
       void queryClient.invalidateQueries()
       navigate(`/providers/${encodeURIComponent(response.ai_gateway_provider.provider_id)}`)
     }
@@ -307,6 +319,7 @@ export function ProviderEditorPage() {
   const advancedSettings = optionSettings.filter(setting => setting.advanced)
   const basicSettings = optionSettings.filter(setting => !setting.advanced)
   const advancedFieldCount = advancedSettings.length + (advancedBaseURL ? 1 : 0)
+  const submitDisabled = mode === 'edit' && !model.dirty.value
   const baseURLField = (
     <LabeledField label={t('console.providers.base_url')} description={t('console.providers.base_url_hint')}>
       <Input
@@ -324,6 +337,9 @@ export function ProviderEditorPage() {
       backTo="/providers"
       error={model.validationError.value ?? saveProvider.error ?? providerDetail.error}
       submitting={saveProvider.isPending}
+      submitDisabled={submitDisabled}
+      submitUnavailable={!ready}
+      contentWidth="wide"
       supplementary={
         mode === 'edit' && selected && activeKind ? (
           <CredentialPoolEditor provider={selected} providerKind={activeKind} />
@@ -331,18 +347,22 @@ export function ProviderEditorPage() {
       }
       onSubmit={submit}>
       <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
-        <LabeledField label={t('console.providers.provider_id')} description={t('console.providers.provider_id_hint')}>
+        <LabeledField
+          label={t('console.providers.provider_id')}
+          description={t('console.providers.provider_id_hint')}
+          required={mode === 'new'}>
           {mode === 'edit' ? (
             <ReadOnlyValue mono>{model.providerID.value}</ReadOnlyValue>
           ) : (
             <Input
+              required
               placeholder="openai"
               value={model.providerID.value}
               onChange={event => (model.providerID.value = event.target.value)}
             />
           )}
         </LabeledField>
-        <LabeledField label={t('console.providers.kind')}>
+        <LabeledField label={t('console.providers.kind')} required={mode === 'new'}>
           {mode === 'edit' ? (
             <ReadOnlyValue>{activeKind ? providerKindLabel(activeKind) : model.providerKind.value}</ReadOnlyValue>
           ) : (
@@ -350,7 +370,7 @@ export function ProviderEditorPage() {
               <SelectTrigger className="w-full">
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent emptyLabel={t('common.select_empty')}>
                 {kinds.map(kind => (
                   <SelectItem key={kind.provider_kind} value={kind.provider_kind}>
                     {providerKindLabel(kind)}
@@ -577,24 +597,18 @@ function CredentialPoolEditor({
               </div>
 
               <div className="grid gap-2 text-sm md:grid-cols-2">
-                <CredentialFact label={t('console.providers.account_id')} value={entry.account_id} mono />
+                <CredentialFact label={t('console.providers.account_id')} value={entry.account_id} />
                 <CredentialFact label={t('console.providers.email')} value={entry.email} />
                 <CredentialFact label={t('console.providers.plan_type')} value={entry.plan_type} />
-                <CredentialFact label={t('console.providers.auth_type')} value={entry.auth_type} mono />
                 <CredentialFact
-                  label={t('console.providers.request_count')}
-                  value={String(entry.request_count ?? 0)}
-                  mono
+                  label={t('console.providers.auth_type')}
+                  value={entry.auth_type ? humanizeKey(entry.auth_type) : undefined}
                 />
-                <CredentialFact
-                  label={t('console.providers.token_usage')}
-                  value={formatCredentialUsage(entry.usage)}
-                  mono
-                />
+                <CredentialFact label={t('console.providers.request_count')} value={String(entry.request_count ?? 0)} />
+                <CredentialFact label={t('console.providers.token_usage')} value={formatCredentialUsage(entry.usage)} />
                 <CredentialFact
                   label={t('console.providers.rate_limits')}
                   value={formatRateLimits(entry.rate_limits)}
-                  mono
                 />
                 <CredentialFact
                   label={t('console.providers.last_selected_at')}
@@ -728,6 +742,13 @@ function CredentialEditorDialog({
   }
   const pending = create.isPending || update.isPending
   const error = validationError ?? create.error ?? update.error
+  const incomplete =
+    !label.trim() ||
+    (!entry &&
+      settings.some(setting => {
+        const value = values[setting.key]?.trim()
+        return setting.required && !value
+      }))
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -738,33 +759,44 @@ function CredentialEditorDialog({
           </DialogTitle>
           <DialogDescription>{t('console.providers.credential_editor_description')}</DialogDescription>
         </DialogHeader>
-        <div className="grid max-h-[65vh] gap-4 overflow-y-auto py-1">
-          {error ? <p className="text-sm text-destructive">{requestErrorMessage(error)}</p> : null}
-          <LabeledField label={t('console.providers.credential_label')} required>
-            <Input value={label} onChange={event => setLabel(event.target.value)} />
-          </LabeledField>
-          <LabeledField label={t('console.providers.priority')}>
-            <Input type="number" step={1} value={priority} onChange={event => setPriority(event.target.value)} />
-          </LabeledField>
-          {settings.map(setting => (
-            <ProviderSettingField
-              key={setting.key}
-              setting={setting}
-              secretPresent={Boolean(entry?.credential_present)}
-              value={values[setting.key] ?? ''}
-              onChange={value => setValues(current => ({ ...current, [setting.key]: value }))}
-            />
-          ))}
-        </div>
-        <DialogFooter>
-          <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
-            {t('common.cancel')}
-          </Button>
-          <Button type="button" disabled={pending} onClick={submit}>
-            {pending ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
-            {t('common.save')}
-          </Button>
-        </DialogFooter>
+        <form
+          className="contents"
+          noValidate
+          onSubmit={event => {
+            event.preventDefault()
+            submit()
+          }}>
+          <div className="grid max-h-[65vh] gap-4 overflow-y-auto py-1">
+            {error ? (
+              <p className="text-sm text-destructive" aria-live="assertive">
+                {requestErrorMessage(error)}
+              </p>
+            ) : null}
+            <LabeledField label={t('console.providers.credential_label')} required>
+              <Input value={label} onChange={event => setLabel(event.target.value)} />
+            </LabeledField>
+            <LabeledField label={t('console.providers.priority')}>
+              <Input type="number" step={1} value={priority} onChange={event => setPriority(event.target.value)} />
+            </LabeledField>
+            {settings.map(setting => (
+              <ProviderSettingField
+                key={setting.key}
+                setting={setting}
+                secretPresent={Boolean(entry?.credential_present)}
+                value={values[setting.key] ?? ''}
+                onChange={value => setValues(current => ({ ...current, [setting.key]: value }))}
+              />
+            ))}
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
+              {t('common.cancel')}
+            </Button>
+            <SaveButton type="submit" disabled={pending} incomplete={incomplete && !pending} loading={pending}>
+              {t('common.save')}
+            </SaveButton>
+          </DialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   )
@@ -787,6 +819,7 @@ function ChatGPTLoginDialog({
   const [priority, setPriority] = useState('0')
   const [login, setLogin] = useState<LoginPayload>()
   const [callbackURL, setCallbackURL] = useState('')
+  const [validationError, setValidationError] = useState<string>()
 
   useEffect(() => {
     if (!open) return
@@ -794,6 +827,7 @@ function ChatGPTLoginDialog({
     setPriority(String(entry?.priority ?? 0))
     setLogin(undefined)
     setCallbackURL('')
+    setValidationError(undefined)
   }, [entry, open])
 
   const finish = () => {
@@ -838,6 +872,11 @@ function ChatGPTLoginDialog({
   }, [loginContext, mode, open, poll, provider.provider_id, retryAfter, status])
 
   const startLogin = () => {
+    if (!label.trim()) {
+      setValidationError(t('console.providers.credential_label_required'))
+      return
+    }
+    setValidationError(undefined)
     start.mutate({
       body: {
         id: entry?.id,
@@ -848,97 +887,132 @@ function ChatGPTLoginDialog({
     })
   }
   const completeBrowserLogin = () => {
-    if (!loginContext || !callbackURL.trim()) return
+    if (!callbackURL.trim()) {
+      setValidationError(
+        t('common.field_required', {
+          field: t('console.providers.callback_url')
+        })
+      )
+      return
+    }
+    if (!loginContext) return
+    setValidationError(undefined)
     complete.mutate({
       body: { login_context: loginContext, callback_url: callbackURL.trim() },
       path: { provider_id: provider.provider_id }
     })
   }
-  const error = start.error ?? poll.error ?? complete.error
+  const error = validationError ?? start.error ?? poll.error ?? complete.error
   const pending = start.isPending || poll.isPending || complete.isPending
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
-        <DialogHeader>
-          <DialogTitle>
-            {entry ? t('console.providers.reauthenticate') : t('console.providers.add_chatgpt_account')}
-          </DialogTitle>
-          <DialogDescription>{t('console.providers.chatgpt_login_description')}</DialogDescription>
-        </DialogHeader>
+        <form
+          className="contents"
+          noValidate
+          onSubmit={event => {
+            event.preventDefault()
+            if (!login) startLogin()
+            else if (mode === 'browser_paste') completeBrowserLogin()
+          }}>
+          <DialogHeader>
+            <DialogTitle>
+              {entry ? t('console.providers.reauthenticate') : t('console.providers.add_chatgpt_account')}
+            </DialogTitle>
+            <DialogDescription>{t('console.providers.chatgpt_login_description')}</DialogDescription>
+          </DialogHeader>
 
-        <div className="grid gap-4">
-          {error ? <p className="text-sm text-destructive">{requestErrorMessage(error)}</p> : null}
-          {!login ? (
-            <>
-              <LabeledField label={t('console.providers.credential_label')} required>
-                <Input value={label} onChange={event => setLabel(event.target.value)} />
-              </LabeledField>
-              <LabeledField label={t('console.providers.priority')}>
-                <Input type="number" step={1} value={priority} onChange={event => setPriority(event.target.value)} />
-              </LabeledField>
-            </>
-          ) : null}
-
-          {mode === 'device' ? (
-            <div className="grid gap-4 border border-border bg-muted/30 p-4">
-              <p className="text-sm">{t('console.providers.device_login_instructions')}</p>
-              <a
-                className="inline-flex items-center gap-1 text-sm text-link underline underline-offset-4"
-                href={textValue(login?.verification_url)}
-                target="_blank"
-                rel="noreferrer">
-                {textValue(login?.verification_url)}
-                <RiExternalLinkLine className="size-4" aria-hidden />
-              </a>
-              <ReadOnlyValue mono>{textValue(login?.user_code)}</ReadOnlyValue>
-              <p className="text-xs text-muted-foreground">
-                {poll.isPending
-                  ? t('console.providers.device_login_polling')
-                  : t('console.providers.device_login_waiting', { seconds: retryAfter })}
+          <div className="grid gap-4">
+            {error ? (
+              <p className="text-sm text-destructive" aria-live="assertive">
+                {requestErrorMessage(error)}
               </p>
-            </div>
-          ) : null}
+            ) : null}
+            {!login ? (
+              <>
+                <LabeledField label={t('console.providers.credential_label')} required>
+                  <Input
+                    value={label}
+                    onChange={event => {
+                      setLabel(event.target.value)
+                      setValidationError(undefined)
+                    }}
+                  />
+                </LabeledField>
+                <LabeledField label={t('console.providers.priority')}>
+                  <Input type="number" step={1} value={priority} onChange={event => setPriority(event.target.value)} />
+                </LabeledField>
+              </>
+            ) : null}
 
-          {mode === 'browser_paste' ? (
-            <div className="grid gap-4 border border-border bg-muted/30 p-4">
-              <p className="text-sm">{t('console.providers.browser_login_instructions')}</p>
-              <a
-                className="inline-flex items-center gap-1 text-sm text-link underline underline-offset-4"
-                href={textValue(login?.authorization_url)}
-                target="_blank"
-                rel="noreferrer">
-                {t('console.providers.open_authorization')}
-                <RiExternalLinkLine className="size-4" aria-hidden />
-              </a>
-              <LabeledField label={t('console.providers.callback_url')} required>
-                <Textarea
-                  className="min-h-24 font-mono text-xs"
-                  value={callbackURL}
-                  onChange={event => setCallbackURL(event.target.value)}
-                />
-              </LabeledField>
-            </div>
-          ) : null}
-        </div>
+            {mode === 'device' ? (
+              <div className="grid gap-4 border border-border bg-muted/30 p-4">
+                <p className="text-sm">{t('console.providers.device_login_instructions')}</p>
+                <a
+                  className="inline-flex items-center gap-1 text-sm text-link underline underline-offset-4"
+                  href={textValue(login?.verification_url)}
+                  target="_blank"
+                  rel="noreferrer">
+                  {textValue(login?.verification_url)}
+                  <RiExternalLinkLine className="size-4" aria-hidden />
+                </a>
+                <ReadOnlyValue mono>{textValue(login?.user_code)}</ReadOnlyValue>
+                <p className="text-xs text-muted-foreground">
+                  {poll.isPending
+                    ? t('console.providers.device_login_polling')
+                    : t('console.providers.device_login_waiting', { seconds: retryAfter })}
+                </p>
+              </div>
+            ) : null}
 
-        <DialogFooter>
-          <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
-            {t('common.cancel')}
-          </Button>
-          {!login ? (
-            <Button type="button" disabled={pending || !label.trim()} onClick={startLogin}>
-              {pending ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
-              {t('console.providers.start_login')}
+            {mode === 'browser_paste' ? (
+              <div className="grid gap-4 border border-border bg-muted/30 p-4">
+                <p className="text-sm">{t('console.providers.browser_login_instructions')}</p>
+                <a
+                  className="inline-flex items-center gap-1 text-sm text-link underline underline-offset-4"
+                  href={textValue(login?.authorization_url)}
+                  target="_blank"
+                  rel="noreferrer">
+                  {t('console.providers.open_authorization')}
+                  <RiExternalLinkLine className="size-4" aria-hidden />
+                </a>
+                <LabeledField label={t('console.providers.callback_url')} required>
+                  <Textarea
+                    className="min-h-24 font-mono text-xs"
+                    value={callbackURL}
+                    onChange={event => {
+                      setCallbackURL(event.target.value)
+                      setValidationError(undefined)
+                    }}
+                  />
+                </LabeledField>
+              </div>
+            ) : null}
+          </div>
+
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
+              {t('common.cancel')}
             </Button>
-          ) : null}
-          {mode === 'browser_paste' ? (
-            <Button type="button" disabled={pending || !callbackURL.trim()} onClick={completeBrowserLogin}>
-              {pending ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
-              {t('console.providers.complete_login')}
-            </Button>
-          ) : null}
-        </DialogFooter>
+            {!login ? (
+              <Button aria-busy={pending} type="submit" disabled={pending} incomplete={!label.trim() && !pending}>
+                {pending ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
+                {t('console.providers.start_login')}
+              </Button>
+            ) : null}
+            {mode === 'browser_paste' ? (
+              <Button
+                aria-busy={pending}
+                type="submit"
+                disabled={pending || !loginContext}
+                incomplete={!callbackURL.trim() && !pending && Boolean(loginContext)}>
+                {pending ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
+                {t('console.providers.complete_login')}
+              </Button>
+            ) : null}
+          </DialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   )
@@ -963,6 +1037,10 @@ function EnterpriseCredentialDialog({
   const [accountID, setAccountID] = useState('')
   const [planType, setPlanType] = useState('')
   const [email, setEmail] = useState('')
+  const [validationError, setValidationError] = useState<string>()
+  const labelInput = useRef<HTMLInputElement>(null)
+  const accessTokenInput = useRef<HTMLInputElement>(null)
+  const accountIDInput = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (!open) return
@@ -972,6 +1050,7 @@ function EnterpriseCredentialDialog({
     setAccountID(entry?.account_id ?? '')
     setPlanType(entry?.plan_type ?? '')
     setEmail(entry?.email ?? '')
+    setValidationError(undefined)
   }, [entry, open])
 
   const save = useMutation({
@@ -984,6 +1063,18 @@ function EnterpriseCredentialDialog({
   })
 
   const submit = () => {
+    const requiredField = [
+      { field: t('console.providers.credential_label'), input: labelInput, value: label.trim() },
+      { field: t('console.providers.access_token'), input: accessTokenInput, value: accessToken.trim() },
+      { field: t('console.providers.account_id'), input: accountIDInput, value: accountID.trim() }
+    ].find(item => !item.value)
+    if (requiredField) {
+      setValidationError(t('common.field_required', { field: requiredField.field }))
+      requiredField.input.current?.focus()
+      return
+    }
+
+    setValidationError(undefined)
     save.mutate({
       body: {
         id: entry?.id,
@@ -997,6 +1088,7 @@ function EnterpriseCredentialDialog({
       path: { provider_id: provider.provider_id }
     })
   }
+  const incomplete = !label.trim() || !accessToken.trim() || !accountID.trim()
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -1008,18 +1100,43 @@ function EnterpriseCredentialDialog({
           <DialogDescription>{t('console.providers.enterprise_token_description')}</DialogDescription>
         </DialogHeader>
         <div className="grid gap-4">
-          {save.error ? <p className="text-sm text-destructive">{requestErrorMessage(save.error)}</p> : null}
+          {validationError || save.error ? (
+            <p className="text-sm text-destructive" aria-live="assertive">
+              {validationError ?? requestErrorMessage(save.error)}
+            </p>
+          ) : null}
           <LabeledField label={t('console.providers.credential_label')} required>
-            <Input value={label} onChange={event => setLabel(event.target.value)} />
+            <Input
+              ref={labelInput}
+              value={label}
+              onChange={event => {
+                setLabel(event.target.value)
+                setValidationError(undefined)
+              }}
+            />
           </LabeledField>
           <LabeledField label={t('console.providers.priority')}>
             <Input type="number" step={1} value={priority} onChange={event => setPriority(event.target.value)} />
           </LabeledField>
           <LabeledField label={t('console.providers.access_token')} required>
-            <SecretInput value={accessToken} onChange={event => setAccessToken(event.target.value)} />
+            <SecretInput
+              ref={accessTokenInput}
+              value={accessToken}
+              onChange={event => {
+                setAccessToken(event.target.value)
+                setValidationError(undefined)
+              }}
+            />
           </LabeledField>
           <LabeledField label={t('console.providers.account_id')} required>
-            <Input value={accountID} onChange={event => setAccountID(event.target.value)} />
+            <Input
+              ref={accountIDInput}
+              value={accountID}
+              onChange={event => {
+                setAccountID(event.target.value)
+                setValidationError(undefined)
+              }}
+            />
           </LabeledField>
           <LabeledField label={t('console.providers.plan_type')}>
             <Input value={planType} onChange={event => setPlanType(event.target.value)} />
@@ -1032,26 +1149,27 @@ function EnterpriseCredentialDialog({
           <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
             {t('common.cancel')}
           </Button>
-          <Button
+          <SaveButton
             type="button"
-            disabled={save.isPending || !label.trim() || !accessToken.trim() || !accountID.trim()}
+            disabled={save.isPending}
+            incomplete={incomplete && !save.isPending}
+            loading={save.isPending}
             onClick={submit}>
-            {save.isPending ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
             {t('common.save')}
-          </Button>
+          </SaveButton>
         </DialogFooter>
       </DialogContent>
     </Dialog>
   )
 }
 
-function CredentialFact({ label, mono, value }: { label: string; mono?: boolean; value: string | null | undefined }) {
+function CredentialFact({ label, value }: { label: string; value: string | null | undefined }) {
   if (!value) return null
 
   return (
     <div className="grid grid-cols-[minmax(8rem,0.4fr)_1fr] gap-3">
       <span className="text-muted-foreground">{label}</span>
-      <span className={mono ? 'break-all font-mono text-xs' : 'break-all'}>{value}</span>
+      <span className="break-all font-mono tabular-nums">{value}</span>
     </div>
   )
 }

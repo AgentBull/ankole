@@ -354,7 +354,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
       |> put_binding(source_agent.uid, "lark", "lark-main", lark_config("forbidden"))
 
     assert response(conn, 200)
-    Repo.delete_all(from grant in Grant, where: grant.action == "delete")
+    Repo.delete_all(from(grant in Grant, where: grant.action == "delete"))
 
     conn =
       conn
@@ -599,7 +599,12 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
              "userName"
            ]
 
-    assert Enum.all?(adapter["fields"], &(&1["advanced"] == false))
+    fields = Map.new(adapter["fields"], &{&1["path"], &1})
+    assert fields["appID"]["advanced"] == false
+    assert fields["appSecret"]["advanced"] == false
+    assert fields["domain"]["advanced"] == false
+    assert fields["platformSubjectNamespace"]["advanced"] == true
+    assert fields["userName"]["advanced"] == true
 
     assert adapter["group_message_mode_field"]["path"] == "group_message_mode"
     assert adapter["group_message_mode_field"]["advanced"] == false
@@ -620,6 +625,12 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
              "platformSubjectNamespace",
              "userName"
            ]
+
+    slack_fields = Map.new(slack["fields"], &{&1["path"], &1})
+    assert slack_fields["botToken"]["advanced"] == false
+    assert slack_fields["appToken"]["advanced"] == false
+    assert slack_fields["platformSubjectNamespace"]["advanced"] == true
+    assert slack_fields["userName"]["advanced"] == true
 
     assert slack["group_message_mode_field"] == adapter["group_message_mode_field"]
   end

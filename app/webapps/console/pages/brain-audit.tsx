@@ -34,12 +34,15 @@ import {
 } from '../api/generated/@tanstack/react-query.gen'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { BrainDreamingFitnessRun } from '../api/generated/types.gen'
+import { PageHeader, PageStack } from '../console-page'
 import { ErrorBlock } from '../console-primitives'
 import { LabeledField, StatusIndicator } from '../console-form'
-import { CursorPagination, PageHeader } from '../console-list-page'
+import { CursorPagination } from '../console-list-page'
 import {
   AuditTrail,
+  type ActiveFilter,
   BrainOwnerField,
+  BrainStoreField,
   BrainTaskNavigation,
   FilterDisclosure,
   RESTORABLE_AUDIT_ACTIONS,
@@ -95,7 +98,7 @@ export function BrainAuditPage() {
   const rows = audit.data?.audit_log ?? []
   const restorableRows = rows.filter(row => RESTORABLE_AUDIT_ACTIONS.has(row.action))
   const allPageSelected = restorableRows.length > 0 && restorableRows.every(row => selectedIDs.has(row.id))
-  const advancedFilterCount = [store, action, actor, runID, insertedAfter, insertedBefore].filter(Boolean).length
+  const activeFilterCount = [store, action, actor, runID, insertedAfter, insertedBefore].filter(Boolean).length
 
   useEffect(() => {
     if (searchParams.has('owner') || !ownerUID) return
@@ -109,11 +112,30 @@ export function BrainAuditPage() {
     setSearchParams(setBrainFilter(searchParams, key, value), { replace: true })
   }
 
-  const clearAdvancedFilters = () => {
+  const clearFilters = () => {
     setSelectedIDs(new Set())
     const next = new URLSearchParams(searchParams)
     for (const key of ['store', 'action', 'actor', 'run', 'after', 'before', 'cursor']) next.delete(key)
     setSearchParams(next, { replace: true })
+  }
+
+  const activeAdvancedFilters: ActiveFilter[] = []
+  if (store) {
+    activeAdvancedFilters.push({
+      id: 'store',
+      label: t('console.brain.store'),
+      value:
+        store === 'shared' ? t('console.brain.store_shared') : store === 'self' ? t('console.brain.store_self') : store,
+      onRemove: () => setFilter('store', '')
+    })
+  }
+  if (runID) {
+    activeAdvancedFilters.push({
+      id: 'run',
+      label: t('console.brain.audit_run'),
+      value: runID,
+      onRemove: () => setFilter('run', '')
+    })
   }
 
   const toggleRow = (id: string, selected: boolean) => {
@@ -137,7 +159,7 @@ export function BrainAuditPage() {
   }
 
   return (
-    <div className="grid min-w-0 gap-6">
+    <PageStack>
       <PageHeader
         title={t('console.brain.audit_title')}
         description={t('console.brain.audit_description')}
@@ -160,11 +182,16 @@ export function BrainAuditPage() {
           principals={principals.data?.principals ?? []}
           onChange={value => setFilter('owner', value)}
         />
-        <FilterDisclosure count={advancedFilterCount} onClear={clearAdvancedFilters}>
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-            <LabeledField label={t('console.brain.store')}>
-              <Input value={store} placeholder="shared" onChange={event => setFilter('store', event.target.value)} />
-            </LabeledField>
+        <div className="grid gap-3 border-t border-border pt-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-sm font-medium">{t('console.brain.filters')}</h3>
+            {activeFilterCount > 0 ? (
+              <Button type="button" size="xs" variant="ghost" onClick={clearFilters}>
+                {t('console.brain.clear_filters')}
+              </Button>
+            ) : null}
+          </div>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
             <LabeledField label={t('console.brain.audit_action')}>
               <Input
                 list="brain-audit-actions"
@@ -184,13 +211,6 @@ export function BrainAuditPage() {
                 onChange={event => setFilter('actor', event.target.value)}
               />
             </LabeledField>
-            <LabeledField label={t('console.brain.audit_run')}>
-              <Input
-                value={runID}
-                placeholder={t('console.brain.audit_run_placeholder')}
-                onChange={event => setFilter('run', event.target.value)}
-              />
-            </LabeledField>
             <LabeledField label={t('console.brain.audit_after')}>
               <Input type="date" value={insertedAfter} onChange={event => setFilter('after', event.target.value)} />
             </LabeledField>
@@ -198,24 +218,36 @@ export function BrainAuditPage() {
               <Input type="date" value={insertedBefore} onChange={event => setFilter('before', event.target.value)} />
             </LabeledField>
           </div>
-        </FilterDisclosure>
+          <FilterDisclosure filters={activeAdvancedFilters}>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <BrainStoreField
+                ownerUID={ownerUID}
+                store={store}
+                principals={principals.data?.principals ?? []}
+                allowAll
+                onChange={value => setFilter('store', value)}
+              />
+              <LabeledField label={t('console.brain.audit_run')}>
+                <Input
+                  value={runID}
+                  placeholder={t('console.brain.audit_run_placeholder')}
+                  onChange={event => setFilter('run', event.target.value)}
+                />
+              </LabeledField>
+            </div>
+          </FilterDisclosure>
+        </div>
+      </div>
+
+      <ErrorBlock error={restore.error} />
+      {restorableRows.length > 0 ? (
         <div className="flex justify-end">
           <label className="flex items-end gap-3 pb-2 text-sm">
             <Checkbox checked={allPageSelected} onCheckedChange={checked => togglePage(checked === true)} />
             <span>{t('console.brain.select_page')}</span>
           </label>
         </div>
-        <CursorPagination
-          page={cursorPageNumber(searchParams)}
-          hasPrevious={hasPreviousCursor(searchParams)}
-          nextCursor={audit.data?.next_cursor}
-          resultCount={rows.length}
-          onPrevious={() => setSearchParams(previousCursorParams(searchParams))}
-          onNext={nextCursor => setSearchParams(nextCursorParams(searchParams, nextCursor))}
-        />
-      </div>
-
-      <ErrorBlock error={restore.error} />
+      ) : null}
       <AuditTrail
         rows={rows}
         loading={audit.isLoading || principals.isLoading}
@@ -229,6 +261,16 @@ export function BrainAuditPage() {
             : undefined
         }
       />
+      {rows.length > 0 || hasPreviousCursor(searchParams) ? (
+        <CursorPagination
+          page={cursorPageNumber(searchParams)}
+          hasPrevious={hasPreviousCursor(searchParams)}
+          nextCursor={audit.data?.next_cursor}
+          resultCount={rows.length}
+          onPrevious={() => setSearchParams(previousCursorParams(searchParams))}
+          onNext={nextCursor => setSearchParams(nextCursorParams(searchParams, nextCursor))}
+        />
+      ) : null}
 
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <DialogContent>
@@ -253,7 +295,7 @@ export function BrainAuditPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </PageStack>
   )
 }
 
@@ -287,7 +329,7 @@ export function BrainDreamingPage() {
   const run = runDreaming.data?.run
 
   return (
-    <div className="grid min-w-0 gap-6">
+    <PageStack>
       <PageHeader
         title={t('console.brain.dreaming_title')}
         description={t('console.brain.dreaming_description')}
@@ -348,7 +390,7 @@ export function BrainDreamingPage() {
           navigate(`/brain/audit?${next.toString()}`)
         }}
       />
-    </div>
+    </PageStack>
   )
 }
 
@@ -383,7 +425,7 @@ export function BrainEntryAuditPage() {
   })
 
   return (
-    <div className="mx-auto grid max-w-3xl gap-5">
+    <PageStack className="mx-auto max-w-3xl">
       <Link
         to={`/brain?${brainSearch(ownerUID, store)}`}
         className="w-fit text-sm text-muted-foreground hover:text-foreground">
@@ -409,7 +451,7 @@ export function BrainEntryAuditPage() {
         onPrevious={() => setSearchParams(previousCursorParams(searchParams, 'audit_'))}
         onNext={nextCursor => setSearchParams(nextCursorParams(searchParams, nextCursor, 'audit_'))}
       />
-    </div>
+    </PageStack>
   )
 }
 

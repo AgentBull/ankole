@@ -24,7 +24,7 @@ import {
 import type { BackgroundAgentJobItem } from '../api/generated/types.gen'
 import { ErrorBlock, formatConsoleDate } from '../console-primitives'
 import { StatusIndicator } from '../console-form'
-import { PageHeader, RefreshButton } from '../console-list-page'
+import { PageHeader, PageStack, RefreshButton } from '../console-page'
 
 /**
  * Console start page.
@@ -111,7 +111,7 @@ export function HomePage() {
   }
 
   return (
-    <div className="grid min-w-0 gap-6">
+    <PageStack>
       <PageHeader
         title={t('console.home.title')}
         description={t('console.home.description')}
@@ -253,7 +253,7 @@ export function HomePage() {
           />
         </div>
       </section>
-    </div>
+    </PageStack>
   )
 }
 
@@ -269,13 +269,13 @@ export function NotFoundPage() {
   const { pathname } = useLocation()
 
   return (
-    <div className="mx-auto grid max-w-2xl gap-5 py-10">
+    <PageStack className="mx-auto max-w-2xl py-10">
       <PageHeader title={t('console.not_found.title')} description={t('console.not_found.description')} />
       <p className="font-mono text-sm break-all text-muted-foreground">{pathname}</p>
       <Link to="/" className={cn(buttonVariants({ size: 'sm' }), 'w-fit')}>
         {t('console.not_found.action')}
       </Link>
-    </div>
+    </PageStack>
   )
 }
 
@@ -297,7 +297,7 @@ export function RouteErrorPage() {
       : String(error ?? '')
 
   return (
-    <div className="mx-auto grid max-w-2xl gap-5 py-10">
+    <PageStack className="mx-auto max-w-2xl py-10">
       <PageHeader title={t('console.route_error.title')} description={t('console.route_error.description')} />
       {detail ? <p className="font-mono text-sm break-all text-muted-foreground">{detail}</p> : null}
       <div className="flex flex-wrap gap-3">
@@ -308,7 +308,7 @@ export function RouteErrorPage() {
           {t('console.not_found.action')}
         </Link>
       </div>
-    </div>
+    </PageStack>
   )
 }
 

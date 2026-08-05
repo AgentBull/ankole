@@ -5,6 +5,7 @@ defmodule Ankole.Plugins.SlackAdapter do
 
   alias Ankole.Plugins.SlackAdapter.{Channels, Config, ConnectionReconciler}
   alias Ankole.Plugins.SlackAdapter.{ConnectionSupervisor, IdentityProvider, Inbound, Outbox}
+  alias Ankole.Plugins.SlackAdapter.ReplyPreview
 
   @zh_fields %{
     "botToken" => {"Bot User OAuth Token", "安装应用后在「OAuth & Permissions」中复制，以 xoxb- 开头。"},
@@ -55,6 +56,7 @@ defmodule Ankole.Plugins.SlackAdapter do
         supported_group_message_modes: ["addressed_only", "observe_all", "may_intervene"],
         ingress_module: Inbound,
         outbox_module: Outbox,
+        reply_preview_module: ReplyPreview,
         connection_supervisor: ConnectionSupervisor,
         binding_saved_module: Channels,
         inbound_capabilities: [
@@ -121,10 +123,12 @@ defmodule Ankole.Plugins.SlackAdapter do
         "Platform subject namespace",
         "One namespace per Slack workspace.",
         :string,
-        default: "slack-main"
+        default: "slack-main",
+        advanced: true
       ),
       field("userName", "Output display name", "Name shown for outbound messages.", :string,
-        default: "Slack"
+        default: "Slack",
+        advanced: true
       )
     ]
   end
@@ -135,7 +139,9 @@ defmodule Ankole.Plugins.SlackAdapter do
         "clientID",
         "Client ID",
         "Find it under Basic Information > App Credentials.",
-        :string, required: true),
+        :string,
+        required: true
+      ),
       field(
         "clientSecret",
         "Client secret",
@@ -186,7 +192,9 @@ defmodule Ankole.Plugins.SlackAdapter do
         "oidc.enabled",
         "Enable sign-in",
         "Allow administrators to sign in with Slack.",
-        :boolean, default: true),
+        :boolean,
+        default: true
+      ),
       field(
         "oidc.scopes",
         "Sign-in scopes",
@@ -199,7 +207,9 @@ defmodule Ankole.Plugins.SlackAdapter do
         "sync.contacts",
         "Sync directory",
         "Import Slack users and user groups into Ankole.",
-        :boolean, default: true),
+        :boolean,
+        default: true
+      ),
       field(
         "sync.websocket",
         "Sync directory changes",

@@ -43,6 +43,25 @@ These are read at startup and tune a running process. They are not secrets.
 | `ANKOLE_AI_GATEWAY_BASE_URL` | — | override the AIGateway base URL (rarely needed) |
 | `ANKOLE_RUNTIME_FABRIC_BIND_ENDPOINT` | — | the RuntimeFabric bind endpoint |
 
+## Provider egress proxy
+
+Set these standard variables on the control-plane process when model-provider
+traffic must use an outbound proxy. Lowercase forms such as `https_proxy` also
+work.
+
+| Variable | Meaning |
+|---|---|
+| `HTTPS_PROXY` | proxy for HTTPS and secure WebSocket (`wss`) provider requests |
+| `HTTP_PROXY` | proxy for HTTP and WebSocket (`ws`) provider requests; secure requests also use it when no `HTTPS_PROXY` or `ALL_PROXY` value exists |
+| `ALL_PROXY` | fallback proxy for provider requests when the protocol-specific variable is absent |
+| `NO_PROXY` | comma-separated hosts or domain suffixes that must connect directly |
+
+Proxy URLs can use `http`, `https`, `socks5`, or `socks5h`, including embedded
+credentials when the proxy requires authentication. `NO_PROXY` always wins.
+For secure requests, Ankole tries `HTTPS_PROXY`, then `ALL_PROXY`, then
+`HTTP_PROXY`. For plain requests, it tries `HTTP_PROXY`, then `ALL_PROXY`.
+Restart the control plane after you change these variables.
+
 ## Worker-only environment (Agent Computer Worker)
 
 The worker reads a small, fixed set of environment variables. Actor identity is **not** among them — it arrives in `turn_start`, not in the environment. These are set by the managed worker bootstrap, not by the operator.

@@ -1,7 +1,7 @@
 import { Button, Tabs, TabsContent, TabsList, TabsTrigger, Textarea, toast } from '@ankole/uikit'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
-import { RiEditLine, RiSave3Line } from '@remixicon/react'
+import { RiEditLine } from '@remixicon/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -11,6 +11,7 @@ import {
   ankoleWebAgentLibraryControllerUpdateMutation
 } from '../api/generated/@tanstack/react-query.gen'
 import { requestErrorMessage } from '../../common/request-errors'
+import { SaveButton } from '../console-form'
 import { ErrorBlock } from '../console-primitives'
 import {
   AGENT_LIBRARY_DOCUMENT_KINDS,
@@ -158,14 +159,14 @@ export function AgentLibraryEditor({ agentUID }: { agentUID: string }) {
                       onChange={event => model.setDraft(kind, event.target.value)}
                     />
                     <div className="flex flex-wrap items-center gap-2">
-                      <Button
+                      <SaveButton
                         disabled={replaceDocument.isPending || state.draft.value === state.sourceContent.value}
+                        loading={replaceDocument.isPending}
                         size="xs"
                         type="button"
                         onClick={() => save(kind)}>
-                        <RiSave3Line data-icon="inline-start" />
                         {t('common.save')}
-                      </Button>
+                      </SaveButton>
                       <Button size="xs" type="button" variant="ghost" onClick={() => model.cancel(kind)}>
                         {t('common.cancel')}
                       </Button>

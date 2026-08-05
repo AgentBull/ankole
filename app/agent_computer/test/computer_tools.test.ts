@@ -166,6 +166,7 @@ describe('computer tools', () => {
 
     const result = await tool.execute('call-reply-attachment', { path: '/agents/agent-1/user-files/report.txt' })
 
+    expect(result.details.delivery_state).toBe('queued')
     expect(result.details.attachments).toEqual([
       {
         agent_computer_path: '/agents/agent-1/user-files/report.txt',

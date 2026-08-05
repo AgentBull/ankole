@@ -4,6 +4,7 @@ import {
   AvatarImage,
   Badge,
   Combobox,
+  ComboboxCollection,
   ComboboxContent,
   ComboboxEmpty,
   ComboboxInput,
@@ -25,6 +26,7 @@ import {
   Textarea,
   toast
 } from '@ankole/uikit'
+import { RiKey2Line } from '@remixicon/react'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -93,9 +95,11 @@ export function PrincipalGroupsListPage() {
       isLoading={groups.isLoading}
       isEmpty={rows.length === 0}
       emptyTitle={t('console.principal_groups.empty_title')}
+      emptyIcon={<RiKey2Line aria-hidden />}
       emptyDescription={t('console.principal_groups.empty_description')}
       error={groups.error}
       isFiltered={Boolean(query.trim())}
+      onClearFilters={() => setQuery('')}
       count={rows.length}
       subNav={<AccessSubNav />}
       toolbar={
@@ -194,6 +198,7 @@ export function PrincipalGroupEditorPage() {
     ...ankoleWebAuthZGroupControllerUpdateMutation(),
     onSuccess: response => {
       toast.success(t('console.principal_groups.saved', { id: response.principal_group.name }))
+      model.markSaved(formFromGroup(response.principal_group))
       refresh()
     }
   })
@@ -225,6 +230,8 @@ export function PrincipalGroupEditorPage() {
         model.validationError.value ?? createGroup.error ?? updateGroup.error ?? (mode === 'edit' ? group.error : null)
       }
       submitting={createGroup.isPending || updateGroup.isPending}
+      submitDisabled={mode === 'edit' && !model.dirty.value}
+      contentWidth={mode === 'edit' ? 'wide' : 'form'}
       supplementary={
         mode === 'edit' && loadedGroup ? (
           <div className="grid gap-10 border-t border-border pt-8">
@@ -243,6 +250,7 @@ export function PrincipalGroupEditorPage() {
             <ReadOnlyValue mono>{model.name.value}</ReadOnlyValue>
           ) : (
             <Input
+              required
               placeholder="research-ops"
               value={model.name.value}
               onChange={event => (model.name.value = event.target.value)}
@@ -250,7 +258,11 @@ export function PrincipalGroupEditorPage() {
           )}
         </LabeledField>
         <LabeledField label={t('console.principal_groups.display_name')} required>
-          <Input value={model.displayName.value} onChange={event => (model.displayName.value = event.target.value)} />
+          <Input
+            required
+            value={model.displayName.value}
+            onChange={event => (model.displayName.value = event.target.value)}
+          />
         </LabeledField>
       </div>
       <LabeledField label={t('console.principal_groups.description_label')}>
@@ -282,6 +294,7 @@ export function PrincipalGroupEditorPage() {
             <ReadOnlyValue mono>{model.computedCondition.value}</ReadOnlyValue>
           ) : (
             <Textarea
+              required
               className="font-mono text-xs"
               spellCheck={false}
               style={{ minHeight: '6rem' }}
@@ -561,14 +574,16 @@ function AddMemberPicker({
       <ComboboxContent>
         <ComboboxList>
           <ComboboxEmpty>{t('console.principal_groups.add_member_empty')}</ComboboxEmpty>
-          {visible.map(principal => (
-            <ComboboxItem key={principal.uid} value={principal}>
-              <span className="flex min-w-0 flex-col">
-                <span className="truncate">{principal.display_name ?? principal.uid}</span>
-                <span className="truncate font-mono text-xs text-muted-foreground">{principal.uid}</span>
-              </span>
-            </ComboboxItem>
-          ))}
+          <ComboboxCollection>
+            {(principal: PrincipalItem) => (
+              <ComboboxItem key={principal.uid} value={principal}>
+                <span className="flex min-w-0 flex-col">
+                  <span className="truncate">{principal.display_name ?? principal.uid}</span>
+                  <span className="truncate font-mono text-xs text-muted-foreground">{principal.uid}</span>
+                </span>
+              </ComboboxItem>
+            )}
+          </ComboboxCollection>
         </ComboboxList>
       </ComboboxContent>
     </Combobox>

@@ -21,7 +21,9 @@ describe('SignalBindingEditorModel', () => {
       confidentialMemory: false,
       config: { domain: 'example' }
     })
+    expect(model.dirty.value).toBe(false)
     model.selectAgent('agent-b')
+    expect(model.dirty.value).toBe(true)
     model.initialize('new:agent-a', {
       agentUID: 'agent-a',
       adapterID: 'lark',

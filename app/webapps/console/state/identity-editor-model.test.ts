@@ -2,6 +2,22 @@ import { describe, expect, test } from 'bun:test'
 import { IdentityEditorModel } from './identity-editor-model'
 
 describe('IdentityEditorModel', () => {
+  test('tracks edits against the loaded provider', () => {
+    const model = new IdentityEditorModel()
+
+    model.initialize('provider:company', {
+      adapterID: 'oidc',
+      providerID: 'company',
+      enabled: true,
+      config: { issuer: 'https://id.example.com' }
+    })
+    expect(model.dirty.value).toBe(false)
+
+    model.enabled.value = false
+    expect(model.dirty.value).toBe(true)
+    model[Symbol.dispose]()
+  })
+
   test('switching adapter resets all adapter-owned fields together', () => {
     const model = new IdentityEditorModel()
 

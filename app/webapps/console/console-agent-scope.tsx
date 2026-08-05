@@ -37,7 +37,7 @@ export function AgentFilter({ scope }: { scope: AgentScope }) {
       <SelectTrigger aria-label={t('console.agents.agent')} className="w-56">
         <SelectValue placeholder={t('console.select_agent')} />
       </SelectTrigger>
-      <SelectContent>
+      <SelectContent emptyLabel={scope.isLoading ? t('common.loading') : t('common.select_no_agents')}>
         {scope.agents.map(agent => (
           <SelectItem key={agent.uid} value={agent.uid}>
             {agent.uid}

@@ -4,6 +4,7 @@ import {
   AvatarImage,
   Badge,
   Combobox,
+  ComboboxCollection,
   ComboboxContent,
   ComboboxEmpty,
   ComboboxInput,
@@ -19,7 +20,7 @@ import {
   toast
 } from '@ankole/uikit'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { RiArrowLeftLine } from '@remixicon/react'
+import { RiArrowLeftLine, RiKey2Line } from '@remixicon/react'
 import { useDeferredValue, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useParams } from 'react-router'
@@ -34,6 +35,7 @@ import {
 } from '../api/generated/@tanstack/react-query.gen'
 import type { PrincipalGroupItem, PrincipalItem } from '../api/generated/types.gen'
 import { requestErrorMessage } from '../../common/request-errors'
+import { PageStack } from '../console-page'
 import { ErrorBlock } from '../console-primitives'
 import { ConfirmDeleteButton, StatusIndicator } from '../console-form'
 import { ResourceListPage, ResourceSearch, SubNav } from '../console-list-page'
@@ -81,9 +83,11 @@ export function PrincipalsListPage() {
       isLoading={principals.isLoading}
       isEmpty={rows.length === 0}
       emptyTitle={t('console.principals.empty_title')}
+      emptyIcon={<RiKey2Line aria-hidden />}
       emptyDescription={t('console.principals.empty_description')}
       error={principals.error}
       isFiltered={Boolean(query.trim())}
+      onClearFilters={() => setQuery('')}
       count={rows.length}
       subNav={<AccessSubNav />}
       toolbar={
@@ -128,7 +132,7 @@ export function PrincipalDetailPage() {
   const loadedPrincipal = principal.data?.principal
 
   return (
-    <div className="mx-auto grid max-w-4xl gap-6">
+    <PageStack className="mx-auto max-w-4xl">
       <div className="grid gap-3">
         <Link
           to="/access/principals"
@@ -167,7 +171,7 @@ export function PrincipalDetailPage() {
           <Skeleton className="h-8 w-2/3" />
         </div>
       ) : null}
-    </div>
+    </PageStack>
   )
 }
 
@@ -349,14 +353,16 @@ function AddToGroupPicker({
       <ComboboxContent>
         <ComboboxList>
           <ComboboxEmpty>{t('console.principals.add_to_group_empty')}</ComboboxEmpty>
-          {visible.map(group => (
-            <ComboboxItem key={group.id} value={group}>
-              <span className="flex min-w-0 flex-col">
-                <span className="truncate">{group.display_name}</span>
-                <span className="truncate font-mono text-xs text-muted-foreground">{group.name}</span>
-              </span>
-            </ComboboxItem>
-          ))}
+          <ComboboxCollection>
+            {(group: PrincipalGroupItem) => (
+              <ComboboxItem key={group.id} value={group}>
+                <span className="flex min-w-0 flex-col">
+                  <span className="truncate">{group.display_name}</span>
+                  <span className="truncate font-mono text-xs text-muted-foreground">{group.name}</span>
+                </span>
+              </ComboboxItem>
+            )}
+          </ComboboxCollection>
         </ComboboxList>
       </ComboboxContent>
     </Combobox>

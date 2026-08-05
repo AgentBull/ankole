@@ -5,13 +5,15 @@ import { AppProviders, createQueryClient } from './providers'
 import '@ankole/uikit/styles.css'
 import './styles.css'
 
+type AppFactory = (queryClient: ReturnType<typeof createQueryClient>) => ReactNode
+
 type AppContainer = HTMLElement & {
   __ankoleQueryClient?: ReturnType<typeof createQueryClient>
   __ankoleRoot?: Root
 }
 
 /** Mounts a React tree into the Phoenix-provided `#ankole-app` container. */
-export function mountApp(children: ReactNode) {
+export function mountApp(children: ReactNode | AppFactory) {
   const container = document.getElementById('ankole-app') as AppContainer | null
   // A missing container means the route did not come from the Phoenix shell.
   // Returning quietly keeps tests and story-like embeds from crashing.
@@ -23,9 +25,11 @@ export function mountApp(children: ReactNode) {
   container.__ankoleQueryClient = queryClient
   container.__ankoleRoot = root
 
+  const app = typeof children === 'function' ? children(queryClient) : children
+
   root.render(
     <StrictMode>
-      <AppProviders queryClient={queryClient}>{children}</AppProviders>
+      <AppProviders queryClient={queryClient}>{app}</AppProviders>
     </StrictMode>
   )
 }

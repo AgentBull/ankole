@@ -1,4 +1,5 @@
 import { TableCell, TableRow, toast } from '@ankole/uikit'
+import { RiWebhookLine } from '@remixicon/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -68,12 +69,14 @@ export function WebhooksPage() {
       ]}
       count={rows.length}
       emptyTitle={scope.agentUID ? t('console.webhooks.empty_title') : t('console.webhooks.select_scope_title')}
+      emptyIcon={<RiWebhookLine aria-hidden />}
       emptyDescription={
         scope.agentUID ? t('console.webhooks.empty_description') : t('console.webhooks.select_scope_description')
       }
       error={scope.error ?? endpoints.error}
       isEmpty={rows.length === 0}
       isFiltered={Boolean(query.trim())}
+      onClearFilters={() => setQuery('')}
       isLoading={Boolean(scope.agentUID) && endpoints.isLoading}
       subNav={
         <ScopeBar>

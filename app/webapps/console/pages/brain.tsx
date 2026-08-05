@@ -19,7 +19,7 @@ import {
   Textarea,
   toast
 } from '@ankole/uikit'
-import { RiExternalLinkLine } from '@remixicon/react'
+import { RiBrainLine, RiExternalLinkLine } from '@remixicon/react'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -36,12 +36,14 @@ import {
   ankoleWebPrincipalControllerIndexOptions
 } from '../api/generated/@tanstack/react-query.gen'
 import type { BrainCitation, BrainEntryOperation } from '../api/generated/types.gen'
+import { PageHeader, PageStack } from '../console-page'
 import { ErrorBlock } from '../console-primitives'
 import { ConfirmDeleteButton, LabeledField, ResourceEditorPage } from '../console-form'
-import { CursorPagination, PageHeader, ResourceListPage, RowActions } from '../console-list-page'
+import { CursorPagination, ResourceListPage, RowActions, SearchField } from '../console-list-page'
 import { BlocksEditor, MetadataEditor, RelationsEditor } from './brain-entry-editors'
 import {
   AuditTrail,
+  type ActiveFilter,
   BrainOwnerField,
   BrainStoreField,
   BrainStoreName,
@@ -122,6 +124,41 @@ export function BrainEntriesPage() {
     setSearchParams(next, { replace: true })
   }
 
+  const activeAdvancedFilters: ActiveFilter[] = []
+  if (entryType) {
+    activeAdvancedFilters.push({
+      id: 'type',
+      label: t('console.brain.type'),
+      value: entryType,
+      onRemove: () => setFilter('type', '')
+    })
+  }
+  if (store) {
+    activeAdvancedFilters.push({
+      id: 'store',
+      label: t('console.brain.store'),
+      value:
+        store === 'shared' ? t('console.brain.store_shared') : store === 'self' ? t('console.brain.store_self') : store,
+      onRemove: () => setFilter('store', '')
+    })
+  }
+  if (author) {
+    activeAdvancedFilters.push({
+      id: 'author',
+      label: t('console.brain.author'),
+      value: author,
+      onRemove: () => setFilter('author', '')
+    })
+  }
+  if (updated) {
+    activeAdvancedFilters.push({
+      id: 'updated',
+      label: t('console.brain.updated_after'),
+      value: updated,
+      onRemove: () => setFilter('updated', '')
+    })
+  }
+
   return (
     <ResourceListPage
       title={t('console.brain.title')}
@@ -138,6 +175,7 @@ export function BrainEntriesPage() {
       isLoading={list.isLoading || principals.isLoading}
       isEmpty={entries.length === 0}
       emptyTitle={t('console.brain.empty_title')}
+      emptyIcon={<RiBrainLine aria-hidden />}
       emptyDescription={t('console.brain.empty_description')}
       emptyAction={
         isFiltered ? (
@@ -148,10 +186,23 @@ export function BrainEntriesPage() {
       }
       isFiltered={isFiltered}
       error={list.error ?? guide.error ?? principals.error}
+      subNav={<BrainTaskNavigation active="entries" ownerUID={ownerUID} store={store || undefined} />}
+      toolbarCanRevealRows
+      footer={
+        entries.length > 0 || hasPreviousCursor(searchParams) ? (
+          <CursorPagination
+            page={cursorPageNumber(searchParams)}
+            hasPrevious={hasPreviousCursor(searchParams)}
+            nextCursor={list.data?.next_cursor}
+            resultCount={entries.length}
+            onPrevious={() => setSearchParams(previousCursorParams(searchParams))}
+            onNext={nextCursor => setSearchParams(nextCursorParams(searchParams, nextCursor))}
+          />
+        ) : undefined
+      }
       toolbar={
-        <div className="grid gap-4">
-          <BrainTaskNavigation active="entries" ownerUID={ownerUID} store={store || undefined} />
-          <div className="flex flex-wrap items-center justify-between gap-3 border border-border bg-card p-4">
+        <div className="grid gap-4 border border-border bg-card p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-4">
             <div className="grid gap-1">
               <h3 className="text-sm font-medium">{t('console.brain.guide_title')}</h3>
               <p className="text-sm text-muted-foreground">{t('console.brain.guide_description')}</p>
@@ -166,55 +217,45 @@ export function BrainEntriesPage() {
               {guideEntry ? t('console.brain.guide_edit') : t('console.brain.guide_create')}
             </Link>
           </div>
-          <div className="grid gap-4 border border-border bg-card p-4">
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-              <LabeledField label={t('console.brain.search')}>
-                <Input
-                  type="search"
-                  value={query}
-                  placeholder={t('console.brain.search_placeholder')}
-                  onChange={event => setFilter('q', event.target.value)}
-                />
-              </LabeledField>
-              <BrainOwnerField
-                ownerUID={ownerUID}
-                principals={principals.data?.principals ?? []}
-                onChange={value => setFilter('owner', value)}
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <LabeledField label={t('console.brain.search')}>
+              <SearchField
+                label={t('console.brain.search')}
+                value={query}
+                placeholder={t('console.brain.search_placeholder')}
+                onChange={value => setFilter('q', value)}
               />
-            </div>
-            <FilterDisclosure count={advancedFilterCount} onClear={clearAdvancedFilters}>
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-                <LabeledField label={t('console.brain.type')}>
-                  <Input value={entryType} onChange={event => setFilter('type', event.target.value)} />
-                </LabeledField>
-                <BrainStoreField
-                  ownerUID={ownerUID}
-                  store={store}
-                  principals={principals.data?.principals ?? []}
-                  allowAll
-                  onChange={value => setFilter('store', value)}
-                />
-                <LabeledField label={t('console.brain.author')}>
-                  <Input
-                    value={author}
-                    placeholder={t('console.brain.author_placeholder')}
-                    onChange={event => setFilter('author', event.target.value)}
-                  />
-                </LabeledField>
-                <LabeledField label={t('console.brain.updated_after')}>
-                  <Input type="date" value={updated} onChange={event => setFilter('updated', event.target.value)} />
-                </LabeledField>
-              </div>
-            </FilterDisclosure>
-            <CursorPagination
-              page={cursorPageNumber(searchParams)}
-              hasPrevious={hasPreviousCursor(searchParams)}
-              nextCursor={list.data?.next_cursor}
-              resultCount={entries.length}
-              onPrevious={() => setSearchParams(previousCursorParams(searchParams))}
-              onNext={nextCursor => setSearchParams(nextCursorParams(searchParams, nextCursor))}
+            </LabeledField>
+            <BrainOwnerField
+              ownerUID={ownerUID}
+              principals={principals.data?.principals ?? []}
+              onChange={value => setFilter('owner', value)}
             />
           </div>
+          <FilterDisclosure filters={activeAdvancedFilters} onClear={clearAdvancedFilters}>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <LabeledField label={t('console.brain.type')}>
+                <Input value={entryType} onChange={event => setFilter('type', event.target.value)} />
+              </LabeledField>
+              <BrainStoreField
+                ownerUID={ownerUID}
+                store={store}
+                principals={principals.data?.principals ?? []}
+                allowAll
+                onChange={value => setFilter('store', value)}
+              />
+              <LabeledField label={t('console.brain.author')}>
+                <Input
+                  value={author}
+                  placeholder={t('console.brain.author_placeholder')}
+                  onChange={event => setFilter('author', event.target.value)}
+                />
+              </LabeledField>
+              <LabeledField label={t('console.brain.updated_after')}>
+                <Input type="date" value={updated} onChange={event => setFilter('updated', event.target.value)} />
+              </LabeledField>
+            </div>
+          </FilterDisclosure>
         </div>
       }>
       {entries.map(entry => (
@@ -322,11 +363,16 @@ export function BrainEntryCreatePage() {
             principals={principals.data?.principals ?? []}
             onChange={setStore}
           />
-          <LabeledField label={t('console.brain.name')}>
-            <Input value={name} onChange={event => setName(event.target.value)} />
+          <LabeledField label={t('console.brain.name')} required>
+            <Input required value={name} onChange={event => setName(event.target.value)} />
           </LabeledField>
-          <LabeledField label={t('console.brain.type')}>
-            <Input list="brain-entry-types" value={entryType} onChange={event => setEntryType(event.target.value)} />
+          <LabeledField label={t('console.brain.type')} required>
+            <Input
+              required
+              list="brain-entry-types"
+              value={entryType}
+              onChange={event => setEntryType(event.target.value)}
+            />
             <datalist id="brain-entry-types">
               <option value="topic" />
               <option value="person" />
@@ -337,8 +383,8 @@ export function BrainEntryCreatePage() {
           </LabeledField>
         </>
       )}
-      <LabeledField label={t('console.brain.body')} description={t('console.brain.body_hint')}>
-        <Textarea className="min-h-56" value={body} onChange={event => setBody(event.target.value)} />
+      <LabeledField label={t('console.brain.body')} description={t('console.brain.body_hint')} required>
+        <Textarea required className="min-h-56" value={body} onChange={event => setBody(event.target.value)} />
       </LabeledField>
       <LabeledField label={t('console.brain.summary')} description={t('console.brain.summary_optional')}>
         <Textarea value={summary} onChange={event => setSummary(event.target.value)} />
@@ -452,21 +498,28 @@ export function BrainEntryEditorPage() {
       toast.info(t('console.brain.no_changes'))
       return
     }
-    applyOperations(operations)
+    const submission = {
+      name: model.name.value,
+      type: model.type.value,
+      summary: model.summary.value,
+      aliases: [...model.aliases.value],
+      propertyDrafts: model.propertyDrafts.value.map(property => ({ ...property }))
+    }
+    applyOperations(operations, () => model.markSaved(submission))
   }
 
   if (detail.isLoading) {
     return (
-      <div className="grid gap-4">
+      <PageStack className="mx-auto w-full max-w-4xl">
         <Skeleton className="h-16 w-2/3" />
         <Skeleton className="h-96 w-full" />
-      </div>
+      </PageStack>
     )
   }
 
   if (detail.error || !entry) {
     return (
-      <div className="mx-auto grid max-w-3xl gap-4">
+      <PageStack className="mx-auto w-full max-w-3xl">
         <PageHeader
           title={t('console.brain.entry_unavailable_title')}
           description={t('console.brain.entry_unavailable')}
@@ -482,7 +535,7 @@ export function BrainEntryEditorPage() {
             </Link>
           }
         />
-      </div>
+      </PageStack>
     )
   }
 
@@ -493,6 +546,8 @@ export function BrainEntryEditorPage() {
       backTo={`/brain?${brainSearch(ownerUID, entry.store_key)}`}
       error={validationError ?? detail.error ?? apply.error ?? restore.error ?? deleteEntry.error}
       submitting={apply.isPending || deleteEntry.isPending}
+      submitDisabled={!model.dirty.value}
+      contentWidth="wide"
       submitLabel={t('console.brain.save_metadata')}
       onSubmit={saveMetadata}
       secondary={

@@ -18,6 +18,7 @@ import {
   Textarea,
   toast
 } from '@ankole/uikit'
+import { RiBrainLine } from '@remixicon/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -32,6 +33,7 @@ import {
 } from '../api/generated/@tanstack/react-query.gen'
 import { ankoleWebBrainControllerSourceRaw } from '../api/generated/sdk.gen'
 import type { BrainSourceEntry } from '../api/generated/types.gen'
+import { PageStack } from '../console-page'
 import { ErrorBlock, formatJSON } from '../console-primitives'
 import { LabeledField, ResourceEditorPage } from '../console-form'
 import { ResourceListPage, RowActions } from '../console-list-page'
@@ -81,18 +83,18 @@ export function BrainSourcesPage() {
       isLoading={sources.isLoading || principals.isLoading}
       isEmpty={rows.length === 0}
       emptyTitle={t('console.brain.sources_empty_title')}
+      emptyIcon={<RiBrainLine aria-hidden />}
       emptyDescription={t('console.brain.sources_empty_description')}
       error={sources.error ?? principals.error}
+      subNav={<BrainTaskNavigation active="sources" ownerUID={ownerUID} />}
+      toolbarCanRevealRows
       toolbar={
-        <div className="grid gap-4">
-          <BrainTaskNavigation active="sources" ownerUID={ownerUID} />
-          <div className="border border-border bg-card p-4">
-            <BrainOwnerField
-              ownerUID={ownerUID}
-              principals={agents}
-              onChange={value => setSearchParams(setBrainFilter(searchParams, 'owner', value), { replace: true })}
-            />
-          </div>
+        <div className="border border-border bg-card p-4">
+          <BrainOwnerField
+            ownerUID={ownerUID}
+            principals={agents}
+            onChange={value => setSearchParams(setBrainFilter(searchParams, 'owner', value), { replace: true })}
+          />
         </div>
       }>
       {rows.map(source => (
@@ -233,22 +235,25 @@ export function BrainSourceLearnPage() {
           </SelectContent>
         </Select>
       </LabeledField>
-      <LabeledField label={t('console.brain.source_name')} description={t('console.brain.source_name_hint')}>
-        <Input value={title} onChange={event => setTitle(event.target.value)} />
+      <LabeledField
+        label={t('console.brain.source_name')}
+        description={t('console.brain.source_name_hint')}
+        required={kind === 'paste'}>
+        <Input required={kind === 'paste'} value={title} onChange={event => setTitle(event.target.value)} />
       </LabeledField>
       {kind === 'url' ? (
-        <LabeledField label="URL">
-          <Input type="url" value={url} onChange={event => setURL(event.target.value)} />
+        <LabeledField label="URL" required>
+          <Input required type="url" value={url} onChange={event => setURL(event.target.value)} />
         </LabeledField>
       ) : null}
       {kind === 'file' ? (
-        <LabeledField label={t('console.brain.source_file')}>
-          <Input type="file" onChange={event => setFile(event.target.files?.[0])} />
+        <LabeledField label={t('console.brain.source_file')} required>
+          <Input required type="file" onChange={event => setFile(event.target.files?.[0])} />
         </LabeledField>
       ) : null}
       {kind === 'paste' ? (
-        <LabeledField label={t('console.brain.source_content')}>
-          <Textarea className="min-h-64" value={content} onChange={event => setContent(event.target.value)} />
+        <LabeledField label={t('console.brain.source_content')} required>
+          <Textarea required className="min-h-64" value={content} onChange={event => setContent(event.target.value)} />
         </LabeledField>
       ) : null}
     </ResourceEditorPage>
@@ -311,7 +316,7 @@ export function BrainSourcePage() {
       : `/brain/sources?${brainSearch(ownerUID)}`
 
   return (
-    <div className="mx-auto grid max-w-4xl gap-5">
+    <PageStack className="mx-auto max-w-4xl">
       <Link to={backTo} className="w-fit text-sm text-muted-foreground hover:text-foreground">
         ← {t('common.back')}
       </Link>
@@ -395,7 +400,7 @@ export function BrainSourcePage() {
           </CardContent>
         </Card>
       ) : null}
-    </div>
+    </PageStack>
   )
 }
 

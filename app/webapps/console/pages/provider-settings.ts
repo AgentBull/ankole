@@ -3,6 +3,7 @@ import type {
   AiGatewayProviderItem as AIGatewayProviderItem,
   AiGatewayProviderKindItem as AIGatewayProviderKindItem
 } from '../api/generated/types.gen'
+import { humanizeTechnicalLabel } from '../../common/humanize-technical-label'
 
 /**
  * Maps an AIGateway provider kind's declared connection settings into the shape
@@ -26,8 +27,6 @@ export type ProviderSetting = {
 }
 
 export type SettingValidationError = 'required' | 'json_object' | 'integer' | 'number' | 'selection'
-
-const ACRONYMS = new Set(['api', 'url', 'id', 'serp', 'ai', 'gl', 'hl', 'json', 'http'])
 
 /** Returns the connection-scoped settings a provider kind accepts, in a safe shape. */
 export function connectionSettings(kind: AIGatewayProviderKindItem | undefined): ProviderSetting[] {
@@ -87,17 +86,7 @@ function settingType(value: unknown): ProviderSetting['type'] {
 
 /** Turns a snake_case setting key into a readable sentence-case field label. */
 export function humanizeKey(key: string): string {
-  const words = key
-    .replace(/([a-z\d])([A-Z])/g, '$1 $2')
-    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
-    .split(/[\s_-]+/)
-    .filter(Boolean)
-    .map(word => {
-      const normalized = word.toLowerCase()
-      return ACRONYMS.has(normalized) ? normalized.toUpperCase() : normalized
-    })
-  const joined = words.join(' ')
-  return joined.charAt(0).toUpperCase() + joined.slice(1)
+  return humanizeTechnicalLabel(key)
 }
 
 /**

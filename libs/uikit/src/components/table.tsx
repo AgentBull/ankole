@@ -2,9 +2,22 @@ import type * as React from 'react'
 
 import { cn } from '../lib/utils'
 
-function Table({ className, ...props }: React.ComponentProps<'table'>) {
+type TableProps = React.ComponentProps<'table'> & {
+  containerClassName?: string
+  containerLabel?: string
+}
+
+function Table({ className, containerClassName, containerLabel, ...props }: TableProps) {
   return (
-    <div data-slot="table-container" className="relative w-full overflow-x-auto">
+    <div
+      data-slot="table-container"
+      aria-label={containerLabel}
+      role={containerLabel ? 'region' : undefined}
+      tabIndex={containerLabel ? 0 : undefined}
+      className={cn(
+        'relative w-full overflow-x-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
+        containerClassName
+      )}>
       <table
         data-slot="table"
         className={cn('w-full border-collapse caption-bottom text-sm leading-5', className)}

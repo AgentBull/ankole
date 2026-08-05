@@ -1,4 +1,3 @@
-import { Input } from '@ankole/uikit'
 import {
   RiAddLine,
   RiArrowRightSLine,
@@ -12,6 +11,7 @@ import { JsonEditor, type IconReplacements, type LocalisedStrings, type Theme } 
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { JSONField, LabeledField } from './console-form'
+import { SearchField } from './console-list-page'
 import { parseJSONObjectDraft, serializeJSONObjectDraft } from './state/json-editor'
 
 const ICON_CLASS =
@@ -156,12 +156,11 @@ export function JSONObjectField({
   return (
     <LabeledField label={label} description={t('console.settings.json_object_hint')} error={error}>
       <div className="grid gap-3">
-        <Input
-          aria-label={t('console.settings.json_search')}
+        <SearchField
+          label={t('console.settings.json_search')}
           placeholder={t('console.settings.json_search_placeholder')}
-          type="search"
           value={search}
-          onChange={event => setSearch(event.target.value)}
+          onChange={setSearch}
         />
         <div className="max-h-[55dvh] overflow-auto">
           <JsonEditor

@@ -274,7 +274,7 @@ function BrainEmbeddingEditor({ onChange, value }: SettingValueEditorProps) {
         description={t('console.settings.brain_embedding_agent_hint')}
         required={draft.enabled}>
         <Select
-          disabled={!draft.enabled || agents.isLoading || options.length === 0}
+          disabled={!draft.enabled || agents.isLoading}
           value={draft.modelAgentUID}
           onValueChange={modelAgentUID => modelAgentUID && update({ modelAgentUID: String(modelAgentUID) })}>
           <SelectTrigger className="w-full">
@@ -285,7 +285,7 @@ function BrainEmbeddingEditor({ onChange, value }: SettingValueEditorProps) {
               }}
             </SelectValue>
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent emptyLabel={t('console.settings.brain_embedding_no_agents')}>
             {options.map(option => (
               <SelectItem key={option.uid} value={option.uid}>
                 <span className="grid min-w-0 gap-0.5">
@@ -377,11 +377,14 @@ function SystemTimeZoneEditor({ onChange, value }: SettingValueEditorProps) {
       required>
       <div className="grid gap-3">
         <CreatableCombobox
+          ariaLabel={t('console.settings.timezone_title')}
+          clearLabel={t('common.clear')}
           value={timeZone}
           options={options}
           placeholder={t('console.settings.timezone_placeholder')}
           emptyLabel={t('console.settings.timezone_empty')}
           createLabel={candidate => t('console.settings.timezone_use', { timezone: candidate })}
+          triggerLabel={t('common.open')}
           onValueChange={nextTimeZone => onChange(JSON.stringify(nextTimeZone))}
           required
         />

@@ -26,6 +26,37 @@ defmodule Ankole.SignalsGateway.ReplyPresentationTest do
     assert terminal["answer"] == presentation["answer"]
   end
 
+  test "removes a live phase label from every non-working state" do
+    working =
+      ReplyPresentation.new()
+      |> ReplyPresentation.apply_event("turn.phase", %{
+        "revision" => 1,
+        "state" => "working",
+        "label" => "正在理解请求"
+      })
+
+    assert get_in(working, ["meta", "status"]) == "正在理解请求"
+    assert get_in(ReplyPresentation.checkpoint(working), ["meta", "status"]) == "正在理解请求"
+
+    for state <- ~w(awaiting_input completed failed stopped scheduled) do
+      terminal = ReplyPresentation.terminal(working, state, "Done")
+      refute get_in(terminal, ["meta", "status"])
+
+      persisted = put_in(terminal, ["meta", "status"], "stale")
+      refute get_in(ReplyPresentation.normalize(persisted), ["meta", "status"])
+    end
+
+    awaiting_input =
+      ReplyPresentation.apply_event(working, "interaction.request", %{
+        "revision" => 2,
+        "prompt" => "请选择范围",
+        "controls" => [%{"id" => "all", "type" => "button", "label" => "全部"}]
+      })
+
+    assert awaiting_input["state"] == "awaiting_input"
+    refute get_in(awaiting_input, ["meta", "status"])
+  end
+
   test "preserves an answer larger than the old single-message ceiling without truncation" do
     answer =
       "# Long answer\n\n" <>

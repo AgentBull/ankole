@@ -14,7 +14,7 @@ import {
 import { recordValue } from '@agentbull/active-support'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
-import { RiRefreshLine } from '@remixicon/react'
+import { RiRefreshLine, RiShieldKeyholeLine } from '@remixicon/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useDeferredValue, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -67,9 +67,11 @@ export function IdentityProvidersListPage() {
       isEmpty={rows.length === 0}
       count={rows.length}
       emptyTitle={t('console.identity.empty_title')}
+      emptyIcon={<RiShieldKeyholeLine aria-hidden />}
       emptyDescription={t('console.identity.empty_description')}
       error={providers.error}
       isFiltered={Boolean(query.trim())}
+      onClearFilters={() => setQuery('')}
       toolbar={
         <ResourceSearch
           label={t('console.identity.search')}
@@ -180,6 +182,8 @@ export function IdentityProviderEditorPage() {
     selectedAdapter.capabilities.includes('directory_full_sync') &&
     syncEnabled(selected)
   )
+  const activeFields = asConfigFields(activeAdapter?.fields ?? [])
+  const submitDisabled = mode === 'edit' && !model.dirty.value
 
   return (
     <ResourceEditorPage
@@ -188,6 +192,9 @@ export function IdentityProviderEditorPage() {
       backTo="/identity"
       error={model.validationError.value ?? saveProvider.error}
       submitting={saveProvider.isPending}
+      submitDisabled={submitDisabled}
+      submitUnavailable={!ready}
+      contentWidth="wide"
       onSubmit={submit}
       secondary={
         canRunSync ? (
@@ -203,7 +210,7 @@ export function IdentityProviderEditorPage() {
         ) : null
       }>
       <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
-        <LabeledField label={t('console.identity.adapter')}>
+        <LabeledField label={t('console.identity.adapter')} required={mode === 'new'}>
           {mode === 'edit' ? (
             <ReadOnlyValue>
               {activeAdapter
@@ -217,7 +224,7 @@ export function IdentityProviderEditorPage() {
               <SelectTrigger className="w-full">
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent emptyLabel={t('common.select_empty')}>
                 {identityAdapters.map(adapter => (
                   <SelectItem key={adapter.adapter_id} value={adapter.adapter_id}>
                     {localizedUnknown(adapter.display_name, locale, adapter.adapter_id)}
@@ -234,7 +241,11 @@ export function IdentityProviderEditorPage() {
           {mode === 'edit' ? (
             <ReadOnlyValue mono>{model.providerID.value}</ReadOnlyValue>
           ) : (
-            <Input value={model.providerID.value} onChange={event => (model.providerID.value = event.target.value)} />
+            <Input
+              required
+              value={model.providerID.value}
+              onChange={event => (model.providerID.value = event.target.value)}
+            />
           )}
         </LabeledField>
       </div>
@@ -250,7 +261,7 @@ export function IdentityProviderEditorPage() {
       {activeAdapter ? (
         <ConfigFields
           config={model.config.value}
-          fields={asConfigFields(activeAdapter.fields)}
+          fields={activeFields}
           locale={locale}
           onChange={(path, value) => (model.config.value = setPath(model.config.value, path, value))}
         />
