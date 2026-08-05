@@ -60,6 +60,12 @@ describe('ModelProfilesModel', () => {
       providerOptions: {},
       error: undefined
     })
+    expect(model.profiles.light.dirty.value).toBeTrue()
+
+    model.initialize('agent:alpha', {
+      light: { providerID: 'openai', model: 'server-refetch' }
+    })
+    expect(model.snapshot('light')).toMatchObject({ providerID: '', model: '' })
     model[Symbol.dispose]()
   })
 

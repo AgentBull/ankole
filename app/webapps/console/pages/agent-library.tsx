@@ -12,7 +12,6 @@ import {
   CardHeader,
   CardTitle,
   cn,
-  Input,
   Select,
   SelectContent,
   SelectItem,
@@ -26,7 +25,7 @@ import {
   Textarea,
   toast
 } from '@ankole/uikit'
-import { RiArrowLeftLine, RiInformationLine, RiRestartLine, RiSearchLine } from '@remixicon/react'
+import { RiArrowLeftLine, RiInformationLine, RiRestartLine } from '@remixicon/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useDeferredValue, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -53,8 +52,10 @@ import type {
   AgentPluginCapabilityItem,
   ControlPlanePluginItem
 } from '../api/generated/types.gen'
+import { PageHeader, PageStack } from '../console-page'
 import { ErrorBlock, formatConsoleDate } from '../console-primitives'
-import { ConfirmDeleteButton } from '../console-form'
+import { ConfirmDeleteButton, SaveButton } from '../console-form'
+import { ResourceSearch } from '../console-list-page'
 import {
   GLOBAL_LIBRARY_SCOPE,
   type AgentLibraryTab,
@@ -99,16 +100,12 @@ export function AgentLibraryPage() {
   }
 
   return (
-    <div className="grid min-w-0 gap-6">
-      <header className="grid min-w-0 grid-cols-1 gap-4 border-b border-border pb-5 lg:grid-cols-[minmax(0,1fr)_minmax(260px,360px)] lg:items-end">
-        <div className="grid gap-1">
-          <h2 className="text-2xl font-semibold tracking-tight">{t('console.agent_library_capabilities.title')}</h2>
-          <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
-            {t('console.agent_library_capabilities.description')}
-          </p>
-        </div>
-        <ScopeSelect scope={scope} agents={data.agents} onChange={setScope} />
-      </header>
+    <PageStack>
+      <PageHeader
+        title={t('console.agent_library_capabilities.title')}
+        description={t('console.agent_library_capabilities.description')}
+        actions={<ScopeSelect scope={scope} agents={data.agents} onChange={setScope} />}
+      />
 
       <ErrorBlock error={data.error ?? experience?.error} />
 
@@ -188,7 +185,7 @@ export function AgentLibraryPage() {
           </TabsContent>
         ) : null}
       </Tabs>
-    </div>
+    </PageStack>
   )
 }
 
@@ -207,7 +204,7 @@ export function AgentPluginDetailPage() {
   }
 
   return (
-    <div className="grid min-w-0 gap-6">
+    <PageStack>
       <header className="grid min-w-0 grid-cols-1 gap-4 border-b border-border pb-5 lg:grid-cols-[minmax(0,1fr)_minmax(260px,360px)] lg:items-end">
         <div className="grid gap-3">
           <Link
@@ -285,7 +282,7 @@ export function AgentPluginDetailPage() {
           </section>
         </>
       ) : null}
-    </div>
+    </PageStack>
   )
 }
 
@@ -300,7 +297,7 @@ function ScopeSelect({
 }) {
   const { t } = useTranslation()
   return (
-    <label className="grid gap-1.5 text-sm font-medium">
+    <label className="grid w-full min-w-64 gap-1.5 text-sm font-medium sm:w-80">
       {t('console.agent_library_capabilities.scope')}
       <Select value={scope} onValueChange={value => onChange(String(value))}>
         <SelectTrigger className="w-full">
@@ -331,18 +328,8 @@ function CapabilitySearch({
   value: string
 }) {
   const { t } = useTranslation()
-  return (
-    <label className="relative block max-w-xl">
-      <span className="sr-only">{t(`console.agent_library_capabilities.search_${kind}`)}</span>
-      <RiSearchLine className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-      <Input
-        className="pl-9"
-        value={value}
-        placeholder={t(`console.agent_library_capabilities.search_${kind}`)}
-        onChange={event => onChange(event.target.value)}
-      />
-    </label>
-  )
+  const label = t(`console.agent_library_capabilities.search_${kind}`)
+  return <ResourceSearch label={label} placeholder={label} value={value} onChange={onChange} />
 }
 
 function AgentPluginCard({
@@ -503,9 +490,16 @@ function SkillExperience({
       </div>
 
       {editing ? (
-        <div className="grid gap-2">
+        <form
+          className="grid gap-2"
+          onSubmit={event => {
+            event.preventDefault()
+            controller.save(skillName, draft, item?.content_hash ?? '', () => setDraft(undefined))
+          }}>
           <Textarea
+            aria-label={t('console.agent_library_capabilities.experience')}
             className="min-h-32"
+            required
             value={draft}
             placeholder={t('console.agent_library_capabilities.experience_placeholder')}
             onChange={event => setDraft(event.target.value)}
@@ -514,15 +508,16 @@ function SkillExperience({
             <Button type="button" size="sm" variant="ghost" onClick={() => setDraft(undefined)}>
               {t('common.cancel')}
             </Button>
-            <Button
-              type="button"
+            <SaveButton
+              type="submit"
               size="sm"
-              disabled={controller.pending || !draft.trim()}
-              onClick={() => controller.save(skillName, draft, item?.content_hash ?? '', () => setDraft(undefined))}>
+              disabled={controller.pending}
+              loading={controller.pending}
+              incomplete={!draft.trim() && !controller.pending}>
               {t('common.save')}
-            </Button>
+            </SaveButton>
           </div>
-        </div>
+        </form>
       ) : item ? (
         <>
           <pre className="max-h-56 overflow-auto whitespace-pre-wrap border border-border bg-muted p-3 text-xs leading-5">

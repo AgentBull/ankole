@@ -238,4 +238,80 @@ defmodule Ankole.AIGateway.ModelMetadataTest do
     assert_receive {:stale_source_refresh,
                     "https://openrouter.ai/api/v1/models?output_modalities=all"}
   end
+
+  test "ChatGPT subscription metadata lists the account's visible API models" do
+    assert {:ok, provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "chatgpt-metadata-source",
+               provider_kind: "chatgpt_subscription",
+               credential_pool: %{
+                 "entries" => [
+                   %{
+                     "label" => "Default",
+                     "access_token" => "chatgpt-access",
+                     "refresh_token" => "chatgpt-refresh",
+                     "id_token" => "chatgpt-id",
+                     "account_id" => "chatgpt-account",
+                     "auth_type" => "oauth"
+                   }
+                 ]
+               }
+             })
+
+    http_client = fn request ->
+      send(self(), {:chatgpt_metadata_request, request})
+
+      {:ok,
+       %{
+         "status" => 200,
+         "body" => %{
+           "models" => [
+             %{
+               "slug" => "gpt-5.6-sol",
+               "display_name" => "GPT-5.6 Sol",
+               "description" => "Frontier coding model.",
+               "visibility" => "list",
+               "supported_in_api" => true,
+               "context_window" => 400_000,
+               "input_modalities" => ["text", "image"]
+             },
+             %{
+               "slug" => "hidden-model",
+               "display_name" => "Hidden Model",
+               "visibility" => "hide",
+               "supported_in_api" => true
+             },
+             %{
+               "slug" => "unsupported-model",
+               "display_name" => "Unsupported Model",
+               "visibility" => "list",
+               "supported_in_api" => false
+             }
+           ]
+         }
+       }}
+    end
+
+    opts = [http_client: http_client, cache_ttl_ms: 60_000]
+
+    assert {:ok, [metadata]} = ModelMetadata.list_provider_model_metadata(provider, opts)
+    assert_receive {:chatgpt_metadata_request, request}
+
+    assert request.url ==
+             "https://chatgpt.com/backend-api/codex/models?client_version=0.146.0"
+
+    assert {"Authorization", "Bearer chatgpt-access"} in request.headers
+    assert {"ChatGPT-Account-ID", "chatgpt-account"} in request.headers
+    assert {"Originator", "codex_cli_rs"} in request.headers
+    assert metadata["id"] == "gpt-5.6-sol"
+    assert metadata["name"] == "GPT-5.6 Sol"
+    assert metadata["context_length"] == 400_000
+    assert get_in(metadata, ["architecture", "input_modalities"]) == ["text", "image"]
+    assert get_in(metadata, ["architecture", "output_modalities"]) == ["text"]
+
+    assert {:ok, [%{"id" => "gpt-5.6-sol"}]} =
+             ModelMetadata.list_provider_model_metadata(provider, opts)
+
+    refute_receive {:chatgpt_metadata_request, _request}, 50
+  end
 end

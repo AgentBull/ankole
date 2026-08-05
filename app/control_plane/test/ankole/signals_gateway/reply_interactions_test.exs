@@ -42,6 +42,41 @@ defmodule Ankole.SignalsGateway.ReplyInteractionsTest do
     assert ReplyInteractionState.interaction(legacy_answered, interaction_id) == nil
   end
 
+  test "a Slack message checkpoint schedules the same durable interaction refresh" do
+    presentation =
+      ReplyPresentation.new(state: "awaiting_input")
+      |> ReplyPresentation.apply_event("interaction.request", %{
+        "revision" => 1,
+        "prompt" => "Choose one",
+        "controls" => [
+          %{
+            "type" => "button",
+            "id" => "approve",
+            "label" => "Approve",
+            "interaction_id" => "slack-interaction",
+            "source_actor_event_id" => Ecto.UUID.generate(),
+            "control_id" => "decision",
+            "selected_option_id" => "approve",
+            "option_value" => "yes",
+            "revision" => 1
+          }
+        ]
+      })
+
+    checkpoint =
+      ReplyInteractionState.initialize(%{"message_id" => "1700000000.000001"}, presentation, @now)
+
+    assert {:ok, resolved} =
+             ReplyInteractionState.resolve(checkpoint, "slack-interaction", %{
+               "state" => "answered",
+               "answer" => %{"kind" => "choice", "option_id" => "approve", "value" => "yes"}
+             })
+
+    assert resolved["refresh_pending"] == true
+    assert resolved["refresh_reason"] == "interaction"
+    assert resolved["presentation"]["interaction_status"] == "answered"
+  end
+
   test "accepts one authorized current choice, locks the controls, and suppresses repeat clicks" do
     %{agent: agent, human: human, event: source_event, action: action} = setup_interaction()
 

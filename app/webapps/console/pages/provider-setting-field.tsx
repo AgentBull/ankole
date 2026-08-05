@@ -19,7 +19,8 @@ export function ProviderSettingField({
   value: unknown
 }) {
   const { t } = useTranslation()
-  const label = humanizeKey(setting.key)
+  const label = setting.key === 'reasoningEffort' ? t('console.providers.reasoning_effort') : humanizeKey(setting.key)
+  const description = setting.key === 'reasoningEffort' ? t('console.providers.reasoning_effort_hint') : undefined
   const draft = settingDraftValue(value)
   const defaultDraft = settingDraftValue(setting.default)
 
@@ -40,6 +41,7 @@ export function ProviderSettingField({
         label={label}
         description={t('console.providers.map_hint')}
         minRows={4}
+        required={setting.required}
         value={draft}
         onChange={onChange}
       />
@@ -48,7 +50,7 @@ export function ProviderSettingField({
 
   if (setting.type === 'boolean') {
     return (
-      <LabeledField label={label} required={setting.required}>
+      <LabeledField label={label} description={description} required={setting.required}>
         <Select
           value={draft || UNSET_BOOLEAN}
           onValueChange={next => onChange(String(next) === UNSET_BOOLEAN ? '' : String(next))}>
@@ -67,7 +69,7 @@ export function ProviderSettingField({
 
   if (setting.type === 'select') {
     return (
-      <LabeledField label={label} required={setting.required}>
+      <LabeledField label={label} description={description} required={setting.required}>
         <Select
           value={draft || defaultDraft || UNSET_SELECT}
           onValueChange={next => onChange(String(next) === UNSET_SELECT ? '' : String(next))}>
@@ -90,7 +92,7 @@ export function ProviderSettingField({
   const numeric = setting.type === 'integer' || setting.type === 'float'
 
   return (
-    <LabeledField label={label} required={setting.required}>
+    <LabeledField label={label} description={description} required={setting.required}>
       <Input
         type={numeric ? 'number' : 'text'}
         step={setting.type === 'integer' ? 1 : numeric ? 'any' : undefined}

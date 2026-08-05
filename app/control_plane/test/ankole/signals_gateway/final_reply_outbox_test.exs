@@ -284,10 +284,20 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
 
       assert :ok =
                AIReplyPreview.presentation_event(event.id, %{
+                 "kind" => "turn.phase",
+                 "payload" => %{
+                   "revision" => 1,
+                   "state" => "working",
+                   "label" => "正在理解请求"
+                 }
+               })
+
+      assert :ok =
+               AIReplyPreview.presentation_event(event.id, %{
                  "kind" => "plan.snapshot",
                  "payload" => %{
                    "operation_id" => "todo",
-                   "revision" => 1,
+                   "revision" => 2,
                    "items" => [
                      %{
                        "id" => "verify",
@@ -303,7 +313,7 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
                  "kind" => "tool.activity",
                  "payload" => %{
                    "operation_id" => "verify-card",
-                   "revision" => 2,
+                   "revision" => 3,
                    "phase" => "completed",
                    "label" => "验证 CardKit 终态"
                  }
@@ -317,6 +327,18 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
       outbox = Repo.get_by!(OutboxEntry, outbound_key: "ai-reply:#{message.id}")
       refute get_in(outbox.payload, ["reply_presentation", "plan"])
       assert get_in(outbox.payload, ["reply_presentation", "activities"]) == %{}
+
+      stale_payload =
+        put_in(
+          outbox.payload,
+          ["reply_presentation", "meta", "status"],
+          "正在理解请求"
+        )
+
+      outbox =
+        outbox
+        |> OutboxEntry.changeset(%{payload: stale_payload})
+        |> Repo.update!()
 
       parent = self()
 
@@ -341,6 +363,8 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
 
       assert_receive {:terminal_metadata_dispatched, dispatched}
 
+      refute get_in(dispatched.payload, ["reply_presentation", "meta", "status"])
+
       assert get_in(dispatched.payload, ["reply_presentation", "plan", "items"]) == [
                %{
                  "id" => "verify",
@@ -354,7 +378,7 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
       assert get_in(dispatched.payload, ["reply_presentation", "activities", "verify-card"]) ==
                %{
                  "operation_id" => "verify-card",
-                 "revision" => 2,
+                 "revision" => 3,
                  "phase" => "completed",
                  "label" => "验证 CardKit 终态",
                  "consequential" => false

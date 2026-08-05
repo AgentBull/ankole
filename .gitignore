@@ -82,6 +82,7 @@ dist/
 storybook-static/
 target/
 tmp/
+/output/
 .turbo
 var/**
 !var/.gitkeep

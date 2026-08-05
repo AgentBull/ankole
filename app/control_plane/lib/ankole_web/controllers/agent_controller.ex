@@ -205,10 +205,14 @@ defmodule AnkoleWeb.AgentController do
   end
 
   defp create_attrs(attrs, current_principal_uid) when is_map(attrs) do
-    {:ok,
-     attrs
-     |> normalize_external_attrs()
-     |> Map.put("created_by_principal_uid", current_principal_uid)}
+    attrs = normalize_external_attrs(attrs)
+
+    with {:ok, display_name} <- required_text(attrs, "display_name") do
+      {:ok,
+       attrs
+       |> Map.put("display_name", display_name)
+       |> Map.put("created_by_principal_uid", current_principal_uid)}
+    end
   end
 
   defp create_attrs(_attrs, _current_principal_uid), do: {:error, :invalid_agent}
@@ -219,10 +223,33 @@ defmodule AnkoleWeb.AgentController do
       |> normalize_external_attrs()
       |> Map.drop(["uid", "created_by_principal_uid"])
 
-    {:ok, attrs}
+    normalize_optional_display_name(attrs)
   end
 
   defp update_attrs(_attrs), do: {:error, :invalid_agent}
+
+  defp required_text(attrs, key) do
+    case Map.get(attrs, key) do
+      value when is_binary(value) ->
+        case String.trim(value) do
+          "" -> {:error, {:missing, key}}
+          text -> {:ok, text}
+        end
+
+      _value ->
+        {:error, {:missing, key}}
+    end
+  end
+
+  defp normalize_optional_display_name(attrs) do
+    if Map.has_key?(attrs, "display_name") do
+      with {:ok, display_name} <- required_text(attrs, "display_name") do
+        {:ok, Map.put(attrs, "display_name", display_name)}
+      end
+    else
+      {:ok, attrs}
+    end
+  end
 
   defp agent_uid_param(params) do
     case Map.get(params, :agent_uid, Map.get(params, "agent_uid")) do

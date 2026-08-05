@@ -2,9 +2,9 @@ defmodule Ankole.SignalsGateway.ReplyInteractionState do
   @moduledoc """
   Pure state machine for one durable reply interaction.
 
-  PostgreSQL checkpoints carry the state; provider cards are projections. A
+  PostgreSQL checkpoints carry the state; provider surfaces are projections. A
   terminal answer or supersession is monotonic, including when a delayed
-  CardKit write tries to persist an older pending projection.
+  provider write tries to persist an older pending projection.
   """
 
   alias Ankole.SignalsGateway.ActorEvent
@@ -124,10 +124,10 @@ defmodule Ankole.SignalsGateway.ReplyInteractionState do
   @doc """
   Merges one checkpoint write without allowing a resolved interaction to reopen.
 
-  CardKit calls can span network I/O. A provider write that started from a
-  pending card may therefore finish after PostgreSQL already recorded an answer
+  Provider calls can span network I/O. A provider write that started from a
+  pending provider write may therefore finish after PostgreSQL already recorded an answer
   or a newer turn. The terminal interaction wins and schedules a corrective
-  refresh when that stale write introduced a provider card handle.
+  refresh when that stale write introduced a provider surface handle.
   """
   @spec merge_checkpoint(checkpoint() | nil, checkpoint()) :: checkpoint()
   def merge_checkpoint(existing, incoming) when is_map(incoming) do
@@ -192,7 +192,7 @@ defmodule Ankole.SignalsGateway.ReplyInteractionState do
   end
 
   defp maybe_schedule_refresh(checkpoint) do
-    if provider_card?(checkpoint) do
+    if provider_preview_surface?(checkpoint) do
       checkpoint
       |> Map.put("refresh_pending", true)
       |> Map.put("refresh_reason", "interaction")
@@ -201,16 +201,26 @@ defmodule Ankole.SignalsGateway.ReplyInteractionState do
     end
   end
 
-  defp provider_card?(%{"card_id" => card_id}) when is_binary(card_id), do: true
+  defp provider_preview_surface?(%{"card_id" => card_id}) when is_binary(card_id), do: true
 
-  defp provider_card?(%{"cards" => cards}) when is_list(cards) do
+  defp provider_preview_surface?(%{"cards" => cards}) when is_list(cards) do
     Enum.any?(cards, fn
       %{"card_id" => card_id} when is_binary(card_id) -> true
       _card -> false
     end)
   end
 
-  defp provider_card?(_checkpoint), do: false
+  defp provider_preview_surface?(%{"message_id" => message_id}) when is_binary(message_id),
+    do: true
+
+  defp provider_preview_surface?(%{"messages" => messages}) when is_list(messages) do
+    Enum.any?(messages, fn
+      %{"message_id" => message_id} when is_binary(message_id) -> true
+      _message -> false
+    end)
+  end
+
+  defp provider_preview_surface?(_checkpoint), do: false
 
   defp merge_interactions(existing, proposed) do
     Map.merge(existing, proposed, fn _interaction_id, current, next ->

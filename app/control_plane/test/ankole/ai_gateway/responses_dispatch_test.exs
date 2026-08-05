@@ -3084,20 +3084,39 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     with_compaction_config(threshold: 0.50, max_threshold_tokens: 10, tail_rows: 1)
 
     base_url =
-      start_recording_upstream(self(), fn request ->
-        assert request.path == "responses"
-        assert request.body["model"] == "gpt-compact-light"
-        assert request.body["stream"] == true
-        assert request.headers["accept"] == "text/event-stream"
-        assert request.headers["session_id"] == request.body["prompt_cache_key"]
+      start_recording_upstream(self(), fn
+        %{path: "models"} ->
+          {:json, 200,
+           %{
+             "models" => [
+               %{
+                 "slug" => "gpt-main",
+                 "visibility" => "list",
+                 "supported_in_api" => true,
+                 "context_window" => 256_000
+               },
+               %{
+                 "slug" => "gpt-compact-light",
+                 "visibility" => "list",
+                 "supported_in_api" => true,
+                 "context_window" => 400_000
+               }
+             ]
+           }}
 
-        {:sse, 200,
-         openai_response_stream_events(
-           "resp_summary",
-           "gpt-compact-light",
-           "## Active Task\nPrior two turns were compressed.",
-           %{"input_tokens" => 11, "output_tokens" => 7, "total_tokens" => 18}
-         )}
+        %{path: "responses"} = request ->
+          assert request.body["model"] == "gpt-compact-light"
+          assert request.body["stream"] == true
+          assert request.headers["accept"] == "text/event-stream"
+          assert request.headers["session_id"] == request.body["prompt_cache_key"]
+
+          {:sse, 200,
+           openai_response_stream_events(
+             "resp_summary",
+             "gpt-compact-light",
+             "## Active Task\nPrior two turns were compressed.",
+             %{"input_tokens" => 11, "output_tokens" => 7, "total_tokens" => 18}
+           )}
       end)
 
     assert {:ok, _provider} =
@@ -3167,7 +3186,9 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                "metadata" => %{"actor_event_id" => "auto-compact-event"}
              })
 
-    assert_receive {:gateway_request, summarizer_request}
+    assert_receive {:gateway_request, %{path: "models"} = models_request}
+    assert models_request.method == :get
+    assert_receive {:gateway_request, summarizer_request}, 1_000
 
     assert [
              %{

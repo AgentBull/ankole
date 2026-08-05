@@ -108,6 +108,73 @@ defmodule AnkoleWeb.AgentControllerTest do
     assert %{"error" => %{"code" => "not_found"}} = json_response(conn, 404)
   end
 
+  test "agent creation requires a nonblank display name", %{conn: conn} do
+    conn = bearer_conn(conn)
+
+    conn =
+      post(conn, ~p"/api/v1/agents", %{
+        "uid" => unique_uid("missing-display-name"),
+        "role" => "Research Analyst"
+      })
+
+    assert %{"error" => %{"code" => "validation_failed"}} = json_response(conn, 422)
+
+    conn =
+      conn
+      |> recycle_api()
+      |> post(~p"/api/v1/agents", %{
+        "uid" => unique_uid("blank-display-name"),
+        "display_name" => "   ",
+        "role" => "Research Analyst"
+      })
+
+    assert %{
+             "error" => %{
+               "code" => "validation_failed",
+               "message" => "display_name is required"
+             }
+           } = json_response(conn, 422)
+  end
+
+  test "legacy agents without a display name remain readable and updatable", %{conn: conn} do
+    %{principal: legacy_agent} =
+      agent_fixture(%{uid: unique_uid("legacy-agent"), display_name: nil})
+
+    legacy_agent_uid = legacy_agent.uid
+
+    conn =
+      conn
+      |> bearer_conn()
+      |> get(~p"/api/v1/agents/#{legacy_agent_uid}")
+
+    assert %{"agent" => %{"display_name" => nil}} = json_response(conn, 200)
+
+    conn =
+      conn
+      |> recycle_api()
+      |> patch(~p"/api/v1/agents/#{legacy_agent_uid}", %{"role" => "Legacy Operator"})
+
+    assert %{
+             "agent" => %{
+               "display_name" => nil,
+               "role" => "Legacy Operator",
+               "uid" => ^legacy_agent_uid
+             }
+           } = json_response(conn, 200)
+
+    conn =
+      conn
+      |> recycle_api()
+      |> patch(~p"/api/v1/agents/#{legacy_agent_uid}", %{"display_name" => "   "})
+
+    assert %{
+             "error" => %{
+               "code" => "validation_failed",
+               "message" => "display_name is required"
+             }
+           } = json_response(conn, 422)
+  end
+
   defp bearer_conn(conn) do
     conn
     |> active_admin_conn()

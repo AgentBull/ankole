@@ -42,8 +42,8 @@ defmodule SlackOpenAPI do
     content = IO.iodata_to_binary(Keyword.fetch!(opts, :content))
 
     with {:ok, %{"upload_url" => upload_url, "file_id" => file_id}} <-
-           post(client, "files.getUploadURLExternal",
-             body: %{"filename" => filename, "length" => byte_size(content)}
+           get(client, "files.getUploadURLExternal",
+             query: [filename: filename, length: byte_size(content)]
            ),
          {:ok, _response} <- upload_bytes(upload_url, content, client.req_options),
          body <-

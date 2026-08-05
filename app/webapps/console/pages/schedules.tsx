@@ -42,9 +42,17 @@ import {
   ankoleWebSignalBindingControllerIndexOptions
 } from '../api/generated/@tanstack/react-query.gen'
 import { AgentFilter, useAgentScope } from '../console-agent-scope'
+import { PageHeader, PageStack, RefreshButton } from '../console-page'
 import { formatConsoleDate } from '../console-primitives'
-import { ConfirmDeleteButton, LabeledField, ReadOnlyValue, StatusIndicator } from '../console-form'
-import { FilterSwitch, PageHeader, RefreshButton, ResourceSearch, RowActions, ScopeBar } from '../console-list-page'
+import {
+  ConfirmDeleteButton,
+  LabeledField,
+  ReadOnlyValue,
+  SaveButton,
+  StatusIndicator,
+  useFormCompleteness
+} from '../console-form'
+import { FilterSwitch, ResourceSearch, RowActions, ScopeBar } from '../console-list-page'
 import {
   ScheduleEditorModel,
   type CronStatus,
@@ -168,7 +176,7 @@ export function SchedulesListPage() {
   })
 
   return (
-    <div className="flex flex-col gap-4">
+    <PageStack>
       <PageHeader
         title={t('console.schedules.title')}
         description={t('console.schedules.description')}
@@ -211,6 +219,7 @@ export function SchedulesListPage() {
               isLoading={crons.isLoading}
               isFiltered={Boolean(query.trim())}
               error={crons.error}
+              onClearFilters={() => setQuery('')}
               onToggle={row => {
                 if (row.status === 'paused') {
                   resumeCron.mutate({ path: { agent_uid: scope.agentUID, cron_schedule_id: row.id } })
@@ -237,6 +246,7 @@ export function SchedulesListPage() {
               isLoading={checkbacks.isLoading}
               isFiltered={Boolean(query.trim())}
               error={checkbacks.error}
+              onClearFilters={() => setQuery('')}
               onCancel={row =>
                 cancelCheckback.mutate({
                   path: { agent_uid: scope.agentUID, scheduled_event_id: row.id }
@@ -247,7 +257,7 @@ export function SchedulesListPage() {
           </TabsContent>
         </Tabs>
       )}
-    </div>
+    </PageStack>
   )
 }
 
@@ -257,6 +267,7 @@ function CronScheduleTable(props: {
   isLoading: boolean
   isFiltered: boolean
   error: unknown
+  onClearFilters: () => void
   onToggle: (row: CronScheduleRow) => void
   onRun: (row: CronScheduleRow) => void
   onRemove: (row: CronScheduleRow) => void
@@ -292,7 +303,14 @@ function CronScheduleTable(props: {
           ) : rows.length === 0 ? (
             <TableRow>
               <TableCell colSpan={7} className="py-8 text-center text-sm text-muted-foreground">
-                {isFiltered ? t('console.empty.no_results_title') : t('console.schedules.empty_title')}
+                <div className="grid justify-items-center gap-3">
+                  <span>{isFiltered ? t('console.empty.no_results_title') : t('console.schedules.empty_title')}</span>
+                  {isFiltered ? (
+                    <Button size="sm" type="button" variant="outline" onClick={props.onClearFilters}>
+                      {t('console.empty.clear_filters')}
+                    </Button>
+                  ) : null}
+                </div>
               </TableCell>
             </TableRow>
           ) : (
@@ -368,6 +386,7 @@ function CheckbackTable(props: {
   isLoading: boolean
   isFiltered: boolean
   error: unknown
+  onClearFilters: () => void
   onCancel: (row: ScheduledEventRow) => void
   cancelPending: boolean
 }) {
@@ -399,7 +418,16 @@ function CheckbackTable(props: {
           ) : rows.length === 0 ? (
             <TableRow>
               <TableCell colSpan={7} className="py-8 text-center text-sm text-muted-foreground">
-                {isFiltered ? t('console.empty.no_results_title') : t('console.schedules.checkbacks_empty')}
+                <div className="grid justify-items-center gap-3">
+                  <span>
+                    {isFiltered ? t('console.empty.no_results_title') : t('console.schedules.checkbacks_empty')}
+                  </span>
+                  {isFiltered ? (
+                    <Button size="sm" type="button" variant="outline" onClick={props.onClearFilters}>
+                      {t('console.empty.clear_filters')}
+                    </Button>
+                  ) : null}
+                </div>
               </TableCell>
             </TableRow>
           ) : (
@@ -446,6 +474,7 @@ function CheckbackTable(props: {
 export function ScheduleCronEditorPage() {
   useSignals()
   const { t } = useTranslation()
+  const formCompleteness = useFormCompleteness()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const model = useModel(ScheduleEditorModel)
@@ -551,9 +580,14 @@ export function ScheduleCronEditorPage() {
   }
 
   const backTo = `/schedules?agent=${encodeURIComponent(agentUID)}`
+  const updateBody = editing ? model.toUpdateBody() : undefined
+  const unchanged = Boolean(editing && updateBody && Object.keys(updateBody).length === 0)
+  const submitting = saveCron.isPending || updateCron.isPending
+  const submitUnavailable = Boolean(editing && !existingRow)
+  const submitDisabled = submitting || submitUnavailable || (unchanged && !formCompleteness.incomplete)
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
+    <PageStack className="mx-auto w-full max-w-3xl">
       <PageHeader title={editing ? t('console.schedules.edit') : t('console.schedules.new')} />
       {model.validationError.value ? (
         <p className="border border-destructive bg-destructive/10 p-3 text-sm text-destructive">
@@ -567,7 +601,11 @@ export function ScheduleCronEditorPage() {
       ) : null}
 
       <form
+        ref={formCompleteness.formRef}
         className="flex flex-col gap-5"
+        noValidate
+        onChange={formCompleteness.refresh}
+        onInput={formCompleteness.refresh}
         onSubmit={event => {
           event.preventDefault()
           submit()
@@ -606,7 +644,7 @@ export function ScheduleCronEditorPage() {
               <SelectTrigger className="w-full">
                 <SelectValue placeholder={t('console.schedules.binding_placeholder')} />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent emptyLabel={t('common.select_empty')}>
                 {bindingList.map(binding => (
                   <SelectItem key={`${binding.adapter}:${binding.name}`} value={binding.name}>
                     {binding.name}
@@ -723,9 +761,14 @@ export function ScheduleCronEditorPage() {
           <Button type="button" variant="ghost" onClick={() => navigate(backTo)}>
             {t('common.cancel')}
           </Button>
-          <Button type="submit" disabled={saveCron.isPending || updateCron.isPending}>
+          <SaveButton
+            type="submit"
+            disabled={submitDisabled}
+            incomplete={formCompleteness.incomplete && !submitting && !submitUnavailable}
+            loading={submitting}
+            title={unchanged ? t('common.save_disabled') : undefined}>
             {t('common.save')}
-          </Button>
+          </SaveButton>
         </div>
       </form>
 
@@ -760,7 +803,7 @@ export function ScheduleCronEditorPage() {
           )}
         </div>
       ) : null}
-    </div>
+    </PageStack>
   )
 }
 

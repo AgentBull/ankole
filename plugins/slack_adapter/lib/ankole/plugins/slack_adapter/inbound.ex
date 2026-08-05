@@ -10,6 +10,8 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
   @mention_regex ~r/<@([UW][A-Z0-9]+)(?:\|[^>]*)?>/
   @recent_attachment_window_seconds 120
   @max_backfilled_attachments 3
+  @attachment_id_min 10_000
+  @attachment_id_max 9_007_199_254_740_991
 
   @spec chat_consumer(AdapterContext.t(), map()) :: map()
   def chat_consumer(%AdapterContext{} = context, config) do
@@ -57,9 +59,14 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
   def handle_reaction_deleted(_event_type, %Event{} = event, consumers),
     do: dispatch_chat(consumers, &emit_reaction(&1, event, :remove))
 
-  @spec handle_card_action(String.t(), Event.t(), [map()]) :: {:ok, list()} | {:error, term()}
-  def handle_card_action(_event_type, %Event{} = event, consumers),
+  @spec handle_block_action(String.t(), Event.t(), [map()]) :: {:ok, list()} | {:error, term()}
+  def handle_block_action(_event_type, %Event{} = event, consumers),
     do: dispatch_chat(consumers, &emit_action(&1, event))
+
+  @doc false
+  @spec handle_card_action(String.t(), Event.t(), [map()]) :: {:ok, list()} | {:error, term()}
+  def handle_card_action(event_type, %Event{} = event, consumers),
+    do: handle_block_action(event_type, event, consumers)
 
   @spec normalize_message_receive(Event.t(), map()) ::
           {:ok, map()} | {:ignore, atom()} | {:error, term()}
@@ -107,8 +114,7 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
              slack_channel_id,
              provider_time,
              consumer
-           ),
-         {:ok, attachments} <- maybe_materialize_attachments(attachments, message, consumer) do
+           ) do
       channel_kind = channel_kind(message)
       namespace = Map.get(config, "platformSubjectNamespace", "slack-main")
       signal_channel_id = signal_channel_id(slack_channel_id)
@@ -166,17 +172,16 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
   defp emit_message(consumer, event) do
     case normalize_message_receive(event, consumer) do
       {:ok, input} ->
-        with :ok <- observe_author(consumer, input),
-             result <-
-               Ingress.emit_entry(
-                 consumer.context.agent_uid,
-                 consumer.context.binding_name,
-                 input
-               ) do
-          if match?({:ok, _}, result),
-            do: Channels.maybe_enqueue_missing_channel_refresh(consumer, input)
+        observed_at = DateTime.utc_now(:microsecond)
 
-          result
+        with :ok <- observe_author(consumer, input),
+             {:ok, input} <- emit_pending_attachments(input, consumer, observed_at),
+             {:ok, attachments} <-
+               maybe_materialize_attachments(input.attachments, event.content || %{}, consumer) do
+          input
+          |> Map.put(:attachments, attachments)
+          |> put_attachment_materialization(materialization_result(attachments), observed_at)
+          |> emit_normalized_message(consumer)
         end
 
       {:ignore, reason} ->
@@ -185,6 +190,41 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
       {:error, _reason} = error ->
         error
     end
+  end
+
+  defp emit_pending_attachments(input, consumer, observed_at) do
+    if attachment_materialization_required?(input.attachments, consumer) do
+      input
+      |> put_attachment_materialization("pending", observed_at)
+      |> emit_normalized_message(consumer, false)
+      |> case do
+        {:ok, %{signal_entry: %{attachments: attachments}}}
+        when is_list(attachments) ->
+          {:ok, Map.put(input, :attachments, attachments)}
+
+        {:ok, result} ->
+          {:error, {:pending_attachment_projection_missing, result}}
+
+        {:error, _reason} = error ->
+          error
+      end
+    else
+      {:ok, input}
+    end
+  end
+
+  defp emit_normalized_message(input, consumer, refresh_channel? \\ true) do
+    result =
+      Ingress.emit_entry(
+        consumer.context.agent_uid,
+        consumer.context.binding_name,
+        input
+      )
+
+    if refresh_channel? and match?({:ok, _}, result),
+      do: Channels.maybe_enqueue_missing_channel_refresh(consumer, input)
+
+    result
   end
 
   defp emit_removed(consumer, event) do
@@ -198,7 +238,11 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
         signal_channel_id: signal_channel_id(slack_channel_id),
         provider_thread_id:
           message_thread_id(slack_channel_id, Map.get(message, "previous_message") || %{}),
-        channel: %{kind: channel_kind(message), reply_mode: :entry, raw_payload: message},
+        channel: %{
+          kind: removed_message_channel_kind(message),
+          reply_mode: :entry,
+          raw_payload: message
+        },
         metadata: %{"provider" => "slack", "event_type" => event.type},
         raw_payload: event.raw || %{},
         provider_time: provider_time(source_entry_id, event)
@@ -251,7 +295,8 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
 
     with true <- is_binary(user_id) || :missing_operator,
          true <- is_binary(channel) || :missing_channel,
-         action_id when is_binary(action_id) <- event.id || Map.get(action, "action_ts") do
+         action_id when is_binary(action_id) <- event.id || Map.get(action, "action_ts"),
+         {:ok, operator_principal_uid} <- observe_action_operator(consumer, user_id) do
       Ingress.emit_action(consumer.context.agent_uid, consumer.context.binding_name, %{
         source_event_id: action_id,
         action_id: action_id,
@@ -263,6 +308,7 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
           "name" => Map.get(action, "action_id"),
           "value" => decode_action_value(Map.get(action, "value")),
           "operator_id" => user_id,
+          "operator_principal_uid" => operator_principal_uid,
           "source_entry_id" => message_ts
         },
         raw_payload: event.raw || %{}
@@ -287,7 +333,7 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
 
   defp decode_action_value(value) when is_binary(value) do
     case Torque.decode(value) do
-      {:ok, %{"v" => "ankole.interactive_output.action.v1", "value" => decoded}} -> decoded
+      {:ok, decoded} when is_map(decoded) -> decoded
       _other -> value
     end
   end
@@ -320,6 +366,19 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
 
     case AdapterContext.observe_platform_subject(consumer.context, attrs) do
       {:ok, _observed} -> :ok
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp observe_action_operator(%{context: context, config: config}, operator_id) do
+    attrs = %{
+      provider: Map.get(config, "platformSubjectNamespace", "slack-main"),
+      external_id: operator_id,
+      uid: operator_id
+    }
+
+    case AdapterContext.observe_platform_subject(context, attrs) do
+      {:ok, %{principal: principal}} -> {:ok, principal.uid}
       {:error, _reason} = error -> error
     end
   end
@@ -435,8 +494,64 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
     {:ok, attachments}
   end
 
-  defp maybe_materialize_attachments(attachments, message, consumer),
-    do: materialize_attachments(attachments, message, consumer)
+  defp maybe_materialize_attachments(attachments, message, consumer) do
+    if Enum.all?(attachments, &materialized_attachment?(&1, consumer)),
+      do: {:ok, attachments},
+      else: materialize_attachments(attachments, message, consumer)
+  end
+
+  defp attachment_materialization_required?([_ | _] = attachments, consumer),
+    do: not Enum.all?(attachments, &materialized_attachment?(&1, consumer))
+
+  defp attachment_materialization_required?(_attachments, _consumer), do: false
+
+  defp materialization_result([_ | _] = attachments) do
+    if Enum.all?(attachments, &materialized_attachment?/1), do: "complete", else: "failed"
+  end
+
+  defp materialization_result(_attachments), do: nil
+
+  defp put_attachment_materialization(input, nil, _observed_at), do: input
+
+  defp put_attachment_materialization(input, state, %DateTime{} = observed_at) do
+    metadata =
+      Map.put(input.metadata, "attachment_materialization", %{
+        "state" => state,
+        "observed_at" => DateTime.to_iso8601(observed_at)
+      })
+
+    Map.put(input, :metadata, metadata)
+  end
+
+  defp materialized_attachment?(attachment) when is_map(attachment) do
+    with attachment_id when is_integer(attachment_id) <- valid_attachment_id(attachment),
+         path when is_binary(path) <- attachment["agent_computer_path"] do
+      String.contains?(path, "/user-files/inbox/#{attachment_id}/")
+    else
+      _missing_or_invalid -> false
+    end
+  end
+
+  defp materialized_attachment?(_attachment), do: false
+
+  defp materialized_attachment?(attachment, %{context: %{agent_uid: agent_uid}})
+       when is_map(attachment) do
+    with attachment_id when is_integer(attachment_id) <- valid_attachment_id(attachment),
+         path when is_binary(path) <- attachment["agent_computer_path"] do
+      String.starts_with?(
+        path,
+        Path.join([
+          Ankole.AgentHomePaths.user_files(agent_uid),
+          "inbox",
+          Integer.to_string(attachment_id)
+        ]) <> "/"
+      )
+    else
+      _missing_or_invalid -> false
+    end
+  end
+
+  defp materialized_attachment?(_attachment, _consumer), do: false
 
   defp materialize_attachments(attachments, _message, %{
          config: config,
@@ -447,8 +562,9 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
   end
 
   defp materialize_attachment(attachment, client, agent_uid) do
-    with {:ok, download} <- SlackOpenAPI.download(client, attachment["url_private"]),
-         relative <- materialized_path(attachment, download.filename),
+    with attachment_id when is_integer(attachment_id) <- valid_attachment_id(attachment),
+         {:ok, download} <- SlackOpenAPI.download(client, attachment["url_private"]),
+         relative <- materialized_path(attachment_id, attachment, download.filename),
          lane_path <- Ankole.AgentHomePaths.user_files_lane_path(agent_uid, relative),
          {:ok, result} <- WorkerFiles.put("user_files", lane_path, download.body) do
       attachment
@@ -480,15 +596,20 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
       attachment
   end
 
-  defp materialized_path(attachment, downloaded_name) do
+  defp materialized_path(attachment_id, attachment, downloaded_name) do
     Path.join([
       "inbox",
-      "slack",
-      sanitize(attachment["source_message_id"]),
-      sanitize(attachment["file_id"]),
+      Integer.to_string(attachment_id),
       sanitize(downloaded_name || attachment["name"] || "attachment")
     ])
   end
+
+  defp valid_attachment_id(%{"attachment_id" => attachment_id})
+       when is_integer(attachment_id) and attachment_id >= @attachment_id_min and
+              attachment_id <= @attachment_id_max,
+       do: attachment_id
+
+  defp valid_attachment_id(_attachment), do: nil
 
   defp sanitize(value) when is_binary(value) do
     case value
@@ -545,6 +666,18 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
 
   defp channel_kind(message) do
     if Map.get(message, "channel_type") == "im", do: :im_dm, else: :im_group
+  end
+
+  defp removed_message_channel_kind(message) do
+    channel_type =
+      Map.get(message, "channel_type") ||
+        get_in(message, ["previous_message", "channel_type"])
+
+    case channel_type do
+      "im" -> :im_dm
+      type when type in ["channel", "group", "mpim"] -> :im_group
+      _missing -> :unknown
+    end
   end
 
   @doc false

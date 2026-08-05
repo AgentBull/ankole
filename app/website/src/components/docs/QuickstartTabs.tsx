@@ -2,7 +2,7 @@ import { Alert, AlertDescription, AlertTitle } from '@ankole/uikit/components/al
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@ankole/uikit/components/collapsible'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@ankole/uikit/components/tabs'
 import { RiArrowDownSLine, RiArrowRightLine, RiCheckLine, RiErrorWarningLine, RiFileCopyLine } from '@remixicon/react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 export interface QuickstartCode {
   code: string
@@ -79,6 +79,7 @@ interface QuickstartTabsProps {
   ariaLabel: string
   defaultValue: string
   labels: QuickstartLabels
+  queryParam?: string
   tabs: QuickstartTab[]
 }
 
@@ -105,10 +106,28 @@ export function QuickstartAgentPrompt({ labels, prompt }: QuickstartAgentPromptP
   )
 }
 
-export function QuickstartTabs({ ariaLabel, defaultValue, labels, tabs }: QuickstartTabsProps) {
+export function QuickstartTabs({ ariaLabel, defaultValue, labels, queryParam, tabs }: QuickstartTabsProps) {
+  const [value, setValue] = useState(defaultValue)
+
+  useEffect(() => {
+    if (!queryParam) return
+
+    const requestedValue = new URLSearchParams(window.location.search).get(queryParam)
+    if (requestedValue && tabs.some(tab => tab.value === requestedValue)) setValue(requestedValue)
+  }, [queryParam, tabs])
+
+  function changeTab(nextValue: string) {
+    setValue(nextValue)
+    if (!queryParam) return
+
+    const url = new URL(window.location.href)
+    url.searchParams.set(queryParam, nextValue)
+    window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`)
+  }
+
   return (
     <div className="not-prose my-10 w-full min-w-0 max-w-4xl border-y border-border/80">
-      <Tabs defaultValue={defaultValue} className="w-full min-w-0 gap-0">
+      <Tabs value={value} onValueChange={changeTab} className="w-full min-w-0 gap-0">
         <TabsList
           aria-label={ariaLabel}
           className="no-scrollbar w-full min-w-0 max-w-full justify-start gap-6 overflow-x-auto group-data-horizontal/tabs:h-auto sm:gap-8">

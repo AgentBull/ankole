@@ -146,7 +146,8 @@ defmodule Ankole.Plugins.WeComAdapter do
           "zh-Hans-CN" => "映射企业微信用户到 Ankole 主体时使用的命名空间。"
         },
         :string,
-        default: "wecom-main"
+        default: "wecom-main",
+        advanced: true
       ),
       field(
         "userName",
@@ -156,7 +157,8 @@ defmodule Ankole.Plugins.WeComAdapter do
           "zh-Hans-CN" => "发送 provider 消息时显示的名称。"
         },
         :string,
-        default: "企业微信 / WeCom"
+        default: "企业微信 / WeCom",
+        advanced: true
       )
     ]
   end

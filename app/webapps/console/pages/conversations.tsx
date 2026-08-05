@@ -15,12 +15,13 @@ import {
   TableRow,
   cn
 } from '@ankole/uikit'
-import { RiArrowLeftLine, RiFunctionLine, RiInboxLine } from '@remixicon/react'
+import { RiArrowLeftLine, RiChat3Line, RiFunctionLine, RiInboxLine } from '@remixicon/react'
 import { match } from '@agentbull/active-support'
 import { useQuery } from '@tanstack/react-query'
 import { type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
+import { PageStack } from '../console-page'
 import { ErrorBlock, formatConsoleDate } from '../console-primitives'
 import { MarkdownBody } from '../markdown-body'
 import { StatusIndicator } from '../console-form'
@@ -98,6 +99,12 @@ export function ConversationsListPage() {
   }
 
   const isFiltered = Boolean(subjectFilter.trim()) || activeFilter !== null
+  const clearFilters = () => {
+    const next = new URLSearchParams(searchParams)
+    next.delete('subject')
+    next.delete('active')
+    setSearchParams(resetCursorParams(next), { replace: true })
+  }
 
   return (
     <ResourceListPage
@@ -113,7 +120,9 @@ export function ConversationsListPage() {
       isLoading={list.isLoading}
       isEmpty={conversations.length === 0}
       isFiltered={isFiltered}
+      onClearFilters={clearFilters}
       emptyTitle={t('console.conversations.empty_title')}
+      emptyIcon={<RiChat3Line aria-hidden />}
       emptyDescription={
         isFiltered || showAll
           ? t('console.conversations.empty_description')
@@ -121,6 +130,7 @@ export function ConversationsListPage() {
       }
       error={list.error}
       count={conversations.length}
+      toolbarCanRevealRows
       toolbar={
         <ResourceSearch
           label={t('console.conversations.subject_filter')}
@@ -281,15 +291,15 @@ export function ConversationDetailPage() {
 
   if (conversation.error || (!conversation.isLoading && !detail)) {
     return (
-      <div className="grid gap-4">
+      <PageStack className="max-w-5xl">
         <BackLink label={t('console.conversations.back')} onClick={() => navigate('/conversations')} />
         <ErrorBlock error={conversation.error ?? new Error(t('console.conversations.not_found'))} />
-      </div>
+      </PageStack>
     )
   }
 
   return (
-    <div className="grid max-w-5xl gap-8">
+    <PageStack className="max-w-5xl">
       <BackLink label={t('console.conversations.back')} onClick={() => navigate('/conversations')} />
 
       {conversation.isLoading || !detail ? (
@@ -380,7 +390,7 @@ export function ConversationDetailPage() {
           onNext={cursor => setSearchParams(nextCursorParams(searchParams, cursor))}
         />
       </section>
-    </div>
+    </PageStack>
   )
 }
 

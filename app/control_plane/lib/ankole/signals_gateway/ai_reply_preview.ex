@@ -44,10 +44,10 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
 
   # How long to wait between IM edit flushes (milliseconds).
   @edit_flush_interval_ms 1_000
-  # Coalesce CardKit changes so one turn starts at most one provider sync per second.
-  @cardkit_flush_interval_ms 1_000
-  @cardkit_creation_debounce_ms 350
-  @cardkit_retry_max_ms 30_000
+  # Coalesce rich reply changes so one turn starts at most one provider sync per second.
+  @rich_flush_interval_ms 1_000
+  @rich_creation_debounce_ms 350
+  @rich_retry_max_ms 30_000
 
   @im_visible_event_types ~w(im.message.addressed im.message.may_intervene signal.action.invoked command.new command.steer command.llm check_back_later.wakeup cron.fire webhook.received automation_job.emitted automation_job.run_failed background_agent_job.completed background_agent_job.failed background_agent_job.waiting)
 
@@ -376,25 +376,25 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
 
   defp refreshable_provider_checkpoint?(%ActorEvent{reply_preview_checkpoint: checkpoint} = event)
        when is_map(checkpoint) do
-    provider_card_checkpoint?(checkpoint) and
+    provider_preview_checkpoint?(checkpoint) and
       match?(
         %ReplyPreviewAdapter{refresh_fun: fun} when is_function(fun, 1),
         rich_adapter_for_event(event)
       )
   end
 
-  defp provider_card_checkpoint?(%{"card_id" => card_id})
+  defp provider_preview_checkpoint?(%{"card_id" => card_id})
        when is_binary(card_id) and card_id != "",
        do: true
 
-  defp provider_card_checkpoint?(%{"cards" => cards}) when is_list(cards) do
+  defp provider_preview_checkpoint?(%{"cards" => cards}) when is_list(cards) do
     Enum.any?(cards, fn
       %{"card_id" => card_id} when is_binary(card_id) and card_id != "" -> true
       _card -> false
     end)
   end
 
-  defp provider_card_checkpoint?(%{"pages" => pages}) when is_list(pages) do
+  defp provider_preview_checkpoint?(%{"pages" => pages}) when is_list(pages) do
     Enum.any?(pages, fn
       %{"out_track_id" => id} when is_binary(id) and id != "" -> true
       %{"stream_id" => id} when is_binary(id) and id != "" -> true
@@ -403,7 +403,18 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
     end)
   end
 
-  defp provider_card_checkpoint?(_checkpoint), do: false
+  defp provider_preview_checkpoint?(%{"message_id" => message_id})
+       when is_binary(message_id) and message_id != "",
+       do: true
+
+  defp provider_preview_checkpoint?(%{"messages" => messages}) when is_list(messages) do
+    Enum.any?(messages, fn
+      %{"message_id" => message_id} when is_binary(message_id) and message_id != "" -> true
+      _message -> false
+    end)
+  end
+
+  defp provider_preview_checkpoint?(_checkpoint), do: false
 
   defp provider_checkpoint_open?(checkpoint) do
     checkpoint["streaming_state"] != "closed" or
@@ -688,7 +699,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
       cond do
         not rich? -> @edit_flush_interval_ms
         map_size(checkpoint) > 0 -> 0
-        true -> @cardkit_creation_debounce_ms
+        true -> @rich_creation_debounce_ms
       end
 
     Process.send_after(self(), :flush_edit, initial_flush_ms)
@@ -829,7 +840,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   def handle_info(:flush_edit, state) do
     if match?(%ReplyPreviewAdapter{}, state.reply_preview_adapter) do
       state = maybe_start_rich_sync(state)
-      Process.send_after(self(), :flush_edit, @cardkit_flush_interval_ms)
+      Process.send_after(self(), :flush_edit, @rich_flush_interval_ms)
       {:noreply, state}
     else
       handle_plain_text_flush(state)
@@ -1274,7 +1285,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
 
   defp old_preview_visible?(state) do
     state.preview_established or
-      provider_card_checkpoint?(state.actor_event.reply_preview_checkpoint)
+      provider_preview_checkpoint?(state.actor_event.reply_preview_checkpoint)
   end
 
   defp freeze_plain_preview(state) do
@@ -1387,13 +1398,13 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
     retry? = rich_retryable?(reason)
 
     Logging.warning(
-      "signals_gateway.ai_reply_preview.cardkit_sync_failed",
-      "AI reply CardKit sync failed",
+      "signals_gateway.ai_reply_preview.rich_sync_failed",
+      "AI reply rich preview sync failed",
       preview_fields(state, %{reason: inspect(reason, limit: 20), retry: retry?})
     )
 
     if retry? do
-      retry_ms = min(state.rich_retry_ms * 2, @cardkit_retry_max_ms)
+      retry_ms = min(state.rich_retry_ms * 2, @rich_retry_max_ms)
 
       %{
         state

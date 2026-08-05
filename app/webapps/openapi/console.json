@@ -215,7 +215,7 @@
         "additionalProperties": false,
         "properties": {
           "avatar_url": { "nullable": true, "type": "string" },
-          "display_name": { "nullable": true, "type": "string" },
+          "display_name": { "type": "string" },
           "options": { "additionalProperties": true, "type": "object" },
           "role": { "type": "string" }
         },
@@ -309,6 +309,13 @@
         },
         "required": ["provider_id", "status"],
         "title": "IdentityProviderSyncRunItem",
+        "type": "object"
+      },
+      "ConsoleReadinessProvider": {
+        "additionalProperties": false,
+        "properties": { "complete": { "type": "boolean" }, "provider_id": { "nullable": true, "type": "string" } },
+        "required": ["complete", "provider_id"],
+        "title": "ConsoleReadinessProvider",
         "type": "object"
       },
       "BackgroundAgentJobTurnItem": {
@@ -531,6 +538,17 @@
         "title": "BrainAuditLogResponse",
         "type": "object"
       },
+      "ConsoleReadinessModelProfiles": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_uid": { "nullable": true, "type": "string" },
+          "complete": { "type": "boolean" },
+          "missing_profiles": { "items": { "type": "string" }, "type": "array" }
+        },
+        "required": ["complete", "agent_uid", "missing_profiles"],
+        "title": "ConsoleReadinessModelProfiles",
+        "type": "object"
+      },
       "AIGatewayChatGPTEnterpriseCredentialRequest": {
         "additionalProperties": false,
         "properties": {
@@ -648,6 +666,31 @@
         },
         "required": ["principal_groups"],
         "title": "PrincipalGroupListResponse",
+        "type": "object"
+      },
+      "ConsoleReadinessResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "agent": { "$ref": "#/components/schemas/ConsoleReadinessAgent" },
+          "completed_core_steps": { "minimum": 0, "type": "integer" },
+          "model_profiles": { "$ref": "#/components/schemas/ConsoleReadinessModelProfiles" },
+          "provider": { "$ref": "#/components/schemas/ConsoleReadinessProvider" },
+          "ready": { "type": "boolean" },
+          "signal_route": { "$ref": "#/components/schemas/ConsoleReadinessSignalRoute" },
+          "total_core_steps": { "minimum": 1, "type": "integer" },
+          "worker": { "$ref": "#/components/schemas/ConsoleReadinessWorker" }
+        },
+        "required": [
+          "ready",
+          "completed_core_steps",
+          "total_core_steps",
+          "provider",
+          "agent",
+          "model_profiles",
+          "worker",
+          "signal_route"
+        ],
+        "title": "ConsoleReadinessResponse",
         "type": "object"
       },
       "ScheduleCronScheduleResponse": {
@@ -1299,6 +1342,17 @@
         "title": "SignalBindingWriteRequest",
         "type": "object"
       },
+      "ConsoleReadinessAgent": {
+        "additionalProperties": false,
+        "properties": {
+          "complete": { "type": "boolean" },
+          "display_name": { "nullable": true, "type": "string" },
+          "uid": { "nullable": true, "type": "string" }
+        },
+        "required": ["complete", "uid", "display_name"],
+        "title": "ConsoleReadinessAgent",
+        "type": "object"
+      },
       "BrainSourceListResponse": {
         "additionalProperties": false,
         "properties": { "sources": { "items": { "$ref": "#/components/schemas/BrainSourceEntry" }, "type": "array" } },
@@ -1789,6 +1843,13 @@
         "title": "AutomationJobListResponse",
         "type": "object"
       },
+      "ConsoleReadinessSignalRoute": {
+        "additionalProperties": false,
+        "properties": { "agent_uid": { "nullable": true, "type": "string" }, "complete": { "type": "boolean" } },
+        "required": ["complete", "agent_uid"],
+        "title": "ConsoleReadinessSignalRoute",
+        "type": "object"
+      },
       "IdentityProviderAdapterListResponse": {
         "additionalProperties": false,
         "properties": {
@@ -1805,12 +1866,12 @@
         "additionalProperties": false,
         "properties": {
           "avatar_url": { "nullable": true, "type": "string" },
-          "display_name": { "nullable": true, "type": "string" },
+          "display_name": { "type": "string" },
           "options": { "additionalProperties": true, "type": "object" },
           "role": { "type": "string" },
           "uid": { "type": "string" }
         },
-        "required": ["uid", "role"],
+        "required": ["uid", "display_name", "role"],
         "title": "AgentCreateRequest",
         "type": "object"
       },
@@ -2237,6 +2298,13 @@
         },
         "required": ["adapter_id", "config"],
         "title": "IdentityProviderWriteRequest",
+        "type": "object"
+      },
+      "ConsoleReadinessWorker": {
+        "additionalProperties": false,
+        "properties": { "complete": { "type": "boolean" }, "ready_count": { "minimum": 0, "type": "integer" } },
+        "required": ["complete", "ready_count"],
+        "title": "ConsoleReadinessWorker",
         "type": "object"
       },
       "AgentLibrarySkillOverlayItem": {
@@ -7307,6 +7375,32 @@
         "security": [{ "consoleBearer": [] }],
         "summary": "List permission grants owned by one Principal group",
         "tags": ["AuthZ"]
+      }
+    },
+    "/api/v1/console-readiness": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.ConsoleReadinessController.show",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleReadinessResponse" } }
+            },
+            "description": "Console readiness"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Read the console readiness snapshot",
+        "tags": ["Console"]
       }
     }
   },

@@ -20,6 +20,7 @@ import {
   TableRow,
   toast
 } from '@ankole/uikit'
+import { RiTerminalBoxLine } from '@remixicon/react'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -140,9 +141,11 @@ export function WorkerEnvsListPage() {
       isEmpty={items.length === 0}
       count={items.length}
       emptyTitle={t('console.worker_envs.empty_title')}
+      emptyIcon={<RiTerminalBoxLine aria-hidden />}
       emptyDescription={t('console.worker_envs.empty_description')}
       error={list.error}
       isFiltered={Boolean(query.trim())}
+      onClearFilters={() => setQuery('')}
       toolbar={
         <ResourceSearch
           label={t('console.worker_envs.search')}
@@ -318,6 +321,8 @@ export function WorkerEnvEditorPage() {
     saveCustom(submittedName)
   }
 
+  const submitDisabled = mode === 'edit' && !model.dirty.value
+
   return (
     <>
       <ResourceEditorPage
@@ -326,6 +331,8 @@ export function WorkerEnvEditorPage() {
         backTo="/worker-envs"
         error={model.validationError.value ?? update.error ?? decrypt.error}
         submitting={update.isPending}
+        submitDisabled={submitDisabled}
+        submitUnavailable={mode === 'edit' && !item}
         onSubmit={submit}
         secondary={
           mode === 'edit' && item ? (
@@ -370,6 +377,7 @@ export function WorkerEnvEditorPage() {
             required>
             <Input
               id="worker-env-name"
+              required
               className="font-mono"
               placeholder="SOME_ENV_VAR"
               spellCheck={false}
@@ -387,6 +395,7 @@ export function WorkerEnvEditorPage() {
             required>
             <EncryptedValueInput
               id="worker-env-value"
+              required
               className="font-mono"
               revealLabel={t('console.worker_envs.reveal')}
               revealed={decrypt.data?.decrypted_value.name === item.name}
@@ -401,6 +410,7 @@ export function WorkerEnvEditorPage() {
             label={t('console.worker_envs.value')}
             description={t('console.worker_envs.declared_value_hint')}
             minRows={6}
+            required
             value={model.value.value}
             onChange={value => (model.value.value = value)}
           />
@@ -418,6 +428,7 @@ export function WorkerEnvEditorPage() {
               {model.secret.value || isEncryptedValueMask(model.value.value) ? (
                 <EncryptedValueInput
                   id="worker-env-value"
+                  required
                   className="font-mono"
                   revealLabel={t('console.worker_envs.reveal')}
                   revealed={decrypt.data?.decrypted_value.name === item?.name}
@@ -429,6 +440,7 @@ export function WorkerEnvEditorPage() {
               ) : (
                 <Input
                   id="worker-env-value"
+                  required
                   className="font-mono"
                   spellCheck={false}
                   value={model.value.value}

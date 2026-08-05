@@ -1,4 +1,4 @@
-import { batch, createModel, signal } from '@preact/signals-react'
+import { batch, computed, createModel, signal } from '@preact/signals-react'
 import type { PrincipalGroupCreateRequest, PrincipalGroupUpdateRequest } from '../api/generated/types.gen'
 
 export type PrincipalGroupKind = 'static' | 'computed'
@@ -25,7 +25,19 @@ export const PrincipalGroupEditorModel = createModel(() => {
   const description = signal('')
   const kind = signal<PrincipalGroupKind>('static')
   const computedCondition = signal('')
+  const initialDraft = signal<PrincipalGroupEditorDraft>()
   const validationError = signal<string>()
+  const dirty = computed(() => {
+    const source = initialDraft.value
+    return Boolean(
+      source &&
+      (name.value !== source.name ||
+        displayName.value !== source.displayName ||
+        description.value !== source.description ||
+        kind.value !== source.kind ||
+        computedCondition.value !== source.computedCondition)
+    )
+  })
 
   return {
     sourceKey,
@@ -34,6 +46,7 @@ export const PrincipalGroupEditorModel = createModel(() => {
     description,
     kind,
     computedCondition,
+    dirty,
     validationError,
     initialize(nextSourceKey: string, draft: PrincipalGroupEditorDraft) {
       if (sourceKey.value === nextSourceKey) return
@@ -44,11 +57,23 @@ export const PrincipalGroupEditorModel = createModel(() => {
         description.value = draft.description
         kind.value = draft.kind
         computedCondition.value = draft.computedCondition
+        initialDraft.value = { ...draft }
         validationError.value = undefined
       })
     },
     clearValidation() {
       validationError.value = undefined
+    },
+    markSaved(draft?: PrincipalGroupEditorDraft) {
+      initialDraft.value = draft
+        ? { ...draft }
+        : {
+            name: name.value,
+            displayName: displayName.value,
+            description: description.value,
+            kind: kind.value,
+            computedCondition: computedCondition.value
+          }
     },
     draftError(mode: 'new' | 'edit'): PrincipalGroupDraftError | undefined {
       if (mode === 'new') {

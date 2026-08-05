@@ -22,6 +22,7 @@ describe('ScheduleEditorModel', () => {
     const model = new ScheduleEditorModel()
     model.initialize('new', { ...draft, name: '' })
 
+    expect(model.isComplete()).toBe(false)
     expect(model.toCreateBody()).toBeNull()
 
     model.name.value = 'market-open'
@@ -33,6 +34,7 @@ describe('ScheduleEditorModel', () => {
     expect(model.toCreateBody()).toBeNull()
     model.sessionId.value = draft.sessionId
 
+    expect(model.isComplete()).toBe(true)
     expect(model.toCreateBody()).toEqual({
       session_id: 'lark:chat:market',
       binding_name: 'lark-agent',

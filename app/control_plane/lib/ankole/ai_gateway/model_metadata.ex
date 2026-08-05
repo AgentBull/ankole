@@ -175,6 +175,19 @@ defmodule Ankole.AIGateway.ModelMetadata do
     end
   end
 
+  defp list_source_models(%Provider{} = provider, {:codex, source}, opts)
+       when is_map(source) do
+    key = {:model_metadata_source, provider.provider_id, :codex, Map.fetch!(source, :cache_key)}
+    ttl_ms = Keyword.get(opts, :cache_ttl_ms, @default_cache_ttl_ms)
+
+    case cached_fetch(key, ttl_ms, Keyword.get(opts, :force_refresh, false), fn ->
+           fetch_codex_models(source)
+         end) do
+      {:ok, models} -> {:ok, models}
+      {:error, _reason} -> {:ok, []}
+    end
+  end
+
   defp list_source_models(_provider, _source, _opts), do: {:ok, []}
 
   defp source_model(%Provider{}, {:llm_db, provider_atom}, model_id, _opts) do
@@ -203,6 +216,15 @@ defmodule Ankole.AIGateway.ModelMetadata do
   end
 
   defp source_model(%Provider{} = provider, {:openrouter, _source} = source, model_id, opts) do
+    with {:ok, models} <- list_source_models(provider, source, opts),
+         %{} = metadata <- Enum.find(models, &(Map.get(&1, "id") == model_id)) do
+      {:ok, metadata}
+    else
+      _reason -> {:error, :model_metadata_not_found}
+    end
+  end
+
+  defp source_model(%Provider{} = provider, {:codex, _source} = source, model_id, opts) do
     with {:ok, models} <- list_source_models(provider, source, opts),
          %{} = metadata <- Enum.find(models, &(Map.get(&1, "id") == model_id)) do
       {:ok, metadata}
@@ -262,9 +284,67 @@ defmodule Ankole.AIGateway.ModelMetadata do
 
   defp fetch_openrouter_models(_source), do: {:error, :invalid_provider_model_metadata_source}
 
+  defp fetch_codex_models(%{ctx: ctx, path: path, headers: headers})
+       when is_map(ctx) and is_binary(path) and is_list(headers) do
+    with {:ok, %{"status" => status, "body" => body}} when status in 200..299 <-
+           UniversalAIRequest.raw_get(ctx, path, headers: headers),
+         models when is_list(models) <- codex_model_list(body) do
+      normalized_models =
+        models
+        |> Enum.filter(&is_map/1)
+        |> Enum.map(&stringify_keys/1)
+
+      {:ok,
+       normalized_models
+       |> Enum.filter(&selectable_codex_model?/1)
+       |> Enum.map(&from_codex_model/1)}
+    else
+      {:ok, %{"status" => status, "body" => body}} ->
+        {:error, {:provider_model_metadata_failed, status, body}}
+
+      {:error, _reason} = error ->
+        error
+
+      _reason ->
+        {:error, :invalid_provider_model_metadata}
+    end
+  end
+
+  defp fetch_codex_models(_source), do: {:error, :invalid_provider_model_metadata_source}
+
   defp openrouter_model_list(%{"data" => models}) when is_list(models), do: models
   defp openrouter_model_list(models) when is_list(models), do: models
   defp openrouter_model_list(_body), do: nil
+
+  defp codex_model_list(%{"models" => models}) when is_list(models), do: models
+  defp codex_model_list(_body), do: nil
+
+  defp selectable_codex_model?(model) do
+    model["supported_in_api"] != false and model["visibility"] in [nil, "list"] and
+      is_binary(model["slug"]) and String.trim(model["slug"]) != ""
+  end
+
+  defp from_codex_model(model) do
+    id = String.trim(model["slug"])
+    context_length = first_integer([model["context_window"], model["max_context_window"]]) || 0
+    input_modalities = non_empty_strings(model["input_modalities"], ["text"])
+
+    fallback_model_metadata(id)
+    |> Map.put("canonical_slug", id)
+    |> Map.put("name", model_string(model["display_name"] || id))
+    |> Map.put("description", model["description"] || "ChatGPT subscription model #{id}.")
+    |> Map.put("architecture", %{
+      "input_modalities" => input_modalities,
+      "output_modalities" => ["text"]
+    })
+    |> Map.put("context_length", context_length)
+    |> Map.put("top_provider", %{
+      "is_moderated" => false,
+      "context_length" => context_length,
+      "max_completion_tokens" => nil
+    })
+    |> ensure_openrouter_defaults()
+  end
 
   defp from_openrouter_model(model) when is_map(model) do
     model = stringify_keys(model)

@@ -7,7 +7,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ReplyDeletion do
   started. Both must remove every entry that turn created, because the Agent no
   longer holds that answer in its conversation.
 
-  A turn that never reaches terminal delivery has an open preview card and no
+  A turn that never reaches terminal delivery has an open preview surface and no
   outbox row that names it, so the checkpoint is a necessary third source.
   """
 
@@ -22,7 +22,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ReplyDeletion do
       when is_binary(actor_event_id) and is_list(ai_message_ids) do
     (mirrored_reply_targets(repo, ai_message_ids) ++
        outbox_reply_targets(repo, actor_event_id) ++
-       preview_card_targets(repo, actor_event_id))
+       preview_surface_targets(repo, actor_event_id))
     |> Enum.uniq_by(&{&1.signal_channel_id, &1.source_entry_id})
     |> Enum.sort_by(&{&1.signal_channel_id, &1.source_entry_id})
     |> Enum.map(&deletion_intent(&1, actor_event_id))
@@ -90,12 +90,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ReplyDeletion do
 
   defp outbox_reply_target(_outbox), do: nil
 
-  defp preview_card_targets(repo, actor_event_id) do
+  defp preview_surface_targets(repo, actor_event_id) do
     case repo.get(ActorEvent, actor_event_id) do
       %ActorEvent{signal_channel_id: signal_channel_id} = event
       when is_binary(signal_channel_id) ->
         event
-        |> preview_card_source_entry_ids()
+        |> preview_surface_source_entry_ids()
         |> Enum.map(fn source_entry_id ->
           %{
             signal_channel_id: signal_channel_id,
@@ -110,9 +110,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ReplyDeletion do
     end
   end
 
-  # A checkpoint holds a card chain; rows written before the chain hold one card
-  # at the top level. Both name the provider entry that carries the card.
-  defp preview_card_source_entry_ids(%ActorEvent{} = event) do
+  # A checkpoint can hold a card chain or a message chain. Older rows can hold
+  # one provider entry at the top level.
+  defp preview_surface_source_entry_ids(%ActorEvent{} = event) do
     checkpoint = event.reply_preview_checkpoint || %{}
 
     card_message_ids =
@@ -121,10 +121,19 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ReplyDeletion do
           Enum.map(cards, fn card -> is_map(card) && card["message_id"] end)
 
         _absent ->
+          []
+      end
+
+    message_ids =
+      case checkpoint["messages"] do
+        messages when is_list(messages) ->
+          Enum.map(messages, fn message -> is_map(message) && message["message_id"] end)
+
+        _absent ->
           [checkpoint["message_id"]]
       end
 
-    [event.reply_preview_source_entry_id | card_message_ids]
+    [event.reply_preview_source_entry_id | card_message_ids ++ message_ids]
     |> Enum.filter(&(is_binary(&1) and &1 != ""))
     |> Enum.uniq()
   end

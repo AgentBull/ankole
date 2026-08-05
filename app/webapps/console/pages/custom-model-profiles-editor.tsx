@@ -153,6 +153,7 @@ function NewCustomModelProfileEditor({
       label={name.trim() || t('console.models.new_custom_profile')}
       draft={draft}
       dirty
+      saveIncomplete={Boolean(customProfileNameError(name.trim(), existingNames, t))}
       nameField={
         <LabeledField
           label={t('console.models.custom_name')}

@@ -9,6 +9,7 @@ import {
   ComboboxChip,
   ComboboxChips,
   ComboboxChipsInput,
+  ComboboxCollection,
   ComboboxContent,
   ComboboxEmpty,
   ComboboxItem,
@@ -157,11 +158,13 @@ export function SelectListInput({
         <ComboboxContent anchor={anchor}>
           <ComboboxList>
             <ComboboxEmpty>{emptyLabel}</ComboboxEmpty>
-            {options.map(option => (
-              <ComboboxItem key={option.value} value={option}>
-                {option.label || option.value}
-              </ComboboxItem>
-            ))}
+            <ComboboxCollection>
+              {(option: ListInputOption) => (
+                <ComboboxItem key={option.value} value={option}>
+                  {option.label || option.value}
+                </ComboboxItem>
+              )}
+            </ComboboxCollection>
           </ComboboxList>
         </ComboboxContent>
       </Combobox>

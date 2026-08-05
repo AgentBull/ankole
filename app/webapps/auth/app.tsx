@@ -5,6 +5,7 @@ import { Skeleton } from '@ankole/uikit/components/skeleton'
 import { RiArrowRightSLine } from '@remixicon/react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
+import { humanizeTechnicalLabel } from '../common/humanize-technical-label'
 import { internalAPIGet, internalAPIPost } from '../common/internal-api-client'
 import { requestErrorMessage } from '../common/request-errors'
 import { ThemeToggle } from '../common/theme-toggle'
@@ -107,12 +108,5 @@ export function AuthApp() {
 }
 
 function loginProviderLabel(adapterID: string): string {
-  const initialisms = new Set(['id', 'ldap', 'oauth', 'oidc', 'sso'])
-  return adapterID
-    .split(/[-_\s]+/)
-    .filter(Boolean)
-    .map(part =>
-      initialisms.has(part.toLowerCase()) ? part.toUpperCase() : `${part[0]?.toUpperCase() ?? ''}${part.slice(1)}`
-    )
-    .join(' ')
+  return humanizeTechnicalLabel(adapterID)
 }

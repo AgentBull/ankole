@@ -43,6 +43,23 @@ Helm chart 的 `values.yaml` 列出了 Kubernetes 中对应的 `ankoleSecretBase
 | `ANKOLE_AI_GATEWAY_BASE_URL` | — | 覆盖 AIGateway 基 URL（很少需要） |
 | `ANKOLE_RUNTIME_FABRIC_BIND_ENDPOINT` | — | RuntimeFabric 绑定端点 |
 
+## 模型提供商出站代理
+
+模型提供商流量必须经过出站代理时，在控制面进程上设置这些标准环境变量。
+`https_proxy` 等小写形式同样有效。
+
+| 变量 | 含义 |
+|---|---|
+| `HTTPS_PROXY` | HTTPS 和安全 WebSocket（`wss`）模型请求使用的代理 |
+| `HTTP_PROXY` | HTTP 和 WebSocket（`ws`）模型请求使用的代理；未设置 `HTTPS_PROXY` 和 `ALL_PROXY` 时，安全请求也会使用它 |
+| `ALL_PROXY` | 未设置协议专用变量时，模型请求使用的后备代理 |
+| `NO_PROXY` | 必须直连的主机或域名后缀，以英文逗号分隔 |
+
+代理 URL 支持 `http`、`https`、`socks5` 和 `socks5h`；代理需要认证时，
+URL 可以包含凭证。`NO_PROXY` 的优先级最高。安全请求依次使用
+`HTTPS_PROXY`、`ALL_PROXY`、`HTTP_PROXY`；普通请求依次使用
+`HTTP_PROXY`、`ALL_PROXY`。修改这些变量后必须重启控制面。
+
 ## 仅 worker 的环境（Agent Computer Worker）
 
 worker 读取一个固定的小集合。actor 身份**不在**其中——它通过 `turn_start` 到达，不在环境里。这些由受管 worker 引导设置，不由运维者设置。

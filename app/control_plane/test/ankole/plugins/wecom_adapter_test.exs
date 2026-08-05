@@ -41,6 +41,12 @@ defmodule Ankole.Plugins.WeComAdapterTest do
       assert chat.reply_preview_module == Ankole.Plugins.WeComAdapter.AIStream
       assert :ok = Adapters.validate_declaration(chat)
 
+      chat_fields = Map.new(chat.fields, &{&1.path, &1})
+      assert chat_fields["botId"].advanced == false
+      assert chat_fields["secret"].advanced == false
+      assert chat_fields["platformSubjectNamespace"].advanced == true
+      assert chat_fields["userName"].advanced == true
+
       assert identity.contract_id == "principals.identity_provider"
 
       # No directory_realtime_sync: contact-change events need a public XML

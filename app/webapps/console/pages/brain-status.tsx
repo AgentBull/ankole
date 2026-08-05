@@ -8,9 +8,9 @@ import {
   ankoleWebPrincipalControllerIndexOptions
 } from '../api/generated/@tanstack/react-query.gen'
 import type { JsonValue as JSONValue } from '../api/generated/types.gen'
+import { PageHeader, PageStack, RefreshButton } from '../console-page'
 import { ErrorBlock, formatJSON } from '../console-primitives'
 import { StatusIndicator } from '../console-form'
-import { PageHeader, RefreshButton } from '../console-list-page'
 import { defaultBrainOwnerUID, setBrainFilter } from '../state/brain-editor-model'
 import { BrainOwnerField, BrainTaskNavigation } from './brain-shared'
 
@@ -41,7 +41,7 @@ export function BrainStatusPage() {
   const stuckJobs = jsonArray(status?.stuck_curation_jobs)
 
   return (
-    <div className="grid min-w-0 gap-5">
+    <PageStack>
       <PageHeader
         title={t('console.brain.status_title')}
         description={t('console.brain.status_description')}
@@ -139,7 +139,7 @@ export function BrainStatusPage() {
           <ObjectCard title={t('console.brain.status_diagnostics')} value={jsonObject(status.diagnostics)} />
         </>
       ) : null}
-    </div>
+    </PageStack>
   )
 }
 

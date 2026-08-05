@@ -1,5 +1,5 @@
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
-import { batch, createModel, signal } from '@preact/signals-react'
+import { batch, computed, createModel, signal } from '@preact/signals-react'
 import { setPath } from '../../common/config-fields'
 import type { SignalBindingWriteRequest } from '../api/generated/types.gen'
 
@@ -29,7 +29,20 @@ export const SignalBindingEditorModel = createModel(() => {
   const confidentialMemory = signal(false)
   const config = signal<JSONObject>({})
   const configPatch = signal<JSONObject>({})
+  const initialDraft = signal<SignalBindingEditorDraft>()
   const validationError = signal<string>()
+  const dirty = computed(() => {
+    const source = initialDraft.value
+    return Boolean(
+      source &&
+      (agentUID.value !== source.agentUID ||
+        adapterID.value !== source.adapterID ||
+        name.value !== source.name ||
+        groupMessageMode.value !== source.groupMessageMode ||
+        confidentialMemory.value !== source.confidentialMemory ||
+        JSON.stringify(config.value) !== JSON.stringify(source.config))
+    )
+  })
 
   const apply = (draft: SignalBindingEditorDraft) => {
     batch(() => {
@@ -40,6 +53,7 @@ export const SignalBindingEditorModel = createModel(() => {
       confidentialMemory.value = draft.confidentialMemory
       config.value = draft.config
       configPatch.value = {}
+      initialDraft.value = { ...draft, config: { ...draft.config } }
       validationError.value = undefined
     })
   }
@@ -53,6 +67,7 @@ export const SignalBindingEditorModel = createModel(() => {
     confidentialMemory,
     config,
     configPatch,
+    dirty,
     validationError,
     initialize(nextSourceKey: string, draft: SignalBindingEditorDraft) {
       if (sourceKey.value === nextSourceKey) return

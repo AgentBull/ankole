@@ -1,4 +1,4 @@
-import { batch, createModel, signal } from '@preact/signals-react'
+import { batch, computed, createModel, signal } from '@preact/signals-react'
 import type { PrincipalItem } from '../api/generated/types.gen'
 import { resetCursorParams } from './cursor-pagination'
 
@@ -72,6 +72,18 @@ export const BrainMetadataEditorModel = createModel(() => {
   const summary = signal('')
   const aliases = signal<string[]>([])
   const propertyDrafts = signal<PropertyDraft[]>([])
+  const initialDraft = signal<BrainMetadataEditorDraft>()
+  const dirty = computed(() => {
+    const source = initialDraft.value
+    return Boolean(
+      source &&
+      (name.value !== source.name ||
+        type.value !== source.type ||
+        summary.value !== source.summary ||
+        JSON.stringify(aliases.value) !== JSON.stringify(source.aliases) ||
+        JSON.stringify(propertyDrafts.value) !== JSON.stringify(source.propertyDrafts))
+    )
+  })
 
   return {
     sourceKey,
@@ -80,6 +92,7 @@ export const BrainMetadataEditorModel = createModel(() => {
     summary,
     aliases,
     propertyDrafts,
+    dirty,
     initialize(nextSourceKey: string, draft: BrainMetadataEditorDraft) {
       if (sourceKey.value === nextSourceKey) return
       batch(() => {
@@ -89,7 +102,27 @@ export const BrainMetadataEditorModel = createModel(() => {
         summary.value = draft.summary
         aliases.value = [...draft.aliases]
         propertyDrafts.value = draft.propertyDrafts.map(property => ({ ...property }))
+        initialDraft.value = {
+          ...draft,
+          aliases: [...draft.aliases],
+          propertyDrafts: draft.propertyDrafts.map(property => ({ ...property }))
+        }
       })
+    },
+    markSaved(draft?: BrainMetadataEditorDraft) {
+      initialDraft.value = draft
+        ? {
+            ...draft,
+            aliases: [...draft.aliases],
+            propertyDrafts: draft.propertyDrafts.map(property => ({ ...property }))
+          }
+        : {
+            name: name.value,
+            type: type.value,
+            summary: summary.value,
+            aliases: [...aliases.value],
+            propertyDrafts: propertyDrafts.value.map(property => ({ ...property }))
+          }
     }
   }
 })

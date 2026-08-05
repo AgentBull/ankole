@@ -102,23 +102,35 @@ defmodule Ankole.SignalsGateway.Actors do
   to the ActorEvent rather than to AIGateway Response metadata. The first
   successful provider send wins; repeating the same value is idempotent.
   """
-  @spec record_reply_preview_source_entry(Ecto.UUID.t(), String.t()) ::
+  @spec record_reply_preview_source_entry(Ecto.UUID.t(), String.t(), String.t() | nil) ::
           :ok | {:error, term()}
-  def record_reply_preview_source_entry(actor_event_id, source_entry_id)
-      when is_binary(actor_event_id) and is_binary(source_entry_id) and source_entry_id != "" do
+  def record_reply_preview_source_entry(
+        actor_event_id,
+        source_entry_id,
+        provider_thread_id \\ nil
+      )
+
+  def record_reply_preview_source_entry(
+        actor_event_id,
+        source_entry_id,
+        provider_thread_id
+      )
+      when is_binary(actor_event_id) and is_binary(source_entry_id) and source_entry_id != "" and
+             (is_nil(provider_thread_id) or
+                (is_binary(provider_thread_id) and provider_thread_id != "")) do
     case Repo.transact(fn repo ->
            case lock_actor_event_in_tx(repo, actor_event_id) do
              %ActorEvent{reply_preview_source_entry_id: nil} = event ->
                event
-               |> ActorEvent.changeset(%{reply_preview_source_entry_id: source_entry_id})
+               |> ActorEvent.changeset(preview_source_attrs(source_entry_id, provider_thread_id))
                |> repo.update()
                |> case do
                  {:ok, _event} -> {:ok, :recorded}
                  {:error, _changeset} = error -> error
                end
 
-             %ActorEvent{reply_preview_source_entry_id: ^source_entry_id} ->
-               {:ok, :already_recorded}
+             %ActorEvent{reply_preview_source_entry_id: ^source_entry_id} = event ->
+               record_preview_thread(repo, event, provider_thread_id)
 
              %ActorEvent{} ->
                {:error, :reply_preview_source_entry_already_recorded}
@@ -132,15 +144,53 @@ defmodule Ankole.SignalsGateway.Actors do
     end
   end
 
-  def record_reply_preview_source_entry(_actor_event_id, _source_entry_id),
+  def record_reply_preview_source_entry(_actor_event_id, _source_entry_id, _provider_thread_id),
     do: {:error, :invalid_reply_preview_source_entry}
 
-  @doc """
-  Persists the provider-neutral recovery checkpoint for one live reply card.
+  defp preview_source_attrs(source_entry_id, nil),
+    do: %{reply_preview_source_entry_id: source_entry_id}
 
-  The checkpoint contains no transient reasoning. CardKit sequence allocation
-  remains a separate atomic operation so a restarted process can safely lease a
-  strictly higher range before mutating the existing provider card.
+  defp preview_source_attrs(source_entry_id, provider_thread_id),
+    do: %{
+      reply_preview_source_entry_id: source_entry_id,
+      provider_thread_id: provider_thread_id
+    }
+
+  defp record_preview_thread(_repo, %ActorEvent{provider_thread_id: nil}, nil),
+    do: {:ok, :already_recorded}
+
+  defp record_preview_thread(
+         repo,
+         %ActorEvent{provider_thread_id: nil} = event,
+         provider_thread_id
+       ) do
+    event
+    |> ActorEvent.changeset(%{provider_thread_id: provider_thread_id})
+    |> repo.update()
+    |> case do
+      {:ok, _event} -> {:ok, :thread_recorded}
+      {:error, _changeset} = error -> error
+    end
+  end
+
+  defp record_preview_thread(
+         _repo,
+         %ActorEvent{provider_thread_id: provider_thread_id},
+         provider_thread_id
+       ),
+       do: {:ok, :already_recorded}
+
+  defp record_preview_thread(_repo, %ActorEvent{}, nil), do: {:ok, :already_recorded}
+
+  defp record_preview_thread(_repo, %ActorEvent{}, _provider_thread_id),
+    do: {:error, :reply_preview_provider_thread_already_recorded}
+
+  @doc """
+  Persists the provider-neutral recovery checkpoint for one live reply surface.
+
+  The checkpoint contains no transient reasoning. Provider-specific sequence
+  allocation remains a separate atomic operation so a restarted process can
+  safely lease a strictly higher range before a provider mutation.
   """
   @spec put_reply_preview_checkpoint(Ecto.UUID.t(), map()) ::
           {:ok, ActorEvent.t()} | {:error, term()}
@@ -248,7 +298,7 @@ defmodule Ankole.SignalsGateway.Actors do
   defp checkpoint_owner_generation(_checkpoint), do: 0
 
   @doc """
-  Prepares one durable CardKit mutation without allocating a second sequence on retry.
+  Prepares one durable provider-surface mutation without allocating a second sequence on retry.
 
   The caller supplies a semantic purpose, an actions digest, and a fresh UUID
   candidate. If the same logical mutation is already pending, its persisted

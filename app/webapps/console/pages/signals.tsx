@@ -10,6 +10,7 @@ import {
   TableRow,
   toast
 } from '@ankole/uikit'
+import { RiBroadcastLine } from '@remixicon/react'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -35,7 +36,7 @@ import {
   ankoleWebSignalBindingControllerUpdateBindingMutation
 } from '../api/generated/@tanstack/react-query.gen'
 import type { SignalAdapterItem } from '../api/generated/types.gen'
-import { LabeledField, ReadOnlyValue, ResourceEditorPage, StatusIndicator } from '../console-form'
+import { FormSection, LabeledField, ReadOnlyValue, ResourceEditorPage, StatusIndicator } from '../console-form'
 import { ResourceListPage, ResourceSearch, RowActions } from '../console-list-page'
 import {
   defaultSignalBindingAgentUID,
@@ -96,9 +97,11 @@ export function SignalsListPage() {
       isEmpty={rows.length === 0}
       count={rows.length}
       emptyTitle={t('console.signals.empty_title')}
+      emptyIcon={<RiBroadcastLine aria-hidden />}
       emptyDescription={t('console.signals.empty_description')}
       error={agents.error ?? bindings.error}
       isFiltered={Boolean(query.trim())}
+      onClearFilters={() => setQuery('')}
       toolbar={
         <ResourceSearch
           label={t('console.signals.search')}
@@ -110,7 +113,7 @@ export function SignalsListPage() {
               <SelectTrigger aria-label={t('console.agents.agent')} className="w-56">
                 <SelectValue placeholder={t('console.signals.select_agent')} />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent emptyLabel={agents.isLoading ? t('common.loading') : t('common.select_no_agents')}>
                 {agentList.map(agent => (
                   <SelectItem key={agent.uid} value={agent.uid}>
                     {agent.uid}
@@ -264,6 +267,8 @@ export function SignalBindingEditorPage() {
   }
 
   const targetAgentUID = model.agentUID.value || defaultAgentUID
+  const activeFields = asConfigFields(activeAdapter?.fields ?? [])
+  const submitDisabled = reconfigure && !model.dirty.value
 
   return (
     <ResourceEditorPage
@@ -279,88 +284,104 @@ export function SignalBindingEditorPage() {
         updateBinding.error
       }
       submitting={createBinding.isPending || updateBinding.isPending}
+      submitDisabled={submitDisabled}
+      submitUnavailable={!ready}
+      contentWidth="wide"
       onSubmit={submit}>
-      <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
-        <LabeledField label={t('console.signals.target_agent')} required>
-          <Select value={targetAgentUID} onValueChange={value => model.selectAgent(String(value))}>
-            <SelectTrigger className="w-full">
-              <SelectValue placeholder={t('console.signals.select_agent')} />
-            </SelectTrigger>
-            <SelectContent>
-              {agentList.map(agent => (
-                <SelectItem key={agent.uid} value={agent.uid}>
-                  {agent.display_name ? `${agent.display_name} · ${agent.uid}` : agent.uid}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </LabeledField>
-        <LabeledField label={t('console.signals.adapter')}>
-          {reconfigure ? (
-            <ReadOnlyValue>
-              {activeAdapter
-                ? localizedUnknown(activeAdapter.display_name, locale, activeAdapter.adapter_id)
-                : model.adapterID.value}
-            </ReadOnlyValue>
-          ) : (
-            <Select
-              value={activeAdapter?.adapter_id ?? ''}
-              onValueChange={value => {
-                const adapter = signalAdapters.find(item => item.adapter_id === value)
-                if (adapter) model.changeAdapter(formFromAdapter(adapter))
-              }}>
+      <FormSection title={t('console.signals.section_basic')} description={t('console.signals.section_basic_hint')}>
+        <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
+          <LabeledField label={t('console.signals.target_agent')} required>
+            <Select value={targetAgentUID} onValueChange={value => model.selectAgent(String(value))}>
               <SelectTrigger className="w-full">
-                <SelectValue />
+                <SelectValue placeholder={t('console.signals.select_agent')} />
               </SelectTrigger>
-              <SelectContent>
-                {signalAdapters.map(adapter => (
-                  <SelectItem key={adapter.adapter_id} value={adapter.adapter_id}>
-                    {localizedUnknown(adapter.display_name, locale, adapter.adapter_id)}
+              <SelectContent emptyLabel={agents.isLoading ? t('common.loading') : t('common.select_no_agents')}>
+                {agentList.map(agent => (
+                  <SelectItem key={agent.uid} value={agent.uid}>
+                    {agent.display_name ? `${agent.display_name} · ${agent.uid}` : agent.uid}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-          )}
-        </LabeledField>
-        <LabeledField label={t('console.signals.binding_name')} required>
-          {reconfigure ? (
-            <ReadOnlyValue mono>{model.name.value}</ReadOnlyValue>
-          ) : (
-            <Input value={model.name.value} onChange={event => (model.name.value = event.target.value)} />
-          )}
-        </LabeledField>
-      </div>
+          </LabeledField>
+          <LabeledField label={t('console.signals.adapter')} required={!reconfigure}>
+            {reconfigure ? (
+              <ReadOnlyValue>
+                {activeAdapter
+                  ? localizedUnknown(activeAdapter.display_name, locale, activeAdapter.adapter_id)
+                  : model.adapterID.value}
+              </ReadOnlyValue>
+            ) : (
+              <Select
+                value={activeAdapter?.adapter_id ?? ''}
+                onValueChange={value => {
+                  const adapter = signalAdapters.find(item => item.adapter_id === value)
+                  if (adapter) model.changeAdapter(formFromAdapter(adapter))
+                }}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent emptyLabel={adapters.isLoading ? t('common.loading') : t('common.select_empty')}>
+                  {signalAdapters.map(adapter => (
+                    <SelectItem key={adapter.adapter_id} value={adapter.adapter_id}>
+                      {localizedUnknown(adapter.display_name, locale, adapter.adapter_id)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </LabeledField>
+          <LabeledField label={t('console.signals.binding_name')} required>
+            {reconfigure ? (
+              <ReadOnlyValue mono>{model.name.value}</ReadOnlyValue>
+            ) : (
+              <Input required value={model.name.value} onChange={event => (model.name.value = event.target.value)} />
+            )}
+          </LabeledField>
+        </div>
+      </FormSection>
 
       {activeAdapter ? (
         <>
-          <ConfigField
-            field={asConfigField(activeAdapter.group_message_mode_field)}
-            locale={locale}
-            value={model.groupMessageMode.value || defaultGroupMessageMode(activeAdapter)}
-            onChange={value => (model.groupMessageMode.value = String(value) as GroupMessageMode)}
-          />
-          <LabeledField
-            label={t('console.signals.confidential_memory')}
-            description={t('console.signals.confidential_memory_hint')}>
-            <div className="flex items-center justify-between border border-border p-3">
-              <span className="text-sm text-muted-foreground">
-                {model.confidentialMemory.value
-                  ? t('console.signals.memory_confidential')
-                  : t('console.signals.memory_shared')}
-              </span>
-              <Switch
-                aria-label={t('console.signals.confidential_memory')}
-                checked={model.confidentialMemory.value}
-                onCheckedChange={checked => (model.confidentialMemory.value = checked)}
+          <FormSection
+            title={t('console.signals.section_behavior')}
+            description={t('console.signals.section_behavior_hint')}>
+            <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+              <ConfigField
+                field={asConfigField(activeAdapter.group_message_mode_field)}
+                locale={locale}
+                value={model.groupMessageMode.value || defaultGroupMessageMode(activeAdapter)}
+                onChange={value => (model.groupMessageMode.value = String(value) as GroupMessageMode)}
               />
+              <LabeledField
+                label={t('console.signals.confidential_memory')}
+                description={t('console.signals.confidential_memory_hint')}>
+                <div className="flex items-center justify-between border border-border p-3">
+                  <span className="text-sm text-muted-foreground">
+                    {model.confidentialMemory.value
+                      ? t('console.signals.memory_confidential')
+                      : t('console.signals.memory_shared')}
+                  </span>
+                  <Switch
+                    aria-label={t('console.signals.confidential_memory')}
+                    checked={model.confidentialMemory.value}
+                    onCheckedChange={checked => (model.confidentialMemory.value = checked)}
+                  />
+                </div>
+              </LabeledField>
             </div>
-          </LabeledField>
-          <ConfigFields
-            config={model.config.value}
-            fields={asConfigFields(activeAdapter.fields)}
-            locale={locale}
-            onChange={(path, value) => model.changeConfig(path, value)}
-          />
+          </FormSection>
+          <FormSection
+            title={t('console.signals.section_connection')}
+            description={t('console.signals.section_connection_hint')}>
+            <ConfigFields
+              advancedLabel={t('console.signals.section_advanced')}
+              config={model.config.value}
+              fields={activeFields}
+              locale={locale}
+              onChange={(path, value) => model.changeConfig(path, value)}
+            />
+          </FormSection>
         </>
       ) : null}
     </ResourceEditorPage>

@@ -12,7 +12,9 @@ describe('PrincipalGroupEditorModel', () => {
       kind: 'static',
       computedCondition: ''
     })
+    expect(model.dirty.value).toBe(false)
     model.displayName.value = 'Edited Admins'
+    expect(model.dirty.value).toBe(true)
     model.initialize('group:admins', {
       name: 'admins',
       displayName: 'Refetched Admins',
@@ -35,6 +37,7 @@ describe('PrincipalGroupEditorModel', () => {
     expect(model.kind.value).toBe('computed')
     expect(model.computedCondition.value).toBe("principal.type == 'human'")
     expect(model.validationError.value).toBeUndefined()
+    expect(model.dirty.value).toBe(false)
     model[Symbol.dispose]()
   })
 

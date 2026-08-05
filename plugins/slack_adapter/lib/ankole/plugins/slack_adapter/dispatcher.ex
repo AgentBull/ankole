@@ -5,11 +5,13 @@ defmodule Ankole.Plugins.SlackAdapter.Dispatcher do
   alias SlackOpenAPI.Event
   alias SlackOpenAPI.SocketMode.Dispatcher, as: SocketDispatcher
 
-  @message_events ["message", "reaction_added", "reaction_removed"]
+  @message_receive_events ["message", "app_mention"]
+  @reaction_events ["reaction_added", "reaction_removed"]
   @channel_events [
     "member_joined_channel",
     "member_left_channel",
     "channel_rename",
+    "group_rename",
     "channel_deleted",
     "channel_archive"
   ]
@@ -22,12 +24,18 @@ defmodule Ankole.Plugins.SlackAdapter.Dispatcher do
   ]
 
   @spec event_types() :: [String.t()]
-  def event_types, do: @message_events ++ @channel_events ++ @contact_events ++ ["block_actions"]
+  def event_types,
+    do:
+      @message_receive_events ++
+        @reaction_events ++
+        @channel_events ++
+        @contact_events ++
+        ["block_actions"]
 
   @spec build([map()], keyword()) :: SocketDispatcher.t()
   def build(consumers, _opts \\ []) do
     SocketDispatcher.new()
-    |> SocketDispatcher.on("message", handler(consumers, &Inbound.handle_message_receive/3))
+    |> register(@message_receive_events, consumers, &Inbound.handle_message_receive/3)
     |> SocketDispatcher.on(
       "reaction_added",
       handler(consumers, &Inbound.handle_reaction_created/3)
@@ -38,7 +46,7 @@ defmodule Ankole.Plugins.SlackAdapter.Dispatcher do
     )
     |> SocketDispatcher.on_interactive(
       "block_actions",
-      handler(consumers, &Inbound.handle_card_action/3)
+      handler(consumers, &Inbound.handle_block_action/3)
     )
     |> register(@channel_events, consumers, &Channels.handle_im_event/3)
     |> register(@contact_events, consumers, &IdentityProvider.handle_contact_event/3)

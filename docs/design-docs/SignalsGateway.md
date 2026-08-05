@@ -199,6 +199,8 @@ provider copy or ActorEvent for it.
 Every direct message gives the Agent explicit input.
 A structured Agent mention makes a group message explicit.
 A reply target that points to the Agent also makes the group reply explicit.
+A human reply in a provider thread where the Agent has already written an entry
+also gives the Agent explicit input.
 
 Commands are valid only for explicit Agent input.
 The gateway ignores command-like text in an unaddressed group message.

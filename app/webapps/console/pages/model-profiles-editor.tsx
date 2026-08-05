@@ -33,6 +33,10 @@ function profileLabel(t: TFunction, profile: ProfileName) {
   return profile === 'coding' ? t('console.models.background_agent_jobs') : profile
 }
 
+function profileDescription(t: TFunction, profile: ProfileName) {
+  return t(`console.models.${profile}_description`)
+}
+
 export function ModelProfilesEditor({
   agent,
   error,
@@ -137,9 +141,10 @@ export function ModelProfilesEditor({
   }
 
   const submit = (profile: ProfileName) => {
+    const draft = model.snapshot(profile)
     const built = buildModelProfileWriteRequest({
       profile,
-      draft: model.snapshot(profile),
+      draft,
       providers,
       providerKinds,
       t
@@ -156,7 +161,7 @@ export function ModelProfilesEditor({
   const persistencePending = saveProfile.isPending || clearProfile.isPending
 
   return (
-    <section className="grid gap-4">
+    <section id="model-profiles" className="grid scroll-mt-16 gap-4">
       <div className="grid gap-1">
         <h3 className="text-lg font-semibold tracking-normal">{t('console.models.title')}</h3>
         <p className="text-sm leading-6 text-muted-foreground">{t('console.models.description')}</p>
@@ -166,9 +171,17 @@ export function ModelProfilesEditor({
       <div className="grid gap-4">
         {PROFILE_NAMES.map(profile => {
           const signals = model.profiles[profile]
-          const draft = model.snapshot(profile)
+          const draft: ProfileDraft = {
+            description: signals.description.value,
+            providerID: signals.providerID.value,
+            model: signals.model.value,
+            contextLength: signals.contextLength.value,
+            providerOptions: signals.providerOptions.value,
+            error: signals.error.value
+          }
           const configurableModel = profileUsesConfigurableModel(profile)
           const configured = Boolean(draft.providerID && (!configurableModel || draft.model))
+          const required = REQUIRED_PROFILES.has(profile)
 
           return (
             <ModelProfileEditorCard
@@ -177,17 +190,17 @@ export function ModelProfilesEditor({
               label={profileLabel(t, profile)}
               draft={draft}
               dirty={signals.dirty.value}
-              required={REQUIRED_PROFILES.has(profile)}
-              hint={profile === 'vision_fallback' ? t('console.models.vision_fallback_hint') : undefined}
+              required={required}
+              hint={profileDescription(t, profile)}
               persistencePending={persistencePending}
-              deleteDisabled={REQUIRED_PROFILES.has(profile) || !configured}
+              deleteDisabled={!configured}
               deleteLabel={t('console.models.clear')}
               providers={providers}
               providerKinds={providerKinds}
               modelCatalog={modelCatalog}
               onUpdate={patch => updateDraft(profile, patch)}
               onSave={() => submit(profile)}
-              onDelete={() => clear(profile)}
+              onDelete={() => (required ? model.clear(profile) : clear(profile))}
             />
           )
         })}

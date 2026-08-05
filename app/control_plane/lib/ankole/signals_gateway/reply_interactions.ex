@@ -2,7 +2,7 @@ defmodule Ankole.SignalsGateway.ReplyInteractions do
   @moduledoc """
   Authorizes and resolves interactions emitted by an Ankole reply presentation.
 
-  Card callbacks are transport input, not authority. The durable ActorEvent
+  Provider callbacks are transport input, not authority. The durable ActorEvent
   checkpoint decides whether an interaction is pending, answered, or superseded.
   """
 
@@ -253,6 +253,10 @@ defmodule Ankole.SignalsGateway.ReplyInteractions do
       Enum.any?(get_in(event.reply_preview_checkpoint || %{}, ["cards"]) || [], fn
         %{"message_id" => ^source_entry_id} -> true
         _card -> false
+      end) or
+      Enum.any?(get_in(event.reply_preview_checkpoint || %{}, ["messages"]) || [], fn
+        %{"message_id" => ^source_entry_id} -> true
+        _message -> false
       end)
   end
 

@@ -35,11 +35,12 @@ import {
   RiWebhookLine
 } from '@remixicon/react'
 import { useMutation } from '@tanstack/react-query'
-import { useState, type ComponentType } from 'react'
+import { useRef, useState, type ComponentType } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, NavLink, Outlet } from 'react-router'
 import { ThemeToggle } from '../common/theme-toggle'
 import { logoutConsoleSession } from './api/tokens'
+import { ConsoleReadiness } from './console-readiness'
 
 /**
  * Shared shell for the console: the routed layout, list-page and editor-page
@@ -100,7 +101,7 @@ const NAV_SECTIONS: NavSection[] = [
     label: 'console.nav.group_platform',
     items: [
       { to: '/workers', label: 'console.nav.workers', icon: RiServerLine },
-      { to: '/access', label: 'console.nav.access', icon: RiKey2Line },
+      { to: '/access/groups', label: 'console.nav.access', icon: RiKey2Line },
       { to: '/settings', label: 'console.nav.settings', icon: RiSettings3Line }
     ]
   }
@@ -110,6 +111,7 @@ const NAV_SECTIONS: NavSection[] = [
 export function ConsoleLayout() {
   const { t } = useTranslation()
   const [navigationOpen, setNavigationOpen] = useState(false)
+  const navigationTriggerRef = useRef<HTMLButtonElement>(null)
   const logout = useMutation({
     mutationFn: logoutConsoleSession,
     onSettled: () => window.location.assign('/sessions/new')
@@ -117,7 +119,7 @@ export function ConsoleLayout() {
 
   return (
     <TooltipProvider>
-      <div className="min-h-screen bg-background text-foreground">
+      <div className="h-screen overflow-y-scroll bg-background text-foreground [scrollbar-gutter:stable]">
         {/* Reaching the page content by keyboard meant tabbing past the header and
             all fourteen navigation links, on every page. The bypass sits first in
             the tab order and shows itself only while focused. */}
@@ -128,10 +130,21 @@ export function ConsoleLayout() {
         </a>
         <header className="sticky top-0 z-30 flex h-12 items-center justify-between border-b border-border bg-background px-3 text-foreground">
           <div className="flex min-w-0 items-center gap-3">
-            <Sheet open={navigationOpen} onOpenChange={setNavigationOpen}>
+            <Sheet
+              open={navigationOpen}
+              onOpenChange={setNavigationOpen}
+              onOpenChangeComplete={open => {
+                if (!open) navigationTriggerRef.current?.focus()
+              }}>
               <SheetTrigger
                 render={
-                  <Button aria-label={t('console.aria.open_navigation')} size="icon-sm" type="button" variant="ghost" />
+                  <Button
+                    ref={navigationTriggerRef}
+                    aria-label={t('console.aria.open_navigation')}
+                    size="icon-sm"
+                    type="button"
+                    variant="ghost"
+                  />
                 }
                 className="hover:bg-accent hover:text-accent-foreground lg:hidden">
                 <RiMenuLine />
@@ -174,6 +187,7 @@ export function ConsoleLayout() {
             </Link>
           </div>
           <div className="flex items-center gap-2">
+            <ConsoleReadiness />
             <ThemeToggle />
             <Tooltip>
               <TooltipTrigger
@@ -231,12 +245,14 @@ function ConsoleNavigation({ onNavigate }: { onNavigate?: () => void }) {
                   to={item.to}
                   end={item.to === '/'}
                   onClick={onNavigate}
-                  className={({ isActive }) =>
+                  className={({ isActive, isPending }) =>
                     cn(
                       'flex min-h-10 items-center gap-3 border-l-4 px-3 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
-                      isActive
-                        ? 'border-primary bg-accent text-accent-foreground'
-                        : 'border-transparent text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                      isPending
+                        ? 'border-primary/60 bg-accent text-accent-foreground'
+                        : isActive
+                          ? 'border-primary bg-accent text-accent-foreground'
+                          : 'border-transparent text-muted-foreground hover:bg-accent hover:text-accent-foreground'
                     )
                   }>
                   <Icon className="size-4 shrink-0" aria-hidden />

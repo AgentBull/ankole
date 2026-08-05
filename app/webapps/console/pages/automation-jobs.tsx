@@ -8,6 +8,7 @@ import {
   TableCell,
   TableRow
 } from '@ankole/uikit'
+import { RiCodeSSlashLine } from '@remixicon/react'
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -72,7 +73,7 @@ export function AutomationJobsPage() {
   }
 
   return (
-    <div className="grid min-w-0 gap-6">
+    <>
       <ResourceListPage
         title={t('console.automation_jobs.title')}
         description={t('console.automation_jobs.description')}
@@ -88,6 +89,7 @@ export function AutomationJobsPage() {
         emptyTitle={
           scope.agentUID ? t('console.automation_jobs.empty_title') : t('console.automation_jobs.select_scope_title')
         }
+        emptyIcon={<RiCodeSSlashLine aria-hidden />}
         emptyDescription={
           scope.agentUID
             ? t('console.automation_jobs.empty_description')
@@ -96,6 +98,7 @@ export function AutomationJobsPage() {
         error={scope.error ?? jobs.error}
         isEmpty={rows.length === 0}
         isFiltered={Boolean(query.trim())}
+        onClearFilters={() => setQuery('')}
         isLoading={Boolean(scope.agentUID) && jobs.isLoading}
         subNav={
           <ScopeBar>
@@ -138,7 +141,7 @@ export function AutomationJobsPage() {
           </div>
         </SheetContent>
       </Sheet>
-    </div>
+    </>
   )
 }
 

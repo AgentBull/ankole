@@ -31,7 +31,8 @@ import {
   RiCloseLine,
   RiLoaderLine,
   RiMore2Fill,
-  RiResetLeftLine
+  RiResetLeftLine,
+  RiSettings3Line
 } from '@remixicon/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useDeferredValue, useEffect, useRef, useState, type FormEvent } from 'react'
@@ -49,6 +50,7 @@ import {
   ankoleWebControlPlanePluginControllerIndexQueryKey
 } from '../api/generated/@tanstack/react-query.gen'
 import type { AppConfigurationItem, JsonValue as JSONValue } from '../api/generated/types.gen'
+import { SaveButton, useFormCompleteness } from '../console-form'
 import { ErrorBlock, formatJSON, parseJSON } from '../console-primitives'
 import { ENCRYPTED_VALUE_MASK, isEncryptedValueMask } from '../encrypted-value-input'
 import { ResourceListPage, ResourceSearch, RowActions } from '../console-list-page'
@@ -108,9 +110,11 @@ function SettingsList() {
       isEmpty={items.length === 0}
       count={items.length}
       emptyTitle={t('console.settings.empty_title')}
+      emptyIcon={<RiSettings3Line aria-hidden />}
       emptyDescription={t('console.no_settings')}
       error={list.error}
       isFiltered={Boolean(query.trim())}
+      onClearFilters={() => setQuery('')}
       toolbar={
         <ResourceSearch
           label={t('console.settings.search')}
@@ -256,6 +260,7 @@ function SettingGroupRow({ group }: { group: SettingGroup }) {
 export function SettingEditorDrawer() {
   useSignals()
   const { t } = useTranslation()
+  const formCompleteness = useFormCompleteness()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const model = useModel(SettingEditorModel)
@@ -358,7 +363,13 @@ export function SettingEditorDrawer() {
     <>
       <Drawer open onOpenChange={open => !open && requestClose()} swipeDirection="right">
         <DrawerContent className="data-[swipe-axis=x]:[--drawer-content-width:100%] data-[swipe-axis=x]:sm:[--drawer-content-width:42rem]">
-          <form className="flex min-h-0 flex-1 flex-col" onSubmit={submit}>
+          <form
+            ref={formCompleteness.formRef}
+            className="flex min-h-0 flex-1 flex-col"
+            noValidate
+            onChange={formCompleteness.refresh}
+            onInput={formCompleteness.refresh}
+            onSubmit={submit}>
             <DrawerHeader className="relative gap-3 border-b border-border p-5 pr-24">
               <div className="absolute top-3 right-3 flex items-center gap-1">
                 {item?.editable && item.overridden ? (
@@ -444,10 +455,15 @@ export function SettingEditorDrawer() {
               <Button disabled={saving} type="button" variant="ghost" onClick={requestClose}>
                 {t('common.cancel')}
               </Button>
-              <Button disabled={!item?.editable || !initialized || !model.dirty.value || saving} type="submit">
-                {saving ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
+              <SaveButton
+                disabled={
+                  !item?.editable || !initialized || saving || (!model.dirty.value && !formCompleteness.incomplete)
+                }
+                incomplete={formCompleteness.incomplete && Boolean(item?.editable && initialized) && !saving}
+                loading={saving}
+                type="submit">
                 {t('common.save')}
-              </Button>
+              </SaveButton>
             </DrawerFooter>
           </form>
         </DrawerContent>
@@ -508,6 +524,7 @@ export function SettingEditorDrawer() {
  */
 export function SettingGroupDrawer() {
   const { t } = useTranslation()
+  const formCompleteness = useFormCompleteness()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const params = useParams()
@@ -605,7 +622,13 @@ export function SettingGroupDrawer() {
     <>
       <Drawer open onOpenChange={open => !open && requestClose()} swipeDirection="right">
         <DrawerContent className="data-[swipe-axis=x]:[--drawer-content-width:100%] data-[swipe-axis=x]:sm:[--drawer-content-width:48rem]">
-          <form className="flex min-h-0 flex-1 flex-col" onSubmit={submit}>
+          <form
+            ref={formCompleteness.formRef}
+            className="flex min-h-0 flex-1 flex-col"
+            noValidate
+            onChange={formCompleteness.refresh}
+            onInput={formCompleteness.refresh}
+            onSubmit={submit}>
             <DrawerHeader className="relative gap-3 border-b border-border p-5 pr-16">
               <div className="absolute top-3 right-3">
                 <Button
@@ -676,10 +699,13 @@ export function SettingGroupDrawer() {
               <Button disabled={saving} type="button" variant="ghost" onClick={requestClose}>
                 {t('common.cancel')}
               </Button>
-              <Button disabled={!dirty || saving} type="submit">
-                {saving ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
+              <SaveButton
+                disabled={saving || (!dirty && !formCompleteness.incomplete)}
+                incomplete={formCompleteness.incomplete && !saving}
+                loading={saving}
+                type="submit">
                 {t('common.save')}
-              </Button>
+              </SaveButton>
             </DrawerFooter>
           </form>
         </DrawerContent>

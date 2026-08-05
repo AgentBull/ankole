@@ -167,4 +167,26 @@ describe('model profile options', () => {
       { value: 'private-model', label: 'Private model', description: 'private-model' }
     ])
   })
+
+  test('shows account models for a ChatGPT subscription provider', () => {
+    const catalog = {
+      data: [
+        {
+          id: 'chatgpt_subscription/gpt-5.6-sol',
+          name: 'GPT-5.6 Sol',
+          description: 'Frontier coding model.',
+          architecture: { input_modalities: ['text', 'image'], output_modalities: ['text'] },
+          supported_parameters: ['tools']
+        }
+      ]
+    }
+
+    expect(modelOptionsForProfile(catalog, 'chatgpt_subscription', 'primary')).toEqual([
+      {
+        value: 'gpt-5.6-sol',
+        label: 'GPT-5.6 Sol',
+        description: 'gpt-5.6-sol'
+      }
+    ])
+  })
 })

@@ -15,6 +15,7 @@ const ReplyAttachmentParams = z.object({
 interface ReplyAttachmentDetails {
   tool: 'reply_attachment'
   ok: true
+  delivery_state: 'queued'
   attachments: Array<{
     agent_computer_path: string
     user_files_relative_path: string
@@ -36,7 +37,7 @@ export function createReplyAttachmentTool(
 ): AgentTool<typeof ReplyAttachmentParams, ReplyAttachmentDetails> {
   return {
     name: 'reply_attachment',
-    description: `You can send files natively: place the deliverable under ${context.userFilesRoot} and call reply_attachment with that real path.`,
+    description: `Queue a file for native delivery with the final reply: place the deliverable under ${context.userFilesRoot} and call reply_attachment with that real path. Success confirms that Ankole recorded the file, not that the chat provider accepted it. In the final answer, say the file is prepared for delivery; do not claim that the provider already received it.`,
     schema: ReplyAttachmentParams,
     executionMode: 'sequential',
     isReadOnly: false,
@@ -68,6 +69,7 @@ export function createReplyAttachmentTool(
       const details: ReplyAttachmentDetails = {
         tool: 'reply_attachment',
         ok: true,
+        delivery_state: 'queued',
         attachments: [attachment]
       }
 

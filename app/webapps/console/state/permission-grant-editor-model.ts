@@ -1,4 +1,4 @@
-import { batch, createModel, signal } from '@preact/signals-react'
+import { batch, computed, createModel, signal } from '@preact/signals-react'
 import type { PermissionGrantCreateRequest, PermissionGrantUpdateRequest } from '../api/generated/types.gen'
 
 export type PermissionGrantEditorDraft = {
@@ -20,7 +20,18 @@ export const PermissionGrantEditorModel = createModel(() => {
   const action = signal('')
   const condition = signal('true')
   const description = signal('')
+  const initialDraft = signal<PermissionGrantEditorDraft>()
   const validationError = signal<string>()
+  const dirty = computed(() => {
+    const source = initialDraft.value
+    return Boolean(
+      source &&
+      (resourcePattern.value !== source.resourcePattern ||
+        action.value !== source.action ||
+        condition.value !== source.condition ||
+        description.value !== source.description)
+    )
+  })
 
   return {
     sourceKey,
@@ -28,6 +39,7 @@ export const PermissionGrantEditorModel = createModel(() => {
     action,
     condition,
     description,
+    dirty,
     validationError,
     initialize(nextSourceKey: string, draft: PermissionGrantEditorDraft) {
       if (sourceKey.value === nextSourceKey) return
@@ -37,11 +49,22 @@ export const PermissionGrantEditorModel = createModel(() => {
         action.value = draft.action
         condition.value = draft.condition
         description.value = draft.description
+        initialDraft.value = { ...draft }
         validationError.value = undefined
       })
     },
     clearValidation() {
       validationError.value = undefined
+    },
+    markSaved(draft?: PermissionGrantEditorDraft) {
+      initialDraft.value = draft
+        ? { ...draft }
+        : {
+            resourcePattern: resourcePattern.value,
+            action: action.value,
+            condition: condition.value,
+            description: description.value
+          }
     },
     draftError(): PermissionGrantDraftError | undefined {
       if (!resourcePattern.value.trim()) return 'resource_pattern_required'

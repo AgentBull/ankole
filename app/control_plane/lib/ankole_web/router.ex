@@ -198,6 +198,8 @@ defmodule AnkoleWeb.Router do
            AgentLibrarySkillOverlayController,
            :delete
 
+    get "/console-readiness", ConsoleReadinessController, :show
+
     get "/agent-computer-workers", AgentComputerWorkerController, :index
 
     get "/background-agent-jobs", BackgroundAgentJobController, :index

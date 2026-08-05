@@ -98,6 +98,7 @@ import {
   ankoleWebBrainControllerSourceIndex,
   ankoleWebBrainControllerSourceRaw,
   ankoleWebBrainControllerStatus,
+  ankoleWebConsoleReadinessControllerShow,
   ankoleWebControlPlanePluginControllerIndex,
   ankoleWebControlPlanePluginControllerUpdate,
   ankoleWebIdentityProviderControllerAdapters,
@@ -412,6 +413,9 @@ import type {
   AnkoleWebBrainControllerStatusData,
   AnkoleWebBrainControllerStatusError,
   AnkoleWebBrainControllerStatusResponse,
+  AnkoleWebConsoleReadinessControllerShowData,
+  AnkoleWebConsoleReadinessControllerShowError,
+  AnkoleWebConsoleReadinessControllerShowResponse,
   AnkoleWebControlPlanePluginControllerIndexData,
   AnkoleWebControlPlanePluginControllerIndexError,
   AnkoleWebControlPlanePluginControllerIndexResponse,
@@ -4640,4 +4644,32 @@ export const ankoleWebAuthZGroupControllerGrantsOptions = (options: Options<Anko
       return data
     },
     queryKey: ankoleWebAuthZGroupControllerGrantsQueryKey(options)
+  })
+
+export const ankoleWebConsoleReadinessControllerShowQueryKey = (
+  options?: Options<AnkoleWebConsoleReadinessControllerShowData>
+) => createQueryKey('ankoleWebConsoleReadinessControllerShow', options)
+
+/**
+ * Read the console readiness snapshot
+ */
+export const ankoleWebConsoleReadinessControllerShowOptions = (
+  options?: Options<AnkoleWebConsoleReadinessControllerShowData>
+) =>
+  queryOptions<
+    AnkoleWebConsoleReadinessControllerShowResponse,
+    AnkoleWebConsoleReadinessControllerShowError,
+    AnkoleWebConsoleReadinessControllerShowResponse,
+    ReturnType<typeof ankoleWebConsoleReadinessControllerShowQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebConsoleReadinessControllerShow({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebConsoleReadinessControllerShowQueryKey(options)
   })

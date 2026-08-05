@@ -31,7 +31,8 @@ import {
   RiLinksLine,
   RiDownloadLine,
   RiMore2Fill,
-  RiPencilLine
+  RiPencilLine,
+  RiServerLine
 } from '@remixicon/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useDeferredValue, useEffect, useState } from 'react'
@@ -59,8 +60,11 @@ import {
 } from '../state/worker-file-path'
 
 export function WorkersListPage() {
-  const { t } = useTranslation()
-  const workers = useQuery(ankoleWebAgentComputerWorkerControllerIndexOptions())
+  const { t, i18n } = useTranslation()
+  const workers = useQuery({
+    ...ankoleWebAgentComputerWorkerControllerIndexOptions(),
+    refetchInterval: query => ((query.state.data?.workers.length ?? 0) === 0 ? 2_000 : 10_000)
+  })
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
   const rows = (workers.data?.workers ?? []).filter(worker =>
@@ -83,9 +87,12 @@ export function WorkersListPage() {
       isEmpty={rows.length === 0}
       count={rows.length}
       emptyTitle={t('console.workers.empty_title')}
+      emptyIcon={<RiServerLine aria-hidden />}
       emptyDescription={t('console.workers.empty_description')}
+      emptyAction={<WorkerStartGuide documentationLocale={i18n.resolvedLanguage} />}
       error={workers.error}
       isFiltered={Boolean(query.trim())}
+      onClearFilters={() => setQuery('')}
       toolbar={
         <ResourceSearch
           label={t('console.workers.search')}
@@ -120,6 +127,25 @@ export function WorkersListPage() {
         </TableRow>
       ))}
     </ResourceListPage>
+  )
+}
+
+function WorkerStartGuide({ documentationLocale }: { documentationLocale?: string }) {
+  const { t } = useTranslation()
+  const locale = documentationLocale === 'zh-Hans-CN' ? 'zh-Hans-CN' : 'en-US'
+
+  return (
+    <div className="grid w-full max-w-xl gap-3">
+      <a
+        className={cn(buttonVariants({ size: 'sm' }), 'w-fit')}
+        href={`https://ankole.agentbull.com/${locale}/docs/quickstart/#deployment`}
+        rel="noreferrer"
+        target="_blank">
+        {t('console.workers.deployment_guide')}
+      </a>
+      <p className="text-pretty text-xs text-muted-foreground">{t('console.workers.deployment_options')}</p>
+      <p className="text-pretty text-xs text-muted-foreground">{t('console.workers.ready_hint')}</p>
+    </div>
   )
 }
 
@@ -292,6 +318,7 @@ export function WorkerFilesPage() {
       isEmpty={entries.length === 0}
       count={entries.length}
       emptyTitle={t('console.worker_files.empty_title')}
+      emptyIcon={<RiFolder3Line aria-hidden />}
       emptyDescription={t('console.worker_files.empty_description')}
       emptyAction={
         query ? (
@@ -403,12 +430,11 @@ function AgentSelect({
       value={value}
       onValueChange={next => {
         if (next) onValueChange(next)
-      }}
-      disabled={agents.length === 0}>
-      <SelectTrigger className="h-8 w-52 text-xs" aria-label={t('console.worker_files.agent')}>
+      }}>
+      <SelectTrigger size="sm" className="w-52 text-xs" aria-label={t('console.worker_files.agent')}>
         <SelectValue placeholder={t('console.worker_files.select_agent')} />
       </SelectTrigger>
-      <SelectContent>
+      <SelectContent emptyLabel={t('common.select_no_agents')}>
         {agents.map(agent => (
           <SelectItem key={agent.uid} value={agent.uid}>
             {agent.display_name || agent.uid}
@@ -431,7 +457,7 @@ function RootSelect({
   return (
     <div className="flex items-center gap-2">
       <Select value={root} onValueChange={value => onRootChange(value as WorkerFileRoot)}>
-        <SelectTrigger className="h-8 w-52 text-xs" aria-label={t('console.worker_files.root')}>
+        <SelectTrigger size="sm" className="w-52 text-xs" aria-label={t('console.worker_files.root')}>
           <RiFolder3Line className="size-4" aria-hidden />
           <SelectValue />
         </SelectTrigger>
@@ -622,6 +648,7 @@ function UploadDialog({
   }
 
   const submit = () => {
+    if (disabled || files.length === 0) return
     for (const file of files) {
       onUpload({ root, file }, joinPath(currentPath, subdir.trim(), file.name))
     }
@@ -640,30 +667,44 @@ function UploadDialog({
           <DialogTitle>{t('console.worker_files.upload_title')}</DialogTitle>
           <DialogDescription>{t('console.worker_files.upload_hint')}</DialogDescription>
         </DialogHeader>
-        <div className="grid gap-4">
-          <input
-            type="file"
-            multiple
-            onChange={event => setFiles(event.target.files ? Array.from(event.target.files) : [])}
-          />
-          <label className="grid gap-1 text-sm">
-            <span className="text-muted-foreground">{t('console.worker_files.upload_subdirectory')}</span>
-            <Input placeholder="docs/" value={subdir} onChange={event => setSubdir(event.target.value)} />
-          </label>
-          {files.length > 0 ? (
-            <ul className="grid gap-1 text-xs text-muted-foreground">
-              {files.map(file => (
-                <li key={file.name}>{joinPath(currentPath, subdir.trim(), file.name)}</li>
-              ))}
-            </ul>
-          ) : null}
-        </div>
-        <DialogFooter>
-          <DialogClose render={<Button size="sm" variant="ghost" />}>{t('common.cancel')}</DialogClose>
-          <Button disabled={disabled || files.length === 0} size="sm" type="button" onClick={submit}>
-            {t('console.worker_files.upload')}
-          </Button>
-        </DialogFooter>
+        <form
+          className="contents"
+          onSubmit={event => {
+            event.preventDefault()
+            submit()
+          }}>
+          <div className="grid gap-4">
+            <Input
+              aria-label={t('console.worker_files.upload')}
+              type="file"
+              multiple
+              required
+              onChange={event => setFiles(event.target.files ? Array.from(event.target.files) : [])}
+            />
+            <label className="grid gap-1 text-sm">
+              <span className="text-muted-foreground">{t('console.worker_files.upload_subdirectory')}</span>
+              <Input placeholder="docs/" value={subdir} onChange={event => setSubdir(event.target.value)} />
+            </label>
+            {files.length > 0 ? (
+              <ul className="grid gap-1 text-xs text-muted-foreground">
+                {files.map(file => (
+                  <li key={file.name}>{joinPath(currentPath, subdir.trim(), file.name)}</li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+          <DialogFooter>
+            <DialogClose render={<Button size="sm" type="button" variant="ghost" />}>{t('common.cancel')}</DialogClose>
+            <Button
+              aria-busy={disabled}
+              disabled={disabled}
+              incomplete={files.length === 0 && !disabled}
+              size="sm"
+              type="submit">
+              {t('console.worker_files.upload')}
+            </Button>
+          </DialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   )
@@ -684,11 +725,15 @@ function RenameDialog({
   onConfirm: (newName: string) => void
   t: (key: string) => string
 }) {
-  const [value, setValue] = useState('')
+  const originalName = basename(entry.relative_path)
+  const [value, setValue] = useState(originalName)
+  const normalizedValue = value.trim()
+  const incomplete = normalizedValue === ''
+  const unchanged = normalizedValue === originalName
 
   useEffect(() => {
-    if (open) setValue(basename(entry.relative_path))
-  }, [entry.relative_path, open])
+    if (open) setValue(originalName)
+  }, [open, originalName])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -696,23 +741,30 @@ function RenameDialog({
         <DialogHeader>
           <DialogTitle>{t('console.worker_files.rename_title')}</DialogTitle>
         </DialogHeader>
-        <label className="grid gap-1 text-sm">
-          <span className="text-muted-foreground">{t('console.worker_files.new_name')}</span>
-          <Input value={value} onChange={event => setValue(event.target.value)} />
-        </label>
-        <DialogFooter>
-          <DialogClose render={<Button size="sm" variant="ghost" />}>{t('common.cancel')}</DialogClose>
-          <Button
-            disabled={disabled || value.trim() === ''}
-            size="sm"
-            type="button"
-            onClick={() => {
-              onConfirm(value.trim())
-              onOpenChange(false)
-            }}>
-            {t('console.worker_files.rename')}
-          </Button>
-        </DialogFooter>
+        <form
+          className="contents"
+          onSubmit={event => {
+            event.preventDefault()
+            if (disabled || incomplete || unchanged) return
+            onConfirm(normalizedValue)
+            onOpenChange(false)
+          }}>
+          <label className="grid gap-1 text-sm">
+            <span className="text-muted-foreground">{t('console.worker_files.new_name')}</span>
+            <Input required value={value} onChange={event => setValue(event.target.value)} />
+          </label>
+          <DialogFooter>
+            <DialogClose render={<Button size="sm" type="button" variant="ghost" />}>{t('common.cancel')}</DialogClose>
+            <Button
+              aria-busy={disabled}
+              disabled={disabled || (unchanged && !incomplete)}
+              incomplete={incomplete && !disabled}
+              size="sm"
+              type="submit">
+              {t('console.worker_files.rename')}
+            </Button>
+          </DialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   )

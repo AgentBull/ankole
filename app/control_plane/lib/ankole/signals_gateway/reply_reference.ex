@@ -1,6 +1,8 @@
 defmodule Ankole.SignalsGateway.ReplyReference do
   @moduledoc false
 
+  import Ecto.Query
+
   alias Ankole.SignalsGateway.Entry
   alias Ankole.SignalsGateway.InboundBatches
 
@@ -17,6 +19,7 @@ defmodule Ankole.SignalsGateway.ReplyReference do
         |> Map.put(:reply_to_source_entry_id, source_entry_id)
         |> Map.put(:reply_to, reply_to)
         |> maybe_mark_explicit(reply_to)
+        |> maybe_mark_agent_thread_explicit(repo)
     end
   end
 
@@ -107,6 +110,35 @@ defmodule Ankole.SignalsGateway.ReplyReference do
   end
 
   defp maybe_mark_explicit(fact, _reply_to), do: fact
+
+  defp maybe_mark_agent_thread_explicit(%{explicit?: true} = fact, _repo), do: fact
+
+  defp maybe_mark_agent_thread_explicit(fact, repo) do
+    with :im_group <- Map.get(fact, :channel_kind),
+         provider_thread_id when is_binary(provider_thread_id) <-
+           normalized_target_id(Map.get(fact, :provider_thread_id)),
+         signal_channel_id when is_binary(signal_channel_id) <-
+           normalized_target_id(Map.get(fact, :signal_channel_id)),
+         agent_uid when is_binary(agent_uid) <- normalized_target_id(Map.get(fact, :agent_uid)),
+         false <- own_agent_author?(Map.get(fact, :author), agent_uid),
+         true <-
+           agent_participated_in_thread?(repo, signal_channel_id, provider_thread_id, agent_uid) do
+      Map.put(fact, :explicit?, true)
+    else
+      _not_an_agent_thread_reply -> fact
+    end
+  end
+
+  defp agent_participated_in_thread?(repo, signal_channel_id, provider_thread_id, agent_uid) do
+    Entry
+    |> where([entry], entry.signal_channel_id == ^signal_channel_id)
+    |> where([entry], entry.provider_thread_id == ^provider_thread_id)
+    |> where(
+      [entry],
+      fragment("lower(?->>'agent_uid') = ?", entry.author, ^String.downcase(agent_uid))
+    )
+    |> repo.exists?()
+  end
 
   defp author_role(author) do
     case normalized_target_id(author["agent_uid"]) do

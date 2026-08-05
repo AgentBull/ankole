@@ -6,7 +6,9 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
   worker may describe semantic work, but only this module decides which fields
   can reach an IM renderer or durable terminal outbox. Transient reasoning is
   kept only in the live value and is removed from checkpoints and every
-  non-working state.
+  non-working state. A live phase label stays in working checkpoints for
+  recovery, but every non-working state removes it before rendering or durable
+  delivery.
   """
 
   @schema_version 1
@@ -81,7 +83,7 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
     |> Map.put("meta", normalize_meta(value(presentation, "meta")))
     |> normalize_interaction_status(value(presentation, "interaction_status"))
     |> normalize_interaction_answer(value(presentation, "interaction_answer"))
-    |> remove_thought_unless_working()
+    |> remove_transient_fields_unless_working()
   end
 
   def normalize(_presentation), do: new()
@@ -192,7 +194,7 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
     |> normalize()
     |> Map.put("state", state)
     |> Map.put("answer", terminal_answer(answer))
-    |> Map.delete("thought")
+    |> remove_transient_fields_unless_working()
     |> terminalize_plan()
     |> bump_revision()
   end
@@ -294,7 +296,7 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
       |> Map.put("state", state)
       |> Map.put("revision", max(presentation["revision"], revision))
       |> maybe_put_meta("status", bounded_optional_text(value(payload, "label"), 160))
-      |> remove_thought_unless_working()
+      |> remove_transient_fields_unless_working()
     end
   end
 
@@ -435,7 +437,7 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
       |> Map.put("actions", actions)
       |> Map.put("interaction_status", "pending")
       |> Map.delete("interaction_answer")
-      |> Map.delete("thought")
+      |> remove_transient_fields_unless_working()
       |> put_revision(payload)
     end
   end
@@ -935,11 +937,15 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
 
   defp terminalize_plan(presentation), do: presentation
 
-  defp remove_thought_unless_working(%{"state" => state} = presentation)
+  defp remove_transient_fields_unless_working(%{"state" => state} = presentation)
        when state in ["debouncing", "working"],
        do: presentation
 
-  defp remove_thought_unless_working(presentation), do: Map.delete(presentation, "thought")
+  defp remove_transient_fields_unless_working(presentation) do
+    presentation
+    |> Map.delete("thought")
+    |> update_in(["meta"], &Map.delete(&1, "status"))
+  end
 
   defp plan_summary(items) do
     total = length(items)

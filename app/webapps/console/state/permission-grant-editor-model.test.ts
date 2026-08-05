@@ -6,7 +6,9 @@ describe('PermissionGrantEditorModel', () => {
     const model = new PermissionGrantEditorModel()
 
     model.initialize('grant:1', { resourcePattern: 'workspace:**', action: 'read', condition: 'true', description: '' })
+    expect(model.dirty.value).toBe(false)
     model.action.value = 'update'
+    expect(model.dirty.value).toBe(true)
     model.initialize('grant:1', { resourcePattern: 'workspace:**', action: 'read', condition: 'true', description: '' })
 
     expect(model.action.value).toBe('update')
@@ -21,6 +23,7 @@ describe('PermissionGrantEditorModel', () => {
     expect(model.resourcePattern.value).toBe('chat:channel:*')
     expect(model.condition.value).toBe("principal.type == 'human'")
     expect(model.validationError.value).toBeUndefined()
+    expect(model.dirty.value).toBe(false)
     model[Symbol.dispose]()
   })
 

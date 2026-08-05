@@ -26,24 +26,13 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
   cn
 } from '@ankole/uikit'
-import {
-  RiCloseLine,
-  RiDeleteBin6Line,
-  RiInboxLine,
-  RiMore2Fill,
-  RiPencilLine,
-  RiRefreshLine,
-  RiSearchLine
-} from '@remixicon/react'
-import { useQueryClient } from '@tanstack/react-query'
+import { RiCloseLine, RiDeleteBin6Line, RiMore2Fill, RiPencilLine, RiSearchLine } from '@remixicon/react'
 import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, NavLink } from 'react-router'
+import { PageHeader, PageStack, RefreshButton } from './console-page'
 import { ErrorBlock } from './console-primitives'
 
 /**
@@ -60,16 +49,19 @@ export function ResourceListPage({
   description,
   emptyAction,
   emptyDescription,
+  emptyIcon,
   emptyTitle,
   error,
   footer,
   isFiltered = false,
   isEmpty,
   isLoading,
+  onClearFilters,
   refreshable = true,
   subNav,
   title,
-  toolbar
+  toolbar,
+  toolbarCanRevealRows = false
 }: {
   children: ReactNode
   columns: string[]
@@ -80,12 +72,15 @@ export function ResourceListPage({
   description?: string
   emptyAction?: ReactNode
   emptyDescription?: string
+  /** Decorative resource icon. Omit it when the page has no clear resource symbol. */
+  emptyIcon?: ReactNode
   emptyTitle?: string
   error?: unknown
   footer?: ReactNode
   isFiltered?: boolean
   isEmpty: boolean
   isLoading: boolean
+  onClearFilters?: () => void
   /**
    * Refresh refetches every active query, so a route that stacks two of these
    * frames would otherwise show the same button twice doing the same thing.
@@ -95,23 +90,28 @@ export function ResourceListPage({
   subNav?: ReactNode
   title: string
   toolbar?: ReactNode
+  /** Keep the toolbar available when one of its controls can broaden the server query. */
+  toolbarCanRevealRows?: boolean
 }) {
   const { t } = useTranslation()
   const hasError = Boolean(error)
-  // A search box over a list that has nothing in it is a dead control: it can
-  // only ever return the same empty state. It stays while a filter is active,
-  // because that is the one case where the operator needs it to get back out.
-  const showToolbar = Boolean(toolbar) && (isFiltered || !isEmpty || isLoading)
+  // Hide a toolbar that can only search an empty source. Keep it when a filter
+  // is active or one of its controls can broaden the server query.
+  const showToolbar = Boolean(toolbar) && (toolbarCanRevealRows || isFiltered || !isEmpty || isLoading)
+  // A list has one primary create action. Empty lists place it beside the
+  // explanation; populated lists keep it in the page header. Filtered empty
+  // lists show only the action that clears the filter.
+  const showHeaderCreate = Boolean(createTo) && !hasError && (!isEmpty || isLoading)
 
   return (
-    <div className="grid min-w-0 gap-5">
+    <PageStack>
       <PageHeader
         title={title}
         description={description}
         actions={
           <>
             {refreshable ? <RefreshButton /> : null}
-            {createTo ? (
+            {showHeaderCreate && createTo ? (
               <Link to={createTo} className={cn(buttonVariants({ size: 'sm' }))}>
                 {createLabel ?? t('common.new')}
               </Link>
@@ -126,11 +126,9 @@ export function ResourceListPage({
       <ErrorBlock error={error} />
 
       {!hasError && isEmpty && !isLoading ? (
-        <Empty className="items-start border border-border bg-card text-left">
+        <Empty className="items-start border border-border bg-card p-8 text-left md:p-10">
           <EmptyHeader className="max-w-xl items-start">
-            <EmptyMedia variant="icon">
-              <RiInboxLine />
-            </EmptyMedia>
+            {emptyIcon ? <EmptyMedia variant="icon">{emptyIcon}</EmptyMedia> : null}
             <EmptyTitle>
               {isFiltered ? t('console.empty.no_results_title') : (emptyTitle ?? t('console.empty.title'))}
             </EmptyTitle>
@@ -142,16 +140,27 @@ export function ResourceListPage({
               header button is the furthest control from where the eye already is.
               A filtered list falls back to nothing: offering "create" to someone
               whose search missed answers a question they did not ask. */}
-          {emptyAction ??
-            (isFiltered || !createTo ? null : (
+          {isFiltered && onClearFilters ? (
+            <Button size="sm" type="button" variant="outline" onClick={onClearFilters}>
+              {t('console.empty.clear_filters')}
+            </Button>
+          ) : (
+            (emptyAction ??
+            (!createTo ? null : (
               <Link to={createTo} className={cn(buttonVariants({ size: 'sm' }))}>
                 {createLabel ?? t('common.new')}
               </Link>
-            ))}
+            )))
+          )}
         </Empty>
       ) : !hasError ? (
-        <div className="overflow-x-auto border border-border bg-card">
-          <Table className="min-w-[720px]" aria-busy={isLoading}>
+        <div className="grid gap-2">
+          <p className="text-xs text-muted-foreground sm:hidden">{t('console.table.scroll_hint')}</p>
+          <Table
+            aria-busy={isLoading}
+            className="min-w-[640px] [&_td:last-child]:sticky [&_td:last-child]:right-0 [&_td:last-child]:bg-card [&_th:last-child]:sticky [&_th:last-child]:right-0 [&_th:last-child]:z-10 [&_th:last-child]:bg-muted"
+            containerClassName="border border-border bg-card"
+            containerLabel={t('console.table.region_label', { title })}>
             <TableHeader>
               <TableRow>
                 {columns.map(column => (
@@ -163,25 +172,26 @@ export function ResourceListPage({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {isLoading ? (
-                <TableRow>
-                  <TableCell colSpan={columns.length + 1}>
-                    <div className="grid gap-2">
-                      <Skeleton className="h-6 w-full" />
-                      <Skeleton className="h-6 w-4/5" />
-                      <Skeleton className="h-6 w-2/3" />
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ) : (
-                children
-              )}
+              {isLoading
+                ? Array.from({ length: 4 }, (_, rowIndex) => (
+                    <TableRow key={rowIndex}>
+                      {columns.map((column, columnIndex) => (
+                        <TableCell key={`${column}-${columnIndex}`}>
+                          <Skeleton className={cn('h-4', columnIndex === 0 ? 'w-28' : 'w-20')} />
+                        </TableCell>
+                      ))}
+                      <TableCell>
+                        <Skeleton className="ml-auto size-7" />
+                      </TableCell>
+                    </TableRow>
+                  ))
+                : children}
             </TableBody>
           </Table>
         </div>
       ) : null}
       {footer}
-    </div>
+    </PageStack>
   )
 }
 
@@ -211,45 +221,6 @@ export function SubNav({ items }: { items: { to: string; label: string }[] }) {
         </NavLink>
       ))}
     </nav>
-  )
-}
-
-/**
- * Refetches every active query on the page and says so while it runs.
- *
- * Refresh used to fire and report nothing: on a fast local request the table
- * blinked, and on a slow one the page looked inert, so the operator clicked
- * again. The icon now spins and the control is disabled until the refetch
- * settles, which is the inline-loading treatment Carbon asks for on the element
- * that started the work.
- */
-export function RefreshButton() {
-  const { t } = useTranslation()
-  const queryClient = useQueryClient()
-  const [refreshing, setRefreshing] = useState(false)
-
-  const refresh = () => {
-    setRefreshing(true)
-    void queryClient.refetchQueries({ type: 'active' }).finally(() => setRefreshing(false))
-  }
-
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <Button
-            aria-label={t('console.aria.refresh')}
-            disabled={refreshing}
-            size="icon-sm"
-            type="button"
-            variant="outline"
-          />
-        }
-        onClick={refresh}>
-        <RiRefreshLine className={cn(refreshing && 'animate-spin')} />
-      </TooltipTrigger>
-      <TooltipContent>{t('console.aria.refresh')}</TooltipContent>
-    </Tooltip>
   )
 }
 
@@ -334,30 +305,72 @@ export function ResourceSearch({
 
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2 border border-border bg-card p-2">
-      <div className="relative min-w-0 flex-1 basis-72">
-        <RiSearchLine
-          className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
-          aria-hidden
-        />
-        <Input
-          aria-label={label}
-          className="pr-10 pl-10"
-          placeholder={placeholder ?? label}
-          type="search"
-          value={value}
-          onChange={event => onChange(event.target.value)}
-        />
-        {value ? (
-          <button
-            aria-label={t('console.empty.clear_search')}
-            className="absolute inset-y-0 right-0 grid w-10 place-items-center text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-            type="button"
-            onClick={() => onChange('')}>
-            <RiCloseLine />
-          </button>
-        ) : null}
-      </div>
+      <SearchField
+        className="flex-1 basis-72"
+        clearLabel={t('console.empty.clear_search')}
+        label={label}
+        onChange={onChange}
+        placeholder={placeholder}
+        value={value}
+      />
       {filters ? <div className="flex min-w-0 flex-wrap items-center gap-3">{filters}</div> : null}
+    </div>
+  )
+}
+
+/** One searchable text field with a browser-independent visible hint. */
+export function SearchField({
+  'aria-describedby': ariaDescribedBy,
+  className,
+  clearLabel,
+  id,
+  label,
+  onChange,
+  placeholder,
+  value
+}: {
+  'aria-describedby'?: string
+  className?: string
+  clearLabel?: string
+  id?: string
+  label: string
+  onChange: (value: string) => void
+  placeholder?: string
+  value: string
+}) {
+  const { t } = useTranslation()
+
+  return (
+    <div className={cn('relative min-w-0', className)}>
+      <RiSearchLine
+        className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+        aria-hidden
+      />
+      <Input
+        aria-describedby={ariaDescribedBy}
+        aria-label={label}
+        className="pr-10 pl-10"
+        id={id}
+        type="search"
+        value={value}
+        onChange={event => onChange(event.target.value)}
+      />
+      {!value ? (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-y-0 right-10 left-10 flex items-center truncate text-sm leading-5 text-muted-foreground">
+          {placeholder ?? label}
+        </span>
+      ) : null}
+      {value ? (
+        <button
+          aria-label={clearLabel ?? t('console.empty.clear_search')}
+          className="absolute inset-y-0 right-0 grid w-10 place-items-center text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+          type="button"
+          onClick={() => onChange('')}>
+          <RiCloseLine />
+        </button>
+      ) : null}
     </div>
   )
 }
@@ -389,26 +402,6 @@ export function FilterSwitch({
       <Switch checked={checked} onCheckedChange={onChange} />
       {label}
     </label>
-  )
-}
-
-export function PageHeader({
-  actions,
-  description,
-  title
-}: {
-  actions?: ReactNode
-  description?: string
-  title: string
-}) {
-  return (
-    <div className="flex min-w-0 flex-wrap items-end justify-between gap-4 border-b border-border pb-5">
-      <div className="grid min-w-0 gap-1">
-        <h2 className="text-2xl font-semibold tracking-normal text-foreground">{title}</h2>
-        {description ? <p className="max-w-3xl text-sm leading-6 text-muted-foreground">{description}</p> : null}
-      </div>
-      {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
-    </div>
   )
 }
 

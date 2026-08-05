@@ -4,24 +4,58 @@ defmodule Ankole.Plugins.SlackAdapter.Outbox do
   @behaviour Ankole.SignalsGateway.OutboxAdapter
 
   alias Ankole.Plugins.MapHelpers
-  alias Ankole.Plugins.SlackAdapter.{BlockKit, Config, Emoji, Mrkdwn}
+  alias Ankole.Plugins.SlackAdapter.{BlockKit, Config, Emoji, ErrorPolicy, Mrkdwn, ReplyPreview}
+  alias Ankole.Repo
   alias Ankole.SignalsGateway
-  alias Ankole.SignalsGateway.OutboxEntry
+  alias Ankole.SignalsGateway.{ActorEvent, OutboxEntry}
+  alias Ankole.SignalsGateway.ReplyPreviewAdapter.Request
   alias Ankole.WorkerFiles
   alias SlackOpenAPI.Error
 
   @max_text_chars 12_000
 
   @impl true
-  def send(%OutboxEntry{} = outbox) do
-    with {:ok, config} <- config_for_outbox(outbox),
-         client <- Config.client(config) do
-      case MapHelpers.fetch_list(outbox.payload, "attachments") do
-        [] -> send_requests(outbox, client)
-        [attachment] -> send_attachment(outbox, attachment, client)
-        _attachments -> {:error, :multiple_outbound_attachments_not_supported}
+  def send(
+        %OutboxEntry{
+          payload: %{"reply_presentation" => presentation},
+          source_actor_event_id: actor_event_id
+        } = outbox
+      )
+      when is_map(presentation) and is_binary(actor_event_id) do
+    result =
+      case Repo.get(ActorEvent, actor_event_id) do
+        %ActorEvent{} = event ->
+          checkpoint = event.reply_preview_checkpoint || %{}
+
+          ReplyPreview.finalize(%Request{
+            actor_event: event,
+            presentation: presentation,
+            checkpoint: checkpoint,
+            subject_uid: checkpoint["subject_uid"],
+            conversation_id: checkpoint["conversation_id"],
+            outbox: outbox,
+            mode: :terminal
+          })
+
+        nil ->
+          {:error, :actor_event_not_found}
       end
-    end
+
+    ErrorPolicy.normalize_delivery_result(result)
+  end
+
+  def send(%OutboxEntry{} = outbox) do
+    result =
+      with {:ok, config} <- config_for_outbox(outbox),
+           client <- Config.client(config) do
+        case MapHelpers.fetch_list(outbox.payload, "attachments") do
+          [] -> send_requests(outbox, client)
+          [attachment] -> send_attachment(outbox, attachment, client)
+          _attachments -> {:error, :multiple_outbound_attachments_not_supported}
+        end
+      end
+
+    ErrorPolicy.normalize_delivery_result(result)
   end
 
   @impl true
@@ -62,19 +96,18 @@ defmodule Ankole.Plugins.SlackAdapter.Outbox do
       outbox.fallback_visible_text
       |> to_string()
       |> split_text()
-      |> Enum.with_index(1)
-      |> Enum.map(fn {text, index} ->
+      |> Enum.map(fn text ->
         body = %{
           "channel" => channel_id(outbox.signal_channel_id),
           "text" => Mrkdwn.from_markdown(text)
         }
 
         body =
-          if operation == :reply and index == 1,
+          if operation == :reply,
             do: Map.put(body, "thread_ts", outbox.reply_to_source_entry_id),
             else: body
 
-        %{method: "chat.postMessage", body: body, reply?: operation == :reply and index == 1}
+        %{method: "chat.postMessage", body: body, reply?: operation == :reply}
       end)
 
     {:ok, requests}
@@ -176,8 +209,7 @@ defmodule Ankole.Plugins.SlackAdapter.Outbox do
       requests =
         blocks
         |> BlockKit.split_blocks()
-        |> Enum.with_index(1)
-        |> Enum.map(fn {chunk, index} ->
+        |> Enum.map(fn chunk ->
           fallback =
             outbox.fallback_visible_text
             |> to_string()
@@ -191,7 +223,7 @@ defmodule Ankole.Plugins.SlackAdapter.Outbox do
           }
 
           body =
-            if index == 1 and is_binary(outbox.reply_to_source_entry_id),
+            if is_binary(outbox.reply_to_source_entry_id),
               do: Map.put(body, "thread_ts", outbox.reply_to_source_entry_id),
               else: body
 
@@ -226,7 +258,7 @@ defmodule Ankole.Plugins.SlackAdapter.Outbox do
   defp perform(request, client) do
     case SlackOpenAPI.post(client, request.method, body: request.body) do
       {:ok, body} ->
-        normalize_success(body)
+        normalize_success(body, request.body)
 
       {:error, %Error{reason: :rate_limited, retry_after: seconds}} ->
         {:error, {:rate_limited, seconds}}
@@ -249,24 +281,37 @@ defmodule Ankole.Plugins.SlackAdapter.Outbox do
        when reason in ["thread_not_found", "message_not_found"] do
     SlackOpenAPI.post(client, "chat.postMessage", body: Map.delete(body, "thread_ts"))
     |> case do
-      {:ok, result} -> normalize_success(result)
+      {:ok, result} -> normalize_success(result, Map.delete(body, "thread_ts"))
       {:error, _reason} = error -> error
     end
   end
 
   defp maybe_reply_fallback(result, _request, _outbox, _client), do: result
 
-  defp normalize_success(%{"ts" => ts} = body) do
+  defp normalize_success(%{"ts" => ts} = body, request_body) do
     {:ok,
      %{
        created_source_entry_id: ts,
-       provider_thread_id: get_in(body, ["message", "thread_ts"]),
+       provider_thread_id: response_thread_id(body, request_body),
        raw_payload: body
      }
      |> MapHelpers.compact_map()}
   end
 
-  defp normalize_success(body), do: {:ok, %{raw_payload: body}}
+  defp normalize_success(body, _request_body), do: {:ok, %{raw_payload: body}}
+
+  defp response_thread_id(body, request_body) do
+    channel =
+      MapHelpers.optional_text(body, "channel") ||
+        MapHelpers.optional_text(request_body, "channel")
+
+    thread_ts =
+      get_in(body, ["message", "thread_ts"]) ||
+        MapHelpers.optional_text(request_body, "thread_ts")
+
+    if is_binary(channel) and is_binary(thread_ts),
+      do: "slack:#{URI.encode(channel)}:#{URI.encode(thread_ts)}"
+  end
 
   defp combine_results([result]), do: result
 
@@ -302,8 +347,7 @@ defmodule Ankole.Plugins.SlackAdapter.Outbox do
              filename: name,
              content: content,
              channel_id: channel_id(outbox.signal_channel_id),
-             thread_ts: outbox.reply_to_source_entry_id,
-             initial_comment: outbox.fallback_visible_text
+             thread_ts: outbox.reply_to_source_entry_id
            ) do
       payload =
         Map.update(outbox.payload, "attachments", [], fn attachments ->

@@ -988,6 +988,75 @@ defmodule Ankole.SignalsGatewayIngressTest do
                )
     end
 
+    test "a human reply in a thread the agent joined is addressed under record_only" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "slack-main", :record_only, adapter: "slack")
+      channel_id = "slack:C1"
+
+      assert {:ok, %{status: :recorded}} =
+               Ingress.emit_entry(
+                 agent.uid,
+                 "slack-main",
+                 group_entry(%{
+                   source_event_id: "evt-thread-root",
+                   source_entry_id: "msg-thread-root",
+                   signal_channel_id: channel_id,
+                   provider_thread_id: nil,
+                   text: "Start a thread"
+                 }),
+                 now: @base_time
+               )
+
+      thread_id = "slack:C1:msg-thread-root"
+
+      assert {:ok, %{status: :succeeded, provider_thread_id: ^thread_id}} =
+               commit_and_dispatch(
+                 agent.uid,
+                 "slack-main",
+                 %{
+                   outbound_key: "agent-thread-reply",
+                   operation: :reply,
+                   signal_channel_id: channel_id,
+                   reply_to_source_entry_id: "msg-thread-root",
+                   fallback_visible_text: "Agent reply"
+                 },
+                 [:reply_entry],
+                 %{
+                   created_source_entry_id: "msg-agent-thread-reply",
+                   provider_thread_id: thread_id
+                 }
+               )
+
+      reply_time = DateTime.add(@base_time, 1, :second)
+
+      assert {:ok, %{status: :accepted, inbound_batch: reply_batch}} =
+               Ingress.emit_entry(
+                 agent.uid,
+                 "slack-main",
+                 group_entry(%{
+                   source_event_id: "evt-human-thread-reply",
+                   source_entry_id: "msg-human-thread-reply",
+                   signal_channel_id: channel_id,
+                   provider_thread_id: thread_id,
+                   reply_to_source_entry_id: "msg-thread-root",
+                   text: "Continue without another mention"
+                 }),
+                 now: reply_time
+               )
+
+      assert reply_batch.mode == "addressed"
+
+      assert {:ok, results} =
+               finalize_due_inbound_batch_events(
+                 now: DateTime.add(reply_time, 1_000, :millisecond)
+               )
+
+      assert Enum.any?(results, fn
+               %{actor_event: %ActorEvent{type: "im.message.addressed"}} -> true
+               _result -> false
+             end)
+    end
+
     test "reply resolution does not borrow human attachments from another agent binding" do
       %{principal: agent_a} = agent_fixture()
       %{principal: agent_b} = agent_fixture()

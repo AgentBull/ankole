@@ -20,10 +20,12 @@ describe('Brain editor model', () => {
       aliases: ['Original'],
       propertyDrafts: [{ key: 'stage', value: '"original"' }]
     })
+    expect(model.dirty.value).toBe(false)
     model.name.value = 'Unsaved Alpha'
     model.summary.value = 'Unsaved summary'
     model.aliases.value = ['Unsaved']
     model.propertyDrafts.value = [{ key: 'stage', value: '"unsaved"' }]
+    expect(model.dirty.value).toBe(true)
 
     model.initialize('entry:alpha', {
       name: 'Refetched Alpha',
@@ -52,6 +54,7 @@ describe('Brain editor model', () => {
     expect(model.summary.value).toBe('Beta summary')
     expect(model.aliases.value).toEqual(['Beta'])
     expect(model.propertyDrafts.value).toEqual([{ key: 'stage', value: '"current"' }])
+    expect(model.dirty.value).toBe(false)
     model[Symbol.dispose]()
   })
 

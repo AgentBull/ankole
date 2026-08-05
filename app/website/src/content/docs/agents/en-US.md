@@ -10,9 +10,11 @@ An Agent is a digital colleague that works over time. Each Agent has its own ide
 ## Create an Agent
 
 1. Open **Console → Agents** and select **New Agent**.
-2. Enter a UID. The UID is a stable identifier that is unique in this deployment instance. You cannot change it after you save the Agent. Use a short lowercase value such as `research-analyst`.
-3. Enter a display name, role, and optional avatar URL. You can change the display name later without breaking existing configuration.
+2. Enter the required display name. The Console generates a UID from English or Chinese text, such as `research-analyst` for `Research Analyst` and `yan-jiu-fen-xi-shi` for `研究分析师`. Mixed-language names also work.
+3. Review or change the UID, then enter a role and an optional avatar URL. The UID is a stable identifier that is unique in this deployment instance, and you cannot change it after you save the Agent. You can change the display name later without breaking existing configuration.
 4. Save the Agent. The page then shows its durable instructions, model profiles, and Agent-specific environment variables.
+
+An Agent from an earlier Ankole version can still load and run without a display name. You must add a display name before you next save its basic information.
 
 The role gives a short summary of the work, such as “Research Analyst” or “Customer Support.” The three durable documents below manage responsibilities, behavior, and visual design.
 

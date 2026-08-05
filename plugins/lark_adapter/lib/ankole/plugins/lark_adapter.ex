@@ -152,7 +152,8 @@ defmodule Ankole.Plugins.LarkAdapter do
           "zh-Hans-CN" => "映射 provider 用户到 Ankole 主体时使用的命名空间。"
         },
         :string,
-        default: "lark-main"
+        default: "lark-main",
+        advanced: true
       ),
       field(
         "userName",
@@ -162,7 +163,8 @@ defmodule Ankole.Plugins.LarkAdapter do
           "zh-Hans-CN" => "发送 provider 消息时显示的名称。"
         },
         :string,
-        default: "Lark / Feishu"
+        default: "Lark / Feishu",
+        advanced: true
       )
     ]
   end

@@ -479,7 +479,7 @@ function IdentityForm({
                   }
                 </SelectValue>
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent emptyLabel={t('common.select_empty')}>
                 {adapters.map(adapter => (
                   <SelectItem key={adapter.adapterID} value={adapter.adapterID}>
                     {identityAdapterLabel(adapter, i18next.language)}
@@ -530,9 +530,19 @@ function IdentityForm({
               )}
             </Button>
           </div>
-          <FieldDescription id="oidc-callback-url-hint">
-            {t(oidcCallbackURLHintKey(activeAdapter.adapterID))}
-          </FieldDescription>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+            <FieldDescription id="oidc-callback-url-hint">
+              {t(oidcCallbackURLHintKey(activeAdapter.adapterID))}
+            </FieldDescription>
+            <a
+              className="inline-flex items-center gap-1 text-sm font-medium text-primary underline-offset-4 hover:underline"
+              href={identityAdapterGuideURL(activeAdapter.adapterID, i18next.language)}
+              rel="noopener noreferrer"
+              target="_blank">
+              {t('setup.adapter_guide')}
+              <RiArrowRightSLine aria-hidden data-icon="inline-end" />
+            </a>
+          </div>
         </Field>
 
         <section className="grid gap-5">
@@ -584,6 +594,11 @@ function oidcCallbackURL(publicBaseURL: string, providerID: string): string {
   return `${publicBaseURL.replace(/\/$/, '')}/sessions/oidc/${encodeURIComponent(providerID)}/callback`
 }
 
+function identityAdapterGuideURL(adapterID: string, locale: string): string {
+  const docsLocale = locale.startsWith('zh') ? 'zh-Hans-CN' : 'en-US'
+  return `https://ankole.agentbull.com/${docsLocale}/docs/quickstart/?idp=${encodeURIComponent(adapterID)}#identity-providers`
+}
+
 function oidcCallbackURLHintKey(adapterID: string): string {
   switch (adapterID) {
     case 'dingtalk':
@@ -596,6 +611,8 @@ function oidcCallbackURLHintKey(adapterID: string): string {
       return 'setup.oidc_callback_url_hint_lark'
     case 'slack':
       return 'setup.oidc_callback_url_hint_slack'
+    case 'wecom':
+      return 'setup.oidc_callback_url_hint_wecom'
     default:
       return 'setup.oidc_callback_url_hint'
   }

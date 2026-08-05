@@ -17,7 +17,9 @@ describe('ProviderEditorModel', () => {
       baseURL: 'https://api.example.com/v1',
       options: { api_key: '' }
     })
+    expect(model.dirty.value).toBe(false)
     model.baseURL.value = 'https://proxy.example.com/v1'
+    expect(model.dirty.value).toBe(true)
 
     model.initialize('provider:openai', {
       providerID: 'openai',
@@ -37,6 +39,7 @@ describe('ProviderEditorModel', () => {
 
     expect(model.providerID.value).toBe('anthropic')
     expect(model.baseURL.value).toBe('https://api.anthropic.com')
+    expect(model.dirty.value).toBe(false)
     model[Symbol.dispose]()
   })
 

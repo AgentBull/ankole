@@ -156,10 +156,12 @@ defmodule Ankole.Plugins.Microsoft365Adapter do
         "Platform subject namespace",
         "Subject namespace shared with the Entra ID identity provider instance.",
         :string,
-        default: Config.default_namespace()
+        default: Config.default_namespace(),
+        advanced: true
       ),
       field("userName", "Output display name", "Name shown for outbound messages.", :string,
-        default: "Teams"
+        default: "Teams",
+        advanced: true
       )
     ]
   end
@@ -183,7 +185,9 @@ defmodule Ankole.Plugins.Microsoft365Adapter do
         "clientID",
         "Application (client) ID",
         "Copy it from the Entra app registration Overview page.",
-        :string, required: true),
+        :string,
+        required: true
+      ),
       field(
         "clientSecret",
         "Client secret value",
@@ -196,7 +200,9 @@ defmodule Ankole.Plugins.Microsoft365Adapter do
         "oidc.enabled",
         "Enable sign-in",
         "Allow administrators to sign in with Entra ID.",
-        :boolean, default: true),
+        :boolean,
+        default: true
+      ),
       field(
         "oidc.scopes",
         "Sign-in scopes",
@@ -209,7 +215,9 @@ defmodule Ankole.Plugins.Microsoft365Adapter do
         "sync.contacts",
         "Sync directory",
         "Import Entra ID users and groups into Ankole.",
-        :boolean, default: true),
+        :boolean,
+        default: true
+      ),
       field(
         "sync.realtime",
         "Sync directory changes",

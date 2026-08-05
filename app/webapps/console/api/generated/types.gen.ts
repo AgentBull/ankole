@@ -192,7 +192,7 @@ export type AiGatewayConversationResponse = {
  */
 export type AgentUpdateRequest = {
   avatar_url?: string | null
-  display_name?: string | null
+  display_name?: string
   options?: {
     [key: string]: unknown
   }
@@ -271,6 +271,14 @@ export type IdentityProviderSyncRunItem = {
   job_id?: number | null
   provider_id: string
   status: 'enqueued'
+}
+
+/**
+ * ConsoleReadinessProvider
+ */
+export type ConsoleReadinessProvider = {
+  complete: boolean
+  provider_id: string | null
 }
 
 /**
@@ -422,6 +430,15 @@ export type BrainAuditLogResponse = {
 }
 
 /**
+ * ConsoleReadinessModelProfiles
+ */
+export type ConsoleReadinessModelProfiles = {
+  agent_uid: string | null
+  complete: boolean
+  missing_profiles: Array<string>
+}
+
+/**
  * AIGatewayChatGPTEnterpriseCredentialRequest
  */
 export type AiGatewayChatGptEnterpriseCredentialRequest = {
@@ -510,6 +527,20 @@ export type BackgroundAgentJobTurnActiveItem = {
  */
 export type PrincipalGroupListResponse = {
   principal_groups: Array<PrincipalGroupItem>
+}
+
+/**
+ * ConsoleReadinessResponse
+ */
+export type ConsoleReadinessResponse = {
+  agent: ConsoleReadinessAgent
+  completed_core_steps: number
+  model_profiles: ConsoleReadinessModelProfiles
+  provider: ConsoleReadinessProvider
+  ready: boolean
+  signal_route: ConsoleReadinessSignalRoute
+  total_core_steps: number
+  worker: ConsoleReadinessWorker
 }
 
 /**
@@ -1038,6 +1069,15 @@ export type SignalBindingWriteRequest = {
 }
 
 /**
+ * ConsoleReadinessAgent
+ */
+export type ConsoleReadinessAgent = {
+  complete: boolean
+  display_name: string | null
+  uid: string | null
+}
+
+/**
  * BrainSourceListResponse
  */
 export type BrainSourceListResponse = {
@@ -1438,6 +1478,14 @@ export type AutomationJobListResponse = {
 }
 
 /**
+ * ConsoleReadinessSignalRoute
+ */
+export type ConsoleReadinessSignalRoute = {
+  agent_uid: string | null
+  complete: boolean
+}
+
+/**
  * IdentityProviderAdapterListResponse
  */
 export type IdentityProviderAdapterListResponse = {
@@ -1449,7 +1497,7 @@ export type IdentityProviderAdapterListResponse = {
  */
 export type AgentCreateRequest = {
   avatar_url?: string | null
-  display_name?: string | null
+  display_name: string
   options?: {
     [key: string]: unknown
   }
@@ -1813,6 +1861,14 @@ export type IdentityProviderWriteRequest = {
   adapter_id: string
   config: JsonValue
   enabled?: boolean
+}
+
+/**
+ * ConsoleReadinessWorker
+ */
+export type ConsoleReadinessWorker = {
+  complete: boolean
+  ready_count: number
 }
 
 /**
@@ -7237,3 +7293,34 @@ export type AnkoleWebAuthZGroupControllerGrantsResponses = {
 
 export type AnkoleWebAuthZGroupControllerGrantsResponse =
   AnkoleWebAuthZGroupControllerGrantsResponses[keyof AnkoleWebAuthZGroupControllerGrantsResponses]
+
+export type AnkoleWebConsoleReadinessControllerShowData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v1/console-readiness'
+}
+
+export type AnkoleWebConsoleReadinessControllerShowErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebConsoleReadinessControllerShowError =
+  AnkoleWebConsoleReadinessControllerShowErrors[keyof AnkoleWebConsoleReadinessControllerShowErrors]
+
+export type AnkoleWebConsoleReadinessControllerShowResponses = {
+  /**
+   * Console readiness
+   */
+  200: ConsoleReadinessResponse
+}
+
+export type AnkoleWebConsoleReadinessControllerShowResponse =
+  AnkoleWebConsoleReadinessControllerShowResponses[keyof AnkoleWebConsoleReadinessControllerShowResponses]

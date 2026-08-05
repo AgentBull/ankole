@@ -123,7 +123,11 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       identity_fields_by_path = Map.new(identity_fields, &{&1.path, &1})
       identity_domain_field = identity_fields_by_path["domain"]
 
-      assert Enum.all?(chat_fields, &(&1.advanced == false))
+      assert chat_fields_by_path["appID"].advanced == false
+      assert chat_fields_by_path["appSecret"].advanced == false
+      assert chat_fields_by_path["domain"].advanced == false
+      assert chat_fields_by_path["platformSubjectNamespace"].advanced == true
+      assert chat_fields_by_path["userName"].advanced == true
       assert identity_fields_by_path["appID"].advanced == false
       assert identity_fields_by_path["appID"].label["zh-Hans-CN"] == "App ID"
       assert identity_fields_by_path["appSecret"].label["zh-Hans-CN"] == "App Secret"
@@ -150,8 +154,6 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       assert identity_fields_by_path["sync.contacts"].advanced == true
       assert identity_fields_by_path["sync.websocket"].advanced == true
       assert identity_fields_by_path["sync.pageSize"].advanced == true
-      assert chat_fields_by_path["appID"].advanced == false
-
       patterns = LarkAdapter.app_config_patterns()
 
       assert Enum.map(patterns, & &1.id) == [

@@ -130,7 +130,14 @@ export const ModelProfilesModel = createModel(() => {
       return { hasUnsavedChanges }
     },
     clear(name: ProfileName) {
-      batch(() => apply(name, {}))
+      const profile = profiles[name]
+      const empty = emptyProfileDraft()
+
+      batch(() => {
+        writeProfileDraft(profile, empty)
+        profile.revision.value += 1
+        profile.dirty.value = !sameProfileValues(empty, profile.source.value)
+      })
     }
   }
 })

@@ -234,7 +234,18 @@ export function PermissionGrantEditorPage({ createFor }: { createFor?: 'group' |
       if (owner) createGrant.mutate({ body: model.createBody(owner) })
       return
     }
-    if (grantID) updateGrant.mutate({ body: model.updateBody(), path: { id: grantID } })
+    if (grantID) {
+      const submission = {
+        resourcePattern: model.resourcePattern.value,
+        action: model.action.value,
+        condition: model.condition.value,
+        description: model.description.value
+      }
+      updateGrant.mutate(
+        { body: model.updateBody(), path: { id: grantID } },
+        { onSuccess: () => model.markSaved(submission) }
+      )
+    }
   }
 
   return (
@@ -244,6 +255,7 @@ export function PermissionGrantEditorPage({ createFor }: { createFor?: 'group' |
       backTo={backTo}
       error={model.validationError.value ?? mutationError ?? (mode === 'edit' ? grant.error : undefined)}
       submitting={createGrant.isPending || updateGrant.isPending}
+      submitDisabled={mode === 'edit' && !model.dirty.value}
       onSubmit={submit}>
       <LabeledField label={t('console.permission_grants.owner')}>
         <ReadOnlyValue mono>{ownerLabel}</ReadOnlyValue>
@@ -255,6 +267,7 @@ export function PermissionGrantEditorPage({ createFor }: { createFor?: 'group' |
         required>
         <Input
           aria-invalid={serverFieldError('resource_pattern') ? true : undefined}
+          required
           className="font-mono text-xs"
           placeholder="workspace:**"
           spellCheck={false}
@@ -269,6 +282,7 @@ export function PermissionGrantEditorPage({ createFor }: { createFor?: 'group' |
         required>
         <Input
           aria-invalid={serverFieldError('action') ? true : undefined}
+          required
           placeholder="read"
           spellCheck={false}
           value={model.action.value}

@@ -1,4 +1,4 @@
-import { batch, createModel, signal } from '@preact/signals-react'
+import { batch, computed, createModel, signal } from '@preact/signals-react'
 
 export type WorkerEnvDraft = {
   name: string
@@ -13,7 +13,18 @@ export const WorkerEnvEditorModel = createModel(() => {
   const value = signal('')
   const secret = signal(false)
   const description = signal('')
+  const initialDraft = signal<WorkerEnvDraft>()
   const validationError = signal<string>()
+  const dirty = computed(() => {
+    const source = initialDraft.value
+    return Boolean(
+      source &&
+      (name.value !== source.name ||
+        value.value !== source.value ||
+        secret.value !== source.secret ||
+        description.value !== source.description)
+    )
+  })
 
   return {
     sourceKey,
@@ -21,6 +32,7 @@ export const WorkerEnvEditorModel = createModel(() => {
     value,
     secret,
     description,
+    dirty,
     validationError,
     initialize(nextSourceKey: string, draft: WorkerEnvDraft) {
       if (sourceKey.value === nextSourceKey) return
@@ -30,6 +42,7 @@ export const WorkerEnvEditorModel = createModel(() => {
         value.value = draft.value
         secret.value = draft.secret
         description.value = draft.description
+        initialDraft.value = { ...draft }
         validationError.value = undefined
       })
     },
