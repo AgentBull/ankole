@@ -80,12 +80,16 @@ pub(super) struct OpaqueToolFields {
 
 impl OpaqueToolFields {
     pub(super) fn prepare(
+        kind: APIResolverKind,
         context: &ResponseContext,
     ) -> Result<(Self, ResponseContext), StreamError> {
         let plan = ToolFieldPlan::from_context(context)?;
         let mut provider_context = context.clone();
         sanitize_context_tools(&mut provider_context)?;
-        lower_context(&mut provider_context)?;
+        lower_context(
+            &mut provider_context,
+            kind == APIResolverKind::OpenAIResponses,
+        )?;
 
         Ok((
             Self {
@@ -767,23 +771,36 @@ fn contains_encrypted_annotation(value: &Value) -> bool {
 // gateway's own versioned prefix, so replayed history decodes correctly even
 // when the request resends no tool definitions (for example a Codex local
 // compaction request). The plan only selects which output fields to encode.
-fn lower_context(context: &mut ResponseContext) -> Result<(), StreamError> {
-    lower_request_value(&mut context.provider_options)?;
-    lower_request_value(&mut context.request)
+// The prefix is also the ownership boundary: on the native OpenAI Responses
+// route, an `encrypted_content` part without the gateway prefix is
+// provider-owned state and passes through unchanged, while adapter routes fail
+// closed because their providers cannot replay it.
+fn lower_context(
+    context: &mut ResponseContext,
+    preserve_provider_content: bool,
+) -> Result<(), StreamError> {
+    lower_request_value(&mut context.provider_options, preserve_provider_content)?;
+    lower_request_value(&mut context.request, preserve_provider_content)
 }
 
-fn lower_request_value(request: &mut Value) -> Result<(), StreamError> {
+fn lower_request_value(
+    request: &mut Value,
+    preserve_provider_content: bool,
+) -> Result<(), StreamError> {
     let Some(input) = request.get_mut("input") else {
         return Ok(());
     };
-    lower_input_value(input)
+    lower_input_value(input, preserve_provider_content)
 }
 
-fn lower_input_value(value: &mut Value) -> Result<(), StreamError> {
+fn lower_input_value(
+    value: &mut Value,
+    preserve_provider_content: bool,
+) -> Result<(), StreamError> {
     match value {
         Value::Array(items) => {
             for item in items {
-                lower_input_value(item)?;
+                lower_input_value(item, preserve_provider_content)?;
             }
         }
         Value::Object(map) => {
@@ -791,7 +808,7 @@ fn lower_input_value(value: &mut Value) -> Result<(), StreamError> {
                 lower_function_call(map)?;
             }
             for child in map.values_mut() {
-                lower_opaque_content_parts(child)?;
+                lower_opaque_content_parts(child, preserve_provider_content)?;
             }
         }
         _value => {}
@@ -849,7 +866,10 @@ fn decode_prefixed_arguments(arguments: &str) -> Result<Option<String>, StreamEr
     })
 }
 
-fn lower_opaque_content_parts(value: &mut Value) -> Result<(), StreamError> {
+fn lower_opaque_content_parts(
+    value: &mut Value,
+    preserve_provider_content: bool,
+) -> Result<(), StreamError> {
     if value.get("type").and_then(Value::as_str) == Some("encrypted_content") {
         let encoded = value
             .get("encrypted_content")
@@ -859,6 +879,9 @@ fn lower_opaque_content_parts(value: &mut Value) -> Result<(), StreamError> {
                     "encrypted_content input parts must contain a string payload",
                 )
             })?;
+        if preserve_provider_content && !starts_with_opaque_prefix(encoded) {
+            return Ok(());
+        }
         *value = json!({
             "type": "input_text",
             "text": decode_opaque_content(encoded)?
@@ -869,12 +892,12 @@ fn lower_opaque_content_parts(value: &mut Value) -> Result<(), StreamError> {
     match value {
         Value::Array(items) => {
             for item in items {
-                lower_opaque_content_parts(item)?;
+                lower_opaque_content_parts(item, preserve_provider_content)?;
             }
         }
         Value::Object(map) => {
             for child in map.values_mut() {
-                lower_opaque_content_parts(child)?;
+                lower_opaque_content_parts(child, preserve_provider_content)?;
             }
         }
         _value => {}

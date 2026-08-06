@@ -32,7 +32,9 @@ AIGateway key and uses the semantic `web_search.default` and
 
 ## `web_search`
 
-`web_search` accepts one nonempty query. Ankole does not add a query-length limit.
+Agent Computer accepts one nonempty query and does not add a length limit to the
+model-visible schema. AIGateway rejects a trimmed query longer than 500
+characters before provider dispatch.
 
 The optional `limit` accepts values from 1 through 100. Its default is 5.
 
