@@ -16,6 +16,7 @@ import { join } from 'node:path'
 import type { ActorTurnRef } from '../../lanes/actor_lane'
 import type { RPCRequester, BrainSnapshot, RuntimeSkillSummary } from '../../lanes/rpc_lane'
 import { formatAgentDurableContext } from '../../prompts/durable_context'
+import { labeledZonedDateTime } from '../../prompts/zoned_time'
 import {
   assertValidSkillName,
   composeNativeSkillFile,
@@ -251,16 +252,24 @@ function renderTaskAgents(input: {
   timezone?: string | null
   now: Date
 }): string {
+  // AGENTS.md is written once, when the Job project is created, so it states
+  // the start instant and the timezone to report in. The live clock comes from
+  // the Worker, which runs in UTC like the Codex environment_context.
+  const startedAt = labeledZonedDateTime(input.now, input.timezone)
   const executionContext = [
-    `Current time: ${input.now.toISOString()}${input.timezone ? ` (${input.timezone})` : ''}.`,
+    startedAt
+      ? `Job start time: ${startedAt.text} (${startedAt.timezone}). Report times in ${startedAt.timezone}; the Worker system clock is UTC, so shell commands and the environment_context timezone show UTC.`
+      : '',
     `Job workspace (the process cwd): ${input.jobRoot}.`,
     'All absolute paths shown to you are the real paths inside this Worker. Relative paths resolve from the Job workspace.',
-    'Your final message is the Job result for the caller. State outcomes, evidence, relevant paths, and remaining risks.',
+    'Your final message is the Job result and the caller accepts it as the verification record: verify the work against what the task says the deliverable must satisfy, and state the outcome with evidence, relevant paths, and remaining risks.',
     'The long-term memory system (codename Brain) preserves chat messages, curated current knowledge entries, and external materials that people ask it to learn so future work can retrieve the few most relevant items.',
     'The caller owns user-visible replies, attachments, scheduling, and durable Skill writes. Projected long-term memory tools operate only inside the server-validated caller conversation scope.',
-    'If genuinely required information is missing, the lead agent must call request_parent_input; child agents must report the question to the lead. Do not call request_user_input, which is unavailable in this background execution.',
+    'If genuinely required information is missing, the lead agent must call request_parent_input; child agents must report the question to the lead.',
     'Complete foreground work before ending the turn; do not leave required shell jobs running in the background.'
-  ].join('\n')
+  ]
+    .filter(Boolean)
+    .join('\n')
 
   return [
     '# Ankole Background Agent Job Context',

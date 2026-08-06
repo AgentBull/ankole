@@ -13,6 +13,7 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
   alias Ankole.BackgroundAgentJobs.Schemas.Turn
   alias Ankole.BackgroundAgentJobs.Text
   alias Ankole.BackgroundAgentJobs.Trajectory
+  alias Ankole.BackgroundAgentJobs.TurnWatchdog
 
   @worker_fields ~w(
     attempt
@@ -64,7 +65,8 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
     with {:ok, attrs} <- normalize_worker_attrs(attrs, job),
          {trajectory_groups, attrs} <- Map.pop(attrs, "trajectory_groups", []),
          :ok <- validate_attempt(job, attrs),
-         {:ok, turn} <- upsert_in_tx(repo, job, attrs, trajectory_groups) do
+         {:ok, turn} <- upsert_in_tx(repo, job, attrs, trajectory_groups),
+         :ok <- TurnWatchdog.notify_deadline_in_tx(repo, job.id) do
       {:ok, turn}
     end
   end
@@ -155,7 +157,6 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
     TrajectoryGroup
     |> join(:inner, [group], turn in Turn, on: turn.id == group.turn_id)
     |> where([group, turn], group.item_key == ^item_key and turn.job_id == ^job.id)
-    |> where([_group, turn], turn.kind == "agent")
     |> order_by([group, turn], asc: turn.started_at, asc: turn.id, asc: group.position)
     |> select([_group, turn], turn)
     |> limit(1)
@@ -169,7 +170,7 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
       |> Enum.uniq()
 
     Turn
-    |> where([turn], turn.job_id == ^job.id and turn.kind == "agent")
+    |> where([turn], turn.job_id == ^job.id)
     |> where([turn], turn.runtime_thread_id in ^lead_thread_ids)
     |> where(
       [turn],
@@ -353,7 +354,6 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
     failures =
       Turn
       |> where([turn], turn.job_id == ^job.id)
-      |> where([turn], turn.kind == "agent")
       |> where([turn], turn.runtime_thread_id == ^lead_thread_id)
       |> order_by([turn], desc: turn.started_at, desc: turn.id)
       |> limit(^limit)
@@ -694,12 +694,12 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
     do: is_binary(lead_thread_id) and turn.runtime_thread_id == lead_thread_id
 
   defp inferred_attempt_lead_thread_id(turns) do
-    turn = Enum.find(turns, &(&1.kind == "agent")) || List.first(turns)
+    turn = List.first(turns)
     if turn, do: turn.runtime_thread_id
   end
 
   defp lead_turn_count(turns, lead_thread_id) do
-    Enum.count(turns, &(&1.kind == "agent" and lead_turn?(&1, lead_thread_id)))
+    Enum.count(turns, &lead_turn?(&1, lead_thread_id))
   end
 
   defp thread_counts(turns, lead_thread_id) do
@@ -713,8 +713,8 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
 
   defp turn_counts(turns, lead_thread_id) do
     %{
-      lead: Enum.count(turns, &(&1.kind == "agent" and lead_turn?(&1, lead_thread_id))),
-      child: Enum.count(turns, &(&1.kind == "agent" and not lead_turn?(&1, lead_thread_id))),
+      lead: Enum.count(turns, &lead_turn?(&1, lead_thread_id)),
+      child: Enum.count(turns, &(not lead_turn?(&1, lead_thread_id))),
       compaction: Enum.count(turns, &(&1.kind == "compaction")),
       active: Enum.count(turns, &(&1.status in @active_statuses))
     }
@@ -891,7 +891,7 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
   defp trajectory_page(turns, job, cursor, limit) do
     lead_turns =
       turns
-      |> Enum.filter(&(&1.kind == "agent" and lead_turn?(&1, job.runtime_thread_id)))
+      |> Enum.filter(&lead_turn?(&1, job.runtime_thread_id))
 
     groups =
       if lead_turns == [] do

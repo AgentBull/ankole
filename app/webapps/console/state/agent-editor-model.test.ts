@@ -105,8 +105,9 @@ describe('AgentEditorModel', () => {
 
   test('normalizes generated UIDs and rejects an invalid manual UID', () => {
     expect(agentUIDFromDisplayName('  Caf\u00e9 & Research  ')).toBe('cafe-research')
-    expect(agentUIDFromDisplayName('\u7814\u7a76\u5206\u6790\u5e08')).toBe('yan-jiu-fen-xi-shi')
-    expect(agentUIDFromDisplayName('AI \u7814\u7a76 Analyst')).toBe('ai-yan-jiu-analyst')
+    expect(agentUIDFromDisplayName('\u7814\u7a76\u5206\u6790\u5e08')).toBe('yanjiufenxishi')
+    expect(agentUIDFromDisplayName('AI \u7814\u7a76 Analyst')).toBe('ai-yanjiu-analyst')
+    expect(agentUIDFromDisplayName('\u0391\u03b8\u03ae\u03bd\u03b1 Research')).toBe('athina-research')
     expect(agentUIDError('')).toBe('uid_required')
     expect(agentUIDError('invalid uid')).toBe('uid_invalid')
     expect(agentUIDError('valid-agent')).toBeUndefined()

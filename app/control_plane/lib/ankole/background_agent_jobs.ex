@@ -13,6 +13,7 @@ defmodule Ankole.BackgroundAgentJobs do
   alias Ankole.BackgroundAgentJobs.Lifecycle
   alias Ankole.BackgroundAgentJobs.Queries
   alias Ankole.BackgroundAgentJobs.Turns
+  alias Ankole.BackgroundAgentJobs.TurnWatchdog
 
   @job_session_prefix "job:"
   @job_session_prefix_size byte_size(@job_session_prefix)
@@ -298,6 +299,12 @@ defmodule Ankole.BackgroundAgentJobs do
   end
 
   def finalize_turn_error(result), do: result
+
+  @doc false
+  defdelegate runtime_event_snapshot(), to: TurnWatchdog
+
+  @doc "Fails or retries one Job whose runtime Turn stopped recording progress."
+  def reconcile_stuck_job(job_id, opts \\ []), do: TurnWatchdog.reconcile_stuck_job(job_id, opts)
 
   @doc false
   defdelegate pending_steer_events(job_id, agent_uid, excluded_event_id), to: Dispatch

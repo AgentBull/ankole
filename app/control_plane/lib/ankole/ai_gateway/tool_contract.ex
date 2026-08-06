@@ -7,6 +7,8 @@ defmodule Ankole.AIGateway.ToolContract do
   from changing the tool contract between model rounds.
   """
 
+  alias Ankole.AIGateway.CodexCodeMode
+
   @reserved_provider_names ["program", "tool_search"]
   @supported_callers ["direct", "programmatic"]
   @provider_name_pattern ~r/^[A-Za-z0-9_-]+$/
@@ -300,7 +302,7 @@ defmodule Ankole.AIGateway.ToolContract do
        ) do
     with {:ok, type} <- supported_type(spec),
          {:ok, name} <- public_name(spec, public_name),
-         {:ok, description} <- optional_binary(spec, "description", public_path(namespace, name)),
+         {:ok, description} <- tool_description(spec, public_path(namespace, name)),
          {:ok, parameters} <- input_parameters(spec, type, namespace, name),
          {:ok, format} <- input_format(spec, type, namespace, name),
          {:ok, output_schema} <-
@@ -448,6 +450,16 @@ defmodule Ankole.AIGateway.ToolContract do
 
   defp output_schema(spec, identity),
     do: optional_map(spec, "output_schema", identity)
+
+  # A client that loads its own deferred tools sends their descriptions back in
+  # the Tool Search output. They carry the Codex code-mode block that the request
+  # declaration no longer has, so both sides need the same rule before a loaded
+  # tool can match its known contract.
+  defp tool_description(spec, identity) do
+    with {:ok, description} <- optional_binary(spec, "description", identity) do
+      {:ok, CodexCodeMode.plain_description(description)}
+    end
+  end
 
   defp optional_binary(spec, key, identity) do
     case Map.get(spec, key) do

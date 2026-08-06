@@ -81,12 +81,16 @@ defmodule Ankole.SignalsGateway.Outbox do
 
   @doc """
   Commits reply-attachment effects adopted by an explicit Agent Turn completion.
+
+  The attachment row carries no visible text: no adapter renders a caption next
+  to an uploaded file, and the final reply already delivers the answer. Giving
+  the attachment its own copy of that text posted the same wall twice into the
+  channel mirror the agent reads back.
   """
   @spec commit_reply_attachment_outboxes_in_tx(
           module(),
           ActorEvent.t(),
           binary(),
-          String.t(),
           [map()],
           keyword()
         ) :: {:ok, [OutboxEntry.t()]} | {:error, term()}
@@ -94,7 +98,6 @@ defmodule Ankole.SignalsGateway.Outbox do
         repo,
         %ActorEvent{} = actor_event,
         ai_message_id,
-        text,
         attachments,
         opts \\ []
       )
@@ -110,7 +113,6 @@ defmodule Ankole.SignalsGateway.Outbox do
           ai_message_id,
           operation,
           attachment,
-          text,
           index,
           opts
         )
@@ -782,7 +784,6 @@ defmodule Ankole.SignalsGateway.Outbox do
          ai_message_id,
          operation,
          attachment,
-         text,
          index,
          opts
        ) do
@@ -802,13 +803,11 @@ defmodule Ankole.SignalsGateway.Outbox do
       ai_message_id: ai_message_id,
       delivery_class: :durable_ai_reply,
       payload: %{
-        "text" => text,
         "attachments" => [attachment],
         "metadata" => %{
           "turn_completion_outcome" => Keyword.get(opts, :turn_completion_outcome)
         }
       },
-      fallback_visible_text: text,
       idempotency_key: outbound_key
     })
   end

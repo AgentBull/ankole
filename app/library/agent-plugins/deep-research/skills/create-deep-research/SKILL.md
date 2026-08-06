@@ -1,6 +1,6 @@
 ---
 name: create-deep-research
-description: "Create a Deep Research BackgroundAgentJob for a topic that needs broad evidence or data gathering, careful comparison of many sources, or a forecast of what may happen. Use this Skill when the request states or clearly implies that the human wants this research and is willing to wait. Answer without this Skill when the topic can be resolved quickly without broad research or forecasting. If you are unsure whether the task needs Deep Research or whether the human is willing to wait, ask before invoking this Skill."
+description: "Create a Deep Research BackgroundAgentJob for a topic that needs broad evidence or data gathering, comparison of many sources, or a forecast of what may happen. Use this Skill when the request states or implies that the human wants this research and will wait for it. Answer directly when the topic resolves quickly without broad research or forecasting; when unsure on either point, ask first."
 default_enabled: true
 ankole-runtime: main
 category: research
@@ -41,7 +41,7 @@ P.s. Remember to remind the human that deep research may take 30-90 minutes, bec
 Call `create_background_job` once with these arguments:
 
 - `title`: a concise label for managing and displaying the Job. 
-- `task`: the complete confirmed research request, including your stated assumptions and the research choices left to the Job. Background Agent (Codex) receives this text verbatim as its first user prompt. The `task` must include this exact sentence: "Conduct this Deep Research according to the requirements in the provided AGENTS.md." Include any relevant context, such as the human's goals, constraints, success criteria, and any relevant references. Write a stated length, such as a page count or a word count, as an approximate target unless the human asks for an exact value. "A 3-page PDF" means a report of approximately 3 pages, not exactly 3 pages.
+- `task`: the complete confirmed research request, including your stated assumptions and the research choices left to the Job. The task binds the Job only to requirements you have shown the human. A requirement that first appears while you write the task is not confirmed: record it as a research choice of the Job, or leave it out. The Job's AGENTS.md already owns research method and verification procedure. The task states what deliverables must satisfy; a how belongs in it only when the human asked for that how. Background Agent (Codex) receives this text verbatim as its first user prompt. The `task` must include this exact sentence: "Conduct this Deep Research according to the requirements in the provided AGENTS.md." Include any relevant context, such as the human's goals, constraints, success criteria, and any relevant references. Write a length the human states, such as a page count or a word count, as an approximate target unless the human asks for an exact value. "A 3-page PDF" means a report of approximately 3 pages, not exactly 3 pages.
 - `workspace_template_id`: must be 'deep-research' to ensure the Job has the right environment and tools.
 
 The Job automatically receives every current enabled Skill that permits

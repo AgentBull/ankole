@@ -13,8 +13,15 @@ defmodule Ankole.AIGateway.RequestContext do
     x-client-request-id
     x-openai-internal-codex-responses-lite
     x-responsesapi-include-timing-metrics
+    x-session-id
     version
   )
+
+  @session_headers ~w(x-session-id session_id session-id thread-id)
+
+  @doc "Returns the client session headers in precedence order."
+  @spec session_header_names() :: [String.t()]
+  def session_header_names, do: @session_headers
 
   @spec from_headers([{String.t(), String.t()}], String.t()) :: map()
   def from_headers(headers, downstream_transport) when is_list(headers) do
@@ -50,9 +57,8 @@ defmodule Ankole.AIGateway.RequestContext do
 
   defp natural_cache_key(context, request) do
     text(Map.get(request, "prompt_cache_key")) ||
-      header(context, "session_id") ||
-      header(context, "session-id") ||
-      header(context, "thread-id") ||
+      text(Map.get(request, "session_id")) ||
+      Enum.find_value(@session_headers, &header(context, &1)) ||
       text(get_in(request, ["metadata", "conversation_id"])) ||
       text(get_in(request, ["metadata", "thread_id"])) ||
       text(get_in(request, ["metadata", "session_id"]))

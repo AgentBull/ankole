@@ -252,6 +252,57 @@ defmodule Ankole.Brain.StageATest do
              channel_cursor!(channel.id)
   end
 
+  test "the summary window names the role and speaker of every message" do
+    %{principal: model_agent} = agent_fixture()
+    test_pid = self()
+
+    summary = %{
+      "episodes" => [],
+      "noise_messages" => ["message_1", "message_2", "message_3"],
+      "deferred_messages" => []
+    }
+
+    configure_brain_model!(model_agent, fn
+      %{path: "v1/chat/completions", body: body} ->
+        send(test_pid, {:stage_a_request, body})
+        {:json, 200, chat_completion_body(body["model"], Ankole.JSON.encode!(summary))}
+
+      request ->
+        flunk("unexpected Brain upstream request: #{inspect(request)}")
+    end)
+
+    enable_dreaming!(%{"episode_tail_guard_rows" => 0})
+    channel = channel_fixture("brain:speakers", model_agent.uid)
+    now = DateTime.utc_now(:microsecond)
+
+    entry_fixture(channel, "named", "the deck is wrong", DateTime.add(now, -8, :hour), %{
+      "principal_uid" => "yuxin",
+      "display_name" => "Yuxin"
+    })
+
+    # A provider that carries no sender name still identifies its sender, and an entry an own
+    # Agent posted carries `agent_uid` alone.
+    entry_fixture(channel, "unnamed", "which deck?", DateTime.add(now, -7, :hour), %{
+      "id" => "Yuxin",
+      "principal_uid" => "yuxin",
+      "display_name" => nil
+    })
+
+    entry_fixture(channel, "agent-reply", "I stopped task 1172", DateTime.add(now, -6, :hour), %{
+      "agent_uid" => "yuma-assistant"
+    })
+
+    assert :ok = Brain.summarize_channel(channel.id)
+
+    assert_receive {:stage_a_request, body}
+    request_json = Ankole.JSON.encode!(body)
+
+    assert request_json =~ "[human] Yuxin: the deck is wrong"
+    assert request_json =~ "[human] yuxin: which deck?"
+    assert request_json =~ "[agent] yuma-assistant: I stopped task 1172"
+    refute request_json =~ "unknown speaker"
+  end
+
   test "embed_pending_episodes records synced and failed states" do
     %{principal: model_agent} = agent_fixture()
     test_pid = self()
@@ -412,7 +463,13 @@ defmodule Ankole.Brain.StageATest do
     channel
   end
 
-  defp entry_fixture(%Channel{} = channel, source_entry_id, text, provider_time) do
+  defp entry_fixture(
+         %Channel{} = channel,
+         source_entry_id,
+         text,
+         provider_time,
+         author \\ %{"principal_uid" => "alice", "display_name" => "Alice"}
+       ) do
     %Entry{}
     |> Entry.changeset(%{
       signal_channel_id: channel.id,
@@ -420,7 +477,7 @@ defmodule Ankole.Brain.StageATest do
       text: text,
       attachments: [],
       links: [],
-      author: %{"principal_uid" => "alice", "display_name" => "Alice"},
+      author: author,
       mentions: [],
       metadata: %{},
       raw_payload: %{},

@@ -132,7 +132,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
              runtime,
              request_for_provider,
              stream?: true,
-             request_context: request_context
+             request_context: put_run_conversation_id(request_context, run_attrs)
            ) do
       {:ok, prepared_request, run_attrs}
     end
@@ -235,6 +235,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
            StatefulResponses.start_planned_response_run(planned_run_attrs(context)) do
       stateful_context = response_stream_context(message)
       context = materialize_admitted_context(context, message)
+      request_context = Map.put(request_context, "conversation_id", context.conversation.id)
 
       result =
         with {:ok, request_for_provider, run_attrs} <-
@@ -272,6 +273,12 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
     |> Map.put("downstream_transport", "websocket")
     |> RequestContext.prepare(request)
   end
+
+  defp put_run_conversation_id(request_context, %{conversation_id: conversation_id})
+       when is_binary(conversation_id),
+       do: Map.put(request_context, "conversation_id", conversation_id)
+
+  defp put_run_conversation_id(request_context, _run_attrs), do: request_context
 
   defp build_stateful_request_context(subject_uid, request, runtime, compact_history) do
     conversation_id = request["conversation"]

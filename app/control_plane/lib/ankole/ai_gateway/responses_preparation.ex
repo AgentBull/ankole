@@ -8,6 +8,7 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
 
   alias Ankole.AIGateway.CompactionArtifacts
   alias Ankole.AIGateway.ChatGPTProtocol
+  alias Ankole.AIGateway.CodexCodeMode
   alias Ankole.AIGateway.CodexVision
   alias Ankole.AIGateway.CredentialAttempts
   alias Ankole.AIGateway.HostedTools.ImageGeneration
@@ -86,6 +87,7 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
 
   defp build(subject_uid, runtime, request, opts) do
     stream? = Keyword.get(opts, :stream?, false)
+    request = CodexCodeMode.plain_tool_descriptions(request)
 
     with {:ok, provider_request} <- provider_request(runtime, request),
          {:ok, provider_request, tool_plan} <- plan_tools(runtime, provider_request),

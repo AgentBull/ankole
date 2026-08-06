@@ -640,7 +640,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     assert active.ref == state.active_stream.ref
   end
 
-  test "response.create accepts Codex ResponseCreateWsRequest fields" do
+  test "response.create forwards normal Codex ResponseCreateWsRequest fields" do
     %{principal: agent} = agent_fixture()
 
     server =
@@ -698,7 +698,6 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
         "service_tier" => "priority",
         "prompt_cache_key" => "cache-key",
         "text" => %{"verbosity" => "low"},
-        "generate" => false,
         "client_metadata" => %{
           "traceparent" => "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01"
         }
@@ -734,7 +733,6 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     assert upstream_request["include"] == ["reasoning.encrypted_content"]
     assert upstream_request["prompt_cache_key"] == "cache-key"
     assert upstream_request["text"] == %{"verbosity" => "low"}
-    assert upstream_request["generate"] == false
 
     assert upstream_request["client_metadata"] == %{
              "traceparent" => "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01"
@@ -745,6 +743,86 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
 
     _ = AIGateway.cancel_response_stream(state.active_stream.stream)
     assert active.ref == state.active_stream.ref
+  end
+
+  test "response.create completes Codex generate false prewarm without a provider call" do
+    %{principal: agent} = agent_fixture()
+    prewarm_input = [text_message("developer", "Use the available tools.")]
+
+    request =
+      Ankole.JSON.encode!(%{
+        "type" => "response.create",
+        "model" => "primary",
+        "store" => false,
+        "input" => prewarm_input,
+        "generate" => false
+      })
+
+    assert {:push, [{:text, created_json}, {:text, completed_json}], state} =
+             AIGatewayResponsesSocket.handle_in({request, [opcode: :text]}, %{
+               subject_uid: agent.uid,
+               subject_type: "agent"
+             })
+
+    assert %{
+             "type" => "response.created",
+             "sequence_number" => 0,
+             "response" => %{
+               "id" => response_id,
+               "status" => "in_progress",
+               "output" => []
+             }
+           } = Ankole.JSON.decode!(created_json)
+
+    assert String.starts_with?(response_id, "tmp_resp_")
+
+    assert %{
+             "type" => "response.completed",
+             "sequence_number" => 1,
+             "response" => %{
+               "id" => ^response_id,
+               "status" => "completed",
+               "output" => [],
+               "usage" => %{
+                 "input_tokens" => 0,
+                 "output_tokens" => 0,
+                 "total_tokens" => 0
+               }
+             }
+           } = Ankole.JSON.decode!(completed_json)
+
+    refute Map.has_key?(state, :active_stream)
+    assert state.response_history[response_id].items == prewarm_input
+    refute_receive {:native_socket_upstream_request, _request}, 50
+
+    counter = :atomics.new(1, [])
+    provider_id = "openai-native-socket-codex-prewarm"
+    base_url = start_native_socket_upstream(:created, counter)
+    :ok = configure_native_socket_provider(agent.uid, provider_id, base_url)
+
+    task_input = text_message("user", "Build the requested artifact.")
+
+    task_request =
+      Ankole.JSON.encode!(%{
+        "type" => "response.create",
+        "model" => "primary",
+        "store" => false,
+        "previous_response_id" => response_id,
+        "input" => [task_input]
+      })
+
+    assert {:ok, %{active_stream: active} = next_state} =
+             AIGatewayResponsesSocket.handle_in(
+               {task_request, [opcode: :text]},
+               state
+             )
+
+    assert_receive {:native_socket_upstream_request, upstream_request}
+    assert upstream_request["input"] == prewarm_input ++ [task_input]
+    refute Map.has_key?(upstream_request, "previous_response_id")
+    assert active.socket_previous_response_id == response_id
+
+    _ = AIGateway.cancel_response_stream(next_state.active_stream.stream)
   end
 
   test "the first provider event prevents a transparent retry" do

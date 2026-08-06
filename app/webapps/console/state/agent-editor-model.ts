@@ -1,5 +1,5 @@
 import { batch, computed, createModel, signal } from '@preact/signals-react'
-import { pinyin } from 'pinyin-pro'
+import anyAscii from 'any-ascii'
 
 export type AgentEditorDraft = {
   uid: string
@@ -20,9 +20,7 @@ export function agentUIDError(uid: string): Extract<AgentEditorDraftError, 'uid_
 }
 
 export function agentUIDFromDisplayName(displayName: string): string {
-  return pinyin(displayName, { nonZh: 'consecutive', separator: '-', toneType: 'none' })
-    .normalize('NFKD')
-    .replace(/\p{M}/gu, '')
+  return anyAscii(displayName)
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')

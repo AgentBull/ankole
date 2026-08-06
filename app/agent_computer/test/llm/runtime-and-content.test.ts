@@ -647,6 +647,33 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
     expect(lines).toContain('schedule_payload: {"symbol":"600519.SH"}')
   })
 
+  it('surfaces a verified identical-reply streak and hides anything below one', () => {
+    const streakTurnStart = (streak: unknown) =>
+      ({
+        ...turnStartForTest(),
+        request_context: {
+          turn_mode: 'cron',
+          silent_success_allowed: false,
+          consecutive_identical_replies: streak,
+          schedule_origin: {
+            due_at: '2026-07-15T02:00:00Z',
+            fired_at: '2026-07-15T02:00:01Z',
+            timezone: 'Asia/Shanghai',
+            cron_schedule_name: 'monitor'
+          }
+        }
+      }) as TurnStart
+
+    expect(turnRequestEnvironmentInfoLines(streakTurnStart(3))).toContain(
+      'schedule_consecutive_identical_replies: 3'
+    )
+
+    for (const absent of [undefined, 1, '3']) {
+      const lines = turnRequestEnvironmentInfoLines(streakTurnStart(absent))
+      expect(lines.some(line => line.startsWith('schedule_consecutive_identical_replies'))).toBe(false)
+    }
+  })
+
   it('builds multipart actor-event content when the main model supports image input', async () => {
     await withImageWorkspace(async (workspaceRoot, imagePath) => {
       const content = await actorEventUserContent(

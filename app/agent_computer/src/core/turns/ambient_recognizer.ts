@@ -10,6 +10,7 @@ import {
 } from '@agentbull/active-support'
 import type { TurnStart } from '../../lanes/actor_lane'
 import { buildAmbientRecognizerSystemPrompt, buildAmbientRecognizerUserPrompt } from '../../prompts/ambient_prompt'
+import { formatZonedDate, formatZonedDateTime, zonedDateTimeParts } from '../../prompts/zoned_time'
 import { assistantText, callModel, type Message, type ModelConfig, userMessage } from '../llm'
 import type { AgentConversationContextResponse } from '../../lanes/rpc_lane'
 
@@ -73,7 +74,7 @@ export async function recognizeAmbientIntervention(
           backdrop: window.backdrop.map(transcriptLine),
           newMessages: window.delta.map(deltaTranscriptLine),
           unrepliedCount: unrepliedCountFromPayload(turnStart),
-          currentTime: formatZonedDateTime(currentTime, timezone),
+          currentTime: formatZonedDateTime(currentTime, timezone) ?? currentTime,
           groupName: originChannel?.label || undefined,
           adapter: originChannel?.adapter || undefined,
           timezone
@@ -292,16 +293,6 @@ function deltaTranscriptLine(message: TranscriptMessage): string {
   return `- [id:${message.sourceEntryID}] ${message.time} [${message.role}] ${message.speaker}: ${message.text}`
 }
 
-function formatZonedDateTime(value: string, timezone: string): string {
-  const parts = zonedDateTimeParts(value, timezone)
-  return parts ? `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}` : value
-}
-
-function formatZonedDate(value: string, timezone: string): string | undefined {
-  const parts = zonedDateTimeParts(value, timezone)
-  return parts ? `${parts.year}-${parts.month}-${parts.day}` : undefined
-}
-
 function formatTranscriptTime(value: string, timezone: string, currentDate: string | undefined): string {
   const parts = zonedDateTimeParts(value, timezone)
   if (!parts) return value
@@ -309,37 +300,6 @@ function formatTranscriptTime(value: string, timezone: string, currentDate: stri
   const date = `${parts.year}-${parts.month}-${parts.day}`
   const time = `${parts.hour}:${parts.minute}`
   return date === currentDate ? time : `${date} ${time}`
-}
-
-function zonedDateTimeParts(
-  value: string,
-  timezone: string
-): { day: string; hour: string; minute: string; month: string; year: string } | undefined {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return undefined
-
-  try {
-    const parts = new Intl.DateTimeFormat('en-CA', {
-      timeZone: timezone,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      hourCycle: 'h23'
-    }).formatToParts(date)
-
-    const part = (type: string) => parts.find(item => item.type === type)?.value ?? '00'
-    return {
-      day: part('day'),
-      hour: part('hour'),
-      minute: part('minute'),
-      month: part('month'),
-      year: part('year')
-    }
-  } catch {
-    return undefined
-  }
 }
 
 /**

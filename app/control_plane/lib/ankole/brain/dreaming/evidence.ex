@@ -31,6 +31,7 @@ defmodule Ankole.Brain.Dreaming.Evidence do
       "observed_at" => local_time(material.observed_at, timezone),
       "channel" => channel(material),
       "speaker" => Map.get(material, :speaker),
+      "speaker_role" => Map.get(material, :speaker_role),
       "speaker_principal_uid" => Map.get(material, :speaker_principal_uid),
       "text" => material.text || ""
     })

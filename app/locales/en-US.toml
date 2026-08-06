@@ -1415,7 +1415,7 @@ validating_and_redirecting = "Validating and redirecting…"
 [signals_gateway.reply]
 command_stopped = "Stopped."
 continued = "Paused. Work continues in the next card."
-dead_letter = "The AI service returned an error. Please try again. (actor-event::{$ref})"
+dead_letter = "This message could not be finished and automatic retries stopped. Send it again, or reply /retry. (actor-event::{$ref})"
 input_superseded = "Received the additional file. Reanalyzing the full request."
 llm_help = "{$usage}\n\nAvailable custom model profiles:\n{$profiles}"
 llm_help_empty = "{$usage}\n\nNo custom model profiles are configured. Add one on the Agent page in the Ankole Console."

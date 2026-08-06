@@ -57,6 +57,7 @@ type FakeCodexBehavior = {
   artifactPath?: string
   diffPathCount?: number
   usageBurstThreadID?: string
+  multiAgentChildDelayMs?: number
   initializeDelayMs?: number
   dynamicToolCall?: boolean
   discoveredSkills?: string[]
@@ -256,6 +257,29 @@ describe('@ankole/agent-computer Codex job runner', () => {
       expect(statusUpdates.map(update => update.status)).toEqual(['running', 'succeeded'])
       expect(parsedJSON(statusUpdates.at(-1)?.resultJson)?.output_text).toBe('completed after child usage updates')
       expect(turnUpserts.every(update => parsedJSON(update.errorJson)?.code !== 'codex_no_progress')).toBe(true)
+    } finally {
+      fixture.cleanup()
+    }
+  })
+
+  it('persists a real MultiAgentV2 child Turn before it commits the lead result', async () => {
+    const fixture = prepareFixture('completed after child work', { multiAgentChildDelayMs: 50 })
+    const statusUpdates: RecordedStatusUpdate[] = []
+    const turnUpserts: RecordedTurnUpsert[] = []
+
+    try {
+      await runCodexJob(turnStart(), options(fixture.root, statusUpdates, turnUpserts))
+
+      expect(
+        JSON.parse(readFileSync(join(codexHomeFor(fixture.root), 'thread-start.json'), 'utf8')).experimentalRawEvents
+      ).toBe(true)
+      expect(turnUpserts.filter(update => update.runtimeThreadId === 'child-thread').at(-1)?.status).toBe('completed')
+      const trajectory = turnUpserts
+        .flatMap(update => (update.trajectoryGroupsJson ? [new TextDecoder().decode(update.trajectoryGroupsJson)] : []))
+        .join('')
+      expect(trajectory).toContain('collaboration.spawn_agent')
+      expect(trajectory).toContain('child-thread')
+      expect(statusUpdates.at(-1)?.status).toBe('succeeded')
     } finally {
       fixture.cleanup()
     }
@@ -1129,6 +1153,7 @@ const exitOnThreadStart = ${JSON.stringify(behavior.exitOnThreadStart)}
 const artifactPath = ${JSON.stringify(behavior.artifactPath)}
 const diffPathCount = ${JSON.stringify(behavior.diffPathCount)}
 const usageBurstThreadID = ${JSON.stringify(behavior.usageBurstThreadID)}
+const multiAgentChildDelayMs = ${JSON.stringify(behavior.multiAgentChildDelayMs)}
 const initializeDelayMs = ${JSON.stringify(behavior.initializeDelayMs)}
 const dynamicToolCall = ${JSON.stringify(behavior.dynamicToolCall)}
 const discoveredSkills = ${JSON.stringify(behavior.discoveredSkills ?? [])}
@@ -1159,6 +1184,7 @@ function handle(message) {
   if (message.method === 'thread/start') {
     if (exitOnThreadStart) return process.exit(51)
     threadCwd = message.params.cwd
+    writeFileSync(process.env.CODEX_HOME + '/thread-start.json', JSON.stringify(message.params))
     const threadEnv = message.params.config?.shell_environment_policy?.set ?? {}
     writeFileSync(message.params.cwd + '/browser-env.json', JSON.stringify({
       ANKOLE_BROWSER_SOCKET: threadEnv.ANKOLE_BROWSER_SOCKET,
@@ -1218,6 +1244,22 @@ function handle(message) {
     }
     if (successfulSteer || steerCompletionRace) return
     if (interruptCompletionRace) return
+    if (multiAgentChildDelayMs !== undefined) {
+      write({ method: 'turn/started', params: { threadId: 'thread-1', turn: { id: turnID, status: 'inProgress', items: [] } } })
+      write({ method: 'rawResponseItem/completed', params: { threadId: 'thread-1', turnId: turnID, item: { type: 'function_call', name: 'spawn_agent', namespace: 'collaboration', arguments: JSON.stringify({ task_name: 'child', message: 'Complete the child task.', fork_turns: 'none' }), call_id: 'spawn-child' } } })
+      write({ method: 'turn/started', params: { threadId: 'child-thread', turn: { id: 'child-turn', status: 'inProgress', items: [] } } })
+      write({ method: 'item/completed', params: { threadId: 'thread-1', turnId: turnID, item: { type: 'subAgentActivity', id: 'spawn-child', kind: 'started', agentThreadId: 'child-thread', agentPath: '/root/child' } } })
+      write({ method: 'rawResponseItem/completed', params: { threadId: 'thread-1', turnId: turnID, item: { type: 'function_call_output', call_id: 'spawn-child', output: JSON.stringify({ task_name: '/root/child' }) } } })
+      setTimeout(() => {
+        write({ method: 'item/completed', params: { threadId: 'thread-1', turnId: turnID, item: { type: 'agentMessage', id: 'message-' + turnCount, text: firstResponse } } })
+        write({ method: 'turn/completed', params: { threadId: 'thread-1', turn: { id: turnID, status: 'completed' } } })
+      }, 10)
+      setTimeout(() => {
+        write({ method: 'item/completed', params: { threadId: 'child-thread', turnId: 'child-turn', item: { type: 'agentMessage', id: 'child-message', text: 'child result' } } })
+        write({ method: 'turn/completed', params: { threadId: 'child-thread', turn: { id: 'child-turn', status: 'completed' } } })
+      }, multiAgentChildDelayMs)
+      return
+    }
     if (usageBurstThreadID) {
       for (let index = 1; index <= 8; index += 1) {
         const totalTokens = index * 100

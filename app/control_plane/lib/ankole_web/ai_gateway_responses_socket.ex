@@ -13,6 +13,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
   alias Ankole.AIGateway.CodexModelBinding
   alias Ankole.AIGateway.FailureDiagnostics
   alias Ankole.AIGateway.OpenAIError
+  alias Ankole.Ecto.UUIDv7
   alias Ankole.Logging
   alias Ankole.SignalsGateway.AIGatewayLink
 
@@ -273,6 +274,15 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
     {:push, {:text, Ankole.JSON.encode!(event)}, state}
   end
 
+  defp handle_socket_event(
+         %{"type" => "response.create", "generate" => false} = event,
+         state
+       ) do
+    event
+    |> prepare_request()
+    |> complete_socket_prewarm(state)
+  end
+
   defp handle_socket_event(%{"type" => "response.create"} = event, state) do
     request =
       event
@@ -491,6 +501,61 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
 
   defp push_text_chunks(chunks, state),
     do: {:push, Enum.map(chunks, &{:text, &1}), state}
+
+  defp complete_socket_prewarm(request, state) do
+    response_id = "tmp_resp_#{UUIDv7.autogenerate()}"
+    now = DateTime.utc_now() |> DateTime.to_unix()
+
+    created_response = %{
+      "id" => response_id,
+      "object" => "response",
+      "created_at" => now,
+      "completed_at" => nil,
+      "status" => "in_progress",
+      "output" => [],
+      "usage" => nil
+    }
+
+    completed_response = %{
+      created_response
+      | "completed_at" => now,
+        "status" => "completed",
+        "usage" => zero_usage()
+    }
+
+    events = [
+      %{
+        "type" => "response.created",
+        "sequence_number" => 0,
+        "response" => created_response
+      },
+      %{
+        "type" => "response.completed",
+        "sequence_number" => 1,
+        "response" => completed_response
+      }
+    ]
+
+    state =
+      put_socket_response_history(state, response_id, %{
+        response: completed_response,
+        items: response_input_items(Map.get(request, "input"))
+      })
+
+    events
+    |> Enum.map(&Ankole.JSON.encode!/1)
+    |> push_text_chunks(state)
+  end
+
+  defp zero_usage do
+    %{
+      "input_tokens" => 0,
+      "input_tokens_details" => %{"cached_tokens" => 0},
+      "output_tokens" => 0,
+      "output_tokens_details" => %{"reasoning_tokens" => 0},
+      "total_tokens" => 0
+    }
+  end
 
   defp prepare_response_create_request(state, %{"previous_response_id" => response_id} = request)
        when is_binary(response_id) do

@@ -586,7 +586,57 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorTurnCompletionTest do
 
       assert outbox.outbound_key == "ai-reply-attachment:#{final.id}:0"
       assert outbox.payload["attachments"] == [attachment]
+      assert is_nil(outbox.fallback_visible_text)
       assert %DateTime{} = Repo.get!(ActorEvent, event.id).completed_at
+    end
+
+    test "keeps the final answer text out of the attachment projection" do
+      %{agent: agent, event: event, turn_ref: turn_ref} = start_accepted_turn("attachment-text")
+
+      attachment = %{
+        "agent_computer_path" => "/agents/#{agent.uid}/user-files/reports/summary.docx",
+        "user_files_relative_path" => "reports/summary.docx",
+        "name" => "summary.docx",
+        "mime_type" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "size" => 15_341
+      }
+
+      final =
+        complete_response_items(agent.uid, event, [
+          %{
+            "type" => "function_call",
+            "call_id" => "call-attachment-text",
+            "name" => "reply_attachment",
+            "arguments" => "{}"
+          },
+          %{
+            "type" => "function_call_output",
+            "call_id" => "call-attachment-text",
+            "output" => %{
+              "tool" => "reply_attachment",
+              "ok" => true,
+              "attachments" => [attachment]
+            }
+          },
+          %{
+            "type" => "message",
+            "role" => "assistant",
+            "content" => [%{"type" => "output_text", "text" => "the file is prepared"}]
+          }
+        ])
+
+      assert {:ok,
+              %{
+                outboxes: %{
+                  attachments: [%OutboxEntry{} = attachment_outbox],
+                  final: %OutboxEntry{} = final_outbox
+                }
+              }} = complete_turn(turn_ref, final)
+
+      assert is_nil(attachment_outbox.fallback_visible_text)
+      refute Map.has_key?(attachment_outbox.payload, "text")
+      assert final_outbox.fallback_visible_text == "the file is prepared"
+      assert final_outbox.payload["text"] == "the file is prepared"
     end
 
     test "edits the first preview entry when committing final text" do

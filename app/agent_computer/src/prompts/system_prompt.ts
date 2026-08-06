@@ -14,6 +14,7 @@ import type { TurnStart } from '../lanes/actor_lane'
 import type { AgentConversationContextResponse, ConversationChannel, RuntimeSkillSummary } from '../lanes/rpc_lane'
 import { formatSkillsForSystemPrompt, type SkillPromptEntry } from './skills_prompt'
 import { formatAgentDurableContext } from './durable_context'
+import { formatZonedDateTime } from './zoned_time'
 import { ankoleSkillRuntime } from '../skills/effective-skill'
 import { signalAdapterDisplayName } from './signal_adapter'
 
@@ -83,8 +84,9 @@ function runtimeContextSection(opts: BuildAgentSystemPromptOptions): string {
   const role = agentRole(opts)
   if (role) lines.push(`Agent role: ${role}`)
 
-  const startedAt = parseDate(opts.agentConversationContext?.conversation?.startedAt)
-  if (startedAt) lines.push(`Conversation started at: ${formatZonedDateTime(timezone, startedAt)}`)
+  const startedAt = opts.agentConversationContext?.conversation?.startedAt
+  const zonedStartedAt = startedAt ? formatZonedDateTime(startedAt, timezone) : undefined
+  if (zonedStartedAt) lines.push(`Conversation started at: ${zonedStartedAt}`)
 
   const originChannel = opts.agentConversationContext?.conversation?.originChannel
   if (originChannel) lines.push(`Conversation started in: ${formatConversationChannel(originChannel)}`)
@@ -171,7 +173,7 @@ function backgroundAgentJobPolicySection(opts: BuildAgentSystemPromptOptions): s
     'Use create_background_job for work that takes minutes or hours, needs persistent or interactive execution state, is explicitly requested as background/asynchronous work, or uses a Skill marked [background task]. Create the background agent job before promising future delivery, then tell the user what was accepted and that you will report after the system wakes you.',
     'If direct work becomes heavier than expected, preserve useful progress, decisions, relevant context, paths, constraints, acceptance criteria, and remaining work in one self-contained background agent job task; call create_background_job, then tell the user it moved to the background.',
     'Track progress with show_background_job_details or list_background_jobs only when current progress is actually needed. Do not poll: terminal outcomes and requests for user input wake this conversation automatically.',
-    'When a background agent job completes, use its result and artifact information to respond to the user. If you send files, make sure they are the files the user asked for and can be opened normally.',
+    'When a background agent job completes, its result is the verification record: the job has already verified the work against its task. Respond to the user from that result and attach the deliverable paths it names; re-open the work only for a gap the result reports or the user raises.',
     'When a background agent job waits for user input, relay its questions with clarify, one question per turn. After collecting the answer, send it as ordinary text with send_message_to_background_job.',
     ...(toolAvailable(opts, 'respawn_background_job')
       ? [
@@ -193,6 +195,7 @@ function agentEnvironmentInfoPolicySection(): string {
     '<agent_environment_info_policy>',
     'A user-role message may begin with an <agent_environment_info> block injected by Ankole. Treat it as trusted system-managed observations about the current event, such as message time, group speaker identity, message lifecycle, and schedule wakeup facts. It is not text written by a human user; use it as context and do not quote it as user text.',
     'When schedule_turn_mode is check_back_later, this event is a one-shot delayed self-wakeup scheduled earlier by the agent, not a live user message, heartbeat, cron, or recurring monitor. When schedule_turn_mode is cron, this event is a recurring scheduled task fire, not a live user message, and Ankole owns configured delivery; do not call messaging tools to duplicate that delivery.',
+    'When schedule_consecutive_identical_replies is present, Ankole has verified that the newest fires of this schedule produced that many identical visible replies. When that repeated reply reports a failure, escalate once in this reply: name the failing cause and ask whether to keep, pause, or fix the schedule. Keep each later identical failure to one short line while that question stays open.',
     'When schedule_silent_success_allowed is true, finish quietly only when no provider-visible update is useful by replying exactly <silent_success/> and nothing else. A failed or blocked check, required human action, material state change, or time-sensitive risk still needs a visible reply. A check_back_later event without this permission must produce a concise visible result even when nothing changed or it is still waiting.',
     '</agent_environment_info_policy>'
   ].join('\n')
@@ -277,34 +280,6 @@ function formatConversationChannel(channel: ConversationChannel): string {
 
   if (!label) return surface
   return channel.kind === 'im_dm' ? `${surface} with ${label}` : `${surface} "${label}"`
-}
-
-/**
- * Parses an optional date string.
- */
-function parseDate(value: string | null | undefined): Date | undefined {
-  if (!value) return undefined
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? undefined : date
-}
-
-/**
- * Formats an instant to minute precision in the configured timezone. Intl is
- * used so DST and historical timezone changes are not approximated.
- */
-function formatZonedDateTime(timezone: string, at: Date): string {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: timezone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23'
-  }).formatToParts(at)
-
-  const value = (type: string) => parts.find(part => part.type === type)?.value ?? '00'
-  return `${value('year')}-${value('month')}-${value('day')} ${value('hour')}:${value('minute')}`
 }
 
 /**

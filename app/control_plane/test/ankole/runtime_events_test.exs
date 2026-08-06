@@ -14,7 +14,8 @@ defmodule Ankole.RuntimeEventsTest do
              RuntimeEvents.inbound_batch_due_channel(),
              RuntimeEvents.worker_deadline_channel(),
              RuntimeEvents.activation_deadline_channel(),
-             RuntimeEvents.ai_message_deadline_channel()
+             RuntimeEvents.ai_message_deadline_channel(),
+             RuntimeEvents.job_turn_deadline_channel()
            ]
   end
 

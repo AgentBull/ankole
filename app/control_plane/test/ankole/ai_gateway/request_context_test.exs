@@ -3,9 +3,21 @@ defmodule Ankole.AIGateway.RequestContextTest do
 
   alias Ankole.AIGateway.RequestContext
 
+  test "forwards the official OpenRouter session header" do
+    context =
+      RequestContext.from_headers(
+        [{"X-Session-ID", "openrouter-session"}, {"authorization", "secret"}],
+        "http"
+      )
+
+    assert context["headers"] == %{"x-session-id" => "openrouter-session"}
+  end
+
   test "all stable cache identifiers also become credential affinity keys" do
     cases = [
       {%{}, %{"prompt_cache_key" => "prompt-cache"}, "prompt-cache"},
+      {%{}, %{"session_id" => "body-session"}, "body-session"},
+      {%{"headers" => %{"x-session-id" => "official-session"}}, %{}, "official-session"},
       {%{"headers" => %{"session_id" => "session-underscore"}}, %{}, "session-underscore"},
       {%{"headers" => %{"session-id" => "session-hyphen"}}, %{}, "session-hyphen"},
       {%{"headers" => %{"thread-id" => "thread-header"}}, %{}, "thread-header"},

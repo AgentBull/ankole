@@ -74,6 +74,44 @@ defmodule Ankole.SignalsGateway.ChannelContext do
   end
 
   @doc """
+  Drops channel-context messages the conversation already carries.
+
+  Turn delivery calls this after the prior turn of the same session is
+  terminal, so the answer is definitive where the append-time exclusion races
+  a still-generating turn: a quote survives exactly when the visible history
+  does not already hold it, and a retracted turn's quotes come back. An empty
+  remainder removes the whole `channel_context` block.
+  """
+  @spec drop_visible_messages(map(), MapSet.t()) :: map()
+  def drop_visible_messages(payload, visible_refs) do
+    case get_in(payload, ["data", "channel_context", "messages"]) do
+      messages when is_list(messages) ->
+        kept = Enum.reject(messages, &visible_message?(&1, visible_refs))
+
+        cond do
+          kept == messages -> payload
+          kept == [] -> update_in(payload, ["data"], &Map.delete(&1, "channel_context"))
+          true -> put_in(payload, ["data", "channel_context", "messages"], kept)
+        end
+
+      _missing ->
+        payload
+    end
+  end
+
+  defp visible_message?(message, visible_refs) when is_map(message) do
+    case {message["signal_channel_id"], message["source_entry_id"]} do
+      {channel_id, source_entry_id} when is_binary(channel_id) and is_binary(source_entry_id) ->
+        MapSet.member?(visible_refs, {channel_id, source_entry_id})
+
+      _partial ->
+        false
+    end
+  end
+
+  defp visible_message?(_message, _visible_refs), do: false
+
+  @doc """
   Returns the not-yet-judged messages one ambient batch must consider.
 
   The window is every mirrored channel message after the channel ambient
@@ -162,7 +200,7 @@ defmodule Ankole.SignalsGateway.ChannelContext do
         agent_cutoff = latest_agent_sent_at(entries)
 
         entries
-        |> Enum.filter(&(signal_entry_role(&1) != "agent"))
+        |> Enum.filter(&(entry_role(&1) != "agent"))
         |> Enum.filter(&after_cutoff?(&1, agent_cutoff))
         |> Enum.map(&observed_message_from_signal_entry(&1, attrs.provider_thread_id))
         |> Enum.reject(&is_nil/1)
@@ -294,7 +332,7 @@ defmodule Ankole.SignalsGateway.ChannelContext do
         %{
           "id" => "signal:#{entry.signal_channel_id}:#{entry.source_entry_id}",
           "source" => "signal_entry",
-          "role" => signal_entry_role(entry),
+          "role" => entry_role(entry),
           "kind" => "normal",
           "speaker" => speaker_name(entry.author),
           "sent_at" => DateTime.to_iso8601(signal_entry_sent_at(entry)),
@@ -360,18 +398,25 @@ defmodule Ankole.SignalsGateway.ChannelContext do
     end
   end
 
-  defp signal_entry_role(%Entry{author: author}) when is_map(author) do
+  @doc """
+  Tells whether one mirrored entry came from a person or from an own Agent.
+
+  Only an entry the gateway posted itself carries `agent_uid`, so its presence is
+  the durable discriminator.
+  """
+  @spec entry_role(term()) :: String.t()
+  def entry_role(%Entry{author: author}) when is_map(author) do
     case optional_text(author, :agent_uid) do
       nil -> "human"
       _agent_uid -> "agent"
     end
   end
 
-  defp signal_entry_role(_entry), do: "human"
+  def entry_role(_entry), do: "human"
 
   defp latest_agent_sent_at(entries) do
     entries
-    |> Enum.filter(&(signal_entry_role(&1) == "agent"))
+    |> Enum.filter(&(entry_role(&1) == "agent"))
     |> List.last()
     |> case do
       %Entry{} = entry -> signal_entry_sent_at(entry)
@@ -397,17 +442,27 @@ defmodule Ankole.SignalsGateway.ChannelContext do
   Returns the display name of one entry author map.
   """
   @spec speaker_name(term()) :: String.t()
-  def speaker_name(author) when is_map(author) do
+  def speaker_name(author), do: author_name(author) || "unknown speaker"
+
+  @doc """
+  Names one entry author, or returns nil when the map names nobody.
+
+  A provider only fills `display_name` when its webhook carries a name, and an
+  entry an own Agent posted carries `agent_uid` alone, so a projection that keeps
+  its shorter chain silently loses the speaker. Callers that must always show a
+  speaker use `speaker_name/1`.
+  """
+  @spec author_name(term()) :: String.t() | nil
+  def author_name(author) when is_map(author) do
     optional_text(author, :display_name) ||
       optional_text(author, :fullName) ||
       optional_text(author, :userName) ||
       optional_text(author, :name) ||
       optional_text(author, :principal_uid) ||
-      optional_text(author, :agent_uid) ||
-      "unknown speaker"
+      optional_text(author, :agent_uid)
   end
 
-  def speaker_name(_author), do: "unknown speaker"
+  def author_name(_author), do: nil
 
   defp parse_iso8601(%DateTime{} = datetime), do: datetime
 

@@ -23,6 +23,7 @@ defmodule Ankole.Brain.Sources do
   alias Ankole.Security.SSRFFilter
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.Channel
+  alias Ankole.SignalsGateway.ChannelContext
   alias Ankole.SignalsGateway.Entry, as: SignalEntry
   alias Ankole.WorkerFiles
 
@@ -771,12 +772,7 @@ defmodule Ankole.Brain.Sources do
     end
   end
 
-  defp source_author(author) when is_map(author) do
-    author["display_name"] || author["name"] || author["principal_uid"] || author["id"] ||
-      "Conversation message"
-  end
-
-  defp source_author(_author), do: "Conversation message"
+  defp source_author(author), do: ChannelContext.author_name(author) || "Conversation message"
 
   defp datetime(%DateTime{} = value), do: DateTime.to_iso8601(value)
   defp datetime(%NaiveDateTime{} = value), do: NaiveDateTime.to_iso8601(value)

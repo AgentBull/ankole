@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { truncateUtf16Safe, truncateUtf16SafeTail } from '../src/common/text-sanitize'
+import { sanitizeCatalogLine, truncateUtf16Safe, truncateUtf16SafeTail } from '../src/common/text-sanitize'
 import { truncateOutput } from '../src/tools/computer/format'
 
 const rocket = '🚀'
@@ -19,6 +19,34 @@ describe('UTF-16 safe truncation', () => {
     expect(truncateUtf16SafeTail('abc', 10)).toBe('abc')
     expect(truncateUtf16SafeTail('abc', 2)).toBe('bc')
     expect(truncateUtf16SafeTail('abc', 0)).toBe('')
+  })
+})
+
+describe('catalog line sanitization', () => {
+  it('returns a fitting entry unchanged and unmarked', () => {
+    expect(sanitizeCatalogLine('Short description.', 400)).toBe('Short description.')
+    expect(sanitizeCatalogLine('exactly', 7)).toBe('exactly')
+  })
+
+  it('marks a capped entry with a trailing ellipsis inside the budget', () => {
+    const capped = sanitizeCatalogLine('word '.repeat(40), 50)
+
+    expect(capped.length).toBeLessThanOrEqual(50)
+    expect(capped).toEndWith('...')
+    expect(capped).toBe(`${'word '.repeat(40).slice(0, 47).trimEnd()}...`)
+  })
+
+  it('keeps a hard cut when the budget has no room for the marker', () => {
+    expect(sanitizeCatalogLine('abcdef', 3)).toBe('abc')
+    expect(sanitizeCatalogLine('abcdef', 0)).toBe('')
+  })
+
+  it('never splits a surrogate pair when marking the cut', () => {
+    const capped = sanitizeCatalogLine(rocket.repeat(30), 10)
+
+    expect(capped).toEndWith('...')
+    expect(capped).not.toContain('�')
+    expect(capped.length).toBeLessThanOrEqual(10)
   })
 })
 

@@ -13,6 +13,7 @@ defmodule Ankole.Brain.Dreaming.StageA do
   alias Ankole.Principals
   alias Ankole.Repo
   alias Ankole.SignalsGateway
+  alias Ankole.SignalsGateway.ChannelContext
   alias Ankole.SignalsGateway.Entry
 
   @model_unavailable_reason "no Agent that can see the channel has a resolvable light profile"
@@ -26,8 +27,10 @@ defmodule Ankole.Brain.Dreaming.StageA do
   of it.
 
   The window holds consecutive messages, oldest first, one for each line, in the form \
-  `[message_N] <timestamp> <author>: <text>`. `message_N` is the alias of that message, and the \
-  response names messages only by these aliases.
+  `[message_N] <timestamp> [<role>] <author>: <text>`. `message_N` is the alias of that message, \
+  and the response names messages only by these aliases. `role` is `human` for a person and \
+  `agent` for a message an Agent of this workspace posted, so an episode can say who asked, who \
+  answered, and who did the work.
 
   An episode is one topic thread. `topic` names the thread. `question` is what a later reader asks \
   when they look for it. `summary` is the standalone account of what happened, with the facts, \
@@ -512,7 +515,7 @@ defmodule Ankole.Brain.Dreaming.StageA do
     }
 
     with {:ok, %{body: body}} <- AIGateway.create_response(model_agent_uid, request),
-         {:ok, text} <- response_text(body),
+         {:ok, text} <- AIGateway.completed_output_text(body),
          {:ok, decoded} <- Ankole.JSON.decode(text),
          {:ok, translated} <- translate_summary_refs(decoded, message_refs) do
       {:ok, translated}
@@ -529,7 +532,10 @@ defmodule Ankole.Brain.Dreaming.StageA do
         observed = entry |> observed_at() |> datetime()
         message_ref = Map.fetch!(message_refs.by_source_id, entry.source_entry_id)
 
-        "[#{message_ref}] #{observed} #{author_name(entry.author) || "unknown"}: #{entry_text(entry)}"
+        role = ChannelContext.entry_role(entry)
+        speaker = ChannelContext.speaker_name(entry.author)
+
+        "[#{message_ref}] #{observed} [#{role}] #{speaker}: #{entry_text(entry)}"
       end)
       |> Enum.join("\n")
 
@@ -1029,41 +1035,12 @@ defmodule Ankole.Brain.Dreaming.StageA do
     |> Enum.join("\n")
   end
 
-  defp response_text(%{"output_text" => text}) when is_binary(text), do: {:ok, text}
-
-  defp response_text(%{"output" => output}) when is_list(output) do
-    text =
-      output
-      |> Enum.flat_map(fn
-        %{"content" => content} when is_list(content) -> content
-        _item -> []
-      end)
-      |> Enum.flat_map(fn
-        %{"text" => text} when is_binary(text) -> [text]
-        %{"type" => "output_text", "text" => text} when is_binary(text) -> [text]
-        _part -> []
-      end)
-      |> Enum.join("\n")
-
-    case String.trim(text) do
-      "" -> {:error, :missing_response_text}
-      trimmed -> {:ok, trimmed}
-    end
-  end
-
-  defp response_text(_body), do: {:error, :missing_response_text}
-
   defp entry_text(%Entry{} = entry) do
     entry.text || ""
   end
 
   defp observed_at(%Entry{} = entry),
     do: entry.provider_time || entry.last_seen_at || entry.inserted_at
-
-  defp author_name(%{"display_name" => name}) when is_binary(name) and name != "", do: name
-  defp author_name(%{"name" => name}) when is_binary(name) and name != "", do: name
-  defp author_name(%{"id" => id}) when is_binary(id) and id != "", do: id
-  defp author_name(_author), do: nil
 
   defp datetime(%DateTime{} = value), do: DateTime.to_iso8601(value)
   defp datetime(%NaiveDateTime{} = value), do: NaiveDateTime.to_iso8601(value)

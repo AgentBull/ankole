@@ -8,6 +8,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
   alias Ankole.SignalsGateway.Actors
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.AIGatewayLink
+  alias Ankole.SignalsGateway.ChannelContext
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionActivation
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionWorkerAssignment
@@ -80,7 +81,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
         envelope =
           TurnEnvelope.turn_start(
             turn_ref,
-            actor_event,
+            dedupe_delivered_channel_context(actor_event, actor_key, conversation),
             deliveries,
             turn_start_spec
           )
@@ -168,6 +169,24 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
           actor_key.session_id,
           actor_event
         )
+    end
+  end
+
+  # The delivered envelope drops quoted context the conversation already holds;
+  # the stored actor event keeps its full payload. Session turns are serialized,
+  # so at this point the prior turn is terminal and visibility is definitive —
+  # a rapid consecutive message no longer repeats its predecessor's quote block,
+  # while a retracted turn's quotes come back on the next delivery.
+  defp dedupe_delivered_channel_context(%ActorEvent{} = actor_event, _actor_key, nil),
+    do: actor_event
+
+  defp dedupe_delivered_channel_context(%ActorEvent{} = actor_event, actor_key, _conversation) do
+    visible_refs =
+      AIGatewayLink.visible_channel_context_refs(actor_key.agent_uid, actor_key.session_id)
+
+    case MapSet.size(visible_refs) do
+      0 -> actor_event
+      _visible -> %{actor_event | payload: ChannelContext.drop_visible_messages(actor_event.payload, visible_refs)}
     end
   end
 

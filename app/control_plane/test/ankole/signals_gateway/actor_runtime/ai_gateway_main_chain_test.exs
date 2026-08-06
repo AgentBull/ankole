@@ -247,12 +247,21 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
     assert outbox.source_actor_event_id == actor_event.id
     assert outbox.ai_message_id == final_committed.id
     assert outbox.reply_to_source_entry_id == "human-reply-attachment-1"
-    assert outbox.payload["text"] == "CHAOS_REPLY_ATTACHMENT_OK"
     assert outbox.payload["attachments"] == [attachment]
+    refute Map.has_key?(outbox.payload, "text")
+    assert is_nil(outbox.fallback_visible_text)
 
+    dispatch_attachment_outbox!(final_committed.id)
     dispatch_final_reply_outbox!(final_committed.id)
-    mirror = wait_for_final_mirror(final_committed.id)
-    assert mirror.text == "CHAOS_REPLY_ATTACHMENT_OK"
+
+    %{attachment: attachment_mirror, final: final_mirror} =
+      wait_for_attachment_and_final_mirrors(final_committed.id)
+
+    assert is_nil(attachment_mirror.text)
+    assert [mirrored_attachment] = attachment_mirror.attachments
+    assert is_integer(mirrored_attachment["attachment_id"])
+    assert Map.delete(mirrored_attachment, "attachment_id") == attachment
+    assert final_mirror.text == "CHAOS_REPLY_ATTACHMENT_OK"
   end
 
   test "reply_attachment tool result journal commits attachment outbox on final response" do
@@ -364,13 +373,22 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
     assert outbox.source_actor_event_id == actor_event.id
     assert outbox.ai_message_id == final_committed.id
     assert outbox.reply_to_source_entry_id == "human-reply-attachment-journal-1"
-    assert outbox.payload["text"] == "SALES_CHART_ATTACHED"
     assert outbox.payload["attachments"] == [attachment]
+    refute Map.has_key?(outbox.payload, "text")
+    assert is_nil(outbox.fallback_visible_text)
     refute Repo.get_by(OutboxEntry, outbound_key: "ai-reply-attachment:#{journal.id}:0")
 
+    dispatch_attachment_outbox!(final_committed.id)
     dispatch_final_reply_outbox!(final_committed.id)
-    mirror = wait_for_final_mirror(final_committed.id)
-    assert mirror.text == "SALES_CHART_ATTACHED"
+
+    %{attachment: attachment_mirror, final: final_mirror} =
+      wait_for_attachment_and_final_mirrors(final_committed.id)
+
+    assert is_nil(attachment_mirror.text)
+    assert [mirrored_attachment] = attachment_mirror.attachments
+    assert is_integer(mirrored_attachment["attachment_id"])
+    assert Map.delete(mirrored_attachment, "attachment_id") == attachment
+    assert final_mirror.text == "SALES_CHART_ATTACHED"
   end
 
   test "clarify tool output replaces the plain final reply with one durable interactive outbox" do
@@ -585,6 +603,47 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
       ),
       :count
     )
+  end
+
+  defp dispatch_attachment_outbox!(ai_message_id) do
+    outbox = Repo.get_by!(OutboxEntry, outbound_key: "ai-reply-attachment:#{ai_message_id}:0")
+
+    assert {:ok, %OutboxEntry{status: :succeeded}} =
+             SignalsGateway.dispatch_outbox(
+               outbox.agent_uid,
+               outbox.binding_name,
+               outbox.outbound_key,
+               outbox_adapter([:post_entry, :reply_entry, :edit_entry], fn _outbox ->
+                 {:ok,
+                  %{
+                    created_source_entry_id: "test-attachment-#{ai_message_id}",
+                    raw_payload: %{"provider" => "test"}
+                  }}
+               end)
+             )
+
+    :ok
+  end
+
+  # The attachment message and the final reply mirror separately. Splitting them
+  # by attachment proves the file row carries no copy of the answer text.
+  defp wait_for_attachment_and_final_mirrors(ai_message_id, attempts_left \\ 20)
+
+  defp wait_for_attachment_and_final_mirrors(ai_message_id, attempts_left)
+       when attempts_left > 0 do
+    case Repo.all(from(entry in Entry, where: entry.ai_message_id == ^ai_message_id)) do
+      entries when length(entries) == 2 ->
+        {[attachment], [final]} = Enum.split_with(entries, &(&1.attachments != []))
+        %{attachment: attachment, final: final}
+
+      _entries ->
+        Process.sleep(50)
+        wait_for_attachment_and_final_mirrors(ai_message_id, attempts_left - 1)
+    end
+  end
+
+  defp wait_for_attachment_and_final_mirrors(ai_message_id, 0) do
+    flunk("expected attachment and final reply mirrors for ai_message_id=#{ai_message_id}")
   end
 
   defp wait_for_final_mirror(ai_message_id, attempts_left \\ 20)

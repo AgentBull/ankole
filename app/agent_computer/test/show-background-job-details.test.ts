@@ -52,6 +52,42 @@ describe('@ankole/agent-computer show background job details tool', () => {
       workspace_owner_job_id: 1000,
       attempts: 2,
       current_attempt: 2,
+      current_turn_status: 'completed',
+      threads: { total: 2, child: 1 },
+      turns: { lead: 2, child: 1, active: 0 },
+      progress: {
+        completed_items: 7,
+        tool_calls: 3,
+        tools_used: [
+          { name: 'context_compaction', calls: 1 },
+          { name: 'shell', calls: 2 }
+        ],
+        files_changed: ['report.md'],
+        skills_used: ['deep-research'],
+        active_items: [],
+        plan: {
+          explanation: 'Verify the report',
+          steps: [{ step: 'Check citations', status: 'completed' }]
+        }
+      },
+      usage: {
+        thread_total: {
+          total_tokens: 100,
+          input_tokens: 80,
+          cached_input_tokens: 10,
+          output_tokens: 10,
+          reasoning_output_tokens: 5
+        },
+        last_model_call: {
+          total_tokens: 20,
+          input_tokens: 12,
+          cached_input_tokens: 4,
+          output_tokens: 4,
+          reasoning_output_tokens: 2
+        },
+        model_context_window: 200000
+      },
+      updated_at: '2026-08-06T08:00:00.000000Z',
       error: {
         code: 'codex_no_progress',
         summary: 'Codex request [internal-id] made no observable progress.',
@@ -92,6 +128,50 @@ describe('@ankole/agent-computer show background job details tool', () => {
     expect(result.details.continued_from_job_id).toBeNull()
     expect(result.details.workspace_owner_job_id).toBe(jobID)
   })
+
+  it('returns empty execution facts before the first runtime Turn', async () => {
+    const queuedResponse = response()
+    queuedResponse.status = 'queued'
+    queuedResponse.attempts = 0
+    queuedResponse.errorJson = jsonBytes({})
+    queuedResponse.executionJson = jsonBytes({
+      attempt: 0,
+      threads: { total: 0, child: 0 },
+      turns: { lead: 0, child: 0, compaction: 0, active: 0 },
+      progress: {
+        completed_items: 0,
+        tool_calls: 0,
+        tools_used: [],
+        files_changed: [],
+        active_items: []
+      },
+      updated_at: '2026-08-06T08:00:00.000000Z',
+      trajectory_page: {
+        format: 'ankole_chatml',
+        version: 1,
+        messages: []
+      }
+    })
+
+    const tool = createShowBackgroundJobDetailsTool({
+      turnStart: turnStartForTest(),
+      rpc: (async () => queuedResponse) as RPCRequester
+    })
+
+    const result = await tool.execute('call-show-queued', { job_id: jobID }, new AbortController().signal)
+
+    expect(result.details.current_turn_status).toBeNull()
+    expect(result.details.usage).toBeNull()
+    expect(result.details.threads).toEqual({ total: 0, child: 0 })
+    expect(result.details.turns).toEqual({ lead: 0, child: 0, active: 0 })
+    expect(result.details.progress).toEqual({
+      completed_items: 0,
+      tool_calls: 0,
+      tools_used: [],
+      files_changed: [],
+      active_items: []
+    })
+  })
 })
 
 function response() {
@@ -120,6 +200,47 @@ function response() {
     }),
     executionJson: jsonBytes({
       attempt: 2,
+      current: {
+        runtime_turn_id: '019f0000-0000-7000-8000-000000000010',
+        kind: 'compaction',
+        status: 'completed'
+      },
+      lead_turn_number: 2,
+      threads: { total: 2, child: 1 },
+      turns: { lead: 2, child: 1, compaction: 1, active: 0 },
+      progress: {
+        completed_items: 7,
+        tool_calls: 3,
+        tools_used: [
+          { name: 'context_compaction', calls: 1 },
+          { name: 'shell', calls: 2 }
+        ],
+        files_changed: ['report.md'],
+        skills_used: ['deep-research'],
+        active_items: [],
+        plan: {
+          explanation: 'Verify the report',
+          steps: [{ step: 'Check citations', status: 'completed' }]
+        }
+      },
+      usage: {
+        thread_total: {
+          total_tokens: 100,
+          input_tokens: 80,
+          cached_input_tokens: 10,
+          output_tokens: 10,
+          reasoning_output_tokens: 5
+        },
+        last_model_call: {
+          total_tokens: 20,
+          input_tokens: 12,
+          cached_input_tokens: 4,
+          output_tokens: 4,
+          reasoning_output_tokens: 2
+        },
+        model_context_window: 200000
+      },
+      updated_at: '2026-08-06T08:00:00.000000Z',
       trajectory_page: {
         format: 'ankole_chatml',
         version: 1,

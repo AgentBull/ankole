@@ -112,6 +112,92 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert model_ref["provider_id"] == "openai-responses-main"
   end
 
+  test "every tool path removes the Codex code-mode exec declaration before dispatch" do
+    %{principal: agent} = agent_fixture()
+
+    base_url =
+      start_recording_upstream(self(), fn _request ->
+        {:json, 200,
+         %{
+           "id" => "resp_code_mode",
+           "object" => "response",
+           "status" => "completed",
+           "output" => [],
+           "usage" => %{}
+         }}
+      end)
+
+    declaration =
+      "\n\nexec tool declaration:\n```ts\n" <>
+        "declare const tools: { exec_command(args: { cmd: string }): Promise<unknown>; };\n```"
+
+    tools = [
+      %{
+        "type" => "function",
+        "name" => "exec_command",
+        "description" => "Run one shell command." <> declaration,
+        "parameters" => %{"type" => "object", "properties" => %{}}
+      },
+      %{
+        "type" => "namespace",
+        "name" => "skills",
+        "description" => "Agent Skills.",
+        "tools" => [
+          %{
+            "type" => "function",
+            "name" => "read",
+            "description" => "Read one Skill." <> declaration,
+            "parameters" => %{"type" => "object", "properties" => %{}}
+          }
+        ]
+      }
+    ]
+
+    request = %{"model" => "primary", "input" => "Read one Skill.", "tools" => tools}
+
+    configure_openai_responses_provider!(agent.uid, base_url, "openai-code-mode")
+
+    assert {:ok, %{body: %{"id" => "resp_code_mode"}}} =
+             AIGateway.create_response(agent.uid, request)
+
+    assert_receive {:gateway_request, native}
+
+    assert native.body["tools"] == [
+             %{
+               "type" => "function",
+               "name" => "exec_command",
+               "description" => "Run one shell command.",
+               "parameters" => %{"type" => "object", "properties" => %{}}
+             },
+             %{
+               "type" => "namespace",
+               "name" => "skills",
+               "description" => "Agent Skills.",
+               "tools" => [
+                 %{
+                   "type" => "function",
+                   "name" => "read",
+                   "description" => "Read one Skill.",
+                   "parameters" => %{"type" => "object", "properties" => %{}}
+                 }
+               ]
+             }
+           ]
+
+    configure_openai_compatible_responses_provider!(agent.uid, base_url, "compatible-code-mode")
+
+    assert {:ok, %{body: %{"id" => "resp_code_mode"}}} =
+             AIGateway.create_response(agent.uid, request)
+
+    assert_receive {:gateway_request, local}
+    assert Enum.map(local.body["tools"], & &1["name"]) == ["exec_command", "skills__read"]
+
+    assert Enum.map(local.body["tools"], & &1["description"]) == [
+             "Run one shell command.",
+             "Read one Skill."
+           ]
+  end
+
   test "first-party OpenAI preserves PTC tools whose execution owner is native" do
     %{principal: agent} = agent_fixture()
 
@@ -1537,7 +1623,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert statuses["second"]["status"] == "ok"
   end
 
-  test "OpenRouter chat requests forward the prompt cache key" do
+  test "OpenRouter chat requests keep prompt cache and session identifiers separate" do
     %{principal: agent} = agent_fixture()
 
     base_url =
@@ -1579,15 +1665,44 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              })
 
     assert {:ok, %{body: _body}} =
-             AIGateway.create_response(agent.uid, %{
-               "model" => "primary",
-               "input" => "hello",
-               "prompt_cache_key" => "job-thread-9"
-             })
+             AIGateway.create_response(
+               agent.uid,
+               %{
+                 "model" => "primary",
+                 "input" => "hello",
+                 "prompt_cache_key" => "shared-prefix",
+                 "session_id" => "body-session"
+               },
+               request_context: %{"headers" => %{"x-session-id" => "header-session"}}
+             )
 
     assert_receive {:gateway_request, request}
     assert request.path == "chat/completions"
-    assert request.body["prompt_cache_key"] == "job-thread-9"
+    assert request.body["prompt_cache_key"] == "shared-prefix"
+    assert request.body["session_id"] == "body-session"
+
+    assert {:ok, %{body: _header_body}} =
+             AIGateway.create_response(
+               agent.uid,
+               %{"model" => "primary", "input" => "hello from a header"},
+               request_context: %{"headers" => %{"x-session-id" => "header-session"}}
+             )
+
+    assert_receive {:gateway_request, header_request}
+    assert header_request.body["session_id"] == "header-session"
+    refute Map.has_key?(header_request.body, "prompt_cache_key")
+
+    max_session_id = String.duplicate("s", 256)
+
+    assert {:ok, %{body: _max_body}} =
+             AIGateway.create_response(agent.uid, %{
+               "model" => "primary",
+               "input" => "hello at the session limit",
+               "session_id" => max_session_id
+             })
+
+    assert_receive {:gateway_request, max_request}
+    assert max_request.body["session_id"] == max_session_id
 
     assert {:ok, %{body: _noop_body}} =
              AIGateway.create_response(agent.uid, %{
@@ -1597,6 +1712,101 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     assert_receive {:gateway_request, keyless_request}
     refute Map.has_key?(keyless_request.body, "prompt_cache_key")
+    refute Map.has_key?(keyless_request.body, "session_id")
+  end
+
+  test "OpenRouter rejects invalid explicit session identifiers before dispatch" do
+    %{principal: agent} = agent_fixture()
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openrouter-invalid-session",
+               provider_kind: "openrouter",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openrouter"}]
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openrouter-invalid-session",
+               model: "openai/gpt-5.6-sol"
+             })
+
+    for {value, code} <- [
+          {"", "invalid_value"},
+          {"   ", "invalid_value"},
+          {String.duplicate("s", 257), "invalid_value"},
+          {123, "invalid_type"}
+        ] do
+      assert {:error,
+              %OpenAIError{
+                status: 400,
+                param: "session_id",
+                code: ^code
+              }} =
+               AIGateway.create_response(agent.uid, %{
+                 "model" => "primary",
+                 "input" => "hello",
+                 "session_id" => value
+               })
+    end
+
+    refute_receive {:gateway_request, _request}
+  end
+
+  test "OpenRouter stateful requests use the durable conversation id as session_id" do
+    %{principal: agent} = agent_fixture()
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openrouter-stateful-session",
+               provider_kind: "openrouter",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openrouter"}]
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openrouter-stateful-session",
+               model: "openai/gpt-5.6-sol"
+             })
+
+    assert {:ok, conversation} =
+             StatefulResponses.ensure_conversation(agent.uid, "openrouter-stateful-session")
+
+    assert {:ok, previous} =
+             start_stateful_message(agent.uid, conversation, "openrouter-stateful-anchor", [
+               text_message("user", "first user message")
+             ])
+
+    assert {:ok, previous} = StatefulResponses.commit_complete(previous, [])
+
+    assert {:ok, request} =
+             AIGateway.prepare_websocket_request(agent.uid, %{
+               "model" => "primary",
+               "input" => [text_message("user", "continue")],
+               "store" => true,
+               "previous_response_id" => "resp_#{previous.id}",
+               "prompt_cache_key" => "shared-prefix"
+             })
+
+    assert request.response_context.provider_options["session_id"] == conversation.id
+    assert request.response_context.provider_options["prompt_cache_key"] == "shared-prefix"
+    refute conversation.id == "shared-prefix"
+
+    assert {:ok, started_request, stateful_context} =
+             StatefulLifecycle.prepare_and_start_websocket_provider_request(agent.uid, %{
+               "model" => "primary",
+               "input" => [text_message("user", "continue through the production path")],
+               "store" => true,
+               "previous_response_id" => "resp_#{previous.id}",
+               "prompt_cache_key" => "shared-prefix"
+             })
+
+    assert started_request.response_context.provider_options["session_id"] == conversation.id
+    assert stateful_context.message.conversation_id == conversation.id
   end
 
   test "OpenRouter chat requests annotate Anthropic models for prompt caching" do

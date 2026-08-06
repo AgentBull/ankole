@@ -323,14 +323,12 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
 
   defp commit_im_outboxes(repo, event, completion, outcome, now) do
     opts = [turn_completion_outcome: outcome]
-    final_text = completion.final_text || ""
 
     with {:ok, attachments} <-
            Outbox.commit_reply_attachment_outboxes_in_tx(
              repo,
              event,
              completion.final_response.id,
-             final_text,
              completion.attachments,
              opts
            ),

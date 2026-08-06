@@ -104,6 +104,18 @@ the output, but a larger value does not raise the model-visible limit. The card
 instructions state the same limit. Codex processes larger output in code before
 it returns the result, or it writes that output to a Job Workspace file.
 
+Codex code mode declares one `exec` tool that runs JavaScript over the other
+tools. It also appends one TypeScript `declare const tools` block to every other
+tool description. Each block documents one tool, so every direct tool ends
+with instructions for the indirect path, and models wrap one call in a
+JavaScript program instead of calling the tool. AIGateway removes the appended
+block and keeps `exec` declared. One call then uses the direct tool, and `exec`
+keeps the case it exists for: more than one call. The same rule runs on tool
+descriptions that a client loads through Tool Search, so a loaded tool still
+matches its known contract. Codex has no configuration that separates the
+appended block from the `exec` tool, so this marker is part of the pinned Codex
+output format.
+
 The binding also carries the direct modalities and the optional frozen vision
 fallback. AIGateway sends an image directly only when the selected model
 accepts it. For a text-only model, AIGateway makes one stateless request to the
@@ -222,6 +234,22 @@ credential value.
 
 Deleting a provider first sets `disabled_at`. AIGateway refuses this operation
 while an active model profile still uses the provider.
+
+## Route OpenRouter Sessions and Prompt Prefixes
+
+OpenRouter chat requests use `session_id` and `prompt_cache_key` for different
+purposes. `session_id` keeps one conversation on the provider that served its
+first successful request. It also keeps the resolved model when the request
+uses an OpenRouter router model. `prompt_cache_key` groups requests that can
+reuse the same prompt prefix. AIGateway does not copy one value into the other.
+
+An explicit body `session_id` has first priority. The official `x-session-id`
+header is next, followed by the existing session and thread header forms. When
+none is present, a stateful request uses its durable AIGateway Conversation
+UUID. A stateless request with no session identifier omits `session_id` and
+lets OpenRouter use its fallback routing. AIGateway preserves each supplied
+value and rejects a value that is empty, contains only whitespace, is not a
+string, or is longer than 256 characters.
 
 ## Use a ChatGPT Subscription Provider
 
@@ -371,6 +399,12 @@ It rejects `store=true`, `conversation`, and `previous_response_id`.
 
 Stateless WebSocket calls also avoid PostgreSQL. One connection can remember 32
 completed Responses for local continuation.
+
+Codex uses `response.create` with `generate=false` to prepare a WebSocket
+connection. AIGateway completes this request locally and does not open a
+provider stream. The empty Response has zero usage. AIGateway remembers the
+request input under its temporary Response ID, so the first generated request
+can use `previous_response_id` without losing that input.
 
 Local continuation adds remembered input and output to the next request. It
 cannot retrieve a Response from PostgreSQL.

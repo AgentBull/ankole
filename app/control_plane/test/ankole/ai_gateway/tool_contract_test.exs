@@ -514,6 +514,27 @@ defmodule Ankole.AIGateway.ToolContractTest do
                ToolContract.validate_loaded([changed_search_text], known: [known])
     end
 
+    test "matches a client-loaded tool that still carries the Codex exec declaration" do
+      declaration =
+        "\n\nexec tool declaration:\n```ts\n" <>
+          "declare const tools: { lookup(args: { id: string }): Promise<unknown>; };\n```"
+
+      spec = %{
+        "type" => "function",
+        "name" => "lookup",
+        "description" => "Look up one record.",
+        "parameters" => %{"type" => "object"},
+        "defer_loading" => true
+      }
+
+      assert {:ok, [%Descriptor{description: "Look up one record."} = known]} =
+               ToolContract.normalize([spec])
+
+      loaded = Map.put(spec, "description", spec["description"] <> declaration)
+
+      assert {:ok, [^known]} = ToolContract.validate_loaded([loaded], known: [known])
+    end
+
     test "rejects a new public path that collides with a known provider alias" do
       assert {:ok, known} =
                ToolContract.normalize([

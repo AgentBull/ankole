@@ -1,5 +1,8 @@
 THIRD-PARTY NOTICES
 
+OfficeCLI
+=========
+
 The Playbooks in this Ankole Agent Plugin include modified documentation from OfficeCLI.
 
 Upstream project: iOfficeAI/OfficeCLI
@@ -13,11 +16,10 @@ Imported source files:
 - playbooks/academic-paper.md <= skills/officecli-academic-paper/SKILL.md (upstream sha256: dcdd8247f77704f9fe57f2a243b0759c56ab60e4cfdf21ad439e8da31ec9f6e5)
 - playbooks/data-dashboard.md <= skills/officecli-data-dashboard/SKILL.md (upstream sha256: 38cf745bb04cb7005cd089e6e87073509f190e46e035707528a5d0b01b2dafd0)
 - playbooks/financial-model.md <= skills/officecli-financial-model/SKILL.md (upstream sha256: 65280bce9537ff3192bbc8fe1ad94980662929a71390b258d7f38f24772d8c9e)
-- playbooks/pitch-deck.md <= skills/officecli-pitch-deck/SKILL.md (upstream sha256: 6b59efdc094451945fd059548771326cce4bd2e3544d0659d3d6acf0825ea2b1)
 
 Modifications:
-- Converted each upstream scene-layer skill into an Ankole Playbook: replaced the skill frontmatter with Playbook routing metadata (name, description, products) and renamed self-references from skill to Playbook.
-- Replaced self-install setup instructions with Ankole Agent Computer preinstalled-runtime notes.
+- Converted each upstream scene-layer Skill into an Ankole Playbook with Playbook routing metadata.
+- Replaced self-install setup instructions with Ankole Agent Computer runtime notes.
 
 Upstream NOTICE:
 
@@ -34,3 +36,52 @@ This NOTICE file is part of the required attribution under
 Section 4 of the Apache License, Version 2.0. Redistributions
 of this work, with or without modification, must retain this
 notice.
+
+open-kimi-ppt-skill
+===================
+
+The PPTX Playbooks in this Ankole Agent Plugin include modified documentation from open-kimi-ppt-skill.
+
+Upstream project: Binaryify/open-kimi-ppt-skill
+Upstream URL: https://github.com/Binaryify/open-kimi-ppt-skill
+Upstream commit: 4fca104a44cea80dabfe02d877e9f3a4f7bccccb
+License: MIT License
+License URL: https://github.com/Binaryify/open-kimi-ppt-skill/blob/4fca104a44cea80dabfe02d877e9f3a4f7bccccb/LICENSE
+
+Imported source files:
+- playbooks/poster-infographic.md <= skills/open-kimi-ppt/reference/general-poster.md
+- playbooks/academic-presentation.md <= skills/open-kimi-ppt/reference/slides_categories/academic-research.md
+- playbooks/analysis-presentation.md <= skills/open-kimi-ppt/reference/slides_categories/analysis-decision.md
+- playbooks/brand-presentation.md <= skills/open-kimi-ppt/reference/slides_categories/brand-creative.md
+- playbooks/business-proposal.md <= skills/open-kimi-ppt/reference/slides_categories/business-plan.md
+- playbooks/management-presentation.md <= skills/open-kimi-ppt/reference/slides_categories/management-report.md
+- playbooks/technical-presentation.md <= skills/open-kimi-ppt/reference/slides_categories/tech-engineering.md
+
+Modifications:
+- Copied each upstream source file into its local Playbook path before adaptation.
+- Added Ankole Playbook routing metadata.
+- Adapted compatible narrative and page-organization material into concise scene-specific structures.
+- Kept visual identity in the selected template, style source, or `design-md`; the Playbooks describe information architecture and page grammar.
+- Replaced PPTD-only file, canvas, and validation instructions with OfficeCLI equivalents where required.
+
+MIT License
+
+Copyright (c) 2026 Binaryify Zhuang
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

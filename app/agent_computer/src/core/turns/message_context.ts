@@ -1,5 +1,6 @@
 import { recordValue, type JsonObject as JSONObject } from '@agentbull/active-support'
 import type { TurnStart } from '../../lanes/actor_lane'
+import { formatZonedDateTime } from '../../prompts/zoned_time'
 import type { TextContent, UserMessage } from '../llm'
 
 const AGENT_ENVIRONMENT_INFO_OPEN = '<agent_environment_info>'
@@ -34,7 +35,7 @@ export function actorEventEnvironmentInfoLines(
   const lines: string[] = []
 
   const sendAt = stringValue(entry.provider_time) ?? stringValue(payload?.time)
-  const formattedSendAt = sendAt ? formatConversationTime(sendAt, opts.timezone || 'UTC') : undefined
+  const formattedSendAt = sendAt ? formatZonedDateTime(sendAt, opts.timezone || 'UTC') : undefined
   if (formattedSendAt) lines.push(`send_at: ${formattedSendAt}`)
 
   if (stringValue(channel.kind) === 'im_group') {
@@ -68,6 +69,10 @@ export function turnRequestEnvironmentInfoLines(turnStart: TurnStart): string[] 
 
   const cronScheduleName = stringValue(origin.cron_schedule_name)
   if (cronScheduleName) lines.push(`cron_schedule_name: ${cronScheduleName}`)
+
+  const identicalReplies = context?.consecutive_identical_replies
+  if (typeof identicalReplies === 'number' && identicalReplies >= 2)
+    lines.push(`schedule_consecutive_identical_replies: ${identicalReplies}`)
 
   const payload = recordValue(origin.payload)
   if (payload && Object.keys(payload).length > 0) lines.push(`schedule_payload: ${JSON.stringify(payload)}`)
@@ -134,31 +139,6 @@ function speakerLabel(author: JSONObject): string | undefined {
 
   const senderType = stringValue((recordValue(author.metadata) ?? {}).sender_type)
   return senderType && senderType.toLowerCase() !== 'user' ? `${name} (${senderType})` : name
-}
-
-/**
- * Formats an instant to minute precision in the conversation timezone.
- * The system prompt declares the timezone once for all message timestamps.
- */
-export function formatConversationTime(value: string, timezone: string): string | undefined {
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return undefined
-
-  try {
-    const parts = new Intl.DateTimeFormat('en-CA', {
-      timeZone: timezone,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      hourCycle: 'h23'
-    }).formatToParts(parsed)
-    const part = (type: string) => parts.find(item => item.type === type)?.value ?? '00'
-    return `${part('year')}-${part('month')}-${part('day')} ${part('hour')}:${part('minute')}`
-  } catch {
-    return undefined
-  }
 }
 
 /**

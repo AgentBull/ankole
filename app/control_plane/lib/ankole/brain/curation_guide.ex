@@ -30,7 +30,7 @@ defmodule Ankole.Brain.CurationGuide do
         "customer" =>
           "Keep stable needs, stakeholders, relationship state, decisions, and supported constraints. Update the same customer entry instead of appending a chronological contact log.",
         "policy" =>
-          "Keep the policy scope, trigger, required or forbidden behavior, exceptions, owner, and supporting source. Replace superseded rules in the same policy entry.",
+          "A rule the organization or the outside world imposes. Keep the policy scope, trigger, required or forbidden behavior, exceptions, owner, and supporting source; replace superseded rules in the same policy entry. A rule for this Agent's own conduct belongs in the pinned memo.",
         "person" =>
           "Use one entry per person for stable preferences, roles, and relationships. When material supplies speaker_principal_uid for that person, store it as properties.principal_uid.",
         "organization" =>
@@ -42,7 +42,7 @@ defmodule Ankole.Brain.CurationGuide do
         "channel" =>
           "Record only channel purpose, membership conventions, and communication norms.",
         "agent_system_pinned_memo" =>
-          "Keep only compact behavior-changing rules for this Agent. Do not store pointers.",
+          "The resident brief of this Agent's conduct rules, injected into every conversation. Each rule is compact, works without opening another entry, and can change behavior.",
         "brain_curation_guide" => "Keep human curation policy in this self-store entry."
       }
     }

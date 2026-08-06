@@ -42,10 +42,14 @@ export function sanitizeBinaryOutput(text: string): string {
  * trust that: this strips hidden and control characters through
  * `sanitizeBinaryOutput`, collapses all whitespace to single spaces, and caps
  * the length so one oversized entry cannot starve the rest of its catalog.
+ * A capped entry ends with `...` inside the budget, so the model sees the cut
+ * instead of reading a mid-sentence stop as the complete description.
  */
 export function sanitizeCatalogLine(text: string, maxChars: number): string {
   const cleaned = sanitizeBinaryOutput(text).replace(/\s+/g, ' ').trim()
-  return truncateUtf16Safe(cleaned, maxChars)
+  if (cleaned.length <= maxChars) return cleaned
+  if (maxChars <= 3) return truncateUtf16Safe(cleaned, maxChars)
+  return `${truncateUtf16Safe(cleaned, maxChars - 3).trimEnd()}...`
 }
 
 /**

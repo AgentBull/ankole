@@ -72,6 +72,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
   private activeFilesChanged: BackgroundAgentJobPathHandoff = emptyBackgroundAgentJobPathHandoff()
   private waitingOnUserInput = false
   private recoveryInFlight = false
+  private completionPending = false
   private recoveryState: CodexRecoveryState = initialCodexRecoveryState
   private pendingCredentialPoolExhaustion: CodexCredentialPoolExhaustion | undefined
   private emptyReportRetries = 0
@@ -408,6 +409,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
       await this.client.request('thread/start', {
         cwd: this.input.jobProject.codexCwd,
         runtimeWorkspaceRoots: [this.input.jobProject.codexCwd],
+        experimentalRawEvents: true,
         approvalPolicy: 'never',
         sandbox: 'danger-full-access',
         modelProvider: 'ankole_aigateway',
@@ -524,7 +526,17 @@ class CodexJobSession implements AgentCodexRuntimeSession {
     codexTurnStatus: string,
     error: JSONObject
   ): Promise<void> {
-    if (this.finalizing || this.waitingOnUserInput || this.recoveryInFlight) return
+    if (this.finalizing || this.waitingOnUserInput || this.recoveryInFlight || this.completionPending) return
+
+    if (status === 'succeeded' && this.runtimeLease) {
+      this.completionPending = true
+      try {
+        await this.runtimeLease.runtime.waitForSessionTurnsIdle(this)
+      } finally {
+        this.completionPending = false
+      }
+      if (this.finalizing || this.waitingOnUserInput || this.recoveryInFlight) return
+    }
 
     if (status === 'succeeded') {
       if (!stringValue(this.outputText)) {
@@ -857,6 +869,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
       if (
         this.steerInFlight ||
         this.finalizing ||
+        this.completionPending ||
         this.recoveryInFlight ||
         !this.client ||
         !this.runtimeThreadID ||

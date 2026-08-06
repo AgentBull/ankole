@@ -384,8 +384,8 @@ Status includes:
   each visible channel.
 - Pending, synced, failed, and stale episode and block embeddings.
 - Global embedding configuration and model-space consistency.
-- The Stage B model, last successful run, unavailable reason, and retryable
-  curation jobs.
+- The Stage B model, last successful run, unavailable reason, and the age of
+  the oldest pending material.
 - Stage B jobs that have executed for more than 30 minutes.
 - Pinned memo size and truncation state.
 - Four entry lints: a date in the name, a near duplicate name, more than 200
@@ -393,11 +393,12 @@ Status includes:
 - Citation, source, and other read-only diagnostics.
 
 Any unavailable pipeline, failed or excessive backlog, stale embedding space,
-stuck job, oversized memo, or nonzero lint produces an alert. A retryable
-curation job appears in the status surface but alerts only on its last attempt,
-because Oban retries a transient provider failure without an operator. Oban
-Lifeline rescues executing jobs after 30 minutes so a stale unique lock cannot
-stop all future curation for that Principal.
+stuck job, oversized memo, or nonzero lint produces an alert. A failed Stage B
+run writes its bounded reason to the Principal cursor, and the next successful
+run clears it. Pending material older than 48 hours produces an alert for a
+Principal with Dreaming enabled, whatever stopped curation. Oban Lifeline
+rescues executing jobs after 30 minutes so a stale unique lock cannot stop all
+future curation for that Principal.
 
 ## Configuration
 

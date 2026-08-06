@@ -6,12 +6,15 @@ defmodule Ankole.AIGateway.Providers.OpenRouter do
 
   use Ankole.AIGateway.ProviderDSL
 
+  alias Ankole.AIGateway.OpenAIError
   alias Ankole.AIGateway.ProviderConnectionCheck
   alias Ankole.AIGateway.ReasoningEffort
+  alias Ankole.AIGateway.RequestContext
   alias Ankole.AIGateway.UniversalAIRequest
 
   @default_referer "https://github.com/agentbull/ankole"
   @default_title "Ankole"
+  @max_session_id_length 256
 
   provider :openrouter do
     label(%{"default" => "OpenRouter", "zh-Hans-CN" => "OpenRouter"})
@@ -76,6 +79,7 @@ defmodule Ankole.AIGateway.Providers.OpenRouter do
     |> UniversalAIRequest.bearer_auth()
     |> ReasoningEffort.put_provider_options(ctx, target: :reasoning)
     |> put_prompt_cache_key(ctx)
+    |> put_session_id(ctx)
     |> put_anthropic_cache_control(ctx)
   end
 
@@ -98,6 +102,76 @@ defmodule Ankole.AIGateway.Providers.OpenRouter do
       _value ->
         request
     end
+  end
+
+  # `session_id` keeps one conversation on the same OpenRouter provider from
+  # its first successful request. It is separate from `prompt_cache_key`, which
+  # groups requests that can share a prompt prefix. AIGateway supplies its
+  # durable Conversation ID only after it resolves stateful history.
+  defp put_session_id({:error, _reason} = error, _ctx), do: error
+
+  defp put_session_id(%UniversalAIRequest{} = request, ctx) do
+    with {:ok, session_id} <- session_id(ctx) do
+      case session_id do
+        nil ->
+          request
+
+        session_id ->
+          UniversalAIRequest.put_provider_options(
+            request,
+            Map.put(request.provider_options, "session_id", session_id)
+          )
+      end
+    end
+  end
+
+  defp session_id(ctx) do
+    case Map.fetch(ctx.request, "session_id") do
+      {:ok, value} -> validate_session_id(value)
+      :error -> validate_optional_session_id(context_session_id(ctx.request_context))
+    end
+  end
+
+  defp context_session_id(request_context) do
+    headers = Map.get(request_context, "headers", %{})
+
+    Enum.find_value(RequestContext.session_header_names(), &Map.get(headers, &1)) ||
+      Map.get(request_context, "conversation_id")
+  end
+
+  defp validate_optional_session_id(nil), do: {:ok, nil}
+  defp validate_optional_session_id(value), do: validate_session_id(value)
+
+  defp validate_session_id(value) when is_binary(value) do
+    cond do
+      String.trim(value) == "" ->
+        {:error,
+         OpenAIError.invalid(
+           "session_id",
+           "invalid_value",
+           "session_id must not be empty or contain only whitespace."
+         )}
+
+      String.length(value) > @max_session_id_length ->
+        {:error,
+         OpenAIError.invalid(
+           "session_id",
+           "invalid_value",
+           "session_id must contain at most 256 characters."
+         )}
+
+      true ->
+        {:ok, value}
+    end
+  end
+
+  defp validate_session_id(_value) do
+    {:error,
+     OpenAIError.invalid(
+       "session_id",
+       "invalid_type",
+       "session_id must be a string."
+     )}
   end
 
   # Anthropic-family upstreams cache a prompt only when the request carries an

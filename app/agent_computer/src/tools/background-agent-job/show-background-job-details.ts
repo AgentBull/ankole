@@ -18,9 +18,65 @@ const ShowBackgroundJobDetailsParamsSchema = z
   })
   .strict()
 
+const NonNegativeIntegerSchema = z.number().int().nonnegative()
+
+const ExecutionProgressSchema = z.object({
+  completed_items: NonNegativeIntegerSchema,
+  tool_calls: NonNegativeIntegerSchema,
+  tools_used: z.array(
+    z.object({
+      name: z.string(),
+      calls: NonNegativeIntegerSchema
+    })
+  ),
+  files_changed: z.array(z.string()),
+  skills_used: z.array(z.string()).optional(),
+  active_items: z.array(
+    z.object({
+      scope: z.enum(['lead', 'child']),
+      name: z.string()
+    })
+  ),
+  plan: z.record(z.string(), z.unknown()).optional()
+})
+
+const UsageBreakdownSchema = z.object({
+  total_tokens: NonNegativeIntegerSchema,
+  input_tokens: NonNegativeIntegerSchema,
+  cached_input_tokens: NonNegativeIntegerSchema,
+  output_tokens: NonNegativeIntegerSchema,
+  reasoning_output_tokens: NonNegativeIntegerSchema
+})
+
+const ExecutionUsageSchema = z.object({
+  thread_total: UsageBreakdownSchema,
+  last_model_call: UsageBreakdownSchema,
+  model_context_window: NonNegativeIntegerSchema.optional()
+})
+
 const ExecutionSchema = z.object({
-  attempt: z.number().int().nonnegative(),
-  trajectory_page: BackgroundAgentJobTrajectorySchema
+  attempt: NonNegativeIntegerSchema,
+  current: z
+    .object({
+      runtime_turn_id: z.string(),
+      kind: z.string(),
+      status: z.enum(['in_progress', 'completed', 'failed', 'interrupted'])
+    })
+    .optional(),
+  threads: z.object({
+    total: NonNegativeIntegerSchema,
+    child: NonNegativeIntegerSchema
+  }),
+  turns: z.object({
+    lead: NonNegativeIntegerSchema,
+    child: NonNegativeIntegerSchema,
+    compaction: NonNegativeIntegerSchema,
+    active: NonNegativeIntegerSchema
+  }),
+  progress: ExecutionProgressSchema,
+  usage: ExecutionUsageSchema.optional(),
+  trajectory_page: BackgroundAgentJobTrajectorySchema,
+  updated_at: z.string()
 })
 
 type ShowBackgroundJobDetailsResult = {
@@ -30,6 +86,12 @@ type ShowBackgroundJobDetailsResult = {
   workspace_owner_job_id: number
   attempts: number
   current_attempt: number
+  current_turn_status: 'in_progress' | 'completed' | 'failed' | 'interrupted' | null
+  threads: z.infer<typeof ExecutionSchema>['threads']
+  turns: Pick<z.infer<typeof ExecutionSchema>['turns'], 'lead' | 'child' | 'active'>
+  progress: z.infer<typeof ExecutionProgressSchema>
+  usage: z.infer<typeof ExecutionUsageSchema> | null
+  updated_at: string
   error: ModelVisibleJobError | null
   attempt_history: Array<{
     attempt: number
@@ -49,7 +111,7 @@ export function createShowBackgroundJobDetailsTool(
 ): AgentTool<typeof ShowBackgroundJobDetailsParamsSchema, ShowBackgroundJobDetailsResult> {
   return {
     name: 'show_background_job_details',
-    description: 'Show job details: title, status, attempt history and its latest 3-turn conversation trajectory',
+    description: 'Show job details: status, current progress, usage, attempt history, and the latest trajectory page.',
     schema: ShowBackgroundJobDetailsParamsSchema,
     executionMode: 'parallel',
     isReadOnly: true,
@@ -79,6 +141,16 @@ export function createShowBackgroundJobDetailsTool(
         ),
         attempts: response.attempts,
         current_attempt: execution.attempt,
+        current_turn_status: execution.current?.status ?? null,
+        threads: execution.threads,
+        turns: {
+          lead: execution.turns.lead,
+          child: execution.turns.child,
+          active: execution.turns.active
+        },
+        progress: execution.progress,
+        usage: execution.usage ?? null,
+        updated_at: execution.updated_at,
         error: modelVisibleJobError(error),
         attempt_history: response.attemptHistory.map(entry => ({
           attempt: entry.attempt,

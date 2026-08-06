@@ -1,6 +1,9 @@
 THIRD-PARTY NOTICES
 
-This Ankole Agent Plugin skill includes modified documentation from OfficeCLI.
+OfficeCLI
+=========
+
+This Ankole Agent Plugin Skill includes modified documentation from OfficeCLI.
 
 Upstream project: iOfficeAI/OfficeCLI
 Upstream URL: https://github.com/iOfficeAI/OfficeCLI
@@ -13,9 +16,10 @@ Imported source files:
 - SKILL.md <= skills/officecli-pptx/SKILL.md (upstream sha256: 0d53192751d5770984f16f3c34f9923377651555c667150d7f96e16e8c9757b3)
 
 Modifications:
-- Copied upstream SKILL.md content first, then changed Ankole-local frontmatter names so the skill name matches its installed directory.
-- Replaced self-install setup instructions with Ankole Agent Computer preinstalled-runtime notes.
-- Added Playbook routing; the upstream scene-layer skills live in ../../playbooks with their own notices.
+- Kept OfficeCLI as the file-operation runtime.
+- Replaced self-install setup instructions with Ankole Agent Computer runtime notes.
+- Added Playbook routing and Ankole-local frontmatter.
+- Reduced the command catalog to a help-first operating guide.
 
 Upstream NOTICE:
 
@@ -32,3 +36,46 @@ This NOTICE file is part of the required attribution under
 Section 4 of the Apache License, Version 2.0. Redistributions
 of this work, with or without modification, must retain this
 notice.
+
+open-kimi-ppt-skill
+===================
+
+This Ankole Agent Plugin Skill includes adapted workflow documentation from open-kimi-ppt-skill.
+
+Upstream project: Binaryify/open-kimi-ppt-skill
+Upstream URL: https://github.com/Binaryify/open-kimi-ppt-skill
+Upstream commit: 4fca104a44cea80dabfe02d877e9f3a4f7bccccb
+License: MIT License
+License URL: https://github.com/Binaryify/open-kimi-ppt-skill/blob/4fca104a44cea80dabfe02d877e9f3a4f7bccccb/LICENSE
+
+Imported source files:
+- SKILL.md <= skills/open-kimi-ppt/SKILL.md
+- SKILL.md <= skills/open-kimi-ppt/reference/slides_categories.md
+
+Modifications:
+- Adapted the work-mode, design-direction, template, style-transfer, replication, and visual-review workflows to OfficeCLI and Ankole Playbooks.
+- Adapted the general image search and generation guidance to stock photography, available image models, and coherent icon sets.
+- Removed PPTD, browser-export, dependency-install, and public Kimi editor instructions.
+- Kept the PPTX Skill focused on supplied-content page mapping, construction, and layout review.
+
+MIT License
+
+Copyright (c) 2026 Binaryify Zhuang
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

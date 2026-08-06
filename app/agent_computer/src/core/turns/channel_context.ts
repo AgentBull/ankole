@@ -1,6 +1,6 @@
 import { arrayPath, firstString, isRecord, stringArg, type JsonObject as JSONObject } from '@agentbull/active-support'
 import { type UserMessage, userMessage } from '../llm'
-import { formatConversationTime } from './message_context'
+import { formatZonedDateTime } from '../../prompts/zoned_time'
 
 const ACTOR_EVENT_REFERENCE_SUFFIX = /\s*[（(]actor-event::[0-9a-f-]+[）)]\s*$/iu
 
@@ -72,7 +72,7 @@ function channelContextLine(value: unknown, timezone: string): string | undefine
 
   const speaker = firstString(value, ['speaker']) ?? 'Unknown'
   const sentAt = firstString(value, ['sent_at'])
-  const formattedSentAt = sentAt ? formatConversationTime(sentAt, timezone) : undefined
+  const formattedSentAt = sentAt ? formatZonedDateTime(sentAt, timezone) : undefined
   const prefix = [formattedSentAt ? `[${formattedSentAt}]` : undefined, `[${role}]`, speaker]
     .filter((part): part is string => part !== undefined)
     .join(' ')

@@ -28,6 +28,38 @@ describe('@ankole/agent-computer Codex Job runtime files', () => {
     expect(content).toContain('request_parent_input')
   })
 
+  it('renders the Job start time in the installation timezone it labels', () => {
+    const now = new Date('2026-08-05T21:27:51.933Z')
+    const content = renderCodexJobAgents({
+      jobRoot: '/agents/agent-1/jobs/job-1',
+      soul: 'SOUL',
+      mission: 'MISSION',
+      timezone: 'Asia/Shanghai',
+      now
+    }).content
+    expect(content).toContain('Job start time: 2026-08-06 05:27 (Asia/Shanghai).')
+    expect(content).toContain('Report times in Asia/Shanghai')
+    expect(content).not.toContain(now.toISOString())
+
+    const withoutTimezone = renderCodexJobAgents({
+      jobRoot: '/agents/agent-1/jobs/job-1',
+      soul: 'SOUL',
+      mission: 'MISSION',
+      now
+    }).content
+    expect(withoutTimezone).toContain('Job start time: 2026-08-05 21:27 (UTC).')
+
+    // A timezone Intl cannot use must degrade the clock and its label together.
+    const unusableTimezone = renderCodexJobAgents({
+      jobRoot: '/agents/agent-1/jobs/job-1',
+      soul: 'SOUL',
+      mission: 'MISSION',
+      timezone: 'Mars/Olympus_Mons',
+      now
+    }).content
+    expect(unusableTimezone).toContain('Job start time: 2026-08-05 21:27 (UTC).')
+  })
+
   it('renders the shared Job guidance template after the execution context', () => {
     const content = renderCodexJobAgents({
       jobRoot: '/agents/agent-1/jobs/job-1',

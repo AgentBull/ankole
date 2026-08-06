@@ -873,9 +873,9 @@ function groupTurnsByAttempt(
       attempt,
       turns: attemptTurns,
       leadThreadID:
-        (attempt === currentAttempt && attemptTurns.some(turn => turn.runtime_thread_id === currentLeadThreadID)
+        attempt === currentAttempt && attemptTurns.some(turn => turn.runtime_thread_id === currentLeadThreadID)
           ? currentLeadThreadID
-          : attemptTurns.find(turn => turn.kind === 'agent')?.runtime_thread_id) ?? attemptTurns[0]?.runtime_thread_id
+          : attemptTurns[0]?.runtime_thread_id
     }))
 }
 

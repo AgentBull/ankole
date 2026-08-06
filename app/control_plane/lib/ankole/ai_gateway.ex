@@ -69,6 +69,46 @@ defmodule Ankole.AIGateway do
 
   def create_response(_subject_uid, _request, _opts), do: {:error, :invalid_request_body}
 
+  @doc """
+  Returns the full output text of a completed response body, or an error.
+
+  Machine callers that parse response text must use this instead of reading
+  `output` directly, because only the gateway knows when a body is whole: a
+  response that ended on `max_output_tokens` still carries valid-looking
+  partial text, and reasoning can consume the whole output budget and leave
+  a completed-looking body with no text at all.
+  """
+  @spec completed_output_text(map()) :: {:ok, String.t()} | {:error, term()}
+  def completed_output_text(%{"status" => "completed"} = body) do
+    case output_text(body) do
+      "" -> {:error, :missing_response_text}
+      text -> {:ok, text}
+    end
+  end
+
+  def completed_output_text(body) when is_map(body) do
+    {:error,
+     {:incomplete_response, Map.take(body, ["status", "incomplete_details", "error", "usage"])}}
+  end
+
+  defp output_text(%{"output_text" => text}) when is_binary(text), do: String.trim(text)
+
+  defp output_text(%{"output" => output}) when is_list(output) do
+    output
+    |> Enum.flat_map(fn
+      %{"content" => content} when is_list(content) -> content
+      _item -> []
+    end)
+    |> Enum.flat_map(fn
+      %{"text" => text} when is_binary(text) -> [text]
+      _part -> []
+    end)
+    |> Enum.join("\n")
+    |> String.trim()
+  end
+
+  defp output_text(_body), do: ""
+
   defp execute_response_driver(
          :single_request,
          subject_uid,

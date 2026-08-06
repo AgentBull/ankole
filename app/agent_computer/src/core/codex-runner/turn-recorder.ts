@@ -70,8 +70,22 @@ type ItemEntry = {
 
 type CollabAgentToolCall = Extract<ThreadItem, { type: 'collabAgentToolCall' }>
 
+type CollaborationActivity = {
+  kind: string
+  agentThreadID: string
+  agentPath: string
+}
+
+type PendingCollaborationCall = {
+  runtimeTurnID: string
+  tool: string
+  arguments: unknown
+  activity?: CollaborationActivity
+}
+
 export class BackgroundAgentJobTurnRecorder {
   private readonly turns = new Map<string, RuntimeTurn>()
+  private readonly pendingCollaborationCalls = new Map<string, PendingCollaborationCall>()
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>()
   private tail: Promise<void> = Promise.resolve()
   private checkpointError: unknown
@@ -107,6 +121,9 @@ export class BackgroundAgentJobTurnRecorder {
         return
       case 'item/completed':
         this.completeItem(params)
+        return
+      case 'rawResponseItem/completed':
+        this.completeRawResponseItem(params)
         return
       case 'turn/plan/updated':
         this.updateTurnPlan(params)
@@ -286,6 +303,7 @@ export class BackgroundAgentJobTurnRecorder {
     const item = jsonObject(params.item)
     const id = stringValue(item.id)
     if (!turn || !id || !shouldRecordItem(item)) return
+    if (item.type === 'collabAgentToolCall' && this.pendingCollaborationCalls.has(id)) return
     const name = toolName(item)
     if (!name) return
     if (turn.activeItem?.id === id && turn.activeItem.name === name) return
@@ -297,7 +315,19 @@ export class BackgroundAgentJobTurnRecorder {
     const turn = this.turn(params)
     const rawItem = jsonObject(params.item)
     const id = stringValue(rawItem.id)
-    if (!turn || !id || !shouldRecordItem(rawItem)) return
+    if (!turn || !id) return
+    if (rawItem.type === 'subAgentActivity') {
+      this.completeSubAgentActivity(turn, rawItem)
+      return
+    }
+    if (!shouldRecordItem(rawItem)) return
+    if (rawItem.type === 'collabAgentToolCall' && this.pendingCollaborationCalls.has(id)) return
+    this.recordCompletedItem(turn, rawItem)
+  }
+
+  private recordCompletedItem(turn: RuntimeTurn, rawItem: JSONObject): void {
+    const id = stringValue(rawItem.id)
+    if (!id) return
     const redacted = turn.redacted
     const truncated = turn.contentTruncated
     const item = this.canonicalItem(turn, rawItem)
@@ -319,6 +349,76 @@ export class BackgroundAgentJobTurnRecorder {
     if (changed || tracked || cleared || redacted !== turn.redacted || truncated !== turn.contentTruncated) {
       this.markDirty(turn, true)
     }
+  }
+
+  private completeRawResponseItem(params: JSONObject): void {
+    const item = jsonObject(params.item)
+    const callID = stringValue(item.call_id)
+    if (!callID) return
+
+    if (item.type === 'function_call') {
+      const tool = collaborationToolName(item)
+      const turn = this.turn(params)
+      if (!tool || !turn) return
+      this.pendingCollaborationCalls.set(callID, {
+        runtimeTurnID: turn.runtimeTurnID,
+        tool,
+        arguments: parseJSONValue(item.arguments, {})
+      })
+      turn.activeItem = { id: callID, name: `collaboration.${tool}` }
+      this.markDirty(turn, false)
+      return
+    }
+
+    if (item.type !== 'function_call_output') return
+    const pending = this.pendingCollaborationCalls.get(callID)
+    if (!pending) return
+    this.pendingCollaborationCalls.delete(callID)
+    const turn = this.turns.get(pending.runtimeTurnID)
+    if (!turn) return
+    this.recordCompletedItem(
+      turn,
+      jsonObject({
+        type: 'dynamicToolCall',
+        id: callID,
+        namespace: 'collaboration',
+        tool: pending.tool,
+        arguments: pending.arguments,
+        status: 'completed',
+        contentItems: collaborationToolOutcome(item.output, pending.activity),
+        success: null,
+        durationMs: null
+      })
+    )
+  }
+
+  private completeSubAgentActivity(turn: RuntimeTurn, item: JSONObject): void {
+    const id = stringValue(item.id)
+    const kind = stringValue(item.kind)
+    const agentThreadID = stringValue(item.agentThreadId)
+    const agentPath = stringValue(item.agentPath)
+    if (!id || !kind || !agentThreadID || !agentPath) return
+    const activity = { kind, agentThreadID, agentPath }
+    const pending = this.pendingCollaborationCalls.get(id)
+    if (pending) {
+      pending.activity = activity
+      return
+    }
+
+    this.recordCompletedItem(
+      turn,
+      jsonObject({
+        type: 'dynamicToolCall',
+        id,
+        namespace: 'collaboration',
+        tool: fallbackCollaborationTool(kind),
+        arguments: {},
+        status: 'completed',
+        contentItems: collaborationToolOutcome('', activity),
+        success: null,
+        durationMs: null
+      })
+    )
   }
 
   private updateTurnPlan(params: JSONObject): void {
@@ -771,6 +871,9 @@ function projectThreadItem(value: JSONObject, state: SanitizeState): JSONObject[
   }
 }
 
+// Projects a collaboration call on a thread that predates raw response-item
+// events, where no exact call pair exists. Remove this projection when no
+// resumable stored thread predates raw events.
 function collabAgentToolPair(item: CollabAgentToolCall, state: SanitizeState): JSONObject[] {
   return toolPair(
     item.id,
@@ -817,6 +920,61 @@ function collabAgentToolOutcome(item: CollabAgentToolCall): JSONObject {
       }
     })
   })
+}
+
+const collaborationV2Tools = new Set([
+  'spawn_agent',
+  'send_message',
+  'followup_task',
+  'interrupt_agent',
+  'list_agents',
+  'wait_agent'
+])
+
+function collaborationToolName(item: JSONObject): string | undefined {
+  const namespace = stringValue(item.namespace)
+  const name = stringValue(item.name)
+  if (!name) return undefined
+  if (namespace === 'collaboration' && collaborationV2Tools.has(name)) return name
+  if (!name.startsWith('collaboration.')) return undefined
+  const tool = name.slice('collaboration.'.length)
+  return collaborationV2Tools.has(tool) ? tool : undefined
+}
+
+function fallbackCollaborationTool(kind: string): string {
+  switch (kind) {
+    case 'started':
+      return 'spawn_agent'
+    case 'interrupted':
+      return 'interrupt_agent'
+    default:
+      return 'agent_interaction'
+  }
+}
+
+function collaborationToolOutcome(output: unknown, activity?: CollaborationActivity): unknown {
+  const parsedOutput = parseJSONValue(output, '')
+  if (!activity) return parsedOutput
+  return {
+    output: parsedOutput,
+    agents: [
+      {
+        thread_id: activity.agentThreadID,
+        path: activity.agentPath,
+        activity: activity.kind
+      }
+    ]
+  }
+}
+
+function parseJSONValue(value: unknown, emptyValue: unknown): unknown {
+  if (typeof value !== 'string') return value ?? emptyValue
+  if (!value.trim()) return emptyValue
+  try {
+    return JSON.parse(value)
+  } catch {
+    return value
+  }
 }
 
 function unsupportedCollabAgentTool(tool: never): never {

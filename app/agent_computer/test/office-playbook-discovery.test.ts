@@ -24,10 +24,18 @@ describe('@ankole/agent-computer office Playbook discovery', () => {
     const pptx = await runDiscovery('pptx')
     const docx = await runDiscovery('docx')
 
-    expect(pptx.stdout).toContain('- pitch-deck (')
+    expect(playbookNames(pptx.stdout)).toEqual([
+      'academic-presentation',
+      'analysis-presentation',
+      'brand-presentation',
+      'business-proposal',
+      'management-presentation',
+      'poster-infographic',
+      'technical-presentation'
+    ])
     expect(pptx.stdout).not.toContain('financial-model')
     expect(docx.stdout).toContain('- academic-paper (')
-    expect(docx.stdout).not.toContain('pitch-deck')
+    expect(docx.stdout).not.toContain('business-proposal')
   })
 
   it('rejects a missing or unknown product', async () => {
@@ -68,6 +76,14 @@ describe('@ankole/agent-computer office Playbook discovery', () => {
     }
   })
 })
+
+function playbookNames(output: string) {
+  return output
+    .trim()
+    .split('\n')
+    .slice(1)
+    .map(line => line.slice(2, line.indexOf(' (')))
+}
 
 async function runDiscovery(product?: string, root?: string) {
   const args = [product, root].filter((value): value is string => value !== undefined)

@@ -346,12 +346,22 @@ describe('@ankole/agent-computer Agent Codex thread router', () => {
     expect(first.notifications.map(message => message.method)).toEqual(['mcpServer/startupStatus/updated'])
 
     runtime.routeNotification({
-      method: 'thread/started',
-      params: { thread: { id: 'child-1', parentThreadId: 'root-1' } }
-    })
-    runtime.routeNotification({
       method: 'turn/started',
       params: { threadId: 'child-1', turn: { id: 'child-turn' } }
+    })
+    runtime.routeNotification({
+      method: 'item/completed',
+      params: {
+        threadId: 'root-1',
+        turnId: 'root-turn',
+        item: {
+          type: 'subAgentActivity',
+          id: 'spawn-child-1',
+          kind: 'started',
+          agentThreadId: 'child-1',
+          agentPath: '/root/child-1'
+        }
+      }
     })
     runtime.routeNotification({ method: 'turn/started', params: { threadId: 'root-1', turn: { id: 'root-turn' } } })
     runtime.routeNotification({ method: 'turn/started', params: { threadId: 'root-2', turn: { id: 'other-turn' } } })
@@ -393,6 +403,80 @@ describe('@ankole/agent-computer Agent Codex thread router', () => {
     expect(second.notifications.at(-1)?.method).toBe('turn/completed')
   })
 
+  it('keeps the Job open until every routed child Turn is terminal', async () => {
+    const fakeClient = {
+      async request() {
+        return {}
+      },
+      async closeAndWait() {}
+    } as unknown as CodexAppServerClient
+    const runtime = new AgentCodexRuntime('agent-1', fakeClient)
+    const owner = session()
+    await runtime.registerRoot('root-1', owner)
+
+    runtime.routeNotification({
+      method: 'turn/started',
+      params: { threadId: 'child-1', turn: { id: 'child-turn' } }
+    })
+    runtime.routeNotification({
+      method: 'item/completed',
+      params: {
+        threadId: 'root-1',
+        turnId: 'root-turn',
+        item: {
+          type: 'subAgentActivity',
+          id: 'spawn-child-1',
+          kind: 'started',
+          agentThreadId: 'child-1',
+          agentPath: '/root/child-1'
+        }
+      }
+    })
+    runtime.routeNotification({
+      method: 'turn/started',
+      params: { threadId: 'child-2', turn: { id: 'child-turn-2' } }
+    })
+    runtime.routeNotification({
+      method: 'item/completed',
+      params: {
+        threadId: 'root-1',
+        turnId: 'root-turn',
+        item: {
+          type: 'subAgentActivity',
+          id: 'spawn-child-2',
+          kind: 'started',
+          agentThreadId: 'child-2',
+          agentPath: '/root/child-2'
+        }
+      }
+    })
+
+    let idle = false
+    const waiting = runtime.waitForSessionTurnsIdle(owner).then(() => {
+      idle = true
+    })
+    await Promise.resolve()
+    expect(idle).toBe(false)
+
+    runtime.routeNotification({
+      method: 'turn/completed',
+      params: { threadId: 'child-1', turn: { id: 'child-turn', status: 'completed' } }
+    })
+    await Promise.resolve()
+    expect(idle).toBe(false)
+
+    runtime.routeNotification({
+      method: 'turn/completed',
+      params: { threadId: 'child-2', turn: { id: 'child-turn-2', status: 'completed' } }
+    })
+    await waiting
+
+    expect(idle).toBe(true)
+    expect(owner.notifications.map(messageMethodThread)).toEqual(
+      expect.arrayContaining(['turn/completed:child-1', 'turn/completed:child-2'])
+    )
+  })
+
   it('cleans a child thread that starts while its Job tree is being removed', async () => {
     const calls: Array<{ method: string; params: Record<string, unknown> }> = []
     let injected = false
@@ -403,8 +487,18 @@ describe('@ankole/agent-computer Agent Codex thread router', () => {
           if (params.threadId === 'root-1' && !injected) {
             injected = true
             runtime.routeNotification({
-              method: 'thread/started',
-              params: { thread: { id: 'late-child', parentThreadId: 'root-1' } }
+              method: 'item/completed',
+              params: {
+                threadId: 'root-1',
+                turnId: 'root-turn',
+                item: {
+                  type: 'subAgentActivity',
+                  id: 'spawn-late-child',
+                  kind: 'started',
+                  agentThreadId: 'late-child',
+                  agentPath: '/root/late-child'
+                }
+              }
             })
           }
           return { data: [], nextCursor: null }
@@ -446,8 +540,18 @@ describe('@ankole/agent-computer Agent Codex thread router', () => {
     calls.length = 0
 
     runtime.routeNotification({
-      method: 'thread/started',
-      params: { thread: { id: 'late-child', parentThreadId: 'root-1' } }
+      method: 'item/completed',
+      params: {
+        threadId: 'root-1',
+        turnId: 'root-turn',
+        item: {
+          type: 'subAgentActivity',
+          id: 'spawn-late-child',
+          kind: 'started',
+          agentThreadId: 'late-child',
+          agentPath: '/root/late-child'
+        }
+      }
     })
     runtime.routeNotification({
       method: 'turn/started',

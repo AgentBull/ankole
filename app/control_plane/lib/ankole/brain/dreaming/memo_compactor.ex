@@ -9,6 +9,11 @@ defmodule Ankole.Brain.Dreaming.MemoCompactor do
 
   @memo_type "agent_system_pinned_memo"
 
+  # The request cap only guards runaway output. `validate_compacted` owns the
+  # real budget, so a legal result that lands near the budget must not end as
+  # an incomplete response.
+  @output_token_slack 1_024
+
   @spec run(String.t(), keyword()) ::
           {:ok, :missing | :within_budget | :compacted} | {:error, term()}
   def run(owner_uid, opts \\ []) when is_binary(owner_uid) do
@@ -48,7 +53,7 @@ defmodule Ankole.Brain.Dreaming.MemoCompactor do
     request = %{
       "model" => "light",
       "store" => false,
-      "max_output_tokens" => budget,
+      "max_output_tokens" => budget + @output_token_slack,
       "input" => [
         %{
           "role" => "system",
@@ -69,8 +74,8 @@ defmodule Ankole.Brain.Dreaming.MemoCompactor do
 
     with {:ok, %{body: body}} <-
            AIGateway.create_response(owner_uid, request, Keyword.get(opts, :request_opts, [])),
-         {:ok, text} <- response_text(body) do
-      {:ok, String.trim(text)}
+         {:ok, text} <- AIGateway.completed_output_text(body) do
+      {:ok, text}
     end
   end
 
@@ -120,25 +125,4 @@ defmodule Ankole.Brain.Dreaming.MemoCompactor do
   end
 
   defp token_count(text), do: Ankole.Kernel.estimate_o200k_base_tokens(text)
-
-  defp response_text(%{"output_text" => text}) when is_binary(text), do: {:ok, text}
-
-  defp response_text(%{"output" => output}) when is_list(output) do
-    text =
-      output
-      |> Enum.flat_map(fn
-        %{"content" => content} when is_list(content) -> content
-        _item -> []
-      end)
-      |> Enum.flat_map(fn
-        %{"text" => text} when is_binary(text) -> [text]
-        _part -> []
-      end)
-      |> Enum.join("\n")
-      |> String.trim()
-
-    if text == "", do: {:error, :missing_memo_compaction_text}, else: {:ok, text}
-  end
-
-  defp response_text(_body), do: {:error, :missing_memo_compaction_text}
 end

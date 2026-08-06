@@ -28,17 +28,22 @@ older Job is available.
 
 `show_background_job_details` is a read-only tool. Its input contains only
 `job_id`. It returns `title`, the concrete Job `status`, attempt counts, compact
-attempt history, a current error summary, and `recent_trajectory`. The error
-projection keeps only `code`, `summary`, `retryable`, and `codex_turn_status`.
-It replaces UUID-shaped tokens in system failure diagnostics with
-`[internal-id]`. It does not rewrite successful results or assistant content.
+attempt history, the current Turn status, thread and Turn counts, aggregate
+progress, latest usage, the execution update time, a current error summary, and
+`recent_trajectory`. Turn counts use runtime thread ownership and do not expose
+the stored Turn kind. The error projection keeps only `code`, `summary`,
+`retryable`, and `codex_turn_status`. It replaces UUID-shaped tokens in system
+failure diagnostics with `[internal-id]`. It does not rewrite successful results
+or assistant content.
 `recent_trajectory` is an `ankole_chatml` trajectory built from the latest three
-stored semantic trajectory groups. It removes stored message IDs, maps tool-call
-correlation to turn-local `call_N` aliases, and contains no cursor. It preserves
-the trajectory-level `metadata.redacted` and `metadata.content_truncated` facts.
-The control-plane projection sets `content_truncated` when it must reduce
-selected message content to keep the page within its byte limit. The fixed
-three-group selection does not set this content flag.
+stored semantic trajectory groups on the Job root thread. It does not filter
+these groups by the stored Turn kind. It removes stored message IDs, maps
+tool-call correlation to turn-local `call_N` aliases, and contains no cursor. It
+preserves the trajectory-level `metadata.redacted` and
+`metadata.content_truncated` facts. The control-plane projection sets
+`content_truncated` when it must reduce selected message content to keep the
+page within its byte limit. The fixed three-group selection does not set this
+content flag.
 
 `create_background_job` creates one durable Job. Its input contains only:
 
@@ -112,10 +117,12 @@ Workspace and it does not create a replacement directory.
 returns only `job_id` and the concrete status. The Console can keep an operator
 stop reason, but the model tool does not accept one.
 
-When a Job becomes `succeeded`, `failed`, or `stopped`, the same transaction
-changes each active Turn in the current attempt to `interrupted`. A completed
-lead Turn remains completed, so a successful Job keeps its required result
-trajectory without leaving active child Turns behind.
+Before a Job becomes `succeeded`, Agent Computer waits until each active Turn in
+the routed root and child thread tree is terminal. When a Job becomes
+`succeeded`, `failed`, or `stopped`, the same transaction changes each remaining
+active Turn in the current attempt to `interrupted`. A completed lead Turn stays
+completed, so a successful Job keeps its result trajectory and every terminal
+child trajectory.
 
 The authorized parent turn supplies the Agent, originating conversation, tool
 call, and reply route. The task can use real paths inside that Agent Home.
@@ -151,7 +158,9 @@ Agent Computer:
 - acquires the shared per-Agent `AgentCodexRuntime`
 - selects the Job's projected Plugin roots and Background-eligible Skills
 - starts or resumes the Job's own Codex root thread
+- routes each Codex child thread to the Job that owns its parent
 - reports semantic events for each Turn trajectory
+- waits for routed child Turns before it commits a successful Job
 - returns the final Codex result
 
 Codex manages its thread, Plugins, Skills, hooks, collaboration, and task
@@ -213,17 +222,39 @@ the semantic `ankole_chatml` history selected from Codex events, not a copy of
 raw app-server frames. Each Turn row stores the trajectory header. Append-only
 trajectory-group rows store its messages.
 
-Completed Codex collaboration tool items stay in the caller Turn as one tool
-call and result pair. A spawn call keeps its prompt, model, and reasoning
-effort. A send call keeps its receivers and input. Resume, wait, and close
-calls keep their receivers. The result keeps the call status and one entry for
-each known receiver, with the available Agent status and message. The receiver
-thread links the call to the existing child Turn, which remains the owner of
-the child's work. Ankole does not store `subAgentActivity` display markers as
-tools or completed items.
+New Codex root threads request experimental raw response-item notifications. The
+trajectory recorder selects only collaboration `function_call` and
+`function_call_output` items from those notifications. It stores one semantic
+tool call and result pair in the caller Turn; it does not store the raw frame.
+The pair keeps the exact V2 tool name, arguments, and output for `spawn_agent`,
+`send_message`, `followup_task`, `interrupt_agent`, `list_agents`, and
+`wait_agent`.
+
+The parent-scoped `subAgentActivity` item has the same call ID as the raw
+collaboration call. The recorder adds its stable child thread ID and Agent path
+to the call result. The runtime also uses a `started` activity to assign the
+child thread to the parent Job. Codex does not emit a child `thread/started`
+notification. The runtime buffers child Turn events that arrive before the
+activity and replays them after assignment. The child Turn remains the owner of
+the child's work.
+
+A thread that was created before raw notifications were enabled can resume
+without the exact collaboration call. For this case, `subAgentActivity` stores a
+minimal lifecycle pair with the stable child identity. An ambiguous interaction
+uses `collaboration.agent_interaction`; it does not guess whether the original
+call was `send_message` or `followup_task`. A matched activity enriches the raw
+call pair and is not stored as a separate display item.
 
 Each Turn also identifies its Job, attempt, Codex thread, and Codex turn. The API
 rebuilds trajectory pages from the header and message groups.
+
+The stored Turn `kind` is Worker-to-control-plane metadata. It is not a Responses
+object and does not define a Job type, lead or child ownership, trajectory
+visibility, causal message matching, or recovery. The Job `runtime_thread_id`
+identifies the root thread. Trajectory `item_key` values identify causal inputs.
+Turn status and order control recovery. The control-plane execution projection
+keeps a diagnostic count of rows with `kind=compaction` for compatibility. This
+count overlaps the lead and child counts and is not a count of compaction events.
 
 ## Where a Job Runs
 
@@ -265,8 +296,9 @@ CODEX_HOME=/agents/<agent-key>/.codex
 
 Each Agent owns one active Codex app-server process through
 `AgentCodexRuntime`. Each Background Agent Job owns one root thread in that
-process. Child threads inherit the owning Job from their parent. Different
-Agents use different Codex Homes and different app-server processes.
+process. A parent-scoped `subAgentActivity` assigns each child thread to the
+owning Job. Different Agents use different Codex Homes and different app-server
+processes.
 
 When a Job tree is removed, the runtime keeps retired child thread IDs until the
 app-server exits. If Codex reports a late child whose parent is retired, the
@@ -329,6 +361,12 @@ lock release have one owner.
 
 The Job's `.codex/config.toml` contains project settings, not shared Codex state.
 The runner marks the exact Job path as trusted for that process.
+
+The project config enables MultiAgentV2 and keeps
+`hide_spawn_agent_metadata=true`. In the pinned Codex 0.146 runtime, this option
+removes optional Agent type, model, reasoning, and service-tier fields from the
+spawn tool and removes the nickname from its result. It does not remove raw
+collaboration calls or `subAgentActivity` notifications from app-server.
 
 Agent-level configuration owns worker and provider defaults, Plugin and Skill
 availability, and safety choices. The Job runtime projection records the
@@ -498,6 +536,29 @@ model Turn that can already have external effects.
 An old worker process can briefly overlap the replacement. The turn fence
 rejects later writes from the old process.
 
+A Worker heartbeat and its activation lease only prove that the Worker process
+is alive. Codex can stop producing runtime notifications while the Worker keeps
+renewing both, which leaves the Job `running` and its Turn `in_progress` until
+the deployment ends. The Turn row's own `updated_at` is the one clock that moves
+only on real runtime progress, so it owns stall detection. Each Turn checkpoint
+arms one deadline for its Job, and the control plane rearms every deadline from
+storage on start and on each sweep.
+
+One hour without a durable Turn checkpoint counts as a stall. The budget covers
+the longest legitimate silence, which is one model call that the AIGateway
+already fails after five minutes, or one foreground tool call. A delegated child
+Turn keeps its own row, so its checkpoints keep the Job clock alive while the
+lead Turn waits for it.
+
+A stall aborts the attempt exactly like a reported Worker failure: it supersedes
+the runtime fences, fails the activation, interrupts the stalled runtime Turns,
+and leaves the actor event open on the retry ladder. The control plane also
+sends the Worker a best-effort turn control so the abandoned Turn stops spending
+tokens and returns its turn slot. The third stall of one Job is not retryable
+and fails the Job with the stall cause, so a Job that only stalls cannot retry
+forever. A Job without a live activation is left to the activation and Worker
+deadlines, which already own that recovery.
+
 If Codex cannot resume its thread, one attempt can create one replacement
 thread. The replacement reads the Job files and receives a short history of
 earlier attempts.
@@ -666,9 +727,15 @@ available:
   missing-Workspace errors.
 - Causal Turn lookup, bounded trajectory output, continuation, and delivery
   errors.
+- Root Turn trajectory, progress, causal lookup, and recovery when runtime
+  protocol metadata reports a compaction.
+- The pinned Codex app-server MultiAgentV2 event contract, child routing, exact
+  collaboration call projection, and child Turn completion before Job success.
 - Atomic tool-result journaling and lifecycle-event completion, rollback, and
   retry behavior.
 - Same-channel cross-session waiting without notification consumption.
 - Limits on reported file paths and `user-files` attachment checks.
 - Worker placement, capacity, recovery, and account reuse.
+- Turn stall detection, its retryable abort, its exhausted Job failure, and
+  deadline rearming from storage.
 - Real Deep Research and Office artifact Jobs in the Worker image.

@@ -3,6 +3,7 @@ defmodule Ankole.RuntimeEvents.Handlers do
 
   alias Ankole.AIGateway
   alias Ankole.AgentHomeProjection
+  alias Ankole.BackgroundAgentJobs
   alias Ankole.Logging
   alias Ankole.RuntimeEvents.Event
   alias Ankole.SignalsGateway
@@ -13,6 +14,7 @@ defmodule Ankole.RuntimeEvents.Handlers do
     |> Kernel.++(AgentHomeProjection.runtime_event_snapshot())
     |> Kernel.++(SignalsGateway.runtime_event_snapshot())
     |> Kernel.++(AIGateway.runtime_event_snapshot())
+    |> Kernel.++(BackgroundAgentJobs.runtime_event_snapshot())
   end
 
   @spec handle(Event.t()) :: :ok
@@ -146,6 +148,18 @@ defmodule Ankole.RuntimeEvents.Handlers do
       case AIGateway.reconcile_orphaned_response(message_id) do
         {:ok, _result} -> :ok
         {:error, :not_found} -> :ok
+        {:error, reason} -> log_handler_error(channel, payload, reason)
+      end
+    else
+      {:error, reason} -> log_handler_error(channel, payload, reason)
+    end
+  end
+
+  def handle(%Event{kind: :job_turn_deadline, channel: channel, payload: payload}) do
+    with {:ok, job_id} <- fetch_integer(payload, "job_id") do
+      case BackgroundAgentJobs.reconcile_stuck_job(job_id) do
+        {:ok, _outcome} -> :ok
+        {:error, :actor_runtime_fence_not_found} -> :ok
         {:error, reason} -> log_handler_error(channel, payload, reason)
       end
     else

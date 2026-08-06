@@ -39,6 +39,7 @@ export function createCreateBackgroundJobTool(
       'Delegate a durable job to a background agent.',
       'title is only a management label and is not sent to Codex.',
       'task is the work handed off to the background agent to complete.',
+      'State in task what the finished deliverable is and what it must satisfy; the background agent verifies against that before finishing.',
       modelProfileDescription(customModelProfiles),
       workspaceTemplateDescription(workspaceTemplates)
     ].join(' '),

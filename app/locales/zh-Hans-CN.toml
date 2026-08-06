@@ -1416,7 +1416,7 @@ validating_and_redirecting = "正在验证并跳转…"
 [signals_gateway.reply]
 command_stopped = "已停止。"
 continued = "已暂停，后续处理续接于下一张卡片"
-dead_letter = "AI 服务返回了错误，请重试。（actor-event::{$ref}）"
+dead_letter = "这条消息未能处理完成，自动重试已停止；可重新发送，或回复 /retry。（actor-event::{$ref}）"
 input_superseded = "收到补充文件，正在重新分析完整请求。"
 llm_help = "{$usage}\n\n可用的自定义模型档案：\n{$profiles}"
 llm_help_empty = "{$usage}\n\n当前没有自定义模型档案，请在 Ankole 控制台的 Agent 页面添加。"

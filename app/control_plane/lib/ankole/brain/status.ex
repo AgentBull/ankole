@@ -6,6 +6,7 @@ defmodule Ankole.Brain.Status do
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.Brain.Config
   alias Ankole.Brain.Dreaming.StageA
+  alias Ankole.Brain.Dreaming.StageB
   alias Ankole.Brain.Embedding
   alias Ankole.Brain.Knowledge
   alias Ankole.Brain.Scope
@@ -25,6 +26,7 @@ defmodule Ankole.Brain.Status do
 
   @episode_backlog_alert 200
   @block_backlog_alert 500
+  @backlog_stalled_hours 48
   @stuck_seconds 1_800
   @stale_days 90
   @long_projection_lines 200
@@ -506,7 +508,7 @@ defmodule Ankole.Brain.Status do
 
   defp agent_stage_b_status(owner_uid) do
     cursor = Repo.get_by(Cursor, scope_kind: :principal, scope_key: owner_uid)
-    retryable_jobs = retryable_jobs(owner_uid)
+    oldest_pending_at = oldest_pending_material_at(owner_uid)
 
     model =
       case ModelProfiles.resolve_runtime_profile(owner_uid, "light") do
@@ -520,7 +522,8 @@ defmodule Ankole.Brain.Status do
     %{
       "model" => model,
       "last_success_at" => cursor && get_in(cursor.metadata || %{}, ["last_run_at"]),
-      "retryable_jobs" => retryable_jobs,
+      "oldest_pending_material_at" => datetime(oldest_pending_at),
+      "backlog_stalled" => backlog_stalled?(oldest_pending_at),
       "unavailable_reason" => (cursor && cursor.unavailable_reason) || model["reason"]
     }
   end
@@ -529,9 +532,30 @@ defmodule Ankole.Brain.Status do
     %{
       "model" => %{"status" => "not_applicable", "agent_uid" => nil, "reason" => nil},
       "last_success_at" => nil,
-      "retryable_jobs" => [],
+      "oldest_pending_material_at" => nil,
+      "backlog_stalled" => false,
       "unavailable_reason" => nil
     }
+  end
+
+  defp oldest_pending_material_at(owner_uid) do
+    case Config.dreaming(owner_uid) do
+      {:ok, %{"enabled" => true}} -> StageB.oldest_pending_material_at(owner_uid)
+      _disabled_or_error -> nil
+    end
+  end
+
+  # Material that waited this long means curation is not running, whatever the
+  # cause: a failing run, an exhausted job chain, or a dead enqueue path. The
+  # age measures pending work, so an idle Principal with no material never
+  # produces a false alert.
+  defp backlog_stalled?(nil), do: false
+
+  defp backlog_stalled?(%DateTime{} = oldest_pending_at) do
+    cutoff =
+      DateTime.add(DateTime.utc_now(:microsecond), -@backlog_stalled_hours * 3_600, :second)
+
+    DateTime.compare(oldest_pending_at, cutoff) != :gt
   end
 
   defp embedding_status do
@@ -613,37 +637,6 @@ defmodule Ankole.Brain.Status do
       }
     end)
   end
-
-  defp retryable_jobs(owner_uid) do
-    worker = "Ankole.Brain.Jobs.CuratePrincipal"
-
-    Oban.Job
-    |> where(
-      [job],
-      job.worker == ^worker and job.state == "retryable" and
-        fragment("?->>'principal_uid' = ?", job.args, ^owner_uid)
-    )
-    |> order_by([job], asc: job.scheduled_at, asc: job.id)
-    |> select(
-      [job],
-      map(job, [:id, :args, :attempt, :max_attempts, :attempted_at, :scheduled_at])
-    )
-    |> Repo.all()
-    |> Enum.map(fn job ->
-      %{
-        "job_id" => job.id,
-        "principal_uid" => job.args["principal_uid"],
-        "attempt" => job.attempt,
-        "max_attempts" => job.max_attempts,
-        "attempted_at" => datetime(job.attempted_at),
-        "scheduled_at" => datetime(job.scheduled_at)
-      }
-    end)
-  end
-
-  # Oban retries a transient provider failure on its own. An operator needs the
-  # alert only when the next run is the last one for this Principal.
-  defp last_curation_attempt?(job), do: job["attempt"] >= job["max_attempts"] - 1
 
   defp memo_status(entries, blocks, budget) do
     blocks_by_entry = Enum.group_by(blocks, & &1.entry_id)
@@ -740,10 +733,7 @@ defmodule Ankole.Brain.Status do
       get_in(embedding, ["stale_vectors", "total"]) not in [nil, 0],
       "embedding_space_stale"
     )
-    |> maybe_alert(
-      Enum.any?(stage_b["retryable_jobs"], &last_curation_attempt?/1),
-      "curation_jobs_failing"
-    )
+    |> maybe_alert(stage_b["backlog_stalled"] == true, "curation_backlog_stalled")
     |> maybe_alert(stuck_jobs != [], "stuck_curation_jobs")
     |> maybe_alert(Enum.any?(memo, & &1["over_budget"]), "memo_over_budget")
     |> maybe_alert(Enum.any?(lints, fn {_name, lint} -> lint["count"] > 0 end), "curation_lints")

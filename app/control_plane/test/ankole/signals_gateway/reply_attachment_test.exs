@@ -192,7 +192,6 @@ defmodule Ankole.SignalsGateway.ReplyAttachmentTest do
                Ankole.Repo,
                %ActorEvent{},
                "message-1",
-               "done",
                [
                  %{
                    "agent_computer_path" => "/agents/agent-1/user-files/report.txt",

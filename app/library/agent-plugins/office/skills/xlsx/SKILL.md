@@ -1,6 +1,6 @@
 ---
 name: xlsx
-description: "Use this skill for local .xlsx, .xls, .csv, or .tsv files as input or output. This skill edits and validates local workbooks."
+description: "Use this skill for local .xlsx, .xls, .csv, or .tsv files as input or output. This skill edits and validates local workbooks. Lark cloud sheets and tokens belong to lark-office-suite."
 default_enabled: true
 ankole-runtime: background_job
 category: productivity

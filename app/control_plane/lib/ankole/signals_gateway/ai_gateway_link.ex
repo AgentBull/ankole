@@ -825,6 +825,50 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
     end
   end
 
+  @doc """
+  Returns the `{signal_channel_id, source_entry_id}` pairs the visible
+  Response chain already delivered to the model.
+
+  This covers the addressed entries and the quoted channel-context messages of
+  every actor event in the visible chain, in the exact shape those messages
+  carry, so turn delivery can drop a quote the conversation already holds
+  without touching the stored event.
+  """
+  @spec visible_channel_context_refs(String.t(), String.t()) :: MapSet.t()
+  def visible_channel_context_refs(agent_uid, session_id)
+      when is_binary(agent_uid) and is_binary(session_id) do
+    case active_conversation(agent_uid, session_id) do
+      %Conversation{} = conversation ->
+        actor_event_ids =
+          conversation
+          |> visible_response_chain(nil)
+          |> Enum.flat_map(&response_actor_event_ids/1)
+          |> Enum.filter(&valid_uuid?/1)
+          |> Enum.uniq()
+
+        actor_event_channel_context_refs(actor_event_ids)
+
+      nil ->
+        MapSet.new()
+    end
+  end
+
+  defp actor_event_channel_context_refs([]), do: MapSet.new()
+
+  defp actor_event_channel_context_refs(actor_event_ids) do
+    ActorEvent
+    |> where([event], event.id in ^actor_event_ids)
+    |> Repo.all()
+    |> Enum.flat_map(fn
+      %ActorEvent{signal_channel_id: channel_id} = event when is_binary(channel_id) ->
+        Enum.map(ActorEvent.source_entry_ids(event), &{channel_id, &1})
+
+      %ActorEvent{} ->
+        []
+    end)
+    |> MapSet.new()
+  end
+
   @doc false
   @spec current_response_row_id(TurnRef.t()) :: Ecto.UUID.t() | nil
   def current_response_row_id(%TurnRef{} = turn_ref) do

@@ -1361,7 +1361,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
              first_attempt.runtime_projection["model_ref"]["model"]
   end
 
-  test "claiming a continuation stops when the lead thread only fails" do
+  test "claiming a continuation counts compaction-labeled lead failures" do
     %{principal: agent} = background_agent_fixture()
 
     running =
@@ -1371,14 +1371,15 @@ defmodule Ankole.BackgroundAgentJobsTest do
       |> Repo.update!()
 
     for index <- 1..5 do
-      insert_turn!(
-        running,
-        1,
-        "thread-lead",
-        "turn-failed-#{index}",
-        "failed",
-        "upstream returned HTTP status 502"
-      )
+      insert_custom_turn!(running, %{
+        attempt: 1,
+        runtime_thread_id: "thread-lead",
+        runtime_turn_id: "turn-failed-#{index}",
+        kind: "compaction",
+        status: "failed",
+        trajectory_groups: [[assistant_message("upstream returned HTTP status 502")]],
+        error: %{"summary" => "upstream returned HTTP status 502"}
+      })
     end
 
     assert {:error, {:background_agent_job_turn_failures_exhausted, error}} =
@@ -1594,7 +1595,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert valid_header.valid?
   end
 
-  test "execution projection aggregates one attempt while paginating only lead agent semantic groups" do
+  test "execution projection paginates every lead semantic group regardless of turn kind" do
     %{principal: agent} = background_agent_fixture()
     job = create_job!(agent.uid, "execution-projection")
 
@@ -1607,6 +1608,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
     insert_custom_turn!(job, %{
       runtime_thread_id: "thread-lead",
       runtime_turn_id: "turn-lead-1",
+      kind: "compaction",
       started_at: base,
       status: "completed",
       completed_at: DateTime.add(base, 1, :microsecond),
@@ -1615,9 +1617,16 @@ defmodule Ankole.BackgroundAgentJobsTest do
         [
           tool_call_message("shell-1", "shell"),
           tool_result_message("shell-1", "shell", "done")
-        ]
+        ],
+        [assistant_message("context-compaction-recorded")]
       ],
-      progress: progress_snapshot(2, "shell", ["a.ts"]),
+      progress:
+        progress_snapshot(3, "shell", ["a.ts"])
+        |> Map.put("tool_calls", 2)
+        |> Map.put("tools_used", [
+          %{"name" => "context_compaction", "calls" => 1},
+          %{"name" => "shell", "calls" => 1}
+        ]),
       usage: usage_snapshot(100)
     })
 
@@ -1631,17 +1640,6 @@ defmodule Ankole.BackgroundAgentJobsTest do
         progress_snapshot(2, "web_search", ["child.tmp"])
         |> Map.put("active_item", %{"id" => "child-search", "name" => "web_search"}),
       usage: usage_snapshot(999)
-    })
-
-    insert_custom_turn!(job, %{
-      runtime_thread_id: "thread-lead",
-      runtime_turn_id: "turn-compaction-1",
-      kind: "compaction",
-      started_at: DateTime.add(base, 2, :second),
-      status: "completed",
-      completed_at: DateTime.add(base, 2, :second),
-      trajectory_groups: [[assistant_message("compaction-must-not-appear")]],
-      progress: progress_snapshot(1, "context_compaction", [])
     })
 
     insert_custom_turn!(job, %{
@@ -1710,7 +1708,6 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
     assert Ankole.JSON.encode!(execution.trajectory_page) =~ "lead-new-1"
     refute Ankole.JSON.encode!(execution.trajectory_page) =~ "child-report-must-not-appear"
-    refute Ankole.JSON.encode!(execution.trajectory_page) =~ "compaction-must-not-appear"
 
     assert {:ok, %{execution: %{trajectory_page: newest}}} =
              BackgroundAgentJobs.get_job_summary_for_agent(job.id, agent.uid, trajectory_limit: 1)
@@ -1729,11 +1726,19 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
     assert {:ok, %{execution: %{trajectory_page: oldest}}} =
              BackgroundAgentJobs.get_job_summary_for_agent(job.id, agent.uid,
-               trajectory_limit: 2,
+               trajectory_limit: 3,
                trajectory_cursor: middle.next_cursor
              )
 
-    assert Enum.map(oldest.messages, &Map.get(&1, "role")) == ["assistant", "assistant", "tool"]
+    assert Enum.map(oldest.messages, &Map.get(&1, "role")) == [
+             "assistant",
+             "assistant",
+             "tool",
+             "assistant"
+           ]
+
+    assert Ankole.JSON.encode!(oldest) =~ "lead-old"
+    assert Ankole.JSON.encode!(oldest) =~ "context-compaction-recorded"
     refute Map.has_key?(oldest, :next_cursor)
 
     assert {:error, :invalid_background_agent_job_trajectory_cursor} =
@@ -1822,6 +1827,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
       insert_custom_turn!(job, %{
         runtime_thread_id: job.runtime_thread_id,
         runtime_turn_id: "turn-causal-message",
+        kind: "compaction",
         started_at: started_at,
         status: "completed",
         trajectory_groups: [
@@ -1851,6 +1857,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
       insert_custom_turn!(job, %{
         runtime_thread_id: job.runtime_thread_id,
         runtime_turn_id: "turn-after-causal-message",
+        kind: "compaction",
         started_at: DateTime.add(started_at, 1, :microsecond),
         status: "in_progress",
         completed_at: nil,
@@ -2138,6 +2145,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
       attempt: 1,
       runtime_thread_id: "thread-lead-1",
       runtime_turn_id: "turn-lead-1",
+      kind: "compaction",
       started_at: base,
       status: "failed",
       trajectory_groups: [[assistant_message("Authoritative lead report.")]]

@@ -48,7 +48,8 @@ import {
 import {
   AgentCodexRuntime,
   AgentCodexRuntimeManager,
-  type AgentCodexRuntimeLease
+  type AgentCodexRuntimeLease,
+  type AgentCodexRuntimeSession
 } from '../../src/core/codex-runner/agent-runtime-manager'
 import { rpcMethods, type RPCRequester } from '../../src/lanes/rpc_lane'
 import type { CodexRuntimeConfig } from '../../src/core/codex-runner/runtime-config'
@@ -67,6 +68,131 @@ describe('@ankole/agent-computer Codex app-server protocol contract', () => {
     expect(exitCode).toBe(0)
     expect(`${stdout}${stderr}`.trim()).toBe('codex-cli 0.146.0')
   })
+
+  it('routes MultiAgentV2 children from sub-agent activity and exposes their raw tool calls', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ankole-codex-multi-agent-v2-'))
+    const workspace = join(root, 'workspace')
+    const codexHome = join(root, 'codex-home')
+    const requestKinds: string[] = []
+    const provider = createMultiAgentResponsesProvider(requestKinds)
+    if (typeof provider.port !== 'number') throw new Error('MultiAgentV2 provider did not bind a TCP port')
+    const allNotifications: JSONRPCMessage[] = []
+    let runtime: AgentCodexRuntime | undefined
+    let client: CodexAppServerClient | undefined
+
+    const owner: AgentCodexRuntimeSession & { notifications: JSONRPCMessage[] } = {
+      notifications: [],
+      prepareForRuntimeCleanup() {},
+      handleRuntimeNotification(message) {
+        this.notifications.push(message)
+      },
+      async handleRuntimeServerRequest() {},
+      handleRuntimeLost(error) {
+        throw error
+      }
+    }
+
+    try {
+      mkdirSync(workspace, { recursive: true })
+      mkdirSync(codexHome, { recursive: true })
+      const baseURL = `http://127.0.0.1:${provider.port}/v1`
+      resetCodexAgentRuntimeConfig(codexHome, baseURL)
+      refreshCodexAgentRuntimeCredential(codexHome, 'contract-key')
+      const runtimeConfig = pluginTestRuntime(baseURL, 'gpt-5.4')
+      const config = codexJobThreadConfig({ cwd: workspace, codexHome, env: {}, runtime: runtimeConfig }) as Record<
+        string,
+        any
+      >
+      config.model_providers.ankole_aigateway.supports_websockets = false
+      client = new CodexAppServerClient({
+        cwd: workspace,
+        env: {
+          PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin',
+          ...(process.env.VOLTA_HOME ? { VOLTA_HOME: process.env.VOLTA_HOME } : {}),
+          HOME: workspace,
+          CODEX_HOME: codexHome,
+          CODEX_UNSAFE_ALLOW_NO_SANDBOX: '1',
+          LANG: 'C.UTF-8'
+        },
+        onNotification: notification => {
+          allNotifications.push(notification)
+          runtime?.routeNotification(notification)
+        }
+      })
+      await pluginStage(client.initialize(), 'MultiAgentV2 initialize')
+      runtime = new AgentCodexRuntime('agent-1', client)
+      const thread = (await pluginStage(
+        client.request('thread/start', {
+          cwd: workspace,
+          model: runtimeConfig.modelProfile.model,
+          modelProvider: 'ankole_aigateway',
+          approvalPolicy: 'never',
+          sandbox: 'danger-full-access',
+          experimentalRawEvents: true,
+          config
+        }),
+        'MultiAgentV2 thread/start'
+      )) as ThreadStartResponse
+      await runtime.registerRoot(thread.thread.id, owner)
+      const turn = (await pluginStage(
+        client.request('turn/start', {
+          threadId: thread.thread.id,
+          input: [{ type: 'text', text: 'PARENT_PROBE: spawn one child.', text_elements: [] }],
+          cwd: workspace,
+          approvalPolicy: 'never',
+          sandboxPolicy: { type: 'dangerFullAccess' }
+        }),
+        'MultiAgentV2 turn/start'
+      )) as { turn: { id: string } }
+      await waitForTurnTree(allNotifications, thread.thread.id, turn.turn.id)
+      await runtime.waitForSessionTurnsIdle(owner)
+
+      const activity = allNotifications.find(notification => {
+        const params = isObject(notification.params) ? notification.params : {}
+        const item = isObject(params.item) ? params.item : {}
+        return item.type === 'subAgentActivity' && item.kind === 'started'
+      })
+      const activityItem = isObject(activity?.params) && isObject(activity.params.item) ? activity.params.item : {}
+      const childThreadID = typeof activityItem.agentThreadId === 'string' ? activityItem.agentThreadId : ''
+      expect(childThreadID).not.toBe('')
+      expect(
+        allNotifications.some(notification => {
+          const params = isObject(notification.params) ? notification.params : {}
+          const startedThread = isObject(params.thread) ? params.thread : {}
+          return notification.method === 'thread/started' && startedThread.id === childThreadID
+        })
+      ).toBe(false)
+      expect(owner.notifications.some(notification => notificationThreadID(notification) === childThreadID)).toBe(true)
+      const rawSpawn = allNotifications.find(notification => {
+        const params = isObject(notification.params) ? notification.params : {}
+        const item = isObject(params.item) ? params.item : {}
+        return (
+          notification.method === 'rawResponseItem/completed' &&
+          item.type === 'function_call' &&
+          item.name === 'spawn_agent'
+        )
+      })
+      const rawSpawnItem = isObject(rawSpawn?.params) && isObject(rawSpawn.params.item) ? rawSpawn.params.item : {}
+      expect(rawSpawnItem.namespace).toBe('collaboration')
+      expect(rawSpawnItem.call_id).toBe(activityItem.id)
+    } catch (error) {
+      const stderr = allNotifications
+        .filter(notification => notification.method === '$stderr' && isObject(notification.params))
+        .flatMap(notification =>
+          isObject(notification.params) && typeof notification.params.text === 'string'
+            ? [notification.params.text]
+            : []
+        )
+        .join('')
+      throw new Error(
+        `${error instanceof Error ? error.message : String(error)}\nrequests=${requestKinds.join(',')}\n${stderr}`
+      )
+    } finally {
+      await client?.close()
+      provider.stop(true)
+      rmSync(root, { recursive: true, force: true })
+    }
+  }, 60_000)
 
   it('applies request and model limits to model-visible code-mode output', async () => {
     const root = mkdtempSync(join(tmpdir(), 'ankole-codex-exec-output-'))
@@ -842,6 +968,93 @@ function pluginTestRuntime(baseURL: string, model = 'gpt-5.4', reasoningEffort?:
 
 const modelLimitedExecOutputCallID = 'exec-output-model-limit'
 const requestLimitedExecOutputCallID = 'exec-output-request-limit'
+
+function createMultiAgentResponsesProvider(requestKinds: string[]) {
+  let requestCount = 0
+  return Bun.serve({
+    hostname: '127.0.0.1',
+    port: 0,
+    async fetch(request) {
+      const url = new URL(request.url)
+      if (request.method === 'GET' && url.pathname === '/v1/models') {
+        return Response.json({ models: [execOutputModelCard('gpt-5.4')] })
+      }
+      if (request.method !== 'POST' || url.pathname !== '/v1/responses') {
+        return Response.json({ error: { message: 'not found' } }, { status: 404 })
+      }
+
+      requestCount += 1
+      const body = (await request.json()) as JSONObject
+      const serialized = JSON.stringify(body)
+      const responseID = `multi-agent-response-${requestCount}`
+      if (serialized.includes('function_call_output')) {
+        requestKinds.push('parent-followup')
+        return execOutputResponse(responseID, 'gpt-5.4', [
+          {
+            id: 'multi-agent-parent-message',
+            type: 'message',
+            status: 'completed',
+            role: 'assistant',
+            content: [{ type: 'output_text', text: 'PARENT_DONE', annotations: [] }]
+          }
+        ])
+      }
+      if (serialized.includes('CHILD_PROBE')) {
+        requestKinds.push('child')
+        return execOutputResponse(responseID, 'gpt-5.4', [
+          {
+            id: 'multi-agent-child-message',
+            type: 'message',
+            status: 'completed',
+            role: 'assistant',
+            content: [{ type: 'output_text', text: 'CHILD_DONE', annotations: [] }]
+          }
+        ])
+      }
+      requestKinds.push('parent-initial')
+      return execOutputResponse(responseID, 'gpt-5.4', [
+        {
+          type: 'function_call',
+          call_id: 'multi-agent-spawn-call',
+          namespace: 'collaboration',
+          name: 'spawn_agent',
+          arguments: JSON.stringify({
+            task_name: 'probe_child',
+            message: 'CHILD_PROBE: reply once.',
+            fork_turns: 'none'
+          })
+        }
+      ])
+    }
+  })
+}
+
+async function waitForTurnTree(
+  notifications: JSONRPCMessage[],
+  rootThreadID: string,
+  rootTurnID: string
+): Promise<void> {
+  const deadline = Date.now() + 20_000
+  while (true) {
+    const completed = notifications.filter(notification => notification.method === 'turn/completed')
+    const rootCompleted = completed.some(notification => {
+      const params = isObject(notification.params) ? notification.params : {}
+      const turn = isObject(params.turn) ? params.turn : {}
+      return params.threadId === rootThreadID && turn.id === rootTurnID
+    })
+    const childCompleted = completed.some(notification => notificationThreadID(notification) !== rootThreadID)
+    if (rootCompleted && childCompleted) return
+    if (Date.now() >= deadline) throw new Error('timed out waiting for the MultiAgentV2 Turn tree')
+    await Bun.sleep(10)
+  }
+}
+
+function notificationThreadID(notification: JSONRPCMessage): string | undefined {
+  const params = isObject(notification.params) ? notification.params : {}
+  if (typeof params.threadId === 'string') return params.threadId
+  const thread = isObject(params.thread) ? params.thread : {}
+  return typeof thread.id === 'string' ? thread.id : undefined
+}
 
 function createExecOutputResponsesProvider(requests: JSONObject[]) {
   return Bun.serve({

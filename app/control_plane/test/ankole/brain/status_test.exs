@@ -6,7 +6,6 @@ defmodule Ankole.Brain.StatusTest do
 
   alias Ankole.Brain
   alias Ankole.Brain.Config
-  alias Ankole.Brain.Jobs.CuratePrincipal
   alias Ankole.Brain.Knowledge
   alias Ankole.Brain.Scope
   alias Ankole.Brain.Sources
@@ -293,52 +292,70 @@ defmodule Ankole.Brain.StatusTest do
     refute "stage_b_unavailable" in status["alerts"]
   end
 
-  test "status lists retryable Stage B jobs and alerts only on the last attempt" do
+  test "status alerts on Stage B material that waited longer than the stall threshold" do
     %{principal: agent} = agent_fixture()
-    attempted_at = ~U[2026-07-24 01:00:00.000000Z]
-    scheduled_at = DateTime.add(attempted_at, 5, :minute)
+    binding_fixture(agent.uid, "brain-stall-channel", :record_only)
+    stale_time = DateTime.add(DateTime.utc_now(:microsecond), -3, :day)
 
-    assert {:ok, job} =
-             agent.uid
-             |> then(&%{"principal_uid" => &1})
-             |> CuratePrincipal.new()
-             |> Oban.insert()
+    assert {:ok, %{signal_entry: source}} =
+             Ankole.SignalsGateway.Ingress.emit_entry(
+               agent.uid,
+               "brain-stall-channel",
+               group_entry(%{
+                 source_event_id: "brain-stall-event",
+                 signal_channel_id: "lark:chat:brain-stall-channel",
+                 source_entry_id: "brain-stall-message",
+                 text: "material that waited",
+                 provider_time: stale_time
+               }),
+               now: stale_time
+             )
 
-    set_retryable_attempt = fn attempt ->
-      assert {1, nil} =
-               Repo.update_all(
-                 from(row in Oban.Job, where: row.id == ^job.id),
-                 set: [
-                   state: "retryable",
-                   attempt: attempt,
-                   attempted_at: attempted_at,
-                   scheduled_at: scheduled_at
-                 ]
-               )
-    end
+    channel = Repo.get!(Channel, source.signal_channel_id)
 
-    set_retryable_attempt.(2)
+    group =
+      %Group{}
+      |> Group.changeset(%{
+        name: "brain-stall-channel-group",
+        display_name: "Brain stall channel group",
+        domain: :im_group,
+        metadata:
+          BindingMembership.project(
+            %{},
+            AdapterContext.new(
+              agent_uid: agent.uid,
+              binding_name: "brain-stall-channel",
+              adapter: "lark",
+              user_name: "Lark"
+            ),
+            :joined,
+            stale_time
+          )
+      })
+      |> Repo.insert!()
+
+    channel
+    |> Channel.changeset(%{principal_group_id: group.id})
+    |> Repo.update!()
+
     assert {:ok, status} = Brain.status(agent.uid)
+    assert status["stage_b"]["backlog_stalled"] == true
+    assert is_binary(status["stage_b"]["oldest_pending_material_at"])
+    assert "curation_backlog_stalled" in status["alerts"]
 
-    assert [
-             %{
-               "job_id" => job_id,
-               "principal_uid" => principal_uid,
-               "attempt" => 2,
-               "max_attempts" => 5,
-               "attempted_at" => "2026-07-24T01:00:00.000000Z",
-               "scheduled_at" => "2026-07-24T01:05:00.000000Z"
-             }
-           ] = status["stage_b"]["retryable_jobs"]
+    fresh_time = DateTime.utc_now(:microsecond)
 
-    assert job_id == job.id
-    assert principal_uid == agent.uid
-    refute "curation_jobs_failing" in status["alerts"]
+    assert {1, nil} =
+             Repo.update_all(
+               from(entry in Ankole.SignalsGateway.Entry,
+                 where: entry.document_id == ^source.document_id
+               ),
+               set: [provider_time: fresh_time, last_seen_at: fresh_time]
+             )
 
-    set_retryable_attempt.(4)
     assert {:ok, status} = Brain.status(agent.uid)
-    assert [%{"attempt" => 4}] = status["stage_b"]["retryable_jobs"]
-    assert "curation_jobs_failing" in status["alerts"]
+    assert status["stage_b"]["backlog_stalled"] == false
+    refute "curation_backlog_stalled" in status["alerts"]
   end
 
   test "status reports each visible channel cursor and episode embedding counts" do

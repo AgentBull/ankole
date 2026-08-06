@@ -230,6 +230,7 @@ export class AgentCodexRuntime {
   private readonly activeTurns = new Map<string, string>()
   private readonly pendingServerRequests = new Map<AgentCodexRuntimeSession, Set<Promise<void>>>()
   private readonly pendingThreadNotifications = new Map<string, JSONRPCMessage[]>()
+  private readonly sessionTurnIdleWaiters = new Map<AgentCodexRuntimeSession, Set<() => void>>()
   private readonly retiredThreadIDs = new Set<string>()
   private readonly retiredThreadCleanupVersions = new Map<string, number>()
   private readonly retiredThreadCleanupTasks = new Map<string, Promise<void>>()
@@ -333,6 +334,16 @@ export class AgentCodexRuntime {
     const threads = this.sessionThreads.get(session)
     threads?.delete(threadID)
     if (threads?.size === 0) this.sessionThreads.delete(session)
+    this.resolveSessionTurnIdleWaiters(session)
+  }
+
+  async waitForSessionTurnsIdle(session: AgentCodexRuntimeSession): Promise<void> {
+    if (!this.sessionHasActiveTurns(session)) return
+    await new Promise<void>(resolve => {
+      const waiters = this.sessionTurnIdleWaiters.get(session) ?? new Set<() => void>()
+      waiters.add(resolve)
+      this.sessionTurnIdleWaiters.set(session, waiters)
+    })
   }
 
   setInitializeResponse(response: Record<string, unknown>): void {
@@ -343,16 +354,17 @@ export class AgentCodexRuntime {
     const params = jsonObject(message.params)
     const thread = jsonObject(params.thread)
     const threadID = stringValue(params.threadId) ?? stringValue(thread.id)
-    let registeredChild = false
-    if (message.method === 'thread/started' && threadID) {
-      const parentThreadID = stringValue(thread.parentThreadId)
+    const childLink = childThreadLink(message, threadID, thread)
+    let registeredChildThreadID: string | undefined
+    if (childLink) {
+      const { parentThreadID, childThreadID } = childLink
       const parentOwner = parentThreadID ? this.threadOwners.get(parentThreadID) : undefined
       if (parentOwner) {
-        this.registerThread(threadID, parentOwner)
-        registeredChild = true
+        this.registerThread(childThreadID, parentOwner)
+        registeredChildThreadID = childThreadID
       } else if (parentThreadID && this.retiredThreadIDs.has(parentThreadID)) {
-        this.retiredThreadIDs.add(threadID)
-        this.scheduleRetiredThreadCleanup(threadID)
+        this.retiredThreadIDs.add(childThreadID)
+        this.scheduleRetiredThreadCleanup(childThreadID)
         return
       } else if (parentThreadID) {
         this.bufferThreadNotification(parentThreadID, message)
@@ -370,7 +382,8 @@ export class AgentCodexRuntime {
     const owner = threadID ? this.threadOwners.get(threadID) : undefined
     if (owner) {
       owner.handleRuntimeNotification(message)
-      if (registeredChild) this.drainPendingThreadNotifications(threadID!)
+      if (registeredChildThreadID) this.drainPendingThreadNotifications(registeredChildThreadID)
+      this.resolveSessionTurnIdleWaiters(owner)
       return
     }
 
@@ -458,6 +471,10 @@ export class AgentCodexRuntime {
     if (this.lost || this.closing) return
     this.lost = error
     for (const session of new Set(this.threadOwners.values())) session.handleRuntimeLost(error)
+    for (const waiters of this.sessionTurnIdleWaiters.values()) {
+      for (const resolve of waiters) resolve()
+    }
+    this.sessionTurnIdleWaiters.clear()
   }
 
   async close(): Promise<void> {
@@ -467,6 +484,8 @@ export class AgentCodexRuntime {
   }
 
   private registerThread(threadID: string, session: AgentCodexRuntimeSession): void {
+    const owner = this.threadOwners.get(threadID)
+    if (owner && owner !== session) throw new Error(`Codex thread ${threadID} is already owned by another Job`)
     this.threadOwners.set(threadID, session)
     const threads = this.sessionThreads.get(session) ?? new Set<string>()
     threads.add(threadID)
@@ -588,6 +607,19 @@ export class AgentCodexRuntime {
     if (message.method === 'turn/completed') this.activeTurns.delete(threadID)
   }
 
+  private sessionHasActiveTurns(session: AgentCodexRuntimeSession): boolean {
+    const threads = this.sessionThreads.get(session)
+    return Boolean(threads && [...threads].some(threadID => this.activeTurns.has(threadID)))
+  }
+
+  private resolveSessionTurnIdleWaiters(session: AgentCodexRuntimeSession): void {
+    if (this.sessionHasActiveTurns(session)) return
+    const waiters = this.sessionTurnIdleWaiters.get(session)
+    if (!waiters) return
+    this.sessionTurnIdleWaiters.delete(session)
+    for (const resolve of waiters) resolve()
+  }
+
   private async terminateBackgroundTerminals(threadID: string): Promise<void> {
     let cursor: string | undefined
     do {
@@ -634,6 +666,24 @@ export class AgentCodexRuntime {
     )
     await current
   }
+}
+
+function childThreadLink(
+  message: JSONRPCMessage,
+  eventThreadID: string | undefined,
+  thread: Record<string, unknown>
+): { parentThreadID: string; childThreadID: string } | undefined {
+  if (message.method === 'thread/started') {
+    const parentThreadID = stringValue(thread.parentThreadId)
+    const childThreadID = stringValue(thread.id)
+    return parentThreadID && childThreadID ? { parentThreadID, childThreadID } : undefined
+  }
+
+  if ((message.method !== 'item/started' && message.method !== 'item/completed') || !eventThreadID) return undefined
+  const item = jsonObject(jsonObject(message.params).item)
+  if (item.type !== 'subAgentActivity' || item.kind !== 'started') return undefined
+  const childThreadID = stringValue(item.agentThreadId)
+  return childThreadID ? { parentThreadID: eventThreadID, childThreadID } : undefined
 }
 
 export const agentCodexRuntimeManager = new AgentCodexRuntimeManager()

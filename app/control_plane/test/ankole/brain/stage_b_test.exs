@@ -120,6 +120,38 @@ defmodule Ankole.Brain.StageBTest do
     assert entry.properties["principal_uid"] == peer.uid
   end
 
+  test "an own Agent message keeps its speaker and is marked as an agent" do
+    %{principal: agent} = agent_fixture()
+    %{principal: peer} = human_fixture()
+    test_pid = self()
+
+    # An entry the gateway posted itself carries `agent_uid` alone, and it must not become a
+    # person.
+    _message =
+      visible_dm_signal_material!(
+        agent.uid,
+        peer.uid,
+        "I stopped task 1172",
+        "stage-b-agent-speaker",
+        author: %{"agent_uid" => agent.uid}
+      )
+
+    configure_model!(agent, fn request ->
+      assert [material] = request_payload(request)["materials"]
+      send(test_pid, {:agent_material, material})
+      response_summary(empty_plan())
+    end)
+
+    configure_dreaming!(agent.uid, agent.uid)
+
+    assert {:ok, %{status: :completed}} = StageB.run(agent.uid)
+
+    assert_receive {:agent_material, material}
+    assert material["speaker"] == agent.uid
+    assert material["speaker_role"] == "agent"
+    refute Map.has_key?(material, "speaker_principal_uid")
+  end
+
   test "mutation failures do not advance the baseline and a new entry can receive a dreaming block" do
     %{principal: agent} = agent_fixture()
     source = visible_signal_material!(agent.uid, "I now prefer vegetables", "stage-b-diet")
@@ -311,10 +343,16 @@ defmodule Ankole.Brain.StageBTest do
   test "an incomplete locator response cannot commit a partial selection" do
     %{principal: agent} = agent_fixture()
     material = task_outcome_material!(agent.uid, "stage-b-incomplete-locator", "durable material")
+    locator_calls = :atomics.new(1, signed: false)
 
     configure_model!(
       agent,
-      fn _request -> flunk("the curator must not run after an incomplete locator response") end,
+      fn _request ->
+        assert :atomics.get(locator_calls, 1) > 1,
+               "the curator must not run after an incomplete locator response"
+
+        response_summary(empty_plan())
+      end,
       locator: fn request ->
         assert request.body["max_output_tokens"] == 32_768
 
@@ -324,23 +362,38 @@ defmodule Ankole.Brain.StageBTest do
           |> Map.fetch!("material_index")
           |> Enum.map(& &1["material_ref"])
 
-        incomplete_response_summary(%{
-          "material_refs" => refs,
-          "topics" => [%{"query" => "durable material", "material_refs" => refs}]
-        })
+        case :atomics.add_get(locator_calls, 1, 1) do
+          1 ->
+            incomplete_response_summary(%{
+              "material_refs" => refs,
+              "topics" => [%{"query" => "durable material", "material_refs" => refs}]
+            })
+
+          _retry ->
+            select_all_locator_response(request)
+        end
       end
     )
 
     configure_dreaming!(agent.uid, agent.uid)
 
     assert {:error,
-            {:dreaming_response_not_completed, :locator,
-             %{
-               "status" => "incomplete",
-               "incomplete_details" => %{"reason" => "max_output_tokens"}
-             }}} = StageB.run(agent.uid)
+            {:dreaming_response_rejected, :locator,
+             {:incomplete_response,
+              %{
+                "status" => "incomplete",
+                "incomplete_details" => %{"reason" => "max_output_tokens"}
+              }}}} = StageB.run(agent.uid)
 
-    refute principal_cursor!(agent.uid).metadata["task_actor_event_id"] == material.id
+    cursor = principal_cursor!(agent.uid)
+    refute cursor.metadata["task_actor_event_id"] == material.id
+    assert cursor.unavailable_reason =~ "incomplete_response"
+
+    assert {:ok, %{status: :completed, material_count: 1}} = StageB.run(agent.uid)
+
+    cursor = principal_cursor!(agent.uid)
+    assert cursor.metadata["task_actor_event_id"] == material.id
+    assert cursor.unavailable_reason == nil
   end
 
   test "an invalid curator mutation is retried before the material cursor advances" do
@@ -671,8 +724,10 @@ defmodule Ankole.Brain.StageBTest do
     refute cursor.metadata["task_actor_event_id"]
     assert {:ok, %{status: :already_running}} = StageB.run(agent.uid)
 
-    assert {:snooze, 60} =
-             CuratePrincipal.perform(%Oban.Job{args: %{"principal_uid" => agent.uid}})
+    # A concurrent run completes the job instead of snoozing it. Snooze raised
+    # `max_attempts` on every pass, so a job could hold the unique key forever
+    # while its own retry backoff pushed curation days out.
+    assert :ok = CuratePrincipal.perform(%Oban.Job{args: %{"principal_uid" => agent.uid}})
 
     send(upstream_pid, :release_curator)
     assert {:ok, %{status: :completed, material_count: 1}} = Task.await(task, 10_000)
@@ -874,6 +929,34 @@ defmodule Ankole.Brain.StageBTest do
 
     assert "create_entry" in operation_names
     assert "remove_relation" in operation_names
+  end
+
+  test "curator guidance routes Agent-conduct rules into the resident pinned memo" do
+    %{principal: agent} = agent_fixture()
+    _message = task_outcome_material!(agent.uid, "stage-b-memo-routing", "durable preference")
+    test_pid = self()
+
+    configure_model!(agent, fn request ->
+      send(test_pid, {:memo_routing_curator, request})
+      response_summary(empty_plan())
+    end)
+
+    configure_dreaming!(agent.uid, agent.uid)
+    assert {:ok, %{status: :completed}} = StageB.run(agent.uid)
+
+    assert_receive {:memo_routing_curator, request}
+
+    system_text =
+      request.body["input"]
+      |> Enum.find(&(&1["role"] == "system"))
+      |> get_in(["content", Access.at(0), "text"])
+
+    assert system_text =~ "enter every conversation automatically"
+    assert system_text =~ "a conduct rule found in another entry moves into the memo"
+    assert system_text =~ "type_guide is the server's binding template"
+
+    type_guide = request |> curator_payload() |> Map.fetch!("type_guide")
+    assert type_guide["templates"]["policy"] =~ "belongs in the pinned memo"
   end
 
   test "a completed actor turn becomes one task outcome without raw tool arguments or outputs" do
@@ -2005,6 +2088,7 @@ defmodule Ankole.Brain.StageBTest do
 
         {:json, 200,
          %{
+           "status" => "completed",
            "output_text" =>
              "When deployment fails, stop and report the exact error before retrying."
          }}
@@ -2053,7 +2137,9 @@ defmodule Ankole.Brain.StageBTest do
              StageB.run(agent.uid)
 
     assert_receive {:memo_compaction_request, request}
-    assert request.body["max_output_tokens"] == 20
+    # The request cap is the 20-token budget plus fixed slack, so the post-run
+    # validator owns the budget and a legal result near it cannot end incomplete.
+    assert request.body["max_output_tokens"] == 20 + 1_024
 
     assert request.body
            |> get_in(["input", Access.at(0), "content", Access.at(0), "text"])
@@ -2306,7 +2392,8 @@ defmodule Ankole.Brain.StageBTest do
       text: text,
       attachments: [],
       links: [],
-      author: %{"display_name" => "Alice", "principal_uid" => peer_uid},
+      author:
+        Keyword.get(opts, :author, %{"display_name" => "Alice", "principal_uid" => peer_uid}),
       mentions: [],
       metadata: %{},
       raw_payload: %{},

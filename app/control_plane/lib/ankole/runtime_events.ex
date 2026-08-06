@@ -12,6 +12,7 @@ defmodule Ankole.RuntimeEvents.Event do
           | :worker_delete_deadline
           | :activation_deadline
           | :ai_message_deadline
+          | :job_turn_deadline
           | :unknown
 
   @enforce_keys [:kind, :channel, :payload, :timer_key]
@@ -46,6 +47,7 @@ defmodule Ankole.RuntimeEvents do
   @worker_deadline_channel "ankole_worker_deadline"
   @activation_deadline_channel "ankole_activation_deadline"
   @ai_message_deadline_channel "ankole_ai_message_deadline"
+  @job_turn_deadline_channel "ankole_job_turn_deadline"
 
   @actor_session_ready %{
     kind: :actor_session_ready,
@@ -123,6 +125,13 @@ defmodule Ankole.RuntimeEvents do
     timer_key_fields: ["message_id"]
   }
 
+  @job_turn_deadline %{
+    kind: :job_turn_deadline,
+    channel: @job_turn_deadline_channel,
+    due_at_field: "stuck_at",
+    timer_key_fields: ["job_id"]
+  }
+
   @notification_events [
     @actor_session_ready,
     @agent_home_projection,
@@ -132,7 +141,8 @@ defmodule Ankole.RuntimeEvents do
     @inbound_batch_due,
     @worker_deadline,
     @activation_deadline,
-    @ai_message_deadline
+    @ai_message_deadline,
+    @job_turn_deadline
   ]
 
   @handler_events [
@@ -145,7 +155,8 @@ defmodule Ankole.RuntimeEvents do
     @worker_stale_deadline,
     @worker_delete_deadline,
     @activation_deadline,
-    @ai_message_deadline
+    @ai_message_deadline,
+    @job_turn_deadline
   ]
 
   @channels Enum.map(@notification_events, & &1.channel)
@@ -181,6 +192,9 @@ defmodule Ankole.RuntimeEvents do
 
   @spec ai_message_deadline_channel() :: String.t()
   def ai_message_deadline_channel, do: channel_for_kind!(:ai_message_deadline)
+
+  @spec job_turn_deadline_channel() :: String.t()
+  def job_turn_deadline_channel, do: channel_for_kind!(:job_turn_deadline)
 
   @doc false
   @spec expand(String.t(), map()) :: [Event.t()]
@@ -279,6 +293,14 @@ defmodule Ankole.RuntimeEvents do
     Notifier.notify_in_tx(repo, ai_message_deadline_channel(), %{
       "message_id" => message.id,
       "orphan_at" => encode_datetime(orphan_at)
+    })
+  end
+
+  @spec notify_job_turn_deadline(module(), pos_integer(), DateTime.t()) :: :ok | {:error, term()}
+  def notify_job_turn_deadline(repo, job_id, %DateTime{} = stuck_at) when is_integer(job_id) do
+    Notifier.notify_in_tx(repo, job_turn_deadline_channel(), %{
+      "job_id" => job_id,
+      "stuck_at" => encode_datetime(stuck_at)
     })
   end
 

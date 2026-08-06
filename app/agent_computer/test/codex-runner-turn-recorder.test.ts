@@ -183,166 +183,169 @@ describe('@ankole/agent-computer durable BackgroundAgentJob Turn recorder', () =
     expect(upserts).toHaveLength(checkpointCount)
   })
 
-  it('round-trips every collaboration tool through the serialized Turn upsert', async () => {
+  it('records the exact MultiAgentV2 calls, outputs, and stable child identities', async () => {
     const { recorder, upserts } = fixture()
     recorder.recordTurnStarted('thread-1', startedTurn(), '委派并收取结果', 'event-1')
 
-    const items = [
-      collabItem('collab-spawn', 'spawnAgent', {
-        receiverThreadIds: ['thread-child-1'],
-        prompt: '研究 B2',
-        model: 'gpt-5.6',
-        reasoningEffort: 'high',
-        agentsStates: {}
-      }),
-      collabItem('collab-send', 'sendInput', {
-        receiverThreadIds: ['thread-child-1'],
-        prompt: '补充核对 qm',
-        agentsStates: { 'thread-child-1': { status: 'running', message: '补充已收到' } }
-      }),
-      collabItem('collab-resume', 'resumeAgent', {
-        status: 'failed',
-        receiverThreadIds: ['thread-child-1'],
-        agentsStates: { 'thread-child-1': { status: 'notFound', message: 'child missing' } }
-      }),
-      collabItem('collab-wait', 'wait', {
-        receiverThreadIds: ['thread-child-1'],
-        agentsStates: { 'thread-child-1': { status: 'completed', message: '最终结论' } }
-      }),
-      collabItem('collab-close', 'closeAgent', {
-        receiverThreadIds: ['thread-child-1'],
-        agentsStates: { 'thread-child-1': { status: 'shutdown', message: null } }
-      })
-    ]
-
-    for (const item of items) recorder.handleNotification(notification('item/completed', { item }))
-    await recorder.flush()
-
-    const expected = [
+    const calls = [
       {
         id: 'collab-spawn',
-        name: 'collaboration.spawnAgent',
-        arguments: { prompt: '研究 B2', model: 'gpt-5.6', reasoning_effort: 'high' },
-        outcome: {
-          status: 'completed',
-          agents: [{ thread_id: 'thread-child-1' }]
-        }
+        tool: 'spawn_agent',
+        arguments: { task_name: 'research', message: '研究 B2', fork_turns: 'none' },
+        output: { task_name: '/root/research' },
+        activity: { kind: 'started', agentThreadId: 'thread-child-1', agentPath: '/root/research' }
       },
       {
         id: 'collab-send',
-        name: 'collaboration.sendInput',
-        arguments: { receiver_thread_ids: ['thread-child-1'], input: '补充核对 qm' },
-        outcome: {
-          status: 'completed',
-          agents: [{ thread_id: 'thread-child-1', status: 'running', message: '补充已收到' }]
-        }
+        tool: 'send_message',
+        arguments: { target: '/root/research', message: '补充核对 qm' },
+        output: '',
+        activity: { kind: 'interacted', agentThreadId: 'thread-child-1', agentPath: '/root/research' }
       },
       {
-        id: 'collab-resume',
-        name: 'collaboration.resumeAgent',
-        arguments: { receiver_thread_ids: ['thread-child-1'] },
-        outcome: {
-          status: 'failed',
-          agents: [{ thread_id: 'thread-child-1', status: 'notFound', message: 'child missing' }]
-        }
+        id: 'collab-followup',
+        tool: 'followup_task',
+        arguments: { target: '/root/research', message: '继续核对' },
+        output: '',
+        activity: { kind: 'interacted', agentThreadId: 'thread-child-1', agentPath: '/root/research' }
+      },
+      {
+        id: 'collab-interrupt',
+        tool: 'interrupt_agent',
+        arguments: { target: '/root/research' },
+        output: { status: 'interrupted' },
+        activity: { kind: 'interrupted', agentThreadId: 'thread-child-1', agentPath: '/root/research' }
+      },
+      {
+        id: 'collab-list',
+        tool: 'list_agents',
+        arguments: {},
+        output: { agents: [{ task_name: '/root/research', status: 'completed' }] }
       },
       {
         id: 'collab-wait',
-        name: 'collaboration.wait',
-        arguments: { receiver_thread_ids: ['thread-child-1'] },
-        outcome: {
-          status: 'completed',
-          agents: [{ thread_id: 'thread-child-1', status: 'completed', message: '最终结论' }]
-        }
-      },
-      {
-        id: 'collab-close',
-        name: 'collaboration.closeAgent',
-        arguments: { receiver_thread_ids: ['thread-child-1'] },
-        outcome: {
-          status: 'completed',
-          agents: [{ thread_id: 'thread-child-1', status: 'shutdown' }]
-        }
+        tool: 'wait_agent',
+        arguments: { timeout_ms: 60_000 },
+        output: { message: 'Wait completed.', timed_out: false }
       }
     ]
+
+    for (const call of calls) {
+      recorder.handleNotification(
+        notification('rawResponseItem/completed', {
+          item: {
+            type: 'function_call',
+            name: call.tool,
+            namespace: 'collaboration',
+            arguments: JSON.stringify(call.arguments),
+            call_id: call.id
+          }
+        })
+      )
+      if (call.activity) {
+        recorder.handleNotification(
+          notification('item/completed', {
+            item: { type: 'subAgentActivity', id: call.id, ...call.activity }
+          })
+        )
+      }
+      if (call.tool === 'wait_agent') {
+        recorder.handleNotification(
+          notification('item/completed', {
+            item: collabItem(call.id, 'wait', { receiverThreadIds: [], agentsStates: {} })
+          })
+        )
+      }
+      recorder.handleNotification(
+        notification('rawResponseItem/completed', {
+          item: {
+            type: 'function_call_output',
+            call_id: call.id,
+            output: typeof call.output === 'string' ? call.output : JSON.stringify(call.output)
+          }
+        })
+      )
+    }
+    await recorder.flush()
+
     const groups = upserts
       .flatMap(request => request.trajectory_groups)
       .filter(group => String(group.item_key).startsWith('collab-'))
 
-    expect(groups).toHaveLength(expected.length)
-    for (const [index, projection] of expected.entries()) {
+    expect(groups).toHaveLength(calls.length)
+    for (const [index, call] of calls.entries()) {
       expect(groups[index]?.messages).toEqual([
         expect.objectContaining({
           role: 'assistant',
           tool_calls: [
             {
-              id: projection.id,
+              id: call.id,
               type: 'function',
-              function: { name: projection.name, arguments: JSON.stringify(projection.arguments) }
+              function: { name: `collaboration.${call.tool}`, arguments: JSON.stringify(call.arguments) }
             }
           ]
         }),
         expect.objectContaining({
           role: 'tool',
-          tool_call_id: projection.id,
-          name: projection.name,
-          content: JSON.stringify(projection.outcome),
-          metadata: { status: projection.outcome.status }
+          tool_call_id: call.id,
+          name: `collaboration.${call.tool}`,
+          metadata: { status: 'completed', success: null, duration_ms: null }
         })
       ])
     }
+    expect(JSON.parse(String(groups[0]?.messages[1]?.content))).toEqual({
+      output: { task_name: '/root/research' },
+      agents: [{ thread_id: 'thread-child-1', path: '/root/research', activity: 'started' }]
+    })
+    expect(JSON.parse(String(groups.at(-1)?.messages[1]?.content))).toEqual({
+      message: 'Wait completed.',
+      timed_out: false
+    })
     expect(upserts.at(-1)?.progress).toMatchObject({
-      tool_calls: 5,
+      tool_calls: 6,
       tools_used: [
-        { name: 'collaboration.closeAgent', calls: 1 },
-        { name: 'collaboration.resumeAgent', calls: 1 },
-        { name: 'collaboration.sendInput', calls: 1 },
-        { name: 'collaboration.spawnAgent', calls: 1 },
-        { name: 'collaboration.wait', calls: 1 }
+        { name: 'collaboration.followup_task', calls: 1 },
+        { name: 'collaboration.interrupt_agent', calls: 1 },
+        { name: 'collaboration.list_agents', calls: 1 },
+        { name: 'collaboration.send_message', calls: 1 },
+        { name: 'collaboration.spawn_agent', calls: 1 },
+        { name: 'collaboration.wait_agent', calls: 1 }
       ]
     })
   })
 
-  it('does not persist sub-agent activity as a tool, trajectory item, or progress item', async () => {
+  it('keeps a stable child identity when a resumed thread has no raw response events', async () => {
     const { recorder, upserts } = fixture()
     recorder.recordTurnStarted('thread-1', startedTurn(), '观察子 Agent', 'event-1')
-    await recorder.flush()
-    const checkpointCount = upserts.length
     const activity = {
       type: 'subAgentActivity',
       id: 'activity-1',
       kind: 'interacted',
       agentThreadId: 'thread-child-1',
-      agentPath: `root/${'researcher'.repeat(8_000)}`
+      agentPath: '/root/researcher'
     }
 
     recorder.handleNotification(notification('item/started', { item: activity }))
     recorder.handleNotification(notification('item/completed', { item: activity }))
     await recorder.flush()
 
-    expect(upserts).toHaveLength(checkpointCount)
-
-    recorder.handleNotification(
-      notification('turn/completed', {
-        turn: {
-          ...startedTurn(),
-          status: 'completed',
-          items: [activity],
-          completedAt: Date.now() / 1_000
-        }
-      })
-    )
-    await recorder.flush()
-
-    expect(upserts.at(-1)?.progress).toEqual({
-      completed_items: 0,
-      tool_calls: 0,
-      tools_used: [],
+    expect(upserts.at(-1)?.progress).toMatchObject({
+      completed_items: 1,
+      tool_calls: 1,
+      tools_used: [{ name: 'collaboration.agent_interaction', calls: 1 }],
       files_changed: []
     })
-    expect(upserts.at(-1)?.trajectory).toEqual({ format: 'ankole_chatml', version: 1 })
-    expect(JSON.stringify(trajectoryMessages(upserts))).not.toContain('background_agent_job_activity')
-    expect(JSON.stringify(trajectoryMessages(upserts))).not.toContain('researcher')
+    const messages = trajectoryMessages(upserts)
+    expect(messages[1]?.tool_calls).toEqual([
+      expect.objectContaining({
+        id: 'activity-1',
+        function: { name: 'collaboration.agent_interaction', arguments: '{}' }
+      })
+    ])
+    expect(JSON.parse(String(messages[2]?.content))).toEqual({
+      output: '',
+      agents: [{ thread_id: 'thread-child-1', path: '/root/researcher', activity: 'interacted' }]
+    })
   })
 
   it('checkpoints the bounded set of Skills with runtime usage evidence', async () => {
