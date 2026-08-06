@@ -838,6 +838,12 @@ provider with plain parameter values. A quoted prefix inside a longer plain
 value stays verbatim, and a plaintext value of a marked field passes through.
 The provider receives a normal schema and plain parameter values.
 
+A native OpenAI Responses Agent message can also carry provider-owned
+`encrypted_content`. AIGateway keeps a non-AIGateway-prefixed part unchanged on
+that native route. Other provider adapters reject it because they cannot replay
+the provider state. An AIGateway-prefixed part always uses the tool-field decode
+rule and fails closed when its payload is corrupt.
+
 Readers of stored trajectory outside the provider path, such as the Console
 Turn projection and the Job trajectory message, reveal stored opaque values
 through `Ankole.AIGateway.OpaqueContent`. The Worker resume projection keeps
@@ -848,8 +854,9 @@ each marked parameter as a versioned Base64URL value. It buffers the complete
 function arguments before it emits a marked value. An incomplete or invalid
 value fails closed and does not enter the public stream or stored Response.
 
-This encoding does not provide cryptographic secrecy. Provider reasoning
-`encrypted_content` is a separate protocol field and does not use this rule.
+This encoding does not provide cryptographic secrecy. Provider-owned
+`encrypted_content`, including reasoning state, is a separate protocol field
+and does not use this rule.
 
 ## Rules
 

@@ -1,6 +1,12 @@
 import { describe, expect, test } from 'bun:test'
 
-import { assertPublishedWorkerLabels, buildWorkerImageBuildArgs, localWorkerImageRef } from './local-worker-image'
+import {
+  assertPublishedWorkerLabels,
+  buildInternalWorkerImageBuildArgs,
+  buildWorkerImageBuildArgs,
+  internalWorkerImageRef,
+  localWorkerImageRef
+} from './local-worker-image'
 
 describe('local Worker image identity', () => {
   test('uses the complete input hash and scope instead of a reusable version tag', () => {
@@ -22,6 +28,21 @@ describe('local Worker image identity', () => {
     expect(args).toContain(`io.ankole.local-worker.input-hash=${inputHash}`)
     expect(args).toContain('io.ankole.local-worker.input-scope=complete')
     expect(args).not.toContain('main-latest')
+  })
+
+  test('layers internal packages on the content-addressed base image', () => {
+    const inputHash = 'c'.repeat(64)
+    const baseImage = `ankole-agent-computer:local-source-mounted-${'b'.repeat(64)}`
+    const image = internalWorkerImageRef('source-mounted', inputHash)
+    const args = buildInternalWorkerImageBuildArgs(image, baseImage, inputHash)
+
+    expect(image).toBe(`ankole-agent-computer:local-internal-source-mounted-${inputHash}`)
+    expect(args).toContain(`ANKOLE_AGENT_COMPUTER_BASE_IMAGE=${baseImage}`)
+    expect(args).toContain(`io.ankole.local-worker.internal-input-hash=${inputHash}`)
+    expect(args).toContain(`io.ankole.local-worker.internal-base-image=${baseImage}`)
+    expect(args).toContain(image)
+    expect(args.some(value => value.endsWith('/internals/Dockerfile.financial-data-computer'))).toBe(true)
+    expect(() => internalWorkerImageRef('source-mounted', 'short')).toThrow('must be sha256')
   })
 
   test('accepts the published base identity without coupling it to the fallback base lock', () => {

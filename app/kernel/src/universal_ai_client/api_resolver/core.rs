@@ -71,7 +71,7 @@ impl APIResolver {
     pub fn new(kind: APIResolverKind, context: ResponseContext) -> Self {
         let protocol = make_protocol(kind, &context);
         let (opaque_tool_fields, provider_context, prepare_error) =
-            match OpaqueToolFields::prepare(&context) {
+            match OpaqueToolFields::prepare(kind, &context) {
                 Ok((opaque_tool_fields, provider_context)) => {
                     (opaque_tool_fields, provider_context, None)
                 }

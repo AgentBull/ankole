@@ -421,6 +421,69 @@ fn aigateway_decodes_opaque_history_before_native_responses_provider() {
 }
 
 #[test]
+fn openai_responses_preserves_provider_encrypted_agent_messages() {
+    let provider_ciphertext = "gAAAAABprovider-owned-state";
+    let resolver = APIResolver::new(
+        APIResolverKind::OpenAIResponses,
+        ResponseContext {
+            model: "gpt-test".to_string(),
+            request: json!({
+                "input": [{
+                    "type": "agent_message",
+                    "author": "/root",
+                    "recipient": "/root/review",
+                    "content": [
+                        {"type": "input_text", "text": "Payload:\n"},
+                        {"type": "encrypted_content", "encrypted_content": provider_ciphertext}
+                    ]
+                }]
+            }),
+            provider_options: json!({}),
+            stream: Some(false),
+            include_model: true,
+        },
+    );
+
+    let provider_body = Value::Object(resolver.build_body().unwrap());
+
+    assert_eq!(
+        provider_body["input"][0]["content"][1]["type"],
+        "encrypted_content"
+    );
+    assert_eq!(
+        provider_body["input"][0]["content"][1]["encrypted_content"],
+        provider_ciphertext
+    );
+}
+
+#[test]
+fn openai_responses_rejects_corrupt_aigateway_agent_message_content() {
+    let resolver = APIResolver::new(
+        APIResolverKind::OpenAIResponses,
+        ResponseContext {
+            model: "gpt-test".to_string(),
+            request: json!({
+                "input": [{
+                    "type": "agent_message",
+                    "content": [{
+                        "type": "encrypted_content",
+                        "encrypted_content": "ankole-aigateway-opaque-v1:not_base64!"
+                    }]
+                }]
+            }),
+            provider_options: json!({}),
+            stream: Some(false),
+            include_model: true,
+        },
+    );
+
+    let error = resolver.build_body().unwrap_err();
+
+    assert_eq!(error.code, "invalid_encrypted_content");
+    assert!(error.message.contains("Base64URL"));
+}
+
+#[test]
 fn aigateway_decodes_opaque_history_without_tool_definitions() {
     // A Codex local compaction request replays the full history with no tools.
     let opaque_message = "ankole-aigateway-opaque-v1:aGlzdG9yeSBzZWNyZXQ";

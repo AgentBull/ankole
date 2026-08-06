@@ -276,9 +276,18 @@ defmodule Ankole.AIAgent.Library.AgentPlugins.SourceReader do
   defp configured_roots do
     config = Application.get_env(:ankole, Ankole.AIAgent.Library, [])
 
-    case Keyword.get(config, :library_root) do
-      root when is_binary(root) and root != "" -> [Path.expand(root)]
-      _value -> [@default_library_root]
+    library_root =
+      case Keyword.get(config, :library_root) do
+        root when is_binary(root) and root != "" -> Path.expand(root)
+        _value -> @default_library_root
+      end
+
+    case Keyword.get(config, :internal_agent_plugins_root) do
+      root when is_binary(root) and root != "" ->
+        [library_root, root |> Path.expand() |> Path.dirname()]
+
+      _value ->
+        [library_root]
     end
   end
 

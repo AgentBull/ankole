@@ -31,6 +31,7 @@ config :ankole, AnkoleWeb.Assets, dev_server: "http://127.0.0.1:3035"
 config :open_api_spex, :cache_adapter, OpenApiSpex.Plug.NoneCache
 
 config :ankole, Ankole.AIAgent.Library,
+  internal_agent_plugins_root: Path.expand("../../../internals/agent-plugins", __DIR__),
   internal_skills_root: Path.expand("../../../internals/skills", __DIR__),
   source_cache_ttl_ms: 0
 

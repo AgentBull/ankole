@@ -10,9 +10,13 @@ const upstreamWorkerRepository = 'ghcr.io/agentbull/ankole-agent-computer-worker
 const localWorkerRepository = 'ankole-agent-computer'
 const inputHashLabel = 'io.ankole.local-worker.input-hash'
 const inputScopeLabel = 'io.ankole.local-worker.input-scope'
+const internalInputHashLabel = 'io.ankole.local-worker.internal-input-hash'
+const internalBaseImageLabel = 'io.ankole.local-worker.internal-base-image'
 const releaseRevisionLabel = 'org.opencontainers.image.revision'
 const baseDigestLabel = 'io.ankole.agent-os-base.digest'
 const workerBaseImageLock = path.join(repoRootPath, 'app', 'agent_computer', 'base-image.lock')
+const internalRoot = path.join(repoRootPath, 'internals')
+const internalWorkerDockerfile = path.join(internalRoot, 'Dockerfile.financial-data-computer')
 
 const sharedInputRoots = [
   '.dockerignore',
@@ -35,6 +39,13 @@ export async function resolveLocalWorkerImage(options: {
 }): Promise<string> {
   await requireDocker()
 
+  const baseImage = await resolveBaseWorkerImage(options)
+  if (!existsSync(internalWorkerDockerfile)) return baseImage
+
+  return resolveInternalWorkerImage(baseImage, options)
+}
+
+async function resolveBaseWorkerImage(options: { scope: LocalWorkerImageScope; allowBuild: boolean }): Promise<string> {
   const baseImage = readWorkerBaseImageLock()
   if (await workerInputsMatchHEAD(options.scope)) {
     const revision = await headRevision()
@@ -59,6 +70,27 @@ export async function resolveLocalWorkerImage(options: {
   return localImage
 }
 
+async function resolveInternalWorkerImage(
+  baseImage: string,
+  options: { scope: LocalWorkerImageScope; allowBuild: boolean }
+): Promise<string> {
+  const inputHash = await internalWorkerInputHash(baseImage)
+  const image = internalWorkerImageRef(options.scope, inputHash)
+  if (await internalImageMatches(image, baseImage, inputHash)) return image
+
+  if (!options.allowBuild) {
+    throw new Error(`Internal Worker image ${image} is missing and local builds are disabled.`)
+  }
+
+  await runChild('docker', buildInternalWorkerImageBuildArgs(image, baseImage, inputHash), {
+    cwd: repoRootPath
+  })
+  if (!(await internalImageMatches(image, baseImage, inputHash))) {
+    throw new Error(`Docker built ${image} without the requested internal Worker input identity`)
+  }
+  return image
+}
+
 export async function workerImageInputHash(scope: LocalWorkerImageScope): Promise<string> {
   const files = await workerImageInputFiles(scope)
   const hash = createHash('sha256')
@@ -76,6 +108,11 @@ export async function workerImageInputHash(scope: LocalWorkerImageScope): Promis
 export function localWorkerImageRef(scope: LocalWorkerImageScope, inputHash: string): string {
   if (!/^[0-9a-f]{64}$/.test(inputHash)) throw new Error('Worker image input hash must be sha256')
   return `${localWorkerRepository}:local-${scope}-${inputHash}`
+}
+
+export function internalWorkerImageRef(scope: LocalWorkerImageScope, inputHash: string): string {
+  if (!/^[0-9a-f]{64}$/.test(inputHash)) throw new Error('Internal Worker image input hash must be sha256')
+  return `${localWorkerRepository}:local-internal-${scope}-${inputHash}`
 }
 
 export function buildWorkerImageBuildArgs(
@@ -98,6 +135,49 @@ export function buildWorkerImageBuildArgs(
     image,
     repoRootPath
   ]
+}
+
+export function buildInternalWorkerImageBuildArgs(image: string, baseImage: string, inputHash: string): string[] {
+  return [
+    'build',
+    '--build-arg',
+    `ANKOLE_AGENT_COMPUTER_BASE_IMAGE=${baseImage}`,
+    '--label',
+    `${internalInputHashLabel}=${inputHash}`,
+    '--label',
+    `${internalBaseImageLabel}=${baseImage}`,
+    '-f',
+    internalWorkerDockerfile,
+    '-t',
+    image,
+    repoRootPath
+  ]
+}
+
+async function internalWorkerInputHash(baseImage: string): Promise<string> {
+  const result = await runChildCaptured('git', ['ls-files', '-co', '--exclude-standard', '-z'], {
+    cwd: internalRoot
+  })
+  if (result.status !== 0) {
+    throw new Error(`git ls-files failed while hashing internal Worker inputs: ${result.stderr || result.stdout}`)
+  }
+
+  const files = result.stdout
+    .split('\0')
+    .filter(Boolean)
+    .filter(file => existsSync(path.join(internalRoot, file)))
+  const hash = createHash('sha256')
+  hash.update(baseImage)
+  hash.update('\0')
+
+  for (const file of files.toSorted()) {
+    hash.update(file)
+    hash.update('\0')
+    hash.update(readFileSync(path.join(internalRoot, file)))
+    hash.update('\0')
+  }
+
+  return hash.digest('hex')
 }
 
 async function workerImageInputFiles(scope: LocalWorkerImageScope): Promise<string[]> {
@@ -173,6 +253,11 @@ async function pullAndVerifyUpstreamImage(image: string, revision: string): Prom
 async function localImageMatches(image: string, scope: LocalWorkerImageScope, inputHash: string): Promise<boolean> {
   const labels = await dockerImageLabels(image)
   return labels?.[inputHashLabel] === inputHash && labels[inputScopeLabel] === scope
+}
+
+async function internalImageMatches(image: string, baseImage: string, inputHash: string): Promise<boolean> {
+  const labels = await dockerImageLabels(image)
+  return labels?.[internalInputHashLabel] === inputHash && labels[internalBaseImageLabel] === baseImage
 }
 
 async function dockerImageLabels(image: string): Promise<Record<string, string> | null> {

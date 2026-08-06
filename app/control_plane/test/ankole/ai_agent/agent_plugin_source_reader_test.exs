@@ -1,5 +1,5 @@
 defmodule Ankole.AIAgent.Library.AgentPlugins.SourceReaderTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias Ankole.AIAgent.Library.AgentPlugins
   alias Ankole.AIAgent.Library.AgentPlugins.SourceReader
@@ -53,6 +53,50 @@ defmodule Ankole.AIAgent.Library.AgentPlugins.SourceReaderTest do
              "github-repo-management",
              "github-webhooks"
            ]
+  end
+
+  test "configured internal Agent Plugins extend the installation library" do
+    source = Path.expand("../../../../library/agent-plugins/deep-research", __DIR__)
+    public_root = tmp_root!("configured-public")
+    internal_root = Path.join(tmp_root!("configured-internal"), "agent-plugins")
+    public_package = Path.join([public_root, "agent-plugins", "deep-research"])
+    internal_package = Path.join(internal_root, "private-research")
+    File.mkdir_p!(Path.dirname(public_package))
+    File.mkdir_p!(Path.dirname(internal_package))
+    File.cp_r!(source, public_package)
+    File.cp_r!(source, internal_package)
+
+    manifest_path = Path.join(internal_package, ".codex-plugin/plugin.json")
+
+    manifest =
+      manifest_path
+      |> File.read!()
+      |> Ankole.JSON.decode!()
+      |> Map.put("name", "private-research")
+
+    File.write!(manifest_path, Ankole.JSON.encode!(manifest))
+
+    previous = Application.get_env(:ankole, Ankole.AIAgent.Library, [])
+
+    Application.put_env(
+      :ankole,
+      Ankole.AIAgent.Library,
+      previous
+      |> Keyword.put(:library_root, public_root)
+      |> Keyword.put(:internal_agent_plugins_root, internal_root)
+    )
+
+    on_exit(fn -> Application.put_env(:ankole, Ankole.AIAgent.Library, previous) end)
+
+    assert {:ok, agent_plugins} = SourceReader.read_trusted_agent_plugins()
+    assert Enum.map(agent_plugins, & &1.id) == ["deep-research", "private-research"]
+
+    private = Enum.find(agent_plugins, &(&1.id == "private-research"))
+    assert private.root == internal_package
+    assert hd(private.skills).metadata["skill_root"] == "library"
+
+    assert hd(private.skills).relative_path ==
+             "agent-plugins/private-research/skills/create-deep-research"
   end
 
   test "GitHub stays disabled until the installation enables it" do
