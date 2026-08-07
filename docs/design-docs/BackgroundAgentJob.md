@@ -522,6 +522,11 @@ sessions wait on a fixed ladder from one minute to two hours, so the five
 attempts span some hours and a Job survives an upstream outage. Other actor
 events keep a short exponential backoff, because a user waits on them.
 
+AIGateway quota exhaustion with a known future recovery time returns the Job
+to `queued` and releases its Worker assignment until that time. The acquired
+execution attempt stays consumed. A stale or missing recovery time uses the
+fixed Job retry ladder instead of immediate dispatch.
+
 An internal RuntimeFabric handler failure is retryable only for a turn-scoped
 read. Its durable error keeps the control-plane `failure_id`. Domain rejections,
 turn writes, and turn completion stay terminal because their effect or commit

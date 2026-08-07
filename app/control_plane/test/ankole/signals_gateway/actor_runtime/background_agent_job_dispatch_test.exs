@@ -148,11 +148,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     retry_start = turn_start_payload!(retry_envelope)
     assert retry_start.model_ref.profile == "kimi"
     assert retry_start.model_ref.model == "moonshotai/kimi-k2.7-code"
+    assert decoded_request_context(retry_start)["attempts"] == 2
 
     assert retry_start.model_ref.provider_options_json ==
              Ankole.JSON.encode!(%{"reasoningEffort" => "high"})
 
     persisted = BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid)
+    assert persisted.attempts == 2
     assert persisted.model_profile == "kimi"
     assert persisted.runtime_projection["model_ref"]["model"] == "moonshotai/kimi-k2.7-code"
   end
@@ -1105,7 +1107,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
            )
   end
 
-  test "credential pool exhaustion returns the Job attempt and waits for the earliest recovery" do
+  test "credential pool exhaustion keeps the Job attempt and waits for the earliest recovery" do
     %{principal: agent} = agent_fixture()
     route = unique_route()
     :ok = Broker.register_local_worker(route, self())
@@ -1124,6 +1126,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
 
     assert_receive {:actor_lane, envelope}, 200
     turn_ref = turn_start_payload!(envelope).turn
+    started_at = BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid).started_at
     failure_time = DateTime.add(ready_at, 1, :second)
     pool_retry_at = DateTime.add(failure_time, 3_300, :second)
 
@@ -1151,8 +1154,14 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
              )
 
     assert requeued.status == "queued"
-    assert requeued.attempts == 0
-    assert requeued.started_at == nil
+    assert requeued.attempts == 1
+    assert requeued.started_at == started_at
+
+    assert %ActorSessionWorkerAssignment{status: "released"} =
+             Repo.get_by!(ActorSessionWorkerAssignment,
+               agent_uid: agent.uid,
+               session_id: actor_key.session_id
+             )
 
     persisted_event = Repo.get!(Ankole.SignalsGateway.ActorEvent, turn_ref.actor_event_id)
     assert persisted_event.input_state == "open"
@@ -1165,8 +1174,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
              )
 
     assert_receive {:actor_lane, retry_envelope}, 200
-    assert decoded_request_context(turn_start_payload!(retry_envelope))["attempts"] == 1
-    assert BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid).attempts == 1
+    assert decoded_request_context(turn_start_payload!(retry_envelope))["attempts"] == 2
+    assert BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid).attempts == 2
   end
 
   test "an unavailable pool without a recovery time consumes the normal Job retry budget" do
@@ -1200,6 +1209,57 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
                  %{
                    "error_code" => "credential_pool_exhausted",
                    "retryable" => true
+                 }
+               ),
+               now: failure_time
+             )
+
+    assert result.status == :turn_failed
+    assert result.retry_available_at == expected_retry_at
+    refute Map.has_key?(result, :turn_error_compensation)
+
+    persisted = BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid)
+    assert persisted.status == "running"
+    assert persisted.attempts == 1
+
+    persisted_event = Repo.get!(Ankole.SignalsGateway.ActorEvent, turn_ref.actor_event_id)
+    assert persisted_event.input_state == "open"
+    assert persisted_event.available_at == expected_retry_at
+  end
+
+  test "an expired pool recovery time uses the normal Job retry ladder" do
+    %{principal: agent} = agent_fixture()
+    route = unique_route()
+    :ok = Broker.register_local_worker(route, self())
+    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    assert {:ok, _worker} = admit_worker(route)
+
+    job = create_job!(agent.uid, "credential-pool-expired-recovery")
+    actor_key = %{agent_uid: agent.uid, session_id: BackgroundAgentJobs.job_session_id(job.id)}
+    ready_at = DateTime.add(job.queued_at, 1, :second)
+
+    assert {:ok, %{send_outcome: "sent_or_queued"}} =
+             ReadyEventProcessor.process_ready_event_for_actor(actor_key,
+               now: ready_at,
+               lease_seconds: @long_lease_seconds
+             )
+
+    assert_receive {:actor_lane, envelope}, 200
+    turn_ref = turn_start_payload!(envelope).turn
+    failure_time = DateTime.add(ready_at, 1, :second)
+    expired_retry_at = DateTime.add(failure_time, -1, :second)
+    expected_retry_at = DateTime.add(failure_time, 60, :second)
+
+    assert {:ok, result} =
+             ActorRuntime.handle_turn_error(
+               turn_error_payload(
+                 turn_ref,
+                 "worker_turn_failed",
+                 "AIGateway credential pool recovery time expired.",
+                 %{
+                   "error_code" => "credential_pool_exhausted",
+                   "retryable" => true,
+                   "retry_at" => DateTime.to_iso8601(expired_retry_at)
                  }
                ),
                now: failure_time

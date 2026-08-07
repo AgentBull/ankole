@@ -1,5 +1,9 @@
 # Changelog
 
+## Version 0.61.4 (2026-08-07)
+
+- Keep repeated AIGateway credential-pool exhaustion inside the existing five-attempt BackgroundAgentJob budget. A known future recovery time still returns the Job to `queued` and releases its Worker assignment, but the acquired attempt stays consumed. A stale or missing recovery time uses the ordinary Job retry ladder instead of immediate dispatch.
+
 ## Version 0.61.3 (2026-08-07)
 
 - Keep a BackgroundAgentJob alive when Codex reports HTTP 402 payment required by handing it directly to the existing bounded durable retry ladder. Keep HTTP 403 terminal and keep credential-pool HTTP 429 on its separate retry contract. When a user asks to continue a terminal Job, direct the conversation Agent to respawn it from its exact Codex thread and Job Workspace instead of creating an empty Job.

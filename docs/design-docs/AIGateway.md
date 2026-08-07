@@ -222,10 +222,11 @@ current Response without repeating the main Provider call.
 When no entry is usable, AIGateway returns `credential_pool_exhausted`. It
 includes the earliest `retry_at` only when a current exhausted entry has a
 known future recovery time. Interactive requests receive HTTP 429. A
-Background Agent Job returns to `queued`, releases its Worker, and refunds its
-execution attempt only for quota exhaustion with that recovery time. An empty,
-disabled, or dead pool uses the ordinary Job retry budget instead of waiting
-forever. AIGateway does not fall back to a different provider.
+Background Agent Job with that recovery time returns to `queued` and releases
+its Worker assignment until then, but its acquired execution attempt stays
+consumed. A stale or missing `retry_at`, an empty pool, or a pool with only
+disabled or dead entries uses the ordinary Job retry ladder. AIGateway does not
+fall back to a different provider.
 
 The Console shows each entry label, source, health, recovery time, request
 count, last selection time, and safe recent error facts. It can add, update,

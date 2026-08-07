@@ -61,7 +61,7 @@ Two claim paths cover the two recovery shapes:
 
 Both take the agent's slot lock and then the job row under `FOR UPDATE`, in that fixed order. Concurrent dispatchers for the same agent therefore resolve the same way every time. A retried attempt that exceeds the budget lands in `failed`; a job that has been cancelled lands in `stopped`. The retry delay between attempts is bounded at 30 seconds, so a transiently failed job does not hammer the provider.
 
-AIGateway quota exhaustion with a known pool recovery time is a placement delay, not an execution failure. The lifecycle returns the Job to `queued`, refunds the unstarted attempt, releases the Worker, and schedules dispatch for that recovery time. This delay does not consume the five-attempt budget. An empty, disabled, or dead pool has no recovery time, so it uses the ordinary bounded Job retry path.
+AIGateway quota exhaustion with a known future recovery time returns the Job to `queued`, releases its Worker assignment, and schedules dispatch for that time. The acquired attempt stays consumed, so repeated quota failures remain inside the five-attempt budget. A stale or missing recovery time uses the ordinary bounded Job retry path instead of immediate dispatch.
 
 ## Dispatch and the agent's plugins
 
