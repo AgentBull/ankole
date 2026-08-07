@@ -82,6 +82,21 @@ const reservedPayloadKeys = new Set(['severity', 'level', 'severity_text', 'seve
 
 export const workerLogger = createWorkerLogger()
 
+/**
+ * Keeps the public provider message in the durable Turn error but removes it
+ * from Worker logs. The structured log fields retain the failure class,
+ * status, and error code needed for operations.
+ */
+export function turnFailureLogError(error: unknown): Error {
+  const normalized = error instanceof Error ? error : new Error(String(error))
+  if (normalized.name !== 'LLMProviderTerminalError') return normalized
+
+  const safe = new Error('LLM provider returned an error')
+  safe.name = normalized.name
+  safe.stack = undefined
+  return safe
+}
+
 export function createWorkerLogger(bindings: WorkerLogFields = {}, options: WorkerLoggerOptions = {}): WorkerLogger {
   const env = options.env ?? Bun.env
   const pinoLogger = createPinoLogger(env, options.destination).child(normalizeFields(bindings))

@@ -172,10 +172,52 @@ defmodule Ankole.AIGateway.FailureDiagnosticsTest do
              "AIGateway provider stream failed before a terminal response."
   end
 
-  test "classifies provider terminal events from stable fields and ignores messages" do
+  test "returns one bounded upstream message without using it for retry classification" do
+    upstream_message =
+      "This request requires more credits, or fewer max_tokens."
+
+    classification =
+      FailureDiagnostics.classify(
+        {:upstream_response_failed, 402,
+         %{"error" => %{"code" => 402, "message" => upstream_message}}}
+      )
+
+    assert classification.failure_kind == :provider_response
+    assert classification.provider_status == 402
+    assert classification.provider_message == upstream_message
+    assert classification.retryable == false
+    assert FailureDiagnostics.public_message(classification) == upstream_message
+
+    long_message = String.duplicate("上", 2_001)
+
+    bounded =
+      FailureDiagnostics.classify(
+        {:upstream_response_failed, 403, %{"error" => %{"message" => long_message}}}
+      )
+
+    assert String.length(bounded.provider_message) == 2_000
+    assert FailureDiagnostics.public_message(bounded) == String.slice(long_message, 0, 2_000)
+  end
+
+  test "restores a bounded provider message from stored provider failures" do
+    classification =
+      FailureDiagnostics.classify_stored(%{
+        "code" => "upstream_response_failed",
+        "failure_kind" => "provider_response",
+        "message" => "stored upstream message",
+        "provider_status" => 403,
+        "retryable" => false
+      })
+
+    assert classification.provider_message == "stored upstream message"
+    assert FailureDiagnostics.public_message(classification) == "stored upstream message"
+  end
+
+  test "classifies provider terminal events from stable fields and retains their public message" do
     assert %{
              failure_kind: :provider_response,
              error_code: "rate_limit_exceeded",
+             provider_message: "opaque provider text",
              retryable: true
            } =
              FailureDiagnostics.classify(
@@ -238,10 +280,13 @@ defmodule Ankole.AIGateway.FailureDiagnosticsTest do
     end
   end
 
-  test "logs a provider rate-limit code as warning without parsing its message" do
+  test "logs a provider rate-limit code as warning without logging its message" do
     log =
       capture_log(
-        [level: :warning, metadata: [:event, :failure_kind, :error_code, :retryable]],
+        [
+          level: :warning,
+          metadata: [:event, :failure_kind, :error_code, :provider_message, :retryable]
+        ],
         fn ->
           assert :ok =
                    FailureDiagnostics.log(

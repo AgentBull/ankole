@@ -267,7 +267,7 @@ defmodule Ankole.BackgroundAgentJobs do
   defp parse_pool_retry_at(retry_at, now) when is_binary(retry_at) do
     case DateTime.from_iso8601(retry_at) do
       {:ok, parsed, _offset} ->
-        if DateTime.compare(parsed, now) == :lt, do: now, else: parsed
+        if DateTime.compare(parsed, now) == :gt, do: parsed
 
       _error ->
         nil

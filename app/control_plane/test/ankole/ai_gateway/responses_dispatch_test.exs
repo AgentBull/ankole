@@ -3130,7 +3130,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
             }} = StatefulLifecycle.retrieve_response(agent.uid, "resp_#{message.id}")
   end
 
-  test "retrieve projects legacy stored error maps through the safe public contract" do
+  test "retrieve keeps a legacy upstream message but drops the remaining private fields" do
     %{principal: agent} = agent_fixture()
 
     {:ok, conversation} =
@@ -3168,13 +3168,11 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert public_error == %{
              "code" => "upstream_response_failed",
              "failure_kind" => "provider_response",
-             "message" => "The upstream provider request failed.",
+             "message" => "private provider message",
              "provider_status" => 502,
              "retryable" => true
            }
 
-    encoded_error = Ankole.JSON.encode!(public_error)
-    refute encoded_error =~ "private provider"
     refute Map.has_key?(public_error, "body")
     refute Map.has_key?(public_error, "reason")
     refute Map.has_key?(public_error, "status")

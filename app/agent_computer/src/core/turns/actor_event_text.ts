@@ -237,7 +237,7 @@ function backgroundAgentJobWakeupInputText(payload: JSONObject | undefined, type
       summary ? `Failure: ${summary}` : undefined,
       attempts !== undefined ? `Attempts: ${attempts}` : undefined,
       'Use show_background_job_details when the concrete status or recent trajectory is needed before repeating any side effect.',
-      'If a small caller-side correction is sufficient, make and verify it directly. Create a new background agent job when a corrected task needs durable background execution. Otherwise report the failure honestly to the user.'
+      'If the user asks to continue this terminal background agent job, call respawn_background_job with this job and the new instruction; it preserves the exact Codex thread and Job Workspace. If a small caller-side correction is sufficient, make and verify it directly. Otherwise report the failure honestly to the user.'
     ]
       .filter((line): line is string => Boolean(line))
       .join('\n')

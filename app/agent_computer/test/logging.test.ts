@@ -2,7 +2,7 @@ import { describe, expect, it } from 'bun:test'
 import { recordValue, type JsonObject as JSONObject } from '@agentbull/active-support'
 import { Writable } from 'node:stream'
 import type { DestinationStream } from 'pino'
-import { createWorkerLogger, createWorkerPinoOptions } from '../src/worker/logging'
+import { createWorkerLogger, createWorkerPinoOptions, turnFailureLogError } from '../src/worker/logging'
 
 describe('@ankole/agent-computer worker logger', () => {
   it('writes structured JSON without the Pino level field', () => {
@@ -76,6 +76,28 @@ describe('@ankole/agent-computer worker logger', () => {
       message: 'bad turn'
     })
     expect(String(error.stack)).toContain('TypeError: bad turn')
+  })
+
+  it('keeps a provider terminal message out of Worker logs', () => {
+    const capture = createCapture()
+    const logger = createWorkerLogger(
+      {},
+      {
+        env: { ANKOLE_LOG_LEVEL: 'debug', NODE_ENV: 'production' },
+        destination: capture.stream
+      }
+    )
+    const failure = new Error('AIGateway response failed: private upstream message')
+    failure.name = 'LLMProviderTerminalError'
+
+    logger.error('worker.turn_failed', 'worker turn failed', { error: turnFailureLogError(failure) })
+
+    const [entry] = capture.entries()
+    expect(entry.error).toEqual({
+      type: 'LLMProviderTerminalError',
+      message: 'LLM provider returned an error'
+    })
+    expect(JSON.stringify(entry)).not.toContain('private upstream message')
   })
 
   it('keeps child logger labels in the labels field', () => {

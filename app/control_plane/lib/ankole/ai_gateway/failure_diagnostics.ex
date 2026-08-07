@@ -3,8 +3,9 @@ defmodule Ankole.AIGateway.FailureDiagnostics do
   Normalizes safe AIGateway failure facts and selects one log severity.
 
   Callers own request-specific context. This module owns failure-shape parsing,
-  retry classification, provider error extraction, and severity. It never
-  returns provider messages or provider response bodies.
+  retry classification, provider error extraction, and severity. It keeps one
+  bounded provider error message for the authenticated caller, but it never
+  returns provider response bodies or writes provider messages to logs.
   """
 
   alias Ankole.AIGateway.OpenAIError
@@ -24,6 +25,7 @@ defmodule Ankole.AIGateway.FailureDiagnostics do
     rate_limit rate_limited rate_limit_exceeded server_is_overloaded slow_down too_many_requests
   )
   @warning_codes ~w(response_stream_cancelled stream_consumer_terminated)
+  @provider_message_limit 2_000
 
   @spec classify(term()) :: map()
   def classify(reason) do
@@ -39,16 +41,23 @@ defmodule Ankole.AIGateway.FailureDiagnostics do
   def classify_stored(%{} = reason) do
     classification = classify(reason)
 
-    case {classification.failure_kind, stored_failure_kind(value(reason, "failure_kind"))} do
-      {:internal, stored_kind} when not is_nil(stored_kind) ->
-        Map.put(classification, :failure_kind, stored_kind)
+    classification =
+      case {classification.failure_kind, stored_failure_kind(value(reason, "failure_kind"))} do
+        {:internal, stored_kind} when not is_nil(stored_kind) ->
+          Map.put(classification, :failure_kind, stored_kind)
 
-      _other ->
-        classification
-    end
+        _other ->
+          classification
+      end
+
+    restore_stored_provider_message(classification, reason)
   end
 
   @spec public_message(map()) :: String.t()
+  def public_message(%{failure_kind: :provider_response, provider_message: message})
+      when is_binary(message),
+      do: message
+
   def public_message(%{error_code: "partial_tool_call_incomplete"}),
     do: "The provider response ended with an incomplete client tool call."
 
@@ -103,6 +112,7 @@ defmodule Ankole.AIGateway.FailureDiagnostics do
     fields =
       context
       |> Map.merge(classify(reason))
+      |> Map.delete(:provider_message)
       |> Map.reject(fn {_key, value} -> is_nil(value) or value == [] end)
 
     case severity(fields) do
@@ -262,7 +272,8 @@ defmodule Ankole.AIGateway.FailureDiagnostics do
 
     %{
       provider_error_code: string(value(error, "code")),
-      provider_error_type: string(value(error, "type")) || string(value(body, "error_type"))
+      provider_error_type: string(value(error, "type")) || string(value(body, "error_type")),
+      provider_message: bounded_provider_message(value(error, "message"))
     }
     |> Map.reject(fn {_key, value} -> is_nil(value) end)
   end
@@ -294,6 +305,18 @@ defmodule Ankole.AIGateway.FailureDiagnostics do
   defp stored_failure_kind(:provider_response), do: :provider_response
   defp stored_failure_kind(:public_response), do: :public_response
   defp stored_failure_kind(_value), do: nil
+
+  defp restore_stored_provider_message(
+         %{failure_kind: :provider_response} = classification,
+         reason
+       ) do
+    case bounded_provider_message(value(reason, "message")) do
+      nil -> classification
+      message -> Map.put_new(classification, :provider_message, message)
+    end
+  end
+
+  defp restore_stored_provider_message(classification, _reason), do: classification
 
   defp put_error_code_if_missing(fields, code) do
     if is_nil(Map.get(fields, :error_code)) do
@@ -346,4 +369,13 @@ defmodule Ankole.AIGateway.FailureDiagnostics do
   defp string(value) when is_binary(value) and value != "", do: value
   defp string(value) when is_atom(value), do: Atom.to_string(value)
   defp string(_value), do: nil
+
+  defp bounded_provider_message(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      message -> String.slice(message, 0, @provider_message_limit)
+    end
+  end
+
+  defp bounded_provider_message(_value), do: nil
 end

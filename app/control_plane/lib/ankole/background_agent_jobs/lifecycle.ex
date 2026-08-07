@@ -126,15 +126,14 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
           {:ok, Job.t()} | {:error, term()}
   def requeue_credential_pool_exhausted_attempt_in_tx(repo, job_id, agent_uid)
       when is_integer(job_id) and job_id > 0 and is_binary(agent_uid) do
-    with :ok <- lock_agent_slots(repo, agent_uid),
+    actor_key = %{agent_uid: agent_uid, session_id: BackgroundAgentJobs.job_session_id(job_id)}
+
+    with :ok <- WorkerPool.release_assignment_for_actor_in_tx(repo, actor_key),
+         :ok <- lock_agent_slots(repo, agent_uid),
          %Job{status: "running", attempts: attempts} = job when attempts > 0 <-
            Queries.get_for_agent(repo, job_id, agent_uid, lock: "FOR UPDATE") do
       job
-      |> Job.changeset(%{
-        status: "queued",
-        attempts: attempts - 1,
-        started_at: if(attempts == 1, do: nil, else: job.started_at)
-      })
+      |> Job.changeset(%{status: "queued"})
       |> repo.update()
     else
       nil -> {:error, :job_not_found}
