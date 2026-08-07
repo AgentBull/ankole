@@ -1,5 +1,10 @@
 # Changelog
 
+## Version 0.61.2 (2026-08-07)
+- Upgrade dependencies.
+- Hide the Console readiness control after all four required setup items are complete. Keep it visible while setup is incomplete or its status is unavailable, and keep polling so it returns if the installation becomes incomplete.
+- Upgrade every Worker, end-to-end, and evaluation Codex runtime to 0.147.0 and regenerate the exact experimental app-server TypeScript bindings from that release. Keep AIGateway model cards aligned with the new canonical `model_messages` instruction field, explicitly suppress native App, Plugin, and Skill usage instructions that Ankole does not request, and keep legacy `base_instructions` for the pinned client serializer contract. Preserve thread-local Plugin member selection instead of moving concurrent Jobs onto Agent-wide `skills.config` mutations.
+
 ## Version 0.61.1 (2026-08-07)
 
 - Preserve provider-owned `encrypted_content` input parts on the native OpenAI Responses route. The AIGateway versioned prefix is the ownership boundary, so AIGateway continues to decode its own collaboration fields wherever they appear, rejects foreign provider state on adapter routes, and fails closed for a corrupt AIGateway payload. This lets a native subagent replay the provider token that Codex adds to its initial Agent message.

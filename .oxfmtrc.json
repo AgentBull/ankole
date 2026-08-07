@@ -17,7 +17,7 @@
     "packages/native-addons/index.js",
     "packages/native-addons/main.js",
     "**/*.toml",
-    "app/agent_computer/src/tools/codex/generated/protocol/**",
+    "app/agent_computer/src/core/codex-runner/generated/protocol/**",
     "app/agent_computer/src/fabric/generated/**",
     "**/*.md",
     "**/*.mdx",

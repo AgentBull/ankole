@@ -20,7 +20,7 @@ environment = "docker"
 model = "gpt-5.6-luna"
 agent_setup_timeout_sec = 900.0
 required_env = ["CODEX_AUTH_JSON_PATH"]
-agent_kwargs = { version = "0.146.0", reasoning_effort = "high", web_search = "disabled" }
+agent_kwargs = { version = "0.147.0", reasoning_effort = "high", web_search = "disabled" }
 
 [[guardrails]]
 name = "the answer does not introduce false balance"

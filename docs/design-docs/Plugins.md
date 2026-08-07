@@ -151,11 +151,11 @@ Each Job then performs only thread-owned selection:
 `thread/resume` restores the selected roots stored in the existing Codex
 thread; that method does not accept a new root list. The Job rebuilds the same
 view path before resume, so current disables still remove members from the
-stored root. Codex 0.146 does not apply `skills.config` to Plugin members, so
-Ankole does not use that setting as a member-selection guarantee. Standalone
-Skills use project discovery under `.agents/skills`. Plugin member Skills stay
-inside the native Plugin package and are not projected as standalone project
-Skills.
+stored root. Ankole does not mutate Agent-wide `skills.config` as a
+member-selection guarantee because sibling Jobs can select different members.
+Standalone Skills use project discovery under `.agents/skills`. Plugin member
+Skills stay inside the native Plugin package and are not projected as
+standalone project Skills.
 
 Only enabled members that permit Background Agent Jobs add MCP settings. The
 optional workspace template is copied once and does not change runtime Plugin

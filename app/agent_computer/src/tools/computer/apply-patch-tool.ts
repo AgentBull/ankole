@@ -32,7 +32,7 @@ interface ApplyPatchDetails {
 }
 
 /**
- * Builds the same freeform apply_patch contract that Codex 0.146 exposes.
+ * Builds the same freeform apply_patch contract that the pinned Codex app-server exposes.
  */
 export function createApplyPatchTool(
   context: ComputerToolContext

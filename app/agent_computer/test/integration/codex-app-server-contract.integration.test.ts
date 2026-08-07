@@ -66,7 +66,7 @@ describe('@ankole/agent-computer Codex app-server protocol contract', () => {
     ])
 
     expect(exitCode).toBe(0)
-    expect(`${stdout}${stderr}`.trim()).toBe('codex-cli 0.146.0')
+    expect(`${stdout}${stderr}`.trim()).toBe('codex-cli 0.147.0')
   })
 
   it('routes MultiAgentV2 children from sub-agent activity and exposes their raw tool calls', async () => {
@@ -817,7 +817,7 @@ test ! -e ./AGENTS.override.md
       let stage = 'initialize'
       try {
         const initializeResponse = await realClient.initialize()
-        expect(initializeResponse.userAgent).toStartWith('codex_cli_rs/0.146.0 ')
+        expect(initializeResponse.userAgent).toStartWith('codex_cli_rs/0.147.0 ')
         stage = 'skills/list'
         const response = (await realClient.request('skills/list', {
           cwds: [project.codexCwd],

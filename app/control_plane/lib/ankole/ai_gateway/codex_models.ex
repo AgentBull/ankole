@@ -5,7 +5,7 @@ defmodule Ankole.AIGateway.CodexModels do
   Codex fetches `GET {base_url}/models?client_version=…` when its provider uses
   command auth, and applies each returned card with full-card replacement
   semantics (`construct_model_info_from_candidates`, codex
-  rust-v0.146.0). Every card therefore supplies the complete pinned card shape.
+  rust-v0.147.0). Every card therefore supplies the complete pinned card shape.
   AIGateway owns selector-specific modalities, Responses Lite selection, the
   native search gate, and one model-visible tool-output limit. Base instructions
   contain the prompt vendored from the same codex pin and the readable form of
@@ -80,6 +80,13 @@ defmodule Ankole.AIGateway.CodexModels do
       "availability_nux" => nil,
       "upgrade" => nil,
       "base_instructions" => @base_instructions,
+      "model_messages" => %{
+        "instructions_template" => @base_instructions,
+        "instructions_variables" => nil
+      },
+      "include_skills_usage_instructions" => false,
+      "include_plugin_usage_instructions" => false,
+      "include_apps_usage_instructions" => false,
       "default_reasoning_summary" => "auto",
       "support_verbosity" => false,
       "default_verbosity" => nil,

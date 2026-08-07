@@ -584,7 +584,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     conn =
       conn
       |> put_req_header("authorization", "Bearer #{api_key.api_key}")
-      |> get(~p"/api/v1/ai-gateway/models", %{"client_version" => "0.146.0"})
+      |> get(~p"/api/v1/ai-gateway/models", %{"client_version" => "0.147.0"})
 
     assert %{"models" => models} = json_response(conn, 200)
     assert runtime = Enum.find(models, &(&1["slug"] == "gpt-5.6-sol"))

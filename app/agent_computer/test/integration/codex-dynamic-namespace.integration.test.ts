@@ -69,12 +69,12 @@ describe('Codex dynamic namespace integration', () => {
       client = codexClient({ workspace, codexHome, notifications, projection })
 
       const initializeResponse = await client.initialize()
-      expect(initializeResponse.userAgent).toContain('/0.146.0 ')
+      expect(initializeResponse.userAgent).toContain('/0.147.0 ')
       const models = (await client.request('model/list', { includeHidden: true })) as {
         data: Array<{ model: string }>
       }
       expect(manifestRequests.length).toBeGreaterThan(0)
-      expect(manifestRequests.every(url => url.includes('client_version=0.146.0'))).toBe(true)
+      expect(manifestRequests.every(url => url.includes('client_version=0.147.0'))).toBe(true)
       expect(models.data.some(model => model.model === 'gpt-5.4')).toBe(true)
       const started = (await client.request('thread/start', {
         cwd: workspace,
@@ -146,7 +146,7 @@ describe('Codex dynamic namespace integration', () => {
       })
 
       const initializeResponse = await client.initialize()
-      expect(initializeResponse.userAgent).toContain('/0.146.0 ')
+      expect(initializeResponse.userAgent).toContain('/0.147.0 ')
       const started = (await client.request('thread/start', {
         cwd: workspace,
         approvalPolicy: 'never',

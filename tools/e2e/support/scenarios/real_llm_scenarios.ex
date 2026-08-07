@@ -445,7 +445,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
            """
 
     assert get_in(job.metadata, ["codex_user_agent"]) =~
-             "codex_cli_rs/0.146.0 "
+             "codex_cli_rs/0.147.0 "
 
     turns =
       Repo.all(
@@ -490,10 +490,10 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
       docker_exec!(container, [
         "sh",
         "-lc",
-        "rg -n --glob '*.jsonl' '\"cli_version\":\"0.146.0\"|\"name\":\"exec\"|tool_search_call|tool_search_output|lookup_ptc_marker' #{shell_quote(session_root)}"
+        "rg -n --glob '*.jsonl' '\"cli_version\":\"0.147.0\"|\"name\":\"exec\"|tool_search_call|tool_search_output|lookup_ptc_marker' #{shell_quote(session_root)}"
       ])
 
-    assert session_evidence =~ ~s("cli_version":"0.146.0")
+    assert session_evidence =~ ~s("cli_version":"0.147.0")
     assert session_evidence =~ ~s("name":"exec")
     assert session_evidence =~ "tool_search_call"
     assert session_evidence =~ "tool_search_output"

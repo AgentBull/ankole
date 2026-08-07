@@ -10,7 +10,7 @@ defmodule Ankole.AIGateway.Providers.ChatGPTSubscription do
   alias Ankole.AIGateway.ReasoningEffort
   alias Ankole.AIGateway.UniversalAIRequest
 
-  @codex_version "0.146.0"
+  @codex_version "0.147.0"
   @forwarded_headers %{
     "x-codex-beta-features" => "X-Codex-Beta-Features",
     "x-codex-turn-metadata" => "X-Codex-Turn-Metadata",

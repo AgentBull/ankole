@@ -185,8 +185,14 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
       AIGatewayLink.visible_channel_context_refs(actor_key.agent_uid, actor_key.session_id)
 
     case MapSet.size(visible_refs) do
-      0 -> actor_event
-      _visible -> %{actor_event | payload: ChannelContext.drop_visible_messages(actor_event.payload, visible_refs)}
+      0 ->
+        actor_event
+
+      _visible ->
+        %{
+          actor_event
+          | payload: ChannelContext.drop_visible_messages(actor_event.payload, visible_refs)
+        }
     end
   end
 

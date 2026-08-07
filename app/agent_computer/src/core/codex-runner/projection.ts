@@ -164,7 +164,7 @@ function qualifiedToolName(namespace: string | null | undefined, tool: string): 
   return namespace === undefined || namespace === null ? tool : `${namespace}.${tool}`
 }
 
-/** Matches the dynamic-tool identity boundary in the pinned Codex 0.146 app-server. */
+/** Matches the dynamic-tool identity boundary in the pinned Codex app-server. */
 function assertCodexDynamicToolIdentity(tool: AgentTool): void {
   assertCodexDynamicIdentifier(tool.name, 'tool name', codexDynamicToolNameMaxLength)
   if (reservedMCPIdentity(tool.name)) throw new Error(`Dynamic tool name is reserved: ${tool.name}`)

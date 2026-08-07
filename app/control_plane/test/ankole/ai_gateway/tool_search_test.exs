@@ -6,7 +6,7 @@ defmodule Ankole.AIGateway.ToolSearchTest do
   alias Ankole.AIGateway.ToolSearch.Index
   alias Ankole.AIGateway.ToolSearch.StreamLoop
 
-  # Golden wire sample from codex rust-v0.146.0
+  # Golden wire sample from codex rust-v0.147.0
   # codex-rs/protocol/src/models.rs `tool_search_call_roundtrips`.
   @codex_tool_search_call %{
     "type" => "tool_search_call",

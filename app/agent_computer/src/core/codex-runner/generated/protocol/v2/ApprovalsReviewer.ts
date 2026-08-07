@@ -9,4 +9,4 @@
  * prompted subagent to gather relevant context and apply a risk-based
  * decision framework before approving or denying the request.
  */
-export type ApprovalsReviewer = 'user' | 'auto_review' | 'guardian_subagent'
+export type ApprovalsReviewer = "user" | "auto_review" | "guardian_subagent";

@@ -323,10 +323,10 @@ owner finishes setup.
 
 Each Job atomically rebuilds one stable package view from its persisted
 projection and the current effective member set. This view is not an install,
-cache, Hook trust, or user-config mutation. Codex 0.146 does not apply
-`skills.config` entries to Plugin members, so the view contains only the member
-`SKILL.md` files that the Job can use. A resume rebuilds the same path before it
-restores the stored root.
+cache, Hook trust, or user-config mutation. The view contains only the member
+`SKILL.md` files that the Job can use. This keeps selection thread-local instead
+of mutating Agent-wide `skills.config` while sibling Jobs run. A resume rebuilds
+the same path before it restores the stored root.
 
 The last Job lease closes app-server input, gives the process a bounded clean
 exit period, and reaps it before the runtime owner is removed. It sends a kill
@@ -334,7 +334,8 @@ only when the clean exit does not finish. There is no idle TTL. A stopped queued
 Job completes finalization and returns its Worker turn slot without waiting for
 a Job-local Plugin setup because no such setup exists.
 
-Codex 0.146 can spend tens of seconds maintaining `logs_2.sqlite` before it
+The pinned Codex app-server can spend tens of seconds maintaining
+`logs_2.sqlite` before it
 answers `initialize`. Agent Computer records a slow-start diagnostic at 60
 seconds and uses a 300-second hard timeout. After initialization, it installs a
 SQLite trigger that drops only `TRACE`, `DEBUG`, and `INFO` diagnostic records.
@@ -363,7 +364,7 @@ The Job's `.codex/config.toml` contains project settings, not shared Codex state
 The runner marks the exact Job path as trusted for that process.
 
 The project config enables MultiAgentV2 and keeps
-`hide_spawn_agent_metadata=true`. In the pinned Codex 0.146 runtime, this option
+`hide_spawn_agent_metadata=true`. In the pinned Codex runtime, this option
 removes optional Agent type, model, reasoning, and service-tier fields from the
 spawn tool and removes the nickname from its result. It does not remove raw
 collaboration calls or `subAgentActivity` notifications from app-server.
@@ -387,7 +388,8 @@ Job one isolated JavaScript executor that can call eligible local tools,
 but MCP-backed Skills do not enter that tool registry. A Job follows the Skill
 and runs mcporter through its terminal. Code mode remains the Codex client-side
 programmatic calling path for eligible local tools. It is not the Responses API
-`programmatic_tool_calling` wire type, which Codex 0.146 does not consume.
+`programmatic_tool_calling` wire type, which the pinned Codex runtime does not
+consume.
 Projected `web_search` and `web_fetch` calls send their semantic selectors
 directly to AIGateway. A Job does not query or cache a separate web-tool catalog.
 

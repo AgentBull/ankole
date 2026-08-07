@@ -50,6 +50,8 @@ export function ConsoleReadiness() {
     }
   }, [readiness])
 
+  if (readiness?.ready) return null
+
   const changeOpen = (nextOpen: boolean) => {
     setOpen(nextOpen)
     if (!nextOpen) return

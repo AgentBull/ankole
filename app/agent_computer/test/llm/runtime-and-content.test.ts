@@ -664,9 +664,7 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
         }
       }) as TurnStart
 
-    expect(turnRequestEnvironmentInfoLines(streakTurnStart(3))).toContain(
-      'schedule_consecutive_identical_replies: 3'
-    )
+    expect(turnRequestEnvironmentInfoLines(streakTurnStart(3))).toContain('schedule_consecutive_identical_replies: 3')
 
     for (const absent of [undefined, 1, '3']) {
       const lines = turnRequestEnvironmentInfoLines(streakTurnStart(absent))

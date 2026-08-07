@@ -4,7 +4,7 @@ defmodule Ankole.AIGateway.CodexCodeMode do
 
   Code mode gives Codex one `exec` tool that runs JavaScript over the other
   tools. It also appends one TypeScript `declare const tools` block to every
-  other tool description (`augment_tool_definition`, codex rust-v0.146.0). Each
+  other tool description (`augment_tool_definition`, codex rust-v0.147.0). Each
   block documents one tool, so every direct tool ends with instructions for the
   indirect path, and models wrap one call in a JavaScript program instead of
   calling the tool.

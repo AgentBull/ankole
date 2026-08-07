@@ -5,4 +5,4 @@
 /**
  * EXPERIMENTAL - append speakable text to thread realtime.
  */
-export type ThreadRealtimeAppendSpeechParams = { threadId: string; text: string }
+export type ThreadRealtimeAppendSpeechParams = { threadId: string, text: string, };
