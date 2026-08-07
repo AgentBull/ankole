@@ -26,7 +26,7 @@ import {
   waitForTurnSteering,
   type ActiveTurn
 } from './worker/active_turns'
-import { workerLogger } from './worker/logging'
+import { turnFailureLogError, workerLogger } from './worker/logging'
 import { requestAIGatewayAPIKey, stringFromDetails, throwingRPCRequester } from './worker/rpc_requests'
 import { BrowserRuntime } from './browser-runtime'
 import { agentHomePaths } from './core/agent-home-paths'
@@ -401,7 +401,7 @@ async function runActiveTurnTask(
         command: active.controlledStopCommand ?? 'unknown',
         reason: active.controlledStopReason ?? 'controlled_stop',
         duration_ms: Date.now() - startedAt,
-        error: errorValue(error),
+        error: turnFailureLogError(error),
         operation: turnOperation(turnStart.turn.actor_event_id, { last: true })
       })
       return
@@ -440,7 +440,7 @@ async function runActiveTurnTask(
       actor_event_id: turnStart.turn.actor_event_id,
       duration_ms: Date.now() - startedAt,
       ...turnFailureLogFields(error),
-      error: errorValue(error),
+      error: turnFailureLogError(error),
       operation: turnOperation(turnStart.turn.actor_event_id, { last: true })
     })
   } finally {

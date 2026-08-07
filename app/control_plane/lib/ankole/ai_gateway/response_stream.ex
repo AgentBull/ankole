@@ -1207,7 +1207,7 @@ defmodule Ankole.AIGateway.ResponseStream do
     failure_opts = [
       code: error.code,
       retryable: Map.get(classification, :retryable, true),
-      message: error.message,
+      message: Map.get(classification, :provider_message, error.message),
       provider_status: Map.get(classification, :provider_status),
       details: retry_failure_details(classification)
     ]

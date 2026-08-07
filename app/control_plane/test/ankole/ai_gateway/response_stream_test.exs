@@ -395,7 +395,7 @@ defmodule Ankole.AIGateway.ResponseStreamTest do
             {:terminal,
              %{
                terminal_error: %{
-                 "message" => "The upstream provider request failed.",
+                 "message" => "opaque provider text",
                  "retryable" => true
                }
              }, :keep_upstream}} =
@@ -404,12 +404,12 @@ defmodule Ankole.AIGateway.ResponseStreamTest do
     assert get_in(public_event, ["response", "error"]) == %{
              "code" => "rate_limit_exceeded",
              "failure_kind" => "provider_response",
-             "message" => "The upstream provider request failed.",
+             "message" => "opaque provider text",
              "provider_error_code" => "rate_limit_exceeded",
              "retryable" => true
            }
 
-    refute Ankole.JSON.encode!(public_event) =~ "opaque provider text"
+    assert Ankole.JSON.encode!(public_event) =~ "opaque provider text"
 
     non_retryable_event =
       failed_event(%{
@@ -423,9 +423,8 @@ defmodule Ankole.AIGateway.ResponseStreamTest do
 
     assert terminal_error["retryable"] == false
     assert terminal_error["code"] == "invalid_request"
-    assert terminal_error["message"] == "The upstream provider request failed."
-    refute Ankole.JSON.encode!(terminal_error) =~ "rate limit 429 too many requests"
-    refute Ankole.JSON.encode!(public_event) =~ "rate limit 429 too many requests"
+    assert terminal_error["message"] == "rate limit 429 too many requests"
+    assert Ankole.JSON.encode!(public_event) =~ "rate limit 429 too many requests"
   end
 
   test "completed with an unfinished tool call is one public and durable failure fact" do

@@ -81,12 +81,37 @@ describe('@ankole/agent-computer Codex recovery policy', () => {
     })
   })
 
+  it('hands payment-required failures directly to the bounded durable Job retry', () => {
+    for (const stage of ['resume', 'turn'] as const) {
+      expect(transitionCodexRecovery({ stage, failure: 'payment_required', state: initialCodexRecoveryState })).toEqual(
+        { action: 'durable_retry', nextState: initialCodexRecoveryState }
+      )
+    }
+  })
+
   it('classifies structured Codex failures before message fallbacks', () => {
     expect(classifyCodexRecoveryFailure({ codexErrorInfo: 'contextWindowExceeded' })).toBe('context_overflow')
     expect(classifyCodexRecoveryFailure({ codexErrorInfo: { serverOverloaded: {} } })).toBe('transient')
     expect(classifyCodexRecoveryFailure({ code: -32001, message: 'request failed' })).toBe('transient')
     expect(classifyCodexRecoveryFailure({ message: 'No rollout found for thread abc' })).toBe('unknown_session')
     expect(classifyCodexRecoveryFailure({ message: 'permission denied' })).toBe('terminal')
+  })
+
+  it('classifies OpenRouter payment-required failures without making other authorization failures retryable', () => {
+    expect(
+      classifyCodexRecoveryFailure({
+        codexErrorInfo: 'other',
+        message: 'unexpected status 402 Payment Required: This request requires more credits, or fewer max_tokens.'
+      })
+    ).toBe('payment_required')
+    expect(
+      classifyCodexRecoveryFailure({
+        codexErrorInfo: { responseTooManyFailedAttempts: { httpStatusCode: 402 } },
+        message: 'exceeded retry limit'
+      })
+    ).toBe('payment_required')
+    expect(classifyCodexRecoveryFailure({ codexErrorInfo: 'paymentRequired' })).toBe('payment_required')
+    expect(classifyCodexRecoveryFailure({ message: 'unexpected status 403 Forbidden' })).toBe('terminal')
   })
 
   it('recognizes the AIGateway pool terminal through Codex 429 projections', () => {

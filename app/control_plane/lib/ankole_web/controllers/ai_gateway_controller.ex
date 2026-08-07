@@ -436,10 +436,13 @@ defmodule AnkoleWeb.AIGatewayController do
   defp error_tuple({:unsupported_capability, capability}),
     do: {422, "unsupported_capability", "provider does not support #{capability}"}
 
-  defp error_tuple({:upstream_response_failed, status, body}) when is_integer(status),
-    do:
-      {upstream_public_status(status), "upstream_response_failed",
-       upstream_error_message(status, body)}
+  defp error_tuple({:upstream_response_failed, status, _body} = reason)
+       when is_integer(status) do
+    classification = FailureDiagnostics.classify(reason)
+
+    {upstream_public_status(status), "upstream_response_failed",
+     FailureDiagnostics.public_message(classification)}
+  end
 
   defp error_tuple({:upstream_response_failed, status, body, _headers})
        when is_integer(status),
@@ -491,13 +494,6 @@ defmodule AnkoleWeb.AIGatewayController do
 
   defp upstream_public_status(status) when status in 400..499, do: status
   defp upstream_public_status(_status), do: 502
-
-  defp upstream_error_message(_status, %{"error" => %{"message" => message}})
-       when is_binary(message),
-       do: message
-
-  defp upstream_error_message(status, _body),
-    do: "upstream provider returned HTTP #{status}"
 
   defp pool_retry_at(%{"retry_at" => retry_at}) when is_binary(retry_at) do
     case DateTime.from_iso8601(retry_at) do

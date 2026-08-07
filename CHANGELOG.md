@@ -1,5 +1,10 @@
 # Changelog
 
+## Version 0.61.3 (2026-08-07)
+
+- Keep a BackgroundAgentJob alive when Codex reports HTTP 402 payment required by handing it directly to the existing bounded durable retry ladder. Keep HTTP 403 terminal and keep credential-pool HTTP 429 on its separate retry contract. When a user asks to continue a terminal Job, direct the conversation Agent to respawn it from its exact Codex thread and Job Workspace instead of creating an empty Job.
+- Return a bounded upstream `error.message` through AIGateway HTTP, WebSocket, stateful failure, persistence, and response retrieval paths. Keep the remaining provider body and metadata out of public errors, and keep provider messages out of logs. Use the existing stable fallback when the provider supplies no message.
+
 ## Version 0.61.2 (2026-08-07)
 - Upgrade dependencies.
 - Hide the Console readiness control after all four required setup items are complete. Keep it visible while setup is incomplete or its status is unavailable, and keep polling so it returns if the installation becomes incomplete.

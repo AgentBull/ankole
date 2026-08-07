@@ -717,11 +717,12 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
 
   defp upstream_response_failed_event(status, body) do
     reason = {:upstream_response_failed, status, body}
+    classification = FailureDiagnostics.classify(reason)
 
     error_event(
       public_upstream_status(status),
       "upstream_response_failed",
-      upstream_error_message(status, body),
+      FailureDiagnostics.public_message(classification),
       nil,
       safe_failure_details(reason, "socket_open")
     )
@@ -742,15 +743,6 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
 
   defp public_upstream_status(_status), do: 502
 
-  defp upstream_error_message(_status, %{"error" => %{"message" => message}})
-       when is_binary(message),
-       do: message
-
-  defp upstream_error_message(_status, %{"message" => message}) when is_binary(message),
-    do: message
-
-  defp upstream_error_message(status, _body), do: "Provider request failed with status #{status}."
-
   defp universal_ai_request_failed_event(details) do
     reason = {:universal_ai_request_failed, details}
     classification = FailureDiagnostics.classify(reason)
@@ -765,7 +757,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
 
         %{failure_kind: :provider_response, provider_status: status} ->
           {public_upstream_status(status), "upstream_response_failed",
-           "Upstream provider rejected the request."}
+           FailureDiagnostics.public_message(classification)}
 
         _classification ->
           {502, "ai_gateway_request_failed", "AIGateway request failed."}

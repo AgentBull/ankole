@@ -1,6 +1,11 @@
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
 
-export type CodexRecoveryFailure = 'transient' | 'context_overflow' | 'unknown_session' | 'terminal'
+export type CodexRecoveryFailure =
+  | 'transient'
+  | 'payment_required'
+  | 'context_overflow'
+  | 'unknown_session'
+  | 'terminal'
 export type CodexRecoveryStage = 'resume' | 'turn'
 export type CodexCredentialPoolExhaustion = Readonly<{
   retryAt?: string
@@ -36,6 +41,7 @@ export const initialCodexRecoveryState: CodexRecoveryState = Object.freeze({
 const recoveryTransitions: Record<CodexRecoveryStage, Record<CodexRecoveryFailure, TransitionRule>> = {
   resume: {
     transient: input => transition('durable_retry', input.state),
+    payment_required: input => transition('durable_retry', input.state),
     context_overflow: input => transition('fail', input.state),
     unknown_session: input =>
       boundedTransition(input.state, 'newThreadRetries', 1, 'replace_thread') ?? transition('fail', input.state),
@@ -50,6 +56,7 @@ const recoveryTransitions: Record<CodexRecoveryStage, Record<CodexRecoveryFailur
         delayMs: Math.min(250 * 2 ** input.state.transientRetries, 1_000)
       }
     },
+    payment_required: input => transition('durable_retry', input.state),
     context_overflow: input =>
       input.canCompact
         ? (boundedTransition(input.state, 'compactRetries', 1, 'compact_then_retry') ?? transition('fail', input.state))
@@ -74,7 +81,16 @@ export function classifyCodexRecoveryFailure(error: JSONObject): CodexRecoveryFa
       : info && typeof info === 'object' && !Array.isArray(info)
         ? Object.keys(info)[0]
         : undefined
+  const message = `${stringValue(error.message) ?? ''} ${stringValue(error.additionalDetails) ?? ''}`.toLowerCase()
   if (infoName === 'contextWindowExceeded') return 'context_overflow'
+  if (
+    codexErrorHTTPStatus(info) === 402 ||
+    infoName === 'paymentRequired' ||
+    infoName === 'payment_required' ||
+    /\bpayment[_ -]?required\b|(?:unexpected|http(?: response)?) status[\s:]+402\b/.test(message)
+  ) {
+    return 'payment_required'
+  }
   if (
     [
       'serverOverloaded',
@@ -89,7 +105,6 @@ export function classifyCodexRecoveryFailure(error: JSONObject): CodexRecoveryFa
   }
   if (infoName && infoName !== 'other') return 'terminal'
 
-  const message = `${stringValue(error.message) ?? ''} ${stringValue(error.additionalDetails) ?? ''}`.toLowerCase()
   if (/unknown[-_ ]?(session|thread)|thread .*not found|no rollout found/.test(message)) return 'unknown_session'
   if (/context window|context length|too many tokens/.test(message)) return 'context_overflow'
   if (

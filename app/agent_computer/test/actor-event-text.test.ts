@@ -250,7 +250,7 @@ describe('@ankole/agent-computer one-shot model profile input', () => {
 })
 
 describe('@ankole/agent-computer background agent job failure input', () => {
-  it('offers direct correction or a new durable background agent job without terminal continuation', () => {
+  it('offers direct correction or user-requested respawn from the preserved terminal job', () => {
     const text = actorEventText(
       {
         data: {
@@ -270,10 +270,12 @@ describe('@ankole/agent-computer background agent job failure input', () => {
     expect(text).not.toContain('Workdir: /agents/agent-1/sessions/session-1')
     expect(text).toContain('Use show_background_job_details')
     expect(text).toContain('concrete status or recent trajectory')
+    expect(text).toContain('If the user asks to continue this terminal background agent job')
+    expect(text).toContain('call respawn_background_job')
+    expect(text).toContain('exact Codex thread and Job Workspace')
     expect(text).toContain('make and verify it directly')
-    expect(text).toContain('Create a new background agent job')
+    expect(text).not.toContain('Create a new background agent job')
     expect(text).not.toContain('background_agent_job(steer)')
-    expect(text).not.toContain('resume it')
     expect(text).not.toContain('background_agent_job(start)')
   })
 })

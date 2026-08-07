@@ -1009,7 +1009,12 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
               "limit" => 3
             })
 
-          assert %{"error" => %{"code" => "upstream_response_failed"}} =
+          assert %{
+                   "error" => %{
+                     "code" => "upstream_response_failed",
+                     "message" => "private upstream response"
+                   }
+                 } =
                    json_response(conn, 422)
         end
       )

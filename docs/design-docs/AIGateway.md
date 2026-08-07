@@ -771,7 +771,9 @@ It stores the final image and accounts for native image usage. A hosted image
 attempt rotates only the image provider pool, while a main model attempt
 rotates only the main provider pool. Usage stays attributed to the credential
 that ran each attempt. An upstream failure keeps its provider HTTP status in
-safe public error details. The provider body and provider message stay private.
+safe public error details. When the provider supplies `error.message`, the
+authenticated caller receives a bounded copy. The provider body and metadata
+stay private.
 
 ## Observe the Execution Path
 
@@ -796,10 +798,11 @@ failures use `ERROR`.
 These logs do not contain prompts, tool arguments, tool results, provider
 messages, provider response bodies, image bytes, or credentials.
 Stateful socket-open, provider terminal, and stream transport failures persist
-only safe classification fields. Public failure frames and stored Responses do
-not contain provider messages or provider response bodies. Each public or
-stored error keeps a stable code and a fixed safe message. Response retrieval
-also projects legacy error metadata through this safe shape.
+safe classification fields and a bounded provider `error.message` when it is
+available. Public failure frames, stored Responses, and response retrieval use
+that message for the authenticated caller. They never include the remaining
+provider response body or metadata. A stable fallback message remains when the
+provider does not supply one.
 
 The HTTP edge preserves upstream 4xx responses, maps upstream and transport
 failures to 502, and maps native upstream timeouts to 504. It does not report a

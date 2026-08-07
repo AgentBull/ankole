@@ -2242,17 +2242,17 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
                "error" => %{
                  "code" => "invalid_request",
                  "failure_kind" => "provider_response",
-                 "message" => "The upstream provider request failed.",
+                 "message" => "private provider message",
                  "retryable" => false
                }
              }
            } = Ankole.JSON.decode!(pushed)
 
-    refute pushed =~ "private provider message"
+    assert pushed =~ "private provider message"
 
     stored_error = Repo.get!(Message, message.id).metadata["error"]
     assert stored_error["failure_kind"] == "provider_response"
-    refute Ankole.JSON.encode!(stored_error) =~ "private provider message"
+    assert stored_error["message"] == "private provider message"
 
     assert {:ok, %{body: %{"error" => retrieved_error}}} =
              AIGateway.retrieve_response(agent.uid, "resp_#{message.id}")
@@ -2260,7 +2260,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     assert retrieved_error == %{
              "code" => "invalid_request",
              "failure_kind" => "provider_response",
-             "message" => "The upstream provider request failed.",
+             "message" => "private provider message",
              "retryable" => false
            }
   end
@@ -2879,7 +2879,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
              "status" => 503,
              "error" => %{
                "code" => "upstream_response_failed",
-               "message" => "Provider request failed with status 503.",
+               "message" => "The upstream provider request failed.",
                "details_json" => %{
                  "stage" => "socket_open",
                  "provider_status" => 503,
