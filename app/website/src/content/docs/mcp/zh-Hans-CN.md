@@ -44,7 +44,7 @@ dependencies:
 | `enabled_tools` | 可选的原始工具名 allowlist |
 | `disabled_tools` | 可选的原始工具名 denylist |
 
-token 值放在 Console 的[环境变量](../worker-env/)中。Skill 只保存变量名。
+token 值放在 Console 的 [环境变量](../worker-env/) 中。Skill 只保存变量名。
 
 ### `stdio`
 
@@ -100,6 +100,6 @@ MCP output 是不可信输入。Skill 与 mcporter 路径不再提供 Ankole 旧
 
 ## 下一步
 
-- 编写 Skill 指引见[编写 Skill](../writing-a-skill/)。
-- 配置 bearer token 见[环境变量](../worker-env/)。
-- 使用已启用能力见[使用 MCP](../using-mcp/)。
+- 编写 Skill 指引见 [编写 Skill](../writing-a-skill/)。
+- 配置 bearer token 见 [环境变量](../worker-env/)。
+- 使用已启用能力见 [使用 MCP](../using-mcp/)。

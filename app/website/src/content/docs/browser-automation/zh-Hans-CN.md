@@ -5,9 +5,9 @@ section: Guides
 order: 305
 ---
 
-browser skill 让 agent 做真实浏览器工作——打开页面、点击、输入、读渲染后的状态、截图，以及对一个活动会话跑可复现的 Playwright 脚本。它是一个 [skill](../agent-library/)，不是内置工具，且作为[后台任务](../background-jobs/)运行。本页是运维视角：这个 skill 是什么、何时开启、agent 对浏览器能做什么、不能做什么。
+browser skill 让 agent 做真实浏览器工作——打开页面、点击、输入、读渲染后的状态、截图，以及对一个活动会话跑可复现的 Playwright 脚本。它是一个 [skill](../agent-library/)，不是内置工具，且作为 [后台任务](../background-jobs/) 运行。本页是运维视角：这个 skill 是什么、何时开启、agent 对浏览器能做什么、不能做什么。
 
-先把决定性的性质说清楚：每个 agent 会话只有一个浏览器所有者，就是运行时，不是 agent。agent 通过 worker 镜像注入的预配置 `ankole-browser` CLI 来驱动浏览器。它绝不能自己启动 Chromium，也不能调用 `chromium.connectOverCDP`——这两者会造出第二个所有者，绕过会话恢复。
+先说明最关键的一点：每个 agent 会话只有一个浏览器所有者，就是运行时，不是 agent。agent 通过 worker 镜像注入的预配置 `ankole-browser` CLI 来驱动浏览器。它绝不能自己启动 Chromium，也不能调用 `chromium.connectOverCDP`——这两者会造出第二个所有者，绕过会话恢复。
 
 ## 浏览器自动化是什么
 
@@ -61,7 +61,7 @@ agent 通过 `ankole-browser` CLI 来使用这些。`app/agent_computer/src/brow
 `ankole-browser` CLI 给 agent 三种执行面，按工作形态挑选：
 
 - **短 CLI 命令**用于探索和一两个确定性动作——`open`、`snapshot -i`、`click @e2`、`fill @e4 "value"`、`screenshot`。
-- **`batch`** 用于已知的短序列，接收引号包裹的命令或 stdin 上的 argv 数组数组，套用与单条命令相同的解析器。
+- **`batch`** 用于已知的短序列，接收引号包裹的命令，或 stdin 上的 argv 数组的数组，套用与单条命令相同的解析器。
 - **`run`** 用于 ESM JavaScript 文件，当任务需要循环、分支、重复抽取、弹窗/下载/响应协调、精确等待，或要在内存里保留多个值时。`run` 把原生 Playwright 对象挂到 CLI 命令使用的同一个物理浏览器会话上，所以脚本和 CLI 步骤共享一个会话。
 
 最后这点很重要：`run` 不开第二个浏览器。它复用运行时拥有的会话，所以即使在 Playwright 脚本里，单一所有者规则也成立。
@@ -74,4 +74,4 @@ agent 通过 `ankole-browser` CLI 来使用这些。`app/agent_computer/src/brow
 
 - 打开浏览器所依赖的 skill 与启用模型，读 [Agent Library](../agent-library/)。
 - 更轻的替代方案——不带浏览器的搜索与文本 fetch——读 [Web 工具](../web-tools/)。
-- 浏览器所在的后台任务，读[后台 Agent 任务](../background-jobs/)。
+- 浏览器所在的后台任务，读 [后台 Agent 任务](../background-jobs/)。

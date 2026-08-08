@@ -23,27 +23,27 @@ SignalsGateway 是共享工作的入口。一条聊天消息、一个 webhook、
 不论来自哪个 provider，每一条入境事实都走同一条固定管线：
 
 1. **解析路由规则。** 网关按 `agent_uid` 和 `binding_name` 查找内部的 Signal Binding。没有规则就没有路由，因此这条信息会被拒绝。
-2. **构造事实。** provider 原生的载荷通过 `FactNormalizer` 归一化为一种带类型的事实——条目、表情反应、动作或生命周期。provider 各自的名称（比如“删除”或“撤回”）会坍缩成同一种面向 actor 的类型。
+2. **构造事实。** provider 原生的载荷通过 `FactNormalizer` 归一化为一种带类型的事实——条目、表情反应、动作或生命周期。provider 各自的名称（比如”删除”或”撤回”）会归并成同一种面向 actor 的类型。
 3. **应用路由过滤。** 规则的过滤条件决定这条信息是否在范围内。不匹配会返回 `{:ok, %{status: :filtered}}`，这是一次成功，不是错误。
 4. **接受并镜像。** 被接受的事实会 upsert channel 镜像，并写出条目投影。provider 事实就在这里变成持久的行。
 5. **在需要时交出 actor 事件。** 如果被接受的事实应当唤醒某个 actor，就向 session 队列追加一条 `ActorEvent`。表情反应是例外：它只更新镜像，永远不产生 actor 事件。
 
-接受过程中的加锁顺序是固定的——channel、然后 session、然后 actor 事件——所以同一 channel 上并发到达的事实会以确定的方式分出胜负。
+接受过程中的加锁顺序是固定的——channel、然后 session、然后 actor 事件——所以同一 channel 上并发到达的事实会以确定的方式决出结果。
 
 ## 入境事实的几种类型
 
 网关通过 `Ingress` 接受四种具体类型，每一种都映射到一种归一化的、面向 actor 的契约：
 
-- **条目（entry）**——一条消息或帖子到达某个 channel。这是主要的唤醒路径。IM 条目策略决定一条未被 @ 的群消息是产生 `may_intervene` 事件（允许 agent 主动插话），还是 `addressed` 事件（agent 被直接点名）。主动介入的判断行为、回复归因与频道常驻指令，见[群聊主动介入](../ambient-intervention/)。
+- **条目（entry）**——一条消息或帖子到达某个 channel。这是主要的唤醒路径。IM 条目策略决定一条未被 @ 的群消息是产生 `may_intervene` 事件（允许 agent 主动插话），还是 `addressed` 事件（agent 被直接点名）。主动介入的判断行为、回复归因与频道常驻指令，见 [群聊主动介入](../ambient-intervention/)。
 - **条目移除（entry removed）**——provider 的删除或撤回。面向 actor 的契约始终是 `signal.entry.removed`；provider 原生的生命周期名称只留作诊断用。
 - **表情反应（reaction）**——对某个已有条目的 emoji 或投票变化。只更新镜像，永远不唤醒 actor。如果反应指向一个网关从未镜像过的条目，它会被忽略（`:ignored_unknown_entry`），而不被当成错误。
 - **动作（action）**——provider 上发起的一次交互，比如卡片按钮点击。会经过回复交互去重：重复的点击返回 `:duplicate_action`，过期的返回 `:stale_action`，被接受的则变成 `signal.action.invoked` 事件。
 
 ## channel、条目与回复模式
 
-**channel** 是条目所在的 provider 侧容器：一个 IM 单聊或群聊、一个 webhook 端点、一个 issue、一条告警流。channel 这一行是纯粹的外部事实镜像，按 provider 原生的 channel id 作主键，所以每次事件是 upsert 而非插入。它记录着 `reply_mode`——`:none`、`:channel` 或 `:entry`——出箱会读取它，以决定一条回复是作为新的 channel 帖子发出，还是作为对某个具体条目的楼中楼回复。
+**channel** 是条目所在的 provider 侧容器：一个 IM 单聊或群聊、一个 webhook 端点、一个 issue、一条告警流。channel 这一行是纯粹的外部事实镜像，按 provider 原生的 channel id 作主键，所以每次事件是 upsert 而非插入。它记录着 `reply_mode`——`:none`、`:channel` 或 `:entry`——出箱会读取它，以决定一条回复是作为新的 channel 帖子发出，还是作为对某个具体条目的线程回复。
 
-**条目** 是一个 channel 中的一单位内容：一条消息、一篇帖子、一个事件。条目投影才是 agent 回合读取的东西；它既不是 actor 事件，也不是源载荷的逐字副本。
+**条目** 是一个 channel 中的一项内容：一条消息、一篇帖子、一个事件。条目投影才是 agent 回合读取的东西；它既不是 actor 事件，也不是源载荷的逐字副本。
 
 ## 路由规则模型
 
@@ -89,13 +89,13 @@ Endpoint 的 create、list 和 cancel 命令通过 turn-local Worker bridge 调�
 
 ## 出箱：回复发回去
 
-入境只是网关的一半。另一半是出箱，它把 agent 的回复变成 provider 侧的发送动作。出箱读取 channel 的 `reply_mode` 来选择发送方式——一条 channel 帖子，或一条楼中楼回复——并走与入境相同的 adapter 契约。agent 在一个回合中提交的副作用，通过这条路径交付，它们的持久记录与产生它们的那条 actor 事件存放在一起，而不是放在 live worker 里。
+入境只是网关的一半。另一半是出箱，它把 agent 的回复变成 provider 侧的发送动作。出箱读取 channel 的 `reply_mode` 来选择发送方式——一条 channel 帖子，或一条线程回复——并走与入境相同的 adapter 契约。agent 在一个回合中提交的副作用，通过这条路径交付，它们的持久记录与产生它们的那条 actor 事件存放在一起，而不是存放在实时 worker 里。
 
 ## SignalsGateway 不是什么
 
-它不是 provider 客户端。它不为每个聊天平台维持长连接；那是 adapter 及其长连接 worker 的事。它也不是承载任意工作的队列——只承载 session 上面向 actor 的事件。agent 的执行也不在这里；一旦一条 actor 事件被追加，唤醒并跑起回合就是 Actor Runtime 的事。网关的边界，是把 provider 事实转成持久的 actor 输入，再把 actor 回复转回 provider 发送。
+它不是 provider 客户端。它不为每个聊天平台维持长连接；那是 adapter 及其长连接 worker 的事。它也不是承载任意工作的队列——只承载 session 上面向 actor 的事件。agent 的执行也不在这里；一旦一条 actor 事件被追加，唤醒并运行回合就是 Actor Runtime 的事。网关的边界，是把 provider 事实转成持久的 actor 输入，再把 actor 回复转回 provider 发送。
 
 ## 下一步
 
-- 被唤醒的 actor 事件如何跑起来，读 [AIGateway API](../ai-gateway/) 和[架构概览](../architecture/)。
-- 配置聊天渠道和路由规则，读[快速开始](../quickstart/)。
+- 被唤醒的 actor 事件如何跑起来，读 [AIGateway API](../ai-gateway/) 和 [架构概览](../architecture/)。
+- 配置聊天渠道和路由规则，读 [快速开始](../quickstart/)。

@@ -43,21 +43,21 @@ Agent 是一位长期工作的数字同事。每个 Agent 都有自己的身份�
 - Agent 需要读图片时，配置 `vision_fallback`。
 - Agent 需要搜索或读取公开网页时，配置 `web_search` 和 `web_fetch`。
 - Agent 需要生成图片时，配置 `image_generate`。
-- 后台 Agent 任务需要单独选择 Provider 或模型时，配置“后台 Agent 任务”。ChatGPT 订阅也通过普通的 [ChatGPT 订阅 Provider](../chatgpt-subscription-provider/)选择。
+- 后台 Agent 任务需要单独选择 Provider 或模型时，配置“后台 Agent 任务”。ChatGPT 订阅也通过普通的 [ChatGPT 订阅 Provider](../chatgpt-subscription-provider/) 选择。
 
-模型提供商和首次模型配置见[快速开始](../quickstart/#3-添加模型提供商并创建-agent)。
+模型提供商和首次模型配置见 [快速开始](../quickstart/#3-添加模型提供商并创建-agent)。
 
 ## 配置能力和环境变量
 
 Agent 会继承实例默认启用的 Agent Plugin 和 Skill。需要调整时，打开 **Console → Agent 能力库**，修改默认设置或为该 Agent 单独覆盖。具体方法见 [Agent 能力库](../skills/)。
 
-若某个 Skill、命令行工具或 MCP 服务需要 API key，可以在 Agent 编辑页的“环境变量”中添加。Agent 专用值只提供给这个 Agent，并会覆盖同名的全局值。具体方法见[环境变量](../worker-env/)。
+若某个 Skill、命令行工具或 MCP 服务需要 API key，可以在 Agent 编辑页的“环境变量”中添加。Agent 专用值只提供给这个 Agent，并会覆盖同名的全局值。具体方法见 [环境变量](../worker-env/)。
 
 ## 接入聊天渠道
 
 Agent 创建完成后，还需要一条信号路由规则，才能接收 Slack、Microsoft Teams、飞书 / Lark 或钉钉中的消息。
 
-打开 **Console → 信号路由**，选择聊天应用和目标 Agent。一个聊天应用可以建立多条规则，也可以为不同 Agent 准备不同的机器人应用。具体方法见[信号路由规则](../signal-bindings/)。
+打开 **Console → 信号路由**，选择聊天应用和目标 Agent。一个聊天应用可以建立多条规则，也可以为不同 Agent 准备不同的机器人应用。具体方法见 [信号路由规则](../signal-bindings/)。
 
 ## 修改或停用
 
@@ -75,4 +75,4 @@ Agent 创建完成后，还需要一条信号路由规则，才能接收 Slack�
 4. 是否至少有一个工作节点处于“就绪”状态。
 5. 在 **Console → 会话** 中是否出现了这次消息，以及页面显示了什么错误。
 
-聊天渠道特有的问题见[快速开始的排障部分](../quickstart/#agent-没有回复时)。
+聊天渠道特有的问题见 [快速开始的排障部分](../quickstart/#agent-没有回复时)。

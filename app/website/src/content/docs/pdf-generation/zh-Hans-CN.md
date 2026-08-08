@@ -7,11 +7,11 @@ order: 306
 
 PDF 生成是常见的交付物——报告、提案、必须以 PDF 发出的格式化文档。Ankole 的 `pdf` skill 通过 worker 安装的 PDF 工具链（Pandoc、两个 PDF 引擎、Poppler、QPDF）处理它，并作为后台任务运行。本指南是一个 PDF 生成 agent 的实际形态。
 
-先把决定性的性质说清楚：`pdf` skill 是**文件系统+工具 skill，不是模型功能**。agent 用 shell 工具运行 Pandoc 和 PDF 引擎；skill 的 `SKILL.md` 告诉它怎么做。没有 `generate_pdf` API 调用——它是经 shell 的文档制备，由 skill 引导。
+先说明最关键的一点：`pdf` skill 是**文件系统+工具 skill，不是模型功能**。agent 用 shell 工具运行 Pandoc 和 PDF 引擎；skill 的 `SKILL.md` 告诉它怎么做。没有 `generate_pdf` API 调用——它是经 shell 的文档制备，由 skill 引导。
 
 ## 需要什么
 
-- **`pdf` skill 已启用。** 它是 `default_enabled: true`，所以除非覆盖，对每个 agent 都开。见 [Skills](../skills/)。
+- **`pdf` skill 已启用。** 它是 `default_enabled: true`，所以除非覆盖，每个 agent 默认开启。见 [Skills](../skills/)。
 - **worker 镜像。** Agent Computer Worker 镜像安装了 Pandoc、两个 PDF 引擎（Typst 和 LaTeX）、Poppler 和 QPDF。这些是镜像的一部分——你不用装。
 - **绑定 `primary` model profile。** agent 写源内容（Markdown 或文档结构），然后 skill 的工具渲染成 PDF。
 
@@ -31,7 +31,7 @@ skill 作为后台任务运行（`ankole-runtime: background_job`），所以长
 
 1. 确认 `pdf` skill 已启用（默认是）。
 2. 创建 agent，撰写 `MISSION.md`："产出每周状态报告 PDF。从频道历史收集本周指标，用 Markdown 写报告，用 Typst 渲染 PDF，用 Poppler 验证，把 PDF 发到频道。"
-3. 加一条每周执行的[计划任务](../schedules/)。
+3. 加一条每周执行的 [计划任务](../schedules/)。
 4. 每次触发，agent 收集上下文、写 Markdown、通过 shell 调 `pdf` skill 的工具、验证输出、发文件。
 
 ## `design-md` 伙伴
@@ -40,11 +40,11 @@ skill 作为后台任务运行（`ankole-runtime: background_job`），所以长
 
 ## 本指南不是什么
 
-它不是 Pandoc 或 Typst 教程——skill 知道工具调用；运维者的工作是定范围。它不是布局设计指南——视觉决策用 `design-md` skill。它也不是读 `pdf` skill 的 `SKILL.md` 的替代——那个文件是工具命令的权威参考。
+它不是 Pandoc 或 Typst 教程——skill 知道工具调用；运维者的工作是定范围。它不是布局设计指南——视觉决策用 `design-md` skill。它也不能替代阅读 `pdf` skill 的 `SKILL.md`——那个文件才是工具命令的权威参考。
 
 ## 下一步
 
-- skill 系统，读 [Skills](../skills/)和[编写 skill](../writing-a-skill/)。
-- skill 用的 shell 工具，读[代码执行](../code-execution/)。
-- 后台执行，读[后台 Agent 任务](../background-jobs/)。
-- 定时执行，读[计划任务](../schedules/)。
+- skill 系统，读 [Skills](../skills/)和 [编写 skill](../writing-a-skill/)。
+- skill 用的 shell 工具，读 [代码执行](../code-execution/)。
+- 后台执行，读 [后台 Agent 任务](../background-jobs/)。
+- 定时执行，读 [计划任务](../schedules/)。

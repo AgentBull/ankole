@@ -149,4 +149,4 @@ end
 
 - Skill 的启用、继承和安装方式见 [Agent 能力库](../skills/)。
 - Plugin 的发现与激活边界见 [Control Plane Plugins](../control-plane-plugins/)。
-- 新增 LLM Provider 见[添加 Provider](../adding-a-provider/)。
+- 新增 LLM Provider 见 [添加 Provider](../adding-a-provider/)。

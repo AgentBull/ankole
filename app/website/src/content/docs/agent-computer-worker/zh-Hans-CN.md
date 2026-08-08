@@ -5,13 +5,13 @@ section: Developer guide
 order: 108
 ---
 
-Agent Computer Worker 是 Agent 的执行节点。一个会话被唤醒时，Actor Runtime 把带隔离栏的回合交给 Worker；Worker 运行模型循环、工具、文件和终端任务，再把结果交回控制面。本页说明 `app/agent_computer` 所实现的边界。
+Agent Computer Worker 是 Agent 的执行节点。一个会话被唤醒时，Actor Runtime 把带隔离栏的回合交给 Worker；Worker 运行模型循环、工具、文件和终端任务，再把结果交回控制面。本页说明 `app/agent_computer` 实现的边界。
 
-先把决定性的性质说清楚：worker 拥有实时执行和可重建的 worker 本地状态，仅此而已。持久状态——转写、隔离栏、最终提交——留在控制面。worker 是可替换的，一个迟到或走偏的 worker 写入会撞上隔离栏失败并被丢弃。
+先说明最关键的一点：worker 拥有实时执行和可重建的 worker 本地状态，仅此而已。持久状态——转写、隔离栏、最终提交——留在控制面。worker 是可替换的，一个迟到或走偏的 worker 写入会撞上隔离栏失败并被丢弃。
 
 ## 归属边界
 
-worker 自己的契约里把这条划分写得清清楚楚。Agent Computer Worker 拥有实时执行和可重建的 worker 本地状态。Elixir 控制面拥有 PostgreSQL 状态、actor 与 delivery 隔离栏、最终提交权、provider 出箱、运行时凭证和恢复事实。worker 不得擅自创造持久的控制面状态。
+worker 自己的契约把这条划分写得清清楚楚。Agent Computer Worker 拥有实时执行和可重建的 worker 本地状态。Elixir 控制面拥有 PostgreSQL 状态、actor 与 delivery 隔离栏、最终提交权、provider 出箱、运行时凭证和恢复事实。worker 不得擅自创造持久的控制面状态。
 
 实际排除了什么：`DATABASE_URL`、`ANKOLE_AGENT_UID`、`ANKOLE_SESSION_ID` 和 `ANKOLE_ACTOR_EPOCH` 不是 worker 的输入。actor 身份通过 `turn_start` 到达，不在环境变量里。worker 用 `WORKER_ID`、`ANKOLE_RUNTIME_FABRIC_ENDPOINT` 和单独的 `ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY` secret 向 RuntimeFabric 鉴权；`ANKOLE_AGENTS_ROOT` 指向共享工作空间。它不持有数据库连接，也不决定自己在替谁做事。
 
@@ -19,7 +19,7 @@ worker 自己的契约里把这条划分写得清清楚楚。Agent Computer Work
 
 worker 跑的每一个回合，都由一个 `ActorTurnRef` 钉住，它带三个字段——`activation_uid`、`actor_epoch` 和 `actor_event_id`。一次 worker 执行恰好处理一个 `actor_event_id`。worker 把内存中的活跃回合状态以 `${activation_uid}:${actor_event_id}` 为键，它发回控制面的每一个信封都带着这个 ref。
 
-这就是 [Actor Runtime](../actor-runtime/) 三重隔离栏在 worker 那一侧的样子。控制面把每一个进来的 worker 写入，拿去和 activation、epoch 以及 delivery 行核对；如果 worker 的 ref 不再匹配——因为 activation 被取代、租约过期，或事件以更高的 epoch 被重试——这次写入被当作过期拒绝。worker 没有机会向一个它已经不再拥有的回合提交。
+这就是 [Actor Runtime](../actor-runtime/) 三重隔离栏在 worker 那一侧的样子。控制面把每一个进来的 worker 写入拿去与 activation、epoch 以及 delivery 行核对；如果 worker 的 ref 不再匹配——因为 activation 被取代、租约过期，或事件以更高的 epoch 被重试——这次写入被当作过期拒绝。worker 没有机会向一个它已经不再拥有的回合提交。
 
 ## 模型循环
 
@@ -65,11 +65,11 @@ worker 产出的每一次工具结果，都作为 function-call 输出通过 AIG
     └── temp/
 ```
 
-模型可见的绝对路径就是容器路径，Worker 不为模型翻译路径。`SOUL.md` 和 `MISSION.md` 定义 Agent 的行为与职责，`DESIGN.md` 是视觉内容使用的设计系统。三者都由 [Agent Library](../agent-library/) 管理。`installed-skills/`、`sessions/` 和 `jobs/` 分别保存 Skill、会话工作区和后台任务工作区。PostgreSQL 为每个 Session 分配从 10000 开始的稳定数字工作区 ID。
+模型可见的绝对路径就是容器路径，worker 不为模型翻译路径。`SOUL.md` 和 `MISSION.md` 定义 Agent 的行为与职责，`DESIGN.md` 是视觉内容使用的设计系统。三者都由 [Agent Library](../agent-library/) 管理。`installed-skills/`、`sessions/` 和 `jobs/` 分别保存 Skill、会话工作区和后台任务工作区。PostgreSQL 为每个 Session 分配从 10000 开始的稳定数字工作区 ID。
 
 ## 流式与进度
 
-回合跑着的时候，worker 以尽力而为、不重叠的信封发布进度——每隔一段时间一个检查点，有值得说的内容时附上一段活动摘要。进度刻意不是一种持久机制：一次卡住的进度发送不得堆起定时器，也不得阻塞它所描述的那个循环。模型和工具产出的流式输出，经同一组 RuntimeFabric lane 流回；什么成为持久，由控制面在提交时决定，而不是由 worker 边流边定。
+回合运行期间，worker 以尽力而为、互不重叠的信封发布进度——每隔一段时间一个检查点，有值得说的内容时附上一段活动摘要。进度刻意不是一种持久机制：一次卡住的进度发送不得堆积定时器，也不得阻塞它所描述的那个循环。模型和工具产出的流式输出，经同一组 RuntimeFabric lane 流回；什么成为持久，由控制面在提交时决定，而不是由 worker 边流边定。
 
 worker 还发布一条很小的准入提示——从它内存状态得出的剩余回合容量——好让控制面避免把工作发给一个已满的进程。调度始终归控制面；提示只是提示。
 

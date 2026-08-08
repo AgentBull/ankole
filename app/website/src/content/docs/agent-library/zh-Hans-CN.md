@@ -25,7 +25,7 @@ Skill 和 Plugin 本身是文件系统中的 Bundle，不是数据库记录。Po
 1. **实例级默认值**——每个 Skill 的 `default_enabled`，以及运维者设置的全局 Plugin 默认值。
 2. **按 agent 的覆盖**——某条 skill 行上的 `enabled_override`，或限定到某一个 agent 的 Agent Plugin 覆盖。
 
-解析结果就是能力端点返回的 `effective_enabled` 字段：取默认值，若存在覆盖则应用覆盖。没有覆盖的能力继承默认值；有覆盖的能力遵从覆盖。目录上限 256 个 plugin，所以解析保持廉价，界面保持清晰可读。
+解析结果就是能力端点返回的 `effective_enabled` 字段：取默认值，若存在覆盖则应用覆盖。没有覆盖的能力继承默认值；有覆盖的能力遵从覆盖。目录上限 256 个 plugin，所以解析开销很低，界面保持清晰可读。
 
 这就是 [Console](../console-api/) 的 Agent Library 能力路由所暴露的模型：先设全局默认值，再按 agent 收窄或放宽。
 
@@ -34,7 +34,7 @@ Skill 和 Plugin 本身是文件系统中的 Bundle，不是数据库记录。Po
 除了能力，库还持有 agent 自己的可写文档和 skill 定制：
 
 - **Agent 长期文档**包括 `mission`、`soul` 和 `design`，即容器表接受的三个 `source_kind`。前两项定义职责与行为，`design` 保存视觉内容使用的设计系统。它们存放在 `agent_library_container_entries` 中，并按内容哈希寻址。
-- **skill overlay** 是 `agent_skill_overlays` 里的语义行，每个 `(agent, skill)` 一条。它们让运维者为某一个 agent 定制某个 skill 的行为，而不必 fork 这个 skill bundle。一个 overlay 支持比较并交换（compare-and-swap）替换，所以并发编辑以确定的方式分出胜负。
+- **skill overlay** 是 `agent_skill_overlays` 里的语义行，每个 `(agent, skill)` 一条。它们让运维者为某一个 agent 定制某个 skill 的行为，而不必 fork 这个 skill bundle。一个 overlay 支持比较并交换（compare-and-swap）替换，所以并发编辑总会得出确定的结果。
 
 一次 skill 视图读取该 skill 的文件，外加该 agent 对它的任何 overlay，于是 agent 看到的是一个连贯的 skill，而不是一个 bundle 外加一份单独的补丁。
 
@@ -45,7 +45,7 @@ Skill 和 Plugin 本身是文件系统中的 Bundle，不是数据库记录。Po
 - **`sync_builtin_skills`** 把 `app/library/skills` 树与 builtin skill 行对账，返回是否有变化、content hash 以及 skill 数和文件数。它从应用镜像运行，所以新镜像能在下一次同步时新增或更新 builtin skill。
 - **`sync_agent_skills`** 把某个 agent 的已安装 skill 与 worker 可见存储的实际内容对账，而 `replace_installed_skill_observations` 写下观察到的文件集。从存储里消失的 skill 会反映到注册表；新出现的 skill 会被捡起来。
 
-同步是“读取并对账”，不是“推送后祈祷”。`content_hash` 让同步幂等：同一棵树产出同一个 hash，只有真正的变化才写一行。
+同步是“读取并对账”，不是“发完就不管”。`content_hash` 让同步幂等：同一棵树产出同一个 hash，只有真正的变化才写一行。
 
 ## 运维界面
 
@@ -69,10 +69,10 @@ Skill 和 Plugin 本身是文件系统中的 Bundle，不是数据库记录。Po
 
 ## Agent Library 不是什么
 
-它不是 marketplace，也不是热加载系统。skill 和 plugin 是受信任的第一方 bundle，随部署发布，或安装到 worker 可见的存储里；没有第三方发现，没有 worker 之外的额外隔离机制。数据库不是 skill 字节的来源——字节在文件系统上，注册表只跟踪它所见到的。库也不是定义模型工具的地方；它是运维者决定一个 agent 能把哪些能力带进一个回合的地方。从“已启用”跨到“真正被调用”，是 Agent Computer Worker 在回合时刻的事。
+它不是 marketplace，也不是热加载系统。skill 和 plugin 是受信任的第一方 bundle，随部署发布，或安装到 worker 可见的存储里；没有第三方发现，没有 worker 之外的额外隔离机制。数据库不是 skill 字节的来源——字节在文件系统上，注册表只跟踪它所见到的。库也不是定义模型工具的地方；它是运维者决定一个 agent 能把哪些能力带进一个回合的地方。从“已启用”到“真正被调用”，由 Agent Computer Worker 在回合中完成。
 
 ## 下一步
 
 - 配置库的路由，读 [Console](../console-api/)。
-- 在一个回合中跑起一个已启用 skill 的 worker，读 [Actor Runtime](../actor-runtime/)。
-- 能力库所属的 Agent 主体，见[主体与 AuthZ](../principal-authz/)。
+- 在一个回合中运行已启用 skill 的 worker，读 [Actor Runtime](../actor-runtime/)。
+- 能力库所属的 Agent 主体，见 [主体与 AuthZ](../principal-authz/)。

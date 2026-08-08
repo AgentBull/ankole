@@ -5,9 +5,9 @@ section: Developer guide
 order: 105
 ---
 
-一个后台 Agent 任务是一单位注定要比单个 worker 活得更久的工作。agent 派出一个任务去做那些太长、步骤太多，或者隔离要求太高、没法在自己回合里就地跑的事——然后这个任务按自己的节奏运行、暂停等输入、失败或完成，而发起它的 agent 仍然有空跟它的 owner 说话。本页对照 `Ankole.BackgroundAgentJobs` 里的真实代码，画出这条生命周期。
+一个后台 Agent 任务是一项注定要比单个 worker 活得更久的工作。agent 派出一个任务去做那些太长、步骤太多，或者隔离要求太高、没法在自己回合里就地跑的事——然后这个任务按自己的节奏运行、暂停等输入、失败或完成，而发起它的 agent 仍然有空跟它的 owner 说话。本页对照 `Ankole.BackgroundAgentJobs` 里的真实代码，画出这条生命周期。
 
-先把决定性的性质说清楚：一个任务是持久工作，不是子进程。它的状态在 PostgreSQL 里，每一次状态迁移都有隔离栏和审计，而当它的状态变成 owner 应当知晓的样子时，任务会向 owner 的 session 追加一条唤醒事件——走的是和普通信号同一个 actor 事件队列。
+先说明最关键的一点：一个任务是持久工作，不是子进程。它的状态在 PostgreSQL 里，每一次状态迁移都有隔离栏和审计，当任务进入 owner 应当知晓的状态时，它会向 owner 的 session 追加一条唤醒事件——走的是和普通信号同一个 actor 事件队列。
 
 ## 与 Actor Runtime 的边界
 
@@ -52,14 +52,14 @@ queued → running → waiting_on_user → running → … → succeeded | faile
 
 ## 跨 worker 故障的恢复
 
-任务状态是持久的，所以 worker 丢失是一个可恢复事件，而不是数据丢失事件。运行时给一个任务一份有界的重试预算——最多五次执行尝试，最多五次连续回合失败——而当某次尝试没能干净地启动时，`requeue_unstarted_attempt` 会把尝试计数减一，并把任务放回 `queued`，在第一次尝试时清掉 `started_at`，让它看上去像一次全新开始。
+任务状态是持久的，所以 worker 丢失是一个可恢复事件，而不是数据丢失事件。运行时给一个任务一份有界的重试预算——最多五次执行尝试，最多五次连续回合失败——而当某次尝试没能正常启动时，`requeue_unstarted_attempt` 会把尝试计数减一，并把任务放回 `queued`，在第一次尝试时清掉 `started_at`，让它表现为一次全新开始。
 
 两条 claim 路径覆盖两种恢复形态：
 
 - **`claim_attempt_in_tx`**——为一次新的执行尝试 claim 一个任务。
 - **`claim_continuation_in_tx`**——在一次暂停之后 claim 一个任务以续接。
 
-两者都按固定顺序拿 agent 的槽锁，再在 `FOR UPDATE` 下拿任务行。同一个 agent 上并发的 dispatcher 因此每次都以同样的方式分出胜负。一次重试尝试若超出预算，就落入 `failed`；一个被取消的任务落入 `stopped`。两次尝试之间的重试延迟限定在 30 秒，所以一个短暂失败的任务不会把 Provider 打爆。
+两者都按固定顺序拿 agent 的槽锁，再在 `FOR UPDATE` 下拿任务行。同一个 agent 上并发的 dispatcher 因此每次都以同样的方式决出结果。一次重试尝试若超出预算，就落入 `failed`；一个被取消的任务落入 `stopped`。两次尝试之间的重试延迟限定在 30 秒，所以一个短暂失败的任务不会频繁冲击 Provider。
 
 AIGateway 配额耗尽且池有已知的未来恢复时间时，生命周期会把任务放回 `queued`，释放 Worker 分配关系，并按该时间安排下一次派发。已经取得的 attempt 仍然计入五次预算，所以反复发生的配额失败也有上限。恢复时间已过期或缺失时，任务走普通的有界重试路径，不会立即再次派发。
 
@@ -79,11 +79,11 @@ AIGateway 配额耗尽且池有已知的未来恢复时间时，生命周期会�
 | `GET` | `/background-agent-jobs/:job_id` | 读取一个任务 |
 | `POST` | `/background-agent-jobs/:job_id/cancel` | 取消一个任务 |
 
-取消把任务推到 `stopped`；它不会从一个正在跑的回合底下把 live worker 猛地抽走。回合自行结束或失败，受每一次 worker 写入都要经过的同一套 activation 和 revision 校验约束。
+取消把任务推到 `stopped`；它不会从正在运行的回合底下突然抽走 worker。回合自行结束或失败，受每一次 worker 写入都要经过的同一套 activation 和 revision 校验约束。
 
 ## Background Agent Jobs 不是什么
 
-一个任务不是一个自由形态的后台进程。它是一个带有固定迁移表、有界重试预算、以及单一回报 owner session 的状态机。它不是在权限边界之外跑工作的途径——任务作为它的 agent 运行，受同样的插件和技能约束。它也不是 Actor Runtime 的替代品；两者共享 actor 事件队列和隔离机制，但任务拥有可恢复工作，运行时拥有实时回合。这条边界是刻意的，越过它要走一次文档化的迁移，而不是伸手进另一层的内部。
+一个任务不是一个自由形态的后台进程。它是一个带有固定迁移表、有界重试预算、以及单一回报 owner session 的状态机。它不是在权限边界之外跑工作的途径——任务作为它的 agent 运行，受同样的插件和技能约束。它也不是 Actor Runtime 的替代品；两者共享 actor 事件队列和隔离机制，但任务拥有可恢复工作，运行时拥有实时回合。这条边界是刻意的，越过它要走一次文档化的迁移，而不是直接触碰另一层的内部。
 
 ## 下一步
 

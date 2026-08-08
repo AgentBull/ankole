@@ -1,8 +1,8 @@
 # SlackOpenAPI
 
 `SlackOpenAPI` 是 Ankole 使用的轻量 Elixir Slack 客户端，覆盖 Web API、
-Socket Mode、Sign in with Slack、cursor 分页、私有文件下载与 external upload
-三步上传。库内不放 Ankole 领域策略。
+Socket Mode、Sign in with Slack、cursor 分页、私有文件下载，以及 external upload
+的三步上传。库内不包含 Ankole 的领域策略。
 
 ```elixir
 client =

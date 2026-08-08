@@ -5,9 +5,9 @@ section: Developer guide
 order: 120
 ---
 
-一个回合中，worker 组装模型可调用的工具集，把每个工具的 schema 转成模型看到的 JSON Schema，并把模型发出的每次 function call 分发回工具的 `execute` 函数。本页文档化该运行时：`AgentTool` 契约、按回合工具集如何组装、schema 如何收集、循环如何分发一次调用。它建立在 [Agent 循环](../agent-loop/) 和 [Agent Computer Worker](../agent-computer-worker/) 之上。
+一个回合中，worker 组装模型可调用的工具集，把每个工具的 schema 转成模型看到的 JSON Schema，并把模型发出的每次 function call 分发回工具的 `execute` 函数。本页说明该运行时：`AgentTool` 契约、按回合工具集如何组装、schema 如何收集、循环如何分发一次调用。它建立在 [Agent 循环](../agent-loop/) 和 [Agent Computer Worker](../agent-computer-worker/) 之上。
 
-先把决定性的性质说清楚：工具**按回合组装**。每个回合从 computer、web、brain、schedule、后台任务和其他当前来源构建最终工具集。没有 Agent 自己拥有的全局工具集。MCP-backed Skill 使用已有 computer command tool 和 mcporter。
+先说明最关键的一点：工具**按回合组装**。每个回合从 computer、web、brain、schedule、后台任务和其他当前来源构建最终工具集。没有 Agent 自己拥有的全局工具集。MCP-backed Skill 使用已有 computer command tool 和 mcporter。
 
 ## AgentTool 契约
 
@@ -47,10 +47,10 @@ tools = [
 
 每个类别创建器是一个函数，返回一个或多个 `AgentTool` 对象，用回合上下文（worker 环境、agent home、RPC client、abort signal）配置。组装是显式且有序的——没有反射、没有自动发现、没有装饰器扫描。工具在数组里就可用；不在就不可用。
 
-按回合组装是让工具集动态的原因：
+正因为按回合组装，工具集才是动态的：
 
-- **Skill 知识**来自 Agent 当前 enabled Skills。MCP-backed Skill 先选择领域工具，再用已有 computer command tool 调用 mcporter。
-- **Web 工具**从 worker 的 `web_search`/`web_fetch` provider 可用性创建——profile 未绑则工具缺席。
+- **Skill 内容**来自 Agent 当前已启用的 Skills。MCP-backed Skill 先选择领域工具，再用已有 computer command tool 调用 mcporter。
+- **Web 工具**按 worker 的 `web_search`/`web_fetch` provider 可用性创建——档案未绑定时该工具就不出现。
 - **后台任务工具**从回合上下文创建——仅在回合支持派生任务时可用。
 
 最终工具集仍是按回合得到的结果，不是 Agent capability database 或预先连接的进程池。
@@ -82,7 +82,7 @@ export function zodToJSONSchema(schema: z.ZodType): JSONObject {
 3. **执行**——工具的 `execute` 函数带着已校验参数和 abort signal 运行。`executionMode: 'parallel'` 的工具可并发；顺序工具按序。
 4. **记录结果**——`AgentToolResult` 作为 function-call-output 消息发给 AIGateway，模型在下一次迭代看到。
 
-循环拥有迭代——它调模型、执行工具、记录结果、重复，直到模型不再返回 function call。工具不决定何时运行；循环决定，基于模型请求了什么。
+循环拥有迭代——它调模型、执行工具、记录结果、重复，直到模型不再返回 function call。工具不决定何时运行；由循环根据模型请求的内容决定。
 
 ## 本指南不是什么
 
@@ -93,4 +93,4 @@ export function zodToJSONSchema(schema: z.ZodType): JSONObject {
 - 分发工具调用的循环，读 [Agent 循环](../agent-loop/)。
 - 跑工具的 Agent Computer Worker，读 [Agent Computer Worker](../agent-computer-worker/)。
 - Skill 背后的 MCP 执行依赖，读 [MCP server 参考](../mcp/)。
-- 携带 MCP 依赖的 skill，读[编写 skill](../writing-a-skill/)。
+- 携带 MCP 依赖的 skill，读 [编写 skill](../writing-a-skill/)。

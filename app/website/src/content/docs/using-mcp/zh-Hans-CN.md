@@ -23,7 +23,7 @@ Automation Job 不读取 Skill 指引。编写 `main.ts` 的 Agent 必须把已�
 
 ## 凭据
 
-Skill 只保存 `MCP_HTTP_TOKEN` 这样的凭据变量名。变量值在 Console 的[环境变量](../worker-env/)中配置。生成配置只包含变量名，不包含值。
+Skill 只保存 `MCP_HTTP_TOKEN` 这样的凭据变量名。变量值在 Console 的 [环境变量](../worker-env/) 中配置。生成配置只包含变量名，不包含值。
 
 变量缺失时调用会失败。不要把 token 粘贴进聊天、Skill、脚本、参数文件或 shell command。
 

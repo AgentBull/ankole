@@ -7,11 +7,11 @@ order: 125
 
 审计轨迹是"谁在何时改了什么"的持久记录。Ankole 没有单一审计日志；它有几个面，各自由不同子系统拥有，各自记录对自己要紧的决定。本页是这些面的运维者地图——各自记录什么、如何读取、如何配合使用。
 
-先把决定性的性质说清楚：每个审计面都是**持久 PostgreSQL 状态或结构化日志**，不是临时指标。写了的记录熬得过写它的进程；没写的记录无法重建。
+先说明最关键的一点：每个审计面都是**持久 PostgreSQL 状态或结构化日志**，不是临时指标。写了的记录熬得过写它的进程；没写的记录无法重建。
 
 ## Brain 审计日志
 
-最结构化的审计面。每次 Brain 知识写入——新条目、块编辑、删除、还原——产生一行追加式审计行。通过以下读取：
+最结构化的审计面。每次 Brain 知识写入——新条目、块编辑、删除、还原——产生一行追加式审计行。通过以下方式读取：
 
 ```bash
 curl https://ankole.example.com/api/v1/brain/audit-log \
@@ -25,28 +25,28 @@ curl https://ankole.example.com/api/v1/brain/entries/<id>/audit-log \
   -H "Authorization: Bearer $CONSOLE_TOKEN"
 ```
 
-每行记录谁做的改动（actor）、什么类型的 actor（human、agent、dreaming、source_learning、mechanical）、执行了什么操作、何时。还原本身也被审计——还原先前状态加一行新审计行，不擦除导致被还原改动的那一行。
+每行记录谁做的改动（actor）、什么类型的 actor（human、agent、dreaming、source_learning、mechanical）、执行了什么操作、以及发生在何时。还原本身也被审计——还原到先前状态会新增一行审计，不擦除被还原改动原来的那一行。
 
 这是"agent 为什么这么想？"的界面——答案在审计轨迹里，不在模型当前输出里。
 
 ## AuthZ grant 记录
 
-每个权限授予是 `permission_grants` 里的一行持久行。grant 的 `principal_uid` 或 `group_id` 命名 owner；`resource_pattern` 和 `action` 命名允许什么；时间戳记录何时创建和最后更新。grant 没有单独审计日志——grant 表本身就是记录，因为 grant 基本追加，变更作为行更新可见。
+每个权限授予是 `permission_grants` 里的一行持久行。grant 的 `principal_uid` 或 `group_id` 标明 owner；`resource_pattern` 和 `action` 标明允许什么；时间戳记录何时创建和最后更新。grant 没有单独审计日志——grant 表本身就是记录，因为 grant 基本只追加，变更作为行更新可见。
 
-通过 `GET /principals/:uid/grants` 和 `GET /principal-groups/:name/grants` 读取 grant。加过又删的 grant 在表历史里可见（若你保持 PostgreSQL 时间点恢复）；当前存在的 grant 是系统强制的。
+通过 `GET /principals/:uid/grants` 和 `GET /principal-groups/:name/grants` 读取 grant。加过又删的 grant 在表历史里可见（若你保持 PostgreSQL 时间点恢复开启）；当前存在的 grant 是系统强制的。
 
 ## 结构化控制面日志
 
-控制面输出结构化日志，形态稳定——事件名、人类消息、结构化字段，严重级别从 `debug` 到 `error`。这些是运维事件的审计面：
+控制面输出结构化日志，形态稳定——事件名、说明文字、结构化字段，严重级别从 `debug` 到 `error`。这些是运维事件的审计面：
 
 - provider 调用（哪个 provider、哪个模型、结果）
 - worker 生命周期（worker 启动、回合启动、回合完成或错误）
 - 信号事件（到达了什么、被过滤还是被接受）
 - 调度触发（何时、什么结果）
 
-日志不是 PostgreSQL——它们是你的日志摄入器接收到的。需要用于审计时，实时发往持久存储（日志索引、S3 归档）。从未外发的日志随进程消失。
+日志不是 PostgreSQL——它们由你的日志摄入器接收。需要用于审计时，实时发往持久存储（日志索引、S3 归档）。从未外发的日志随进程消失。
 
-日志级别和格式见[环境变量](../environment-variables/)，定位具体故障的方法见[怎样阅读 Ankole 日志](../log-reading/)。
+日志级别和格式见 [环境变量](../environment-variables/)，定位具体故障的方法见 [怎样阅读 Ankole 日志](../log-reading/)。
 
 ## Actor-event 与 delivery 行
 
@@ -72,6 +72,6 @@ curl https://ankole.example.com/api/v1/brain/entries/<id>/audit-log \
 ## 下一步
 
 - Brain 审计面，读 [Brain](../brain/)。
-- 权限模型见[主体与 AuthZ](../principal-authz/)。
-- 日志配置与排查方法，读[环境变量](../environment-variables/)和[怎样阅读 Ankole 日志](../log-reading/)。
-- 保护轨迹的备份，读[备份与还原](../backup-and-restore/)。
+- 权限模型见 [主体与 AuthZ](../principal-authz/)。
+- 日志配置与排查方法，读 [环境变量](../environment-variables/)和 [怎样阅读 Ankole 日志](../log-reading/)。
+- 保护轨迹的备份，读 [备份与还原](../backup-and-restore/)。

@@ -7,7 +7,7 @@ order: 32
 
 Agent 能力库决定 Agent 可以使用哪些工作方法和扩展能力。Console 把它们分成三类：
 
-这些能力都是当前实例中已经安装的受信任组件。Agent 能力库不是公开插件市场；在这里启用一个项目，不会从互联网下载未知代码。
+这些能力都是当前实例中已经安装的受信任组件。Agent 能力库不是公开插件市场；在这里启用一项能力，不会从互联网下载未知代码。
 
 ## 先分清三类能力
 
@@ -148,4 +148,4 @@ kubectl -n ankole rollout restart deployment/ankole-control-plane
 - **重启后控制面无法启动**：查看启动日志，检查 Plugin 需要的配置和依赖；先修正问题，再重新启动。
 - **聊天渠道仍未出现**：确认 Plugin 已经是**当前已运行**，再检查该聊天渠道的具体配置。
 
-开发 Skill 或控制面扩展时，读[开发 Skill 与 Control Plane Plugin](../writing-a-skill/)。
+开发 Skill 或控制面扩展时，读 [开发 Skill 与 Control Plane Plugin](../writing-a-skill/)。

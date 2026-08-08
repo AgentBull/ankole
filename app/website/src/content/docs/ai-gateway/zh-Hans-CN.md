@@ -67,7 +67,7 @@ curl -N https://ankole.example.com/api/v1/ai-gateway/responses \
 
 有状态响应走的是升级为 WebSocket 的 `GET /responses`。升级时把连接交给 `AIGatewayResponsesSocket`，带上主体身份、300 秒空闲超时、压缩，以及 128 MiB 的帧上限。在这条传输上，调用才可以设 `store: true`，并用 `previous_response_id` 或 `conversation` 续接一段已有的会话。
 
-持久的生命周期就在这里。一个被存储的响应会得到形如 `resp_{uuid}` 的 id。后续回合用 `previous_response_id` 引用它；一段被存储的会话用 `conversation` 引用。续接规则、持久历史、压缩、响应投影和恢复都归控制面管，没有一件是调用方要操心的。
+持久的生命周期就在这里。一个被存储的响应会得到形如 `resp_{uuid}` 的 ID。后续回合用 `previous_response_id` 引用它；一段被存储的会话用 `conversation` 引用。续接规则、持久历史、压缩、响应投影和恢复都归控制面管，没有一件是调用方要操心的。
 
 之后用无状态、纯 HTTP 取回一个已存储的响应：
 
@@ -110,7 +110,7 @@ AIGateway 在任何上游调用之前，先把模型选择符解析到一个真�
 
 ## 图像生成
 
-`image_generation` 是公共 Responses 工具，有两条执行路径。主体配置了 `image_generate` 档案时，AIGateway 使用该档案的独立 Provider 和模型执行工具；没有配置时，只有主 Provider 的能力声明支持原生图像生成，AIGateway 才把工具透传给它。两条路径都不存在时，请求准备会直接失败，不会仿真工具。
+`image_generation` 是公共 Responses 工具，有两条执行路径。主体配置了 `image_generate` 档案时，AIGateway 使用该档案的独立 Provider 和模型执行工具；没有配置时，只有主 Provider 的能力声明支持原生图像生成，AIGateway 才把工具透传给它。两条路径都不存在时，请求准备会直接失败，不会模拟工具。
 
 两条路径使用相同的公共流事件和图像持久化。模型用量与图像用量分别记在实际产出对应内容的凭据上。
 
@@ -126,6 +126,6 @@ AIGateway 在任何上游调用之前，先把模型选择符解析到一个真�
 
 ## 下一步
 
-- 要看 AIGateway 在整个系统里的位置，读[架构概览](../architecture/)。
-- 要运行承载这些路由的服务，读[快速开始的部署部分](../quickstart/#deployment)。
-- 首次配置 Provider 和模型档案，见[快速开始](../quickstart/#3-添加模型提供商并创建-agent)。
+- 要看 AIGateway 在整个系统里的位置，读 [架构概览](../architecture/)。
+- 要运行承载这些路由的服务，读 [快速开始的部署部分](../quickstart/#deployment)。
+- 首次配置 Provider 和模型档案，见 [快速开始](../quickstart/#3-添加模型提供商并创建-agent)。

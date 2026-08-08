@@ -71,7 +71,7 @@ Agent Home 位于 `/agents/<agent-key>`，其中包含以下共享资源：
 Session 与 Job 的工作区都是 Agent Home 的子目录。`/workspace` 不是 Agent 路径。
 同一 Agent 的 Job 共享该 Agent 的 `.codex` 状态。
 
-PostgreSQL 保存领域文档和工作状态。控制面把其中一些记录 materialize 成 Agent Home
+PostgreSQL 保存领域文档和工作状态。控制面把其中一些记录物化成 Agent Home
 文件，供执行进程使用。
 
 ## 仓库地图
@@ -182,7 +182,7 @@ Plugin。
 - 在 `app/library/skills/<name>/` 添加内置 Skill。
 - 通过 OpenAPI controller 添加 Console API，并重新生成网页客户端。
 
-不能靠执行进程的本地文件保存会影响用户的结果。应调用控制面 RPC，或使用能写入
+会影响用户结果的持久状态，不能靠执行进程的本地文件保存。应调用控制面 RPC，或使用能写入
 PostgreSQL 的 AIGateway 接口。
 
 ## 开发工作流
@@ -208,7 +208,7 @@ tools/e2e/run --real-llm
 tools/e2e/run --brain-real-llm
 ```
 
-默认 E2E 模式运行 gate suites。真实平台测试需要运维人员提供凭据。Brain 真实模型
+默认 E2E 模式运行门控测试套件。真实平台测试需要运维人员提供凭据。Brain 真实模型
 测试不会随 `--all` 运行。
 
 ## 阅读顺序

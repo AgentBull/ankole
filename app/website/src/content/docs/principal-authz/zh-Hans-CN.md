@@ -7,7 +7,7 @@ order: 106
 
 Ankole 中的每个动作都有明确的主体：人员登录、Agent 运行一个回合、任务唤醒所有者，或 Brain 写入知识。主体能做什么，由 AuthZ 在动作发生时决定。本页以 `Ankole.Principals` 和 `Ankole.AuthZ` 的实际代码为准说明这条边界。
 
-授权是运行时事实，由系统边界强制执行，不是写给模型的一条约定。主体（Principal）是持久、可问责的身份；授权规则存储在 PostgreSQL 中。每个受检查的动作都由 Kernel 根据明确的快照求值，调用方必须执行求值结果。
+授权是运行时事实，由系统边界强制执行，不是写给模型的一条约定。主体（Principal）是持久、可问责的身份；授权规则存储在 PostgreSQL 中。每个受检查的动作都由 Kernel 根据明确的快照求值，调用方必须服从求值结果。
 
 ## 主体：统一的问责身份
 
@@ -32,14 +32,14 @@ Ankole 中的每个动作都有明确的主体：人员登录、Agent 运行一�
 
 权限组是一组具名主体。把授权规则授予权限组后，不必为每个主体分别创建记录。权限组包含 `domain`（`:operator`、`:directory` 或 `:im_group`）、`kind`（`:static` 或 `:computed`），以及动态组可选的 `computed_condition`。
 
-两个内置 group 为部署播种。`admin` group 是运维者的权限界面。`all_humans` group 带着计算条件 `principal.type == "human" && principal.status == "active"`，所以每个活跃人类都是成员，而不必有人手工维护这份名单。静态成员住在 `principal_group_memberships` 里；计算式成员针对快照求值。外部目录（一个 IdP、一个 IM 平台）可以通过 external binding 同步进 group，于是运维者可以把 AuthZ 指向它已经信任的那个目录。
+两个内置 group 随部署预置。`admin` group 是运维者的权限界面。`all_humans` group 带着计算条件 `principal.type == "human" && principal.status == "active"`，所以每个活跃人类都是成员，而不必有人手工维护这份名单。静态成员存放在 `principal_group_memberships` 里；计算式成员针对快照求值。外部目录（一个 IdP、一个 IM 平台）可以通过 external binding 同步进 group，于是运维者可以把 AuthZ 指向它已经信任的那个目录。
 
 ## 一个决定是如何做出的
 
 控制面和 kernel 刻意分担这项工作，而这种分担正是 AuthZ 可强制、而非仅供参考的原因：
 
 - **控制面拥有状态并组装快照。** 对每个需要检查的动作，控制面加载主体、授权规则、权限组成员关系和相关资源上下文，组装出明确的授权快照。
-- **kernel 拥有确定性的规则求值。** 它对快照里的 grant 和 condition 求值，返回一个决定。因为输入是一份显式快照、规则是确定性的，同一份快照每次都给出同一个答案，没有任何内存缓存能 drifting。
+- **kernel 拥有确定性的规则求值。** 它对快照里的 grant 和 condition 求值，返回一个决定。因为输入是一份显式快照、规则是确定性的，同一份快照每次都给出同一个答案，没有任何内存缓存能漂移。
 
 公开入口包括 `AuthZ.authorize(principal_uid, resource, action, context)`、返回布尔值的 `allowed?/4`、批量检查资源动作的 `authorize_all`，以及返回完整决策 Map 的 `_decision` 变体。每个入口都会组装快照并交给 Kernel 求值，不会信任调用方对主体权限的自述。
 
@@ -56,14 +56,14 @@ Ankole 中的每个动作都有明确的主体：人员登录、Agent 运行一�
 
 ## 强制实际发生在哪里
 
-AuthZ 不是 agent 能绕开的一层，因为运行时在那些要紧的边界上咨询它：
+AuthZ 不是 agent 能绕开的一层，因为运行时在关键边界上都会咨询它：
 
 - AIGateway 从一个经验证的 token 解析出每次调用的主体，而该主体的 grant 决定它能触及哪些 model 选择符和 provider。
 - Actor Runtime 使用 Agent 主体拥有的 Activation 为每个回合设置隔离栏；来自其他主体的回复会被拒绝。
 - Brain 根据会话声明和所有者主体为每次读写划定范围；写入权限从 Actor 推导，不从请求载荷推导。
 - Console 操作使用已经验证的管理员 Token，管理员主体所在的权限组决定它可以修改什么。
 
-模型没有机会自行声明“我有权限”。系统边界会核对主体和授权规则，并执行求值结果。
+模型没有机会自行声明“我有权限”。系统边界会核对主体和授权规则，并落实求值结果。
 
 ## 运维界面
 
@@ -81,7 +81,7 @@ console 范围的路由暴露 AuthZ 模型供查看和管理：
 | `PATCH` | `/principal-groups/:name` | 更新一个 group |
 | `POST` | `/principal-groups/computed-member-previews` | 预览一个计算式 group 的成员 |
 
-管理 grant 和成员都走 AuthZ facade，它在写入任何行之前校验 owner 形态、resource pattern 语法和 condition 语法。数据库的 check 约束是兜底：违反 owner 形态或禁冒号规则的行根本无法存在。
+管理 grant 和成员都走 AuthZ facade，它在写入任何行之前校验 owner 形态、resource pattern 语法和 condition 语法。数据库的 check 约束是最后防线：违反 owner 形态或禁冒号规则的行根本无法存在。
 
 ## 主体和 AuthZ 不是什么
 

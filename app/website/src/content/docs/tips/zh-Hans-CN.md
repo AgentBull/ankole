@@ -20,7 +20,7 @@ bun run kit logs pretty < /path/to/log-stream   # 或把日志文件管道给它
 
 ## 找 bug 前先收窄日志级别
 
-`ANKOLE_LOG_LEVEL` 默认 `info`。为某次复现降到 `debug`，处理完调回去——留在 `debug` 的部署又吵又慢。合法值 `debug | info | warning | error`；非法值在启动时拒绝，不悄悄忽略。
+`ANKOLE_LOG_LEVEL` 默认 `info`。为某次复现降到 `debug`，处理完调回去——留在 `debug` 的部署又吵又慢。合法值 `debug | info | warning | error`；非法值在启动时会被拒绝，不悄悄忽略。
 
 ## 不开终端也能拿到激活码
 
@@ -43,7 +43,7 @@ kubectl -n ankole logs deployment/ankole-control-plane -c control-plane | grep "
 - 只在 agent 看图像时设 **`vision_fallback`**；否则留空，省下这个槽。
 - **`web_search`** 和 **`web_fetch`** 相互独立——只在 agent 需要联网时绑它们。
 
-一个"感觉慢"的 agent，常常是 `primary` 绑得太重，相对于它实际做的工作。
+一个“感觉慢”的 agent，常常是 `primary` 相对于它实际做的工作绑得太重。
 
 ## 轮换环境变量中的凭据
 
@@ -65,7 +65,7 @@ Worker 环境改动在**下一个回合**生效，不在当前正在跑的回合
 
 1. 查 `/ai-gateway/conversations` 该回合的近期模型调用——若有长间隔，provider 是瓶颈。
 2. 查 worker 日志看是否有进行中的工具调用——慢工具看起来像卡住的回合。
-3. 仅当回合确实楔住，agent 的 session 可被引导，或让回合超时；后台任务的取消是 `POST /background-agent-jobs/:id/cancel`，它让进行中的回合跑完。
+3. 仅当回合确实楔住，引导 agent 的 session，或让回合超时；后台任务的取消是 `POST /background-agent-jobs/:id/cancel`，它让进行中的回合跑完。
 
 激进取消是运维者制造半截副作用的方式。
 
@@ -75,7 +75,7 @@ Worker 环境改动在**下一个回合**生效，不在当前正在跑的回合
 
 ## 每次升级前都备份
 
-Helm 回滚不会反向执行数据库 migration。升级前那两分钟的 `pg_dump`，是“回滚了”和“从备份还原、丢了一天”之间的差别。备份与还原命令见[备份与还原](../backup-and-restore/)。
+Helm 回滚不会反向执行数据库 migration。升级前那两分钟的 `pg_dump`，是“回滚了”和“从备份还原、丢了一天”之间的差别。备份与还原命令见 [备份与还原](../backup-and-restore/)。
 
 ## 从正确的长期文档调整 Agent
 
@@ -92,5 +92,5 @@ Teams 把消息作为 Bot Framework webhook 调用投递，不走长连接。Tea
 ## 下一步
 
 - Console 的接口参考，读 [Console API 参考](../console-api/)。
-- 环境旋钮，读[环境变量](../environment-variables/)。
+- 环境旋钮，读 [环境变量](../environment-variables/)。
 - kit 命令，读 [kit CLI 参考](../kit-cli/)。

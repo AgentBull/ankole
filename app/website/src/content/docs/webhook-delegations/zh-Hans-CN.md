@@ -47,7 +47,7 @@ Agent 创建 GitHub 委托之前，需要满足：
 3. Agent 用回调 URL 创建 repository hook。GitHub 随即发送 `ping`。
 4. Agent 读取 GitHub delivery 日志，确认 `ping` 成功。
 5. 匹配的 delivery 到达后，Ankole 在返回成功之前，用同一 PostgreSQL 事务提交 endpoint 判定，以及 `webhook.received` ActorEvent 或绑定的 automation job run。
-6. 在直接路径上，被唤醒的 Agent 把回执当作不可信输入。绑定的 automation job 在发射事件前必须遵守同一规则。
+6. 在直接路径上，被唤醒的 Agent 把回执当作不可信输入。绑定的 automation job 在发出事件前必须遵守同一规则。
 7. 对账检查 hook、事件集合、失败 delivery、当前 GitHub 对象、到期时间和下一次检查时间。
 8. 撤防先删除 GitHub hook，再取消 Ankole endpoint 和 checkback。
 
@@ -94,4 +94,4 @@ Console 只提供 list 和 cancel，不提供 create。创建 endpoint 需要当
 - **同一事件唤醒两次：**standing endpoint 允许这种情况。Agent 必须重新读取 GitHub 当前状态，并让重复处理保持安全。
 - **布防时丢失 callback URL：**先删除可能存在的 GitHub hook，取消旧 endpoint 与 checkback，再创建一个替代 endpoint。
 
-入口所有者和事务边界见 [SignalsGateway](../signals-gateway/)。能力设置见 [Agent 能力库](../skills/)和[环境变量](../worker-env/)。
+入口所有者和事务边界见 [SignalsGateway](../signals-gateway/)。能力设置见 [Agent 能力库](../skills/)和 [环境变量](../worker-env/)。

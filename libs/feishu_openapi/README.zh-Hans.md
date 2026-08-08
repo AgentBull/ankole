@@ -2,7 +2,7 @@
 
 [English](README.md) | 简体中文
 
-`FeishuOpenAPI` 是一个轻量的 Elixir 客户端，用于调用 飞书/Lark OpenAPI 和处理事件推送。
+`FeishuOpenAPI` 是一个轻量的 Elixir 客户端，用于调用飞书/Lark OpenAPI 并处理事件推送。
 
 - 你可以直接传入原始 API 路径，例如 `"contact/v3/users/:user_id"`（会自动补上 `/open-apis/` 前缀；如果路径以 `/` 开头则原样透传）
 - 请求和响应负载保持弱类型，不强制生成端点包装层
@@ -373,7 +373,7 @@ case FeishuOpenAPI.get(client, "contact/v3/users/ou_xxx") do
 end
 ```
 
-不要基于 `msg` 分支判断。和官方文档一样，这个客户端把 `code` 视为稳定的失败信号。
+不要用 `msg` 做分支判断。和官方文档一样，这个客户端把 `code` 视为稳定的失败信号。
 
 ## 限流处理
 

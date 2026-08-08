@@ -5,9 +5,9 @@ section: Guides
 order: 319
 ---
 
-Ankole 里的性能主要是容量：一次能跑多少回合、它们能从连接池取多少连接、一个 agent 能并行跑多少任务。本页命名旋钮、给默认值，并——要紧的部分——解释它们如何关联，因为只调一个不调其余，是你得到慢部署或失败部署的方式。
+Ankole 里的性能主要是容量：一次能跑多少回合、它们能从连接池取多少连接、一个 agent 能并行跑多少任务。本页命名旋钮、给默认值，并——要紧的部分——解释它们如何关联，因为只调一个不调其余，就会得到慢部署或失败部署。
 
-先把决定性的性质说清楚：旋钮构成一条链。并发回合需要数据库连接；数据库连接由 Postgres 限定；任务槽放大 agent 能跑的工作。只抬一个不抬其余，链在最弱环节断——回合排队、连接耗尽、或 Postgres 拒绝连接。针对你的负载形态把它们作为一组调，不是一个一个调。
+先说明最关键的一点：旋钮构成一条链。并发回合需要数据库连接；数据库连接由 Postgres 限定；任务槽放大 agent 能跑的工作。只抬一个不抬其余，链在最弱环节断——回合排队、连接耗尽、或 Postgres 拒绝连接。针对你的负载形态把它们作为一组调，不是一个一个调。
 
 ## 容量链
 
@@ -45,11 +45,11 @@ Worker 池满时，回合会排队。`ANKOLE_MAX_CONCURRENT_TURNS` 是每个 Wor
 
 ### "后台任务排队"（agent 槽饱和）
 
-每个 agent 最多并发跑 `max_running_per_agent`（3）个任务。若一个 agent 有三个 `running`、更多在 `queued`，上限是限制——不是 worker、不是连接池。要么接受队列，要么把工作摊到更多 agent（各有自己的三个槽）。抬 `max_running_per_agent` 很少是对的动作；按 worker 回合上限（`max_turns_per_worker`）和全局回合上限反正挡着它。
+每个 agent 最多并发跑 `max_running_per_agent`（3）个任务。若一个 agent 有三个 `running`、更多在 `queued`，上限是限制——不是 worker、不是连接池。要么接受队列，要么把工作摊到更多 agent（各有自己的三个槽）。抬 `max_running_per_agent` 很少是对的动作；按 worker 回合上限（`max_turns_per_worker`）和全局回合上限也会拦住它。
 
 ### "provider 调用是瓶颈"（不是 Ankole 旋钮）
 
-若 `/ai-gateway/conversations` 显示模型调用占回合大部分时间，瓶颈是 provider，不是 Ankole。没有容量旋钮修这个——见[成本管理](../cost-management/)的模型侧杠杆（更便宜的 `primary`、更低 `reasoning_effort`），它们也让回合更快。
+若 `/ai-gateway/conversations` 显示模型调用占回合大部分时间，瓶颈是 provider，不是 Ankole。没有容量旋钮修这个——见 [成本管理](../cost-management/) 的模型侧杠杆（更便宜的 `primary`、更低 `reasoning_effort`），它们也让回合更快。
 
 ## 一个完整容量示例
 
@@ -57,7 +57,7 @@ Worker 池满时，回合会排队。`ANKOLE_MAX_CONCURRENT_TURNS` 是每个 Wor
 
 - **并发回合**——抬 `ANKOLE_MAX_CONCURRENT_TURNS` 匹配现实峰值（15–20），不是理论最大。
 - **数据库连接池**——抬 `ANKOLE_DATABASE_POOL_SIZE`，让连接池不是排队点（此负载 20–30）。
-- **Postgres**——确认 `ANKOLE_POSTGRES_MAX_CONNECTIONS`（300）舒适地超过连接池加 worker 自己的连接加余量；通常够，但外部服务器可能需要抬自己的 `max_connections`。
+- **Postgres**——确认 `ANKOLE_POSTGRES_MAX_CONNECTIONS`（300）舒适地超过连接池、worker 自身连接与余量之和；通常够，但外部服务器可能需要抬自己的 `max_connections`。
 - **按 agent 任务槽**——留在 3；把更多工作摊到 agent，而不是抬它。
 
 这些数字不是固定答案。每次只调整一个上限，再比较 Console 中的排队状态、后台任务状态和数据库指标，找到能够处理实际峰值的最小容量。
@@ -66,15 +66,15 @@ Worker 池满时，回合会排队。`ANKOLE_MAX_CONCURRENT_TURNS` 是每个 Wor
 
 Kubernetes 上，worker 是一个可水平扩展的 Deployment——更多 worker pod，各有自己的 `ANKOLE_MAX_CONCURRENT_TURNS`。容量算术是 `worker pod × 每 worker 回合`，仍受数据库连接池和 Postgres 约束。Compose（单主机）上，你有一个 worker；扩展意味着抬它的回合上限，抬到主机和数据库允许的范围。
 
-单 worker 的主机是限制时，水平 worker 扩展是更干净的路径；数据库是限制且主机有余量时，垂直（抬单个 worker 上限）更干净。
+单 worker 的主机是限制时，水平 worker 扩展是更合适的路径；数据库是限制且主机有余量时，垂直（抬单个 worker 上限）更合适。
 
 ## 性能调优不是什么
 
-性能调优不是把所有上限调到最大。上层容量超过下层承载能力时，瓶颈只会移动。先从 Console 的回合和任务状态判断队列在哪一层，再调整对应上限。更高并发也会增加模型调用和数据库连接，应同时检查[成本管理](../cost-management/)。
+性能调优不是把所有上限调到最大。上层容量超过下层承载能力时，瓶颈只会移动。先从 Console 的回合和任务状态判断队列在哪一层，再调整对应上限。更高并发也会增加模型调用和数据库连接，应同时检查 [成本管理](../cost-management/)。
 
 ## 下一步
 
-- 作为环境变量的旋钮，读[环境变量](../environment-variables/)。
+- 作为环境变量的旋钮，读 [环境变量](../environment-variables/)。
 - 回合与任务接口，读 [Console API 参考](../console-api/)。
-- 也影响速度的模型侧杠杆，读[成本管理](../cost-management/)。
+- 也影响速度的模型侧杠杆，读 [成本管理](../cost-management/)。
 - 跑回合的 worker，读 [Agent Computer Worker](../agent-computer-worker/)。

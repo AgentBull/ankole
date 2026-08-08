@@ -7,7 +7,7 @@ order: 315
 
 一个 Ankole 实例有两类无法重新生成的数据：PostgreSQL 数据库保存主体、Agent、会话、Brain 知识、任务和审计等控制面持久状态；Agent Home 卷保存每个 Agent 的工作区、角色文档、已安装 Skill、会话文件和任务文件。其他镜像和投影都可以重建。本页说明怎样备份和恢复这两类数据，以及怎样验证备份确实可用。
 
-先把决定性的性质说清楚：数据库 migration 无法通过回滚镜像来撤销。未经还原测试的备份是期望，不是备份。本页的全部要点是还原这一步——在事故依赖它之前，先在单独主机上测它。
+先说明最关键的一点：数据库 migration 无法通过回滚镜像来撤销。未经还原测试的备份是期望，不是备份。本页的全部要点是还原这一步——在事故依赖它之前，先在单独主机上测它。
 
 ## 备份什么，不备份什么
 
@@ -16,7 +16,7 @@ order: 315
 | **PostgreSQL**（Compose 上的 `ankole_postgresql_data`；Helm 上的外部服务器） | 全部持久语义事实 | `pg_dump -Fc` 归档 |
 | **Agent Home**（Compose 上的 `ankole_agents_data`；Helm 上的 RWX PVC） | 每个 Agent 的工作区、长期文档、已安装 Skill、会话与任务文件 | 卷快照或文件系统级备份，在 Ankole 停止时做 |
 
-**不要**备份容器镜像——它们可从 registry 重建。不要备份 Caddy 数据或临时 worker 状态；两者都不持有你无法重建的东西。也**不要**只备份两者之一——PostgreSQL 引用 Agent Home 里的文件，而没有指向它的数据库行的 Agent Home 是孤儿。
+**不要**备份容器镜像——它们可从 registry 重建。不要备份 Caddy 数据或临时 worker 状态；两者都不持有你无法重建的东西。也**不要**只备份两者之一——PostgreSQL 引用 Agent Home 里的文件，而没有对应数据库行指向它的 Agent Home 是孤儿。
 
 ## 备份 PostgreSQL
 
@@ -30,7 +30,7 @@ docker compose exec -T postgresql \
 
 Helm 上用内置 PostgreSQL，`kubectl exec` 进 PostgreSQL pod 跑同样的 `pg_dump`。用外部 PostgreSQL，就在该服务器上跑 `pg_dump`——命令形态一致。
 
-每次升级前、任何破坏性操作（`kit app-db rebuild`、`docker compose down -v`）前，以及按你对数据丢失容忍度所要求的节奏，都取这份备份。对小型部署，每日归档是合理的默认。
+每次升级前、任何破坏性操作（`kit app-db rebuild`、`docker compose down -v`）前，以及按你对数据丢失容忍度所要求的节奏，都先做这份备份。对小型部署，每日归档是合理的默认。
 
 ## 备份 Agent Home
 
@@ -58,7 +58,7 @@ docker compose exec -T postgresql \
   < "ankole-YYYYMMDD.dump"
 ```
 
-然后执行 Migration（本地运行 `bun run control-plane:setup`，或由 Helm Init Container 执行），把 Schema 更新到镜像要求的版本。恢复完成前，请确认主体、Agent 和一条已知 Brain 记录都符合预期。
+然后执行 Migration（本地运行 `bun run control-plane:setup`，或由 Helm Init Container 执行），把 Schema 更新到镜像要求的版本。在确认恢复完成之前，请核对主体、Agent 和一条已知 Brain 记录都符合预期。
 
 ## 还原 Agent Home
 
@@ -66,7 +66,7 @@ docker compose exec -T postgresql \
 
 ## 一起测试这对
 
-README 的指示就是规则："在单独主机上一起测试数据库和 Agent Home 的还原。"两者是一对；只还原一个证明不了什么。每月一次在一台随手主机上——还原昨晚的 PostgreSQL 和 Agent Home、启动栈、跑一个真实回合——是"备份"与"期望"之间的差别。
+README 的指示就是规则："在单独主机上一起测试数据库和 Agent Home 的还原。"两者是一对；只还原一个证明不了什么。每月一次在一台备用主机上——还原昨晚的 PostgreSQL 和 Agent Home、启动栈、跑一个真实回合——是"备份"与"期望"之间的差别。
 
 若还原在测试主机上奏效，你的生产备份是真实的。若不奏效，你在测试主机上发现，不是在事故中。
 
@@ -85,5 +85,5 @@ README 的指示就是规则："在单独主机上一起测试数据库和 Agent
 
 ## 下一步
 
-- 跨主机恢复和演练，读[灾难恢复](../disaster-recovery/)。
-- 命名这些卷的部署布局，读[快速开始的部署部分](../quickstart/#deployment)。
+- 跨主机恢复和演练，读 [灾难恢复](../disaster-recovery/)。
+- 命名这些卷的部署布局，读 [快速开始的部署部分](../quickstart/#deployment)。

@@ -33,7 +33,7 @@ OTP 监督树把不同 Agent、连接和后台任务分成独立的故障域。�
 
 ### Worker 是 Agent 的工作电脑
 
-Agent Computer Worker 负责运行模型循环、工具、Skills、浏览器、终端和文件操作，也执行 automation job 的脚本运行。它不自行发明持久业务状态，而是接受控制面的调度，并把执行结果提交回控制面。
+Agent Computer Worker 负责运行模型循环、工具、Skills、浏览器、终端和文件操作，也执行 automation job 的脚本。它不自行发明持久业务状态，而是接受控制面的调度，并把执行结果提交回控制面。
 
 一台 Worker 可以服务多个 Agent，每个 Agent 仍运行在独立的轻量沙盒中。需要更强隔离时，可以给一个 Agent 分配专用 Worker。增加 Worker 可以扩展并发能力，也能把不同安全等级的工作放到不同节点。
 
@@ -75,7 +75,7 @@ Brain 负责“世界现在是什么样”；Skill Overlay 负责“这类工作
 
 这套结构对应首页所说的“合作越久，它越懂你们的规则”：积累不是简单增加日志，而是让下一次工作的初始认知和做法都发生变化。
 
-更完整的用户视角见[长期记忆](../memory/)，存储、Dreaming 与写入权限见 [Brain](../brain/)。
+更完整的用户视角见 [长期记忆](../memory/)，存储、Dreaming 与写入权限见 [Brain](../brain/)。
 
 ## 后台 Agent 任务：不阻塞主会话的长工作
 
@@ -87,7 +87,7 @@ Brain 负责“世界现在是什么样”；Skill Overlay 负责“这类工作
 
 Deep Research 是建立在这套机制上的高级用例：Agent Plugin 提供工作区模板，Skills 提供研究方法，后台任务负责持久执行，Agent Home 保留研究资料与交付物。
 
-参见[后台 Agent 任务](../background-jobs/)和 [Deep Research](../deep-research-job/)。
+参见 [后台 Agent 任务](../background-jobs/)和 [Deep Research](../deep-research-job/)。
 
 ## AIGateway：统一的 AI 能力边界
 
@@ -99,7 +99,7 @@ AIGateway 同时支持不保存历史的调用和可以继续的有状态会话�
 
 工具目录很大时，模型可以经 Tool Search 按需检索工具，或提交一段程序，在受限沙盒中成批调用工具后只带回结果。原生支持这些能力的 Provider 直接透传；其余 Provider 由 AIGateway 在网关内补齐同一能力。一个 Provider 还可以配置多个凭证组成凭据池（包括 ChatGPT 订阅这类账号凭证），失败归属、重试和用量记录都按单个凭证计。
 
-参见 [AIGateway](../ai-gateway/)和[添加 LLM Provider](../adding-a-provider/)。
+参见 [AIGateway](../ai-gateway/)和 [添加 LLM Provider](../adding-a-provider/)。
 
 ## 企业身份、权限与扩展
 
@@ -111,7 +111,7 @@ Control Plane Plugins 把 IdP、聊天渠道和其他控制面能力接入实例
 
 外部 MCP server 以 Skill 为单位接入：Skill 声明连接，Worker 在执行时按次生成配置，执行结束即回收，模型不面对一份常驻的全量 MCP 工具清单。
 
-参见[主体与权限组](../principal-and-groups/)、[信号路由规则](../signal-bindings/)、[Agent 能力库](../skills/)和 [MCP server 参考](../mcp/)。
+参见 [主体与权限组](../principal-and-groups/)、[信号路由规则](../signal-bindings/)、[Agent 能力库](../skills/)和 [MCP server 参考](../mcp/)。
 
 ## 持久化边界
 
@@ -129,7 +129,7 @@ RuntimeFabric、Worker 进程内状态和流式预览都可以重建。它们为
 | **Kubernetes · 企业级推荐** | 一个控制面连接一个或多个 Worker Pod，可按节点和安全要求调度 | PostgreSQL 加支持 `ReadWriteMany` 的共享 Agent Home |
 | **源码安装** | 在开发环境中分别运行控制面和 Worker | 使用开发环境配置的 PostgreSQL 与本地工作区 |
 
-无论采用哪种方式，逻辑边界都相同：控制面只有一套，Worker 可以横向增加。完整步骤见[快速开始](../quickstart/#1-部署-ankole)。
+无论采用哪种方式，逻辑边界都相同：控制面只有一套，Worker 可以横向增加。完整步骤见 [快速开始](../quickstart/#1-部署-ankole)。
 
 ## 底层的五个技术判断
 
@@ -143,4 +143,4 @@ RuntimeFabric、Worker 进程内状态和流式预览都可以重建。它们为
 
 这五个选择共同服务于同一个结果：Agent 可以连续工作数小时，在运行中接收新信息，独立失败并恢复，而且每项已提交的工作都能追溯。
 
-更完整的运行时论证见<a href="https://ding.ee/zh-Hans-CN/why-otp-is-a-better-runtime-for-multi-agent-orchestration/" target="_blank" rel="noreferrer">《为什么 OTP 是更好的多智能体编排运行时》</a>。
+更完整的运行时论证见 <a href="https://ding.ee/zh-Hans-CN/why-otp-is-a-better-runtime-for-multi-agent-orchestration/" target="_blank" rel="noreferrer">《为什么 OTP 是更好的多智能体编排运行时》</a>。

@@ -7,14 +7,14 @@ order: 316
 
 Ankole 已提供主体与 AuthZ、Secret 加密、Worker 沙盒和鉴权入口等安全边界。加固的目标是把这些边界收紧到实际需要的最小范围。本页按优先级说明五类运维加固操作。
 
-先把决定性的性质说清楚：Ankole 的模型是*默认最小权限、仅在证据需要时扩展*。下面的每一步都在收窄一项权限、一个 secret 的影响范围、或一条网络路径。如果你发现自己在放宽某一项，问为什么——放宽才是值得审视的动作，不是收窄。
+先说明最关键的一点：Ankole 的模型是*默认最小权限、仅在证据需要时扩展*。下面的每一步都在收窄一项权限、一个 secret 的影响范围、或一条网络路径。如果你发现自己在放宽某一项，问为什么——放宽才是值得审视的动作，不是收窄。
 
 ## 1. 收紧主体与 AuthZ 权限
 
 Agent 以自己的主体身份运行，AuthZ 决定该主体可以做什么。请为每个 Agent 分配完成职责所需的最小权限，不要让一个 Agent 拥有过大的权限范围。
 
 - **每个 Agent 使用一个主体，并只承担一种职责。** 客户支持 Agent 和代码 Agent 应使用不同主体，避免一个 Agent 被攻破后同时影响两类工作。
-- **只授予完成工作所需的权限。** 读取一个频道比写入所有频道范围更小；指定资源模式比使用通配符更安全。参见[主体与 AuthZ](../principal-authz/)。
+- **只授予完成工作所需的权限。** 读取一个频道比写入所有频道范围更小；指定资源模式比使用通配符更安全。参见 [主体与 AuthZ](../principal-authz/)。
 - **同步 directory group，再按 group 授予。** 已同步的 AuthZ group 让你按团队成员身份限定权限，并在某人离开时通过在来源 directory 移除成员身份来撤销——而不是逐条编辑授予。
 - **不确定时先停用，不要删除。** 主体被停用后会立即在整个实例内失去权限，而且可以重新启用；删除主体则会永久移除它的 UID。
 
@@ -24,7 +24,7 @@ Agent 以自己的主体身份运行，AuthZ 决定该主体可以做什么。�
 
 Agent 运行工具时需要的凭据应保存在 Console 的“环境变量”中并开启加密。安全重点是限制使用范围，并定期轮换。
 
-- **少查看。** 优先直接输入新值完成轮换，不要为了确认而查看旧值。具体操作见[环境变量](../worker-env/)。
+- **少查看。** 优先直接输入新值完成轮换，不要为了确认而查看旧值。具体操作见 [环境变量](../worker-env/)。
 - **能按 agent 限定就按 agent。** 一个全局 secret 触达每个 agent；按 agent 的 secret 触达一个。除非 secret 确实共享，优先按 agent 形态。
 - **不要覆盖保留名。** `PATH`、`HOME`、`WORKER_ID`、`DATABASE_URL`、任何以 `ANKOLE_` 开头的名称，以及少量沙盒关键名称不能在 Console 中设置。不要绕开这项限制。
 - **定期轮换引导 Secret。** `ANKOLE_SECRET_BASE` 和 `ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY` 会派生其他密钥，轮换时需要重启部署。`ANKOLE_SECRET_BASE` 一旦泄露，会影响整个实例。
@@ -37,15 +37,15 @@ Agent 运行工具时需要的凭据应保存在 Console 的“环境变量”�
 - **云元数据端点始终被挡**，无论设置如何。尝试读 `169.254.169.254` 的模型，无论过滤器开关都被拒绝。
 - **过滤器开启时**，私网、环回、链路本地和 CGNAT 目标被拒。当 agent 从公网抓取、且没有合理理由触达内部 IP 时开启它——这就是过滤器为之存在的场景。
 
-决定是按部署的，错的不是"关"或"开"——而是不匹配 agent 实际需要触达什么的那个。
+决定因部署而异；错的不在“关”或“开”，而在是否匹配 agent 实际需要触达的范围。
 
 ## 面 4：adapter 凭证轮换
 
 每个聊天渠道和身份源提供商都持有凭证（`appID`/`appSecret`、`botToken`/`appToken`、`clientId`/`clientSecret`、Entra ID `appPassword`、Google Workspace `serviceAccountKey`）。请定期轮换；一旦怀疑泄露，立即轮换。
 
-- **先在 provider 轮换，再在 Ankole。** 在 provider 控制台作废旧凭证，再把新值放进 adapter 的 AppConfigure。顺序要紧：在 Ankole 轮换但仍在 provider 有效的凭证是一个窗口。
+- **先在 provider 轮换，再在 Ankole。** 在 provider 控制台作废旧凭证，再把新值放进 adapter 的 AppConfigure。顺序要紧：只在 Ankole 轮换，而旧凭证在 provider 侧仍有效，就等于留着一个利用窗口。
 - **按用途选择配置页面。** Agent 工具使用的凭据放在“环境变量”中；聊天渠道和身份源提供商的凭据在各自的 Console 页面中轮换。
-- **Directory 同步凭证也是凭证。** Google Workspace 的 `serviceAccountKey` 和 `adminEmail`、用于 Graph 的 Entra ID 应用——这些能读你的 directory。用与聊天凭证同等的严肃对待它们的轮换。
+- **Directory 同步凭证也是凭证。** Google Workspace 的 `serviceAccountKey` 和 `adminEmail`、用于 Graph 的 Entra ID 应用——这些能读你的 directory。轮换它们时要和在聊天凭证上一样严肃。
 
 ## 面 5：最小网络入口
 
@@ -61,7 +61,7 @@ Ankole 需要一些入口；它极少需要全部。收紧到每种传输实际�
 加固不是一次性通过；它是一种姿态。三个习惯保持它：
 
 - **定期检查授权规则。** `/permission-grants` 和 `/principals/:uid/grants` 会显示每个主体可以做什么。随着职责变化，旧授权可能已经过宽。
-- **读 Brain 审计日志。** `GET /brain/audit-log` 显示 agent 被告知相信什么、谁改过它。记忆是对据此行动的 agent 的一个安全面。
+- **读 Brain 审计日志。** `GET /brain/audit-log` 显示 agent 被告知相信什么、谁改过它。记忆是 agent 据此行动的一块安全面。
 - **测试还原。** [备份与还原](../backup-and-restore/)纪律是一项安全控制——你无法还原的备份不是从入侵中的恢复。
 
 ## 本指南不是什么
@@ -70,6 +70,6 @@ Ankole 需要一些入口；它极少需要全部。收紧到每种传输实际�
 
 ## 下一步
 
-- 权限模型见[主体与 AuthZ](../principal-authz/)。
-- Agent 使用的凭据，读[环境变量](../worker-env/)。
-- SSRF 键与引导 secret，读[环境变量](../environment-variables/)。
+- 权限模型见 [主体与 AuthZ](../principal-authz/)。
+- Agent 使用的凭据，读 [环境变量](../worker-env/)。
+- SSRF 键与引导 secret，读 [环境变量](../environment-variables/)。

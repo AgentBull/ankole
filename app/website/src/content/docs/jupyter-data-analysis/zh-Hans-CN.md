@@ -5,9 +5,9 @@ section: Guides
 order: 304
 ---
 
-数据分析是迭代的——检查 DataFrame、调整查询、画结果、重复。一次性 Python 进程无法在调用间保持状态。`jupyter-live-kernel` skill 通过运行一个 agent 跨多个 cell 驱动的 live Jupyter kernel 解决它，保持状态。本指南是一个数据分析 agent 的实际形态。
+数据分析是迭代的——检查 DataFrame、调整查询、画结果、重复。一次性 Python 进程无法在调用间保持状态。`jupyter-live-kernel` skill 通过一个由 agent 跨多个 cell 驱动的 live Jupyter kernel 解决它，保存状态。本指南是一个数据分析 agent 的实际形态。
 
-先把决定性的性质说清楚：Jupyter kernel **跨 cell 有状态**。变量、DataFrame、import 和绘图状态在 agent 的调用间持久。这让迭代分析成为可能——agent 不必每步重载数据或重新 import 库。
+先说明最关键的一点：Jupyter kernel **跨 cell 有状态**。变量、DataFrame、import 和绘图状态在 agent 的调用间持久。这让迭代分析成为可能——agent 不必每步重载数据或重新 import 库。
 
 ## 需要什么
 
@@ -47,11 +47,11 @@ kernel 在后台任务期间保持存活。任务结束时 kernel 停止、其�
 
 ## 本指南不是什么
 
-它不是 Python 或 pandas 教程——agent 写代码；skill 提供执行环境。它不是 notebook 创作指南——kernel 供 agent 使用，不是产出保存的 notebook（尽管任务要求时 agent 可以保存一个）。它也不是读 skill 的 `SKILL.md` 的替代——那个文件是权威参考。
+它不是 Python 或 pandas 教程——agent 写代码；skill 提供执行环境。它不是 notebook 创作指南——kernel 供 agent 使用，不是产出保存的 notebook（尽管任务要求时 agent 可以保存一个）。它也不能替代阅读 skill 的 `SKILL.md`——那个文件才是权威参考。
 
 ## 下一步
 
-- skill 系统，读 [Skills](../skills/)和[编写 skill](../writing-a-skill/)。
-- shell 工具，读[代码执行](../code-execution/)。
-- 后台执行，读[后台 Agent 任务](../background-jobs/)。
-- 上传文件给 Agent，读[文件管理](../file-management/)。
+- skill 系统，读 [Skills](../skills/)和 [编写 skill](../writing-a-skill/)。
+- shell 工具，读 [代码执行](../code-execution/)。
+- 后台执行，读 [后台 Agent 任务](../background-jobs/)。
+- 上传文件给 Agent，读 [文件管理](../file-management/)。

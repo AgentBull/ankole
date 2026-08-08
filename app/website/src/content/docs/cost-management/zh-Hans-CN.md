@@ -7,7 +7,7 @@ order: 314
 
 Ankole 花的大部分是模型 token，而其中大部分由一小撮配置杠杆决定，不是你无法塑造的用量。本页命名这些杠杆，说明各自的花费与节省，并给出账单太高时拉它们的顺序。这里的每一样都是控制面里真实的旋钮；没有一条是"少用 agent"。
 
-先把决定性的性质说清楚：成本是*哪个模型跑、跑几次、跑多久*的函数。杠杆映射到这三件：model profile 档位选模型、agent 循环预算限迭代、任务重试与槽位上限约束失控情形。拉动那个匹配花费所在之处的。
+先说明最关键的一点：成本是*哪个模型跑、跑几次、跑多久*的函数。杠杆映射到这三件：model profile 档位选模型、agent 循环预算限迭代、任务重试与槽位上限约束失控情形。拉动匹配花费所在的那一个。
 
 ## 杠杆 1：model profile 档位
 
@@ -15,25 +15,25 @@ Ankole 花的大部分是模型 token，而其中大部分由一小撮配置杠�
 
 | 槽 | 何时跑 | 成本杠杆 |
 |---|---|---|
-| `primary` | 主推理模型——大多数回合 | 单条最大的成本项 |
+| `primary` | 主推理模型——大多数回合 | 最大的一项成本 |
 | `light` | 高频低风险路径 | 应当真正廉价 |
 | `heavy` | 硬综合 | 昂贵；`primary` 调好时很少用到 |
 | 后台 Agent 任务（内部键为 `coding`） | 每个后台 Agent 任务 | 决定持久后台任务使用哪个 Provider 和模型 |
-| `vision_fallback` | `primary` 处理不了图像时 | 仅在 agent 看图像时绑 |
+| `vision_fallback` | `primary` 处理不了图像时 | 仅在 agent 看图像时绑定 |
 | `embedding`、`rerank` | 记忆与检索 | 按调用计价，通常小 |
 | `web_search`、`web_fetch` | web 工具 | 见杠杆 3 |
-| `image_generate` | 图像生成 | 按次昂贵；仅在用时绑 |
+| `image_generate` | 图像生成 | 按次昂贵；仅在用时绑定 |
 
 两招最省：
 
 - **把 `light` 绑到真正廉价的东西。** 它为高频路径而存在；一个几乎和 `primary` 一样贵的 `light` 让这个槽失去意义。
-- **默认把 `primary` 调低、不调高。** 一个"感觉贵"的 agent，常常是 `primary` 相对于它实际做的工作绑得太重。质量需要时才上调。
+- **默认把 `primary` 调低、不调高。** 一个“感觉贵”的 agent，往往是在 `primary` 上绑得比实际工作所需更重。质量需要时才上调。
 
 Agent 用不到 `vision_fallback` 时，可以把它留空，避免产生相应调用。`image_generate` 留空时，若主 Provider 声明支持原生图像生成，请求仍可走原生路径。后台 Agent 任务不同：即使不单独配置，任务仍会回退到该 Agent 的 `heavy` 档案并通过 AIGateway 运行。只有后台任务需要不同 Provider 或模型时，才需要单独配置。
 
 ## 杠杆 2：reasoning effort
 
-对支持 Codex reasoning effort 的 Provider，`model_reasoning_effort` 是一档七级的旋钮：`minimal | low | medium | high | xhigh | max | ultra`。更低 effort 更廉价更快；更高 effort 在难题上更好、花费更多。默认 `high`。
+对支持 Codex reasoning effort 的 Provider，`model_reasoning_effort` 是七个档位的旋钮：`minimal | low | medium | high | xhigh | max | ultra`。更低 effort 更廉价更快；更高 effort 在难题上更好、花费更多。默认 `high`。
 
 这是比换模型更细的杠杆。一个在 `medium` 就够、却配成 `high` 的 `primary` agent，多花钱却无可见收益。在 `primary` profile 上设它，匹配 agent 的实际工作；只给那个做硬综合的 agent 上调，不是给所有 agent。
 
@@ -54,7 +54,7 @@ Agent 用不到 `vision_fallback` 时，可以把它留空，避免产生相应�
 |---|---|
 | `ai_agent.max_iterations` | agent 循环每回合的迭代预算 |
 | `ai_agent.max_output_tokens` | 每回合输出 token 上限 |
-| `ai_agent.inactivity_timeout_ms` | 回合可 inactive 多久后被回收 |
+| `ai_agent.inactivity_timeout_ms` | 回合多久无活动后会被回收 |
 
 `max_iterations` 限制单个 Agent 回合的模型迭代次数，避免本可用两次工具调用完成的任务反复调用模型。`max_output_tokens` 限制单次响应大小。两项都是实例级默认值，应按常见回合设置；复杂回合达到上限时，Agent 会基于已有内容给出最终回答。
 
@@ -70,7 +70,7 @@ Agent 用不到 `vision_fallback` 时，可以把它留空，避免产生相应�
 | 重试延迟 | ~30 秒 | 重试之间的下限 |
 | `agent_computer.background_agent_job.max_turns_per_worker` | 可配置 | 每个任务的 worker 回合上限 |
 
-一个任务临时失败五次，就花五次运行的 token。多数时候上限保护你——配置错误快速失败并保持失败。要盯的是第三个：一个有三个并发任务的 agent 在同时跑三个模型循环。若不需要这种并行，人设（"一次只做一件事"）比上限允许的更便宜。
+一个任务临时失败五次，就花五次运行的 token。多数时候上限保护你——配置错误快速失败并保持失败。要盯的是第三个：一个有三个并发任务的 agent 在同时跑三个模型循环。若不需要这种并行，用“一次只做一件事”这样的人设，花费会比上限允许的更低。
 
 ## 花费到底在哪
 
@@ -90,11 +90,11 @@ Agent 用不到 `vision_fallback` 时，可以把它留空，避免产生相应�
 
 ## 成本管理不是什么
 
-它不是实时花费仪表盘——Ankole 不输出。它不是把花费限制在某个美元金额的方式；杠杆限制*调用与迭代*，美元金额是 provider 费率乘以它们。它也不是读会话界面的替代；杠杆只有在你知道哪个设错之后才值得拉。
+它不是实时花费仪表盘——Ankole 不提供。它不是把花费限制在某个美元金额的方式；杠杆限制*调用与迭代*，美元金额是 provider 费率乘以它们。它也不是读会话界面的替代；杠杆只有在你知道哪个设错之后才值得拉。
 
 ## 下一步
 
 - Agent 的模型档案，读 [Agent](../agents/#接上它的模型)。
-- agent 循环旋钮及其键，读[环境变量](../environment-variables/)。
+- agent 循环旋钮及其键，读 [环境变量](../environment-variables/)。
 - 相关会话与后台任务接口，读 [Console API 参考](../console-api/)。
-- 任务上限，读[后台 Agent 任务](../background-jobs/)。
+- 任务上限，读 [后台 Agent 任务](../background-jobs/)。

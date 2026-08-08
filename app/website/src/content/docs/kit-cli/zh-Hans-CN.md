@@ -7,7 +7,7 @@ order: 200
 
 `kit` 是 Ankole 的 devkit 命令行。在仓库根目录用 `bun run kit <command>` 调用，覆盖环境准备、本地服务、开发环境、数据库生命周期、激活码、日志、代码生成和仓库分析。本页是每条命令的参考。
 
-先把决定性的性质说清楚：`kit` 是 `tools/devkit/` 里的一个 Bun + TypeScript 程序，仓库 `package.json` 的脚本把常用命令（`services:start`、`services:stop`、`dev`、`analyze` 等）包了起来，你不必打全 `bun run kit` 形态。两种形态都行；脚本只是别名。
+先说明最关键的一点：`kit` 是 `tools/devkit/` 里的一个 Bun + TypeScript 程序，仓库 `package.json` 的脚本把常用命令（`services:start`、`services:stop`、`dev`、`analyze` 等）包了起来，你不必打全 `bun run kit` 形态。两种形态都行；脚本只是别名。
 
 ## 环境与检测
 
@@ -41,7 +41,7 @@ order: 200
 | `kit app-db rebuild` | 删除、创建并迁移 app 数据库。需要 `--yes`；重建后跑 Ecto migration。 |
 | `kit app-db migrate` | 对已配置的本地数据库跑控制面 Ecto migration。 |
 
-选项跨命令通用：`--start-services` 在操作前启动 Compose，`--pull-images` 先拉最新服务镜像，一个健康检查等待控制服务就绪的等待时长。`app-db rebuild` 会删除本地 `ankole_dev` 数据库——只在数据确实可丢弃时才跑。
+选项跨命令通用：`--start-services` 在操作前启动 Compose，`--pull-images` 先拉最新服务镜像，以及等待控制服务就绪的健康检查等待时长。`app-db rebuild` 会删除本地 `ankole_dev` 数据库——只在数据确实可丢弃时才跑。
 
 ## 设置与检查
 
@@ -75,5 +75,5 @@ bun run kit --help
 
 ## 下一步
 
-- 用到这些命令的本地环境走查，读[快速开始](../quickstart/)。
-- `kit dev` 启动了什么，读[架构概览](../architecture/)。
+- 用到这些命令的本地环境走查，读 [快速开始](../quickstart/)。
+- `kit dev` 启动了什么，读 [架构概览](../architecture/)。

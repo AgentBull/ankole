@@ -59,7 +59,7 @@ export const deploymentTabs = [
         },
         {
           title: '生成三个彼此独立的 secret',
-          body: ['复制并运行这条命令，再把完整输出粘贴到 .env。'],
+          body: ['复制并运行这条命令，再把完整输出粘贴到 `.env`。'],
           code: [
             {
               language: 'bash',
@@ -541,8 +541,8 @@ export const identityTabs = [
         {
           title: '先从 Ankole 复制回调地址',
           body: [
-            '打开 https://<ANKOLE_HOST>/setup，输入 activation code。在插件页勾选「Slack 适配器」并保存，然后选择 Slack。',
-            '「配置 ID（Provider ID）」保持 slack-main。使用页面上的「复制」按钮复制登录回调地址；后面不要手写或改动它。'
+            '打开 https://<ANKOLE_HOST>/setup，输入 activation code。在插件页勾选“Slack 适配器”并保存，然后选择 Slack。',
+            '“配置 ID（Provider ID）”保持 slack-main。使用页面上的“复制”按钮复制登录回调地址；后面不要手写或改动它。'
           ]
         },
         {
@@ -621,13 +621,13 @@ export const identityTabs = [
             'App-Level Token：刚才取得的 xapp- token'
           ],
           body: [
-            '确认「同步通讯录」和「实时同步通讯录变更」已开启，然后选择「验证配置并登录」。在 Slack 授权页完成登录。'
+            '确认“同步通讯录”和“实时同步通讯录变更”已开启，然后选择“验证配置并登录”。在 Slack 授权页完成登录。'
           ]
         },
         {
           title: '确认登录和首次同步',
           body: [
-            '浏览器回到 Ankole 后，当前 Slack 用户会成为这套实例的第一位 root 管理员。打开 Console → 身份源提供商，选择 slack-main，再选择「运行全量同步」。',
+            '浏览器回到 Ankole 后，当前 Slack 用户会成为这套实例的第一位 root 管理员。打开 Console → 身份源提供商，选择 slack-main，再选择“运行全量同步”。',
             '同步完成后，在 Console → 主体和权限组中确认 workspace 成员与 Slack 用户组已经出现。'
           ]
         }
@@ -640,13 +640,13 @@ export const identityTabs = [
         {
           title: '只使用 Slack 登录',
           body: [
-            '关闭「同步通讯录」后，Bot User OAuth Token 不再必填，实时同步也会随之关闭；Client ID 和 Client Secret 仍然必填。'
+            '关闭“同步通讯录”后，Bot User OAuth Token 不再必填，实时同步也会随之关闭；Client ID 和 Client Secret 仍然必填。'
           ]
         },
         {
           title: '暂时不用实时同步',
           body: [
-            '保留「同步通讯录」、关闭「实时同步通讯录变更」时，只需要 Bot User OAuth Token，不需要 App-Level Token。成员变化会在下一次全量同步后出现。'
+            '保留“同步通讯录”、关闭“实时同步通讯录变更”时，只需要 Bot User OAuth Token，不需要 App-Level Token。成员变化会在下一次全量同步后出现。'
           ]
         },
         {
@@ -673,8 +673,8 @@ export const identityTabs = [
         {
           title: '先从 Ankole 复制回调地址',
           body: [
-            '打开 https://<ANKOLE_HOST>/setup，输入 activation code。在插件页勾选「Microsoft 365 适配器」并保存，然后选择 Entra ID。',
-            '「配置 ID（Provider ID）」保持 entra-id-main。使用页面上的「复制」按钮复制登录回调地址。'
+            '打开 https://<ANKOLE_HOST>/setup，输入 activation code。在插件页勾选“Microsoft 365 适配器”并保存，然后选择 Entra ID。',
+            '“配置 ID（Provider ID）”保持 entra-id-main。使用页面上的“复制”按钮复制登录回调地址。'
           ]
         },
         {
@@ -723,13 +723,13 @@ export const identityTabs = [
             'Ankole 公网地址：https://<ANKOLE_HOST>，不要填写内部容器或集群地址'
           ],
           body: [
-            '确认「同步通讯录」和「实时同步通讯录变更」已开启，然后选择「验证配置并登录」。用当前租户内的账号完成登录。'
+            '确认“同步通讯录”和“实时同步通讯录变更”已开启，然后选择“验证配置并登录”。用当前租户内的账号完成登录。'
           ]
         },
         {
           title: '确认登录和首次同步',
           body: [
-            '登录成功后，当前用户会成为第一位 root 管理员。打开 Console → 身份源提供商，选择 entra-id-main，再选择「运行全量同步」。',
+            '登录成功后，当前用户会成为第一位 root 管理员。打开 Console → 身份源提供商，选择 entra-id-main，再选择“运行全量同步”。',
             '同步完成后，在主体和权限组中确认目录里的用户与组已经出现。'
           ]
         }
@@ -742,7 +742,7 @@ export const identityTabs = [
         {
           title: '确认实时通知地址可访问',
           body: [
-            '开启「实时同步通讯录变更」时，「Ankole 公网地址」必须是有效的公网 HTTPS 地址。Ankole 会在其下建立 /webhooks/v1/entra-id/entra-id-main/directory 接口，并自动创建和续订 Graph 订阅。'
+            '开启“实时同步通讯录变更”时，“Ankole 公网地址”必须是有效的公网 HTTPS 地址。Ankole 会在其下建立 /webhooks/v1/entra-id/entra-id-main/directory 接口，并自动创建和续订 Graph 订阅。'
           ],
           links: [
             {
@@ -754,13 +754,13 @@ export const identityTabs = [
         {
           title: '没有公网入口时关闭实时同步',
           body: [
-            '如果 Graph 无法访问这套实例，请在保存前关闭「实时同步通讯录变更」。全量同步仍然可用，「Ankole 公网地址」也不再必填。'
+            '如果 Graph 无法访问这套实例，请在保存前关闭“实时同步通讯录变更”。全量同步仍然可用，“Ankole 公网地址”也不再必填。'
           ]
         },
         {
           title: '按需包含来宾或筛选组',
           body: [
-            '「包含来宾用户」默认关闭。「同步组筛选条件」接受 Microsoft Graph 的 OData $filter；先让完整同步成功，再添加过滤条件，避免把权限问题误判成过滤结果。'
+            '“包含来宾用户”默认关闭。“同步组筛选条件”接受 Microsoft Graph 的 OData $filter；先让完整同步成功，再添加过滤条件，避免把权限问题误判成过滤结果。'
           ]
         }
       ]
@@ -781,8 +781,8 @@ export const identityTabs = [
         {
           title: '先从 Ankole 复制回调地址',
           body: [
-            '打开 https://<ANKOLE_HOST>/setup，输入 activation code。在插件页勾选「Google Workspace 适配器」并保存，然后选择 Google Workspace。',
-            '「配置 ID（Provider ID）」保持 google-workspace-main。使用页面上的「复制」按钮复制登录回调地址。'
+            '打开 https://<ANKOLE_HOST>/setup，输入 activation code。在插件页勾选“Google Workspace 适配器”并保存，然后选择 Google Workspace。',
+            '“配置 ID（Provider ID）”保持 google-workspace-main。使用页面上的“复制”按钮复制登录回调地址。'
           ]
         },
         {
@@ -851,13 +851,13 @@ export const identityTabs = [
             '委派管理员邮箱：服务账号要模拟的 Workspace 管理员邮箱，该账号必须能读取用户和群组'
           ],
           body: [
-            '确认「同步通讯录」已开启，然后选择「验证配置并登录」。使用「允许登录的 Workspace 域名」中的 Workspace 账号完成登录。'
+            '确认“同步通讯录”已开启，然后选择“验证配置并登录”。使用“允许登录的 Workspace 域名”中的 Workspace 账号完成登录。'
           ]
         },
         {
           title: '确认登录和首次同步',
           body: [
-            '登录成功后，当前用户会成为第一位 root 管理员。打开 Console → 身份源提供商，选择 google-workspace-main，再选择「运行全量同步」。',
+            '登录成功后，当前用户会成为第一位 root 管理员。打开 Console → 身份源提供商，选择 google-workspace-main，再选择“运行全量同步”。',
             '同步完成后，在主体和权限组中确认 Workspace 用户、群组及成员关系已经出现。'
           ]
         }
@@ -882,7 +882,7 @@ export const identityTabs = [
         {
           title: '缩小服务账号权限',
           body: [
-            '首次验证完成后，可以把「委派管理员邮箱」换成只具备用户与群组读取权限的专用管理员账号。轮换 JSON 密钥时，要同时更新 Ankole 中的「服务账号 JSON 密钥」。'
+            '首次验证完成后，可以把“委派管理员邮箱”换成只具备用户与群组读取权限的专用管理员账号。轮换 JSON 密钥时，要同时更新 Ankole 中的“服务账号 JSON 密钥”。'
           ]
         }
       ]
@@ -903,15 +903,15 @@ export const identityTabs = [
         {
           title: '先从 Ankole 复制回调地址',
           body: [
-            '打开 https://<ANKOLE_HOST>/setup，输入 activation code。在插件页勾选「飞书适配器」并保存，然后选择飞书。',
-            '「配置 ID（Provider ID）」保持 lark-main。使用页面上的「复制」按钮复制登录回调地址。'
+            '打开 https://<ANKOLE_HOST>/setup，输入 activation code。在插件页勾选“飞书适配器”并保存，然后选择飞书。',
+            '“配置 ID（Provider ID）”保持 lark-main。使用页面上的“复制”按钮复制登录回调地址。'
           ]
         },
         {
           title: '创建企业自建应用',
           body: [
             '飞书企业打开飞书开放平台，海外 Lark 企业打开 Lark Developer。选择创建企业自建应用或 Custom App。',
-            '进入「凭证与基础信息」或 Credentials & Basic Info，复制 App ID 和 App Secret。'
+            '进入“凭证与基础信息”或 Credentials & Basic Info，复制 App ID 和 App Secret。'
           ],
           links: [
             {
@@ -927,7 +927,7 @@ export const identityTabs = [
         {
           title: '登记登录回调地址',
           body: [
-            '进入「开发配置 → 安全设置 → 重定向 URL」，添加从 Ankole 复制的完整地址。Lark 后台对应 Security Settings → Redirect URLs。',
+            '进入“开发配置 → 安全设置 → 重定向 URL”，添加从 Ankole 复制的完整地址。Lark 后台对应 Security Settings → Redirect URLs。',
             '回调地址必须逐字一致。域名、协议、端口或 Provider ID 有一处不同，登录都会失败。'
           ],
           links: [
@@ -940,7 +940,7 @@ export const identityTabs = [
         {
           title: '批量开通登录和通讯录权限',
           body: [
-            '进入「权限管理」，选择「批量导入 / 导出权限」，粘贴下面的 JSON 并确认导入。需要企业管理员审批的权限，要等状态变成已开通再继续。'
+            '进入“权限管理”，选择“批量导入 / 导出权限”，粘贴下面的 JSON 并确认导入。需要企业管理员审批的权限，要等状态变成已开通再继续。'
           ],
           batchImport: {
             label: '批量导入 JSON',
@@ -965,7 +965,7 @@ export const identityTabs = [
         {
           title: '配置长连接通讯录事件',
           body: [
-            '进入「事件与回调 → 事件配置」，选择「使用长连接接收事件」。添加下面七个事件；Lark 后台选择对应的 WebSocket 接收方式。'
+            '进入“事件与回调 → 事件配置”，选择“使用长连接接收事件”。添加下面七个事件；Lark 后台选择对应的 WebSocket 接收方式。'
           ],
           copyItems: [
             { value: 'contact.user.created_v3' },
@@ -980,17 +980,17 @@ export const identityTabs = [
         {
           title: '设置可用范围并发布版本',
           body: [
-            '在应用管理中把首位管理员和需要同步的部门加入可用范围。进入「版本管理与发布」，创建版本并发布；未发布的权限、回调地址和事件配置不会对员工生效。'
+            '在应用管理中把首位管理员和需要同步的部门加入可用范围。进入“版本管理与发布”，创建版本并发布；未发布的权限、回调地址和事件配置不会对员工生效。'
           ]
         },
         {
           title: '把飞书或 Lark 凭证填回 Ankole',
           bullets: [
-            'App ID / App Secret：自建应用「凭证与基础信息」中的值',
-            '服务区域：中国大陆选择「飞书（中国大陆）」；海外选择「Lark（海外）」'
+            'App ID / App Secret：自建应用“凭证与基础信息”中的值',
+            '服务区域：中国大陆选择“飞书（中国大陆）”；海外选择“Lark（海外）”'
           ],
           body: [
-            '默认的通讯录同步设置通常无需修改。选择「验证配置并登录」。完成授权后，打开 Console → 身份源提供商，对 lark-main 运行一次全量同步。',
+            '默认的通讯录同步设置通常无需修改。选择“验证配置并登录”。完成授权后，打开 Console → 身份源提供商，对 lark-main 运行一次全量同步。',
             '最后在主体和权限组中确认员工、部门和成员关系已经出现。'
           ]
         }
@@ -1003,7 +1003,7 @@ export const identityTabs = [
         {
           title: '暂时不用实时同步',
           body: [
-            '可以在「高级设置（通常无需修改）」中关闭「实时同步通讯录变更」，只保留全量同步。此时不必订阅通讯录事件，但员工和部门的变化要等下一次全量同步。'
+            '可以在“高级设置（通常无需修改）”中关闭“实时同步通讯录变更”，只保留全量同步。此时不必订阅通讯录事件，但员工和部门的变化要等下一次全量同步。'
           ]
         },
         {
@@ -1036,14 +1036,14 @@ export const identityTabs = [
         {
           title: '先从 Ankole 复制回调地址',
           body: [
-            '打开 https://<ANKOLE_HOST>/setup，输入 activation code。在插件页勾选「钉钉适配器」并保存，然后选择钉钉。',
-            '「配置 ID（Provider ID）」保持 dingtalk-main。使用页面上的「复制」按钮复制登录回调地址。'
+            '打开 https://<ANKOLE_HOST>/setup，输入 activation code。在插件页勾选“钉钉适配器”并保存，然后选择钉钉。',
+            '“配置 ID（Provider ID）”保持 dingtalk-main。使用页面上的“复制”按钮复制登录回调地址。'
           ]
         },
         {
           title: '创建企业内部应用',
           body: [
-            '打开钉钉开发者后台，进入「应用开发 → 企业内部应用」，选择创建应用。进入「基础信息 → 凭证与基础信息」，复制 Client ID（原 AppKey）和 Client Secret（原 AppSecret）。'
+            '打开钉钉开发者后台，进入“应用开发 → 企业内部应用”，选择创建应用。进入“基础信息 → 凭证与基础信息”，复制 Client ID（原 AppKey）和 Client Secret（原 AppSecret）。'
           ],
           links: [
             {
@@ -1055,14 +1055,14 @@ export const identityTabs = [
         {
           title: '登记登录回调地址',
           body: [
-            '进入「开发配置 → 安全设置 → 重定向 URL（回调域名）」，粘贴从 Ankole 复制的完整地址并保存。',
+            '进入“开发配置 → 安全设置 → 重定向 URL（回调域名）”，粘贴从 Ankole 复制的完整地址并保存。',
             '登录 scope 保持 openid corpid。corpid 用来把登录用户限定在当前钉钉组织。'
           ]
         },
         {
           title: '申请登录和通讯录接口权限',
           body: [
-            '进入「权限管理 → 通讯录管理」，申请下面这些接口对应的读取权限。通讯录权限范围选择「全部员工」；如果只能选部分员工，就必须覆盖准备登录和同步的所有部门。'
+            '进入“权限管理 → 通讯录管理”，申请下面这些接口对应的读取权限。通讯录权限范围选择“全部员工”；如果只能选部分员工，就必须覆盖准备登录和同步的所有部门。'
           ],
           copyItems: [
             { value: 'Contact.User.Read', description: '通讯录个人信息读权限' },
@@ -1076,7 +1076,7 @@ export const identityTabs = [
         {
           title: '用 Stream 订阅通讯录变更',
           body: [
-            '进入「事件与回调」，接收方式选择 Stream 模式。添加下面十个事件；它们分别覆盖员工入职、更新、离职、激活，以及部门和管理员变更。'
+            '进入“事件与回调”，接收方式选择 Stream 模式。添加下面十个事件；它们分别覆盖员工入职、更新、离职、激活，以及部门和管理员变更。'
           ],
           copyItems: [
             { value: 'user_add_org' },
@@ -1110,7 +1110,7 @@ export const identityTabs = [
             'Client Secret（AppSecret）：同一页的 Client Secret'
           ],
           body: [
-            '确认「同步通讯录」和「实时同步通讯录变更」已开启，然后选择「验证配置并登录」。Ankole 会先校验这组凭证，再跳转到钉钉登录。',
+            '确认“同步通讯录”和“实时同步通讯录变更”已开启，然后选择“验证配置并登录”。Ankole 会先校验这组凭证，再跳转到钉钉登录。',
             '登录成功后，打开 Console → 身份源提供商，对 dingtalk-main 运行一次全量同步，再到主体和权限组检查员工与部门。'
           ]
         }
@@ -1123,13 +1123,13 @@ export const identityTabs = [
         {
           title: '只保留全量同步',
           body: [
-            '关闭「实时同步通讯录变更」后，可以不订阅 Stream 通讯录事件。员工和部门的变化会在下一次全量同步后出现。'
+            '关闭“实时同步通讯录变更”后，可以不订阅 Stream 通讯录事件。员工和部门的变化会在下一次全量同步后出现。'
           ]
         },
         {
           title: '检查通讯录授权范围',
           body: [
-            '同步缺人或缺部门时，先检查应用在「权限管理」中的通讯录授权范围。接口权限已通过，但数据不在授权范围内，也会得到不完整结果。'
+            '同步缺人或缺部门时，先检查应用在“权限管理”中的通讯录授权范围。接口权限已通过，但数据不在授权范围内，也会得到不完整结果。'
           ]
         },
         {
@@ -1145,7 +1145,7 @@ export const identityTabs = [
     value: 'wecom',
     label: '企业微信',
     summary:
-      '用企业自建应用完成扫码登录，用「通讯录同步」的专用 Secret 周期性同步成员与部门。登录和通讯录接口都要求固定出口 IP。',
+      '用企业自建应用完成扫码登录，用“通讯录同步”的专用 Secret 周期性同步成员与部门。登录和通讯录接口都要求固定出口 IP。',
     prerequisites: [
       '企业微信超级管理员账号',
       '出口 IP 固定的 Ankole 部署',
@@ -1157,13 +1157,13 @@ export const identityTabs = [
         {
           title: '先从 Ankole 复制回调地址',
           body: [
-            '打开 https://<ANKOLE_HOST>/setup，输入 activation code。在插件页勾选「企业微信适配器」并保存，然后选择企业微信。',
-            '「配置 ID（Provider ID）」保持 wecom-main。使用页面上的「复制」按钮复制登录回调地址。'
+            '打开 https://<ANKOLE_HOST>/setup，输入 activation code。在插件页勾选“企业微信适配器”并保存，然后选择企业微信。',
+            '“配置 ID（Provider ID）”保持 wecom-main。使用页面上的“复制”按钮复制登录回调地址。'
           ]
         },
         {
           title: '记录企业 ID',
-          body: ['打开企业微信管理后台，进入「我的企业 → 企业信息」，复制企业 ID（CorpID）。'],
+          body: ['打开企业微信管理后台，进入“我的企业 → 企业信息”，复制企业 ID（CorpID）。'],
           links: [
             {
               label: '打开企业微信管理后台',
@@ -1174,33 +1174,33 @@ export const identityTabs = [
         {
           title: '创建自建应用，并配置可信域名和可信 IP',
           body: [
-            '进入「应用管理 → 自建 → 创建应用」。创建后打开应用详情，复制 AgentId 和 Secret。',
-            '在同一页设置两项：「网页授权及 JS-SDK」可信域名填 Ankole 的域名；「企业可信 IP」填部署的固定出口 IP。'
+            '进入“应用管理 → 自建 → 创建应用”。创建后打开应用详情，复制 AgentId 和 Secret。',
+            '在同一页设置两项：“网页授权及 JS-SDK”可信域名填 Ankole 的域名；“企业可信 IP”填部署的固定出口 IP。'
           ],
           caution: '缺少可信 IP 时，登录和接口调用会报错 60020。可信域名不含回调地址的域名时，扫码后无法回跳。'
         },
         {
           title: '开启通讯录同步，并取得专用 Secret',
           body: [
-            '进入「安全与管理 → 管理工具 → 通讯录同步」，开启 API 接口同步，复制这里的专用 Secret，并配置它自己的可信 IP。',
+            '进入“安全与管理 → 管理工具 → 通讯录同步”，开启 API 接口同步，复制这里的专用 Secret，并配置它自己的可信 IP。',
             '自 2022 年 6 月起，普通应用 Secret 拿不到成员姓名等字段。不配置这个专用 Secret，就无法同步通讯录，登录主体也没有姓名。'
           ]
         },
         {
           title: '把企业微信配置填回 Ankole',
           bullets: [
-            '企业 ID（CorpID）：「企业信息」中的企业 ID',
+            '企业 ID（CorpID）：“企业信息”中的企业 ID',
             '自建应用 AgentId / Secret：应用详情中的两个值',
-            '通讯录同步 Secret：「通讯录同步」页面的专用 Secret'
+            '通讯录同步 Secret：“通讯录同步”页面的专用 Secret'
           ],
           body: [
-            '确认「启用登录」和「同步通讯录」已开启，然后选择「验证配置并登录」，用企业微信扫码完成登录。'
+            '确认“启用登录”和“同步通讯录”已开启，然后选择“验证配置并登录”，用企业微信扫码完成登录。'
           ]
         },
         {
           title: '确认登录和首次同步',
           body: [
-            '登录成功后，当前成员会成为第一位 root 管理员。打开 Console → 身份源提供商，选择 wecom-main，再选择「运行全量同步」。',
+            '登录成功后，当前成员会成为第一位 root 管理员。打开 Console → 身份源提供商，选择 wecom-main，再选择“运行全量同步”。',
             '同步完成后，在主体和权限组中确认成员与部门已经出现。'
           ]
         }
@@ -1225,7 +1225,7 @@ export const identityTabs = [
         {
           title: '只做登录',
           body: [
-            '关闭「同步通讯录」后，通讯录同步 Secret 不再必填。此时登录主体只有企业微信账号 ID，没有姓名，也没有部门权限组。'
+            '关闭“同步通讯录”后，通讯录同步 Secret 不再必填。此时登录主体只有企业微信账号 ID，没有姓名，也没有部门权限组。'
           ]
         }
       ]
@@ -1508,7 +1508,7 @@ export const channelTabs = [
         {
           title: '批量添加完整聊天权限',
           body: [
-            '进入「权限管理」，选择「批量导入 / 导出权限」，粘贴下面的 JSON 并确认导入。这个集合与适配器实际调用的机器人、消息、reaction、文件、卡片、群聊和成员 API 一致；聊天应用不需要通讯录写入、文档、会议或加急消息权限。'
+            '进入“权限管理”，选择“批量导入 / 导出权限”，粘贴下面的 JSON 并确认导入。这个集合与适配器实际调用的机器人、消息、reaction、文件、卡片、群聊和成员 API 一致；聊天应用不需要通讯录写入、文档、会议或加急消息权限。'
           ],
           batchImport: {
             label: '批量导入 JSON',
@@ -1538,7 +1538,7 @@ export const channelTabs = [
         {
           title: '启用长连接，并添加适配器事件',
           body: [
-            '在「事件与回调」中选择「使用长连接接收事件」，再逐项添加下面的事件。平台检查连接状态时，请保持 Ankole 控制面运行。'
+            '在“事件与回调”中选择“使用长连接接收事件”，再逐项添加下面的事件。平台检查连接状态时，请保持 Ankole 控制面运行。'
           ],
           copyItems: [
             { value: 'im.message.receive_v1', description: '接收发给机器人的消息' },
@@ -1665,7 +1665,7 @@ export const channelTabs = [
             {
               name: 'cardTemplateId',
               description:
-                '流式卡片回复用的 AI 卡片模板 id。首次测试可以留空；搭建步骤见下方「高级设置」。'
+                '流式卡片回复用的 AI 卡片模板 id。首次测试可以留空；搭建步骤见下方“高级设置”。'
             }
           ]
         }
@@ -1679,7 +1679,7 @@ export const channelTabs = [
           title: '创建 AI 卡片模板，并添加变量',
           body: [
             '钉钉卡片是模板托管的：版式保存在钉钉卡片平台上，Ankole 只往一组固定变量里写值。为一个钉钉组织搭一份模板即可，第一次大约需要二十分钟。前提：Agent 已能用纯文本回复，应用具备互动卡片实例写入和 AI 卡片流式更新权限。',
-            '打开钉钉开发者后台 → 卡片平台 → 新建模板，选择「AI 卡片」类别；只有这个类别带 AI 卡片容器，由它绘制输入指示、完成态和出错态。按下表逐个添加模板变量，名称必须完全一致；名称不一致时，对应区域在每次回复里都是空的。'
+            '打开钉钉开发者后台 → 卡片平台 → 新建模板，选择“AI 卡片”类别；只有这个类别带 AI 卡片容器，由它绘制输入指示、完成态和出错态。按下表逐个添加模板变量，名称必须完全一致；名称不一致时，对应区域在每次回复里都是空的。'
           ],
           fields: [
             { name: 'flowStatus', description: '文本。卡片状态：书写中 2、完成 3、失败 5。' },
@@ -2045,4 +2045,4 @@ Agent 的模型档案只保存模型引用，因此要先添加模型提供商�
 
 使用 Compose 时，运行 `docker compose logs -f control-plane worker`。使用 Kubernetes 时，查看控制面和 Worker Pod 的日志。只查看相关错误，不要输出环境变量或 secret。
 
-收到回复后，可以继续阅读 [Agent](../agents/)、[信号路由规则](../signal-bindings/)或[后台 Agent 任务](../background-jobs/)。
+收到回复后，可以继续阅读 [Agent](../agents/)、[信号路由规则](../signal-bindings/)或 [后台 Agent 任务](../background-jobs/)。

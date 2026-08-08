@@ -5,7 +5,7 @@ section: Developer guide
 order: 118
 ---
 
-每个回合，worker 构建模型看到的系统 prompt。该 prompt 从回合时解析的 PostgreSQL-backed agent 上下文组装，在 worker 上渲染。本页文档化各部件如何从控制面到达 worker、每个部件是什么、组装发生在哪里。它建立在 [Agent Computer Worker](../agent-computer-worker/) 和 [AIGateway](../ai-gateway/) 页之上。
+每个回合，worker 构建模型看到的系统 prompt。该 prompt 从回合时解析的 PostgreSQL-backed agent 上下文组装，在 worker 上渲染。本页说明各部件如何从控制面到达 worker、每个部件是什么、组装发生在哪里。它建立在 [Agent Computer Worker](../agent-computer-worker/) 和 [AIGateway](../ai-gateway/) 页之上。
 
 系统 prompt **在 Worker 上组装**，不在控制面。控制面通过两条通道提供 Agent 长期文档、Skill、Brain 快照、Agent 设置和聊天上下文；Worker 再把这些数据渲染成模型收到的最终 prompt。
 
@@ -18,7 +18,7 @@ worker 通过两条路径从控制面接收上下文，各携带一类数据：
 | `turn_start.request_context` | agent 循环设置（`ai_agent.max_iterations`、`max_output_tokens`、`inactivity_timeout_ms`）和回合局部事实（信号、回合种类） | 嵌入 TurnStart 信封，循环开始前 |
 | `AgentConversationContextBroker` RPC | Agent 长期文档（`SOUL`/`MISSION`/`DESIGN`）、已启用 skill、Brain 快照（pinned memo + channel 条目）、会话起始 channel、安装时区、agent profile | worker 在循环开始时经 RuntimeFabric RPC 获取 |
 
-划分是刻意的：回合局部事实走 `turn_start`，因为它们每回合变；会话范围上下文由 worker 经 broker 获取，因为它在一会话内跨回合稳定且 broker 缓存它。broker 模块文档明确："此 RPC 刻意不返回转写消息或回合局部请求上下文。转写历史归 AIGateway；回合局部事实走 `turn_start`。"
+划分是刻意的：回合局部事实走 `turn_start`，因为它们每回合变；会话范围上下文由 worker 经 broker 获取，因为这类上下文在一个会话内跨回合稳定，且 broker 会缓存它。broker 模块文档明确："此 RPC 刻意不返回转写消息或回合局部请求上下文。转写历史归 AIGateway；回合局部事实走 `turn_start`。"
 
 ## 控制面提供什么
 
@@ -28,11 +28,11 @@ worker 通过两条路径从控制面接收上下文，各携带一类数据：
 
 ### 已启用 skill
 
-`Library.skills_for_system_prompt/1` 返回 agent 的有效 skill 集——默认再覆盖启用的 skill，带其描述和元数据。worker 用它们构建系统 prompt 的 skill 块，告诉模型它有哪些 skill、各自做什么。
+`Library.skills_for_system_prompt/1` 返回 agent 的有效 skill 集——即按覆盖调整默认值之后启用的 skill——连同它们的描述和元数据。worker 用它们构建系统 prompt 的 skill 块，告诉模型它有哪些 skill、各自做什么。
 
 ### Brain 快照
 
-`Brain.Snapshot.get_or_create/1` 解析会话的 Brain scope 并返回快照：agent 的 pinned memo（`agent_context`）和 channel 的持久上下文（`group_context`）。这些是已保存的上下文条目——agent 被告知记住的持久事实——不是完整 Brain 知识库。快照是投影，不是查询；召回（完整搜索）在循环中通过 Brain 工具发生，不通过此快照。
+`Brain.Snapshot.get_or_create/1` 解析会话的 Brain scope 并返回快照：agent 的 pinned memo（`agent_context`）和 channel 的持久上下文（`group_context`）。这些是已保存的上下文条目——让 agent 记住的持久事实——不是完整 Brain 知识库。快照是投影，不是查询；召回（完整搜索）在循环中通过 Brain 工具发生，不通过此快照。
 
 ### 会话起始 channel
 
@@ -44,7 +44,7 @@ worker 通过两条路径从控制面接收上下文，各携带一类数据：
 
 - `ai_agent.max_iterations`（默认 90）——agent 循环的迭代预算
 - `ai_agent.max_output_tokens`（默认 nil = 无显式上限）——每响应 token 上限
-- `ai_agent.inactivity_timeout_ms`（默认 30 分钟）——回合可 inactive 多久
+- `ai_agent.inactivity_timeout_ms`（默认 30 分钟）——回合多久无活动后结束
 
 它们属于 actor 回合，不属于任何单次模型响应，所以走 `turn_start`。
 
@@ -66,7 +66,7 @@ worker 每回合从当前 PostgreSQL-backed 上下文重新渲染完整 prompt�
 - **回合局部观察**——信号、入境消息、用户当前输入。这些留在当前用户消息里，不在系统 prompt 里。
 - **Brain 召回结果**——召回（完整搜索）在循环中通过 Brain 工具发生，不作为系统 prompt 块。快照是底；召回是顶。
 
-这种分离让系统 prompt 稳定（它在人设/skill/记忆变化时变，不在会话增长时变），并让每回合载荷小。
+这种分离让系统 prompt 稳定（它在人设/skill/记忆变化时变，不在会话增长时变），并让每回合的载荷保持小巧。
 
 ## 本指南不是什么
 

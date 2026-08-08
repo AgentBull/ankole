@@ -39,7 +39,7 @@ openssl rand -hex 24
 数据库 URL 和 RuntimeFabric URL。
 
 公网部署时，把 `ANKOLE_HOST` 设置为指向该主机的域名，并设置 `ACME_EMAIL`。
-Caddy 会自动申请和续期公网 TLS certificate。防火墙和上游路由器必须允许
+Caddy 会自动申请和续期公网 TLS 证书。防火墙和上游路由器必须允许
 `80` 和 `443` 端口。
 
 只在本机部署时使用：
@@ -49,7 +49,7 @@ ANKOLE_HOST=ankole.localhost
 ACME_EMAIL=admin@example.com
 ```
 
-Caddy 此时使用本地 CA。首次启动后复制 CA root certificate，并在每台客户端上
+Caddy 此时使用本地 CA。首次启动后复制 CA 根证书，并在每台客户端上
 信任它：
 
 ```sh
@@ -58,7 +58,7 @@ docker compose cp \
   ./ankole-local-ca.crt
 ```
 
-使用操作系统的 certificate 工具信任 `ankole-local-ca.crt`。生产设置流程使用
+使用操作系统的证书工具信任 `ankole-local-ca.crt`。生产设置流程使用
 secure cookie，因此必须使用受信任的 HTTPS。
 
 ## 启动
@@ -80,10 +80,10 @@ docker compose logs control-plane | grep "SETUP ACTIVATION CODE"
 ```
 
 打开 `https://ANKOLE_HOST/setup`。输入 code，选择 Control Plane Plugin，然后
-配置管理员 identity provider。
+配置管理员的身份源。
 
-设置完成后，通过 Console 配置 provider、model profile、Agent Library
-capability、Agent、channel binding 和 WorkerEnv secret。不要把 provider API key
+设置完成后，通过 Console 配置模型提供商、模型档案、Agent Library 能力、
+Agent、聊天渠道绑定和 WorkerEnv 密钥。不要把模型提供商的 API key
 放进 `.env`。
 
 ## 镜像策略和升级
@@ -111,7 +111,7 @@ docker compose ps
 
 ## 备份
 
-创建 PostgreSQL archive：
+创建 PostgreSQL 归档：
 
 ```sh
 docker compose exec -T postgresql \
@@ -119,7 +119,7 @@ docker compose exec -T postgresql \
   > "ankole-$(date +%Y%m%d).dump"
 ```
 
-停止 Ankole 后，使用 volume snapshot 或文件系统备份保护
+停止 Ankole 后，使用卷快照或文件系统备份保护
 `ankole_agents_data`。PostgreSQL 数据位于 `ankole_postgresql_data`。请在独立
 主机上一起验证数据库和 Agent Home 恢复流程。
 
@@ -148,7 +148,7 @@ docker compose down
 docker compose up -d
 ```
 
-`docker compose down -v` 会删除 PostgreSQL、Agent Home 和 Caddy volume。
+`docker compose down -v` 会删除 PostgreSQL、Agent Home 和 Caddy 卷。
 只有明确要永久删除数据，并且已有经过验证的备份时才能执行。
 
 Compose 会在每个容器日志达到 20 MiB 时轮转，并保留五个文件。PostgreSQL 和
@@ -171,12 +171,12 @@ RuntimeFabric 位于 Docker internal network。只有 Caddy 会发布主机端�
 ## 故障排查
 
 - `migrate` 退出时，执行 `docker compose logs migrate postgresql`。检查密码、
-  已保留的数据库 volume 和剩余磁盘空间。
+  已保留的数据库卷和剩余磁盘空间。
 - 控制面没有启动时，执行
   `docker compose logs bootstrap-worker-auth-key control-plane`。
 - Worker 反复重连时，确认首次启动后没有修改 `.env` 中的 Worker key。
 - 浏览器拒绝设置流程时，检查 Caddy 日志、DNS、`80` 和 `443` 端口以及
-  certificate 信任状态。
+  证书信任状态。
 - Docker 环境拒绝 Worker security option 时，先确认它正在运行 Linux 容器，
   并支持 `SYS_ADMIN`、unconfined seccomp 和 system-path profile。没有等效
   sandbox 时，不要删除隔离设置。

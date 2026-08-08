@@ -49,7 +49,7 @@ export const commonIssues = [
     symptom: '插件已保存为启用，但初始化页面、身份源或信号路由页面里仍没有对应选项。',
     cause: '首次初始化会保留所有已编译插件，并用当前保存的选择过滤后续配置项。初始化完成后，Console 中保存的插件启停状态要在下一次控制面启动时生效。',
     resolution: [
-      '如果还在 /setup，返回「插件」步骤保存选择，再进入「管理员登录」；此时不需要重启。',
+      '如果还在 /setup，返回“插件”步骤保存选择，再进入“管理员登录”；此时不需要重启。',
       '如果初始化已经完成，请只重启控制面，不要删除数据，也不必重启 PostgreSQL。启动后确认插件已激活，再回到 Provider 页面。',
       '如果控制面启动失败，先处理日志中的插件初始化错误。'
     ],
@@ -130,7 +130,7 @@ export const identityTabs = [
         symptom: '首次同步有数据，但邀请、移除成员或调整用户组后，Ankole 没有及时变化。',
         cause: '实时同步依赖 Socket Mode。App-Level Token 缺失、前缀不是 xapp-、Socket Mode 未启用，或控制面不能访问 Slack。',
         resolution: [
-          '确认身份源提供商启用了「实时同步通讯录变更」，并填入有效的 App-Level Token。',
+          '确认身份源提供商启用了“实时同步通讯录变更”，并填入有效的 App-Level Token。',
           '确认 Slack 应用已启用 Socket Mode，控制面可以主动访问互联网。',
           '改过 App-Level Token 后更新 Ankole 中的值，再观察下一次目录变更。'
         ],
@@ -167,10 +167,10 @@ export const identityTabs = [
       {
         question: 'Entra ID 全量同步正常，但实时变更没有进来',
         symptom: '定时全量同步能修正数据，但组成员变化不能在几分钟内出现。',
-        cause: 'Graph 订阅需要 Microsoft 能访问 Ankole 的公共 HTTPS directory webhook。入口、证书或「Ankole 公网地址」不正确时，通知无法送达。',
+        cause: 'Graph 订阅需要 Microsoft 能访问 Ankole 的公共 HTTPS directory webhook。入口、证书或“Ankole 公网地址”不正确时，通知无法送达。',
         resolution: [
           '确认实例的公共 HTTPS 地址可从互联网访问，证书受信任。',
-          '核对「Ankole 公网地址」与实际入口；它决定 Graph 订阅的通知地址。',
+          '核对“Ankole 公网地址”与实际入口；它决定 Graph 订阅的通知地址。',
           '检查订阅调和日志；入口恢复后，让控制面重建或续订 Graph 订阅。'
         ],
         links: [
@@ -186,21 +186,21 @@ export const identityTabs = [
       {
         question: 'Google 账号有效，为什么仍被拒绝登录？',
         symptom: 'Google 授权成功，但 Ankole 返回 login_domain_not_allowed。',
-        cause: '登录账号不在「允许登录的 Workspace 域名」中，邮箱未经验证，或使用了没有 hd claim 的个人 Gmail 账号。',
+        cause: '登录账号不在“允许登录的 Workspace 域名”中，邮箱未经验证，或使用了没有 hd claim 的个人 Gmail 账号。',
         resolution: [
           '使用企业 Google Workspace 账号，不要使用个人 gmail.com 账号。',
-          '确认账号域名出现在「允许登录的 Workspace 域名」中，拼写与大小写正确。',
+          '确认账号域名出现在“允许登录的 Workspace 域名”中，拼写与大小写正确。',
           '只有企业确实使用多个 Workspace 域时，才添加多个允许域。'
         ]
       },
       {
         question: 'Google Workspace 登录正常，但通讯录同步为空或返回 403',
         symptom: '管理员可以登录 Console，但权限组和成员没有同步。',
-        cause: '目录同步走 Service Account，不走登录用的 OAuth Client。常见原因是没有开启全网域授权、授权范围不全，或「委派管理员邮箱」不能代表目录管理员。',
+        cause: '目录同步走 Service Account，不走登录用的 OAuth Client。常见原因是没有开启全网域授权、授权范围不全，或“委派管理员邮箱”不能代表目录管理员。',
         resolution: [
           '确认 Service Account 已启用 Domain-wide delegation。',
           '在 Workspace 管理后台为它授权快速开始列出的 Directory API scopes。',
-          '核对「委派管理员邮箱」和「服务账号 JSON 密钥」，再运行全量同步。'
+          '核对“委派管理员邮箱”和“服务账号 JSON 密钥”，再运行全量同步。'
         ]
       },
       {
@@ -209,7 +209,7 @@ export const identityTabs = [
         cause: 'Google Workspace 身份源目前只做全量同步，没有实时目录订阅。这是正常行为，不是 WebSocket 或 webhook 故障。',
         resolution: [
           '等待下一次全量同步，不要为此开放 webhook。',
-          '如果下一个同步周期后仍没有变化，再检查全网域授权、授权范围和「委派管理员邮箱」。',
+          '如果下一个同步周期后仍没有变化，再检查全网域授权、授权范围和“委派管理员邮箱”。',
           '确实需要实时同步通讯录变更时，可改用支持该能力的身份源提供商。'
         ],
         links: [
@@ -305,7 +305,7 @@ export const identityTabs = [
         symptom: '扫码后回不到 Ankole，或保存配置时提示 IP 不可信、错误码 60020。',
         cause: '企业微信要求服务端调用来自登记过的可信 IP。自建应用与通讯录同步各有一份可信 IP 列表，部署出口 IP 不在其中就会被拒绝。',
         resolution: [
-          '给 Ankole 部署固定出口 IP，并写入自建应用的「企业可信 IP」。',
+          '给 Ankole 部署固定出口 IP，并写入自建应用的“企业可信 IP”。',
           '通讯录同步的可信 IP 单独配置，同样要写入。',
           '确认登录回跳域名已配置为自建应用的可信域名。'
         ]
@@ -313,7 +313,7 @@ export const identityTabs = [
       {
         question: '企业微信能登录，但同步不到姓名或整个通讯录',
         symptom: '成员能扫码进入 Console，但主体没有姓名，或通讯录同步为空。',
-        cause: '自 2022 年 6 月起，普通应用 Secret 拿不到成员姓名等字段。同步必须使用「管理工具 → 通讯录同步」的专用 Secret。',
+        cause: '自 2022 年 6 月起，普通应用 Secret 拿不到成员姓名等字段。同步必须使用“管理工具 → 通讯录同步”的专用 Secret。',
         resolution: [
           '在企业微信后台开启通讯录 API 同步，把专用 Secret 填入身份源提供商。',
           '为这个 Secret 配置它自己的可信 IP。',
@@ -532,7 +532,7 @@ export const channelTabs = [
   }
 ]
 
-这不是产品介绍，也不重复第三方平台的完整配置步骤。请先找到最早出现的异常，再选择对应的身份源或聊天平台。完整安装与首次设置仍以[快速开始](../quickstart/)为准。
+这不是产品介绍，也不重复第三方平台的完整配置步骤。请先找到最早出现的异常，再选择对应的身份源或聊天平台。完整安装与首次设置仍以 [快速开始](../quickstart/) 为准。
 
 ## 先判断问题在哪一层
 

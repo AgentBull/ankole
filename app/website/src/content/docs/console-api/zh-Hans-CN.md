@@ -7,17 +7,17 @@ order: 203
 
 本页是 Console API 的 REST 参考：鉴权入口、`/api/v1` 下的路由，以及每条路由所执行的权限动作。
 
-先把决定性的性质说清楚：Console API 是无状态、bearer 鉴权的，并且它在每一次请求上重新确认调用方仍然是一个活跃管理员。没有 session cookie 替你扛这件事，一个被禁用的管理员立即失效，而不是下一次登录才失效。
+先说明最关键的一点：Console API 是无状态、bearer 鉴权的，并且它在每一次请求上重新确认调用方仍然是一个活跃管理员。没有 session cookie 替你扛这件事，一个被禁用的管理员立即失效，而不是下一次登录才失效。
 
 ## 门
 
 `/api/v1` 下的每一条路由都经过 `:console_api` 管线和 `RequireConsoleAccessToken` 插件。插件跑三项彼此独立的检查，缺一不可：
 
 1. 一个格式正确的 `Authorization: Bearer` 头；
-2. 一个能通过验证的 console JWT；
+2. 一个能通过验证的 Console JWT；
 3. JWT 所指的那个主体仍然是一个活跃管理员。
 
-成功时，它把主体和 claims 存进 conn assigns，供下游的策略检查使用；任何一项失败都以 `401` 中止。这是 session 加 CSRF 为浏览器界面所做的事的逐请求、无 cookie 等价物。不存在第二条更弱的进入这些路由的路径。
+成功时，它把主体和 claims 存进 conn assigns，供下游的策略检查使用；任何一项失败都以 `401` 中止。浏览器界面靠 session 与 CSRF 做到的事，这里以逐请求、无 cookie 的方式等价实现。不存在第二条更弱的进入这些路由的路径。
 
 ## 配置界面
 
@@ -46,11 +46,11 @@ order: 203
 | `PUT` | `/agents/:agent_uid/model-profiles/:profile` | 创建或替换一个 profile |
 | `DELETE` | `/agents/:agent_uid/model-profiles/:profile` | 移除一个 profile |
 
-Provider 凭证以加密池成员的形式保存在控制面，绝不放进 Agent 环境。model profile 把 Agent 绑定到一个 Provider 和模型；AIGateway 在该 Provider 内选择健康成员。API 投影只返回安全的账号事实、健康状态、限额数据和用量。
+Provider 凭证以加密池成员的形式保存在控制面，绝不放进 Agent 环境。model profile 把 Agent 绑定到一个 Provider 和模型；AIGateway 在该 Provider 内选择健康成员。API 投影只返回脱敏的账号事实、健康状态、限额数据和用量。
 
 ### agent 及其能力
 
-agent 是这样一个单位：运维者围绕它配置其它一切：
+agent 是核心单位，运维者的其它配置都围绕它展开：
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
@@ -78,7 +78,7 @@ agent 是这样一个单位：运维者围绕它配置其它一切：
 
 ### Agent Library 能力
 
-Agent Library 是一个 agent 能做什么——它的 plugin 和 skill。Console 暴露两层范围：一个全局默认值，一层按 agent 的覆盖：
+Agent Library 是一个 agent 能做什么——它的 plugin 和 skill。Console 暴露两层范围：一层全局默认值，一层按 agent 的覆盖：
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
@@ -111,7 +111,7 @@ Agent Computer Worker 运行时可能需要 API key、token 等环境变量。Co
 | `DELETE` | `/agents/:agent_uid/worker-envs/:name` | 从一个 agent 上摘下一个条目 |
 | `POST` | `/worker-envs/:name/decryptions` | 解密一个条目（受审计、受特权保护） |
 
-解密是一项独立的、受审计的操作。列出和读取返回的是元数据，不是 secret 值。worker 只在一个回合开始时收到它的环境；改动在下一个回合生效，不在一个已经在跑的回合上生效。
+解密是一项独立的、受审计的操作。列出和读取返回的是元数据，不是 secret 值。worker 只在一个回合开始时收到它的环境；改动在下一个回合生效，不会在已经开始执行的回合上生效。
 
 ### Control Plane Plugin
 
@@ -138,21 +138,21 @@ Control Plane Plugin 是改变控制面自身行为的第一方扩展，例如 s
 
 ## 读取界面
 
-除了配置，Console 也是系统其余部分的可观测路径——每一个已经成文的子系统，在这里都有它的读取界面：
+除了配置，Console 也是系统其余部分的可观测路径——每一个已经实现的子系统，在这里都有它的读取界面：
 
 - **进行中的 agent**：`/agents/:agent_uid/sessions`，每个 session 的 cron schedule 和 checkback。
 - **worker**：`/agent-computer-workers`，按 worker 上传、移动、列出文件。
 - **任务**：`/background-agent-jobs`（列出、读取、取消）。
 - **AI 活动**：`/ai-gateway/conversations`，按会话读取消息。
 - **记忆**：完整的 `/brain/*` 界面——条目、source、审计日志、dreaming 运行与 fitness、还原。
-- **主体与 AuthZ**：`/principals`、`/principal-groups`、`/permission-grants`。权限模型见[主体与 AuthZ](../principal-authz/)。
+- **主体与 AuthZ**：`/principals`、`/principal-groups`、`/permission-grants`。权限模型见 [主体与 AuthZ](../principal-authz/)。
 
 ## 关于这里不包含什么
 
-`/webhooks/*` 和 `/api/v1/ai-gateway/*` 路由刻意不放在 `console_api` 下。webhook 入口鉴权的是 provider，不是管理员；AIGateway 运行时 API 鉴权的是用于实时 AI 调用的 agent 或 admin token。Console 是运维者的配置界面，也是唯一一个信任管理员 bearer token 去改变部署行为的界面。
+`/webhooks/*` 和 `/api/v1/ai-gateway/*` 路由刻意不放在 `console_api` 下。webhook 入口鉴权的是 provider，不是管理员；AIGateway 运行时 API 验证的是用于实时 AI 调用的 agent 或 admin token。Console 是运维者的配置界面，也是唯一一个信任管理员 bearer token 去改变部署行为的界面。
 
 ## 下一步
 
 - Console 所配置的那些运行时界面，读 [AIGateway API](../ai-gateway/)、[SignalsGateway](../signals-gateway/)、[Actor Runtime](../actor-runtime/)。
-- Console 使用的权限模型，见[主体与 AuthZ](../principal-authz/)。
-- 如果还没有运行中的实例，请先阅读[快速开始的部署部分](../quickstart/#deployment)。
+- Console 使用的权限模型，见 [主体与 AuthZ](../principal-authz/)。
+- 如果还没有运行中的实例，请先阅读 [快速开始的部署部分](../quickstart/#deployment)。

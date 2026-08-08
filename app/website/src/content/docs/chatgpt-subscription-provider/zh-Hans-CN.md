@@ -53,4 +53,4 @@ Console 会优先使用官方设备码登录。若该入口不可用，Console �
 
 所有调用仍然通过 AIGateway。网关会尽量让同一个有状态 thread 使用同一账号，在可重试的 Provider 失败后轮换池成员，但不会切换到另一个 Provider。若所有成员都不可用，交互式调用会返回带下一次恢复时间的限额错误；后台 Agent 任务会回到 `queued`，等最早可恢复的池成员。
 
-后台任务如何创建、控制和排障，见[后台 Agent 任务](../background-jobs/)。
+后台任务如何创建、控制和排障，见 [后台 Agent 任务](../background-jobs/)。

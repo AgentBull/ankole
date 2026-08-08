@@ -5,9 +5,9 @@ section: Developer guide
 order: 115
 ---
 
-AIGateway provider 是 Ankole 与上游 AI 服务通信的方式——LLM、embedding 模型、web 搜索 API。本页是贡献者 walkthrough：provider DSL、它产出的编译后 `ProviderDefinition`、provider 声明的设置与能力、拥有请求构造的 prepare 函数。它建立在 [AIGateway](../ai-gateway/) 概念页之上；本页是*如何添加一个 provider*。
+AIGateway provider 是 Ankole 与上游 AI 服务通信的方式——LLM、embedding 模型、web 搜索 API。本页带贡献者走完整个流程：provider DSL、它产出的编译后 `ProviderDefinition`、provider 声明的设置与能力、拥有请求构造的 prepare 函数。它建立在 [AIGateway](../ai-gateway/) 概念页之上；本页是*如何添加一个 provider*。
 
-先把决定性的性质说清楚：provider 模块在 Elixir 里拥有请求准备；Rust `UniversalAIClient` 拥有线上——传输、编码、响应归一化。编译后的定义只描述稳定的元数据、设置、以及哪个 prepare 函数拥有哪种能力。provider 不是完整的 HTTP 客户端；它是一个 prepare 函数加一份声明。
+先说明最关键的一点：provider 模块在 Elixir 里拥有请求准备；Rust `UniversalAIClient` 拥有线上——传输、编码、响应归一化。编译后的定义只描述稳定的元数据、设置、以及哪个 prepare 函数拥有哪种能力。provider 不是完整的 HTTP 客户端；它是一个 prepare 函数加一份声明。
 
 ## provider DSL
 
@@ -37,7 +37,7 @@ defmodule Ankole.AIGateway.Providers.MyProvider do
 end
 ```
 
-`provider` 块编译成一个 `ProviderDefinition` 结构体，运行时被 AIGateway 注册表消费。
+`provider` 块编译成一个 `ProviderDefinition` 结构体，供 AIGateway 注册表在运行时使用。
 
 ## 编译后的定义
 
@@ -45,18 +45,18 @@ end
 
 | 字段 | 含义 |
 |---|---|
-| `provider_kind` | 存储的 provider 行和模型绑定使用的稳定 id |
+| `provider_kind` | 存储的 provider 行和模型绑定使用的稳定 ID |
 | `label` | Console 用的本地化显示名 |
 | `module` | provider 模块本身 |
 | `base_url` | 默认上游 URL（运维者可覆盖） |
 | `settings` | 声明的 `Setting` 列表 |
 | `capabilities` | 声明的 `Capability` 列表 |
 
-注册表按 `provider_kind` 解析 provider、查找请求能力种类对应的能力、调用能力的 `prepare` 函数、把结果交给 `UniversalAIClient`。
+注册表按 `provider_kind` 解析 provider，再按请求的能力种类找出对应能力，调用该能力的 `prepare` 函数，把结果交给 `UniversalAIClient`。
 
 ## 设置
 
-`Setting` 声明一个运维者或请求选项：
+`Setting` 声明一个设置项（运维者设置或请求选项）：
 
 ```elixir
 setting(:api_key, encrypted: true, scope: :credential)
@@ -76,7 +76,7 @@ setting(:reasoningEffort, type: :select, default: "high",
 | `advanced?` | Console 表单的呈现元数据；不改变校验或运行时 |
 | `scope` | `:credential`（按池成员）、`:connection`（按 Provider 行）或 `:request`（按 model profile） |
 
-每个 Provider 行都有凭据池，单成员也是池的退化情况。Resolver 在调用 prepare 函数前选择一个健康成员，并解密它的 `:credential` 设置。端点和自定义请求头等 connection 设置由整行共享；request 设置来自 model profile。prepare 函数从解析后的同一个 settings map 读取三种 scope，不实现池选择。
+每个 Provider 行都有一个凭据池，即使池里只有一个成员。Resolver 在调用 prepare 函数前选择一个健康成员，并解密它的 `:credential` 设置。端点和自定义请求头等 connection 设置由整行共享；request 设置来自 model profile。prepare 函数从解析后的同一个 settings map 读取三种 scope，不实现池选择。
 
 `advanced?` 仅控制呈现。它在 Console 中把字段放进高级设置，不改变校验或行为。
 
@@ -119,20 +119,20 @@ def prepare_language_model(%PrepareContext{} = context) do
 end
 ```
 
-Provider 的差异住在这里——URL 构造、auth 头、体塑形和特定上游 API 的规则。prepare 函数是 Provider 的实际工作；DSL 声明说明这些工作如何被发现和路由。凭据重试不属于 prepare 函数：控制面可以改选池成员、重建请求，再让 kernel 执行一次新的传输尝试。
+Provider 的差异就在这里——URL 构造、auth 头、体塑形和特定上游 API 的规则。prepare 函数是 Provider 的实际工作；DSL 声明决定了这些工作如何被发现和路由。凭据重试不属于 prepare 函数：控制面可以改选池成员、重建请求，再让 kernel 执行一次新的传输尝试。
 
 ## 注册 provider
 
 第一方 provider 编译进发布、被注册表发现。对于 plugin 贡献的 provider，在一个 Control Plane Plugin 的 `adapter_declarations/0` 里通过 `ai_gateway.provider` 契约声明，注册表从 plugin 的声明里捡起它——与 signal adapter 同一模型，不同契约 id。
 
-Plugin 的注册方法见[开发 Skill 与 Control Plane Plugin](../writing-a-skill/)；Provider 契约是 `ai_gateway.provider`，kind ID 必须匹配 `~r/\A[a-z][a-z0-9_]{0,62}\z/`。
+Plugin 的注册方法见 [开发 Skill 与 Control Plane Plugin](../writing-a-skill/)；Provider 契约是 `ai_gateway.provider`，kind ID 必须匹配 `~r/\A[a-z][a-z0-9_]{0,62}\z/`。
 
 ## 本指南不是什么
 
-它不是 HTTP 客户端教程——prepare 函数构建准备好的请求，Rust 客户端做 HTTP。它不是绕过 kernel 传输的途径；`api_resolver` 和 `upstream` 线上形态是 Rust `UniversalAIClient` 拥有的东西，provider 从已有 resolver 里选，而非发明自己的传输。它也不是读已有 provider 的替代；`lib/ankole/ai_gateway/providers/` 是权威参考，最简单的一个（OpenAI 或 openai_compatible）是正确的起点。
+它不是 HTTP 客户端教程——prepare 函数构建准备好的请求，Rust 客户端做 HTTP。它不是绕过 kernel 传输的途径；`api_resolver` 和 `upstream` 线上形态是 Rust `UniversalAIClient` 拥有的东西，provider 从已有 resolver 里选，而非发明自己的传输。它也不能替代阅读已有 provider 的代码；`lib/ankole/ai_gateway/providers/` 是权威参考，最简单的一个（OpenAI 或 openai_compatible）是正确的起点。
 
 ## 下一步
 
 - AIGateway 概念（路由、解析、统一边界），读 [AIGateway](../ai-gateway/)。
-- Plugin 注册方法，读[开发 Skill 与 Control Plane Plugin](../writing-a-skill/)。
-- 首次配置 Provider，读[快速开始](../quickstart/#3-添加模型提供商并创建-agent)。
+- Plugin 注册方法，读 [开发 Skill 与 Control Plane Plugin](../writing-a-skill/)。
+- 首次配置 Provider，读 [快速开始](../quickstart/#3-添加模型提供商并创建-agent)。

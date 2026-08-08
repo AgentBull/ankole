@@ -1,5 +1,10 @@
 # Changelog
 
+## Version 0.61.6 (2026-08-09)
+
+- Proofread and revise every Chinese documentation page under `app/website/src/content/docs`. Replace literal-translation phrasing, fix grammar and punctuation (including full-width punctuation in `cli-capabilities` and unified quote marks in `faq` and `quickstart`), add consistent spacing between Chinese text and links, and unify recurring terms such as `ID`, `sandbox`, and emit-event wording.
+- Finish a second translation-quality pass over the Chinese docs, converting remaining English-verb-in-prose residues (`drifting`, `live`, `文档化`, `住在这里`) into natural Chinese and unwinding literal constructions such as 「把决定性…」、`own what happens around the loop`, and 「的替代」-style double possessives. Also translate the mixed-language prose in `README.zh-Hans.md`, `docs/README.zh-Hans.md`, and the Compose/Helm/OpenAPI readmes so paragraph text reads as Chinese while product names, commands, and API tokens stay as-is. No technical content or product behavior changes.
+
 ## Version 0.61.5 (2026-08-08)
 
 - Upgrade dependencies.

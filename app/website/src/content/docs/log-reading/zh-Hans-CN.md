@@ -61,6 +61,6 @@ kubectl -n ankole logs deployment/ankole-agent-computer-worker --since=30m
 
 `ANKOLE_LOG_LEVEL` 控制日志级别，默认是 `info`。需要复现难以定位的问题时，可以暂时改为 `debug` 并重启对应服务；复现结束后恢复原值，避免持续产生大量日志。
 
-`ANKOLE_LOG_FORMAT` 可以设置为 `json` 或 `pretty`。若已有日志采集系统，请保持其期望的格式。完整变量说明见[部署环境变量参考](../environment-variables/)。
+`ANKOLE_LOG_FORMAT` 可以设置为 `json` 或 `pretty`。若已有日志采集系统，请保持其期望的格式。完整变量说明见 [部署环境变量参考](../environment-variables/)。
 
 更多按现象分类的检查见 [FAQ](../faq/)。

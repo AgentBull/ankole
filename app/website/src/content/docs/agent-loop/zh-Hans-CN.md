@@ -5,13 +5,13 @@ section: Developer guide
 order: 117
 ---
 
-一个回合是跨两个运行时的工作单位：Elixir 控制面调度并隔离它，Bun worker 在其中跑 agent 循环。本页文档化两者之间的边界——控制面的 `TurnLifecycle` 拥有什么、worker 的 `runAgentLoop` 拥有什么、它们如何经 RuntimeFabric 通信。它建立在 [Actor Runtime](../actor-runtime/) 和 [Agent Computer Worker](../agent-computer-worker/) 页之上；本页是它们之间的回合级细节。
+一个回合是跨两个运行时的工作单位：Elixir 控制面调度并隔离它，Bun worker 在其中跑 agent 循环。本页说明两者之间的边界——控制面的 `TurnLifecycle` 拥有什么、worker 的 `runAgentLoop` 拥有什么、它们如何经 RuntimeFabric 通信。它建立在 [Actor Runtime](../actor-runtime/) 和 [Agent Computer Worker](../agent-computer-worker/) 页之上；本页补上两者之间回合级的细节。
 
-先把决定性的性质说清楚：控制面拥有回合的*身份与提交*；worker 拥有回合的*执行*。worker 决定循环何时结束；控制面决定回合结果是否持久。worker 报告完成的回合，在控制面提交前不持久。
+先说明最关键的一点：控制面拥有回合的*身份与提交*；worker 拥有回合的*执行*。worker 决定循环何时结束；控制面决定回合结果是否持久。worker 报告完成的回合，在控制面提交前不持久。
 
 ## 控制面侧：TurnLifecycle
 
-`Ankole.SignalsGateway.ActorRuntime.TurnLifecycle` 拥有循环周围发生的事，不是循环内部。其职责：
+`Ankole.SignalsGateway.ActorRuntime.TurnLifecycle` 负责循环周边发生的事，不负责循环内部。其职责：
 
 | 职责 | 做什么 |
 |---|---|
@@ -21,7 +21,7 @@ order: 117
 | **回合提交** | worker 报告成功时，将回合结局记录为持久事实 |
 | **Activation 过期** | `fail_activation_if_expired/2` 捕获租约用完的卡住或崩溃回合 |
 
-回合错误重试预算住在这里，不在 worker：最多 5 次尝试（`@worker_turn_error_dead_letter_attempts`），指数退避在 5 到 120 秒之间（`@worker_turn_error_retry_base_seconds` 和 `@max`）。每次失败抬高 epoch，使失败尝试的迟到回复无法匹配后续重试。
+回合错误的重试预算就在这里，不在 worker：最多 5 次尝试（`@worker_turn_error_dead_letter_attempts`），指数退避在 5 到 120 秒之间（`@worker_turn_error_retry_base_seconds` 和 `@max`）。每次失败抬高 epoch，使失败尝试的迟到回复无法匹配后续重试。
 
 控制面**不**决定模型说什么、agent 调哪些工具、循环跑多少迭代。那些是 worker 的。
 
@@ -46,7 +46,7 @@ worker 还拥有三种恢复轻推：empty-after-tools 轻推（模型执行了�
 agent 循环模块文档明确：worker **不**拥有历史扩展、compaction、续接锚点或持久响应状态。那些留在 AIGateway。worker：
 
 - 不决定模型看到多少历史（AIGateway 的有状态 Responses 拥有它，含 compaction）；
-- 不存储会话（AIGateway 做）；
+- 不存储会话（AIGateway 的事）；
 - 不决定回合副作用是否提交（控制面做）。
 
 这是让 worker 可替换的划分：worker 跑循环，AIGateway 拥有转写，控制面拥有提交。
@@ -59,7 +59,7 @@ agent 循环模块文档明确：worker **不**拥有历史扩展、compaction�
 | Worker → 控制面 | 进度信封（检查点、活动摘要）、回合失败时的 `TurnError`、或回合的自然完成 |
 | Worker → AIGateway | 模型调用、function-call 输出（这些不经控制面） |
 
-每条 worker 消息带 `ActorTurnRef`（`activation_uid`、`actor_epoch`、`actor_event_id`）。控制面拿去和当前 activation 核对；ref 不再匹配的消息被当作过期拒绝。这是 [Actor Runtime](../actor-runtime/) 的三重隔离栏，从回合层看到的。
+每条 worker 消息带 `ActorTurnRef`（`activation_uid`、`actor_epoch`、`actor_event_id`）。控制面拿去和当前 activation 核对；ref 不再匹配的消息被当作过期拒绝。这是从回合层看到的 [Actor Runtime](../actor-runtime/) 三重隔离栏。
 
 ## 重试边界
 
@@ -79,4 +79,4 @@ worker 不自行重试。它报告错误，控制面拥有重试决定，因为�
 - activation 隔离栏与 actor 模型，读 [Actor Runtime](../actor-runtime/)。
 - 跑循环的 worker，读 [Agent Computer Worker](../agent-computer-worker/)。
 - 循环调用的有状态 Responses 传输，读 [AIGateway](../ai-gateway/)。
-- compaction（worker 不拥有），读[上下文压缩与 compaction](../context-compression-and-caching/)。
+- compaction（worker 不拥有），读 [上下文压缩与 compaction](../context-compression-and-caching/)。

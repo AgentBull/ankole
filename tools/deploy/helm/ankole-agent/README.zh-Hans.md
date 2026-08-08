@@ -158,11 +158,11 @@ kubectl -n ankole logs deployment/ankole-control-plane \
 ```
 
 打开 `https://ankole.example.com/setup`，输入 code，选择 Control Plane Plugin，
-然后配置管理员 identity provider。生产镜像使用 secure cookie，因此浏览器设置
+然后配置管理员的身份源。生产镜像使用 secure cookie，因此浏览器设置
 流程必须使用 HTTPS。
 
-设置完成后，通过 Console 配置 provider、model profile、Agent Library
-capability、Agent、channel binding 和 WorkerEnv secret。不要把 provider API key
+设置完成后，通过 Console 配置模型提供商、模型档案、Agent Library 能力、
+Agent、聊天渠道绑定和 WorkerEnv 密钥。不要把模型提供商的 API key
 写进 Helm values。
 
 ## 镜像策略和升级
@@ -210,7 +210,7 @@ Chart 对单个控制面 Pod 和 Worker 都使用 `Recreate`。升级会产生�
 ## 存储和备份
 
 Agent Home 是权威的 Worker 文件状态。Chart 强制使用 RWX PVC，并挂载到
-`/agents`。Chart 创建的 Agent Home PVC 带有 Helm `keep` policy，因此
+`/agents`。Chart 创建的 Agent Home PVC 带有 Helm 的保留策略（`keep`），因此
 `helm uninstall` 不会删除它。
 
 内置 PostgreSQL StatefulSet 在删除或缩容后保留 PVC。请单独备份数据库：

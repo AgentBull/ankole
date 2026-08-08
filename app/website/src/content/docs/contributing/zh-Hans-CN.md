@@ -5,9 +5,9 @@ section: Guides
 order: 321
 ---
 
-为 Ankole 做贡献意味着在第一次编辑前读两份文档，并遵循它们定义的路径。本页是地图：指向权威来源、命名穿过它们的路径、并刻意不复制任一份。若本页与源文档冲突，源文档正确。
+为 Ankole 做贡献意味着在第一次编辑前读两份文档，并遵循它们定义的路径。本页是地图：指向权威来源、标出穿过它们的路径、并刻意不复制任一份。若本页与源文档冲突，源文档正确。
 
-先把决定性的性质说清楚：Ankole 的贡献规则不是可选约定——它们由项目的评审流程和门控每次提交的 changelog 规则强制。跳过 [`AGENTS.md`](https://github.com/AgentBull/ankole/blob/main/AGENTS.md) 或 [`CONTRIBUTING.md`](https://github.com/AgentBull/ankole/blob/main/CONTRIBUTING.md) 的贡献会被要求回去读。先读。
+先说明最关键的一点：Ankole 的贡献规则不是可选约定——它们由项目的评审流程和门控每次提交的 changelog 规则强制。跳过 [`AGENTS.md`](https://github.com/AgentBull/ankole/blob/main/AGENTS.md) 或 [`CONTRIBUTING.md`](https://github.com/AgentBull/ankole/blob/main/CONTRIBUTING.md) 的贡献会被要求回去读。先读。
 
 ## 拥有规则的两份文档
 
@@ -27,7 +27,7 @@ order: 321
 5. **完成首次产品设置**——激活、创建飞书测试应用、配置 OIDC、在 Console 配置运行时。
 6. **证明端到端路径**——一条真实飞书消息到达 agent 并收到预期回复。
 
-页面能打开不算设置完成。一条真实消息往返完成才算。短路径见[快速开始](../quickstart/)，完整验收见 [`CONTRIBUTING.md`](https://github.com/AgentBull/ankole/blob/main/CONTRIBUTING.md)。
+页面能打开不算设置完成。一条真实消息往返完成才算。短路径见 [快速开始](../quickstart/)，完整验收见 [`CONTRIBUTING.md`](https://github.com/AgentBull/ankole/blob/main/CONTRIBUTING.md)。
 
 ## 如何做改动
 
@@ -50,7 +50,7 @@ order: 321
 - 版本使用无前导零的 `MAJOR.MINOR.PATCH`。功能层面的变动增加 `MINOR`，并将 `PATCH` 重置为 `0`。依赖升级、bug 修复、文档变动和其他不新增或改变产品能力的维护变动增加 `PATCH`。一次提交同时包含两类变动时，增加 `MINOR`。只有维护者明确决定时才改变 `MAJOR`。
 - 提交前立即从确切的暂存 diff 准备条目。
 
-changelog 是*唯一*的 changelog 和版本单元——没有单独的 release notes 文件。`main` 的运行时镜像构建通过镜像对验证后，工作流会用最新版本标记 control-plane 和 Worker 镜像，并从该版本的原文创建不可变的 GitHub Release。把 changelog 当作改动的一部分，不是事后的文书。
+changelog 是*唯一*的 changelog 和版本单元——没有单独的 release notes 文件。`main` 的运行时镜像构建通过镜像对验证后，工作流会用最新版本标记 control-plane 和 Worker 镜像，并用该版本的 changelog 段落创建不可变的 GitHub Release。把 changelog 当作改动的一部分，不是事后的文书。
 
 ## 跑对的检查
 
@@ -69,11 +69,11 @@ changelog 是*唯一*的 changelog 和版本单元——没有单独的 release 
 
 ## 本指南不是什么
 
-它不是两份文档的替代——它是通往它们的门。它不是不读就编辑的许可；`AGENTS.md` 刻意很短，读它是贡献能做的最便宜的事。它也不是争论规则的地方；规则是已定的权衡，本地偏好不是发现——改为评估实现是否在所选方向内一致。
+它不是两份文档的替代——它是通往它们的门。它不是不读就编辑的许可；`AGENTS.md` 刻意很短，读它是贡献者成本最低的一步。它也不是争论规则的地方；规则是已定的权衡，本地偏好不是发现——改为评估实现是否在所选方向内一致。
 
 ## 下一步
 
 - 第一次编辑前读 [`AGENTS.md`](https://github.com/AgentBull/ankole/blob/main/AGENTS.md)。
 - 设置与验收按 [`CONTRIBUTING.md`](https://github.com/AgentBull/ankole/blob/main/CONTRIBUTING.md)。
 - devkit 命令用 [kit CLI 参考](../kit-cli/)。
-- 改动跨的子系统边界，读[架构概览](../architecture/)。
+- 改动跨的子系统边界，读 [架构概览](../architecture/)。

@@ -41,7 +41,7 @@ Agent 可以使用 `web_search` 查找公开网页，再用 `web_fetch` 读取�
 
 这两项模型档案只需要选择 Provider，不需要选择模型或填写上下文长度。Provider 类型声明自己支持哪些能力，所以列表只会显示与当前档案匹配的实例。
 
-如果列表中没有可选项，请先添加对应 Provider。首次添加方法见[快速开始](../quickstart/#3-添加模型提供商并创建-agent)。
+如果列表中没有可选项，请先添加对应 Provider。首次添加方法见 [快速开始](../quickstart/#3-添加模型提供商并创建-agent)。
 
 ## 当前内置 Provider
 
