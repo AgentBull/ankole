@@ -26,10 +26,12 @@ import {
   assistantText,
   createModelTurn,
   describeTruncatedToolCalls,
+  isWebSocketAbortError,
   MAX_TOOL_ARGUMENT_BYTES,
   validateToolArgumentsWithRepair,
   type Message,
   type AssistantMessage,
+  type ModelCallResult,
   type ToolResultMessage,
   type UserMessage,
   type ImageContent,
@@ -138,54 +140,91 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
           )
         : undefined
 
-      // Call the model.
+      // Call the model. Steering may preempt the in-flight provider call; the
+      // watcher spans local retry attempts and the turn-scoped abort stays
+      // fatal. A preempted round keeps its pending input because that input
+      // never became a durable response.
       modelIterations += 1
       let modelAttempt = 0
-      const result = await withRetry(
-        async () => {
-          modelAttempt += 1
-          const startedAt = Date.now()
-          const requestFields = modelCallFields(config, modelIterations, modelAttempt, pendingMessages, tools)
-          config.logger?.info('worker.model_call_started', 'worker model call started', requestFields)
-          config.onActivity?.('model_call_start')
-          try {
-            const result = await modelTurn.call({
-              instructions: config.systemPrompt,
-              messages: pendingMessages,
-              tools: tools as never,
-              hostedTools: config.hostedTools,
-              programmaticToolCalling,
-              maxOutputTokens: config.maxTokens,
-              temperature: config.temperature,
-              text: config.text
-            })
-            config.onActivity?.('model_call_done')
-            const terminalError = terminalModelError(result.message)
-            if (terminalError) throw terminalError
-            config.logger?.info('worker.model_call_completed', 'worker model call completed', {
-              ...requestFields,
-              duration_ms: Date.now() - startedAt,
-              response_id: result.responseID,
-              stop_reason: result.message.stopReason
-            })
-            return result
-          } catch (error) {
-            const retryable = isLocallyRetryableLLMError(error)
-            config.logger?.warning('worker.model_call_failed', 'worker model call failed', {
-              ...requestFields,
-              duration_ms: Date.now() - startedAt,
-              ...modelErrorFields(error),
-              will_retry: modelAttempt < 3 && retryable && !config.abortSignal?.aborted
-            })
-            throw error
+      const steerPreempt = new AbortController()
+      const steerWatch = new AbortController()
+      if (config.waitForSteering) {
+        void config.waitForSteering(steerWatch.signal).then(
+          () => steerPreempt.abort(),
+          () => {}
+        )
+      }
+
+      let result: ModelCallResult
+      try {
+        result = await withRetry(
+          async () => {
+            modelAttempt += 1
+            const startedAt = Date.now()
+            const requestFields = modelCallFields(config, modelIterations, modelAttempt, pendingMessages, tools)
+            config.logger?.info('worker.model_call_started', 'worker model call started', requestFields)
+            config.onActivity?.('model_call_start')
+            try {
+              const result = await modelTurn.call({
+                instructions: config.systemPrompt,
+                messages: pendingMessages,
+                tools: tools as never,
+                hostedTools: config.hostedTools,
+                programmaticToolCalling,
+                maxOutputTokens: config.maxTokens,
+                temperature: config.temperature,
+                text: config.text,
+                preemptSignal: steerPreempt.signal
+              })
+              config.onActivity?.('model_call_done')
+              const terminalError = terminalModelError(result.message)
+              if (terminalError) throw terminalError
+              config.logger?.info('worker.model_call_completed', 'worker model call completed', {
+                ...requestFields,
+                duration_ms: Date.now() - startedAt,
+                response_id: result.responseID,
+                stop_reason: result.message.stopReason
+              })
+              return result
+            } catch (error) {
+              const retryable = isLocallyRetryableLLMError(error)
+              config.logger?.warning('worker.model_call_failed', 'worker model call failed', {
+                ...requestFields,
+                duration_ms: Date.now() - startedAt,
+                ...modelErrorFields(error),
+                will_retry: modelAttempt < 3 && retryable && !config.abortSignal?.aborted
+              })
+              throw error
+            }
+          },
+          {
+            maxAttempts: 3,
+            signal: config.abortSignal,
+            isRetryable: isLocallyRetryableLLMError
           }
-        },
-        {
-          maxAttempts: 3,
-          signal: config.abortSignal,
-          isRetryable: isLocallyRetryableLLMError
-        }
-      )
+        )
+      } catch (error) {
+        const preempted = steerPreempt.signal.aborted && !config.abortSignal?.aborted && isWebSocketAbortError(error)
+        if (!preempted) throw error
+
+        const steeringMessages = config.getSteeringMessages ? await config.getSteeringMessages() : []
+        config.logger?.info('worker.model_call_preempted', 'worker model call preempted by steering', {
+          model_iteration: modelIterations,
+          steering_message_count: steeringMessages.length
+        })
+        pendingMessages = [...pendingMessages, ...steeringMessages]
+        await emitPresentationEvent({
+          kind: 'turn.phase',
+          payload: {
+            operation_id: 'turn',
+            state: 'working',
+            label_key: 'signals_gateway.reply.activity.turn_reprocessing'
+          }
+        })
+        continue
+      } finally {
+        steerWatch.abort()
+      }
 
       latestAssistant = result.message
       latestResponseID = requiredResponseID(result.responseID)

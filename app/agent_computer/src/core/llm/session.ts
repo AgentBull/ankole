@@ -91,7 +91,7 @@ class AIGatewayResponsesTurn implements ModelTurn {
     const params = statefulResponseParams(buildResponseCreateParams(this.model, options), this.stateful)
     await options.beforeCall?.(params)
 
-    const result = await this.withSingleFlight(() => this.callOverWebSocket(params))
+    const result = await this.withSingleFlight(() => this.callOverWebSocket(params, options.preemptSignal))
     // A response that holds a truncated tool call must not become the anchor:
     // the stored thread would end on a function call without an output, and
     // upstream providers reject that on continuation. The salvage message
@@ -192,7 +192,7 @@ class AIGatewayResponsesTurn implements ModelTurn {
     }
   }
 
-  private async callOverWebSocket(params: ResponseCreateParams): Promise<ModelCallResult> {
+  private async callOverWebSocket(params: ResponseCreateParams, preemptSignal?: AbortSignal): Promise<ModelCallResult> {
     const ws = await this.ensureOpen()
     const stream = ws.stream() as AsyncIterableIterator<ResponsesStreamMessage>
     const requestPayload = { type: 'response.create' as const, ...params }
@@ -207,7 +207,7 @@ class AIGatewayResponsesTurn implements ModelTurn {
       ws.send(requestPayload)
 
       for await (const event of watchedResponsesStream(stream, {
-        signal: this.options.abortSignal,
+        signal: combinedAbortSignal(this.options.abortSignal, preemptSignal),
         staleTimeoutMs,
         abortError: () => webSocketTransportError('LLM provider call aborted', 'aborted', false),
         staleError: () =>
@@ -463,6 +463,11 @@ function aigatewayErrorFromStreamError(error: { message: string; error?: unknown
     'transport_error_after_open',
     true
   )
+}
+
+function combinedAbortSignal(base: AbortSignal | undefined, preempt: AbortSignal | undefined): AbortSignal | undefined {
+  if (base && preempt) return AbortSignal.any([base, preempt])
+  return base ?? preempt
 }
 
 export function estimateResponseRequestTokens(params: ResponseCreateParams): number {

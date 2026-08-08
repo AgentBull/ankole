@@ -96,6 +96,12 @@ export interface AgentLoopConfig {
   /** Returns steering messages to inject mid-run. */
   getSteeringMessages?: () => Promise<Message[]>
 
+  /**
+   * Resolves when steering queues for this turn, so the loop can preempt an
+   * in-flight model call instead of letting it stream to completion first.
+   */
+  waitForSteering?: (signal?: AbortSignal) => Promise<void>
+
   /** Called for each text delta during streaming. */
   onTextDelta?: (delta: string) => void
 

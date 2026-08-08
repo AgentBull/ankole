@@ -141,7 +141,14 @@ export interface CallModelOptions {
   stateful?: StatefulResponseContext
 }
 
-export type ModelTurnCallOptions = Omit<CallModelOptions, 'stateful' | 'abortSignal' | 'onActivity' | 'onTextDelta'>
+export type ModelTurnCallOptions = Omit<CallModelOptions, 'stateful' | 'abortSignal' | 'onActivity' | 'onTextDelta'> & {
+  /**
+   * Releases only this call, unlike the turn-scoped abort in ModelTurnOptions.
+   * A preempted call fails with the standard aborted transport error and the
+   * caller decides whether the turn continues.
+   */
+  preemptSignal?: AbortSignal
+}
 
 export type StatefulResponseContext = {
   actorEventID: string

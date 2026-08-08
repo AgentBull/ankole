@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 
-import { repoRootPath, runChild, runChildCaptured } from './utils'
+import { ChildProcessExitError, repoRootPath, runChild, runChildCaptured } from './utils'
 
 export type LocalWorkerImageScope = 'source-mounted' | 'complete'
 
@@ -160,8 +160,16 @@ export function assertPublishedWorkerLabels(labels: Record<string, string>, revi
 async function pullAndVerifyUpstreamImage(image: string, revision: string): Promise<boolean> {
   let labels = await dockerImageLabels(image)
   if (!labels) {
-    const pull = await runChildCaptured('docker', ['pull', image], { cwd: repoRootPath })
-    if (pull.status !== 0) return false
+    // The published Worker image is gigabytes, so a captured pull prints
+    // nothing for minutes and reads as a hung startup. Stream Docker's own
+    // progress. A failed pull stays a normal outcome: the caller builds the
+    // local image instead.
+    try {
+      await runChild('docker', ['pull', image], { cwd: repoRootPath })
+    } catch (error) {
+      if (error instanceof ChildProcessExitError) return false
+      throw error
+    }
     labels = await dockerImageLabels(image)
   }
   if (!labels) throw new Error(`Docker pulled ${image} but cannot inspect it`)

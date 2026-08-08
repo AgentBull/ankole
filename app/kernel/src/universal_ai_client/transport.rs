@@ -462,19 +462,22 @@ pub async fn open_websocket(
         request.headers_mut().insert(header_name, header_value);
     }
 
+    // TCP, TLS, and the WebSocket upgrade are the connect phase. The first-byte
+    // and idle budgets start only after the upgrade returns 101, so a stalled
+    // open must fail on the connect budget, not on the model output budget.
     let connect = async {
         let stream = websocket_transport_stream(&target, proxy.as_ref()).await?;
         client_async_tls_with_config(request, stream, None, None)
             .await
             .map_err(websocket_connect_error)
     };
-    let (websocket, response) = timeout(spec.upstream.timeout.first_byte_duration(), connect)
+    let (websocket, response) = timeout(spec.upstream.timeout.connect_duration(), connect)
         .await
         .map_err(|_| {
             StreamError::new(
-                "first_byte_timeout",
+                "connect_timeout",
                 "connect",
-                "upstream WebSocket timeout",
+                "upstream WebSocket connect timeout",
             )
             .retry_through_credential_pool()
         })??;
@@ -1045,7 +1048,9 @@ fn parse_same_authority_h3_alt_svc(value: &str) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::universal_ai_client::spec::{TimeoutSpec, UpstreamKind};
+    use crate::universal_ai_client::spec::{
+        APIResolverKind, DownstreamKind, TimeoutSpec, UpstreamKind,
+    };
 
     #[test]
     fn proxy_resolution_prefers_explicit_then_scheme_specific_then_all() {
@@ -1205,6 +1210,57 @@ mod tests {
 
         assert_eq!(error.code, "transport_failed");
         assert!(error.can_retry_through_credential_pool());
+    }
+
+    #[tokio::test]
+    async fn websocket_open_fails_on_the_connect_budget_when_the_upgrade_stalls() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        // Accept the TCP connection and read the upgrade request, but never
+        // answer with 101. Only the connect budget may bound this stall.
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut sink = [0_u8; 1_024];
+            while matches!(stream.read(&mut sink).await, Ok(read) if read > 0) {}
+        });
+
+        let spec = StreamSpec {
+            api_resolver: APIResolverKind::OpenAIResponses,
+            upstream: UpstreamSpec {
+                kind: UpstreamKind::WebSocketText,
+                method: "GET".to_string(),
+                url: format!("ws://{address}/responses"),
+                headers: Vec::new(),
+                body: None,
+                websocket_initial_messages: Vec::new(),
+                timeout: TimeoutSpec {
+                    connect_ms: 200,
+                    first_byte_ms: 600_000,
+                    idle_ms: 600_000,
+                    total_ms: None,
+                },
+                transport: TransportSpec {
+                    http_versions: vec![HTTPVersionPreference::H1],
+                    compression: Vec::new(),
+                    proxy: None,
+                },
+            },
+            downstream: DownstreamKind::WebSocketText,
+            response_context: Default::default(),
+            limits: Default::default(),
+            hosted_tools: None,
+        };
+
+        let started = Instant::now();
+        let Err(error) = open_websocket(&spec).await else {
+            panic!("a WebSocket upgrade that never returns 101 must not open");
+        };
+
+        assert_eq!(error.code, "connect_timeout");
+        assert_eq!(error.stage, "connect");
+        assert!(error.can_retry_through_credential_pool());
+        assert!(started.elapsed() < Duration::from_secs(5));
+        server.abort();
     }
 
     #[test]

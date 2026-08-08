@@ -152,6 +152,17 @@ defmodule Ankole.AIGateway.FailureDiagnosticsTest do
              FailureDiagnostics.classify(
                {:universal_ai_request_failed, %{"code" => "total_timeout"}}
              )
+
+    assert %{
+             failure_kind: :timeout,
+             error_code: "connect_timeout",
+             error_stage: "connect",
+             retryable: true
+           } =
+             FailureDiagnostics.classify(
+               {:universal_ai_request_failed,
+                %{"code" => "connect_timeout", "stage" => "connect"}}
+             )
   end
 
   test "builds safe public messages from the stable failure kind" do

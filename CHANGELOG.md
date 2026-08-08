@@ -1,5 +1,12 @@
 # Changelog
 
+## Version 0.61.5 (2026-08-08)
+
+- Upgrade dependencies.
+- Show the published Worker image download during `bun run dev`. A clean checkout matches the Worker inputs of `HEAD`, so devkit pulls the image published for that revision, but it captured the pull output; a multi-gigabyte download therefore printed nothing for minutes and read as a hung startup. The pull now streams Docker's own progress, and a failed pull still falls back to the local image build.
+- Bound the upstream WebSocket connect phase by the declared connect timeout. The kernel wrapped TCP, TLS, and the WebSocket upgrade in the 30-minute model first-output budget, so a stalled upgrade held the durable response in `generating` for 30 minutes and read as active model generation. The open now fails near the one-minute connect deadline with a retryable `connect_timeout` error that classifies as a timeout across the credential pool, the stored response error, and the HTTP edge; the response becomes a terminal error and the ActorEvent retry path runs. The model keeps its full first-output and idle budgets after the upgrade.
+- Let `/steer` preempt the in-flight provider call. The worker only consumed steering after the current model round returned, so the visible card froze as `continued` while the old call kept streaming until the 30-minute watchdog. A steer now aborts the current model WebSocket round through a call-scoped preempt signal, keeps the round input that never became a durable response, applies the journaled steer exactly once through the existing revision fence, and continues the turn; the turn-scoped abort stays fatal.
+
 ## Version 0.61.4 (2026-08-07)
 
 - Keep repeated AIGateway credential-pool exhaustion inside the existing five-attempt BackgroundAgentJob budget. A known future recovery time still returns the Job to `queued` and releases its Worker assignment, but the acquired attempt stays consumed. A stale or missing recovery time uses the ordinary Job retry ladder instead of immediate dispatch.

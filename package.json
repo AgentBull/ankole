@@ -46,7 +46,7 @@
     "analyze:cycles": "bun run kit analyze cycles"
   },
   "dependencies": {
-    "turbo": "^2.10.8"
+    "turbo": "^2.10.9"
   },
   "devDependencies": {
     "@types/bun": "latest",
