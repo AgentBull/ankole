@@ -250,6 +250,115 @@ defmodule Ankole.AIGateway.ToolSearchTest do
       assert public_call["name"] == "stock_price"
     end
 
+    test "flattens namespaced custom tool history for provider replay" do
+      namespace = %{
+        "type" => "namespace",
+        "name" => "functions",
+        "description" => "Functions.",
+        "tools" => [
+          %{
+            "type" => "custom",
+            "name" => "exec",
+            "description" => "Run one tool program.",
+            "format" => %{"type" => "text"}
+          }
+        ]
+      }
+
+      request =
+        base_request([namespace], [
+          %{
+            "type" => "custom_tool_call",
+            "call_id" => "call_exec",
+            "namespace" => "functions",
+            "name" => "exec",
+            "input" => "return await tools.shell()"
+          },
+          %{
+            "type" => "custom_tool_call_output",
+            "call_id" => "call_exec",
+            "output" => "ok"
+          }
+        ])
+
+      assert {:ok, provider_request, plan} = ToolSearch.plan(request)
+
+      assert [%{"type" => "custom", "name" => "functions__exec"}] =
+               provider_request["tools"]
+
+      [provider_call, provider_output] = provider_request["input"]
+      assert provider_call["type"] == "custom_tool_call"
+      assert provider_call["name"] == "functions__exec"
+      refute Map.has_key?(provider_call, "namespace")
+      assert provider_output["type"] == "custom_tool_call_output"
+      assert provider_output["call_id"] == provider_call["call_id"]
+
+      public_call = ToolSearch.public_function_call(plan, provider_call)
+      assert public_call["namespace"] == "functions"
+      assert public_call["name"] == "exec"
+    end
+
+    test "flattens namespaced custom tool history with an empty Responses Lite carrier" do
+      request = %{
+        "model" => "gpt-5.6",
+        "tools" => nil,
+        "input" => [
+          %{"type" => "additional_tools", "role" => "developer", "tools" => []},
+          %{
+            "type" => "custom_tool_call",
+            "call_id" => "call_apply_patch",
+            "namespace" => "functions",
+            "name" => "apply_patch",
+            "input" => "*** Begin Patch"
+          },
+          %{
+            "type" => "custom_tool_call_output",
+            "call_id" => "call_apply_patch",
+            "output" => "Done!"
+          }
+        ]
+      }
+
+      assert {:ok, provider_request, %ToolSearch.Plan{}} = ToolSearch.plan(request)
+
+      [carrier, provider_call, provider_output] = provider_request["input"]
+      assert carrier["tools"] == []
+      assert provider_request["tools"] == nil
+      assert provider_call["type"] == "custom_tool_call"
+      assert provider_call["name"] == "functions__apply_patch"
+      refute Map.has_key?(provider_call, "namespace")
+      assert provider_output["call_id"] == provider_call["call_id"]
+    end
+
+    test "flattens namespaced function history without current tools" do
+      request = %{
+        "model" => "gpt-5.6",
+        "input" => [
+          %{
+            "type" => "function_call",
+            "call_id" => "call_shell",
+            "namespace" => "functions",
+            "name" => "shell",
+            "arguments" => "{}"
+          },
+          %{
+            "type" => "function_call_output",
+            "call_id" => "call_shell",
+            "output" => "ok"
+          }
+        ]
+      }
+
+      assert {:ok, provider_request, %ToolSearch.Plan{}} = ToolSearch.plan(request)
+
+      [provider_call, provider_output] = provider_request["input"]
+      assert provider_request["tools"] == []
+      assert provider_call["type"] == "function_call"
+      assert provider_call["name"] == "functions__shell"
+      refute Map.has_key?(provider_call, "namespace")
+      assert provider_output["call_id"] == provider_call["call_id"]
+    end
+
     test "rejects a base tool colliding with the search tool name" do
       request =
         base_request([

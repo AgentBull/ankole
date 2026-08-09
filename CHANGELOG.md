@@ -1,5 +1,13 @@
 # Changelog
 
+## Version 0.62.2 (2026-08-09)
+
+- Project namespaced `function_call` and `custom_tool_call` history even when a Responses request has no current tool declaration. Codex automatic compaction sends this shape after its Responses Lite carrier becomes empty, so strict OpenAI-compatible providers now receive the existing flat provider alias instead of rejecting the replayed `namespace` field. Cover ordinary function replay, the exact empty-carrier custom-tool shape, and the OpenAI-compatible dispatch boundary.
+
+## Version 0.62.1 (2026-08-09)
+
+- Flatten namespaced `custom_tool_call` history at the generic Responses provider boundary with the same provider alias used by its tool declaration. Strict OpenAI-compatible providers now receive `functions__exec` without the Ankole `namespace` field when Codex replays an `exec` result, instead of rejecting the next request with `unknown_parameter`. Keep the public Codex call as `functions.exec`, preserve the existing type-independent output restoration, and cover declaration, replay, output pairing, and public restoration in one focused regression test.
+
 ## Version 0.62.0 (2026-08-09)
 
 - Align `/steer` with Codex pending-input behavior. A steer no longer aborts the active AIGateway WebSocket model call; the Worker keeps the completed model result and any tool result, then adds the queued steer to the next model request at the existing tool-result boundary. Explicit Turn cancellation still aborts the WebSocket through the turn-scoped signal, and wait-like Background Agent Job tools can still use steering as an explicit wake-up signal. Move the visible reply handoff from steer admission to the exact `turn_accepted` revision, so the old card continues to receive progress until the Worker has put the steer into model input. If the current Turn finishes at an older revision, the stale delivery is superseded and the open steer starts the next Turn. This removes the v0.61.5 generic provider-call preemption without restoring the frozen `continued` card that it was added to prevent.
