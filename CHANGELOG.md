@@ -1,5 +1,9 @@
 # Changelog
 
+## Version 0.62.2 (2026-08-09)
+
+- Project namespaced `function_call` and `custom_tool_call` history even when a Responses request has no current tool declaration. Codex automatic compaction sends this shape after its Responses Lite carrier becomes empty, so strict OpenAI-compatible providers now receive the existing flat provider alias instead of rejecting the replayed `namespace` field. Cover ordinary function replay, the exact empty-carrier custom-tool shape, and the OpenAI-compatible dispatch boundary.
+
 ## Version 0.62.1 (2026-08-09)
 
 - Flatten namespaced `custom_tool_call` history at the generic Responses provider boundary with the same provider alias used by its tool declaration. Strict OpenAI-compatible providers now receive `functions__exec` without the Ankole `namespace` field when Codex replays an `exec` result, instead of rejecting the next request with `unknown_parameter`. Keep the public Codex call as `functions.exec`, preserve the existing type-independent output restoration, and cover declaration, replay, output pairing, and public restoration in one focused regression test.

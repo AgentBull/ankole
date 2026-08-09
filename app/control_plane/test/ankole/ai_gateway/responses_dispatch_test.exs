@@ -198,6 +198,61 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
            ]
   end
 
+  test "openai-compatible Responses flattens namespaced replay without current tools" do
+    %{principal: agent} = agent_fixture()
+
+    base_url =
+      start_recording_upstream(self(), fn _request ->
+        {:json, 200,
+         %{
+           "id" => "resp_compaction_replay",
+           "object" => "response",
+           "status" => "completed",
+           "output" => [],
+           "usage" => %{}
+         }}
+      end)
+
+    configure_openai_compatible_responses_provider!(
+      agent.uid,
+      base_url,
+      "compatible-compaction-replay"
+    )
+
+    assert {:ok, %{body: %{"id" => "resp_compaction_replay"}}} =
+             AIGateway.create_response(agent.uid, %{
+               "model" => "primary",
+               "tools" => nil,
+               "client_metadata" => %{
+                 "ws_request_header_x_openai_internal_codex_responses_lite" => "true"
+               },
+               "input" => [
+                 %{"type" => "additional_tools", "role" => "developer", "tools" => []},
+                 %{
+                   "type" => "custom_tool_call",
+                   "call_id" => "call_apply_patch",
+                   "namespace" => "functions",
+                   "name" => "apply_patch",
+                   "input" => "*** Begin Patch"
+                 },
+                 %{
+                   "type" => "custom_tool_call_output",
+                   "call_id" => "call_apply_patch",
+                   "output" => "Done!"
+                 }
+               ]
+             })
+
+    assert_receive {:gateway_request, request}
+    assert request.body["tools"] == []
+
+    [provider_call, provider_output] = request.body["input"]
+    assert provider_call["type"] == "custom_tool_call"
+    assert provider_call["name"] == "functions__apply_patch"
+    refute Map.has_key?(provider_call, "namespace")
+    assert provider_output["call_id"] == provider_call["call_id"]
+  end
+
   test "first-party OpenAI preserves PTC tools whose execution owner is native" do
     %{principal: agent} = agent_fixture()
 

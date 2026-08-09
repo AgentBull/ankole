@@ -65,9 +65,9 @@ defmodule Ankole.AIGateway.ToolSearch do
   Rewrites one Responses request into a provider-safe request plus a plan.
 
   Requests without a `tool_search` declaration, without `defer_loading` tools,
-  and without PTC surface pass through unchanged with a `nil` plan. Invalid
-  declarations fail loudly instead of reaching a provider that cannot serve
-  them.
+  without PTC surface, and without history that needs provider projection pass
+  through unchanged with a `nil` plan. Invalid declarations fail loudly instead
+  of reaching a provider that cannot serve them.
   """
   @spec plan(map()) :: {:ok, map(), Plan.t() | nil} | {:error, term()}
   def plan(%{} = request) do
@@ -90,7 +90,7 @@ defmodule Ankole.AIGateway.ToolSearch do
         declared_search? or settled_search_history?(history) or client_search_history?(history)
 
       projection_required? =
-        settled_program_history?(history) or
+        namespaced_call_history?(history) or settled_program_history?(history) or
           Enum.any?(contracts, fn contract ->
             contract.deferred? or
               not is_nil(contract.namespace) or
@@ -541,6 +541,20 @@ defmodule Ankole.AIGateway.ToolSearch do
   end
 
   defp settled_program_history?(_history), do: false
+
+  defp namespaced_call_history?(%ResponseItems.History{entries: entries}) do
+    Enum.any?(entries, fn
+      %{
+        item: %{"type" => type, "namespace" => namespace, "name" => name}
+      }
+      when type in ["function_call", "custom_tool_call"] and is_binary(namespace) and
+             is_binary(name) ->
+        true
+
+      _entry ->
+        false
+    end)
+  end
 
   defp settled_search_history?(%ResponseItems.History{error: nil, ledger: ledger}) do
     pairs = ResponseItems.search_pairs(ledger)
