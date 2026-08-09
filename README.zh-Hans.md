@@ -5,7 +5,7 @@
 ![Runtime](https://img.shields.io/badge/runtime-Bun%20%2B%20Phoenix%2FOTP%20%2B%20Rust-blue)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/AgentBull/ankole)
 
-[English](./README.md) | [日本語](./README.ja.md)
+[English](./README.md) | [日本語](./README.ja.md) | [한국어](./README.ko.md)
 
 [为什么不同](#从-agent-能力到自主劳动力) · [业务职能](#可交给-ankole-的业务职能) · [Actor 运行时](#actor-运行时) · [架构](#架构) · [当前状态](#当前状态) · [开发](#开发)
 

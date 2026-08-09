@@ -1571,20 +1571,10 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
     })
   })
 
-  it('preempts an in-flight model call when steering arrives and applies the steer once', async () => {
+  it('keeps the in-flight model result and applies queued steering after its tool result', async () => {
     const sentPayloads: JSONObject[] = []
-    const sockets: FakeResponseSocket[] = []
-    const presentationLabels: string[] = []
     let drainCalls = 0
-
-    // Minimal ActiveTurn-like steering queue: drain-on-read, and a waiter that
-    // resolves as soon as one update queues.
     const queuedSteering: Array<{ role: 'user'; content: string }> = []
-    const steeringWaiters: Array<() => void> = []
-    const pushSteering = (content: string): void => {
-      queuedSteering.push({ role: 'user', content })
-      for (const wake of steeringWaiters.splice(0)) wake()
-    }
 
     const model = createModel({
       apiKey: 'unused',
@@ -1594,40 +1584,61 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
         kind: 'aigateway-websocket',
         url: 'ws://aigateway.invalid/api/v1/ai-gateway/responses',
         authorization: () => 'Bearer agent-key',
-        createWebSocket: (_url, init) => {
-          const socket = new FakeResponseSocket(init, data => {
+        createWebSocket: (_url, init) =>
+          fakeResponseSocket(init, data => {
             const payload = JSON.parse(data) as JSONObject
             sentPayloads.push(payload)
 
+            if (payload.type === 'response.tool_results.record') {
+              return [toolResultsRecordedFrame('resp_background_job_results')]
+            }
+
             if (sentPayloads.filter(sent => sent.type === 'response.create').length === 1) {
-              // Keep the first call in flight without any frame, then steer.
-              setTimeout(() => pushSteering('Runtime note: steer the running call'), 5)
-              return []
+              // Queue the steer after this provider call starts but before its
+              // completed tool call reaches the Agent loop.
+              queuedSteering.push({ role: 'user', content: 'Runtime note: steer after the background job starts' })
+
+              return [
+                {
+                  type: 'response.completed',
+                  response: {
+                    id: 'resp_background_job_call',
+                    status: 'completed',
+                    output: [
+                      {
+                        type: 'function_call',
+                        id: 'fc_background_job',
+                        call_id: 'call_background_job',
+                        name: 'create_background_job',
+                        arguments: '{"task":"inspect the release"}'
+                      }
+                    ]
+                  }
+                }
+              ]
             }
 
             return [
               {
                 type: 'response.completed',
                 response: {
-                  id: 'resp_after_preempt',
+                  id: 'resp_after_steer',
                   status: 'completed',
                   output: [
                     {
                       type: 'message',
                       role: 'assistant',
-                      content: [{ type: 'output_text', text: 'steered final' }]
+                      content: [{ type: 'output_text', text: 'background job created, then steered' }]
                     }
                   ]
                 }
               }
             ]
           })
-          sockets.push(socket)
-          queueMicrotask(() => socket.emitOpen())
-          return testResponseSocket(socket)
-        }
       }
     })
+
+    let createdJobs = 0
 
     const final = await runAgentLoop({
       model,
@@ -1637,43 +1648,42 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
         actorEventID: '00000000-0000-0000-0000-000000000030',
         conversationID: '30303030-3030-3030-3030-303030303030'
       },
+      tools: [
+        {
+          name: 'create_background_job',
+          description: 'Create a background job',
+          schema: z.object({ task: z.string() }),
+          describeActivity: () => '创建后台任务',
+          execute: async () => {
+            createdJobs += 1
+            return {
+              content: [{ type: 'text', text: 'job-42 created' }],
+              details: { jobID: 'job-42' }
+            }
+          }
+        }
+      ],
       getSteeringMessages: async () => {
         drainCalls += 1
         return queuedSteering.splice(0)
-      },
-      waitForSteering: signal => {
-        if (queuedSteering.length > 0) return Promise.resolve()
-        return new Promise<void>((resolve, reject) => {
-          steeringWaiters.push(resolve)
-          signal?.addEventListener('abort', () => reject(new Error('steering watch canceled')), { once: true })
-        })
-      },
-      onPresentationEvent: event => {
-        const label = event.payload.label_key
-        if (typeof label === 'string') presentationLabels.push(label)
       }
     })
 
-    expect(final.message.content).toEqual([{ type: 'text', text: 'steered final' }])
-    expect(final.responseID).toBe('resp_after_preempt')
-
-    // The preempted call released its socket; the continuation reopened one.
-    expect(sockets).toHaveLength(2)
-    expect(sockets[0]!.closeCount).toBe(1)
-
-    // The steer drained exactly once, and the continuation resends the
-    // original input because the preempted call never became a response.
+    expect(final.message.content).toEqual([{ type: 'text', text: 'background job created, then steered' }])
+    expect(final.responseID).toBe('resp_after_steer')
+    expect(createdJobs).toBe(1)
     expect(drainCalls).toBe(1)
     expect(queuedSteering).toHaveLength(0)
-    const responseCreates = sentPayloads.filter(payload => payload.type === 'response.create')
-    expect(responseCreates).toHaveLength(2)
-    expect(responseCreates[1]!.input).toEqual([
-      { role: 'user', content: 'work on the long task' },
-      { role: 'user', content: 'Runtime note: steer the running call' }
-    ])
-    // The aborted call must not advance the stateful anchor.
-    expect(responseCreates[1]!.previous_response_id).toBeUndefined()
-    expect(responseCreates[1]!.conversation).toBe('conv_30303030-3030-3030-3030-303030303030')
-    expect(presentationLabels).toContain('signals_gateway.reply.activity.turn_reprocessing')
+    expect(sentPayloads).toHaveLength(3)
+    expect(sentPayloads[1]).toMatchObject({
+      type: 'response.tool_results.record',
+      previous_response_id: 'resp_background_job_call',
+      input: [{ type: 'function_call_output', call_id: 'call_background_job' }]
+    })
+    expect(sentPayloads[2]).toMatchObject({
+      type: 'response.create',
+      previous_response_id: 'resp_background_job_results',
+      input: [{ role: 'user', content: 'Runtime note: steer after the background job starts' }]
+    })
   })
 })

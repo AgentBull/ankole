@@ -6,10 +6,70 @@ interface Props {
 }
 
 const { lang } = Astro.props
+const ja = lang === 'ja-JP'
+const ko = lang === 'ko-KR'
 const zh = lang === 'zh-Hans-CN'
 const docs = (slug: string) => `/${lang}/docs/${slug}/`
 
-const copy = zh
+const copy = ko
+	? {
+			title: 'Ankole 시스템 아키텍처',
+			description:
+				'엔터프라이즈 채널, 외부 이벤트, identity provider, Console, AI Provider가 control plane에 연결됩니다. control plane은 RuntimeFabric을 통해 하나 이상의 Agent Computer Worker를 스케줄링하고, durable 상태를 PostgreSQL과 Agent Home에 저장합니다.',
+			external: '엔터프라이즈 및 외부 시스템',
+			control: 'Control plane · 하나의 논리적 관리 경계',
+			execution: '실행 계층 · 하나 이상의 Worker',
+			data: '영속화 경계',
+			channels: ['채팅 채널 및 외부 이벤트', '메시지 · Webhook · 일정 작업'],
+			operators: ['Console 및 API', '운영자 · 엔터프라이즈 앱'],
+			idp: ['Identity Provider', 'SSO · 디렉터리 · 조직'],
+			providers: ['AI Provider', '모델 · 벡터 · 이미지 · Web'],
+			signals: ['SignalsGateway', '시그널 라우팅 · 메시지 송수신'],
+			identity: ['Principal 및 AuthZ', '아이덴티티 · 권한 · 설정 · 플러그인'],
+			ai: ['AIGateway', '모델 선택 · 세션 · 자격 증명'],
+			actor: ['Actor Runtime', '장기 세션 · 기상 · 복구'],
+			brain: ['Brain', '월드 모델 · 회상 · Dreaming'],
+			jobs: ['백그라운드 Agent 작업', '비차단 · 재개 가능 · 상호작용 가능'],
+			fabric: 'RuntimeFabric · 실시간 제어, 사실은 저장하지 않음',
+			workers: [
+				'Agent Computer Worker 풀 · 1…N',
+				'메인 Agent · 백그라운드 작업 · Automation Job · 툴 · Skills · 샌드박스'
+			],
+			postgres: ['PostgreSQL', '아이덴티티 · 세션 · 메모리 · 작업 · 감사'],
+			home: ['Agent Home', '파일 · 워크스페이스 · 산출물'],
+			caption:
+				'control plane은 상태를 저장하고 작업이 실행되는 방식을 결정합니다. Worker는 실제 컴퓨팅 환경을 제공합니다. 이 둘을 분리함으로써 Agent의 작업은 특정 프로세스나 머신에 의존하지 않게 됩니다.'
+		}
+	: ja
+	? {
+			title: 'Ankole システムアーキテクチャ',
+			description:
+				'企業チャット、外部イベント、アイデンティティプロバイダー、Console、AI Provider がコントロールプレーンに接続します。コントロールプレーンは RuntimeFabric を通じて 1 台以上の Agent Computer Worker をスケジュールし、永続状態を PostgreSQL と Agent Home に保存します。',
+			external: '企業と外部システム',
+			control: 'コントロールプレーン · 1 つの論理管理境界',
+			execution: '実行層 · 1 台以上の Worker',
+			data: '永続化境界',
+			channels: ['チャットチャネルと外部イベント', 'メッセージ · Webhook · 計画タスク'],
+			operators: ['Console と API', 'オペレーター · 企業アプリ'],
+			idp: ['アイデンティティプロバイダー', 'SSO · ディレクトリ · 組織'],
+			providers: ['AI Provider', 'モデル · ベクトル · 画像 · Web'],
+			signals: ['SignalsGateway', 'シグナルルーティング · メッセージ送受信'],
+			identity: ['主体と AuthZ', 'アイデンティティ · 権限 · 設定 · プラグイン'],
+			ai: ['AIGateway', 'モデル選択 · セッション · 認証情報'],
+			actor: ['Actor Runtime', '長時間セッション · 起床 · 復旧'],
+			brain: ['Brain', 'ワールドモデル · 想起 · Dreaming'],
+			jobs: ['バックグラウンド Agent タスク', 'ノンブロッキング · 再開可能 · 通信可能'],
+			fabric: 'RuntimeFabric · リアルタイム制御、事実は保存しない',
+			workers: [
+				'Agent Computer Worker プール · 1…N',
+				'メイン Agent · バックグラウンドタスク · Automation Job · ツール · Skills · サンドボックス'
+			],
+			postgres: ['PostgreSQL', 'アイデンティティ · セッション · メモリ · タスク · 監査'],
+			home: ['Agent Home', 'ファイル · ワークスペース · 納品物'],
+			caption:
+				'コントロールプレーンは状態を保存し、作業の進め方を決定します。Worker は実際の計算環境を提供します。両者を分離することで、Agent の作業は特定のプロセスやマシンに依存しなくなります。'
+		}
+	: zh
 	? {
 			title: 'Ankole 系统架构',
 			description:

@@ -1,0 +1,166 @@
+---
+title: アーキテクチャ
+description: control plane、Agent Computer Worker、Actor Runtime、Brain、Background Agent Job がどのように Ankole を構成するかを説明します。
+section: Developer guide
+order: 100
+---
+
+import DocsArchitectureDiagram from '../../../components/docs/DocsArchitectureDiagram.astro'
+
+Ankole はセルフホスト型の AI Workforce OS です。AI Agent を、業務機能を自律的に遂行し、成果で評価される労働力に変えます。
+
+1 つの Agent は、1 つの業務機能を数時間にわたって実行し、共有の作業 context を使い、人が検査と採点を行える成果を納品できます。
+
+これには、chat endpoint の背後にある model 以上のものが求められます。システムは、誰が行動するか、誰がアクセス権を持つか、長時間の仕事がどう復旧するか、context がどう最新に保たれるか、1 つの修正が後の仕事をどう変えるかを把握している必要があります。
+
+## システム全体図
+
+<DocsArchitectureDiagram lang="ja-JP" />
+
+1 つのプライベートな deployment instance は、1 つの論理 control plane と 1 台以上の Agent Computer Worker を持ちます。control plane は Identity、state、schedule を管理します。Worker は Agent が実際に働く compute 環境を提供します。
+
+外部の chat、webhook、schedule は SignalsGateway から入ります。Identity Provider が人と組織ディレクトリを供給します。AIGateway は model、embedding、rerank、画像、web 能力に対する 1 つの境界を提供します。
+
+## Control plane と Agent Computer Worker
+
+### control plane は state を保存し、決定を行います
+
+Elixir/OTP の control plane は、Console、Principal とアクセス、システム configuration、signal の routing、Actor session、Brain、Background Agent Job、AIGateway、Control Plane Plugin を担います。
+
+これらの module はすべて同じ規則に従います。ユーザーに見える結果を変える state は、実行や外部への送信を駆動する前に PostgreSQL に書き込まれます。
+
+process は再起動できますが、受け付け済みの message、Job state、memory、audit 記録は残らなければなりません。
+
+OTP の supervision tree は、Agent、connection、Job それぞれに独立した failure domain を与えます。1 つの実行 branch がハングまたは crash しても、control plane は deployment instance 全体を失敗させることなく、その branch だけを復旧できます。
+
+### Worker は Agent の仕事用コンピュータです
+
+Agent Computer Worker は model loop、tool、Skill、browser、terminal、file 操作を実行し、automation job の script 実行も行います。Worker は自ら durable な domain state を作りません。control plane から仕事を受け取り、実行結果を control plane にコミットします。
+
+1 台の Worker で複数の Agent を扱えますが、各 Agent は依然として独立した軽量 sandbox で実行されます。より強い分離が必要な Agent には、専用の Worker を割り当ててください。
+
+同時実行性を高めたい場合や、セキュリティ要件の異なる仕事を分離したい場合は、Worker を追加します。
+
+RuntimeFabric は ZeroMQ 経由で control plane と Worker を接続します。wakeup、steering、cancel、進捗、実行結果を運びます。
+
+これは低遅延のライブ channel であり、database ではありません。connection が切れた後の復旧は、依然として PostgreSQL の state を使います。
+
+## 1 つの message が再開可能な仕事になるまで
+
+### SignalsGateway は外部の世界を受け取ります
+
+chat adapter、webhook、schedule は、まず外部の event を共通の signal に変換します。signal routing rule が、reply を受け取る Agent、session、channel または thread を選択します。
+
+group chat は、Agent に宛てた message だけを処理するか、宛てられていない message も記録するか、介入すべきタイミングを Agent に判断させることができます。利用できる mode は、chat platform と signal routing rule に依存します。
+
+SignalsGateway は Agent を wake する前に、受信した message とその出所を保存します。また、adapter が reply を送信する前に、追跡可能な delivery state を作ります。
+
+一時的な provider の障害によって、「Ankole が送信を決定した内容」と「provider が受け付けた内容」が混同されることはありません。
+
+### trigger は Agent を wake するか、script を実行できます
+
+Cron、Checkback、webhook endpoint が、1 つのシステムにおける 3 つの trigger です。各 trigger は既定で Agent の会話を wake しますが、代わりに automation job、つまり Agent が書く決定論的な script に bind することもできます。trigger event は変わりません。変わるのは consumer だけです。
+
+script は機械的な検査を静かに完了し、実行のたびに検査可能な記録を残します。判断が必要なときは、`emitEvent` を通じて所有者の会話に event を送り返し、Agent が検証して行動します。したがって、model は polling loop で空転することがありません。[Automation Jobs](../automation-jobs/) を参照してください。
+
+### Actor Runtime は長時間の session を管理します
+
+各 active session は、アドレス指定可能な Virtual Actor です。mailbox、lifecycle、recovery position を持ちます。新しい message や schedule で wake でき、実行中に追加の input、cancel、人による介入を受け取ることもできます。
+
+Actor Runtime はこの長時間の work identity を所有します。各 turn に対して新しい activation と fence を生成します。Worker がコミットできるのは、現在自分が所有する turn だけです。古い Worker は、復旧や retry の後に新しい結果を上書きできません。
+
+stream された content は進捗です。事実となるのは、control plane が確認して保存した message、tool の結果、state の遷移だけです。これにより「interface には作業中と表示されている」ことと「仕事が完了している」ことが区別されます。
+
+## Brain: 修正を続ける世界 model
+
+Brain は chat の抜粋を詰め込んだ vector database ではありません。進化し続ける世界 model を維持します。新しい証拠は古い結論を拡張、修正、退役させることができ、矛盾する memory は時刻、出所、confidence によって裁定されます。
+
+知識は、Agent との会話、誰も Agent に宛てなかった group chat、document、connector、その他の外部 source から得られます。
+
+memory は shared、Agent、direct message、channel の scope に分離され、context が誤った境界を越えないようにします。
+
+turn の間、unified recall が現在の仕事に必要な長期 context を供給します。オフラインの Dreaming は新しい証拠を整理し、繰り返される事実を圧縮し、矛盾を解決し、以前の予測と後の結果を比較します。
+
+Brain は「世界が今どのような状態か」を所有します。Skill Overlay は「この作業を次回はどう行うべきか」を所有します。Agent は失敗や修正の後に Skill の変更を提案できます。人が承認してから、後の session がそれを使用します。
+
+この構造は、Agent が時間とともにチームの規則を学ぶというホームページ上の約束を実現します。蓄積は、より長い log を意味しません。次の Job がより良い知識とより良い方法から始まることを意味します。
+
+ユーザー向けの説明は [長期 memory](../memory/) を、storage、Dreaming、書き込み権限は [Brain](../brain/) を参照してください。
+
+## Background Agent Job: メイン session をブロックしない長時間の仕事
+
+メイン Agent は、調査、データ分析、file 作業、code 変更、Deep Research を Background Agent Job に委任できます。メイン session は利用可能なまま、ユーザーとの会話を続けられます。
+
+control plane が Job lifecycle を保存し、Worker が Job を実行します。その Worker が停止しても、システムは Job を再ディスパッチし、durable な state から続行できます。process の終了で Job 全体が消えることはありません。
+
+メイン Agent と Job は通信を続けられます。Job は input を求めたり、失敗や最終結果を返したり、要求されれば沈黙を保ったりできます。人を待つ間は実行 slot を解放し、回答が届いてから再開します。
+
+Deep Research はこの architecture の高度な利用法です。Agent Plugin が workspace template を提供し、Skill が調査方法を提供し、Background Agent Job が durable な実行を提供します。
+
+Agent Home は調査資料と成果物を保持します。
+
+[Background Agent Jobs](../background-jobs/) と [Deep Research](../deep-research-job/) を参照してください。
+
+## AIGateway: AI 能力のための 1 つの境界
+
+AIGateway は model の能力を Agent の実行から分離します。メイン Agent、Job、Brain、外部 API client は、LLM、embedding、rerank、画像、Web Search、Web Fetch Provider に対して同じ境界を使います。
+
+model profile が仕事の種類ごとに model を選択します。control plane は Provider の credential を暗号化して保存し、AIGateway は上流への request でそれらを使用します。
+
+Agent と Worker が受け取るのは、使用できる model の選択と呼び出し結果だけです。
+
+AIGateway は、履歴を保存しない呼び出しと、継続できる stateful な会話の両方をサポートします。request の変換、stream event、tool の結果、context の圧縮、使用量記録、最終結果のコミットを担います。
+
+Worker は Provider ごとに個別の lifecycle を実装しません。
+
+tool catalog が大きい場合、model は Tool Search で tool をオンデマンドに検索するか、制限された sandbox 内で多数の tool を呼び出して結果だけを返す 1 つの program を提出できます。ネイティブ対応の Provider は呼び出しをそのまま透過させ、AIGateway はそれ以外のすべての Provider に対して gateway 内で同じ能力を提供します。1 つの Provider は複数の credential を pool として保持することもでき、ChatGPT サブスクリプションのような account credential も含まれます。失敗の帰属、retry、使用量記録は credential 単位で残ります。
+
+[AIGateway](../ai-gateway/) と [LLM Provider の追加](../adding-a-provider/) を参照してください。
+
+## エンタープライズ Identity、アクセス、拡張
+
+Ankole は、人、Agent、システムサービスを Principal として表します。Identity Provider が Console の SSO を提供し、従業員、連絡先、組織ディレクトリを同期します。
+
+chat channel が message を送受信します。これらの Provider は異なる platform を使えます。
+
+AuthZ は実行時に、Principal、permission group、resource、action、condition から判定します。アクセスは prompt の中の 1 文ではなく、model が permission を持っていると宣言することもできません。
+
+Control Plane Plugin が IdP、chat channel、その他の control plane 能力を接続します。Agent Plugin は tool と workspace template を追加します。
+
+Skill は、ある種の仕事のやり方を説明し、メイン Agent または Background Agent Job に限定できます。
+
+外部の MCP server は Skill を通じて入ります。Skill が接続を宣言し、Worker が実行ごとの configuration を生成して実行終了時に削除するため、model がすべての MCP tool の常駐リストに直面することはありません。
+
+[Principal と permission group](../principal-and-groups/)、[signal routing rule](../signal-bindings/)、[Agent Library](../skills/)、[MCP server リファレンス](../mcp/) を参照してください。
+
+## Durability の境界
+
+PostgreSQL は、identity、access、configuration、message、session、Job、memory、delivery state、audit 記録などの durable な domain 事実を保存します。システムが結果をコミットしたかどうかの判断には、これらの記録を使います。
+
+Agent Home は workspace の file、tool の出力、最終成果物を保存します。シングルホストの deployment ではローカルまたは仮想ディスクを使用できます。複数の Worker を持つ Kubernetes deployment には、`ReadWriteMany` をサポートする NFS などの共有 volume が必要です。
+
+RuntimeFabric、Worker の process state、stream preview は再構築できます。これらはライブ実行を支えますが、PostgreSQL や Agent Home の代わりにはなりません。
+
+## 3 つの deployment 形態
+
+| 形態 | control plane と Worker | 永続化 |
+| --- | --- | --- |
+| **Docker Compose · 単一ホスト向け推奨** | 1 台の Linux、macOS、Windows ホストが control plane と 1 台の Worker を実行 | PostgreSQL と Agent Home はホスト上の persistent volume を使用 |
+| **Kubernetes · エンタープライズ deployment 向け推奨** | 1 つの control plane が 1 つ以上の Worker Pod に接続し、node またはセキュリティ要件に応じて schedule | PostgreSQL に加えて、共有の `ReadWriteMany` Agent Home storage |
+| **ソースインストール** | 開発環境が control plane と Worker を別々に実行 | 開発用に構成された PostgreSQL とローカル workspace |
+
+論理的な境界はどの形態でも同じです。instance は control plane を 1 つ持ち、Worker を水平に追加できます。完全な手順は [クイックスタート](../quickstart/#1-deploy-ankole) を参照してください。
+
+## 5 つの技術的判断
+
+| 判断 | 解決する問題 |
+| --- | --- |
+| **Virtual Actor が AI の仕事を担う** | 各 session に address、mailbox、lifecycle、recovery position を与える |
+| **OTP supervision tree が failure domain を定義する** | instance 全体を失敗させずに、1 つの Agent または connection の branch を復旧する |
+| **ZeroMQ がライブ制御を運ぶ** | Agent の実行中に wakeup、steering、進捗、backpressure を運ぶ |
+| **Agent Computer Worker が実行を提供する** | model loop、tool、file、terminal、sandbox を workspace の近くに置く |
+| **PostgreSQL の ledger が事実を保存する** | message、Job、memory、決定、コミット済み操作を再開可能かつ audit 可能にする |
+
+これらの判断は 1 つの結果を支えます。Agent は数時間働き、実行中に新しい情報を受け取り、独立して失敗と復旧を行い、コミットされた各 action の痕跡を残せます。
+
+より詳しい runtime の議論は、<a href="https://ding.ee/ja-JP/why-otp-is-a-better-runtime-for-multi-agent-orchestration/" target="_blank" rel="noreferrer">なぜ OTP はより良いマルチエージェント・オーケストレーションのランタイムなのか</a> をお読みください。

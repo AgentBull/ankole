@@ -28,7 +28,6 @@ export type {
 } from './types'
 export { createModel } from './model'
 export { createModelTurn } from './session'
-export { isWebSocketAbortError } from './parse'
 export { describeTruncatedToolCalls, readTruncatedToolCall, type TruncatedToolCall } from './partial-tool-input'
 export {
   MAX_REPAIRABLE_TOOL_ARGUMENT_BYTES,

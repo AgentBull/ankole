@@ -1,0 +1,603 @@
+---
+title: FAQ とトラブルシューティング
+description: 観察できる症状から、Ankole の deployment、identity、model、Worker、chat channelの障害を特定します。
+section: Reference
+order: 204
+---
+
+import {
+  FaqIssueList,
+  FaqProviderTabs
+} from '../../../components/docs/FaqProviderTabs'
+
+export const faqLabels = {
+  symptom: '症状',
+  cause: '原因',
+  resolution: '対処'
+}
+
+export const commonIssues = [
+  {
+    question: '/setup や Console が開かないとき、何を確認すればよいですか？',
+    symptom: 'ページがタイムアウトする、接続を拒否される、502 を返す、または空白のままになる。Provider のセットアップはまだ始まっていません。',
+    cause: 'control plane が正常でないか、DNS、リバースプロキシ、Ingress が control plane にトラフィックを送っていません。後続の Provider エラーはたいてい連鎖の結果です。',
+    resolution: [
+      'control plane、PostgreSQL、リバースプロキシを確認してください。ログの中で最初のエラーを修正します。',
+      'control plane への直接アクセスが機能するなら、DNS、TLS、プロキシの接続先を確認してください。',
+      'データベースや永続ボリュームを削除しないでください。起動の失敗はデータの破損を証明しません。'
+    ],
+    links: [
+      { href: '../quickstart/#deployment', label: 'デプロイを確認する' },
+      { href: '../log-reading/', label: 'ログを読む' }
+    ]
+  },
+  {
+    question: '初回セットアップの activation code はどこにありますか？',
+    symptom: '/setup が activation code を要求するが、起動ターミナルは閉じられており、ログの中にコードが見つからない。',
+    cause: 'control plane がこの code を使うのは初回セットアップのときだけです。最初の管理者がサインインすると期限切れになります。',
+    resolution: [
+      'セットアップが完了していなければ、Quick start で自分のデプロイ方法を選び、そのタブのログコマンドを使ってください。',
+      'SETUP ACTIVATION CODE を検索してください。ブラウザのストレージやデータベースの行から code を推測しないでください。',
+      'インスタンスにすでに root 管理者がいる場合は、再アクティベートせずに、設定済みの IdP からサインインしてください。'
+    ],
+    links: [
+      { href: '../quickstart/#deployment', label: 'activation code を読む' }
+    ]
+  },
+  {
+    question: '選択したアダプターが Provider リストに表示されないのはなぜですか？',
+    symptom: 'プラグインが有効として保存されているのに、セットアップや identity、signal-routing のページにそのオプションが現れない。',
+    cause: '初回セットアップはコンパイル済みの全プラグインを利用可能に保ち、後続の設定を現在保存されている選択でフィルタリングします。セットアップ後、Console で保存したプラグイン変更は、次回の control plane 起動時に適用されます。',
+    resolution: [
+      'まだ /setup にいるなら、Plugins に戻って選択を保存し、管理者サインインを開き直してください。再起動は不要です。',
+      'セットアップが完了しているなら、control plane だけを再起動してください。データを削除したり、PostgreSQL を再起動したりしないでください。プラグインがアクティブであることを確認し、Provider ページに戻ります。',
+      'control plane が起動しない場合は、ログにある最初のプラグイン初期化エラーを修正してください。'
+    ],
+    links: [
+      { href: '../skills/', label: 'Agent Library で Plugin を有効化する' }
+    ]
+  },
+  {
+    question: 'どのチャットプラットフォームも返信しません。これはまだ channel の問題ですか？',
+    symptom: 'channel、DM、別のチャットアプリのすべてが失敗する。Console での Agent との直接の会話も失敗する。',
+    cause: 'Console の経路も失敗する場合、共通の下流経路が原因の可能性が高いです。すなわち、LLM Provider、Agent の model profile、Worker であって、あるプラットフォームのイベント権限ではありません。',
+    resolution: [
+      'LLM Provider が有効で、その credential と model 名が機能することを確認してください。',
+      'Agent に primary、light、heavy の profile があり、Worker が少なくとも 1 台 ready であることを確認してください。',
+      'Console で実際の model 会話を 1 回完了してから、選択したチャットプラットフォームのタブに戻ってください。'
+    ],
+    links: [
+      { href: '../quickstart/#3-add-an-llm-provider-and-create-an-agent', label: 'LLM Provider と Agent を設定する' },
+      { href: '../worker-management/', label: 'Worker fleet' }
+    ]
+  },
+  {
+    question: 'スケジュールが時間通りに実行されませんでした。最初に何を確認すべきですか？',
+    symptom: 'スケジュールは存在するが、期待した時刻に開始しない、または次の実行が期待と一致しない。',
+    cause: 'スケジュールが無効になっている、インスタンスのタイムゾーンや cron 式が誤っている、またはトリガー時刻に control plane が稼働していなかった可能性があります。',
+    resolution: [
+      'スケジュールを開き、有効であることを確認し、表示されている次の実行時刻を確認してください。',
+      'インスタンスのタイムゾーンと cron 式を確認してください。式から推測せず、Console が表示する時刻を使ってください。',
+      '[Run now] を選択してください。機能すれば時刻設定の問題です。失敗したら実行記録を確認してください。'
+    ],
+    links: [
+      { href: '../schedules/', label: 'スケジュールの設定と確認' }
+    ]
+  },
+  {
+    question: 'スケジュールは実行されました。なぜチャットに結果が届かないのですか？',
+    symptom: '実行記録は存在するが、対象のチャットや会話に Agent のメッセージが届かない。',
+    cause: 'トリガーは機能しました。問題は後続の経路にあります。対象ルート、Channel Provider、Agent の model、または利用可能な Worker です。',
+    resolution: [
+      '実行記録を開き、その結果を確認し、最初のエラーを読んでください。',
+      '対象の Agent、会話やチャットの宛先、その signal routing rule を確認してください。',
+      'Agent の model profile が機能し、Worker が少なくとも 1 台 ready であることを確認してください。'
+    ],
+    links: [
+      { href: '../schedules/', label: 'スケジュールの実行を確認する' },
+      { href: '../signal-bindings/', label: 'signal routing rule を確認する' }
+    ]
+  }
+]
+
+export const identityTabs = [
+  {
+    value: 'slack',
+    label: 'Slack',
+    issues: [
+      {
+        question: '承認リダイレクト時に Slack サインインが失敗する',
+        symptom: 'Ankole に戻る前に Slack が redirect_uri の不一致を報告する、または承認が誤ったページに戻る。',
+        cause: 'Slack Redirect URL が /setup が表示するコールバックと厳密に一致しないか、Ankole に別のアプリの Client ID が入っている。',
+        resolution: [
+          '/setup から完全なコールバックを OAuth & Permissions → Redirect URLs にコピーしてください。',
+          'スキーム、ホスト、ポート、パス、Provider ID を 1 文字ごとに比較してください。',
+          'Slack アプリを保存し、Ankole から新しいサインインを開始してください。古い承認ページを使い回さないでください。'
+        ]
+      },
+      {
+        question: 'Slack サインインは機能するが、メンバーやユーザーグループが欠けている',
+        symptom: '管理者は Console に入れるが、Principal や権限グループが空、または最近のメンバーが含まれていない。',
+        cause: 'identity アプリに users:read、users:read.email、team:read がない、Bot User OAuth Token が新しい scope より古い、またはフル同期がまだ実行されていない。',
+        resolution: [
+          'Quick start に記載された identity scope を追加してください。',
+          'scope の変更後、アプリを workspace に再度インストールし、新しい Bot User OAuth Token を IdP に保存してください。',
+          'リアルタイム同期を調べる前に、フル同期を検証してください。'
+        ]
+      },
+      {
+        question: 'Slack は完全なディレクトリ同期を完了するが、その後の変更が古いまま',
+        symptom: '最初の同期にはデータがあるが、メンバーやユーザーグループの変更がすぐに反映されない。',
+        cause: 'リアルタイム同期は Socket Mode を使います。App-Level Token がない、プレフィックスが誤っている、Socket Mode がオフ、または control plane が Slack に到達できない。',
+        resolution: [
+          'IdP で Sync directory changes をオンにし、有効な App-Level Token を指定してください。',
+          'Slack で Socket Mode を有効にし、control plane からの送信インターネットアクセスを許可してください。',
+          'App-Level Token のローテーション後、Ankole の値を更新し、新しいディレクトリ変更でテストしてください。'
+        ],
+        links: [
+          { href: '../quickstart/#2-set-up-the-identity-provider-first', label: 'Quick start で Slack IdP を設定する' }
+        ]
+      }
+    ]
+  },
+  {
+    value: 'entra',
+    label: 'Microsoft Entra ID',
+    issues: [
+      {
+        question: 'Microsoft サインインが AADSTS50011 を報告する',
+        symptom: 'Microsoft の承認ページが reply URL の不一致を報告する。通常はエラー AADSTS50011。',
+        cause: 'Entra のアプリ登録にある Web Redirect URI が、/setup が表示する Ankole コールバックと厳密に一致しない。',
+        resolution: [
+          '/setup のコールバックを Web Redirect URI としてアプリ登録にコピーしてください。',
+          'スキーム、ホスト、ポート、パス、Provider ID を確認してください。ここに Teams の messaging endpoint は使わないでください。',
+          'ポータルの変更が反映されるのを待ってから、Ankole から新しいサインインを開始してください。'
+        ]
+      },
+      {
+        question: 'Entra ID サインインは機能するが、ディレクトリ同期が空または 403 を返す',
+        symptom: '管理者はサインインできるが、Ankole にユーザーや権限グループがない。ログに Graph 403 が表示されることがある。',
+        cause: 'アプリに Group.Read.All または User.Read.All がないか、権限はあるがテナント管理者が同意 (consent) を行っていない。',
+        resolution: [
+          '必要な Microsoft Graph Application permissions を追加してください。',
+          'テナント管理者に Grant admin consent を選択してもらってください。権限を追加するだけでは不十分です。',
+          '同意の後にフル同期を実行し、Principal と権限グループを確認してください。'
+        ]
+      },
+      {
+        question: 'Entra ID のフル同期は機能するが、リアルタイムの変更が届かない',
+        symptom: '後続のフル同期がデータを修復するが、メンバーシップの変更が数分以内に反映されない。',
+        cause: 'Graph は公開 HTTPS の directory webhook に到達する必要があります。Ankole の公開 URL が誤っている、Ingress が利用できない、証明書が信頼されていない、といった場合に配信できません。',
+        resolution: [
+          '公開 HTTPS アドレスがインターネットから到達可能で、信頼された証明書を使っていることを確認してください。',
+          'Ankole の公開 URL が実際のエントリポイントと一致することを確認してください。これが Graph の通知 URL を決めます。',
+          'サブスクリプションの reconciliation ログを確認し、エントリポイントが機能した後、control plane にサブスクリプションを再構築させてください。'
+        ],
+        links: [
+          { href: '../quickstart/#2-set-up-the-identity-provider-first', label: 'Quick start で Entra ID を設定する' }
+        ]
+      }
+    ]
+  },
+  {
+    value: 'google',
+    label: 'Google Workspace',
+    issues: [
+      {
+        question: 'Ankole が有効な Google アカウントを拒否するのはなぜですか？',
+        symptom: 'Google の承認は成功するが、Ankole が login_domain_not_allowed を返す。',
+        cause: 'アカウントのドメインが Allowed Workspace domains にない、メールが未検証、またはユーザーが hd claim のない個人の Gmail アカウントを使っている。',
+        resolution: [
+          '個人の gmail.com アカウントではなく、エンタープライズの Google Workspace アカウントを使ってください。',
+          '正確なアカウントドメインが Allowed Workspace domains にあることを確認してください。',
+          'エンタープライズが複数ドメインの Workspace を運用している場合にだけ、複数のドメインを追加してください。'
+        ]
+      },
+      {
+        question: 'Google サインインは機能するが、ディレクトリ同期が空または 403 を返す',
+        symptom: '管理者は Console に入れるが、メンバーや権限グループが同期されない。',
+        cause: 'ディレクトリ同期は OAuth Client ではなく Service Account を使います。ドメイン全体の委任、委任された scope、または Delegated administrator email が通常は誤っています。',
+        resolution: [
+          'Service Account の Domain-wide delegation を有効にしてください。',
+          'Workspace の管理コンソールで、Quick start に記載された Directory API scopes を許可してください。',
+          'Delegated administrator email と Service account JSON key を確認し、フル同期を実行してください。'
+        ]
+      },
+      {
+        question: 'Google Workspace のメンバー変更がすぐに反映されないのはなぜですか？',
+        symptom: 'Workspace のユーザーやグループの変更後、Ankole が少し遅れて更新する。',
+        cause: 'Google Workspace IdP は現在フル同期のみをサポートします。リアルタイムのディレクトリサブスクリプションはありません。この遅延は想定内です。',
+        resolution: [
+          '次のフル同期を待ってください。この Provider に webhook を公開しないでください。',
+          '次の同期でも変更が反映されない場合は、委任、scope、Delegated administrator email を確認してください。',
+          '迅速な更新が業務上必要な場合は、リアルタイムのディレクトリ同期を持つ IdP を使ってください。'
+        ],
+        links: [
+          { href: '../quickstart/#2-set-up-the-identity-provider-first', label: 'Quick start で Google Workspace を設定する' }
+        ]
+      }
+    ]
+  },
+  {
+    value: 'lark',
+    label: 'Lark / Feishu',
+    issues: [
+      {
+        question: 'Lark または Feishu がサインイン中にコールバック不一致を報告する',
+        symptom: '承認ページが開かない、または承認が Ankole に戻れない。',
+        cause: 'Lark は redirect_uri を厳密に一致させます。localhost と 127.0.0.1、異なるポート、異なる Provider ID は異なる URL を生成します。',
+        resolution: [
+          '/setup でこの IdP に表示される完全なコールバックをコピーしてください。',
+          'アプリのセキュリティ設定に追加し、ホストやパスを書き換えないでください。',
+          '新しい設定でバージョンを公開し、テストユーザーを可用範囲に含めてください。'
+        ]
+      },
+      {
+        question: 'Lark または Feishu のサインインは機能するが、従業員や部署が欠けている',
+        symptom: '管理者は Console に入れるが、Principal と権限グループが不完全。',
+        cause: 'ディレクトリ権限が不完全、アプリの可用範囲が従業員を含まない、または新しい権限が公開されたバージョンにない。',
+        resolution: [
+          'Quick start の一括権限リストを使って、すべてのディレクトリ読み取り権限を追加してください。',
+          '必要な部署と従業員をアプリの可用範囲に含めてください。',
+          '新しいバージョンを公開し、リアルタイム同期を確認する前にフル同期を検証してください。'
+        ]
+      },
+      {
+        question: 'Lark または Feishu のフル同期は機能するが、従業員の変更が古いまま',
+        symptom: '最初の同期にはデータがあるが、その後の従業員の追加、異動、削除がすぐに反映されない。',
+        cause: 'リアルタイム同期は Lark の長連接 (long connection) とディレクトリイベントを使います。接続、サブスクリプション、公開バージョンがないと、フル同期だけが残ります。',
+        resolution: [
+          'control plane を稼働させ続け、Events and callbacks で long connection を選択してください。',
+          'Quick start からユーザーと部署の変更イベントを購読し、アプリを公開してください。',
+          'control plane からの送信アクセスを許可してください。長連接は公的な ingress を必要としません。'
+        ],
+        links: [
+          {
+            href: '../quickstart/#2-set-up-the-identity-provider-first',
+            label: 'Quick start で Lark または Feishu IdP を設定する'
+          }
+        ]
+      }
+    ]
+  },
+  {
+    value: 'dingtalk',
+    label: 'DingTalk',
+    issues: [
+      {
+        question: 'DingTalk サインインが「アプリケーションが存在しません」(900103) を報告する',
+        symptom: 'DingTalk が承認ページが開いた直後に 900103 を報告する。コードスキャン後のコールバックより前。',
+        cause: 'DingTalk はこの Client ID に対して利用可能な内部アプリを見つけられません。値が AgentId や robotCode であるか、アプリの設定が未公開の場合があります。',
+        resolution: [
+          'AgentId、robotCode、グループロボットの webhook token ではなく、Credentials and basic information の Client ID を使ってください。',
+          'アプリがこのエンタープライズに属し、必要なサインイン権限とディレクトリ権限を持つことを確認してください。',
+          '新しいバージョンを公開し、Ankole から新しい承認ページを開いてください。'
+        ]
+      },
+      {
+        question: 'DingTalk がコードスキャン後にのみコールバックエラーを報告する',
+        symptom: '承認ページは開き、コードスキャンを受け入れるが、同意後に redirect_uri が失敗する。',
+        cause: 'DingTalk は同意後にコールバックを確認します。登録した URL が Ankole が送る URL と厳密に一致しません。',
+        resolution: [
+          '/setup から完全なコールバック URL をコピーしてください。',
+          'Development configuration → Security settings → Redirect URL に登録してください。',
+          'バージョンを公開し、新しいコードスキャンを開始してください。古い承認ページを使い回さないでください。'
+        ]
+      },
+      {
+        question: 'DingTalk のディレクトリ同期が 60011 を報告するか、従業員が欠ける',
+        symptom: 'サインインは機能するが、ディレクトリ読み取りが失敗するかメンバーが抜ける。ログにサブコード 60011 が含まれることがある。',
+        cause: 'ユーザー、部署、またはフィールドの読み取り権限がないか、アプリの承認範囲が組織の一部を含まない。',
+        resolution: [
+          'エラーの付与リンクと Quick start のリストを使って、すべてのディレクトリ権限を追加してください。',
+          '必要な部署と従業員をアプリの承認範囲に含めてください。',
+          '新しいバージョンを公開し、フル同期を実行してください。ページサイズを変えて権限エラーを隠さないでください。'
+        ],
+        links: [
+          { href: '../quickstart/#2-set-up-the-identity-provider-first', label: 'Quick start で DingTalk IdP を設定する' }
+        ]
+      }
+    ]
+  },
+  {
+    value: 'wecom',
+    label: 'WeCom',
+    issues: [
+      {
+        question: 'WeCom のサインインまたは API 呼び出しがエラー 60020 を報告する',
+        symptom: 'QR スキャンが Ankole に戻らない、または設定保存時にコード 60020 の無信頼 IP が報告される。',
+        cause: 'WeCom はサーバー呼び出しが登録済みの信頼 IP から来ることを要求します。自社ビルドアプリと Contacts 同期はそれぞれ独自の信頼 IP リストを持ち、egress IP が欠けていると拒否されます。',
+        resolution: [
+          'Ankole のデプロイに固定の egress IP を与え、自社ビルドアプリの信頼 IP リストに追加してください。',
+          '同じ IP を別の Contacts 同期用の信頼 IP リストにも追加してください。',
+          'サインインのリダイレクトドメインが自社ビルドアプリの信頼ドメインであることを確認してください。'
+        ]
+      },
+      {
+        question: 'WeCom のサインインは機能するが、名前やディレクトリ全体が欠ける',
+        symptom: 'メンバーは Console に入れるが、Principal に名前がない、またはディレクトリ同期が空のまま。',
+        cause: '2022 年 6 月以降、通常のアプリ secret はメンバー名などのプロフィールフィールドを返しません。同期には Management tools → Contacts sync の専用 secret が必要です。',
+        resolution: [
+          'WeCom コンソールで Contacts API sync を有効にし、Identity Provider に専用 secret を入力してください。',
+          'その secret にも信頼 IP を登録してください。',
+          'WeCom はリアルタイムのディレクトリイベントを送りません。変更後はフル同期を実行するか、定期同期を待ってください。'
+        ],
+        links: [
+          { href: '../quickstart/#2-set-up-the-identity-provider-first', label: 'Quick start で WeCom IdP を設定する' }
+        ]
+      }
+    ]
+  }
+]
+
+export const channelTabs = [
+  {
+    value: 'slack',
+    label: 'Slack',
+    issues: [
+      {
+        question: 'Slack のルーティングルールが token のプレフィックスを拒否する',
+        symptom: 'channel 保存時に、接続が開く前に invalid_token_prefix が返る。',
+        cause: 'Bot Token と App Token が入れ替わっているか、どちらかの値が別の Slack token タイプ。',
+        resolution: [
+          'Bot Token は xoxb- で始まり、OAuth & Permissions から取得する必要があります。',
+          'App Token は xapp- で始まり、connections:write を含む必要があります。',
+          '値を修正して保存し直してください。credential の検証が通るまでイベントを調べないでください。'
+        ]
+      },
+      {
+        question: 'Slack の DM は機能するが、channel でのメンションが機能しない',
+        symptom: 'ボットは DM に答えるが、channel での明示的な @メンションが Ankole に届かない。',
+        cause: 'ボットが channel のメンバーでないか、アプリが app_mentions:read 付きで app_mention を購読していない。',
+        resolution: [
+          'テスト channel にボットを招待してください。',
+          'Event Subscriptions に app_mention を追加し、app_mentions:read を付与してください。',
+          'scope の変更後、アプリを再インストールし、Ankole の Bot Token を更新してください。'
+        ]
+      },
+      {
+        question: 'Slack は @メンションを配信するが、通常の channel メッセージは配信しない',
+        symptom: 'addressed_only は機能するが、observe_all や may_intervene でも明示的なメンションしか見えない。',
+        cause: 'ルーティングルールは Ankole が受信するメッセージを制御します。Slack アプリには、その会話タイプに対する一致する message イベントや history scope がまだありません。',
+        resolution: [
+          '最初に addressed_only の完全な経路を検証してください。',
+          '対象の会話タイプに、Quick start のとおり message イベントと history scope を追加してください。',
+          'アプリを再インストールし、token を更新してから、グループメッセージモードを変更してください。'
+        ],
+        links: [
+          {
+            href: '../quickstart/#4-connect-a-chat-channel-and-create-its-signal-routing-rule',
+            label: 'Quick start で Slack channel を設定する'
+          }
+        ]
+      }
+    ]
+  },
+  {
+    value: 'teams',
+    label: 'Microsoft Teams',
+    issues: [
+      {
+        question: 'Teams がメッセージを送るが、Ankole は何も受信しない',
+        symptom: 'Teams は返信を表示せず、control plane に一致するインバウンドの activity がない。',
+        cause: 'Teams は Bot Framework の webhook で配信します。プライベートエンドポイント、信頼されない証明書、誤ったパスがあると、リクエストが Ankole に届きません。',
+        resolution: [
+          'インスタンスに、信頼された証明書を持つ公開 HTTPS アドレスを与えてください。',
+          'Bot Framework の Messaging endpoint を、Quick start の正確な Teams webhook URL に設定してください。',
+          'ボットアプリがテストユーザー、チーム、channel にインストールされていることを確認してください。'
+        ]
+      },
+      {
+        question: 'Teams は Ankole に到達するが、返信の送信で認証に失敗する',
+        symptom: 'control plane は activity を受信した後、返信を送るときに 401、403、またはボット token エラーを返す。',
+        cause: 'appID、appPassword、tenantID、botTenancy のいずれかが Azure Bot の登録と一致しない。',
+        resolution: [
+          'appID がアプリケーションの GUID で、appPassword が有効期限切れでない Client Secret の値であることを確認してください。',
+          'シングルテナントアプリには single_tenant とエンタープライズの tenantID を使ってください。',
+          'Azure Bot の登録が対応している場合にのみ multi_tenant を使ってください。'
+        ]
+      },
+      {
+        question: 'Teams の個人チャットは機能するが、channel の @メンションは機能しない',
+        symptom: '同じボットが個人チャットでは回答するが、channel メッセージを受信しない。',
+        cause: 'アプリがそのチームや channel にインストールされていないか、メッセージが Teams の期待どおりにボットをメンションしていない。',
+        resolution: [
+          '対象チームにアプリをインストールし、対象 channel で許可してください。',
+          '最初のテストには明示的な @メンションを使ってください。',
+          'ルーティングルールが有効で、意図した Agent を対象にしていることを確認してください。'
+        ],
+        links: [
+          {
+            href: '../quickstart/#4-connect-a-chat-channel-and-create-its-signal-routing-rule',
+            label: 'Quick start で Teams channel を設定する'
+          }
+        ]
+      }
+    ]
+  },
+  {
+    value: 'lark',
+    label: 'Lark / Feishu',
+    issues: [
+      {
+        question: 'Lark / Feishu のボットは存在するが、どのメッセージにも返信しない',
+        symptom: 'DM もグループの @メンションも Ankole に届かない。',
+        cause: 'ボット機能、公開バージョン、可用範囲、長連接 (long connection)、im.message.receive_v1 のいずれかがアクティブでない。',
+        resolution: [
+          'ボットを有効にし、テストユーザーをアプリの範囲に含め、最新バージョンを公開してください。',
+          'Events and callbacks で長連接を選択し、im.message.receive_v1 を購読してください。',
+          '送信アクセス付きで control plane を稼働させ続けてください。この接続は公開 webhook を必要としません。'
+        ]
+      },
+      {
+        question: 'Lark / Feishu は @メンションを配信するが、通常のグループメッセージは配信しない',
+        symptom: 'addressed_only は機能するが、observe_all や may_intervene ではボットをメンションしないメッセージを見られない。',
+        cause: 'アプリに im:message.group_msg がありません。ルーティングルールは、プラットフォームが配信しないメッセージを読めません。',
+        resolution: [
+          '最初に addressed_only の経路を検証してください。',
+          'Permissions に im:message.group_msg を追加し、新しいバージョンを公開してください。',
+          'アプリの範囲がグループメンバーをカバーすることを確認してから、グループメッセージモードを変更してください。'
+        ]
+      },
+      {
+        question: 'Lark / Feishu はメッセージを受信するが、返信またはカード更新が失敗する',
+        symptom: 'Agent は作業を開始するが、IM に最終返信がない、またはカードが古い状態のまま。',
+        cause: 'チャットアプリにメッセージ送信、更新、メッセージリソース読み取りの権限がないか、新しい権限が未公開。',
+        resolution: [
+          'Quick start から送信、更新、リソースの権限を追加してください。',
+          'アプリを公開し、ボットが会話に残っていることを確認してください。',
+          '同じ会話で新しいメッセージを送ってください。新しい権限をテストするのに、古い失敗ターンを使わないでください。'
+        ],
+        links: [
+          {
+            href: '../quickstart/#4-connect-a-chat-channel-and-create-its-signal-routing-rule',
+            label: 'Quick start で Lark / Feishu channel を設定する'
+          }
+        ]
+      }
+    ]
+  },
+  {
+    value: 'dingtalk',
+    label: 'DingTalk',
+    issues: [
+      {
+        question: 'DingTalk が @メンションのないグループメッセージを無視するのは障害ですか？',
+        symptom: 'DM と明示的な @メンションは Agent を開始できるが、通常のグループメッセージは Ankole に入らない。',
+        cause: 'いいえ。2026 年 7 月時点で、DingTalk はボットを明示的にメンションしたグループメッセージのみを配信し、完全なグループ履歴を Agent に公開しません。',
+        resolution: [
+          'グループテストのたびに明示的な @メンションを使い、モードを addressed_only に保ってください。',
+          'Agent が継続的なグループコンテキストを必要とする場合は、Slack、Teams、または Lark/Feishu を使ってください。',
+          'observe_all を選択しないでください。DingTalk が配信しないメッセージを Ankole は回復できません。'
+        ]
+      },
+      {
+        question: 'DingTalk の返信がプレーンな Markdown のままです。ストリーミングカードにするには？',
+        symptom: 'Agent は返信するが、すべてのメッセージがストリーミング AI カードのないプレーンテキスト。',
+        cause: 'DingTalk のカードはテンプレートでホストされます。ルーティングルールの cardTemplateId が空、テンプレートがロボットを所有するアプリに公開されていない、または DingTalk がカードコンテンツを拒否した場合、返信はプレーンな Markdown のままになります。',
+        resolution: [
+          'Quick start の DingTalk タブの高度なセクションのとおりに AI カードテンプレートを作成し、その id をルーティングルールの cardTemplateId に貼り付けてください。',
+          'カードが空白だったり、返信の終了後も書き込みインジケーターが残ったりする場合は、カードコンテナの状態変数を flowStatus にバインドし、テンプレートを再度公開してください。',
+          '一度カードとして届き、その後プレーンテキストになる返信は、恒久的な拒否後の意図したフォールバックです。返信は依然として配信されます。param.contentUnsafe や param.cardNotExist を control plane のログで確認してください。'
+        ],
+        links: [
+          {
+            href: '../quickstart/#4-connect-a-chat-channel-and-create-its-signal-routing-rule',
+            label: 'Quick start で DingTalk AI カードテンプレートを作成する'
+          }
+        ]
+      },
+      {
+        question: 'DingTalk Stream 接続がメッセージを受信しない',
+        symptom: 'ルーティングルールは有効だが、DM も明示的な @メンションも Ankole に届かない。',
+        cause: '不一致の credential、未公開のボット、またはテストユーザーを除外するアプリ範囲は、Stream 接続や配信を停止させることがあります。',
+        resolution: [
+          'チャットアプリの Client ID と Client Secret を確認してください。うっかり IdP アプリの credential を使い回さないでください。',
+          'ボットを有効にして公開し、テストユーザーをその範囲に含めてください。',
+          'control plane からの送信アクセスを許可してください。Stream 接続は公開 webhook を必要としません。'
+        ]
+      },
+      {
+        question: '同じ DingTalk アプリを 2 番目の Agent に接続できないのはなぜですか？',
+        symptom: '2 番目のルーティングルールが拒否されるか、別の Agent がすでに同じ Client ID を使っている。',
+        cause: '現在のアダプターは、1 つの Client ID につき 1 つの Agent を許可します。各 Agent も有効な DingTalk ルートを 1 つだけ持てます。',
+        resolution: [
+          '2 番目の Agent が別のボット ID を必要とする場合は、別の内部 DingTalk アプリを作成してください。',
+          '新しいルーティングルールに、その新しい Client ID と Client Secret を使ってください。',
+          '対象の Agent を変えたいだけなら、新しいルートを有効にする前に古いルートを無効にしてください。'
+        ]
+      }
+    ]
+  },
+  {
+    value: 'wecom',
+    label: 'WeCom',
+    issues: [
+      {
+        question: 'WeCom が @メンションのないグループメッセージを無視するのは障害ですか？',
+        symptom: 'DM と明示的な @メンションは Agent を開始できるが、通常のグループメッセージ、グループ画像、グループファイルは Ankole に入らない。',
+        cause: 'いいえ。WeCom は DM と、AI ボットを明示的に @メンションしたグループメッセージのみを配信し、グループの @メッセージにはテキストと、テキスト＋画像の混合コンテンツしか含まれません。',
+        resolution: [
+          'グループテストのたびに明示的な @メンションを使ってください。グループモードは addressed_only だけです。',
+          'Agent が完全なグループコンテキストやグループで共有されたファイルを必要とする場合は、Lark/Feishu、Slack、または Teams を使ってください。'
+        ]
+      },
+      {
+        question: '予定されたリマインダーが WeCom に届かない',
+        symptom: 'ユーザーが最初にメッセージを書けば Agent は返信するが、スケジュールの結果のようなプロアクティブなメッセージは配信されない。',
+        cause: 'WeCom は、ユーザーがその会話で最初にボットへメッセージを送ることを要求します。Agent は新しい会話を開始できません。',
+        resolution: [
+          '各受信者に最初にボットへ 1 通メッセージを送ってもらい、その会話のプロアクティブ配信を解放してください。',
+          'インバウンドメッセージ後の返信ウィンドウは 24 時間です。それ以降はプロアクティブな経路だけが残ります。'
+        ]
+      },
+      {
+        question: 'WeCom の接続が切れ続ける、またはチャット ID がディレクトリと一致しない',
+        symptom: '接続が開いてから落ちる、またはチャットユーザーがディレクトリやサインイン ID に統合できない。',
+        cause: 'プラットフォームはボットごとに 1 つの長連接を許可するため、同じ Bot ID を使う別のプログラムが接続を奪います。corp のスーパー管理者が作成していないボットは、暗号化されたユーザー ID を配信します。',
+        resolution: [
+          '同じ Bot ID を使う他のプログラムがないことを確認してください。Ankole は奪われた場合、回線を取り合わずに停止して待機します。',
+          'ボットは corp のスーパー管理者が作成する必要があります。そうでない場合は削除し、スーパー管理者アカウントで再作成してください。'
+        ],
+        links: [
+          {
+            href: '../quickstart/#4-connect-a-chat-channel-and-create-its-signal-routing-rule',
+            label: 'Quick start で WeCom channel を設定する'
+          }
+        ]
+      }
+    ]
+  }
+]
+
+このページは製品概要ではなく、各 Provider のセットアップガイドを繰り返すものでもありません。最初に失敗した境界を見つけ、関連する identity またはチャット Provider を選択してください。インストールと初回セットアップの信頼できる情報源は [Quick start](../quickstart/) のままです。
+
+## 失敗した境界を見つける
+
+| 観察されること | 最初に確認すること |
+|---|---|
+| `/setup` または Console が開かない | デプロイ、control plane、DNS、HTTPS |
+| Console は開くが、サインインが失敗するかディレクトリが不完全 | Identity Provider (IdP) |
+| Console では Agent が機能するが、ある IM がメッセージを受信しない | その Channel Provider と signal routing rule |
+| IM のメッセージは Ankole に入るが、Agent が返信を生成できない | LLM Provider、model profile、Worker |
+| 1 つのプラットフォームだけが失敗する | 下の該当 Provider を選択してください。他のプラットフォームの修正を適用しないでください |
+
+## すべてのプラットフォームに共通する問題
+
+<FaqIssueList
+  client:visible
+  labels={faqLabels}
+  issues={commonIssues}
+/>
+
+## Identity Provider のトラブルシューティング
+
+IdP はサインイン、連絡先、組織の同期を所有します。エンタープライズが使う identity ソースを選択してください。Slack の Socket Mode、Entra ID の Graph サブスクリプション、Google Workspace のフル同期は異なるメカニズムであり、異なるチェックが必要です。
+
+<FaqProviderTabs
+  client:visible
+  ariaLabel="Choose an identity provider"
+  defaultValue="slack"
+  labels={faqLabels}
+  tabs={identityTabs}
+/>
+
+## chat channelのトラブルシューティング
+
+chat channelは IM メッセージを受信し、Agent の返信を送ります。ルーティングルールで使うプラットフォームを選択してください。IdP で使うプラットフォームはこの選択を変えません。
+
+<FaqProviderTabs
+  client:visible
+  ariaLabel="Choose a chat platform"
+  defaultValue="slack"
+  labels={faqLabels}
+  tabs={channelTabs}
+/>
+
+## 失敗した境界がまだ不明な場合
+
+障害を 1 回再現してください。正確な時刻、Agent UID、ルーティングルール名、Provider、インターフェースが表示する完全なエラーを記録します。次に、その時刻の前後の control plane と Worker のログだけを収集し、イベント名で最初のエラーを探します。
+
+Client Secret、Bot Token、App Token、model の API key、完全な環境ダンプ、またはマスクされていない設定ファイルは送らないでください。問題を報告するときは、完全なログアーカイブではなく、マスクしたログと正確な再現手順を含めてください。
+
+- [Ankole のログを読む](../log-reading/)

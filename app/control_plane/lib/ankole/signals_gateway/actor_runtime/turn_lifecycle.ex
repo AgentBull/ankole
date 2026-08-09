@@ -252,29 +252,55 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
   difference between "worker received the turn" and "worker finished durable
   response processing".
   """
-  @spec handle_turn_accepted(FabricProto.TurnAccepted.t()) ::
+  @spec handle_turn_accepted(FabricProto.TurnAccepted.t(), keyword()) ::
           {:ok, [ActorEventDelivery.t()]} | {:error, term()}
-  def handle_turn_accepted(%FabricProto.TurnAccepted{} = payload) do
+  def handle_turn_accepted(%FabricProto.TurnAccepted{} = payload, opts \\ []) do
     with {:ok, turn_ref} <- TurnRef.from_proto(payload.turn) do
       accepted_actor_event_id = turn_ref.actor_event_id
       now = DateTime.utc_now(:microsecond)
 
-      Repo.transact(fn repo ->
-        deliveries =
-          pending_deliveries_for_turn_ref(repo, turn_ref)
+      with {:ok, deliveries} <-
+             Repo.transact(fn repo ->
+               deliveries =
+                 deliveries_for_turn_acceptance(repo, turn_ref)
 
-        with :ok <- require_sent_event_accepted(deliveries, accepted_actor_event_id),
-             :ok <- validate_deliveries_turn_ref(deliveries, turn_ref, :exact_revision) do
-          deliveries
-          |> Enum.map(fn delivery ->
-            delivery
-            |> ActorEventDelivery.changeset(%{state: "accepted", accepted_at: now})
-            |> repo.update()
-          end)
-          |> collect_results()
-        end
-      end)
+               with :ok <- require_sent_event_accepted(deliveries, accepted_actor_event_id),
+                    :ok <- validate_deliveries_turn_ref(deliveries, turn_ref, :exact_revision) do
+                 deliveries
+                 |> Enum.map(fn delivery ->
+                   case delivery.state do
+                     "accepted" ->
+                       {:ok, delivery}
+
+                     _pending ->
+                       delivery
+                       |> ActorEventDelivery.changeset(%{state: "accepted", accepted_at: now})
+                       |> repo.update()
+                   end
+                 end)
+                 |> collect_results()
+               end
+             end) do
+        continue_reply_preview_on_accepted_steers(turn_ref.actor_event_id, deliveries, opts)
+        {:ok, deliveries}
+      end
     end
+  end
+
+  defp continue_reply_preview_on_accepted_steers(stream_actor_event_id, deliveries, opts) do
+    continue_fun = Keyword.get(opts, :continue_reply_preview_fun, &AIReplyPreview.continue_on/2)
+
+    deliveries
+    |> Repo.preload(:actor_event)
+    |> Enum.each(fn
+      %ActorEventDelivery{actor_event: %ActorEvent{type: "command.steer"} = event} ->
+        if AIReplyPreview.im_visible_event?(event) do
+          continue_fun.(stream_actor_event_id, event)
+        end
+
+      %ActorEventDelivery{} ->
+        :ok
+    end)
   end
 
   @doc """
@@ -1590,7 +1616,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
     %{agent_uid: activation.agent_uid, session_id: activation.session_id}
   end
 
-  defp pending_deliveries_for_turn_ref(repo, turn_ref) do
+  defp deliveries_for_turn_acceptance(repo, turn_ref) do
     ActorEventDelivery
     |> where([delivery], delivery.agent_uid == ^turn_ref.agent_uid)
     |> where([delivery], delivery.session_id == ^turn_ref.session_id)
@@ -1598,7 +1624,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
     |> where([delivery], delivery.actor_epoch == ^turn_ref.actor_epoch)
     |> where([delivery], delivery.actor_event_id_fence == ^turn_ref.actor_event_id)
     |> where([delivery], delivery.revision == ^turn_ref.revision)
-    |> where([delivery], delivery.state in ["created", "sent"])
+    |> where([delivery], delivery.state in ["created", "sent", "accepted"])
     |> lock("FOR UPDATE")
     |> repo.all()
   end

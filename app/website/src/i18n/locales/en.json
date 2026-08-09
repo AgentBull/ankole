@@ -177,5 +177,7 @@
   "docs.section.reference": "Reference",
   "docs.section.guides": "Guides",
   "lang.en-US": "English",
-  "lang.zh-Hans-CN": "Simplified Chinese"
+  "lang.zh-Hans-CN": "Simplified Chinese",
+  "lang.ja-JP": "Japanese",
+  "lang.ko-KR": "Korean"
 }

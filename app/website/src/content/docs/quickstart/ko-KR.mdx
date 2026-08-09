@@ -1,0 +1,2069 @@
+---
+title: 빠른 시작
+description: Ankole을 배포하고, 엔터프라이즈 identity와 모델을 설정하고, IM 채널을 연결한 뒤 실제 Agent 대화를 완료합니다.
+section: Getting started
+order: 2
+---
+
+import DocsKnowledgeNote from '../../../components/docs/DocsKnowledgeNote.astro'
+import {
+  QuickstartAgentPrompt,
+  QuickstartDisclosure,
+  QuickstartTabs
+} from '../../../components/docs/QuickstartTabs'
+
+export const quickstartLabels = {
+  advancedSettings: '고급 설정',
+  basicSettings: '기본 설정',
+  copied: '복사됨',
+  copy: '복사',
+  hideAdvanced: '접기',
+  prerequisites: '시작하기 전에',
+  showAdvanced: '펼치기'
+}
+
+export const agentInstallPrompt = [
+  'https://ankole.agentbull.com/ko-KR/docs/quickstart/ 를 사용하여 프라이빗 Ankole 배포 인스턴스를 배포하고 구성하도록 도와주세요.',
+  '먼저 내 환경을 검사하고 Docker Compose, Kubernetes, 또는 소스로부터의 설치 중 하나를 추천해 주세요. 그런 다음 Identity Provider(IdP), LLM Provider, Agent, Channel Provider, Signal Routing Rule(Signal Binding) 설정을 도와주세요. 내가 IdP와 IM 플랫폼을 지정하지 않았다면 어떤 identity 소스와 채팅 플랫폼을 사용할지 물어봐 주세요. 저를 대신해 선택하지 마세요.',
+  'chat이나 명령 출력에 secrets를 노출하지 마세요. 내가 선택한 IM에서 실제 Agent 답변을 받았을 때만 작업을 완료하세요.'
+].join(' ')
+
+export const deploymentTabs = [
+  {
+    value: 'docker',
+    label: 'Docker Compose',
+    badge: '단일 호스트 권장',
+    summary:
+      '대부분의 팀에 가장 좋은 시작점입니다. Docker가 설치된 Linux, macOS, Windows 호스트 한 대로 PostgreSQL, control plane, Agent Computer Worker 한 개, Caddy HTTPS를 실행할 수 있습니다.',
+    prerequisites: [
+      'Linux amd64 또는 arm64 컨테이너를 실행할 수 있는 Linux, macOS, Windows 호스트',
+      'Compose 플러그인이 포함된 Docker Engine, 또는 Docker Desktop',
+      '영구 디스크, DNS 이름, 그리고 80 포트와 443 포트'
+    ],
+    basic: {
+      title: 'Docker Compose로 설치하기',
+      intro: 'provider API key는 이 배포 파일에 넣지 마세요. 사인인 후 Console에서 추가하게 됩니다.',
+      steps: [
+        {
+          title: '배포 패키지 가져오기',
+          code: [
+            {
+              language: 'bash',
+              code: [
+                'git clone https://github.com/AgentBull/ankole.git',
+                'cd ankole/tools/deploy/docker-compose',
+                'cp .env.example .env',
+                'chmod 600 .env'
+              ].join('\n')
+            }
+          ]
+        },
+        {
+          title: '독립된 secrets 세 개 생성하기',
+          body: ['이 명령을 복사해서 실행하세요. 그런 다음 출력 전체를 .env에 붙여 넣으세요.'],
+          code: [
+            {
+              language: 'bash',
+              code: [
+                "printf '%s\\n' \\",
+                "  '# PostgreSQL database password' \\",
+                "  'POSTGRES_PASSWORD=$(openssl rand -hex 32)' \\",
+                "  '' \\",
+                "  '# ANKOLE master encryption key' \\",
+                "  'ANKOLE_SECRET_BASE=$(openssl rand -hex 32)' \\",
+                "  '' \\",
+                "  '# Authentication key shared by the ANKOLE control plane and Agent Workers' \\",
+                "  'ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY=$(openssl rand -hex 32)'"
+              ].join('\n')
+            }
+          ]
+        },
+        {
+          title: '공개 호스트 설정하기',
+          body: [
+            'ANKOLE_HOST를 이 호스트를 가리키는 DNS 이름으로 설정하세요. ACME_EMAIL에는 인증서 안내를 받을 수 있는 주소를 설정하세요.'
+          ],
+          fields: [
+            {
+              name: 'ANKOLE_HOST',
+              value: 'ankole.example.com',
+              description: '사용자와 provider callback이 사용할 HTTPS 호스트입니다.'
+            },
+            {
+              name: 'ACME_EMAIL',
+              value: 'ops@example.com',
+              description: 'Caddy 인증서 관리를 위한 연락 주소입니다.'
+            }
+          ]
+        },
+        {
+          title: '스택 시작 및 확인하기',
+          code: [
+            {
+              language: 'bash',
+              code: ['docker compose pull', 'docker compose up -d', 'docker compose ps'].join('\n')
+            }
+          ],
+          body: [
+            'Compose는 PostgreSQL을 기다렸다가 migration을 실행하고 Worker key를 저장한 뒤, control plane, Worker, Caddy를 시작합니다.'
+          ]
+        },
+        {
+          title: '첫 설정 열기',
+          code: [
+            {
+              language: 'bash',
+              code: 'docker compose logs control-plane | grep "SETUP ACTIVATION CODE"'
+            }
+          ],
+          body: ['https://<ANKOLE_HOST>/setup을 열고 활성화 코드를 입력하세요.']
+        }
+      ]
+    },
+    advanced: {
+      title: '프로덕션 제어, 백업, 로컬 인증서',
+      summary: '첫 배포를 프로덕션으로 전환하기 전에 이 설정을 사용하세요.',
+      steps: [
+        {
+          title: '검증된 이미지 쌍 고정하기',
+          body: [
+            'control-plane과 Worker 태그는 RuntimeFabric 검증 후 함께 이동합니다. 통제된 rollout을 위해 두 이미지를 모두 동일한 소스 리비전의 digest로 고정하세요.'
+          ],
+          fields: [
+            {
+              name: 'ANKOLE_CONTROL_PLANE_IMAGE',
+              description: 'control-plane 이미지 또는 불변 digest입니다.'
+            },
+            {
+              name: 'ANKOLE_WORKER_IMAGE',
+              description: '동일한 검증된 쌍의 Worker 이미지 또는 불변 digest입니다.'
+            },
+            {
+              name: 'ANKOLE_POSTGRESQL_IMAGE',
+              description: '번들 데이터베이스 이미지의 선택적 불변 digest입니다.'
+            }
+          ]
+        },
+        {
+          title: '업그레이드 전마다 백업하기',
+          code: [
+            {
+              language: 'bash',
+              code: [
+                'docker compose exec -T postgresql \\',
+                '  pg_dump -U ankole -d ankole -Fc \\',
+                '  > "ankole-$(date +%Y%m%d).dump"'
+              ].join('\n')
+            }
+          ],
+          body: [
+            '또한 ankole_agents_data 볼륨의 스냅샷을 만드세요. 별도의 호스트에서 데이터베이스와 Agent Home 복원을 함께 테스트하세요.'
+          ]
+        },
+        {
+          title: '짧은 중단과 함께 업그레이드하기',
+          code: [
+            {
+              language: 'bash',
+              code: [
+                'docker compose pull',
+                'docker compose down',
+                'docker compose up -d --force-recreate',
+                'docker compose ps'
+              ].join('\n')
+            }
+          ],
+          caution:
+            'docker compose down은 명명된 볼륨을 유지합니다. docker compose down -v는 PostgreSQL, Agent Home, Caddy 데이터를 삭제합니다. 영구 삭제를 의도했고 테스트된 백업이 있는 경우가 아니라면 -v를 사용하지 마세요.'
+        },
+        {
+          title: '로컬 전용 HTTPS 호스트 사용하기',
+          body: [
+            '로컬 테스트를 위해 ANKOLE_HOST=ankole.localhost로 설정하세요. 첫 시작 후 Caddy의 root 인증서를 복사하고 모든 클라이언트에서 신뢰하도록 하세요.'
+          ],
+          code: [
+            {
+              language: 'bash',
+              code: [
+                'docker compose cp \\',
+                '  caddy:/data/caddy/pki/authorities/local/root.crt \\',
+                '  ./ankole-local-ca.crt'
+              ].join('\n')
+            }
+          ],
+          links: [
+            {
+              label: '전체 Compose 운영 가이드',
+              href: 'https://github.com/AgentBull/ankole/blob/main/tools/deploy/docker-compose/README.md'
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    value: 'kubernetes',
+    label: 'Kubernetes',
+    badge: '엔터프라이즈 권장',
+    summary:
+      '이미 Kubernetes를 운영하고 있으며 클러스터 스케줄링, HTTPS Ingress, 공유 Agent Home 스토리지가 필요하다면 Helm chart를 사용하세요.',
+    prerequisites: [
+      'Kubernetes 1.27 이상과 Helm 3 이상',
+      'Linux amd64 또는 arm64 노드',
+      'Agent Home용 HTTPS Ingress와 ReadWriteMany 스토리지'
+    ],
+    basic: {
+      title: 'Helm chart 설치하기',
+      intro: '가장 짧은 경로는 번들 PostgreSQL 18 이미지를 사용하며, 여기에는 pg_search와 vector가 포함되어 있습니다.',
+      steps: [
+        {
+          title: 'chart 가져오기 및 namespace 생성하기',
+          code: [
+            {
+              language: 'bash',
+              code: [
+                'git clone https://github.com/AgentBull/ankole.git',
+                'cd ankole',
+                'kubectl create namespace ankole'
+              ].join('\n')
+            }
+          ]
+        },
+        {
+          title: 'bootstrap Secret 생성하기',
+          code: [
+            {
+              language: 'bash',
+              code: [
+                'POSTGRES_PASSWORD="$(openssl rand -hex 24)"',
+                'ANKOLE_SECRET_BASE="$(openssl rand -hex 32)"',
+                'ANKOLE_WORKER_AUTH_KEY="$(openssl rand -hex 24)"',
+                '',
+                'kubectl -n ankole create secret generic ankole-bootstrap \\',
+                '  --from-literal="POSTGRES_PASSWORD=${POSTGRES_PASSWORD}" \\',
+                '  --from-literal="ANKOLE_SECRET_BASE=${ANKOLE_SECRET_BASE}" \\',
+                '  --from-literal="ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY=${ANKOLE_WORKER_AUTH_KEY}" \\',
+                '  --from-literal="DATABASE_URL=ecto://ankole:${POSTGRES_PASSWORD}@ankole-postgresql:5432/ankole"',
+                '',
+                'unset POSTGRES_PASSWORD ANKOLE_SECRET_BASE ANKOLE_WORKER_AUTH_KEY'
+              ].join('\n')
+            }
+          ]
+        },
+        {
+          title: 'values-production.yaml 만들기',
+          code: [
+            {
+              language: 'yaml',
+              code: [
+                'fullnameOverride: ankole',
+                '',
+                'secrets:',
+                '  existingSecret: ankole-bootstrap',
+                '',
+                'controlPlane:',
+                '  publicHost: ankole.example.com',
+                '',
+                'worker:',
+                '  agents:',
+                '    persistence:',
+                '      storageClass: nfs-rwx',
+                '      size: 100Gi',
+                '',
+                'postgresql:',
+                '  enabled: true',
+                '  persistence:',
+                '    storageClass: standard',
+                '    size: 50Gi',
+                '',
+                'ingress:',
+                '  enabled: true',
+                '  className: nginx',
+                '  hosts:',
+                '    - host: ankole.example.com',
+                '      paths:',
+                '        - path: /',
+                '          pathType: Prefix',
+                '  tls:',
+                '    - secretName: ankole-tls',
+                '      hosts:',
+                '        - ankole.example.com'
+              ].join('\n')
+            }
+          ],
+          body: [
+            '호스트, Ingress 세부 사항, 두 StorageClass 이름을 바꾸세요. 위에 표시된 DATABASE_URL을 사용한다면 fullnameOverride를 유지하세요.'
+          ]
+        },
+        {
+          title: '설치하고 대기하기',
+          code: [
+            {
+              language: 'bash',
+              code: [
+                'helm upgrade --install ankole ./tools/deploy/helm/ankole-agent \\',
+                '  --namespace ankole \\',
+                '  --values values-production.yaml \\',
+                '  --wait \\',
+                '  --timeout 15m'
+              ].join('\n')
+            }
+          ]
+        },
+        {
+          title: '워크로드 확인하기',
+          code: [
+            {
+              language: 'bash',
+              code: [
+                'kubectl -n ankole get pods',
+                'kubectl -n ankole rollout status deployment/ankole-control-plane --timeout=10m',
+                'kubectl -n ankole rollout status deployment/ankole-worker --timeout=10m'
+              ].join('\n')
+            }
+          ]
+        },
+        {
+          title: '첫 설정 열기',
+          code: [
+            {
+              language: 'bash',
+              code: [
+                'kubectl -n ankole logs deployment/ankole-control-plane \\',
+                '  -c control-plane | grep "SETUP ACTIVATION CODE"'
+              ].join('\n')
+            }
+          ],
+          body: ['https://ankole.example.com/setup을 열고 활성화 코드를 입력하세요.']
+        }
+      ]
+    },
+    advanced: {
+      title: '외부 PostgreSQL, 이미지 정책, 클러스터 보안',
+      summary: '통제된 프로덕션 rollout 전에 다음 항목을 검토하세요.',
+      steps: [
+        {
+          title: '외부 PostgreSQL 서버 사용하기',
+          body: [
+            '해당 서버는 PostgreSQL 18 이상을 실행하고 pg_search를 preload하며, 애플리케이션 데이터베이스 소유자가 pg_search와 vector를 사용할 수 있게 해야 합니다.'
+          ],
+          code: [
+            {
+              language: 'sql',
+              code: [
+                'SHOW server_version_num;',
+                'SHOW shared_preload_libraries;',
+                '',
+                'SELECT name, default_version, installed_version',
+                'FROM pg_available_extensions',
+                "WHERE name IN ('pg_search', 'vector')",
+                'ORDER BY name;'
+              ].join('\n')
+            }
+          ],
+          fields: [
+            {
+              name: 'postgresql.enabled',
+              value: 'false',
+              description: '번들 데이터베이스를 비활성화합니다.'
+            },
+            {
+              name: 'DATABASE_URL',
+              description: '외부 데이터베이스 URL을 ankole-bootstrap에 저장합니다.'
+            }
+          ]
+        },
+        {
+          title: 'Worker 보안 프로필 확인하기',
+          body: [
+            '강력한 bubblewrap 격리에는 SYS_ADMIN, unconfined seccomp 프로필, unmasked /proc가 필요합니다. chart가 이를 설정하지만, 클러스터 admission 정책이 이를 허용해야 합니다.'
+          ],
+          caution:
+            'Worker 노드를 신뢰되는 first-party 컴퓨팅 경계로 취급하세요. 클러스터 정책이 이 프로필을 거부한다면 전용 node pool 또는 승인된 동등 sandbox를 사용하세요.'
+        },
+        {
+          title: '일치하는 이미지 고정 및 업그레이드하기',
+          body: [
+            '동일한 검증된 소스 리비전의 control-plane과 Worker digest를 고정하세요. helm upgrade 전에 PostgreSQL과 Agent Home을 백업하세요.'
+          ],
+          caution:
+            'Helm rollback은 데이터베이스 migration을 되돌리지 않습니다. 애플리케이션 rollback에 이전 스키마도 필요하다면 데이터베이스 백업을 복원하세요.'
+        },
+        {
+          title: '전체 chart 계약 읽기',
+          links: [
+            {
+              label: '전체 Helm 배포 가이드',
+              href: 'https://github.com/AgentBull/ankole/blob/main/tools/deploy/helm/ankole-agent/README.md'
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    value: 'source',
+    label: '소스에서 설치하기',
+    summary:
+      '소스 경로는 개발, 디버깅, 로컬 평가에 사용하세요. 이 경로는 PostgreSQL, Phoenix, Console, 프런트엔드 자산, 관리형 Docker Worker 하나를 시작합니다.',
+    prerequisites: [
+      'macOS 또는 Linux; Windows에서는 WSL2 사용',
+      '시스템 패키지를 설치할 수 있는 계정',
+      'Docker Desktop 또는 Docker Engine'
+    ],
+    basic: {
+      title: '개발 환경 실행하기',
+      steps: [
+        {
+          title: '리포지토리 복제하기',
+          code: [
+            {
+              language: 'bash',
+              code: [
+                'git clone https://github.com/AgentBull/ankole.git',
+                'cd ankole',
+                'git status --short'
+              ].join('\n')
+            }
+          ],
+          body: ['나머지 명령은 리포지토리 루트에서 실행하세요.']
+        },
+        {
+          title: '고정된 툴체인 설치하기',
+          code: [
+            {
+              language: 'bash',
+              code: 'bash tools/devkit/scripts/env-setup.sh'
+            }
+          ],
+          body: [
+            '이 스크립트는 빌드 패키지, Docker, Rust, Elixir와 Erlang, 그리고 리포지토리가 고정한 Bun 버전을 설치합니다.'
+          ]
+        },
+        {
+          title: '새 터미널을 열고 모든 경계 확인하기',
+          code: [
+            {
+              language: 'bash',
+              code: [
+                'bun --version',
+                'elixir --version',
+                'rustc --version',
+                'cargo clippy --version',
+                'docker compose version',
+                'docker info'
+              ].join('\n')
+            }
+          ],
+          body: [
+            'macOS에서는 먼저 Docker Desktop을 시작하세요. Linux에서 설치 관리자가 사용자 계정을 docker 그룹에 추가했다면 로그아웃 후 다시 로그인하세요.'
+          ]
+        },
+        {
+          title: '의존성 설치 및 PostgreSQL 초기화하기',
+          code: [
+            {
+              language: 'bash',
+              code: [
+                'bun install',
+                'bun run services:start',
+                'bun run services:status',
+                'bun run control-plane:setup'
+              ].join('\n')
+            }
+          ]
+        },
+        {
+          title: 'Ankole 시작하기',
+          code: [
+            {
+              language: 'bash',
+              code: 'bun dev'
+            }
+          ],
+          body: [
+            '이 터미널을 열어 둔 상태에서 http://localhost:4000을 열고 개발 서버가 출력한 활성화 코드를 사용하세요.'
+          ]
+        }
+      ]
+    },
+    advanced: {
+      title: '로컬 확인, 종료, 전달된 origin',
+      summary: '이러한 제어는 완전한 런타임을 대상으로 개발하거나 원격 workspace를 사용할 때 도움이 됩니다.',
+      steps: [
+        {
+          title: '다른 터미널에서 활성화 코드 읽기',
+          code: [
+            {
+              language: 'bash',
+              code: 'bun run kit show bootstrap-activation-code'
+            }
+          ]
+        },
+        {
+          title: '표시되는 런타임 경계 확인하기',
+          code: [
+            {
+              language: 'bash',
+              code: [
+                'bun run services:status',
+                'curl -I http://localhost:4000/',
+                'docker ps --filter name=ankole-dev-agent-computer'
+              ].join('\n')
+            },
+            {
+              language: 'bash',
+              code: 'bun run services:stop'
+            }
+          ],
+          body: [
+            'bun dev 터미널에서 Ctrl+C로 control plane과 Worker를 중지하세요. 작업을 마치면 PostgreSQL은 별도로 중지하세요.'
+          ]
+        },
+        {
+          title: 'Codespaces 또는 다른 전달된 origin 사용하기',
+          body: [
+            '전달된 HTTPS origin을 IdP에 등록하세요. localhost callback과 전달된 callback은 서로 다른 URL이므로, 브라우저가 사용하는 URL로 사인인을 확인하세요.'
+          ],
+          caution: '이 경로는 개발용입니다. 프로덕션 배포에는 Docker Compose 또는 Kubernetes를 사용하세요.'
+        }
+      ]
+    }
+  }
+]
+
+export const identityTabs = [
+  {
+    value: 'slack',
+    label: 'Slack',
+    summary:
+      'Console 사인인과 workspace 멤버 및 사용자 그룹 동기화에 Slack 앱 하나를 사용합니다. 기본 설정에는 OAuth 클라이언트, Bot Token, App Token이 필요합니다.',
+    prerequisites: [
+      'Slack 앱을 만들고 설치할 수 있는 workspace 관리자',
+      'Ankole용 공개 HTTPS 주소',
+      '첫 사인인에 사용할 workspace 멤버 계정'
+    ],
+    basic: {
+      title: 'Slack IdP 설정하기',
+      steps: [
+        {
+          title: 'Ankole에서 callback URL 복사하기',
+          body: [
+            'https://<ANKOLE_HOST>/setup을 열고 활성화 코드를 입력하세요. 플러그인 페이지에서 Slack Adapter를 선택하고 저장한 다음, Slack을 선택하세요.',
+            'Configuration ID(Provider ID)를 slack-main으로 유지하세요. Copy를 사용해 로그인 callback URL을 복사하세요. 이 URL을 직접 입력하거나 바꾸지 마세요.'
+          ]
+        },
+        {
+          title: 'Slack 앱 만들기',
+          body: [
+            'Slack API Your Apps를 열고 Create New App → From scratch를 선택하세요. 앱 이름을 입력하고 직원이 속한 workspace를 선택하세요.',
+            'Basic Information → App Credentials를 열고 Client ID와 Client Secret을 복사하세요.'
+          ],
+          links: [
+            {
+              label: 'Slack Your Apps 열기',
+              href: 'https://api.slack.com/apps'
+            }
+          ]
+        },
+        {
+          title: '로그인 callback 등록하기',
+          body: [
+            'OAuth & Permissions → Redirect URLs를 열고 Add New Redirect URL을 선택한 다음, Ankole에서 가져온 전체 URL을 붙여 넣고 저장하세요.',
+            'Ankole은 기본적으로 openid, profile, email 사인인 scopes를 요청합니다. 이를 chat bot scopes로 바꾸지 마세요.'
+          ],
+          links: [
+            {
+              label: 'Slack 사인인 가이드',
+              href: 'https://api.slack.com/authentication/sign-in-with-slack'
+            }
+          ]
+        },
+        {
+          title: '디렉터리 액세스를 부여하고 Bot Token을 받습니다',
+          body: [
+            'OAuth & Permissions에서 Bot Token Scopes 아래에 아래의 세 scope를 추가합니다. 그런 다음 Install to Workspace를 선택하고 설치를 승인합니다.'
+          ],
+          copyItems: [
+            { value: 'users:read', description: '구성원 프로필 읽기' },
+            { value: 'users:read.email', description: '구성원 이메일 주소 읽기' },
+            { value: 'usergroups:read', description: '사용자 그룹과 그 구성원 읽기' }
+          ],
+          caution: '설치 후 Bot User OAuth Token을 복사합니다. 이 token은 반드시 xoxb-로 시작해야 합니다. scope를 변경할 때마다 앱을 다시 설치합니다.'
+        },
+        {
+          title: 'App Token을 받고 Socket Mode를 사용 설정합니다',
+          body: [
+            'Basic Information → App-Level Tokens를 엽니다. Generate Token and Scopes를 선택하고 아래의 scope를 추가한 다음, 생성된 xapp- token을 복사합니다. 그런 다음 Socket Mode를 열고 Enable Socket Mode를 켭니다.'
+          ],
+          copyItems: [
+            { value: 'connections:write', description: 'App Token이 Socket Mode 연결을 열 수 있게 합니다' }
+          ]
+        },
+        {
+          title: '디렉터리 이벤트를 구독합니다',
+          body: [
+            'Event Subscriptions를 열고 이벤트를 사용 설정합니다. Subscribe to bot events 아래에 아래의 다섯 이벤트를 각각 추가합니다.'
+          ],
+          copyItems: [
+            { value: 'team_join', description: '구성원이 workspace에 가입함' },
+            { value: 'user_change', description: '구성원 프로필이 변경됨' },
+            { value: 'subteam_created', description: '사용자 그룹이 생성됨' },
+            { value: 'subteam_updated', description: '사용자 그룹이 변경됨' },
+            { value: 'subteam_members_changed', description: '사용자 그룹 멤버십이 변경됨' }
+          ],
+          links: [
+            {
+              label: 'Slack Socket Mode 가이드',
+              href: 'https://api.slack.com/apis/connections/socket'
+            }
+          ]
+        },
+        {
+          title: 'Ankole에 Slack 값을 입력합니다',
+          bullets: [
+            'Client ID: Basic Information의 Client ID',
+            'Client Secret: 같은 페이지의 Client Secret',
+            'Workspace ID: 선택 사항입니다. Slack 웹 URL에서 /client/ 뒤의 T… 값을 입력하면 로그인할 workspace를 미리 선택할 수 있습니다. 디렉터리 동기화를 제한하지는 않습니다',
+            'Bot User OAuth Token: xoxb- token',
+            'App-Level Token: xapp- token'
+          ],
+          body: [
+            'Sync directory와 Sync directory changes를 켠 상태로 유지합니다. Validate configuration을 선택하고 로그인합니다. 그런 다음 Slack 인증을 완료합니다.'
+          ]
+        },
+        {
+          title: '로그인과 최초 동기화를 확인합니다',
+          body: [
+            'Slack이 Ankole로 돌아오면 이 사용자가 첫 번째 루트 관리자가 됩니다. Console → Identity Providers를 열고 slack-main을 선택한 다음 Run full sync를 선택합니다.',
+            '동기화가 끝나면 Console → Principals와 Principal groups에서 workspace 구성원과 Slack 사용자 그룹을 확인합니다.'
+          ]
+        }
+      ]
+    },
+    advanced: {
+      title: '로그인 전용, 실시간 동기화, credential 갱신',
+      summary: 'Slack 디렉터리가 필요 없는 경우에만 기본 디렉터리 동기화를 끕니다.',
+      steps: [
+        {
+          title: 'Slack을 로그인에만 사용합니다',
+          body: [
+            'Sync directory를 끄면 Bot User OAuth Token이 필요 없어지고 실시간 동기화도 꺼집니다. Client ID와 Client Secret은 여전히 필요합니다.'
+          ]
+        },
+        {
+          title: '실시간 이벤트 없이 전체 동기화를 사용합니다',
+          body: [
+            'Sync directory는 켜 두고 Sync directory changes를 끕니다. 이 구성에는 Bot User OAuth Token이 필요하지만 App-Level Token은 필요하지 않습니다. 구성원 변경은 다음 전체 동기화 후에 나타납니다.'
+          ]
+        },
+        {
+          title: 'scope 또는 token을 갱신합니다',
+          body: [
+            'Slack scope나 Bot Token을 변경한 뒤에는 앱을 다시 설치하고 Identity에서 token을 갱신합니다. rotation 후 App Token을 갱신하지 않으면 Socket Mode가 연결되지 않습니다.'
+          ]
+        }
+      ]
+    }
+  },
+  {
+    value: 'entra-id',
+    label: 'Microsoft Entra ID',
+    summary:
+      '단일 테넌트 Entra 앱을 등록합니다. 이 앱은 사용자를 Console에 로그인시키고, 사용자와 그룹을 읽으며, Microsoft Graph를 통해 디렉터리 변경을 수신합니다.',
+    prerequisites: [
+      '앱을 등록하고 관리자 동의를 승인할 수 있는 Entra 관리자',
+      'Ankole의 공개 HTTPS 주소',
+      '최초 로그인용 테넌트 구성원 계정'
+    ],
+    basic: {
+      title: 'Microsoft Entra ID 설정',
+      steps: [
+        {
+          title: 'Ankole에서 콜백 URL을 복사합니다',
+          body: [
+            'https://<ANKOLE_HOST>/setup을 열고 활성화 코드를 입력합니다. 플러그인 페이지에서 Microsoft 365 Adapter를 선택하고 선택을 저장한 다음 Entra ID를 선택합니다.',
+            'Configuration ID(Provider ID)를 entra-id-main으로 유지합니다. Copy를 사용하여 로그인 콜백 URL을 복사합니다.'
+          ]
+        },
+        {
+          title: '단일 테넌트 앱을 등록합니다',
+          body: [
+            'Microsoft Entra 관리 센터를 엽니다. Entra ID → App registrations → New registration으로 이동합니다. 이름을 입력하고 Accounts in this organizational directory only를 선택합니다.',
+            'Redirect URI에서 Web을 선택하고 Ankole의 전체 콜백 URL을 붙여넣습니다. 그런 다음 Register를 선택합니다.'
+          ],
+          links: [
+            {
+              label: 'Microsoft 앱 등록 가이드',
+              href: 'https://learn.microsoft.com/en-us/entra/identity-platform/quickstart-register-app'
+            }
+          ]
+        },
+        {
+          title: '앱의 세 가지 값을 복사합니다',
+          body: [
+            '앱 Overview 페이지에서 Application (client) ID와 Directory (tenant) ID를 복사합니다.',
+            'Certificates & secrets → Client secrets → New client secret을 엽니다. 생성 직후 Value를 복사합니다. Secret ID는 복사하지 마십시오. Value는 페이지를 떠난 뒤에는 표시되지 않습니다.'
+          ]
+        },
+        {
+          title: 'Microsoft Graph 권한을 부여합니다',
+          body: [
+            'API permissions → Add a permission → Microsoft Graph를 엽니다. 아래의 세 권한을 추가합니다. 그런 다음 Grant admin consent for <organization>을 선택합니다. 세 권한 모두 granted 상태인지 확인합니다.'
+          ],
+          copyItems: [
+            { value: 'User.Read', description: '위임된 권한' },
+            { value: 'User.Read.All', description: '애플리케이션 권한' },
+            { value: 'Group.Read.All', description: '애플리케이션 권한' }
+          ],
+          links: [
+            {
+              label: 'Microsoft Graph 권한 참조',
+              href: 'https://learn.microsoft.com/en-us/graph/permissions-reference'
+            }
+          ]
+        },
+        {
+          title: 'Ankole에 Entra 값을 입력합니다',
+          bullets: [
+            'Directory (tenant) ID: 앱 Overview 페이지의 값',
+            'Application (client) ID: 앱 Overview 페이지의 값',
+            'Client secret value: 클라이언트 시크릿의 Value',
+            'Ankole public URL: https://<ANKOLE_HOST>. 내부 컨테이너나 클러스터 주소는 사용할 수 없습니다'
+          ],
+          body: [
+            'Sync directory와 Sync directory changes를 켠 상태로 유지합니다. Validate configuration을 선택하고 로그인합니다. 이 테넌트의 계정을 사용합니다.'
+          ]
+        },
+        {
+          title: '로그인과 최초 동기화를 확인합니다',
+          body: [
+            '로그인 후 이 사용자가 첫 번째 루트 관리자가 됩니다. Console → Identity Providers를 열고 entra-id-main을 선택한 다음 Run full sync를 선택합니다.',
+            '동기화가 끝나면 Principals와 Principal groups에서 테넌트 사용자와 그룹을 확인합니다.'
+          ]
+        }
+      ]
+    },
+    advanced: {
+      title: 'Graph 알림, 게스트, 그룹 필터',
+      summary: '실시간 동기화를 위해 Microsoft Graph가 공개 인터넷에서 Ankole에 도달할 수 있어야 합니다.',
+      steps: [
+        {
+          title: '알림 endpoint가 도달 가능하도록 설정합니다',
+          body: [
+            'Sync directory changes가 켜져 있으면 Ankole public URL은 유효한 공개 HTTPS 주소여야 합니다. Ankole은 그 아래에 /webhooks/v1/entra-id/entra-id-main/directory를 만들고 Graph 구독을 관리합니다.'
+          ],
+          links: [
+            {
+              label: 'Microsoft Graph 변경 알림 가이드',
+              href: 'https://learn.microsoft.com/en-us/graph/change-notifications-overview'
+            }
+          ]
+        },
+        {
+          title: '공개 ingress 없이 실시간 동기화를 끕니다',
+          body: [
+            'Graph가 이 인스턴스에 도달할 수 없다면 저장하기 전에 Sync directory changes를 끕니다. 전체 동기화는 계속 동작하며 Ankole public URL도 더 이상 필요하지 않습니다.'
+          ]
+        },
+        {
+          title: '게스트 포함 또는 그룹 필터는 필요한 경우에만 사용합니다',
+          body: [
+            'Include guest users는 기본적으로 꺼져 있습니다. Synced groups filter는 Microsoft Graph OData $filter를 허용합니다. 먼저 필터 없이 전체 동기화를 완료하여, 필터 결과를 권한 실패로 오해하지 않도록 합니다.'
+          ]
+        }
+      ]
+    }
+  },
+  {
+    value: 'google-workspace',
+    label: 'Google Workspace',
+    summary:
+      'Google 로그인과 디렉터리 액세스는 별도의 credential을 사용합니다. OAuth client가 로그인을 처리하고, 도메인 전체 위임이 설정된 service account가 사용자와 그룹을 동기화합니다.',
+    prerequisites: [
+      'Google Workspace 슈퍼 관리자',
+      'Google Cloud 프로젝트를 관리할 수 있는 계정',
+      'Ankole의 공개 HTTPS 주소'
+    ],
+    basic: {
+      title: 'Google Workspace 설정',
+      steps: [
+        {
+          title: 'Ankole에서 콜백 URL을 복사합니다',
+          body: [
+            'https://<ANKOLE_HOST>/setup을 열고 활성화 코드를 입력합니다. 플러그인 페이지에서 Google Workspace Adapter를 선택하고 선택을 저장한 다음 Google Workspace를 선택합니다.',
+            'Configuration ID(Provider ID)를 google-workspace-main으로 유지합니다. Copy를 사용하여 로그인 콜백 URL을 복사합니다.'
+          ]
+        },
+        {
+          title: 'Google Cloud 프로젝트를 준비합니다',
+          body: [
+            'Google Cloud Console을 열고 조직이 소유한 프로젝트를 선택하거나 만듭니다. API Library에서 Admin SDK API를 찾아 사용 설정합니다.',
+            'Google Auth platform을 열고 앱 정보를 완료합니다. Audience를 Internal로 설정하여 이 앱이 이 Workspace의 직원 전용 앱이 되게 합니다.'
+          ],
+          links: [
+            {
+              label: 'Google Cloud Console 열기',
+              href: 'https://console.cloud.google.com/'
+            }
+          ]
+        },
+        {
+          title: '로그인용 OAuth client를 만듭니다',
+          body: [
+            'Google Auth platform → Clients → Create client를 엽니다. 애플리케이션 유형으로 Web application을 선택합니다.',
+            'Authorized redirect URIs 아래에 Ankole의 전체 콜백 URL을 붙여넣습니다. 클라이언트를 만들고 Client ID와 Client Secret을 복사합니다.'
+          ],
+          links: [
+            {
+              label: 'Google OAuth client 가이드',
+              href: 'https://developers.google.com/workspace/guides/create-credentials'
+            }
+          ]
+        },
+        {
+          title: '디렉터리 동기화용 service account를 만듭니다',
+          body: [
+            'IAM & Admin → Service Accounts를 열고 service account를 만듭니다. 세부 정보를 열어 Google Workspace 도메인 전체 위임을 사용 설정하고 숫자로 된 Client ID를 기록합니다.',
+            'Keys → Add key → Create new key를 열고 JSON을 선택합니다. JSON 파일의 전체 내용을 Ankole에 붙여넣게 됩니다. 이 파일을 리포지토리에 커밋하지 마십시오.'
+          ],
+          links: [
+            {
+              label: 'Google service account 가이드',
+              href: 'https://developers.google.com/identity/protocols/oauth2/service-account'
+            }
+          ]
+        },
+        {
+          title: 'Workspace에서 도메인 전체 위임을 승인합니다',
+          body: [
+            'admin.google.com을 엽니다. Security → Access and data control → API Controls → Manage Domain Wide Delegation으로 이동하여 Add new를 선택합니다.',
+            '숫자로 된 service account Client ID를 입력합니다. OAuth scopes는 하나의 필드이므로 아래의 전체 줄을 복사하여 붙여넣고 승인합니다.'
+          ],
+          batchImport: {
+            label: '모든 OAuth scope 복사',
+            content:
+              'https://www.googleapis.com/auth/admin.directory.user.readonly,https://www.googleapis.com/auth/admin.directory.group.readonly,https://www.googleapis.com/auth/admin.directory.group.member.readonly'
+          },
+          links: [
+            {
+              label: 'Google Directory API 권한 부여 가이드',
+              href: 'https://developers.google.com/workspace/admin/directory/v1/guides/authorizing'
+            }
+          ]
+        },
+        {
+          title: 'Ankole에 Google 값을 입력합니다',
+          bullets: [
+            'OAuth client ID와 OAuth client secret: Web application OAuth client의 credential',
+            'Allowed Workspace domains: @ 없이 example.com과 같은 형식의 Workspace 도메인',
+            'Service account JSON key: JSON 키 파일의 전체 내용',
+            'Delegated administrator email: 사용자와 그룹을 읽을 수 있는 Workspace 관리자'
+          ],
+          body: [
+            'Sync directory를 켠 상태로 유지합니다. Validate configuration을 선택하고 로그인합니다. 허용된 도메인의 Workspace 계정을 사용합니다.'
+          ]
+        },
+        {
+          title: '로그인과 최초 동기화를 확인합니다',
+          body: [
+            '로그인 후 이 사용자가 첫 번째 루트 관리자가 됩니다. Console → Identity Providers를 열고 google-workspace-main을 선택한 다음 Run full sync를 선택합니다.',
+            '동기화가 끝나면 Principals와 Principal groups에서 Workspace 사용자, 그룹, 멤버십을 확인합니다.'
+          ]
+        }
+      ]
+    },
+    advanced: {
+      title: '도메인 경계, 동기화 시점, service account',
+      summary: 'Google Workspace는 전체 동기화만 지원합니다. 이 adapter에 실시간 디렉터리 이벤트를 보내지 않습니다.',
+      steps: [
+        {
+          title: 'Allowed Workspace domains를 최소로 유지합니다',
+          body: [
+            '엔터프라이즈가 사용하는 Workspace 도메인만 입력합니다. Ankole은 Google이 확인한 이메일과 Workspace hosted-domain claim도 요구합니다. 일반 consumer gmail.com 계정에는 이러한 claim이 없으므로, Google이 인증한 후에도 Ankole은 이 계정을 거부합니다.'
+          ]
+        },
+        {
+          title: '디렉터리 변경 후 전체 동기화를 다시 실행합니다',
+          body: [
+            'Google Workspace adapter는 실시간 동기화를 지원하지 않습니다. 직원을 추가하거나 그룹을 변경하거나 계정을 일시 중지한 뒤에는 Console → Identity Providers에서 전체 동기화를 다시 실행합니다.'
+          ]
+        },
+        {
+          title: 'service account 액세스를 줄이고 키를 교체합니다',
+          body: [
+            '첫 번째 검증 후에는 사용자와 그룹 읽기 권한이 있는 전용 관리자를 Delegated administrator email로 사용할 수 있습니다. JSON 키를 교체할 때는 Ankole의 Service account JSON key를 갱신합니다.'
+          ]
+        }
+      ]
+    }
+  },
+  {
+    value: 'lark',
+    label: 'Lark / Feishu',
+    summary:
+      '사용자 지정 엔터프라이즈 앱을 만듭니다. 앱의 App ID와 App Secret이 로그인, 직원 및 부서 동기화, 그리고 long connection을 통한 실시간 디렉터리 이벤트를 제공합니다.',
+    prerequisites: [
+      '사용자 지정 엔터프라이즈 앱을 만들고 게시할 수 있는 관리자',
+      '디렉터리 권한을 승인할 수 있는 엔터프라이즈 관리자',
+      '최초 로그인용 Lark 또는 Feishu 직원 계정'
+    ],
+    basic: {
+      title: 'Lark 또는 Feishu IdP 설정',
+      steps: [
+        {
+          title: 'Ankole에서 콜백 URL을 복사합니다',
+          body: [
+            'https://<ANKOLE_HOST>/setup을 열고 활성화 코드를 입력합니다. 플러그인 페이지에서 Lark Adapter를 선택하고 선택을 저장한 다음 Lark 또는 Feishu를 선택합니다.',
+            'Configuration ID(Provider ID)를 lark-main으로 유지합니다. Copy를 사용하여 로그인 콜백 URL을 복사합니다.'
+          ]
+        },
+        {
+          title: '사용자 지정 엔터프라이즈 앱을 만듭니다',
+          body: [
+            'Feishu tenant는 Feishu Open Platform을, 국제 Lark tenant는 Lark Developer를 사용합니다. 사용자 지정 엔터프라이즈 앱을 만듭니다.',
+            'Credentials & Basic Info를 열고 App ID와 App Secret을 복사합니다.'
+          ],
+          links: [
+            {
+              label: 'Feishu Open Platform 열기',
+              href: 'https://open.feishu.cn/app'
+            },
+            {
+              label: 'Lark Developer 열기',
+              href: 'https://open.larksuite.com/app'
+            }
+          ]
+        },
+        {
+          title: '로그인 콜백을 등록합니다',
+          body: [
+            'Development Configuration → Security Settings → Redirect URLs를 열고 Ankole의 전체 URL을 추가합니다.',
+            '콜백은 정확히 일치해야 합니다. scheme, host, port 또는 provider ID가 다르면 로그인이 실패합니다.'
+          ],
+          links: [
+            {
+              label: 'Feishu 웹 로그인 가이드',
+              href: 'https://open.feishu.cn/document/sso/web-application-end-user-consent/guide'
+            }
+          ]
+        },
+        {
+          title: '로그인 및 디렉터리 권한을 가져옵니다',
+          body: [
+            'Permissions를 열고 일괄 가져오기 또는 내보내기 작업을 선택합니다. 아래의 JSON을 붙여넣고 가져오기를 확인합니다. 권한에 엔터프라이즈 승인이 필요하면 상태가 active가 될 때까지 기다립니다.'
+          ],
+          batchImport: {
+            label: 'JSON 일괄 가져오기',
+            content: `{
+  "scopes": {
+    "tenant": [
+      "contact:contact.base:readonly",
+      "contact:department.base:readonly",
+      "contact:department.organize:readonly",
+      "contact:user.base:readonly",
+      "contact:user.department:readonly",
+      "contact:user.email:readonly",
+      "contact:user.employee_id:readonly"
+    ],
+    "user": [
+      "contact:user.employee_id:readonly"
+    ]
+  }
+}`
+          }
+        },
+        {
+          title: 'long-connection 디렉터리 이벤트를 구성합니다',
+          body: [
+            'Events & Callbacks → Event Configuration을 열고 long-connection 또는 WebSocket 전달 옵션을 선택합니다. 아래의 일곱 이벤트를 추가합니다.'
+          ],
+          copyItems: [
+            { value: 'contact.user.created_v3' },
+            { value: 'contact.user.updated_v3' },
+            { value: 'contact.user.deleted_v3' },
+            { value: 'contact.department.created_v3' },
+            { value: 'contact.department.updated_v3' },
+            { value: 'contact.department.deleted_v3' },
+            { value: 'contact.scope.updated_v3' }
+          ]
+        },
+        {
+          title: '가용 범위를 설정하고 게시합니다',
+          body: [
+            '첫 번째 관리자와 동기화가 필요한 모든 부서를 앱 가용 범위에 추가합니다. 앱 버전을 만들고 게시합니다. 게시되지 않은 콜백, 권한, 이벤트 변경은 직원에게 적용되지 않습니다.'
+          ]
+        },
+        {
+          title: 'Ankole에 Lark 또는 Feishu 값을 입력합니다',
+          bullets: [
+            'App ID와 App Secret: Credentials & Basic Info의 값',
+            'Service region: Feishu는 Feishu (Mainland China), Lark는 Lark (Global)을 선택합니다'
+          ],
+          body: [
+            '기본 디렉터리 동기화 설정은 보통 변경할 필요가 없습니다. Validate configuration을 선택하고 로그인합니다. 그런 다음 Console → Identity Providers를 열고 lark-main에 대해 전체 동기화를 실행합니다.',
+            'Principals와 Principal groups에서 직원, 부서, 멤버십을 확인합니다.'
+          ]
+        }
+      ]
+    },
+    advanced: {
+      title: 'long connection, 앱 가용 범위, chat 앱',
+      summary: 'control plane이 long connection을 엽니다. 공개 Feishu webhook은 필요하지 않습니다.',
+      steps: [
+        {
+          title: '실시간 이벤트 없이 전체 동기화를 사용합니다',
+          body: [
+            'Advanced settings에서(보통 변경할 필요가 없습니다) 디렉터리 이벤트가 필요 없다면 Sync directory changes를 끕니다. 그러면 직원 및 부서 변경은 다음 전체 동기화 후에 나타납니다.'
+          ]
+        },
+        {
+          title: '앱 가용 범위를 로그인 경계로 사용합니다',
+          body: [
+            '앱 가용 범위는 로그인할 수 있는 대상을 제어합니다. 부서나 직원을 추가한 뒤에는 범위를 갱신하고 새 버전을 게시합니다.'
+          ]
+        },
+        {
+          title: 'identity와 chat에 별도의 앱을 사용합니다',
+          body: [
+            '하나의 사용자 지정 앱으로 두 역할을 모두 처리할 수도 있지만, 일반적인 사용에서는 별도의 앱이 더 좋습니다. 로그인 및 디렉터리 권한은 IdP 앱에 유지하고, bot 권한은 chat 앱에 유지합니다. 두 앱은 같은 조직에 대해 동일한 platformSubjectNamespace를 사용할 수 있습니다.'
+          ]
+        }
+      ]
+    }
+  },
+  {
+    value: 'dingtalk',
+    label: 'DingTalk',
+    summary:
+      '내부 엔터프라이즈 앱을 만듭니다. 동일한 Client ID와 Client Secret이 로그인, 조직 디렉터리 액세스, 그리고 Stream을 통한 실시간 변경을 제공합니다.',
+    prerequisites: [
+      '내부 앱을 만들고 게시할 수 있는 DingTalk 관리자',
+      '디렉터리 API 액세스를 승인할 수 있는 관리자',
+      '최초 로그인용 조직 내 직원 계정'
+    ],
+    basic: {
+      title: 'DingTalk IdP 설정',
+      steps: [
+        {
+          title: 'Ankole에서 콜백 URL을 복사합니다',
+          body: [
+            'https://<ANKOLE_HOST>/setup을 열고 활성화 코드를 입력합니다. 플러그인 페이지에서 DingTalk Adapter를 선택하고 선택을 저장한 다음 DingTalk를 선택합니다.',
+            'Configuration ID(Provider ID)를 dingtalk-main으로 유지합니다. Copy를 사용하여 로그인 콜백 URL을 복사합니다.'
+          ]
+        },
+        {
+          title: '내부 엔터프라이즈 앱을 만듭니다',
+          body: [
+            'DingTalk 개발자 콘솔을 엽니다. App Development → Internal Enterprise Apps로 이동하여 앱을 만듭니다.',
+            'Basic Information → Credentials를 엽니다. Client ID(이전 명칭 AppKey)와 Client Secret(이전 명칭 AppSecret)을 복사합니다.'
+          ],
+          links: [
+            {
+              label: 'DingTalk 개발자 콘솔 열기',
+              href: 'https://open-dev.dingtalk.com/'
+            }
+          ]
+        },
+        {
+          title: '로그인 콜백을 등록합니다',
+          body: [
+            'Development Configuration → Security Settings → Redirect URL을 엽니다. Ankole의 전체 URL을 붙여넣고 저장합니다.',
+            '로그인 scope를 openid corpid로 유지합니다. corpid claim은 로그인을 선택한 DingTalk 조직으로 제한합니다.'
+          ]
+        },
+        {
+          title: '로그인 및 디렉터리 API 권한을 요청합니다',
+          body: [
+            'Permission Management → Contacts Management를 엽니다. 아래 작업에 대한 읽기 액세스를 요청합니다. 디렉터리 범위를 모든 직원으로 설정하거나, 로그인과 동기화가 필요한 모든 부서를 포함하도록 합니다.'
+          ],
+          copyItems: [
+            { value: 'Contact.User.Read', description: '개인 연락처 정보 읽기' },
+            { value: 'Get a user ID by unionId' },
+            { value: 'Get user details' },
+            { value: 'Get child department IDs' },
+            { value: 'Get department details' },
+            { value: 'Get basic department user information' }
+          ]
+        },
+        {
+          title: 'Stream을 통해 디렉터리 변경을 구독합니다',
+          body: [
+            'Events & Callbacks를 열고 Stream mode를 선택합니다. 아래의 열 개 이벤트를 추가합니다. 이 이벤트는 직원, 부서, 관리자, 조직 변경을 다룹니다.'
+          ],
+          copyItems: [
+            { value: 'user_add_org' },
+            { value: 'user_modify_org' },
+            { value: 'user_leave_org' },
+            { value: 'user_active_org' },
+            { value: 'org_dept_create' },
+            { value: 'org_dept_modify' },
+            { value: 'org_dept_remove' },
+            { value: 'org_admin_add' },
+            { value: 'org_admin_remove' },
+            { value: 'org_remove' }
+          ],
+          links: [
+            {
+              label: 'DingTalk 직원 변경 Stream 가이드',
+              href: 'https://open.dingtalk.com/document/orgapp/personnel-platform-employee-change-event-stream'
+            }
+          ]
+        },
+        {
+          title: '가용 범위를 설정하고 게시합니다',
+          body: [
+            '첫 번째 관리자와 동기화가 필요한 부서를 앱 가용 범위에 추가합니다. 콜백, 권한, 이벤트 설정이 포함된 버전을 만들고 게시합니다.'
+          ]
+        },
+        {
+          title: 'Ankole에 DingTalk 값을 입력합니다',
+bullets: [
+            'Client ID (AppKey): 자격 증명 페이지의 Client ID',
+            'Client Secret (AppSecret): 같은 페이지의 Client Secret'
+          ],
+          body: [
+            'Sync directory와 Sync directory changes를 켠 상태로 유지합니다. Validate configuration and sign in을 선택합니다. Ankole은 DingTalk 로그인 화면을 열기 전에 자격 증명을 확인합니다.',
+            '로그인 후 Console → Identity Providers를 열고 dingtalk-main에 대해 full sync를 실행합니다. Principals와 Principal groups에서 직원과 부서를 확인합니다.'
+          ]
+        }
+      ]
+    },
+    advanced: {
+      title: 'Stream, 디렉터리 범위, 페이지 크기',
+      summary: 'control plane이 Stream 연결을 엽니다. 공용 webhook이 필요하지 않습니다.',
+      steps: [
+        {
+          title: 'Stream 이벤트 없이 full sync 사용',
+          body: [
+            '디렉터리 이벤트가 필요하지 않으면 Sync directory changes를 끕니다. 그러면 직원과 부서 변경은 다음 full sync 후에 반영됩니다.'
+          ]
+        },
+        {
+          title: '디렉터리 권한 범위 확인',
+          body: [
+            '동기화에서 사람이나 부서가 누락되면 Permission Management에서 디렉터리 범위를 확인합니다. 승인된 API 권한도 범위에 포함되지 않으면 불완전한 데이터를 반환할 수 있습니다.'
+          ]
+        },
+        {
+          title: '먼저 기본 페이지 크기 유지',
+          body: [
+            '기본 페이지 크기는 50이고 허용 범위는 1–100입니다. 기본값으로 full sync를 한 번 완료합니다. 측정된 rate-limit 또는 응답 크기 문제가 있을 때만 변경합니다.'
+          ]
+        }
+      ]
+    }
+  },
+  {
+    value: 'wecom',
+    label: 'WeCom',
+    summary:
+      '자체 구축 앱(self-built app)이 QR 로그인을 담당하고, 전용 Contacts-sync secret이 주기적인 full sync로 구성원과 부서를 가져옵니다. 로그인과 디렉터리 API 호출 모두 고정된 egress IP가 필요합니다.',
+    prerequisites: [
+      'WeCom 기업 초관리자 계정',
+      '고정 egress IP가 있는 Ankole 배포',
+      '최초 로그인을 위한 기업 내 구성원 계정'
+    ],
+    basic: {
+      title: 'WeCom IdP 설정',
+      steps: [
+        {
+          title: 'Ankole에서 콜백 URL 복사',
+          body: [
+            'https://<ANKOLE_HOST>/setup을 열고 activation code를 입력합니다. 플러그인 페이지에서 WeCom Adapter를 선택하고, 선택을 저장한 다음 WeCom을 선택합니다.',
+            'Configuration ID(Provider ID)를 wecom-main으로 유지합니다. Copy를 사용하여 로그인 콜백 URL을 복사합니다.'
+          ]
+        },
+        {
+          title: 'Corp ID 기록',
+          body: ['WeCom 관리 콘솔을 엽니다. My Company → Company information으로 이동하여 Corp ID를 복사합니다.'],
+          links: [
+            {
+              label: 'WeCom 관리 콘솔 열기',
+              href: 'https://work.weixin.qq.com/wework_admin/'
+            }
+          ]
+        },
+        {
+          title: '신뢰 도메인과 trusted IP를 가진 자체 구축 앱 만들기',
+          body: [
+            'App Management → Self-built → Create app으로 이동합니다. 앱 세부 정보를 열고 AgentId와 Secret을 복사합니다.',
+            '같은 페이지에서 두 값을 설정합니다. 웹 인증용 신뢰 도메인으로 Ankole 도메인을 추가하고, 배포의 egress IP를 trusted-IP 목록에 추가합니다.'
+          ],
+          caution:
+            'trusted-IP 항목이 없으면 로그인과 API 호출이 오류 60020으로 실패합니다. 신뢰 도메인이 없으면 QR 스캔 후 리디렉션이 차단됩니다.'
+        },
+        {
+          title: 'Contacts sync 활성화 및 전용 secret 기록',
+          body: [
+            'Security & Administration → Management tools → Contacts sync로 이동합니다. API sync를 켜고 전용 secret을 복사한 다음 자체 trusted IP를 등록합니다.',
+            '2022년 6월 이후 일반 앱 secret은 더 이상 구성원 이름과 기타 프로필 필드를 반환하지 않습니다. 이 전용 secret이 없으면 디렉터리 동기화를 사용할 수 없고, 로그인한 사용자는 사용자 ID만 남게 됩니다.'
+          ]
+        },
+        {
+          title: 'Ankole에 WeCom 값 입력',
+          bullets: [
+            'Corp ID: Company information에서 가져온 값',
+            'Self-built app AgentId / Secret: 앱 세부 정보에서 가져온 두 값',
+            'Contacts-sync Secret: Contacts sync 페이지의 전용 secret'
+          ],
+          body: [
+            'Enable login과 Sync directory를 켠 상태로 유지합니다. Validate configuration and sign in을 선택하고 WeCom QR 로그인을 완료합니다.'
+          ]
+        },
+        {
+          title: '로그인과 첫 full sync 확인',
+          body: [
+            '첫 번째로 로그인한 구성원이 첫 번째 루트 관리자가 됩니다. Console → Identity Providers를 열고 wecom-main을 선택한 다음 full sync를 실행합니다.',
+            'Principals와 Principal groups에서 구성원과 부서를 확인합니다.'
+          ]
+        }
+      ]
+    },
+    advanced: {
+      title: '동기화 주기, trusted IP, 로그인 전용',
+      summary: 'WeCom은 실시간 디렉터리 이벤트를 보내지 않습니다. 변경 사항은 주기적인 full sync로 수렴됩니다.',
+      steps: [
+        {
+          title: '디렉터리 변경 후 full sync 실행',
+          body: [
+            'WeCom은 디렉터리 변경을 Ankole로 푸시하지 않습니다. 구성원을 추가하거나 부서를 변경한 후 Console → Identity Providers에서 full sync를 실행하거나, 다음 주기적 동기화를 기다립니다.'
+          ]
+        },
+        {
+          title: 'egress IP가 변경되면 두 trusted-IP 목록 모두 업데이트',
+          body: [
+            '자체 구축 앱과 Contacts sync는 각각 자체 trusted-IP 목록을 유지합니다. 마이그레이션 또는 egress-IP 변경 후 두 목록을 모두 업데이트하지 않으면 로그인과 동기화가 모두 오류 60020으로 실패합니다.'
+          ]
+        },
+        {
+          title: '디렉터리 동기화 없이 로그인 사용',
+          body: [
+            'Sync directory를 끄면 Contacts-sync secret은 선택 사항이 됩니다. 그러면 로그인한 Principals는 이름이나 부서 그룹 없이 WeCom 계정 ID만 유지합니다.'
+          ]
+        }
+      ]
+    }
+  }
+]
+
+export const modelAdvanced = {
+  title: '선택적 모델 프로필과 provider 튜닝',
+  summary: 'Agent가 필요로 할 때까지 선택적 기능 슬롯을 비워 둡니다.',
+  steps: [
+    {
+      title: '선택적 기능 프로필 추가',
+      fields: [
+        {
+          name: 'Background Agent Jobs',
+          description:
+            '내구성이 있는 Background Agent Jobs를 실행합니다. 저장된 프로필 키는 현재 coding입니다. 메시지에 코드가 많이 포함되어 있으므로 일반 대화는 이 프로필로 전환되지 않습니다.'
+        },
+        {
+          name: 'vision_fallback',
+          description: '기본 모델이 이미지를 검사할 수 없을 때의 폴백(fallback)입니다.'
+        },
+        {
+          name: 'embedding / rerank',
+          description: '검색과 결과 정렬을 위한 모델입니다.'
+        },
+        {
+          name: 'web_search / web_fetch',
+          description: '웹 탐색과 페이지 검색을 위한 provider입니다.'
+        },
+        {
+          name: 'image_generate',
+          description: '이미지 생성을 위한 모델입니다.'
+        }
+      ]
+    }
+  ]
+}
+
+export const channelTabs = [
+  {
+    value: 'slack',
+    label: 'Slack',
+    badge: '기본',
+    summary:
+      'Slack은 Socket Mode를 사용합니다. Ankole이 아웃바운드 WebSocket을 열기 때문에 채팅 경로에 공용 Slack webhook이 필요하지 않습니다.',
+    prerequisites: ['Slack 앱을 만들고 설치할 권한', '테스트 채널 또는 다이렉트 메시지'],
+    basic: {
+      title: 'Slack 앱 준비',
+      steps: [
+        {
+          title: '앱 생성 및 Socket Mode 활성화',
+          body: [
+            'Slack 앱을 처음부터 만듭니다. Basic Information에서 App-Level Token을 만들고 아래 scope를 추가한 다음 Socket Mode를 활성화합니다.'
+          ],
+          copyItems: [
+            { value: 'connections:write', description: 'App Token이 Socket Mode 연결을 열 수 있게 합니다' }
+          ]
+        },
+        {
+          title: '채팅 및 채널 상태 이벤트 구독',
+          body: [
+            'Event Subscriptions → Subscribe to bot events를 엽니다. 아래의 각 이벤트를 추가합니다. 이 목록은 Slack adapter가 구현한 메시지, 반응, 채널 상태 기능과 일치합니다.'
+          ],
+          copyItems: [
+            { value: 'app_mention', description: '채널 @멘션 수신' },
+            { value: 'message.channels', description: '공개 채널 메시지 수신' },
+            { value: 'message.groups', description: '비공개 채널 메시지 수신' },
+            { value: 'message.im', description: '다이렉트 메시지 수신' },
+            { value: 'message.mpim', description: '여러 사람 간 다이렉트 메시지 수신' },
+            { value: 'reaction_added', description: '추가된 반응 수신' },
+            { value: 'reaction_removed', description: '제거된 반응 수신' },
+            { value: 'member_joined_channel', description: '채널에 참여한 구성원 동기화' },
+            { value: 'member_left_channel', description: '채널에서 나간 구성원 동기화' },
+            { value: 'channel_rename', description: '채널 이름 변경 동기화' },
+            { value: 'group_rename', description: '비공개 채널 이름 변경 동기화' },
+            { value: 'channel_deleted', description: '채널 삭제 동기화' },
+            { value: 'channel_archive', description: '채널 아카이브 동기화' }
+          ]
+        },
+        {
+          title: '다이렉트 메시지 활성화',
+          body: [
+            'App Home → Show Tabs를 엽니다. Display Messages 탭을 켜고 Allow users to send Slash commands and messages from the messages tab을 선택합니다. Messages 탭만으로는 화면이 표시될뿐 사용자가 Agent에게 다이렉트 메시지를 보낼 수는 없습니다.'
+          ]
+        },
+        {
+          title: 'Slack 기본 인터랙티비티 활성화',
+          body: [
+            'Interactivity & Shortcuts를 열고 Interactivity를 활성화합니다. Socket Mode가 기존 WebSocket을 통해 Block Kit 버튼 동작을 전달하므로 공용 Request URL이 필요하지 않습니다.'
+          ]
+        },
+        {
+          title: '전체 채팅 scope 부여 및 앱 설치',
+          body: [
+            'OAuth & Permissions → Bot Token Scopes에서 아래의 각 scope를 추가합니다. 이 목록은 Ankole이 호출하는 Slack API만 포함합니다. 사용하지 않는 assistant, workflow, document, meeting scope는 부여하지 마십시오.'
+          ],
+          copyItems: [
+            { value: 'app_mentions:read', description: '봇을 멘션한 메시지 읽기' },
+            { value: 'channels:read', description: '공개 채널과 그 구성원 동기화' },
+            { value: 'channels:history', description: '공개 채널 메시지 읽기 및 답글 조정' },
+            { value: 'groups:read', description: '비공개 채널과 그 구성원 동기화' },
+            { value: 'groups:history', description: '비공개 채널 메시지 읽기 및 답글 조정' },
+            { value: 'im:read', description: '다이렉트 메시지 대화 동기화' },
+            { value: 'im:history', description: '다이렉트 메시지 읽기 및 답글 조정' },
+            { value: 'mpim:read', description: '여러 사람 간 다이렉트 메시지와 그 구성원 동기화' },
+            { value: 'mpim:history', description: '여러 사람 간 다이렉트 메시지 읽기 및 답글 조정' },
+            { value: 'chat:write', description: '봇 메시지 전송, 업데이트, 삭제' },
+            { value: 'reactions:read', description: '반응 변경 수신' },
+            { value: 'reactions:write', description: '반응 추가 및 제거' },
+            { value: 'files:read', description: '메시지에 첨부된 파일 읽기' },
+            { value: 'files:write', description: 'Agent가 보내는 파일 업로드' },
+            { value: 'users:read', description: '채널 구성원 식별 및 봇 계정 제외' }
+          ],
+          caution: 'scope를 변경한 후에는 워크스페이스에 앱을 다시 설치하고 새 Bot Token을 Ankole에 입력합니다.'
+        },
+        {
+          title: 'Console 필드 수집',
+          fields: [
+            {
+              name: 'botToken',
+              value: 'xoxb-…',
+              description: 'Bot User OAuth Token. xoxb- 접두사가 필요합니다.'
+            },
+            {
+              name: 'appToken',
+              value: 'xapp-…',
+              description: 'Socket Mode용 App-Level Token. xapp- 접두사가 필요합니다.'
+            }
+          ]
+        }
+      ]
+    },
+    advanced: {
+      title: '메시지 정책, subject 매핑, IdP로서의 Slack',
+      summary: 'Slack이 이벤트를 전달하지만, 주소가 지정되지 않은 메시지를 Ankole이 처리하는 방식은 여전히 signal routing 규칙이 결정합니다.',
+      steps: [
+        {
+          title: 'Agent를 멘션하지 않는 메시지의 정책 선택',
+          body: [
+            '위의 이벤트와 scope를 사용하면 Slack이 전체 대화를 전달할 수 있지만, Ankole signal routing 정책을 대체하지는 않습니다. addressed_only로 시작하십시오. Agent가 직접 멘션 없이 관찰하거나 개입해야 하는 경우에만 observe_all 또는 may_intervene을 선택하십시오.'
+          ]
+        },
+        {
+          title: '하나의 앱이 Slack IdP도 담당할 때 identity 권한 추가',
+          body: ['프로덕션에서는 별도의 IdP 앱을 사용하십시오. 하나의 앱이 두 역할을 모두 담당해야 한다면 아래의 Bot scope와 디렉터리 이벤트를 추가하십시오.'],
+          copyItems: [
+            { value: 'users:read.email', description: '구성원 이메일 주소 동기화' },
+            { value: 'usergroups:read', description: '사용자 그룹과 그 구성원 동기화' },
+            { value: 'team_join', description: '구성원 가입 이벤트 수신' },
+            { value: 'user_change', description: '구성원 프로필 변경 수신' },
+            { value: 'subteam_created', description: '사용자 그룹 생성 수신' },
+            { value: 'subteam_updated', description: '사용자 그룹 업데이트 수신' },
+            { value: 'subteam_members_changed', description: '사용자 그룹 구성원 변경 수신' }
+          ]
+        },
+        {
+          title: 'subject 네임스페이스 설정',
+          fields: [
+            {
+              name: 'platformSubjectNamespace',
+              value: 'slack-main',
+              description: 'Slack 워크스페이스마다 네임스페이스 하나를 사용합니다. Slack이 두 역할을 모두 담당할 때는 Slack IdP config와 공유합니다.'
+            },
+            {
+              name: 'userName',
+              value: 'Slack',
+              description: '아웃바운드 메시지에 사용되는 표시 이름.'
+            }
+          ]
+        },
+        {
+          title: '별도의 Slack IdP 앱 만들기',
+          body: [
+            '일반적인 사용에서는 SSO와 디렉터리 동기화를 위한 별도의 Slack 앱을 만듭니다. identity 권한은 IdP 앱에, bot 권한은 채팅 앱에 유지합니다. 두 레코드는 같은 워크스페이스에 대해 하나의 platformSubjectNamespace를 사용할 수 있습니다.'
+          ]
+        }
+      ]
+    }
+  },
+  {
+    value: 'teams',
+    label: 'Microsoft Teams',
+    summary:
+      'Teams는 Bot Framework webhook을 보냅니다. 신뢰할 수 있는 인증서가 있는 공용 HTTPS 엔드포인트가 필수입니다.',
+    prerequisites: ['Entra ID 테넌트', '공용 HTTPS Ankole 호스트', 'Teams 봇을 등록하고 설치할 권한'],
+    basic: {
+      title: 'Teams 봇 준비',
+      steps: [
+        {
+          title: '앱과 봇 등록',
+          body: [
+            'Entra 앱 등록(Entra app registration)과 Azure Bot 리소스를 만듭니다. 애플리케이션 client ID가 appID가 되고, appPassword용 client secret을 만듭니다.'
+          ]
+        },
+        {
+          title: 'Bot Framework 메시징 엔드포인트 설정',
+          code: [
+            {
+              language: 'text',
+              code: 'https://<ANKOLE_HOST>/webhooks/v1/teams/<appID>/messages'
+            }
+          ],
+          body: ['appID 경로 세그먼트는 signal routing 규칙의 App ID와 일치해야 합니다.']
+        },
+        {
+          title: '테넌트 모드 선택',
+          fields: [
+            {
+              name: 'botTenancy',
+              value: 'single_tenant',
+              description: '단일 엔터프라이즈 테넌트에 권장되는 시작 모드.'
+            },
+            {
+              name: 'tenantID',
+              description: 'Entra 테넌트 GUID. single-tenant 봇에 필요합니다.'
+            }
+          ]
+        },
+        {
+          title: 'Console 필드 수집',
+          fields: [
+            {
+              name: 'appID',
+              description: 'Azure Bot 등록의 Microsoft App ID. GUID여야 합니다.'
+            },
+            {
+              name: 'appPassword',
+              description: 'Microsoft App client secret.'
+            }
+          ]
+        }
+      ]
+    },
+    advanced: {
+      title: '크로스 테넌트 봇, Entra identity, 디렉터리 webhook',
+      summary: '봇이 둘 이상의 Entra 테넌트를 지원하거나 Entra ID가 SSO도 제공할 때 확장합니다.',
+      steps: [
+        {
+          title: '하나의 Bot Framework 앱으로 여러 Entra 테넌트 지원',
+          body: [
+            'Azure Bot 등록이 여러 Entra 테넌트를 허용하는 경우에만 botTenancy를 multi_tenant로 설정합니다. adapter는 bot token 테넌트에 botframework.com을 사용합니다. 이 Microsoft 앱 등록 모드는 Ankole 배포 인스턴스의 경계를 변경하지 않습니다.'
+          ]
+        },
+        {
+          title: 'Entra가 identity도 제공할 때 subject 네임스페이스 공유',
+          fields: [
+            {
+              name: 'platformSubjectNamespace',
+              value: 'entra-id-main',
+              description: 'Teams 채널과 Entra ID provider가 같은 조직을 나타낼 때 동일한 네임스페이스를 사용합니다.'
+            },
+            {
+              name: 'userName',
+              value: 'Teams',
+              description: '아웃바운드 메시지에 사용되는 표시 이름.'
+            }
+          ]
+        },
+        {
+          title: 'Graph 디렉터리 동기화는 IdP에 유지',
+          body: [
+            'Entra 전체 및 실시간 디렉터리 동기화는 IdP 레코드에 속합니다. Graph 알림은 별도의 디렉터리 webhook을 사용하며 여전히 공용 HTTPS 호스트가 필요합니다.'
+          ]
+        }
+      ]
+    }
+  },
+  {
+    value: 'lark',
+    label: 'Lark / Feishu',
+    summary:
+      'Lark와 Feishu는 아웃바운드 long connection을 사용합니다. 채팅 경로에는 인터넷 접근이 필요하지만 공용 인바운드 webhook은 필요하지 않습니다.',
+    prerequisites: ['엔터프라이즈 커스텀 앱을 만들 권한', '앱 가용 범위(availability scope)의 테스트 사용자'],
+    basic: {
+      title: 'Lark 또는 Feishu 앱 준비',
+      steps: [
+        {
+          title: '앱 생성 및 bot 기능 활성화',
+          body: [
+            '엔터프라이즈 커스텀 앱을 만들고 bot 기능을 활성화한 다음 테스트 사용자를 가용 범위(availability scope)에 추가합니다.'
+          ]
+        },
+        {
+          title: '전체 채팅 scope 가져오기',
+          body: [
+            'Permissions를 열고 일괄 가져오기/내보내기 작업을 선택한 다음 아래의 JSON을 붙여넣고 가져오기를 확인합니다. 이 목록은 adapter가 호출하는 bot, message, reaction, file, card, room, membership API와 일치합니다. 채팅 앱에 디렉터리 쓰기, 문서, 회의, 긴급 메시지 권한을 추가하지 마십시오.'
+          ],
+          batchImport: {
+            label: 'JSON 일괄 가져오기',
+            content: `{
+  "scopes": {
+    "tenant": [
+      "application:bot.basic_info:read",
+      "cardkit:card:write",
+      "im:chat:read",
+      "im:chat.members:bot_access",
+      "im:chat.members:read",
+      "im:message:send_as_bot",
+      "im:message:readonly",
+      "im:message:update",
+      "im:message:recall",
+      "im:message.group_at_msg:readonly",
+      "im:message.p2p_msg:readonly",
+      "im:message.reactions:read",
+      "im:message.reactions:write_only",
+      "im:resource"
+    ],
+    "user": []
+  }
+}`
+          }
+        },
+        {
+          title: 'long connection 선택 및 구현된 이벤트 추가',
+          body: [
+            'Events and Callbacks에서 long connection을 선택하고 아래의 각 이벤트를 추가합니다. 플랫폼이 클라이언트를 감지하는 동안 Ankole control plane을 실행 상태로 유지합니다.'
+          ],
+          copyItems: [
+            { value: 'im.message.receive_v1', description: '봇에게 보낸 메시지 수신' },
+            { value: 'im.message.recalled_v1', description: '메시지 회수 이벤트 수신' },
+            { value: 'im.message.reaction.created_v1', description: '추가된 반응 수신' },
+            { value: 'im.message.reaction.deleted_v1', description: '제거된 반응 수신' },
+            { value: 'im.chat.member.bot.added_v1', description: '봇을 추가한 방 동기화' },
+            { value: 'im.chat.member.bot.deleted_v1', description: '봇을 제거한 방 동기화' },
+            { value: 'im.chat.member.user.added_v1', description: '방에 참여한 구성원 동기화' },
+            { value: 'im.chat.member.user.deleted_v1', description: '방에서 나간 구성원 동기화' },
+            { value: 'im.chat.updated_v1', description: '방 변경 동기화' },
+            { value: 'im.chat.disbanded_v1', description: '방 삭제 동기화' },
+            { value: 'card.action.trigger', description: '인터랙티브 카드 동작 수신' }
+          ]
+        },
+        {
+          title: '버전 게시 및 Console 필드 수집',
+          fields: [
+            {
+              name: 'appID',
+              description: '엔터프라이즈 커스텀 앱 ID.'
+            },
+            {
+              name: 'appSecret',
+              description: '엔터프라이즈 커스텀 앱 secret.'
+            },
+            {
+              name: 'domain',
+              value: 'feishu or lark',
+              description: 'Feishu.cn에는 feishu를, Larksuite.com에는 lark를 사용합니다.'
+            }
+          ]
+        }
+      ]
+    },
+    advanced: {
+      title: '전체 방 컨텍스트, 별도 identity, subject 매핑',
+      summary: 'Agent가 방을 관찰해야 하거나 Lark가 SSO도 제공할 때 확장합니다.',
+      steps: [
+        {
+          title: 'Agent가 지명되지 않은 그룹 메시지를 관찰하게 하기',
+          body: [
+            'observe_all 또는 may_intervene를 사용하기 전에 아래 권한을 추가하세요. 첫 대화를 검증하는 동안에는 addressed_only로 시작하세요.'
+          ],
+          copyItems: [
+            { value: 'im:message.group_msg', description: '봇을 멘션하지 않은 그룹 메시지 읽기' }
+          ]
+        },
+        {
+          title: '별도 Lark IdP 앱 생성',
+          body: [
+            '일반적인 사용에서는 SSO와 디렉터리 동기화를 위해 또 다른 커스텀 앱을 만드세요. 로그인과 디렉터리 권한은 IdP 앱에, bot 권한은 채팅 앱에 두세요. 두 레코드가 같은 조직을 나타낼 때는 platformSubjectNamespace 하나를 공유할 수 있습니다.'
+          ]
+        },
+        {
+          title: '공유 adapter 필드 설정',
+          fields: [
+            {
+              name: 'platformSubjectNamespace',
+              value: 'lark-main',
+              description: '두 레코드가 같은 조직을 나타낼 때 이 값을 Lark IdP config와 공유하세요.'
+            },
+            {
+              name: 'userName',
+              value: 'Lark / Feishu',
+              description: '발신 메시지에 사용되는 표시 이름입니다.'
+            }
+          ]
+        },
+        {
+          title: 'Lark 앱 소유권 규칙 준수',
+          bullets: [
+            '하나의 Agent는 활성화된 Lark binding을 최대 하나만 가질 수 있습니다.',
+            '하나의 appID는 하나의 Agent에만 바인딩할 수 있습니다.'
+          ],
+          body: ['추가 Agent마다 별도의 Lark 또는 Feishu 앱을 만드세요.']
+        }
+      ]
+    }
+  },
+  {
+    value: 'dingtalk',
+    label: 'DingTalk',
+    summary:
+      'DingTalk는 Stream 모드를 사용합니다. AppKey와 AppSecret 한 쌍이 robot을 인증하고 이벤트 연결을 엽니다.',
+    alert: {
+      title: 'DingTalk는 일부 Ankole 기능을 제한합니다',
+      body: [
+        '그룹 채팅에서 Agent는 전체 대화 history를 읽을 수 없습니다. 명시적으로 @멘션한 메시지만 받습니다. DingTalk 카드는 template 기반이므로 streaming 카드 답변에는 카드 플랫폼에 구축한 AI 카드 template이 하나 필요합니다. 없으면 답변은 일반 Markdown으로 유지됩니다.',
+        '이러한 제한은 Ankole의 기능과 사용자 경험을 줄입니다. 또한 장기 memory 시스템에 불완전한 context를 남깁니다. 가능하면 다른 채팅 채널을 선호하세요.'
+      ]
+    },
+    prerequisites: ['엔터프라이즈 내부 DingTalk 앱과 robot을 만들 권한', '테스트 대화'],
+    basic: {
+      title: 'DingTalk robot 준비',
+      steps: [
+        {
+          title: '엔터프라이즈 내부 앱과 robot 생성',
+          body: [
+            'robot 기능을 활성화하고 앱을 테스트 사용자에게 공개하세요. DingTalk는 직접 메시지와 robot을 @멘션한 그룹 메시지를 전달합니다.'
+          ]
+        },
+        {
+          title: 'Stream 모드 활성화 및 앱 게시',
+          body: [
+            '동일한 앱 자격 증명이 Stream 연결을 열므로 공개 메시지 webhook은 필요하지 않습니다.'
+          ]
+        },
+        {
+          title: 'Console 필드 수집',
+          fields: [
+            {
+              name: 'clientId',
+              description: '엔터프라이즈 앱 Client ID. AppKey라고도 하며 Stream clientId로 사용됩니다.'
+            },
+            {
+              name: 'clientSecret',
+              description: '엔터프라이즈 앱 Client Secret. AppSecret이라고도 하며 Stream clientSecret으로 사용됩니다.'
+            },
+            {
+              name: 'group_message_mode',
+              value: 'addressed_only',
+              description: 'DingTalk가 그룹 메시지로 전달할 수 있는 유일한 모드입니다.'
+            },
+            {
+              name: 'cardTemplateId',
+              description:
+                'streaming 카드 답변용 AI 카드 template id입니다. 첫 테스트에서는 비워 두세요. 아래 고급 섹션이 template 구축 방법을 보여 줍니다.'
+            }
+          ]
+        }
+      ]
+    },
+    advanced: {
+      title: 'AI 카드 template, 다중 Agent, identity 설정',
+      summary:
+        'streaming AI 카드 답변을 원하거나, DingTalk Agent를 여러 개 계획하거나, DingTalk를 identity 소스로도 사용하려면 펼치세요.',
+      steps: [
+        {
+          title: 'AI 카드 template 생성 및 변수 추가',
+          body: [
+            'DingTalk 카드는 template 기반입니다. 레이아웃은 DingTalk 카드 플랫폼에 있고 Ankole은 고정된 변수 집합에 값만 씁니다. DingTalk 조직마다 template을 하나 만들고, 첫 번째에는 약 20분을 예상하세요. 시작 전에 Agent가 이미 일반 텍스트로 답변하고 있어야 하며, 앱에는 대화형 카드 인스턴스 쓰기와 AI 카드 streaming 업데이트 권한이 필요합니다.',
+            'DingTalk 개발자 콘솔 → 카드 플랫폼 → 새 template을 열고 AI 카드 카테고리를 선택하세요. 이 카테고리만 작성 인디케이터와 완료·실패 상태를 그리는 AI 카드 컨테이너가 있습니다. 아래 각 변수를 정확히 이 이름으로 추가하세요. 이름이 일치하지 않으면 모든 답변에서 해당 영역이 비어 있습니다.'
+          ],
+          fields: [
+            { name: 'flowStatus', description: 'Text. 카드 상태: 작성 중 2, 완료 3, 실패 5.' },
+            { name: 'state', description: 'Text. 실행 중인 tool 라벨 같은 상태 줄 하나.' },
+            { name: 'answer', description: 'Markdown(streaming). 답변 본문이며 매 프레임마다 전체가 다시 쓰입니다.' },
+            { name: 'thought', description: 'Markdown. 일시적인 사고 초안이며 답변이 끝나면 비워집니다.' },
+            { name: 'plan', description: 'Text. 계획과 전체 중 완료된 수.' },
+            { name: 'activity', description: 'Text. 실행 중인 tool 호출이며 답변이 끝나면 비워집니다.' },
+            { name: 'results', description: 'Text. 구조화된 결과당 한 줄.' },
+            { name: 'receipts', description: 'Text. 기록된 부작용당 한 줄.' },
+            { name: 'actions', description: 'Text. 버튼 JSON 목록이며 Agent가 물어볼 것이 없으면 비어 있습니다.' },
+            { name: 'meta', description: 'Text. 트리거, 카드 번호, 개수, 경과 시간.' }
+          ]
+        },
+        {
+          title: '컴포넌트 배치 및 카드 상태 바인딩',
+          body: [
+            'AI 카드 컨테이너 안에 컴포넌트를 이 순서로 배치하세요. meta와 state는 상단의 작은 텍스트로, plan은 텍스트로, thought와 activity는 각각 접힌 영역에, answer는 콘텐츠 변수 유형을 Markdown으로 설정하고 streaming을 켠 메인 Markdown 블록으로 — Ankole이 streaming 속도로 업데이트하는 유일한 블록입니다. results와 receipts는 텍스트로, actions는 액션 영역에 바인딩하고 각 버튼 값을 그대로 전달하세요.',
+            'AI 카드 컨테이너를 선택하고 flow-status 변수(flowStatusVar)를 flowStatus에 바인딩하세요. 작성 중과 실패 상태는 켜 둡니다.'
+          ],
+          caution:
+            '이 바인딩이 카드가 무엇이든 표시하게 만드는 핵심입니다. 컨테이너는 flowStatus를 읽어 어떤 상태를 그릴지 선택합니다. 상태 변수가 바인딩되지 않은 컨테이너는 초기 상태에 영원히 머물며 빈 본문을 렌더링하는 경우가 많습니다.'
+        },
+        {
+          title: 'template 게시, id 입력, 검증',
+          body: [
+            'template을 robot을 소유한 엔터프라이즈 내부 앱에 연결하고 게시한 뒤, template id를 복사해 라우팅 규칙의 cardTemplateId에 붙여 넣으세요. 변경은 다음 답변부터 적용되며 재시작할 것이 없습니다.',
+            '검증하려면 여러 문장을 만드는 메시지를 보내세요. Agent가 쓰는 동안 카드가 나타나고 커져야 하며, 답변이 끝나면 인디케이터가 멈추고 생각·활동 영역이 비워집니다. 그다음 결정이 필요한 것을 물어보세요. 버튼이 나타나야 하며, 누르면 turn이 이어집니다. 더 이상 대기 중인 질문에 응답하지 않는 오래된 버튼은 무시됩니다. 긴 답변은 약 2.5KB에서 카드를 봉인하고 새 카드로 이어집니다. 각 카드는 대화의 새 메시지이며 표 같은 풍부한 구조는 텍스트로 렌더링됩니다. 이 모두는 플랫폼 제한에서 예상되는 동작입니다.'
+          ],
+          bullets: [
+            '카드가 비어 있거나 답변 종료 후에도 작성 인디케이터가 남아 있음: 컨테이너 상태 변수가 flowStatus에 바인딩되지 않았습니다. 바인딩하고 다시 게시하세요.',
+            '한 영역이 항상 비어 있음: 변수 이름이 표와 일치하지 않거나 컴포넌트가 바인딩되지 않았습니다.',
+            '답변이 끝에만 나타나거나 전혀 나타나지 않음: answer 블록이 Markdown streaming 블록이 아닙니다.',
+            '답변이 일반 Markdown 메시지임: template id가 비어 있거나, template이 이 앱에 게시되지 않았거나, DingTalk가 카드 콘텐츠를 거부했습니다. control-plane 로그에서 param.contentUnsafe 또는 param.cardNotExist를 확인하세요. 카드 경로가 영구히 실패하면 답변은 한 번 일반 Markdown으로 낮아지며 그래도 전달됩니다.',
+            '버튼은 나타나지만 눌러도 동작하지 않음: 액션 영역이 각 버튼 값을 그대로 전달하지 않습니다.'
+          ]
+        },
+        {
+          title: '연결 소유권 규칙 준수',
+          bullets: [
+            '하나의 Agent는 활성화된 DingTalk binding을 최대 하나만 가질 수 있습니다.',
+            '하나의 clientId는 하나의 Agent에만 바인딩할 수 있습니다.'
+          ],
+          body: ['추가 Agent마다 별도의 robot과 credential 쌍을 만드세요.']
+        },
+        {
+          title: 'DingTalk identity 분리 유지',
+          body: [
+            'DingTalk는 OIDC와 디렉터리 동기화도 제공할 수 있지만 그것은 IdP 레코드입니다. 채팅 binding이 DingTalk를 Console 로그인 provider로 만들지는 않습니다.'
+          ],
+          fields: [
+            {
+              name: 'platformSubjectNamespace',
+              value: 'dingtalk-main',
+              description: '두 레코드가 같은 조직을 나타낼 때만 DingTalk IdP와 공유하세요.'
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    value: 'wecom',
+    label: 'WeCom',
+    summary:
+      'WeCom AI bot은 하나의 아웃바운드 long connection으로 메시지를 주고받으므로 공개 메시지 webhook이 필요하지 않습니다. 플랫폼은 bot당 정확히 하나의 long connection을 허용합니다.',
+    alert: {
+      title: 'WeCom은 가장 제한적인 채팅 채널입니다',
+      body: [
+        '그룹에서 Agent는 bot을 명시적으로 @멘션한 메시지만 받습니다. 이미지, 음성, 파일, 동영상은 직접 메시지로만 도착하며, 음성 메시지는 플랫폼 전사본으로만 도착합니다. 보낸 메시지는 회수, 편집, 이모지 반응을 할 수 없습니다. Agent는 새 대화를 시작할 수 없습니다. 사용자가 먼저 bot에게 메시지를 보내야 하며, 인바운드 메시지 후 답변 창은 24시간입니다. Streaming 답변은 사용자에게 답할 때만 작동하고, 하나의 streaming 메시지는 10분 안에 끝나야 하므로 긴 답변은 분할되며, 대화당 분당 약 30개 메시지로 전송이 제한됩니다. 카드 버튼은 클릭 후 5초 안에만 변경할 수 있습니다. 실시간 디렉터리 동기화는 없습니다.',
+        '모든 제한은 플랫폼 자체에서 비롯되며 Ankole이 우회할 수 없습니다. 장기 memory 시스템도 Agent가 받는 메시지 조각에서만 context를 만듭니다. 가능하면 Lark/Feishu, Slack, Teams 또는 DingTalk를 선호하세요.'
+      ]
+    },
+    prerequisites: [
+      'AI bot을 만들 수 있는 WeCom corp 슈퍼 관리자',
+      '테스트 대화'
+    ],
+    basic: {
+      title: 'WeCom bot 준비',
+      steps: [
+        {
+          title: 'corp 슈퍼 관리자로 AI bot 생성',
+          body: [
+            'WeCom 관리자 콘솔을 열고 API 모드로 AI bot을 만든 다음, 옆에 표시되는 Bot ID와 Secret을 기록하세요.'
+          ],
+          caution:
+            'bot은 corp 슈퍼 관리자가 만들어야 합니다. 그렇지 않으면 메시지의 사용자 id가 암호화되어 디렉터리나 로그인 identity에 합류할 수 없습니다.'
+        },
+        {
+          title: '다른 프로그램과 bot을 공유하지 않기',
+          body: [
+            '플랫폼은 bot당 정확히 하나의 long connection을 허용합니다. 다른 프로그램이 같은 Bot ID로 연결하면 각 연결이 다른 연결을 끊습니다. Ankole이 끊기면 대신 기다리며(park) 줄다리기를 하지 않습니다.'
+          ]
+        },
+        {
+          title: 'Console 필드 수집',
+          fields: [
+            {
+              name: 'botId',
+              description: 'AI bot Bot ID입니다.'
+            },
+            {
+              name: 'secret',
+              description: 'Bot ID 옆에 표시되는 long-connection secret입니다.'
+            },
+            {
+              name: 'group_message_mode',
+              value: 'addressed_only',
+              description: 'WeCom이 그룹 메시지로 전달할 수 있는 유일한 모드입니다.'
+            }
+          ]
+        }
+      ]
+    },
+    advanced: {
+      title: 'Proactive 전달, identity 매핑, 다중 Agent',
+      summary: 'Agent가 먼저 말을 걸려면, 사용자가 해당 대화에서 bot에게 한 번 메시지를 보내야 합니다.',
+      steps: [
+        {
+          title: 'Proactive 전달 활성화',
+          body: [
+            '예약 job 결과 같은 proactive 메시지는 사용자가 활성화한 대화에만 도달합니다. 각 사용자가 먼저 bot에게 메시지를 한 번 보내야 합니다. Agent는 새 대화를 시작할 수 없습니다. Proactive 전송은 streaming 없이 완전한 Markdown 메시지 하나로 전달됩니다.'
+          ]
+        },
+        {
+          title: 'identity 매핑 필드 설정',
+          fields: [
+            {
+              name: 'platformSubjectNamespace',
+              value: 'wecom-main',
+              description: '두 레코드가 같은 corp를 나타낼 때만 WeCom IdP와 공유합니다.'
+            },
+            {
+              name: 'userName',
+              value: '企业微信 / WeCom',
+              description: '발신 bot 메시지에 표시되는 이름입니다.'
+            }
+          ]
+        },
+        {
+          title: 'Agent마다 별도 bot 사용',
+          bullets: [
+            '하나의 Agent는 활성화된 WeCom binding을 최대 하나만 가질 수 있습니다.',
+            '하나의 Bot ID는 하나의 Agent에만 바인딩할 수 있습니다.'
+          ],
+          body: ['추가 Agent마다 별도의 AI bot을 만드세요.']
+        }
+      ]
+    }
+  }
+]
+
+export const signalAdvanced = {
+  title: '그룹 동작, 기밀 memory, subject namespace',
+  summary: '안전한 첫 binding은 지명된 경우에만 응답하고 기본 공유 memory scope를 유지합니다.',
+  steps: [
+    {
+      title: 'Agent가 지명되지 않은 그룹 메시지를 처리하는 방식 선택',
+      fields: [
+        {
+          name: 'addressed_only',
+          description: 'Agent를 지명하지 않은 그룹 메시지를 무시합니다. 첫 테스트에서 사용하세요.'
+        },
+        {
+          name: 'observe_all',
+          description: 'Agent turn을 시작하지 않고 지명되지 않은 메시지를 context로 저장합니다.'
+        },
+        {
+          name: 'may_intervene',
+          description: 'Agent가 지명되지 않은 대화에 참여할지 스스로 결정하게 합니다.'
+        }
+      ],
+      caution:
+        'Provider가 해당 메시지를 전달해야 합니다. DingTalk와 WeCom은 addressed_only만 지원합니다. Slack과 Lark는 전체 방을 관찰하려면 추가 이벤트나 scope가 필요합니다.'
+    },
+    {
+      title: '기밀 memory는 민감한 channel에서만 사용',
+      body: [
+        '기본 shared scope는 Agent가 대화를 공유 knowledge로 사용하게 합니다. 기밀 memory는 해당 channel의 회상된 history를 channel scope 안에 유지합니다.'
+      ]
+    },
+    {
+      title: 'namespace를 identity 매핑 키로 취급',
+      body: [
+        'provider 조직마다 platformSubjectNamespace를 하나 사용하세요. IdP와 Channel Provider 레코드 사이에서 재사용하는 것은 둘 다 같은 조직을 가리킬 때만입니다.'
+      ]
+    }
+  ]
+}
+
+## Ankole 배포 방식
+
+프라이빗 Ankole deployment instance는 control plane 하나와 하나 이상의 Agent Computer Worker로 구성됩니다. control plane은 관리 플랫폼입니다. Worker는 Agent 작업을 실행하고 Agent의 작업 컴퓨터 역할을 합니다.
+
+하나의 Worker는 여러 Agent를 서비스할 수 있습니다. 금융 등 엄격한 격리가 필요한 환경에서는 각 Agent에 전용 Worker를 주세요. 작업 컴퓨터는 여러 인턴이 공유하거나 한 명의 동료에게 할당할 수 있습니다.
+
+<DocsKnowledgeNote
+  label="💡 Did you know?"
+  text="여러 Agent가 하나의 Worker를 공유해도 각 Agent는 별도 sandbox에서 실행됩니다. sandbox는 기본적인 프로세스와 파일 시스템 격리를 제공하고 Agent 간 간섭을 줄입니다. 가벼운 격리 계층이지 절대적인 보안 경계는 아닙니다."
+/>
+
+각 instance에는 PostgreSQL과 영속 디스크 저장소도 필요합니다. 단일 호스트 배포는 로컬 또는 가상 디스크를 사용할 수 있습니다. Kubernetes 배포에는 ReadWriteMany를 지원하는 NFS 또는 다른 공유 볼륨이 필요합니다.
+
+<span id="terminology" aria-hidden="true" />
+
+### 이 가이드에서 사용하는 용어
+
+이 페이지는 Ankole 사용자 문서와 인터페이스에 쓰이는 용어를 정의합니다. 괄호 안의 이름은 타사 플랫폼, configuration 필드, API와 일치합니다. 이후 섹션은 짧은 형식을 사용합니다.
+
+| 정식 용어 | 의미 | 짧은 형식 |
+|---|---|---|
+| **Private deployment instance** | 엔터프라이즈가 배포하고 관리하는 하나의 완전한 Ankole 시스템 | Instance |
+| **Principal** | Ankole에서 identity와 권한을 가질 수 있는 사람, Agent 또는 시스템 서비스 | Principal |
+| **Identity Provider (IdP)** | Console SSO를 제공하고 직원, 연락처, 조직 구조를 동기화하는 외부 identity 소스 | IdP |
+| **Chat platform** | Slack, Teams, Lark/Feishu, DingTalk 또는 WeCom 같은 외부 대화 플랫폼 | Platform |
+| **Channel Provider** | 메시지를 받고 Agent 답변을 보내는 하나의 채팅 앱 또는 bot 설정 | Channel Provider |
+| **Signal Routing Rule (Signal Binding)** | 시그널 소스에서 Agent로 메시지나 이벤트를 보내는 규칙 | Routing rule |
+| **LLM Provider** | 모델 서비스 endpoint, 자격 증명, 사용 가능한 모델을 저장하는 설정 | LLM Provider |
+| **Background Agent Jobs profile (internal key: `coding`)** | Background Agent Jobs용 AIGateway provider와 모델을 선택합니다. 일반 대화는 코드 양으로 이것을 선택하지 않습니다 | Background Agent Jobs |
+
+## Agent가 setup을 완료하게 하기
+
+Codex, Claude Code 또는 터미널을 조작할 수 있는 다른 Agent에 이 prompt를 보낼 수 있습니다:
+
+<QuickstartAgentPrompt
+  client:visible
+  labels={quickstartLabels}
+  prompt={agentInstallPrompt}
+/>
+
+<span id="deployment" aria-hidden="true" />
+
+## 1. Ankole 배포
+
+단일 호스트에는 Docker Compose를, 엔터프라이즈 배포에는 Kubernetes를 사용하세요. 개발과 디버깅은 소스에서 설치합니다.
+
+<QuickstartTabs
+  client:visible
+  ariaLabel="Choose a deployment method"
+  defaultValue="docker"
+  labels={quickstartLabels}
+  tabs={deploymentTabs}
+/>
+
+<span id="identity-providers" aria-hidden="true" />
+
+## 2. identity provider를 먼저 설정
+
+Ankole은 엔터프라이즈 내부의 프라이빗 배포를 위해 설계되었습니다. 각 엔터프라이즈는 instance 하나를 운영합니다. 그 instance 안에서 Agent, 직원, 시스템 서비스는 Principal로 표현되고, 권한 모듈이 그들의 권한을 관리합니다.
+
+Hermes Agent와 OpenClaw처럼 Ankole도 채팅 채널에 연결됩니다. 또한 엔터프라이즈 identity 소스에 연결하여 직원, 디렉터리 연락처, 조직 구조를 동기화합니다. 채널을 설정하기 전에 Identity Provider(IdP)를 먼저 설정하세요.
+
+| 설정 | 제어 대상 | 설정 위치 |
+|---|---|---|
+| **Identity Provider (IdP)** | Console SSO와 엔터프라이즈 디렉터리에서 동기화된 직원, 연락처, 조직 구조, 권한 그룹 | 먼저 `/setup`, 그다음 **Console → Identity Providers** |
+| **Channel Provider** | 메시지를 받고 Agent 답변을 보내는 IM 앱 또는 bot | **Console → Signal Routing** |
+
+identity 소스와 채팅 채널은 서로 다른 플랫폼을 사용할 수 있습니다. 직원은 Google Workspace로 로그인하고 Slack에서 Agent와 대화할 수 있습니다. Entra ID가 identity를 제공하고 Lark, Slack, DingTalk, Teams, WeCom이 대화를 운반할 수 있습니다.
+
+### IdP setup 완료
+
+엔터프라이즈가 사용하는 identity 소스를 선택하세요. 각 tab은 provider console에서 시작해 첫 로그인과 디렉터리 동기화로 끝납니다.
+
+adapter를 처음 활성화했다면 첫 로그인 후 control plane을 재시작하세요. 이 재시작이 디렉터리 연결과 Graph subscription 같은 플러그인 백그라운드 작업을 시작합니다.
+
+<QuickstartTabs
+  client:visible
+  ariaLabel="Choose an identity provider"
+  defaultValue="slack"
+  labels={quickstartLabels}
+  queryParam="idp"
+  tabs={identityTabs}
+/>
+
+## 3. LLM Provider 추가 및 Agent 생성
+
+Agent model profile은 모델 참조를 저장하므로 LLM Provider를 먼저 추가하세요. Console에 로그인합니다. **Providers → New provider**를 열고 provider 종류를 선택한 다음 안정적인 Provider ID를 지정하고 endpoint와 credential 필드를 입력한 뒤 저장합니다.
+
+Provider 자격 증명은 control plane에서 암호화된 채 유지됩니다. deployment 환경 파일이나 Agent 파일에 넣지 마세요.
+
+**Agents → New Agent**를 엽니다. Agent에 안정적인 UID, 명확한 표시 이름, 그리고 무엇을 담당하고 무엇이 수용 가능한 결과인지 말해주는 mission을 지정하세요.
+
+그런 다음 model profile을 설정합니다:
+
+| Profile | 첫 실행 용도 |
+|---|---|
+| `primary` | 주 추론 모델 |
+| `light` | 짧고 잦은 작업 |
+| `heavy` | 어려운 종합 |
+
+Agent가 실행되려면 세 가지가 모두 필요합니다. 첫 대화에서는 검증된 provider와 모델을 세 profile 모두에 바인딩할 수 있습니다. 엔드투엔드 경로가 동작한 뒤에만 분리하세요.
+
+<QuickstartDisclosure
+  client:visible
+  labels={quickstartLabels}
+  section={modelAdvanced}
+/>
+
+<span id="chat-channels" aria-hidden="true" />
+
+## 4. 채팅 채널 연결 및 시그널 라우팅 규칙 생성
+
+Console에서 채팅 플랫폼의 Control Plane Plugin을 활성화한 다음, 해당 플랫폼에서 bot 또는 앱을 만드세요. 같은 플랫폼을 사용하더라도 IdP 역할과 채팅 역할에는 별도 앱을 사용하세요. 이 분리는 로그인·디렉터리 권한을 bot 권한과 분리합니다. 또한 credential 순환과 앱 릴리스도 분리됩니다.
+
+하나의 채팅 앱은 보통 하나의 bot identity를 나타냅니다. 여러 Agent가 서로 다른 bot 이름, 아바타, 권한이 필요하다면 플랫폼에 앱을 여러 개 만드세요. 앱을 준비한 뒤 Console에서 라우팅 규칙을 만들고 의도한 Agent에 연결하세요.
+
+<QuickstartTabs
+  client:visible
+  ariaLabel="Choose a channel provider"
+  defaultValue="slack"
+  labels={quickstartLabels}
+  queryParam="channel"
+  tabs={channelTabs}
+/>
+
+### Console에서 연결 완료
+
+현재 릴리스는 직접 연결을 사용합니다. 하나의 라우팅 규칙이 하나의 Channel Provider를 하나의 Agent에 연결합니다. 규칙은 adapter, 앱 자격 증명, 대상 Agent, 그룹 메시지 동작, memory 동작을 기록합니다. bot마다 별도의 규칙을 만드세요.
+
+Console에서 **Signal Routing → New routing rule**을 열고 설정합니다:
+
+| 필드 | 선택할 값 |
+|---|---|
+| **Target Agent** | 3단계에서 만든 Agent |
+| **Adapter** | Slack, Teams, Lark/Feishu, DingTalk 또는 WeCom |
+| **Rule name** | `slack-main` 또는 `lark-main` 같은 안정적인 이름 |
+| **Group message mode** | `addressed_only`로 시작 |
+| **Confidential memory** | 첫 테스트에서는 끄기 |
+| **Channel settings** | 채널 tab의 자격 증명과 값을 붙여 넣기 |
+
+규칙을 저장합니다. 목록에 활성화된 상태로 표시되어야 합니다. 양식이 credential을 거부하면 IM을 테스트하기 전에 그 오류를 고치세요. adapter가 아직 연결을 열지 않았습니다.
+
+<DocsKnowledgeNote
+  label="💡 Did you know?"
+  text="오늘날 하나의 라우팅 규칙은 하나의 시그널 소스를 하나의 Agent로 보냅니다. 채팅 앱이 가장 일반적인 소스입니다. 향후 규칙은 채널, 대화 또는 다른 조건으로 Agent를 선택할 수 있습니다. Salesforce 같은 외부 시스템도 Agent가 처리할 이벤트를 보낼 수 있게 됩니다. 이 모듈은 채팅 채널뿐 아니라 Agent 작업을 시작할 수 있는 모든 시그널을 다루기 때문에 Signal Routing이라고 부릅니다."
+/>
+
+<QuickstartDisclosure
+  client:visible
+  labels={quickstartLabels}
+  section={signalAdvanced}
+/>
+
+## 5. IM에서 Agent와 대화
+
+테스트 대화에 bot을 추가하세요. 그룹 채팅에서는 명시적 @멘션으로 시작하세요:
+
+> @Ankole 무엇을 할 수 있고, 어떤 팀을 서빙하나요?
+
+첫 실제 모델 답변이 온 뒤, 팀에 맞게 Agent mission, 모델, 그룹 채팅 정책을 조정하세요.
+
+### Agent가 응답하지 않으면
+
+한 번에 한 경계씩, 다음 순서로 확인하세요:
+
+1. 최신 provider 앱 버전이 게시되어 테스트 사용자가 사용할 수 있습니다.
+2. bot이 채널, 팀 또는 대화에 설치되어 있습니다.
+3. 필요한 메시지 이벤트와 scope가 활성화되어 있습니다.
+4. 라우팅 규칙이 활성화되어 의도한 Agent를 가리킵니다.
+5. Agent에 `primary`, `light`, `heavy` model profile이 있습니다.
+6. LLM Provider 자격 증명과 모델 선택기가 유효합니다.
+7. 최소 하나의 Worker가 준비 상태입니다.
+
+Compose에서는 `docker compose logs -f control-plane worker`를 확인하세요. Kubernetes에서는 control-plane과 Worker pod 로그를 확인합니다. 관련 오류만 읽고 환경 변수나 secret을 출력하지 마세요.
+
+답변이 도착하면 [Agents](../agents/), [Signal 라우팅 규칙](../signal-bindings/) 또는 [Background Agent Jobs](../background-jobs/)로 계속하세요.

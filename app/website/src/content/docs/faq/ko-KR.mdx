@@ -1,0 +1,603 @@
+---
+title: FAQ 및 문제 해결
+description: 관찰 가능한 증상에서 Ankole deployment, identity, model, Worker, 채팅 채널 실패를 진단합니다.
+section: Reference
+order: 204
+---
+
+import {
+  FaqIssueList,
+  FaqProviderTabs
+} from '../../../components/docs/FaqProviderTabs'
+
+export const faqLabels = {
+  symptom: '증상',
+  cause: '의미',
+  resolution: '해결 방법'
+}
+
+export const commonIssues = [
+  {
+    question: '/setup 또는 Console이 열리지 않을 때 무엇을 확인해야 하나요?',
+    symptom: '페이지가 타임아웃되거나, 연결을 거부하거나, 502를 반환하거나, 빈 화면으로 남습니다. Provider setup이 아직 시작되지 않았습니다.',
+    cause: 'control plane이 정상이 아니거나, DNS, 리버스 프록시, Ingress가 control plane으로 트래픽을 보내지 않습니다. 이후의 Provider 오류는 대개 그 결과입니다.',
+    resolution: [
+      'control plane, PostgreSQL, 리버스 프록시를 확인하세요. 로그에서 첫 번째 오류를 수정하세요.',
+      'control plane에 직접 접근이 되면 DNS, TLS, 프록시 대상을 확인하세요.',
+      '데이터베이스나 영구 볼륨을 삭제하지 마세요. 시작 실패가 데이터 손상을 증명하지는 않습니다.'
+    ],
+    links: [
+      { href: '../quickstart/#deployment', label: '배포 확인하기' },
+      { href: '../log-reading/', label: '로그 읽기' }
+    ]
+  },
+  {
+    question: '첫 설정용 activation code는 어디에 있나요?',
+    symptom: '/setup이 activation code를 요구하지만, 시작 터미널은 닫혀 있거나 로그에서 코드를 찾을 수 없습니다.',
+    cause: 'control plane은 이 code를 첫 설정에만 사용합니다. 첫 번째 관리자가 로그인하면 만료됩니다.',
+    resolution: [
+      '설정이 완료되지 않았다면 Quick start에서 배포 방법을 선택하고 해당 탭의 로그 명령을 사용하세요.',
+      'SETUP ACTIVATION CODE를 검색하세요. 브라우저 저장소나 데이터베이스 행에서 코드를 추측하지 마세요.',
+      '인스턴스에 root 관리자가 이미 있다면 다시 활성화하지 말고 설정된 IdP로 로그인하세요.'
+    ],
+    links: [
+      { href: '../quickstart/#deployment', label: 'activation code 읽기' }
+    ]
+  },
+  {
+    question: '선택한 adapter가 여전히 Provider 목록에 없는 이유는 무엇인가요?',
+    symptom: '플러그인이 활성화로 저장되었지만, 해당 옵션이 setup이나 identity, signal-routing 페이지에 나타나지 않습니다.',
+    cause: '첫 설정은 컴파일된 모든 플러그인을 사용 가능하게 유지하고, 이후 구성을 현재 저장된 선택으로 필터링합니다. 설정 후 Console에서 저장한 플러그인 변경은 다음 control plane 시작 때 적용됩니다.',
+    resolution: [
+      '아직 /setup에 있다면 Plugins로 돌아가 선택을 저장하고 관리자 로그인을 다시 여세요. 재시작은 필요하지 않습니다.',
+      '설정이 완료되었다면 control plane만 재시작하세요. 데이터를 제거하거나 PostgreSQL을 재시작하지 마세요. 플러그인이 활성 상태인지 확인하고 Provider 페이지로 돌아가세요.',
+      'control plane이 시작되지 않으면 로그에서 첫 번째 플러그인 초기화 오류를 수정하세요.'
+    ],
+    links: [
+      { href: '../skills/', label: 'Agent Library에서 Plugins 활성화' }
+    ]
+  },
+  {
+    question: '어떤 채팅 플랫폼도 응답을 받지 못합니다. 이것도 채널 문제인가요?',
+    symptom: '채널, 다이렉트 메시지, 두 번째 채팅 앱이 모두 실패합니다. Console에서의 직접 Agent 대화도 실패합니다.',
+    cause: 'Console 경로도 실패한다면 공유 다운스트림 경로가 원인일 가능성이 높습니다. LLM Provider, Agent model profile, 또는 Worker이며, 하나의 플랫폼 이벤트 권한이 아닙니다.',
+    resolution: [
+      'LLM Provider가 활성화되었는지, credential과 모델 이름이 작동하는지 확인하세요.',
+      'Agent에 primary, light, heavy profile이 있고 Worker가 하나 이상 준비되었는지 확인하세요.',
+      'Console에서 실제 모델 대화 하나를 완료한 다음 선택한 채팅 플랫폼 탭으로 돌아가세요.'
+    ],
+    links: [
+      { href: '../quickstart/#3-add-an-llm-provider-and-create-an-agent', label: 'LLM Provider와 Agent 구성' },
+      { href: '../worker-management/', label: 'Worker fleet' }
+    ]
+  },
+  {
+    question: '스케줄이 제때 실행되지 않았습니다. 먼저 무엇을 확인해야 하나요?',
+    symptom: '스케줄은 존재하지만 예상 시간에 시작되지 않았거나, 다음 실행이 기대와 일치하지 않습니다.',
+    cause: '스케줄이 비활성화되었거나, 인스턴스 시간대나 cron 표현식이 잘못되었거나, 트리거 시점에 control plane이 실행 중이 아니었을 수 있습니다.',
+    resolution: [
+      '스케줄을 열고 활성화되었는지 확인한 후 표시된 다음 실행 시각을 검토하세요.',
+      '인스턴스 시간대와 cron 표현식을 확인하세요. 표현식에서 추정하지 말고 Console이 표시하는 시각을 사용하세요.',
+      'Run now를 선택하세요. 작동하면 시간 설정을 수정하세요. 실패하면 실행 기록을 검토하세요.'
+    ],
+    links: [
+      { href: '../schedules/', label: '스케줄 구성 및 조회' }
+    ]
+  },
+  {
+    question: '스케줄이 실행되었는데 채팅에 결과가 도착하지 않은 이유는 무엇인가요?',
+    symptom: '실행 기록은 존재하지만 대상 채팅이나 대화에 Agent 메시지가 도착하지 않았습니다.',
+    cause: '트리거는 작동했습니다. 문제는 이후 경로에 있습니다. 대상 route, Channel Provider, Agent 모델, 또는 사용 가능한 Worker입니다.',
+    resolution: [
+      '실행 기록을 열고 결과를 확인한 후 첫 번째 오류를 읽으세요.',
+      '대상 Agent와 대화 또는 채팅 목적지, 그리고 signal routing 규칙을 확인하세요.',
+      'Agent model profile이 작동하는지, Worker가 하나 이상 준비되었는지 확인하세요.'
+    ],
+    links: [
+      { href: '../schedules/', label: '스케줄 실행 기록 조회' },
+      { href: '../signal-bindings/', label: 'signal routing 규칙 확인' }
+    ]
+  }
+]
+
+export const identityTabs = [
+  {
+    value: 'slack',
+    label: 'Slack',
+    issues: [
+      {
+        question: '인증 리다이렉트 중 Slack 로그인이 실패합니다',
+        symptom: 'Slack이 Ankole로 돌아오기 전에 redirect_uri 불일치를 보고하거나, 인증이 잘못된 페이지로 돌아갑니다.',
+        cause: 'Slack Redirect URL이 /setup이 표시하는 콜백과 정확히 일치하지 않거나, Ankole에 다른 앱의 Client ID가 들어 있습니다.',
+        resolution: [
+          '/setup의 전체 콜백을 OAuth & Permissions → Redirect URLs에 복사하세요.',
+          'scheme, host, port, path, Provider ID를 문자 단위로 비교하세요.',
+          'Slack 앱을 저장하고 Ankole에서 새 로그인을 시작하세요. 이전 인증 페이지를 재사용하지 마세요.'
+        ]
+      },
+      {
+        question: 'Slack 로그인은 되지만 멤버나 사용자 그룹이 누락됩니다',
+        symptom: '관리자가 Console에 들어왔지만 Principals나 권한 그룹이 비어 있거나 최근 멤버가 빠져 있습니다.',
+        cause: 'identity 앱에 users:read, users:read.email, team:read가 없거나, Bot User OAuth Token이 새 스코프보다 이전 버전이거나, 전체 동기화가 실행되지 않았습니다.',
+        resolution: [
+          'Quick start에 나열된 identity 스코프를 추가하세요.',
+          '스코프 변경 후 앱을 워크스페이스에 다시 설치하고 새 Bot User OAuth Token을 IdP에 저장하세요.',
+          'realtime sync를 문제 해결하기 전에 전체 동기화를 검증하세요.'
+        ]
+      },
+      {
+        question: 'Slack이 전체 디렉터리 동기화를 완료했지만 이후 변경이 오래된 상태로 남습니다',
+        symptom: '첫 동기화에는 데이터가 있지만 멤버나 사용자 그룹 변경이 신속히 나타나지 않습니다.',
+        cause: 'Realtime sync는 Socket Mode를 사용합니다. App-Level Token이 없거나, 잘못된 접두사이거나, Socket Mode가 꺼져 있거나, control plane이 Slack에 도달할 수 없습니다.',
+        resolution: [
+          'IdP에서 Sync directory changes를 켜고 유효한 App-Level Token을 제공하세요.',
+          'Slack에서 Socket Mode를 활성화하고 control plane의 아웃바운드 인터넷 접근을 허용하세요.',
+          'App-Level Token 교체 후 Ankole의 값을 업데이트하고 새 디렉터리 변경으로 테스트하세요.'
+        ],
+        links: [
+          { href: '../quickstart/#2-set-up-the-identity-provider-first', label: 'Quick start에서 Slack IdP 구성' }
+        ]
+      }
+    ]
+  },
+  {
+    value: 'entra',
+    label: 'Microsoft Entra ID',
+    issues: [
+      {
+        question: 'Microsoft 로그인이 AADSTS50011을 보고합니다',
+        symptom: 'Microsoft 인증 페이지가 reply URL 불일치를 보고하며, 보통 AADSTS50011 오류가 함께 표시됩니다.',
+        cause: 'Entra 앱 등록의 Web Redirect URI가 /setup이 표시하는 Ankole 콜백과 정확히 일치하지 않습니다.',
+        resolution: [
+          '/setup 콜백을 Web Redirect URI로 앱 등록에 복사하세요.',
+          'scheme, host, port, path, Provider ID를 확인하세요. 여기에 Teams messaging endpoint를 사용하지 마세요.',
+          '포털 변경이 적용될 때까지 기다린 다음 Ankole에서 새 로그인을 시작하세요.'
+        ]
+      },
+      {
+        question: 'Entra ID 로그인은 되지만 디렉터리 동기화가 비어 있거나 403을 반환합니다',
+        symptom: '관리자는 로그인할 수 있지만 Ankole에 사용자나 권한 그룹이 없습니다. 로그에 Graph 403이 보일 수 있습니다.',
+        cause: '앱에 Group.Read.All이나 User.Read.All이 없거나, 권한은 있지만 테넌트 관리자가 동의를 부여하지 않았습니다.',
+        resolution: [
+          '필요한 Microsoft Graph Application 권한을 추가하세요.',
+          '테넌트 관리자에게 Grant admin consent를 선택하도록 요청하세요. 권한 추가만으로는 충분하지 않습니다.',
+          '동의 후 전체 동기화를 실행하고 Principals와 권한 그룹을 확인하세요.'
+        ]
+      },
+      {
+        question: 'Entra ID 전체 동기화는 되지만 realtime 변경이 도착하지 않습니다',
+        symptom: '이후 전체 동기화가 데이터를 복구하지만 멤버십 변경이 몇 분 안에 나타나지 않습니다.',
+        cause: 'Graph는 공개 HTTPS 디렉터리 webhook에 도달해야 합니다. 잘못된 Ankole public URL, 사용 불가한 ingress, 신뢰할 수 없는 인증서가 전달을 막습니다.',
+        resolution: [
+          '공개 HTTPS 주소가 인터넷에서 도달 가능하고 신뢰할 수 있는 인증서를 사용하는지 확인하세요.',
+          'Ankole public URL이 실제 진입점과 일치하는지 확인하세요. 이 값이 Graph notification URL을 정의합니다.',
+          '구독 재조정 로그를 검토하고, 진입점이 작동한 후 control plane이 구독을 다시 만들도록 하세요.'
+        ],
+        links: [
+          { href: '../quickstart/#2-set-up-the-identity-provider-first', label: 'Quick start에서 Entra ID 구성' }
+        ]
+      }
+    ]
+  },
+  {
+    value: 'google',
+    label: 'Google Workspace',
+    issues: [
+      {
+        question: 'Ankole이 유효한 Google 계정을 거부하는 이유는 무엇인가요?',
+        symptom: 'Google 인증은 성공하지만 Ankole이 login_domain_not_allowed를 반환합니다.',
+        cause: '계정 도메인이 Allowed Workspace domains에 없거나, 이메일이 인증되지 않았거나, 사용자가 hd claim이 없는 개인 Gmail 계정을 사용합니다.',
+        resolution: [
+          '개인 gmail.com 계정이 아닌 엔터프라이즈 Google Workspace 계정을 사용하세요.',
+          '정확한 계정 도메인이 Allowed Workspace domains에 있는지 확인하세요.',
+          '엔터프라이즈가 다중 도메인 Workspace를 운영할 때만 둘 이상의 도메인을 추가하세요.'
+        ]
+      },
+      {
+        question: 'Google 로그인은 되지만 디렉터리 동기화가 비어 있거나 403을 반환합니다',
+        symptom: '관리자가 Console에 들어왔지만 멤버나 권한 그룹이 동기화되지 않습니다.',
+        cause: '디렉터리 동기화는 OAuth Client가 아닌 Service Account를 사용합니다. Domain-wide delegation, 위임된 스코프, Delegated administrator email이 보통 잘못되어 있습니다.',
+        resolution: [
+          'Service Account에 Domain-wide delegation을 활성화하세요.',
+          'Workspace 관리자 콘솔에서 Quick start의 Directory API 스코프를 부여하세요.',
+          'Delegated administrator email과 Service account JSON key를 확인한 후 전체 동기화를 실행하세요.'
+        ]
+      },
+      {
+        question: 'Google Workspace 멤버 변경이 즉시 나타나지 않는 이유는 무엇인가요?',
+        symptom: 'Ankole이 Workspace 사용자나 그룹 변경 후 얼마 뒤에 업데이트합니다.',
+        cause: 'Google Workspace IdP는 현재 전체 동기화만 지원합니다. realtime 디렉터리 구독이 없습니다. 이 지연은 예상된 동작입니다.',
+        resolution: [
+          '다음 전체 동기화를 기다리세요. 이 Provider에 webhook을 노출하지 마세요.',
+          '다음 동기화도 변경을 놓치면 delegation, 스코프, Delegated administrator email을 확인하세요.',
+          '업무상 신속한 업데이트가 필요하면 realtime 디렉터리 동기화를 지원하는 IdP를 사용하세요.'
+        ],
+        links: [
+          { href: '../quickstart/#2-set-up-the-identity-provider-first', label: 'Quick start에서 Google Workspace 구성' }
+        ]
+      }
+    ]
+  },
+  {
+    value: 'lark',
+    label: 'Lark / Feishu',
+    issues: [
+      {
+        question: 'Lark 또는 Feishu가 로그인 중 콜백 불일치를 보고합니다',
+        symptom: '인증 페이지가 열리지 않거나, 인증이 Ankole로 돌아올 수 없습니다.',
+        cause: 'Lark는 redirect_uri를 정확히 일치시킵니다. localhost와 127.0.0.1, 다른 포트, 다른 Provider ID는 서로 다른 URL을 만듭니다.',
+        resolution: [
+          '/setup에서 이 IdP에 표시된 전체 콜백을 복사하세요.',
+          'host나 path를 다시 쓰지 말고 앱 보안 설정에 추가하세요.',
+          '새 설정으로 버전을 게시하고 사용 가능 범위에 테스트 사용자를 포함하세요.'
+        ]
+      },
+      {
+        question: 'Lark 또는 Feishu 로그인은 되지만 직원이나 부서가 누락됩니다',
+        symptom: '관리자가 Console에 들어왔지만 Principals와 권한 그룹이 불완전합니다.',
+        cause: '디렉터리 권한이 불완전하거나, 앱 사용 가능 범위가 직원을 제외하거나, 새 권한이 게시된 버전에 없습니다.',
+        resolution: [
+          'Quick start의 배치 권한 목록으로 모든 디렉터리 읽기 권한을 추가하세요.',
+          '앱 사용 가능 범위에 필요한 부서와 직원을 포함하세요.',
+          'realtime sync를 확인하기 전에 새 버전을 게시하고 전체 동기화를 검증하세요.'
+        ]
+      },
+      {
+        question: 'Lark 또는 Feishu 전체 동기화는 되지만 직원 변경이 오래된 상태로 남습니다',
+        symptom: '첫 동기화에는 데이터가 있지만 이후의 직원 추가, 이동, 제거가 신속히 나타나지 않습니다.',
+        cause: 'Realtime sync는 Lark long connection과 디렉터리 이벤트를 사용합니다. 연결, 구독, 게시된 버전이 없으면 전체 동기화만 남습니다.',
+        resolution: [
+          'control plane을 계속 실행하고 Events and callbacks에서 long connection을 선택하세요.',
+          'Quick start의 사용자 및 부서 변경 이벤트를 구독하고 앱을 게시하세요.',
+          'control plane의 아웃바운드 접근을 허용하세요. long connection에는 공개 ingress가 필요하지 않습니다.'
+        ],
+        links: [
+          {
+            href: '../quickstart/#2-set-up-the-identity-provider-first',
+            label: 'Quick start에서 Lark 또는 Feishu IdP 구성'
+          }
+        ]
+      }
+    ]
+  },
+  {
+    value: 'dingtalk',
+    label: 'DingTalk',
+    issues: [
+      {
+        question: 'DingTalk 로그인이 Application does not exist (900103)을 보고합니다',
+        symptom: 'DingTalk가 인증 페이지가 열리자마자, 코드 스캔 후의 콜백 전에 900103을 보고합니다.',
+        cause: 'DingTalk가 이 Client ID에 대해 사용 가능한 내부 앱을 찾지 못합니다. 값이 AgentId나 robotCode일 수 있고, 앱 구성이 게시되지 않았을 수 있습니다.',
+        resolution: [
+          'AgentId, robotCode, 그룹 로봇 webhook token이 아닌 Credentials and basic information의 Client ID를 사용하세요.',
+          '앱이 이 엔터프라이즈에 속하고 필요한 로그인 및 디렉터리 권한이 있는지 확인하세요.',
+          '새 버전을 게시하고 Ankole에서 새 인증 페이지를 여세요.'
+        ]
+      },
+      {
+        question: 'DingTalk가 코드 스캔 후에만 콜백 오류를 보고합니다',
+        symptom: '인증 페이지가 열리고 코드 스캔을 수락하지만, 동의 후 redirect_uri가 실패합니다.',
+        cause: 'DingTalk는 동의 후 콜백을 확인합니다. 등록된 URL이 Ankole이 보낸 URL과 정확히 일치하지 않습니다.',
+        resolution: [
+          '/setup에서 전체 콜백 URL을 복사하세요.',
+          'Development configuration → Security settings → Redirect URL에 등록하세요.',
+          '버전을 게시하고 새 코드 스캔을 시작하세요. 이전 인증 페이지를 재사용하지 마세요.'
+        ]
+      },
+      {
+        question: 'DingTalk 디렉터리 동기화가 60011을 보고하거나 직원을 누락합니다',
+        symptom: '로그인은 되지만 디렉터리 읽기가 실패하거나 멤버를 누락합니다. 로그에 sub-code 60011이 포함될 수 있습니다.',
+        cause: '사용자, 부서, 필드 읽기 권한이 없거나, 앱 인증 범위가 조직의 일부를 제외합니다.',
+        resolution: [
+          '오류의 grant link와 Quick start 목록으로 모든 디렉터리 권한을 추가하세요.',
+          '앱 인증 범위에 필요한 부서와 직원을 포함하세요.',
+          '새 버전을 게시하고 전체 동기화를 실행하세요. 페이지 크기를 바꿔 권한 오류를 숨기지 마세요.'
+        ],
+        links: [
+          { href: '../quickstart/#2-set-up-the-identity-provider-first', label: 'Quick start에서 DingTalk IdP 구성' }
+        ]
+      }
+    ]
+  },
+  {
+    value: 'wecom',
+    label: 'WeCom',
+    issues: [
+      {
+        question: 'WeCom 로그인 또는 API 호출이 오류 60020을 보고합니다',
+        symptom: 'QR 스캔이 Ankole로 돌아오지 않거나, 구성 저장 시 신뢰할 수 없는 IP로 코드 60020이 보고됩니다.',
+        cause: 'WeCom은 서버 호출이 등록된 신뢰할 수 있는 IP에서 오기를 요구합니다. 자체 구축 앱과 Contacts sync는 각각 자체 trusted-IP 목록을 유지하며, 누락된 egress IP는 거부됩니다.',
+        resolution: [
+          'Ankole 배포에 고정 egress IP를 부여하고 자체 구축 앱 trusted-IP 목록에 추가하세요.',
+          '같은 IP를 별도의 Contacts-sync trusted-IP 목록에도 추가하세요.',
+          '로그인 리다이렉트 도메인이 자체 구축 앱의 신뢰 도메인인지 확인하세요.'
+        ]
+      },
+      {
+        question: 'WeCom 로그인은 되지만 이름이나 전체 디렉터리가 누락됩니다',
+        symptom: '멤버가 Console에 들어올 수 있지만 Principals에 이름이 없거나 디렉터리 동기화가 비어 있습니다.',
+        cause: '2022년 6월부터 일반 앱 secret은 멤버 이름과 기타 프로필 필드를 더 이상 반환하지 않습니다. 동기화에는 Management tools → Contacts sync의 전용 secret이 필요합니다.',
+        resolution: [
+          'WeCom 콘솔에서 Contacts API sync를 활성화하고 Identity Provider에 전용 secret을 입력하세요.',
+          '그 secret에 대해서도 신뢰할 수 있는 IP를 등록하세요.',
+          'WeCom은 realtime 디렉터리 이벤트를 보내지 않습니다. 변경 후 전체 동기화를 실행하거나 주기적 동기화를 기다리세요.'
+        ],
+        links: [
+          { href: '../quickstart/#2-set-up-the-identity-provider-first', label: 'Quick start에서 WeCom IdP 구성' }
+        ]
+      }
+    ]
+  }
+]
+
+export const channelTabs = [
+  {
+    value: 'slack',
+    label: 'Slack',
+    issues: [
+      {
+        question: 'Slack routing 규칙이 token 접두사를 거부합니다',
+        symptom: '채널 저장 시 연결이 열리기 전에 invalid_token_prefix가 반환됩니다.',
+        cause: 'Bot Token과 App Token이 뒤바뀌었거나, 한 값이 다른 Slack token 유형입니다.',
+        resolution: [
+          'Bot Token은 xoxb-로 시작해야 하며 OAuth & Permissions에서 가져와야 합니다.',
+          'App Token은 xapp-로 시작해야 하며 connections:write를 포함해야 합니다.',
+          '값을 수정하고 다시 저장하세요. credential 검증이 통과하기 전에 이벤트를 조사하지 마세요.'
+        ]
+      },
+      {
+        question: 'Slack 다이렉트 메시지는 되지만 채널 멘션이 되지 않습니다',
+        symptom: '봇이 다이렉트 메시지에 답하지만, 채널의 명시적 @mention이 Ankole에 도달하지 않습니다.',
+        cause: '봇이 채널 멤버가 아니거나, 앱이 app_mentions:read와 함께 app_mention을 구독하지 않습니다.',
+        resolution: [
+          '테스트 채널에 봇을 초대하세요.',
+          'Event Subscriptions에 app_mention을 추가하고 app_mentions:read를 부여하세요.',
+          '스코프 변경 후 앱을 다시 설치하고 Ankole의 Bot Token을 업데이트하세요.'
+        ]
+      },
+      {
+        question: 'Slack이 @mention은 전달하지만 일반 채널 메시지는 전달하지 않습니다',
+        symptom: 'addressed_only는 작동하지만 observe_all이나 may_intervene도 명시적 멘션만 봅니다.',
+        cause: 'routing 규칙은 Ankole이 받는 메시지를 제어합니다. Slack 앱에 여전히 해당 대화 유형에 맞는 message 이벤트나 history 스코프가 없습니다.',
+        resolution: [
+          '먼저 addressed_only 경로가 완전히 작동하는지 확인하세요.',
+          'Quick start에 나온 대로 대상 대화 유형의 message 이벤트와 history 스코프를 추가하세요.',
+          '앱을 다시 설치하고 token을 업데이트한 다음 그룹 메시지 모드를 변경하세요.'
+        ],
+        links: [
+          {
+            href: '../quickstart/#4-connect-a-chat-channel-and-create-its-signal-routing-rule',
+            label: 'Quick start에서 Slack 채널 구성'
+          }
+        ]
+      }
+    ]
+  },
+  {
+    value: 'teams',
+    label: 'Microsoft Teams',
+    issues: [
+      {
+        question: 'Teams가 메시지를 보내지만 Ankole이 아무것도 받지 못합니다',
+        symptom: 'Teams에 답변이 표시되지 않고, control plane에 일치하는 인바운드 activity가 없습니다.',
+        cause: 'Teams는 Bot Framework webhook을 전달합니다. 프라이빗 엔드포인트, 신뢰할 수 없는 인증서, 잘못된 경로가 요청이 Ankole에 도달하는 것을 막습니다.',
+        resolution: [
+          '인스턴스에 신뢰할 수 있는 인증서가 있는 공개 HTTPS 주소를 부여하세요.',
+          'Bot Framework Messaging endpoint를 Quick start의 정확한 Teams webhook URL로 설정하세요.',
+          '봇 앱이 테스트 사용자, 팀, 채널에 설치되었는지 확인하세요.'
+        ]
+      },
+      {
+        question: 'Teams는 Ankole에 도달하지만 답변 전송이 인증에 실패합니다',
+        symptom: 'control plane이 activity를 받은 후 답변을 보낼 때 401, 403, 또는 bot-token 오류를 반환합니다.',
+        cause: 'appID, appPassword, tenantID, botTenancy가 Azure Bot 등록과 일치하지 않습니다.',
+        resolution: [
+          'appID가 애플리케이션 GUID이고 appPassword가 만료되지 않은 Client Secret 값인지 확인하세요.',
+          '싱글 테넌트 앱에는 single_tenant와 엔터프라이즈 tenantID를 사용하세요.',
+          'Azure Bot 등록이 지원할 때만 multi_tenant를 사용하세요.'
+        ]
+      },
+      {
+        question: 'Teams 개인 채팅은 되지만 채널 @mention이 되지 않습니다',
+        symptom: '같은 봇이 개인 채팅에서는 답하지만 채널 메시지를 받지 못합니다.',
+        cause: '앱이 해당 팀이나 채널에 설치되지 않았거나, 메시지가 Teams가 기대하는 방식으로 봇을 언급하지 않습니다.',
+        resolution: [
+          '대상 팀에 앱을 설치하고 대상 채널에서 허용하세요.',
+          '첫 테스트에는 명시적 @mention을 사용하세요.',
+          'routing 규칙이 활성화되어 의도한 Agent를 대상으로 하는지 확인하세요.'
+        ],
+        links: [
+          {
+            href: '../quickstart/#4-connect-a-chat-channel-and-create-its-signal-routing-rule',
+            label: 'Quick start에서 Teams 채널 구성'
+          }
+        ]
+      }
+    ]
+  },
+  {
+    value: 'lark',
+    label: 'Lark / Feishu',
+    issues: [
+      {
+        question: 'Lark 또는 Feishu 봇이 존재하지만 어떤 메시지에도 답하지 않습니다',
+        symptom: '다이렉트 메시지와 그룹 @mention 모두 Ankole에 도달하지 않습니다.',
+        cause: '봇 기능, 게시된 버전, 사용 가능 범위, long connection, im.message.receive_v1이 활성 상태가 아닙니다.',
+        resolution: [
+          '봇을 활성화하고 앱 범위에 테스트 사용자를 포함한 다음 최신 버전을 게시하세요.',
+          'Events and callbacks에서 long connection을 선택하고 im.message.receive_v1을 구독하세요.',
+          '아웃바운드 접근이 있는 control plane을 계속 실행하세요. 이 연결에는 공개 webhook이 필요하지 않습니다.'
+        ]
+      },
+      {
+        question: 'Lark 또는 Feishu가 @mention은 전달하지만 일반 그룹 메시지는 전달하지 않습니다',
+        symptom: 'addressed_only는 작동하지만 observe_all이나 may_intervene이 봇을 언급하지 않는 메시지를 볼 수 없습니다.',
+        cause: '앱에 im:message.group_msg가 없습니다. routing 규칙은 플랫폼이 전달하지 않는 메시지를 읽을 수 없습니다.',
+        resolution: [
+          '먼저 addressed_only 경로를 검증하세요.',
+          'Permissions에 im:message.group_msg를 추가하고 새 버전을 게시하세요.',
+          '앱 범위가 그룹 멤버를 포괄하는지 확인한 다음 그룹 메시지 모드를 변경하세요.'
+        ]
+      },
+      {
+        question: 'Lark 또는 Feishu가 메시지를 받지만 답변이나 카드 업데이트가 실패합니다',
+        symptom: 'Agent가 작업을 시작하지만 IM에 최종 답변이 없거나 카드가 이전 상태로 남습니다.',
+        cause: '채팅 앱에 메시지 전송, 메시지 업데이트, 메시지 리소스 읽기 권한이 없거나, 새 권한이 게시되지 않았습니다.',
+        resolution: [
+          'Quick start의 전송, 업데이트, 리소스 권한을 추가하세요.',
+          '앱을 게시하고 봇이 대화에 남아 있는지 확인하세요.',
+          '같은 대화에서 새 메시지를 보내세요. 새 권한을 테스트할 때 오래된 실패 턴을 사용하지 마세요.'
+        ],
+        links: [
+          {
+            href: '../quickstart/#4-connect-a-chat-channel-and-create-its-signal-routing-rule',
+            label: 'Quick start에서 Lark 또는 Feishu 채널 구성'
+          }
+        ]
+      }
+    ]
+  },
+  {
+    value: 'dingtalk',
+    label: 'DingTalk',
+    issues: [
+      {
+        question: 'DingTalk이 @mention 없는 그룹 메시지를 무시하는 것은 오류인가요?',
+        symptom: '다이렉트 메시지와 명시적 @mention은 Agent를 시작할 수 있지만 일반 그룹 메시지는 Ankole에 들어오지 않습니다.',
+        cause: '아닙니다. 2026년 7월 현재 DingTalk는 봇을 명시적으로 언급한 그룹 메시지만 전달하며, 완전한 그룹 기록을 Agent에 노출하지 않습니다.',
+        resolution: [
+          '모든 그룹 테스트에 명시적 @mention을 사용하고 모드를 addressed_only로 유지하세요.',
+          'Agent가 지속적인 그룹 컨텍스트가 필요하면 Slack, Teams, Lark/Feishu를 사용하세요.',
+          'observe_all을 선택하지 마세요. Ankole은 DingTalk가 전달하지 않는 메시지를 복구할 수 없습니다.'
+        ]
+      },
+      {
+        question: 'DingTalk 답변이 일반 Markdown으로 남습니다. 스트리밍 카드를 얻으려면 어떻게 해야 하나요?',
+        symptom: 'Agent가 답변하지만 모든 메시지가 스트리밍 AI 카드 없는 일반 텍스트입니다.',
+        cause: 'DingTalk 카드는 템플릿 호스팅 방식입니다. routing 규칙의 cardTemplateId가 비어 있거나, 템플릿이 로봇을 소유한 앱에 게시되지 않았거나, DingTalk가 카드 내용을 거부하면 답변이 일반 Markdown으로 남습니다.',
+        resolution: [
+          'Quick start의 DingTalk 탭 고급 섹션에 나온 대로 AI 카드 템플릿을 만들고 그 id를 routing 규칙의 cardTemplateId에 붙여 넣으세요.',
+          '카드가 비어 있거나 답변이 끝난 뒤에도 작성 표시기를 유지하면 카드 컨테이너 상태 변수를 flowStatus에 바인딩하고 템플릿을 다시 게시하세요.',
+          '한 번은 카드로, 나중에는 일반 텍스트로 도착하는 답변은 영구 거부 후의 의도된 폴백입니다. 답변은 여전히 전달됩니다. control-plane 로그에서 param.contentUnsafe 또는 param.cardNotExist를 확인하세요.'
+        ],
+        links: [
+          {
+            href: '../quickstart/#4-connect-a-chat-channel-and-create-its-signal-routing-rule',
+            label: 'Quick start에서 DingTalk AI 카드 템플릿 구축'
+          }
+        ]
+      },
+      {
+        question: 'DingTalk Stream 연결이 메시지를 받지 못합니다',
+        symptom: 'routing 규칙이 활성화되어 있지만 다이렉트 메시지와 명시적 @mention 모두 Ankole에 도달하지 않습니다.',
+        cause: '일치하지 않는 credential, 게시되지 않은 봇, 테스트 사용자를 제외하는 앱 범위가 Stream 연결이나 전달을 중단할 수 있습니다.',
+        resolution: [
+          '채팅 앱의 Client ID와 Client Secret을 확인하세요. 실수로 IdP 앱 credential을 재사용하지 마세요.',
+          '봇을 활성화하고 게시한 다음 범위에 테스트 사용자를 포함하세요.',
+          'control plane의 아웃바운드 접근을 허용하세요. Stream 연결에는 공개 webhook이 필요하지 않습니다.'
+        ]
+      },
+      {
+        question: '같은 DingTalk 앱이 두 번째 Agent에 연결할 수 없는 이유는 무엇인가요?',
+        symptom: '두 번째 routing 규칙이 거부되거나, 다른 Agent가 이미 같은 Client ID를 사용합니다.',
+        cause: '현재 adapter는 하나의 Agent에 하나의 Client ID를 허용합니다. 각 Agent는 또한 활성 DingTalk route를 하나만 가질 수 있습니다.',
+        resolution: [
+          '두 번째 Agent가 별도의 봇 정체성이 필요하면 다른 내부 DingTalk 앱을 만드세요.',
+          '새 routing 규칙에 새 Client ID와 Client Secret을 사용하세요.',
+          '대상 Agent만 바꾸려면 새 route를 활성화하기 전에 이전 route를 비활성화하세요.'
+        ]
+      }
+    ]
+  },
+  {
+    value: 'wecom',
+    label: 'WeCom',
+    issues: [
+      {
+        question: 'WeCom이 @mention 없는 그룹 메시지를 무시하는 것은 오류인가요?',
+        symptom: '다이렉트 메시지와 명시적 @mention은 Agent를 시작할 수 있지만 일반 그룹 메시지, 그룹 이미지, 그룹 파일은 Ankole에 들어오지 않습니다.',
+        cause: '아닙니다. WeCom은 다이렉트 메시지와 AI 봇을 명시적으로 @-mention한 그룹 메시지만 전달하며, 그룹 @-메시지는 텍스트와 혼합 텍스트-이미지 내용만 전달합니다.',
+        resolution: [
+          '모든 그룹 테스트에 명시적 @mention을 사용하세요. 유일한 그룹 모드는 addressed_only입니다.',
+          'Agent가 완전한 그룹 컨텍스트나 그룹에서 공유된 파일이 필요하면 Lark/Feishu, Slack, Teams를 사용하세요.'
+        ]
+      },
+      {
+        question: '예약 알림이 WeCom에 도착하지 않습니다',
+        symptom: '사용자가 먼저 쓰면 Agent가 답하지만 스케줄 결과 같은 사전 예약 메시지는 전달되지 않습니다.',
+        cause: 'WeCom은 사용자가 해당 대화에서 봇에게 먼저 메시지를 보내야 합니다. Agent는 새 대화를 시작할 수 없습니다.',
+        resolution: [
+          '각 수신자가 봇에게 메시지를 하나씩 먼저 보내 해당 대화의 사전 예약 전달을 잠금 해제하세요.',
+          '인바운드 메시지 후 답변 창은 24시간입니다. 이후에는 사전 예약 경로만 남습니다.'
+        ]
+      },
+      {
+        question: 'WeCom 연결이 계속 끊기거나 채팅 identity가 디렉터리와 일치하지 않습니다',
+        symptom: '연결이 열렸다가 끊기거나, 채팅 사용자가 디렉터리 및 로그인 identity에 결코 합류하지 못합니다.',
+        cause: '플랫폼은 봇당 정확히 하나의 long connection을 허용하므로, 같은 Bot ID를 가진 다른 프로그램이 연결을 쫓아냅니다. corp super administrator가 만들지 않은 봇은 암호화된 사용자 id를 전달합니다.',
+        resolution: [
+          '다른 프로그램이 같은 Bot ID를 사용하지 않는지 확인하세요. Ankole이 쫓겨나면 줄을 두고 싸우는 대신 대기 상태로 머무릅니다.',
+          '봇은 corp super administrator가 만들어야 합니다. 그렇지 않으면 삭제하고 super administrator 계정으로 다시 만드세요.'
+        ],
+        links: [
+          {
+            href: '../quickstart/#4-connect-a-chat-channel-and-create-its-signal-routing-rule',
+            label: 'Quick start에서 WeCom 채널 구성'
+          }
+        ]
+      }
+    ]
+  }
+]
+
+이 페이지는 제품 개요가 아니며 각 provider 설정 가이드를 반복하지 않습니다. 가장 먼저 실패한 경계를 찾은 다음 관련 identity 또는 채팅 provider를 선택하세요. [Quick start](../quickstart/)는 설치와 첫 설정에 있어 여전히 source of truth입니다.
+
+## 실패한 경계 찾기
+
+| 관찰된 현상 | 먼저 확인할 것 |
+|---|---|
+| `/setup` 또는 Console이 열리지 않음 | 배포, control plane, DNS, HTTPS |
+| Console은 열리지만 로그인이 실패하거나 디렉터리가 불완전함 | Identity Provider (IdP) |
+| Console에서는 Agent가 작동하지만 특정 IM이 메시지를 받지 못함 | 해당 Channel Provider와 signal routing 규칙 |
+| IM 메시지는 Ankole에 들어오지만 Agent가 답변을 생성하지 못함 | LLM Provider, model profile, Worker |
+| 하나의 플랫폼만 실패 | 아래에서 해당 Provider를 선택하고 다른 플랫폼의 수정 방법을 적용하지 마세요 |
+
+## 모든 플랫폼의 공통 문제
+
+<FaqIssueList
+  client:visible
+  labels={faqLabels}
+  issues={commonIssues}
+/>
+
+## Identity Provider 문제 해결
+
+IdP는 로그인, 연락처, 조직 동기화를 소유합니다. 엔터프라이즈가 사용하는 identity 소스를 선택하세요. Slack Socket Mode, Entra ID Graph 구독, Google Workspace 전체 동기화는 서로 다른 메커니즘이며 다른 확인이 필요합니다.
+
+<FaqProviderTabs
+  client:visible
+  ariaLabel="Choose an identity provider"
+  defaultValue="slack"
+  labels={faqLabels}
+  tabs={identityTabs}
+/>
+
+## 채팅 채널 문제 해결
+
+채팅 채널은 IM 메시지를 받고 Agent 답변을 보냅니다. routing 규칙에서 플랫폼을 선택하세요. IdP에 사용된 플랫폼은 이 선택을 바꾸지 않습니다.
+
+<FaqProviderTabs
+  client:visible
+  ariaLabel="Choose a chat platform"
+  defaultValue="slack"
+  labels={faqLabels}
+  tabs={channelTabs}
+/>
+
+## 실패 경계가 여전히 불명확한 경우
+
+결함을 한 번 재현하세요. 정확한 시각, Agent UID, routing 규칙 이름, Provider, 인터페이스가 표시한 전체 오류를 기록하세요. 그런 다음 그 시각 주변의 control-plane 및 Worker 로그만 수집하고 이벤트 이름으로 첫 번째 오류를 찾으세요.
+
+Client Secret, Bot Token, App Token, 모델 API key, 전체 환경 덤프, 또는 비식별화되지 않은 구성 파일을 보내지 마세요. 이슈를 보고할 때는 전체 로그 아카이브 대신 비식별화된 로그와 정확한 재현 단계를 포함하세요.
+
+- [Ankole 로그 읽기](../log-reading/)

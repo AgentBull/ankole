@@ -2,11 +2,15 @@ import i18n, { type Resource } from 'i18next'
 import MF2 from 'i18next-mf2'
 import { initReactI18next } from 'react-i18next'
 import enUS from '../../locales/en-US.toml'
+import jaJP from '../../locales/ja-JP.toml'
+import koKR from '../../locales/ko-KR.toml'
 import zhHansCN from '../../locales/zh-Hans-CN.toml'
 
 const catalogs = {
   'en-US': enUS,
-  'zh-Hans-CN': zhHansCN
+  'zh-Hans-CN': zhHansCN,
+  'ja-JP': jaJP,
+  'ko-KR': koKR
 } as const
 
 const resources = Object.fromEntries(

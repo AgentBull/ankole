@@ -85,7 +85,7 @@ defmodule Ankole.I18nTest do
 
   describe "locale lifecycle" do
     test "rejects locales that are not loaded from app/locales" do
-      assert {:error, %ArgumentError{} = error} = I18n.put_locale("ja-JP")
+      assert {:error, %ArgumentError{} = error} = I18n.put_locale("fr-FR")
       assert Exception.message(error) =~ "is not loaded"
     end
 
@@ -123,10 +123,10 @@ defmodule Ankole.I18nTest do
 
       on_exit(restore_default_locale)
 
-      assert {:ok, "ja-JP"} = AppConfigure.put_global(Config.default_locale_definition(), "ja-JP")
+      assert {:ok, "fr-FR"} = AppConfigure.put_global(Config.default_locale_definition(), "fr-FR")
       assert {:error, %ArgumentError{} = error} = I18n.reload()
       assert Exception.message(error) =~ "configured i18n.default_locale"
-      assert Exception.message(error) =~ "ja-JP"
+      assert Exception.message(error) =~ "fr-FR"
 
       restore_default_locale.()
     end
@@ -136,6 +136,8 @@ defmodule Ankole.I18nTest do
     test "lists locales found under app/locales" do
       assert "en-US" in I18n.available_locales()
       assert "zh-Hans-CN" in I18n.available_locales()
+      assert "ja-JP" in I18n.available_locales()
+      assert "ko-KR" in I18n.available_locales()
     end
   end
 

@@ -2,9 +2,16 @@ import IntlMessageFormat from 'intl-messageformat'
 import type { Locale } from './config'
 import { BCP47, DEFAULT_LOCALE } from './config'
 import en from './locales/en.json'
+import ja from './locales/ja.json'
+import ko from './locales/ko.json'
 import zh from './locales/zh.json'
 
-const messages: Record<Locale, Record<string, string>> = { 'en-US': en, 'zh-Hans-CN': zh }
+const messages: Record<Locale, Record<string, string>> = {
+  'en-US': en,
+  'zh-Hans-CN': zh,
+  'ja-JP': ja,
+  'ko-KR': ko
+}
 
 const cache = new Map<string, IntlMessageFormat>()
 

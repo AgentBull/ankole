@@ -13,7 +13,7 @@ export default defineConfig({
   prefetch: true,
   i18n: {
     defaultLocale: 'en-US',
-    locales: ['en-US', 'zh-Hans-CN'],
+    locales: ['en-US', 'zh-Hans-CN', 'ja-JP', 'ko-KR'],
     routing: {
       prefixDefaultLocale: true,
       redirectToDefaultLocale: false

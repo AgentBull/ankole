@@ -19,7 +19,7 @@ const targetPath = path ? `/${path}/` : '/'
 		<title>Redirecting…</title>
 		<script is:inline define:vars={{ base, targetPath }}>
 			;(function () {
-				var map = { en: 'en-US', zh: 'zh-Hans-CN' }
+				var map = { en: 'en-US', zh: 'zh-Hans-CN', ja: 'ja-JP', ko: 'ko-KR' }
 				var langs = (navigator.languages || [navigator.language || 'en']).map(function (l) {
 					return l.split('-')[0].toLowerCase()
 				})

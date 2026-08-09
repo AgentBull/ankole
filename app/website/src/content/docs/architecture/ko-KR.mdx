@@ -1,0 +1,166 @@
+---
+title: 아키텍처
+description: 컨트롤 플레인, Agent Computer Worker, Actor Runtime, Brain, Background Agent Jobs가 어떻게 Ankole을 이루는지 알아보세요.
+section: Developer guide
+order: 100
+---
+
+import DocsArchitectureDiagram from '../../../components/docs/DocsArchitectureDiagram.astro'
+
+Ankole은 자체 호스팅 AI Workforce OS입니다. AI Agent를 업무 기능을 수행하고 결과로 평가받는 자율 노동력으로 바꿉니다.
+
+Agent 하나가 한 기능을 몇 시간 동안 실행하고, 공유 운영 컨텍스트를 사용하며, 사람들이 검사하고 채점할 수 있는 결과를 전달할 수 있습니다.
+
+이것은 채팅 엔드포인트 뒤에 있는 모델 하나 이상을 요구합니다. 시스템은 누가 행동하는지, 누가 접근 권한이 있는지, 긴 작업이 어떻게 복구되는지, 컨텍스트가 어떻게 최신을 유지하는지, 한 번의 수정이 이후 작업을 어떻게 바꾸는지 알아야 합니다.
+
+## 시스템 지도
+
+<DocsArchitectureDiagram lang="en-US" />
+
+하나의 private deployment 인스턴스에는 논리적 컨트롤 플레인이 하나 있고 Agent Computer Worker가 한 대 이상 있습니다. 컨트롤 플레인은 identity, 상태, 스케줄링을 관리합니다. Worker는 Agent가 일하는 컴퓨팅 환경을 제공합니다.
+
+외부 채팅, webhook, 스케줄은 SignalsGateway를 통해 들어옵니다. Identity Provider가 사람과 조직 디렉터리를 제공합니다. AIGateway는 모델, embedding, reranking, 이미지, 웹 capability를 위한 하나의 경계를 제공합니다.
+
+## 컨트롤 플레인과 Agent Computer Worker
+
+### 컨트롤 플레인은 상태를 저장하고 결정을 내립니다
+
+Elixir/OTP 컨트롤 플레인은 Console, Principal과 접근 권한, 시스템 구성, 신호 라우팅, Actor 세션, Brain, Background Agent Jobs, AIGateway, Control Plane Plugins를 소유합니다.
+
+이 모든 모듈은 같은 규칙을 사용합니다. 사용자에게 보이는 결과를 바꾸는 상태는 실행이나 외부 전달을 구동하기 전에 PostgreSQL에 기록됩니다.
+
+프로세스는 재시작될 수 있지만, 수락된 메시지, Job 상태, memory, audit 기록은 남아 있어야 합니다.
+
+OTP 감독 트리는 Agent, 연결, Job에 별도의 장애 도메인을 제공합니다. 하나의 실행 브랜치가 멈추거나 크래시되어도 컨트롤 플레인은 그 브랜치만 복구할 수 있으며 전체 deployment instance가 실패하지는 않습니다.
+
+### Worker는 Agent의 작업용 컴퓨터입니다
+
+Agent Computer Worker는 모델 루프, tool, Skill, 브라우저, 터미널, 파일 작업을 실행하고 automation job 스크립트 실행도 수행합니다. 스스로 내구성 있는 도메인 상태를 만들지 않습니다. 컨트롤 플레인에서 작업을 받아 실행 결과를 다시 커밋합니다.
+
+Worker 하나가 여러 Agent를 서빙할 수 있으며, 각 Agent는 여전히 별도의 경량 sandbox에서 실행됩니다. 더 강한 격리가 필요하면 Agent에 전용 Worker를 주십시오.
+
+더 많은 동시성을 원하거나 보안 요구 사항이 다른 작업을 분리하려면 Worker를 추가하십시오.
+
+RuntimeFabric은 ZeroMQ로 컨트롤 플레인과 Worker를 연결합니다. 웨이크업, 스티어링, 취소, 진행 상황, 실행 결과를 전달합니다.
+
+지연 시간이 낮은 실시간 channel이지 데이터베이스가 아닙니다. 연결이 실패한 후에도 복구는 PostgreSQL 상태를 사용합니다.
+
+## 하나의 메시지가 재개 가능한 작업이 되는 방법
+
+### SignalsGateway가 외부 세계를 받습니다
+
+채팅 어댑터, webhook, 스케줄은 먼저 외부 이벤트를 공통 신호로 변환합니다. 신호 라우팅 규칙이 응답을 받아야 할 Agent, 세션, channel 또는 thread를 선택합니다.
+
+그룹 채팅은 Agent를 지칭하는 메시지만 처리하거나, 지칭되지 않은 메시지를 기록하거나, Agent가 개입 시점을 결정하도록 할 수 있습니다. 사용 가능한 모드는 채팅 플랫폼과 신호 라우팅 규칙에 따라 달라집니다.
+
+SignalsGateway는 Agent를 깨우기 전에 수신 메시지와 그 소스를 저장합니다. 또한 어댑터가 응답을 보내기 전에 추적 가능한 전달 상태를 만듭니다.
+
+일시적인 provider 실패가 “Ankole이 보내기로 결정한 것”과 “provider가 수락한 것”을 혼동시키지는 못합니다.
+
+### 트리거는 Agent를 깨우거나 스크립트를 실행할 수 있습니다
+
+Cron, Checkback, webhook 엔드포인트는 하나의 시스템 안의 세 가지 트리거입니다. 각 트리거는 기본적으로 Agent 대화를 깨우며, 대신 automation job — Agent가 작성하는 결정적 스크립트 — 을 바인딩할 수도 있습니다. 트리거 이벤트는 동일하게 유지되고 소비자만 바뀝니다.
+
+스크립트는 기계적인 검사를 조용히 완료하고 모든 실행은 검사 가능한 기록을 남깁니다. 판단이 필요하면 `emitEvent`를 통해 이벤트를 소유 대화로 다시 보내고 Agent가 검증한 뒤 행동합니다. 따라서 모델은 폴링 루프에서 유휴 상태가 되지 않습니다. [Automation Jobs](../automation-jobs/)를 참조하십시오.
+
+### Actor Runtime이 장기 실행 세션을 관리합니다
+
+각 활성 세션은 주소 지정 가능한 Virtual Actor입니다. 메일박스, 수명 주기, 복구 위치를 가집니다. 새 메시지와 스케줄이 그것을 깨울 수 있고, 실행 중에 추가 입력, 취소, 인간의 개입을 받을 수 있습니다.
+
+Actor Runtime은 이 장기 실행 작업의 identity를 소유합니다. 각 턴마다 새 활성화와 펜스를 만듭니다. Worker는 현재 자신이 소유한 턴만 커밋할 수 있습니다. 오래된 Worker는 복구나 재시도 이후 더 새로운 결과를 덮어쓸 수 없습니다.
+
+스트리밍 콘텐츠는 진행 상황입니다. 컨트롤 플레인이 확인하고 저장한 메시지, tool 결과, 상태 전환만이 사실입니다. 이렇게 해서 “인터페이스가 작업 진행 중을 보여준다”와 “작업이 완료되었다”가 분리됩니다.
+
+## Brain: 스스로 계속 수정하는 세계 모델
+
+Brain은 채팅 발췌문으로 채워진 벡터 데이터베이스가 아닙니다. 진화하는 세계 모델을 유지합니다. 새 증거가 옛 결론을 확장, 수정, 폐기할 수 있고, 충돌하는 memory는 시간, 소스, 신뢰도로 해결됩니다.
+
+지식은 Agent와의 대화, 누구도 Agent에게 지칭하지 않은 그룹 채팅, 문서, Connector, 그 밖의 외부 소스에서 올 수 있습니다.
+
+Memory는 Shared, Agent, Direct message, Channel scope로 분리되어 컨텍스트가 잘못된 경계를 건너지 않습니다.
+
+턴 동안 통합 회수가 현재 작업에 필요한 장기 컨텍스트를 공급합니다. 오프라인 Dreaming은 새 증거를 정리하고, 반복된 사실을 압축하며, 충돌을 해결하고, 이전 예측을 이후의 결과와 비교합니다.
+
+Brain은 “지금 세계가 어떤 상태인가”를 소유합니다. Skill Overlay는 “이 작업을 다음에는 어떻게 해야 하는가”를 소유합니다. Agent는 실패나 수정 이후 Skill 변경을 제안할 수 있습니다. 이후 세션이 사용하기 전에 사람이 승인합니다.
+
+이 구조는 Agent가 시간이 지나면서 팀의 규칙을 학습한다는 홈페이지의 약속을 구현합니다. 복리(compounding)는 더 긴 로그를 의미하지 않습니다. 다음 Job이 더 나은 지식과 더 나은 방법에서 시작한다는 뜻입니다.
+
+사용자 관점은 [장기 memory](../memory/)를, 저장, Dreaming, 작성 권한은 [Brain](../brain/)을 참조하십시오.
+
+## Background Agent Jobs: 메인 세션을 막지 않는 긴 작업
+
+메인 Agent는 조사, 데이터 분석, 파일 작업, 코드 변경, Deep Research를 Background Agent Job에 위임할 수 있습니다. 메인 세션은 계속 사용 가능하며 사용자와 대화를 이어갈 수 있습니다.
+
+컨트롤 플레인이 Job 수명 주기를 저장하고 Worker가 Job을 실행합니다. 그 Worker가 중지되면 시스템은 Job을 다시 디스패치하고 내구성 있는 상태에서 계속할 수 있습니다. 프로세스 종료가 전체 Job을 삭제하지는 않습니다.
+
+메인 Agent와 Job은 계속 통신할 수 있습니다. Job은 입력을 요청하거나, 실패와 최종 결과를 반환하거나, 요청되면 침묵할 수 있습니다. 사람을 기다릴 때는 실행 슬롯을 해제하고 답이 도착하면 재개합니다.
+
+Deep Research는 이 아키텍처의 고급 용도입니다. Agent Plugin이 workspace 템플릿을 제공하고, Skill이 연구 방법을 제공하며, Background Agent Job이 내구성 있는 실행을 제공합니다.
+
+Agent Home은 연구 자료와 산출물을 보관합니다.
+
+[Background Agent Jobs](../background-jobs/)와 [Deep Research](../deep-research-job/)를 참조하십시오.
+
+## AIGateway: AI capability를 위한 하나의 경계
+
+AIGateway는 모델 capability와 Agent 실행을 분리합니다. 메인 Agent, Job, Brain, 외부 API 클라이언트가 LLM, embedding, rerank, 이미지, Web Search, Web Fetch Provider에 같은 경계를 사용합니다.
+
+모델 profile이 작업 유형별로 모델을 선택합니다. 컨트롤 플레인은 Provider credential을 암호화된 형태로 저장하고 AIGateway가 업스트림 요청에 사용합니다.
+
+Agent와 Worker는 사용할 수 있는 모델 선택과 호출 결과만 받습니다.
+
+AIGateway는 기록을 저장하지 않는 호출과 계속될 수 있는 stateful 대화를 모두 지원합니다. 요청 변환, 스트림 이벤트, tool 결과, 컨텍스트 compaction, 사용량 기록, 최종 결과 커밋을 소유합니다.
+
+Worker는 Provider마다 별도의 수명 주기를 구현하지 않습니다.
+
+tool 카탈로그가 크면 모델은 Tool Search를 통해 필요할 때 tool을 검색하거나, 제한된 sandbox 안에서 많은 tool을 호출하고 결과만 반환하는 프로그램 하나를 제출할 수 있습니다. 네이티브 지원이 있는 Provider는 이 호출들을 그대로 전달하고, AIGateway는 다른 모든 Provider를 위해 gateway에서 같은 capability를 제공합니다. 또한 Provider 하나가 ChatGPT 구독 같은 계정 credential을 포함해 여러 credential을 풀로 보유할 수 있습니다. 실패 귀속, 재시도, 사용량 기록은 credential별로 유지됩니다.
+
+[AIGateway](../ai-gateway/)와 [LLM Provider 추가](../adding-a-provider/)를 참조하십시오.
+
+## 엔터프라이즈 identity, 접근, 확장
+
+Ankole은 사람, Agent, 시스템 서비스를 Principal로 나타냅니다. Identity Provider가 Console SSO를 제공하고 직원, 연락처, 조직 디렉터리를 동기화합니다.
+
+채팅 channel이 메시지를 보내고 받습니다. 이 Provider들은 서로 다른 플랫폼을 사용할 수 있습니다.
+
+AuthZ는 Principal, 권한 그룹, 리소스, 작업, 조건에서 런타임에 결정합니다. 접근은 prompt의 문장이 아니며 모델이 스스로 권한을 가졌다고 선언할 수 없습니다.
+
+Control Plane Plugins는 IdP, 채팅 channel, 그 밖의 컨트롤 플레인 capability를 연결합니다. Agent Plugins는 tool과 workspace 템플릿을 추가합니다.
+
+Skill은 어떤 유형의 작업을 수행하는 방법을 설명하며 메인 Agent나 Background Agent Jobs로 제한할 수 있습니다.
+
+외부 MCP server는 Skill을 통해 들어옵니다. Skill이 연결을 선언하고, Worker가 실행별 구성을 생성했다가 실행이 끝나면 제거하며, 모델은 모든 MCP tool의 상주 목록 하나를 마주하지 않습니다.
+
+[Principal과 권한 그룹](../principal-and-groups/), [신호 라우팅 규칙](../signal-bindings/), [Agent Library](../skills/), [MCP server 참조](../mcp/)를 참조하십시오.
+
+## 내구성 경계
+
+PostgreSQL은 identity, 접근, 구성, 메시지, 세션, Job, memory, 전달 상태, audit 기록 같은 내구성 있는 도메인 사실을 저장합니다. 시스템이 결과를 커밋했는지 결정할 때 이 기록들을 사용하십시오.
+
+Agent Home은 workspace 파일, tool 출력, 최종 산출물을 저장합니다. 단일 호스트 deployment는 로컬 또는 가상 디스크를 사용할 수 있습니다. Worker가 여러 대인 Kubernetes deployment는 `ReadWriteMany`를 지원하는 NFS 또는 다른 공유 볼륨이 필요합니다.
+
+RuntimeFabric, Worker 프로세스 상태, 스트림 미리 보기는 다시 구축할 수 있습니다. 실시간 실행을 지원하지만 PostgreSQL이나 Agent Home을 대체하지는 않습니다.
+
+## 세 가지 deployment 형태
+
+| 형태 | 컨트롤 플레인과 Worker | 영속화 |
+| --- | --- | --- |
+| **Docker Compose · 단일 호스트 권장** | Linux, macOS, Windows 호스트 하나가 컨트롤 플레인과 Worker 하나를 실행 | PostgreSQL과 Agent Home이 호스트의 영구 볼륨 사용 |
+| **Kubernetes · 엔터프라이즈 deployment 권장** | 컨트롤 플레인 하나가 Worker Pod 한 개 이상에 연결되고 노드 또는 보안 요구에 따라 스케줄링 | PostgreSQL과 공유 `ReadWriteMany` Agent Home 스토리지 |
+| **소스 설치** | 개발 환경이 컨트롤 플레인과 Worker를 별도로 실행 | 개발용으로 구성된 PostgreSQL과 로컬 workspace |
+
+논리적 경계는 모든 형태에서 같습니다. 인스턴스에는 컨트롤 플레인이 하나 있으며 Worker를 수평으로 추가할 수 있습니다. 전체 절차는 [빠른 시작](../quickstart/#1-deploy-ankole)을 참조하십시오.
+
+## 다섯 가지 기술적 결정
+
+| 결정 | 해결하는 문제 |
+| --- | --- |
+| **Virtual Actor가 AI 작업을 담당** | 각 세션에 주소, 메일박스, 수명 주기, 복구 위치를 제공 |
+| **OTP 감독 트리가 장애 도메인을 정의** | 전체 인스턴스를 실패시키지 않고 Agent 또는 연결 브랜치 하나를 복구 |
+| **ZeroMQ가 실시간 제어를 전달** | Agent 실행 중 웨이크업, 스티어링, 진행, 백프레셔를 전달 |
+| **Agent Computer Worker가 실행을 제공** | 모델 루프, tool, 파일, 터미널, sandbox를 workspace 가까이 유지 |
+| **PostgreSQL 원장이 사실을 저장** | 메시지, Job, memory, 결정, 커밋된 작업을 재개 가능하고 감사 가능하게 만듦 |
+
+이 결정들은 하나의 결과를 지원합니다. Agent가 몇 시간 동안 일하고, 실행 중에 새 정보를 받고, 독립적으로 실패하고 복구하며, 각 커밋된 작업에 추적을 남길 수 있습니다.
+
+더 긴 런타임 논증은 <a href="https://ding.ee/en-US/why-otp-is-a-better-runtime-for-multi-agent-orchestration/" target="_blank" rel="noreferrer">OTP가 멀티 에이전트 오케스트레이션에 더 나은 런타임인 이유</a>를 읽으십시오.

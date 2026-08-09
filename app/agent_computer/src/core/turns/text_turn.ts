@@ -229,7 +229,6 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
       withActivitySuspended: turnActivity.withSuspended,
       getSteeringMessages: async () =>
         steeringMessagesWithAcknowledgement(turnStart, opts.pollSteering?.() ?? [], opts.onSteeringApplied),
-      waitForSteering: opts.waitForSteering,
       repairFinalResponse: message =>
         assistantText(message).trim() === '' ? emptyReplyObligationReminder(turnStart) : undefined
     })

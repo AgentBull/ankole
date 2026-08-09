@@ -442,8 +442,13 @@ It injects a steer command into a running turn.
 `sent_or_queued` does not complete the command event. A normal text Turn sends
 `turn_accepted` only after the steer enters model input. A Background Agent Job
 sends it only after Codex accepts `turn/steer`. The accepted revision advances
-`R`. If the Worker finishes first, the newer delivery and its ActorEvent stay
-open for the next Turn.
+`R`. For an IM-visible text Turn, that exact acceptance also moves the live reply
+preview to the steer event. Before acceptance, the old preview owner continues
+to receive progress from the current model round.
+
+If the Worker finishes first at an older revision, the control plane supersedes
+the newer delivery attempt. Its ActorEvent stays open and gets a new delivery in
+the next Turn.
 
 ### Retry a Turn
 

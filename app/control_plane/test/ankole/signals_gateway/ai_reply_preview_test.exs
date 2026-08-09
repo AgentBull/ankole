@@ -538,6 +538,9 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     assert state.actor_event.id == steer_event.id
     assert state.owner_generation == 1
 
+    assert :ok = AIReplyPreview.continue_on(actor_event.id, steer_event)
+    refute_receive {:rich_owner_finalize, _owner_id, _presentation}, 100
+
     assert :ok = Events.publish(response, :response_started, %{})
     assert :ok = Events.publish(response, :output_text_delta, %{text: "新卡片续接"})
     send(pid, :flush_edit)

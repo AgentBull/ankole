@@ -177,5 +177,7 @@
   "docs.section.reference": "参考",
   "docs.section.guides": "操作食谱",
   "lang.en-US": "English",
-  "lang.zh-Hans-CN": "简体中文"
+  "lang.zh-Hans-CN": "简体中文",
+  "lang.ja-JP": "日本語",
+  "lang.ko-KR": "한국어"
 }

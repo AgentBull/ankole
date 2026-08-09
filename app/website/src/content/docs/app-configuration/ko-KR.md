@@ -1,0 +1,120 @@
+---
+title: AppConfigure
+description: Console에서 Ankole AppConfigure 런타임 설정을 관리하고 내장 키를 참조합니다.
+section: User guide
+order: 43
+---
+
+**Console → AppConfigure**에는 배포 인스턴스가 서비스 중일 때 관리자가 변경할 수 있는 설정이 있습니다. 예를 들어 영구 memory, Agent 한도, 디렉터리 동기화 간격, 플러그인 스위치가 있습니다.
+
+LLM 제공자, Identity Provider, 채팅 채널, 환경 변수는 각자 전용 Console 페이지가 있습니다. 여기에서 다시 구성하지 마세요.
+
+## AppConfigure와 환경 변수
+
+AppConfigure 설정은 PostgreSQL에 저장됩니다. 인스턴스가 실행되는 동안 Ankole 제품 동작을 제어합니다. 대부분의 변경은 이후 작업에 적용되며 새 배포가 필요하지 않습니다.
+
+[배포 환경 변수](../environment-variables/)는 제어 플레인, PostgreSQL, Workers를 시작합니다. 하나를 변경한 후에는 영향을 받는 프로세스를 다시 시작하세요.
+
+Skill, 명령줄 도구, 또는 MCP 서비스가 API 키 같은 사용자 지정 값이 필요하면 [Agent 환경 변수](../worker-env/)를 사용하세요.
+
+## 설정 찾기
+
+페이지는 관련 설정을 그룹으로 묶습니다. 키 또는 설명으로 검색하거나, 그룹을 열어 설정을 함께 볼 수 있습니다.
+
+각 행은 다음 상태 중 하나를 가집니다:
+
+- **편집 가능(Editable):** 행을 열어 여기에서 변경합니다.
+- **읽기 전용(Read-only):** 행은 현재 상태를 표시하지만 여기에서 변경할 수 없습니다.
+- **다른 곳에서 관리(Managed elsewhere):** 관리 링크를 따라 해당 설정을 소유한 Console 페이지로 이동합니다.
+
+키는 설정의 안정적인 이름입니다. 설명은 설정이 제어하는 대상과 숫자가 사용하는 단위를 알려줍니다.
+
+## 범위와 출처 이해하기
+
+AppConfigure 페이지는 인스턴스 오버라이드를 변경합니다. **인스턴스 또는 Agent**로 표시된 키는 소유 기능이 단일 Agent에 대한 오버라이드를 저장할 수도 있게 하지만, 이 페이지는 Agent를 선택하거나 편집하지 않습니다.
+
+Ankole이 Agent에 대해 이러한 설정 중 하나를 해석할 때 다음 순서를 사용합니다:
+
+1. 현재 Agent 오버라이드;
+2. 인스턴스 오버라이드;
+3. 설치된 버전이 선언한 기본값.
+
+AppConfigure 목록에는 인스턴스 오버라이드 또는 버전 기본값이 표시됩니다. **Reset to default**는 인스턴스 오버라이드를 제거합니다. 그러면 자체 오버라이드가 없는 모든 Agent가 버전 기본값을 사용합니다.
+
+## 설정 변경
+
+1. 설정 또는 설정 그룹을 엽니다.
+2. 필드 설명을 읽고 범위와 단위를 확인합니다.
+3. 필요한 값을 변경하고 저장합니다.
+4. 목록으로 돌아와 행에 오버라이드가 표시되는지 확인합니다.
+
+일반 설정은 전용 양식을 사용합니다. 일부 고급 설정은 JSON 편집기를 사용합니다. 기존 필드 구조를 유지하고 이해하지 못하는 필드를 제거하지 마세요.
+
+대부분의 변경은 이후 작업에 적용됩니다. 페이지가 변경 사항이 다음 시작 시 적용된다고 표시하면 적절한 시점에 제어 플레인을 다시 시작하세요.
+
+## 설정 초기화
+
+사용자 지정 값이 더 이상 필요하지 않으면 설정을 열고 **Reset to default**를 선택하세요. 이렇게 하면 저장된 오버라이드가 제거되고 Ankole이 설치된 버전이 선언한 기본값을 사용하게 됩니다.
+
+초기화는 현재 기본값을 사용자 지정 값으로 입력하는 것과 다릅니다. 초기화는 이후 버전에서 변경된 기본값을 따릅니다. 저장된 사용자 지정 값은 그렇지 않습니다.
+
+## 현재 내장 AppConfigure 키
+
+다음 AppConfigure 키는 Ankole에 내장되어 있습니다. Control Plane Plugin이 더 많은 키를 등록할 수 있습니다. 현재 인스턴스의 **AppConfigure** 페이지가 권위 있는 목록입니다.
+
+### Agent 런타임
+
+| 키 | 범위 | 용도 |
+|---|---|---|
+| `ai_agent.max_iterations` | 인스턴스 또는 Agent | Agent 한 턴의 최대 모델 반복 수 |
+| `ai_agent.max_output_tokens` | 인스턴스 또는 Agent | 단일 모델 응답의 출력 토큰 상한 |
+| `ai_agent.inactivity_timeout_ms` | 인스턴스 또는 Agent | 턴을 종료하기 전에 비활성 모델 또는 제공자를 기다리는 시간 |
+| `ai_agent.library.agent_plugin_defaults` | 인스턴스 | Agent Plugin의 기본 활성화 상태 |
+| `ai_agent.library.skill_defaults` | 인스턴스 | Skill의 기본 활성화 상태 |
+
+### AI Gateway 및 장기 memory
+
+| 키 | 범위 | 용도 |
+|---|---|---|
+| `ai_gateway.compaction` | 인스턴스 | 대화 히스토리 자동 압축 정책 |
+| `brain.knowledge` | 인스턴스 | 장기 memory 투영 예산 및 결과 한도 |
+| `brain.dreaming` | 인스턴스 또는 Agent | Dreaming 및 지식 큐레이션 정책 |
+| `brain.embedding` | 인스턴스 | 임베딩 모델 및 벡터 차원 |
+| `brain.search` | 인스턴스 | 장기 memory 감쇠 및 재랭킹 정책 |
+| `brain.sources` | 인스턴스 | 외부 소스 동기화 및 보존 정책 |
+
+### Identity, 플러그인 및 인스턴스 기본값
+
+| 키 | 범위 | 용도 |
+|---|---|---|
+| `principals.identity_providers.active` | 인스턴스, 읽기 전용 | 관리자 로그인에 사용 가능한 Identity 소스; Identity Provider 페이지에서 관리 |
+| `principals.identity_providers.directory_full_sync_interval_hours` | 인스턴스 | 전체 조직 디렉터리 동기화 간격 |
+| `plugins.enabled_ids` | 인스턴스 | 다음 시작 시 활성화할 Control Plane Plugin |
+| `system.timezone` | 인스턴스 | 스케줄 및 기타 제어 플레인 기능의 기본 시간대 |
+| `i18n.default_locale` | 인스턴스 | Ankole 인터페이스의 기본 언어 |
+
+### Workers, 웹 읽기 및 보안
+
+| 키 | 범위 | 용도 |
+|---|---|---|
+| `runtime_fabric.worker_auth_key` | 인스턴스, 읽기 전용 | 제어 플레인과 Workers 간 인증 키; 시스템이 생성하고 유지 관리 |
+| `agent_computer.background_agent_job.max_turns_per_worker` | 인스턴스 | 각 Worker에서의 최대 동시 Background Agent Job 턴 수 |
+| `worker.rendered_fetch_idle_ttl_ms` | 인스턴스 또는 Agent | 내장 `web_fetch` 렌더링 폴백의 유휴 수명 |
+| `security.ssrf_filter` | 인스턴스 또는 Agent | 모델 제어 fetch가 private, loopback, link-local, CGNAT 주소를 거부할지 여부 |
+
+이 설정이 꺼져 있어도 클라우드 메타데이터 주소는 거부됩니다.
+
+### 최초 실행 상태
+
+| 키 | 범위 | 용도 |
+|---|---|---|
+| `setup.bootstrap_activation_code` | 인스턴스, 읽기 전용 | 최초 실행 설정 페이지용 임시 활성화 코드 |
+| `setup.completed` | 인스턴스, 읽기 전용 | 이 인스턴스가 최초 실행 설정을 완료했는지 여부 |
+
+최초 실행 설정 플로우가 이러한 키를 소유합니다. 활성화 코드를 읽으려면 `kit show bootstrap-activation-code`를 실행하세요. AppConfigure 페이지에서 이러한 키를 편집하지 마세요.
+
+## 암호화된 설정
+
+Ankole은 credential 설정을 암호화된 형태로 저장하고 목록과 편집기에 마스크를 표시합니다. 마스크를 저장하면 현재 값이 유지됩니다. 새 내용을 입력하면 대체됩니다.
+
+**Reveal**은 현재 값을 확인해야 할 때만 사용하세요. 공개된 credential을 채팅, 스크린샷, 티켓에 복사하지 마세요.

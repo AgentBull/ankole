@@ -1,0 +1,112 @@
+---
+title: スケジュール
+description: 定期的な作業には Cron を使い、一度だけの遅延フォローアップには Checkback を使います。
+section: User guide
+order: 21
+---
+
+import DocsKnowledgeNote from '../../../components/docs/DocsKnowledgeNote.astro'
+
+Ankole は同等のレベルの 2 種類のスケジューリングツールを提供します。
+
+- **Cron** は作業を繰り返します。毎日のブリーフィング、毎週のプロジェクト確認、30 分ごとのチェックなどです。
+- **Checkback** は現在の会話を一度だけ起こし、Agent が遅延の後に続行できるようにします。
+
+## Cron
+
+Cron は繰り返す作業を管理します。カレンダー時刻を使うことも、アンカー時刻から固定間隔で繰り返すこともできます。
+
+### Agent に作成してもらう
+
+通常、Console を開く必要はありません。結果を受け取りたい chat 会話の中で、Agent に何をするか、いつ実行するか、どのタイムゾーンを使うかを伝えてください。
+
+Agent が schedule を作成し、後の結果を現在の会話に返します。
+
+```text
+Create a schedule for every workday at 09:00. Summarize yesterday's progress,
+current blockers, and today's follow-up items, then post the result in this
+conversation. Use Asia/Shanghai. Run it once now so I can confirm the content
+and delivery location.
+```
+
+<DocsKnowledgeNote label="💡 ご存知ですか？">schedule は、システムが自動的に作成・維持する<strong>signal ルーティングルール</strong>を通じて結果を返します。</DocsKnowledgeNote>
+
+### 応用: Console で schedule を作成する
+
+schedule を作成する前に、対象の chat 会話で Agent と一度話し、ルーティングルールがメッセージを送受信できることを確認してください。
+
+1. Console で **Schedules** を開きます。
+2. Agent と、続きを行う会話を選択します。一覧に会話がない場合は、既知の会話 ID を貼り付けます。
+3. **Cron** タブを開き、**New schedule** を選択します。
+4. 配信に使うルーティングルールを選択し、わかりやすい名前を入力します。
+5. schedule の種類を選択し、そのタイミングを入力します。
+6. 配信 channel を入力します。すべての結果を 1 つのトピックまたは thread に返す必要がある場合にだけ、配信 thread を入力します。
+7. schedule を保存し、**Run now** を選択します。スケジュールどおりに実行させる前に、タスクと配信先を確認してください。
+
+### 時刻ルールの選択
+
+**Cron（式）** はカレンダー時刻向けです。たとえば毎営業日の 09:00 などです。式は 5 フィールドか、先頭に秒を持つ 6 フィールドにできます。`Asia/Shanghai` のような IANA タイムゾーンを使ってください。`UTC+8` のような曖昧な値は使わないでください。
+
+```text
+0 9 * * 1-5
+```
+
+この例は月曜から金曜の 09:00 を意味します。Console は、ブラウザや Worker のタイムゾーンではなく、schedule に保存されたタイムゾーンで評価します。
+
+**Every（間隔）** は、30 分ごとのチェックのように、一定時間の後に繰り返す作業向けです。間隔をミリ秒で入力します。anchor が間隔のグリッドの開始位置を設定します。カレンダー上の意味を持たないポーリングには、この種類を使ってください。
+
+### タスクと配信
+
+デフォルトでは schedule は既存の会話を起こすため、Agent はその会話の context で続行します。タスクは、この回の実行で何をするかを書くだけで十分です。Agent の役割、スタイル、永続的な指示を繰り返さないでください。
+
+配信 channel と thread は Channel Provider から得られます。対象の会話には channel ID を使ってください。各結果を同じトピックまたは thread に返す必要がある場合に thread ID を追加します。
+
+最初のセットアップ後は必ず **Run now** を使い、正しいタスクが誤った場所に静かに投稿されないようにしてください。
+
+### 一時停止、再開、削除
+
+- **Pause** は設定を保持したまま、スケジュール実行を止めます。休日や一時的な停止に使います。
+- **Resume** は次の実行時刻を再計算します。
+- **Run now** は即時の実行を 1 回追加し、schedule を変更しません。
+- **Remove** は schedule を削除します。設定を残したい場合は pause を使ってください。
+
+schedule を開くと直近の実行履歴を確認できます。結果がない場合は、まず schedule が発火したかを確認してください。次に Agent の実行とメッセージ配信を確認します。
+
+## Checkback
+
+Checkback は、Agent が作業中に作成する一度だけのフォローアップです。たとえば「30 分後にもう一度デプロイを確認する」です。デフォルトでは、期限が来ると Ankole は同じ会話を起こし、Agent が既存の context で続行できるようにします。
+
+その目的は <a href="https://docs.openclaw.ai/gateway/heartbeat" target="_blank" rel="noreferrer">OpenClaw の heartbeat</a> に似ています。どちらも、新しい人のメッセージなしで Agent が戻れるようにします。
+
+heartbeat は固定の頻度で Agent を起こし、モデルが何か注意が必要かを繰り返し判断できるようにします。これは pull に近いです。
+
+Checkback は push に近いです。Agent が必要なときだけ 1 つのフォローアップを登録し、期限が来ると Ankole が wakeup イベントをプッシュします。
+
+モデルはチェックの合間にポーリングの turn を実行しません。次のチェック時刻がわかっているとき、これはアイドル作業を避け、より効率的に動き、より少ない token を使います。
+
+チャットでは、Agent がいつ戻る必要があるか、何をチェックすべきか、いつ通知すべきかを示してください。たとえば:
+
+```text
+Check this deployment again in 30 minutes.
+Tell me if it failed, became blocked, or changed state. Stay silent if nothing changed.
+```
+
+**Checkbacks** タブには、選択した会話でまだ発火していないリマインダーが一覧表示されます。期限、理由、ルーティングルールを確認でき、不要になったリマインダーをキャンセルできます。
+
+## 機械的なチェックには automation job を使う
+
+デフォルトでは、Cron の発火または Checkback は、選択した Agent 会話を起こすイベントを追加します。処理が決定性のある fetch、比較、parse、または事前に決めたアクションだけの場合は、Agent に automation job を作成してもらい、その `automation_job_id` でトリガーをバインドしてください。トリガーは同じイベントを維持しますが、Agent turn ではなく永続的なスクリプト実行を作成します。スクリプトは静かに終了するか、判断が必要なときに `emitEvent` で owner 会話を起こせます。
+
+たとえば 5 分ごとの価格チェックはスクリプトとして実行でき、価格がしきい値を上回っている間は静かに保てます。しきい値を超えたときにだけ、スクリプトは現在の価格とソースの事実を発火できます。毎回の発火に memory、判断、または会話が必要な作業には、直接の Agent wake を維持してください。
+
+完全な導入、実行履歴、破棄のルールは [Automation Jobs](../automation-jobs/) で、スクリプト SDK とコマンド契約は [Worker CLI の能力](../cli-capabilities/) で確認できます。
+
+## よくある問題
+
+- **schedule が発火しなかった:** 有効になっていることを確認し、Cron 式、タイムゾーン、次の実行時刻を確認してください。
+- **発火したが結果が届かなかった:** 実行履歴を読み、ルーティングルール、配信 channel、対象の Agent が利用可能か確認してください。
+- **いつも数時間早い、または遅い:** 正しい IANA タイムゾーンを使い、インスタンスのタイムゾーン設定を確認してください。
+- **結果が誤った会話に届く:** 配信 channel または thread を修正し、**Run now** で検証してください。
+- **Checkback が戻らなかった:** それがまだ **Checkbacks** タブに存在するか確認し、期限と元の会話のルーティングルールを確認してください。
+
+詳細な失敗記録と復旧手順については、[スケジュールのトラブルシューティング](../faq/) を参照してください。

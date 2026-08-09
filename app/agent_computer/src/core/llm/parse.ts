@@ -280,11 +280,6 @@ export function webSocketTransportError(
   })
 }
 
-/** True only for the local abort raised while a call streamed, never for provider errors. */
-export function isWebSocketAbortError(error: unknown): boolean {
-  return error instanceof AIGatewayWebSocketError && error.code === 'aigateway_websocket_aborted'
-}
-
 export function shouldRefreshAuthorizationAfterWebSocketOpenFailure(error: unknown): boolean {
   if (!(error instanceof AIGatewayWebSocketError)) return false
   const details = recordValue(error.details)

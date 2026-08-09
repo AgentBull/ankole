@@ -376,9 +376,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
             TurnLifecycle.start_worker_turn(actor_key, input, opts)
 
           {:ok, %{status: :active_steer_nudged} = result} ->
-            result
-            |> continue_reply_preview(opts)
-            |> send_mailbox_updated()
+            send_mailbox_updated(result)
 
           other ->
             other
@@ -566,25 +564,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
         TurnLifecycle.mark_delivery_failed(delivery.id, reason, reason)
         WorkerAdmission.mark_route_unusable(route, reason)
         {:ok, Map.put(result, :send_outcome, reason_text(reason))}
-    end
-  end
-
-  defp continue_reply_preview(
-         %{
-           activation: %ActorSessionActivation{current_actor_event_id: stream_actor_event_id},
-           actor_event: %ActorEvent{} = input
-         } = result,
-         opts
-       ) do
-    if AIReplyPreview.im_visible_event?(input) do
-      continue_fun = Keyword.get(opts, :continue_reply_preview_fun, &AIReplyPreview.continue_on/2)
-
-      case continue_fun.(stream_actor_event_id, input) do
-        :ok -> Map.put(result, :reply_preview_handoff, :continued)
-        {:error, reason} -> Map.put(result, :reply_preview_handoff, {:error, reason})
-      end
-    else
-      Map.put(result, :reply_preview_handoff, :not_visible)
     end
   end
 

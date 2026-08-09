@@ -80,7 +80,7 @@ const ROW = 'gap-x-8 gap-y-1 sm:grid sm:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr
 			<blockquote
 				class:list={[
 					'm-0 mt-10 border-l-2 border-brand-60 pl-6 text-lg leading-8 text-foreground dark:border-brand-40',
-					lang === 'zh-Hans-CN' && '[text-indent:-0.61em]'
+					(lang === 'zh-Hans-CN' || lang === 'ja-JP') && '[text-indent:-0.61em]'
 				]}
 			>
 				{t(lang, 'usecases.quote')}

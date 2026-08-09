@@ -5,7 +5,7 @@
 ![Runtime](https://img.shields.io/badge/runtime-Bun%20%2B%20Phoenix%2FOTP%20%2B%20Rust-blue)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/AgentBull/ankole)
 
-[简体中文](./README.zh-Hans.md) | [日本語](./README.ja.md)
+[简体中文](./README.zh-Hans.md) | [日本語](./README.ja.md) | [한국어](./README.ko.md)
 
 [Why it is different](#from-ai-capability-to-autonomous-labor) · [Business functions](#business-functions) · [Actor runtime](#actor-runtime) · [Architecture](#architecture) · [Current status](#current-status) · [Development](#development)
 

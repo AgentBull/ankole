@@ -130,7 +130,10 @@ export function WorkersListPage() {
 
 function WorkerStartGuide({ documentationLocale }: { documentationLocale?: string }) {
   const { t } = useTranslation()
-  const locale = documentationLocale === 'zh-Hans-CN' ? 'zh-Hans-CN' : 'en-US'
+  const locale =
+    documentationLocale === 'zh-Hans-CN' || documentationLocale === 'ja-JP' || documentationLocale === 'ko-KR'
+      ? documentationLocale
+      : 'en-US'
 
   return (
     <div className="grid w-full max-w-xl gap-3">

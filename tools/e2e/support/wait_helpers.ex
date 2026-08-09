@@ -279,6 +279,8 @@ defmodule Ankole.E2E.WaitHelpers do
   Waits for the latest final IM mirror of one completed actor event.
 
   Ordinary streamed AI replies commit a final `ai-reply:<message_id>` outbox row.
+  A steer keeps that message on the original Turn stream but makes the accepted
+  steer event own the outbox. The outbox maps those two ActorEvent identities.
   The e2e wait loop advances due RuntimeEvents from the durable snapshot because
   SQL sandbox tests do not commit the transaction that would release pg_notify.
   """
@@ -499,21 +501,20 @@ defmodule Ankole.E2E.WaitHelpers do
   end
 
   defp mirrored_latest_final_reply_for_actor_event(actor_event_id) do
-    case final_ai_message_for_actor_event(actor_event_id) do
-      %Message{} = message ->
-        case Entry
-             |> where([entry], entry.ai_message_id == ^message.id)
-             |> where(
-               [entry],
-               fragment("?#>>'{actor_event_id}'", entry.metadata) == ^actor_event_id
-             )
-             |> Repo.one() do
-          %Entry{} = entry -> {entry, message}
-          nil -> nil
-        end
-
-      nil ->
-        nil
+    with %Message{} = message <- final_ai_message_for_actor_event(actor_event_id),
+         %OutboxEntry{source_actor_event_id: reply_actor_event_id} <-
+           Repo.get_by(OutboxEntry, outbound_key: "ai-reply:#{message.id}"),
+         %Entry{} = entry <-
+           Entry
+           |> where([entry], entry.ai_message_id == ^message.id)
+           |> where(
+             [entry],
+             fragment("?#>>'{actor_event_id}'", entry.metadata) == ^reply_actor_event_id
+           )
+           |> Repo.one() do
+      {entry, message}
+    else
+      _missing -> nil
     end
   end
 

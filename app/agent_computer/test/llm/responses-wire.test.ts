@@ -941,6 +941,40 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
     expect(JSON.stringify(sentPayloads[0]!.input)).not.toContain('system prompt')
   })
 
+  it('keeps the turn-scoped abort fatal for a stateful WebSocket call', async () => {
+    const controller = new AbortController()
+    let responseSocket: { closeCount: number } | undefined
+    const model = createModel({
+      apiKey: 'unused',
+      baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
+      selector: 'primary',
+      responseWebSocket: {
+        kind: 'aigateway-websocket',
+        url: 'ws://aigateway.invalid/api/v1/ai-gateway/responses',
+        authorization: () => 'Bearer agent-key',
+        createWebSocket: (_url, init) =>
+          fakeResponseSocket(init, (_data, socket) => {
+            responseSocket = socket
+            queueMicrotask(() => controller.abort())
+            return []
+          })
+      }
+    })
+
+    await expect(
+      callModel(model, {
+        messages: [{ role: 'user', content: 'wait for explicit cancellation' }],
+        stateful: {
+          actorEventID: '00000000-0000-0000-0000-000000000031',
+          conversationID: '31313131-3131-3131-3131-313131313131'
+        },
+        abortSignal: controller.signal
+      })
+    ).rejects.toThrow('LLM provider call aborted')
+
+    expect(responseSocket?.closeCount).toBe(1)
+  })
+
   it('omits PTC when every tool is direct-only', async () => {
     const sentPayloads: JSONObject[] = []
     const model = createModel({

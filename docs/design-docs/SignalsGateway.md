@@ -462,13 +462,24 @@ An adapter updates only the provider message that belongs to the current owner.
 After the first successful preview, the ActorEvent stores the provider message
 ID. The final outbox can edit that message instead of sending another one.
 
-After an active `/steer` event is stored, SignalsGateway first freezes the old
-owner with the provider-neutral `continued` state. This state keeps displayed
-answers, plans, results, and activity, removes transient thought, and does not
-mark a live plan as completed or cancelled. After that provider update commits,
-SignalsGateway makes the steer ActorEvent the new owner. If no old provider
-message exists, it switches the owner without creating an empty continued
-message.
+After an active `/steer` event is stored, the current owner stays active. It
+continues to receive presentation updates from the model round that is already
+running. The stored delivery and `mailbox_updated` message only queue the steer;
+they do not change the preview owner.
+
+When the Worker sends `turn_accepted` for the steer revision, SignalsGateway
+freezes the old owner with the provider-neutral `continued` state. This state
+keeps displayed answers, plans, results, and activity, removes transient
+thought, and does not mark a live plan as completed or cancelled. After that
+provider update commits, SignalsGateway makes the steer ActorEvent the new
+owner. If no old provider message exists, it switches the owner without creating
+an empty continued message. This prevents an old provider call from running
+behind a card that SignalsGateway already marked as continued.
+
+An exact-revision `turn_accepted` retry repeats the same idempotent owner
+handoff. A redelivered envelope can repair a failure between the durable
+acceptance update and the preview operation. A delivery that terminal
+completion already superseded cannot trigger a late handoff.
 
 If the old provider update fails, SignalsGateway persists the intended
 `continued` checkpoint with `refresh_pending` and switches the owner. The
@@ -478,7 +489,10 @@ does not block a durable steer from reaching the Worker.
 Every owner checkpoint stores the immutable Turn stream ID and an owner
 generation. A provider task can write a checkpoint only for its generation.
 This fence prevents an old update from replacing a newer card after a handoff.
-Consecutive steer events repeat the same owner change.
+Consecutive accepted steer events repeat the same owner change. If the current
+Turn finishes at an older revision, SignalsGateway does not hand off the owner.
+It supersedes the stale delivery attempt, keeps the steer ActorEvent open, and
+starts that event as the next Turn.
 
 If the same sender adds a contiguous attachment while that ActorEvent is still
 running, SignalsGateway can supersede the incomplete input. A reply edge to

@@ -3,6 +3,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SteerStopCommandTest do
 
   alias Ankole.I18n
   alias Ankole.SignalsGateway.InputTombstone
+  alias Ankole.SignalsGateway.ActorRuntime.TurnLifecycle
 
   setup {Ankole.SignalsGateway.ActorRuntimeCase, :use_mock_signal_provider_plugin}
 
@@ -87,7 +88,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SteerStopCommandTest do
       assert input_id == input.id
     end
 
-    test "active steer switches the card owner before its mailbox update" do
+    test "active steer switches the card owner only after the worker accepts it" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
       route = unique_route()
@@ -130,29 +131,24 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SteerStopCommandTest do
 
       test_process = self()
 
-      assert {:ok,
-              %{
-                status: :active_steer_nudged,
-                send_outcome: "sent_or_queued",
-                reply_preview_handoff: :continued
-              }} =
+      continue_reply_preview = fn stream_actor_event_id, new_owner ->
+        send(
+          test_process,
+          {:reply_preview_handoff, stream_actor_event_id, new_owner.id}
+        )
+
+        :ok
+      end
+
+      assert {:ok, %{status: :active_steer_nudged, send_outcome: "sent_or_queued"} = result} =
                process_ready_events_once(
                  now: DateTime.add(@base_time, 3, :second),
-                 continue_reply_preview_fun: fn stream_actor_event_id, new_owner ->
-                   send(
-                     test_process,
-                     {:reply_preview_handoff, stream_actor_event_id, new_owner.id}
-                   )
-
-                   :ok
-                 end
+                 continue_reply_preview_fun: continue_reply_preview
                )
 
+      refute Map.has_key?(result, :reply_preview_handoff)
       refute Repo.get!(ActorEvent, steer_event.id).completed_at
-
-      assert_receive {:reply_preview_handoff, input_id, steer_event_id}
-      assert input_id == input.id
-      assert steer_event_id == steer_event.id
+      refute_receive {:reply_preview_handoff, _input_id, _steer_event_id}
       assert_receive {:actor_lane, mailbox_envelope}
       assert envelope_body_type(mailbox_envelope) == :mailbox_updated
       mailbox = envelope_body!(mailbox_envelope, :mailbox_updated)
@@ -179,10 +175,21 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SteerStopCommandTest do
                   actor_event_id_fence: ^input_id
                 }
               ]} =
-               ActorRuntime.handle_turn_accepted(turn_accepted_payload(mailbox.turn))
+               TurnLifecycle.handle_turn_accepted(turn_accepted_payload(mailbox.turn),
+                 continue_reply_preview_fun: continue_reply_preview
+               )
+
+      assert_receive {:reply_preview_handoff, ^input_id, ^steer_event_id}
 
       assert %ActorEventDelivery{state: "accepted", actor_event_id_fence: ^input_id} =
                Repo.get_by!(ActorEventDelivery, actor_event_id: steer_event.id)
+
+      assert {:ok, [%ActorEventDelivery{state: "accepted"}]} =
+               TurnLifecycle.handle_turn_accepted(turn_accepted_payload(mailbox.turn),
+                 continue_reply_preview_fun: continue_reply_preview
+               )
+
+      assert_receive {:reply_preview_handoff, ^input_id, ^steer_event_id}
 
       complete_aigateway_turn!(mailbox.turn, "PONG", run: run, wait_for_mirror: true)
 
@@ -266,6 +273,85 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SteerStopCommandTest do
 
       assert %ActorEventDelivery{state: "superseded"} =
                Repo.get_by!(ActorEventDelivery, actor_event_id: steer_event.id)
+    end
+
+    test "a steer stays open for the next turn when the current turn finishes first" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
+      route = unique_route()
+
+      :ok = Broker.register_local_worker(route, self())
+      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      assert {:ok, _worker} = admit_worker(route)
+
+      assert {:ok, %{actor_event: input}} =
+               emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "PING", explicit: true}),
+                 now: @base_time
+               )
+
+      assert {:ok, %{send_outcome: "sent_or_queued"}} =
+               process_ready_events_once(
+                 now: DateTime.add(@base_time, 1, :second),
+                 lease_seconds: @long_lease_seconds
+               )
+
+      assert_receive {:actor_lane, envelope}
+      turn_ref = turn_start_payload!(envelope).turn
+
+      assert {:ok, [_delivery]} =
+               ActorRuntime.handle_turn_accepted(turn_accepted_payload(turn_ref))
+
+      run = start_aigateway_run_for_turn!(turn_ref)
+
+      assert {:ok, %{actor_event: steer_event}} =
+               emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "/steer use this next", explicit: true}),
+                 now: DateTime.add(@base_time, 2, :second)
+               )
+
+      assert {:ok, %{status: :active_steer_nudged, send_outcome: "sent_or_queued"}} =
+               process_ready_events_once(now: DateTime.add(@base_time, 3, :second))
+
+      assert_receive {:actor_lane, mailbox_envelope}
+      assert envelope_body_type(mailbox_envelope) == :mailbox_updated
+      mailbox = envelope_body!(mailbox_envelope, :mailbox_updated)
+
+      complete_aigateway_turn!(turn_ref, "PONG", run: run, wait_for_mirror: true)
+
+      assert %DateTime{} = Repo.get!(ActorEvent, input.id).completed_at
+      refute Repo.get!(ActorEvent, steer_event.id).completed_at
+
+      assert %ActorEventDelivery{state: "superseded"} =
+               Repo.get_by!(ActorEventDelivery, actor_event_id: steer_event.id)
+
+      test_process = self()
+
+      assert {:error, :sent_delivery_not_found} =
+               TurnLifecycle.handle_turn_accepted(turn_accepted_payload(mailbox.turn),
+                 continue_reply_preview_fun: fn stream_actor_event_id, new_owner ->
+                   send(
+                     test_process,
+                     {:late_reply_preview_handoff, stream_actor_event_id, new_owner.id}
+                   )
+
+                   :ok
+                 end
+               )
+
+      refute_receive {:late_reply_preview_handoff, _stream_actor_event_id, _new_owner_id}
+
+      assert {:ok, %{send_outcome: "sent_or_queued", turn_ref: next_turn_ref}} =
+               process_ready_events_once(now: DateTime.add(@base_time, 4, :second))
+
+      assert next_turn_ref.actor_event_id == steer_event.id
+      assert_receive {:actor_lane, next_turn_envelope}
+      assert envelope_body_type(next_turn_envelope) == :turn_start
+      assert turn_start_payload!(next_turn_envelope).turn.actor_event_id == steer_event.id
     end
 
     test "late initial turn acceptance ignores newer active steer delivery revision" do

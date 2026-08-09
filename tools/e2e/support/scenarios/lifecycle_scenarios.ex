@@ -376,7 +376,7 @@ defmodule Ankole.E2E.Scenarios.Lifecycle do
       reply,
       "CHAOS_STEERED_OK",
       :reply,
-      "om_steer_tool_1"
+      "om_steer_1"
     )
 
     %{input: input, reply: reply}
