@@ -846,9 +846,10 @@ defmodule Ankole.AIGateway.ToolSearch do
   end
 
   defp rewrite_ordinary_input_item(
-         %{"type" => "function_call", "namespace" => namespace, "name" => name} = item
+         %{"type" => type, "namespace" => namespace, "name" => name} = item
        )
-       when is_binary(namespace) and is_binary(name) do
+       when type in ["function_call", "custom_tool_call"] and is_binary(namespace) and
+              is_binary(name) do
     item
     |> Map.put("name", ToolContract.provider_alias(namespace, name))
     |> Map.delete("namespace")
