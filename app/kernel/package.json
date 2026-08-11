@@ -30,7 +30,7 @@
     "type-check": "bun run build:bun"
   },
   "devDependencies": {
-    "@napi-rs/cli": "^3.8.2"
+    "@napi-rs/cli": "^3.8.5"
   },
   "napi": {
     "binaryName": "ankole-kernel"

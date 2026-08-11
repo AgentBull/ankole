@@ -369,7 +369,10 @@ logical profile from the original ActorEvent and resolves its current binding.
 
 After five retryable abort results, ActorRuntime moves the event to `dead_letter`.
 For a visible chat message, the same transaction records a localized failure
-notice for the provider.
+notice for the provider. If the channel takes no replies, or its channel or
+binding row is deleted, the notice has no route. ActorRuntime then logs the
+skipped notice and keeps the `dead_letter` row as the record. It does not fail
+the transaction, because that transaction can also be a Worker takeover.
 
 SignalsGateway rejects a late result while the source message has an active
 tombstone. A removed message cannot produce a later reply.
@@ -382,13 +385,23 @@ Each mirrored channel has one `reply_mode`:
 - `channel` permits a top-level provider post.
 - `entry` permits a reply that targets a source entry.
 
-The outbox checks `reply_mode` and the adapter's declared operations. It never
-guesses a route or a message to reply to.
+The commit uses `reply_mode` and the source entry. Both are durable rows. A
+final Agent answer normally becomes `reply` for an entry-capable channel. It
+becomes `post` when only channel output is available. The commit never guesses
+a route or a message to reply to.
 
-A final Agent answer normally becomes `reply` for an entry-capable channel.
-It becomes `post` when only channel output is available.
+The send uses the adapter's declared operations. The commit does not, because a
+plugin can be absent when the intent is stored, and a failed commit also fails
+the transaction that stores it. If the adapter cannot reply to an entry but can
+post, the dispatch records `post` on that row and sends it. Other unsupported
+route or capability combinations produce an `unsupported` outbox state.
 
-Unsupported route or capability combinations produce an `unsupported` outbox state.
+A channel with `reply_mode: none`, or one whose channel or binding row is
+deleted, can hold no provider-visible message at all. A Turn that ends on such a
+channel completes and stores no outbox row. Its answer stays in the AIGateway
+transcript, and one warning names the actor event, binding, and channel. The
+Turn does not fail, because a failed Turn is retried and every retry costs
+another model call while the route stays exactly as unreachable.
 
 ## Store a Reply before Sending It
 
@@ -418,22 +431,32 @@ Outbox states are:
 The dispatcher claims a row in one transaction, calls the provider without a
 database lock, and then stores the result in another transaction.
 
-Ordinary failures retry after delays from five seconds to five minutes. Delivery
-stops at `max_attempts`, which defaults to ten.
+Retryable failures use delays from five seconds to five minutes. Every delivery
+class stops at `max_attempts`, which defaults to ten. The row remains stored with
+an `exhausted` recovery state and no next deadline.
 
-Final AI replies continue every 15 minutes after that limit because Ankole has
-already committed to showing them to the user.
+An adapter can classify a durable reply failure as `permanent` or
+`operator_action_required`. A permanent failure stops immediately. An
+operator-action failure stays blocked until the binding is saved after a repair.
+That save gives the same row one more provider call. An explicit
+`requeue_outbox` action also gives one stopped durable row one more call; it does
+not reset the attempt audit or create another intent.
 
-An adapter can classify a durable reply failure as `operator_action_required`.
-SignalsGateway then blocks the row without another automatic retry. Saving the
-binding after the operator repairs the attachment or configuration wakes the
-blocked row.
+The Signal Routing page in Console lists the latest 100 stopped durable replies.
+For a safely requeueable row, its Retry action calls `requeue_outbox` for that
+same row, so an operator can grant one provider call without creating a second
+reply intent. A row without visible reply text remains visible but has no Retry
+action.
 
 A `sending` row can recover after 60 seconds. SignalsGateway asks the provider
 for its result only when the adapter supports that check and has enough IDs.
 
-Otherwise, SignalsGateway sets `unknown_after_send` and does not resend. A
-resend could create a duplicate message.
+Otherwise, SignalsGateway sets `unknown_after_send`. If the row is a visible
+durable reply, SignalsGateway writes a localized possible-duplicate notice into
+that same reply and retries only inside its remaining attempt budget. The notice
+stays on an explicit requeue. An uncertain operation without visible reply text
+stops because it cannot tell the recipient that a resend can duplicate the
+operation.
 
 After provider success, SignalsGateway updates its copy of the provider message.
 It also links a final reply to `ai_message_id` when available.
@@ -546,4 +569,5 @@ RuntimeFabric carries worker messages and checks their protocol.
 - One reply-preview generation can update only its presentation owner.
 - A removed source cannot commit a late Agent result while its tombstone is active.
 - A queued `may_intervene` event cannot run after its scene or binding policy changes.
-- An uncertain provider send never causes an automatic duplicate send.
+- An uncertain visible final reply can retry only inside its attempt budget and
+  tells the recipient that the recovered reply can be a duplicate.

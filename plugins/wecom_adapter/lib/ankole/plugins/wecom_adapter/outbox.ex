@@ -15,7 +15,8 @@ defmodule Ankole.Plugins.WeComAdapter.Outbox do
   `aibot_respond_msg`; without one the proactive `aibot_send_msg` needs the
   user to have messaged the bot in that conversation before, and media cannot
   be sent at all. Neither path has an idempotency parameter, so a crash after
-  send but before recording leaves a documented duplicate window.
+  send but before recording leaves an uncertain result. The gateway blocks the
+  operation or retries a visible durable reply with a recovery notice.
   """
 
   @behaviour Ankole.SignalsGateway.OutboxAdapter
@@ -107,7 +108,7 @@ defmodule Ankole.Plugins.WeComAdapter.Outbox do
         |> Markdown.display_chunks()
 
       send_markdown_chunks(client, delivery, chunks, outbox)
-      |> normalize_delivery_error()
+      |> normalize_delivery_result()
     end
   end
 
@@ -134,7 +135,7 @@ defmodule Ankole.Plugins.WeComAdapter.Outbox do
          {:ok, delivery} <- resolve_delivery(outbox) do
       client
       |> TemplateCard.deliver(delivery, outbox)
-      |> normalize_delivery_error()
+      |> normalize_delivery_result()
     end
   end
 
@@ -157,7 +158,7 @@ defmodule Ankole.Plugins.WeComAdapter.Outbox do
         {:ok, ack} -> {:ok, send_record(ack, outbox, 0)}
         {:error, _reason} = error -> error
       end
-      |> normalize_delivery_error()
+      |> normalize_delivery_result()
     end
   end
 
@@ -318,9 +319,18 @@ defmodule Ankole.Plugins.WeComAdapter.Outbox do
     optional_text(attachment, "name") || Path.basename(relative_path)
   end
 
-  defp normalize_delivery_error({:error, %Error{} = error}) do
+  @doc false
+  @spec normalize_delivery_result(term()) :: term()
+  def normalize_delivery_result({:error, %Error{} = error}) do
+    action =
+      cond do
+        Error.retryable?(error) -> :retryable
+        error.reason in [:auth, :ip_rejected] -> :operator_action_required
+        true -> :permanent
+      end
+
     {:error,
-     {:provider_error,
+     {:reply_delivery, action,
       MapHelpers.compact_map(%{
         reason: error.reason,
         code: error.code,
@@ -329,9 +339,9 @@ defmodule Ankole.Plugins.WeComAdapter.Outbox do
       })}}
   end
 
-  defp normalize_delivery_error({:error, :wecom_connection_unavailable}) do
-    {:error, {:provider_error, %{reason: :not_connected}}}
+  def normalize_delivery_result({:error, :wecom_connection_unavailable}) do
+    {:error, {:reply_delivery, :retryable, %{reason: :not_connected}}}
   end
 
-  defp normalize_delivery_error(result), do: result
+  def normalize_delivery_result(result), do: result
 end

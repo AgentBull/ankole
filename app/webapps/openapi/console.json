@@ -1293,9 +1293,14 @@
       "SignalBindingListResponse": {
         "additionalProperties": false,
         "properties": {
+          "delivery_failures": {
+            "items": { "$ref": "#/components/schemas/SignalDeliveryFailureItem" },
+            "maxItems": 100,
+            "type": "array"
+          },
           "signal_bindings": { "items": { "$ref": "#/components/schemas/SignalBindingItem" }, "type": "array" }
         },
-        "required": ["signal_bindings"],
+        "required": ["signal_bindings", "delivery_failures"],
         "title": "SignalBindingListResponse",
         "type": "object"
       },
@@ -1959,6 +1964,16 @@
         "title": "BrainDreamingRunResponse",
         "type": "object"
       },
+      "SignalDeliveryRequeueRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "binding_name": { "minLength": 1, "type": "string" },
+          "outbound_key": { "minLength": 1, "type": "string" }
+        },
+        "required": ["binding_name", "outbound_key"],
+        "title": "SignalDeliveryRequeueRequest",
+        "type": "object"
+      },
       "AIGatewayProviderResponse": {
         "additionalProperties": false,
         "properties": { "ai_gateway_provider": { "$ref": "#/components/schemas/AIGatewayProviderItem" } },
@@ -2284,6 +2299,33 @@
         "title": "PermissionGrantListResponse",
         "type": "object"
       },
+      "SignalDeliveryFailureItem": {
+        "additionalProperties": false,
+        "properties": {
+          "attempt_count": { "minimum": 0, "type": "integer" },
+          "binding_name": { "type": "string" },
+          "can_retry": { "type": "boolean" },
+          "max_attempts": { "minimum": 1, "type": "integer" },
+          "outbound_key": { "type": "string" },
+          "possible_duplicate": { "type": "boolean" },
+          "state": { "enum": ["blocked", "permanent", "exhausted"], "type": "string" },
+          "status": { "enum": ["failed", "unknown_after_send"], "type": "string" },
+          "updated_at": { "format": "date-time", "type": "string" }
+        },
+        "required": [
+          "binding_name",
+          "outbound_key",
+          "status",
+          "state",
+          "attempt_count",
+          "max_attempts",
+          "possible_duplicate",
+          "can_retry",
+          "updated_at"
+        ],
+        "title": "SignalDeliveryFailureItem",
+        "type": "object"
+      },
       "PermissionGrantCreateRequest": {
         "additionalProperties": false,
         "description": "Exactly one owner: principal_uid or group_name.",
@@ -2318,6 +2360,13 @@
         },
         "required": ["adapter_id", "config"],
         "title": "IdentityProviderWriteRequest",
+        "type": "object"
+      },
+      "SignalDeliveryRequeueResponse": {
+        "additionalProperties": false,
+        "properties": { "requeued": { "type": "boolean" } },
+        "required": ["requeued"],
+        "title": "SignalDeliveryRequeueResponse",
         "type": "object"
       },
       "ConsoleReadinessWorker": {
@@ -7243,6 +7292,53 @@
         "security": [{ "consoleBearer": [] }],
         "summary": "Set one global Agent Plugin default",
         "tags": ["Agent Library"]
+      }
+    },
+    "/api/v1/agents/{agent_uid}/signal-deliveries/requeue": {
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.SignalBindingController.requeue_delivery",
+        "parameters": [
+          { "description": "", "in": "path", "name": "agent_uid", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/SignalDeliveryRequeueRequest" } }
+          },
+          "description": "Stopped signal delivery",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/SignalDeliveryRequeueResponse" } }
+            },
+            "description": "Delivery requeued"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Not found"
+          },
+          "409": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Delivery is not stopped or cannot be retried"
+          },
+          "422": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Invalid value"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Retry one stopped signal delivery",
+        "tags": ["Signal Bindings"]
       }
     },
     "/api/v1/agent-library/capabilities": {

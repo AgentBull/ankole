@@ -356,6 +356,9 @@ import type {
   AnkoleWebSignalBindingControllerPutChannelStandingOrdersData,
   AnkoleWebSignalBindingControllerPutChannelStandingOrdersErrors,
   AnkoleWebSignalBindingControllerPutChannelStandingOrdersResponses,
+  AnkoleWebSignalBindingControllerRequeueDeliveryData,
+  AnkoleWebSignalBindingControllerRequeueDeliveryErrors,
+  AnkoleWebSignalBindingControllerRequeueDeliveryResponses,
   AnkoleWebSignalBindingControllerShowChannelStandingOrdersData,
   AnkoleWebSignalBindingControllerShowChannelStandingOrdersErrors,
   AnkoleWebSignalBindingControllerShowChannelStandingOrdersResponses,
@@ -3907,6 +3910,36 @@ export const ankoleWebAgentLibraryCapabilityControllerPutGlobalAgentPlugin = <Th
       }
     ],
     url: '/api/v1/agent-library/agent-plugins/{id}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
+ * Retry one stopped signal delivery
+ */
+export const ankoleWebSignalBindingControllerRequeueDelivery = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebSignalBindingControllerRequeueDeliveryData, ThrowOnError>
+): RequestResult<
+  AnkoleWebSignalBindingControllerRequeueDeliveryResponses,
+  AnkoleWebSignalBindingControllerRequeueDeliveryErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).post<
+    AnkoleWebSignalBindingControllerRequeueDeliveryResponses,
+    AnkoleWebSignalBindingControllerRequeueDeliveryErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/agents/{agent_uid}/signal-deliveries/requeue',
     ...options,
     headers: {
       'Content-Type': 'application/json',

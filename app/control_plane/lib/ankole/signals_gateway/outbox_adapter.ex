@@ -111,7 +111,9 @@ defmodule Ankole.SignalsGateway.OutboxAdapter do
   # Coerce whatever the adapter returned into the three outcomes dispatch
   # understands. `:unknown` is a first-class result, not an error: it means the
   # adapter sent something but cannot confirm it landed, which the gateway turns
-  # into `unknown_after_send` rather than retrying (a retry could double-post).
+  # into `unknown_after_send`. A visible durable reply can retry within its
+  # remaining attempt budget after the gateway adds a possible-duplicate notice;
+  # other uncertain operations stop.
   # Any other shape is an adapter contract violation, sanitized before it is
   # stored in the error column.
   defp normalize_adapter_result({:ok, %{} = result}) do

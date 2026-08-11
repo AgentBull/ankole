@@ -409,7 +409,7 @@ defmodule Ankole.SignalsGateway.Actors do
     |> where(
       [event],
       fragment(
-        "COALESCE(?->'recovery_state'->>'state', '') <> 'blocked'",
+        "COALESCE(?->'recovery_state'->>'state', '') NOT IN ('blocked', 'permanent')",
         event.reply_preview_checkpoint
       )
     )
@@ -439,7 +439,7 @@ defmodule Ankole.SignalsGateway.Actors do
   end
 
   @doc """
-  Requeues reply previews that a not-retryable provider error blocked.
+  Requeues reply previews that require an operator repair.
 
   An operator update to the binding is the explicit requeue signal: it clears
   the blocked `recovery_state` marker, and the checkpoint notification lets

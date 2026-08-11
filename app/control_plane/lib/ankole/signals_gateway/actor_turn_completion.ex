@@ -315,11 +315,44 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
 
   defp commit_outboxes(repo, event, completion, outcome, now) do
     if AIReplyPreview.im_visible_event?(event) do
-      commit_im_outboxes(repo, event, completion, outcome, now)
+      case commit_im_outboxes(repo, event, completion, outcome, now) do
+        {:ok, outboxes} -> {:ok, outboxes}
+        {:error, reason} -> skip_unroutable_reply(event, reason)
+      end
     else
-      {:ok, %{attachments: [], clarify: nil, final: nil}}
+      {:ok, no_outboxes()}
     end
   end
+
+  # The channel accepts no replies, or its route rows are deleted. The Turn's
+  # work already happened and its answer is already in the transcript, so the
+  # Turn completes and no impossible provider intent is stored. Failing here
+  # would retry the whole Turn, and every retry costs another model call while
+  # the route stays exactly as unreachable.
+  #
+  # Route checks run before any outbox row is written, so nothing is committed
+  # when this path is taken.
+  defp skip_unroutable_reply(%ActorEvent{} = event, reason) do
+    if Outbox.unroutable_reply_reason?(reason) do
+      Logging.warning(
+        "signals_gateway.actor_turn_completion.reply_route_unroutable",
+        "actor turn completed without a reachable reply route",
+        %{
+          actor_event_id: event.id,
+          agent_uid: event.agent_uid,
+          binding_name: event.binding_name,
+          signal_channel_id: event.signal_channel_id,
+          reason: inspect(reason, limit: 20)
+        }
+      )
+
+      {:ok, no_outboxes()}
+    else
+      {:error, reason}
+    end
+  end
+
+  defp no_outboxes, do: %{attachments: [], clarify: nil, final: nil}
 
   defp commit_im_outboxes(repo, event, completion, outcome, now) do
     opts = [turn_completion_outcome: outcome]

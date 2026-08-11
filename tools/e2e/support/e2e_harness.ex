@@ -737,7 +737,9 @@ defmodule Ankole.E2E.Harness do
   message carries the content the worker actually produced.
   """
   def dispatch_and_assert_lark_file_outbox(fake_feishu, %OutboxEntry{} = outbox, target) do
-    assert outbox.payload["text"] =~ "CHAOS_REPLY_ATTACHMENT_OK"
+    # The attachment row carries the file and no visible text. The answer rides
+    # on the final reply row, so no adapter posts the same wall twice.
+    assert is_nil(outbox.payload["text"])
 
     assert [
              %{

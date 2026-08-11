@@ -103,8 +103,10 @@ The adapter sends only operations already stored in the outbox. It can post,
 reply, edit, delete, send a divider, or render an Adaptive Card. It cannot send
 files or reactions.
 
-Bot Framework has no read-back API for this path. An interrupted send can
-remain `unknown_after_send`. The adapter does not claim reconciliation.
+Bot Framework has no read-back API for this path. The adapter does not claim
+reconciliation. SignalsGateway can resend an uncertain visible final reply
+inside its remaining attempt budget and marks that reply as a possible
+duplicate; other interrupted operations remain `unknown_after_send`.
 
 ## Import People and Groups
 

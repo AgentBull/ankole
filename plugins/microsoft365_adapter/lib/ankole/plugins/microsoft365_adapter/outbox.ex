@@ -18,7 +18,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Outbox do
   @max_text_chars 12_000
 
   # `outbound_reconciliation` is deliberately not declared: the Bot Connector
-  # has no read-back API, so an interrupted send stays `unknown_after_send`.
+  # has no read-back API, so the gateway owns bounded durable-reply recovery.
   @impl true
   def send(%OutboxEntry{} = outbox) do
     with :ok <- reject_outbound_attachments(outbox),

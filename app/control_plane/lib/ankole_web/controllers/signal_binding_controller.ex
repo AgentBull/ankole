@@ -22,6 +22,8 @@ defmodule AnkoleWeb.SignalBindingController do
   alias AnkoleWeb.Schemas.ConsoleAPI.SignalBindingWriteRequest
   alias AnkoleWeb.Schemas.ConsoleAPI.SignalChannelStandingOrdersResponse
   alias AnkoleWeb.Schemas.ConsoleAPI.SignalChannelStandingOrdersWriteRequest
+  alias AnkoleWeb.Schemas.ConsoleAPI.SignalDeliveryRequeueRequest
+  alias AnkoleWeb.Schemas.ConsoleAPI.SignalDeliveryRequeueResponse
 
   tags(["Signal Bindings"])
   security([%{"consoleBearer" => []}])
@@ -119,6 +121,25 @@ defmodule AnkoleWeb.SignalBindingController do
     ]
   )
 
+  operation(:requeue_delivery,
+    summary: "Retry one stopped signal delivery",
+    parameters: [
+      agent_uid: [in: :path, type: :string, required: true]
+    ],
+    request_body:
+      {"Stopped signal delivery", "application/json", SignalDeliveryRequeueRequest,
+       required: true},
+    responses: [
+      ok: {"Delivery requeued", "application/json", SignalDeliveryRequeueResponse},
+      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
+      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
+      not_found: {"Not found", "application/json", ErrorEnvelope},
+      conflict:
+        {"Delivery is not stopped or cannot be retried", "application/json", ErrorEnvelope},
+      unprocessable_entity: {"Invalid value", "application/json", ErrorEnvelope}
+    ]
+  )
+
   operation(:show_channel_standing_orders,
     summary: "Read the standing orders of one signal channel",
     parameters: [
@@ -162,8 +183,12 @@ defmodule AnkoleWeb.SignalBindingController do
     with {:ok, agent_uid} <- text_param(params, "agent_uid"),
          :ok <-
            ConsolePolicy.authorize(conn, "agent:#{agent_uid}:signal_gateway_bindings", "read"),
-         {:ok, bindings} <- SignalsGateway.list_agent_bindings(agent_uid) do
-      json(conn, %{signal_bindings: Enum.map(bindings, &signal_binding_json/1)})
+         {:ok, bindings} <- SignalsGateway.list_agent_bindings(agent_uid),
+         {:ok, failures} <- SignalsGateway.list_stopped_deliveries(agent_uid) do
+      json(conn, %{
+        signal_bindings: Enum.map(bindings, &signal_binding_json/1),
+        delivery_failures: Enum.map(failures, &signal_delivery_json/1)
+      })
     else
       {:error, reason} -> error(conn, reason)
     end
@@ -225,6 +250,20 @@ defmodule AnkoleWeb.SignalBindingController do
            ConsolePolicy.authorize(conn, "agent:#{agent_uid}:signal_gateway_bindings", "delete"),
          {:ok, binding} <- SignalsGateway.disable_binding(agent_uid, binding_name) do
       json(conn, %{signal_binding: signal_binding_json(binding)})
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  def requeue_delivery(conn, params) do
+    with {:ok, agent_uid} <- text_param(params, "agent_uid"),
+         {:ok, binding_name} <- text_param(conn.body_params, "binding_name"),
+         {:ok, outbound_key} <- text_param(conn.body_params, "outbound_key"),
+         :ok <-
+           ConsolePolicy.authorize(conn, "agent:#{agent_uid}:signal_gateway_bindings", "update"),
+         {:ok, _outbox} <-
+           SignalsGateway.requeue_outbox(agent_uid, binding_name, outbound_key) do
+      json(conn, %{requeued: true})
     else
       {:error, reason} -> error(conn, reason)
     end
@@ -303,6 +342,20 @@ defmodule AnkoleWeb.SignalBindingController do
     }
   end
 
+  defp signal_delivery_json(outbox) do
+    %{
+      binding_name: outbox.binding_name,
+      outbound_key: outbox.outbound_key,
+      status: Atom.to_string(outbox.status),
+      state: outbox.recovery_state["state"],
+      attempt_count: outbox.attempt_count,
+      max_attempts: outbox.max_attempts,
+      possible_duplicate: outbox.recovery_state["possible_duplicate"] == true,
+      can_retry: SignalsGateway.requeueable_outbox?(outbox),
+      updated_at: DateTime.to_iso8601(outbox.updated_at)
+    }
+  end
+
   defp config_key_from_ref("app-config://" <> key), do: key
   defp config_key_from_ref(config_ref) when is_binary(config_ref), do: config_ref
 
@@ -327,6 +380,7 @@ defmodule AnkoleWeb.SignalBindingController do
   defp param_atom("target_agent_uid"), do: :target_agent_uid
   defp param_atom("channel_id"), do: :channel_id
   defp param_atom("orders"), do: :orders
+  defp param_atom("outbound_key"), do: :outbound_key
 
   defp authorize_binding_update(conn, agent_uid, agent_uid) do
     ConsolePolicy.authorize(conn, "agent:#{agent_uid}:signal_gateway_bindings", "update")
@@ -352,6 +406,11 @@ defmodule AnkoleWeb.SignalBindingController do
   defp error(conn, :forbidden), do: error(conn, 403, "forbidden", "access denied")
   defp error(conn, :agent_not_found), do: error(conn, 404, "not_found", "agent was not found")
   defp error(conn, :binding_not_found), do: error(conn, 404, "not_found", "binding was not found")
+  defp error(conn, :outbox_not_found), do: error(conn, 404, "not_found", "delivery was not found")
+
+  defp error(conn, reason)
+       when reason in [:outbox_not_requeueable, :outbox_ambiguous_delivery_not_requeueable],
+       do: error(conn, 409, "conflict", "delivery cannot be retried")
 
   defp error(conn, :binding_target_conflict),
     do: error(conn, 409, "conflict", "target agent already has an enabled binding with this name")

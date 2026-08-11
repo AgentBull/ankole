@@ -76,7 +76,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter do
         ],
         # No add_reaction/remove_reaction (Bot Framework cannot send message
         # reactions) and no outbound_reconciliation (the connector has no
-        # read-back API, so interrupted sends stay unknown_after_send).
+        # read-back API, so the gateway owns bounded durable-reply recovery).
         outbound_capabilities: [
           "post_entry",
           "reply_entry",

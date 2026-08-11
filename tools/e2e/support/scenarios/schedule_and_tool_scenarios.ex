@@ -23,6 +23,7 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
   alias Ankole.Schedule.Schemas.{CronSchedule, ScheduledEvent}
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.Entry
+  alias Ankole.SignalsGateway.OutboxEntry
 
   @base_time ~U[2026-07-02 01:34:05.000000Z]
 
@@ -270,10 +271,21 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
     assert {:ok, %{send_outcome: "sent_or_queued"}} =
              process_ready_event_for_actor!(input, DateTime.add(input.available_at, 1, :second))
 
-    assert {:ok, outbox, _message} =
+    assert {:ok, outbox, message} =
              wait_for_completed_outbox(container, input.id, deadline(90_000))
 
-    assert outbox.payload["text"] =~ "CHAOS_REPLY_ATTACHMENT_OK"
+    # One completion commits two rows. The visible answer belongs to the final
+    # reply; the attachment row carries the file and no text, so no adapter
+    # posts the same wall twice. Both rows commit in the same transaction, so
+    # the final reply is already durable here.
+    final_reply =
+      Repo.get_by!(OutboxEntry,
+        source_actor_event_id: input.id,
+        outbound_key: "ai-reply:#{message.id}"
+      )
+
+    assert final_reply.payload["text"] =~ "CHAOS_REPLY_ATTACHMENT_OK"
+    assert is_nil(outbox.payload["text"])
 
     expected_attachment_path =
       Ankole.AgentHomePaths.user_files(agent.uid) <> "/reports/chaos-report.txt"

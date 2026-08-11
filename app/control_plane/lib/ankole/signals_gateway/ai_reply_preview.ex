@@ -293,7 +293,8 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
       %ActorEvent{reply_preview_checkpoint: %{"presentation_owner" => false}} ->
         {:error, :reply_preview_not_recoverable}
 
-      %ActorEvent{reply_preview_checkpoint: %{"recovery_state" => %{"state" => "blocked"}}} ->
+      %ActorEvent{reply_preview_checkpoint: %{"recovery_state" => %{"state" => state}}}
+      when state in ["blocked", "permanent"] ->
         {:error, :reply_preview_not_recoverable}
 
       %ActorEvent{reply_preview_checkpoint: %{"refresh_pending" => true} = checkpoint} = event ->
@@ -662,10 +663,10 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
     end
   end
 
-  # A refresh that a not-retryable provider error rejected would repeat on
-  # every recovery sweep. Mirror the outbox blocked shape on the checkpoint so
-  # the sweep skips the event until an operator updates the binding, which
-  # wakes blocked previews for a new attempt.
+  # A refresh that a non-retryable provider error rejected would repeat on
+  # every recovery sweep. Store the stop state on the checkpoint. A binding
+  # update wakes only failures that require operator action; permanent failures
+  # remain stopped.
   defp block_recovery(%ActorEvent{} = event, reason) do
     recovery_state = blocked_recovery_state(reason)
 
@@ -691,7 +692,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
       {:ok, _event} ->
         Logging.warning(
           "signals_gateway.ai_reply_preview.recovery_blocked",
-          "AI reply preview recovery blocked until operator action",
+          "AI reply preview recovery stopped",
           actor_event_fields(event, %{reason: inspect(reason, limit: 20)})
         )
 
@@ -710,14 +711,17 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   end
 
   defp blocked_recovery_state(reason) do
-    {class, detail} =
+    {state, class, detail} =
       case reason do
         {:reply_delivery, :operator_action_required, detail} ->
-          {"operator_action_required", detail}
+          {"blocked", "operator_action_required", detail}
+
+        {:reply_delivery, :permanent, detail} ->
+          {"permanent", "permanent_failure", detail}
       end
 
     %{
-      "state" => "blocked",
+      "state" => state,
       "reason" => class,
       "detail" => detail,
       "blocked_at" => DateTime.utc_now(:microsecond) |> DateTime.to_iso8601()
@@ -1523,6 +1527,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   defp handoff_result(other), do: {:error, {:invalid_reply_preview_sync_result, other}}
 
   defp rich_retryable?({:reply_delivery, :operator_action_required, _error}), do: false
+  defp rich_retryable?({:reply_delivery, :permanent, _error}), do: false
   defp rich_retryable?({:cardkit_plain_text_fallback, _error}), do: false
   defp rich_retryable?(_reason), do: true
 
@@ -1800,8 +1805,14 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
     end
   end
 
+  # A preview message is transient, so it never becomes an outbox row that
+  # `dispatch_outbox` could degrade. Apply the same adapter degrade here before
+  # handing the entry to the adapter.
   defp deliver_outbox(%ActorEvent{} = event, operation, text, opts) do
     with {:ok, adapter} <- adapter_for_event(event) do
+      operation =
+        Outbox.effective_outbox_operation(operation, OutboxAdapter.capabilities(adapter))
+
       event
       |> transient_outbox(operation, text, opts)
       |> then(&OutboxAdapter.deliver(adapter, &1))

@@ -9,8 +9,8 @@ defmodule Ankole.SignalsGateway.OutboxEntry do
   provider and drives the row through its status machine:
 
       created → sending → succeeded
-                       ↘ failed (retried, or blocked for operator action)
-                       ↘ unknown_after_send (sent flag set but no confirmation)
+                       ↘ failed (bounded retry, exhausted, or blocked)
+                       ↘ unknown_after_send (bounded marked recovery, or blocked)
       created → unsupported (channel/adapter can't perform this operation)
 
   Keyed by `{agent_uid, binding_name, outbound_key}`; `commit_outbox` upserts
@@ -69,9 +69,7 @@ defmodule Ankole.SignalsGateway.OutboxEntry do
     field :fallback_visible_text, :string
     field :idempotency_key, :string
     field :attempt_count, :integer, default: 0
-    # Retry ceiling for ordinary deliveries. Durable AI replies continue every
-    # 15 minutes after this limit unless the adapter blocks them for operator
-    # action.
+    # Hard automatic provider-call ceiling for every delivery class.
     field :max_attempts, :integer, default: 10
     field :last_attempted_at, :utc_datetime_usec
     field :last_error, :map, default: %{}
@@ -80,9 +78,8 @@ defmodule Ankole.SignalsGateway.OutboxEntry do
     # call may already be in flight, triggering reconcile-or-mark-unknown
     # recovery instead of a blind resend (see in_flight_recovery_action/2).
     field :platform_send_started_at, :utc_datetime_usec
-    # When a `:failed` row becomes eligible for its next attempt. This is nil
-    # when an ordinary row exhausts its attempts or an adapter blocks a durable
-    # reply for operator action.
+    # When a `:failed` or recoverable `:unknown_after_send` row becomes eligible
+    # for its next attempt. This is nil after exhaustion or a blocking failure.
     field :next_attempt_at, :utc_datetime_usec
     # Adapter-supplied breadcrumb carried across a reconcile (e.g. a provider
     # idempotency token) so recovery can confirm a prior send.

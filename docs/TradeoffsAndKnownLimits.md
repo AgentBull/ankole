@@ -110,8 +110,10 @@ Turn completion, an empty result, dead-letter handling, or an explicit stop ends
 the preview. The final reply always comes from a stored outbox row.
 
 Ankole can send a provider operation more than once. Adapters use provider
-idempotency or reconciliation when available. If a send has an unknown result,
-the outbox row can remain `unknown_after_send`.
+idempotency or reconciliation when available. A visible final reply with an
+unknown result retries only inside its attempt budget and carries a
+possible-duplicate notice. Other uncertain operations remain
+`unknown_after_send`. Every automatic delivery stops at its stored retry limit.
 
 ## Message Edits and Files Have Provider Limits
 

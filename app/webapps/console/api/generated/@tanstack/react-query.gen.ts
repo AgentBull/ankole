@@ -128,6 +128,7 @@ import {
   ankoleWebSignalBindingControllerIndex,
   ankoleWebSignalBindingControllerPutBinding,
   ankoleWebSignalBindingControllerPutChannelStandingOrders,
+  ankoleWebSignalBindingControllerRequeueDelivery,
   ankoleWebSignalBindingControllerShow,
   ankoleWebSignalBindingControllerShowChannelStandingOrders,
   ankoleWebSignalBindingControllerUpdateBinding,
@@ -496,6 +497,9 @@ import type {
   AnkoleWebSignalBindingControllerPutChannelStandingOrdersData,
   AnkoleWebSignalBindingControllerPutChannelStandingOrdersError,
   AnkoleWebSignalBindingControllerPutChannelStandingOrdersResponse,
+  AnkoleWebSignalBindingControllerRequeueDeliveryData,
+  AnkoleWebSignalBindingControllerRequeueDeliveryError,
+  AnkoleWebSignalBindingControllerRequeueDeliveryResponse,
   AnkoleWebSignalBindingControllerShowChannelStandingOrdersData,
   AnkoleWebSignalBindingControllerShowChannelStandingOrdersError,
   AnkoleWebSignalBindingControllerShowChannelStandingOrdersResponse,
@@ -4501,6 +4505,33 @@ export const ankoleWebAgentLibraryCapabilityControllerPutGlobalAgentPluginMutati
   > = {
     mutationFn: async fnOptions => {
       const { data } = await ankoleWebAgentLibraryCapabilityControllerPutGlobalAgentPlugin({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * Retry one stopped signal delivery
+ */
+export const ankoleWebSignalBindingControllerRequeueDeliveryMutation = (
+  options?: Partial<Options<AnkoleWebSignalBindingControllerRequeueDeliveryData>>
+): UseMutationOptions<
+  AnkoleWebSignalBindingControllerRequeueDeliveryResponse,
+  AnkoleWebSignalBindingControllerRequeueDeliveryError,
+  Options<AnkoleWebSignalBindingControllerRequeueDeliveryData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebSignalBindingControllerRequeueDeliveryResponse,
+    AnkoleWebSignalBindingControllerRequeueDeliveryError,
+    Options<AnkoleWebSignalBindingControllerRequeueDeliveryData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebSignalBindingControllerRequeueDelivery({
         ...options,
         ...fnOptions,
         throwOnError: true

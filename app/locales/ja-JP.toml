@@ -1063,6 +1063,16 @@ binding_name_required = "ルール名は必須です。"
 confidential_memory = "機密グループメモリ"
 confidential_memory_hint = "有効にすると、グループメッセージはインスタンス全体の共有ストアではなく、チャネルのみのメモリストアを使用します。次のグループターンは新しい会話を開始します。"
 disabled = "ルーティングルール {$name} を無効にしました。"
+delivery_attempts = "試行回数"
+delivery_duplicate_risk = "重複リスク"
+delivery_possible_duplicate = "重複の可能性あり"
+delivery_reply = "返信"
+delivery_retry_success = "配信を 1 回だけ再試行するようキューに追加しました。"
+delivery_retry_unsafe = "安全に再試行できません"
+delivery_state_blocked = "対応が必要"
+delivery_state_exhausted = "再試行上限に到達"
+delivery_state_permanent = "チャネルが拒否"
+delivery_updated = "更新日時"
 description = "Channel Provider やその他のシグナルソースからのメッセージとイベントを Agent にルーティングします。"
 edit_hint = "このルーティングルールを表示・編集します。保存済みの secret はブラウザーに読み込まれません。secret フィールドは空白のままにすると保持されます。"
 editor_description = "このルーティングルールの Channel Provider と対象 Agent を設定します。"
@@ -1094,6 +1104,8 @@ section_connection_hint = "選択した Channel Provider に必要な認証情�
 select_agent = "Agent を選択"
 show_disabled = "無効を表示"
 state = "状態"
+stopped_deliveries = "停止した配信"
+stopped_deliveries_description = "これらの最終返信は自動配信を停止しました。最新の 100 件を表示しています。再試行すると、同じ返信に対してチャネル呼び出しを 1 回だけ許可します。"
 target_agent = "対象 Agent"
 target_agent_required = "対象 Agent は必須です。"
 title = "Signal Routing"
@@ -1423,6 +1435,7 @@ llm_profile_unavailable = "カスタムモデルプロファイル {$profile} �
 llm_usage = "使い方: /llm <カスタムモデルプロファイル> [メッセージ]"
 model_profile_unavailable = "Agent の {$profile} モデルプロファイルは利用できません。管理者に Ankole Console で設定してもらってから、もう一度お試しください。（actor-event::{$ref}）"
 nothing_to_retry = "再試行できる以前のリクエストがありません。"
+possible_duplicate_delivery = "復旧送信：Ankole は以前の返信が届いたか確認できませんでした。この返信は重複している可能性があります。"
 tool_call_completed = "ツール {$tool} を実行しました。結果を読み取っています。"
 tool_call_started = "ツールを呼び出しています: {$tool}"
 
@@ -1556,8 +1569,6 @@ scheduled = "フォローアップをスケジュール済み"
 stopped = "停止"
 thought_title = "作業メモ（一時）"
 working = "作業中…"
-
-
 
 
 

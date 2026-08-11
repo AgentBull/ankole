@@ -1,5 +1,6 @@
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import {
+  Button,
   Input,
   Select,
   SelectContent,
@@ -7,7 +8,11 @@ import {
   SelectTrigger,
   SelectValue,
   Switch,
+  Table,
+  TableBody,
   TableCell,
+  TableHead,
+  TableHeader,
   TableRow,
   toast
 } from '@ankole/uikit'
@@ -34,10 +39,11 @@ import {
   ankoleWebSignalBindingControllerDeleteMutation,
   ankoleWebSignalBindingControllerIndexOptions,
   ankoleWebSignalBindingControllerPutBindingMutation,
+  ankoleWebSignalBindingControllerRequeueDeliveryMutation,
   ankoleWebSignalBindingControllerShowOptions,
   ankoleWebSignalBindingControllerUpdateBindingMutation
 } from '../api/generated/@tanstack/react-query.gen'
-import type { SignalAdapterItem, SignalBindingItem } from '../api/generated/types.gen'
+import type { SignalAdapterItem, SignalBindingItem, SignalDeliveryFailureItem } from '../api/generated/types.gen'
 import { FormSection, LabeledField, ReadOnlyValue, ResourceEditorPage, StatusIndicator } from '../console-form'
 import { FilterSwitch, ResourceListPage, ResourceSearch, RowActions } from '../console-list-page'
 import {
@@ -76,6 +82,7 @@ export function SignalsListPage() {
         binding.enabled
       )
     )
+  const stoppedDeliveries = bindings.data?.delivery_failures ?? []
   const disableBinding = useMutation({
     ...ankoleWebSignalBindingControllerDeleteMutation(),
     onSuccess: (_data, variables) => {
@@ -88,6 +95,14 @@ export function SignalsListPage() {
     ...ankoleWebSignalBindingControllerUpdateBindingMutation(),
     onSuccess: (_data, variables) => {
       toast.success(t('console.signals.enabled', { name: variables.path.binding_name }))
+      void queryClient.invalidateQueries()
+    },
+    onError: error => toast.error(requestErrorMessage(error))
+  })
+  const retryDelivery = useMutation({
+    ...ankoleWebSignalBindingControllerRequeueDeliveryMutation(),
+    onSuccess: () => {
+      toast.success(t('console.signals.delivery_retry_success'))
       void queryClient.invalidateQueries()
     },
     onError: error => toast.error(requestErrorMessage(error))
@@ -148,6 +163,21 @@ export function SignalsListPage() {
             </>
           }
         />
+      }
+      footer={
+        stoppedDeliveries.length > 0 ? (
+          <StoppedDeliveries
+            agentUID={agentUID}
+            rows={stoppedDeliveries}
+            retryPending={retryDelivery.isPending}
+            onRetry={(bindingName, outboundKey) =>
+              retryDelivery.mutate({
+                path: { agent_uid: agentUID },
+                body: { binding_name: bindingName, outbound_key: outboundKey }
+              })
+            }
+          />
+        ) : undefined
       }>
       {rows.map(binding => (
         <TableRow key={`${binding.adapter}:${binding.name}`}>
@@ -202,6 +232,81 @@ export function SignalsListPage() {
         </TableRow>
       ))}
     </ResourceListPage>
+  )
+}
+
+function StoppedDeliveries({
+  agentUID,
+  onRetry,
+  retryPending,
+  rows
+}: {
+  agentUID: string
+  onRetry: (bindingName: string, outboundKey: string) => void
+  retryPending: boolean
+  rows: SignalDeliveryFailureItem[]
+}) {
+  const { t } = useTranslation()
+
+  return (
+    <section aria-labelledby="stopped-deliveries-title" className="grid gap-3">
+      <div>
+        <h2 id="stopped-deliveries-title" className="text-base font-semibold">
+          {t('console.signals.stopped_deliveries')}
+        </h2>
+        <p className="mt-1 text-sm text-muted-foreground">{t('console.signals.stopped_deliveries_description')}</p>
+      </div>
+      <Table
+        className="min-w-[800px]"
+        containerClassName="border border-border bg-card"
+        containerLabel={t('console.signals.stopped_deliveries')}>
+        <TableHeader>
+          <TableRow>
+            <TableHead>{t('console.signals.name')}</TableHead>
+            <TableHead>{t('console.signals.delivery_reply')}</TableHead>
+            <TableHead>{t('console.signals.delivery_attempts')}</TableHead>
+            <TableHead>{t('console.signals.state')}</TableHead>
+            <TableHead>{t('console.signals.delivery_duplicate_risk')}</TableHead>
+            <TableHead>{t('console.signals.delivery_updated')}</TableHead>
+            <TableHead className="text-right">{t('console.actions')}</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.map(row => (
+            <TableRow key={`${agentUID}:${row.binding_name}:${row.outbound_key}`}>
+              <TableCell className="font-mono text-xs">{row.binding_name}</TableCell>
+              <TableCell>
+                <span className="block max-w-64 truncate font-mono text-xs" title={row.outbound_key}>
+                  {row.outbound_key}
+                </span>
+              </TableCell>
+              <TableCell>
+                {row.attempt_count}/{row.max_attempts}
+              </TableCell>
+              <TableCell>
+                <StatusIndicator tone="danger">{t(`console.signals.delivery_state_${row.state}`)}</StatusIndicator>
+              </TableCell>
+              <TableCell>{row.possible_duplicate ? t('console.signals.delivery_possible_duplicate') : '—'}</TableCell>
+              <TableCell>{new Date(row.updated_at).toLocaleString(i18n.language)}</TableCell>
+              <TableCell className="text-right">
+                {row.can_retry ? (
+                  <Button
+                    disabled={retryPending}
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                    onClick={() => onRetry(row.binding_name, row.outbound_key)}>
+                    {t('common.retry')}
+                  </Button>
+                ) : (
+                  <span className="text-xs text-muted-foreground">{t('console.signals.delivery_retry_unsafe')}</span>
+                )}
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </section>
   )
 }
 

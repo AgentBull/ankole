@@ -1033,6 +1033,7 @@ export type AgentSessionListResponse = {
  * SignalBindingListResponse
  */
 export type SignalBindingListResponse = {
+  delivery_failures: Array<SignalDeliveryFailureItem>
   signal_bindings: Array<SignalBindingItem>
 }
 
@@ -1567,6 +1568,14 @@ export type BrainDreamingRunResponse = {
 }
 
 /**
+ * SignalDeliveryRequeueRequest
+ */
+export type SignalDeliveryRequeueRequest = {
+  binding_name: string
+  outbound_key: string
+}
+
+/**
  * AIGatewayProviderResponse
  */
 export type AiGatewayProviderResponse = {
@@ -1838,6 +1847,21 @@ export type PermissionGrantListResponse = {
 }
 
 /**
+ * SignalDeliveryFailureItem
+ */
+export type SignalDeliveryFailureItem = {
+  attempt_count: number
+  binding_name: string
+  can_retry: boolean
+  max_attempts: number
+  outbound_key: string
+  possible_duplicate: boolean
+  state: 'blocked' | 'permanent' | 'exhausted'
+  status: 'failed' | 'unknown_after_send'
+  updated_at: string
+}
+
+/**
  * PermissionGrantCreateRequest
  *
  * Exactly one owner: principal_uid or group_name.
@@ -1871,6 +1895,13 @@ export type IdentityProviderWriteRequest = {
   adapter_id: string
   config: JsonValue
   enabled?: boolean
+}
+
+/**
+ * SignalDeliveryRequeueResponse
+ */
+export type SignalDeliveryRequeueResponse = {
+  requeued: boolean
 }
 
 /**
@@ -7117,6 +7148,54 @@ export type AnkoleWebAgentLibraryCapabilityControllerPutGlobalAgentPluginRespons
 
 export type AnkoleWebAgentLibraryCapabilityControllerPutGlobalAgentPluginResponse =
   AnkoleWebAgentLibraryCapabilityControllerPutGlobalAgentPluginResponses[keyof AnkoleWebAgentLibraryCapabilityControllerPutGlobalAgentPluginResponses]
+
+export type AnkoleWebSignalBindingControllerRequeueDeliveryData = {
+  /**
+   * Stopped signal delivery
+   */
+  body: SignalDeliveryRequeueRequest
+  path: {
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v1/agents/{agent_uid}/signal-deliveries/requeue'
+}
+
+export type AnkoleWebSignalBindingControllerRequeueDeliveryErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+  /**
+   * Delivery is not stopped or cannot be retried
+   */
+  409: ConsoleApiErrorEnvelope
+  /**
+   * Invalid value
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebSignalBindingControllerRequeueDeliveryError =
+  AnkoleWebSignalBindingControllerRequeueDeliveryErrors[keyof AnkoleWebSignalBindingControllerRequeueDeliveryErrors]
+
+export type AnkoleWebSignalBindingControllerRequeueDeliveryResponses = {
+  /**
+   * Delivery requeued
+   */
+  200: SignalDeliveryRequeueResponse
+}
+
+export type AnkoleWebSignalBindingControllerRequeueDeliveryResponse =
+  AnkoleWebSignalBindingControllerRequeueDeliveryResponses[keyof AnkoleWebSignalBindingControllerRequeueDeliveryResponses]
 
 export type AnkoleWebAgentLibraryCapabilityControllerGlobalIndexData = {
   body?: never

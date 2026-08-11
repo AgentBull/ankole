@@ -47,6 +47,39 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     end
   end
 
+  defmodule PostOnlySignalProviderPlugin do
+    @moduledoc """
+    Mirrors an adapter that can post but cannot thread, like WeCom or DingTalk.
+    """
+
+    @behaviour Ankole.Plugins.Plugin
+
+    alias Ankole.PluginFixtures.MockSignalProvider.Inbound
+    alias Ankole.PluginFixtures.MockSignalProvider.Outbox
+
+    @impl true
+    def plugin_id, do: "post-only-signal-provider"
+
+    @impl true
+    def display_name, do: %{"default" => "Post Only Signal Provider"}
+
+    @impl true
+    def adapter_declarations do
+      [
+        %{
+          contract_id: "signals_gateway.adapter",
+          id: "mock-provider",
+          plugin_id: plugin_id(),
+          display_name: display_name(),
+          ingress_module: Inbound,
+          outbox_module: Outbox,
+          inbound_capabilities: ["entry_receive"],
+          outbound_capabilities: ["post_entry"]
+        }
+      ]
+    end
+  end
+
   defmodule RecoverySignalProviderPlugin do
     @moduledoc false
 
@@ -825,6 +858,37 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
              Registry.lookup(Ankole.SignalsGateway.PreviewRegistry, actor_event.id)
   end
 
+  test "preview posts its first message when the adapter cannot thread replies" do
+    original_state = :sys.get_state(Ankole.Plugins.Registry)
+    {:ok, spec} = Spec.from_module(PostOnlySignalProviderPlugin)
+
+    :sys.replace_state(Ankole.Plugins.Registry, fn _state ->
+      %{
+        discovered: %{spec.id => spec},
+        active: %{spec.id => spec},
+        enabled_ids: MapSet.new([spec.id])
+      }
+    end)
+
+    on_exit(fn ->
+      :sys.replace_state(Ankole.Plugins.Registry, fn _state -> original_state end)
+    end)
+
+    %{subject: subject, actor_event: actor_event} = addressed_actor_event("post-only")
+
+    %{response: response} = start_dispatched_preview(subject.uid, actor_event)
+
+    assert :ok = Events.publish(response, :output_text_delta, %{text: "no thread here"})
+
+    # A preview message never becomes an outbox row, so nothing downstream can
+    # degrade it later. The channel asks for a threaded reply and the adapter
+    # cannot thread, so the preview goes out as a top-level post.
+    assert_receive {:mock_provider_outbox_sent, initial}
+    assert initial.operation == :post
+    assert is_nil(initial.reply_to_source_entry_id)
+    assert initial.fallback_visible_text == "no thread here"
+  end
+
   test "startup closes a completed event whose durable reply outlived an open preview" do
     original_state = :sys.get_state(Ankole.Plugins.Registry)
     {:ok, spec} = Spec.from_module(RecoverySignalProviderPlugin)
@@ -915,7 +979,7 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     assert request.checkpoint["refresh_reason"] == "terminal_recovery"
   end
 
-  test "a not-retryable refresh blocks recovery until an operator wakes the binding" do
+  test "a not-retryable refresh distinguishes operator repair from a permanent stop" do
     original_state = :sys.get_state(Ankole.Plugins.Registry)
     {:ok, spec} = Spec.from_module(RecoverySignalProviderPlugin)
 
@@ -1024,6 +1088,31 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     woken = Repo.get!(ActorEvent, actor_event.id).reply_preview_checkpoint
     refute Map.has_key?(woken, "recovery_state")
     assert Enum.any?(Actors.recoverable_reply_preview_events(), &(&1.id == actor_event.id))
+
+    RecoveryReplyPreview.put_refresh_result(
+      {:error,
+       {:reply_delivery, :permanent,
+        %{"code" => 40_201, "message" => "message blocked by anti-spam policy"}}}
+    )
+
+    assert {:error, {:reply_delivery, :permanent, _detail}} =
+             AIReplyPreview.recover(actor_event.id)
+
+    assert_receive {:recovery_refresh, _request}
+
+    permanent = Repo.get!(ActorEvent, actor_event.id).reply_preview_checkpoint
+    assert permanent["recovery_state"]["state"] == "permanent"
+    assert permanent["recovery_state"]["reason"] == "permanent_failure"
+    assert permanent["recovery_state"]["detail"]["code"] == 40_201
+    refute Enum.any?(Actors.recoverable_reply_preview_events(), &(&1.id == actor_event.id))
+
+    assert :ok =
+             Actors.wake_blocked_reply_previews(
+               actor_event.agent_uid,
+               actor_event.binding_name
+             )
+
+    assert Repo.get!(ActorEvent, actor_event.id).reply_preview_checkpoint == permanent
   end
 
   test "a plain-text fallback delegates preview recovery to durable outbox ownership" do

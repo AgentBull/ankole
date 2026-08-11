@@ -1,6 +1,7 @@
 defmodule Ankole.SignalsGateway.ActorRuntime.ActorTurnCompletionTest do
   use Ankole.SignalsGateway.ActorRuntimeCase
 
+  alias Ankole.SignalsGateway.Channel
   alias Ankole.SignalsGateway.InputTombstone
   alias Ankole.SignalsGateway.ReplyInteractionState
 
@@ -228,6 +229,31 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorTurnCompletionTest do
       assert outbox.binding_name == event.binding_name
       assert outbox.signal_channel_id == event.signal_channel_id
       assert outbox.payload["text"] == "GitHub issue state verified"
+    end
+
+    test "completes a turn whose channel accepts no replies instead of retrying it" do
+      %{agent: agent, event: event, turn_ref: turn_ref} =
+        start_accepted_turn("listen-only-channel")
+
+      Channel
+      |> Repo.get!(event.signal_channel_id)
+      |> Channel.changeset(%{reply_mode: :none})
+      |> Repo.update!()
+
+      final = complete_response(agent.uid, event, "work is done")
+
+      # The work happened and the answer is in the transcript. Failing the
+      # completion would retry the whole turn, and every retry costs another
+      # model call while the channel stays exactly as unreachable.
+      assert {:ok, %{status: :turn_completed, outboxes: %{final: nil, attachments: []}}} =
+               complete_turn(turn_ref, final)
+
+      assert %DateTime{} = Repo.get!(ActorEvent, event.id).completed_at
+
+      assert Repo.aggregate(
+               from(entry in OutboxEntry, where: entry.source_actor_event_id == ^event.id),
+               :count
+             ) == 0
     end
 
     test "moves a successful activation to warm idle and stops it normally at idle expiry" do

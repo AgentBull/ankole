@@ -285,14 +285,15 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
                  agent.uid,
                  "bot",
                  "post-retry",
-                 outbox_adapter([:post_entry], fn _outbox ->
+                 outbox_adapter([:post_entry], fn outbox ->
+                   assert outbox.fallback_visible_text == "retry me"
                    {:ok, %{created_source_entry_id: "retry-provider-id"}}
                  end),
                  now: due_now
                )
     end
 
-    test "durable AI replies continue at low frequency after the generic retry ceiling" do
+    test "durable AI replies stop at the retry ceiling and explicit requeue keeps one row" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
 
@@ -326,21 +327,320 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
 
       assert failed.status == :failed
       assert failed.attempt_count == failed.max_attempts
-      assert %DateTime{} = failed.next_attempt_at
+      assert failed.next_attempt_at == nil
+      assert failed.fallback_visible_text == "must eventually arrive"
+      refute failed.recovery_state["possible_duplicate"]
 
-      due_now = DateTime.add(failed.next_attempt_at, 1, :microsecond)
-      assert Enum.any?(due_outbox_events(due_now), &(&1["outbound_key"] == "durable-retry"))
+      assert failed.recovery_state == %{
+               "state" => "exhausted",
+               "reason" => "max_attempts_reached"
+             }
+
+      refute Enum.any?(
+               due_outbox_events(DateTime.add(@base_time, 1, :day)),
+               &(&1["outbound_key"] == "durable-retry")
+             )
+
+      assert {:error, :outbox_manual_requeue_required} =
+               SignalsGateway.dispatch_outbox(
+                 agent.uid,
+                 "bot",
+                 "durable-retry",
+                 outbox_adapter([:post_entry], fn _outbox -> flunk("exhausted row sent") end),
+                 now: DateTime.add(@base_time, 1, :day)
+               )
+
+      requeue_at = DateTime.add(@base_time, 1, :day)
+
+      assert {:ok, requeued} =
+               SignalsGateway.requeue_outbox(
+                 agent.uid,
+                 "bot",
+                 "durable-retry",
+                 now: requeue_at
+               )
+
+      assert requeued.attempt_count == 1
+      assert requeued.max_attempts == 2
+      assert requeued.inserted_at == failed.inserted_at
+      assert requeued.next_attempt_at == requeue_at
+      assert requeued.recovery_state == %{}
+
+      assert {:error, :outbox_not_requeueable} =
+               SignalsGateway.requeue_outbox(
+                 agent.uid,
+                 "bot",
+                 "durable-retry",
+                 now: requeue_at
+               )
+
+      assert Enum.any?(
+               due_outbox_events(requeue_at),
+               &(&1["outbound_key"] == "durable-retry")
+             )
 
       assert {:ok, %OutboxEntry{status: :succeeded, attempt_count: 2}} =
                SignalsGateway.dispatch_outbox(
                  agent.uid,
                  "bot",
                  "durable-retry",
-                 outbox_adapter([:post_entry], fn _outbox ->
+                 outbox_adapter([:post_entry], fn outbox ->
+                   assert outbox.fallback_visible_text == "must eventually arrive"
                    {:ok, %{created_source_entry_id: "durable-provider-id"}}
                  end),
-                 now: due_now
+                 now: requeue_at
                )
+    end
+
+    test "uncertain durable reply retries with a visible possible-duplicate notice" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+
+      assert {:ok, %{status: :accepted}} =
+               Ingress.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+                 now: @base_time
+               )
+
+      assert {:ok, _created} =
+               SignalsGateway.commit_outbox(%{
+                 agent_uid: agent.uid,
+                 binding_name: "bot",
+                 outbound_key: "durable-unknown",
+                 delivery_class: :durable_ai_reply,
+                 max_attempts: 3,
+                 operation: :post,
+                 signal_channel_id: "lark:chat:group-a",
+                 payload: %{"text" => "possibly delivered"},
+                 fallback_visible_text: "possibly delivered"
+               })
+
+      assert {:ok, unknown} =
+               SignalsGateway.dispatch_outbox(
+                 agent.uid,
+                 "bot",
+                 "durable-unknown",
+                 outbox_adapter([:post_entry], fn outbox ->
+                   assert outbox.fallback_visible_text == "possibly delivered"
+                   :unknown
+                 end),
+                 now: @base_time
+               )
+
+      notice = Ankole.I18n.t("signals_gateway.reply.possible_duplicate_delivery")
+      marked_text = notice <> "\n\npossibly delivered"
+
+      assert unknown.status == :unknown_after_send
+      assert unknown.attempt_count == 1
+      assert %DateTime{} = unknown.next_attempt_at
+      assert unknown.fallback_visible_text == marked_text
+      assert unknown.payload["text"] == marked_text
+      assert unknown.recovery_state["possible_duplicate"] == true
+      assert unknown.recovery_state["possible_duplicate_notice"] == notice
+
+      second_attempt_at = DateTime.add(unknown.next_attempt_at, 1, :microsecond)
+
+      assert Enum.any?(
+               due_outbox_events(second_attempt_at),
+               &(&1["outbound_key"] == "durable-unknown")
+             )
+
+      assert {:ok, second_unknown} =
+               SignalsGateway.dispatch_outbox(
+                 agent.uid,
+                 "bot",
+                 "durable-unknown",
+                 outbox_adapter([:post_entry], fn outbox ->
+                   assert outbox.fallback_visible_text == marked_text
+                   assert outbox.payload["text"] == marked_text
+                   :unknown
+                 end),
+                 now: second_attempt_at
+               )
+
+      assert second_unknown.status == :unknown_after_send
+      assert second_unknown.attempt_count == 2
+      assert %DateTime{} = second_unknown.next_attempt_at
+      assert second_unknown.fallback_visible_text == marked_text
+      assert second_unknown.payload["text"] == marked_text
+
+      third_attempt_at = DateTime.add(second_unknown.next_attempt_at, 1, :microsecond)
+
+      assert {:ok, %OutboxEntry{status: :succeeded, attempt_count: 3}} =
+               SignalsGateway.dispatch_outbox(
+                 agent.uid,
+                 "bot",
+                 "durable-unknown",
+                 outbox_adapter([:post_entry], fn outbox ->
+                   assert outbox.fallback_visible_text == marked_text
+                   assert outbox.payload["text"] == marked_text
+                   {:ok, %{created_source_entry_id: "unknown-recovery-provider-id"}}
+                 end),
+                 now: third_attempt_at
+               )
+
+      assert Repo.get_by!(
+               Entry,
+               signal_channel_id: "lark:chat:group-a",
+               source_entry_id: "unknown-recovery-provider-id"
+             ).text == marked_text
+    end
+
+    test "manual retry preserves one possible-duplicate notice after uncertainty exhausts" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+
+      assert {:ok, %{status: :accepted}} =
+               Ingress.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+                 now: @base_time
+               )
+
+      assert {:ok, _created} =
+               SignalsGateway.commit_outbox(%{
+                 agent_uid: agent.uid,
+                 binding_name: "bot",
+                 outbound_key: "durable-unknown-manual",
+                 delivery_class: :durable_ai_reply,
+                 max_attempts: 1,
+                 operation: :post,
+                 signal_channel_id: "lark:chat:group-a",
+                 payload: %{"reply_presentation" => %{"answer" => ""}},
+                 fallback_visible_text: "possibly delivered"
+               })
+
+      assert {:ok, unknown} =
+               SignalsGateway.dispatch_outbox(
+                 agent.uid,
+                 "bot",
+                 "durable-unknown-manual",
+                 outbox_adapter([:post_entry], fn _outbox -> :unknown end),
+                 now: @base_time
+               )
+
+      notice = Ankole.I18n.t("signals_gateway.reply.possible_duplicate_delivery")
+      marked_text = notice <> "\n\npossibly delivered"
+
+      assert unknown.next_attempt_at == nil
+      assert unknown.recovery_state["state"] == "exhausted"
+
+      requeue_at = DateTime.add(@base_time, 1, :hour)
+
+      assert {:ok, requeued} =
+               SignalsGateway.requeue_outbox(
+                 agent.uid,
+                 "bot",
+                 "durable-unknown-manual",
+                 now: requeue_at
+               )
+
+      assert requeued.max_attempts == 2
+      assert requeued.recovery_state["state"] == nil
+      assert requeued.recovery_state["possible_duplicate"] == true
+      assert requeued.fallback_visible_text == marked_text
+      assert get_in(requeued.payload, ["reply_presentation", "answer"]) == notice
+
+      assert {:ok, %OutboxEntry{status: :succeeded, attempt_count: 2}} =
+               SignalsGateway.dispatch_outbox(
+                 agent.uid,
+                 "bot",
+                 "durable-unknown-manual",
+                 outbox_adapter([:post_entry], fn outbox ->
+                   assert outbox.fallback_visible_text == marked_text
+                   {:ok, %{created_source_entry_id: "manual-recovery-provider-id"}}
+                 end),
+                 now: requeue_at
+               )
+    end
+
+    test "uncertain durable operation without visible text stays blocked" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+
+      assert {:ok, %{status: :accepted}} =
+               Ingress.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+                 now: @base_time
+               )
+
+      assert {:ok, _created} =
+               SignalsGateway.commit_outbox(%{
+                 agent_uid: agent.uid,
+                 binding_name: "bot",
+                 outbound_key: "durable-unknown-empty",
+                 delivery_class: :durable_ai_reply,
+                 max_attempts: 2,
+                 operation: :post,
+                 signal_channel_id: "lark:chat:group-a",
+                 payload: %{"text" => ""}
+               })
+
+      assert {:ok, unknown} =
+               SignalsGateway.dispatch_outbox(
+                 agent.uid,
+                 "bot",
+                 "durable-unknown-empty",
+                 outbox_adapter([:post_entry], fn _outbox -> :unknown end),
+                 now: @base_time
+               )
+
+      assert unknown.status == :unknown_after_send
+      assert unknown.next_attempt_at == nil
+      assert unknown.payload["text"] == ""
+      assert unknown.recovery_state["state"] == "blocked"
+
+      assert unknown.recovery_state["reason"] ==
+               "ambiguous_delivery_without_visible_text"
+
+      refute SignalsGateway.requeueable_outbox?(unknown)
+
+      assert {:error, :outbox_ambiguous_delivery_not_requeueable} =
+               SignalsGateway.requeue_outbox(
+                 agent.uid,
+                 "bot",
+                 "durable-unknown-empty",
+                 now: DateTime.add(@base_time, 1, :hour)
+               )
+    end
+
+    test "permanent durable reply failure stops on its first provider call" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+
+      assert {:ok, %{status: :accepted}} =
+               Ingress.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+                 now: @base_time
+               )
+
+      assert {:ok, _created} =
+               SignalsGateway.commit_outbox(%{
+                 agent_uid: agent.uid,
+                 binding_name: "bot",
+                 outbound_key: "durable-permanent",
+                 delivery_class: :durable_ai_reply,
+                 operation: :post,
+                 signal_channel_id: "lark:chat:group-a",
+                 fallback_visible_text: "provider rejects this"
+               })
+
+      assert {:ok, failed} =
+               SignalsGateway.dispatch_outbox(
+                 agent.uid,
+                 "bot",
+                 "durable-permanent",
+                 outbox_adapter([:post_entry], fn _outbox ->
+                   {:error, {:reply_delivery, :permanent, %{"code" => 40_201}}}
+                 end),
+                 now: @base_time
+               )
+
+      assert failed.status == :failed
+      assert failed.attempt_count == 1
+      assert failed.next_attempt_at == nil
+      assert failed.recovery_state["state"] == "permanent"
+      assert failed.recovery_state["reason"] == "permanent_failure"
+
+      refute Enum.any?(
+               due_outbox_events(DateTime.add(@base_time, 1, :day)),
+               &(&1["outbound_key"] == "durable-permanent")
+             )
     end
 
     test "operator-blocked durable replies wake when their binding is saved again" do
@@ -410,6 +710,8 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
         )
 
       assert %DateTime{} = woken.next_attempt_at
+      assert woken.attempt_count == 1
+      assert woken.max_attempts == 2
       assert woken.recovery_state == %{}
 
       assert {:ok, %OutboxEntry{status: :succeeded}} =

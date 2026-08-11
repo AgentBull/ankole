@@ -50,8 +50,8 @@
   },
   "devDependencies": {
     "@types/bun": "latest",
-    "oxfmt": "^0.62.0",
-    "oxlint": "^1.77.0",
+    "oxfmt": "^0.63.0",
+    "oxlint": "^1.78.0",
     "typescript": "^7.0.2"
   },
   "packageManager": "bun@1.4.0-canary.1"

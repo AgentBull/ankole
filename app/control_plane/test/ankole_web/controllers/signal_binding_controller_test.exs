@@ -3,6 +3,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
 
   import Ecto.Query
   import Ankole.PrincipalsFixtures
+  import Ankole.SignalsGatewayFixtures
 
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.AppConfig
@@ -18,6 +19,8 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
   alias Ankole.Setup.Config, as: SetupConfig
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.Binding
+  alias Ankole.SignalsGateway.Ingress
+  alias Ankole.SignalsGateway.OutboxEntry
   alias AnkoleWeb.Session, as: WebSession
 
   setup do
@@ -99,6 +102,96 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
              json_response(conn, 200)
 
     assert {:error, :binding_disabled} = SignalsGateway.get_binding(agent.uid, "lark-main")
+  end
+
+  test "admin sees and requeues a stopped durable delivery", %{conn: conn} do
+    %{principal: agent} = agent_fixture()
+
+    conn =
+      conn
+      |> bearer_conn()
+      |> put_binding(agent.uid, "lark", "lark-main", lark_config("delivery-failure"))
+
+    assert response(conn, 200)
+
+    assert {:ok, %{status: :accepted}} =
+             Ingress.emit_entry(agent.uid, "lark-main", group_entry(%{explicit: true}),
+               now: base_time()
+             )
+
+    assert {:ok, _outbox} =
+             SignalsGateway.commit_outbox(%{
+               agent_uid: agent.uid,
+               binding_name: "lark-main",
+               outbound_key: "ai-reply:console-failure",
+               delivery_class: :durable_ai_reply,
+               operation: :post,
+               signal_channel_id: "lark:chat:group-a",
+               fallback_visible_text: "provider rejects this"
+             })
+
+    assert {:ok, %OutboxEntry{status: :failed}} =
+             SignalsGateway.dispatch_outbox(
+               agent.uid,
+               "lark-main",
+               "ai-reply:console-failure",
+               outbox_adapter([:post_entry], fn _outbox ->
+                 {:error, {:reply_delivery, :permanent, %{"code" => 40_201}}}
+               end),
+               now: base_time()
+             )
+
+    conn =
+      conn
+      |> recycle_api()
+      |> get(~p"/api/v1/agents/#{agent.uid}/signal-bindings")
+
+    assert %{
+             "delivery_failures" => [
+               %{
+                 "binding_name" => "lark-main",
+                 "outbound_key" => "ai-reply:console-failure",
+                 "status" => "failed",
+                 "state" => "permanent",
+                 "attempt_count" => 1,
+                 "max_attempts" => 10,
+                 "possible_duplicate" => false,
+                 "can_retry" => true
+               }
+             ]
+           } = json_response(conn, 200)
+
+    conn =
+      conn
+      |> recycle_api()
+      |> post(~p"/api/v1/agents/#{agent.uid}/signal-deliveries/requeue", %{
+        "binding_name" => "lark-main",
+        "outbound_key" => "ai-reply:console-failure"
+      })
+
+    assert %{"requeued" => true} = json_response(conn, 200)
+
+    conn =
+      conn
+      |> recycle_api()
+      |> post(~p"/api/v1/agents/#{agent.uid}/signal-deliveries/requeue", %{
+        "binding_name" => "lark-main",
+        "outbound_key" => "ai-reply:console-failure"
+      })
+
+    assert %{"error" => %{"code" => "conflict"}} = json_response(conn, 409)
+
+    requeued =
+      Repo.get_by!(OutboxEntry,
+        agent_uid: agent.uid,
+        binding_name: "lark-main",
+        outbound_key: "ai-reply:console-failure"
+      )
+
+    assert requeued.attempt_count == 1
+    assert requeued.max_attempts == 2
+    assert %DateTime{} = requeued.next_attempt_at
+    assert requeued.recovery_state == %{}
   end
 
   test "admin edits a disabled binding without exposing or replacing its secret", %{conn: conn} do

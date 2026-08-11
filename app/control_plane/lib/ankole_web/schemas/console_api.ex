@@ -1668,6 +1668,83 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
     )
   end
 
+  defmodule SignalDeliveryRequeueRequest do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "SignalDeliveryRequeueRequest",
+        type: :object,
+        properties: %{
+          binding_name: %Schema{type: :string, minLength: 1},
+          outbound_key: %Schema{type: :string, minLength: 1}
+        },
+        required: [:binding_name, :outbound_key],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule SignalDeliveryFailureItem do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "SignalDeliveryFailureItem",
+        type: :object,
+        properties: %{
+          binding_name: %Schema{type: :string},
+          outbound_key: %Schema{type: :string},
+          status: %Schema{type: :string, enum: ["failed", "unknown_after_send"]},
+          state: %Schema{
+            type: :string,
+            enum: ["blocked", "permanent", "exhausted"]
+          },
+          attempt_count: %Schema{type: :integer, minimum: 0},
+          max_attempts: %Schema{type: :integer, minimum: 1},
+          possible_duplicate: %Schema{type: :boolean},
+          can_retry: %Schema{type: :boolean},
+          updated_at: %Schema{type: :string, format: :"date-time"}
+        },
+        required: [
+          :binding_name,
+          :outbound_key,
+          :status,
+          :state,
+          :attempt_count,
+          :max_attempts,
+          :possible_duplicate,
+          :can_retry,
+          :updated_at
+        ],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule SignalDeliveryRequeueResponse do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "SignalDeliveryRequeueResponse",
+        type: :object,
+        properties: %{requeued: %Schema{type: :boolean}},
+        required: [:requeued],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
   defmodule SignalBindingItem do
     @moduledoc false
 
@@ -1757,9 +1834,14 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
         title: "SignalBindingListResponse",
         type: :object,
         properties: %{
-          signal_bindings: %Schema{type: :array, items: SignalBindingItem}
+          signal_bindings: %Schema{type: :array, items: SignalBindingItem},
+          delivery_failures: %Schema{
+            type: :array,
+            maxItems: 100,
+            items: SignalDeliveryFailureItem
+          }
         },
-        required: [:signal_bindings],
+        required: [:signal_bindings, :delivery_failures],
         additionalProperties: false
       },
       struct?: false

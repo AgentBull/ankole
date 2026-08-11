@@ -318,6 +318,10 @@ defmodule AnkoleWeb.Router do
            SignalBindingController,
            :delete
 
+    post "/agents/:agent_uid/signal-deliveries/requeue",
+         SignalBindingController,
+         :requeue_delivery
+
     get "/signal-channels/:channel_id/standing-orders",
         SignalBindingController,
         :show_channel_standing_orders

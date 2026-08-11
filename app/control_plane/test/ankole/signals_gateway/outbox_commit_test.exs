@@ -36,10 +36,21 @@ defmodule Ankole.SignalsGatewayOutboxCommitTest do
                  input
                  | binding_name: "missing-bot"
                })
+    end
 
-      binding_fixture(agent_uid, "bad-adapter", :ignore, adapter: "missing-adapter")
+    test "operation selection does not depend on the adapter being registered" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
 
-      assert {:error, {:signal_adapter_not_found, "missing-adapter"}} =
+      %{actor_event: input} =
+        emit_addressed_actor_event(agent.uid, "bot", group_entry(%{explicit: true}))
+
+      binding_fixture(agent.uid, "bad-adapter", :ignore, adapter: "missing-adapter")
+
+      # An absent plugin must not fail the transaction that commits a durable
+      # intent: that made one unreachable route able to block worker takeover
+      # and turn cleanup. Dispatch resolves the adapter later.
+      assert {:ok, :reply} =
                SignalsGateway.outbox_operation_for_actor_event(%{
                  input
                  | binding_name: "bad-adapter"
@@ -181,6 +192,48 @@ defmodule Ankole.SignalsGatewayOutboxCommitTest do
                signal_channel_id: "webhook:incident-1",
                source_entry_id: "reply-1"
              )
+    end
+
+    test "threaded reply degrades to a post for an adapter that cannot thread" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+
+      assert {:ok, %{status: :accepted}} =
+               Ingress.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+                 now: @base_time
+               )
+
+      assert {:ok, _created} =
+               SignalsGateway.commit_outbox(%{
+                 agent_uid: agent.uid,
+                 binding_name: "bot",
+                 outbound_key: "degraded-reply",
+                 operation: :reply,
+                 signal_channel_id: "lark:chat:group-a",
+                 reply_to_source_entry_id: "msg-1",
+                 fallback_visible_text: "still gets out"
+               })
+
+      parent = self()
+
+      assert {:ok, sent} =
+               SignalsGateway.dispatch_outbox(
+                 agent.uid,
+                 "bot",
+                 "degraded-reply",
+                 outbox_adapter([:post_entry], fn dispatched ->
+                   send(parent, {:degraded, dispatched.operation})
+                   {:ok, %{created_source_entry_id: "provider-degraded-reply"}}
+                 end),
+                 now: @base_time
+               )
+
+      # The row records the operation that was actually attempted, and keeps the
+      # anchor of what the message answers.
+      assert sent.status == :succeeded
+      assert sent.operation == :post
+      assert sent.reply_to_source_entry_id == "msg-1"
+      assert_receive {:degraded, :post}
     end
 
     test "registered adapter resolution fails before the outbox row enters sending" do

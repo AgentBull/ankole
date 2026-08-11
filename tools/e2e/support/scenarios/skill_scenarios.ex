@@ -99,15 +99,15 @@ defmodule Ankole.E2E.Scenarios.Skill do
     assert length(skill_results) == 2
     rendered = inspect(skill_results)
 
-    for skill_name <- ~w(jupyter-live-kernel pdf) do
-      assert rendered =~ "#{skill_name} Skill is a background-task capability"
-    end
-
+    # One Skill of each runtime. `pdf` is background-job-only, so the main agent
+    # receives the routing and never its body or location. `jupyter-live-kernel`
+    # runs in the main agent, so it receives the real instructions.
+    assert rendered =~ "pdf Skill is a background-task capability"
     assert rendered =~ "create_background_job"
-    refute rendered =~ "skill://"
-    refute rendered =~ "directory="
-    refute rendered =~ "# Jupyter Live Kernel"
+    refute rendered =~ "skill://enabled/pdf"
     refute rendered =~ "# PDF"
+
+    assert rendered =~ "# Jupyter Live Kernel"
 
     assert_actor_event_completed!(input.id)
     %{input: input, reply: reply}

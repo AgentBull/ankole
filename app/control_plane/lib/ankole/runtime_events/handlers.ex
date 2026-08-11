@@ -81,6 +81,8 @@ defmodule Ankole.RuntimeEvents.Handlers do
         {:error, :outbox_not_due} -> :ok
         {:error, :outbox_send_in_progress} -> :ok
         {:error, :outbox_operator_action_required} -> :ok
+        {:error, :outbox_attempts_exhausted} -> :ok
+        {:error, :outbox_manual_requeue_required} -> :ok
         {:error, :outbox_not_found} -> :ok
         {:error, reason} -> log_handler_error(channel, payload, reason)
       end

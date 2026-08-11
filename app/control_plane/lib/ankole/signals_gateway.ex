@@ -217,6 +217,27 @@ defmodule Ankole.SignalsGateway do
     to: Outbox
 
   @doc """
+  Lists the latest stopped durable replies for one Agent.
+  """
+  @spec list_stopped_deliveries(String.t()) ::
+          {:ok, [OutboxEntry.t()]} | {:error, term()}
+  defdelegate list_stopped_deliveries(agent_uid), to: Outbox
+
+  @doc """
+  Returns whether one stopped outbox row can receive an explicit retry.
+  """
+  @spec requeueable_outbox?(OutboxEntry.t()) :: boolean()
+  defdelegate requeueable_outbox?(outbox), to: Outbox, as: :requeueable?
+
+  @doc """
+  Gives one stopped durable outbox reply one explicit provider call.
+  """
+  @spec requeue_outbox(String.t(), String.t(), String.t(), keyword()) ::
+          {:ok, OutboxEntry.t()} | {:error, term()}
+  defdelegate requeue_outbox(agent_uid, binding_name, outbound_key, options \\ []),
+    to: Outbox
+
+  @doc """
   Removes expired SignalsGateway TTL state.
   """
   @spec cleanup_expired_state(DateTime.t()) :: %{

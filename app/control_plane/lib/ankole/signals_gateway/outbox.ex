@@ -3,6 +3,7 @@ defmodule Ankole.SignalsGateway.Outbox do
 
   import Ecto.Query, warn: false
 
+  alias Ankole.I18n
   alias Ankole.Logging
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.AIGateway.Schemas.Message
@@ -31,8 +32,8 @@ defmodule Ankole.SignalsGateway.Outbox do
 
   @outbox_base_retry_seconds 5
   @outbox_max_retry_seconds 5 * 60
-  @durable_ai_reply_retry_seconds 15 * 60
   @outbox_in_flight_recovery_seconds 60
+  @stopped_delivery_limit 100
   @reply_preview_settle_timeout_ms 30_000
   @reply_preview_finalization_sources ~w(
     actor_dead_letter_notice
@@ -393,27 +394,60 @@ defmodule Ankole.SignalsGateway.Outbox do
   Chooses the provider-visible reply operation for an actor event.
 
   Decides whether the agent's reply should be a threaded `:reply` to the
-  triggering entry or a top-level `:post`, based on the channel's reply_mode and
-  the adapter's declared capabilities. Missing route state is returned as an
-  error so a provider-visible side effect is never committed to an invented
-  route.
+  triggering entry or a top-level `:post`, from the durable route rows alone:
+  the channel's reply_mode and the entry the event arrived on. Missing route
+  state is returned as an error so a provider-visible side effect is never
+  committed to an invented route.
+
+  Whether the bound adapter can perform that operation is deliberately not asked
+  here. Adapter availability is live process state, so a commit that consulted
+  it failed the whole caller transaction whenever a plugin was absent — which
+  let one old event block worker takeover and turn cleanup. `dispatch_outbox`
+  owns that question under the row lock, where it can also degrade an operation
+  the adapter cannot perform.
   """
   @spec outbox_operation_for_actor_event(ActorEvent.t(), module()) ::
           {:ok, atom()} | {:error, term()}
   def outbox_operation_for_actor_event(%ActorEvent{} = actor_event, repo \\ Repo) do
     with {:ok, channel} <- outbox_route_channel(repo, actor_event),
-         {:ok, binding} <- outbox_route_binding(repo, actor_event),
-         {:ok, adapter} <- Adapters.fetch_outbox(binding.adapter),
-         capabilities <- OutboxAdapter.capabilities(adapter),
-         {:ok, operation} <-
-           choose_outbox_operation(
-             channel,
-             capabilities,
-             actor_event
-           ) do
-      {:ok, operation}
+         {:ok, _binding} <- outbox_route_binding(repo, actor_event) do
+      choose_outbox_operation(channel, actor_event)
     end
   end
+
+  @doc """
+  Returns true when an error means this route can never accept a message.
+
+  A channel that accepts no replies, and a deleted channel or binding row, are
+  durable facts of the route, not delivery failures a later attempt can clear.
+  A caller that owns a durable decision — completing a Turn, or dead-lettering
+  one — records that decision and skips the provider-visible intent. Failing
+  instead would roll back work that already happened.
+  """
+  @spec unroutable_reply_reason?(term()) :: boolean()
+  def unroutable_reply_reason?(:outbox_reply_not_supported), do: true
+  def unroutable_reply_reason?({:signal_channel_not_found, _channel_id}), do: true
+  def unroutable_reply_reason?({:signal_binding_not_found, _agent_uid, _binding_name}), do: true
+  def unroutable_reply_reason?(_reason), do: false
+
+  @doc """
+  Returns the operation a bound adapter can actually perform.
+
+  Only threaded replies degrade: a channel that wants a threaded reply still
+  gets its message out as a top-level post when the adapter cannot thread. An
+  adapter that can do neither keeps the requested operation, so dispatch records
+  the row as `:unsupported` instead of silently sending something else.
+  """
+  @spec effective_outbox_operation(atom(), MapSet.t(atom())) :: atom()
+  def effective_outbox_operation(:reply, capabilities) do
+    cond do
+      MapSet.member?(capabilities, :reply_entry) -> :reply
+      MapSet.member?(capabilities, :post_entry) -> :post
+      true -> :reply
+    end
+  end
+
+  def effective_outbox_operation(operation, _capabilities), do: operation
 
   @doc """
   Dispatches one outbox row through a concrete adapter runtime.
@@ -486,8 +520,8 @@ defmodule Ankole.SignalsGateway.Outbox do
     |> where([entry], entry.status == :created)
     |> or_where(
       [entry],
-      entry.status == :failed and not is_nil(entry.next_attempt_at) and
-        (entry.attempt_count < entry.max_attempts or entry.delivery_class == :durable_ai_reply)
+      entry.status in [:failed, :unknown_after_send] and
+        not is_nil(entry.next_attempt_at) and entry.attempt_count < entry.max_attempts
     )
     |> or_where(
       [entry],
@@ -496,6 +530,81 @@ defmodule Ankole.SignalsGateway.Outbox do
     |> Repo.all()
     |> Enum.map(&outbox_runtime_event/1)
   end
+
+  @doc """
+  Lists the latest stopped durable replies for one Agent.
+
+  This projection is bounded for the Console. PostgreSQL keeps every row.
+  """
+  @spec list_stopped_deliveries(String.t()) ::
+          {:ok, [OutboxEntry.t()]} | {:error, :invalid_agent_uid}
+  def list_stopped_deliveries(agent_uid) when is_binary(agent_uid) do
+    deliveries =
+      OutboxEntry
+      |> where([entry], entry.agent_uid == ^normalize_uid(agent_uid))
+      |> where([entry], entry.delivery_class == :durable_ai_reply)
+      |> where([entry], entry.status in [:failed, :unknown_after_send])
+      |> where([entry], is_nil(entry.next_attempt_at))
+      |> where(
+        [entry],
+        fragment("?->>'state' IN ('blocked', 'permanent', 'exhausted')", entry.recovery_state)
+      )
+      |> order_by(
+        [entry],
+        desc: entry.updated_at,
+        desc: entry.binding_name,
+        desc: entry.outbound_key
+      )
+      |> limit(@stopped_delivery_limit)
+      |> Repo.all()
+
+    {:ok, deliveries}
+  end
+
+  def list_stopped_deliveries(_agent_uid), do: {:error, :invalid_agent_uid}
+
+  @doc """
+  Returns whether one stopped outbox row can receive an explicit retry.
+  """
+  @spec requeueable?(OutboxEntry.t()) :: boolean()
+  def requeueable?(%OutboxEntry{} = outbox) do
+    match?(
+      {:ok, _attrs},
+      explicit_requeue_attrs(outbox, DateTime.utc_now(:microsecond))
+    )
+  end
+
+  @doc """
+  Gives one stopped durable reply one explicit provider call on the same row.
+
+  The attempt count remains monotonic. If an earlier send was uncertain, the
+  possible-duplicate notice remains part of the visible reply.
+  """
+  @spec requeue_outbox(String.t(), String.t(), String.t(), keyword()) ::
+          {:ok, OutboxEntry.t()} | {:error, term()}
+  def requeue_outbox(agent_uid, binding_name, outbound_key, options \\ [])
+
+  def requeue_outbox(agent_uid, binding_name, outbound_key, options)
+      when is_binary(agent_uid) and is_binary(binding_name) and is_binary(outbound_key) and
+             is_list(options) do
+    now = Keyword.get(options, :now, DateTime.utc_now(:microsecond))
+
+    Repo.transact(fn repo ->
+      with %OutboxEntry{} = outbox <-
+             fetch_outbox_for_update(repo, agent_uid, binding_name, outbound_key),
+           {:ok, attrs} <- explicit_requeue_attrs(outbox, now),
+           {:ok, outbox} <- outbox |> OutboxEntry.changeset(attrs) |> repo.update(),
+           :ok <- notify_outbox_deadline(repo, outbox) do
+        {:ok, outbox}
+      else
+        nil -> {:error, :outbox_not_found}
+        {:error, _reason} = error -> error
+      end
+    end)
+  end
+
+  def requeue_outbox(_agent_uid, _binding_name, _outbound_key, _options),
+    do: {:error, :invalid_outbox_key}
 
   @doc false
   @spec wake_blocked_for_binding(String.t(), String.t()) :: :ok | {:error, term()}
@@ -515,12 +624,10 @@ defmodule Ankole.SignalsGateway.Outbox do
              |> repo.all()
 
            Enum.reduce_while(rows, {:ok, []}, fn outbox, {:ok, acc} ->
-             with {:ok, outbox} <-
+             with {:ok, attrs} <- explicit_requeue_attrs(outbox, now),
+                  {:ok, outbox} <-
                     outbox
-                    |> OutboxEntry.changeset(%{
-                      next_attempt_at: now,
-                      recovery_state: %{}
-                    })
+                    |> OutboxEntry.changeset(attrs)
                     |> repo.update(),
                   :ok <- notify_outbox_deadline(repo, outbox) do
                {:cont, {:ok, [outbox | acc]}}
@@ -536,6 +643,39 @@ defmodule Ankole.SignalsGateway.Outbox do
 
   def wake_blocked_for_binding(_agent_uid, _binding_name),
     do: {:error, :invalid_signal_binding}
+
+  defp explicit_requeue_attrs(
+         %OutboxEntry{
+           delivery_class: :durable_ai_reply,
+           status: status,
+           next_attempt_at: nil
+         } = outbox,
+         now
+       )
+       when status in [:failed, :unknown_after_send] do
+    ambiguous? = status == :unknown_after_send or possible_duplicate?(outbox.recovery_state)
+
+    with {:ok, content_attrs, notice} <- requeue_content_attrs(outbox, ambiguous?) do
+      {:ok,
+       Map.merge(content_attrs, %{
+         max_attempts: outbox.attempt_count + 1,
+         next_attempt_at: now,
+         recovery_state: active_recovery_state(outbox, ambiguous?, notice)
+       })}
+    end
+  end
+
+  defp explicit_requeue_attrs(%OutboxEntry{}, _now),
+    do: {:error, :outbox_not_requeueable}
+
+  defp requeue_content_attrs(_outbox, false), do: {:ok, %{}, nil}
+
+  defp requeue_content_attrs(outbox, true) do
+    case possible_duplicate_notice(outbox.recovery_state) do
+      notice when is_binary(notice) -> {:ok, %{}, notice}
+      nil -> ambiguous_reply_content_attrs(outbox)
+    end
+  end
 
   defp prepare_outbox_dispatch(
          agent_uid,
@@ -558,7 +698,7 @@ defmodule Ankole.SignalsGateway.Outbox do
             {:ok, {:reconcile, outbox, channel, adapter}}
 
           {:unknown, outbox, reason} ->
-            mark_outbox_unknown(repo, outbox, reason)
+            mark_outbox_unknown(repo, outbox, reason, now)
 
           :continue ->
             prepare_fresh_outbox_dispatch(repo, outbox, channel, adapter, now)
@@ -934,39 +1074,20 @@ defmodule Ankole.SignalsGateway.Outbox do
     ReplyPresentation.project_trigger(presentation, actor_event.type, actor_event.payload)
   end
 
-  # Channel wants threaded replies and we have an entry to thread under: reply if
-  # the adapter supports threaded replies, otherwise degrade to a top-level post
-  # so the message still gets out.
+  # Channel wants threaded replies and we have an entry to thread under.
   defp choose_outbox_operation(
          %Channel{reply_mode: :entry},
-         capabilities,
          %ActorEvent{source_entry_id: source_entry_id}
        )
-       when is_binary(source_entry_id) do
-    {:ok,
-     case MapSet.member?(capabilities, :reply_entry) do
-       true -> :reply
-       false -> post_or_fallback(capabilities, :reply)
-     end}
-  end
+       when is_binary(source_entry_id),
+       do: {:ok, :reply}
 
-  defp choose_outbox_operation(%Channel{reply_mode: mode}, capabilities, _actor_event)
-       when mode in [:channel, :entry] do
-    {:ok, post_or_fallback(capabilities, :post)}
-  end
+  defp choose_outbox_operation(%Channel{reply_mode: mode}, _actor_event)
+       when mode in [:channel, :entry],
+       do: {:ok, :post}
 
-  defp choose_outbox_operation(%Channel{reply_mode: :none}, _capabilities, _actor_event),
+  defp choose_outbox_operation(%Channel{reply_mode: :none}, _actor_event),
     do: {:error, :outbox_reply_not_supported}
-
-  defp choose_outbox_operation(_channel, _capabilities, _actor_event),
-    do: {:error, :outbox_reply_mode_unknown}
-
-  defp post_or_fallback(capabilities, fallback) do
-    case MapSet.member?(capabilities, :post_entry) do
-      true -> :post
-      false -> fallback
-    end
-  end
 
   defp outbox_route_channel(_repo, %ActorEvent{signal_channel_id: nil}),
     do: {:error, :signal_channel_id_missing}
@@ -1022,6 +1143,7 @@ defmodule Ankole.SignalsGateway.Outbox do
   # held by the caller, so two dispatchers can't both claim the same row.
   defp prepare_fresh_outbox_dispatch(repo, outbox, channel, adapter, now) do
     with :ok <- dispatchable_outbox?(outbox, now),
+         {:ok, outbox} <- degrade_threaded_reply(repo, outbox, adapter),
          :ok <- outbox_supported?(outbox, channel, adapter),
          {:ok, sending_outbox} <- mark_outbox_sending(repo, outbox, now) do
       {:ok, {:send, sending_outbox, channel, adapter}}
@@ -1031,10 +1153,28 @@ defmodule Ankole.SignalsGateway.Outbox do
     end
   end
 
+  # The committed intent names what the channel wants; the bound adapter decides
+  # what it can do. Rewriting the row keeps the attempted operation durable, and
+  # the reply anchor stays: it records what the message answers, and no adapter
+  # that needs this degrade reads it.
+  defp degrade_threaded_reply(repo, %OutboxEntry{operation: :reply} = outbox, adapter) do
+    case effective_outbox_operation(:reply, OutboxAdapter.capabilities(adapter)) do
+      :reply ->
+        {:ok, outbox}
+
+      operation ->
+        outbox
+        |> OutboxEntry.changeset(%{operation: operation})
+        |> repo.update()
+    end
+  end
+
+  defp degrade_threaded_reply(_repo, %OutboxEntry{} = outbox, _adapter), do: {:ok, outbox}
+
   # Guard clauses encode the status machine's "may I attempt this now?" rules:
-  # fresh rows go; failed rows go only if retries remain and the backoff time has
-  # passed; a row already :sending is refused (another dispatcher owns it);
-  # anything terminal is not dispatchable.
+  # fresh rows go; failed or uncertain rows go only if retries remain and the
+  # deadline has passed; a row already :sending is refused (another dispatcher
+  # owns it); anything terminal is not dispatchable.
   defp dispatchable_outbox?(%OutboxEntry{status: :created}, _now), do: :ok
 
   defp dispatchable_outbox?(
@@ -1046,22 +1186,39 @@ defmodule Ankole.SignalsGateway.Outbox do
   defp dispatchable_outbox?(
          %OutboxEntry{
            status: :failed,
-           delivery_class: delivery_class,
+           recovery_state: %{"state" => state}
+         },
+         _now
+       )
+       when state in ["permanent", "exhausted"],
+       do: {:error, :outbox_manual_requeue_required}
+
+  defp dispatchable_outbox?(
+         %OutboxEntry{
+           status: status,
            attempt_count: attempts,
            max_attempts: max
          },
          _now
        )
-       when attempts >= max and delivery_class != :durable_ai_reply,
+       when status in [:failed, :unknown_after_send] and attempts >= max,
        do: {:error, :outbox_attempts_exhausted}
 
-  defp dispatchable_outbox?(%OutboxEntry{status: :failed, next_attempt_at: nil}, _now),
-    do: :ok
+  defp dispatchable_outbox?(
+         %OutboxEntry{status: status, next_attempt_at: nil},
+         _now
+       )
+       when status in [:failed, :unknown_after_send],
+       do: {:error, :outbox_not_dispatchable}
 
   defp dispatchable_outbox?(
-         %OutboxEntry{status: :failed, next_attempt_at: %DateTime{} = next_attempt_at},
+         %OutboxEntry{
+           status: status,
+           next_attempt_at: %DateTime{} = next_attempt_at
+         },
          now
-       ) do
+       )
+       when status in [:failed, :unknown_after_send] do
     case DateTime.compare(next_attempt_at, now) do
       :gt -> {:error, :outbox_not_due}
       _ready -> :ok
@@ -1277,7 +1434,9 @@ defmodule Ankole.SignalsGateway.Outbox do
   # a transaction and re-lock the row before recording the outcome, because the
   # network call happened with no lock held and the row could have changed.
   # Outcome → status: ok ⇒ succeeded (+ mirror the posted entry), error ⇒ failed
-  # (schedule retry), :unknown ⇒ unknown_after_send (never auto-retried).
+  # (schedule a bounded retry), :unknown ⇒ unknown_after_send. A visible durable
+  # reply can retry inside the same bound after it gains a possible-duplicate
+  # notice; other uncertain operations stop.
   defp finalize_outbox_send(send_result, outbox, channel, now) do
     Repo.transact(fn repo ->
       with %OutboxEntry{} = current_outbox <- fetch_outbox_for_update(repo, outbox) do
@@ -1289,9 +1448,14 @@ defmodule Ankole.SignalsGateway.Outbox do
             mark_outbox_failed(repo, current_outbox, reason, now)
 
           :unknown ->
-            mark_outbox_unknown(repo, current_outbox, %{
-              "reason" => "adapter returned unknown_after_send"
-            })
+            mark_outbox_unknown(
+              repo,
+              current_outbox,
+              %{
+                "reason" => "adapter returned unknown_after_send"
+              },
+              now
+            )
         end
       else
         nil -> {:error, :outbox_not_found}
@@ -1307,15 +1471,25 @@ defmodule Ankole.SignalsGateway.Outbox do
             finalize_successful_outbox(repo, current_outbox, channel, result, now)
 
           {:error, reason} ->
-            mark_outbox_unknown(repo, current_outbox, %{
-              "reason" => "reconciliation adapter error",
-              "error" => reason
-            })
+            mark_outbox_unknown(
+              repo,
+              current_outbox,
+              %{
+                "reason" => "reconciliation adapter error",
+                "error" => reason
+              },
+              now
+            )
 
           :unknown ->
-            mark_outbox_unknown(repo, current_outbox, %{
-              "reason" => "reconciliation could not confirm provider send"
-            })
+            mark_outbox_unknown(
+              repo,
+              current_outbox,
+              %{
+                "reason" => "reconciliation could not confirm provider send"
+              },
+              now
+            )
         end
       else
         nil -> {:error, :outbox_not_found}
@@ -1430,30 +1604,43 @@ defmodule Ankole.SignalsGateway.Outbox do
   end
 
   defp failure_recovery(
-         _outbox,
+         outbox,
          {:reply_delivery, :operator_action_required, detail},
          _now
        ) do
     {
       %{"reason" => Sanitizer.transport(detail)},
       nil,
-      %{"state" => "blocked", "reason" => "operator_action_required"}
+      terminal_recovery_state(outbox, "blocked", "operator_action_required")
+    }
+  end
+
+  defp failure_recovery(outbox, {:reply_delivery, :permanent, detail}, _now) do
+    {
+      %{"reason" => Sanitizer.transport(detail)},
+      nil,
+      terminal_recovery_state(outbox, "permanent", "permanent_failure")
     }
   end
 
   defp failure_recovery(outbox, {:reply_delivery, :retryable, detail}, now) do
-    {
-      %{"reason" => Sanitizer.transport(detail)},
-      next_outbox_attempt_at(outbox, now),
-      %{}
-    }
+    retry_failure_recovery(outbox, detail, now)
   end
 
   defp failure_recovery(outbox, reason, now) do
+    retry_failure_recovery(outbox, reason, now)
+  end
+
+  defp retry_failure_recovery(outbox, detail, now) do
+    next_attempt_at = next_outbox_attempt_at(outbox, now)
+
     {
-      %{"reason" => Sanitizer.transport(reason)},
-      next_outbox_attempt_at(outbox, now),
-      %{}
+      %{"reason" => Sanitizer.transport(detail)},
+      next_attempt_at,
+      if(is_nil(next_attempt_at),
+        do: terminal_recovery_state(outbox, "exhausted", "max_attempts_reached"),
+        else: active_recovery_state(outbox)
+      )
     }
   end
 
@@ -1497,6 +1684,9 @@ defmodule Ankole.SignalsGateway.Outbox do
   defp delivery_failure_identity({:reply_delivery, :retryable, detail}),
     do: {"retryable", delivery_failure_code(detail)}
 
+  defp delivery_failure_identity({:reply_delivery, :permanent, detail}),
+    do: {"permanent", delivery_failure_code(detail)}
+
   defp delivery_failure_identity({:provider_error, detail}),
     do: {"provider_error", delivery_failure_code(detail)}
 
@@ -1525,15 +1715,190 @@ defmodule Ankole.SignalsGateway.Outbox do
   defp encode_log_datetime(%DateTime{} = value), do: DateTime.to_iso8601(value)
   defp encode_log_datetime(nil), do: nil
 
-  defp mark_outbox_unknown(repo, outbox, reason) do
-    outbox
-    |> OutboxEntry.changeset(%{
-      status: :unknown_after_send,
-      last_error: Sanitizer.transport(reason),
-      next_attempt_at: nil
-    })
-    |> repo.update()
+  defp mark_outbox_unknown(repo, outbox, reason, now) do
+    attrs =
+      outbox
+      |> unknown_recovery_attrs(now)
+      |> Map.merge(%{
+        status: :unknown_after_send,
+        last_error: Sanitizer.transport(reason)
+      })
+
+    with {:ok, outbox} <- outbox |> OutboxEntry.changeset(attrs) |> repo.update(),
+         :ok <- notify_outbox_deadline(repo, outbox) do
+      {:ok, outbox}
+    end
   end
+
+  defp unknown_recovery_attrs(%OutboxEntry{delivery_class: :durable_ai_reply} = outbox, now) do
+    case ambiguous_reply_content_attrs(outbox) do
+      {:ok, content_attrs, notice} ->
+        next_attempt_at = next_outbox_attempt_at(outbox, now)
+
+        recovery_state =
+          if is_nil(next_attempt_at) do
+            terminal_recovery_state(
+              outbox,
+              "exhausted",
+              "max_attempts_reached",
+              true,
+              notice
+            )
+          else
+            active_recovery_state(outbox, true, notice)
+          end
+
+        Map.merge(content_attrs, %{
+          next_attempt_at: next_attempt_at,
+          recovery_state: recovery_state
+        })
+
+      {:error, :outbox_ambiguous_delivery_not_requeueable} ->
+        %{
+          next_attempt_at: nil,
+          recovery_state:
+            terminal_recovery_state(
+              outbox,
+              "blocked",
+              "ambiguous_delivery_without_visible_text",
+              true,
+              nil
+            )
+        }
+    end
+  end
+
+  defp unknown_recovery_attrs(%OutboxEntry{} = outbox, _now) do
+    %{
+      next_attempt_at: nil,
+      recovery_state:
+        terminal_recovery_state(
+          outbox,
+          "blocked",
+          "ambiguous_delivery_not_retried",
+          true,
+          nil
+        )
+    }
+  end
+
+  defp ambiguous_reply_content_attrs(%OutboxEntry{} = outbox) do
+    notice = possible_duplicate_notice(outbox.recovery_state) || ambiguous_delivery_notice()
+    payload = prefix_ambiguous_payload(outbox.payload, notice)
+    fallback_visible_text = prefix_ambiguous_text(outbox.fallback_visible_text, notice)
+
+    if visible_reply_content?(outbox) do
+      {:ok, %{payload: payload, fallback_visible_text: fallback_visible_text}, notice}
+    else
+      {:error, :outbox_ambiguous_delivery_not_requeueable}
+    end
+  end
+
+  defp visible_reply_content?(%OutboxEntry{
+         payload: payload,
+         fallback_visible_text: fallback_visible_text
+       }) do
+    presentation_answer =
+      case payload do
+        %{"reply_presentation" => presentation} when is_map(presentation) ->
+          Map.get(presentation, "answer")
+
+        _missing ->
+          nil
+      end
+
+    payload_text = if is_map(payload), do: Map.get(payload, "text")
+
+    Enum.any?(
+      [payload_text, presentation_answer, fallback_visible_text],
+      &(normalize_visible_text(&1) != "")
+    )
+  end
+
+  defp prefix_ambiguous_payload(payload, notice) when is_map(payload) do
+    payload = prefix_map_text(payload, "text", notice)
+
+    case Map.get(payload, "reply_presentation") do
+      presentation when is_map(presentation) ->
+        Map.put(
+          payload,
+          "reply_presentation",
+          prefix_map_text(presentation, "answer", notice)
+        )
+
+      _missing_or_invalid ->
+        payload
+    end
+  end
+
+  defp prefix_map_text(map, key, notice) do
+    case Map.get(map, key) do
+      text when is_binary(text) -> Map.put(map, key, prefix_ambiguous_text(text, notice))
+      _missing -> map
+    end
+  end
+
+  defp prefix_ambiguous_text(text, notice) when is_binary(text) do
+    cond do
+      String.trim(text) == "" -> notice
+      String.starts_with?(text, notice) -> text
+      true -> notice <> "\n\n" <> text
+    end
+  end
+
+  defp prefix_ambiguous_text(value, _notice), do: value
+
+  defp ambiguous_delivery_notice,
+    do: I18n.t("signals_gateway.reply.possible_duplicate_delivery")
+
+  defp active_recovery_state(outbox),
+    do: active_recovery_state(outbox, possible_duplicate?(outbox.recovery_state), nil)
+
+  defp active_recovery_state(outbox, ambiguous?, notice),
+    do: possible_duplicate_recovery_state(outbox.recovery_state, ambiguous?, notice)
+
+  defp terminal_recovery_state(outbox, state, reason),
+    do:
+      terminal_recovery_state(
+        outbox,
+        state,
+        reason,
+        possible_duplicate?(outbox.recovery_state),
+        nil
+      )
+
+  defp terminal_recovery_state(outbox, state, reason, ambiguous?, notice) do
+    outbox.recovery_state
+    |> possible_duplicate_recovery_state(ambiguous?, notice)
+    |> Map.merge(%{"state" => state, "reason" => reason})
+  end
+
+  defp possible_duplicate_recovery_state(_recovery_state, false, _notice), do: %{}
+
+  defp possible_duplicate_recovery_state(recovery_state, true, notice) do
+    notice = notice || possible_duplicate_notice(recovery_state)
+    state = %{"possible_duplicate" => true}
+
+    if is_binary(notice) and notice != "" do
+      Map.put(state, "possible_duplicate_notice", notice)
+    else
+      state
+    end
+  end
+
+  defp possible_duplicate?(recovery_state) when is_map(recovery_state),
+    do: Map.get(recovery_state, "possible_duplicate") == true
+
+  defp possible_duplicate?(_recovery_state), do: false
+
+  defp possible_duplicate_notice(recovery_state) when is_map(recovery_state) do
+    case Map.get(recovery_state, "possible_duplicate_notice") do
+      notice when is_binary(notice) and notice != "" -> notice
+      _missing -> nil
+    end
+  end
+
+  defp possible_duplicate_notice(_recovery_state), do: nil
 
   # Prefer the id the provider returned; fall back to one already on the row.
   # Without a provider-derived entry id there is no source mirror identity, so a
@@ -1551,17 +1916,6 @@ defmodule Ankole.SignalsGateway.Outbox do
   # (so 5s, 10s, 20s, 40s, … capped at 300s). Returning nil once attempts are
   # exhausted is what makes the deadline handler no-op on the row — the retry
   # loop ends without a separate "give up" flag.
-  defp next_outbox_attempt_at(
-         %OutboxEntry{
-           delivery_class: :durable_ai_reply,
-           attempt_count: attempts,
-           max_attempts: max
-         },
-         now
-       )
-       when attempts >= max,
-       do: DateTime.add(now, @durable_ai_reply_retry_seconds, :second)
-
   defp next_outbox_attempt_at(%OutboxEntry{attempt_count: attempts, max_attempts: max}, _now)
        when attempts >= max,
        do: nil
@@ -1594,6 +1948,12 @@ defmodule Ankole.SignalsGateway.Outbox do
 
   defp outbox_due_at(%OutboxEntry{status: :failed, next_attempt_at: next_attempt_at}),
     do: next_attempt_at
+
+  defp outbox_due_at(%OutboxEntry{
+         status: :unknown_after_send,
+         next_attempt_at: next_attempt_at
+       }),
+       do: next_attempt_at
 
   defp outbox_due_at(%OutboxEntry{
          status: :sending,

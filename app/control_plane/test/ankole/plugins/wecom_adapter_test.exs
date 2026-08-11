@@ -284,8 +284,28 @@ defmodule Ankole.Plugins.WeComAdapterTest do
 
     seed_channel("wecom:limited", %{kind: :im_group, metadata: %{}})
 
-    assert {:error, {:provider_error, %{reason: :rate_limited, code: 45_009}}} =
+    assert {:error, {:reply_delivery, :retryable, %{reason: :rate_limited, code: 45_009}}} =
              Outbox.send(outbox_entry(binding, signal_channel_id: "wecom:limited"))
+  end
+
+  test "deterministic provider rejection is permanent" do
+    {binding, config} = setup_chat_binding()
+
+    start_fake_client(config, %{
+      "aibot_send_msg" => fn req_id, _body ->
+        {:error,
+         WeComOpenAPI.Error.from_ack(%{
+           "headers" => %{"req_id" => req_id},
+           "errcode" => 40_201,
+           "errmsg" => "message blocked by anti-spam policy"
+         })}
+      end
+    })
+
+    seed_channel("wecom:blocked", %{kind: :im_group, metadata: %{}})
+
+    assert {:error, {:reply_delivery, :permanent, %{reason: 40_201, code: 40_201}}} =
+             Outbox.send(outbox_entry(binding, signal_channel_id: "wecom:blocked"))
   end
 
   test "a card operation renders a button_interaction card with packed keys" do

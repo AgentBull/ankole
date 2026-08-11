@@ -22,6 +22,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
   alias Ankole.SignalsGateway.ActorRuntime.WorkerAdmission
   alias Ankole.SignalsGateway.ActorRuntime.WorkerPool
   alias Ankole.I18n
+  alias Ankole.Logging
   alias Ankole.Repo
   alias Ankole.RuntimeEvents
   alias Ankole.SignalsGateway.ActorRuntime.TurnPolicy
@@ -1231,13 +1232,41 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
   defp maybe_commit_dead_letter_notice(repo, %ActorEvent{} = event, true) do
     if AIReplyPreview.im_visible_event?(event) do
       text = I18n.t("signals_gateway.reply.dead_letter", %{"ref" => event.id})
-      Outbox.commit_dead_letter_notice_outbox_in_tx(repo, event, text)
+
+      case Outbox.commit_dead_letter_notice_outbox_in_tx(repo, event, text) do
+        {:ok, notice} -> {:ok, notice}
+        {:error, reason} -> skip_unroutable_dead_letter_notice(event, reason)
+      end
     else
       {:ok, nil}
     end
   end
 
   defp maybe_commit_dead_letter_notice(_repo, %ActorEvent{}, false), do: {:ok, nil}
+
+  # A deleted route, or a channel that never accepts replies, has nowhere to put
+  # this notice. Failing here would roll back whichever transaction decided the
+  # dead letter — a worker takeover, a worker expiry, or a turn abort — so one
+  # unreachable old event could stop a whole worker from being replaced. The
+  # dead-lettered event row remains the checkable record of that failure.
+  defp skip_unroutable_dead_letter_notice(%ActorEvent{} = event, reason) do
+    if Outbox.unroutable_reply_reason?(reason) do
+      Logging.warning(
+        "signals_gateway.actor_runtime.dead_letter_notice_unroutable",
+        "actor dead letter notice has no reachable route",
+        %{
+          actor_event_id: event.id,
+          agent_uid: event.agent_uid,
+          binding_name: event.binding_name,
+          reason: inspect(reason, limit: 20)
+        }
+      )
+
+      {:ok, nil}
+    else
+      {:error, reason}
+    end
+  end
 
   defp maybe_delay_retryable_turn_error(
          _repo,

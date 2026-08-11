@@ -515,7 +515,9 @@ only message and reasoning items is replay-safe: ActorRuntime retracts that
 visible suffix, fails any generating Response, and retries the event. A suffix
 that contains a tool call, tool result, or another effect-bearing item is not
 replayed. ActorRuntime dead-letters the event and commits a provider-visible
-failure notice for manual recovery.
+failure notice for manual recovery. A notice with no route, because its channel
+takes no replies or its route rows are deleted, is logged and skipped. Worker
+takeover never depends on an old event's channel.
 
 A Turn with no reply uses `actor_turn.noop`. Silence alone never completes a
 Turn. A Worker failure uses `actor_turn.abort` and the normal retry path. The

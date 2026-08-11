@@ -666,9 +666,11 @@ defmodule Ankole.Plugins.WeComAdapter.AIStream do
     end
   end
 
-  # Provider errors surface with their classified reason for the gateway's
-  # retry budget; deterministic degrades already returned the non-retryable
-  # fallback shape from inside reconcile.
-  defp normalize_result({:error, %Error{} = error}), do: {:error, {:reply_delivery, error.reason}}
+  # Provider errors use the same retry policy as plain outbox delivery;
+  # deterministic degrades already returned the non-retryable fallback shape
+  # from inside reconcile.
+  defp normalize_result({:error, %Error{} = error}),
+    do: Outbox.normalize_delivery_result({:error, error})
+
   defp normalize_result(result), do: result
 end

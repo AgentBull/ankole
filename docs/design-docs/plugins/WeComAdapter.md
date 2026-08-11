@@ -137,8 +137,15 @@ event rides `task_id`. After a click, the card can change only inside a
 5-second event window; the adapter settles the interaction and writes a
 receipt card in that window.
 
-Neither send path has an idempotency parameter. A crash after a send can
-create a duplicate. The adapter cannot reconcile an uncertain send.
+Neither send path has an idempotency parameter. The adapter cannot reconcile an
+uncertain send. SignalsGateway can resend an uncertain visible final reply only
+inside its remaining attempt budget, and the resent reply says that it can be a
+duplicate.
+
+The adapter classifies connection, timeout, rate-limit, and server failures as
+retryable. Authentication and trusted-IP failures require operator action.
+Other deterministic provider rejections, including anti-spam rejection 40201,
+are permanent and stop after the first call.
 
 ## Show a Live Streaming Reply
 
