@@ -949,11 +949,99 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     refute Map.has_key?(search_request.body, "model")
   end
 
+  test "web_search uses the AgentBull Cloud v1 API with Bearer authentication", %{conn: conn} do
+    %{principal: agent} = agent_fixture()
+    test_pid = self()
+
+    base_url =
+      start_recording_upstream(test_pid, fn %{path: "web-search/v1/search"} ->
+        {:json, 200,
+         %{
+           "query" => "ankole web",
+           "sources" => ["volc", "serper", "exa"],
+           "timeRange" => "1w",
+           "top" => 3,
+           "perSourceCandidateTarget" => 5,
+           "totalFetched" => 2,
+           "totalDeduped" => 1,
+           "totalReturned" => 1,
+           "items" => [
+             %{
+               "title" => "Ankole Cloud Search",
+               "url" => "https://example.com/ankole",
+               "snippet" => "AgentBull Cloud search result",
+               "publishedAt" => "2026-08-11T00:00:00Z",
+               "primarySource" => "exa",
+               "sources" => ["exa"],
+               "rerankScore" => 0.9
+             }
+           ]
+         }}
+      end)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "agentbull-cloud-main",
+               provider_kind: "agentbull_cloud",
+               base_url: base_url,
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "agentbull-key"}]
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "web_search", %{
+               provider_id: "agentbull-cloud-main",
+               model: "default",
+               provider_options: %{
+                 "sources" => "all",
+                 "timeRange" => "1w",
+                 "skip_cache" => true
+               }
+             })
+
+    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+
+    conn =
+      conn
+      |> put_req_header("authorization", "Bearer #{api_key.api_key}")
+      |> post(~p"/api/v1/ai-gateway/web_search", %{
+        "model" => "web_search.default",
+        "query" => "ankole web",
+        "limit" => 3
+      })
+
+    assert %{
+             "success" => true,
+             "query" => "ankole web",
+             "results" => [
+               %{
+                 "title" => "Ankole Cloud Search",
+                 "url" => "https://example.com/ankole",
+                 "snippet" => "AgentBull Cloud search result",
+                 "published_at" => "2026-08-11T00:00:00Z",
+                 "score" => 0.9
+               }
+             ]
+           } = json_response(conn, 200)
+
+    assert_receive {:gateway_request, search_request}
+    assert search_request.path == "web-search/v1/search"
+    assert search_request.headers["authorization"] == "Bearer agentbull-key"
+    assert search_request.headers["content-type"] == "application/json"
+    assert search_request.body["q"] == "ankole web"
+    assert search_request.body["top"] == 3
+    assert search_request.body["sources"] == "all"
+    assert search_request.body["timeRange"] == "1w"
+    assert search_request.body["skip_cache"] == true
+    refute Map.has_key?(search_request.body, "model")
+  end
+
   test "failed synchronous provider requests log safe routing diagnostics", %{conn: conn} do
     %{principal: agent} = agent_fixture()
 
     base_url =
-      start_recording_upstream(self(), fn %{path: "search"} ->
+      start_recording_upstream(self(), fn %{path: "web-search/v1/search"} ->
         {:json, 422,
          %{
            "error" => %{
@@ -968,7 +1056,10 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
              ProviderConfigs.create_provider(%{
                provider_id: "agentbull-web-diagnostics",
                provider_kind: "agentbull_cloud",
-               base_url: base_url
+               base_url: base_url,
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "agentbull-key"}]
+               }
              })
 
     assert {:ok, _profile} =
@@ -1020,7 +1111,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
       )
 
     assert_receive {:gateway_request, request}
-    assert request.path == "search"
+    assert request.path == "web-search/v1/search"
     assert log =~ "event=ai_gateway.request_failed"
     assert log =~ "capability=web_search"
     assert log =~ "provider_id=agentbull-web-diagnostics"
@@ -1087,7 +1178,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     refute response(conn, 502) =~ "private-upstream-body"
   end
 
-  test "web_search preserves transport failure after an anonymous pool retry", %{
+  test "web_search preserves transport failure after a credential retry", %{
     conn: conn
   } do
     %{principal: agent} = agent_fixture()
@@ -1096,7 +1187,10 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
              ProviderConfigs.create_provider(%{
                provider_id: "agentbull-web-transport-failure",
                provider_kind: "agentbull_cloud",
-               base_url: "http://127.0.0.1:1"
+               base_url: "http://127.0.0.1:1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "agentbull-key"}]
+               }
              })
 
     assert {:ok, _profile} =

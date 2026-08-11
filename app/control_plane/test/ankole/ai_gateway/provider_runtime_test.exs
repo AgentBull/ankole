@@ -73,6 +73,10 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     assert "web_fetch" in jina_reader["capabilities"]
     assert "web_search" in bright_data_serp["capabilities"]
     assert "web_search" in agentbull_cloud["capabilities"]
+    assert agentbull_cloud["default_base_url"] == "https://cloudapis.agentbull.com"
+
+    agentbull_cloud_settings = Map.new(agentbull_cloud["settings"], &{&1["key"], &1})
+    assert agentbull_cloud_settings["api_key"]["required"]
 
     assert "transport" in openrouter["connection_options"]
     assert "transport" in openai_compatible["connection_options"]
@@ -207,9 +211,9 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
   test "a provider with optional credentials gets one anonymous pool member" do
     assert {:ok, provider} =
              ProviderConfigs.create_provider(%{
-               provider_id: "agentbull-anonymous",
-               provider_kind: "agentbull_cloud",
-               base_url: "https://search.example.test"
+               provider_id: "compatible-anonymous",
+               provider_kind: "openai_compatible",
+               base_url: "https://compatible.example.test/v1"
              })
 
     assert [stored] = provider.credential_pool["entries"]
@@ -217,10 +221,10 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     assert is_binary(stored["encrypted_credential"])
 
     assert {:ok, connection} = ProviderConfigs.runtime_connection(provider)
-    assert connection["base_url"] == "https://search.example.test"
+    assert connection["base_url"] == "https://compatible.example.test/v1"
     refute Map.has_key?(connection, "api_key")
 
-    assert {:ok, projection} = ProviderConfigs.get_provider("agentbull-anonymous")
+    assert {:ok, projection} = ProviderConfigs.get_provider("compatible-anonymous")
 
     assert [%{"credential_present" => true, "status" => "ok"}] =
              projection["credential_pool"]["entries"]

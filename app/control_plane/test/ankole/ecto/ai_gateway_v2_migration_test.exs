@@ -102,8 +102,8 @@ defmodule Ankole.Ecto.AIGatewayV2MigrationTest do
       INSERT INTO ai_gateway_providers
         (id, provider_id, provider_kind, base_url, connection_options,
          encrypted_options, credential_pool, inserted_at, updated_at)
-      VALUES (($1::text)::uuid, 'agentbull-anonymous', 'agentbull_cloud',
-              'https://search.example.test', '{}'::jsonb, '{}'::jsonb,
+      VALUES (($1::text)::uuid, 'compatible-anonymous', 'openai_compatible',
+              'https://compatible.example.test/v1', '{}'::jsonb, '{}'::jsonb,
               $2::jsonb, now(), now())
       """,
       [
@@ -196,7 +196,7 @@ defmodule Ankole.Ecto.AIGatewayV2MigrationTest do
 
     [[anonymous_pool]] =
       Repo.query!(
-        "SELECT credential_pool FROM ai_gateway_providers WHERE provider_id = 'agentbull-anonymous'"
+        "SELECT credential_pool FROM ai_gateway_providers WHERE provider_id = 'compatible-anonymous'"
       ).rows
 
     assert [anonymous_entry] = anonymous_pool["entries"]

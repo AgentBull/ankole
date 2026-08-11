@@ -11,9 +11,9 @@ defmodule Ankole.AIGateway.Providers.AgentBullCloud do
 
   provider :agentbull_cloud do
     label(%{"default" => "AgentBull Cloud", "zh-Hans-CN" => "AgentBull Cloud"})
-    base_url("https://serp.yuma.host")
+    base_url("https://cloudapis.agentbull.com")
 
-    setting(:api_key, encrypted: true, scope: :credential)
+    setting(:api_key, encrypted: true, required: true, scope: :credential)
     setting(:headers, type: :map, advanced: true)
     setting(:query_params, type: :map, advanced: true)
 
@@ -31,7 +31,7 @@ defmodule Ankole.AIGateway.Providers.AgentBullCloud do
 
   def prepare_web_search(ctx) do
     ctx
-    |> UniversalAIRequest.new("search", :agentbull_web_search, include_model: false)
+    |> UniversalAIRequest.new("web-search/v1/search", :agentbull_web_search, include_model: false)
     |> UniversalAIRequest.bearer_auth()
   end
 end

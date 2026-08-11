@@ -1,5 +1,9 @@
 # Changelog
 
+## Version 0.63.0 (2026-08-11)
+
+- Upgrade the built-in AgentBull Cloud web-search provider to `https://cloudapis.agentbull.com/web-search/v1/search`. Mark its API key as required and continue to send it through Bearer authentication, so the provider does not create an anonymous credential for an API that rejects anonymous requests. Cover the production default, versioned path, request mapping, response mapping, and authorization header, and keep the anonymous credential-pool migration fixture on `openai_compatible`, which still supports anonymous upstreams.
+
 ## Version 0.62.2 (2026-08-09)
 
 - Project namespaced `function_call` and `custom_tool_call` history even when a Responses request has no current tool declaration. Codex automatic compaction sends this shape after its Responses Lite carrier becomes empty, so strict OpenAI-compatible providers now receive the existing flat provider alias instead of rejecting the replayed `namespace` field. Cover ordinary function replay, the exact empty-carrier custom-tool shape, and the OpenAI-compatible dispatch boundary.
