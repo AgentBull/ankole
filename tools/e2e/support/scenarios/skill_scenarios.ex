@@ -18,7 +18,6 @@ defmodule Ankole.E2E.Scenarios.Skill do
   alias Ankole.AIAgent.Library
   alias Ankole.AIAgent.Library.Schemas.AgentSkill
   alias Ankole.AIAgent.Library.Schemas.AgentSkillOverlay
-  alias Ankole.E2E.FakeFeishu
   alias Ankole.Repo
 
   @base_time ~U[2026-07-02 01:34:05.000000Z]

@@ -26,7 +26,6 @@ defmodule Ankole.E2E.Scenarios.Ingress do
   alias Ankole.AIGateway.Schemas.CompactionArtifact
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.SignalsGateway.ActorEvent
-  alias Ankole.E2E.FakeFeishu
   alias Ankole.Repo
   alias Ankole.SignalsGateway.OutboxEntry
   alias Ankole.SignalsGateway.Entry

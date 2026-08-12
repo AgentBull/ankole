@@ -22,7 +22,6 @@ defmodule Ankole.E2E.Scenarios.Lifecycle do
   alias Ankole.AIGateway.Schemas.Conversation
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.SignalsGateway.ActorEvent
-  alias Ankole.E2E.FakeFeishu
   alias Ankole.Repo
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.OutboxEntry

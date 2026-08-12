@@ -19,7 +19,6 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
       ai_messages_for_actor_event: 1
     ]
 
-  alias Ankole.E2E.FakeFeishu
   alias Ankole.Repo
   alias Ankole.Schedule
   alias Ankole.Schedule.Schemas.{CronSchedule, ScheduledEvent}

@@ -40,15 +40,21 @@ defmodule Ankole.MixProject do
 
   # Specifies which paths to compile per environment.
   defp elixirc_paths(:test),
-    do: ["lib", "test/support", e2e_support_path()] ++ plugin_elixirc_paths()
+    do: ["lib", "test/support" | e2e_support_paths()] ++ plugin_elixirc_paths()
 
   defp elixirc_paths(_), do: ["lib"] ++ plugin_elixirc_paths()
 
-  # Repo-root e2e support modules (FakeFeishu, harness, scenarios) compile into
-  # :test alongside test/support. The e2e suites themselves stay outside the
-  # compile path so plain `mix test` never runs them.
-  defp e2e_support_path do
-    Path.expand("../..", __DIR__) |> Path.join("tools/e2e/support")
+  # Repo-root e2e support modules (harness, scenarios) and the fake Feishu
+  # platform owned by tools/fake-feishu compile into :test alongside
+  # test/support. The e2e suites themselves stay outside the compile path so
+  # plain `mix test` never runs them.
+  defp e2e_support_paths do
+    repo_root = Path.expand("../..", __DIR__)
+
+    [
+      Path.join(repo_root, "tools/e2e/support"),
+      Path.join(repo_root, "tools/fake-feishu/platform")
+    ]
   end
 
   defp plugin_elixirc_paths do

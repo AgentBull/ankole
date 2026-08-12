@@ -13,7 +13,6 @@ defmodule Ankole.E2E.LarkTransportE2ETest do
   import Ankole.E2E.Harness
 
   alias Ankole.SignalsGateway.ActorEvent
-  alias Ankole.E2E.FakeFeishu
   alias Ankole.E2E.WaitHelpers
   alias Ankole.Plugins.LarkAdapter.Outbox, as: LarkOutbox
   alias Ankole.Principals

@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Builds the fake-feishu escript when it is missing or older than the
+# sources, then executes it with the given arguments.
+
+TOOL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BINARY="$TOOL_DIR/fake-feishu"
+
+needs_build() {
+  if [[ ! -x "$BINARY" ]]; then
+    return 0
+  fi
+
+  local newest
+  newest="$(find "$TOOL_DIR/lib" "$TOOL_DIR/platform" "$TOOL_DIR/mix.exs" \
+    "$TOOL_DIR/../../libs/feishu_openapi/lib" -type f -newer "$BINARY" -print -quit)"
+  [[ -n "$newest" ]]
+}
+
+if needs_build; then
+  echo "[fake-feishu] building escript" >&2
+  (cd "$TOOL_DIR" && mix deps.get --quiet && mix escript.build >&2)
+fi
+
+exec "$BINARY" "$@"

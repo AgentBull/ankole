@@ -20,7 +20,6 @@ defmodule Ankole.E2E.Scenarios.DeepResearchRealLLM do
   alias Ankole.AppConfigure
   alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Schemas.Job
-  alias Ankole.E2E.FakeFeishu
   alias Ankole.Repo
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.ActorRuntime.AgentConfig

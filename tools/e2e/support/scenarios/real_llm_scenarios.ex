@@ -31,7 +31,6 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
   alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Schemas.Job, as: BackgroundAgentJob
   alias Ankole.BackgroundAgentJobs.Schemas.Turn, as: BackgroundAgentJobTurn
-  alias Ankole.E2E.FakeFeishu
   alias Ankole.Repo
   alias Ankole.SignalsGateway.Entry
 

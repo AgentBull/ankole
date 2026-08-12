@@ -38,7 +38,6 @@ defmodule Ankole.E2E.Scenarios.BrainRealLLM do
   alias Ankole.Brain.Schemas.Episode
   alias Ankole.Brain.Scope
   alias Ankole.Brain.SourceSync
-  alias Ankole.E2E.FakeFeishu
   alias Ankole.Plugins.LarkAdapter.IMGroups
   alias Ankole.Repo
   alias Ankole.SignalsGateway

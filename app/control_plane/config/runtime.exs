@@ -95,6 +95,20 @@ case Ankole.Config.Bootstrap.env_string("ANKOLE_AI_GATEWAY_BASE_URL") do
     :ok
 end
 
+# Dev-only Lark transport seam: point every Lark client of this instance at a
+# local fake platform (tools/fake-feishu). The gate on :dev keeps the
+# production rule that stored binding config and environment cannot override
+# the provider endpoint.
+if config_env() == :dev do
+  case Ankole.Config.Bootstrap.env_string("ANKOLE_LARK_BASE_URL_OVERRIDE") do
+    base_url when is_binary(base_url) ->
+      config :ankole, Ankole.Plugins.LarkAdapter.Config, client_opts: [base_url: base_url]
+
+    nil ->
+      :ok
+  end
+end
+
 if config_env() == :prod do
   database_url = Ankole.Config.Bootstrap.env!("DATABASE_URL")
 

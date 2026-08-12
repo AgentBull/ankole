@@ -1,27 +1,28 @@
-defmodule Ankole.E2E.FakeFeishu.Router do
+defmodule FakeFeishu.Router do
   @moduledoc """
   Plug router for the fake Feishu REST surface.
 
   Implements WS endpoint discovery, tenant token auth, and the im/v1 message,
-  reaction, file, and resource endpoints the Lark adapter uses. Every business
-  endpoint verifies the Bearer tenant token so e2e covers the real auth chain.
-  Responses use the provider envelope `{"code": 0, "data": {...}}`.
+  reaction, chat, file, image, resource, and cardkit/v1 endpoints the Lark
+  adapter uses. Every business endpoint verifies the Bearer tenant token so
+  e2e covers the real auth chain. Responses use the provider envelope
+  `{"code": 0, "data": {...}}`.
   """
 
   use Plug.Router
 
-  alias Ankole.E2E.FakeFeishu.State
-  alias Ankole.E2E.FakeFeishu.WebSocketHandler
-  alias Ankole.JSON
+  alias FakeFeishu.State
+  alias FakeFeishu.WebSocketHandler
 
-  plug :match
+  plug(:match)
 
-  plug Plug.Parsers,
+  plug(Plug.Parsers,
     parsers: [:json, :multipart, :urlencoded],
-    json_decoder: Ankole.JSON,
+    json_decoder: JSON,
     pass: ["*/*"]
+  )
 
-  plug :dispatch
+  plug(:dispatch)
 
   @impl true
   def call(conn, opts) do
@@ -53,7 +54,7 @@ defmodule Ankole.E2E.FakeFeishu.Router do
           send_json(conn, 200, %{
             "code" => 0,
             "msg" => "success",
-            "data" => %{"URL" => url, "ClientConfig" => State.client_config()}
+            "data" => %{"URL" => url, "ClientConfig" => State.client_config(state(conn))}
           })
 
         :error ->
@@ -90,19 +91,61 @@ defmodule Ankole.E2E.FakeFeishu.Router do
       send_json(conn, 200, %{
         "code" => 0,
         "msg" => "success",
-        "bot" => %{"open_id" => bot_open_id(app_id)}
+        "bot" => %{"open_id" => State.bot_open_id(state(conn), app_id)}
       })
     end)
   end
 
-  # The network fake intentionally exercises Lark's supported plain-text
-  # fallback rather than emulating CardKit's separate card state machine.
   post "/open-apis/cardkit/v1/cards" do
     authed(conn, fn conn ->
-      send_json(conn, 200, %{
-        "code" => 200_860,
-        "msg" => "fake feishu: CardKit is unavailable; use plain text"
-      })
+      with_fault(conn, :create_card, fn conn ->
+        reply_data(conn, State.cardkit_create_card(state(conn), conn.params))
+      end)
+    end)
+  end
+
+  put "/open-apis/cardkit/v1/cards/:card_id/elements/:element_id/content" do
+    authed(conn, fn conn ->
+      with_fault(conn, :card_element, fn conn ->
+        reply_data(
+          conn,
+          State.cardkit_element_content(state(conn), card_id, element_id, conn.params)
+        )
+      end)
+    end)
+  end
+
+  post "/open-apis/cardkit/v1/cards/:card_id/batch_update" do
+    authed(conn, fn conn ->
+      with_fault(conn, :card_batch, fn conn ->
+        reply_data(conn, State.cardkit_batch_update(state(conn), card_id, conn.params))
+      end)
+    end)
+  end
+
+  get "/open-apis/im/v1/chats" do
+    authed_app(conn, fn conn, app_id ->
+      with_fault(conn, :list_chats, fn conn ->
+        conn = fetch_query_params(conn)
+        reply_data(conn, State.list_chats(state(conn), app_id, conn.query_params))
+      end)
+    end)
+  end
+
+  get "/open-apis/im/v1/chats/:chat_id/members" do
+    authed(conn, fn conn ->
+      with_fault(conn, :list_chat_members, fn conn ->
+        conn = fetch_query_params(conn)
+        reply_data(conn, State.list_chat_members(state(conn), chat_id, conn.query_params))
+      end)
+    end)
+  end
+
+  get "/open-apis/im/v1/chats/:chat_id" do
+    authed(conn, fn conn ->
+      with_fault(conn, :get_chat, fn conn ->
+        reply_data(conn, State.get_chat(state(conn), chat_id))
+      end)
     end)
   end
 
@@ -196,6 +239,20 @@ defmodule Ankole.E2E.FakeFeishu.Router do
     end)
   end
 
+  post "/open-apis/im/v1/images" do
+    authed(conn, fn conn ->
+      with_fault(conn, :upload_image, fn conn ->
+        case conn.params["image"] do
+          %Plug.Upload{path: path, filename: filename} ->
+            reply_data(conn, State.store_image(state(conn), filename, File.read!(path)))
+
+          _missing ->
+            send_json(conn, 400, %{"code" => 400_001, "msg" => "image part missing"})
+        end
+      end)
+    end)
+  end
+
   match _ do
     send_json(conn, 404, %{"code" => 19_001, "msg" => "fake feishu: no such endpoint"})
   end
@@ -225,10 +282,6 @@ defmodule Ankole.E2E.FakeFeishu.Router do
         send_json(conn, 400, %{"code" => 99_991_663, "msg" => "tenant token invalid"})
     end
   end
-
-  defp bot_open_id("cli_chaos_multi_a"), do: "ou_lark_bot_a"
-  defp bot_open_id("cli_chaos_lark_b"), do: "ou_lark_bot_b"
-  defp bot_open_id(_app_id), do: "ou_bot"
 
   defp with_fault(conn, op, fun) do
     case State.take_fault(state(conn), op) do

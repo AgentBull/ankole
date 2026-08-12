@@ -21,7 +21,6 @@ defmodule Ankole.E2E.Harness do
   alias Ankole.SignalsGateway.ActorRuntime.Transport.Broker
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AppConfigure
-  alias Ankole.E2E.FakeFeishu
   alias Ankole.E2E.FakeOpenAIPlug
   alias Ankole.E2E.WaitHelpers
   alias Ankole.JSON
@@ -83,7 +82,9 @@ defmodule Ankole.E2E.Harness do
   end
 
   @doc """
-  Starts the fake Feishu platform with the standard e2e app credentials.
+  Starts the fake Feishu platform (State + Bandit HTTP/WS listener) under the
+  current ExUnit test supervisor with the standard e2e app credentials, and
+  returns `%{state:, base_url:, port:}`.
   """
   def start_fake_feishu!(opts \\ []) do
     apps =
@@ -95,8 +96,36 @@ defmodule Ankole.E2E.Harness do
         {@secondary_app_id, @app_secret}
       ])
 
-    FakeFeishu.Server.start!(apps: apps)
+    state = start_supervised!({FakeFeishu.State, owner: self()})
+
+    server =
+      start_supervised!(
+        {Bandit,
+         plug: {FakeFeishu.Router, state: state},
+         scheme: :http,
+         ip: {127, 0, 0, 1},
+         port: 0,
+         startup_log: false}
+      )
+
+    {:ok, {_ip, port}} = ThousandIsland.listener_info(server)
+
+    for {app_id, app_secret} <- apps do
+      :ok =
+        FakeFeishu.State.register_app(state, app_id, app_secret,
+          bot_open_id: e2e_bot_open_id(app_id)
+        )
+    end
+
+    %{state: state, base_url: "http://127.0.0.1:#{port}", port: port}
   end
+
+  # The historical e2e bot identities: the multi-agent apps carry distinct
+  # bots, every other e2e app shares "ou_bot" so `lark_bot_mention/0` defaults
+  # keep addressing the bot.
+  defp e2e_bot_open_id(@multi_a_app_id), do: "ou_lark_bot_a"
+  defp e2e_bot_open_id(@secondary_app_id), do: "ou_lark_bot_b"
+  defp e2e_bot_open_id(_app_id), do: "ou_bot"
 
   @doc """
   Derives real long connections from enabled bindings and waits for the WS

@@ -1,4 +1,4 @@
-defmodule Ankole.E2E.FakeFeishu.WebSocketHandler do
+defmodule FakeFeishu.WebSocketHandler do
   @moduledoc """
   WebSock handler for one fake Feishu long connection.
 
@@ -9,8 +9,7 @@ defmodule Ankole.E2E.FakeFeishu.WebSocketHandler do
 
   @behaviour WebSock
 
-  alias Ankole.E2E.FakeFeishu.State
-  alias Ankole.JSON
+  alias FakeFeishu.State
   alias FeishuOpenAPI.WS.Frame
 
   @impl true

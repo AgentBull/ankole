@@ -1,5 +1,11 @@
 # Changelog
 
+## Version 0.67.1 (2026-08-13)
+
+- No product behavior changes. Add the `tools/fake-feishu` developer tool: a standalone fake Feishu platform plus CLI for local end-to-end work without the Feishu web client, simulating CardKit streaming with the real conflict codes, the chat directory, images, and reaction/member/card-action events; the e2e suites share the same simulation core with unchanged behavior.
+- Add the dev-only `ANKOLE_LARK_BASE_URL_OVERRIDE` environment variable that points a `:dev` control plane's Lark clients at such a local platform; production endpoint rules stay unchanged.
+- Clarify the changelog rules in `AGENTS.md`: entries are written for end users, and `MINOR` is only for main-product capabilities that end users experience — everything else is `PATCH`.
+
 ## Version 0.67.0 (2026-08-12)
 
 - Make BackgroundAgentJob retries honest and bounded: a retryable attempt failure returns the Job to `queued` and frees its Agent slot and Worker assignment, the new `execution_failures` budget (5) counts only real execution failures while total claims cap at 25, and infrastructure interruptions retry within minutes while provider-class failures keep the hours-spanning ladder. Operators see `execution_failures` beside `attempts`, and the per-Agent running cap becomes the `agent_computer.background_agent_job.max_running_per_agent` setting (default 3; confirm provider quota before raising it).

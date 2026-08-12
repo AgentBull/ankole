@@ -23,7 +23,6 @@ defmodule Ankole.E2E.ChaosE2ETest do
   alias Ankole.SignalsGateway.ActorRuntime.Transport.Broker
   alias Ankole.E2E.DockerWorker
   alias Ankole.E2E.FakeOpenAIState
-  alias Ankole.E2E.FakeFeishu
   alias Ankole.Repo
   alias Ankole.SignalsGateway.OutboxEntry
 

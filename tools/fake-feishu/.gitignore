@@ -1,0 +1,4 @@
+/_build/
+/deps/
+/fake-feishu
+erl_crash.dump

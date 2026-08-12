@@ -15,7 +15,6 @@ defmodule Ankole.E2E.ConcurrencyPerfE2ETest do
   import Ankole.E2E.WaitHelpers,
     only: [deadline: 1, wait_for_completed_final_reply: 3, wait_until: 2]
 
-  alias Ankole.E2E.FakeFeishu
 
   @chats 6
   @wall_clock_ceiling_ms 240_000
