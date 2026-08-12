@@ -68,7 +68,8 @@ export function createSendMessageToBackgroundJobTool(
   return {
     name: 'send_message_to_background_job',
     description: [
-      'Send a message to a running job or answer one waiting_on_user.',
+      'Send a message to any live job: queued, running, or waiting_on_user.',
+      'A queued message stays behind the original task and is applied when execution starts.',
       'wait_reply (default: true) observes the exact background Turn for up to wait_timeout_ms (default: 30s).',
       'timeout only ends foreground observation while the Job keeps running.',
       'set wait_reply=false if the Turn result is not needed immediately.'
@@ -112,7 +113,7 @@ export function createSendMessageToBackgroundJobTool(
           content: [
             {
               type: 'text',
-              text: `Message sent to background job ${sentJobID}. Current job status: ${sentStatus}.`
+              text: `Message stored for background job ${sentJobID}. Current job status: ${sentStatus}.`
             }
           ],
           details
@@ -301,7 +302,7 @@ function interruptedWaitResult(
         text: [
           `Stopped waiting for background job ${jobID} because ${reason}.`,
           `Current job status: ${status}.`,
-          'The message was already delivered; do not resend it.',
+          'The message is already stored; do not resend it.',
           ...(continuesRunning ? ['The job continues to run in the background.'] : [])
         ].join('\n')
       }

@@ -1,6 +1,7 @@
 ---
 name: audit-ankole-trajectories
-description: Audit stored Ankole LLM, AIGateway, and BackgroundAgentJob trajectory cohorts to reconstruct causal execution, compare failed and successful episodes, attribute failures across model, Skill, tool, harness, provider, persistence, recovery, and delivery boundaries, and design one evidence-backed validation experiment. Use only when the user asks to inspect recorded trajectory, Response, Turn, Job, or provider-execution evidence for one or more concrete episodes. Do not use for ordinary source-code bug diagnosis, runtime control-flow review, feature-parity checks, implementation work, or a one-off reproduction that does not center on persisted execution evidence. Keep the audit read-only and stop at an experiment unless the user separately asks to implement an accepted change.
+description: Review stored Ankole trajectory data to improve Prompt guidance through one evidence-backed validation experiment.
+disable-model-invocation: true
 ---
 
 # Audit Ankole Trajectories

@@ -229,6 +229,35 @@
         "title": "BrainDreamingFitnessResponse",
         "type": "object"
       },
+      "BackgroundAgentJobHealthResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "claims_24h": { "type": "integer" },
+          "dead_letter_notices_24h": { "type": "integer" },
+          "execution_failures_24h": { "type": "integer" },
+          "oldest_queued_seconds": { "nullable": true, "type": "integer" },
+          "queued_count": { "type": "integer" },
+          "running_count": { "type": "integer" },
+          "succeeded_24h": { "type": "integer" },
+          "successor_seeded_24h": { "type": "integer" },
+          "wakeups_24h": { "type": "integer" },
+          "window_seconds": { "type": "integer" }
+        },
+        "required": [
+          "oldest_queued_seconds",
+          "queued_count",
+          "running_count",
+          "claims_24h",
+          "execution_failures_24h",
+          "succeeded_24h",
+          "successor_seeded_24h",
+          "wakeups_24h",
+          "dead_letter_notices_24h",
+          "window_seconds"
+        ],
+        "title": "BackgroundAgentJobHealthResponse",
+        "type": "object"
+      },
       "AutomationJobRunItem": {
         "additionalProperties": false,
         "properties": {
@@ -850,6 +879,7 @@
           "completed_at": { "nullable": true, "type": "string" },
           "duration_seconds": { "type": "integer" },
           "error": { "additionalProperties": true, "type": "object" },
+          "execution_failures": { "type": "integer" },
           "id": { "maximum": 9007199254740991, "minimum": 1000, "type": "integer" },
           "inserted_at": { "type": "string" },
           "metadata": { "additionalProperties": true, "type": "object" },
@@ -881,6 +911,7 @@
           "task",
           "status",
           "attempts",
+          "execution_failures",
           "workspace_template_id",
           "model_profile",
           "reply_route",
@@ -983,6 +1014,7 @@
           "agent_uid": { "type": "string" },
           "attempts": { "type": "integer" },
           "duration_seconds": { "type": "integer" },
+          "execution_failures": { "type": "integer" },
           "id": { "maximum": 9007199254740991, "minimum": 1000, "type": "integer" },
           "inserted_at": { "type": "string" },
           "status": {
@@ -998,6 +1030,7 @@
           "title",
           "status",
           "attempts",
+          "execution_failures",
           "workspace_template_id",
           "duration_seconds",
           "inserted_at"
@@ -1523,13 +1556,17 @@
           "delivery": { "$ref": "#/components/schemas/JSONValue" },
           "idempotency_key": { "type": "string" },
           "name": { "minLength": 1, "type": "string" },
+          "owner_session_id": {
+            "description": "Conversation session that manages this schedule. Fires run in the derived execution session `cron:<schedule_id>`.",
+            "minLength": 1,
+            "type": "string"
+          },
           "payload": { "$ref": "#/components/schemas/JSONValue" },
           "schedule": { "$ref": "#/components/schemas/JSONValue" },
-          "session_id": { "minLength": 1, "type": "string" },
           "status": { "enum": ["active", "paused"], "nullable": true, "type": "string" },
           "timezone": { "nullable": true, "type": "string" }
         },
-        "required": ["session_id", "binding_name", "name", "schedule", "delivery", "idempotency_key"],
+        "required": ["owner_session_id", "binding_name", "name", "schedule", "delivery", "idempotency_key"],
         "title": "ScheduleCronWriteRequest",
         "type": "object"
       },
@@ -6144,6 +6181,61 @@
         "tags": ["AIGateway"]
       }
     },
+    "/api/v1/background-agent-jobs/{job_id}/complete": {
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.BackgroundAgentJobController.complete",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": { "maximum": 9007199254740991, "minimum": 1000, "type": "integer" }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": { "result_summary": { "maxLength": 16384, "minLength": 1, "type": "string" } },
+                "required": ["result_summary"],
+                "type": "object"
+              }
+            }
+          },
+          "description": "Completion result",
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/BackgroundAgentJobResponse" } }
+            },
+            "description": "Background Agent Job"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Not found"
+          },
+          "409": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Job already failed or stopped"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Commit an externally verified completion for one background Agent Job",
+        "tags": ["Background Agent Jobs"]
+      }
+    },
     "/api/v1/worker-envs/{name}": {
       "delete": {
         "callbacks": {},
@@ -6635,6 +6727,32 @@
         "security": [{ "consoleBearer": [] }],
         "summary": "List effective worker shell variables for one agent",
         "tags": ["WorkerEnv"]
+      }
+    },
+    "/api/v1/background-agent-jobs/health": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.BackgroundAgentJobController.health",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/BackgroundAgentJobHealthResponse" } }
+            },
+            "description": "Background Agent Job health"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Read installation-wide background Agent Job reliability metrics",
+        "tags": ["Background Agent Jobs"]
       }
     },
     "/api/v1/ai-gateway/providers/{provider_id}/chatgpt-login": {

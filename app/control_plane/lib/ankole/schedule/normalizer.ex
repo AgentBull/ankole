@@ -133,7 +133,8 @@ defmodule Ankole.Schedule.Normalizer do
     attrs = Attrs.normalize_external_attrs(attrs)
 
     with {:ok, agent_uid} <- Attrs.required_text(attrs, "agent_uid"),
-         {:ok, session_id} <- Attrs.required_text(attrs, "session_id"),
+         {:ok, owner_session_id} <- Attrs.required_text(attrs, "owner_session_id"),
+         :ok <- reject_reserved_owner_session(owner_session_id),
          {:ok, binding_name} <- Attrs.required_text(attrs, "binding_name"),
          {:ok, name} <- Attrs.required_text(attrs, "name"),
          {:ok, idempotency_key} <- Attrs.required_text(attrs, "idempotency_key"),
@@ -143,18 +144,20 @@ defmodule Ankole.Schedule.Normalizer do
            Delivery.normalize(Attrs.map_value(attrs, "delivery"), binding_name),
          {:ok, status} <- normalize_cron_status(Attrs.map_text(attrs, "status") || "active"),
          {:ok, automation_job_id} <- optional_positive_integer(attrs, "automation_job_id"),
+         payload = Attrs.map_value(attrs, "payload") || %{},
+         :ok <- validate_cron_task(payload, automation_job_id),
          {:ok, next_fire_at} <- Planner.next_fire_after(schedule, timezone, now),
          :ok <- reject_exhausted_bound(schedule, next_fire_at) do
       {:ok,
        %{
          status: status,
          agent_uid: agent_uid,
-         session_id: session_id,
+         owner_session_id: owner_session_id,
          binding_name: binding_name,
          name: name,
          schedule: schedule,
          timezone: timezone,
-         payload: Attrs.map_value(attrs, "payload") || %{},
+         payload: payload,
          delivery: delivery,
          next_fire_at: next_fire_at_for_status(status, next_fire_at),
          idempotency_key: idempotency_key,
@@ -174,7 +177,17 @@ defmodule Ankole.Schedule.Normalizer do
          {:ok, schedule, timezone} <- normalize_updated_schedule(existing, attrs, opts),
          {:ok, delivery} <- normalize_updated_delivery(existing, attrs),
          {:ok, payload} <- normalize_updated_payload(attrs),
-         {:ok, automation_job_id} <- normalize_updated_automation_job_id(attrs) do
+         {:ok, automation_job_id} <- normalize_updated_automation_job_id(attrs),
+         :ok <-
+           validate_cron_task(
+             effective_updated_value(attrs, "payload", payload, existing.payload),
+             effective_updated_value(
+               attrs,
+               "automation_job_id",
+               automation_job_id,
+               existing.automation_job_id
+             )
+           ) do
       changes =
         %{}
         |> Attrs.maybe_put(:name, name)
@@ -206,6 +219,30 @@ defmodule Ankole.Schedule.Normalizer do
 
   defp normalize_cron_status(status) when status in ["active", "paused"], do: {:ok, status}
   defp normalize_cron_status(_status), do: {:error, :invalid_cron_status}
+
+  # A cron execution session cannot own schedules: cron-origin turns are
+  # already denied schedule mutation, so an owner in that namespace would be
+  # a schedule nothing can manage.
+  defp reject_reserved_owner_session("cron:" <> _rest),
+    do: {:error, :cron_owner_session_reserved}
+
+  defp reject_reserved_owner_session(_owner_session_id), do: :ok
+
+  # A direct-Agent cron runs in its own execution session and must not depend
+  # on the owner conversation's transcript, so its stored input has to carry
+  # the whole repeatable instruction. An AutomationJob consumer brings its own
+  # committed script instead.
+  defp validate_cron_task(payload, automation_job_id) do
+    cond do
+      is_integer(automation_job_id) -> :ok
+      is_map(payload) and is_binary(payload["task"]) and String.trim(payload["task"]) != "" -> :ok
+      true -> {:error, :cron_task_required}
+    end
+  end
+
+  defp effective_updated_value(attrs, key, normalized, existing) do
+    if Map.has_key?(attrs, key), do: normalized, else: existing
+  end
 
   defp validate_cron_update_fields(attrs) do
     allowed = ~w(name schedule timezone payload delivery automation_job_id)

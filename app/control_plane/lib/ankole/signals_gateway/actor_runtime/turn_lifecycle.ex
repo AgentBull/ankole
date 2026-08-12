@@ -1231,7 +1231,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
   # permanently silent if the control plane exits between the two writes.
   defp maybe_commit_dead_letter_notice(repo, %ActorEvent{} = event, true) do
     if AIReplyPreview.im_visible_event?(event) do
-      text = I18n.t("signals_gateway.reply.dead_letter", %{"ref" => event.id})
+      text = dead_letter_notice_text(event)
 
       case Outbox.commit_dead_letter_notice_outbox_in_tx(repo, event, text) do
         {:ok, notice} -> {:ok, notice}
@@ -1243,6 +1243,61 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
   end
 
   defp maybe_commit_dead_letter_notice(_repo, %ActorEvent{}, false), do: {:ok, nil}
+
+  # A dead-lettered Job lifecycle wakeup still owes the user the outcome. The
+  # wakeup payload already carries the durable facts, so the notice renders
+  # them directly instead of the generic retry text: the terminal result must
+  # not depend on the same Agent runtime that just failed to relay it.
+  @background_job_wakeup_notice_keys %{
+    "background_agent_job.completed" => "background_agent_job_dead_letter_succeeded",
+    "background_agent_job.failed" => "background_agent_job_dead_letter_failed",
+    "background_agent_job.waiting" => "background_agent_job_dead_letter_waiting"
+  }
+
+  defp dead_letter_notice_text(%ActorEvent{type: type} = event)
+       when is_map_key(@background_job_wakeup_notice_keys, type) do
+    data = get_in(event.payload || %{}, ["data"]) || %{}
+
+    detail =
+      [
+        text_value(data["result_summary"]),
+        artifacts_notice_line(data["artifacts"]),
+        successor_notice_line(data["successor_job_id"])
+      ]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.join("\n")
+
+    I18n.t(
+      "signals_gateway.reply.#{Map.fetch!(@background_job_wakeup_notice_keys, type)}",
+      %{
+        "job_id" => data["job_id"] || 0,
+        "title" => text_value(data["title"]) || "",
+        "detail" => detail
+      }
+    )
+  end
+
+  defp dead_letter_notice_text(%ActorEvent{} = event),
+    do: I18n.t("signals_gateway.reply.dead_letter", %{"ref" => event.id})
+
+  defp text_value(value) when is_binary(value) and value != "", do: value
+  defp text_value(_value), do: nil
+
+  defp artifacts_notice_line(%{"paths" => paths}) when is_list(paths) and paths != [] do
+    I18n.t("signals_gateway.reply.background_agent_job_dead_letter_artifacts", %{
+      "paths" => Enum.join(paths, ", ")
+    })
+  end
+
+  defp artifacts_notice_line(_artifacts), do: nil
+
+  defp successor_notice_line(successor_job_id) when is_integer(successor_job_id) do
+    I18n.t("signals_gateway.reply.background_agent_job_dead_letter_successor", %{
+      "successor_job_id" => successor_job_id
+    })
+  end
+
+  defp successor_notice_line(_successor), do: nil
 
   # A deleted route, or a channel that never accepts replies, has nowhere to put
   # this notice. Failing here would roll back whichever transaction decided the

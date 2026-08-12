@@ -9,12 +9,13 @@ describe('provider setting presentation', () => {
 
     expect(providerSettingPresentation(zh, 'serviceTier')).toEqual({
       label: '服务等级',
-      description: '覆盖此模型档案的服务等级。priority 等可用值取决于模型提供商、账号和模型；留空则使用默认值。'
+      description:
+        '可选择 fast 或 flex，也可输入模型提供商支持的其他值。实际支持取决于模型提供商、账号和模型；留空则使用默认值。'
     })
     expect(providerSettingPresentation(en, 'serviceTier')).toEqual({
       label: 'Service tier',
       description:
-        'Overrides the service tier for this model profile. Values such as priority depend on the provider, account, and model. Leave blank to use the default.'
+        'Choose fast or flex, or enter another provider-specific value. Support depends on the provider, account, and model. Leave blank to use the default.'
     })
   })
 
@@ -46,5 +47,11 @@ describe('provider setting presentation', () => {
     const t = i18n.getFixedT('en-US')
 
     expect(providerSettingPresentation(t, 'strictJSONSchema')).toEqual({ label: 'Strict JSON schema' })
+  })
+
+  test('names the upstream transport control by the feature it switches', () => {
+    const t = i18n.getFixedT('en-US')
+
+    expect(providerSettingPresentation(t, 'upstream_transport')).toEqual({ label: 'WebSocket' })
   })
 })

@@ -42,7 +42,9 @@ defmodule AnkoleWeb.ScheduleControllerTest do
     assert_schema(list, "ScheduleCronScheduleListResponse", api_spec)
     assert %{"cron_schedules" => schedules} = list
     assert MapSet.new(schedules, & &1["id"]) == MapSet.new([morning.id, evening.id])
-    assert MapSet.new(schedules, & &1["session_id"]) == MapSet.new(["session-a", "session-b"])
+
+    assert MapSet.new(schedules, & &1["owner_session_id"]) ==
+             MapSet.new(["session-a", "session-b"])
 
     paused =
       conn
@@ -75,7 +77,8 @@ defmodule AnkoleWeb.ScheduleControllerTest do
     assert remaining_id == evening.id
   end
 
-  test "creation normalizes legacy delivery and update accepts multiple targets", %{conn: conn} do
+  test "creation carries the owner conversation and normalizes legacy delivery, and update accepts multiple targets",
+       %{conn: conn} do
     %{principal: agent} = agent_fixture()
     api_spec = AnkoleWeb.APISpec.spec()
     conn = bearer_conn(conn)
@@ -86,7 +89,11 @@ defmodule AnkoleWeb.ScheduleControllerTest do
       |> json_response(200)
 
     assert_schema(created, "ScheduleCronScheduleResponse", api_spec)
-    assert get_in(created, ["cron_schedule", "session_id"]) == "session-a"
+    assert get_in(created, ["cron_schedule", "owner_session_id"]) == "session-a"
+
+    assert get_in(created, ["cron_schedule", "execution_session_id"]) ==
+             "cron:" <> get_in(created, ["cron_schedule", "id"])
+
     assert get_in(created, ["cron_schedule", "status"]) == "active"
 
     assert get_in(created, ["cron_schedule", "delivery", "targets"]) == [
@@ -117,7 +124,15 @@ defmodule AnkoleWeb.ScheduleControllerTest do
            |> recycle_bearer()
            |> post(
              ~p"/api/v1/agents/#{agent.uid}/cron-schedules",
-             Map.delete(cron_body("session-a", "second-digest"), "session_id")
+             Map.delete(cron_body("session-a", "second-digest"), "owner_session_id")
+           )
+           |> json_response(422)
+
+    assert conn
+           |> recycle_bearer()
+           |> post(
+             ~p"/api/v1/agents/#{agent.uid}/cron-schedules",
+             Map.put(cron_body("session-a", "third-digest"), "payload", %{})
            )
            |> json_response(422)
   end
@@ -163,21 +178,22 @@ defmodule AnkoleWeb.ScheduleControllerTest do
            |> json_response(401)
   end
 
-  defp cron_body(session_id, name) do
+  defp cron_body(owner_session_id, name) do
     %{
-      "session_id" => session_id,
+      "owner_session_id" => owner_session_id,
       "binding_name" => "lark",
       "name" => name,
       "schedule" => %{"kind" => "cron", "expression" => "0 9 * * *"},
       "timezone" => "Asia/Shanghai",
+      "payload" => %{"task" => "console test task for #{name}"},
       "delivery" => %{"signal_channel_id" => "lark:chat:#{name}"},
       "idempotency_key" => "console-test-#{name}"
     }
   end
 
-  defp cron_schedule!(agent_uid, session_id, name) do
+  defp cron_schedule!(agent_uid, owner_session_id, name) do
     attrs =
-      session_id
+      owner_session_id
       |> cron_body(name)
       |> Map.put("agent_uid", agent_uid)
 

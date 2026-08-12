@@ -85,6 +85,7 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 60_000
 // operation its own budget instead of consuming the ordinary RPC budget.
 const INITIALIZE_REQUEST_TIMEOUT_MS = 300_000
 const THREAD_REQUEST_TIMEOUT_MS = 120_000
+const HEALTH_PROBE_TIMEOUT_MS = 5_000
 const STDOUT_EXIT_GRACE_MS = 50
 const PROCESS_GRACEFUL_CLOSE_MS = 1_000
 const parseJSONLine = (line: string): Result<unknown, unknown> =>
@@ -182,8 +183,10 @@ export class CodexAppServerClient {
     const promise = new Promise<unknown>((resolve, reject) => {
       const timeout = setTimeout(() => {
         const error = new CodexAppServerRequestTimeoutError(method)
-        if (uncertainResultMethod(method)) {
+        if (transportFatalTimeoutMethod(method)) {
           this.failTransport(error)
+        } else if (uncertainResultMethod(method)) {
+          void this.failTransportUnlessResponsive(error, id, reject)
         } else {
           this.pending.delete(id)
           reject(error)
@@ -391,6 +394,40 @@ export class CodexAppServerClient {
     void this.notifyExitAfterReap(error)
   }
 
+  /**
+   * One slow request must not kill the shared app-server for every Job of the
+   * Agent. The transport closes only when the process also fails a short
+   * health probe; a responsive process keeps its other threads, and only the
+   * timed-out request fails. A late result that arrives during the probe still
+   * settles the original request.
+   */
+  private async failTransportUnlessResponsive(
+    error: CodexAppServerRequestTimeoutError,
+    id: number,
+    reject: (error: Error) => void
+  ): Promise<void> {
+    if (await this.probeResponsive()) {
+      this.pending.delete(id)
+      reject(error)
+      return
+    }
+    this.failTransport(error)
+  }
+
+  /**
+   * Any JSON-RPC reply — including "method not found" — proves the event loop
+   * is alive. Only a probe timeout condemns the process.
+   */
+  private async probeResponsive(): Promise<boolean> {
+    if (this.closed) return false
+    try {
+      await this.request('ankole/health_probe', {}, HEALTH_PROBE_TIMEOUT_MS)
+      return true
+    } catch (probeError) {
+      return probeError instanceof CodexAppServerRPCError
+    }
+  }
+
   private async notifyExitAfterReap(error: Error): Promise<void> {
     try {
       await this.proc.exited
@@ -422,13 +459,18 @@ export class CodexAppServerExitError extends Error {
   }
 }
 
+// A late `turn/start` result is the one truly unsafe survivor: a ghost Codex
+// turn would keep executing unobserved. Its timeout, and a dead-at-birth
+// `initialize`, still close the transport without a probe.
+function transportFatalTimeoutMethod(method: string): boolean {
+  return method === 'initialize' || method === 'turn/start'
+}
+
 function uncertainResultMethod(method: string): boolean {
   return (
-    method === 'initialize' ||
     method === 'thread/start' ||
     method === 'thread/resume' ||
     method === 'thread/fork' ||
-    method === 'turn/start' ||
     method === 'turn/steer' ||
     method === 'turn/interrupt' ||
     method === 'thread/unsubscribe' ||

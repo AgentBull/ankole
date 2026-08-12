@@ -380,6 +380,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionResetTest do
                ActorRuntime.handle_turn_accepted(turn_accepted_payload(first_turn_ref))
 
       session_id = first_input.session_id
+      channel_actor = %{agent_uid: agent.uid, session_id: session_id}
 
       assert {:ok, reset_event} =
                append_runtime_actor_event(agent.uid, session_id, "session.reset_due",
@@ -392,7 +393,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionResetTest do
                Schedule.create_cron_schedule(
                  %{
                    "agent_uid" => agent.uid,
-                   "session_id" => session_id,
+                   "owner_session_id" => session_id,
                    "binding_name" => "bot",
                    "name" => "reset-boundary-cron",
                    "schedule" => %{
@@ -411,10 +412,17 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionResetTest do
                  now: DateTime.add(@base_time, 1, :second)
                )
 
+      execution_actor = %{
+        agent_uid: agent.uid,
+        session_id: Schedule.cron_execution_session_id(cron_schedule.id)
+      }
+
       [scheduled_cron_event] = Schedule.list_cron_runs(cron_schedule.id, 10)
 
-      assert {:ok, %{actor_event: deferred_cron_input}} =
+      assert {:ok, %{actor_event: cron_input}} =
                Schedule.fire_due_event(scheduled_cron_event.id, now: first_cron_slot)
+
+      assert cron_input.session_id == execution_actor.session_id
 
       assert {:ok, %{actor_event: later_input}} =
                emit_entry(
@@ -433,42 +441,32 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionResetTest do
                )
 
       assert {:ok, %{status: :waiting_for_generation, reason: :session_reset_due}} =
-               process_ready_events_once(now: DateTime.add(@base_time, 3, :second))
+               ActorRuntime.process_ready_event_for_actor(channel_actor,
+                 now: DateTime.add(@base_time, 3, :second)
+               )
 
       assert Repo.get!(ActorEvent, reset_event.id).input_state == "open"
-      assert Repo.get!(ActorEvent, deferred_cron_input.id).input_state == "open"
       assert Repo.get!(ActorEvent, later_input.id).input_state == "open"
 
-      complete_aigateway_turn!(first_turn_ref, "done", wait_for_mirror: true)
-
+      # The cron fire runs in its own execution session, so the running
+      # conversation turn and the pending reset do not delay it.
       assert {:ok,
               %{
-                status: :session_reset,
-                closed_conversation: closed_conversation,
-                conversation: next_conversation
-              }} =
-               process_ready_events_once(now: DateTime.add(@base_time, 4, :second))
-
-      assert closed_conversation.id == first_conversation.id
-      assert next_conversation.id != closed_conversation.id
-      assert Repo.get!(Conversation, first_conversation.id).ended_at
-      assert Repo.get(ActorEvent, reset_event.id)
-      assert Repo.get!(ActorEvent, deferred_cron_input.id).input_state == "open"
-      assert Repo.get!(ActorEvent, later_input.id).input_state == "open"
-
-      assert {:ok,
-              %{
-                actor_event: ^deferred_cron_input,
+                actor_event: ^cron_input,
                 conversation: cron_conversation,
                 send_outcome: "sent_or_queued"
               }} =
-               process_ready_events_once(now: DateTime.add(@base_time, 5, :second))
+               ActorRuntime.process_ready_event_for_actor(execution_actor,
+                 now: DateTime.add(@base_time, 3, :second),
+                 lease_seconds: @long_lease_seconds
+               )
 
-      assert cron_conversation.id == next_conversation.id
+      assert cron_conversation.conversation_key == execution_actor.session_id
+      assert cron_conversation.id != first_conversation.id
       assert_receive {:actor_lane, cron_envelope}
       cron_start = turn_start_payload!(cron_envelope)
       cron_turn_ref = cron_start.turn
-      assert cron_start.actor_event.actor_event_id == deferred_cron_input.id
+      assert cron_start.actor_event.actor_event_id == cron_input.id
       assert decoded_request_context(cron_start)["turn_mode"] == "cron"
 
       assert {:ok, [_delivery]} =
@@ -481,10 +479,34 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionResetTest do
                  turn_completed_payload(cron_turn_ref, "resp_#{committed.id}", "loop_finished")
                )
 
-      assert %DateTime{} = Repo.get!(ActorEvent, deferred_cron_input.id).completed_at
+      assert %DateTime{} = Repo.get!(ActorEvent, cron_input.id).completed_at
+
+      complete_aigateway_turn!(first_turn_ref, "done", wait_for_mirror: true)
+
+      assert {:ok,
+              %{
+                status: :session_reset,
+                closed_conversation: closed_conversation,
+                conversation: next_conversation
+              }} =
+               ActorRuntime.process_ready_event_for_actor(channel_actor,
+                 now: DateTime.add(@base_time, 4, :second)
+               )
+
+      assert closed_conversation.id == first_conversation.id
+      assert next_conversation.id != closed_conversation.id
+      assert Repo.get!(Conversation, first_conversation.id).ended_at
+      assert Repo.get(ActorEvent, reset_event.id)
+      assert Repo.get!(ActorEvent, later_input.id).input_state == "open"
+
+      # The channel reset never touched the execution session's conversation.
+      assert Repo.get!(Conversation, cron_conversation.id).ended_at == nil
 
       assert {:ok, %{conversation: later_conversation}} =
-               process_ready_events_once(now: DateTime.add(@base_time, 6, :second))
+               ActorRuntime.process_ready_event_for_actor(channel_actor,
+                 now: DateTime.add(@base_time, 6, :second),
+                 lease_seconds: @long_lease_seconds
+               )
 
       assert later_conversation.id == next_conversation.id
       assert_receive {:actor_lane, later_envelope}

@@ -15,8 +15,21 @@ defmodule Ankole.AIGateway.Providers.OpenAI do
     base_url("https://api.openai.com/v1", advanced: true)
 
     setting(:api_key, encrypted: true, scope: :credential)
-    setting(:endpoint_kind, default: "responses", advanced: true)
-    setting(:upstream_transport, advanced: true)
+
+    setting(:endpoint_kind,
+      type: :select,
+      default: "responses",
+      options: ~w(responses chat_completions),
+      advanced: true
+    )
+
+    setting(:upstream_transport,
+      type: :select,
+      default: "sse",
+      options: ~w(sse websocket),
+      advanced: true
+    )
+
     setting(:organization, advanced: true)
     setting(:project, advanced: true)
     setting(:headers, type: :map, advanced: true)
@@ -38,7 +51,7 @@ defmodule Ankole.AIGateway.Providers.OpenAI do
 
     setting(:promptCacheKey, scope: :request, advanced: true)
     setting(:promptCacheRetention, scope: :request, advanced: true)
-    setting(:serviceTier, scope: :request, advanced: true)
+    setting(:serviceTier, options: ~w(fast flex), scope: :request, advanced: true)
     setting(:strictJSONSchema, type: :boolean, scope: :request, advanced: true)
 
     setting(:textVerbosity,

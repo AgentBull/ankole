@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   agentHomePaths,
+  codexStateRoot,
   insideAgentHome,
   jobWorkspacePath,
   resolveAgentHomePath,
@@ -25,7 +26,6 @@ describe('Agent Home paths', () => {
         workspace_id: number
         job_id: number
         home: string
-        codex_home: string
         session_workspace: string
         job_workspace: string
       }>
@@ -37,7 +37,6 @@ describe('Agent Home paths', () => {
     for (const vector of vectors.valid) {
       const paths = agentHomePaths(vectors.agents_root, vector.agent_uid)
       expect(paths.home).toBe(vector.home)
-      expect(paths.codexHome).toBe(vector.codex_home)
       expect(sessionWorkspacePath(vectors.agents_root, vector.agent_uid, vector.workspace_id)).toBe(
         vector.session_workspace
       )
@@ -60,7 +59,8 @@ describe('Agent Home paths', () => {
   it('constructs direct real paths with uppercase document names', () => {
     const paths = agentHomePaths('/agents', 'agent-1')
     expect(paths.home).toBe('/agents/agent-1')
-    expect(paths.codexHome).toBe('/agents/agent-1/.codex')
+    // Codex state is a Worker-local shard, not a shared /agents path.
+    expect(paths.codexHome).toBe(join(codexStateRoot(), 'agent-1', '.codex'))
     expect(paths.soul).toBe('/agents/agent-1/SOUL.md')
     expect(paths.mission).toBe('/agents/agent-1/MISSION.md')
     expect(paths.design).toBe('/agents/agent-1/DESIGN.md')

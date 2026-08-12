@@ -42,6 +42,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     assert "openrouter" in provider_kinds
     assert "openai" in provider_kinds
     assert "openai_compatible" in provider_kinds
+    assert "chatgpt_subscription" in provider_kinds
     assert "google_ai_studio_openai" in provider_kinds
     assert "jina" in provider_kinds
     assert "parallel" in provider_kinds
@@ -54,7 +55,12 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     refute "gemini" in provider_kinds
     refute kinds |> List.first() |> Map.has_key?("provider_family")
     openrouter = Enum.find(kinds, &(&1["provider_kind"] == "openrouter"))
+    openai = Enum.find(kinds, &(&1["provider_kind"] == "openai"))
     openai_compatible = Enum.find(kinds, &(&1["provider_kind"] == "openai_compatible"))
+
+    chatgpt_subscription =
+      Enum.find(kinds, &(&1["provider_kind"] == "chatgpt_subscription"))
+
     google_ai_studio = Enum.find(kinds, &(&1["provider_kind"] == "google_ai_studio_openai"))
     azure_openai = Enum.find(kinds, &(&1["provider_kind"] == "azure_openai"))
     parallel = Enum.find(kinds, &(&1["provider_kind"] == "parallel"))
@@ -77,6 +83,29 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
 
     agentbull_cloud_settings = Map.new(agentbull_cloud["settings"], &{&1["key"], &1})
     assert agentbull_cloud_settings["api_key"]["required"]
+
+    for {provider, endpoint_default} <- [
+          {openai, "responses"},
+          {openai_compatible, "chat_completions"}
+        ] do
+      settings = Map.new(provider["settings"], &{&1["key"], &1})
+
+      assert settings["endpoint_kind"]["type"] == "select"
+      assert settings["endpoint_kind"]["options"] == ~w(responses chat_completions)
+      assert settings["endpoint_kind"]["default"] == endpoint_default
+
+      assert settings["upstream_transport"]["type"] == "select"
+      assert settings["upstream_transport"]["options"] == ~w(sse websocket)
+      assert settings["upstream_transport"]["default"] == "sse"
+    end
+
+    for provider <- [chatgpt_subscription, azure_openai, openai, openai_compatible] do
+      service_tier = Map.new(provider["settings"], &{&1["key"], &1})["serviceTier"]
+
+      assert service_tier["type"] == "string"
+      assert service_tier["options"] == ~w(fast flex)
+      assert is_nil(service_tier["default"])
+    end
 
     assert "transport" in openrouter["connection_options"]
     assert "transport" in openai_compatible["connection_options"]

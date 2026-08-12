@@ -1,6 +1,10 @@
 defmodule Ankole.Schedule.Schemas.CronSchedule do
   @moduledoc """
   Durable recurring schedule definition.
+
+  `owner_session_id` is the management scope: the conversation that created
+  the schedule lists and mutates it. Fires do not run there; they run in the
+  derived execution session `Ankole.Schedule.Cron.execution_session_id/1`.
   """
 
   use Ecto.Schema
@@ -26,7 +30,7 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
       references: :uid,
       type: Ankole.Ecto.PrincipalKey
 
-    field :session_id, :string
+    field :owner_session_id, :string
     field :binding_name, :string
     field :name, :string
     field :schedule, :map, default: %{}
@@ -50,7 +54,7 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
     |> cast(attrs, [
       :status,
       :agent_uid,
-      :session_id,
+      :owner_session_id,
       :binding_name,
       :name,
       :schedule,
@@ -66,7 +70,7 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
     |> normalize_blank([
       :status,
       :agent_uid,
-      :session_id,
+      :owner_session_id,
       :binding_name,
       :name,
       :timezone,
@@ -75,7 +79,7 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
     |> validate_required([
       :status,
       :agent_uid,
-      :session_id,
+      :owner_session_id,
       :binding_name,
       :name,
       :schedule,
@@ -92,10 +96,10 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
     |> JSONPayload.validate_map(:created_by)
     |> foreign_key_constraint(:agent_uid)
     |> foreign_key_constraint(:automation_job_id)
-    |> unique_constraint([:agent_uid, :session_id, :idempotency_key],
+    |> unique_constraint([:agent_uid, :owner_session_id, :idempotency_key],
       name: :actor_cron_schedules_idempotency_index
     )
-    |> unique_constraint([:agent_uid, :session_id, :name],
+    |> unique_constraint([:agent_uid, :owner_session_id, :name],
       name: :actor_cron_schedules_agent_name_index
     )
     |> check_constraint(:status, name: :actor_cron_schedules_status_check)

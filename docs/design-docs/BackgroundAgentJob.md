@@ -83,10 +83,11 @@ input contains only:
 - `wait_timeout_ms`: the foreground observation window when `wait_reply=true`;
   the default is 30,000, the minimum is 10,000, and the maximum is 150,000
 
-The tool accepts only a `running` or `waiting_on_user` Job. For a running Job,
-the message steers the active Codex Turn. For a waiting Job, the message answers
-the request and resumes the same Codex thread. The tool rejects a queued or
-terminal Job.
+The tool accepts every live Job: `queued`, `running`, or `waiting_on_user`. For
+a queued Job, the message stays behind the original dispatch and enters the
+first execution in actor-event queue order. For a running Job, the message
+steers the active Codex Turn. For a waiting Job, the message answers the request
+and resumes the same Codex thread. The tool rejects a terminal Job.
 
 With `wait_reply=false`, the tool returns `job_id` and the current concrete
 status immediately after it stores the message. With `wait_reply=true`, the
@@ -538,8 +539,9 @@ queued
   -> stopped
 ```
 
-The message tool cannot resume a queued or terminal Job. Respawning a terminal
-Job creates a new queued Job and never changes the source Job.
+The message tool stores input for any live Job. It cannot resume a terminal
+Job. Respawning a terminal Job creates a new queued Job and never changes the
+source Job.
 
 The control plane allows at most three running Jobs for one Agent.
 It allows at most five acquired execution attempts for one Job.
@@ -667,6 +669,16 @@ causal message ID. CodexRunner passes this ID to Codex as
 `client:<event-id>`. These facts let the control plane find the one Codex Turn
 that received the message without a waiter table or a resident waiter process.
 
+A queued message does not replace or mutate `job.task`. Background Agent Job
+sessions execute open ActorEvents in `queue_sequence` order when no Turn is
+live. A deferred dispatch therefore blocks later messages until the dispatch
+can start. After the control plane sends that Turn, it replays the stored
+messages into the activation in queue order. This keeps one Job identity and
+one durable input path without a queued-only update operation.
+RuntimeEvents rebuilds the Job session timer from that same queue head after a
+control-plane restart. Ordinary actor sessions still use their earliest due
+event and can bypass an older event that is not due.
+
 A running Codex Turn receives the text through `turn/steer`. A Job in
 `waiting_on_user` starts a new Turn on the same Codex thread with the message as
 its answer.
@@ -761,6 +773,8 @@ available:
 - Real Job cwd and model-visible path equality.
 - Plugin, Skill, overlay, MCP-backed Skill, and resume behavior.
 - Create, respawn, list, details, send, stop, waiting, recovery, and wakeups.
+- Queued message ordering behind a deferred dispatch and ordered replay after
+  admission.
 - Terminal-source checks, linear respawn, exact thread and Workspace reuse, and
   missing-Workspace errors.
 - Causal Turn lookup, bounded trajectory output, continuation, and delivery

@@ -1,9 +1,13 @@
 defmodule AnkoleWeb.AuthControllerTest do
   use AnkoleWeb.ConnCase, async: false
 
+  alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
   alias Ankole.AuthZ
+  alias Ankole.IdentityProviders
+  alias Ankole.IdentityProviders.Config, as: IdentityProviderConfig
+  alias Ankole.Plugins.LarkAdapter
   alias Ankole.Setup.Config, as: SetupConfig
   alias AnkoleWeb.ConsoleTokens
   alias AnkoleWeb.Session, as: WebSession
@@ -137,13 +141,48 @@ defmodule AnkoleWeb.AuthControllerTest do
     assert %{"error" => "invalid_grant"} = json_response(conn, 401)
   end
 
+  test "OIDC authorization stores state and redirects in one browser response", %{conn: conn} do
+    assert {:ok, true} = SetupConfig.put_completed(true)
+    :ok = IdentityProviderConfig.ensure_registered()
+    :ok = AppConfigure.register_patterns(LarkAdapter.app_config_patterns())
+
+    assert {:ok, _provider} =
+             IdentityProviders.save_provider(
+               "lark-main",
+               "lark",
+               %{"appID" => "cli_identity", "appSecret" => "secret"},
+               true
+             )
+
+    conn =
+      conn
+      |> Map.merge(%{host: "ankole.example.com", port: 80})
+      |> init_test_session(%{})
+      |> put_req_header("x-forwarded-proto", "https")
+      |> get(~p"/sessions/oidc/lark-main/authorization?return_to=%2Fconsole%2Fagents")
+
+    authorization_url = redirected_to(conn, 302)
+    query = authorization_url |> URI.parse() |> Map.fetch!(:query) |> URI.decode_query()
+    oidc_state = WebSession.admin_oidc_state(conn)
+
+    assert URI.parse(authorization_url).host == "open.feishu.cn"
+    assert query["state"] == oidc_state["state"]
+
+    assert query["redirect_uri"] ==
+             "https://ankole.example.com/sessions/oidc/lark-main/callback"
+
+    assert oidc_state["return_to"] == "/console/agents"
+  end
+
   test "OIDC callback without matching state fails closed", %{conn: conn} do
     conn =
       conn
       |> init_test_session(%{})
       |> get(~p"/sessions/oidc/lark-main/callback", %{"code" => "code", "state" => "missing"})
 
-    assert json_response(conn, 400)["error"] == "invalid OIDC state"
+    assert json_response(conn, 400)["error"] ==
+             "OIDC login expired or was replaced; start sign-in again"
+
     assert get_session(conn, :admin_session) == nil
   end
 
@@ -159,7 +198,9 @@ defmodule AnkoleWeb.AuthControllerTest do
       })
       |> get(~p"/sessions/oidc/other-main/callback", %{"code" => "code", "state" => "state-1"})
 
-    assert json_response(conn, 400)["error"] == "invalid OIDC state"
+    assert json_response(conn, 400)["error"] ==
+             "OIDC login expired or was replaced; start sign-in again"
+
     assert get_session(conn, :admin_session) == nil
   end
 
@@ -179,7 +220,9 @@ defmodule AnkoleWeb.AuthControllerTest do
       })
       |> get(~p"/sessions/oidc/lark-main/callback", %{"code" => "code", "state" => "state-1"})
 
-    assert json_response(conn, 400)["error"] == "invalid OIDC state"
+    assert json_response(conn, 400)["error"] ==
+             "OIDC login expired or was replaced; start sign-in again"
+
     assert get_session(conn, :admin_session) == nil
   end
 

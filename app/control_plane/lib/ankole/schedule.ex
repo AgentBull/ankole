@@ -109,10 +109,18 @@ defmodule Ankole.Schedule do
   defdelegate fire_due_event(scheduled_event_id, opts \\ []), to: Fire
 
   @doc """
-  Lists cron schedules for an agent and optional session.
+  Lists cron schedules for an agent and optional owner conversation.
   """
   @spec list_cron_schedules(String.t(), String.t() | nil) :: [CronSchedule.t()]
-  defdelegate list_cron_schedules(agent_uid, session_id \\ nil), to: Queries
+  defdelegate list_cron_schedules(agent_uid, owner_session_id \\ nil), to: Queries
+
+  @doc """
+  Builds the stable execution session id one cron schedule's fires run in.
+  """
+  @spec cron_execution_session_id(Ecto.UUID.t()) :: String.t()
+  defdelegate cron_execution_session_id(cron_schedule_id),
+    to: Cron,
+    as: :execution_session_id
 
   @doc """
   Fetches one cron schedule.
@@ -125,7 +133,7 @@ defmodule Ankole.Schedule do
   """
   @spec get_cron_schedule_by_name(String.t(), String.t(), String.t()) ::
           {:ok, CronSchedule.t()} | {:error, :not_found}
-  defdelegate get_cron_schedule_by_name(agent_uid, session_id, name), to: Queries
+  defdelegate get_cron_schedule_by_name(agent_uid, owner_session_id, name), to: Queries
 
   @doc """
   Fetches one concrete scheduled event.

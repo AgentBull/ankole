@@ -43,37 +43,55 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Jobs.MaintainCodexLogs2 do
     :ok
   end
 
+  # Codex state shards are Worker-local, and the control plane does not track
+  # which workers hold one for this Agent, so maintenance reaches every ready
+  # worker. A worker without a shard deletes nothing and reports that. One
+  # failed worker fails the run so the warning stays visible; the other
+  # workers keep their completed deletions.
   defp request_maintenance(job_id, agent_uid) do
     request = %FabricProto.CodexLogs2DailyMaintenanceRequest{agent_uid: agent_uid}
 
-    WorkerPool.with_agent_file_worker_route(agent_uid, fn route ->
-      with {:ok, payload} <-
-             Broker.request_rpc(
-               route,
-               "codex_logs2.daily_maintenance",
-               encode(request),
-               timeout_ms: @rpc_timeout_ms,
-               request_id: "codex-logs2-daily-#{job_id}"
-             ),
-           {:ok, response} <- FabricProto.CodexLogs2DailyMaintenanceResponse.decode(payload),
-           :ok <- validate_response_status(response.status) do
-        {:ok, response}
-      end
-    end)
+    case WorkerPool.ready_worker_routes() do
+      [] ->
+        {:error, :no_worker_available}
+
+      routes ->
+        Enum.reduce_while(routes, {:ok, %{workers: 0, deleted_files: []}}, fn route, {:ok, acc} ->
+          with {:ok, payload} <-
+                 Broker.request_rpc(
+                   route,
+                   "codex_logs2.daily_maintenance",
+                   encode(request),
+                   timeout_ms: @rpc_timeout_ms,
+                   request_id: "codex-logs2-daily-#{job_id}-#{route}"
+                 ),
+               {:ok, response} <- FabricProto.CodexLogs2DailyMaintenanceResponse.decode(payload),
+               :ok <- validate_response_status(response.status) do
+            {:cont,
+             {:ok,
+              %{
+                workers: acc.workers + 1,
+                deleted_files: acc.deleted_files ++ (response.deleted_files || [])
+              }}}
+          else
+            {:error, reason} -> {:halt, {:error, reason}}
+          end
+        end)
+    end
   end
 
   defp validate_response_status(status) when status in @response_statuses, do: :ok
   defp validate_response_status(status), do: {:error, {:unexpected_codex_logs2_status, status}}
 
-  defp log_result(agent_uid, boundary_at, {:ok, response}) do
+  defp log_result(agent_uid, boundary_at, {:ok, summary}) do
     Logging.info(
       "signals_gateway.codex_logs2_daily_maintenance",
       "Codex logs daily maintenance completed",
       %{
         agent_uid: agent_uid,
         boundary_at: boundary_at,
-        status: response.status,
-        deleted_files: response.deleted_files
+        workers: summary.workers,
+        deleted_files: summary.deleted_files
       }
     )
   end

@@ -143,6 +143,12 @@ A setting has one scope:
 - `credential` settings are encrypted in each pool member.
 - `request` settings belong to a model profile or one request.
 
+A `select` setting limits input to its declared options. A string setting can
+declare suggested options and still accept another string. The ChatGPT
+Subscription, Azure OpenAI, OpenAI, and OpenAI-compatible providers use this
+open string form for `serviceTier`. They suggest `fast` and `flex`, accept a
+provider-specific value, and omit `service_tier` when the setting is empty.
+
 A language-model capability can declare `supports_parallel_tool_calls` and
 `supports_native_image_generation`. Both declarations default to false.
 
@@ -837,10 +843,15 @@ advance the public Response lifecycle.
 
 The public stream accepts `response.completed`, `response.failed`, and `response.incomplete` as terminal types.
 It rejects a provider completion that contains an incomplete client tool call.
+If a terminal output omits its item identity, AIGateway restores the streamed
+item at the same provider output index only when the terminal item is a
+field-for-field subset of that streamed item.
 
-OpenAI Responses mode can use an upstream WebSocket transport.
-Other providers adapt their native protocols to the same public Response
-contract.
+OpenAI Responses mode can use an upstream WebSocket transport. OpenAI and
+OpenAI-compatible provider rows default `upstream_transport` to `sse`. A row
+can select `websocket` for a streaming Responses request. Chat Completions and
+non-streaming requests do not use the upstream WebSocket. Other providers adapt
+their native protocols to the same public Response contract.
 
 The kernel resolves one proxy route for HTTP and WebSocket requests.
 `NO_PROXY` bypasses all proxies. For other targets, an explicit

@@ -2,9 +2,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerPool do
   @moduledoc """
   Worker placement boundary for actor sessions.
 
-  Maps an actor key to a ready worker. Every live Session or Job for one Agent
-  stays on one worker so Agent-level Codex state is never actively used by two
-  worker instances. Assignments remain rebuildable hints:
+  Maps an actor key to a ready worker. Placement is per Session: one Session or
+  Job stays on its assigned worker while that worker is usable, because the
+  Codex thread state of a Job lives in that worker's local runtime shard. Jobs
+  and Sessions of one Agent may run on several workers at once; single-Job
+  exclusivity is owned by the Session-scoped delivery, activation, and turn
+  fences, not by an Agent-level pin. Assignments remain rebuildable hints:
   the `agent_computer_worker` table remains the liveness source, and every
   placement revalidates the worker behind the assignment. If the assigned worker
   is gone, the assignment is released and re-placed. Crucially, an assignment is
@@ -19,8 +22,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerPool do
   alias Ecto.Adapters.SQL
 
   alias Ankole.BackgroundAgentJobs
-  alias Ankole.Logging
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionWorkerAssignment
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
   alias Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobWorkerConfig
@@ -54,22 +55,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerPool do
     actor_key = normalize_actor_key(actor_key)
 
     with :ok <- lock_actor_assignment_in_tx(repo, actor_key) do
-      case live_agent_worker_ids(repo, actor_key.agent_uid) do
-        [] ->
-          do_assign_worker_in_tx(repo, actor_key, now, job_limit(actor_key))
-
-        [worker_id] ->
-          assign_pinned_worker(repo, actor_key, worker_id, now, job_limit(actor_key))
-
-        worker_ids ->
-          Logging.warning(
-            "signals_gateway.worker_pool.agent_worker_overlap",
-            "Agent has live deliveries on multiple workers; placement is held until fences converge",
-            %{agent_uid: actor_key.agent_uid, worker_ids: worker_ids}
-          )
-
-          {:error, :no_worker_available}
-      end
+      do_assign_worker_in_tx(repo, actor_key, now, job_limit(actor_key))
     end
   end
 
@@ -97,41 +83,20 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerPool do
   end
 
   @doc """
-  Runs a short Agent Home operation against its single ready Worker.
+  Lists the live route of every ready worker.
 
-  The Agent placement advisory lock stays held through the callback, so a new
-  turn cannot move the Agent to another Worker between route selection and the
-  operation. The callback must return a tagged result for `Repo.transact/1`.
+  Worker-local runtime shard maintenance must reach every worker, because the
+  control plane does not track which workers hold a shard for an Agent; a
+  worker without one treats the operation as a no-op.
   """
-  @spec with_agent_file_worker_route(
-          String.t(),
-          (String.t() -> {:ok, term()} | {:error, term()})
-        ) :: {:ok, term()} | {:error, term()}
-  def with_agent_file_worker_route(agent_uid, operation)
-      when is_binary(agent_uid) and is_function(operation, 1) do
-    agent_uid = normalize_uid(agent_uid)
-
-    Repo.transact(fn repo ->
-      with :ok <- lock_agent_worker_in_tx(repo, agent_uid),
-           {:ok, route} <- agent_file_worker_route_in_tx(repo, agent_uid) do
-        operation.(route)
-      end
-    end)
-  end
-
-  defp agent_file_worker_route_in_tx(repo, agent_uid) do
-    worker_ids =
-      repo
-      |> live_agent_worker_ids(agent_uid)
-      |> Kernel.++(assigned_agent_worker_ids(repo, agent_uid))
-      |> Enum.uniq()
-      |> Enum.sort()
-
-    case worker_ids do
-      [] -> file_worker_route_in_tx(repo)
-      [worker_id] -> worker_file_route_in_tx(repo, worker_id)
-      _worker_ids -> {:error, :agent_worker_overlap}
-    end
+  @spec ready_worker_routes() :: [String.t()]
+  def ready_worker_routes do
+    AgentComputerWorker
+    |> where([worker], worker.status == ^@ready_worker_status)
+    |> order_by([worker], asc: worker.inserted_at)
+    |> Repo.all()
+    |> Enum.map(&worker_route/1)
+    |> Enum.filter(&(is_binary(&1) and &1 != ""))
   end
 
   @doc """
@@ -228,56 +193,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerPool do
     end
   end
 
-  defp assign_pinned_worker(repo, actor_key, worker_id, now, job_limit) do
-    worker = lock_assignment_worker(repo, worker_id)
-    assignment = live_assignment_snapshot(repo, actor_key)
-    assignment = if assignment, do: lock_live_assignment(repo, assignment, actor_key)
-
-    cond do
-      not match?(%AgentComputerWorker{status: @ready_worker_status}, worker) ->
-        {:error, :no_worker_available}
-
-      not worker_has_capacity?(worker) or not worker_has_job_capacity?(repo, worker, job_limit) ->
-        {:error, :no_worker_available}
-
-      match?(%ActorSessionWorkerAssignment{worker_id: ^worker_id}, assignment) ->
-        with {:ok, worker} <- reserve_worker_slot(repo, worker) do
-          touch_assignment(repo, assignment, worker, now)
-        end
-
-      match?(%ActorSessionWorkerAssignment{}, assignment) ->
-        with {:ok, _released} <- release_assignment(repo, assignment),
-             {:ok, worker} <- reserve_worker_slot(repo, worker) do
-          insert_assignment(repo, actor_key, worker, now)
-        end
-
-      true ->
-        with {:ok, worker} <- reserve_worker_slot(repo, worker) do
-          insert_assignment(repo, actor_key, worker, now)
-        end
-    end
-  end
-
-  defp live_agent_worker_ids(repo, agent_uid) do
-    ActorEventDelivery
-    |> where([delivery], delivery.agent_uid == ^agent_uid)
-    |> where([delivery], delivery.state in ^ActorEventDelivery.live_states())
-    |> where([delivery], not is_nil(delivery.worker_id))
-    |> select([delivery], delivery.worker_id)
-    |> distinct(true)
-    |> repo.all()
-    |> Enum.sort()
-  end
-
-  defp assigned_agent_worker_ids(repo, agent_uid) do
-    ActorSessionWorkerAssignment
-    |> where([assignment], assignment.agent_uid == ^agent_uid)
-    |> where([assignment], assignment.status in ["assigned", "draining"])
-    |> select([assignment], assignment.worker_id)
-    |> distinct(true)
-    |> repo.all()
-  end
-
   defp reuse_or_replace_assignment(repo, actor_key, assignment, now, job_limit) do
     worker = lock_assignment_worker(repo, assignment.worker_id)
     assignment = lock_live_assignment(repo, assignment, actor_key)
@@ -337,18 +252,27 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerPool do
 
   # Chooses from ready workers after reading their current capacity projection.
   # Missing capacity is not assumed usable: every current worker reports turn
-  # slots in its ready/capacity envelopes.
+  # slots in its ready/capacity envelopes. The worker with the most free turn
+  # slots wins, so concurrent Jobs of one Agent spread across the pool instead
+  # of stacking on the oldest worker.
   defp choose_worker(repo, job_limit) do
     AgentComputerWorker
     |> where([worker], worker.status == ^@ready_worker_status)
     |> order_by([worker], asc: worker.inserted_at)
     |> lock("FOR UPDATE SKIP LOCKED")
     |> repo.all()
+    |> Enum.sort_by(&available_turn_slots/1, :desc)
     |> Enum.find(fn worker ->
       worker_has_capacity?(worker) and
         worker_has_job_capacity?(repo, worker, job_limit)
     end)
   end
+
+  defp available_turn_slots(%AgentComputerWorker{capacity: %{"available_turn_slots" => slots}})
+       when is_integer(slots),
+       do: slots
+
+  defp available_turn_slots(%AgentComputerWorker{}), do: 0
 
   defp reserve_worker_slot(repo, %AgentComputerWorker{} = worker) do
     case worker_has_capacity?(worker) do
@@ -446,14 +370,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerPool do
   @spec lock_actor_assignment_in_tx(module(), actor_key() | map()) :: :ok | {:error, term()}
   def lock_actor_assignment_in_tx(repo, actor_key) do
     actor_key = normalize_actor_key(actor_key)
-    lock_agent_worker_in_tx(repo, actor_key.agent_uid)
-  end
 
-  defp lock_agent_worker_in_tx(repo, agent_uid) do
     case SQL.query(
            repo,
            "SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))",
-           [agent_uid, "agent-worker"]
+           ["#{actor_key.agent_uid}/#{actor_key.session_id}", "actor-worker"]
          ) do
       {:ok, _result} -> :ok
       {:error, reason} -> {:error, reason}

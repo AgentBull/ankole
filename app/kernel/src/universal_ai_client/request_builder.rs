@@ -90,7 +90,7 @@ mod tests {
     }
 
     #[test]
-    fn openai_responses_websocket_initial_message_preserves_stream_fields_not_service_tier() {
+    fn openai_responses_websocket_initial_message_preserves_provider_service_tier() {
         let spec = StreamSpec {
             api_resolver: APIResolverKind::OpenAIResponses,
             upstream: UpstreamSpec {
@@ -109,11 +109,11 @@ mod tests {
                 request: json!({
                     "input": "hello",
                     "stream_options": {"include_usage": true},
-                    "service_tier": "priority",
+                    "service_tier": "agent_computer",
                     "generate": false,
                     "client_metadata": {"traceparent": "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01"}
                 }),
-                provider_options: json!({}),
+                provider_options: json!({"service_tier": "priority"}),
                 stream: Some(true),
                 include_model: true,
             },
@@ -137,7 +137,7 @@ mod tests {
             payload["client_metadata"]["traceparent"],
             "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01"
         );
-        assert!(payload.get("service_tier").is_none());
+        assert_eq!(payload["service_tier"], "priority");
     }
 
     #[test]

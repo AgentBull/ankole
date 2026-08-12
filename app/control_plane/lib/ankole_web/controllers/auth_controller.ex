@@ -140,7 +140,11 @@ defmodule AnkoleWeb.AuthController do
   end
 
   @doc """
-  Starts a normal admin OIDC login.
+  Starts a normal admin OIDC login as one browser navigation.
+
+  The response stores the pending state and redirects to the provider. This
+  avoids the earlier fetch-then-navigate gap. One browser supports one pending
+  admin login; a later login replaces an earlier one.
   """
   def oidc_authorization(conn, %{"provider_id" => provider_id} = params) do
     return_to = WebSession.safe_return_to(params["return_to"])
@@ -161,7 +165,7 @@ defmodule AnkoleWeb.AuthController do
         redirect_uri: redirect_uri,
         return_to: return_to
       })
-      |> json(%{authorizationURL: authorization_url})
+      |> redirect(external: authorization_url)
     else
       {:ok, false} -> error(conn, 409, "setup is not complete")
       {:error, reason} -> error(conn, 400, reason)
@@ -192,7 +196,7 @@ defmodule AnkoleWeb.AuthController do
         complete_admin_oidc(conn, provider_id, code, state)
 
       true ->
-        error(conn, 400, "invalid OIDC state")
+        error(conn, 400, "OIDC login expired or was replaced; start sign-in again")
     end
   end
 

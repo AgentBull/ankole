@@ -379,8 +379,19 @@ impl ResponseContext {
     }
 
     pub fn resolved_provider_request_object(&self) -> Map<String, Value> {
+        let service_tier = self
+            .provider_options
+            .as_object()
+            .and_then(|options| options.get("service_tier"))
+            .cloned();
         let mut request = self.resolved_request_object();
-        request.remove("service_tier");
+
+        if let Some(service_tier) = service_tier {
+            request.insert("service_tier".to_string(), service_tier);
+        } else {
+            request.remove("service_tier");
+        }
+
         normalize_compaction_input(&mut request);
         normalize_function_call_replay(&mut request);
         request
@@ -907,7 +918,7 @@ mod tests {
     }
 
     #[test]
-    fn response_context_merges_provider_options_without_leaking_control_field() {
+    fn response_context_keeps_provider_service_tier_without_leaking_public_control_field() {
         let context = ResponseContext {
             model: "gpt-test".to_string(),
             request: json!({
@@ -918,7 +929,11 @@ mod tests {
                 "service_tier": "agent_computer",
                 "stream_options": {"include_usage": true}
             }),
-            provider_options: json!({"reasoningEffort": "minimal", "textVerbosity": "low"}),
+            provider_options: json!({
+                "reasoningEffort": "minimal",
+                "service_tier": "priority",
+                "textVerbosity": "low"
+            }),
             stream: Some(false),
             include_model: true,
         };
@@ -954,7 +969,7 @@ mod tests {
             provider_request.get("stream_options"),
             Some(&json!({"include_usage": true}))
         );
-        assert!(!provider_request.contains_key("service_tier"));
+        assert_eq!(provider_request.get("service_tier"), Some(&json!("priority")));
     }
 
     #[test]

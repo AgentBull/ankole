@@ -129,6 +129,19 @@ defmodule Ankole.AIGateway.ConsoleQueriesTest do
       assert projection.display_name == "ghost"
     end
 
+    test "cron execution sessions read as kind cron" do
+      %{principal: agent} = PrincipalsFixtures.agent_fixture()
+
+      conversation =
+        conversation_fixture(agent.uid, "cron:#{Ecto.UUID.generate()}")
+
+      projection = conversation |> reload() |> ConsoleQueries.console_projection()
+
+      assert projection.kind == "cron"
+      assert projection.channel_kind == nil
+      assert projection.signal_adapter == nil
+    end
+
     test "dreaming rooms resolve a peer label but carry no signal tags" do
       %{principal: agent} = PrincipalsFixtures.agent_fixture()
       %{principal: peer} = PrincipalsFixtures.human_fixture(%{display_name: "Boris"})

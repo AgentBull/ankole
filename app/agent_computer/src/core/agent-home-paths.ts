@@ -4,6 +4,17 @@ import { modelIntegerIDFromWire } from './model-integer-id'
 
 export const AGENTS_ROOT = '/agents'
 export const WORKER_SHARE_ROOT = '/var/share'
+// Codex SQLite state must live on Worker-local disk: WAL mode depends on
+// same-host shared memory and is not usable on the shared network filesystem.
+// The state is a rebuildable thread-recovery cache — losing it with the Worker
+// falls into the existing "recreate a missing runtime chain" contract — while
+// PostgreSQL keeps lifecycle truth and the shared filesystem keeps workspaces.
+// Local state also makes per-(Agent, Worker) runtime shards structurally
+// exclusive, which is what lets one Agent's Jobs run on several Workers.
+// Read at call time so tests can point each fixture at its own root.
+export function codexStateRoot(): string {
+  return process.env.ANKOLE_CODEX_STATE_ROOT || '/var/lib/ankole/codex'
+}
 export const BUILTIN_SKILLS_ROOT = '/repo/app/library'
 export const INTERNAL_SKILLS_ROOT = '/repo/internals/skills'
 export const AGENT_UID_PATTERN = /^[a-z0-9][a-z0-9._-]{0,95}$/
@@ -34,7 +45,7 @@ export function agentHomePaths(agentsRoot: string, agentUID: string): AgentHomeP
   return {
     agentKey,
     home,
-    codexHome: join(home, '.codex'),
+    codexHome: join(resolve(codexStateRoot()), agentKey, '.codex'),
     soul: join(home, 'SOUL.md'),
     mission: join(home, 'MISSION.md'),
     design: join(home, 'DESIGN.md'),

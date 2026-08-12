@@ -245,6 +245,7 @@ defmodule Ankole.AIGateway.ResponseStream.State do
       |> account_tool_calls(event)
 
     if event["type"] in @terminal_event_types do
+      event = reconcile_terminal_item_snapshots(state, event)
       event = filter_unadmitted_tool_items(state, event)
       observe_terminal_event(state, event, sequence)
     else
@@ -417,6 +418,80 @@ defmodule Ankole.AIGateway.ResponseStream.State do
 
   defp observe_terminal_event(state, event, sequence),
     do: finalize_terminal(state, event, sequence, :keep_upstream)
+
+  # Some compatible providers omit item identities and other fields from the
+  # terminal snapshot. Restore a same-index item only when the snapshot is a
+  # field-for-field subset of the item that its done event already admitted.
+  defp reconcile_terminal_item_snapshots(
+         state,
+         %{"response" => %{"output" => output} = response} = event
+       )
+       when is_list(output) do
+    output =
+      output
+      |> Enum.with_index()
+      |> Enum.map(fn {item, provider_index} ->
+        reconcile_terminal_item_snapshot(state, item, provider_index)
+      end)
+
+    Map.put(event, "response", Map.put(response, "output", output))
+  end
+
+  defp reconcile_terminal_item_snapshots(_state, event), do: event
+
+  defp reconcile_terminal_item_snapshot(state, %{} = item, provider_index) do
+    with nil <- public_item_id(item),
+         {:ok, recorded_item} <- terminal_snapshot_candidate(state, provider_index),
+         true <- terminal_item_subset?(item, recorded_item) do
+      recorded_item
+    else
+      _not_same_item -> item
+    end
+  end
+
+  defp reconcile_terminal_item_snapshot(_state, item, _provider_index), do: item
+
+  defp terminal_snapshot_candidate(
+         %{tool_loop: %StreamLoop{current_round_items_rev: provider_items}} = state,
+         provider_index
+       ) do
+    with {:ok, public_item} <- terminal_public_item_candidate(state, provider_index),
+         public_id when is_binary(public_id) <- public_item_id(public_item),
+         %{} = provider_item <-
+           Enum.find(provider_items, fn provider_item ->
+             case public_item_id(provider_item) do
+               nil -> false
+               provider_id -> Map.get(state.provider_item_ids, provider_id) == public_id
+             end
+           end) do
+      {:ok, provider_item}
+    else
+      _missing -> :error
+    end
+  end
+
+  defp terminal_snapshot_candidate(state, provider_index),
+    do: terminal_public_item_candidate(state, provider_index)
+
+  defp terminal_public_item_candidate(state, provider_index) do
+    with {:ok, public_index} <- Map.fetch(state.provider_output_indexes, provider_index),
+         %{} = item <- Enum.at(chronological(state.public_items), public_index),
+         item_id when is_binary(item_id) <- public_item_id(item) do
+      {:ok, item}
+    else
+      _missing -> :error
+    end
+  end
+
+  defp terminal_item_subset?(%{"type" => type} = item, %{"type" => type} = recorded_item)
+       when is_binary(type) do
+    snapshot = Map.delete(item, "id")
+
+    map_size(snapshot) > 0 and
+      Enum.all?(snapshot, fn {key, value} -> Map.fetch(recorded_item, key) == {:ok, value} end)
+  end
+
+  defp terminal_item_subset?(_item, _recorded_item), do: false
 
   @doc false
   @spec complete_local_effect(t(), map(), [map()]) ::

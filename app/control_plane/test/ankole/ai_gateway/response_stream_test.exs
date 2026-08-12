@@ -458,6 +458,76 @@ defmodule Ankole.AIGateway.ResponseStreamTest do
     assert response["output"] == [partial_call]
   end
 
+  test "an anonymous terminal snapshot keeps the streamed public item" do
+    streamed_item = %{
+      "type" => "message",
+      "id" => "msg_provider",
+      "role" => "assistant",
+      "status" => "completed",
+      "content" => [%{"type" => "output_text", "text" => "one answer"}]
+    }
+
+    state = State.new("agent-test", %{}, %{}) |> observe_done(streamed_item)
+
+    terminal_item = Map.drop(streamed_item, ["id", "status"])
+
+    assert {:ok, _state, [public_terminal],
+            {:terminal, %{terminal_response: response}, :keep_upstream}} =
+             State.observe(state, completed_event(terminal_item), 1)
+
+    assert public_terminal["response"]["output"] == [streamed_item]
+    assert response["output"] == [streamed_item]
+  end
+
+  test "a conflicting anonymous terminal item is not reconciled by output index" do
+    streamed_item = %{
+      "type" => "message",
+      "id" => "msg_provider",
+      "role" => "assistant",
+      "status" => "completed",
+      "content" => [%{"type" => "output_text", "text" => "streamed"}]
+    }
+
+    state = State.new("agent-test", %{}, %{}) |> observe_done(streamed_item)
+
+    terminal_item = %{
+      "type" => "message",
+      "id" => nil,
+      "role" => "assistant",
+      "content" => [%{"type" => "output_text", "text" => "different"}]
+    }
+
+    assert {:ok, _state, [public_terminal], {:terminal, _outcome, :keep_upstream}} =
+             State.observe(state, completed_event(terminal_item), 1)
+
+    assert public_terminal["response"]["output"] == [terminal_item]
+  end
+
+  test "a tool loop does not admit an anonymous terminal call twice" do
+    streamed_call = %{
+      "type" => "function_call",
+      "id" => "fc_provider",
+      "call_id" => "call_probe",
+      "name" => "sub2api_probe_noop",
+      "arguments" => ~s({"nonce":"probe-1019"}),
+      "status" => "completed"
+    }
+
+    state =
+      State.new("agent-test", %{}, %{}, tool_loop: client_tool_loop())
+      |> observe_done(streamed_call)
+
+    terminal_call = Map.drop(streamed_call, ["id", "status"])
+
+    assert {:ok, _state, [public_terminal],
+            {:terminal, %{terminal_response: response}, :keep_upstream}} =
+             State.observe(state, completed_event(terminal_call), 1)
+
+    assert public_terminal["type"] == "response.completed"
+    assert public_terminal["response"]["output"] == [streamed_call]
+    assert response["output"] == [streamed_call]
+  end
+
   test "max-tool metadata cannot turn an unsupported incomplete terminal into success" do
     event = %{
       "type" => "response.incomplete",
@@ -786,6 +856,39 @@ defmodule Ankole.AIGateway.ResponseStreamTest do
       plan: resume_plan(),
       provider_request: %{"input" => [], "tools" => []},
       downstream_tools: []
+    }
+  end
+
+  defp client_tool_loop do
+    %StreamLoop{
+      plan: %ToolSearch.Plan{execution: :client},
+      provider_request: %{"input" => [], "tools" => []},
+      downstream_tools: []
+    }
+  end
+
+  defp observe_done(state, item) do
+    event = %{
+      "type" => "response.output_item.done",
+      "sequence_number" => 0,
+      "output_index" => 0,
+      "item" => item
+    }
+
+    assert {:ok, new_state, [_done], :continue} = State.observe(state, event, 0)
+    new_state
+  end
+
+  defp completed_event(item) do
+    %{
+      "type" => "response.completed",
+      "sequence_number" => 1,
+      "response" => %{
+        "id" => "resp_provider",
+        "object" => "response",
+        "status" => "completed",
+        "output" => [item]
+      }
     }
   end
 

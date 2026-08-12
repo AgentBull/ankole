@@ -207,6 +207,22 @@ export type BrainDreamingFitnessResponse = {
 }
 
 /**
+ * BackgroundAgentJobHealthResponse
+ */
+export type BackgroundAgentJobHealthResponse = {
+  claims_24h: number
+  dead_letter_notices_24h: number
+  execution_failures_24h: number
+  oldest_queued_seconds: number | null
+  queued_count: number
+  running_count: number
+  succeeded_24h: number
+  successor_seeded_24h: number
+  wakeups_24h: number
+  window_seconds: number
+}
+
+/**
  * AutomationJobRunItem
  */
 export type AutomationJobRunItem = {
@@ -687,6 +703,7 @@ export type BackgroundAgentJobItem = {
   error: {
     [key: string]: unknown
   }
+  execution_failures: number
   id: number
   inserted_at: string
   metadata: {
@@ -778,6 +795,7 @@ export type BackgroundAgentJobListItem = {
   agent_uid: string
   attempts: number
   duration_seconds: number
+  execution_failures: number
   id: number
   inserted_at: string
   status: 'queued' | 'running' | 'waiting_on_user' | 'succeeded' | 'failed' | 'stopped'
@@ -1201,9 +1219,12 @@ export type ScheduleCronWriteRequest = {
   delivery: JsonValue
   idempotency_key: string
   name: string
+  /**
+   * Conversation session that manages this schedule. Fires run in the derived execution session `cron:<schedule_id>`.
+   */
+  owner_session_id: string
   payload?: JsonValue
   schedule: JsonValue
-  session_id: string
   status?: 'active' | 'paused'
   timezone?: string | null
 }
@@ -5920,6 +5941,52 @@ export type AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialRe
 export type AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialResponse =
   AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialResponses[keyof AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialResponses]
 
+export type AnkoleWebBackgroundAgentJobControllerCompleteData = {
+  /**
+   * Completion result
+   */
+  body?: {
+    result_summary: string
+  }
+  path: {
+    job_id: number
+  }
+  query?: never
+  url: '/api/v1/background-agent-jobs/{job_id}/complete'
+}
+
+export type AnkoleWebBackgroundAgentJobControllerCompleteErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+  /**
+   * Job already failed or stopped
+   */
+  409: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebBackgroundAgentJobControllerCompleteError =
+  AnkoleWebBackgroundAgentJobControllerCompleteErrors[keyof AnkoleWebBackgroundAgentJobControllerCompleteErrors]
+
+export type AnkoleWebBackgroundAgentJobControllerCompleteResponses = {
+  /**
+   * Background Agent Job
+   */
+  200: BackgroundAgentJobResponse
+}
+
+export type AnkoleWebBackgroundAgentJobControllerCompleteResponse =
+  AnkoleWebBackgroundAgentJobControllerCompleteResponses[keyof AnkoleWebBackgroundAgentJobControllerCompleteResponses]
+
 export type AnkoleWebWorkerEnvControllerDeleteData = {
   body?: never
   path: {
@@ -6492,6 +6559,37 @@ export type AnkoleWebWorkerEnvControllerIndexForAgentResponses = {
 
 export type AnkoleWebWorkerEnvControllerIndexForAgentResponse =
   AnkoleWebWorkerEnvControllerIndexForAgentResponses[keyof AnkoleWebWorkerEnvControllerIndexForAgentResponses]
+
+export type AnkoleWebBackgroundAgentJobControllerHealthData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v1/background-agent-jobs/health'
+}
+
+export type AnkoleWebBackgroundAgentJobControllerHealthErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebBackgroundAgentJobControllerHealthError =
+  AnkoleWebBackgroundAgentJobControllerHealthErrors[keyof AnkoleWebBackgroundAgentJobControllerHealthErrors]
+
+export type AnkoleWebBackgroundAgentJobControllerHealthResponses = {
+  /**
+   * Background Agent Job health
+   */
+  200: BackgroundAgentJobHealthResponse
+}
+
+export type AnkoleWebBackgroundAgentJobControllerHealthResponse =
+  AnkoleWebBackgroundAgentJobControllerHealthResponses[keyof AnkoleWebBackgroundAgentJobControllerHealthResponses]
 
 export type AnkoleWebAiGatewayProviderControllerStartChatgptLoginData = {
   /**

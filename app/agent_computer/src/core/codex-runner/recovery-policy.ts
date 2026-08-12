@@ -73,6 +73,11 @@ export function transitionCodexRecovery(input: TransitionInput): CodexRecoveryTr
 
 export function classifyCodexRecoveryFailure(error: JSONObject): CodexRecoveryFailure {
   if (error.code === -32001) return 'transient'
+  // JSON-RPC internal error (-32603) is the app-server reporting its own
+  // process-level failure ("agent loop died unexpectedly"). A replacement
+  // app-server serves the next attempt, so this must stay retryable instead
+  // of terminally failing the Job and its owner-session wakeup.
+  if (error.code === -32603) return 'transient'
 
   const info = error.codexErrorInfo
   const infoName =
@@ -108,7 +113,7 @@ export function classifyCodexRecoveryFailure(error: JSONObject): CodexRecoveryFa
   if (/unknown[-_ ]?(session|thread)|thread .*not found|no rollout found/.test(message)) return 'unknown_session'
   if (/context window|context length|too many tokens/.test(message)) return 'context_overflow'
   if (
-    /stream (?:disconnected|closed)(?: before completion)?|response stream .*?(?:disconnected|closed)|http(?: status)?[\s:]+(?:502|503|504)\b|model at capacity|systemerror|server overloaded|temporarily unavailable/.test(
+    /stream (?:disconnected|closed)(?: before completion)?|response stream .*?(?:disconnected|closed)|http(?: status)?[\s:]+(?:502|503|504)\b|model at capacity|systemerror|server overloaded|temporarily unavailable|agent loop died/.test(
       message
     )
   ) {

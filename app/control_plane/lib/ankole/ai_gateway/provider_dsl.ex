@@ -76,8 +76,9 @@ defmodule Ankole.AIGateway.ProviderDSL do
   Settings are metadata for validation, projection, encryption, and defaults.
   Set `advanced: true` for operator fields that Console should collapse by
   default. Select fields declare their accepted string values with `options`.
-  They do not define request transformation logic; provider prepare functions
-  remain ordinary Elixir code.
+  String fields can use `options` as editable suggestions without rejecting
+  other values. Settings do not define request transformation logic; provider
+  prepare functions remain ordinary Elixir code.
   """
   defmacro setting(key, opts \\ []) do
     quote bind_quoted: [key: key, opts: opts] do

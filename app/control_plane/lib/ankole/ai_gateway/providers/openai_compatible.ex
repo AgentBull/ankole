@@ -5,6 +5,7 @@ defmodule Ankole.AIGateway.Providers.OpenAICompatible do
 
   use Ankole.AIGateway.ProviderDSL
 
+  alias Ankole.AIGateway.OpenAIRequestOptions
   alias Ankole.AIGateway.ProviderConnectionCheck
   alias Ankole.AIGateway.ReasoningEffort
   alias Ankole.AIGateway.UniversalAIRequest
@@ -13,8 +14,22 @@ defmodule Ankole.AIGateway.Providers.OpenAICompatible do
     label(%{"default" => "OpenAI Compatible", "zh-Hans-CN" => "OpenAI 兼容"})
 
     setting(:api_key, encrypted: true, scope: :credential)
-    setting(:endpoint_kind, default: "chat_completions")
+
+    setting(:endpoint_kind,
+      type: :select,
+      default: "chat_completions",
+      options: ~w(responses chat_completions)
+    )
+
     setting(:hosted_web_search, type: :boolean, default: false)
+
+    setting(:upstream_transport,
+      type: :select,
+      default: "sse",
+      options: ~w(sse websocket),
+      advanced: true
+    )
+
     setting(:headers, type: :map, advanced: true)
     setting(:query_params, type: :map, advanced: true)
 
@@ -27,6 +42,7 @@ defmodule Ankole.AIGateway.Providers.OpenAICompatible do
       scope: :request
     )
 
+    setting(:serviceTier, options: ~w(fast flex), scope: :request, advanced: true)
     setting(:textVerbosity, scope: :request)
     setting(:strictJSONSchema, type: :boolean, scope: :request, advanced: true)
 
@@ -40,25 +56,37 @@ defmodule Ankole.AIGateway.Providers.OpenAICompatible do
   @doc """
   Builds a generic OpenAI-compatible language-model request.
 
-  The provider chooses only between Responses and Chat Completions endpoints.
-  Request body conversion and response normalization remain in the shared native
-  UniversalAIClient path.
+  Streaming Responses can use the same upstream WebSocket transport as OpenAI.
+  Chat Completions and non-WebSocket requests use SSE. Request body conversion
+  and response normalization remain in the shared native UniversalAIClient path.
   """
   def prepare_language_model(ctx) do
     endpoint = endpoint_kind(ctx)
 
-    case endpoint do
-      "responses" ->
+    case {endpoint, ctx.stream?, ctx.settings[:upstream_transport]} do
+      {"responses", true, "websocket"} ->
+        ctx
+        |> UniversalAIRequest.new("responses", :openai_responses,
+          method: "GET",
+          upstream: :websocket_text
+        )
+        |> UniversalAIRequest.bearer_auth()
+        |> ReasoningEffort.put_provider_options(ctx, target: :reasoning)
+        |> OpenAIRequestOptions.put_provider_options(:responses)
+
+      {"responses", _stream?, _transport} ->
         ctx
         |> UniversalAIRequest.new("responses", :openai_responses)
         |> UniversalAIRequest.bearer_auth()
         |> ReasoningEffort.put_provider_options(ctx, target: :reasoning)
+        |> OpenAIRequestOptions.put_provider_options(:responses)
 
-      _endpoint ->
+      {_endpoint, _stream?, _transport} ->
         ctx
         |> UniversalAIRequest.new("chat/completions", :openai_chat_completions)
         |> UniversalAIRequest.bearer_auth()
         |> ReasoningEffort.put_provider_options(ctx, target: :reasoning_effort)
+        |> OpenAIRequestOptions.put_provider_options(:chat_completions)
     end
   end
 

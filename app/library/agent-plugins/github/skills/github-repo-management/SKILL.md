@@ -7,6 +7,7 @@ tags: [GitHub, Repositories, Git, Releases, Secrets, Configuration]
 version: 1.2.1
 author: Ankole
 license: MIT
+ankole-runtime: background_job
 platforms: [linux, macos, windows]
 metadata:
   hermes:

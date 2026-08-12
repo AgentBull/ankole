@@ -5,7 +5,10 @@ import { batch, createModel, signal } from '@preact/signals-react'
  *
  * The wire shape splits across several JSON-value fields the backend validates
  * loosely (`schedule`, `delivery`, `payload`), so the model flattens them into
- * individually editable signals and reassembles them on save.
+ * individually editable signals and reassembles them on save. `task` edits
+ * `payload.task` — the self-contained standing instruction a direct-Agent
+ * schedule must carry — while the rest of the stored payload passes through
+ * untouched.
  */
 
 export type CronStatus = 'active' | 'paused'
@@ -19,7 +22,7 @@ export type DeliveryTargetDraft = {
 }
 
 export type ScheduleEditorDraft = {
-  sessionId: string
+  ownerSessionId: string
   bindingName: string
   name: string
   status: CronStatus | ''
@@ -29,12 +32,14 @@ export type ScheduleEditorDraft = {
   anchorAt: string
   timezone: string
   deliveryTargets: DeliveryTargetDraft[]
+  task: string
   payload: string
+  hasAutomationJob: boolean
   idempotencyKey: string
 }
 
 export type CronCreateBody = {
-  session_id: string
+  owner_session_id: string
   binding_name: string
   name: string
   status?: CronStatus
@@ -61,7 +66,7 @@ type DeliveryTarget = {
 
 export const ScheduleEditorModel = createModel(() => {
   const sourceKey = signal<string>()
-  const sessionId = signal('')
+  const ownerSessionId = signal('')
   const bindingName = signal('')
   const name = signal('')
   const status = signal<CronStatus | ''>('')
@@ -71,14 +76,16 @@ export const ScheduleEditorModel = createModel(() => {
   const anchorAt = signal('')
   const timezone = signal('')
   const deliveryTargets = signal<DeliveryTargetDraft[]>([])
+  const task = signal('')
   const payload = signal('{}')
+  const hasAutomationJob = signal(false)
   const idempotencyKey = signal('')
   const initialDraft = signal<ScheduleEditorDraft>()
   const validationError = signal<string>()
 
   const apply = (draft: ScheduleEditorDraft) => {
     batch(() => {
-      sessionId.value = draft.sessionId
+      ownerSessionId.value = draft.ownerSessionId
       bindingName.value = draft.bindingName
       name.value = draft.name
       status.value = draft.status
@@ -89,7 +96,9 @@ export const ScheduleEditorModel = createModel(() => {
       timezone.value = draft.timezone
       deliveryTargets.value =
         draft.deliveryTargets.length > 0 ? draft.deliveryTargets.map(target => ({ ...target })) : [emptyTarget()]
+      task.value = draft.task
       payload.value = draft.payload
+      hasAutomationJob.value = draft.hasAutomationJob
       idempotencyKey.value = draft.idempotencyKey
       validationError.value = undefined
     })
@@ -136,13 +145,17 @@ export const ScheduleEditorModel = createModel(() => {
     return { targets }
   }
 
-  const buildPayload = (): unknown => {
-    try {
-      return JSON.parse(payload.value || '{}')
-    } catch {
-      return null
-    }
+  const buildPayload = (): Record<string, unknown> | null => {
+    const parsed = parseJSON(payload.value)
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return null
+    const out = { ...(parsed as Record<string, unknown>) }
+    const trimmedTask = task.value.trim()
+    if (trimmedTask) out.task = trimmedTask
+    else delete out.task
+    return out
   }
+
+  const taskSatisfied = (): boolean => hasAutomationJob.value || Boolean(task.value.trim())
 
   const scheduleFieldsChanged = (original: ScheduleEditorDraft): boolean =>
     original.scheduleKind !== scheduleKind.value ||
@@ -156,7 +169,7 @@ export const ScheduleEditorModel = createModel(() => {
 
   return {
     sourceKey,
-    sessionId,
+    ownerSessionId,
     bindingName,
     name,
     status,
@@ -166,7 +179,9 @@ export const ScheduleEditorModel = createModel(() => {
     anchorAt,
     timezone,
     deliveryTargets,
+    task,
     payload,
+    hasAutomationJob,
     idempotencyKey,
     validationError,
     initialize(nextSourceKey: string, draft: ScheduleEditorDraft) {
@@ -197,22 +212,36 @@ export const ScheduleEditorModel = createModel(() => {
     },
     isComplete(): boolean {
       return Boolean(
-        bindingName.value.trim() && name.value.trim() && buildSchedule() && buildDelivery() && buildPayload() !== null
+        bindingName.value.trim() &&
+        name.value.trim() &&
+        taskSatisfied() &&
+        buildSchedule() &&
+        buildDelivery() &&
+        buildPayload() !== null
       )
     },
     toCreateBody(): CronCreateBody | null {
       const schedule = buildSchedule()
       const delivery = buildDelivery()
       const nextPayload = buildPayload()
-      const session = sessionId.value.trim()
+      const ownerSession = ownerSessionId.value.trim()
       const binding = bindingName.value.trim()
       const trimmedName = name.value.trim()
       const idempotency = idempotencyKey.value.trim()
-      if (!session || !binding || !trimmedName || !schedule || !delivery || !idempotency || nextPayload === null) {
+      if (
+        !ownerSession ||
+        !binding ||
+        !trimmedName ||
+        !schedule ||
+        !delivery ||
+        !idempotency ||
+        nextPayload === null ||
+        !taskSatisfied()
+      ) {
         return null
       }
       const body: CronCreateBody = {
-        session_id: session,
+        owner_session_id: ownerSession,
         binding_name: binding,
         name: trimmedName,
         schedule,
@@ -231,7 +260,7 @@ export const ScheduleEditorModel = createModel(() => {
       const delivery = buildDelivery()
       const original = initialDraft.value
       const nextPayload = buildPayload()
-      if (!schedule || !delivery || !original || nextPayload === null) return null
+      if (!schedule || !delivery || !original || nextPayload === null || !taskSatisfied()) return null
       const body: CronUpdateBody = {}
       const trimmedName = name.value.trim()
       if (!trimmedName) return null

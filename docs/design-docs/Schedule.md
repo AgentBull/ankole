@@ -7,7 +7,8 @@ must happen and when. Oban wakes the control plane when that time arrives.
 Users can create two kinds of schedules:
 
 - `check_back_later` wakes the same Agent session once.
-- `cron` runs a task on a recurring schedule.
+- `cron` runs a task on a recurring schedule, in the rule's own execution
+  session.
 
 Both create one `actor_scheduled_events` row for each actual wake-up.
 
@@ -46,9 +47,11 @@ The `status` value is one of:
 - `cancelled`
 - `failed`
 
-Each row stores the Agent, Session, binding, due time, time zone, and key that
-prevents duplicates. It can also store the source ActorEvent, AI message, and
-provider reply route.
+Each row stores the Agent, the execution session, binding, due time, time
+zone, and key that prevents duplicates. The execution session is the session
+the wake-up runs in: the creating session for a checkback, and the rule's
+derived `cron:<schedule_id>` session for a cron fire. The row can also store
+the source ActorEvent, AI message, and provider reply route.
 
 `wake_payload` contains the input for the future turn. `source_provenance`
 records the authenticated request and the turn-fence values that created it.
@@ -90,17 +93,50 @@ The `status` value is one of:
 - `active`
 - `paused`
 - `deleted`
+- `completed`
 
-Each row stores the Agent, Session, binding, time rule, time zone, input, and
-delivery targets. It also records the previous and next planned wake-up.
+Each row stores the Agent, the owner conversation (`owner_session_id`),
+binding, time rule, time zone, input, and delivery targets. It also records
+the previous and next planned wake-up.
 
 The creation idempotency key is:
 
 ```text
-(agent_uid, session_id, idempotency_key)
+(agent_uid, owner_session_id, idempotency_key)
 ```
 
 When present, a name must be unique among the Agent's active rules.
+
+### The Cron Execution Session
+
+A Session orders Turns that must share one exact conversation history. A cron
+fire does not continue the owner conversation, so it does not run in it.
+
+Each rule derives one stable execution session: `cron:<schedule_id>`.
+`owner_session_id` keeps only the management scope. The owner session must not
+be a derived cron execution session.
+
+This split gives these guarantees:
+
+- Fires of one rule run one at a time, in order, with the rule's own AIGateway
+  conversation, history, and Workspace.
+- A long fire does not block user messages in the owner conversation, and
+  different rules do not block each other.
+- The fire keeps the delivery `signal_channel_id`, so it has the same channel
+  Brain scope and replies to the configured channel.
+
+A direct-Agent rule must store its complete standing instruction in
+`payload.task`. A fire never sees the owner conversation transcript. A user
+reply to a delivered cron message goes to the owner conversation, which sees
+the delivered message as channel context, not the fire's internal history.
+
+An update that changes `payload` or `delivery` ends the rule's active
+AIGateway conversation, and the next fire starts a new one from the current
+rule. Time-only changes keep the conversation. Removal or completion also
+ends the conversation, so the daily session reset stops selecting the dead
+session. The reset applies immediately even while a fire runs; that fire
+completes into the ended conversation by id, and only a Brain call inside the
+same turn can fail once.
 
 ## Set the Time for One Checkback
 
@@ -258,6 +294,9 @@ outbox rows stay unchanged and are never replayed. A downgrade can convert a
 one-target rule back to the scalar form, but it stops if any rule has multiple
 targets because that conversion would lose configured routes.
 
+A direct-Agent rule requires a non-empty `payload.task` at creation, and an
+update must keep it unless an `automation_job_id` consumes the trigger.
+
 Cron turns can use quiet success only when the delivery object enables it.
 
 ## What Happens When the Time Arrives
@@ -358,7 +397,10 @@ The RPC API provides these cron operations:
 - `run`
 
 RPCLane authenticates the worker before it calls `Schedule.RPCBroker`. The
-broker limits every read or change to the current Agent and Session.
+broker limits every checkback read or change to the current Agent and Session,
+and every cron read or change to the current Agent and the rule's owner
+conversation. A cron-origin turn resolves only its own rule through fire
+provenance.
 
 Checkback creation and update require an exact reply-route match. A
 worker-originated cron route must contain exactly one target and match the
@@ -378,6 +420,10 @@ set of more cron rules.
 - A canceled automatic event can be replaced in the same slot.
 - A fired or failed automatic slot cannot run again.
 - One scheduled event creates at most one ActorEvent or automation job run.
+- A cron fire runs in the rule's derived execution session, never in the
+  owner conversation.
+- A direct-Agent rule stores its complete standing instruction in
+  `payload.task`.
 - A worker cannot add an unrelated provider route to a schedule.
 - One cron event runs at most one Agent turn, independent of its target count.
 - A cron-originated turn cannot change or manually run cron definitions.

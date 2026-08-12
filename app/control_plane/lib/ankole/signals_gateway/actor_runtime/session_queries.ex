@@ -3,11 +3,14 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionQueries do
   Read-only enumeration of actor sessions for one agent.
 
   A session is not a first-class table. It is an opaque partition key that
-  appears across `actor_cron_schedules`, `actor_scheduled_events`, and
+  appears across `actor_cron_schedules` (as the owner conversation),
+  `actor_scheduled_events` (as the execution target), and
   `background_agent_jobs` (the last one synthesizes its session id via
   `Ankole.BackgroundAgentJobs.job_session_id/1`).
   This module unions the distinct session keys from those durable sources so the
-  console can offer a session picker scoped to one agent.
+  console can offer a session picker scoped to one agent. Derived cron
+  execution sessions stay out: they cannot own schedules or other resources,
+  and the conversations page already surfaces them.
   """
 
   import Ecto.Query, warn: false
@@ -15,6 +18,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionQueries do
   alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.Repo
+  alias Ankole.Schedule.Cron
   alias Ankole.Schedule.Schemas.CronSchedule
   alias Ankole.Schedule.Schemas.ScheduledEvent
 
@@ -64,8 +68,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionQueries do
   defp cron_sessions(agent_uid) do
     CronSchedule
     |> where([s], s.agent_uid == ^agent_uid and s.status != "deleted")
-    |> group_by([s], s.session_id)
-    |> select([s], %{session_id: s.session_id, at: max(s.updated_at)})
+    |> group_by([s], s.owner_session_id)
+    |> select([s], %{session_id: s.owner_session_id, at: max(s.updated_at)})
     |> Repo.all()
     |> Enum.map(fn %{session_id: session_id, at: at} ->
       %{session_id: session_id, kind: "session", title: nil, status: nil, last_activity_at: at}
@@ -75,6 +79,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionQueries do
   defp event_sessions(agent_uid) do
     ScheduledEvent
     |> where([e], e.agent_uid == ^agent_uid)
+    |> where([e], not like(e.session_id, ^(Cron.execution_session_prefix() <> "%")))
     |> group_by([e], e.session_id)
     |> select([e], %{session_id: e.session_id, at: max(e.updated_at)})
     |> Repo.all()

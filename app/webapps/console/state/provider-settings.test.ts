@@ -27,6 +27,7 @@ function providerKind(providerKind: string): AIGatewayProviderKindItem {
       'repetition_penalty',
       'search_options',
       'mode',
+      'serviceTier',
       'strictJSONSchema'
     ],
     settings: [
@@ -46,6 +47,7 @@ function providerKind(providerKind: string): AIGatewayProviderKindItem {
       providerSetting('repetition_penalty', { type: 'float', scope: 'request' }),
       providerSetting('search_options', { type: 'map', scope: 'request' }),
       providerSetting('mode', { scope: 'request' }),
+      providerSetting('serviceTier', { options: ['fast', 'flex'], scope: 'request', advanced: true }),
       providerSetting('strictJSONSchema', { type: 'boolean', scope: 'request', advanced: true })
     ]
   }
@@ -86,6 +88,7 @@ describe('provider settings', () => {
       ['repetition_penalty', 'float'],
       ['search_options', 'map'],
       ['mode', 'string'],
+      ['serviceTier', 'string'],
       ['strictJSONSchema', 'boolean']
     ])
   })
@@ -99,7 +102,8 @@ describe('provider settings', () => {
         thinking_budget: '2048',
         repetition_penalty: '1.15',
         search_options: '{"freshness":"week"}',
-        mode: 'balanced'
+        mode: 'balanced',
+        serviceTier: 'provider-native-tier'
       },
       (field, error) => `${field}:${error}`
     )
@@ -112,8 +116,24 @@ describe('provider settings', () => {
         thinking_budget: 2048,
         repetition_penalty: 1.15,
         search_options: { freshness: 'week' },
-        mode: 'balanced'
+        mode: 'balanced',
+        serviceTier: 'provider-native-tier'
       }
+    })
+  })
+
+  test('omits a blank service tier while accepting declared and custom values', () => {
+    const settings = requestSettings(providerKind('openai'))
+    const message = (field: string, error: string) => `${field}:${error}`
+
+    expect(buildSettingOptions(settings, { serviceTier: '' }, message)).toEqual({ ok: true, value: {} })
+    expect(buildSettingOptions(settings, { serviceTier: 'flex' }, message)).toEqual({
+      ok: true,
+      value: { serviceTier: 'flex' }
+    })
+    expect(buildSettingOptions(settings, { serviceTier: 'provider-native-tier' }, message)).toEqual({
+      ok: true,
+      value: { serviceTier: 'provider-native-tier' }
     })
   })
 

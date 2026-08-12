@@ -290,7 +290,11 @@ class CodexJobSession implements AgentCodexRuntimeSession {
         state: this.recoveryState
       })
       this.recoveryState = decision.nextState
-      if (decision.action === 'durable_retry') throw new CodexJobTransientError(error)
+      if (decision.action === 'durable_retry') {
+        throw durableRetryError(
+          error instanceof CodexAppServerRPCError ? error.details : { message: errorMessage(error) }
+        )
+      }
       if (decision.action !== 'replace_thread') throw error
       if (this.input.job.continuedFromJobId) {
         throw new Error('Respawned background agent job could not resume its source Codex thread')
@@ -381,12 +385,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
       this.durableJobStatusCommitted = true
       this.resolveDone()
     } catch (error) {
-      const failure = /background_agent_job_pending_steer/.test(errorMessage(error))
-        ? new BackgroundAgentJobPendingSteerError(error)
-        : error instanceof Error
-          ? error
-          : new Error(String(error))
-      this.rejectDone(failure)
+      this.rejectDone(error instanceof Error ? error : new Error(String(error)))
     }
   }
 
@@ -624,7 +623,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
         await this.startCodexTurn(recreatedThreadInput(this.input.job, retryContinuationInput()))
         return
       }
-      if (decision.action === 'durable_retry') throw new CodexJobTransientError(error)
+      if (decision.action === 'durable_retry') throw durableRetryError(error)
 
       await this.commit('failed', {
         error: {
@@ -1017,19 +1016,18 @@ async function listCodexSkills(
 }
 
 function turnInput(turnStart: TurnStart, job: BackgroundAgentJobResponse): string {
-  let input: string
   if (turnStart.actor_event.type === 'command.steer') {
     const command = jsonObject(jsonObject(jsonObject(turnStart.actor_event.payload_json).data).command)
     const message = stringValue(command.argsText)
     if (!message) throw new Error('BackgroundAgentJob message command is missing argsText')
-    input = message
-  } else if (job.attempts > 1 && job.runtimeThreadId) {
-    input = 'Continue the Job task. Re-check the acceptance criteria in the original task before finishing.'
-  } else {
-    input = job.task
+    return message
   }
-  const pendingSteering = pendingSteeringInput(turnStart)
-  return pendingSteering ? `${input}\n\nPending instructions for this job:\n${pendingSteering}`.trim() : input
+
+  if (job.attempts > 1 && job.runtimeThreadId) {
+    return 'Continue the Job task. Re-check the acceptance criteria in the original task before finishing.'
+  }
+
+  return job.task
 }
 
 function ownerVisibleArtifactPaths(project: PreparedCodexJobExecution['jobProject'], filesChanged: string[]): string[] {
@@ -1064,23 +1062,7 @@ function ownerVisibleArtifactPath(
 
 function turnClientUserMessageID(turnStart: TurnStart): string | undefined {
   if (turnStart.actor_event.type === 'command.steer') return turnStart.actor_event.actor_event_id
-  const pending = turnStart.request_context?.pending_steering
-  if (!Array.isArray(pending)) return undefined
-  return stringValue(jsonObject(pending[0]).actor_event_id)
-}
-
-function pendingSteeringInput(turnStart: TurnStart): string {
-  const pending = turnStart.request_context?.pending_steering
-  if (!Array.isArray(pending)) return ''
-  return pending
-    .map(value => {
-      const item = jsonObject(value)
-      const text = stringValue(item.text)
-      const eventID = stringValue(item.actor_event_id)
-      return text ? `${eventID ? `[steer ${eventID}]\n` : ''}${text}` : ''
-    })
-    .filter(Boolean)
-    .join('\n\n')
+  return undefined
 }
 
 function retryContinuationInput(): string {
@@ -1177,6 +1159,31 @@ class CodexJobTransientError extends Error {
   }
 }
 
+/**
+ * An app-server internal failure is infrastructure, not the task failing: the
+ * process (or its agent loop) died and a replacement serves the next attempt.
+ * The runtime-exception code keeps the control plane's retry accounting on the
+ * uncharged infrastructure ladder.
+ */
+class CodexRuntimeInternalError extends Error {
+  readonly code = 'background_agent_job_runtime_exception'
+  readonly retryable = true
+
+  constructor(cause: unknown) {
+    super(
+      `Codex app-server internal failure requires durable retry: ${stringValue(jsonObject(cause).message) ?? errorMessage(cause)}`,
+      { cause: cause instanceof Error ? cause : undefined }
+    )
+    this.name = 'CodexRuntimeInternalError'
+  }
+}
+
+function durableRetryError(cause: JSONObject): Error {
+  const message = `${stringValue(cause.message) ?? ''}`.toLowerCase()
+  if (cause.code === -32603 || message.includes('agent loop died')) return new CodexRuntimeInternalError(cause)
+  return new CodexJobTransientError(cause)
+}
+
 class CodexTurnNoProgressError extends Error {
   readonly code = 'codex_turn_no_progress'
   readonly retryable = true
@@ -1214,18 +1221,6 @@ class BackgroundAgentJobMessageDeliveryError extends Error {
       cause: cause instanceof Error ? cause : undefined
     })
     this.name = 'BackgroundAgentJobMessageDeliveryError'
-  }
-}
-
-class BackgroundAgentJobPendingSteerError extends Error {
-  readonly code = 'background_agent_job_pending_steer'
-  readonly retryable = true
-
-  constructor(cause: unknown) {
-    super(`BackgroundAgentJob terminal commit deferred for pending steering: ${errorMessage(cause)}`, {
-      cause: cause instanceof Error ? cause : undefined
-    })
-    this.name = 'BackgroundAgentJobPendingSteerError'
   }
 }
 

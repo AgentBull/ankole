@@ -20,9 +20,6 @@ defmodule Ankole.AgentHomePaths do
   @spec home(String.t()) :: String.t()
   def home(agent_uid), do: join_agent(agent_uid, [])
 
-  @spec codex_home(String.t()) :: String.t()
-  def codex_home(agent_uid), do: join_agent(agent_uid, [".codex"])
-
   @spec user_files(String.t()) :: String.t()
   def user_files(agent_uid), do: join_agent(agent_uid, ["user-files"])
 

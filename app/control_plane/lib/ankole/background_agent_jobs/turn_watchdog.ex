@@ -4,6 +4,7 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdog do
   import Ecto.Query
 
   alias Ankole.BackgroundAgentJobs
+  alias Ankole.BackgroundAgentJobs.Lifecycle
   alias Ankole.BackgroundAgentJobs.Queries
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.BackgroundAgentJobs.Schemas.Turn
@@ -193,8 +194,10 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdog do
              job,
              %{"code" => @stall_code, "summary" => message},
              now
-           ) do
-      {:ok, %{kind: :turn_stall_interrupted, job: job}}
+           ),
+         {:ok, requeued} <-
+           Lifecycle.requeue_retryable_attempt_in_tx(repo, job.id, agent_uid, charge: true) do
+      {:ok, %{kind: :turn_stall_interrupted, job: requeued || job}}
     else
       :error -> {:ok, nil}
       nil -> {:ok, nil}

@@ -929,6 +929,13 @@ defmodule Ankole.BackgroundAgentJobsTest do
     %{principal: agent} = background_agent_fixture()
     queued = create_job!(agent.uid, "queued-stop")
 
+    assert {:ok, %{command_event: queued_message}} =
+             BackgroundAgentJobs.send_message(queued.id, %{
+               "agent_uid" => agent.uid,
+               "message" => "Include the late attachment.",
+               "request_id" => "queued-stop-message"
+             })
+
     assert {:ok, %{job: stopped, command_event: nil}} =
              BackgroundAgentJobs.request_stop(queued.id, %{
                "agent_uid" => agent.uid,
@@ -947,6 +954,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
       )
 
     assert %DateTime{} = dispatch.completed_at
+    assert %DateTime{} = Repo.get!(ActorEvent, queued_message.id).completed_at
 
     assert {:ok, %{job: same_stopped, command_event: nil}} =
              BackgroundAgentJobs.request_stop(queued.id, %{
@@ -2486,6 +2494,132 @@ defmodule Ankole.BackgroundAgentJobsTest do
         }
       }
     }
+  end
+
+  describe "request_complete/2" do
+    test "commits an externally verified completion with a succeeded wakeup and closed steers" do
+      %{principal: agent} = background_agent_fixture()
+      job = create_job!(agent.uid, "external-complete")
+
+      assert {:ok, %{command_event: steer}} =
+               BackgroundAgentJobs.send_message(job.id, %{
+                 "agent_uid" => agent.uid,
+                 "message" => "Also attach the summary.",
+                 "request_id" => "external-complete-steer"
+               })
+
+      assert {:ok, %{job: completed}} =
+               BackgroundAgentJobs.request_complete(job.id, %{
+                 "agent_uid" => agent.uid,
+                 "completed_by" => "operator:test",
+                 "result_summary" => "PDF verified at /agents/jobs/manual.pdf"
+               })
+
+      assert completed.status == "succeeded"
+      assert completed.result["summary"] == "PDF verified at /agents/jobs/manual.pdf"
+      assert completed.result["completed_by"] == "operator:test"
+
+      # External completion answers open steers with the completion itself and
+      # never seeds a successor.
+      assert Repo.get!(ActorEvent, steer.id).completed_at != nil
+      refute Repo.get_by(Job, continued_from_job_id: job.id)
+
+      wakeup =
+        Repo.get_by!(ActorEvent,
+          session_id: job.owner_session_id,
+          type: "background_agent_job.completed"
+        )
+
+      assert get_in(wakeup.payload, ["data", "result_summary"]) ==
+               "PDF verified at /agents/jobs/manual.pdf"
+    end
+
+    test "refuses to complete a failed Job and stays idempotent for a succeeded one" do
+      %{principal: agent} = background_agent_fixture()
+      job = create_job!(agent.uid, "external-complete-terminal")
+
+      assert {:ok, _job} =
+               job
+               |> Job.changeset(%{"status" => "failed", "error" => %{"code" => "boom"}})
+               |> Repo.update()
+
+      assert {:error, :background_agent_job_terminal} =
+               BackgroundAgentJobs.request_complete(job.id, %{
+                 "agent_uid" => agent.uid,
+                 "result_summary" => "too late"
+               })
+
+      succeeded_job = create_job!(agent.uid, "external-complete-idempotent")
+
+      assert {:ok, %{job: %{status: "succeeded"}}} =
+               BackgroundAgentJobs.request_complete(succeeded_job.id, %{
+                 "agent_uid" => agent.uid,
+                 "result_summary" => "verified"
+               })
+
+      assert {:ok, %{job: %{status: "succeeded"}}} =
+               BackgroundAgentJobs.request_complete(succeeded_job.id, %{
+                 "agent_uid" => agent.uid,
+                 "result_summary" => "verified again"
+               })
+    end
+
+    test "requires a result summary" do
+      %{principal: agent} = background_agent_fixture()
+      job = create_job!(agent.uid, "external-complete-summary")
+
+      assert {:error, :background_agent_job_result_summary_missing} =
+               BackgroundAgentJobs.request_complete(job.id, %{"agent_uid" => agent.uid})
+    end
+  end
+
+  describe "turn error accounting" do
+    test "infrastructure failures use the short ladder and provider failures keep the long one" do
+      now = DateTime.utc_now(:microsecond)
+
+      infrastructure = %{
+        "code" => "worker_turn_failed",
+        "message" => "runtime lost",
+        "details_json" => %{
+          "error_code" => "background_agent_job_runtime_exception",
+          "retryable" => true
+        }
+      }
+
+      provider = %{
+        "code" => "worker_turn_failed",
+        "message" => "upstream failed",
+        "details_json" => %{"error_code" => "codex_job_transient", "retryable" => true}
+      }
+
+      assert DateTime.diff(BackgroundAgentJobs.turn_error_retry_at(infrastructure, 1, now), now) ==
+               15
+
+      assert DateTime.diff(BackgroundAgentJobs.turn_error_retry_at(infrastructure, 5, now), now) ==
+               300
+
+      assert DateTime.diff(BackgroundAgentJobs.turn_error_retry_at(provider, 1, now), now) == 60
+      assert DateTime.diff(BackgroundAgentJobs.turn_error_retry_at(provider, 5, now), now) == 7_200
+    end
+  end
+
+  describe "health_metrics/0" do
+    test "returns the four reliability signals with a bounded window" do
+      %{principal: agent} = background_agent_fixture()
+      _queued = create_job!(agent.uid, "health-queued")
+
+      metrics = BackgroundAgentJobs.health_metrics()
+
+      assert metrics.queued_count >= 1
+      assert is_integer(metrics.oldest_queued_seconds)
+      assert metrics.window_seconds == 86_400
+      assert is_integer(metrics.claims_24h)
+      assert is_integer(metrics.execution_failures_24h)
+      assert is_integer(metrics.succeeded_24h)
+      assert is_integer(metrics.successor_seeded_24h)
+      assert is_integer(metrics.wakeups_24h)
+      assert is_integer(metrics.dead_letter_notices_24h)
+    end
   end
 
   defp create_job!(agent_uid, suffix) do

@@ -1923,7 +1923,12 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
         title: "ScheduleCronWriteRequest",
         type: :object,
         properties: %{
-          session_id: %Schema{type: :string, minLength: 1},
+          owner_session_id: %Schema{
+            type: :string,
+            minLength: 1,
+            description:
+              "Conversation session that manages this schedule. Fires run in the derived execution session `cron:<schedule_id>`."
+          },
           binding_name: %Schema{type: :string},
           name: %Schema{type: :string, minLength: 1},
           status: %Schema{type: :string, enum: ["active", "paused"], nullable: true},
@@ -1934,7 +1939,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           idempotency_key: %Schema{type: :string}
         },
         required: [
-          :session_id,
+          :owner_session_id,
           :binding_name,
           :name,
           :schedule,
@@ -3496,6 +3501,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
             enum: @statuses
           },
           attempts: %Schema{type: :integer},
+          execution_failures: %Schema{type: :integer},
           workspace_template_id: %Schema{type: :string, nullable: true},
           model_profile: %Schema{type: :string},
           reply_route: %Schema{type: :object, additionalProperties: true},
@@ -3519,6 +3525,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           :task,
           :status,
           :attempts,
+          :execution_failures,
           :workspace_template_id,
           :model_profile,
           :reply_route,
@@ -3563,6 +3570,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
             enum: @statuses
           },
           attempts: %Schema{type: :integer},
+          execution_failures: %Schema{type: :integer},
           workspace_template_id: %Schema{type: :string, nullable: true},
           duration_seconds: %Schema{type: :integer},
           inserted_at: %Schema{type: :string}
@@ -3573,6 +3581,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           :title,
           :status,
           :attempts,
+          :execution_failures,
           :workspace_template_id,
           :duration_seconds,
           :inserted_at
@@ -3597,6 +3606,49 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           next_cursor: %Schema{type: :string, nullable: true}
         },
         required: [:jobs, :next_cursor],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule BackgroundAgentJobHealthResponse do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    # Reliability trend signals, not exact ledgers: the 24-hour sums read
+    # recently updated Job rows. `claims_24h` counts every worker-attempt
+    # claim; `execution_failures_24h` counts only failures charged to the
+    # execution budget, so the gap between them is infrastructure churn.
+    OpenAPISpex.schema(
+      %{
+        title: "BackgroundAgentJobHealthResponse",
+        type: :object,
+        properties: %{
+          oldest_queued_seconds: %Schema{type: :integer, nullable: true},
+          queued_count: %Schema{type: :integer},
+          running_count: %Schema{type: :integer},
+          claims_24h: %Schema{type: :integer},
+          execution_failures_24h: %Schema{type: :integer},
+          succeeded_24h: %Schema{type: :integer},
+          successor_seeded_24h: %Schema{type: :integer},
+          wakeups_24h: %Schema{type: :integer},
+          dead_letter_notices_24h: %Schema{type: :integer},
+          window_seconds: %Schema{type: :integer}
+        },
+        required: [
+          :oldest_queued_seconds,
+          :queued_count,
+          :running_count,
+          :claims_24h,
+          :execution_failures_24h,
+          :succeeded_24h,
+          :successor_seeded_24h,
+          :wakeups_24h,
+          :dead_letter_notices_24h,
+          :window_seconds
+        ],
         additionalProperties: false
       },
       struct?: false
