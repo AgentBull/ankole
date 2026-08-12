@@ -220,6 +220,134 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     refute persisted.reply_preview_cleanup_at
   end
 
+  test "terminal recovery uses the durable outbox presentation instead of the stale checkpoint",
+       %{event: event} do
+    working = ReplyPresentation.new() |> ReplyPresentation.append_answer("正在理解请求")
+
+    terminal =
+      working
+      |> ReplyPresentation.terminal("failed", "AI 服务返回了错误，请重试。")
+
+    [page] = CardChain.pages(working)
+
+    checkpoint =
+      %{
+        "schema_version" => 1,
+        "adapter" => "lark",
+        "subject_uid" => event.agent_uid,
+        "conversation_id" => Ecto.UUID.generate(),
+        "presentation" => ReplyPresentation.checkpoint(working),
+        "refresh_pending" => true,
+        "refresh_reason" => "terminal_recovery"
+      }
+      |> CardChain.initialize(
+        CardChain.card_record(
+          0,
+          "card-terminal-recovery",
+          "card-terminal-recovery-uuid",
+          page,
+          "open",
+          ["state", "answer"]
+        )
+      )
+
+    assert {:ok, stored} = Actors.put_reply_preview_checkpoint(event.id, checkpoint)
+    parent = self()
+
+    request_fun = fn
+      _client, :post, path, opts
+      when path in ["im/v1/messages", "im/v1/messages/:message_id/reply"] ->
+        send(parent, {:terminal_reference_sent, opts})
+        {:ok, %{"data" => %{"message_id" => "message-terminal-recovery"}}}
+
+      _client, :patch, "im/v1/messages/:message_id", opts ->
+        send(parent, {:terminal_message_patched, opts})
+        {:ok, %{"data" => %{}}}
+    end
+
+    assert {:ok, result} =
+             CardKit.refresh(
+               %Request{
+                 actor_event: stored,
+                 presentation: terminal,
+                 previous_presentation: checkpoint["presentation"],
+                 checkpoint: checkpoint,
+                 mode: :terminal
+               },
+               client: :recording_client,
+               request_fun: request_fun
+             )
+
+    assert_receive {:terminal_reference_sent, _opts}
+    assert_receive {:terminal_message_patched, patch_opts}
+    card = Ankole.JSON.decode!(patch_opts[:body][:content])
+    answer = Enum.find(card["body"]["elements"], &(&1["element_id"] == "answer"))
+    assert answer["content"] == "AI 服务返回了错误，请重试。"
+    assert result.reply_preview_checkpoint["presentation"]["state"] == "failed"
+    assert result.reply_preview_checkpoint["streaming_state"] == "closed"
+  end
+
+  test "terminal recovery returns a non-retry fallback when the provider rejects a card reference",
+       %{event: event} do
+    working = ReplyPresentation.new() |> ReplyPresentation.append_answer("正在理解请求")
+    terminal = working |> ReplyPresentation.terminal("failed", "最终错误")
+    [page] = CardChain.pages(working)
+
+    checkpoint =
+      %{
+        "schema_version" => 1,
+        "adapter" => "lark",
+        "subject_uid" => event.agent_uid,
+        "conversation_id" => Ecto.UUID.generate(),
+        "presentation" => ReplyPresentation.checkpoint(working),
+        "refresh_pending" => true,
+        "refresh_reason" => "terminal_recovery"
+      }
+      |> CardChain.initialize(
+        CardChain.card_record(
+          0,
+          "card-terminal-binding-limit",
+          "card-terminal-binding-limit-uuid",
+          page,
+          "open",
+          ["state", "answer"]
+        )
+      )
+
+    assert {:ok, stored} = Actors.put_reply_preview_checkpoint(event.id, checkpoint)
+
+    request_fun = fn _client, :post, path, _opts
+                     when path in ["im/v1/messages", "im/v1/messages/:message_id/reply"] ->
+      {:error,
+       %Error{
+         code: 230_099,
+         msg:
+           "Failed to create card content; ErrCode: 200780; ErrMsg: card binding biz count over limit",
+         http_status: 400
+       }}
+    end
+
+    assert {:error,
+            {:cardkit_plain_text_fallback,
+             %{
+               "code" => 230_099,
+               "message" => message
+             }}} =
+             CardKit.refresh(
+               %Request{
+                 actor_event: stored,
+                 presentation: terminal,
+                 previous_presentation: checkpoint["presentation"],
+                 checkpoint: checkpoint,
+                 mode: :terminal
+               },
+               client: :recording_client,
+               request_fun: request_fun
+             )
+
+    assert message =~ "card binding biz count over limit"
+  end
+
   test "a refreshed answer over the page table budget completes the card chain", %{event: event} do
     answer =
       Enum.map_join(1..6, "\n\n", fn index ->

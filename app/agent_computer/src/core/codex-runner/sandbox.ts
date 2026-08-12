@@ -23,6 +23,10 @@ export function codexAgentRuntimeSandboxSpec(input: {
     cwd: input.materialized.agentHome,
     env,
     extraBinds: [
+      {
+        source: input.materialized.codexHome,
+        target: input.materialized.codexHome
+      },
       ...(existsSync(SANDBOX_KERNEL_ROOT)
         ? [{ source: SANDBOX_KERNEL_ROOT, target: SANDBOX_KERNEL_ROOT, readonly: true }]
         : []),

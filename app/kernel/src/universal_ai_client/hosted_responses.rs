@@ -15,7 +15,7 @@ use super::downstream::DownstreamEncoder;
 use super::error::{PROVIDER_BODY_EXCERPT_LIMIT, StreamError};
 use super::spec::{
     DownstreamKind, HostedImageGenerationSpec, HostedToolsSpec, ModelRequestSpec,
-    PreparedHTTPRequestSpec, RequestLimits, ResponseContext, StreamSpec,
+    PreparedHTTPRequestSpec, RequestLimits, ResponseContext, StreamSpec, UpstreamKind,
 };
 
 mod events;
@@ -176,7 +176,7 @@ pub(super) async fn run_hosted_model_request(
             "hosted image generation spec was missing",
         )
     })?;
-    let execution = execute_hosted_with_timeout(&spec, &hosted, None)
+    let execution = execute_hosted_with_timeout(&spec, None, &hosted, None)
         .await
         .map_err(redact_hosted_error)?;
     let mut wrapper = execution.wrapper;
@@ -269,9 +269,11 @@ pub(super) async fn run_hosted_stream(
         .map(|duration| TokioInstant::now() + duration);
     let mut streamed_output = StreamedHostedOutput::default();
     let mut progress_open = true;
+    let websocket_spec = (spec.upstream.kind == UpstreamKind::WebSocketText).then_some(&spec);
 
     let result = {
-        let execution = execute_hosted_with_timeout(&base_spec, &hosted, Some(progress_tx));
+        let execution =
+            execute_hosted_with_timeout(&base_spec, websocket_spec, &hosted, Some(progress_tx));
         tokio::pin!(execution);
 
         loop {
@@ -439,17 +441,18 @@ fn ensure_downstream_event_size(
 
 async fn execute_hosted_with_timeout(
     base_spec: &ModelRequestSpec,
+    websocket_spec: Option<&StreamSpec>,
     hosted: &HostedToolsSpec,
     progress: Option<mpsc::Sender<HostedProgress>>,
 ) -> Result<HostedExecution, StreamError> {
     match base_spec.upstream.timeout.total_duration() {
         Some(duration) => timeout(
             duration,
-            execute_hosted(base_spec, hosted, progress.as_ref()),
+            execute_hosted(base_spec, websocket_spec, hosted, progress.as_ref()),
         )
         .await
         .map_err(|_| hosted_total_timeout_error())?,
-        None => execute_hosted(base_spec, hosted, progress.as_ref()).await,
+        None => execute_hosted(base_spec, websocket_spec, hosted, progress.as_ref()).await,
     }
 }
 
@@ -568,6 +571,7 @@ async fn deliver_hosted_progress(
 
 async fn execute_hosted(
     base_spec: &ModelRequestSpec,
+    websocket_spec: Option<&StreamSpec>,
     hosted: &HostedToolsSpec,
     progress: Option<&mpsc::Sender<HostedProgress>>,
 ) -> Result<HostedExecution, StreamError> {
@@ -613,12 +617,22 @@ async fn execute_hosted(
     let (wrapper, final_body) = loop {
         main_model_rounds = main_model_rounds.saturating_add(1);
         send_hosted_progress(progress, HostedProgress::MainModelRound).await?;
-        let mut round_spec = base_spec.clone();
-        round_spec.hosted_tools = None;
-        round_spec.response_context.request = Value::Object(private_request.clone());
-        round_spec.response_context.stream = Some(false);
-
-        let wrapper = super::client::run_model_request_once(round_spec).await?;
+        let wrapper = match websocket_spec {
+            Some(websocket_spec) => {
+                let mut round_spec = websocket_spec.clone();
+                round_spec.hosted_tools = None;
+                round_spec.response_context.request = Value::Object(private_request.clone());
+                round_spec.response_context.stream = Some(true);
+                super::client::run_websocket_model_request_once(round_spec).await?
+            }
+            None => {
+                let mut round_spec = base_spec.clone();
+                round_spec.hosted_tools = None;
+                round_spec.response_context.request = Value::Object(private_request.clone());
+                round_spec.response_context.stream = Some(false);
+                super::client::run_model_request_once(round_spec).await?
+            }
+        };
         let body = wrapper.get("body").cloned().ok_or_else(|| {
             StreamError::new(
                 "invalid_main_model_response",
@@ -1995,6 +2009,7 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
+    use tokio_tungstenite::tungstenite::{Message, accept};
 
     const HIDDEN_TOOL: &str = "__ankole_hosted_image_generation";
 
@@ -2074,11 +2089,197 @@ mod tests {
             public_request,
         };
 
-        let error = execute_hosted_with_timeout(&base_spec, &hosted, None)
+        let error = execute_hosted_with_timeout(&base_spec, None, &hosted, None)
             .await
             .unwrap_err();
 
         assert_eq!(error.code, "total_timeout");
+    }
+
+    #[test]
+    fn hosted_stream_keeps_websocket_main_round_and_restores_terminal_tool_identity() {
+        let main_listener = TCPListener::bind("127.0.0.1:0").unwrap();
+        let main_address = main_listener.local_addr().unwrap();
+        let (initial_tx, initial_rx) = mpsc::channel();
+
+        thread::spawn(move || {
+            let (stream, _) = main_listener.accept().unwrap();
+            let mut websocket = accept(stream).unwrap();
+            let Message::Text(initial) = websocket.read().unwrap() else {
+                panic!("hosted main model must send a response.create message");
+            };
+            initial_tx.send(initial.to_string()).unwrap();
+
+            websocket
+                .send(Message::Text(
+                    json!({
+                        "type": "response.output_item.done",
+                        "sequence_number": 0,
+                        "output_index": 0,
+                        "item": {
+                            "id": "fc_command_once",
+                            "type": "function_call",
+                            "call_id": "call_command_once",
+                            "name": "command",
+                            "arguments": "{\"command\":\"true\"}",
+                            "status": "completed"
+                        }
+                    })
+                    .to_string()
+                    .into(),
+                ))
+                .unwrap();
+            websocket
+                .send(Message::Text(
+                    json!({
+                        "type": "response.completed",
+                        "sequence_number": 1,
+                        "response": {
+                            "id": "resp_command_once",
+                            "status": "completed",
+                            "output": [{
+                                "type": "function_call",
+                                "call_id": "call_command_once",
+                                "name": "command",
+                                "arguments": "{\"command\":\"true\"}"
+                            }],
+                            "usage": {
+                                "input_tokens": 2,
+                                "output_tokens": 1,
+                                "total_tokens": 3
+                            }
+                        }
+                    })
+                    .to_string()
+                    .into(),
+                ))
+                .unwrap();
+        });
+
+        let public_request = json!({
+            "model": "main-model",
+            "input": "Run one command.",
+            "tools": [
+                {"type": "function", "name": "command", "parameters": {"type": "object"}},
+                {"type": "image_generation"}
+            ],
+            "tool_choice": {"type": "function", "name": "command"}
+        });
+        let spec = json!({
+            "api_resolver": "openai_responses",
+            "upstream": {
+                "kind": "websocket_text",
+                "method": "GET",
+                "url": format!("ws://{main_address}/v1/responses"),
+                "headers": [],
+                "timeout": {
+                    "connect_ms": 2_000,
+                    "first_byte_ms": 2_000,
+                    "idle_ms": 2_000,
+                    "total_ms": 5_000
+                },
+                "transport": {"http_versions": ["h1"], "compression": []}
+            },
+            "downstream": "sse",
+            "response_context": {
+                "model": "main-model",
+                "request": public_request,
+                "provider_options": {"service_tier": "fast"},
+                "stream": true
+            },
+            "limits": {
+                "max_sse_event_bytes": 1_048_576,
+                "max_websocket_text_bytes": 1_048_576,
+                "max_pending_chunks": 32,
+                "max_pending_bytes": 1_048_576
+            },
+            "hosted_tools": {
+                "public_request": public_request,
+                "image_generation": {
+                    "tool_config": {"type": "image_generation"},
+                    "selected_model": "openai/gpt-image-2",
+                    "prepared_request": {
+                        "api_resolver": "openrouter_images",
+                        "upstream": test_upstream("http://127.0.0.1:1/images"),
+                        "response_context": {
+                            "model": "openai/gpt-image-2",
+                            "request": {"n": 1}
+                        },
+                        "limits": {"max_response_bytes": 1_048_576}
+                    },
+                    "endpoint_capabilities": {},
+                    "provider_tag": "openai/gpt-image-2:openai",
+                    "provider_slug": "openai",
+                    "resolved_references": [],
+                    "limits": {}
+                }
+            }
+        });
+        let (event_tx, event_rx) = mpsc::channel();
+        let sink: EventSink = Arc::new(move |event| {
+            event_tx.send(event).unwrap();
+        });
+        let handle = super::super::start_stream(&spec.to_string(), sink).unwrap();
+
+        assert!(matches!(
+            event_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+            super::super::StreamEvent::Ready(_)
+        ));
+        let initial: Value = sonic_rs::from_str(
+            &initial_rx
+                .recv_timeout(Duration::from_secs(1))
+                .expect("hosted WebSocket must receive response.create"),
+        )
+        .unwrap();
+        assert_eq!(initial["type"], "response.create");
+        assert_eq!(initial["stream"], true);
+        assert_eq!(initial["service_tier"], "fast");
+        assert!(initial["tools"].as_array().unwrap().iter().any(|tool| {
+            tool["name"]
+                .as_str()
+                .is_some_and(|name| name.starts_with(HIDDEN_TOOL))
+        }));
+
+        handle.read(32).unwrap();
+        let mut events = Vec::new();
+        loop {
+            match event_rx.recv_timeout(Duration::from_secs(2)).unwrap() {
+                super::super::StreamEvent::Chunk {
+                    kind: super::super::DownstreamKind::SSE,
+                    bytes,
+                    ..
+                } => {
+                    if let Some(event) = parse_hosted_sse_chunk(&bytes) {
+                        events.push(event);
+                    }
+                }
+                super::super::StreamEvent::Done(summary) => {
+                    assert_eq!(summary["reason"], "hosted_completed");
+                    break;
+                }
+                event => panic!("expected hosted stream chunk or done, got {event:?}"),
+            }
+        }
+
+        let done_items = events
+            .iter()
+            .filter(|event| event["type"] == "response.output_item.done")
+            .collect::<Vec<_>>();
+        assert_eq!(done_items.len(), 1);
+        assert!(
+            done_items[0]["item"]["id"]
+                .as_str()
+                .is_some_and(|id| id.starts_with("fc_"))
+        );
+        assert_eq!(done_items[0]["item"]["call_id"], "call_command_once");
+        assert_eq!(done_items[0]["item"]["status"], "completed");
+
+        let terminal = events
+            .iter()
+            .find(|event| event["type"] == "response.completed")
+            .unwrap();
+        assert_eq!(terminal["response"]["output"].as_array().unwrap().len(), 1);
+        assert_eq!(terminal["response"]["output"][0], done_items[0]["item"]);
     }
 
     #[test]

@@ -64,8 +64,7 @@ export function AuthApp() {
                 className="ak-login-provider"
                 key={provider.providerID}
                 type="button"
-                onClick={event => {
-                  event.currentTarget.disabled = true
+                onClick={() => {
                   window.location.assign(oidcAuthorizationPath(provider.providerID))
                 }}>
                 <span>

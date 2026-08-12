@@ -122,9 +122,10 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput) {
     agentsRoot: opts.agentsRoot,
     agentUID: job.agentUid
   })
+  const hostedWebSearch = (turnStart.hosted_tools ?? []).some(tool => tool.type === 'web_search')
   materializeCodexJobProjectConfig({
     projectRoot: jobProject.root,
-    hostedWebSearch: (turnStart.hosted_tools ?? []).some(tool => tool.type === 'web_search')
+    hostedWebSearch
   })
   const projectionAPIKey = runtimeConfig.aiGatewayKey
   opts.abortSignal?.throwIfAborted()
@@ -147,7 +148,7 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput) {
   })
   opts.abortSignal?.throwIfAborted()
   const projectedTools = [
-    ...baseWebTools,
+    ...baseWebTools.filter(tool => !hostedWebSearch || tool.name !== 'web_search'),
     // Brain attributes job-issued memory operations to the job because the
     // turn fence session is the job session; no extra scope payload is needed.
     ...createMemoryTools({

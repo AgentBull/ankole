@@ -1156,6 +1156,40 @@ defmodule Ankole.ScheduleTest do
                Schedule.update_cron_schedule(schedule.id, %{"payload" => %{"task" => "new task"}})
 
       assert updated.payload == %{"task" => "new task"}
+
+      assert {:ok, %{scheduled_event: manual_event}} =
+               Schedule.run_cron_schedule(schedule.id,
+                 now: @base_time,
+                 tool_call_id: "legacy-task-guard"
+               )
+
+      CronSchedule
+      |> where([cron_schedule], cron_schedule.id == ^schedule.id)
+      |> Repo.update_all(set: [payload: %{}])
+
+      assert {:error, :cron_task_required} =
+               Schedule.resume_cron_schedule(schedule.id, now: @base_time)
+
+      assert {:error, :cron_task_required} =
+               Schedule.run_cron_schedule(schedule.id,
+                 now: @base_time,
+                 tool_call_id: "legacy-task-guard-retry"
+               )
+
+      assert {:ok, %{status: :cancelled, scheduled_event: cancelled}} =
+               Schedule.fire_due_event(manual_event.id, now: @base_time)
+
+      assert cancelled.last_fire_error == %{"reason" => ":cron_task_required"}
+
+      assert {:ok, repaired} =
+               Schedule.update_cron_schedule(schedule.id, %{
+                 "payload" => %{"task" => "restored task"}
+               })
+
+      assert repaired.payload == %{"task" => "restored task"}
+
+      assert {:ok, %{status: "active"}} =
+               Schedule.resume_cron_schedule(schedule.id, now: @base_time)
     end
 
     test "payload and delivery changes end the execution conversation and terminal states end it too" do
@@ -2278,11 +2312,16 @@ defmodule Ankole.ScheduleTest do
                ActorRuntime.handle_turn_accepted(turn_accepted_payload(cron_turn_ref))
 
       # A second fire of the same schedule waits for the first turn.
+      manual_fire_at = DateTime.add(first_slot, 2, :second)
+
       assert {:ok, %{scheduled_event: manual_event}} =
-               Schedule.run_cron_schedule(schedule.id, idempotency_key: "manual-while-running")
+               Schedule.run_cron_schedule(schedule.id,
+                 idempotency_key: "manual-while-running",
+                 now: manual_fire_at
+               )
 
       assert {:ok, %{actor_event: manual_input}} =
-               Schedule.fire_due_event(manual_event.id, now: DateTime.add(first_slot, 2, :second))
+               Schedule.fire_due_event(manual_event.id, now: manual_fire_at)
 
       assert manual_input.session_id == execution_actor.session_id
 

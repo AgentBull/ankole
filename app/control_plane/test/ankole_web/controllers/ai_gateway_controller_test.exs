@@ -552,7 +552,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     refute Enum.any?(admin_models, &(&1["id"] == "kimi"))
   end
 
-  test "Codex models manifest includes the runtime slug and its responses-lite switch", %{
+  test "Codex models manifest keeps the runtime slug on standard Responses", %{
     conn: conn
   } do
     %{principal: agent} = agent_fixture()
@@ -589,7 +589,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     assert %{"models" => models} = json_response(conn, 200)
     assert runtime = Enum.find(models, &(&1["slug"] == "gpt-5.6-sol"))
     assert runtime["supports_search_tool"]
-    assert runtime["use_responses_lite"]
+    refute runtime["use_responses_lite"]
   end
 
   test "models endpoint includes non-LLM selectors by default", %{conn: conn} do

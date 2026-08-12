@@ -218,6 +218,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
     const expectedSkills = expectedSkillNames(this.input)
     this.runtimeLease = await agentCodexRuntimeManager.acquire({
       agentUID: this.input.job.agentUid,
+      agentHome: this.input.materialized.agentHome,
       codexHome: this.input.materialized.codexHome,
       aiGatewayBaseURL: this.input.runtimeConfig.aiGatewayKey.baseUrl,
       aiGatewayAPIKey: this.input.runtimeConfig.aiGatewayKey.apiKey,

@@ -17,10 +17,12 @@ import {
   materializeAgentPluginPackages,
   type PreparedAgentPlugins
 } from './agent-plugin-materializer'
+import { retireLegacySharedCodexConfig } from './retire-legacy-shared-codex-config'
 
 const INITIALIZE_SLOW_DIAGNOSTIC_MS = 60_000
 const CLEANUP_REQUEST_TIMEOUT_MS = 5_000
 const MAX_PENDING_THREAD_NOTIFICATIONS = 256
+const MAX_RUNTIME_STDERR_DIAGNOSTIC_LENGTH = 2_048
 
 export interface AgentCodexRuntimeSession {
   prepareForRuntimeCleanup(): void
@@ -31,6 +33,7 @@ export interface AgentCodexRuntimeSession {
 
 export type AgentCodexRuntimeAcquireInput = {
   agentUID: string
+  agentHome: string
   codexHome: string
   aiGatewayBaseURL: string
   aiGatewayAPIKey: string
@@ -146,6 +149,11 @@ export class AgentCodexRuntimeManager {
     input: AgentCodexRuntimeAcquireInput,
     onExit: (error: Error) => void
   ): Promise<AgentCodexRuntime> {
+    const legacyConfigRetirement = await retireLegacySharedCodexConfig(input.agentHome)
+    input.logger?.info('worker.codex_legacy_shared_config_retired', 'Legacy shared Codex config checked', {
+      agent_uid: input.agentUID,
+      status: legacyConfigRetirement
+    })
     const runtimeRef: { current?: AgentCodexRuntime } = {}
     const client = new CodexAppServerClient({
       cwd: input.sandbox.cwd,
@@ -392,10 +400,12 @@ export class AgentCodexRuntime {
       return
     }
 
+    const stderrDiagnostic = runtimeStderrDiagnostic(message)
     this.logger?.info('worker.codex_runtime_unscoped_event', 'Codex runtime emitted an unscoped event', {
       agent_uid: this.agentUID,
       method: message.method ?? 'unknown',
-      ...(threadID ? { thread_id: threadID } : {})
+      ...(threadID ? { thread_id: threadID } : {}),
+      ...(stderrDiagnostic ? { diagnostic: stderrDiagnostic } : {})
     })
   }
 
@@ -666,6 +676,20 @@ export class AgentCodexRuntime {
     )
     await current
   }
+}
+
+function runtimeStderrDiagnostic(message: JSONRPCMessage): string | undefined {
+  if (message.method !== '$stderr') return undefined
+  const text = stringValue(jsonObject(message.params).text)?.trim()
+  if (!text) return undefined
+
+  return text
+    .replace(/(authorization\s*[:=]\s*)(?:(?:bearer|basic)\s+)?\S+/gi, '$1[REDACTED]')
+    .replace(/((?:api[_-]?key|token|secret|password)\s*[:=]\s*)\S+/gi, '$1[REDACTED]')
+    .replace(/\b(?:bx_mcp|sk)[_-][A-Za-z0-9_-]+\b/g, '[REDACTED]')
+    .replace(/\b[A-Za-z0-9_-]{48,}\b/g, '[REDACTED]')
+    .replace(/\s+/g, ' ')
+    .slice(0, MAX_RUNTIME_STDERR_DIAGNOSTIC_LENGTH)
 }
 
 function childThreadLink(

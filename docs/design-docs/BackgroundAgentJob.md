@@ -37,6 +37,10 @@ the stored Turn kind. The error projection keeps only `code`, `summary`,
 `retryable`, and `codex_turn_status`. It replaces UUID-shaped tokens in system
 failure diagnostics with `[internal-id]`. It does not rewrite successful results
 or assistant content.
+Aggregate progress keeps `tool_execution_mechanisms` for calls whose execution
+boundary is meaningful. Each entry contains the tool name, `provider_hosted` or
+`local_dynamic`, and the call count. This compact fact survives trajectory
+pagination, so the parent Agent does not infer the mechanism from tool prose.
 `recent_trajectory` is an `ankole_chatml` trajectory built from the latest three
 stored semantic trajectory groups on the Job root thread. It does not filter
 these groups by the stored Turn kind. It removes stored message IDs, maps
@@ -317,14 +321,24 @@ The runner sets these environment values:
 
 ```text
 HOME=/agents/<agent-key>
-CODEX_HOME=/agents/<agent-key>/.codex
+CODEX_HOME=/var/lib/ankole/codex/<agent-key>/.codex
 ```
 
-Each Agent owns one active Codex app-server process through
+The Agent Home is shared durable storage. The Codex Home is a rebuildable
+Worker-local shard because SQLite WAL cannot use the shared network filesystem.
+The Bubblewrap runtime mounts both paths and keeps the Codex Home writable.
+Before the first local app-server start after this migration, the Worker makes
+one non-blocking attempt to lock the former shared Codex Home. If no old runtime
+holds its lock, the Worker removes only its obsolete `config.toml`; otherwise it
+leaves all legacy state unchanged and retries at the next cold start. This stops
+Codex from treating the old runtime config as project configuration while a
+rolling deployment can still finish work on the old runtime.
+
+Each `(Agent, Worker)` pair owns one active Codex app-server process through
 `AgentCodexRuntime`. Each Background Agent Job owns one root thread in that
 process. A parent-scoped `subAgentActivity` assigns each child thread to the
-owning Job. Different Agents use different Codex Homes and different app-server
-processes.
+owning Job. Different Workers use different Codex Homes and app-server
+processes, including when they run Jobs for the same Agent.
 
 When a Job tree is removed, the runtime keeps retired child thread IDs until the
 app-server exits. If Codex reports a late child whose parent is retired, the
@@ -422,8 +436,13 @@ directly to AIGateway. A Job does not query or cache a separate web-tool catalog
 Codex built-in `web_search` follows the Job's frozen hosted-tool projection.
 When the Job's provider connection declares hosted `web_search`, the project
 config sets `web_search = "live"` and the provider executes that search inside
-the model request. Every other Job keeps `web_search = "disabled"`. The
-workspace template never decides this value.
+the model request. Agent Computer omits its dynamic `web_search` in this case,
+so the model cannot silently select the local path instead. Every other Job
+keeps `web_search = "disabled"` and receives the dynamic tool. The workspace
+template never decides this value. The dynamic `web_fetch` remains available
+in both cases. AIGateway model cards disable Responses Lite because the pinned
+Codex omits configured hosted search from that private carrier. Standard
+Responses sends the native `web_search` declaration.
 
 For AIGateway, the Agent Codex Home selects the `ankole_aigateway` provider.
 The Job configuration contains the real Codex model name and its supported
@@ -443,12 +462,12 @@ the same provider type and model ID, then persists that completed binding. If
 that identity cannot be proved, the legacy Job remains text-only; it never
 borrows visual capability from a different model.
 
-Worker placement selects the normal owner, and the per-Agent `flock` on the
-shared Codex Home is the final cross-process exclusion boundary. An app-server
-holds that lock until it exits. A second Worker that cannot acquire it reports a
-retryable busy result instead of starting another process. Production storage
-must provide reliable cross-host `flock`; deployment acceptance must verify
-that property with two Worker Pods.
+Worker placement selects the normal owner. The per-Agent `flock` on each
+Worker-local Codex Home is the final same-Worker exclusion boundary. An
+app-server holds that lock until it exits. A second process that cannot acquire
+it reports a retryable busy result instead of starting another app-server for
+that `(Agent, Worker)` pair. PostgreSQL placement and the Worker-local shard let
+different Workers run Jobs for the same Agent without sharing SQLite state.
 
 ## Compose the Project AGENTS.md
 
@@ -712,6 +731,12 @@ terminal trajectory with a `running` Job and no newer lead Turn is not ready;
 this rule covers the short interval between trajectory storage and Job-state
 commit. A completed, stopped, or dead-letter command that never appears in a
 trajectory returns a delivery error.
+
+If a succeeded commit finds open steer events, the same transaction creates
+one successor with those messages in order and then completes the events. If
+the successor cannot be stored, the transaction fails and leaves the source
+Job and steer events unchanged. A failed, stopped, or external completion
+answers open steers with the terminal notification instead.
 
 Background Codex gives child agents `request_parent_input`, not
 `request_user_input`. A child sends its question to the lead agent.

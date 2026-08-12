@@ -44,6 +44,7 @@ type RuntimeTurn = {
   anchoredItemKeys: Set<string>
   completedItemIDs: Set<string>
   toolItemNames: Map<string, string>
+  toolItemExecutionMechanisms: Map<string, ToolExecutionMechanism>
   usedSkillNames: Set<string>
   filesChanged: Set<string>
   initialItemKey?: string
@@ -66,6 +67,11 @@ type SanitizeState = {
 type ItemEntry = {
   key: string
   item: JSONObject
+}
+
+type ToolExecutionMechanism = {
+  name: string
+  execution_mechanism: 'provider_hosted' | 'local_dynamic'
 }
 
 type CollabAgentToolCall = Extract<ThreadItem, { type: 'collabAgentToolCall' }>
@@ -242,6 +248,7 @@ export class BackgroundAgentJobTurnRecorder {
         anchoredItemKeys: new Set(),
         completedItemIDs: new Set(),
         toolItemNames: new Map(),
+        toolItemExecutionMechanisms: new Map(),
         usedSkillNames: new Set(),
         filesChanged: new Set(),
         error: {},
@@ -540,6 +547,10 @@ export class BackgroundAgentJobTurnRecorder {
     turn.completedItemIDs.add(id)
     const name = toolName(item)
     if (name) turn.toolItemNames.set(id, name)
+    const mechanism = toolExecutionMechanism(item)
+    if (name && mechanism) {
+      turn.toolItemExecutionMechanisms.set(id, { name, execution_mechanism: mechanism })
+    }
     if (item.type === 'fileChange') {
       const handoff = boundedBackgroundAgentJobPaths([...turn.filesChanged, ...fileChangePaths(item.changes)])
       turn.filesChanged = new Set(handoff.paths)
@@ -663,16 +674,34 @@ function progress(turn: RuntimeTurn): BackgroundAgentJobTurnProgress {
   const toolsUsed = [...counts.entries()]
     .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
     .map(([name, calls]) => ({ name, calls }))
+  const executionCounts = new Map<string, ToolExecutionMechanism & { calls: number }>()
+  for (const execution of turn.toolItemExecutionMechanisms.values()) {
+    const key = `${execution.name}\u0000${execution.execution_mechanism}`
+    const existing = executionCounts.get(key)
+    executionCounts.set(key, { ...execution, calls: (existing?.calls ?? 0) + 1 })
+  }
+  const toolExecutionMechanisms = [...executionCounts.values()].sort((left, right) => {
+    const nameOrder = left.name < right.name ? -1 : left.name > right.name ? 1 : 0
+    if (nameOrder !== 0) return nameOrder
+    return left.execution_mechanism < right.execution_mechanism ? -1 : 1
+  })
 
   return {
     completed_items: turn.completedItemIDs.size,
     tool_calls: turn.toolItemNames.size,
     tools_used: toolsUsed,
+    ...(toolExecutionMechanisms.length > 0 ? { tool_execution_mechanisms: toolExecutionMechanisms } : {}),
     files_changed: [...turn.filesChanged].sort(),
     ...(turn.usedSkillNames.size > 0 ? { skills_used: [...turn.usedSkillNames].sort() } : {}),
     ...(turn.plan ? { plan: turn.plan } : {}),
     ...(turn.activeItem ? { active_item: turn.activeItem } : {})
   }
+}
+
+function toolExecutionMechanism(item: JSONObject): ToolExecutionMechanism['execution_mechanism'] | undefined {
+  if (item.type === 'webSearch') return 'provider_hosted'
+  if (item.type === 'dynamicToolCall' || item.type === 'collabAgentToolCall') return 'local_dynamic'
+  return undefined
 }
 
 function planStatus(value: unknown): BackgroundAgentJobTurnPlan['steps'][number]['status'] | undefined {

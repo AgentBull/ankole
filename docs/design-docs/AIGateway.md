@@ -5,6 +5,9 @@ provider rows and credentials, selects a model and one credential, prepares the
 request, and records Responses. It also owns provider retry and the end of one
 model request.
 
+Caller `metadata` is local Response state. Generic OpenAI-compatible providers
+do not receive it because support for that OpenAI field is not portable.
+
 AIGateway does not run the Agent model loop and does not complete Actor work.
 Agent Computer runs the loop. SignalsGateway completes the ActorEvent and sends
 the final reply to the external platform.
@@ -92,11 +95,13 @@ the `ankole_aigateway` Codex provider. It sends the frozen binding in the
 `x-ankole-aigateway-model-binding` header. AIGateway applies this binding before
 provider resolution. The binding replaces a conflicting Codex model, provider
 option, reasoning effort, or parallel-tool-call choice. Responses Lite stays
-serial. Thus Codex receives the real model and effort that it needs for local
-execution, but AIGateway remains the authority for the upstream request. The
-runner removes `model_catalog_json` from the Job project configuration, so a
-workspace template cannot replace the AIGateway-owned model cards. The
-logical profile name never enters Codex as a model.
+serial. AIGateway model cards disable Responses Lite because Codex 0.147 omits
+configured hosted web search from that private carrier. Standard Responses
+keeps the native tool declaration. Thus Codex receives the real model and effort
+that it needs for local execution, but AIGateway remains the authority for the
+upstream request. The runner removes `model_catalog_json` from the Job project
+configuration, so a workspace template cannot replace the AIGateway-owned
+model cards. The logical profile name never enters Codex as a model.
 
 The AIGateway model card owns one model-visible tool-output limit of 10,000
 tokens. `max_output_tokens` is a requested upper limit. A smaller value reduces
@@ -783,6 +788,9 @@ AIGateway never adds an image tool that the caller did not declare.
 
 The hosted tool can run for 30 minutes.
 The prepared streaming limits allow 128 MiB for the generated upstream response.
+If the main provider uses a Responses WebSocket, each hosted fallback model
+round uses that WebSocket transport. Other streaming providers use one
+collected non-streaming main-model request for each round.
 Image persistence observes normalized image events from both execution paths.
 It stores the final image and accounts for native image usage. A hosted image
 attempt rotates only the image provider pool, while a main model attempt

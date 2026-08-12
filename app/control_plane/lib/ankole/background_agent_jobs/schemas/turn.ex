@@ -24,6 +24,8 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Turn do
   @terminal_statuses ~w(completed failed interrupted)
   @plan_statuses ~w(pending in_progress completed)
   @max_tools_used 128
+  @max_tool_execution_mechanisms 256
+  @tool_execution_mechanisms ~w(local_dynamic provider_hosted)
   @max_skills_used 128
   @max_files_changed 1_024
   @max_plan_steps 100
@@ -177,12 +179,17 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Turn do
            "files_changed" => files_changed
          } = progress
        ) do
-    allowed = ~w(completed_items tool_calls tools_used files_changed skills_used plan active_item)
+    allowed =
+      ~w(completed_items tool_calls tools_used tool_execution_mechanisms files_changed skills_used plan active_item)
 
     Map.keys(progress) -- allowed == [] and
       nonnegative_integer?(completed_items) and
       nonnegative_integer?(tool_calls) and
       valid_tools_used?(tools_used, tool_calls) and
+      valid_optional_tool_execution_mechanisms?(
+        Map.get(progress, "tool_execution_mechanisms"),
+        tools_used
+      ) and
       string_list?(files_changed, @max_files_changed) and
       files_changed == Enum.sort(files_changed) and files_changed == Enum.uniq(files_changed) and
       valid_optional_skills_used?(Map.get(progress, "skills_used")) and
@@ -204,6 +211,35 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Turn do
   end
 
   defp valid_tools_used?(_tools_used, _tool_calls), do: false
+
+  defp valid_optional_tool_execution_mechanisms?(nil, _tools_used), do: true
+
+  defp valid_optional_tool_execution_mechanisms?(executions, tools_used)
+       when is_list(executions) and is_list(tools_used) do
+    if length(executions) <= @max_tool_execution_mechanisms and
+         Enum.all?(executions, &valid_tool_execution_mechanism?/1) do
+      tool_calls = Map.new(tools_used, &{&1["name"], &1["calls"]})
+      pairs = Enum.map(executions, &{&1["name"], &1["execution_mechanism"]})
+
+      pairs == Enum.sort(pairs) and pairs == Enum.uniq(pairs) and
+        executions
+        |> Enum.group_by(& &1["name"], & &1["calls"])
+        |> Enum.all?(fn {name, calls} -> Enum.sum(calls) <= Map.get(tool_calls, name, -1) end)
+    else
+      false
+    end
+  end
+
+  defp valid_optional_tool_execution_mechanisms?(_executions, _tools_used), do: false
+
+  defp valid_tool_execution_mechanism?(execution) when is_map(execution) do
+    Map.keys(execution) -- ~w(name execution_mechanism calls) == [] and
+      nonempty_string?(execution["name"]) and
+      execution["execution_mechanism"] in @tool_execution_mechanisms and
+      is_integer(execution["calls"]) and execution["calls"] > 0
+  end
+
+  defp valid_tool_execution_mechanism?(_execution), do: false
 
   defp valid_optional_skills_used?(nil), do: true
 

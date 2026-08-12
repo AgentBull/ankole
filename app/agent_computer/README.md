@@ -39,7 +39,6 @@ The durable shared writable runtime mount is `/agents`:
 
 ```text
 /agents/<agent-key>/
-├── .codex/
 ├── SOUL.md
 ├── MISSION.md
 ├── DESIGN.md
@@ -69,12 +68,13 @@ For every turn:
 
 ```text
 HOME=/agents/<agent-key>
-CODEX_HOME=/agents/<agent-key>/.codex
+CODEX_HOME=/var/lib/ankole/codex/<agent-key>/.codex
 ```
 
-No separate SQLite home is configured. A Job's `.codex/config.toml` is project
-configuration. The Agent `.codex` directory owns auth, Codex sessions, SQLite,
-caches, and other official state.
+The Agent Home is shared durable storage. The Codex Home is a rebuildable
+Worker-local shard because SQLite WAL needs same-host shared memory. A Job's
+`.codex/config.toml` is project configuration. The Worker-local Codex Home owns
+auth, Codex sessions, SQLite, caches, and other official runtime state.
 
 PostgreSQL is authoritative for SOUL, MISSION, and DESIGN. The uppercase files
 are read-only projections. Startup and document-change events rebuild them;

@@ -67,8 +67,10 @@ describe('@ankole/agent-computer show background job details tool', () => {
         tool_calls: 3,
         tools_used: [
           { name: 'context_compaction', calls: 1 },
-          { name: 'shell', calls: 2 }
+          { name: 'shell', calls: 1 },
+          { name: 'web_search', calls: 1 }
         ],
+        tool_execution_mechanisms: [{ name: 'web_search', execution_mechanism: 'provider_hosted', calls: 1 }],
         files_changed: ['report.md'],
         skills_used: ['deep-research'],
         active_items: [],
@@ -151,6 +153,7 @@ describe('@ankole/agent-computer show background job details tool', () => {
         completed_items: 0,
         tool_calls: 0,
         tools_used: [],
+        tool_execution_mechanisms: [],
         files_changed: [],
         active_items: []
       },
@@ -179,6 +182,7 @@ describe('@ankole/agent-computer show background job details tool', () => {
       completed_items: 0,
       tool_calls: 0,
       tools_used: [],
+      tool_execution_mechanisms: [],
       files_changed: [],
       active_items: []
     })
@@ -350,8 +354,10 @@ function response(outputText = 'complete') {
         tool_calls: 3,
         tools_used: [
           { name: 'context_compaction', calls: 1 },
-          { name: 'shell', calls: 2 }
+          { name: 'shell', calls: 1 },
+          { name: 'web_search', calls: 1 }
         ],
+        tool_execution_mechanisms: [{ name: 'web_search', execution_mechanism: 'provider_hosted', calls: 1 }],
         files_changed: ['report.md'],
         skills_used: ['deep-research'],
         active_items: [],

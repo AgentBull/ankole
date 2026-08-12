@@ -33,13 +33,14 @@ export function buildResponseCreateParams(model: ModelConfig, options: CallModel
   return {
     model: model.selector,
     input,
+    ...providerOptionsParam(model),
     ...(options.instructions ? { instructions: options.instructions } : {}),
     ...(tools.length ? { tools: tools as ResponseCreateParams['tools'] } : {}),
     ...(promptCacheKey ? { prompt_cache_key: promptCacheKey } : {}),
     ...(options.maxOutputTokens ? { max_output_tokens: options.maxOutputTokens } : {}),
     ...(options.temperature !== undefined ? { temperature: options.temperature } : {}),
     ...(options.text ? { text: options.text } : {})
-  }
+  } as ResponseCreateParams
 }
 
 /**
@@ -206,6 +207,7 @@ export function statefulToolResultsRecordParams(
   return {
     model: model.selector,
     input,
+    ...providerOptionsParam(model),
     store: true,
     previous_response_id: stateful.previousResponseID,
     metadata: {
@@ -213,6 +215,11 @@ export function statefulToolResultsRecordParams(
       actor_event_id: stateful.actorEventID
     }
   } as ResponseCreateParams
+}
+
+function providerOptionsParam(model: ModelConfig): JSONObject {
+  if (!model.providerOptions || Object.keys(model.providerOptions).length === 0) return {}
+  return { provider_options: model.providerOptions }
 }
 
 function responseInputContentParts(parts: ContentPart[]): ResponseInputMessageContentList {

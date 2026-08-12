@@ -57,9 +57,9 @@ defmodule Ankole.AIGateway.CodexModelsTest do
              "Model-visible tool output is limited to 10000 tokens."
   end
 
-  test "cards follow the pinned Codex responses-lite model set" do
+  test "cards keep the configured search tool on standard Responses" do
     for slug <- ~w(gpt-5.6-sol gpt-5.6-terra gpt-5.6-luna) do
-      assert CodexModels.card(slug, ["text"])["use_responses_lite"]
+      refute CodexModels.card(slug, ["text"])["use_responses_lite"]
     end
 
     refute CodexModels.card("gpt-5.5", ["text"])["use_responses_lite"]

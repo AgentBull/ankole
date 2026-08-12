@@ -232,7 +232,9 @@ defmodule Ankole.Schedule.Normalizer do
   # on the owner conversation's transcript, so its stored input has to carry
   # the whole repeatable instruction. An AutomationJob consumer brings its own
   # committed script instead.
-  defp validate_cron_task(payload, automation_job_id) do
+  @doc false
+  @spec validate_cron_task(map(), integer() | nil) :: :ok | {:error, :cron_task_required}
+  def validate_cron_task(payload, automation_job_id) do
     cond do
       is_integer(automation_job_id) -> :ok
       is_map(payload) and is_binary(payload["task"]) and String.trim(payload["task"]) != "" -> :ok

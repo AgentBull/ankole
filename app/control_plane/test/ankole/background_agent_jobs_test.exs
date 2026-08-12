@@ -80,7 +80,14 @@ defmodule Ankole.BackgroundAgentJobsTest do
       progress: %{
         "completed_items" => 2,
         "tool_calls" => 1,
-        "tools_used" => [%{"name" => "shell", "calls" => 1}],
+        "tools_used" => [%{"name" => "web_search", "calls" => 1}],
+        "tool_execution_mechanisms" => [
+          %{
+            "name" => "web_search",
+            "execution_mechanism" => "provider_hosted",
+            "calls" => 1
+          }
+        ],
         "files_changed" => ["a.ts"],
         "plan" => %{
           "steps" => [%{"step" => "Run tests", "status" => "completed"}]
@@ -107,6 +114,15 @@ defmodule Ankole.BackgroundAgentJobsTest do
       })
 
     refute Turn.changeset(%Turn{}, invalid_progress).valid?
+
+    invalid_execution_mechanism =
+      put_in(
+        attrs,
+        [:progress, "tool_execution_mechanisms"],
+        [%{"name" => "web_search", "execution_mechanism" => "guessed", "calls" => 1}]
+      )
+
+    refute Turn.changeset(%Turn{}, invalid_execution_mechanism).valid?
   end
 
   test "forward migration installs the runtime snapshot columns and removes activity timestamps" do
@@ -441,6 +457,74 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert active_child.status == "interrupted"
     assert active_child.error["code"] == "background_agent_job_succeeded"
     assert %DateTime{} = active_child.completed_at
+  end
+
+  test "success rolls back when an existing successor cannot carry an open steer" do
+    %{principal: agent} = background_agent_fixture()
+    job = create_job!(agent.uid, "steer-successor-conflict")
+
+    assert {:ok, %{job: running}} =
+             BackgroundAgentJobs.commit_status_with_wakeup(job.id, agent.uid, %{
+               "status" => "running",
+               "runtime_thread_id" => "thread-steer-successor-conflict"
+             })
+
+    running = set_attempts!(running, 1)
+
+    _turn =
+      insert_turn!(
+        running,
+        1,
+        "thread-steer-successor-conflict",
+        "turn-steer-successor-conflict",
+        "completed"
+      )
+
+    # Public lifecycle locks prevent this order. Build the durable conflict
+    # directly to prove that its defensive branch does not complete the steer.
+    failed_at = DateTime.utc_now(:microsecond)
+
+    running
+    |> Ecto.Changeset.change(status: "failed", completed_at: failed_at)
+    |> Repo.update!()
+
+    assert {:ok, %{job: manual_successor}} =
+             BackgroundAgentJobs.respawn_with_dispatch(job.id, %{
+               "agent_uid" => agent.uid,
+               "owner_session_id" => job.owner_session_id,
+               "source_tool_call_id" => "manual-steer-successor-conflict",
+               "message" => "Continue with the manual follow-up.",
+               "reply_route" => job.reply_route
+             })
+
+    job
+    |> Repo.reload!()
+    |> Ecto.Changeset.change(status: "running", completed_at: nil)
+    |> Repo.update!()
+
+    assert {:ok, %{command_event: steer}} =
+             BackgroundAgentJobs.send_message(job.id, %{
+               "agent_uid" => agent.uid,
+               "message" => "Preserve this late instruction.",
+               "request_id" => "late-steer-successor-conflict"
+             })
+
+    assert {:error, {:background_agent_job_already_respawned, successor_id}} =
+             BackgroundAgentJobs.commit_status_with_wakeup(job.id, agent.uid, %{
+               "status" => "succeeded",
+               "result" => %{"summary" => "Done"}
+             })
+
+    assert successor_id == manual_successor.id
+    assert Repo.reload!(job).status == "running"
+    assert Repo.reload!(steer).completed_at == nil
+    assert Repo.reload!(steer).input_state == "open"
+    assert Repo.reload!(manual_successor).task == "Continue with the manual follow-up."
+
+    refute Repo.get_by(ActorEvent,
+             session_id: job.owner_session_id,
+             type: "background_agent_job.completed"
+           )
   end
 
   test "success cannot bypass the current-attempt trajectory by omitting the runtime thread anchor" do
@@ -1729,6 +1813,13 @@ defmodule Ankole.BackgroundAgentJobsTest do
       trajectory_groups: [[assistant_message("child-report-must-not-appear")]],
       progress:
         progress_snapshot(2, "web_search", ["child.tmp"])
+        |> Map.put("tool_execution_mechanisms", [
+          %{
+            "name" => "web_search",
+            "execution_mechanism" => "provider_hosted",
+            "calls" => 1
+          }
+        ])
         |> Map.put("active_item", %{"id" => "child-search", "name" => "web_search"}),
       usage: usage_snapshot(999)
     })
@@ -1780,6 +1871,10 @@ defmodule Ankole.BackgroundAgentJobsTest do
              %{name: "context_compaction", calls: 1},
              %{name: "shell", calls: 1},
              %{name: "web_search", calls: 1}
+           ]
+
+    assert execution.progress.tool_execution_mechanisms == [
+             %{name: "web_search", execution_mechanism: "provider_hosted", calls: 1}
            ]
 
     assert execution.progress.files_changed == ["a.ts", "b.ts", "child.tmp"]
@@ -2592,8 +2687,24 @@ defmodule Ankole.BackgroundAgentJobsTest do
         "details_json" => %{"error_code" => "codex_job_transient", "retryable" => true}
       }
 
+      app_server_timeout = %{
+        "code" => "worker_turn_failed",
+        "message" => "app-server request timed out",
+        "details_json" => %{
+          "error_code" => "codex_app_server_request_timeout",
+          "retryable" => true
+        }
+      }
+
+      assert BackgroundAgentJobs.turn_error_class(app_server_timeout) == :infrastructure
+
       assert DateTime.diff(BackgroundAgentJobs.turn_error_retry_at(infrastructure, 1, now), now) ==
                15
+
+      assert DateTime.diff(
+               BackgroundAgentJobs.turn_error_retry_at(app_server_timeout, 1, now),
+               now
+             ) == 15
 
       assert DateTime.diff(BackgroundAgentJobs.turn_error_retry_at(infrastructure, 5, now), now) ==
                300

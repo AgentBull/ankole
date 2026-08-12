@@ -710,7 +710,11 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
         rebuild_latest_active_message(event, request)
 
       :plain_text_fallback ->
-        plain_text_fallback(event, request)
+        if match?(%OutboxEntry{}, request.outbox) do
+          plain_text_fallback(event, request)
+        else
+          {:error, {:cardkit_plain_text_fallback, ErrorPolicy.provider_error(error)}}
+        end
 
       :operator_action_required ->
         {:error, {:reply_delivery, :operator_action_required, ErrorPolicy.provider_error(error)}}
@@ -1376,7 +1380,15 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
   end
 
   defp refresh_request(request, event, checkpoint) do
-    presentation = ReplyPresentation.normalize(checkpoint["presentation"] || request.presentation)
+    requested_presentation = ReplyPresentation.normalize(request.presentation)
+
+    presentation =
+      if checkpoint["refresh_reason"] == "terminal_recovery" and
+           ReplyPresentation.terminal_state?(requested_presentation) do
+        requested_presentation
+      else
+        ReplyPresentation.normalize(checkpoint["presentation"] || request.presentation)
+      end
 
     %{
       request
@@ -1983,8 +1995,9 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
     end
   end
 
-  defp plain_text_fallback(_event, _request),
-    do: {:error, :cardkit_plain_text_fallback_requires_outbox}
+  defp plain_text_fallback(_event, _request) do
+    {:error, {:cardkit_plain_text_fallback, %{"reason" => "outbox_required"}}}
+  end
 
   defp undelivered_plain_text(%ActorEvent{id: actor_event_id}, operation, text) do
     checkpoint =

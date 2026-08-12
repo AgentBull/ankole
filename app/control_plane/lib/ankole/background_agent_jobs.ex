@@ -30,6 +30,7 @@ defmodule Ankole.BackgroundAgentJobs do
     background_agent_job_runtime_exception
     agent_codex_runtime_busy
     background_agent_job_steer_delivery_failed
+    codex_app_server_request_timeout
   )
 
   @doc """

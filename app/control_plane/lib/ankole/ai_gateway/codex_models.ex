@@ -6,10 +6,11 @@ defmodule Ankole.AIGateway.CodexModels do
   command auth, and applies each returned card with full-card replacement
   semantics (`construct_model_info_from_candidates`, codex
   rust-v0.147.0). Every card therefore supplies the complete pinned card shape.
-  AIGateway owns selector-specific modalities, Responses Lite selection, the
-  native search gate, and one model-visible tool-output limit. Base instructions
-  contain the prompt vendored from the same codex pin and the readable form of
-  that output limit.
+  AIGateway owns selector-specific modalities, the native search gate, and one
+  model-visible tool-output limit. Base instructions contain the prompt vendored
+  from the same codex pin and the readable form of that output limit. Cards keep
+  Responses Lite disabled because Codex 0.147 omits configured hosted web search
+  from that private carrier; standard Responses preserves the native tool.
 
   Cards must stay in lockstep with the pinned codex version. Re-vendor
   `priv/codex/base_instructions.md` and re-check the card baseline when the
@@ -19,7 +20,6 @@ defmodule Ankole.AIGateway.CodexModels do
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIGateway.Models
 
-  @responses_lite_models MapSet.new(~w(gpt-5.6-sol gpt-5.6-terra gpt-5.6-luna))
   @tool_output_limit_tokens 10_000
 
   @external_resource Path.join(:code.priv_dir(:ankole), "codex/base_instructions.md")
@@ -103,7 +103,7 @@ defmodule Ankole.AIGateway.CodexModels do
       "experimental_supported_tools" => [],
       "input_modalities" => codex_input_modalities(input_modalities),
       "supports_search_tool" => true,
-      "use_responses_lite" => MapSet.member?(@responses_lite_models, slug)
+      "use_responses_lite" => false
     }
   end
 

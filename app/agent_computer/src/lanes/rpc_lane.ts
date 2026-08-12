@@ -918,6 +918,12 @@ export type BackgroundAgentJobTurnToolUsage = JSONObject & {
   calls: number
 }
 
+export type BackgroundAgentJobTurnToolExecutionMechanism = JSONObject & {
+  name: string
+  execution_mechanism: 'provider_hosted' | 'local_dynamic'
+  calls: number
+}
+
 export type BackgroundAgentJobTurnActiveItem = JSONObject & {
   id: string
   name: string
@@ -927,6 +933,7 @@ export type BackgroundAgentJobTurnProgress = JSONObject & {
   completed_items: number
   tool_calls: number
   tools_used: BackgroundAgentJobTurnToolUsage[]
+  tool_execution_mechanisms?: BackgroundAgentJobTurnToolExecutionMechanism[]
   files_changed: string[]
   skills_used?: string[]
   plan?: BackgroundAgentJobTurnPlan
