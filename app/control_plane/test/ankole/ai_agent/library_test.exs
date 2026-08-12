@@ -12,11 +12,6 @@ defmodule Ankole.AIAgent.LibraryTest do
   alias Ankole.AppConfigure.Cache
   alias Ankole.Repo
 
-  setup do
-    assert {:ok, %{skills: 22, changed: _changed}} = Library.sync_builtin_skills(force: true)
-    :ok
-  end
-
   test "syncs the first-party builtin skills into the catalog" do
     %{principal: agent} = agent_fixture()
     assert {:ok, skills} = Library.enabled_skills_for_agent(agent.uid)

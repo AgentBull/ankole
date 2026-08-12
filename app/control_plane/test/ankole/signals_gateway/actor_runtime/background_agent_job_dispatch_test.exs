@@ -1395,7 +1395,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
                    )
         end
 
-        assert {:ok, %{status: :background_agent_job_requeued, retry_available_at: retry_available_at}} =
+        assert {:ok,
+                %{status: :background_agent_job_requeued, retry_available_at: retry_available_at}} =
                  ActorRuntime.handle_turn_error(
                    turn_error_payload(
                      turn_ref,

@@ -27,7 +27,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ReadyEventProcessor do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
     live_delivery? = TurnLifecycle.live_delivery_for_session?(Repo, actor_key)
 
-
     result =
       case Actors.next_ready_event(actor_key.agent_uid, actor_key.session_id, now,
              live_delivery?: live_delivery?,

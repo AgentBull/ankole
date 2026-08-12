@@ -969,7 +969,10 @@ mod tests {
             provider_request.get("stream_options"),
             Some(&json!({"include_usage": true}))
         );
-        assert_eq!(provider_request.get("service_tier"), Some(&json!("priority")));
+        assert_eq!(
+            provider_request.get("service_tier"),
+            Some(&json!("priority"))
+        );
     }
 
     #[test]

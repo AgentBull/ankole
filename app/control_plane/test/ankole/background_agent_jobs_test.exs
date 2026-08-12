@@ -2599,7 +2599,9 @@ defmodule Ankole.BackgroundAgentJobsTest do
                300
 
       assert DateTime.diff(BackgroundAgentJobs.turn_error_retry_at(provider, 1, now), now) == 60
-      assert DateTime.diff(BackgroundAgentJobs.turn_error_retry_at(provider, 5, now), now) == 7_200
+
+      assert DateTime.diff(BackgroundAgentJobs.turn_error_retry_at(provider, 5, now), now) ==
+               7_200
     end
   end
 
