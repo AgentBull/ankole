@@ -49,7 +49,7 @@ describe('@ankole/agent-computer Codex job project config', () => {
       expect(config.features.code_mode).toEqual({ enabled: true })
       expect(config.features.multi_agent_v2).toEqual({
         default_wait_timeout_ms: 120_000,
-        enabled: true,
+        enabled: false,
         hide_spawn_agent_metadata: true,
         max_concurrent_threads_per_session: 99,
         min_wait_timeout_ms: 60_000
@@ -60,6 +60,29 @@ describe('@ankole/agent-computer Codex job project config', () => {
       expect(readFileSync(configPath, 'utf8')).not.toContain('secret-value')
     } finally {
       rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('defaults Codex sub-agents on only when the template leaves the switch unset', () => {
+    const cases = [
+      { template: '', expected: true },
+      { template: '[features.multi_agent_v2]\nenabled = true\n', expected: true }
+    ]
+
+    for (const { template, expected } of cases) {
+      const root = mkdtempSync(join(tmpdir(), 'ankole-codex-project-config-multi-agent-'))
+      const configPath = join(root, '.codex', 'config.toml')
+      mkdirSync(join(root, '.codex'), { recursive: true })
+      writeFileSync(configPath, template)
+
+      try {
+        materializeCodexJobProjectConfig({ projectRoot: root, hostedWebSearch: false })
+        const config = TOML.parse(readFileSync(configPath, 'utf8')) as Record<string, any>
+
+        expect(config.features.multi_agent_v2.enabled).toBe(expected)
+      } finally {
+        rmSync(root, { recursive: true, force: true })
+      }
     }
   })
 

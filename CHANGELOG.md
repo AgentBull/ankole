@@ -1,5 +1,9 @@
 # Changelog
 
+## Version 0.68.3 (2026-08-13)
+
+- Let an Agent Plugin workspace template hold a Background Job to single-Agent execution: `features.multi_agent_v2.enabled` in the template `.codex/config.toml` now keeps the value the operator wrote, and Ankole supplies its default only when the template leaves the switch unset.
+
 ## Version 0.68.2 (2026-08-12)
 
 - Apply the valid PR review-bot findings: restored Brain drafts rebaseline only from a fetched response, overlapping model-profile saves each keep their pending state, a refetch that restates current values no longer fakes "unsaved changes", the checkbacks list documents 401/403, schedule toolbars gain a real accessible label, the conversations search placeholder names every input, an invalid worker file timestamp renders as absent instead of crashing the table, and an abandoned invalid fitness horizon snaps back to the applied value.

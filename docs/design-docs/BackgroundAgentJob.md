@@ -403,11 +403,14 @@ lock release have one owner.
 The Job's `.codex/config.toml` contains project settings, not shared Codex state.
 The runner marks the exact Job path as trusted for that process.
 
-The project config enables MultiAgentV2 and keeps
+The project config enables MultiAgentV2 by default and keeps
 `hide_spawn_agent_metadata=true`. In the pinned Codex runtime, this option
 removes optional Agent type, model, reasoning, and service-tier fields from the
 spawn tool and removes the nickname from its result. It does not remove raw
 collaboration calls or `subAgentActivity` notifications from app-server.
+MultiAgentV2 is an operator reliability choice, not a runner safety invariant:
+a workspace template that sets `features.multi_agent_v2.enabled` keeps its own
+value, so an operator can hold a Job to single-Agent execution.
 
 Agent-level configuration owns worker and provider defaults, Plugin and Skill
 availability, and safety choices. The Job runtime projection records the

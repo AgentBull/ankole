@@ -65,7 +65,10 @@ function applyRunnerSafety(config: TomlTable, hostedWebSearch: boolean): void {
   codeMode.enabled = true
 
   const multiAgent = tableAt(features, 'multi_agent_v2')
-  multiAgent.enabled = true
+  // Sub-agents are an operator reliability choice, not a runner safety
+  // invariant. A workspace template that states this native Codex switch keeps
+  // its value; Ankole only supplies the default.
+  if (typeof multiAgent.enabled !== 'boolean') multiAgent.enabled = true
   multiAgent.hide_spawn_agent_metadata = true
   // Reduce model re-entry after empty waits. See https://github.com/openai/codex/issues/35259.
   multiAgent.min_wait_timeout_ms = 60_000
