@@ -138,7 +138,7 @@ Control Plane Plugin は、signals adapter や Brain の source connector のよ
 
 configuration に加えて、Console はシステムの残りの部分に対する observability の経路でもあります。既に解説した各 subsystem は、ここに読み取り用の surface を持ちます。
 
-- **処理中の Agent**: `/agents/:agent_uid/sessions`。session ごとの cron schedule と checkback。
+- **処理中の Agent**: `/agents/:agent_uid/sessions`。Agent ごとの cron schedule と checkback の管理。一覧エンドポイントはインストール全体で、`agent` フィルターを取ります。
 - **Worker**: `/agent-computer-workers`。worker ごとの file のアップロード、移動、一覧表示。
 - **Job**: `/background-agent-jobs`（一覧表示、読み取り、cancel）。
 - **AI の活動**: `/ai-gateway/conversations`。conversation ごとの message。
