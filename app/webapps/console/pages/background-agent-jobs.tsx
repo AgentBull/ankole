@@ -42,7 +42,7 @@ import {
 } from '@remixicon/react'
 import { match } from '@agentbull/active-support'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { type ReactNode, useEffect, useMemo, useState } from 'react'
+import { type ReactNode, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router'
 import { requestErrorMessage } from '../../common/request-errors'
@@ -57,11 +57,13 @@ import type {
   BackgroundAgentJobTurnPlanStep,
   BackgroundAgentJobTurnUsageBreakdown
 } from '../api/generated/types.gen'
-import { ErrorBlock, formatConsoleDate, formatJSON } from '../console-primitives'
+import { AgentFilter, useAgentScope } from '../console-agent-scope'
+import { ErrorBlock } from '../../common/error-block'
+import { formatConsoleDate, formatJSON } from '../console-primitives'
 import { resourceID } from '../console-route-loaders'
 import { MarkdownBody } from '../markdown-body'
 import { StatusIndicator } from '../console-form'
-import { ResourceSearch } from '../console-list-page'
+import { ScopeBar } from '../console-list-page'
 import { PageHeader, PageStack, RefreshButton } from '../console-page'
 
 type JobStatus = BackgroundAgentJobItem['status']
@@ -85,13 +87,13 @@ export function BackgroundAgentJobsPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
-  const routeAgentFilter = searchParams.get('agent') ?? ''
-  const [agentFilter, setAgentFilter] = useState(routeAgentFilter)
+  const scope = useAgentScope()
   const selectedID = resourceID(searchParams.get('job'))
   const [cancelTargetID, setCancelTargetID] = useState<number>()
+  // This list endpoint spans agents on its own; the scope only narrows it.
   const list = useQuery({
     ...ankoleWebBackgroundAgentJobControllerIndexOptions({
-      query: { agent: routeAgentFilter.trim() || undefined, limit: 100 }
+      query: { agent: scope.agentUID || undefined, limit: 100 }
     }),
     placeholderData: keepPreviousData,
     refetchInterval: 5_000
@@ -117,38 +119,6 @@ export function BackgroundAgentJobsPage() {
   const selected = detail.data?.job
   const cancelTarget =
     jobs.find(job => job.id === cancelTargetID) ?? (selected?.id === cancelTargetID ? selected : undefined)
-
-  useEffect(() => setAgentFilter(routeAgentFilter), [routeAgentFilter])
-
-  useEffect(() => {
-    if (agentFilter === routeAgentFilter) return
-
-    const timeout = window.setTimeout(() => {
-      setSearchParams(
-        current => {
-          const next = new URLSearchParams(current)
-          if (agentFilter) next.set('agent', agentFilter)
-          else next.delete('agent')
-          return next
-        },
-        { replace: true }
-      )
-    }, 300)
-
-    return () => window.clearTimeout(timeout)
-  }, [agentFilter, routeAgentFilter, setSearchParams])
-
-  const clearAgentFilter = () => {
-    setAgentFilter('')
-    setSearchParams(
-      current => {
-        const next = new URLSearchParams(current)
-        next.delete('agent')
-        return next
-      },
-      { replace: true }
-    )
-  }
 
   const openBackgroundAgentJob = (id: number) => {
     const next = new URLSearchParams(searchParams)
@@ -177,12 +147,9 @@ export function BackgroundAgentJobsPage() {
         description={t('console.background_agent_jobs.description')}
         actions={<RefreshButton />}
       />
-      <ResourceSearch
-        label={t('console.background_agent_jobs.agent_filter')}
-        placeholder={t('console.background_agent_jobs.agent_filter')}
-        value={agentFilter}
-        onChange={setAgentFilter}
-      />
+      <ScopeBar>
+        <AgentFilter scope={scope} />
+      </ScopeBar>
 
       {list.error ? (
         <ErrorBlock error={list.error} />
@@ -193,18 +160,18 @@ export function BackgroundAgentJobsPage() {
               <RiTimeLine aria-hidden />
             </EmptyMedia>
             <EmptyTitle>
-              {agentFilter ? t('console.empty.no_results_title') : t('console.background_agent_jobs.empty_title')}
+              {scope.agentUID ? t('console.empty.no_results_title') : t('console.background_agent_jobs.empty_title')}
             </EmptyTitle>
             <EmptyDescription>
-              {agentFilter
+              {scope.agentUID
                 ? t('console.empty.no_results_description')
                 : t('console.background_agent_jobs.empty_description')}
             </EmptyDescription>
           </EmptyHeader>
-          {agentFilter ? (
+          {scope.agentUID ? (
             <EmptyContent className="items-start">
-              <Button type="button" size="sm" variant="outline" onClick={clearAgentFilter}>
-                {t('console.empty.clear_search')}
+              <Button type="button" size="sm" variant="outline" onClick={() => scope.selectAgent('')}>
+                {t('console.empty.clear_filters')}
               </Button>
             </EmptyContent>
           ) : null}

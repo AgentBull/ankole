@@ -41,6 +41,33 @@ describe('PrincipalGroupEditorModel', () => {
     model[Symbol.dispose]()
   })
 
+  test('markSaved converges fields and baseline on the server-normalized form', () => {
+    const model = new PrincipalGroupEditorModel()
+
+    model.initialize('group:admins', {
+      name: 'admins',
+      displayName: 'Admins',
+      description: '',
+      kind: 'static',
+      computedCondition: ''
+    })
+    // Trailing whitespace survives in the field but the server stores it trimmed.
+    model.displayName.value = 'Renamed Admins '
+    expect(model.dirty.value).toBe(true)
+
+    model.markSaved({
+      name: 'admins',
+      displayName: 'Renamed Admins',
+      description: '',
+      kind: 'static',
+      computedCondition: ''
+    })
+
+    expect(model.displayName.value).toBe('Renamed Admins')
+    expect(model.dirty.value).toBe(false)
+    model[Symbol.dispose]()
+  })
+
   test('draftError requires a lowercase name on create but not on edit', () => {
     const model = new PrincipalGroupEditorModel()
 

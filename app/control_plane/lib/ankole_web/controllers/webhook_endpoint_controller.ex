@@ -10,6 +10,7 @@ defmodule AnkoleWeb.WebhookEndpointController do
 
   alias Ankole.SignalsGateway.Webhooks
   alias AnkoleWeb.ConsoleErrors
+  alias AnkoleWeb.ConsoleParams
   alias AnkoleWeb.ConsolePolicy
   alias AnkoleWeb.Schemas.ConsoleAPI.ErrorEnvelope
   alias AnkoleWeb.Schemas.ConsoleAPI.WebhookEndpointListResponse
@@ -24,8 +25,8 @@ defmodule AnkoleWeb.WebhookEndpointController do
     render_error: AnkoleWeb.OpenAPIValidationErrorRenderer
 
   operation(:index,
-    summary: "List webhook endpoints for one Agent",
-    parameters: @agent_parameters,
+    summary: "List webhook endpoints",
+    parameters: [agent: [in: :query, type: :string, required: false]],
     responses: [
       ok: {"Webhook endpoints", "application/json", WebhookEndpointListResponse},
       unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
@@ -53,10 +54,10 @@ defmodule AnkoleWeb.WebhookEndpointController do
   )
 
   def index(conn, params) do
-    with {:ok, agent_uid} <- agent_uid_param(params),
-         :ok <- ConsolePolicy.authorize(conn, webhook_resource(agent_uid), "read") do
+    with :ok <- ConsolePolicy.authorize(conn, "webhooks", "read") do
       endpoints =
-        agent_uid
+        params
+        |> ConsoleParams.agent_filter_param()
         |> Webhooks.list_endpoints(nil, active_only: false)
         |> Enum.map(&Webhooks.console_projection/1)
 

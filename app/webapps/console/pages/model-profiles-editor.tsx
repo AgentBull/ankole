@@ -16,8 +16,9 @@ import type {
   AiGatewayProviderKindItem as AIGatewayProviderKindItem,
   ModelProfileWriteRequest
 } from '../api/generated/types.gen'
-import { ErrorBlock } from '../console-primitives'
+import { ErrorBlock } from '../../common/error-block'
 import {
+  draftFromProfile,
   ModelProfilesModel,
   PROFILE_NAMES,
   type ModelProfileSubmission,
@@ -158,7 +159,9 @@ export function ModelProfilesEditor({
     persistProfile(profile, model.submission(profile), built.body)
   }
 
-  const persistencePending = saveProfile.isPending || clearProfile.isPending
+  const profilePersistencePending = (profile: ProfileName) =>
+    (saveProfile.isPending && saveProfile.variables?.path.profile === profile) ||
+    (clearProfile.isPending && clearProfile.variables?.path.profile === profile)
 
   return (
     <section id="model-profiles" className="grid min-w-0 scroll-mt-16 grid-cols-[minmax(0,1fr)] gap-4 [&>*]:min-w-0">
@@ -192,7 +195,16 @@ export function ModelProfilesEditor({
               dirty={signals.dirty.value}
               required={required}
               hint={profileDescription(t, profile)}
-              persistencePending={persistencePending}
+              persistencePending={profilePersistencePending(profile)}
+              deleteConfirm={
+                required
+                  ? undefined
+                  : {
+                      title: t('console.models.clear_title'),
+                      description: t('console.models.clear_description', { profile: modelProfileLabel(t, profile) }),
+                      confirmLabel: t('console.models.clear')
+                    }
+              }
               deleteDisabled={!configured}
               deleteLabel={t('console.models.clear')}
               providers={providers}
@@ -207,20 +219,6 @@ export function ModelProfilesEditor({
       </div>
     </section>
   )
-}
-
-export function draftFromProfile(profile: JSONObject): ProfileDraft {
-  return {
-    description: asString(profile.description),
-    providerID: asString(profile.provider_id),
-    model: asString(profile.model),
-    contextLength: profile.context_length ? String(profile.context_length) : '',
-    providerOptions: recordValue(profile.provider_options) ?? {}
-  }
-}
-
-function asString(value: unknown): string {
-  return typeof value === 'string' ? value : ''
 }
 
 function profileSubmissionKey(agentUID: string, profile: ProfileName): string {

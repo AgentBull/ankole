@@ -7,7 +7,6 @@ import {
   RiLock2Line,
   RiLoginCircleLine
 } from '@remixicon/react'
-import { Alert, AlertDescription, AlertTitle } from '@ankole/uikit/components/alert'
 import { Button } from '@ankole/uikit/components/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@ankole/uikit/components/card'
 import { Checkbox } from '@ankole/uikit/components/checkbox'
@@ -37,8 +36,8 @@ import {
   type ConfigFieldDefinition,
   type LocalizedText
 } from '../common/config-fields'
+import { ErrorBlock } from '../common/error-block'
 import i18n, { nativeLocaleLabel } from '../common/i18n'
-import { requestErrorMessage } from '../common/request-errors'
 import { SetupLayout } from './layout'
 import { IdentitySetupModel, type IdentitySetupDraft } from './state/identity-setup-model'
 import { filterSelectedPluginItems, PluginsStepModel } from './state/plugins-step-model'
@@ -168,7 +167,7 @@ export function SetupApp() {
         <div className="min-w-0">
           {state.error ? (
             <Panel title={t('setup.title')}>
-              <ErrorAlert
+              <ErrorBlock
                 error={state.error}
                 action={
                   <Button size="sm" type="button" variant="outline" onClick={() => void state.refetch()}>
@@ -233,7 +232,7 @@ function BootstrapGate({ setupState, onAuthenticated }: { setupState?: SetupStat
   return (
     <Panel title={t('setup.bootstrap_title')}>
       <p className="text-sm leading-6 text-muted-foreground">{t('setup.activation_hint')}</p>
-      <ErrorAlert error={mutation.error ?? printActivationCode.error} />
+      <ErrorBlock error={mutation.error ?? printActivationCode.error} />
       <Form className="grid gap-6" of={form} onSubmit={output => mutation.mutate(output)}>
         <FieldGroup className="grid grid-cols-1 gap-5 md:grid-cols-2">
           <FormField of={form} path={['locale']}>
@@ -321,7 +320,7 @@ function PluginsStep({ model, onContinue }: { model: InstanceType<typeof Plugins
   return (
     <Panel title={t('setup.choose_plugins')}>
       <p className="text-sm leading-6 text-muted-foreground">{t('setup.plugin_restart_note')}</p>
-      <ErrorAlert error={query.error ?? mutation.error} />
+      <ErrorBlock error={query.error ?? mutation.error} />
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
         {(query.data?.plugins ?? []).map(plugin => {
           const checked = selectedIDs.has(plugin.id)
@@ -462,7 +461,7 @@ function IdentityForm({
 
   return (
     <Panel title={t('setup.identity_provider')}>
-      <ErrorAlert error={mutation.error} />
+      <ErrorBlock error={mutation.error} />
       <form className="grid gap-6" onSubmit={submitIdentity}>
         <FieldGroup className="grid grid-cols-1 gap-5 md:grid-cols-2">
           <Field>
@@ -584,7 +583,7 @@ function NoAdapters({ error }: { error: unknown }) {
   return (
     <Panel title={t('setup.identity_provider')}>
       <p className="text-sm leading-6 text-muted-foreground">{t('setup.no_adapters')}</p>
-      <ErrorAlert error={error} />
+      <ErrorBlock error={error} />
     </Panel>
   )
 }
@@ -635,22 +634,6 @@ function Panel({ children, title }: { children: ReactNode; title: string }) {
       </CardHeader>
       <CardContent className="flex flex-col gap-6">{children}</CardContent>
     </Card>
-  )
-}
-
-/** Renders request failures in the setup flow without throwing from React. */
-function ErrorAlert({ action, error }: { action?: ReactNode; error?: unknown }) {
-  const { t } = useTranslation()
-  if (!error) return null
-
-  return (
-    <Alert variant="destructive">
-      <AlertTitle>{t('common.error')}</AlertTitle>
-      <AlertDescription>
-        <pre className="break-all whitespace-pre-wrap text-xs">{requestErrorMessage(error)}</pre>
-        {action ? <div className="mt-3">{action}</div> : null}
-      </AlertDescription>
-    </Alert>
   )
 }
 

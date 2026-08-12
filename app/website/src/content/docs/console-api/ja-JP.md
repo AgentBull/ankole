@@ -65,7 +65,7 @@ signal routing rule（API schema では `Signal Binding`）は provider adapter 
 | メソッド | パス | 用途 |
 |---|---|---|
 | `GET` | `/signal-adapters` | この deployment instance が宣言した adapter を一覧表示 |
-| `GET` | `/agents/:agent_uid/signal-bindings` | Agent の routing rule を一覧表示 |
+| `GET` | `/signal-bindings` | routing rule を一覧表示（`?agent=` で Agent を絞り込み） |
 | `PUT` | `/agents/:agent_uid/signal-bindings/:adapter_id/:binding_name` | routing rule を作成または置換 |
 | `PATCH` | `/agents/:agent_uid/signal-bindings/:binding_name` | routing rule を更新 |
 | `DELETE` | `/agents/:agent_uid/signal-bindings/:binding_name` | routing rule を削除 |

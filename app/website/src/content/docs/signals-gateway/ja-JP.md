@@ -52,7 +52,7 @@ signal ルーティングルールは Signal Binding として保存され、1 �
 | メソッド | パス | 用途 |
 |---|---|---|
 | `GET` | `/signal-adapters` | この導入インスタンスが宣言したアダプタを一覧表示する |
-| `GET` | `/agents/:agent_uid/signal-bindings` | Agent のルーティングルールを一覧表示する |
+| `GET` | `/signal-bindings` | ルーティングルールを一覧表示する（`?agent=` で Agent を絞り込み） |
 | `PUT` | `/agents/:agent_uid/signal-bindings/:adapter_id/:binding_name` | ルーティングルールを作成または置換する |
 | `PATCH` | `/agents/:agent_uid/signal-bindings/:binding_name` | ルーティングルールを更新する |
 | `DELETE` | `/agents/:agent_uid/signal-bindings/:binding_name` | ルーティングルールを削除する |

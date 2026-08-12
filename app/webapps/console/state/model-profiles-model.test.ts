@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { ModelProfilesModel, PROFILE_NAMES } from './model-profiles-model'
+import { CustomModelProfileModel, draftFromProfile, ModelProfilesModel, PROFILE_NAMES } from './model-profiles-model'
 
 describe('ModelProfilesModel', () => {
   test('exposes and initializes every provider-backed profile', () => {
@@ -116,6 +116,61 @@ describe('ModelProfilesModel', () => {
       { hasUnsavedChanges: false }
     )
     expect(model.profiles.primary.dirty.value).toBeFalse()
+    model[Symbol.dispose]()
+  })
+})
+
+describe('draftFromProfile', () => {
+  test('converts one persisted profile object into the editor draft shape', () => {
+    expect(
+      draftFromProfile({
+        description: 'Research profile',
+        provider_id: 'openai',
+        model: 'gpt-5',
+        context_length: 131_072,
+        provider_options: { reasoningEffort: 'high' }
+      })
+    ).toEqual({
+      description: 'Research profile',
+      providerID: 'openai',
+      model: 'gpt-5',
+      contextLength: '131072',
+      providerOptions: { reasoningEffort: 'high' }
+    })
+    expect(draftFromProfile({})).toEqual({
+      description: '',
+      providerID: '',
+      model: '',
+      contextLength: '',
+      providerOptions: {}
+    })
+  })
+})
+
+describe('CustomModelProfileModel', () => {
+  test('preserves a dirty draft across server refreshes and reports unsaved edits after save', () => {
+    const model = new CustomModelProfileModel()
+
+    model.initialize('agent:alpha:research', { description: 'Research', providerID: 'openai', model: 'gpt-5' })
+    expect(model.profile.dirty.value).toBeFalse()
+
+    model.update({ model: 'gpt-5-mini' })
+    expect(model.profile.dirty.value).toBeTrue()
+
+    model.initialize('agent:alpha:research', { description: 'Research', providerID: 'openai', model: 'server-refetch' })
+    expect(model.snapshot().model).toBe('gpt-5-mini')
+
+    const submission = model.submission()
+    model.update({ model: 'newer-unsaved-model' })
+    const result = model.markSaved({ description: 'Research', providerID: 'openai', model: 'gpt-5-mini' }, submission)
+
+    expect(result).toEqual({ hasUnsavedChanges: true })
+    expect(model.snapshot().model).toBe('newer-unsaved-model')
+    expect(model.profile.dirty.value).toBeTrue()
+
+    model.initialize('agent:beta:research', { description: 'Other', providerID: 'anthropic', model: 'claude' })
+    expect(model.snapshot()).toMatchObject({ providerID: 'anthropic', model: 'claude' })
+    expect(model.profile.dirty.value).toBeFalse()
     model[Symbol.dispose]()
   })
 })

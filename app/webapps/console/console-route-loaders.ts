@@ -36,11 +36,8 @@ export function createConsoleRouteLoaders(queryClient: QueryClient) {
   const ensure = queryClient.ensureQueryData.bind(queryClient)
   const all = (...queries: Promise<unknown>[]) => Promise.all(queries).then(() => null)
 
-  const scopedAgentUID = async (request: Request) => {
-    const agents = await ensure(ankoleWebAgentControllerIndexOptions())
-    const requested = new URL(request.url).searchParams.get('agent')?.trim()
-    return requested || agents.agents[0]?.uid || ''
-  }
+  // The agent-scoped lists cover every agent unless `?agent=` narrows them.
+  const agentFilter = (request: Request) => new URL(request.url).searchParams.get('agent')?.trim() || undefined
 
   return {
     home: () =>
@@ -73,45 +70,52 @@ export function createConsoleRouteLoaders(queryClient: QueryClient) {
     identity: () => ensure(ankoleWebIdentityProviderControllerIndexOptions()).then(() => null),
     principalGroups: () => ensure(ankoleWebAuthZGroupControllerIndexOptions()).then(() => null),
     principals: () => ensure(ankoleWebPrincipalControllerIndexOptions()).then(() => null),
-    signals: async ({ request }: LoaderFunctionArgs) => {
-      const agentUID = await scopedAgentUID(request)
-      if (agentUID) await ensure(ankoleWebSignalBindingControllerIndexOptions({ path: { agent_uid: agentUID } }))
-      return null
-    },
-    schedules: async ({ request }: LoaderFunctionArgs) => {
-      const agentUID = await scopedAgentUID(request)
-      if (!agentUID) return null
-
-      return all(
-        ensure(ankoleWebScheduleControllerIndexCronOptions({ path: { agent_uid: agentUID } })),
-        ensure(ankoleWebScheduleControllerIndexCheckbacksOptions({ path: { agent_uid: agentUID } }))
-      )
-    },
-    webhooks: async ({ request }: LoaderFunctionArgs) => {
-      const agentUID = await scopedAgentUID(request)
-      if (agentUID) await ensure(ankoleWebWebhookEndpointControllerIndexOptions({ path: { agent_uid: agentUID } }))
-      return null
-    },
+    signals: ({ request }: LoaderFunctionArgs) =>
+      all(
+        ensure(ankoleWebAgentControllerIndexOptions()),
+        ensure(ankoleWebSignalBindingControllerIndexOptions({ query: { agent: agentFilter(request) } }))
+      ),
+    schedules: ({ request }: LoaderFunctionArgs) =>
+      all(
+        ensure(ankoleWebAgentControllerIndexOptions()),
+        ensure(ankoleWebScheduleControllerIndexCronOptions({ query: { agent: agentFilter(request) } }))
+      ),
+    scheduleCheckbacks: ({ request }: LoaderFunctionArgs) =>
+      all(
+        ensure(ankoleWebAgentControllerIndexOptions()),
+        ensure(ankoleWebScheduleControllerIndexCheckbacksOptions({ query: { agent: agentFilter(request) } }))
+      ),
+    webhooks: ({ request }: LoaderFunctionArgs) =>
+      all(
+        ensure(ankoleWebAgentControllerIndexOptions()),
+        ensure(ankoleWebWebhookEndpointControllerIndexOptions({ query: { agent: agentFilter(request) } }))
+      ),
     automationJobs: async ({ request }: LoaderFunctionArgs) => {
-      const agentUID = await scopedAgentUID(request)
-      if (!agentUID) return null
-
+      const agentUID = agentFilter(request)
       const selectedID = resourceID(new URL(request.url).searchParams.get('job'))
-      const jobs = ensure(
-        ankoleWebAutomationJobControllerIndexOptions({ path: { agent_uid: agentUID }, query: { limit: 100 } })
-      )
+      const [, jobs] = await Promise.all([
+        ensure(ankoleWebAgentControllerIndexOptions()),
+        ensure(
+          ankoleWebAutomationJobControllerIndexOptions({
+            query: { agent: agentUID, limit: 100 }
+          })
+        )
+      ])
 
-      return selectedID
-        ? all(
-            jobs,
-            ensure(
-              ankoleWebAutomationJobControllerShowOptions({
-                path: { agent_uid: agentUID, automation_job_id: selectedID },
-                query: { runs: 20 }
-              })
-            )
-          )
-        : jobs.then(() => null)
+      // The detail endpoint stays per agent, so the loaded list names the
+      // owner of a deep-linked job before its detail read can start. A job
+      // absent from the list falls back to the URL's agent scope.
+      const selectedAgentUID = jobs.automation_jobs.find(job => job.id === selectedID)?.agent_uid ?? agentUID
+      if (selectedID !== undefined && selectedAgentUID) {
+        await ensure(
+          ankoleWebAutomationJobControllerShowOptions({
+            path: { agent_uid: selectedAgentUID, automation_job_id: selectedID },
+            query: { runs: 20 }
+          })
+        )
+      }
+
+      return null
     },
     settings: () => ensure(ankoleWebAppConfigurationControllerIndexOptions()).then(() => null),
     workerEnvs: () => ensure(ankoleWebWorkerEnvControllerIndexOptions()).then(() => null),
@@ -137,7 +141,7 @@ export function createConsoleRouteLoaders(queryClient: QueryClient) {
       return ensure(
         ankoleWebAIGatewayConversationControllerIndexOptions({
           query: {
-            subject: searchParams.get('subject')?.trim() || undefined,
+            q: searchParams.get('q')?.trim() || undefined,
             active: active === 'true' ? true : active === 'false' ? false : undefined,
             min_messages: showAll ? undefined : 2,
             cursor: searchParams.get('cursor') || undefined,

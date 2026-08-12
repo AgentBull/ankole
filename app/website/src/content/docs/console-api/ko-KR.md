@@ -65,7 +65,7 @@ order: 203
 | 메서드 | 경로 | 용도 |
 |---|---|---|
 | `GET` | `/signal-adapters` | 이 배포 인스턴스가 선언한 어댑터 목록 |
-| `GET` | `/agents/:agent_uid/signal-bindings` | Agent의 라우팅 규칙 목록 |
+| `GET` | `/signal-bindings` | 라우팅 규칙 목록(`?agent=`로 Agent 필터) |
 | `PUT` | `/agents/:agent_uid/signal-bindings/:adapter_id/:binding_name` | 라우팅 규칙 생성 또는 교체 |
 | `PATCH` | `/agents/:agent_uid/signal-bindings/:binding_name` | 라우팅 규칙 갱신 |
 | `DELETE` | `/agents/:agent_uid/signal-bindings/:binding_name` | 라우팅 규칙 제거 |

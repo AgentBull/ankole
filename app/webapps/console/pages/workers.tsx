@@ -50,7 +50,9 @@ import { ankoleWebWorkerFileControllerDownload } from '../api/generated/sdk.gen'
 import type { AgentComputerWorkerItem, WorkerFileEntry } from '../api/generated/types.gen'
 import { requestErrorMessage } from '../../common/request-errors'
 import { StatusIndicator } from '../console-form'
-import { ResourceListPage, ResourceSearch, RowViewAction } from '../console-list-page'
+import { ResourceListPage, ResourceSearch, RowViewAction, ScopeBar } from '../console-list-page'
+import { BackLink } from '../console-page'
+import { formatConsoleDate } from '../console-primitives'
 import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
 import {
   agentUIDFromWorkerFilePath,
@@ -117,7 +119,9 @@ export function WorkersListPage() {
           <TableCell className="text-xs text-muted-foreground">{worker.version}</TableCell>
           <TableCell>{formatSlots(worker)}</TableCell>
           <TableCell>{formatActiveTurns(worker)}</TableCell>
-          <TableCell className="text-xs text-muted-foreground">{formatHeartbeat(worker)}</TableCell>
+          <TableCell className="text-xs text-muted-foreground">
+            {formatConsoleDate(worker.last_worker_heartbeat_at)}
+          </TableCell>
           <RowViewAction
             label={t('console.workers.browse_files_for', { name: worker.worker_id })}
             to={`${encodeURIComponent(worker.worker_id)}/files`}
@@ -168,15 +172,6 @@ function formatSlots(worker: AgentComputerWorkerItem): string {
 function formatActiveTurns(worker: AgentComputerWorkerItem): string {
   const value = integerField(worker.load, 'active_turns')
   return value === undefined ? '–' : String(value)
-}
-
-function formatHeartbeat(worker: AgentComputerWorkerItem): string {
-  if (!worker.last_worker_heartbeat_at) return '–'
-  try {
-    return new Date(worker.last_worker_heartbeat_at).toLocaleString()
-  } catch {
-    return '–'
-  }
 }
 
 function integerField(map: { [key: string]: unknown } | undefined, key: string): number | undefined {
@@ -265,26 +260,11 @@ export function WorkerFilesPage() {
     setSearchParams({ root, path: next })
   }
 
-  const toolbar = (
-    <div className="grid gap-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <Link to="/workers" className="text-sm text-muted-foreground hover:text-foreground">
-          {t('common.back')}
-        </Link>
-        <div className="ml-auto flex items-center gap-2">
-          <UploadDialog
-            root={root}
-            currentPath={path}
-            disabled={!path || upload.isPending}
-            onUpload={(body, workerPath) =>
-              upload.mutate({
-                path: { worker_id: workerID },
-                body: { root: body.root, path: workerPath, file: body.file }
-              })
-            }
-          />
-        </div>
-      </div>
+  // Navigation lives in `subNav` so it stays visible over an empty directory:
+  // the breadcrumbs and the upload action are how the operator leaves it.
+  const subNav = (
+    <ScopeBar>
+      <BackLink to="/workers" />
       <Breadcrumbs
         root={root}
         path={path}
@@ -295,6 +275,24 @@ export function WorkerFilesPage() {
         onRootChange={setRoot}
         t={t}
       />
+      <div className="ml-auto">
+        <UploadDialog
+          root={root}
+          currentPath={path}
+          disabled={!path || upload.isPending}
+          onUpload={(body, workerPath) =>
+            upload.mutate({
+              path: { worker_id: workerID },
+              body: { root: body.root, path: workerPath, file: body.file }
+            })
+          }
+        />
+      </div>
+    </ScopeBar>
+  )
+
+  const toolbar = (
+    <div className="grid gap-3">
       <ResourceSearch
         label={t('console.worker_files.search')}
         placeholder={t('console.worker_files.search_placeholder')}
@@ -309,6 +307,7 @@ export function WorkerFilesPage() {
     <ResourceListPage
       title={workerID}
       description={t('console.worker_files.description')}
+      subNav={subNav}
       toolbar={toolbar}
       columns={[
         t('console.worker_files.name'),
@@ -322,14 +321,8 @@ export function WorkerFilesPage() {
       emptyTitle={t('console.worker_files.empty_title')}
       emptyIcon={<RiFolder3Line aria-hidden />}
       emptyDescription={t('console.worker_files.empty_description')}
-      emptyAction={
-        query ? (
-          <Button type="button" size="sm" variant="outline" onClick={() => setQuery('')}>
-            {t('console.empty.clear_search')}
-          </Button>
-        ) : undefined
-      }
       isFiltered={Boolean(query.trim())}
+      onClearFilters={() => setQuery('')}
       error={agents.error ?? files.error}>
       {entries.map(entry => (
         <FileRow
@@ -552,11 +545,13 @@ function FileRow({
           )}
         </div>
       </TableCell>
-      <TableCell className="text-xs text-muted-foreground">{entry.kind}</TableCell>
+      <TableCell className="text-xs text-muted-foreground">{t(`console.worker_files.kind_${entry.kind}`)}</TableCell>
       <TableCell className="text-xs text-muted-foreground">
         {entry.kind === 'file' ? formatBytes(entry.size) : '–'}
       </TableCell>
-      <TableCell className="text-xs text-muted-foreground">{formatModified(entry.modified_unix_ms)}</TableCell>
+      <TableCell className="text-xs text-muted-foreground">
+        {formatConsoleDate(new Date(entry.modified_unix_ms).toISOString())}
+      </TableCell>
       <TableCell className="text-right">
         <DropdownMenu>
           <DropdownMenuTrigger
@@ -600,10 +595,12 @@ function FileRow({
         <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
           <DialogContent closeLabel={t('common.close')}>
             <DialogHeader>
-              <DialogTitle>{t('console.worker_files.delete_title')}</DialogTitle>
+              <DialogTitle>
+                {isDir ? t('console.worker_files.delete_directory_title') : t('console.worker_files.delete_title')}
+              </DialogTitle>
               <DialogDescription>
                 {isDir
-                  ? t('console.worker_files.delete_directory_description')
+                  ? t('console.worker_files.delete_directory_description', { path: entry.relative_path })
                   : t('console.worker_files.delete_description', { path: entry.relative_path })}
               </DialogDescription>
             </DialogHeader>
@@ -802,13 +799,4 @@ function formatBytes(bytes: number): string {
     unit += 1
   }
   return `${value.toFixed(value < 10 ? 1 : 0)} ${units[unit]}`
-}
-
-function formatModified(unixMs: number): string {
-  if (!Number.isFinite(unixMs)) return '–'
-  try {
-    return new Date(unixMs).toLocaleString()
-  } catch {
-    return '–'
-  }
 }

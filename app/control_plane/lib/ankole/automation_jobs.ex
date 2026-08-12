@@ -35,21 +35,28 @@ defmodule Ankole.AutomationJobs do
   end
 
   @doc """
-  Lists recent automation jobs owned by one Agent session, or by every session
-  of the Agent when `owner_session_id` is `nil`.
+  Lists recent automation jobs owned by one Agent session, by every session of
+  the Agent when `owner_session_id` is `nil`, or across every Agent when
+  `agent_uid` is also `nil`.
   """
-  @spec list_jobs(String.t(), String.t() | nil, keyword()) :: [Job.t()]
+  @spec list_jobs(String.t() | nil, String.t() | nil, keyword()) :: [Job.t()]
   def list_jobs(agent_uid, owner_session_id, opts \\ [])
-      when is_binary(agent_uid) and (is_binary(owner_session_id) or is_nil(owner_session_id)) do
+      when (is_binary(agent_uid) or is_nil(agent_uid)) and
+             (is_binary(owner_session_id) or is_nil(owner_session_id)) do
     limit = opts |> Keyword.get(:limit, 100) |> bounded_limit(500, 100)
 
     Job
-    |> where([job], job.agent_uid == ^String.downcase(agent_uid))
+    |> maybe_where_agent(agent_uid)
     |> maybe_where_owner_session(owner_session_id)
     |> order_by([job], desc: job.inserted_at, desc: job.id)
     |> limit(^limit)
     |> Repo.all()
   end
+
+  defp maybe_where_agent(query, nil), do: query
+
+  defp maybe_where_agent(query, agent_uid),
+    do: where(query, [job], job.agent_uid == ^String.downcase(agent_uid))
 
   @doc """
   Gets one automation job only when the Agent session owns it. A `nil`

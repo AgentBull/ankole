@@ -46,31 +46,34 @@ export async function logoutConsoleSession() {
 }
 
 async function ensureAccessToken(): Promise<string> {
-  const now = Date.now()
-  if (tokens && now < preRefreshAt(tokens)) return tokens.accessToken
-
-  const next = await runTokenRequest(() => {
-    if (tokens && now < tokens.refreshExpiresAt) return refreshTokens(tokens.refreshToken)
-    return exchangeBrowserSession()
-  })
-
-  return next.accessToken
+  if (tokens && Date.now() < preRefreshAt(tokens)) return tokens.accessToken
+  return (await runTokenRequest(mintTokens)).accessToken
 }
 
 async function forceRefreshAccessToken(): Promise<string> {
-  const next = await runTokenRequest(async () => {
-    if (tokens && Date.now() < tokens.refreshExpiresAt) {
-      try {
-        return await refreshTokens(tokens.refreshToken)
-      } catch {
-        clearConsoleTokens()
-      }
+  return (await runTokenRequest(mintTokens)).accessToken
+}
+
+/**
+ * Refreshes with the held refresh token and falls back to a browser-session
+ * exchange when the server rejects it (key rotation, revocation). The
+ * generated client throws parsed HTTP bodies as plain values; a transport
+ * failure throws an Error instance. A server rejection discards the dead
+ * token, because `auth()` runs before every request and would fail every call
+ * until a page reload. A transport error rethrows and keeps the tokens for a
+ * later retry.
+ */
+async function mintTokens(): Promise<TokenState> {
+  if (tokens && Date.now() < tokens.refreshExpiresAt) {
+    try {
+      return await refreshTokens(tokens.refreshToken)
+    } catch (error) {
+      if (error instanceof Error) throw error
+      tokens = null
     }
+  }
 
-    return exchangeBrowserSession()
-  })
-
-  return next.accessToken
+  return exchangeBrowserSession()
 }
 
 async function runTokenRequest(factory: () => Promise<TokenState>): Promise<TokenState> {

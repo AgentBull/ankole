@@ -14,6 +14,7 @@ defmodule AnkoleWeb.WebhookEndpointControllerTest do
 
   @token "wh_0123456789abcdefghijklmnopqrstuvwxyzABCDEFG"
   @other_token "wh_ABCDEFGhijklmnopqrstuvwxyz0123456789abcdefg"
+  @foreign_token "wh_ZYXWVUtsrqponmlkjihgfedcba9876543210ABCDEFG"
 
   setup do
     allow_cache_database_access()
@@ -36,13 +37,24 @@ defmodule AnkoleWeb.WebhookEndpointControllerTest do
 
     endpoint = create_endpoint!(agent.uid, first, "Watch GitHub issues", @token)
     other_session_endpoint = create_endpoint!(agent.uid, second, "Watch releases", @other_token)
+    foreign_source = source_event!(other_agent.uid)
+    foreign = create_endpoint!(other_agent.uid, foreign_source, "Watch mirrors", @foreign_token)
 
     api_spec = AnkoleWeb.APISpec.spec()
     conn = bearer_conn(conn)
 
+    everything =
+      conn
+      |> get(~p"/api/v1/webhook-endpoints")
+      |> json_response(200)
+
+    assert MapSet.new(everything["webhook_endpoints"], & &1["id"]) ==
+             MapSet.new([endpoint.id, other_session_endpoint.id, foreign.id])
+
     list =
       conn
-      |> get(~p"/api/v1/agents/#{agent.uid}/webhook-endpoints")
+      |> recycle_bearer()
+      |> get(~p"/api/v1/webhook-endpoints?agent=#{agent.uid}")
       |> json_response(200)
 
     assert_schema(list, "WebhookEndpointListResponse", api_spec)
@@ -74,10 +86,8 @@ defmodule AnkoleWeb.WebhookEndpointControllerTest do
   end
 
   test "missing bearer token is rejected", %{conn: conn} do
-    %{principal: agent} = agent_fixture()
-
     assert conn
-           |> get(~p"/api/v1/agents/#{agent.uid}/webhook-endpoints")
+           |> get(~p"/api/v1/webhook-endpoints")
            |> json_response(401)
   end
 

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { ScheduleEditorModel, type ScheduleEditorDraft } from './schedule-editor-model'
+import { deliveryTargetDrafts, ScheduleEditorModel, type ScheduleEditorDraft } from './schedule-editor-model'
 
 const draft: ScheduleEditorDraft = {
   sessionId: 'lark:chat:market',
@@ -12,7 +12,6 @@ const draft: ScheduleEditorDraft = {
   anchorAt: '',
   timezone: 'Asia/Shanghai',
   deliveryTargets: [{ bindingName: 'lark-agent', channelId: 'lark:market', threadId: '' }],
-  payload: '{"task":"prepare report"}',
   idempotencyKey: 'cron:add:market-open'
 }
 
@@ -21,19 +20,13 @@ describe('ScheduleEditorModel', () => {
     const model = new ScheduleEditorModel()
     model.initialize('new', { ...draft, name: '' })
 
-    expect(model.isComplete()).toBe(false)
     expect(model.toCreateBody()).toBeNull()
 
     model.name.value = 'market-open'
-    model.payload.value = '{'
-    expect(model.toCreateBody()).toBeNull()
-    model.payload.value = draft.payload
-
     model.sessionId.value = ''
     expect(model.toCreateBody()).toBeNull()
     model.sessionId.value = draft.sessionId
 
-    expect(model.isComplete()).toBe(true)
     expect(model.toCreateBody()).toEqual({
       session_id: 'lark:chat:market',
       binding_name: 'lark-agent',
@@ -45,7 +38,6 @@ describe('ScheduleEditorModel', () => {
         timezone: 'Asia/Shanghai'
       },
       timezone: 'Asia/Shanghai',
-      payload: { task: 'prepare report' },
       delivery: {
         targets: [{ binding_name: 'lark-agent', signal_channel_id: 'lark:market' }]
       },
@@ -62,12 +54,8 @@ describe('ScheduleEditorModel', () => {
     expect(model.toUpdateBody()).toEqual({})
 
     model.name.value = 'market-open-report'
-    model.payload.value = '{"task":"prepare updated report"}'
 
-    expect(model.toUpdateBody()).toEqual({
-      name: 'market-open-report',
-      payload: { task: 'prepare updated report' }
-    })
+    expect(model.toUpdateBody()).toEqual({ name: 'market-open-report' })
 
     model[Symbol.dispose]()
   })
@@ -105,7 +93,43 @@ describe('ScheduleEditorModel', () => {
       threadId: ''
     })
     model.updateDeliveryTarget(0, { channelId: 'lark:market', threadId: '' })
-    expect(model.isComplete()).toBe(false)
+    expect(model.toUpdateBody()).toBeNull()
+
+    model[Symbol.dispose]()
+  })
+
+  test('maps the legacy single-target delivery and keeps the schedule editable', () => {
+    expect(
+      deliveryTargetDrafts({ signal_channel_id: 'lark:market', provider_thread_id: 'thread-1' }, 'lark-agent')
+    ).toEqual([{ bindingName: 'lark-agent', channelId: 'lark:market', threadId: 'thread-1' }])
+    expect(deliveryTargetDrafts({ targets: [{ binding_name: 'a', signal_channel_id: 'c' }] }, 'a')).toEqual([
+      { bindingName: 'a', channelId: 'c', threadId: '' }
+    ])
+    expect(deliveryTargetDrafts(undefined, 'a')).toEqual([])
+
+    const model = new ScheduleEditorModel()
+    model.initialize('cron:legacy', {
+      ...draft,
+      deliveryTargets: deliveryTargetDrafts({ signal_channel_id: 'lark:market' }, 'lark-agent')
+    })
+
+    expect(model.toUpdateBody()).toEqual({})
+    model.name.value = 'renamed'
+    expect(model.toUpdateBody()).toEqual({ name: 'renamed' })
+
+    model[Symbol.dispose]()
+  })
+
+  test('requires an anchor for interval schedules and drops the hidden timezone', () => {
+    const model = new ScheduleEditorModel()
+    model.initialize('new', { ...draft, scheduleKind: 'every', cronExpression: '', everyMs: '60000' })
+
+    expect(model.toCreateBody()).toBeNull()
+
+    model.anchorAt.value = '2026-08-12T00:00:00Z'
+    const body = model.toCreateBody()
+    expect(body?.schedule).toEqual({ kind: 'every', every_ms: 60_000, anchor_at: '2026-08-12T00:00:00Z' })
+    expect(body?.timezone).toBeNull()
 
     model[Symbol.dispose]()
   })

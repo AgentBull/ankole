@@ -503,16 +503,15 @@ defmodule Ankole.SignalsGateway.Outbox do
   end
 
   @doc """
-  Lists the latest stopped durable replies for one Agent.
+  Lists the latest stopped durable replies, optionally for one Agent.
 
   This projection is bounded for the Console. PostgreSQL keeps every row.
   """
-  @spec list_stopped_deliveries(String.t()) ::
-          {:ok, [OutboxEntry.t()]} | {:error, :invalid_agent_uid}
-  def list_stopped_deliveries(agent_uid) when is_binary(agent_uid) do
+  @spec list_stopped_deliveries(String.t() | nil) :: {:ok, [OutboxEntry.t()]}
+  def list_stopped_deliveries(agent_uid \\ nil) when is_binary(agent_uid) or is_nil(agent_uid) do
     deliveries =
       OutboxEntry
-      |> where([entry], entry.agent_uid == ^normalize_uid(agent_uid))
+      |> maybe_where_agent(agent_uid)
       |> where([entry], entry.delivery_class == :durable_ai_reply)
       |> where([entry], entry.status in [:failed, :unknown_after_send])
       |> where([entry], is_nil(entry.next_attempt_at))
@@ -532,7 +531,10 @@ defmodule Ankole.SignalsGateway.Outbox do
     {:ok, deliveries}
   end
 
-  def list_stopped_deliveries(_agent_uid), do: {:error, :invalid_agent_uid}
+  defp maybe_where_agent(query, nil), do: query
+
+  defp maybe_where_agent(query, agent_uid),
+    do: where(query, [entry], entry.agent_uid == ^normalize_uid(agent_uid))
 
   @doc """
   Returns whether one stopped outbox row can receive an explicit retry.

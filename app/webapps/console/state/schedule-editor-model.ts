@@ -4,7 +4,7 @@ import { batch, createModel, signal } from '@preact/signals-react'
  * Editor model for one cron schedule.
  *
  * The wire shape splits across several JSON-value fields the backend validates
- * loosely (`schedule`, `delivery`, `payload`), so the model flattens them into
+ * loosely (`schedule`, `delivery`), so the model flattens them into
  * individually editable signals and reassembles them on save.
  */
 
@@ -29,7 +29,6 @@ export type ScheduleEditorDraft = {
   anchorAt: string
   timezone: string
   deliveryTargets: DeliveryTargetDraft[]
-  payload: string
   idempotencyKey: string
 }
 
@@ -40,7 +39,6 @@ export type CronCreateBody = {
   status?: CronStatus
   schedule: Record<string, unknown>
   timezone?: string | null
-  payload?: unknown
   delivery: { targets: DeliveryTarget[] }
   idempotency_key: string
 }
@@ -49,7 +47,6 @@ export type CronUpdateBody = {
   name?: string
   schedule?: Record<string, unknown>
   timezone?: string | null
-  payload?: unknown
   delivery?: { targets: DeliveryTarget[] }
 }
 
@@ -57,6 +54,44 @@ type DeliveryTarget = {
   binding_name: string
   signal_channel_id: string
   provider_thread_id?: string
+}
+
+/** The stored delivery projection, including the legacy single-target shape. */
+export type CronDeliveryProjection = {
+  targets?: Array<{
+    binding_name?: string
+    signal_channel_id?: string
+    provider_thread_id?: string
+  }>
+  signal_channel_id?: string
+  provider_thread_id?: string
+}
+
+/**
+ * Maps a stored delivery to editable target drafts.
+ *
+ * Early schedules stored one target's channel at the delivery top level with no
+ * `targets` list (the control plane still accepts that shape on write). Mapping
+ * it to an empty list made every such schedule uneditable: the editor showed
+ * one blank target whose hidden binding never matched the schedule's binding,
+ * so every save failed validation.
+ */
+export function deliveryTargetDrafts(
+  delivery: CronDeliveryProjection | null | undefined,
+  bindingName: string
+): DeliveryTargetDraft[] {
+  const targets = Array.isArray(delivery?.targets) ? delivery.targets : []
+  if (targets.length > 0) {
+    return targets.map(target => ({
+      bindingName: target.binding_name ?? '',
+      channelId: target.signal_channel_id ?? '',
+      threadId: target.provider_thread_id ?? ''
+    }))
+  }
+
+  const channelId = delivery?.signal_channel_id ?? ''
+  if (!channelId) return []
+  return [{ bindingName, channelId, threadId: delivery?.provider_thread_id ?? '' }]
 }
 
 export const ScheduleEditorModel = createModel(() => {
@@ -71,7 +106,6 @@ export const ScheduleEditorModel = createModel(() => {
   const anchorAt = signal('')
   const timezone = signal('')
   const deliveryTargets = signal<DeliveryTargetDraft[]>([])
-  const payload = signal('{}')
   const idempotencyKey = signal('')
   const initialDraft = signal<ScheduleEditorDraft>()
   const validationError = signal<string>()
@@ -89,7 +123,6 @@ export const ScheduleEditorModel = createModel(() => {
       timezone.value = draft.timezone
       deliveryTargets.value =
         draft.deliveryTargets.length > 0 ? draft.deliveryTargets.map(target => ({ ...target })) : [emptyTarget()]
-      payload.value = draft.payload
       idempotencyKey.value = draft.idempotencyKey
       validationError.value = undefined
     })
@@ -106,10 +139,16 @@ export const ScheduleEditorModel = createModel(() => {
     }
     const ms = Number(everyMs.value)
     if (!Number.isFinite(ms) || ms <= 0) return null
-    const out: Record<string, unknown> = { kind: 'every', every_ms: Math.floor(ms) }
-    if (anchorAt.value.trim()) out.anchor_at = anchorAt.value.trim()
-    return out
+    // The planner rejects an `every` schedule without an anchor; there is no
+    // server-side default.
+    const anchor = anchorAt.value.trim()
+    if (!anchor) return null
+    return { kind: 'every', every_ms: Math.floor(ms), anchor_at: anchor }
   }
+
+  // The timezone field renders only for cron schedules, so a value typed
+  // before switching kinds must not ride along and stick to an `every` row.
+  const effectiveTimezone = (): string => ((scheduleKind.value || 'cron') === 'cron' ? timezone.value.trim() : '')
 
   const buildDelivery = (): { targets: DeliveryTarget[] } | null => {
     const targets = deliveryTargets.value.map(target => {
@@ -136,14 +175,6 @@ export const ScheduleEditorModel = createModel(() => {
     return { targets }
   }
 
-  const buildPayload = (): unknown => {
-    try {
-      return JSON.parse(payload.value || '{}')
-    } catch {
-      return null
-    }
-  }
-
   const scheduleFieldsChanged = (original: ScheduleEditorDraft): boolean =>
     original.scheduleKind !== scheduleKind.value ||
     original.cronExpression.trim() !== cronExpression.value.trim() ||
@@ -166,7 +197,6 @@ export const ScheduleEditorModel = createModel(() => {
     anchorAt,
     timezone,
     deliveryTargets,
-    payload,
     idempotencyKey,
     validationError,
     initialize(nextSourceKey: string, draft: ScheduleEditorDraft) {
@@ -183,6 +213,14 @@ export const ScheduleEditorModel = createModel(() => {
       const targets = deliveryTargets.value.length > 0 ? deliveryTargets.value : [emptyTarget()]
       deliveryTargets.value = targets.map((target, index) => (index === 0 ? { ...target, bindingName: value } : target))
     },
+    /** Sessions and bindings name resources inside one agent; a new agent starts them over. */
+    resetAgentScope() {
+      batch(() => {
+        sessionId.value = ''
+        bindingName.value = ''
+        deliveryTargets.value = [emptyTarget()]
+      })
+    },
     addDeliveryTarget() {
       deliveryTargets.value = [...deliveryTargets.value, emptyTarget()]
     },
@@ -195,20 +233,14 @@ export const ScheduleEditorModel = createModel(() => {
       if (index === 0) return
       deliveryTargets.value = deliveryTargets.value.filter((_target, targetIndex) => targetIndex !== index)
     },
-    isComplete(): boolean {
-      return Boolean(
-        bindingName.value.trim() && name.value.trim() && buildSchedule() && buildDelivery() && buildPayload() !== null
-      )
-    },
     toCreateBody(): CronCreateBody | null {
       const schedule = buildSchedule()
       const delivery = buildDelivery()
-      const nextPayload = buildPayload()
       const session = sessionId.value.trim()
       const binding = bindingName.value.trim()
       const trimmedName = name.value.trim()
       const idempotency = idempotencyKey.value.trim()
-      if (!session || !binding || !trimmedName || !schedule || !delivery || !idempotency || nextPayload === null) {
+      if (!session || !binding || !trimmedName || !schedule || !delivery || !idempotency) {
         return null
       }
       const body: CronCreateBody = {
@@ -219,40 +251,27 @@ export const ScheduleEditorModel = createModel(() => {
         delivery,
         idempotency_key: idempotency
       }
-      const currentStatus = status.value || 'active'
-      body.status = currentStatus
-      const tz = timezone.value.trim()
-      body.timezone = tz || null
-      body.payload = nextPayload
+      body.status = status.value || 'active'
+      body.timezone = effectiveTimezone() || null
       return body
     },
     toUpdateBody(): CronUpdateBody | null {
       const schedule = buildSchedule()
       const delivery = buildDelivery()
       const original = initialDraft.value
-      const nextPayload = buildPayload()
-      if (!schedule || !delivery || !original || nextPayload === null) return null
+      if (!schedule || !delivery || !original) return null
       const body: CronUpdateBody = {}
       const trimmedName = name.value.trim()
       if (!trimmedName) return null
       if (trimmedName !== original.name.trim()) body.name = trimmedName
-      const tz = timezone.value.trim()
       if (scheduleFieldsChanged(original)) body.schedule = schedule
+      const tz = effectiveTimezone()
       if (tz !== original.timezone.trim()) body.timezone = tz || null
       if (deliveryFieldsChanged(original)) body.delivery = delivery
-      if (!sameJSON(nextPayload, parseJSON(original.payload))) body.payload = nextPayload
       return body
     }
   }
 })
-
-function parseJSON(value: string): unknown {
-  try {
-    return JSON.parse(value || '{}')
-  } catch {
-    return null
-  }
-}
 
 function sameJSON(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right)

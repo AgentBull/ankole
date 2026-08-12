@@ -37,6 +37,56 @@ defmodule Ankole.AIGateway.ConsoleQueriesTest do
     end
   end
 
+  describe "list_conversations/1 with a search" do
+    test "matches an exact subject UID, key fragments, and displayed names" do
+      %{principal: agent} = PrincipalsFixtures.agent_fixture()
+      %{principal: peer} = PrincipalsFixtures.human_fixture(%{display_name: "Boris"})
+
+      channel_fixture("lark:oc_market", kind: :im_group, name: "Ankole 用户群")
+      channel_fixture("lark:oc_dm", kind: :im_dm, name: nil)
+
+      group =
+        conversation_fixture(agent.uid, "signal-channel:lark:oc_market", %{
+          metadata: %{
+            "brain" => %{"channel_id" => "lark:oc_market", "channel_kind" => "im_group"}
+          }
+        })
+
+      dm =
+        conversation_fixture(agent.uid, "signal-channel:lark:oc_dm", %{
+          metadata: %{
+            "brain" => %{
+              "channel_id" => "lark:oc_dm",
+              "channel_kind" => "im_dm",
+              "peer_uid" => peer.uid
+            }
+          }
+        })
+
+      job = conversation_fixture(agent.uid, BackgroundAgentJobs.job_session_id(2000))
+      decoy = conversation_fixture(agent.uid, "signal-channel:lark:ocXmarket")
+
+      assert {:ok, page} = ConsoleQueries.list_conversations(search: "用户群")
+      assert Enum.map(page.conversations, & &1.id) == [group.id]
+
+      assert {:ok, page} = ConsoleQueries.list_conversations(search: "Bori")
+      assert Enum.map(page.conversations, & &1.id) == [dm.id]
+
+      # `_` matches only itself, not any character.
+      assert {:ok, page} = ConsoleQueries.list_conversations(search: "oc_market")
+      assert Enum.map(page.conversations, & &1.id) == [group.id]
+
+      # Subject input matches regardless of case; stored UIDs are lowercase.
+      assert {:ok, page} = ConsoleQueries.list_conversations(search: String.upcase(agent.uid))
+
+      assert page.conversations |> Enum.map(& &1.id) |> Enum.sort() ==
+               [group.id, dm.id, job.id, decoy.id] |> Enum.sort()
+
+      assert {:ok, page} = ConsoleQueries.list_conversations(search: "  ")
+      assert length(page.conversations) == 4
+    end
+  end
+
   describe "console_projection/1 for conversations" do
     test "counts the conversation's messages" do
       %{principal: agent} = PrincipalsFixtures.agent_fixture()

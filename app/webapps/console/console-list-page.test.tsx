@@ -67,7 +67,11 @@ describe('RowActions', () => {
         <table>
           <tbody>
             <tr>
-              <RowActions action={{ label: 'Enable', onAction: () => {} }} editLabel="Edit" editTo="/resources/one" />
+              <RowActions
+                actions={[{ label: 'Enable', onAction: () => {} }]}
+                editLabel="Edit"
+                editTo="/resources/one"
+              />
             </tr>
           </tbody>
         </table>

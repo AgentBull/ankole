@@ -11,6 +11,7 @@ defmodule AnkoleWeb.BackgroundAgentJobController do
   alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias AnkoleWeb.ConsoleErrors
+  alias AnkoleWeb.ConsoleParams
   alias AnkoleWeb.ConsolePolicy
   alias AnkoleWeb.Schemas.ConsoleAPI.ErrorEnvelope
   alias AnkoleWeb.Schemas.ConsoleAPI.BackgroundAgentJobListResponse
@@ -84,7 +85,7 @@ defmodule AnkoleWeb.BackgroundAgentJobController do
          {:ok, page} <-
            BackgroundAgentJobs.list_for_console(
              status: param(params, "status"),
-             agent_uid: param(params, "agent"),
+             agent_uid: ConsoleParams.agent_filter_param(params),
              cursor: param(params, "cursor"),
              limit: integer_param(params, "limit", 50)
            ) do
@@ -147,7 +148,6 @@ defmodule AnkoleWeb.BackgroundAgentJobController do
   defp param(params, key), do: Map.get(params, key) || Map.get(params, param_atom(key))
 
   defp param_atom("status"), do: :status
-  defp param_atom("agent"), do: :agent
   defp param_atom("cursor"), do: :cursor
   defp param_atom("limit"), do: :limit
   defp param_atom("job_id"), do: :job_id

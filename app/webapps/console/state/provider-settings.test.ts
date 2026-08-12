@@ -8,7 +8,8 @@ import {
   connectionSettings,
   credentialSettings,
   humanizeKey,
-  requestSettings
+  requestSettings,
+  settingValidationMessage
 } from '../pages/provider-settings'
 
 function providerKind(providerKind: string): AIGatewayProviderKindItem {
@@ -141,5 +142,18 @@ describe('provider settings', () => {
     expect(humanizeKey('reasoningEffort')).toBe('Reasoning effort')
     expect(humanizeKey('strictJSONSchema')).toBe('Strict JSON schema')
     expect(humanizeKey('oauth')).toBe('OAuth')
+  })
+
+  test('maps every setting validation error to one operator-facing message', () => {
+    // MF2 wraps interpolated values in Unicode bidi isolates (U+2068/U+2069).
+    const isolated = (field: string) => `⁨${field}⁩`
+
+    expect(settingValidationMessage('Context', 'required')).toBe(`${isolated('Context')} is required`)
+    expect(settingValidationMessage('Context', 'integer')).toBe(`${isolated('Context')} must be an integer`)
+    expect(settingValidationMessage('Context', 'number')).toBe(`${isolated('Context')} must be a number`)
+    expect(settingValidationMessage('Headers', 'json_object')).toBe(`${isolated('Headers')} must be a JSON object`)
+    expect(settingValidationMessage('Mode', 'selection')).toBe(
+      `${isolated('Mode')} must be one of the available options`
+    )
   })
 })

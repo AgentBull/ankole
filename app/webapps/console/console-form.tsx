@@ -13,18 +13,14 @@ import {
   FieldDescription,
   FieldError,
   FieldLabel,
-  Input,
   Textarea,
   cn
 } from '@ankole/uikit'
 import {
-  RiArrowLeftLine,
   RiBracesLine,
   RiCheckboxCircleLine,
   RiDeleteBin6Line,
   RiErrorWarningLine,
-  RiEyeLine,
-  RiEyeOffLine,
   RiInformationLine,
   RiLoaderLine,
   RiSave3Line
@@ -33,7 +29,6 @@ import {
   Children,
   cloneElement,
   isValidElement,
-  useEffect,
   useId,
   useLayoutEffect,
   useRef,
@@ -44,9 +39,8 @@ import {
   type ReactNode
 } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link } from 'react-router'
-import { PageStack } from './console-page'
-import { ErrorBlock } from './console-primitives'
+import { BackLink, PageStack } from './console-page'
+import { ErrorBlock } from '../common/error-block'
 import { formatJSONDraft, inspectJSONDraft } from './state/json-editor'
 
 /**
@@ -101,12 +95,7 @@ export function ResourceEditorPage({
   return (
     <PageStack className={cn('mx-auto w-full', contentWidth === 'wide' ? 'max-w-6xl' : 'max-w-3xl')}>
       <div className="grid gap-3">
-        <Link
-          to={backTo}
-          className="inline-flex w-fit items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
-          <RiArrowLeftLine className="size-4" aria-hidden />
-          {t('common.back')}
-        </Link>
+        <BackLink to={backTo} />
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="grid gap-1">
             <h2 className="text-2xl font-semibold tracking-normal">{title}</h2>
@@ -278,43 +267,6 @@ export function LabeledField({
   )
 }
 
-/** Password input with a reveal toggle, for entering credentials by hand. */
-export function SecretInput({ className, ...props }: ComponentProps<typeof Input>) {
-  const { t } = useTranslation()
-  const [revealed, setRevealed] = useState(false)
-
-  useEffect(() => {
-    if (!revealed) return
-    const remask = () => setRevealed(false)
-    const timeout = window.setTimeout(remask, 30_000)
-    window.addEventListener('blur', remask)
-    return () => {
-      window.clearTimeout(timeout)
-      window.removeEventListener('blur', remask)
-    }
-  }, [revealed])
-
-  return (
-    <div className="relative">
-      <Input
-        {...props}
-        autoComplete="off"
-        className={cn('pr-10', className)}
-        spellCheck={false}
-        type={revealed ? 'text' : 'password'}
-      />
-      <button
-        aria-label={revealed ? t('console.aria.hide_secret') : t('console.aria.reveal_secret')}
-        className="absolute inset-y-0 right-0 grid w-10 place-items-center text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-        title={revealed ? t('console.aria.hide_secret') : t('console.aria.reveal_secret')}
-        type="button"
-        onClick={() => setRevealed(current => !current)}>
-        {revealed ? <RiEyeOffLine className="size-4" /> : <RiEyeLine className="size-4" />}
-      </button>
-    </div>
-  )
-}
-
 /** Readable, selectable presentation for values that are immutable in this editor. */
 export function ReadOnlyValue({ children, mono = false }: { children: ReactNode; mono?: boolean }) {
   return (
@@ -380,55 +332,55 @@ export function JSONField({
   value: string
 }) {
   const { t } = useTranslation()
-  const controlID = useId()
   const draft = inspectJSONDraft(value)
   const syntaxError = draft.kind === 'invalid' ? draft.error : undefined
   const formatted = draft.kind === 'valid' ? formatJSONDraft(value) : undefined
 
+  // The Textarea stays a direct child so LabeledField adopts it: the label,
+  // description, error, invalid state, and required relation all reach the
+  // control. A wrapping div used to block adoption, so the field never
+  // announced the syntax error.
   return (
-    <LabeledField
-      htmlFor={controlID}
-      label={label}
-      description={description}
-      error={error ?? syntaxError}
-      required={required}>
-      <div className="grid gap-2">
-        <div className="flex min-h-7 items-center justify-end gap-2">
-          {draft.kind === 'valid' ? <Badge variant="success">{t('console.settings.valid_json')}</Badge> : null}
-          <Button
-            disabled={formatted === undefined || formatted === value}
-            size="xs"
-            type="button"
-            variant="outline"
-            onClick={() => formatted !== undefined && onChange(formatted)}>
-            <RiBracesLine data-icon="inline-start" />
-            {t('console.settings.format_json')}
-          </Button>
-        </div>
-        <Textarea
-          id={controlID}
-          aria-invalid={error || syntaxError ? true : undefined}
-          required={required}
-          className="max-h-[50dvh] overflow-auto font-mono text-xs [resize:vertical]"
-          spellCheck={false}
-          style={{ minHeight: `${minRows * 1.5}rem` }}
-          value={value}
-          onChange={event => onChange(event.target.value)}
-        />
+    <LabeledField label={label} description={description} error={error ?? syntaxError} required={required}>
+      <div className="flex min-h-7 items-center justify-end gap-2">
+        {draft.kind === 'valid' ? <Badge variant="success">{t('console.settings.valid_json')}</Badge> : null}
+        <Button
+          disabled={formatted === undefined || formatted === value}
+          size="xs"
+          type="button"
+          variant="outline"
+          onClick={() => formatted !== undefined && onChange(formatted)}>
+          <RiBracesLine data-icon="inline-start" />
+          {t('console.settings.format_json')}
+        </Button>
       </div>
+      <Textarea
+        className="max-h-[50dvh] overflow-auto font-mono text-xs [resize:vertical]"
+        spellCheck={false}
+        style={{ minHeight: `${minRows * 1.5}rem` }}
+        value={value}
+        onChange={event => onChange(event.target.value)}
+      />
     </LabeledField>
   )
 }
 
-/** Icon button that opens a confirmation dialog before running a destructive action. */
+/** Button that opens a confirmation dialog before running a destructive action. */
 export function ConfirmDeleteButton({
   confirm,
+  label,
   onConfirm,
-  pending
+  pending,
+  size,
+  variant
 }: {
   confirm: { title: string; description?: string; confirmLabel: string }
+  /** Text form for form and toolbar placements; the default is the compact icon form. */
+  label?: string
   onConfirm: () => void
   pending?: boolean
+  size?: ComponentProps<typeof Button>['size']
+  variant?: ComponentProps<typeof Button>['variant']
 }) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
@@ -436,17 +388,17 @@ export function ConfirmDeleteButton({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <Button
-        aria-label={confirm.confirmLabel}
-        title={confirm.confirmLabel}
+        aria-label={label ? undefined : confirm.confirmLabel}
+        title={label ? undefined : confirm.confirmLabel}
         disabled={pending}
-        size="icon-xs"
+        size={size ?? (label ? 'xs' : 'icon-xs')}
         type="button"
-        variant="ghost"
+        variant={variant ?? 'ghost'}
         onClick={event => {
           event.stopPropagation()
           setOpen(true)
         }}>
-        <RiDeleteBin6Line />
+        {label ?? <RiDeleteBin6Line />}
       </Button>
       <DialogContent closeLabel={t('common.close')} onClick={event => event.stopPropagation()}>
         <DialogHeader>

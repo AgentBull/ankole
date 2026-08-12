@@ -678,32 +678,6 @@ export const ankoleWebControlPlanePluginControllerUpdate = <ThrowOnError extends
   })
 
 /**
- * List recurring schedules for one Agent
- */
-export const ankoleWebScheduleControllerIndexCron = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebScheduleControllerIndexCronData, ThrowOnError>
-): RequestResult<
-  AnkoleWebScheduleControllerIndexCronResponses,
-  AnkoleWebScheduleControllerIndexCronErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).get<
-    AnkoleWebScheduleControllerIndexCronResponses,
-    AnkoleWebScheduleControllerIndexCronErrors,
-    ThrowOnError
-  >({
-    security: [
-      {
-        key: 'consoleBearer',
-        scheme: 'bearer',
-        type: 'http'
-      }
-    ],
-    url: '/api/v1/agents/{agent_uid}/cron-schedules',
-    ...options
-  })
-
-/**
  * Create one recurring schedule
  */
 export const ankoleWebScheduleControllerCreateCron = <ThrowOnError extends boolean = false>(
@@ -985,6 +959,24 @@ export const ankoleWebAuthZGroupControllerPreviewComputedMembers = <ThrowOnError
       'Content-Type': 'application/json',
       ...options.headers
     }
+  })
+
+/**
+ * List checkback wakeups
+ */
+export const ankoleWebScheduleControllerIndexCheckbacks = <ThrowOnError extends boolean = false>(
+  options?: Options<AnkoleWebScheduleControllerIndexCheckbacksData, ThrowOnError>
+): RequestResult<AnkoleWebScheduleControllerIndexCheckbacksResponses, unknown, ThrowOnError> =>
+  (options?.client ?? client).get<AnkoleWebScheduleControllerIndexCheckbacksResponses, unknown, ThrowOnError>({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/checkbacks',
+    ...options
   })
 
 /**
@@ -1450,6 +1442,32 @@ export const ankoleWebAuthZGroupControllerAddMember = <ThrowOnError extends bool
   })
 
 /**
+ * List webhook endpoints
+ */
+export const ankoleWebWebhookEndpointControllerIndex = <ThrowOnError extends boolean = false>(
+  options?: Options<AnkoleWebWebhookEndpointControllerIndexData, ThrowOnError>
+): RequestResult<
+  AnkoleWebWebhookEndpointControllerIndexResponses,
+  AnkoleWebWebhookEndpointControllerIndexErrors,
+  ThrowOnError
+> =>
+  (options?.client ?? client).get<
+    AnkoleWebWebhookEndpointControllerIndexResponses,
+    AnkoleWebWebhookEndpointControllerIndexErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/webhook-endpoints',
+    ...options
+  })
+
+/**
  * List AIGateway vision files
  */
 export const ankoleWebAiGatewayFilesControllerIndex = <ThrowOnError extends boolean = false>(
@@ -1852,32 +1870,6 @@ export const ankoleWebAuthZGroupControllerUpdate = <ThrowOnError extends boolean
       'Content-Type': 'application/json',
       ...options.headers
     }
-  })
-
-/**
- * List signal bindings for one agent
- */
-export const ankoleWebSignalBindingControllerIndex = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebSignalBindingControllerIndexData, ThrowOnError>
-): RequestResult<
-  AnkoleWebSignalBindingControllerIndexResponses,
-  AnkoleWebSignalBindingControllerIndexErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).get<
-    AnkoleWebSignalBindingControllerIndexResponses,
-    AnkoleWebSignalBindingControllerIndexErrors,
-    ThrowOnError
-  >({
-    security: [
-      {
-        key: 'consoleBearer',
-        scheme: 'bearer',
-        type: 'http'
-      }
-    ],
-    url: '/api/v1/agents/{agent_uid}/signal-bindings',
-    ...options
   })
 
 /**
@@ -2342,6 +2334,32 @@ export const ankoleWebAutomationJobControllerShow = <ThrowOnError extends boolea
   })
 
 /**
+ * List signal bindings
+ */
+export const ankoleWebSignalBindingControllerIndex = <ThrowOnError extends boolean = false>(
+  options?: Options<AnkoleWebSignalBindingControllerIndexData, ThrowOnError>
+): RequestResult<
+  AnkoleWebSignalBindingControllerIndexResponses,
+  AnkoleWebSignalBindingControllerIndexErrors,
+  ThrowOnError
+> =>
+  (options?.client ?? client).get<
+    AnkoleWebSignalBindingControllerIndexResponses,
+    AnkoleWebSignalBindingControllerIndexErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/signal-bindings',
+    ...options
+  })
+
+/**
  * List permission grants owned directly by one Principal
  */
 export const ankoleWebPrincipalControllerGrants = <ThrowOnError extends boolean = false>(
@@ -2464,32 +2482,6 @@ export const ankoleWebAiGatewayProviderControllerIndex = <ThrowOnError extends b
   })
 
 /**
- * List webhook endpoints for one Agent
- */
-export const ankoleWebWebhookEndpointControllerIndex = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebWebhookEndpointControllerIndexData, ThrowOnError>
-): RequestResult<
-  AnkoleWebWebhookEndpointControllerIndexResponses,
-  AnkoleWebWebhookEndpointControllerIndexErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).get<
-    AnkoleWebWebhookEndpointControllerIndexResponses,
-    AnkoleWebWebhookEndpointControllerIndexErrors,
-    ThrowOnError
-  >({
-    security: [
-      {
-        key: 'consoleBearer',
-        scheme: 'bearer',
-        type: 'http'
-      }
-    ],
-    url: '/api/v1/agents/{agent_uid}/webhook-endpoints',
-    ...options
-  })
-
-/**
  * Resume one recurring schedule
  */
 export const ankoleWebScheduleControllerResumeCron = <ThrowOnError extends boolean = false>(
@@ -2504,6 +2496,32 @@ export const ankoleWebScheduleControllerResumeCron = <ThrowOnError extends boole
       }
     ],
     url: '/api/v1/agents/{agent_uid}/cron-schedules/{cron_schedule_id}/resume',
+    ...options
+  })
+
+/**
+ * List automation jobs
+ */
+export const ankoleWebAutomationJobControllerIndex = <ThrowOnError extends boolean = false>(
+  options?: Options<AnkoleWebAutomationJobControllerIndexData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAutomationJobControllerIndexResponses,
+  AnkoleWebAutomationJobControllerIndexErrors,
+  ThrowOnError
+> =>
+  (options?.client ?? client).get<
+    AnkoleWebAutomationJobControllerIndexResponses,
+    AnkoleWebAutomationJobControllerIndexErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/automation-jobs',
     ...options
   })
 
@@ -2774,24 +2792,6 @@ export const ankoleWebBrainControllerSource = <ThrowOnError extends boolean = fa
   })
 
 /**
- * List checkback wakeups for one Agent
- */
-export const ankoleWebScheduleControllerIndexCheckbacks = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebScheduleControllerIndexCheckbacksData, ThrowOnError>
-): RequestResult<AnkoleWebScheduleControllerIndexCheckbacksResponses, unknown, ThrowOnError> =>
-  (options.client ?? client).get<AnkoleWebScheduleControllerIndexCheckbacksResponses, unknown, ThrowOnError>({
-    security: [
-      {
-        key: 'consoleBearer',
-        scheme: 'bearer',
-        type: 'http'
-      }
-    ],
-    url: '/api/v1/agents/{agent_uid}/checkbacks',
-    ...options
-  })
-
-/**
  * Search the web through AIGateway
  */
 export const ankoleWebAiGatewayControllerWebSearch = <ThrowOnError extends boolean = false>(
@@ -2824,6 +2824,32 @@ export const ankoleWebAiGatewayControllerWebSearch = <ThrowOnError extends boole
       'Content-Type': 'application/json',
       ...options.headers
     }
+  })
+
+/**
+ * List recurring schedules
+ */
+export const ankoleWebScheduleControllerIndexCron = <ThrowOnError extends boolean = false>(
+  options?: Options<AnkoleWebScheduleControllerIndexCronData, ThrowOnError>
+): RequestResult<
+  AnkoleWebScheduleControllerIndexCronResponses,
+  AnkoleWebScheduleControllerIndexCronErrors,
+  ThrowOnError
+> =>
+  (options?.client ?? client).get<
+    AnkoleWebScheduleControllerIndexCronResponses,
+    AnkoleWebScheduleControllerIndexCronErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/cron-schedules',
+    ...options
   })
 
 /**
@@ -3245,32 +3271,6 @@ export const ankoleWebWorkerEnvControllerIndex = <ThrowOnError extends boolean =
       }
     ],
     url: '/api/v1/worker-envs',
-    ...options
-  })
-
-/**
- * List automation jobs for one Agent
- */
-export const ankoleWebAutomationJobControllerIndex = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAutomationJobControllerIndexData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAutomationJobControllerIndexResponses,
-  AnkoleWebAutomationJobControllerIndexErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).get<
-    AnkoleWebAutomationJobControllerIndexResponses,
-    AnkoleWebAutomationJobControllerIndexErrors,
-    ThrowOnError
-  >({
-    security: [
-      {
-        key: 'consoleBearer',
-        scheme: 'bearer',
-        type: 'http'
-      }
-    ],
-    url: '/api/v1/agents/{agent_uid}/automation-jobs',
     ...options
   })
 
