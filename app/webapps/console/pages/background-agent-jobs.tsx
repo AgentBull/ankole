@@ -43,7 +43,7 @@ import {
 } from '@remixicon/react'
 import { match } from '@agentbull/active-support'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { type ReactNode, useMemo, useState } from 'react'
+import { type ReactNode, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router'
 import { requestErrorMessage } from '../../common/request-errors'
@@ -61,13 +61,11 @@ import type {
   BackgroundAgentJobTurnPlanStep,
   BackgroundAgentJobTurnUsageBreakdown
 } from '../api/generated/types.gen'
-import { AgentFilter, useAgentScope } from '../console-agent-scope'
-import { ErrorBlock } from '../../common/error-block'
-import { formatConsoleDate, formatJSON } from '../console-primitives'
+import { ErrorBlock, formatConsoleDate, formatJSON } from '../console-primitives'
 import { resourceID } from '../console-route-loaders'
 import { MarkdownBody } from '../markdown-body'
 import { StatusIndicator } from '../console-form'
-import { ScopeBar } from '../console-list-page'
+import { ResourceSearch } from '../console-list-page'
 import { PageHeader, PageStack, RefreshButton } from '../console-page'
 
 type JobStatus = BackgroundAgentJobItem['status']
@@ -91,7 +89,8 @@ export function BackgroundAgentJobsPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
-  const scope = useAgentScope()
+  const routeAgentFilter = searchParams.get('agent') ?? ''
+  const [agentFilter, setAgentFilter] = useState(routeAgentFilter)
   const selectedID = resourceID(searchParams.get('job'))
   const [cancelTargetID, setCancelTargetID] = useState<number>()
   const [completeTargetID, setCompleteTargetID] = useState<number>()
@@ -100,10 +99,9 @@ export function BackgroundAgentJobsPage() {
     ...ankoleWebBackgroundAgentJobControllerHealthOptions(),
     refetchInterval: 15_000
   })
-  // This list endpoint spans agents on its own; the scope only narrows it.
   const list = useQuery({
     ...ankoleWebBackgroundAgentJobControllerIndexOptions({
-      query: { agent: scope.agentUID || undefined, limit: 100 }
+      query: { agent: routeAgentFilter.trim() || undefined, limit: 100 }
     }),
     placeholderData: keepPreviousData,
     refetchInterval: 5_000
@@ -140,6 +138,38 @@ export function BackgroundAgentJobsPage() {
   const cancelTarget =
     jobs.find(job => job.id === cancelTargetID) ?? (selected?.id === cancelTargetID ? selected : undefined)
 
+  useEffect(() => setAgentFilter(routeAgentFilter), [routeAgentFilter])
+
+  useEffect(() => {
+    if (agentFilter === routeAgentFilter) return
+
+    const timeout = window.setTimeout(() => {
+      setSearchParams(
+        current => {
+          const next = new URLSearchParams(current)
+          if (agentFilter) next.set('agent', agentFilter)
+          else next.delete('agent')
+          return next
+        },
+        { replace: true }
+      )
+    }, 300)
+
+    return () => window.clearTimeout(timeout)
+  }, [agentFilter, routeAgentFilter, setSearchParams])
+
+  const clearAgentFilter = () => {
+    setAgentFilter('')
+    setSearchParams(
+      current => {
+        const next = new URLSearchParams(current)
+        next.delete('agent')
+        return next
+      },
+      { replace: true }
+    )
+  }
+
   const openBackgroundAgentJob = (id: number) => {
     const next = new URLSearchParams(searchParams)
     next.set('job', String(id))
@@ -167,9 +197,12 @@ export function BackgroundAgentJobsPage() {
         description={t('console.background_agent_jobs.description')}
         actions={<RefreshButton />}
       />
-      <ScopeBar>
-        <AgentFilter scope={scope} />
-      </ScopeBar>
+      <ResourceSearch
+        label={t('console.background_agent_jobs.agent_filter')}
+        placeholder={t('console.background_agent_jobs.agent_filter')}
+        value={agentFilter}
+        onChange={setAgentFilter}
+      />
 
       {health.data ? <JobHealthStrip health={health.data} /> : null}
 
@@ -182,18 +215,18 @@ export function BackgroundAgentJobsPage() {
               <RiTimeLine aria-hidden />
             </EmptyMedia>
             <EmptyTitle>
-              {scope.agentUID ? t('console.empty.no_results_title') : t('console.background_agent_jobs.empty_title')}
+              {agentFilter ? t('console.empty.no_results_title') : t('console.background_agent_jobs.empty_title')}
             </EmptyTitle>
             <EmptyDescription>
-              {scope.agentUID
+              {agentFilter
                 ? t('console.empty.no_results_description')
                 : t('console.background_agent_jobs.empty_description')}
             </EmptyDescription>
           </EmptyHeader>
-          {scope.agentUID ? (
+          {agentFilter ? (
             <EmptyContent className="items-start">
-              <Button type="button" size="sm" variant="outline" onClick={() => scope.selectAgent('')}>
-                {t('console.empty.clear_filters')}
+              <Button type="button" size="sm" variant="outline" onClick={clearAgentFilter}>
+                {t('console.empty.clear_search')}
               </Button>
             </EmptyContent>
           ) : null}

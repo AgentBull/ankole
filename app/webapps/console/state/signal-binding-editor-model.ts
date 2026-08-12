@@ -16,6 +16,10 @@ export type SignalBindingEditorDraft = {
 
 export type SignalBindingAdapterDraft = Omit<SignalBindingEditorDraft, 'agentUID'>
 
+export function defaultSignalBindingAgentUID(agents: readonly { uid: string }[], queryAgentUID: string): string {
+  return agents.some(agent => agent.uid === queryAgentUID) ? queryAgentUID : (agents[0]?.uid ?? '')
+}
+
 export function groupMessageModeFromPolicy(
   policy: SignalBindingItem['unaddressed_group_message_policy']
 ): GroupMessageMode {

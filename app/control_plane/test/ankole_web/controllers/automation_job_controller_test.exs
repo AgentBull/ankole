@@ -63,21 +63,9 @@ defmodule AnkoleWeb.AutomationJobControllerTest do
     api_spec = AnkoleWeb.APISpec.spec()
     conn = bearer_conn(conn)
 
-    foreign_source = source_event!(other_agent.uid)
-    foreign_job = create_job!(other_agent.uid, foreign_source, "Foreign consumer")
-
-    everything =
-      conn
-      |> get(~p"/api/v1/automation-jobs")
-      |> json_response(200)
-
-    assert MapSet.new(everything["automation_jobs"], & &1["id"]) ==
-             MapSet.new([job.id, other_session_job.id, foreign_job.id])
-
     list =
       conn
-      |> recycle_bearer()
-      |> get(~p"/api/v1/automation-jobs?agent=#{agent.uid}")
+      |> get(~p"/api/v1/agents/#{agent.uid}/automation-jobs")
       |> json_response(200)
 
     assert_schema(list, "AutomationJobListResponse", api_spec)
@@ -106,8 +94,10 @@ defmodule AnkoleWeb.AutomationJobControllerTest do
   end
 
   test "missing bearer token is rejected", %{conn: conn} do
+    %{principal: agent} = agent_fixture()
+
     assert conn
-           |> get(~p"/api/v1/automation-jobs")
+           |> get(~p"/api/v1/agents/#{agent.uid}/automation-jobs")
            |> json_response(401)
   end
 

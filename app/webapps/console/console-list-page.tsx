@@ -40,7 +40,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, NavLink } from 'react-router'
 import { PageHeader, PageStack, RefreshButton } from './console-page'
-import { ErrorBlock } from '../common/error-block'
+import { ErrorBlock } from './console-primitives'
 
 /**
  * List-page frame: title, optional create action, and a data table with
@@ -232,20 +232,12 @@ export function ResourceListPage({
  * becomes unreachable — which is how the principal list sat orphaned behind a
  * URL nothing linked to.
  */
-export function SubNav({
-  ariaLabel,
-  items
-}: {
-  ariaLabel: string
-  /** `end` marks a tab whose path prefixes its siblings, so it matches exactly. */
-  items: { to: string; label: string; end?: boolean }[]
-}) {
+export function SubNav({ ariaLabel, items }: { ariaLabel: string; items: { to: string; label: string }[] }) {
   return (
     <nav aria-label={ariaLabel} className="-mt-1 flex min-w-0 flex-wrap gap-1 border-b border-border">
       {items.map(item => (
         <NavLink
           key={item.to}
-          end={item.end}
           to={item.to}
           className={({ isActive }) =>
             cn(
@@ -414,9 +406,12 @@ export function SearchField({
 }
 
 /**
- * Bordered row of scope or navigation controls for pages without a list
- * toolbar. It stays visible over an empty view because its controls are how
- * the operator brings rows back or leaves.
+ * Scope and filter controls above the list toolbar.
+ *
+ * These stay visible while the list is empty, because they are what the
+ * operator uses to get out of an empty list: the search box over no rows is a
+ * dead control, but "look at another agent" and "include finished rows" are the
+ * two ways the rows come back.
  */
 export function ScopeBar({ children }: { children: ReactNode }) {
   return <div className="flex min-w-0 flex-wrap items-center gap-3 border border-border bg-card p-2">{children}</div>
@@ -437,17 +432,6 @@ export function FilterSwitch({
       <Switch checked={checked} onCheckedChange={onChange} />
       {label}
     </label>
-  )
-}
-
-/** Truncated monospace cell for the agent that owns a row; the full UID stays in the title. */
-export function AgentCell({ uid }: { uid: string }) {
-  return (
-    <TableCell>
-      <span className="block max-w-40 truncate font-mono text-xs" title={uid}>
-        {uid}
-      </span>
-    </TableCell>
   )
 }
 
@@ -481,17 +465,15 @@ export function RowViewAction(
 }
 
 /** Right-aligned edit link that becomes a menu when the row has another action. */
-export type RowAction = { icon?: ReactNode; label: string; pending?: boolean; onAction: () => void }
-
 export function RowActions({
-  actions = [],
+  action,
   deleteConfirm,
   deletePending,
   editLabel,
   editTo,
   onDelete
 }: {
-  actions?: RowAction[]
+  action?: { icon?: ReactNode; label: string; pending?: boolean; onAction: () => void }
   deleteConfirm?: { title: string; description?: string; confirmLabel: string }
   deletePending?: boolean
   editLabel: string
@@ -505,7 +487,7 @@ export function RowActions({
   // A menu that holds one item charges two clicks for one action and hides it
   // behind a label that names no action. With nothing to choose between, the
   // edit link goes straight into the row.
-  if (actions.length === 0 && (!onDelete || !deleteConfirm)) {
+  if (!action && (!onDelete || !deleteConfirm)) {
     return (
       <TableCell className="w-12 text-right" onClick={event => event.stopPropagation()}>
         <Link
@@ -541,12 +523,12 @@ export function RowActions({
             <RiPencilLine />
             {editLabel}
           </DropdownMenuItem>
-          {actions.map(action => (
-            <DropdownMenuItem key={action.label} disabled={action.pending} onClick={action.onAction}>
+          {action ? (
+            <DropdownMenuItem disabled={action.pending} onClick={action.onAction}>
               {action.icon}
               {action.label}
             </DropdownMenuItem>
-          ))}
+          ) : null}
           {onDelete && deleteConfirm ? (
             <DropdownMenuItem variant="destructive" disabled={deletePending} onClick={() => setConfirmOpen(true)}>
               <RiDeleteBin6Line />

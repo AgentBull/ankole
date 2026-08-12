@@ -65,11 +65,10 @@ import {
   ReadOnlyValue,
   ResourceEditorPage,
   SaveButton,
+  SecretInput,
   StatusIndicator
 } from '../console-form'
 import { ResourceListPage, ResourceSearch, RowActions } from '../console-list-page'
-import { EncryptedValueInput } from '../encrypted-value-input'
-import { formatConsoleDate } from '../console-primitives'
 import { nextProviderID, ProviderEditorModel } from '../state/provider-editor-model'
 import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
 import { ProviderSettingField } from './provider-setting-field'
@@ -80,8 +79,8 @@ import {
   credentialSettings,
   humanizeKey,
   initialSettingValue,
-  settingValidationMessage,
-  type ProviderSetting
+  type ProviderSetting,
+  type SettingValidationError
 } from './provider-settings'
 
 type CredentialStrategy = AIGatewayCredentialStrategyWriteRequest['strategy']
@@ -232,7 +231,7 @@ export function ProviderEditorPage() {
   const queryClient = useQueryClient()
   const model = useModel(ProviderEditorModel)
   const params = useParams()
-  const providerID = params.providerID
+  const providerID = params.providerID ? decodeURIComponent(params.providerID) : undefined
   const mode = providerID ? 'edit' : 'new'
 
   const providers = useQuery(providerIndexOptions())
@@ -342,13 +341,7 @@ export function ProviderEditorPage() {
       title={mode === 'new' ? t('console.providers.new') : (providerID ?? '')}
       description={t('console.providers.editor_description')}
       backTo="/providers"
-      error={
-        model.validationError.value ??
-        saveProvider.error ??
-        providerDetail.error ??
-        providers.error ??
-        providerKinds.error
-      }
+      error={model.validationError.value ?? saveProvider.error ?? providerDetail.error}
       submitting={saveProvider.isPending}
       submitDisabled={submitDisabled}
       submitUnavailable={!ready}
@@ -580,9 +573,11 @@ function CredentialPoolEditor({
                       {t('console.providers.reauthenticate')}
                     </Button>
                   ) : null}
-                  <Button size="xs" type="button" variant="outline" onClick={() => setCredentialEditor(entry)}>
-                    {t('common.edit')}
-                  </Button>
+                  {!isChatGPT ? (
+                    <Button size="xs" type="button" variant="outline" onClick={() => setCredentialEditor(entry)}>
+                      {t('common.edit')}
+                    </Button>
+                  ) : null}
                   <Button
                     size="xs"
                     type="button"
@@ -619,15 +614,12 @@ function CredentialPoolEditor({
                 <CredentialFact label={t('console.providers.token_usage')} value={formatCredentialUsage(entry.usage)} />
                 <CredentialFact
                   label={t('console.providers.last_selected_at')}
-                  value={entry.last_selected_at ? formatConsoleDate(entry.last_selected_at) : undefined}
+                  value={formatTimestamp(entry.last_selected_at)}
                 />
-                <CredentialFact
-                  label={t('console.providers.retry_at')}
-                  value={entry.retry_at ? formatConsoleDate(entry.retry_at) : undefined}
-                />
+                <CredentialFact label={t('console.providers.retry_at')} value={formatTimestamp(entry.retry_at)} />
                 <CredentialFact
                   label={t('console.providers.last_refresh')}
-                  value={entry.last_refresh ? formatConsoleDate(entry.last_refresh) : undefined}
+                  value={formatTimestamp(entry.last_refresh)}
                 />
               </dl>
 
@@ -691,15 +683,19 @@ function CredentialEditorDialog({
 }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
-  // ChatGPT pool entries hold OAuth tokens owned by the login flow, so the
-  // editor exposes only label and priority; the control plane keeps the
-  // stored values of every omitted field.
-  const metadataOnly = provider.provider_kind === 'chatgpt_subscription'
-  const settings = useMemo(() => (metadataOnly ? [] : credentialSettings(providerKind)), [metadataOnly, providerKind])
+  const settings = useMemo(() => credentialSettings(providerKind), [providerKind])
   const [label, setLabel] = useState('')
   const [priority, setPriority] = useState('0')
   const [values, setValues] = useState<Record<string, string>>({})
   const [validationError, setValidationError] = useState<string>()
+
+  useEffect(() => {
+    if (!open) return
+    setLabel(entry?.label ?? '')
+    setPriority(String(entry?.priority ?? 0))
+    setValues(Object.fromEntries(settings.map(setting => [setting.key, ''])))
+    setValidationError(undefined)
+  }, [entry, open, settings])
 
   const finish = () => {
     void queryClient.invalidateQueries()
@@ -714,16 +710,6 @@ function CredentialEditorDialog({
     onSuccess: finish
   })
 
-  useEffect(() => {
-    if (!open) return
-    setLabel(entry?.label ?? '')
-    setPriority(String(entry?.priority ?? 0))
-    setValues(Object.fromEntries(settings.map(setting => [setting.key, ''])))
-    setValidationError(undefined)
-    create.reset()
-    update.reset()
-  }, [entry, open, settings])
-
   const submit = () => {
     setValidationError(undefined)
     if (!label.trim()) {
@@ -736,7 +722,7 @@ function CredentialEditorDialog({
         return setting.required && !value
       })
       if (missing) {
-        setValidationError(settingValidationMessage(humanizeKey(missing.key), 'required'))
+        setValidationError(settingValidationMessage(missing.key, 'required'))
         return
       }
     }
@@ -778,11 +764,7 @@ function CredentialEditorDialog({
           <DialogTitle>
             {entry ? t('console.providers.edit_credential') : t('console.providers.add_credential')}
           </DialogTitle>
-          <DialogDescription>
-            {metadataOnly
-              ? t('console.providers.chatgpt_credential_editor_description')
-              : t('console.providers.credential_editor_description')}
-          </DialogDescription>
+          <DialogDescription>{t('console.providers.credential_editor_description')}</DialogDescription>
         </DialogHeader>
         <form
           className="contents"
@@ -807,7 +789,6 @@ function CredentialEditorDialog({
               <ProviderSettingField
                 key={setting.key}
                 setting={setting}
-                keepStored={Boolean(entry)}
                 secretPresent={Boolean(entry?.credential_present)}
                 value={values[setting.key] ?? ''}
                 onChange={value => setValues(current => ({ ...current, [setting.key]: value }))}
@@ -847,6 +828,15 @@ function ChatGPTLoginDialog({
   const [callbackURL, setCallbackURL] = useState('')
   const [validationError, setValidationError] = useState<string>()
 
+  useEffect(() => {
+    if (!open) return
+    setLabel(entry?.label ?? '')
+    setPriority(String(entry?.priority ?? 0))
+    setLogin(undefined)
+    setCallbackURL('')
+    setValidationError(undefined)
+  }, [entry, open])
+
   const finish = () => {
     toast.success(t('console.providers.chatgpt_login_complete'))
     void queryClient.invalidateQueries()
@@ -871,18 +861,6 @@ function ChatGPTLoginDialog({
     ...completeChatGPTBrowserLoginMutation(),
     onSuccess: finish
   })
-
-  useEffect(() => {
-    if (!open) return
-    setLabel(entry?.label ?? '')
-    setPriority(String(entry?.priority ?? 0))
-    setLogin(undefined)
-    setCallbackURL('')
-    setValidationError(undefined)
-    start.reset()
-    poll.reset()
-    complete.reset()
-  }, [entry, open])
 
   const mode = textValue(login?.mode)
   const status = textValue(login?.status)
@@ -1071,15 +1049,6 @@ function EnterpriseCredentialDialog({
   const accessTokenInput = useRef<HTMLInputElement>(null)
   const accountIDInput = useRef<HTMLInputElement>(null)
 
-  const save = useMutation({
-    ...addChatGPTEnterpriseCredentialMutation(),
-    onSuccess: () => {
-      toast.success(t('console.providers.enterprise_token_saved'))
-      void queryClient.invalidateQueries()
-      onOpenChange(false)
-    }
-  })
-
   useEffect(() => {
     if (!open) return
     setLabel(entry?.label ?? '')
@@ -1089,8 +1058,16 @@ function EnterpriseCredentialDialog({
     setPlanType(entry?.plan_type ?? '')
     setEmail(entry?.email ?? '')
     setValidationError(undefined)
-    save.reset()
   }, [entry, open])
+
+  const save = useMutation({
+    ...addChatGPTEnterpriseCredentialMutation(),
+    onSuccess: () => {
+      toast.success(t('console.providers.enterprise_token_saved'))
+      void queryClient.invalidateQueries()
+      onOpenChange(false)
+    }
+  })
 
   const submit = () => {
     const requiredField = [
@@ -1149,9 +1126,8 @@ function EnterpriseCredentialDialog({
             <Input type="number" step={1} value={priority} onChange={event => setPriority(event.target.value)} />
           </LabeledField>
           <LabeledField label={t('console.providers.access_token')} required>
-            <EncryptedValueInput
+            <SecretInput
               ref={accessTokenInput}
-              revealLabel={t('console.aria.reveal_secret')}
               value={accessToken}
               onChange={event => {
                 setAccessToken(event.target.value)
@@ -1233,6 +1209,12 @@ function credentialStatusTone(
   }
 }
 
+function formatTimestamp(value: string | null | undefined): string | undefined {
+  if (!value) return undefined
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
+}
+
 function formatCredentialUsage(value: Record<string, unknown>): string | undefined {
   const buckets = [
     ['model', asRecord(value.model)],
@@ -1296,5 +1278,20 @@ function credentialStrategyLabel(t: ReturnType<typeof useTranslation>['t'], stra
       return t('console.providers.strategy_least_used')
     case 'random':
       return t('console.providers.strategy_random')
+  }
+}
+
+function settingValidationMessage(field: string, error: SettingValidationError): string {
+  switch (error) {
+    case 'required':
+      return i18n.t('common.field_required', { field })
+    case 'json_object':
+      return i18n.t('common.must_be_json_object', { field })
+    case 'integer':
+      return i18n.t('common.must_be_integer', { field })
+    case 'number':
+      return i18n.t('common.must_be_number', { field })
+    case 'selection':
+      return i18n.t('common.must_be_valid_selection', { field })
   }
 }

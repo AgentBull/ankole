@@ -29,13 +29,6 @@ defmodule AnkoleWeb.AIGatewayConversationController do
     parameters: [
       subject: [in: :query, type: :string, required: false],
       key: [in: :query, type: :string, required: false],
-      q: [
-        in: :query,
-        type: :string,
-        required: false,
-        description:
-          "Matches an exact subject UID, a conversation-key fragment, or a fragment of a channel or DM peer name."
-      ],
       active: [in: :query, schema: %Schema{type: :boolean}, required: false],
       min_messages: [in: :query, schema: %Schema{type: :integer, minimum: 1}, required: false],
       cursor: [in: :query, type: :string, required: false],
@@ -89,7 +82,6 @@ defmodule AnkoleWeb.AIGatewayConversationController do
            ConsoleQueries.list_conversations(
              subject_uid: param(params, "subject"),
              conversation_key: param(params, "key"),
-             search: param(params, "q"),
              active: boolean_param(params, "active"),
              min_messages: integer_param(params, "min_messages", nil),
              cursor: param(params, "cursor"),
@@ -147,7 +139,6 @@ defmodule AnkoleWeb.AIGatewayConversationController do
 
   defp param_atom("subject"), do: :subject
   defp param_atom("key"), do: :key
-  defp param_atom("q"), do: :q
   defp param_atom("active"), do: :active
   defp param_atom("min_messages"), do: :min_messages
   defp param_atom("cursor"), do: :cursor

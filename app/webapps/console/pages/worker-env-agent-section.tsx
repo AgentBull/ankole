@@ -3,7 +3,6 @@ import {
   Button,
   Checkbox,
   Input,
-  Skeleton,
   Table,
   TableBody,
   TableCell,
@@ -24,8 +23,8 @@ import {
 } from '../api/generated/@tanstack/react-query.gen'
 import type { WorkerEnvItem } from '../api/generated/types.gen'
 import { requestErrorMessage } from '../../common/request-errors'
-import { ConfirmDeleteButton, SaveButton } from '../console-form'
-import { ErrorBlock } from '../../common/error-block'
+import { SaveButton } from '../console-form'
+import { ErrorBlock } from '../console-primitives'
 import { ENCRYPTED_VALUE_MASK, EncryptedValueInput, isEncryptedValueMask } from '../encrypted-value-input'
 import { workerEnvValueText } from '../state/worker-env-visibility'
 import {
@@ -196,7 +195,7 @@ export function WorkerEnvAgentSection({ agentUID }: { agentUID: string }) {
     const disabled = save.isPending || (unchanged && !incomplete)
 
     return (
-      <TableRow key={mode === 'edit' ? editing : undefined}>
+      <TableRow>
         <TableCell>
           {mode === 'add' ? (
             <Input
@@ -287,7 +286,7 @@ export function WorkerEnvAgentSection({ agentUID }: { agentUID: string }) {
       </div>
       <ErrorBlock error={list.error ?? draftError} />
       <div className="overflow-x-auto border border-border bg-card">
-        <Table aria-busy={list.isLoading}>
+        <Table>
           <TableHeader>
             <TableRow>
               <TableHead>{t('console.worker_envs.name')}</TableHead>
@@ -300,89 +299,74 @@ export function WorkerEnvAgentSection({ agentUID }: { agentUID: string }) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {list.isLoading ? (
-              <TableRow>
-                <TableCell colSpan={5}>
-                  <div className="grid gap-2">
-                    <Skeleton className="h-6 w-full" />
-                    <Skeleton className="h-6 w-4/5" />
-                  </div>
-                </TableCell>
-              </TableRow>
-            ) : (
-              <>
-                {items.map(item =>
-                  editing === item.name ? (
-                    draftRow('edit')
-                  ) : (
-                    <TableRow key={item.name}>
-                      <TableCell className="max-w-[220px] font-mono text-xs break-all whitespace-normal">
-                        {item.name}
-                      </TableCell>
-                      <TableCell className="max-w-[260px] font-mono text-xs text-muted-foreground">
-                        <div className="flex items-center gap-1.5">
-                          <span className="truncate">{revealed[item.name] ?? workerEnvValueText(item)}</span>
-                          {item.secret ? (
-                            <button
-                              aria-label={
-                                revealed[item.name] === undefined
-                                  ? t('console.worker_envs.reveal')
-                                  : t('console.aria.hide_secret')
-                              }
-                              className="grid size-9 shrink-0 place-items-center text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40"
-                              title={
-                                revealed[item.name] === undefined
-                                  ? t('console.worker_envs.reveal')
-                                  : t('console.aria.hide_secret')
-                              }
-                              type="button"
-                              onClick={() =>
-                                revealed[item.name] === undefined
-                                  ? decrypt.mutate({ path: { agent_uid: agentUID, name: item.name } })
-                                  : hideRevealed(item.name)
-                              }>
-                              {revealed[item.name] === undefined ? (
-                                <RiEyeLine className="size-4" />
-                              ) : (
-                                <RiEyeOffLine className="size-4" />
-                              )}
-                            </button>
-                          ) : null}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={item.kind === 'declared' ? 'outline' : 'secondary'}>
-                          {t(`console.worker_envs.kind_${item.kind}`)}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <WorkerEnvSourceBadge source={item.source} />
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          <Button size="xs" type="button" variant="ghost" onClick={() => beginOverride(item)}>
-                            {item.source === 'agent' ? t('common.edit') : t('console.worker_envs.override')}
-                          </Button>
-                          {item.source === 'agent' ? (
-                            <ConfirmDeleteButton
-                              label={t('console.worker_envs.clear_override')}
-                              pending={clear.isPending}
-                              confirm={{
-                                title: t('console.worker_envs.clear_confirm_title'),
-                                description: t('console.worker_envs.clear_confirm_description', { name: item.name }),
-                                confirmLabel: t('console.worker_envs.clear_override')
-                              }}
-                              onConfirm={() => clear.mutate({ path: { agent_uid: agentUID, name: item.name } })}
-                            />
-                          ) : null}
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  )
-                )}
-                {editing === undefined ? draftRow('add') : null}
-              </>
+            {items.map(item =>
+              editing === item.name ? (
+                draftRow('edit')
+              ) : (
+                <TableRow key={item.name}>
+                  <TableCell className="max-w-[220px] font-mono text-xs break-all whitespace-normal">
+                    {item.name}
+                  </TableCell>
+                  <TableCell className="max-w-[260px] font-mono text-xs text-muted-foreground">
+                    <div className="flex items-center gap-1.5">
+                      <span className="truncate">{revealed[item.name] ?? workerEnvValueText(item)}</span>
+                      {item.secret ? (
+                        <button
+                          aria-label={
+                            revealed[item.name] === undefined
+                              ? t('console.worker_envs.reveal')
+                              : t('console.aria.hide_secret')
+                          }
+                          className="grid size-9 shrink-0 place-items-center text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40"
+                          title={
+                            revealed[item.name] === undefined
+                              ? t('console.worker_envs.reveal')
+                              : t('console.aria.hide_secret')
+                          }
+                          type="button"
+                          onClick={() =>
+                            revealed[item.name] === undefined
+                              ? decrypt.mutate({ path: { agent_uid: agentUID, name: item.name } })
+                              : hideRevealed(item.name)
+                          }>
+                          {revealed[item.name] === undefined ? (
+                            <RiEyeLine className="size-4" />
+                          ) : (
+                            <RiEyeOffLine className="size-4" />
+                          )}
+                        </button>
+                      ) : null}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={item.kind === 'declared' ? 'outline' : 'secondary'}>
+                      {t(`console.worker_envs.kind_${item.kind}`)}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
+                    <WorkerEnvSourceBadge source={item.source} />
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex items-center justify-end gap-1">
+                      <Button size="xs" type="button" variant="ghost" onClick={() => beginOverride(item)}>
+                        {item.source === 'agent' ? t('common.edit') : t('console.worker_envs.override')}
+                      </Button>
+                      {item.source === 'agent' ? (
+                        <Button
+                          disabled={clear.isPending}
+                          size="xs"
+                          type="button"
+                          variant="ghost"
+                          onClick={() => clear.mutate({ path: { agent_uid: agentUID, name: item.name } })}>
+                          {t('console.worker_envs.clear_override')}
+                        </Button>
+                      ) : null}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              )
             )}
+            {editing === undefined ? draftRow('add') : null}
           </TableBody>
         </Table>
       </div>

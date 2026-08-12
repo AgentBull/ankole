@@ -13,7 +13,6 @@ import { useQuery } from '@tanstack/react-query'
 import type { ComponentType, ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { isRouteErrorResponse, Link, useLocation, useRouteError } from 'react-router'
-import { requestErrorMessage } from '../../common/request-errors'
 import {
   ankoleWebAgentComputerWorkerControllerIndexOptions,
   ankoleWebAgentControllerIndexOptions,
@@ -23,8 +22,7 @@ import {
   ankoleWebIdentityProviderControllerIndexOptions
 } from '../api/generated/@tanstack/react-query.gen'
 import type { BackgroundAgentJobItem } from '../api/generated/types.gen'
-import { ErrorBlock } from '../../common/error-block'
-import { formatConsoleDate } from '../console-primitives'
+import { ErrorBlock, formatConsoleDate } from '../console-primitives'
 import { conversationDisplayName } from '../conversation-presentation'
 import { StatusIndicator } from '../console-form'
 import { PageHeader, PageStack, RefreshButton } from '../console-page'
@@ -57,6 +55,7 @@ export function HomePage() {
   )
 
   const queries = [agents, workers, providers, identityProviders, jobs, conversations]
+  const isLoading = queries.some(query => query.isLoading)
   const error = queries.find(query => query.error)?.error
 
   const agentRows = agents.data?.agents ?? []
@@ -73,10 +72,9 @@ export function HomePage() {
 
   // Only conditions that stop or degrade real work appear here. A blocker is a
   // link to the page that fixes it, because an alert the operator cannot act on
-  // is noise they learn to skip. Each absence claim requires its own query's
-  // data: a failed request must not render as a confident zero.
+  // is noise they learn to skip.
   const alerts: Alert[] = []
-  if (providers.data && enabledProviders === 0) {
+  if (!isLoading && enabledProviders === 0) {
     alerts.push({
       tone: 'danger',
       title: t('console.home.alert_no_provider_title'),
@@ -85,7 +83,7 @@ export function HomePage() {
       action: t('console.home.alert_no_provider_action')
     })
   }
-  if (workerRows.length > 0 && readyWorkers === 0) {
+  if (!isLoading && workerRows.length > 0 && readyWorkers === 0) {
     alerts.push({
       tone: 'warning',
       title: t('console.home.alert_no_ready_worker_title'),
@@ -94,7 +92,7 @@ export function HomePage() {
       action: t('console.home.alert_no_ready_worker_action')
     })
   }
-  if (identityProviders.data?.identity_providers.every(provider => !provider.enabled)) {
+  if (!isLoading && (identityProviders.data?.identity_providers ?? []).every(provider => !provider.enabled)) {
     alerts.push({
       tone: 'warning',
       title: t('console.home.alert_no_identity_title'),
@@ -137,7 +135,7 @@ export function HomePage() {
           icon={RiRobot2Line}
           label={t('console.nav.agents')}
           to="/agents"
-          loading={!agents.data}
+          loading={agents.isLoading}
           value={activeAgents}
           detail={t('console.home.of_total', { total: agentRows.length })}
         />
@@ -145,7 +143,7 @@ export function HomePage() {
           icon={RiServerLine}
           label={t('console.home.ready_workers')}
           to="/workers"
-          loading={!workers.data}
+          loading={workers.isLoading}
           value={readyWorkers}
           detail={t('console.home.of_total', { total: workerRows.length })}
         />
@@ -153,7 +151,7 @@ export function HomePage() {
           icon={RiGitBranchLine}
           label={t('console.home.running_jobs')}
           to="/background-agent-jobs"
-          loading={!jobs.data}
+          loading={jobs.isLoading}
           value={runningJobs}
           detail={t('console.home.queued_jobs', { count: queuedJobs })}
         />
@@ -161,7 +159,7 @@ export function HomePage() {
           icon={RiSparkling2Line}
           label={t('console.home.enabled_providers')}
           to="/providers"
-          loading={!providers.data}
+          loading={providers.isLoading}
           value={enabledProviders}
           detail={t('console.home.of_total', { total: providerRows.length })}
         />
@@ -297,15 +295,11 @@ export function NotFoundPage() {
 export function RouteErrorPage() {
   const { t } = useTranslation()
   const error = useRouteError()
-  // Loader failures reject with the parsed JSON error body, so the fallback
-  // goes through the shared envelope reader instead of String(object).
   const detail = isRouteErrorResponse(error)
     ? `${error.status} ${error.statusText}`
     : error instanceof Error
       ? error.message
-      : error
-        ? requestErrorMessage(error)
-        : ''
+      : String(error ?? '')
 
   return (
     <PageStack className="mx-auto max-w-2xl py-10">

@@ -1698,7 +1698,6 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
         title: "SignalDeliveryFailureItem",
         type: :object,
         properties: %{
-          agent_uid: %Schema{type: :string},
           binding_name: %Schema{type: :string},
           outbound_key: %Schema{type: :string},
           status: %Schema{type: :string, enum: ["failed", "unknown_after_send"]},
@@ -1713,7 +1712,6 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           updated_at: %Schema{type: :string, format: :"date-time"}
         },
         required: [
-          :agent_uid,
           :binding_name,
           :outbound_key,
           :status,

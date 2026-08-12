@@ -21,9 +21,8 @@ import type { AutomationJobItem, AutomationJobRunItem } from '../api/generated/t
 import { AgentFilter, useAgentScope } from '../console-agent-scope'
 import { resourceID } from '../console-route-loaders'
 import { StatusIndicator } from '../console-form'
-import { ErrorBlock } from '../../common/error-block'
-import { formatConsoleDate, formatJSON } from '../console-primitives'
-import { AgentCell, FilterSwitch, ResourceListPage, ResourceSearch, RowViewAction } from '../console-list-page'
+import { ErrorBlock, formatConsoleDate, formatJSON } from '../console-primitives'
+import { FilterSwitch, ResourceListPage, ResourceSearch, RowViewAction, ScopeBar } from '../console-list-page'
 import { matchesResourceSearch } from '../state/resource-search'
 
 export function AutomationJobsPage() {
@@ -36,42 +35,30 @@ export function AutomationJobsPage() {
 
   const jobs = useQuery({
     ...ankoleWebAutomationJobControllerIndexOptions({
-      query: { agent: scope.agentUID || undefined, limit: 100 }
+      path: { agent_uid: scope.agentUID },
+      query: { limit: 100 }
     }),
-    refetchInterval: 5_000
+    enabled: Boolean(scope.agentUID),
+    refetchInterval: scope.agentUID ? 5_000 : false
   })
-  const allJobs = jobs.data?.automation_jobs ?? []
-
-  // Job ids are installation-wide, so the list resolves the agent that owns a
-  // deep-linked job before the per-agent detail endpoint can load it. A job
-  // absent from the loaded list falls back to the URL's agent scope.
-  const selectedAgentUID = allJobs.find(job => job.id === selectedID)?.agent_uid ?? scope.agentUID
 
   const detail = useQuery({
     ...ankoleWebAutomationJobControllerShowOptions({
       path: {
-        agent_uid: selectedAgentUID,
+        agent_uid: scope.agentUID,
         automation_job_id: selectedID ?? 1000
       },
       query: { runs: 20 }
     }),
-    enabled: Boolean(selectedAgentUID) && selectedID !== undefined,
+    enabled: Boolean(scope.agentUID) && selectedID !== undefined,
     refetchInterval: selectedID !== undefined ? 5_000 : false,
     retry: false
   })
 
-  const rows = allJobs
+  const rows = (jobs.data?.automation_jobs ?? [])
     .filter(job => includeFinished || job.status === 'active')
     .filter(job =>
-      matchesResourceSearch(
-        query,
-        job.label,
-        job.status,
-        job.agent_uid,
-        job.directory_path,
-        job.owner_session_id,
-        String(job.id)
-      )
+      matchesResourceSearch(query, job.label, job.status, job.directory_path, job.owner_session_id, String(job.id))
     )
 
   const openJob = (id: number) => {
@@ -93,7 +80,6 @@ export function AutomationJobsPage() {
         description={t('console.automation_jobs.description')}
         columns={[
           t('console.automation_jobs.label'),
-          t('console.agents.agent'),
           t('console.session'),
           t('console.automation_jobs.directory'),
           t('console.automation_jobs.failure_wake'),
@@ -101,31 +87,32 @@ export function AutomationJobsPage() {
           t('console.automation_jobs.created_at')
         ]}
         count={rows.length}
-        emptyTitle={t('console.automation_jobs.empty_title')}
+        emptyTitle={
+          scope.agentUID ? t('console.automation_jobs.empty_title') : t('console.automation_jobs.select_scope_title')
+        }
         emptyIcon={<RiCodeSSlashLine aria-hidden />}
-        emptyDescription={t('console.automation_jobs.empty_description')}
-        error={jobs.error}
+        emptyDescription={
+          scope.agentUID
+            ? t('console.automation_jobs.empty_description')
+            : t('console.automation_jobs.select_scope_description')
+        }
+        error={scope.error ?? jobs.error}
         isEmpty={rows.length === 0}
         isFiltered={Boolean(query.trim())}
         onClearFilters={() => setQuery('')}
-        isLoading={jobs.isLoading}
-        toolbarCanRevealRows
+        isLoading={Boolean(scope.agentUID) && jobs.isLoading}
+        subNav={
+          <ScopeBar>
+            <AgentFilter scope={scope} />
+            <FilterSwitch
+              checked={includeFinished}
+              label={t('console.include_finished')}
+              onChange={setIncludeFinished}
+            />
+          </ScopeBar>
+        }
         toolbar={
-          <ResourceSearch
-            label={t('console.automation_jobs.search_placeholder')}
-            value={query}
-            onChange={setQuery}
-            filters={
-              <>
-                <AgentFilter scope={scope} />
-                <FilterSwitch
-                  checked={includeFinished}
-                  label={t('console.include_finished')}
-                  onChange={setIncludeFinished}
-                />
-              </>
-            }
-          />
+          <ResourceSearch label={t('console.automation_jobs.search_placeholder')} value={query} onChange={setQuery} />
         }>
         {rows.map(job => (
           <AutomationJobRow key={job.id} job={job} onOpen={() => openJob(job.id)} />
@@ -147,12 +134,6 @@ export function AutomationJobsPage() {
           <div className="min-w-0 flex-1 overflow-y-auto px-8 py-6">
             {detail.error ? (
               <ErrorBlock error={detail.error} />
-            ) : selectedID !== undefined && !selectedAgentUID && !jobs.isLoading ? (
-              // Without a list match or a scope agent no detail query can run,
-              // so the deep-linked id would otherwise stay a skeleton forever.
-              // With a scope agent the query runs and a real 404 surfaces
-              // through detail.error above.
-              <ErrorBlock error={t('console.automation_jobs.not_found', { id: selectedID })} />
             ) : detail.isLoading || !detail.data?.automation_job ? (
               <Skeleton className="h-64 w-full" />
             ) : (
@@ -176,7 +157,6 @@ function AutomationJobRow({ job, onOpen }: { job: AutomationJobItem; onOpen: () 
           <span className="font-mono text-xs text-muted-foreground">#{job.id}</span>
         </button>
       </TableCell>
-      <AgentCell uid={job.agent_uid} />
       <TableCell>
         <span className="block max-w-56 truncate font-mono text-xs" title={job.owner_session_id}>
           {job.owner_session_id}

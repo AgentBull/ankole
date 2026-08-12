@@ -21,8 +21,8 @@ import type {
   AiGatewayProviderKindItem as AIGatewayProviderKindItem,
   ModelProfileWriteRequest
 } from '../api/generated/types.gen'
-import { ErrorBlock } from '../../common/error-block'
-import { ConfirmDeleteButton, LabeledField, SaveButton } from '../console-form'
+import { ErrorBlock } from '../console-primitives'
+import { LabeledField, SaveButton } from '../console-form'
 import type { ProfileDraft } from '../state/model-profiles-model'
 import {
   modelOptionsForProfile,
@@ -34,8 +34,8 @@ import { ProviderSettingField } from './provider-setting-field'
 import {
   buildSettingOptions,
   requestSettings,
-  settingValidationMessage,
-  type ProviderSetting
+  type ProviderSetting,
+  type SettingValidationError
 } from './provider-settings'
 
 export function ModelProfileEditorCard({
@@ -49,7 +49,6 @@ export function ModelProfileEditorCard({
   saveIncomplete,
   showDescription,
   persistencePending,
-  deleteConfirm,
   deleteDisabled,
   deleteLabel,
   providers,
@@ -69,8 +68,6 @@ export function ModelProfileEditorCard({
   saveIncomplete?: boolean
   showDescription?: boolean
   persistencePending: boolean
-  /** When set, the delete action asks for confirmation before it fires. */
-  deleteConfirm?: { title: string; description?: string; confirmLabel: string }
   deleteDisabled: boolean
   deleteLabel: string
   providers: AIGatewayProviderItem[]
@@ -172,23 +169,14 @@ export function ModelProfileEditorCard({
               type="submit">
               {t('common.save')}
             </SaveButton>
-            {deleteConfirm ? (
-              <ConfirmDeleteButton
-                confirm={deleteConfirm}
-                label={deleteLabel}
-                pending={deleteDisabled || persistencePending}
-                onConfirm={onDelete}
-              />
-            ) : (
-              <Button
-                disabled={deleteDisabled || persistencePending}
-                size="xs"
-                type="button"
-                variant="ghost"
-                onClick={onDelete}>
-                {deleteLabel}
-              </Button>
-            )}
+            <Button
+              disabled={deleteDisabled || persistencePending}
+              size="xs"
+              type="button"
+              variant="ghost"
+              onClick={onDelete}>
+              {deleteLabel}
+            </Button>
           </div>
         </div>
         <CollapsibleContent className="grid gap-4 border-t border-border px-4 py-4">
@@ -322,19 +310,11 @@ export function buildModelProfileWriteRequest({
   t: TFunction
   includeDescription?: boolean
 }): { ok: true; body: ModelProfileWriteRequest } | { ok: false; error: string } {
-  if (includeDescription && !draft.description.trim()) {
-    return { ok: false, error: t('console.models.custom_profile_description_required') }
-  }
   if (!draft.providerID.trim()) {
     return { ok: false, error: t('common.field_required', { field: t('console.models.provider') }) }
   }
   if (profileUsesConfigurableModel(profile) && !draft.model.trim()) {
     return { ok: false, error: t('common.field_required', { field: t('console.models.model') }) }
-  }
-
-  const requestFields = modelProfileRequestFields(profile, draft)
-  if (!requestFields.ok) {
-    return { ok: false, error: settingValidationMessage(t('console.models.context'), requestFields.error) }
   }
 
   const selectedProvider = providers.find(provider => provider.provider_id === draft.providerID)
@@ -343,10 +323,8 @@ export function buildModelProfileWriteRequest({
     return { ok: false, error: t('console.models.provider_definition_unavailable') }
   }
 
-  const builtOptions = buildSettingOptions(
-    requestSettings(selectedKind),
-    draft.providerOptions,
-    settingValidationMessage
+  const builtOptions = buildSettingOptions(requestSettings(selectedKind), draft.providerOptions, (field, reason) =>
+    settingValidationMessage(t, field, reason)
   )
   if (!builtOptions.ok) return builtOptions
 
@@ -354,9 +332,24 @@ export function buildModelProfileWriteRequest({
     ok: true,
     body: {
       provider_id: draft.providerID,
-      ...requestFields.fields,
+      ...modelProfileRequestFields(profile, draft),
       ...(includeDescription ? { description: draft.description.trim() } : {}),
       provider_options: builtOptions.value
     }
+  }
+}
+
+function settingValidationMessage(t: TFunction, field: string, error: SettingValidationError): string {
+  switch (error) {
+    case 'required':
+      return t('common.field_required', { field })
+    case 'json_object':
+      return t('common.must_be_json_object', { field })
+    case 'integer':
+      return t('common.must_be_integer', { field })
+    case 'number':
+      return t('common.must_be_number', { field })
+    case 'selection':
+      return t('common.must_be_valid_selection', { field })
   }
 }

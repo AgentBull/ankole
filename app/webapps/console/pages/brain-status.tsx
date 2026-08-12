@@ -9,8 +9,7 @@ import {
 } from '../api/generated/@tanstack/react-query.gen'
 import type { JsonValue as JSONValue } from '../api/generated/types.gen'
 import { PageHeader, PageStack, RefreshButton } from '../console-page'
-import { ErrorBlock } from '../../common/error-block'
-import { formatJSON } from '../console-primitives'
+import { ErrorBlock, formatJSON } from '../console-primitives'
 import { StatusIndicator } from '../console-form'
 import { defaultBrainOwnerUID, setBrainFilter } from '../state/brain-editor-model'
 import { BrainOwnerField, BrainTaskNavigation } from './brain-shared'
@@ -48,7 +47,7 @@ export function BrainStatusPage() {
         description={t('console.brain.status_description')}
         actions={<RefreshButton />}
       />
-      <BrainTaskNavigation ownerUID={ownerUID} />
+      <BrainTaskNavigation active="status" ownerUID={ownerUID} />
       <div className="grid grid-cols-1 gap-4 border border-border bg-card p-4 md:grid-cols-2">
         <BrainOwnerField
           ownerUID={ownerUID}
@@ -145,16 +144,15 @@ export function BrainStatusPage() {
 }
 
 function PipelineCard({ title, value }: { title: string; value?: Record<string, JSONValue> }) {
-  const { t } = useTranslation()
   return (
     <Card>
       <CardHeader>
         <CardTitle>{title}</CardTitle>
       </CardHeader>
       <CardContent className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
-        {(['total', 'pending', 'synced', 'failed'] as const).map(key => (
+        {['total', 'pending', 'synced', 'failed'].map(key => (
           <div key={key} className="border border-border p-3">
-            <div className="text-xs text-muted-foreground">{t(`console.brain.pipeline_${key}`)}</div>
+            <div className="text-xs text-muted-foreground">{key}</div>
             <div className="mt-1 text-lg font-semibold">{numberValue(value?.[key])}</div>
           </div>
         ))}

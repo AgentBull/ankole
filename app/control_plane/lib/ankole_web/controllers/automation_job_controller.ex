@@ -8,7 +8,6 @@ defmodule AnkoleWeb.AutomationJobController do
 
   alias Ankole.AutomationJobs
   alias AnkoleWeb.ConsoleErrors
-  alias AnkoleWeb.ConsoleParams
   alias AnkoleWeb.ConsolePolicy
   alias AnkoleWeb.Schemas.ConsoleAPI.AutomationJobListResponse
   alias AnkoleWeb.Schemas.ConsoleAPI.AutomationJobResponse
@@ -25,15 +24,16 @@ defmodule AnkoleWeb.AutomationJobController do
     render_error: AnkoleWeb.OpenAPIValidationErrorRenderer
 
   operation(:index,
-    summary: "List automation jobs",
-    parameters: [
-      agent: [in: :query, type: :string, required: false],
-      limit: [
-        in: :query,
-        schema: %Schema{type: :integer, minimum: 1, maximum: 500},
-        required: false
-      ]
-    ],
+    summary: "List automation jobs for one Agent",
+    parameters:
+      @agent_parameters ++
+        [
+          limit: [
+            in: :query,
+            schema: %Schema{type: :integer, minimum: 1, maximum: 500},
+            required: false
+          ]
+        ],
     responses: [
       ok: {"Automation jobs", "application/json", AutomationJobListResponse},
       unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
@@ -70,10 +70,10 @@ defmodule AnkoleWeb.AutomationJobController do
   )
 
   def index(conn, params) do
-    with :ok <- ConsolePolicy.authorize(conn, "automation_jobs", "read") do
+    with {:ok, agent_uid} <- agent_uid_param(params),
+         :ok <- ConsolePolicy.authorize(conn, resource(agent_uid), "read") do
       jobs =
-        params
-        |> ConsoleParams.agent_filter_param()
+        agent_uid
         |> AutomationJobs.list_jobs(nil, limit: integer_param(params, "limit", 100))
         |> Enum.map(&AutomationJobs.console_projection/1)
 

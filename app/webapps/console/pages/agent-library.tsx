@@ -53,8 +53,7 @@ import type {
   ControlPlanePluginItem
 } from '../api/generated/types.gen'
 import { PageHeader, PageStack } from '../console-page'
-import { ErrorBlock } from '../../common/error-block'
-import { formatConsoleDate } from '../console-primitives'
+import { ErrorBlock, formatConsoleDate } from '../console-primitives'
 import { ConfirmDeleteButton, SaveButton } from '../console-form'
 import { ResourceSearch } from '../console-list-page'
 import {

@@ -7,10 +7,10 @@ defmodule Ankole.Schedule.Queries do
   alias Ankole.Schedule.Schemas.CronSchedule
   alias Ankole.Schedule.Schemas.ScheduledEvent
 
-  @spec list_cron_schedules(String.t() | nil, String.t() | nil) :: [CronSchedule.t()]
-  def list_cron_schedules(agent_uid \\ nil, owner_session_id \\ nil) do
+  @spec list_cron_schedules(String.t(), String.t() | nil) :: [CronSchedule.t()]
+  def list_cron_schedules(agent_uid, owner_session_id \\ nil) when is_binary(agent_uid) do
     CronSchedule
-    |> maybe_where_agent(agent_uid)
+    |> where([schedule], schedule.agent_uid == ^String.downcase(agent_uid))
     |> where([schedule], schedule.status != "deleted")
     |> maybe_where_owner_session(owner_session_id)
     |> order_by([schedule],
@@ -64,28 +64,14 @@ defmodule Ankole.Schedule.Queries do
     |> Repo.all()
   end
 
-  @checkback_limit_max 500
-  @checkback_limit_default 100
-
-  # The console default scope is now the whole installation, and finished
-  # checkbacks are retained. Without a bound the default page would return
-  # every agent's full history.
-  @spec list_checkbacks(String.t() | nil, String.t() | nil, keyword()) :: [ScheduledEvent.t()]
-  def list_checkbacks(agent_uid \\ nil, session_id \\ nil, opts \\ []) do
-    limit = opts |> Keyword.get(:limit) |> bounded_checkback_limit()
-
+  @spec list_checkbacks(String.t(), String.t() | nil) :: [ScheduledEvent.t()]
+  def list_checkbacks(agent_uid, session_id \\ nil) when is_binary(agent_uid) do
     agent_uid
     |> checkbacks_query()
     |> maybe_where_session(session_id)
     |> order_by([event], desc: event.due_at, desc: event.inserted_at)
-    |> limit(^limit)
     |> Repo.all()
   end
-
-  defp bounded_checkback_limit(value) when is_integer(value) and value > 0,
-    do: min(value, @checkback_limit_max)
-
-  defp bounded_checkback_limit(_value), do: @checkback_limit_default
 
   @spec list_pending_checkbacks(String.t(), String.t(), pos_integer()) :: [ScheduledEvent.t()]
   def list_pending_checkbacks(agent_uid, session_id, limit)
@@ -102,13 +88,8 @@ defmodule Ankole.Schedule.Queries do
   defp checkbacks_query(agent_uid) do
     ScheduledEvent
     |> where([event], event.kind == "check_back_later")
-    |> maybe_where_agent(agent_uid)
+    |> where([event], event.agent_uid == ^String.downcase(agent_uid))
   end
-
-  defp maybe_where_agent(query, nil), do: query
-
-  defp maybe_where_agent(query, agent_uid) when is_binary(agent_uid),
-    do: where(query, [row], row.agent_uid == ^String.downcase(agent_uid))
 
   defp maybe_where_session(query, nil), do: query
 

@@ -16,9 +16,8 @@ import type {
   AiGatewayProviderKindItem as AIGatewayProviderKindItem,
   ModelProfileWriteRequest
 } from '../api/generated/types.gen'
-import { ErrorBlock } from '../../common/error-block'
+import { ErrorBlock } from '../console-primitives'
 import {
-  draftFromProfile,
   ModelProfilesModel,
   PROFILE_NAMES,
   type ModelProfileSubmission,
@@ -159,17 +158,7 @@ export function ModelProfilesEditor({
     persistProfile(profile, model.submission(profile), built.body)
   }
 
-  // `mutation.variables` names only the latest call, so overlapping saves to
-  // two profiles would drop the first card's pending state. The submission
-  // maps track every in-flight profile; `isPending` keeps the render
-  // subscription that the ref reads alone would not provide.
-  const profilePersistencePending = (profile: ProfileName) => {
-    const key = profileSubmissionKey(agent.uid, profile)
-    return (
-      (saveProfile.isPending && pendingSaveSubmissions.current.has(key)) ||
-      (clearProfile.isPending && pendingClearSubmissions.current.has(key))
-    )
-  }
+  const persistencePending = saveProfile.isPending || clearProfile.isPending
 
   return (
     <section id="model-profiles" className="grid min-w-0 scroll-mt-16 grid-cols-[minmax(0,1fr)] gap-4 [&>*]:min-w-0">
@@ -203,16 +192,7 @@ export function ModelProfilesEditor({
               dirty={signals.dirty.value}
               required={required}
               hint={profileDescription(t, profile)}
-              persistencePending={profilePersistencePending(profile)}
-              deleteConfirm={
-                required
-                  ? undefined
-                  : {
-                      title: t('console.models.clear_title'),
-                      description: t('console.models.clear_description', { profile: modelProfileLabel(t, profile) }),
-                      confirmLabel: t('console.models.clear')
-                    }
-              }
+              persistencePending={persistencePending}
               deleteDisabled={!configured}
               deleteLabel={t('console.models.clear')}
               providers={providers}
@@ -227,6 +207,20 @@ export function ModelProfilesEditor({
       </div>
     </section>
   )
+}
+
+export function draftFromProfile(profile: JSONObject): ProfileDraft {
+  return {
+    description: asString(profile.description),
+    providerID: asString(profile.provider_id),
+    model: asString(profile.model),
+    contextLength: profile.context_length ? String(profile.context_length) : '',
+    providerOptions: recordValue(profile.provider_options) ?? {}
+  }
+}
+
+function asString(value: unknown): string {
+  return typeof value === 'string' ? value : ''
 }
 
 function profileSubmissionKey(agentUID: string, profile: ProfileName): string {

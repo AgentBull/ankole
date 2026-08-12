@@ -10,24 +10,12 @@ import {
 } from '@ankole/uikit'
 import type { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
-import { JSONField, LabeledField } from '../console-form'
-import { EncryptedValueInput } from '../encrypted-value-input'
+import { JSONField, LabeledField, SecretInput } from '../console-form'
 import { humanizeKey, settingDraftValue, type ProviderSetting } from './provider-settings'
 
 const UNSET_BOOLEAN = '__unset__'
-export const UNSET_SELECT = '__unset_select__'
+const UNSET_SELECT = '__unset_select__'
 const UNSET_SERVICE_TIER = '__unset_service_tier__'
-
-/**
- * Resolves what a select control presents for a draft: an explicit draft wins,
- * an editor whose blanks keep the stored value shows the unset sentinel, and a
- * new record preselects the DSL default.
- */
-export function selectControlValue(draft: string, defaultDraft: string, keepStored: boolean): string {
-  if (draft) return draft
-  if (keepStored) return UNSET_SELECT
-  return defaultDraft || UNSET_SELECT
-}
 
 export function providerSettingPresentation(t: TFunction, key: string): { label: string; description?: string } {
   switch (key) {
@@ -60,14 +48,11 @@ export function providerSettingPresentation(t: TFunction, key: string): { label:
 
 /** Renders one ProviderDSL setting using its projected type and storage metadata. */
 export function ProviderSettingField({
-  keepStored,
   onChange,
   secretPresent,
   setting,
   value
 }: {
-  /** Blank drafts keep the stored value (credential edit), so blank controls show that instead of the DSL default. */
-  keepStored?: boolean
   onChange: (value: string) => void
   secretPresent?: boolean
   setting: ProviderSetting
@@ -77,7 +62,6 @@ export function ProviderSettingField({
   const { label, description } = providerSettingPresentation(t, setting.key)
   const draft = settingDraftValue(value)
   const defaultDraft = settingDraftValue(setting.default)
-  const blankOptionLabel = keepStored ? t('console.providers.keep_stored_value') : t('common.unset')
 
   if (setting.encrypted) {
     const description = secretPresent
@@ -85,12 +69,7 @@ export function ProviderSettingField({
       : t('console.providers.secret_hint')
     return (
       <LabeledField label={label} description={description} required={setting.required && !secretPresent}>
-        <EncryptedValueInput
-          placeholder="sk-..."
-          revealLabel={t('console.aria.reveal_secret')}
-          value={draft}
-          onChange={event => onChange(event.target.value)}
-        />
+        <SecretInput placeholder="sk-..." value={draft} onChange={event => onChange(event.target.value)} />
       </LabeledField>
     )
   }
@@ -118,7 +97,7 @@ export function ProviderSettingField({
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={UNSET_BOOLEAN}>{blankOptionLabel}</SelectItem>
+            <SelectItem value={UNSET_BOOLEAN}>{t('common.unset')}</SelectItem>
             <SelectItem value="true">{t('common.boolean_true')}</SelectItem>
             <SelectItem value="false">{t('common.boolean_false')}</SelectItem>
           </SelectContent>
@@ -174,13 +153,13 @@ export function ProviderSettingField({
     return (
       <LabeledField label={label} description={description} required={setting.required}>
         <Select
-          value={selectControlValue(draft, defaultDraft, keepStored ?? false)}
+          value={draft || defaultDraft || UNSET_SELECT}
           onValueChange={next => onChange(String(next) === UNSET_SELECT ? '' : String(next))}>
           <SelectTrigger className="w-full">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={UNSET_SELECT}>{blankOptionLabel}</SelectItem>
+            <SelectItem value={UNSET_SELECT}>{t('common.unset')}</SelectItem>
             {setting.options.map(option => (
               <SelectItem key={option} value={option}>
                 {option}

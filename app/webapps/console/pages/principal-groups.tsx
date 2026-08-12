@@ -3,6 +3,13 @@ import {
   AvatarFallback,
   AvatarImage,
   Badge,
+  Combobox,
+  ComboboxCollection,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
   Input,
   Select,
   SelectContent,
@@ -39,11 +46,9 @@ import {
   ankoleWebAuthZGroupControllerUpdateMutation,
   ankoleWebPrincipalControllerIndexOptions
 } from '../api/generated/@tanstack/react-query.gen'
-import type { PrincipalGroupItem, PrincipalGroupMemberItem } from '../api/generated/types.gen'
+import type { PrincipalGroupItem, PrincipalGroupMemberItem, PrincipalItem } from '../api/generated/types.gen'
 import { requestErrorMessage } from '../../common/request-errors'
-import { AddMembershipPicker } from '../add-membership-picker'
-import { ErrorBlock } from '../../common/error-block'
-import { formatConsoleDate } from '../console-primitives'
+import { ErrorBlock, formatConsoleDate } from '../console-primitives'
 import { ConfirmDeleteButton, LabeledField, ReadOnlyValue, ResourceEditorPage } from '../console-form'
 import { ResourceListPage, ResourceSearch, RowActions } from '../console-list-page'
 import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
@@ -166,7 +171,7 @@ export function PrincipalGroupEditorPage() {
   const queryClient = useQueryClient()
   const model = useModel(PrincipalGroupEditorModel)
   const params = useParams()
-  const name = params.name
+  const name = params.name ? decodeURIComponent(params.name) : undefined
   const mode = name ? 'edit' : 'new'
 
   const group = useQuery({
@@ -395,11 +400,6 @@ function GroupMembersSection({ group }: { group: PrincipalGroupItem }) {
     ...ankoleWebAuthZGroupControllerMembersOptions({ path: { name: group.name } }),
     enabled: !synced
   })
-  // Candidates feed the add picker, so only manageable groups fetch them.
-  const principals = useQuery({
-    ...ankoleWebPrincipalControllerIndexOptions(),
-    enabled: manageable
-  })
   const memberList = members.data?.principal_group_members ?? []
 
   const addMember = useMutation({
@@ -434,16 +434,8 @@ function GroupMembersSection({ group }: { group: PrincipalGroupItem }) {
       {synced ? null : (
         <>
           {manageable ? (
-            <AddMembershipPicker
-              ariaLabel={t('console.principal_groups.add_member')}
-              placeholder={t('console.principal_groups.add_member_placeholder')}
-              emptyText={t('console.principal_groups.add_member_empty')}
-              candidates={(principals.data?.principals ?? []).map(principal => ({
-                id: principal.uid,
-                label: principal.display_name
-              }))}
-              excludedIDs={new Set(memberList.map(member => member.uid))}
-              error={principals.error}
+            <AddMemberPicker
+              existingUIDs={new Set(memberList.map(member => member.uid))}
               pending={addMember.isPending}
               onAdd={uid => addMember.mutate({ path: { name: group.name, principal_uid: uid } })}
             />
@@ -535,6 +527,67 @@ function GroupGrantsSection({ group }: { group: PrincipalGroupItem }) {
       grants={grants.data?.permission_grants ?? []}
       isLoading={grants.isLoading}
     />
+  )
+}
+
+/** Combobox that adds a principal who is not already a member of the group. */
+function AddMemberPicker({
+  existingUIDs,
+  onAdd,
+  pending
+}: {
+  existingUIDs: ReadonlySet<string>
+  onAdd: (uid: string) => void
+  pending: boolean
+}) {
+  const { t } = useTranslation()
+  const principals = useQuery(ankoleWebPrincipalControllerIndexOptions())
+  const [inputValue, setInputValue] = useState('')
+  const candidates = (principals.data?.principals ?? []).filter(principal => !existingUIDs.has(principal.uid))
+  const normalized = inputValue.trim().toLowerCase()
+  const visible = normalized
+    ? candidates.filter(principal =>
+        `${principal.display_name ?? ''}\n${principal.uid}`.toLowerCase().includes(normalized)
+      )
+    : candidates
+
+  return (
+    <Combobox<PrincipalItem>
+      items={visible}
+      value={null}
+      inputValue={inputValue}
+      itemToStringLabel={principal => principal.display_name ?? principal.uid}
+      itemToStringValue={principal => principal.uid}
+      isItemEqualToValue={(principal, current) => principal.uid === current.uid}
+      onInputValueChange={setInputValue}
+      onValueChange={principal => {
+        if (principal) {
+          onAdd(principal.uid)
+          setInputValue('')
+        }
+      }}>
+      <ComboboxInput
+        aria-label={t('console.principal_groups.add_member')}
+        placeholder={t('console.principal_groups.add_member_placeholder')}
+        disabled={pending}
+        className="w-full max-w-md"
+      />
+      <ComboboxContent>
+        <ComboboxList>
+          <ComboboxEmpty>{t('console.principal_groups.add_member_empty')}</ComboboxEmpty>
+          <ComboboxCollection>
+            {(principal: PrincipalItem) => (
+              <ComboboxItem key={principal.uid} value={principal}>
+                <span className="flex min-w-0 flex-col">
+                  <span className="truncate">{principal.display_name ?? principal.uid}</span>
+                  <span className="truncate font-mono text-xs text-muted-foreground">{principal.uid}</span>
+                </span>
+              </ComboboxItem>
+            )}
+          </ComboboxCollection>
+        </ComboboxList>
+      </ComboboxContent>
+    </Combobox>
   )
 }
 

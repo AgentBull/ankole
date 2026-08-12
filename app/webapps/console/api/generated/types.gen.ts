@@ -1871,7 +1871,6 @@ export type PermissionGrantListResponse = {
  * SignalDeliveryFailureItem
  */
 export type SignalDeliveryFailureItem = {
-  agent_uid: string
   attempt_count: number
   binding_name: string
   can_retry: boolean
@@ -2342,6 +2341,39 @@ export type AnkoleWebControlPlanePluginControllerUpdateResponses = {
 export type AnkoleWebControlPlanePluginControllerUpdateResponse =
   AnkoleWebControlPlanePluginControllerUpdateResponses[keyof AnkoleWebControlPlanePluginControllerUpdateResponses]
 
+export type AnkoleWebScheduleControllerIndexCronData = {
+  body?: never
+  path: {
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v1/agents/{agent_uid}/cron-schedules'
+}
+
+export type AnkoleWebScheduleControllerIndexCronErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebScheduleControllerIndexCronError =
+  AnkoleWebScheduleControllerIndexCronErrors[keyof AnkoleWebScheduleControllerIndexCronErrors]
+
+export type AnkoleWebScheduleControllerIndexCronResponses = {
+  /**
+   * Cron schedules
+   */
+  200: ScheduleCronScheduleListResponse
+}
+
+export type AnkoleWebScheduleControllerIndexCronResponse =
+  AnkoleWebScheduleControllerIndexCronResponses[keyof AnkoleWebScheduleControllerIndexCronResponses]
+
 export type AnkoleWebScheduleControllerCreateCronData = {
   /**
    * Cron schedule
@@ -2745,40 +2777,6 @@ export type AnkoleWebAuthZGroupControllerPreviewComputedMembersResponses = {
 
 export type AnkoleWebAuthZGroupControllerPreviewComputedMembersResponse =
   AnkoleWebAuthZGroupControllerPreviewComputedMembersResponses[keyof AnkoleWebAuthZGroupControllerPreviewComputedMembersResponses]
-
-export type AnkoleWebScheduleControllerIndexCheckbacksData = {
-  body?: never
-  path?: never
-  query?: {
-    agent?: string
-    limit?: number
-  }
-  url: '/api/v1/checkbacks'
-}
-
-export type AnkoleWebScheduleControllerIndexCheckbacksErrors = {
-  /**
-   * Unauthorized
-   */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebScheduleControllerIndexCheckbacksError =
-  AnkoleWebScheduleControllerIndexCheckbacksErrors[keyof AnkoleWebScheduleControllerIndexCheckbacksErrors]
-
-export type AnkoleWebScheduleControllerIndexCheckbacksResponses = {
-  /**
-   * Scheduled events
-   */
-  200: ScheduleEventListResponse
-}
-
-export type AnkoleWebScheduleControllerIndexCheckbacksResponse =
-  AnkoleWebScheduleControllerIndexCheckbacksResponses[keyof AnkoleWebScheduleControllerIndexCheckbacksResponses]
 
 export type AnkoleWebSignalBindingControllerShowChannelStandingOrdersData = {
   body?: never
@@ -3529,39 +3527,6 @@ export type AnkoleWebAuthZGroupControllerAddMemberResponses = {
 export type AnkoleWebAuthZGroupControllerAddMemberResponse =
   AnkoleWebAuthZGroupControllerAddMemberResponses[keyof AnkoleWebAuthZGroupControllerAddMemberResponses]
 
-export type AnkoleWebWebhookEndpointControllerIndexData = {
-  body?: never
-  path?: never
-  query?: {
-    agent?: string
-  }
-  url: '/api/v1/webhook-endpoints'
-}
-
-export type AnkoleWebWebhookEndpointControllerIndexErrors = {
-  /**
-   * Unauthorized
-   */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebWebhookEndpointControllerIndexError =
-  AnkoleWebWebhookEndpointControllerIndexErrors[keyof AnkoleWebWebhookEndpointControllerIndexErrors]
-
-export type AnkoleWebWebhookEndpointControllerIndexResponses = {
-  /**
-   * Webhook endpoints
-   */
-  200: WebhookEndpointListResponse
-}
-
-export type AnkoleWebWebhookEndpointControllerIndexResponse =
-  AnkoleWebWebhookEndpointControllerIndexResponses[keyof AnkoleWebWebhookEndpointControllerIndexResponses]
-
 export type AnkoleWebAiGatewayFilesControllerIndexData = {
   body?: never
   path?: never
@@ -4184,6 +4149,43 @@ export type AnkoleWebAuthZGroupControllerUpdateResponses = {
 
 export type AnkoleWebAuthZGroupControllerUpdateResponse =
   AnkoleWebAuthZGroupControllerUpdateResponses[keyof AnkoleWebAuthZGroupControllerUpdateResponses]
+
+export type AnkoleWebSignalBindingControllerIndexData = {
+  body?: never
+  path: {
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v1/agents/{agent_uid}/signal-bindings'
+}
+
+export type AnkoleWebSignalBindingControllerIndexErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebSignalBindingControllerIndexError =
+  AnkoleWebSignalBindingControllerIndexErrors[keyof AnkoleWebSignalBindingControllerIndexErrors]
+
+export type AnkoleWebSignalBindingControllerIndexResponses = {
+  /**
+   * Signal bindings
+   */
+  200: SignalBindingListResponse
+}
+
+export type AnkoleWebSignalBindingControllerIndexResponse =
+  AnkoleWebSignalBindingControllerIndexResponses[keyof AnkoleWebSignalBindingControllerIndexResponses]
 
 export type AnkoleWebAgentControllerDeleteModelProfileData = {
   body?: never
@@ -4853,39 +4855,6 @@ export type AnkoleWebAutomationJobControllerShowResponses = {
 export type AnkoleWebAutomationJobControllerShowResponse =
   AnkoleWebAutomationJobControllerShowResponses[keyof AnkoleWebAutomationJobControllerShowResponses]
 
-export type AnkoleWebSignalBindingControllerIndexData = {
-  body?: never
-  path?: never
-  query?: {
-    agent?: string
-  }
-  url: '/api/v1/signal-bindings'
-}
-
-export type AnkoleWebSignalBindingControllerIndexErrors = {
-  /**
-   * Unauthorized
-   */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebSignalBindingControllerIndexError =
-  AnkoleWebSignalBindingControllerIndexErrors[keyof AnkoleWebSignalBindingControllerIndexErrors]
-
-export type AnkoleWebSignalBindingControllerIndexResponses = {
-  /**
-   * Signal bindings
-   */
-  200: SignalBindingListResponse
-}
-
-export type AnkoleWebSignalBindingControllerIndexResponse =
-  AnkoleWebSignalBindingControllerIndexResponses[keyof AnkoleWebSignalBindingControllerIndexResponses]
-
 export type AnkoleWebPrincipalControllerGrantsData = {
   body?: never
   path: {
@@ -5060,6 +5029,39 @@ export type AnkoleWebAiGatewayProviderControllerIndexResponses = {
 export type AnkoleWebAiGatewayProviderControllerIndexResponse =
   AnkoleWebAiGatewayProviderControllerIndexResponses[keyof AnkoleWebAiGatewayProviderControllerIndexResponses]
 
+export type AnkoleWebWebhookEndpointControllerIndexData = {
+  body?: never
+  path: {
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v1/agents/{agent_uid}/webhook-endpoints'
+}
+
+export type AnkoleWebWebhookEndpointControllerIndexErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebWebhookEndpointControllerIndexError =
+  AnkoleWebWebhookEndpointControllerIndexErrors[keyof AnkoleWebWebhookEndpointControllerIndexErrors]
+
+export type AnkoleWebWebhookEndpointControllerIndexResponses = {
+  /**
+   * Webhook endpoints
+   */
+  200: WebhookEndpointListResponse
+}
+
+export type AnkoleWebWebhookEndpointControllerIndexResponse =
+  AnkoleWebWebhookEndpointControllerIndexResponses[keyof AnkoleWebWebhookEndpointControllerIndexResponses]
+
 export type AnkoleWebScheduleControllerResumeCronData = {
   body?: never
   path: {
@@ -5079,40 +5081,6 @@ export type AnkoleWebScheduleControllerResumeCronResponses = {
 
 export type AnkoleWebScheduleControllerResumeCronResponse =
   AnkoleWebScheduleControllerResumeCronResponses[keyof AnkoleWebScheduleControllerResumeCronResponses]
-
-export type AnkoleWebAutomationJobControllerIndexData = {
-  body?: never
-  path?: never
-  query?: {
-    agent?: string
-    limit?: number
-  }
-  url: '/api/v1/automation-jobs'
-}
-
-export type AnkoleWebAutomationJobControllerIndexErrors = {
-  /**
-   * Unauthorized
-   */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAutomationJobControllerIndexError =
-  AnkoleWebAutomationJobControllerIndexErrors[keyof AnkoleWebAutomationJobControllerIndexErrors]
-
-export type AnkoleWebAutomationJobControllerIndexResponses = {
-  /**
-   * Automation jobs
-   */
-  200: AutomationJobListResponse
-}
-
-export type AnkoleWebAutomationJobControllerIndexResponse =
-  AnkoleWebAutomationJobControllerIndexResponses[keyof AnkoleWebAutomationJobControllerIndexResponses]
 
 export type AnkoleWebAgentControllerIndexModelProfilesData = {
   body?: never
@@ -5508,6 +5476,25 @@ export type AnkoleWebBrainControllerSourceResponses = {
 export type AnkoleWebBrainControllerSourceResponse =
   AnkoleWebBrainControllerSourceResponses[keyof AnkoleWebBrainControllerSourceResponses]
 
+export type AnkoleWebScheduleControllerIndexCheckbacksData = {
+  body?: never
+  path: {
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v1/agents/{agent_uid}/checkbacks'
+}
+
+export type AnkoleWebScheduleControllerIndexCheckbacksResponses = {
+  /**
+   * Scheduled events
+   */
+  200: ScheduleEventListResponse
+}
+
+export type AnkoleWebScheduleControllerIndexCheckbacksResponse =
+  AnkoleWebScheduleControllerIndexCheckbacksResponses[keyof AnkoleWebScheduleControllerIndexCheckbacksResponses]
+
 export type AnkoleWebAiGatewayControllerWebSearchData = {
   /**
    * Web search request
@@ -5549,39 +5536,6 @@ export type AnkoleWebAiGatewayControllerWebSearchResponses = {
 
 export type AnkoleWebAiGatewayControllerWebSearchResponse =
   AnkoleWebAiGatewayControllerWebSearchResponses[keyof AnkoleWebAiGatewayControllerWebSearchResponses]
-
-export type AnkoleWebScheduleControllerIndexCronData = {
-  body?: never
-  path?: never
-  query?: {
-    agent?: string
-  }
-  url: '/api/v1/cron-schedules'
-}
-
-export type AnkoleWebScheduleControllerIndexCronErrors = {
-  /**
-   * Unauthorized
-   */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebScheduleControllerIndexCronError =
-  AnkoleWebScheduleControllerIndexCronErrors[keyof AnkoleWebScheduleControllerIndexCronErrors]
-
-export type AnkoleWebScheduleControllerIndexCronResponses = {
-  /**
-   * Cron schedules
-   */
-  200: ScheduleCronScheduleListResponse
-}
-
-export type AnkoleWebScheduleControllerIndexCronResponse =
-  AnkoleWebScheduleControllerIndexCronResponses[keyof AnkoleWebScheduleControllerIndexCronResponses]
 
 export type AnkoleWebSignalBindingControllerPutBindingData = {
   /**
@@ -5742,10 +5696,6 @@ export type AnkoleWebAiGatewayConversationControllerIndexData = {
   query?: {
     subject?: string
     key?: string
-    /**
-     * Matches an exact subject UID, a conversation-key fragment, or a fragment of a channel or DM peer name.
-     */
-    q?: string
     active?: boolean
     min_messages?: number
     cursor?: string
@@ -6282,6 +6232,41 @@ export type AnkoleWebWorkerEnvControllerIndexResponses = {
 
 export type AnkoleWebWorkerEnvControllerIndexResponse =
   AnkoleWebWorkerEnvControllerIndexResponses[keyof AnkoleWebWorkerEnvControllerIndexResponses]
+
+export type AnkoleWebAutomationJobControllerIndexData = {
+  body?: never
+  path: {
+    agent_uid: string
+  }
+  query?: {
+    limit?: number
+  }
+  url: '/api/v1/agents/{agent_uid}/automation-jobs'
+}
+
+export type AnkoleWebAutomationJobControllerIndexErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebAutomationJobControllerIndexError =
+  AnkoleWebAutomationJobControllerIndexErrors[keyof AnkoleWebAutomationJobControllerIndexErrors]
+
+export type AnkoleWebAutomationJobControllerIndexResponses = {
+  /**
+   * Automation jobs
+   */
+  200: AutomationJobListResponse
+}
+
+export type AnkoleWebAutomationJobControllerIndexResponse =
+  AnkoleWebAutomationJobControllerIndexResponses[keyof AnkoleWebAutomationJobControllerIndexResponses]
 
 export type AnkoleWebBackgroundAgentJobControllerCancelData = {
   body?: never

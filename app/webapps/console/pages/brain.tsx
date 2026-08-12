@@ -1,5 +1,6 @@
 import {
   Badge,
+  Button,
   buttonVariants,
   Card,
   CardContent,
@@ -21,7 +22,7 @@ import {
 import { RiBrainLine, RiExternalLinkLine } from '@remixicon/react'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
@@ -34,10 +35,9 @@ import {
   ankoleWebBrainControllerShowOptions,
   ankoleWebPrincipalControllerIndexOptions
 } from '../api/generated/@tanstack/react-query.gen'
-import type { BrainCitation, BrainEntry, BrainEntryOperation } from '../api/generated/types.gen'
+import type { BrainCitation, BrainEntryOperation } from '../api/generated/types.gen'
 import { PageHeader, PageStack } from '../console-page'
-import { ErrorBlock } from '../../common/error-block'
-import { formatConsoleDate } from '../console-primitives'
+import { ErrorBlock } from '../console-primitives'
 import { ConfirmDeleteButton, LabeledField, ResourceEditorPage } from '../console-form'
 import { CursorPagination, ResourceListPage, RowActions, SearchField } from '../console-list-page'
 import { BlocksEditor, MetadataEditor, RelationsEditor } from './brain-entry-editors'
@@ -50,6 +50,7 @@ import {
   BrainTaskNavigation,
   FilterDisclosure,
   brainSearch,
+  formatBrainDate,
   localDateStartISO,
   restorationAction
 } from './brain-shared'
@@ -61,13 +62,7 @@ import {
   propertiesToDrafts,
   setBrainFilter
 } from '../state/brain-editor-model'
-import {
-  cursorPageNumber,
-  hasPreviousCursor,
-  nextCursorParams,
-  previousCursorParams,
-  resetCursorParams
-} from '../state/cursor-pagination'
+import { cursorPageNumber, hasPreviousCursor, nextCursorParams, previousCursorParams } from '../state/cursor-pagination'
 
 export function BrainEntriesPage() {
   const { t } = useTranslation()
@@ -95,8 +90,7 @@ export function BrainEntriesPage() {
         limit: 50
       }
     }),
-    enabled: Boolean(ownerUID),
-    placeholderData: keepPreviousData
+    enabled: Boolean(ownerUID)
   })
   const guide = useQuery({
     ...ankoleWebBrainControllerIndexOptions({
@@ -126,8 +120,8 @@ export function BrainEntriesPage() {
 
   const clearAdvancedFilters = () => {
     const next = new URLSearchParams(searchParams)
-    for (const key of ['type', 'store', 'author', 'updated']) next.delete(key)
-    setSearchParams(resetCursorParams(next), { replace: true })
+    for (const key of ['type', 'store', 'author', 'updated', 'cursor']) next.delete(key)
+    setSearchParams(next, { replace: true })
   }
 
   const activeAdvancedFilters: ActiveFilter[] = []
@@ -183,10 +177,16 @@ export function BrainEntriesPage() {
       emptyTitle={t('console.brain.empty_title')}
       emptyIcon={<RiBrainLine aria-hidden />}
       emptyDescription={t('console.brain.empty_description')}
-      onClearFilters={clearFilters}
+      emptyAction={
+        isFiltered ? (
+          <Button type="button" size="sm" variant="outline" onClick={clearFilters}>
+            {t('console.brain.clear_filters')}
+          </Button>
+        ) : undefined
+      }
       isFiltered={isFiltered}
       error={list.error ?? guide.error ?? principals.error}
-      subNav={<BrainTaskNavigation ownerUID={ownerUID} store={store || undefined} />}
+      subNav={<BrainTaskNavigation active="entries" ownerUID={ownerUID} store={store || undefined} />}
       toolbarCanRevealRows
       footer={
         entries.length > 0 || hasPreviousCursor(searchParams) ? (
@@ -207,19 +207,15 @@ export function BrainEntriesPage() {
               <h3 className="text-sm font-medium">{t('console.brain.guide_title')}</h3>
               <p className="text-sm text-muted-foreground">{t('console.brain.guide_description')}</p>
             </div>
-            {/* The create link waits for the guide query, so a slow load cannot
-                offer to create a second guide beside an existing one. */}
-            {guideEntry || guide.isSuccess ? (
-              <Link
-                className={cn(buttonVariants({ size: 'sm', variant: 'outline' }))}
-                to={
-                  guideEntry
-                    ? `/brain/${guideEntry.id}?${brainSearch(ownerUID, 'self')}`
-                    : `/brain/new?${brainSearch(ownerUID, 'self')}&kind=curation-guide`
-                }>
-                {guideEntry ? t('console.brain.guide_edit') : t('console.brain.guide_create')}
-              </Link>
-            ) : null}
+            <Link
+              className={cn(buttonVariants({ size: 'sm', variant: 'outline' }))}
+              to={
+                guideEntry
+                  ? `/brain/${guideEntry.id}?${brainSearch(ownerUID, 'self')}`
+                  : `/brain/new?${brainSearch(ownerUID, 'self')}&kind=curation-guide`
+              }>
+              {guideEntry ? t('console.brain.guide_edit') : t('console.brain.guide_create')}
+            </Link>
           </div>
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             <LabeledField label={t('console.brain.search')}>
@@ -277,7 +273,7 @@ export function BrainEntriesPage() {
           </TableCell>
           <TableCell className="max-w-md truncate text-muted-foreground">{entry.summary || '—'}</TableCell>
           <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
-            {formatConsoleDate(entry.updated_at)}
+            {formatBrainDate(entry.updated_at)}
           </TableCell>
           <RowActions editLabel={t('common.edit')} editTo={`${entry.id}?${brainSearch(ownerUID, entry.store_key)}`} />
         </TableRow>
@@ -397,17 +393,6 @@ export function BrainEntryCreatePage() {
   )
 }
 
-/** The editable metadata drafts, as one entry snapshot maps into the model. */
-function metadataDraft(entry: BrainEntry) {
-  return {
-    name: entry.name,
-    type: entry.type,
-    summary: entry.summary,
-    aliases: entry.aliases,
-    propertyDrafts: propertiesToDrafts(entry.properties)
-  }
-}
-
 export function BrainEntryEditorPage() {
   useSignals()
   const { t } = useTranslation()
@@ -450,29 +435,11 @@ export function BrainEntryEditorPage() {
   })
   const restore = useMutation({
     ...ankoleWebBrainControllerRestoreAuditMutation(),
-    onSuccess: async data => {
+    onSuccess: data => {
       toast.success(t('console.brain.restored'))
-      if (restorationAction(data.restoration) === 'create_entry') {
-        void queryClient.invalidateQueries()
-        navigate(`/brain?${brainSearch(ownerUID, entry?.store_key)}`)
-        return
-      }
-      // Rebaseline the drafts from the restored entry. The sourceKey guard
-      // keeps the stale pre-restore drafts otherwise, and the next save would
-      // diff them against the restored entry and undo it. Only a fetched
-      // response is fresh: after a failed refetch the cache still returns the
-      // pre-restore entry, so a cache read would rebaseline to stale values.
       void queryClient.invalidateQueries()
-      try {
-        const fresh = await queryClient.fetchQuery(
-          ankoleWebBrainControllerShowOptions({ path: { id: entryID }, query: { owner_uid: ownerUID } })
-        )
-        model.sourceKey.value = undefined
-        model.initialize(`entry:${fresh.entry.id}`, metadataDraft(fresh.entry))
-      } catch {
-        // The detail query surfaces the failure; clearing the key lets the
-        // initialize effect rebaseline from the next successful refetch.
-        model.sourceKey.value = undefined
+      if (restorationAction(data.restoration) === 'create_entry') {
+        navigate(`/brain?${brainSearch(ownerUID, entry?.store_key)}`)
       }
     },
     onError: error => toast.error(requestErrorMessage(error))
@@ -489,7 +456,13 @@ export function BrainEntryEditorPage() {
 
   useEffect(() => {
     if (!entry) return
-    model.initialize(`entry:${entry.id}`, metadataDraft(entry))
+    model.initialize(`entry:${entry.id}`, {
+      name: entry.name,
+      type: entry.type,
+      summary: entry.summary,
+      aliases: entry.aliases,
+      propertyDrafts: propertiesToDrafts(entry.properties)
+    })
   }, [entry, model])
 
   const applyOperations = (operations: BrainEntryOperation[], onSuccess?: () => void, reason?: string) => {
@@ -671,16 +644,14 @@ export function BrainEntryEditorPage() {
               restoring={restore.isPending}
               onRestore={auditID => restore.mutate({ path: { audit_id: auditID }, query: { owner_uid: ownerUID } })}
             />
-            {(audit.data?.audit_log.length ?? 0) > 0 || hasPreviousCursor(searchParams, 'audit_') ? (
-              <CursorPagination
-                page={cursorPageNumber(searchParams, 'audit_')}
-                hasPrevious={hasPreviousCursor(searchParams, 'audit_')}
-                nextCursor={audit.data?.next_cursor}
-                resultCount={audit.data?.audit_log.length ?? 0}
-                onPrevious={() => setSearchParams(previousCursorParams(searchParams, 'audit_'))}
-                onNext={nextCursor => setSearchParams(nextCursorParams(searchParams, nextCursor, 'audit_'))}
-              />
-            ) : null}
+            <CursorPagination
+              page={cursorPageNumber(searchParams, 'audit_')}
+              hasPrevious={hasPreviousCursor(searchParams, 'audit_')}
+              nextCursor={audit.data?.next_cursor}
+              resultCount={audit.data?.audit_log.length ?? 0}
+              onPrevious={() => setSearchParams(previousCursorParams(searchParams, 'audit_'))}
+              onNext={nextCursor => setSearchParams(nextCursorParams(searchParams, nextCursor, 'audit_'))}
+            />
           </div>
         </TabsContent>
       </Tabs>

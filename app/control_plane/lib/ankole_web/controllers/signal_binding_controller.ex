@@ -12,7 +12,6 @@ defmodule AnkoleWeb.SignalBindingController do
   alias Ankole.SignalsGateway.AmbientCuration
   alias Ankole.SignalsGateway.Binding
   alias AnkoleWeb.ConsoleErrors
-  alias AnkoleWeb.ConsoleParams
   alias AnkoleWeb.ConsolePolicy
   alias AnkoleWeb.Schemas.ConsoleAPI.ErrorEnvelope
   alias AnkoleWeb.Schemas.ConsoleAPI.SignalAdapterListResponse
@@ -43,14 +42,15 @@ defmodule AnkoleWeb.SignalBindingController do
   )
 
   operation(:index,
-    summary: "List signal bindings",
+    summary: "List signal bindings for one agent",
     parameters: [
-      agent: [in: :query, type: :string, required: false]
+      agent_uid: [in: :path, type: :string, required: true]
     ],
     responses: [
       ok: {"Signal bindings", "application/json", SignalBindingListResponse},
       unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope}
+      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
+      not_found: {"Not found", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -180,9 +180,10 @@ defmodule AnkoleWeb.SignalBindingController do
   end
 
   def index(conn, params) do
-    with :ok <- ConsolePolicy.authorize(conn, "signal_gateway_bindings", "read"),
-         agent_uid = ConsoleParams.agent_filter_param(params),
-         {:ok, bindings} <- SignalsGateway.list_bindings(agent_uid),
+    with {:ok, agent_uid} <- text_param(params, "agent_uid"),
+         :ok <-
+           ConsolePolicy.authorize(conn, "agent:#{agent_uid}:signal_gateway_bindings", "read"),
+         {:ok, bindings} <- SignalsGateway.list_agent_bindings(agent_uid),
          {:ok, failures} <- SignalsGateway.list_stopped_deliveries(agent_uid) do
       json(conn, %{
         signal_bindings: Enum.map(bindings, &signal_binding_json/1),
@@ -343,7 +344,6 @@ defmodule AnkoleWeb.SignalBindingController do
 
   defp signal_delivery_json(outbox) do
     %{
-      agent_uid: outbox.agent_uid,
       binding_name: outbox.binding_name,
       outbound_key: outbox.outbound_key,
       status: Atom.to_string(outbox.status),

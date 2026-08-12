@@ -1,4 +1,3 @@
-import { recordValue, type JsonObject as JSONObject } from '@agentbull/active-support'
 import { batch, createModel, signal } from '@preact/signals-react'
 
 export const PROFILE_NAMES = [
@@ -46,23 +45,33 @@ export function emptyProfileDraft(): ProfileDraft {
   }
 }
 
-/** Converts one persisted model-profile object into the editor draft shape. */
-export function draftFromProfile(profile: JSONObject): ProfileDraft {
-  return {
-    description: stringValue(profile.description),
-    providerID: stringValue(profile.provider_id),
-    model: stringValue(profile.model),
-    contextLength: profile.context_length ? String(profile.context_length) : '',
-    providerOptions: recordValue(profile.provider_options) ?? {}
-  }
-}
-
 export const ModelProfilesModel = createModel(() => {
   const sourceKey = signal<string>()
   const profiles = Object.fromEntries(PROFILE_NAMES.map(name => [name, createProfileSignals()])) as Record<
     ProfileName,
-    ProfileSignals
+    ReturnType<typeof createProfileSignals>
   >
+
+  function apply(name: ProfileName, input: ProfileDraftInput) {
+    const draft = normalizedProfileDraft(input)
+    const profile = profiles[name]
+    profile.source.value = draft
+    writeProfileDraft(profile, draft)
+    profile.dirty.value = false
+    profile.revision.value += 1
+  }
+
+  function read(name: ProfileName): ProfileDraft {
+    const profile = profiles[name]
+    return {
+      description: profile.description.value,
+      providerID: profile.providerID.value,
+      model: profile.model.value,
+      contextLength: profile.contextLength.value,
+      providerOptions: profile.providerOptions.value,
+      error: profile.error.value
+    }
+  }
 
   return {
     sourceKey,
@@ -73,25 +82,52 @@ export const ModelProfilesModel = createModel(() => {
         if (!sameSource) sourceKey.value = nextSourceKey
 
         for (const name of PROFILE_NAMES) {
-          if (!sameSource || !profiles[name].dirty.value) applyProfile(profiles[name], drafts[name] ?? {})
+          if (!sameSource || !profiles[name].dirty.value) apply(name, drafts[name] ?? {})
         }
       })
     },
     update(name: ProfileName, patch: ProfileDraftInput) {
-      updateProfile(profiles[name], patch)
+      const profile = profiles[name]
+      const current = read(name)
+      const next = { ...current, ...patch }
+      const valuesChanged = !sameProfileValues(current, next)
+
+      batch(() => {
+        writeProfileDraft(profile, next)
+        if (valuesChanged) profile.revision.value += 1
+        profile.dirty.value = !sameProfileValues(next, profile.source.value)
+      })
     },
     snapshot(name: ProfileName): ProfileDraft {
-      return readProfile(profiles[name])
+      return read(name)
     },
     submission(name: ProfileName): ModelProfileSubmission {
-      return profileSubmission(profiles[name])
+      return { draft: read(name), revision: profiles[name].revision.value }
     },
     markSaved(
       name: ProfileName,
       input: ProfileDraftInput,
       submission: ModelProfileSubmission
     ): ModelProfilePersistenceResult {
-      return markProfileSaved(profiles[name], input, submission)
+      const profile = profiles[name]
+      const saved = normalizedProfileDraft(input)
+      const current = read(name)
+      const hasUnsavedChanges = profile.revision.value !== submission.revision && !sameProfileValues(current, saved)
+
+      batch(() => {
+        profile.source.value = saved
+        profile.revision.value += 1
+
+        if (hasUnsavedChanges) {
+          profile.dirty.value = true
+          return
+        }
+
+        writeProfileDraft(profile, saved)
+        profile.dirty.value = false
+      })
+
+      return { hasUnsavedChanges }
     },
     clear(name: ProfileName) {
       const profile = profiles[name]
@@ -106,38 +142,6 @@ export const ModelProfilesModel = createModel(() => {
   }
 })
 
-/** One stored custom profile draft under the same preserve-dirty policy as the fixed profiles. */
-export const CustomModelProfileModel = createModel(() => {
-  const sourceKey = signal<string>()
-  const profile = createProfileSignals()
-
-  return {
-    sourceKey,
-    profile,
-    initialize(nextSourceKey: string, input: ProfileDraftInput) {
-      batch(() => {
-        const sameSource = sourceKey.value === nextSourceKey
-        if (!sameSource) sourceKey.value = nextSourceKey
-        if (!sameSource || !profile.dirty.value) applyProfile(profile, input)
-      })
-    },
-    update(patch: ProfileDraftInput) {
-      updateProfile(profile, patch)
-    },
-    snapshot(): ProfileDraft {
-      return readProfile(profile)
-    },
-    submission(): ModelProfileSubmission {
-      return profileSubmission(profile)
-    },
-    markSaved(input: ProfileDraftInput, submission: ModelProfileSubmission): ModelProfilePersistenceResult {
-      return markProfileSaved(profile, input, submission)
-    }
-  }
-})
-
-type ProfileSignals = ReturnType<typeof createProfileSignals>
-
 function createProfileSignals() {
   const initial = emptyProfileDraft()
   return {
@@ -151,74 +155,6 @@ function createProfileSignals() {
     dirty: signal(false),
     revision: signal(0)
   }
-}
-
-function applyProfile(profile: ProfileSignals, input: ProfileDraftInput) {
-  const draft = normalizedProfileDraft(input)
-  // A refetch that restates the current values must not advance the revision:
-  // markSaved compares revisions to detect edits made during a save, so a
-  // background restatement would fake an "unsaved changes" result.
-  if (sameProfileValues(draft, profile.source.value) && sameProfileValues(draft, readProfile(profile))) return
-  profile.source.value = draft
-  writeProfileDraft(profile, draft)
-  profile.dirty.value = false
-  profile.revision.value += 1
-}
-
-function readProfile(profile: ProfileSignals): ProfileDraft {
-  return {
-    description: profile.description.value,
-    providerID: profile.providerID.value,
-    model: profile.model.value,
-    contextLength: profile.contextLength.value,
-    providerOptions: profile.providerOptions.value,
-    error: profile.error.value
-  }
-}
-
-function updateProfile(profile: ProfileSignals, patch: ProfileDraftInput) {
-  const current = readProfile(profile)
-  const next = { ...current, ...patch }
-  const valuesChanged = !sameProfileValues(current, next)
-
-  batch(() => {
-    writeProfileDraft(profile, next)
-    if (valuesChanged) profile.revision.value += 1
-    profile.dirty.value = !sameProfileValues(next, profile.source.value)
-  })
-}
-
-function profileSubmission(profile: ProfileSignals): ModelProfileSubmission {
-  return { draft: readProfile(profile), revision: profile.revision.value }
-}
-
-function markProfileSaved(
-  profile: ProfileSignals,
-  input: ProfileDraftInput,
-  submission: ModelProfileSubmission
-): ModelProfilePersistenceResult {
-  const saved = normalizedProfileDraft(input)
-  const current = readProfile(profile)
-  const hasUnsavedChanges = profile.revision.value !== submission.revision && !sameProfileValues(current, saved)
-
-  batch(() => {
-    profile.source.value = saved
-    profile.revision.value += 1
-
-    if (hasUnsavedChanges) {
-      profile.dirty.value = true
-      return
-    }
-
-    writeProfileDraft(profile, saved)
-    profile.dirty.value = false
-  })
-
-  return { hasUnsavedChanges }
-}
-
-function stringValue(value: unknown): string {
-  return typeof value === 'string' ? value : ''
 }
 
 function normalizedProfileDraft(input: ProfileDraftInput): ProfileDraft {

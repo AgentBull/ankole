@@ -8,7 +8,7 @@ import { IdentityProviderEditorPage, IdentityProvidersListPage } from './pages/i
 import { ProviderEditorPage, ProvidersListPage } from './pages/providers'
 import { SettingEditorDrawer, SettingGroupDrawer, SettingsPage } from './pages/settings'
 import { SignalBindingEditorPage, SignalsListPage } from './pages/signals'
-import { ScheduleCheckbacksPage, ScheduleCronEditorPage, SchedulesListPage } from './pages/schedules'
+import { ScheduleCronEditorPage, SchedulesListPage } from './pages/schedules'
 import { WebhooksPage } from './pages/webhooks'
 import { AutomationJobsPage } from './pages/automation-jobs'
 import { WorkerEnvEditorPage, WorkerEnvsListPage } from './pages/worker-envs'
@@ -91,11 +91,6 @@ export function createConsoleRouter(queryClient: QueryClient) {
               { path: 'signals', element: <SignalsListPage />, ...preloadRoute(loaders.signals) },
               { path: 'signals/new', element: <SignalBindingEditorPage /> },
               { path: 'schedules', element: <SchedulesListPage />, ...preloadRoute(loaders.schedules) },
-              {
-                path: 'schedules/checkbacks',
-                element: <ScheduleCheckbacksPage />,
-                ...preloadRoute(loaders.scheduleCheckbacks)
-              },
               { path: 'schedules/new', element: <ScheduleCronEditorPage /> },
               { path: 'webhooks', element: <WebhooksPage />, ...preloadRoute(loaders.webhooks) },
               {

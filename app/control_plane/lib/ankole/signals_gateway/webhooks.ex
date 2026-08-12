@@ -72,22 +72,20 @@ defmodule Ankole.SignalsGateway.Webhooks do
   def create_endpoint(_attrs, _token, _opts), do: {:error, :invalid_webhook_endpoint}
 
   @doc """
-  Lists webhook endpoints for one Agent session, for every session of the
-  Agent when `session_id` is `nil`, or across every Agent when `agent_uid` is
-  also `nil`.
+  Lists webhook endpoints for one Agent session, or for every session of the
+  Agent when `session_id` is `nil`.
 
   Active-only lists exclude endpoints whose expiry time has already passed,
   even if the periodic sweep has not updated their stored status yet.
   """
-  @spec list_endpoints(String.t() | nil, String.t() | nil, keyword()) :: [WebhookEndpoint.t()]
+  @spec list_endpoints(String.t(), String.t() | nil, keyword()) :: [WebhookEndpoint.t()]
   def list_endpoints(agent_uid, session_id, opts \\ [])
-      when (is_binary(agent_uid) or is_nil(agent_uid)) and
-             (is_binary(session_id) or is_nil(session_id)) do
+      when is_binary(agent_uid) and (is_binary(session_id) or is_nil(session_id)) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
     limit = opts |> Keyword.get(:limit, 100) |> bounded_limit()
 
     WebhookEndpoint
-    |> maybe_where_agent(agent_uid)
+    |> where([endpoint], endpoint.agent_uid == ^String.downcase(agent_uid))
     |> maybe_where_session(session_id)
     |> maybe_active_only(Keyword.get(opts, :active_only, false), now)
     |> order_by([endpoint], desc: endpoint.inserted_at, desc: endpoint.id)
@@ -507,11 +505,6 @@ defmodule Ankole.SignalsGateway.Webhooks do
     |> lock("FOR UPDATE")
     |> repo.one()
   end
-
-  defp maybe_where_agent(query, nil), do: query
-
-  defp maybe_where_agent(query, agent_uid),
-    do: where(query, [endpoint], endpoint.agent_uid == ^String.downcase(agent_uid))
 
   defp maybe_where_session(query, nil), do: query
 

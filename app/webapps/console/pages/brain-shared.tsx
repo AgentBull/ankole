@@ -15,33 +15,62 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-  Skeleton
+  Skeleton,
+  cn
 } from '@ankole/uikit'
 import { RiArrowDownSLine, RiCloseLine, RiFilter3Line, RiHistoryLine, RiRefreshLine } from '@remixicon/react'
 import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router'
 import type { BrainAuditLog, PrincipalItem } from '../api/generated/types.gen'
-import { ErrorBlock } from '../../common/error-block'
-import { formatConsoleDate, formatJSON } from '../console-primitives'
+import { ErrorBlock, formatConsoleDate, formatJSON } from '../console-primitives'
 import { LabeledField } from '../console-form'
-import { SubNav } from '../console-list-page'
 
-export function BrainTaskNavigation({ ownerUID, store }: { ownerUID: string; store?: string }) {
+export type BrainTask = 'entries' | 'sources' | 'experience' | 'status' | 'audit' | 'dreaming'
+
+export function BrainTaskNavigation({
+  active,
+  ownerUID,
+  store
+}: {
+  active: BrainTask
+  ownerUID: string
+  store?: string
+}) {
   const { t } = useTranslation()
   const search = brainSearch(ownerUID, store)
+  const items: Array<{ id: BrainTask; label: string; to: string }> = [
+    { id: 'entries', label: t('console.brain.entries_tab'), to: `/brain?${search}` },
+    { id: 'sources', label: t('console.brain.sources_tab'), to: `/brain/sources?${search}` },
+    {
+      id: 'experience',
+      label: t('console.brain.experience_tab'),
+      to: `/brain/skill-experience?${brainSearch(ownerUID)}`
+    },
+    { id: 'status', label: t('console.brain.status_tab'), to: `/brain/status?${brainSearch(ownerUID)}` },
+    { id: 'audit', label: t('console.brain.audit_tab'), to: `/brain/audit?${search}` },
+    { id: 'dreaming', label: t('console.brain.dreaming_tab'), to: `/brain/dreaming?${brainSearch(ownerUID)}` }
+  ]
+
   return (
-    <SubNav
-      ariaLabel={t('console.brain.task_surfaces')}
-      items={[
-        { to: `/brain?${search}`, label: t('console.brain.entries_tab'), end: true },
-        { to: `/brain/sources?${search}`, label: t('console.brain.sources_tab') },
-        { to: `/brain/skill-experience?${brainSearch(ownerUID)}`, label: t('console.brain.experience_tab') },
-        { to: `/brain/status?${brainSearch(ownerUID)}`, label: t('console.brain.status_tab') },
-        { to: `/brain/audit?${search}`, label: t('console.brain.audit_tab') },
-        { to: `/brain/dreaming?${brainSearch(ownerUID)}`, label: t('console.brain.dreaming_tab') }
-      ]}
-    />
+    <nav aria-label={t('console.brain.task_surfaces')} className="overflow-x-auto border-b border-border">
+      <div className="flex min-w-max">
+        {items.map(item => (
+          <Link
+            key={item.id}
+            to={item.to}
+            aria-current={item.id === active ? 'page' : undefined}
+            className={cn(
+              'border-b-2 px-4 py-3 text-sm font-medium transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
+              item.id === active
+                ? 'border-primary bg-muted/50 text-foreground'
+                : 'border-transparent text-muted-foreground'
+            )}>
+            {item.label}
+          </Link>
+        ))}
+      </div>
+    </nav>
   )
 }
 
@@ -141,6 +170,12 @@ export function brainSearch(ownerUID: string, store?: string): string {
   if (ownerUID) params.set('owner', ownerUID)
   if (store) params.set('store', store)
   return params.toString()
+}
+
+// Thin alias over the shared console date formatter; kept so existing brain
+// call sites read as brain-local without changing their imports.
+export function formatBrainDate(value?: string | null): string {
+  return formatConsoleDate(value)
 }
 
 type PrincipalOption = Pick<PrincipalItem, 'uid'> & Partial<Pick<PrincipalItem, 'type' | 'display_name'>>
@@ -276,7 +311,7 @@ export function AuditTrail({
                       {row.action}
                     </CardTitle>
                     <CardDescription>
-                      {row.store_key} · {row.actor_kind} · {row.actor_uid || '—'} · {formatConsoleDate(row.inserted_at)}
+                      {row.store_key} · {row.actor_kind} · {row.actor_uid || '—'} · {formatBrainDate(row.inserted_at)}
                     </CardDescription>
                     <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 font-mono text-xs text-muted-foreground">
                       <span>{row.id}</span>

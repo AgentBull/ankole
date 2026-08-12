@@ -27,19 +27,6 @@ const COMPONENTS: Components = {
       {children}
     </a>
   ),
-  // Images never fetch on view: a remote image in IM-sourced text would leak the
-  // operator's IP and read time to whoever hosts it. Render a link instead.
-  img: ({ alt, src }) => {
-    const href = typeof src === 'string' && src ? src : undefined
-    const label = alt?.trim() || href
-    return href ? (
-      <a href={href} target="_blank" rel="noreferrer" className="text-link underline underline-offset-2">
-        {label}
-      </a>
-    ) : (
-      <span>{label}</span>
-    )
-  },
   ul: ({ children }) => <ul className="my-2 list-disc pl-5">{children}</ul>,
   ol: ({ children }) => <ol className="my-2 list-decimal pl-5">{children}</ol>,
   li: ({ children }) => <li className="my-1">{children}</li>,

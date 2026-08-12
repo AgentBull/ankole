@@ -4,7 +4,6 @@ import type {
   AiGatewayProviderKindItem as AIGatewayProviderKindItem
 } from '../api/generated/types.gen'
 import { humanizeTechnicalLabel } from '../../common/humanize-technical-label'
-import i18n from '../../common/i18n'
 
 /**
  * Maps an AIGateway provider kind's declared connection settings into the shape
@@ -28,22 +27,6 @@ export type ProviderSetting = {
 }
 
 export type SettingValidationError = 'required' | 'json_object' | 'integer' | 'number' | 'selection'
-
-/** Maps one SettingValidationError to the operator-facing message for a field label. */
-export function settingValidationMessage(field: string, error: SettingValidationError): string {
-  switch (error) {
-    case 'required':
-      return i18n.t('common.field_required', { field })
-    case 'json_object':
-      return i18n.t('common.must_be_json_object', { field })
-    case 'integer':
-      return i18n.t('common.must_be_integer', { field })
-    case 'number':
-      return i18n.t('common.must_be_number', { field })
-    case 'selection':
-      return i18n.t('common.must_be_valid_selection', { field })
-  }
-}
 
 /** Returns the connection-scoped settings a provider kind accepts, in a safe shape. */
 export function connectionSettings(kind: AIGatewayProviderKindItem | undefined): ProviderSetting[] {

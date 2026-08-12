@@ -35,17 +35,14 @@ Start with a direct Agent wake while the handling is unclear. Move only the prov
 A schedule wakes the Agent once a day. The Agent collects and summarizes the requested information, then posts the result to the bound chat channel. Create and test it with [Schedules](../schedules/) before you set the daily cron expression.
 
 ```bash
-curl -X POST https://ankole.example.com/api/v1/agents/<agent_uid>/cron-schedules \
+curl -X POST https://ankole.example.com/api/v1/agents/<agent_uid>/sessions/<session_id>/cron-schedules \
   -H "Authorization: Bearer $CONSOLE_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "owner_session_id": "<session_id>",
     "binding_name": "main",
     "name": "daily-digest",
-    "idempotency_key": "daily-digest-1",
-    "schedule": { "kind": "cron", "expression": "0 9 * * *" },
+    "schedule": { "cron": "0 9 * * *", "kind": "cron" },
     "timezone": "Asia/Shanghai",
-    "delivery": { "targets": [{ "binding_name": "main", "signal_channel_id": "<signal_channel_id>" }] },
     "payload": { "task": "Produce today'\''s digest of the topics in your mission." }
   }'
 ```
@@ -57,7 +54,7 @@ Tunable parts: the cron expression (cadence), the `timezone` (when "9 AM" is), t
 Use an automation job when a schedule fires often but the check is mechanical and usually has no result. The Agent writes and registers the script, then binds the cron schedule to its `automation_job_id`.
 
 ```json
-{ "kind": "cron", "expression": "0 * * * *" }
+{ "cron": "0 * * * *", "kind": "cron" }
 ```
 
 The script reads the source and finishes without `emitEvent` when the condition is false. When the condition is true, it emits the bounded source facts to the owner session, where the Agent verifies and decides what to do. Test non-SDK branches by hand before registration, then use a real test trigger for every branch that calls `context()` or `emitEvent`.
@@ -68,7 +65,7 @@ Keep the direct Agent schedule when every run needs semantic judgment. Read [Wor
 
 The agent is asked something in a turn, and decides to come back to it later. Instead of a fixed cron, the agent itself sets a one-shot wakeup with `check_back_later`. The shape from the agent's side is "look again in an hour" — the agent calls the tool; the operator surface is read-only.
 
-This fits work that is not on a cadence: "check whether the deploy finished in an hour," "re-read this thread after the standup." The agent owns the timing; you see the pending checkbacks through `GET /api/v1/checkbacks?agent=<agent_uid>` and can cancel one with `DELETE /api/v1/agents/:agent_uid/checkbacks/:scheduled_event_id`.
+This fits work that is not on a cadence: "check whether the deploy finished in an hour," "re-read this thread after the standup." The agent owns the timing; you see the pending checkback through `GET /agents/:agent_uid/sessions/:session_id/checkbacks` and can cancel one with `DELETE`.
 
 ## Blueprint: research-and-report (schedule + background job)
 

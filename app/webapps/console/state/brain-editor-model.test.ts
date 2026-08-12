@@ -1,8 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import {
   BrainMetadataEditorModel,
-  type BrainOwnerOption,
-  agentOwnerUID,
   buildMetadataOperations,
   defaultBrainOwnerUID,
   normalizeAliases,
@@ -69,17 +67,6 @@ describe('Brain editor model', () => {
     ).toBe('agent-one')
     expect(defaultBrainOwnerUID([{ uid: 'human-one', type: 'human' }])).toBe('human-one')
     expect(defaultBrainOwnerUID([])).toBe('')
-  })
-
-  test('keeps a requested owner only when it is a listed agent', () => {
-    const agents: BrainOwnerOption[] = [
-      { uid: 'agent-one', type: 'agent' },
-      { uid: 'agent-two', type: 'agent' }
-    ]
-    expect(agentOwnerUID('agent-two', agents)).toBe('agent-two')
-    expect(agentOwnerUID('human-one', agents)).toBe('agent-one')
-    expect(agentOwnerUID(null, agents)).toBe('agent-one')
-    expect(agentOwnerUID('agent-one', [])).toBe('')
   })
 
   test('emits only changed structured metadata operations', () => {

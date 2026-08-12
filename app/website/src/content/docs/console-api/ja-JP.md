@@ -65,7 +65,7 @@ signal routing rule（API schema では `Signal Binding`）は provider adapter 
 | メソッド | パス | 用途 |
 |---|---|---|
 | `GET` | `/signal-adapters` | この deployment instance が宣言した adapter を一覧表示 |
-| `GET` | `/signal-bindings` | routing rule を一覧表示（`?agent=` で Agent を絞り込み） |
+| `GET` | `/agents/:agent_uid/signal-bindings` | Agent の routing rule を一覧表示 |
 | `PUT` | `/agents/:agent_uid/signal-bindings/:adapter_id/:binding_name` | routing rule を作成または置換 |
 | `PATCH` | `/agents/:agent_uid/signal-bindings/:binding_name` | routing rule を更新 |
 | `DELETE` | `/agents/:agent_uid/signal-bindings/:binding_name` | routing rule を削除 |
@@ -138,7 +138,7 @@ Control Plane Plugin は、signals adapter や Brain の source connector のよ
 
 configuration に加えて、Console はシステムの残りの部分に対する observability の経路でもあります。既に解説した各 subsystem は、ここに読み取り用の surface を持ちます。
 
-- **処理中の Agent**: `/agents/:agent_uid/sessions`。Agent ごとの cron schedule と checkback の管理。一覧エンドポイントはインストール全体で、`agent` フィルターを取ります。
+- **処理中の Agent**: `/agents/:agent_uid/sessions`。session ごとの cron schedule と checkback。
 - **Worker**: `/agent-computer-workers`。worker ごとの file のアップロード、移動、一覧表示。
 - **Job**: `/background-agent-jobs`（一覧表示、読み取り、cancel）。
 - **AI の活動**: `/ai-gateway/conversations`。conversation ごとの message。

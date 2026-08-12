@@ -67,7 +67,7 @@ agent 是核心单位，运维者的其它配置都围绕它展开：
 | 方法 | 路径 | 用途 |
 |---|---|---|
 | `GET` | `/signal-adapters` | 列出本实例声明的适配器 |
-| `GET` | `/signal-bindings` | 列出路由规则；`?agent=` 可筛选到单个 Agent |
+| `GET` | `/agents/:agent_uid/signal-bindings` | 列出一个 Agent 的路由规则 |
 | `PUT` | `/agents/:agent_uid/signal-bindings/:adapter_id/:binding_name` | 创建或替换路由规则 |
 | `PATCH` | `/agents/:agent_uid/signal-bindings/:binding_name` | 更新路由规则 |
 | `DELETE` | `/agents/:agent_uid/signal-bindings/:binding_name` | 移除路由规则 |
@@ -140,7 +140,7 @@ Control Plane Plugin 是改变控制面自身行为的第一方扩展，例如 s
 
 除了配置，Console 也是系统其余部分的可观测路径——每一个已经实现的子系统，在这里都有它的读取界面：
 
-- **进行中的 agent**：`/agents/:agent_uid/sessions`，每个 agent 的 cron schedule 与 checkback 管理；列表端点为安装级，接受 `agent` 筛选。
+- **进行中的 agent**：`/agents/:agent_uid/sessions`，每个 session 的 cron schedule 和 checkback。
 - **worker**：`/agent-computer-workers`，按 worker 上传、移动、列出文件。
 - **任务**：`/background-agent-jobs`（列出、读取、取消）。
 - **AI 活动**：`/ai-gateway/conversations`，按会话读取消息。

@@ -12,7 +12,7 @@ import {
 } from '../api/generated/@tanstack/react-query.gen'
 import { requestErrorMessage } from '../../common/request-errors'
 import { SaveButton } from '../console-form'
-import { ErrorBlock } from '../../common/error-block'
+import { ErrorBlock } from '../console-primitives'
 import {
   AGENT_LIBRARY_DOCUMENT_KINDS,
   AgentLibraryEditorModel,

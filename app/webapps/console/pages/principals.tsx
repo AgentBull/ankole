@@ -3,6 +3,13 @@ import {
   AvatarFallback,
   AvatarImage,
   Badge,
+  Combobox,
+  ComboboxCollection,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
   Skeleton,
   Table,
   TableBody,
@@ -13,7 +20,7 @@ import {
   toast
 } from '@ankole/uikit'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { RiKey2Line } from '@remixicon/react'
+import { RiArrowLeftLine, RiKey2Line } from '@remixicon/react'
 import { useDeferredValue, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useParams } from 'react-router'
@@ -26,11 +33,10 @@ import {
   ankoleWebPrincipalControllerIndexOptions,
   ankoleWebPrincipalControllerShowOptions
 } from '../api/generated/@tanstack/react-query.gen'
-import type { PrincipalItem } from '../api/generated/types.gen'
+import type { PrincipalGroupItem, PrincipalItem } from '../api/generated/types.gen'
 import { requestErrorMessage } from '../../common/request-errors'
-import { AddMembershipPicker } from '../add-membership-picker'
-import { BackLink, PageStack } from '../console-page'
-import { ErrorBlock } from '../../common/error-block'
+import { PageStack } from '../console-page'
+import { ErrorBlock } from '../console-primitives'
 import { ConfirmDeleteButton, StatusIndicator } from '../console-form'
 import { ResourceListPage, ResourceSearch, RowViewAction, SubNav } from '../console-list-page'
 import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
@@ -126,14 +132,19 @@ export function PrincipalsListPage() {
 export function PrincipalDetailPage() {
   const { t } = useTranslation()
   const params = useParams()
-  const uid = params.uid ?? ''
+  const uid = params.uid ? decodeURIComponent(params.uid) : ''
   const principal = useQuery(ankoleWebPrincipalControllerShowOptions({ path: { uid } }))
   const loadedPrincipal = principal.data?.principal
 
   return (
     <PageStack className="mx-auto max-w-4xl">
       <div className="grid gap-3">
-        <BackLink to="/access/principals" />
+        <Link
+          to="/access/principals"
+          className="inline-flex w-fit items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+          <RiArrowLeftLine className="size-4" aria-hidden />
+          {t('common.back')}
+        </Link>
         <div className="flex flex-wrap items-center gap-4 border-b border-border pb-5">
           {loadedPrincipal ? <PrincipalAvatar principal={loadedPrincipal} size="lg" /> : null}
           <div className="grid min-w-0 gap-1">
@@ -174,7 +185,6 @@ function PrincipalGroupsSection({ principal }: { principal: PrincipalItem }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const groups = useQuery(ankoleWebPrincipalControllerGroupsOptions({ path: { uid: principal.uid } }))
-  const allGroups = useQuery(ankoleWebAuthZGroupControllerIndexOptions())
   const memberships = groups.data?.principal_groups ?? []
 
   const addMember = useMutation({
@@ -203,16 +213,8 @@ function PrincipalGroupsSection({ principal }: { principal: PrincipalItem }) {
           {t('console.principals.groups_section_description')}
         </p>
       </div>
-      <AddMembershipPicker
-        ariaLabel={t('console.principals.add_to_group')}
-        placeholder={t('console.principals.add_to_group_placeholder')}
-        emptyText={t('console.principals.add_to_group_empty')}
-        // Only operator-domain static groups accept manual membership.
-        candidates={(allGroups.data?.principal_groups ?? [])
-          .filter(group => group.domain === 'operator' && group.kind === 'static')
-          .map(group => ({ id: group.name, label: group.display_name }))}
-        excludedIDs={new Set(memberships.map(group => group.name))}
-        error={allGroups.error}
+      <AddToGroupPicker
+        memberships={memberships}
         pending={addMember.isPending}
         onAdd={name => addMember.mutate({ path: { name, principal_uid: principal.uid } })}
       />
@@ -307,6 +309,68 @@ function PrincipalGrantsSection({ principal }: { principal: PrincipalItem }) {
       grants={grants.data?.permission_grants ?? []}
       isLoading={grants.isLoading}
     />
+  )
+}
+
+/** Combobox of operator-domain static groups the principal has not joined yet. */
+function AddToGroupPicker({
+  memberships,
+  onAdd,
+  pending
+}: {
+  memberships: PrincipalGroupItem[]
+  onAdd: (name: string) => void
+  pending: boolean
+}) {
+  const { t } = useTranslation()
+  const groups = useQuery(ankoleWebAuthZGroupControllerIndexOptions())
+  const [inputValue, setInputValue] = useState('')
+  const memberNames = new Set(memberships.map(group => group.name))
+  const candidates = (groups.data?.principal_groups ?? []).filter(
+    group => group.domain === 'operator' && group.kind === 'static' && !memberNames.has(group.name)
+  )
+  const normalized = inputValue.trim().toLowerCase()
+  const visible = normalized
+    ? candidates.filter(group => `${group.display_name}\n${group.name}`.toLowerCase().includes(normalized))
+    : candidates
+
+  return (
+    <Combobox<PrincipalGroupItem>
+      items={visible}
+      value={null}
+      inputValue={inputValue}
+      itemToStringLabel={group => group.display_name}
+      itemToStringValue={group => group.name}
+      isItemEqualToValue={(group, current) => group.name === current.name}
+      onInputValueChange={setInputValue}
+      onValueChange={group => {
+        if (group) {
+          onAdd(group.name)
+          setInputValue('')
+        }
+      }}>
+      <ComboboxInput
+        aria-label={t('console.principals.add_to_group')}
+        placeholder={t('console.principals.add_to_group_placeholder')}
+        disabled={pending}
+        className="w-full max-w-md"
+      />
+      <ComboboxContent>
+        <ComboboxList>
+          <ComboboxEmpty>{t('console.principals.add_to_group_empty')}</ComboboxEmpty>
+          <ComboboxCollection>
+            {(group: PrincipalGroupItem) => (
+              <ComboboxItem key={group.id} value={group}>
+                <span className="flex min-w-0 flex-col">
+                  <span className="truncate">{group.display_name}</span>
+                  <span className="truncate font-mono text-xs text-muted-foreground">{group.name}</span>
+                </span>
+              </ComboboxItem>
+            )}
+          </ComboboxCollection>
+        </ComboboxList>
+      </ComboboxContent>
+    </Combobox>
   )
 }
 

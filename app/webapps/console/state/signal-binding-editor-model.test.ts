@@ -1,7 +1,19 @@
 import { describe, expect, test } from 'bun:test'
-import { groupMessageModeFromPolicy, SignalBindingEditorModel } from './signal-binding-editor-model'
+import {
+  defaultSignalBindingAgentUID,
+  groupMessageModeFromPolicy,
+  SignalBindingEditorModel
+} from './signal-binding-editor-model'
 
 describe('SignalBindingEditorModel', () => {
+  test('uses a valid query agent and otherwise falls back to the first active agent', () => {
+    const agents = [{ uid: 'agent-a' }, { uid: 'agent-b' }]
+
+    expect(defaultSignalBindingAgentUID(agents, 'agent-b')).toBe('agent-b')
+    expect(defaultSignalBindingAgentUID(agents, 'missing-agent')).toBe('agent-a')
+    expect(defaultSignalBindingAgentUID([], 'missing-agent')).toBe('')
+  })
+
   test('restores the editor mode from the stored routing policy', () => {
     expect(groupMessageModeFromPolicy('ignore')).toBe('addressed_only')
     expect(groupMessageModeFromPolicy('record_only')).toBe('observe_all')

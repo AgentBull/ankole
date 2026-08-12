@@ -51,8 +51,7 @@ import {
 } from '../api/generated/@tanstack/react-query.gen'
 import type { AppConfigurationItem, JsonValue as JSONValue } from '../api/generated/types.gen'
 import { SaveButton, useFormCompleteness } from '../console-form'
-import { ErrorBlock } from '../../common/error-block'
-import { formatJSON, parseJSON } from '../console-primitives'
+import { ErrorBlock, formatJSON, parseJSON } from '../console-primitives'
 import { ENCRYPTED_VALUE_MASK, isEncryptedValueMask } from '../encrypted-value-input'
 import { ResourceListPage, ResourceSearch, RowActions } from '../console-list-page'
 import { brainDreamingValidationError, brainEmbeddingValidationError } from '../state/setting-value-editor'
@@ -267,7 +266,7 @@ export function SettingEditorDrawer() {
   const queryClient = useQueryClient()
   const model = useModel(SettingEditorModel)
   const params = useParams()
-  const key = params.key ?? ''
+  const key = params.key ? decodeURIComponent(params.key) : ''
   const sourceKey = `setting:${key}`
   const allowNavigation = useRef(false)
   const [restoreDefaultOpen, setRestoreDefaultOpen] = useState(false)
@@ -346,10 +345,6 @@ export function SettingEditorDrawer() {
     if (!item?.editable || !initialized) return
     if (item.encrypted && isEncryptedValueMask(model.text.value)) {
       update.mutate({ body: {}, path: { key: item.key } })
-      return
-    }
-    if (item.encrypted && !model.text.value.trim()) {
-      model.validationError.value = t('common.field_required', { field: t('console.settings.value') })
       return
     }
     const parsed = parseJSON(model.text.value, t('console.settings.value'))
@@ -566,16 +561,10 @@ export function SettingGroupDrawer() {
   const update = useMutation(ankoleWebAppConfigurationControllerUpdateMutation())
   const restoreDefault = useMutation({
     ...ankoleWebAppConfigurationControllerDeleteMutation(),
-    onSuccess: response => {
+    onSuccess: (_response, variables) => {
       setRestoreItem(undefined)
-      // Rebaseline only the restored key from the response. Re-initializing
-      // every draft would read the still-stale list cache and discard sibling
-      // edits, and the key-only signature would then skip the refetch.
-      const restoredKey = response.app_configuration.key
-      const restoredDraft = formatJSON(response.app_configuration.value ?? null)
-      setDrafts(current => ({ ...current, [restoredKey]: restoredDraft }))
-      setInitial(current => ({ ...current, [restoredKey]: restoredDraft }))
-      toast.success(t('console.settings.reset_done', { key: restoredKey }))
+      initializedFor.current = undefined
+      toast.success(t('console.settings.reset_done', { key: variables.path?.key ?? '' }))
       refresh()
     },
     onError: error => toast.error(requestErrorMessage(error))

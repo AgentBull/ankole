@@ -115,7 +115,7 @@ export function IdentityProviderEditorPage() {
   const queryClient = useQueryClient()
   const model = useModel(IdentityEditorModel)
   const params = useParams()
-  const providerID = params.providerID
+  const providerID = params.providerID ? decodeURIComponent(params.providerID) : undefined
   const mode = providerID ? 'edit' : 'new'
   const locale = i18n.language
 
@@ -124,13 +124,8 @@ export function IdentityProviderEditorPage() {
   const identityAdapters = adapters.data?.identity_provider_adapters ?? []
   const selected = providers.data?.identity_providers.find(provider => provider.provider_id === providerID)
 
-  // The first-adapter fallback is a new-mode default only. In edit mode a
-  // stored adapter missing from the catalog (its plugin was disabled) must
-  // render as itself and block Save, not silently rewrite the provider to a
-  // different adapter with the old adapter's config.
   const activeAdapter =
-    identityAdapters.find(adapter => adapter.adapter_id === model.adapterID.value) ??
-    (mode === 'new' ? identityAdapters[0] : undefined)
+    identityAdapters.find(adapter => adapter.adapter_id === model.adapterID.value) ?? identityAdapters[0]
   const selectedAdapter = identityAdapters.find(adapter => adapter.adapter_id === selected?.adapter_id)
 
   const ready = identityAdapters.length > 0 && (mode === 'new' || Boolean(selected))
@@ -196,10 +191,10 @@ export function IdentityProviderEditorPage() {
       title={mode === 'new' ? t('console.identity.new') : (providerID ?? '')}
       description={t('console.identity.editor_description')}
       backTo="/identity"
-      error={model.validationError.value ?? saveProvider.error ?? adapters.error ?? providers.error}
+      error={model.validationError.value ?? saveProvider.error}
       submitting={saveProvider.isPending}
       submitDisabled={submitDisabled}
-      submitUnavailable={!ready || !activeAdapter}
+      submitUnavailable={!ready}
       contentWidth="wide"
       onSubmit={submit}
       secondary={

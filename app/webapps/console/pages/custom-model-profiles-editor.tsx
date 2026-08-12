@@ -1,9 +1,7 @@
 import { recordValue, type JsonObject as JSONObject } from '@agentbull/active-support'
 import { Button, Input, toast } from '@ankole/uikit'
-import { useModel } from '@preact/signals-react'
-import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation } from '@tanstack/react-query'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   ankoleWebAgentControllerDeleteModelProfileMutation,
@@ -14,16 +12,9 @@ import type {
   AiGatewayProviderKindItem as AIGatewayProviderKindItem
 } from '../api/generated/types.gen'
 import { requestErrorMessage } from '../../common/request-errors'
-import { ErrorBlock } from '../../common/error-block'
+import { ErrorBlock } from '../console-primitives'
 import { LabeledField } from '../console-form'
-import {
-  CustomModelProfileModel,
-  PROFILE_NAMES,
-  draftFromProfile,
-  emptyProfileDraft,
-  type ModelProfileSubmission,
-  type ProfileDraft
-} from '../state/model-profiles-model'
+import { PROFILE_NAMES, emptyProfileDraft, type ProfileDraft } from '../state/model-profiles-model'
 import { ModelProfileEditorCard, buildModelProfileWriteRequest } from './model-profile-editor-card'
 
 const CUSTOM_PROFILE_NAME = /^[a-z][a-z0-9_-]{0,63}$/
@@ -134,6 +125,10 @@ function NewCustomModelProfileEditor({
       setDraft(current => ({ ...current, error: nameError }))
       return
     }
+    if (!draft.description.trim()) {
+      setDraft(current => ({ ...current, error: t('console.models.custom_profile_description_required') }))
+      return
+    }
 
     const built = buildModelProfileWriteRequest({
       profile,
@@ -206,31 +201,21 @@ function StoredCustomModelProfileEditor({
   modelCatalog: unknown
   onChanged: () => void
 }) {
-  useSignals()
   const { t } = useTranslation()
-  const model = useModel(CustomModelProfileModel)
-  const pendingSubmission = useRef<ModelProfileSubmission>(undefined)
+  const source = profileDraft(profile)
+  const serializedSource = JSON.stringify(source)
+  const [draft, setDraft] = useState<ProfileDraft>(source)
 
-  useEffect(() => {
-    model.initialize(`agent:${agentUID}:${name}`, draftFromProfile(profile))
-  }, [agentUID, model, name, profile])
+  useEffect(() => setDraft(source), [serializedSource])
 
   const save = useMutation({
     ...ankoleWebAgentControllerPutModelProfileMutation(),
-    onSuccess: (response, variables) => {
-      const submission = pendingSubmission.current
-      pendingSubmission.current = undefined
-      if (submission && variables.path.agent_uid === agentUID) {
-        const result = model.markSaved(draftFromProfile(recordValue(response.model_profile) ?? {}), submission)
-        if (result.hasUnsavedChanges) toast.info(t('console.models.saved_with_unsaved_changes', { profile: name }))
-        else toast.success(t('console.models.saved', { profile: name }))
-      }
+    onSuccess: response => {
+      setDraft(profileDraft(recordValue(response.model_profile) ?? {}))
+      toast.success(t('console.models.saved', { profile: name }))
       onChanged()
     },
-    onError: mutationError => {
-      pendingSubmission.current = undefined
-      model.update({ error: requestErrorMessage(mutationError) })
-    }
+    onError: mutationError => setDraft(current => ({ ...current, error: requestErrorMessage(mutationError) }))
   })
   const remove = useMutation({
     ...ankoleWebAgentControllerDeleteModelProfileMutation(),
@@ -238,49 +223,46 @@ function StoredCustomModelProfileEditor({
       toast.success(t('console.models.custom_deleted', { profile: name }))
       onChanged()
     },
-    onError: mutationError => model.update({ error: requestErrorMessage(mutationError) })
+    onError: mutationError => setDraft(current => ({ ...current, error: requestErrorMessage(mutationError) }))
   })
 
   const submit = () => {
+    if (!draft.description.trim()) {
+      setDraft(current => ({ ...current, error: t('console.models.custom_profile_description_required') }))
+      return
+    }
+
     const built = buildModelProfileWriteRequest({
       profile: name,
-      draft: model.snapshot(),
+      draft,
       providers,
       providerKinds,
       t,
       includeDescription: true
     })
     if (!built.ok) {
-      model.update({ error: built.error })
+      setDraft(current => ({ ...current, error: built.error }))
       return
     }
 
-    model.update({ error: undefined })
-    pendingSubmission.current = model.submission()
+    setDraft(current => ({ ...current, error: undefined }))
     save.mutate({ body: built.body, path: { agent_uid: agentUID, profile: name } })
   }
-
-  const draft = model.snapshot()
 
   return (
     <ModelProfileEditorCard
       profile={name}
       label={name}
       draft={draft}
-      dirty={model.profile.dirty.value}
+      dirty={!sameProfileDraft(source, draft)}
       showDescription
       persistencePending={save.isPending || remove.isPending}
-      deleteConfirm={{
-        title: t('console.models.delete_custom_title'),
-        description: t('console.models.delete_custom_description', { profile: name }),
-        confirmLabel: t('common.delete')
-      }}
       deleteDisabled={false}
       deleteLabel={t('common.delete')}
       providers={providers}
       providerKinds={providerKinds}
       modelCatalog={modelCatalog}
-      onUpdate={patch => model.update(patch)}
+      onUpdate={patch => setDraft(current => ({ ...current, ...patch }))}
       onSave={submit}
       onDelete={() => remove.mutate({ path: { agent_uid: agentUID, profile: name } })}
     />
@@ -296,4 +278,28 @@ function customProfileNameError(name: string, existingNames: Set<string>, t: Ret
   if (FIXED_PROFILE_NAMES.has(name)) return t('console.models.custom_name_reserved')
   if (existingNames.has(name)) return t('console.models.custom_name_exists')
   return undefined
+}
+
+function profileDraft(profile: JSONObject): ProfileDraft {
+  return {
+    description: stringValue(profile.description),
+    providerID: stringValue(profile.provider_id),
+    model: stringValue(profile.model),
+    contextLength: profile.context_length ? String(profile.context_length) : '',
+    providerOptions: recordValue(profile.provider_options) ?? {}
+  }
+}
+
+function sameProfileDraft(left: ProfileDraft, right: ProfileDraft): boolean {
+  return (
+    left.description === right.description &&
+    left.providerID === right.providerID &&
+    left.model === right.model &&
+    left.contextLength === right.contextLength &&
+    JSON.stringify(left.providerOptions) === JSON.stringify(right.providerOptions)
+  )
+}
+
+function stringValue(value: unknown): string {
+  return typeof value === 'string' ? value : ''
 }

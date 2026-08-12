@@ -64,44 +64,6 @@ type DeliveryTarget = {
   provider_thread_id?: string
 }
 
-/** The stored delivery projection, including the legacy single-target shape. */
-export type CronDeliveryProjection = {
-  targets?: Array<{
-    binding_name?: string
-    signal_channel_id?: string
-    provider_thread_id?: string
-  }>
-  signal_channel_id?: string
-  provider_thread_id?: string
-}
-
-/**
- * Maps a stored delivery to editable target drafts.
- *
- * Early schedules stored one target's channel at the delivery top level with no
- * `targets` list (the control plane still accepts that shape on write). Mapping
- * it to an empty list made every such schedule uneditable: the editor showed
- * one blank target whose hidden binding never matched the schedule's binding,
- * so every save failed validation.
- */
-export function deliveryTargetDrafts(
-  delivery: CronDeliveryProjection | null | undefined,
-  bindingName: string
-): DeliveryTargetDraft[] {
-  const targets = Array.isArray(delivery?.targets) ? delivery.targets : []
-  if (targets.length > 0) {
-    return targets.map(target => ({
-      bindingName: target.binding_name ?? '',
-      channelId: target.signal_channel_id ?? '',
-      threadId: target.provider_thread_id ?? ''
-    }))
-  }
-
-  const channelId = delivery?.signal_channel_id ?? ''
-  if (!channelId) return []
-  return [{ bindingName, channelId, threadId: delivery?.provider_thread_id ?? '' }]
-}
-
 export const ScheduleEditorModel = createModel(() => {
   const sourceKey = signal<string>()
   const ownerSessionId = signal('')
@@ -153,16 +115,10 @@ export const ScheduleEditorModel = createModel(() => {
     }
     const ms = Number(everyMs.value)
     if (!Number.isFinite(ms) || ms <= 0) return null
-    // The planner rejects an `every` schedule without an anchor; there is no
-    // server-side default.
-    const anchor = anchorAt.value.trim()
-    if (!anchor) return null
-    return { kind: 'every', every_ms: Math.floor(ms), anchor_at: anchor }
+    const out: Record<string, unknown> = { kind: 'every', every_ms: Math.floor(ms) }
+    if (anchorAt.value.trim()) out.anchor_at = anchorAt.value.trim()
+    return out
   }
-
-  // The timezone field renders only for cron schedules, so a value typed
-  // before switching kinds must not ride along and stick to an `every` row.
-  const effectiveTimezone = (): string => ((scheduleKind.value || 'cron') === 'cron' ? timezone.value.trim() : '')
 
   const buildDelivery = (): { targets: DeliveryTarget[] } | null => {
     const targets = deliveryTargets.value.map(target => {
@@ -242,14 +198,6 @@ export const ScheduleEditorModel = createModel(() => {
       const targets = deliveryTargets.value.length > 0 ? deliveryTargets.value : [emptyTarget()]
       deliveryTargets.value = targets.map((target, index) => (index === 0 ? { ...target, bindingName: value } : target))
     },
-    /** Sessions and bindings name resources inside one agent; a new agent starts them over. */
-    resetAgentScope() {
-      batch(() => {
-        ownerSessionId.value = ''
-        bindingName.value = ''
-        deliveryTargets.value = [emptyTarget()]
-      })
-    },
     addDeliveryTarget() {
       deliveryTargets.value = [...deliveryTargets.value, emptyTarget()]
     },
@@ -300,8 +248,10 @@ export const ScheduleEditorModel = createModel(() => {
         delivery,
         idempotency_key: idempotency
       }
-      body.status = status.value || 'active'
-      body.timezone = effectiveTimezone() || null
+      const currentStatus = status.value || 'active'
+      body.status = currentStatus
+      const tz = timezone.value.trim()
+      body.timezone = tz || null
       body.payload = nextPayload
       return body
     },
@@ -315,8 +265,8 @@ export const ScheduleEditorModel = createModel(() => {
       const trimmedName = name.value.trim()
       if (!trimmedName) return null
       if (trimmedName !== original.name.trim()) body.name = trimmedName
+      const tz = timezone.value.trim()
       if (scheduleFieldsChanged(original)) body.schedule = schedule
-      const tz = effectiveTimezone()
       if (tz !== original.timezone.trim()) body.timezone = tz || null
       if (deliveryFieldsChanged(original)) body.delivery = delivery
       if (!sameJSON(nextPayload, parseJSON(original.payload))) body.payload = nextPayload

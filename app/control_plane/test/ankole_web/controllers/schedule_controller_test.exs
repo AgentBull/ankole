@@ -30,25 +30,13 @@ defmodule AnkoleWeb.ScheduleControllerTest do
     %{principal: other_agent} = agent_fixture()
     morning = cron_schedule!(agent.uid, "session-a", "morning-report")
     evening = cron_schedule!(agent.uid, "session-b", "evening-report")
-    foreign = cron_schedule!(other_agent.uid, "session-c", "other-report")
 
     api_spec = AnkoleWeb.APISpec.spec()
     conn = bearer_conn(conn)
 
-    everything =
-      conn
-      |> get(~p"/api/v1/cron-schedules")
-      |> json_response(200)
-
-    assert_schema(everything, "ScheduleCronScheduleListResponse", api_spec)
-
-    assert MapSet.new(everything["cron_schedules"], & &1["id"]) ==
-             MapSet.new([morning.id, evening.id, foreign.id])
-
     list =
       conn
-      |> recycle_bearer()
-      |> get(~p"/api/v1/cron-schedules?agent=#{agent.uid}")
+      |> get(~p"/api/v1/agents/#{agent.uid}/cron-schedules")
       |> json_response(200)
 
     assert_schema(list, "ScheduleCronScheduleListResponse", api_spec)
@@ -82,7 +70,7 @@ defmodule AnkoleWeb.ScheduleControllerTest do
     remaining =
       conn
       |> recycle_bearer()
-      |> get(~p"/api/v1/cron-schedules?agent=#{agent.uid}")
+      |> get(~p"/api/v1/agents/#{agent.uid}/cron-schedules")
       |> json_response(200)
 
     assert [%{"id" => remaining_id}] = remaining["cron_schedules"]
@@ -154,23 +142,13 @@ defmodule AnkoleWeb.ScheduleControllerTest do
     %{principal: other_agent} = agent_fixture()
     first = checkback!(agent.uid, "session-a", "check the build")
     second = checkback!(agent.uid, "session-b", "check the deploy")
-    foreign = checkback!(other_agent.uid, "session-c", "check the backup")
 
     api_spec = AnkoleWeb.APISpec.spec()
     conn = bearer_conn(conn)
 
-    everything =
-      conn
-      |> get(~p"/api/v1/checkbacks")
-      |> json_response(200)
-
-    assert MapSet.new(everything["schedule_events"], & &1["id"]) ==
-             MapSet.new([first.id, second.id, foreign.id])
-
     list =
       conn
-      |> recycle_bearer()
-      |> get(~p"/api/v1/checkbacks?agent=#{agent.uid}")
+      |> get(~p"/api/v1/agents/#{agent.uid}/checkbacks")
       |> json_response(200)
 
     assert_schema(list, "ScheduleEventListResponse", api_spec)
@@ -193,8 +171,10 @@ defmodule AnkoleWeb.ScheduleControllerTest do
   end
 
   test "missing bearer token is rejected", %{conn: conn} do
+    %{principal: agent} = agent_fixture()
+
     assert conn
-           |> get(~p"/api/v1/cron-schedules")
+           |> get(~p"/api/v1/agents/#{agent.uid}/cron-schedules")
            |> json_response(401)
   end
 

@@ -133,13 +133,6 @@ defmodule Ankole.SignalsGateway do
   defdelegate list_agent_bindings(agent_uid, opts \\ []), to: Bindings
 
   @doc """
-  Lists bindings across the installation for the Console, with an optional
-  agent filter and no agent existence check.
-  """
-  @spec list_bindings(String.t() | nil) :: {:ok, [Binding.t()]}
-  defdelegate list_bindings(agent_uid \\ nil), to: Bindings
-
-  @doc """
   Soft-disables a signal binding for one agent.
   """
   @spec disable_binding(String.t(), String.t()) :: {:ok, Binding.t()} | {:error, term()}
@@ -224,10 +217,11 @@ defmodule Ankole.SignalsGateway do
     to: Outbox
 
   @doc """
-  Lists the latest stopped durable replies, optionally for one Agent.
+  Lists the latest stopped durable replies for one Agent.
   """
-  @spec list_stopped_deliveries(String.t() | nil) :: {:ok, [OutboxEntry.t()]}
-  defdelegate list_stopped_deliveries(agent_uid \\ nil), to: Outbox
+  @spec list_stopped_deliveries(String.t()) ::
+          {:ok, [OutboxEntry.t()]} | {:error, term()}
+  defdelegate list_stopped_deliveries(agent_uid), to: Outbox
 
   @doc """
   Returns whether one stopped outbox row can receive an explicit retry.

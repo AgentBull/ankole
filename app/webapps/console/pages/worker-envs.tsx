@@ -207,7 +207,7 @@ export function WorkerEnvEditorPage() {
   const queryClient = useQueryClient()
   const model = useModel(WorkerEnvEditorModel)
   const params = useParams()
-  const name = params.name
+  const name = params.name ? decodeURIComponent(params.name) : undefined
   const mode = name ? 'edit' : 'new'
   const [plaintextConfirmOpen, setPlaintextConfirmOpen] = useState(false)
 
@@ -249,7 +249,8 @@ export function WorkerEnvEditorPage() {
         : typeof revealed === 'string'
           ? revealed
           : (JSON.stringify(revealed) ?? '')
-    }
+    },
+    onError: error => toast.error(requestErrorMessage(error))
   })
 
   useEffect(() => {
@@ -337,18 +338,14 @@ export function WorkerEnvEditorPage() {
         secondary={
           mode === 'edit' && item ? (
             declared ? (
-              <ConfirmDeleteButton
-                label={t('console.worker_envs.reset')}
-                pending={remove.isPending}
+              <Button
+                disabled={remove.isPending}
                 size="sm"
+                type="button"
                 variant="outline"
-                confirm={{
-                  title: t('console.worker_envs.reset_confirm_title'),
-                  description: t('console.worker_envs.reset_confirm_description', { name: item.name }),
-                  confirmLabel: t('console.worker_envs.reset')
-                }}
-                onConfirm={() => remove.mutate({ path: { name: item.name } })}
-              />
+                onClick={() => remove.mutate({ path: { name: item.name } })}>
+                {t('console.worker_envs.reset')}
+              </Button>
             ) : (
               <ConfirmDeleteButton
                 pending={remove.isPending}
@@ -435,7 +432,7 @@ export function WorkerEnvEditorPage() {
                   required
                   className="font-mono"
                   revealLabel={t('console.worker_envs.reveal')}
-                  revealed={item !== undefined && decrypt.data?.decrypted_value.name === item.name}
+                  revealed={decrypt.data?.decrypted_value.name === item?.name}
                   revealing={decrypt.isPending}
                   value={model.value.value}
                   onChange={event => (model.value.value = event.target.value)}

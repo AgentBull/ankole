@@ -35,17 +35,14 @@ Ankole 不增加工作流语言或步骤图。Automation job 是 Agent Home 内�
 计划任务每天触发一次，Agent 根据任务说明收集和整理信息，再把结果发到绑定的聊天渠道。先按 [计划任务](../schedules/) 创建并手动验证，再设置每天运行的 Cron 表达式。
 
 ```bash
-curl -X POST https://ankole.example.com/api/v1/agents/<agent_uid>/cron-schedules \
+curl -X POST https://ankole.example.com/api/v1/agents/<agent_uid>/sessions/<session_id>/cron-schedules \
   -H "Authorization: Bearer $CONSOLE_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "owner_session_id": "<session_id>",
     "binding_name": "main",
     "name": "daily-digest",
-    "idempotency_key": "daily-digest-1",
-    "schedule": { "kind": "cron", "expression": "0 9 * * *" },
+    "schedule": { "cron": "0 9 * * *", "kind": "cron" },
     "timezone": "Asia/Shanghai",
-    "delivery": { "targets": [{ "binding_name": "main", "signal_channel_id": "<signal_channel_id>" }] },
     "payload": { "task": "产出今天 mission 里那些话题的摘要。" }
   }'
 ```
@@ -57,7 +54,7 @@ curl -X POST https://ankole.example.com/api/v1/agents/<agent_uid>/cron-schedules
 Schedule 频繁触发、检查过程机械且通常无结果时，使用 automation job。Agent 写入并注册脚本，再把 cron schedule 绑定到它的 `automation_job_id`。
 
 ```json
-{ "kind": "cron", "expression": "0 * * * *" }
+{ "cron": "0 * * * *", "kind": "cron" }
 ```
 
 条件不成立时，脚本读取来源后直接结束，不调用 `emitEvent`；条件成立时，脚本把有界来源事实发到归属 session，再由 Agent 复核并决定行动。注册前手工验证不调用 SDK 的分支，注册后用真实测试触发器验证每个调用 `context()` 或 `emitEvent` 的分支。
@@ -68,7 +65,7 @@ Schedule 频繁触发、检查过程机械且通常无结果时，使用 automat
 
 agent 在回合里被问某事，决定稍后再回来。不是固定 cron，agent 自己用 `check_back_later` 设一次性唤醒。agent 那一侧的形态是"一小时后再看"——agent 调工具；运维界面只读。
 
-适合没有固定节奏的工作：”一小时后看部署完成没”、”站会后再读这个 thread”。agent 掌握时机；你通过 `GET /api/v1/checkbacks?agent=<agent_uid>` 查看待执行的 checkback，可用 `DELETE /api/v1/agents/:agent_uid/checkbacks/:scheduled_event_id` 取消某一条。
+适合没有固定节奏的工作：”一小时后看部署完成没”、”站会后再读这个 thread”。agent 掌握时机；你通过 `GET /agents/:agent_uid/sessions/:session_id/checkbacks` 查看待执行的 checkback，可用 `DELETE` 取消。
 
 ## 蓝图：研究并报告（调度 + 后台任务）
 

@@ -28,7 +28,7 @@ import {
 } from '../api/generated/@tanstack/react-query.gen'
 import type { PermissionGrantItem } from '../api/generated/types.gen'
 import { requestErrorMessage } from '../../common/request-errors'
-import { ErrorBlock } from '../../common/error-block'
+import { ErrorBlock } from '../console-primitives'
 import { LabeledField, ReadOnlyValue, ResourceEditorPage } from '../console-form'
 import { RowActions } from '../console-list-page'
 import {
@@ -167,9 +167,9 @@ export function PermissionGrantEditorPage({ createFor }: { createFor?: 'group' |
 
   const owner: PermissionGrantOwner | undefined =
     mode === 'new' && createFor === 'group' && params.name
-      ? { groupName: params.name }
+      ? { groupName: decodeURIComponent(params.name) }
       : mode === 'new' && createFor === 'principal' && params.uid
-        ? { principalUID: params.uid }
+        ? { principalUID: decodeURIComponent(params.uid) }
         : undefined
 
   const grant = useQuery({
@@ -220,10 +220,8 @@ export function PermissionGrantEditorPage({ createFor }: { createFor?: 'group' |
     }
   })
   const mutationError = createGrant.error ?? updateGrant.error
-  // The client throws the raw response text (or a fetch TypeError) when the
-  // body is not the JSON error envelope, so every step needs a guard.
   const serverFieldError = (field: string) =>
-    mutationError?.error?.details?.find(detail => detail.path === field)?.message
+    mutationError?.error.details?.find(detail => detail.path === field)?.message
 
   const submit = () => {
     model.clearValidation()
