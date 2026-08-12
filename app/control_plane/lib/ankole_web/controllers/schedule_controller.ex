@@ -11,6 +11,7 @@ defmodule AnkoleWeb.ScheduleController do
   alias Ankole.Schedule
   alias Ankole.Schedule.Schemas.ScheduledEvent
   alias AnkoleWeb.ConsoleErrors
+  alias AnkoleWeb.ConsoleParams
   alias AnkoleWeb.ConsolePolicy
   alias AnkoleWeb.Schemas.ConsoleAPI.ErrorEnvelope
   alias AnkoleWeb.Schemas.ConsoleAPI.ScheduleCronScheduleListResponse
@@ -22,6 +23,7 @@ defmodule AnkoleWeb.ScheduleController do
   alias AnkoleWeb.Schemas.ConsoleAPI.ScheduleRunListResponse
 
   @agent_parameters [agent_uid: [in: :path, type: :string, required: true]]
+  @agent_filter_parameters [agent: [in: :query, type: :string, required: false]]
 
   tags(["Schedule"])
   security([%{"consoleBearer" => []}])
@@ -30,8 +32,8 @@ defmodule AnkoleWeb.ScheduleController do
     render_error: AnkoleWeb.OpenAPIValidationErrorRenderer
 
   operation(:index_cron,
-    summary: "List recurring schedules for one Agent",
-    parameters: @agent_parameters,
+    summary: "List recurring schedules",
+    parameters: @agent_filter_parameters,
     responses: [
       ok: {"Cron schedules", "application/json", ScheduleCronScheduleListResponse},
       unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
@@ -127,9 +129,21 @@ defmodule AnkoleWeb.ScheduleController do
   )
 
   operation(:index_checkbacks,
-    summary: "List checkback wakeups for one Agent",
-    parameters: @agent_parameters,
-    responses: [ok: {"Scheduled events", "application/json", ScheduleEventListResponse}]
+    summary: "List checkback wakeups",
+    parameters:
+      @agent_filter_parameters ++
+        [
+          limit: [
+            in: :query,
+            schema: %OpenAPISpex.Schema{type: :integer, minimum: 1, maximum: 500},
+            required: false
+          ]
+        ],
+    responses: [
+      ok: {"Scheduled events", "application/json", ScheduleEventListResponse},
+      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
+      forbidden: {"Forbidden", "application/json", ErrorEnvelope}
+    ]
   )
 
   operation(:cancel_checkback,
@@ -151,10 +165,10 @@ defmodule AnkoleWeb.ScheduleController do
   )
 
   def index_cron(conn, params) do
-    with {:ok, agent_uid} <- agent_uid_param(params),
-         :ok <- ConsolePolicy.authorize(conn, schedule_resource(agent_uid), "read") do
+    with :ok <- ConsolePolicy.authorize(conn, "schedules", "read") do
       schedules =
-        agent_uid
+        params
+        |> ConsoleParams.agent_filter_param()
         |> Schedule.list_cron_schedules()
         |> Enum.map(&Schedule.cron_projection/1)
 
@@ -237,11 +251,11 @@ defmodule AnkoleWeb.ScheduleController do
   end
 
   def index_checkbacks(conn, params) do
-    with {:ok, agent_uid} <- agent_uid_param(params),
-         :ok <- ConsolePolicy.authorize(conn, schedule_resource(agent_uid), "read") do
+    with :ok <- ConsolePolicy.authorize(conn, "schedules", "read") do
       events =
-        agent_uid
-        |> Schedule.list_checkbacks()
+        params
+        |> ConsoleParams.agent_filter_param()
+        |> Schedule.list_checkbacks(nil, limit: integer_param(params, "limit"))
         |> Enum.map(&Schedule.event_projection/1)
 
       json(conn, %{schedule_events: events})

@@ -21,7 +21,7 @@ import {
 import { RiRefreshLine, RiSparkling2Line } from '@remixicon/react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
+import { useNavigate, useParams, useSearchParams } from 'react-router'
 import { requestErrorMessage } from '../../common/request-errors'
 import {
   ankoleWebBrainControllerAuditIndexOptions,
@@ -32,10 +32,11 @@ import {
   ankoleWebBrainControllerRunDreamingMutation,
   ankoleWebPrincipalControllerIndexOptions
 } from '../api/generated/@tanstack/react-query.gen'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { BrainDreamingFitnessRun } from '../api/generated/types.gen'
-import { PageHeader, PageStack } from '../console-page'
-import { ErrorBlock } from '../console-primitives'
+import { BackLink, PageHeader, PageStack } from '../console-page'
+import { ErrorBlock } from '../../common/error-block'
+import { formatConsoleDate } from '../console-primitives'
 import { LabeledField, StatusIndicator } from '../console-form'
 import { CursorPagination } from '../console-list-page'
 import {
@@ -47,12 +48,17 @@ import {
   FilterDisclosure,
   RESTORABLE_AUDIT_ACTIONS,
   brainSearch,
-  formatBrainDate,
   localDateStartISO,
   restorationAction
 } from './brain-shared'
-import { cursorPageNumber, hasPreviousCursor, nextCursorParams, previousCursorParams } from '../state/cursor-pagination'
-import { setBrainFilter, defaultBrainOwnerUID } from '../state/brain-editor-model'
+import {
+  cursorPageNumber,
+  hasPreviousCursor,
+  nextCursorParams,
+  previousCursorParams,
+  resetCursorParams
+} from '../state/cursor-pagination'
+import { agentOwnerUID, setBrainFilter, defaultBrainOwnerUID } from '../state/brain-editor-model'
 
 export function BrainAuditPage() {
   const { t } = useTranslation()
@@ -83,7 +89,8 @@ export function BrainAuditPage() {
         limit: 50
       }
     }),
-    enabled: Boolean(ownerUID)
+    enabled: Boolean(ownerUID),
+    placeholderData: keepPreviousData
   })
   const restore = useMutation({
     ...ankoleWebBrainControllerRestoreAuditsMutation(),
@@ -115,8 +122,8 @@ export function BrainAuditPage() {
   const clearFilters = () => {
     setSelectedIDs(new Set())
     const next = new URLSearchParams(searchParams)
-    for (const key of ['store', 'action', 'actor', 'run', 'after', 'before', 'cursor']) next.delete(key)
-    setSearchParams(next, { replace: true })
+    for (const key of ['store', 'action', 'actor', 'run', 'after', 'before']) next.delete(key)
+    setSearchParams(resetCursorParams(next), { replace: true })
   }
 
   const activeAdvancedFilters: ActiveFilter[] = []
@@ -174,7 +181,7 @@ export function BrainAuditPage() {
           </Button>
         }
       />
-      <BrainTaskNavigation active="audit" ownerUID={ownerUID} store={store || undefined} />
+      <BrainTaskNavigation ownerUID={ownerUID} store={store || undefined} />
 
       <div className="grid gap-4 border border-border bg-card p-4">
         <BrainOwnerField
@@ -302,20 +309,19 @@ export function BrainAuditPage() {
 export function BrainDreamingPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
   const principals = useQuery(ankoleWebPrincipalControllerIndexOptions())
   const agents = (principals.data?.principals ?? []).filter(principal => principal.type === 'agent')
-  const requestedOwnerUID = searchParams.get('owner')
-  const ownerUID =
-    requestedOwnerUID && agents.some(agent => agent.uid === requestedOwnerUID)
-      ? requestedOwnerUID
-      : defaultBrainOwnerUID(agents)
+  const ownerUID = agentOwnerUID(searchParams.get('owner'), agents)
   const runDreaming = useMutation({
     ...ankoleWebBrainControllerRunDreamingMutation(),
-    onSuccess: data =>
+    onSuccess: data => {
       toast.success(
         t('console.brain.dreaming_finished', { status: t(`console.brain.dreaming_status_${data.run.status}`) })
-      ),
+      )
+      void queryClient.invalidateQueries()
+    },
     onError: error => toast.error(requestErrorMessage(error))
   })
 
@@ -343,7 +349,7 @@ export function BrainDreamingPage() {
           </Button>
         }
       />
-      <BrainTaskNavigation active="dreaming" ownerUID={ownerUID} />
+      <BrainTaskNavigation ownerUID={ownerUID} />
 
       <div className="grid grid-cols-1 gap-4 border border-border bg-card p-4 md:grid-cols-2">
         <BrainOwnerField
@@ -426,31 +432,32 @@ export function BrainEntryAuditPage() {
 
   return (
     <PageStack className="mx-auto max-w-3xl">
-      <Link
-        to={`/brain?${brainSearch(ownerUID, store)}`}
-        className="w-fit text-sm text-muted-foreground hover:text-foreground">
-        ← {t('common.back')}
-      </Link>
+      <BackLink to={`/brain?${brainSearch(ownerUID, store)}`} />
       <div>
         <h2 className="text-2xl font-semibold">{t('console.brain.deleted_audit_title')}</h2>
         <p className="break-all font-mono text-xs text-muted-foreground">{entryID}</p>
       </div>
       <p className="text-sm text-muted-foreground">{t('console.brain.deleted_audit_description')}</p>
+      {/* A failed restore reports beside the list. Inside AuditTrail it would
+          replace the rows, taking away the entries the operator can still restore. */}
+      <ErrorBlock error={restore.error} />
       <AuditTrail
         rows={audit.data?.audit_log ?? []}
         loading={audit.isLoading}
-        error={audit.error ?? restore.error}
+        error={audit.error}
         restoring={restore.isPending}
         onRestore={auditID => restore.mutate({ path: { audit_id: auditID }, query: { owner_uid: ownerUID } })}
       />
-      <CursorPagination
-        page={cursorPageNumber(searchParams, 'audit_')}
-        hasPrevious={hasPreviousCursor(searchParams, 'audit_')}
-        nextCursor={audit.data?.next_cursor}
-        resultCount={audit.data?.audit_log.length ?? 0}
-        onPrevious={() => setSearchParams(previousCursorParams(searchParams, 'audit_'))}
-        onNext={nextCursor => setSearchParams(nextCursorParams(searchParams, nextCursor, 'audit_'))}
-      />
+      {(audit.data?.audit_log.length ?? 0) > 0 || hasPreviousCursor(searchParams, 'audit_') ? (
+        <CursorPagination
+          page={cursorPageNumber(searchParams, 'audit_')}
+          hasPrevious={hasPreviousCursor(searchParams, 'audit_')}
+          nextCursor={audit.data?.next_cursor}
+          resultCount={audit.data?.audit_log.length ?? 0}
+          onPrevious={() => setSearchParams(previousCursorParams(searchParams, 'audit_'))}
+          onNext={nextCursor => setSearchParams(nextCursorParams(searchParams, nextCursor, 'audit_'))}
+        />
+      ) : null}
     </PageStack>
   )
 }
@@ -463,6 +470,9 @@ function dreamingStatusTone(status: string): 'neutral' | 'positive' | 'warning' 
 
 function DreamingFitnessCard({ ownerUID, onSelectRun }: { ownerUID: string; onSelectRun: (runID: string) => void }) {
   const { t } = useTranslation()
+  // The field shows the draft while only valid values reach the query, so a
+  // cleared input cannot silently keep querying the previous horizon.
+  const [horizonDraft, setHorizonDraft] = useState('7')
   const [horizonDays, setHorizonDays] = useState(7)
   const fitness = useQuery({
     ...ankoleWebBrainControllerDreamingFitnessOptions({
@@ -489,11 +499,16 @@ function DreamingFitnessCard({ ownerUID, onSelectRun }: { ownerUID: string; onSe
               min={1}
               max={90}
               className="w-28"
-              value={horizonDays}
+              value={horizonDraft}
               onChange={event => {
+                setHorizonDraft(event.target.value)
                 const next = Number.parseInt(event.target.value, 10)
                 if (Number.isFinite(next) && next >= 1 && next <= 90) setHorizonDays(next)
               }}
+              // The metrics keep the last applied horizon while the operator
+              // retypes; on blur an abandoned invalid draft snaps back to it,
+              // so the field never disagrees with the data at rest.
+              onBlur={() => setHorizonDraft(String(horizonDays))}
             />
           </LabeledField>
         </div>
@@ -570,7 +585,7 @@ function FitnessRunRow({ run, onSelectRun }: { run: BrainDreamingFitnessRun; onS
       </span>
       <span className="text-right tabular-nums">{run.corrected_block_writes}</span>
       <span className="text-right tabular-nums">{formatPercent(run.survival_rate)}</span>
-      <span className="text-right text-xs text-muted-foreground">{formatBrainDate(run.last_written_at)}</span>
+      <span className="text-right text-xs text-muted-foreground">{formatConsoleDate(run.last_written_at)}</span>
     </div>
   )
 }

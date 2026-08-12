@@ -64,16 +64,20 @@ export const PrincipalGroupEditorModel = createModel(() => {
     clearValidation() {
       validationError.value = undefined
     },
-    markSaved(draft?: PrincipalGroupEditorDraft) {
-      initialDraft.value = draft
-        ? { ...draft }
-        : {
-            name: name.value,
-            displayName: displayName.value,
-            description: description.value,
-            kind: kind.value,
-            computedCondition: computedCondition.value
-          }
+    /**
+     * Adopts the server-normalized form after a successful save. The fields and
+     * the dirty baseline converge on the same values, so trimming done by the
+     * server cannot leave `dirty` true right after saving.
+     */
+    markSaved(draft: PrincipalGroupEditorDraft) {
+      batch(() => {
+        name.value = draft.name
+        displayName.value = draft.displayName
+        description.value = draft.description
+        kind.value = draft.kind
+        computedCondition.value = draft.computedCondition
+        initialDraft.value = { ...draft }
+      })
     },
     draftError(mode: 'new' | 'edit'): PrincipalGroupDraftError | undefined {
       if (mode === 'new') {

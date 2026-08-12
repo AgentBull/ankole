@@ -35,14 +35,17 @@ Ankole はワークフロー言語やステップグラフを追加しません�
 schedule が 1 日に 1 回 Agent を起こします。Agent は依頼された情報を収集して要約し、結果をバインドされた chat channel に投稿します。[スケジュール](../schedules/) で作成してテストしてから、毎日の cron 式を設定してください。
 
 ```bash
-curl -X POST https://ankole.example.com/api/v1/agents/<agent_uid>/sessions/<session_id>/cron-schedules \
+curl -X POST https://ankole.example.com/api/v1/agents/<agent_uid>/cron-schedules \
   -H "Authorization: Bearer $CONSOLE_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
+    "owner_session_id": "<session_id>",
     "binding_name": "main",
     "name": "daily-digest",
-    "schedule": { "cron": "0 9 * * *", "kind": "cron" },
+    "idempotency_key": "daily-digest-1",
+    "schedule": { "kind": "cron", "expression": "0 9 * * *" },
     "timezone": "Asia/Shanghai",
+    "delivery": { "targets": [{ "binding_name": "main", "signal_channel_id": "<signal_channel_id>" }] },
     "payload": { "task": "Produce today'\''s digest of the topics in your mission." }
   }'
 ```
@@ -54,7 +57,7 @@ curl -X POST https://ankole.example.com/api/v1/agents/<agent_uid>/sessions/<sess
 schedule が頻繁に発火するものの、確認が機械的で通常は結果がない場合は、automation job を使います。Agent がスクリプトを書き込み、登録し、その `automation_job_id` に cron schedule をバインドします。
 
 ```json
-{ "cron": "0 * * * *", "kind": "cron" }
+{ "kind": "cron", "expression": "0 * * * *" }
 ```
 
 条件が false のとき、スクリプトはソースを読み取って `emitEvent` なしで終了します。条件が true のときは、バインドされたソースの事実を owner session に発火し、Agent がそれを検証してどうするかを判断します。登録前に SDK を使わないブランチを手動でテストし、`context()` または `emitEvent` を呼ぶすべてのブランチには実際のテストトリガーを使ってください。
@@ -65,7 +68,7 @@ schedule が頻繁に発火するものの、確認が機械的で通常は結�
 
 agent が turn の中で何かを尋ねられ、後でそれに戻ることにします。固定の cron ではなく、agent 自身が `check_back_later` で一度だけの wakeup を設定します。agent 側の形は「1 時間後にもう一度見る」です。agent がツールを呼び、運用者側のサーフェスは読み取り専用です。
 
-これは周期を持たない作業に合います。「デプロイが 1 時間後に完了したか確認する」「スタンドアップの後にこの thread を読み直す」などです。タイミングを所有するのは agent であり、保留中の checkback は `GET /agents/:agent_uid/sessions/:session_id/checkbacks` で確認でき、`DELETE` で 1 つキャンセルできます。
+これは周期を持たない作業に合います。「デプロイが 1 時間後に完了したか確認する」「スタンドアップの後にこの thread を読み直す」などです。タイミングを所有するのは agent であり、保留中の checkback は `GET /api/v1/checkbacks?agent=<agent_uid>` で確認でき、`DELETE /api/v1/agents/:agent_uid/checkbacks/:scheduled_event_id` で 1 つキャンセルできます。
 
 ## ブループリント: 調査して報告（schedule + background job）
 

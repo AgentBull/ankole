@@ -52,7 +52,7 @@ A signal routing rule, stored as a Signal Binding, connects one provider adapter
 | Method | Path | Purpose |
 |---|---|---|
 | `GET` | `/signal-adapters` | List the adapters this deployment instance declared |
-| `GET` | `/agents/:agent_uid/signal-bindings` | List an Agent's routing rules |
+| `GET` | `/signal-bindings` | List routing rules; `?agent=` filters to one Agent |
 | `PUT` | `/agents/:agent_uid/signal-bindings/:adapter_id/:binding_name` | Create or replace a routing rule |
 | `PATCH` | `/agents/:agent_uid/signal-bindings/:binding_name` | Update a routing rule |
 | `DELETE` | `/agents/:agent_uid/signal-bindings/:binding_name` | Remove a routing rule |

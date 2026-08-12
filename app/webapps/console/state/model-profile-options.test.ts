@@ -40,16 +40,30 @@ describe('model profile options', () => {
     for (const profile of ['web_search', 'web_fetch'] as const) {
       expect(profileUsesConfigurableModel(profile)).toBe(false)
       expect(modelProfileRequestFields(profile, { model: 'ignored', contextLength: '131072' })).toEqual({
-        model: 'default'
+        ok: true,
+        fields: { model: 'default' }
       })
     }
     expect(modelProfileRequestFields('primary', { model: 'gpt-5', contextLength: '131072' })).toEqual({
-      model: 'gpt-5',
-      context_length: 131072
+      ok: true,
+      fields: { model: 'gpt-5', context_length: 131072 }
     })
     expect(modelProfileRequestFields('vision_fallback', { model: 'gpt-5-vision', contextLength: '' })).toEqual({
-      model: 'gpt-5-vision',
-      context_length: undefined
+      ok: true,
+      fields: { model: 'gpt-5-vision' }
+    })
+  })
+
+  test('rejects a context length that is not a positive integer instead of dropping it', () => {
+    for (const contextLength of ['8k', 'abc', '12.5', '0', '-4', '1e6']) {
+      expect(modelProfileRequestFields('primary', { model: 'gpt-5', contextLength })).toEqual({
+        ok: false,
+        error: 'integer'
+      })
+    }
+    expect(modelProfileRequestFields('primary', { model: 'gpt-5', contextLength: ' 200000 ' })).toEqual({
+      ok: true,
+      fields: { model: 'gpt-5', context_length: 200_000 }
     })
   })
 

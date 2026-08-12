@@ -21,8 +21,8 @@ import {
   ankoleWebControlPlanePluginControllerIndexOptions
 } from '../api/generated/@tanstack/react-query.gen'
 import type { AppConfigurationItem, ControlPlanePluginItem } from '../api/generated/types.gen'
-import { ErrorBlock } from '../console-primitives'
-import { ENCRYPTED_VALUE_MASK, EncryptedValueInput } from '../encrypted-value-input'
+import { ErrorBlock } from '../../common/error-block'
+import { EncryptedValueInput } from '../encrypted-value-input'
 import { JSONObjectField } from '../json-object-field'
 import { JSONField, LabeledField } from '../console-form'
 import { ResourceSearch } from '../console-list-page'
@@ -84,8 +84,10 @@ export function SettingValueEditor(props: SettingValueEditorProps) {
   return <StructuredSettingEditor {...props} />
 }
 
-function EncryptedSettingEditor({ decrypt, item, onChange, value }: SettingValueEditorProps) {
+function EncryptedSettingEditor({ decrypt, onChange, value }: SettingValueEditorProps) {
   const { t } = useTranslation()
+  // A pristine stored secret arrives as the mask sentinel in the draft itself;
+  // rendering the draft verbatim keeps a cleared field visibly empty.
   return (
     <LabeledField
       htmlFor="app-configuration-value"
@@ -98,7 +100,7 @@ function EncryptedSettingEditor({ decrypt, item, onChange, value }: SettingValue
         revealLabel={t('console.settings.reveal')}
         revealed={decrypt?.revealed ?? false}
         revealing={decrypt?.revealing ?? false}
-        value={value || (item.present ? ENCRYPTED_VALUE_MASK : '')}
+        value={value}
         onChange={event => onChange(event.target.value)}
         onReveal={decrypt?.onReveal ?? (() => undefined)}
       />

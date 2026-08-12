@@ -12,7 +12,7 @@ import type { WebhookEndpointItem } from '../api/generated/types.gen'
 import { AgentFilter, useAgentScope } from '../console-agent-scope'
 import { ConfirmDeleteButton, StatusIndicator } from '../console-form'
 import { formatConsoleDate } from '../console-primitives'
-import { FilterSwitch, ResourceListPage, ResourceSearch, ScopeBar } from '../console-list-page'
+import { AgentCell, FilterSwitch, ResourceListPage, ResourceSearch } from '../console-list-page'
 import { matchesResourceSearch } from '../state/resource-search'
 
 /** A live endpoint can still receive a callback; the rest are history. */
@@ -27,10 +27,9 @@ export function WebhooksPage() {
   const [includeFinished, setIncludeFinished] = useState(false)
   const scope = useAgentScope()
 
-  const endpoints = useQuery({
-    ...ankoleWebWebhookEndpointControllerIndexOptions({ path: { agent_uid: scope.agentUID } }),
-    enabled: Boolean(scope.agentUID)
-  })
+  const endpoints = useQuery(
+    ankoleWebWebhookEndpointControllerIndexOptions({ query: { agent: scope.agentUID || undefined } })
+  )
 
   const rows = (endpoints.data?.webhook_endpoints ?? [])
     .filter(endpoint => includeFinished || live(endpoint))
@@ -40,6 +39,7 @@ export function WebhooksPage() {
         endpoint.label,
         endpoint.mode,
         endpoint.status,
+        endpoint.agent_uid,
         endpoint.binding_name,
         endpoint.session_id,
         endpoint.signal_channel_id
@@ -61,6 +61,7 @@ export function WebhooksPage() {
       description={t('console.webhooks.description')}
       columns={[
         t('console.webhooks.label'),
+        t('console.agents.agent'),
         t('console.session'),
         t('console.webhooks.route'),
         t('console.webhooks.mode'),
@@ -68,31 +69,40 @@ export function WebhooksPage() {
         t('console.webhooks.expires_at')
       ]}
       count={rows.length}
-      emptyTitle={scope.agentUID ? t('console.webhooks.empty_title') : t('console.webhooks.select_scope_title')}
+      emptyTitle={t('console.webhooks.empty_title')}
       emptyIcon={<RiWebhookLine aria-hidden />}
-      emptyDescription={
-        scope.agentUID ? t('console.webhooks.empty_description') : t('console.webhooks.select_scope_description')
-      }
-      error={scope.error ?? endpoints.error}
+      emptyDescription={t('console.webhooks.empty_description')}
+      error={endpoints.error}
       isEmpty={rows.length === 0}
       isFiltered={Boolean(query.trim())}
       onClearFilters={() => setQuery('')}
-      isLoading={Boolean(scope.agentUID) && endpoints.isLoading}
-      subNav={
-        <ScopeBar>
-          <AgentFilter scope={scope} />
-          <FilterSwitch checked={includeFinished} label={t('console.include_finished')} onChange={setIncludeFinished} />
-        </ScopeBar>
-      }
-      toolbar={<ResourceSearch label={t('console.webhooks.search_placeholder')} value={query} onChange={setQuery} />}>
+      isLoading={endpoints.isLoading}
+      toolbarCanRevealRows
+      toolbar={
+        <ResourceSearch
+          label={t('console.webhooks.search_placeholder')}
+          value={query}
+          onChange={setQuery}
+          filters={
+            <>
+              <AgentFilter scope={scope} />
+              <FilterSwitch
+                checked={includeFinished}
+                label={t('console.include_finished')}
+                onChange={setIncludeFinished}
+              />
+            </>
+          }
+        />
+      }>
       {rows.map(endpoint => (
         <WebhookEndpointRow
-          key={endpoint.id}
+          key={`${endpoint.agent_uid}:${endpoint.id}`}
           endpoint={endpoint}
           cancelling={cancel.isPending}
           onCancel={() =>
             cancel.mutate({
-              path: { agent_uid: scope.agentUID, webhook_endpoint_id: endpoint.id }
+              path: { agent_uid: endpoint.agent_uid, webhook_endpoint_id: endpoint.id }
             })
           }
         />
@@ -120,6 +130,7 @@ function WebhookEndpointRow({
           <span className="font-mono text-xs text-muted-foreground">{formatConsoleDate(endpoint.created_at)}</span>
         </div>
       </TableCell>
+      <AgentCell uid={endpoint.agent_uid} />
       <TableCell>
         <span className="block max-w-56 truncate font-mono text-xs" title={endpoint.session_id}>
           {endpoint.session_id}

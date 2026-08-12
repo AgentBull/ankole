@@ -52,7 +52,7 @@ SignalsGateway 是共享工作的入口。一条聊天消息、一个 webhook、
 | 方法 | 路径 | 用途 |
 |---|---|---|
 | `GET` | `/signal-adapters` | 列出本实例声明的适配器 |
-| `GET` | `/agents/:agent_uid/signal-bindings` | 列出一个 Agent 的路由规则 |
+| `GET` | `/signal-bindings` | 列出路由规则；`?agent=` 可筛选到单个 Agent |
 | `PUT` | `/agents/:agent_uid/signal-bindings/:adapter_id/:binding_name` | 创建或替换路由规则 |
 | `PATCH` | `/agents/:agent_uid/signal-bindings/:binding_name` | 更新路由规则 |
 | `DELETE` | `/agents/:agent_uid/signal-bindings/:binding_name` | 删除路由规则 |

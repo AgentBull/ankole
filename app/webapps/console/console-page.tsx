@@ -1,13 +1,27 @@
 import { Button, Tooltip, TooltipContent, TooltipTrigger, cn } from '@ankole/uikit'
-import { RiRefreshLine } from '@remixicon/react'
+import { RiArrowLeftLine, RiRefreshLine } from '@remixicon/react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useState, type ComponentProps, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Link } from 'react-router'
 
 /** One page-level vertical rhythm for list, editor, detail, and dashboard routes. */
 export function PageStack({ className, ...props }: ComponentProps<'div'>) {
   return (
     <div {...props} className={cn('grid w-full min-w-0 grid-cols-[minmax(0,1fr)] gap-5 [&>*]:min-w-0', className)} />
+  )
+}
+
+/** Muted back link rendered above editor and detail page headers. A real link, so it keeps middle-click and new-tab. */
+export function BackLink({ label, to }: { label?: string; to: string }) {
+  const { t } = useTranslation()
+  return (
+    <Link
+      to={to}
+      className="inline-flex w-fit items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <RiArrowLeftLine className="size-4" aria-hidden />
+      {label ?? t('common.back')}
+    </Link>
   )
 }
 

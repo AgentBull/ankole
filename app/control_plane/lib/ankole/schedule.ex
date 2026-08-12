@@ -109,10 +109,10 @@ defmodule Ankole.Schedule do
   defdelegate fire_due_event(scheduled_event_id, opts \\ []), to: Fire
 
   @doc """
-  Lists cron schedules for an agent and optional owner conversation.
+  Lists cron schedules for an optional agent and optional owner conversation.
   """
-  @spec list_cron_schedules(String.t(), String.t() | nil) :: [CronSchedule.t()]
-  defdelegate list_cron_schedules(agent_uid, owner_session_id \\ nil), to: Queries
+  @spec list_cron_schedules(String.t() | nil, String.t() | nil) :: [CronSchedule.t()]
+  defdelegate list_cron_schedules(agent_uid \\ nil, owner_session_id \\ nil), to: Queries
 
   @doc """
   Builds the stable execution session id one cron schedule's fires run in.
@@ -156,10 +156,10 @@ defmodule Ankole.Schedule do
   defdelegate list_cron_runs(cron_schedule_id, limit \\ 25), to: Queries
 
   @doc """
-  Lists checkback events for an agent and optional session.
+  Lists checkback events for an optional agent and optional session.
   """
-  @spec list_checkbacks(String.t(), String.t() | nil) :: [ScheduledEvent.t()]
-  defdelegate list_checkbacks(agent_uid, session_id \\ nil), to: Queries
+  @spec list_checkbacks(String.t() | nil, String.t() | nil, keyword()) :: [ScheduledEvent.t()]
+  defdelegate list_checkbacks(agent_uid \\ nil, session_id \\ nil, opts \\ []), to: Queries
 
   @doc """
   Lists a bounded set of pending checkbacks for model-visible management.
