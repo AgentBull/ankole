@@ -3242,6 +3242,14 @@
               "application/json": { "schema": { "$ref": "#/components/schemas/ScheduleEventListResponse" } }
             },
             "description": "Scheduled events"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
           }
         },
         "security": [{ "consoleBearer": [] }],

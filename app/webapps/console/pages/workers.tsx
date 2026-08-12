@@ -550,7 +550,7 @@ function FileRow({
         {entry.kind === 'file' ? formatBytes(entry.size) : '–'}
       </TableCell>
       <TableCell className="text-xs text-muted-foreground">
-        {formatConsoleDate(new Date(entry.modified_unix_ms).toISOString())}
+        {formatConsoleDate(isoFromUnixMs(entry.modified_unix_ms))}
       </TableCell>
       <TableCell className="text-right">
         <DropdownMenu>
@@ -786,6 +786,12 @@ function joinPath(...segments: string[]): string {
     .map(segment => segment.trim())
     .filter(segment => segment.length > 0)
     .join('/')
+}
+
+/** `toISOString` throws on an invalid epoch; a malformed row must not crash the table. */
+function isoFromUnixMs(unixMs: number): string | null {
+  const date = new Date(unixMs)
+  return Number.isNaN(date.getTime()) ? null : date.toISOString()
 }
 
 function formatBytes(bytes: number): string {

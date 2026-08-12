@@ -155,6 +155,10 @@ function createProfileSignals() {
 
 function applyProfile(profile: ProfileSignals, input: ProfileDraftInput) {
   const draft = normalizedProfileDraft(input)
+  // A refetch that restates the current values must not advance the revision:
+  // markSaved compares revisions to detect edits made during a save, so a
+  // background restatement would fake an "unsaved changes" result.
+  if (sameProfileValues(draft, profile.source.value) && sameProfileValues(draft, readProfile(profile))) return
   profile.source.value = draft
   writeProfileDraft(profile, draft)
   profile.dirty.value = false

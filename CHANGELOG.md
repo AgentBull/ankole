@@ -1,5 +1,9 @@
 # Changelog
 
+## Version 0.68.2 (2026-08-12)
+
+- Apply the valid PR review-bot findings: restored Brain drafts rebaseline only from a fetched response, overlapping model-profile saves each keep their pending state, a refetch that restates current values no longer fakes "unsaved changes", the checkbacks list documents 401/403, schedule toolbars gain a real accessible label, the conversations search placeholder names every input, an invalid worker file timestamp renders as absent instead of crashing the table, and an abandoned invalid fitness horizon snaps back to the applied value.
+
 ## Version 0.68.1 (2026-08-12)
 
 - Correct the automation-blueprints and Console API guides in all four locales to the real schedule API: `POST /api/v1/agents/:agent_uid/cron-schedules` with `owner_session_id`, `idempotency_key`, and `delivery` in the request body, the `{ "kind": "cron", "expression": ... }` schedule shape, and the checkback surface (`GET /api/v1/checkbacks?agent=`, `DELETE /api/v1/agents/:agent_uid/checkbacks/:scheduled_event_id`).

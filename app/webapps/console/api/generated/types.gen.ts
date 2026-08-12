@@ -2756,6 +2756,20 @@ export type AnkoleWebScheduleControllerIndexCheckbacksData = {
   url: '/api/v1/checkbacks'
 }
 
+export type AnkoleWebScheduleControllerIndexCheckbacksErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebScheduleControllerIndexCheckbacksError =
+  AnkoleWebScheduleControllerIndexCheckbacksErrors[keyof AnkoleWebScheduleControllerIndexCheckbacksErrors]
+
 export type AnkoleWebScheduleControllerIndexCheckbacksResponses = {
   /**
    * Scheduled events

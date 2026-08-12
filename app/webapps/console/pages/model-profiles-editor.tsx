@@ -159,9 +159,17 @@ export function ModelProfilesEditor({
     persistProfile(profile, model.submission(profile), built.body)
   }
 
-  const profilePersistencePending = (profile: ProfileName) =>
-    (saveProfile.isPending && saveProfile.variables?.path.profile === profile) ||
-    (clearProfile.isPending && clearProfile.variables?.path.profile === profile)
+  // `mutation.variables` names only the latest call, so overlapping saves to
+  // two profiles would drop the first card's pending state. The submission
+  // maps track every in-flight profile; `isPending` keeps the render
+  // subscription that the ref reads alone would not provide.
+  const profilePersistencePending = (profile: ProfileName) => {
+    const key = profileSubmissionKey(agent.uid, profile)
+    return (
+      (saveProfile.isPending && pendingSaveSubmissions.current.has(key)) ||
+      (clearProfile.isPending && pendingClearSubmissions.current.has(key))
+    )
+  }
 
   return (
     <section id="model-profiles" className="grid min-w-0 scroll-mt-16 grid-cols-[minmax(0,1fr)] gap-4 [&>*]:min-w-0">

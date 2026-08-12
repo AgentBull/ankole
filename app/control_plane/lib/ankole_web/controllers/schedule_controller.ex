@@ -139,7 +139,11 @@ defmodule AnkoleWeb.ScheduleController do
             required: false
           ]
         ],
-    responses: [ok: {"Scheduled events", "application/json", ScheduleEventListResponse}]
+    responses: [
+      ok: {"Scheduled events", "application/json", ScheduleEventListResponse},
+      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
+      forbidden: {"Forbidden", "application/json", ErrorEnvelope}
+    ]
   )
 
   operation(:cancel_checkback,

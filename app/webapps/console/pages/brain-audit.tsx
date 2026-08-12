@@ -505,6 +505,10 @@ function DreamingFitnessCard({ ownerUID, onSelectRun }: { ownerUID: string; onSe
                 const next = Number.parseInt(event.target.value, 10)
                 if (Number.isFinite(next) && next >= 1 && next <= 90) setHorizonDays(next)
               }}
+              // The metrics keep the last applied horizon while the operator
+              // retypes; on blur an abandoned invalid draft snaps back to it,
+              // so the field never disagrees with the data at rest.
+              onBlur={() => setHorizonDraft(String(horizonDays))}
             />
           </LabeledField>
         </div>

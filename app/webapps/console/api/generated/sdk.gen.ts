@@ -329,6 +329,7 @@ import type {
   AnkoleWebScheduleControllerCronRunsData,
   AnkoleWebScheduleControllerCronRunsResponses,
   AnkoleWebScheduleControllerIndexCheckbacksData,
+  AnkoleWebScheduleControllerIndexCheckbacksErrors,
   AnkoleWebScheduleControllerIndexCheckbacksResponses,
   AnkoleWebScheduleControllerIndexCronData,
   AnkoleWebScheduleControllerIndexCronErrors,
@@ -972,8 +973,16 @@ export const ankoleWebAuthZGroupControllerPreviewComputedMembers = <ThrowOnError
  */
 export const ankoleWebScheduleControllerIndexCheckbacks = <ThrowOnError extends boolean = false>(
   options?: Options<AnkoleWebScheduleControllerIndexCheckbacksData, ThrowOnError>
-): RequestResult<AnkoleWebScheduleControllerIndexCheckbacksResponses, unknown, ThrowOnError> =>
-  (options?.client ?? client).get<AnkoleWebScheduleControllerIndexCheckbacksResponses, unknown, ThrowOnError>({
+): RequestResult<
+  AnkoleWebScheduleControllerIndexCheckbacksResponses,
+  AnkoleWebScheduleControllerIndexCheckbacksErrors,
+  ThrowOnError
+> =>
+  (options?.client ?? client).get<
+    AnkoleWebScheduleControllerIndexCheckbacksResponses,
+    AnkoleWebScheduleControllerIndexCheckbacksErrors,
+    ThrowOnError
+  >({
     security: [
       {
         key: 'consoleBearer',

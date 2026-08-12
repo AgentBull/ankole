@@ -184,7 +184,8 @@ export function SchedulesListPage() {
       toolbarCanRevealRows
       toolbar={
         <ResourceSearch
-          label={t('console.schedules.search_placeholder')}
+          label={t('console.schedules.search')}
+          placeholder={t('console.schedules.search_placeholder')}
           value={query}
           onChange={setQuery}
           filters={<AgentFilter scope={scope} />}
@@ -314,7 +315,8 @@ export function ScheduleCheckbacksPage() {
       toolbarCanRevealRows
       toolbar={
         <ResourceSearch
-          label={t('console.schedules.search_placeholder')}
+          label={t('console.schedules.search')}
+          placeholder={t('console.schedules.search_placeholder')}
           value={query}
           onChange={setQuery}
           filters={

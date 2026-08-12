@@ -472,6 +472,7 @@ import type {
   AnkoleWebScheduleControllerCronRunsData,
   AnkoleWebScheduleControllerCronRunsResponse,
   AnkoleWebScheduleControllerIndexCheckbacksData,
+  AnkoleWebScheduleControllerIndexCheckbacksError,
   AnkoleWebScheduleControllerIndexCheckbacksResponse,
   AnkoleWebScheduleControllerIndexCronData,
   AnkoleWebScheduleControllerIndexCronError,
@@ -1239,7 +1240,7 @@ export const ankoleWebScheduleControllerIndexCheckbacksOptions = (
 ) =>
   queryOptions<
     AnkoleWebScheduleControllerIndexCheckbacksResponse,
-    DefaultError,
+    AnkoleWebScheduleControllerIndexCheckbacksError,
     AnkoleWebScheduleControllerIndexCheckbacksResponse,
     ReturnType<typeof ankoleWebScheduleControllerIndexCheckbacksQueryKey>
   >({

@@ -32,10 +32,9 @@ import {
   ankoleWebBrainControllerIndexOptions,
   ankoleWebBrainControllerRestoreAuditMutation,
   ankoleWebBrainControllerShowOptions,
-  ankoleWebBrainControllerShowQueryKey,
   ankoleWebPrincipalControllerIndexOptions
 } from '../api/generated/@tanstack/react-query.gen'
-import type { BrainCitation, BrainEntry, BrainEntryOperation, BrainEntryResponse } from '../api/generated/types.gen'
+import type { BrainCitation, BrainEntry, BrainEntryOperation } from '../api/generated/types.gen'
 import { PageHeader, PageStack } from '../console-page'
 import { ErrorBlock } from '../../common/error-block'
 import { formatConsoleDate } from '../console-primitives'
@@ -458,16 +457,22 @@ export function BrainEntryEditorPage() {
         navigate(`/brain?${brainSearch(ownerUID, entry?.store_key)}`)
         return
       }
-      // Rebaseline the drafts from the restored entry once the refetch lands.
-      // The sourceKey guard keeps the stale pre-restore drafts otherwise, and
-      // the next save would diff them against the restored entry and undo it.
-      await queryClient.invalidateQueries()
-      const fresh = queryClient.getQueryData<BrainEntryResponse>(
-        ankoleWebBrainControllerShowQueryKey({ path: { id: entryID }, query: { owner_uid: ownerUID } })
-      )?.entry
-      if (fresh) {
+      // Rebaseline the drafts from the restored entry. The sourceKey guard
+      // keeps the stale pre-restore drafts otherwise, and the next save would
+      // diff them against the restored entry and undo it. Only a fetched
+      // response is fresh: after a failed refetch the cache still returns the
+      // pre-restore entry, so a cache read would rebaseline to stale values.
+      void queryClient.invalidateQueries()
+      try {
+        const fresh = await queryClient.fetchQuery(
+          ankoleWebBrainControllerShowOptions({ path: { id: entryID }, query: { owner_uid: ownerUID } })
+        )
         model.sourceKey.value = undefined
-        model.initialize(`entry:${fresh.id}`, metadataDraft(fresh))
+        model.initialize(`entry:${fresh.entry.id}`, metadataDraft(fresh.entry))
+      } catch {
+        // The detail query surfaces the failure; clearing the key lets the
+        // initialize effect rebaseline from the next successful refetch.
+        model.sourceKey.value = undefined
       }
     },
     onError: error => toast.error(requestErrorMessage(error))
