@@ -63,6 +63,7 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
              "agent_uid",
              "attempts",
              "duration_seconds",
+             "execution_failures",
              "id",
              "inserted_at",
              "status",

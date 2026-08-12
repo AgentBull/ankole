@@ -25,6 +25,7 @@ import {
   SheetHeader,
   SheetTitle,
   Skeleton,
+  Textarea,
   cn,
   toast
 } from '@ankole/uikit'
@@ -48,10 +49,13 @@ import { useSearchParams } from 'react-router'
 import { requestErrorMessage } from '../../common/request-errors'
 import {
   ankoleWebBackgroundAgentJobControllerCancelMutation,
+  ankoleWebBackgroundAgentJobControllerCompleteMutation,
+  ankoleWebBackgroundAgentJobControllerHealthOptions,
   ankoleWebBackgroundAgentJobControllerIndexOptions,
   ankoleWebBackgroundAgentJobControllerShowOptions
 } from '../api/generated/@tanstack/react-query.gen'
 import type {
+  BackgroundAgentJobHealthResponse,
   BackgroundAgentJobItem,
   BackgroundAgentJobListItem,
   BackgroundAgentJobTurnPlanStep,
@@ -90,6 +94,12 @@ export function BackgroundAgentJobsPage() {
   const scope = useAgentScope()
   const selectedID = resourceID(searchParams.get('job'))
   const [cancelTargetID, setCancelTargetID] = useState<number>()
+  const [completeTargetID, setCompleteTargetID] = useState<number>()
+  const [completeSummary, setCompleteSummary] = useState('')
+  const health = useQuery({
+    ...ankoleWebBackgroundAgentJobControllerHealthOptions(),
+    refetchInterval: 15_000
+  })
   // This list endpoint spans agents on its own; the scope only narrows it.
   const list = useQuery({
     ...ankoleWebBackgroundAgentJobControllerIndexOptions({
@@ -111,6 +121,16 @@ export function BackgroundAgentJobsPage() {
     onSuccess: () => {
       toast.success(t('console.background_agent_jobs.cancelled'))
       setCancelTargetID(undefined)
+      void queryClient.invalidateQueries()
+    },
+    onError: error => toast.error(requestErrorMessage(error))
+  })
+  const complete = useMutation({
+    ...ankoleWebBackgroundAgentJobControllerCompleteMutation(),
+    onSuccess: () => {
+      toast.success(t('console.background_agent_jobs.completed'))
+      setCompleteTargetID(undefined)
+      setCompleteSummary('')
       void queryClient.invalidateQueries()
     },
     onError: error => toast.error(requestErrorMessage(error))
@@ -150,6 +170,8 @@ export function BackgroundAgentJobsPage() {
       <ScopeBar>
         <AgentFilter scope={scope} />
       </ScopeBar>
+
+      {health.data ? <JobHealthStrip health={health.data} /> : null}
 
       {list.error ? (
         <ErrorBlock error={list.error} />
@@ -266,6 +288,10 @@ export function BackgroundAgentJobsPage() {
 
           {selected && cancellable(selected.status) ? (
             <SheetFooter>
+              <Button variant="outline" disabled={complete.isPending} onClick={() => setCompleteTargetID(selected.id)}>
+                <RiCheckboxCircleFill />
+                {t('console.background_agent_jobs.complete')}
+              </Button>
               <Button variant="destructive" disabled={cancel.isPending} onClick={() => setCancelTargetID(selected.id)}>
                 <RiCloseCircleLine />
                 {t('console.background_agent_jobs.cancel')}
@@ -274,6 +300,42 @@ export function BackgroundAgentJobsPage() {
           ) : null}
         </SheetContent>
       </Sheet>
+
+      <Dialog
+        open={completeTargetID !== undefined}
+        onOpenChange={open => {
+          if (!open) {
+            setCompleteTargetID(undefined)
+            setCompleteSummary('')
+          }
+        }}>
+        <DialogContent closeLabel={t('common.close')}>
+          <DialogHeader>
+            <DialogTitle>{t('console.background_agent_jobs.complete_title')}</DialogTitle>
+            <DialogDescription>{t('console.background_agent_jobs.complete_confirm')}</DialogDescription>
+          </DialogHeader>
+          <Textarea
+            value={completeSummary}
+            rows={4}
+            placeholder={t('console.background_agent_jobs.complete_summary_placeholder')}
+            onChange={event => setCompleteSummary(event.target.value)}
+          />
+          <DialogFooter>
+            <DialogClose render={<Button variant="outline" />}>{t('common.cancel')}</DialogClose>
+            <Button
+              disabled={completeTargetID === undefined || !completeSummary.trim() || complete.isPending}
+              onClick={() =>
+                completeTargetID !== undefined &&
+                complete.mutate({
+                  path: { job_id: completeTargetID },
+                  body: { result_summary: completeSummary.trim() }
+                })
+              }>
+              {t('console.background_agent_jobs.complete')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={Boolean(cancelTarget)} onOpenChange={open => !open && setCancelTargetID(undefined)}>
         <DialogContent closeLabel={t('common.close')}>
@@ -297,6 +359,65 @@ export function BackgroundAgentJobsPage() {
         </DialogContent>
       </Dialog>
     </PageStack>
+  )
+}
+
+/**
+ * The four reliability signals from the 2026-08-12 incident review: queue
+ * starvation, infrastructure churn against charged failures, terminal-steer
+ * conversion, and delivery degradation. Ratios render beside their raw counts
+ * so an empty denominator reads as "no data" instead of a fake 0%.
+ */
+function JobHealthStrip({ health }: { health: BackgroundAgentJobHealthResponse }) {
+  const { t } = useTranslation()
+  const ratio = (numerator: number, denominator: number) =>
+    denominator > 0 ? `${Math.round((numerator / denominator) * 100)}%` : '—'
+
+  const cells: { key: string; value: string; hint: string }[] = [
+    {
+      key: 'oldest_queued',
+      value: health.oldest_queued_seconds === null ? '—' : formatDuration(health.oldest_queued_seconds),
+      hint: t('console.background_agent_jobs.health_oldest_queued_hint', {
+        queued: health.queued_count,
+        running: health.running_count
+      })
+    },
+    {
+      key: 'failure_ratio',
+      value: ratio(health.execution_failures_24h, health.claims_24h),
+      hint: t('console.background_agent_jobs.health_failure_ratio_hint', {
+        failures: health.execution_failures_24h,
+        claims: health.claims_24h
+      })
+    },
+    {
+      key: 'successor_rate',
+      value: ratio(health.successor_seeded_24h, health.succeeded_24h),
+      hint: t('console.background_agent_jobs.health_successor_rate_hint', {
+        seeded: health.successor_seeded_24h,
+        succeeded: health.succeeded_24h
+      })
+    },
+    {
+      key: 'dead_letter_rate',
+      value: ratio(health.dead_letter_notices_24h, health.wakeups_24h),
+      hint: t('console.background_agent_jobs.health_dead_letter_rate_hint', {
+        notices: health.dead_letter_notices_24h,
+        wakeups: health.wakeups_24h
+      })
+    }
+  ]
+
+  return (
+    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      {cells.map(cell => (
+        <div key={cell.key} className="border border-border bg-card px-4 py-3">
+          <p className="text-xs text-muted-foreground">{t(`console.background_agent_jobs.health_${cell.key}`)}</p>
+          <p className="mt-1 text-xl font-medium tabular-nums">{cell.value}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{cell.hint}</p>
+        </div>
+      ))}
+    </div>
   )
 }
 

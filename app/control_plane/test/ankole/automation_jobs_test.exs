@@ -329,7 +329,7 @@ defmodule Ankole.AutomationJobsTest do
              Schedule.create_cron_schedule(
                %{
                  "agent_uid" => agent.uid,
-                 "session_id" => source.session_id,
+                 "owner_session_id" => source.session_id,
                  "binding_name" => source.binding_name,
                  "name" => "automation-cron-#{System.unique_integer([:positive])}",
                  "schedule" => %{

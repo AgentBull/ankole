@@ -18,6 +18,7 @@ defmodule Ankole.SignalsGateway.Actors do
   import Ecto.Query, warn: false
 
   alias Ecto.Adapters.SQL
+  alias Ankole.BackgroundAgentJobs
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.Repo
   alias Ankole.RuntimeEvents
@@ -764,16 +765,22 @@ defmodule Ankole.SignalsGateway.Actors do
   def next_ready_event(agent_uid, session_id, now \\ DateTime.utc_now(:microsecond), opts \\ []) do
     candidate_limit = Keyword.get(opts, :candidate_limit, 100)
     live_delivery? = Keyword.get(opts, :live_delivery?, false)
+    strict_queue_order? = Keyword.get(opts, :strict_queue_order?, false)
 
-    if live_delivery? do
-      next_live_turn_command_event(agent_uid, session_id, now) ||
-        next_ready_queue_barrier(agent_uid, session_id, now)
-    else
-      agent_uid
-      |> ready_event_candidates(session_id, now)
-      |> limit(^candidate_limit)
-      |> Repo.all()
-      |> select_next_ready_event(false)
+    cond do
+      live_delivery? ->
+        next_live_turn_command_event(agent_uid, session_id, now) ||
+          next_ready_queue_barrier(agent_uid, session_id, now)
+
+      strict_queue_order? ->
+        next_strict_queue_event(agent_uid, session_id, now)
+
+      true ->
+        agent_uid
+        |> ready_event_candidates(session_id, now)
+        |> limit(^candidate_limit)
+        |> Repo.all()
+        |> select_next_ready_event(false)
     end
   end
 
@@ -788,6 +795,12 @@ defmodule Ankole.SignalsGateway.Actors do
   end
 
   defp ready_event_candidates(agent_uid, session_id, now) do
+    agent_uid
+    |> event_candidates(session_id)
+    |> where([input, _delivery], input.available_at <= ^now)
+  end
+
+  defp event_candidates(agent_uid, session_id) do
     delivery_states = ["created", "sent", "accepted"]
 
     ActorEvent
@@ -795,12 +808,27 @@ defmodule Ankole.SignalsGateway.Actors do
     |> where([input], input.session_id == ^session_id)
     |> where([input], input.input_state == "open")
     |> where([input], is_nil(input.completed_at))
-    |> where([input], input.available_at <= ^now)
     |> join(:left, [input], delivery in "actor_event_deliveries",
       on: delivery.actor_event_id == input.id and delivery.state in ^delivery_states
     )
     |> where([_input, delivery], is_nil(delivery.id))
     |> order_by([input], asc: input.queue_sequence)
+  end
+
+  defp next_strict_queue_event(agent_uid, session_id, now) do
+    event =
+      agent_uid
+      |> event_candidates(session_id)
+      |> limit(1)
+      |> Repo.one()
+
+    case event do
+      %ActorEvent{available_at: available_at} = event ->
+        if DateTime.compare(available_at, now) in [:lt, :eq], do: event
+
+      nil ->
+        nil
+    end
   end
 
   defp select_next_ready_event([], _live_delivery?), do: nil
@@ -860,6 +888,10 @@ defmodule Ankole.SignalsGateway.Actors do
   end
 
   defp actor_session_runtime_events do
+    # A Job queue head is a causal barrier. Other sessions can wake for any due
+    # event, including one after an older event that is not due.
+    job_session_pattern = BackgroundAgentJobs.job_session_prefix() <> "%"
+
     ActorEvent
     |> where([input], input.input_state == "open")
     |> where([input], is_nil(input.completed_at))
@@ -867,7 +899,18 @@ defmodule Ankole.SignalsGateway.Actors do
     |> select([input], %{
       agent_uid: input.agent_uid,
       session_id: input.session_id,
-      due_at: min(input.available_at)
+      due_at:
+        type(
+          fragment(
+            "CASE WHEN ? LIKE ? THEN (ARRAY_AGG(? ORDER BY ?))[1] ELSE MIN(?) END",
+            input.session_id,
+            ^job_session_pattern,
+            input.available_at,
+            input.queue_sequence,
+            input.available_at
+          ),
+          :utc_datetime_usec
+        )
     })
     |> Repo.all()
     |> Enum.map(fn %{agent_uid: agent_uid, session_id: session_id, due_at: due_at} ->

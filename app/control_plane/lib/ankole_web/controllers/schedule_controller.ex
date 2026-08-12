@@ -414,6 +414,24 @@ defmodule AnkoleWeb.ScheduleController do
     error(conn, 422, "validation_failed", "#{key} is required")
   end
 
+  defp error(conn, :cron_task_required) do
+    error(
+      conn,
+      422,
+      "validation_failed",
+      "payload.task must carry the self-contained recurring instruction for a direct-Agent schedule"
+    )
+  end
+
+  defp error(conn, :cron_owner_session_reserved) do
+    error(
+      conn,
+      422,
+      "validation_failed",
+      "owner_session_id cannot be a derived cron execution session"
+    )
+  end
+
   defp error(conn, %Ecto.Changeset{} = changeset) do
     error(
       conn,

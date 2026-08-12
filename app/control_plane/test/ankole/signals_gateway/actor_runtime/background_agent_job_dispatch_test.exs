@@ -455,7 +455,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     assert Ankole.BackgroundAgentJobs.Schemas.Job.running_statuses() == ["running"]
   end
 
-  test "active BackgroundAgentJob steering stays durable until Codex accepts it and the turn commits" do
+  # Reversal of the removed `enforce_no_unapplied_terminal_steer` gate: a
+  # terminal commit never blocks on steering. See
+  # internals/docs/BackgroundAgentJobReliability.zh.md, R4.
+  test "a steer left unapplied at succeeded commit seeds one successor Job" do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
     route = unique_route()
@@ -486,20 +489,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
                "request_id" => "durable-steer"
              })
 
-    assert {:ok, %{status: :active_steer_nudged, send_outcome: "sent_or_queued"}} =
-             ReadyEventProcessor.process_ready_event_for_actor(actor_key,
-               now: DateTime.add(now, 1, :second)
-             )
-
-    assert_receive {:actor_lane, mailbox_envelope}, 200
-    mailbox = envelope_body!(mailbox_envelope, :mailbox_updated)
-    assert Repo.get!(Ankole.SignalsGateway.ActorEvent, steer_event.id).completed_at == nil
-
-    assert %Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery{state: "sent"} =
-             Repo.get_by!(Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery,
-               actor_event_id: steer_event.id
-             )
-
     assert {:ok, status_turn_ref} =
              Ankole.SignalsGateway.ActorRuntime.TurnRef.from_proto(turn_ref)
 
@@ -511,25 +500,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
                turn_ref: status_turn_ref,
                worker_route: route
              )
-
-    assert {:error, :background_agent_job_pending_steer} =
-             BackgroundAgentJobs.commit_status_with_wakeup(
-               job.id,
-               agent.uid,
-               %{"status" => "succeeded", "result" => %{"summary" => "Done"}},
-               turn_ref: status_turn_ref,
-               worker_route: route
-             )
-
-    assert BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid).status ==
-             "running"
-
-    assert {:ok,
-            [%Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery{state: "accepted"}]} =
-             ActorRuntime.handle_turn_accepted(turn_accepted_payload(mailbox.turn))
-
-    assert {:ok, applied_turn_ref} =
-             Ankole.SignalsGateway.ActorRuntime.TurnRef.from_proto(mailbox.turn)
 
     completed_at = DateTime.utc_now(:microsecond)
 
@@ -547,8 +517,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
                  "trajectory" => trajectory_header(),
                  "trajectory_groups" =>
                    trajectory_groups([
-                     %{"role" => "user", "content" => "Complete the delegated task."},
-                     %{"role" => "assistant", "content" => "Done"}
+                     %{"role" => "assistant", "content" => "Report finished."}
                    ]),
                  "progress" => empty_turn_progress(),
                  "usage" => nil,
@@ -556,41 +525,30 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
                  "started_at" => completed_at,
                  "completed_at" => completed_at
                },
-               applied_turn_ref,
+               status_turn_ref,
                route
              )
 
-    assert {:ok, %{job: %{status: "succeeded"}}} =
+    assert {:ok, %{job: %{status: "succeeded"}, wakeup_event: wakeup}} =
              BackgroundAgentJobs.commit_status_with_wakeup(
                job.id,
                agent.uid,
                %{"status" => "succeeded", "result" => %{"summary" => "Done"}},
-               turn_ref: applied_turn_ref,
+               turn_ref: status_turn_ref,
                worker_route: route
              )
 
-    assert :ok = WorkerRouteAuth.authorize_turn_route(applied_turn_ref, route, :write)
+    successor =
+      Repo.get_by!(Ankole.BackgroundAgentJobs.Schemas.Job, continued_from_job_id: job.id)
 
-    assert %ActorSessionWorkerAssignment{status: "assigned"} =
-             Repo.get_by!(ActorSessionWorkerAssignment,
-               agent_uid: agent.uid,
-               session_id: BackgroundAgentJobs.job_session_id(job.id)
-             )
+    assert successor.status == "queued"
+    assert successor.task == "Include the operator runbook."
+    assert successor.runtime_thread_id == "thread-durable-steer"
+    assert successor.source_actor_event_id == steer_event.id
+    assert successor.metadata["seeded_from_steer"] == true
 
-    assert Repo.get!(Ankole.SignalsGateway.ActorEvent, steer_event.id).completed_at == nil
-
-    assert {:ok, %{status: :noop_completed}} =
-             ActorRuntime.handle_turn_noop_completed(
-               turn_noop_completed_payload(mailbox.turn, "background_agent_job_committed")
-             )
-
-    assert %ActorSessionWorkerAssignment{status: "released"} =
-             Repo.get_by!(ActorSessionWorkerAssignment,
-               agent_uid: agent.uid,
-               session_id: BackgroundAgentJobs.job_session_id(job.id)
-             )
-
-    assert %DateTime{} = Repo.get!(Ankole.SignalsGateway.ActorEvent, steer_event.id).completed_at
+    assert Repo.get!(Ankole.SignalsGateway.ActorEvent, steer_event.id).completed_at != nil
+    assert get_in(wakeup.payload, ["data", "successor_job_id"]) == successor.id
   end
 
   test "a superseded worker cannot commit terminal status or release the recovery assignment" do
@@ -719,14 +677,14 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
 
     assert {:ok, %{status: :active_steer_nudged}} =
              ReadyEventProcessor.process_ready_event_for_actor(actor_key,
-               now: DateTime.add(now, 1, :second)
+               now: DateTime.add(now, 30, :second)
              )
 
     assert_receive {:actor_lane, _mailbox_envelope}, 200
 
-    failure_time = DateTime.add(now, 2, :second)
+    failure_time = DateTime.add(now, 31, :second)
 
-    assert {:ok, %{status: :turn_failed, retry_available_at: retry_at}} =
+    assert {:ok, %{status: :background_agent_job_requeued, retry_available_at: retry_at}} =
              ActorRuntime.handle_turn_error(
                turn_error_payload(
                  first_turn_ref,
@@ -740,6 +698,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
                now: failure_time
              )
 
+    # R1: a retryable attempt failure returns the Job to `queued`; the steer
+    # delivery failure is infrastructure and consumes no execution budget.
+    assert %{status: "queued", execution_failures: 0} =
+             BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid)
+
     assert Repo.get!(Ankole.SignalsGateway.ActorEvent, steer_event.id).completed_at == nil
 
     assert {:ok, %{send_outcome: "sent_or_queued"}} =
@@ -752,7 +715,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     recovery = turn_start_payload!(recovery_envelope)
 
     assert decoded_request_context(recovery)["attempts"] == 2
-    refute Map.has_key?(decoded_request_context(recovery), "pending_steering")
 
     assert BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid).runtime_thread_id ==
              "thread-existing"
@@ -793,6 +755,99 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
 
       DateTime.add(now, 31, :second)
     end)
+  end
+
+  test "queued messages stay behind dispatch and replay in order after admission" do
+    %{principal: agent} = agent_fixture()
+    job = create_job!(agent.uid, "queued-messages")
+    actor_key = %{agent_uid: agent.uid, session_id: BackgroundAgentJobs.job_session_id(job.id)}
+
+    assert {:ok, %{status: :waiting_for_worker, reason: :worker_capacity}} =
+             ReadyEventProcessor.process_ready_event_for_actor(actor_key,
+               now: job.queued_at,
+               lease_seconds: @long_lease_seconds
+             )
+
+    assert {:ok, %{job: %{status: "queued"}, command_event: first_message}} =
+             BackgroundAgentJobs.send_message(job.id, %{
+               "agent_uid" => agent.uid,
+               "message" => "Read the uploaded evidence before analysis.",
+               "request_id" => "queued-message-one"
+             })
+
+    assert {:ok, %{command_event: repeated_message}} =
+             BackgroundAgentJobs.send_message(job.id, %{
+               "agent_uid" => agent.uid,
+               "message" => "Read the uploaded evidence before analysis.",
+               "request_id" => "queued-message-one"
+             })
+
+    assert repeated_message.id == first_message.id
+
+    assert {:ok, %{command_event: second_message}} =
+             BackgroundAgentJobs.send_message(job.id, %{
+               "agent_uid" => agent.uid,
+               "message" => "Use the revised acceptance criteria.",
+               "request_id" => "queued-message-two"
+             })
+
+    assert first_message.queue_sequence < second_message.queue_sequence
+
+    assert {:ok, %{status: "queued", ready: false}} =
+             BackgroundAgentJobs.message_result(
+               BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid),
+               first_message.id,
+               job.owner_session_id
+             )
+
+    dispatch_event =
+      Repo.get_by!(Ankole.SignalsGateway.ActorEvent,
+        session_id: actor_key.session_id,
+        type: "background_agent_job.dispatch"
+      )
+
+    assert Enum.any?(Ankole.SignalsGateway.runtime_event_snapshot(), fn
+             {channel, %{"session_id" => session_id, "due_at" => due_at}} ->
+               channel == Ankole.RuntimeEvents.actor_session_ready_channel() and
+                 session_id == actor_key.session_id and
+                 due_at == Ankole.RuntimeEvents.encode_datetime(dispatch_event.available_at)
+
+             _event ->
+               false
+           end)
+
+    assert {:ok, %{status: :idle}} =
+             ReadyEventProcessor.process_ready_event_for_actor(actor_key,
+               now: DateTime.add(job.queued_at, 1, :second),
+               lease_seconds: @long_lease_seconds
+             )
+
+    route = unique_route()
+    :ok = Broker.register_local_worker(route, self())
+    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    assert {:ok, _worker} = admit_worker(route)
+
+    assert {:ok, %{send_outcome: "sent_or_queued", replayed_steers: 2}} =
+             ReadyEventProcessor.process_ready_event_for_actor(actor_key,
+               now: DateTime.add(job.queued_at, 31, :second),
+               lease_seconds: @long_lease_seconds
+             )
+
+    assert_receive {:actor_lane, dispatch_envelope}, 200
+    dispatch = turn_start_payload!(dispatch_envelope)
+    assert dispatch.actor_event.type == "background_agent_job.dispatch"
+
+    assert_receive {:actor_lane, first_message_envelope}, 200
+    assert_receive {:actor_lane, second_message_envelope}, 200
+
+    assert envelope_body!(first_message_envelope, :mailbox_updated).actor_event.actor_event_id ==
+             first_message.id
+
+    assert envelope_body!(second_message_envelope, :mailbox_updated).actor_event.actor_event_id ==
+             second_message.id
+
+    assert %{status: "running", attempts: 1} =
+             BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid)
   end
 
   test "worker delivery failure requeues the job without consuming an attempt" do
@@ -885,68 +940,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     assert second_assignment.worker_id == second_worker.worker_id
   end
 
-  test "live work pins every Session and Job for one Agent to its current worker" do
-    %{principal: agent} = agent_fixture()
-    first_route = unique_route()
-    second_route = unique_route()
-    :ok = Broker.register_local_worker(first_route, self())
-    :ok = Broker.register_local_worker(second_route, self())
-
-    on_exit(fn ->
-      Broker.unregister_local_worker(first_route)
-      Broker.unregister_local_worker(second_route)
-    end)
-
-    assert {:ok, first_worker} =
-             admit_worker(first_route, %{capacity: %{"available_turn_slots" => 4}})
-
-    assert {:ok, _second_worker} =
-             admit_worker(second_route, %{capacity: %{"available_turn_slots" => 4}})
-
-    first_job = create_job!(agent.uid, "agent-sticky-first")
-
-    first_key = %{
-      agent_uid: agent.uid,
-      session_id: BackgroundAgentJobs.job_session_id(first_job.id)
-    }
-
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             ReadyEventProcessor.process_ready_event_for_actor(first_key,
-               now: DateTime.add(first_job.queued_at, 1, :second),
-               lease_seconds: @long_lease_seconds
-             )
-
-    assert_receive {:actor_lane, _first_envelope}, 200
-
-    second_job = create_job!(agent.uid, "agent-sticky-second")
-
-    second_key = %{
-      agent_uid: agent.uid,
-      session_id: BackgroundAgentJobs.job_session_id(second_job.id)
-    }
-
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             ReadyEventProcessor.process_ready_event_for_actor(second_key,
-               now: DateTime.add(second_job.queued_at, 1, :second),
-               lease_seconds: @long_lease_seconds
-             )
-
-    assert_receive {:actor_lane, _second_envelope}, 200
-
-    assert Repo.get_by!(ActorSessionWorkerAssignment,
-             agent_uid: agent.uid,
-             session_id: first_key.session_id,
-             status: "assigned"
-           ).worker_id == first_worker.worker_id
-
-    assert Repo.get_by!(ActorSessionWorkerAssignment,
-             agent_uid: agent.uid,
-             session_id: second_key.session_id,
-             status: "assigned"
-           ).worker_id == first_worker.worker_id
-  end
-
-  test "a full pinned worker queues same-Agent work instead of spilling to another worker" do
+  # Reversal of the Agent-level worker pin: placement is per Job, and
+  # concurrent Jobs of one Agent spread across workers by free capacity. See
+  # internals/docs/BackgroundAgentJobReliability.zh.md, S4.
+  test "concurrent Jobs of one Agent spread across workers and each Job keeps its own worker" do
     %{principal: agent} = agent_fixture()
     first_route = unique_route()
     second_route = unique_route()
@@ -962,9 +959,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
              admit_worker(first_route, %{capacity: %{"available_turn_slots" => 1}})
 
     assert {:ok, second_worker} =
-             admit_worker(second_route, %{capacity: %{"available_turn_slots" => 4}})
+             admit_worker(second_route, %{capacity: %{"available_turn_slots" => 1}})
 
-    first_job = create_job!(agent.uid, "agent-sticky-full-first")
+    first_job = create_job!(agent.uid, "agent-spread-first")
 
     first_key = %{
       agent_uid: agent.uid,
@@ -979,7 +976,68 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
 
     assert_receive {:actor_lane, _first_envelope}, 200
 
-    second_job = create_job!(agent.uid, "agent-sticky-full-second")
+    second_job = create_job!(agent.uid, "agent-spread-second")
+
+    second_key = %{
+      agent_uid: agent.uid,
+      session_id: BackgroundAgentJobs.job_session_id(second_job.id)
+    }
+
+    assert {:ok, %{send_outcome: "sent_or_queued"}} =
+             ReadyEventProcessor.process_ready_event_for_actor(second_key,
+               now: DateTime.add(second_job.queued_at, 1, :second),
+               lease_seconds: @long_lease_seconds
+             )
+
+    assert_receive {:actor_lane, _second_envelope}, 200
+
+    first_assignment =
+      Repo.get_by!(ActorSessionWorkerAssignment,
+        agent_uid: agent.uid,
+        session_id: first_key.session_id,
+        status: "assigned"
+      )
+
+    second_assignment =
+      Repo.get_by!(ActorSessionWorkerAssignment,
+        agent_uid: agent.uid,
+        session_id: second_key.session_id,
+        status: "assigned"
+      )
+
+    assert first_assignment.worker_id != second_assignment.worker_id
+
+    assert Enum.sort([first_assignment.worker_id, second_assignment.worker_id]) ==
+             Enum.sort([first_worker.worker_id, second_worker.worker_id])
+  end
+
+  # The no-spill half of the old Agent pin is gone; what remains guaranteed is
+  # that missing capacity defers the claim instead of losing it. See
+  # internals/docs/BackgroundAgentJobReliability.zh.md, S4.
+  test "same-Agent work waits for capacity when every worker is full" do
+    %{principal: agent} = agent_fixture()
+    route = unique_route()
+    :ok = Broker.register_local_worker(route, self())
+    on_exit(fn -> Broker.unregister_local_worker(route) end)
+
+    assert {:ok, worker} = admit_worker(route, %{capacity: %{"available_turn_slots" => 1}})
+
+    first_job = create_job!(agent.uid, "agent-full-first")
+
+    first_key = %{
+      agent_uid: agent.uid,
+      session_id: BackgroundAgentJobs.job_session_id(first_job.id)
+    }
+
+    assert {:ok, %{send_outcome: "sent_or_queued"}} =
+             ReadyEventProcessor.process_ready_event_for_actor(first_key,
+               now: DateTime.add(first_job.queued_at, 1, :second),
+               lease_seconds: @long_lease_seconds
+             )
+
+    assert_receive {:actor_lane, _first_envelope}, 200
+
+    second_job = create_job!(agent.uid, "agent-full-second")
 
     second_key = %{
       agent_uid: agent.uid,
@@ -995,7 +1053,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     refute Repo.get_by(ActorSessionWorkerAssignment,
              agent_uid: agent.uid,
              session_id: second_key.session_id,
-             worker_id: second_worker.worker_id,
              status: "assigned"
            )
 
@@ -1003,7 +1060,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
              agent_uid: agent.uid,
              session_id: first_key.session_id,
              status: "assigned"
-           ).worker_id == first_worker.worker_id
+           ).worker_id == worker.worker_id
   end
 
   test "sticky worker placement revalidates worker before locking its assignment" do
@@ -1338,7 +1395,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
                    )
         end
 
-        assert {:ok, %{status: :turn_failed, retry_available_at: retry_available_at}} =
+        assert {:ok,
+                %{status: :background_agent_job_requeued, retry_available_at: retry_available_at}} =
                  ActorRuntime.handle_turn_error(
                    turn_error_payload(
                      turn_ref,
@@ -1352,8 +1410,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
                    now: failure_time
                  )
 
-        # Job sessions wait on the long retry ladder so the five-attempt
-        # budget can ride out an upstream outage of a few hours.
+        # R1 returns the Job to `queued` between attempts, and this execution
+        # failure charges the budget. The long ladder is unchanged so the
+        # five-failure budget still rides out an upstream outage of hours.
+        assert %{status: "queued", execution_failures: ^expected_attempt} =
+                 BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid)
+
         assert DateTime.diff(retry_available_at, failure_time, :second) ==
                  Enum.at([60, 600, 1_800, 3_600, 7_200], expected_attempt - 1)
 
@@ -1565,9 +1627,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     assert stopped.metadata["cancel_requested_by"] == "operator:test"
     assert stop_event.type == "command.stop"
 
+    # The stop command's available_at is real wall clock; keep the synthetic
+    # processing time comfortably past real elapsed test time.
     assert {:ok, %{status: :command_consumed, command: "command.stop"}} =
              ReadyEventProcessor.process_ready_event_for_actor(actor_key,
-               now: DateTime.add(now, 1, :second)
+               now: DateTime.add(now, 30, :second)
              )
 
     assert_receive {:actor_lane, stop_control}, 200

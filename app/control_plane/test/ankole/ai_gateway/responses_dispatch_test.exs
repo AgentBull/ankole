@@ -80,7 +80,10 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              ModelProfiles.put_model_profile(agent.uid, "primary", %{
                provider_id: "openai-responses-main",
                model: "gpt-5.5",
-               provider_options: %{"reasoningEffort" => "minimal"}
+               provider_options: %{
+                 "reasoningEffort" => "minimal",
+                 "serviceTier" => "fast"
+               }
              })
 
     assert {:ok, %{body: body, model_ref: model_ref}} =
@@ -103,7 +106,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert request.body["store"] == false
     assert request.body["reasoning"] == %{"effort" => "minimal"}
     refute Map.has_key?(request.body, "reasoningEffort")
-    refute Map.has_key?(request.body, "service_tier")
+    assert request.body["service_tier"] == "fast"
     assert request.body["prompt_cache_key"] == "cache-a"
 
     assert body["id"] == "resp_test"
@@ -5665,7 +5668,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert {:ok, _profile} =
              ModelProfiles.put_model_profile(agent.uid, "primary", %{
                provider_id: "openai-upstream-websocket",
-               model: "gpt-5.5"
+               model: "gpt-5.5",
+               provider_options: %{"serviceTier" => "flex"}
              })
 
     assert {:ok, runtime} =
@@ -5694,6 +5698,54 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert request.response_context.model == "gpt-5.5"
     assert request.response_context.request["input"] == "hello"
     assert request.response_context.request["store"] == false
+    assert request.response_context.provider_options["service_tier"] == "flex"
+    assert request.response_context.stream == true
+  end
+
+  test "openai-compatible responses can prepare an optional upstream WebSocket stream" do
+    %{principal: agent} = agent_fixture()
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "compatible-upstream-websocket",
+               provider_kind: "openai_compatible",
+               base_url: "https://compatible.test/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-compatible"}]
+               },
+               connection_options: %{
+                 "endpoint_kind" => "responses",
+                 "upstream_transport" => "websocket"
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "compatible-upstream-websocket",
+               model: "compatible-reasoning-model",
+               provider_options: %{"serviceTier" => "provider-native-tier"}
+             })
+
+    assert {:ok, runtime} =
+             Ankole.AIGateway.Resolver.resolve_request_model(agent.uid, "llm", %{
+               "model" => "primary"
+             })
+
+    assert {:ok, request} =
+             Providers.build_response_request(
+               runtime,
+               %{"model" => "primary", "input" => "hello"},
+               stream?: true
+             )
+
+    assert request.upstream.method == "GET"
+    assert request.upstream.kind == :websocket_text
+    assert request.upstream.url == "wss://compatible.test/v1/responses"
+    assert request.api_resolver == :openai_responses
+    refute Map.has_key?(request, :body)
+    assert request.response_context.model == "compatible-reasoning-model"
+    assert request.response_context.request["input"] == "hello"
+    assert request.response_context.provider_options["service_tier"] == "provider-native-tier"
     assert request.response_context.stream == true
   end
 
@@ -6045,7 +6097,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              ModelProfiles.put_model_profile(agent.uid, "primary", %{
                provider_id: "azure-openai-deployment",
                model: "gpt-5.5",
-               provider_options: %{"textVerbosity" => "low"}
+               provider_options: %{"serviceTier" => "fast", "textVerbosity" => "low"}
              })
 
     assert {:ok, %{body: body}} =
@@ -6058,6 +6110,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     refute Map.has_key?(request.headers, "authorization")
     refute Map.has_key?(request.body, "model")
     assert request.body["reasoning_effort"] == "high"
+    assert request.body["service_tier"] == "fast"
     assert request.body["verbosity"] == "low"
     refute Map.has_key?(request.body, "reasoningEffort")
     refute Map.has_key?(request.body, "textVerbosity")
@@ -6128,6 +6181,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                model: "gpt-5.5",
                provider_options: %{
                  "reasoningSummary" => "detailed",
+                 "serviceTier" => "provider-native-tier",
                  "textVerbosity" => "high"
                }
              })
@@ -6144,6 +6198,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert request.body["model"] == "gpt-5.5"
     assert request.body["store"] == false
     assert request.body["reasoning"] == %{"effort" => "high", "summary" => "detailed"}
+    assert request.body["service_tier"] == "provider-native-tier"
     assert request.body["text"] == %{"verbosity" => "high"}
     refute Map.has_key?(request.body, "reasoningEffort")
     refute Map.has_key?(request.body, "reasoningSummary")

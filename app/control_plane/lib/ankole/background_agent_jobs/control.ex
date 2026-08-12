@@ -52,6 +52,91 @@ defmodule Ankole.BackgroundAgentJobs.Control do
     end
   end
 
+  @doc """
+  Commits an externally verified completion for a live Job.
+
+  The caller owns the outcome judgment: the commit skips the worker deliverable
+  contract, records the caller's result summary, and produces the ordinary
+  succeeded wakeup. A running Job also receives a runtime stop command so the
+  Worker does not keep executing a Turn whose Job is already terminal. Open
+  steers close with the completion itself; an external completion never seeds a
+  successor.
+  """
+  @spec request_complete(pos_integer(), map()) ::
+          {:ok, %{job: Job.t(), command_event: ActorEvent.t() | nil}}
+          | {:error, term()}
+  def request_complete(job_id, attrs)
+      when is_integer(job_id) and job_id > 0 and is_map(attrs) do
+    attrs = Attrs.normalize(attrs)
+
+    with {:ok, agent_uid} <- Principals.normalize_uid(Attrs.text(attrs, "agent_uid")),
+         {:ok, summary} <- require_result_summary(attrs) do
+      now = now()
+
+      Repo.transact(fn repo ->
+        case Queries.get_for_agent(repo, job_id, agent_uid, []) do
+          nil ->
+            {:error, :job_not_found}
+
+          %Job{status: "succeeded"} = job ->
+            {:ok, %{job: job, command_event: nil}}
+
+          %Job{status: status} when status in ["failed", "stopped"] ->
+            {:error, :background_agent_job_terminal}
+
+          %Job{status: pre_status} ->
+            completed_by = Attrs.text(attrs, "completed_by")
+
+            result =
+              Attrs.reject_nil_values(%{
+                "summary" => summary,
+                "completed_by" => completed_by
+              })
+
+            with {:ok, %{job: job}} <-
+                   Lifecycle.commit_status_with_wakeup_in_tx(
+                     repo,
+                     job_id,
+                     agent_uid,
+                     %{"status" => "succeeded", "result" => result},
+                     now,
+                     nil,
+                     nil,
+                     %{
+                       "code" => "background_agent_job_succeeded",
+                       "summary" =>
+                         "The Job was completed externally before this runtime Turn reported completion."
+                     },
+                     external_completion: true
+                   ),
+                 {:ok, command_event} <-
+                   maybe_append_runtime_stop(repo, job, pre_status, attrs, now) do
+              {:ok, %{job: job, command_event: command_event}}
+            end
+        end
+      end)
+    end
+  end
+
+  defp require_result_summary(attrs) do
+    case Attrs.text(attrs, "result_summary") do
+      summary when is_binary(summary) -> {:ok, summary}
+      nil -> {:error, :background_agent_job_result_summary_missing}
+    end
+  end
+
+  defp maybe_append_runtime_stop(repo, job, "running", attrs, now) do
+    append_command(
+      repo,
+      job,
+      "stop",
+      Map.put(attrs, "reason", "background_agent_job_completed_externally"),
+      now
+    )
+  end
+
+  defp maybe_append_runtime_stop(_repo, _job, _pre_status, _attrs, _now), do: {:ok, nil}
+
   @spec send_message(pos_integer(), map()) ::
           {:ok, %{job: Job.t(), command_event: ActorEvent.t()}}
           | {:error, term()}
@@ -146,12 +231,10 @@ defmodule Ankole.BackgroundAgentJobs.Control do
 
   defp require_message(_message), do: {:error, :background_agent_job_message_missing}
 
-  defp ensure_messageable(%Job{status: status})
-       when status in ["running", "waiting_on_user"],
-       do: :ok
-
-  defp ensure_messageable(%Job{status: status}),
+  defp ensure_messageable(%Job{status: status}) when status in @terminal_statuses,
     do: {:error, {:background_agent_job_message_status_invalid, status}}
+
+  defp ensure_messageable(%Job{}), do: :ok
 
   defp touch_job(repo, %Job{} = job, now) do
     job

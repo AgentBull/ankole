@@ -8,12 +8,16 @@ defmodule Ankole.Schedule.Queries do
   alias Ankole.Schedule.Schemas.ScheduledEvent
 
   @spec list_cron_schedules(String.t() | nil, String.t() | nil) :: [CronSchedule.t()]
-  def list_cron_schedules(agent_uid \\ nil, session_id \\ nil) do
+  def list_cron_schedules(agent_uid \\ nil, owner_session_id \\ nil) do
     CronSchedule
     |> maybe_where_agent(agent_uid)
     |> where([schedule], schedule.status != "deleted")
-    |> maybe_where_session(session_id)
-    |> order_by([schedule], asc: schedule.agent_uid, asc: schedule.session_id, asc: schedule.name)
+    |> maybe_where_owner_session(owner_session_id)
+    |> order_by([schedule],
+      asc: schedule.agent_uid,
+      asc: schedule.owner_session_id,
+      asc: schedule.name
+    )
     |> Repo.all()
   end
 
@@ -27,12 +31,12 @@ defmodule Ankole.Schedule.Queries do
 
   @spec get_cron_schedule_by_name(String.t(), String.t(), String.t()) ::
           {:ok, CronSchedule.t()} | {:error, :not_found}
-  def get_cron_schedule_by_name(agent_uid, session_id, name)
-      when is_binary(agent_uid) and is_binary(session_id) and is_binary(name) do
+  def get_cron_schedule_by_name(agent_uid, owner_session_id, name)
+      when is_binary(agent_uid) and is_binary(owner_session_id) and is_binary(name) do
     query =
       CronSchedule
       |> where([schedule], schedule.agent_uid == ^String.downcase(agent_uid))
-      |> where([schedule], schedule.session_id == ^session_id)
+      |> where([schedule], schedule.owner_session_id == ^owner_session_id)
       |> where([schedule], schedule.name == ^name)
       |> where([schedule], schedule.status != "deleted")
 
@@ -110,4 +114,9 @@ defmodule Ankole.Schedule.Queries do
 
   defp maybe_where_session(query, session_id),
     do: where(query, [row], row.session_id == ^session_id)
+
+  defp maybe_where_owner_session(query, nil), do: query
+
+  defp maybe_where_owner_session(query, owner_session_id),
+    do: where(query, [row], row.owner_session_id == ^owner_session_id)
 end

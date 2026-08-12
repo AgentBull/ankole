@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { deliveryTargetDrafts, ScheduleEditorModel, type ScheduleEditorDraft } from './schedule-editor-model'
 
 const draft: ScheduleEditorDraft = {
-  sessionId: 'lark:chat:market',
+  ownerSessionId: 'lark:chat:market',
   bindingName: 'lark-agent',
   name: 'market-open',
   status: 'active',
@@ -12,23 +12,37 @@ const draft: ScheduleEditorDraft = {
   anchorAt: '',
   timezone: 'Asia/Shanghai',
   deliveryTargets: [{ bindingName: 'lark-agent', channelId: 'lark:market', threadId: '' }],
+  task: 'prepare report',
+  payload: '{"task":"prepare report"}',
+  hasAutomationJob: false,
   idempotencyKey: 'cron:add:market-open'
 }
 
 describe('ScheduleEditorModel', () => {
-  test('requires a name and an owning session when it creates a recurring schedule', () => {
+  test('requires a name, owner conversation, and task when it creates a recurring schedule', () => {
     const model = new ScheduleEditorModel()
     model.initialize('new', { ...draft, name: '' })
 
+    expect(model.isComplete()).toBe(false)
     expect(model.toCreateBody()).toBeNull()
 
     model.name.value = 'market-open'
-    model.sessionId.value = ''
+    model.payload.value = '{'
     expect(model.toCreateBody()).toBeNull()
-    model.sessionId.value = draft.sessionId
+    model.payload.value = draft.payload
 
+    model.ownerSessionId.value = ''
+    expect(model.toCreateBody()).toBeNull()
+    model.ownerSessionId.value = draft.ownerSessionId
+
+    model.task.value = ' '
+    expect(model.isComplete()).toBe(false)
+    expect(model.toCreateBody()).toBeNull()
+    model.task.value = draft.task
+
+    expect(model.isComplete()).toBe(true)
     expect(model.toCreateBody()).toEqual({
-      session_id: 'lark:chat:market',
+      owner_session_id: 'lark:chat:market',
       binding_name: 'lark-agent',
       name: 'market-open',
       status: 'active',
@@ -38,11 +52,22 @@ describe('ScheduleEditorModel', () => {
         timezone: 'Asia/Shanghai'
       },
       timezone: 'Asia/Shanghai',
+      payload: { task: 'prepare report' },
       delivery: {
         targets: [{ binding_name: 'lark-agent', signal_channel_id: 'lark:market' }]
       },
       idempotency_key: 'cron:add:market-open'
     })
+
+    model[Symbol.dispose]()
+  })
+
+  test('accepts an empty task when an automation job consumes the trigger', () => {
+    const model = new ScheduleEditorModel()
+    model.initialize('new', { ...draft, task: '', payload: '{}', hasAutomationJob: true })
+
+    expect(model.isComplete()).toBe(true)
+    expect(model.toCreateBody()?.payload).toEqual({})
 
     model[Symbol.dispose]()
   })
@@ -54,8 +79,12 @@ describe('ScheduleEditorModel', () => {
     expect(model.toUpdateBody()).toEqual({})
 
     model.name.value = 'market-open-report'
+    model.task.value = 'prepare updated report'
 
-    expect(model.toUpdateBody()).toEqual({ name: 'market-open-report' })
+    expect(model.toUpdateBody()).toEqual({
+      name: 'market-open-report',
+      payload: { task: 'prepare updated report' }
+    })
 
     model[Symbol.dispose]()
   })
@@ -93,7 +122,24 @@ describe('ScheduleEditorModel', () => {
       threadId: ''
     })
     model.updateDeliveryTarget(0, { channelId: 'lark:market', threadId: '' })
+    expect(model.isComplete()).toBe(false)
     expect(model.toUpdateBody()).toBeNull()
+
+    model[Symbol.dispose]()
+  })
+
+  test('keeps non-task payload keys when the task text changes', () => {
+    const model = new ScheduleEditorModel()
+    model.initialize('cron:market-open', {
+      ...draft,
+      payload: '{"task":"prepare report","scope":"a-share"}'
+    })
+
+    model.task.value = 'prepare updated report'
+
+    expect(model.toUpdateBody()).toEqual({
+      payload: { task: 'prepare updated report', scope: 'a-share' }
+    })
 
     model[Symbol.dispose]()
   })

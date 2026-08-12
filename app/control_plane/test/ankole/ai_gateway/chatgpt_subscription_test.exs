@@ -86,7 +86,8 @@ defmodule Ankole.AIGateway.ChatGPTSubscriptionTest do
           "affinity_key" => "ws-thread-9",
           "downstream_transport" => "websocket",
           "headers" => %{}
-        }
+        },
+        "provider_options" => %{"serviceTier" => "fast"}
       })
 
     request = %{
@@ -116,6 +117,7 @@ defmodule Ankole.AIGateway.ChatGPTSubscriptionTest do
     refute Map.has_key?(headers, "connection")
     assert spec.response_context.request["tools"] == nil
     assert spec.response_context.request["parallel_tool_calls"] == false
+    assert spec.response_context.provider_options["service_tier"] == "fast"
   end
 
   test "identity uses provider overrides, then inbound values, then the Codex default pair" do

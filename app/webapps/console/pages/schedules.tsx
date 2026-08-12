@@ -12,6 +12,7 @@ import {
   TableHead,
   TableHeader,
   TableRow,
+  Textarea,
   toast
 } from '@ankole/uikit'
 import { RiCalendarScheduleLine, RiPauseCircleLine, RiPlayCircleLine, RiTimerLine } from '@remixicon/react'
@@ -60,12 +61,15 @@ type CronScheduleRow = {
   id: string
   status: string
   agent_uid: string
-  session_id: string
+  owner_session_id: string
+  execution_session_id: string
   binding_name: string
   name?: string | null
   schedule: Record<string, unknown> | null
   timezone?: string | null
+  payload?: Record<string, unknown> | null
   delivery?: CronDeliveryProjection | null
+  automation_job_id?: number | null
   idempotency_key?: string
   next_fire_at?: string | null
   last_fire_at?: string | null
@@ -106,7 +110,7 @@ export function SchedulesListPage() {
         row.name,
         row.binding_name,
         row.agent_uid,
-        row.session_id,
+        row.owner_session_id,
         row.status,
         describeSchedule(row.schedule)
       )
@@ -154,7 +158,7 @@ export function SchedulesListPage() {
       columns={[
         t('console.schedules.name'),
         t('console.agents.agent'),
-        t('console.session'),
+        t('console.schedules.owner_session'),
         t('console.schedules.schedule'),
         t('console.schedules.next_fire'),
         t('console.schedules.last_fire'),
@@ -199,8 +203,8 @@ export function SchedulesListPage() {
             </TableCell>
             <AgentCell uid={row.agent_uid} />
             <TableCell>
-              <span className="block max-w-56 truncate font-mono text-xs" title={row.session_id}>
-                {row.session_id}
+              <span className="block max-w-56 truncate font-mono text-xs" title={row.owner_session_id}>
+                {row.owner_session_id}
               </span>
             </TableCell>
             <TableCell className="text-xs">
@@ -482,7 +486,7 @@ export function ScheduleCronEditorPage() {
       updateCron.mutate({ body, path: { agent_uid: agentUID, cron_schedule_id: cronID } })
       return
     }
-    if (!model.sessionId.value.trim()) {
+    if (!model.ownerSessionId.value.trim()) {
       model.validationError.value = t('console.schedules.session_required')
       return
     }
@@ -572,28 +576,39 @@ export function ScheduleCronEditorPage() {
           )}
         </LabeledField>
         {editing ? (
-          <LabeledField label={t('console.session')}>
-            <ReadOnlyValue mono>{model.sessionId.value || '—'}</ReadOnlyValue>
+          <LabeledField label={t('console.schedules.owner_session')}>
+            <ReadOnlyValue mono>{model.ownerSessionId.value || '—'}</ReadOnlyValue>
           </LabeledField>
         ) : (
-          <LabeledField label={t('console.session')} required description={t('console.schedules.session_hint')}>
-            <Input
-              className="font-mono text-xs"
-              list="schedule-session-options"
-              placeholder="job:<id> or <session-id>"
-              value={model.sessionId.value}
-              onChange={event => (model.sessionId.value = event.target.value)}
-            />
-            <datalist id="schedule-session-options">
-              {sessionList.map(session => (
-                <option key={session.session_id} value={session.session_id}>
-                  {session.title ?? undefined}
-                </option>
-              ))}
-            </datalist>
+          <LabeledField
+            label={t('console.schedules.owner_session')}
+            required
+            description={t('console.schedules.session_hint')}>
+            <Select
+              value={model.ownerSessionId.value}
+              onValueChange={value => (model.ownerSessionId.value = String(value))}>
+              <SelectTrigger className="w-full font-mono text-xs">
+                <SelectValue placeholder={t('console.schedules.session_placeholder')} />
+              </SelectTrigger>
+              <SelectContent emptyLabel={sessions.isLoading ? t('common.loading') : t('common.select_empty')}>
+                {sessionList.map(session => (
+                  <SelectItem key={session.session_id} value={session.session_id}>
+                    {session.title ? `${session.title} — ${session.session_id}` : session.session_id}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </LabeledField>
         )}
       </div>
+
+      {editing && existingRow ? (
+        <LabeledField
+          label={t('console.schedules.execution_session')}
+          description={t('console.schedules.execution_session_hint')}>
+          <ReadOnlyValue mono>{existingRow.execution_session_id}</ReadOnlyValue>
+        </LabeledField>
+      ) : null}
 
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         <LabeledField label={t('console.schedules.binding')} required>
@@ -619,6 +634,13 @@ export function ScheduleCronEditorPage() {
           <Input value={model.name.value} onChange={event => (model.name.value = event.target.value)} />
         </LabeledField>
       </div>
+
+      <LabeledField
+        label={t('console.schedules.task')}
+        required={!model.hasAutomationJob.value}
+        description={t('console.schedules.task_hint')}>
+        <Textarea rows={4} value={model.task.value} onChange={event => (model.task.value = event.target.value)} />
+      </LabeledField>
 
       <LabeledField label={t('console.schedules.schedule_kind')}>
         <Select
@@ -830,8 +852,9 @@ function eventTone(status: string): 'positive' | 'warning' | 'neutral' | 'danger
 
 function draftFromCron(row: CronScheduleRow, schedule: Record<string, unknown>): ScheduleEditorDraft {
   const kind = (String(schedule.kind ?? 'cron') || 'cron') as ScheduleKind
+  const payload = row.payload ?? {}
   return {
-    sessionId: row.session_id,
+    ownerSessionId: row.owner_session_id,
     bindingName: row.binding_name,
     name: row.name ?? '',
     status: (row.status === 'paused' ? 'paused' : 'active') as CronStatus,
@@ -841,13 +864,24 @@ function draftFromCron(row: CronScheduleRow, schedule: Record<string, unknown>):
     anchorAt: String(schedule.anchor_at ?? ''),
     timezone: row.timezone ?? '',
     deliveryTargets: deliveryTargetDrafts(row.delivery, row.binding_name),
+    task: typeof payload.task === 'string' ? payload.task : '',
+    payload: safeStringify(payload),
+    hasAutomationJob: row.automation_job_id != null,
     idempotencyKey: row.idempotency_key ?? ''
+  }
+}
+
+function safeStringify(value: unknown): string {
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return '{}'
   }
 }
 
 function emptyDraft(): ScheduleEditorDraft {
   return {
-    sessionId: '',
+    ownerSessionId: '',
     bindingName: '',
     name: '',
     status: 'active',
@@ -857,6 +891,9 @@ function emptyDraft(): ScheduleEditorDraft {
     anchorAt: '',
     timezone: '',
     deliveryTargets: [{ bindingName: '', channelId: '', threadId: '' }],
+    task: '',
+    payload: '{}',
+    hasAutomationJob: false,
     idempotencyKey: ''
   }
 }

@@ -24,7 +24,7 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
   @running_statuses ~w(running)
   @model_profile ~r/\A[a-z][a-z0-9_-]{0,63}\z/
   @status_transitions %{
-    "queued" => ~w(queued running failed stopped),
+    "queued" => ~w(queued running succeeded failed stopped),
     "running" => ~w(running waiting_on_user succeeded failed stopped),
     "waiting_on_user" => ~w(waiting_on_user running succeeded failed stopped),
     "succeeded" => ~w(succeeded),
@@ -67,6 +67,7 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
     field(:task, :string)
     field(:reply_route, :map, default: %{})
     field(:attempts, :integer, default: 0)
+    field(:execution_failures, :integer, default: 0)
 
     field(:workspace_template_id, :string)
     field(:model_profile, :string, default: "coding")
@@ -100,6 +101,7 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
       :task,
       :reply_route,
       :attempts,
+      :execution_failures,
       :workspace_template_id,
       :model_profile,
       :runtime_projection,
@@ -140,6 +142,7 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
       if is_binary(task) and String.trim(task) != "", do: [], else: [task: "can't be blank"]
     end)
     |> validate_number(:attempts, greater_than_or_equal_to: 0)
+    |> validate_number(:execution_failures, greater_than_or_equal_to: 0)
     |> validate_format(:model_profile, @model_profile)
     |> validate_workspace_template_id()
     |> JSONPayload.validate_map(:reply_route)
@@ -163,6 +166,9 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
     )
     |> check_constraint(:reply_route, name: :background_agent_jobs_reply_route_object)
     |> check_constraint(:attempts, name: :background_agent_jobs_attempts_nonnegative)
+    |> check_constraint(:execution_failures,
+      name: :background_agent_jobs_execution_failures_nonnegative
+    )
     |> check_constraint(:workspace_template_id,
       name: :background_agent_jobs_workspace_template_id_valid
     )

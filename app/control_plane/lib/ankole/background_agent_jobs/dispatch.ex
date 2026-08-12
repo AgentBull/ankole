@@ -331,6 +331,74 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
   end
 
   @doc false
+  @spec open_steer_events_in_tx(module(), pos_integer(), String.t()) :: [ActorEvent.t()]
+  def open_steer_events_in_tx(repo, job_id, agent_uid) do
+    ActorEvent
+    |> where([event], event.agent_uid == ^agent_uid)
+    |> where([event], event.session_id == ^BackgroundAgentJobs.job_session_id(job_id))
+    |> where([event], event.type == "command.steer")
+    |> where([event], event.input_state == "open")
+    |> where([event], is_nil(event.completed_at))
+    |> order_by([event], asc: event.queue_sequence)
+    |> lock("FOR UPDATE")
+    |> repo.all()
+  end
+
+  # One successor carries every open steer in arrival order. The successor is
+  # an ordinary respawn row: same Codex thread, `continued_from_job_id` set, and
+  # the steer texts joined as its task, so the one-successor-per-source unique
+  # index also makes commit replays idempotent.
+  @doc false
+  @spec seed_steer_successor_in_tx(module(), Job.t(), [ActorEvent.t()], DateTime.t()) ::
+          {:ok, Job.t()} | {:error, term()}
+  def seed_steer_successor_in_tx(repo, %Job{} = source_job, [first | _rest] = steers, now) do
+    task = steers |> Enum.map(&steer_text/1) |> Enum.reject(&is_nil/1) |> Enum.join("\n\n")
+
+    with :ok <- ensure_seedable_task(task),
+         :ok <- ensure_no_successor(repo, source_job),
+         attrs =
+           %{
+             "agent_uid" => source_job.agent_uid,
+             "owner_session_id" => source_job.owner_session_id,
+             "source_actor_event_id" => first.id,
+             "source_tool_call_id" => "steer-successor:#{first.id}",
+             "reply_route" => source_job.reply_route || %{},
+             "message" => task,
+             "metadata" => %{"seeded_from_steer" => true},
+             "model_profile" => source_job.model_profile
+           }
+           |> respawn_job_attrs(source_job, now),
+         {:ok, job} <- repo.insert(Job.creation_changeset(%Job{}, attrs)),
+         {:ok, _dispatch_event} <- append_dispatch_event(repo, job, now) do
+      {:ok, job}
+    end
+  end
+
+  defp ensure_seedable_task(""), do: {:error, :background_agent_job_steer_text_missing}
+  defp ensure_seedable_task(task) when is_binary(task), do: :ok
+
+  @doc false
+  @spec bounded_steer_texts([ActorEvent.t()]) :: [String.t()]
+  def bounded_steer_texts(steers) do
+    steers
+    |> Enum.map(&steer_text/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.map(fn text ->
+      if byte_size(text) > 2_000,
+        do: Ankole.BackgroundAgentJobs.Text.truncate_utf8(text, 2_000, "...[truncated]"),
+        else: text
+    end)
+    |> Enum.take(8)
+  end
+
+  defp steer_text(%ActorEvent{payload: payload}) do
+    case get_in(payload || %{}, ["data", "command", "argsText"]) do
+      text when is_binary(text) and text != "" -> text
+      _missing -> nil
+    end
+  end
+
+  @doc false
   def pending_steer_events(job_id, agent_uid, excluded_event_id) do
     Repo.transact(fn repo ->
       {:ok, pending_steer_events_in_tx(repo, job_id, agent_uid, excluded_event_id)}

@@ -306,7 +306,8 @@ describe('schedule tools', () => {
     await cron.execute('call_bounded', {
       action: 'add' as const,
       name: 'bounded-report',
-      schedule: { ...baseSchedule, occurrences: { count: 10 } }
+      schedule: { ...baseSchedule, occurrences: { count: 10 } },
+      payload: { task: 'send the bounded report' }
     })
 
     expect(requests).toHaveLength(1)
@@ -318,16 +319,36 @@ describe('schedule tools', () => {
       schema.safeParse({
         action: 'add',
         name: 'x',
-        schedule: { ...baseSchedule, occurrences: { count: 3, until: '2026-09-01T00:00:00Z' } }
+        schedule: { ...baseSchedule, occurrences: { count: 3, until: '2026-09-01T00:00:00Z' } },
+        payload: { task: 'send the bounded report' }
       }).success
     ).toBe(false)
     expect(
       schema.safeParse({
         action: 'add',
         name: 'x',
-        schedule: { ...baseSchedule, occurrences: { until: '2026-09-30T17:00:00' } }
+        schedule: { ...baseSchedule, occurrences: { until: '2026-09-30T17:00:00' } },
+        payload: { task: 'send the bounded report' }
       }).success
     ).toBe(true)
+  })
+
+  it('requires a self-contained payload.task for a direct-Agent add', () => {
+    const cron = createScheduleTools({
+      turnStart: turnStartForScheduleTool(),
+      requestScheduleRPC: async (): Promise<JSONObject> => ({ status: 'created' })
+    }).find(tool => tool.name === 'cron')!
+
+    const baseAdd = {
+      action: 'add',
+      name: 'needs-task',
+      schedule: { kind: 'every', every_ms: 60_000, anchor_at: '2026-07-03T01:30:00Z' }
+    }
+
+    expect(cron.schema.safeParse(baseAdd).success).toBe(false)
+    expect(cron.schema.safeParse({ ...baseAdd, payload: { task: '  ' } }).success).toBe(false)
+    expect(cron.schema.safeParse({ ...baseAdd, payload: { task: 'check the dashboard' } }).success).toBe(true)
+    expect(cron.schema.safeParse({ ...baseAdd, automation_job_id: 1000 }).success).toBe(true)
   })
 
   it('keeps cron idempotency keys out of the model contract', async () => {
@@ -348,6 +369,7 @@ describe('schedule tools', () => {
         expression: '0 9 * * 1-5',
         timezone: 'Asia/Shanghai'
       },
+      payload: { task: 'post the weekday briefing' },
       idempotency_key: 'operator-cron-key'
     })
     await cron!.execute('call_explicit', result)
@@ -463,7 +485,8 @@ describe('schedule tools', () => {
       cron.schema.safeParse({
         action: 'add',
         name: 'follow-up',
-        schedule: { kind: 'every', every_ms: 60_000, anchor_at: '2026-07-03T01:30:00Z' }
+        schedule: { kind: 'every', every_ms: 60_000, anchor_at: '2026-07-03T01:30:00Z' },
+        payload: { task: 'follow up on the deployment' }
       }).success
     ).toBe(true)
   })

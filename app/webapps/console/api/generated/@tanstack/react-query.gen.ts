@@ -80,6 +80,8 @@ import {
   ankoleWebAutomationJobControllerIndex,
   ankoleWebAutomationJobControllerShow,
   ankoleWebBackgroundAgentJobControllerCancel,
+  ankoleWebBackgroundAgentJobControllerComplete,
+  ankoleWebBackgroundAgentJobControllerHealth,
   ankoleWebBackgroundAgentJobControllerIndex,
   ankoleWebBackgroundAgentJobControllerShow,
   ankoleWebBrainControllerApplyOperations,
@@ -360,6 +362,12 @@ import type {
   AnkoleWebBackgroundAgentJobControllerCancelData,
   AnkoleWebBackgroundAgentJobControllerCancelError,
   AnkoleWebBackgroundAgentJobControllerCancelResponse,
+  AnkoleWebBackgroundAgentJobControllerCompleteData,
+  AnkoleWebBackgroundAgentJobControllerCompleteError,
+  AnkoleWebBackgroundAgentJobControllerCompleteResponse,
+  AnkoleWebBackgroundAgentJobControllerHealthData,
+  AnkoleWebBackgroundAgentJobControllerHealthError,
+  AnkoleWebBackgroundAgentJobControllerHealthResponse,
   AnkoleWebBackgroundAgentJobControllerIndexData,
   AnkoleWebBackgroundAgentJobControllerIndexError,
   AnkoleWebBackgroundAgentJobControllerIndexResponse,
@@ -3577,6 +3585,33 @@ export const ankoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialM
 }
 
 /**
+ * Commit an externally verified completion for one background Agent Job
+ */
+export const ankoleWebBackgroundAgentJobControllerCompleteMutation = (
+  options?: Partial<Options<AnkoleWebBackgroundAgentJobControllerCompleteData>>
+): UseMutationOptions<
+  AnkoleWebBackgroundAgentJobControllerCompleteResponse,
+  AnkoleWebBackgroundAgentJobControllerCompleteError,
+  Options<AnkoleWebBackgroundAgentJobControllerCompleteData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebBackgroundAgentJobControllerCompleteResponse,
+    AnkoleWebBackgroundAgentJobControllerCompleteError,
+    Options<AnkoleWebBackgroundAgentJobControllerCompleteData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebBackgroundAgentJobControllerComplete({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
  * Delete one installation-wide worker shell variable
  */
 export const ankoleWebWorkerEnvControllerDeleteMutation = (
@@ -3981,6 +4016,34 @@ export const ankoleWebWorkerEnvControllerIndexForAgentOptions = (
       return data
     },
     queryKey: ankoleWebWorkerEnvControllerIndexForAgentQueryKey(options)
+  })
+
+export const ankoleWebBackgroundAgentJobControllerHealthQueryKey = (
+  options?: Options<AnkoleWebBackgroundAgentJobControllerHealthData>
+) => createQueryKey('ankoleWebBackgroundAgentJobControllerHealth', options)
+
+/**
+ * Read installation-wide background Agent Job reliability metrics
+ */
+export const ankoleWebBackgroundAgentJobControllerHealthOptions = (
+  options?: Options<AnkoleWebBackgroundAgentJobControllerHealthData>
+) =>
+  queryOptions<
+    AnkoleWebBackgroundAgentJobControllerHealthResponse,
+    AnkoleWebBackgroundAgentJobControllerHealthError,
+    AnkoleWebBackgroundAgentJobControllerHealthResponse,
+    ReturnType<typeof ankoleWebBackgroundAgentJobControllerHealthQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebBackgroundAgentJobControllerHealth({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebBackgroundAgentJobControllerHealthQueryKey(options)
   })
 
 /**

@@ -129,8 +129,8 @@ defmodule Ankole.Schedule.RPCBroker do
        %{
          "status" => "ok",
          "schedules" =>
-           turn_ref.agent_uid
-           |> Schedule.list_cron_schedules(turn_ref.session_id)
+           turn_ref
+           |> cron_schedules_for_turn()
            |> Enum.map(&Schedule.cron_model_projection/1)
        }}
     end)
@@ -250,18 +250,40 @@ defmodule Ankole.Schedule.RPCBroker do
     end
   end
 
+  # A cron-origin turn runs in its schedule's execution session, which owns no
+  # schedules. It resolves exactly its own definition through fire provenance,
+  # with or without the name; owner turns resolve by owner session and name.
   defp cron_schedule_from_name_or_origin(name, %TurnRef{} = turn_ref) do
-    case presence(name) do
-      name when is_binary(name) ->
+    case {presence(name), cron_origin_schedule_id(turn_ref)} do
+      {nil, nil} ->
+        {:error, {:missing_text, :name}}
+
+      {nil, origin_schedule_id} ->
+        Schedule.get_cron_schedule(origin_schedule_id)
+
+      {name, nil} ->
         Schedule.get_cron_schedule_by_name(turn_ref.agent_uid, turn_ref.session_id, name)
 
-      nil ->
-        case cron_origin_schedule_id(turn_ref) do
-          cron_schedule_id when is_binary(cron_schedule_id) ->
-            Schedule.get_cron_schedule(cron_schedule_id)
+      {name, origin_schedule_id} ->
+        with {:ok, schedule} <- Schedule.get_cron_schedule(origin_schedule_id) do
+          case schedule.name == name do
+            true -> {:ok, schedule}
+            false -> {:error, :not_found}
+          end
+        end
+    end
+  end
 
-          _cron_schedule_id ->
-            {:error, {:missing_text, :name}}
+  defp cron_schedules_for_turn(%TurnRef{} = turn_ref) do
+    case cron_origin_schedule_id(turn_ref) do
+      nil ->
+        Schedule.list_cron_schedules(turn_ref.agent_uid, turn_ref.session_id)
+
+      origin_schedule_id ->
+        case Schedule.get_cron_schedule(origin_schedule_id) do
+          {:ok, %{status: "deleted"}} -> []
+          {:ok, schedule} when schedule.agent_uid == turn_ref.agent_uid -> [schedule]
+          _other -> []
         end
     end
   end
@@ -362,7 +384,7 @@ defmodule Ankole.Schedule.RPCBroker do
       {:ok,
        %{
          "agent_uid" => turn_ref.agent_uid,
-         "session_id" => turn_ref.session_id,
+         "owner_session_id" => turn_ref.session_id,
          "binding_name" => binding_name,
          "name" => name,
          "schedule" => Common.decode_json_bytes(request.schedule_json),
@@ -439,8 +461,17 @@ defmodule Ankole.Schedule.RPCBroker do
   defp cron_provider_thread_matches?(source_thread_id, delivery_thread_id),
     do: delivery_thread_id == source_thread_id
 
+  # A schedule belongs to a turn when the turn runs in its owner conversation
+  # or in the schedule's own execution session (a fire inspecting itself).
   defp cron_belongs_to_turn(schedule, %TurnRef{} = turn_ref) do
-    case schedule.agent_uid == turn_ref.agent_uid and schedule.session_id == turn_ref.session_id do
+    same_agent? = schedule.agent_uid == turn_ref.agent_uid
+
+    owner_turn? = same_agent? and schedule.owner_session_id == turn_ref.session_id
+
+    execution_turn? =
+      same_agent? and Schedule.cron_execution_session_id(schedule.id) == turn_ref.session_id
+
+    case owner_turn? or execution_turn? do
       true -> :ok
       false -> {:error, :cron_schedule_not_in_turn}
     end

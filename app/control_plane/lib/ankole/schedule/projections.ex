@@ -1,6 +1,7 @@
 defmodule Ankole.Schedule.Projections do
   @moduledoc false
 
+  alias Ankole.Schedule.Cron
   alias Ankole.Schedule.Planner
   alias Ankole.Schedule.Schemas.CronSchedule
   alias Ankole.Schedule.Schemas.ScheduledEvent
@@ -21,7 +22,8 @@ defmodule Ankole.Schedule.Projections do
       "id" => schedule.id,
       "status" => schedule.status,
       "agent_uid" => schedule.agent_uid,
-      "session_id" => schedule.session_id,
+      "owner_session_id" => schedule.owner_session_id,
+      "execution_session_id" => Cron.execution_session_id(schedule.id),
       "binding_name" => schedule.binding_name,
       "name" => schedule.name,
       "schedule" => schedule.schedule || %{},

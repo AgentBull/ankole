@@ -393,8 +393,10 @@ defmodule Ankole.AIGateway.UniversalAIRequest do
     end
   end
 
-  # Rust uses response context only to fill normalized Responses fields. It is
-  # not allowed to mutate the upstream request from this data.
+  # Rust derives the upstream request and normalized response fields from this
+  # projection. Keep the public request separate from provider-native options
+  # so the resolver can filter public control fields without dropping an
+  # explicitly configured provider value with the same wire name.
   defp response_context(ctx, include_model?, provider_options_override) do
     model = map_get(ctx, :model) || ""
 

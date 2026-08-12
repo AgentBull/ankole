@@ -10,6 +10,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatch do
 
   @retry_delay_seconds 30
   @max_execution_attempts 5
+  @max_claims 25
   @max_consecutive_turn_failures 5
 
   def process(actor_key, %ActorEvent{} = event, opts) do
@@ -67,8 +68,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatch do
       job.status in Job.terminal_statuses() ->
         complete_without_turn(event, job)
 
-      job.attempts >= @max_execution_attempts ->
+      job.execution_failures >= @max_execution_attempts ->
         fail_exhausted(event, job.id, job.agent_uid)
+
+      job.attempts >= @max_claims ->
+        fail_claims_exhausted(event, job.id, job.agent_uid)
 
       true ->
         start_turn(actor_key, event, job, opts)
@@ -210,6 +214,14 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatch do
        do: fail_exhausted(event, job.id, job.agent_uid)
 
   defp handle_start_result(
+         {:error, :background_agent_job_claims_exhausted},
+         event,
+         job,
+         _opts
+       ),
+       do: fail_claims_exhausted(event, job.id, job.agent_uid)
+
+  defp handle_start_result(
          {:error, {:background_agent_job_turn_failures_exhausted, error}},
          event,
          job,
@@ -248,6 +260,34 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatch do
            ),
          {:ok, event} <- BackgroundAgentJobs.complete_actor_event(event) do
       {:ok, %{status: :attempts_exhausted, job: job, actor_event: event}}
+    end
+  end
+
+  # Claims exhaustion is an infrastructure verdict, not a task verdict: the Job
+  # burned its total claim budget on interruptions that were never charged as
+  # execution failures. The summary says so, because the user's task did not
+  # fail on its own terms.
+  defp fail_claims_exhausted(event, job_id, agent_uid) do
+    with {:ok, %{job: job}} <-
+           BackgroundAgentJobs.commit_status_with_wakeup(
+             job_id,
+             agent_uid,
+             %{
+               "status" => "failed",
+               "error" => %{
+                 "code" => "infrastructure_retries_exhausted",
+                 "summary" =>
+                   "Job could not keep a Worker attempt alive after #{@max_claims} claims; the interruptions were infrastructure failures, not task failures."
+               }
+             },
+             turn_interruption: %{
+               "code" => "infrastructure_retries_exhausted",
+               "summary" =>
+                 "The control plane interrupted this runtime Turn after the total claim budget was exhausted."
+             }
+           ),
+         {:ok, event} <- BackgroundAgentJobs.complete_actor_event(event) do
+      {:ok, %{status: :claims_exhausted, job: job, actor_event: event}}
     end
   end
 

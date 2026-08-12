@@ -32,6 +32,7 @@ defmodule Ankole.AIGateway.OpenAIRequestOptions do
       (request.provider_options || %{})
       |> put_nested_option("reasoningSummary", "reasoning", "summary")
       |> put_nested_option("textVerbosity", "text", "verbosity")
+      |> rename_option("serviceTier", "service_tier")
 
     UniversalAIRequest.put_provider_options(request, options)
   end
@@ -41,7 +42,9 @@ defmodule Ankole.AIGateway.OpenAIRequestOptions do
       {nil, options} ->
         UniversalAIRequest.put_provider_options(
           request,
-          rename_option(options, "textVerbosity", "verbosity")
+          options
+          |> rename_option("textVerbosity", "verbosity")
+          |> rename_option("serviceTier", "service_tier")
         )
 
       {_value, _options} ->

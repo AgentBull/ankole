@@ -85,7 +85,26 @@ describe('@ankole/agent-computer send_message_to_background_job tool', () => {
     expect(result.content).toEqual([
       {
         type: 'text',
-        text: `Message sent to background job ${jobID}. Current job status: running.`
+        text: `Message stored for background job ${jobID}. Current job status: running.`
+      }
+    ])
+  })
+
+  it('stores a message for a queued job without asking the caller to recreate it', async () => {
+    const tool = createSendMessageToBackgroundJobTool(toolOptions(async () => sendResponse('queued')))
+
+    const result = await tool.execute('call-queued-send', {
+      job_id: jobID,
+      message: 'Use the uploaded evidence.',
+      wait_reply: false,
+      wait_timeout_ms: 30_000
+    })
+
+    expect(result.details).toEqual({ job_id: jobID, status: 'queued' })
+    expect(result.content).toEqual([
+      {
+        type: 'text',
+        text: `Message stored for background job ${jobID}. Current job status: queued.`
       }
     ])
   })
@@ -153,7 +172,7 @@ describe('@ankole/agent-computer send_message_to_background_job tool', () => {
     let nowCalls = 0
     const tool = createSendMessageToBackgroundJobTool({
       ...toolOptions(async method => {
-        if (method === rpcMethods.backgroundAgentJobMessageSend) return sendResponse()
+        if (method === rpcMethods.backgroundAgentJobMessageSend) return sendResponse('queued')
         return new Promise(() => undefined)
       }),
       now: () => (nowCalls++ === 0 ? 0 : 30_000)
@@ -168,7 +187,7 @@ describe('@ankole/agent-computer send_message_to_background_job tool', () => {
 
     expect(result.details).toEqual({
       job_id: jobID,
-      status: 'running',
+      status: 'queued',
       continues_running: true,
       reply_ready: false,
       wait_outcome: 'timed_out'
@@ -177,8 +196,8 @@ describe('@ankole/agent-computer send_message_to_background_job tool', () => {
       type: 'text',
       text: [
         `Stopped waiting for background job ${jobID} because the foreground observation window expired.`,
-        'Current job status: running.',
-        'The message was already delivered; do not resend it.',
+        'Current job status: queued.',
+        'The message is already stored; do not resend it.',
         'The job continues to run in the background.'
       ].join('\n')
     })
@@ -221,7 +240,7 @@ describe('@ankole/agent-computer send_message_to_background_job tool', () => {
       wait_outcome: 'steered'
     })
     expect(result.content[0]?.type === 'text' ? result.content[0].text : '').toContain(
-      'The message was already delivered; do not resend it.'
+      'The message is already stored; do not resend it.'
     )
     expect(
       tool.describeCompletedActivity?.(tool.schema.parse({ job_id: jobID, message: 'x' }), result.details)
@@ -236,10 +255,10 @@ function toolOptions(rpc: (...args: any[]) => Promise<any>) {
   }
 }
 
-function sendResponse() {
+function sendResponse(status: 'queued' | 'running' = 'running') {
   return create(BackgroundAgentJobMessageSendResponseSchema, {
     jobId: String(jobID),
-    status: 'running',
+    status,
     commandEventId: commandEventID
   })
 }

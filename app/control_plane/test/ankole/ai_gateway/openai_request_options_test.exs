@@ -4,7 +4,9 @@ defmodule Ankole.AIGateway.OpenAIRequestOptionsTest do
   alias Ankole.AIGateway.OpenAIRequestOptions
   alias Ankole.AIGateway.Providers
   alias Ankole.AIGateway.Providers.AzureOpenAI
+  alias Ankole.AIGateway.Providers.ChatGPTSubscription
   alias Ankole.AIGateway.Providers.OpenAI
+  alias Ankole.AIGateway.Providers.OpenAICompatible
   alias Ankole.AIGateway.UniversalAIRequest
 
   test "provider definitions expose only accepted OpenAI output choices" do
@@ -16,6 +18,22 @@ defmodule Ankole.AIGateway.OpenAIRequestOptionsTest do
 
     assert setting(OpenAI, :textVerbosity) == {:select, ~w(low medium high), false}
     assert setting(AzureOpenAI, :textVerbosity) == {:select, ~w(low medium high), false}
+
+    for provider <- [ChatGPTSubscription, AzureOpenAI, OpenAI, OpenAICompatible] do
+      assert setting(provider, :serviceTier) == {nil, ~w(fast flex), true}
+    end
+
+    for provider_kind <- ~w(chatgpt_subscription azure_openai openai openai_compatible) do
+      assert :ok =
+               Providers.validate_runtime_provider_options(provider_kind, %{
+                 "serviceTier" => "fast"
+               })
+
+      assert :ok =
+               Providers.validate_runtime_provider_options(provider_kind, %{
+                 "serviceTier" => "provider-native-tier"
+               })
+    end
 
     assert :ok =
              Providers.validate_runtime_provider_options("openai", %{
@@ -36,6 +54,7 @@ defmodule Ankole.AIGateway.OpenAIRequestOptionsTest do
       request(%{
         "reasoning" => %{"effort" => "high"},
         "reasoningSummary" => "detailed",
+        "serviceTier" => "fast",
         "textVerbosity" => "low"
       })
 
@@ -44,16 +63,25 @@ defmodule Ankole.AIGateway.OpenAIRequestOptionsTest do
 
     assert options == %{
              "reasoning" => %{"effort" => "high", "summary" => "detailed"},
+             "service_tier" => "fast",
              "text" => %{"verbosity" => "low"}
            }
   end
 
   test "maps Chat Completions verbosity and rejects a Responses-only summary" do
     assert %UniversalAIRequest{provider_options: options} =
-             request(%{"reasoning_effort" => "high", "textVerbosity" => "medium"})
+             request(%{
+               "reasoning_effort" => "high",
+               "serviceTier" => "flex",
+               "textVerbosity" => "medium"
+             })
              |> OpenAIRequestOptions.put_provider_options(:chat_completions)
 
-    assert options == %{"reasoning_effort" => "high", "verbosity" => "medium"}
+    assert options == %{
+             "reasoning_effort" => "high",
+             "service_tier" => "flex",
+             "verbosity" => "medium"
+           }
 
     assert {:error, {:unsupported_provider_option, "reasoningSummary", "chat_completions"}} =
              request(%{"reasoningSummary" => "auto"})

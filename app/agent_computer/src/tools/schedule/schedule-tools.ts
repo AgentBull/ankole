@@ -21,9 +21,12 @@ const JSONMap = z.record(z.string(), z.unknown())
 const AUTOMATION_JOB_POINTER =
   "If you judge that a script you write could perform this trigger's check equally well and at lower token cost than waking you each time, run `create-automation-job-cli --help` before creating the trigger to confirm the fit. The script can still wake you when its result needs judgment."
 const CRON_DESCRIPTION = [
-  'Manage recurring schedules for this conversation (list, inspect, create, update, pause, resume, remove, run, view history).',
+  'Manage recurring schedules created from this conversation (list, inspect, create, update, pause, resume, remove, run, view history).',
   'Use when asked about standing work, recurring tasks, monitors, routines, scheduled jobs, or cron follow-ups.',
+  'Each schedule runs in its own scheduled-task session, not in this conversation: fires never see this transcript, and Ankole delivers their replies to the configured channel.',
+  'payload.task must therefore carry the complete standing instruction (goal, inputs, constraints, output form) unless automation_job_id consumes the trigger.',
   'Supports kind=every/cron only. For bounded repetitions ("ten times", "until Sept"), set schedule.occurrences with count/until (auto-completes when spent).',
+  "Updating payload or delivery clears the schedule's own run history; schedule/timezone changes keep it.",
   'After add/update, summarize in visible reply: name, schedule/timezone, and quiet_success status.',
   'Use quiet_success=true for monitors to stay quiet on success and report only failures, blockers, or state changes.',
   AUTOMATION_JOB_POINTER,
@@ -191,7 +194,9 @@ const CronParams = z
     action: z.enum(['list', 'get', 'runs', 'add', 'update', 'pause', 'resume', 'remove', 'run']),
     name: z.string().min(1).optional(),
     schedule: z.union([EverySchedule, CronSchedule]).optional(),
-    payload: JSONMap.optional(),
+    payload: JSONMap.optional().describe(
+      'Schedule input. For a direct-Agent schedule, task (string) must carry the complete standing instruction: fires run outside this conversation and see only this payload.'
+    ),
     delivery: DeliveryParams.optional(),
     automation_job_id: ModelIntegerID.nullable().optional(),
     limit: z.number().int().positive().max(100).optional()
@@ -202,6 +207,16 @@ const CronParams = z
     }
     if (params.action === 'add' && !params.schedule) {
       context.addIssue({ code: 'custom', path: ['schedule'], message: 'add requires schedule' })
+    }
+    if (params.action === 'add' && params.automation_job_id == null) {
+      const task = params.payload?.task
+      if (typeof task !== 'string' || !task.trim()) {
+        context.addIssue({
+          code: 'custom',
+          path: ['payload', 'task'],
+          message: 'add requires payload.task: a self-contained instruction the fire can run without this conversation'
+        })
+      }
     }
     if (
       params.action === 'update' &&
@@ -341,7 +356,7 @@ function createCronTool(
   return {
     name: 'cron',
     description: cronOrigin
-      ? 'Inspect recurring schedules for this conversation. This cron-origin turn can only list schedules, inspect one schedule, or view its run history.'
+      ? "Inspect this turn's own recurring schedule. A cron-origin turn sees exactly the schedule that fired it (list/get/runs) and cannot create or change schedules."
       : CRON_DESCRIPTION,
     schema: cronOrigin ? CronOriginReadParams : CronParams,
     executionMode: 'sequential',

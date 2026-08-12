@@ -17,6 +17,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
   alias Ankole.RuntimeEvents
   alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Attrs
+  alias Ankole.BackgroundAgentJobs.Dispatch
   alias Ankole.BackgroundAgentJobs.Queries
   alias Ankole.BackgroundAgentJobs.RuntimeProjection
   alias Ankole.BackgroundAgentJobs.Schemas.Job
@@ -24,8 +25,8 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
   alias Ankole.BackgroundAgentJobs.Text
   alias Ankole.BackgroundAgentJobs.Turns
 
-  @max_running_per_agent 3
   @max_execution_attempts 5
+  @max_claims 25
   @max_consecutive_turn_failures 5
   @max_event_payload_bytes 16_384
   @artifact_path_limit 32
@@ -133,12 +134,42 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
          %Job{status: "running", attempts: attempts} = job when attempts > 0 <-
            Queries.get_for_agent(repo, job_id, agent_uid, lock: "FOR UPDATE") do
       job
-      |> Job.changeset(%{status: "queued"})
+      |> Job.changeset(%{
+        status: "queued",
+        execution_failures: job.execution_failures + 1
+      })
       |> repo.update()
     else
       nil -> {:error, :job_not_found}
       %Job{} -> {:error, :background_agent_job_attempt_changed}
       {:error, _reason} = error -> error
+    end
+  end
+
+  @doc false
+  @spec requeue_retryable_attempt_in_tx(module(), pos_integer(), String.t(), keyword()) ::
+          {:ok, Job.t() | nil} | {:error, term()}
+  def requeue_retryable_attempt_in_tx(repo, job_id, agent_uid, opts \\ [])
+      when is_integer(job_id) and job_id > 0 and is_binary(agent_uid) do
+    actor_key = %{agent_uid: agent_uid, session_id: BackgroundAgentJobs.job_session_id(job_id)}
+    charge? = Keyword.get(opts, :charge, false)
+
+    with :ok <- WorkerPool.release_assignment_for_actor_in_tx(repo, actor_key),
+         :ok <- lock_agent_slots(repo, agent_uid) do
+      case Queries.get_for_agent(repo, job_id, agent_uid, lock: "FOR UPDATE") do
+        %Job{status: "running"} = job ->
+          job
+          |> Job.changeset(%{
+            status: "queued",
+            execution_failures: job.execution_failures + if(charge?, do: 1, else: 0)
+          })
+          |> repo.update()
+
+        # A Job that already left `running` (stopped, completed, waiting, or
+        # already requeued) needs no compensation; the abort stays a no-op.
+        _job ->
+          {:ok, nil}
+      end
     end
   end
 
@@ -163,7 +194,8 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
             now,
             turn_ref,
             Keyword.get(opts, :worker_route),
-            Keyword.get(opts, :turn_interruption)
+            Keyword.get(opts, :turn_interruption),
+            Keyword.take(opts, [:external_completion])
           )
         end)
       end
@@ -192,7 +224,8 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
         %DateTime{} = now,
         turn_ref \\ nil,
         worker_route \\ nil,
-        turn_interruption \\ nil
+        turn_interruption \\ nil,
+        opts \\ []
       ) do
     # Every transition locks any live worker/assignment prefix before taking the
     # agent/job locks. Worker writes additionally validate activation and
@@ -206,7 +239,8 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
              attrs,
              now,
              turn_ref,
-             turn_interruption
+             turn_interruption,
+             opts
            ) do
       {:ok, result}
     end
@@ -231,7 +265,8 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
         attrs,
         %DateTime{} = now,
         turn_ref,
-        turn_interruption \\ nil
+        turn_interruption \\ nil,
+        opts \\ []
       ) do
     with :ok <- lock_agent_slots(repo, agent_uid),
          %Job{} = job <-
@@ -240,7 +275,6 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
          attrs <- bound_result_path_handoffs(attrs),
          :ok <- enforce_status_transition(job, attrs),
          :ok <- enforce_running_limit(repo, job, attrs),
-         :ok <- enforce_no_unapplied_terminal_steer(repo, job, attrs, turn_ref),
          :ok <-
            maybe_interrupt_active_turns(
              repo,
@@ -248,7 +282,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
              turn_interruption || terminal_turn_interruption(attrs),
              now
            ),
-         :ok <- enforce_turn_trajectory_completion(repo, job, attrs),
+         :ok <- enforce_turn_trajectory_completion(repo, job, attrs, opts),
          {:ok, job} <-
            job
            |> Job.changeset(
@@ -257,8 +291,9 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
              |> lifecycle_timestamps(job, now)
            )
            |> repo.update(),
+         {:ok, steer_outcome} <- resolve_open_steers_after_commit(repo, job, now, opts),
          :ok <- maybe_release_worker_assignment(repo, job, turn_ref),
-         {:ok, wakeup_event} <- append_wakeup_event(repo, job, now),
+         {:ok, wakeup_event} <- append_wakeup_event(repo, job, now, steer_outcome),
          :ok <- maybe_nudge_queued_after_status_commit(repo, job, now, turn_ref) do
       {:ok, %{job: job, wakeup_event: wakeup_event}}
     else
@@ -267,43 +302,77 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
     end
   end
 
-  defp enforce_no_unapplied_terminal_steer(
-         repo,
-         %Job{} = job,
-         %{"status" => status},
-         %Ankole.SignalsGateway.ActorRuntime.TurnRef{} = turn_ref
-       )
-       when status in ["succeeded", "failed"] do
-    unapplied? =
-      ActorEvent
-      |> where([event], event.agent_uid == ^job.agent_uid)
-      |> where([event], event.session_id == ^BackgroundAgentJobs.job_session_id(job.id))
-      |> where([event], event.type == "command.steer")
-      |> where([event], event.input_state == "open")
-      |> where([event], is_nil(event.completed_at))
-      |> join(
-        :left,
-        [event],
-        delivery in Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery,
-        on:
-          delivery.actor_event_id == event.id and delivery.state == "accepted" and
-            delivery.activation_uid == ^turn_ref.activation_uid and
-            delivery.actor_epoch == ^turn_ref.actor_epoch and
-            delivery.actor_event_id_fence == ^turn_ref.actor_event_id
-      )
-      |> where([_event, delivery], is_nil(delivery.id))
-      |> repo.exists?()
+  # A terminal commit never waits for steering. Open steers on a succeeded Job
+  # become one successor Job seeded with every message in order, so the reply
+  # to those messages is visible follow-up work instead of a blocked commit.
+  # Failed and stopped commits, and an external completion, answer open steers
+  # with the terminal notice itself. When the successor cannot be created (for
+  # example a manual respawn already exists), the messages travel in the wakeup
+  # payload instead of vanishing.
+  defp resolve_open_steers_after_commit(repo, %Job{status: "succeeded"} = job, now, opts) do
+    case Dispatch.open_steer_events_in_tx(repo, job.id, job.agent_uid) do
+      [] ->
+        {:ok, nil}
 
-    if unapplied?, do: {:error, :background_agent_job_pending_steer}, else: :ok
+      steers ->
+        outcome =
+          if Keyword.get(opts, :external_completion, false) do
+            nil
+          else
+            case Dispatch.seed_steer_successor_in_tx(repo, job, steers, now) do
+              {:ok, successor} ->
+                %{successor_job_id: successor.id}
+
+              {:error, {:background_agent_job_already_respawned, successor_id}} ->
+                %{successor_job_id: successor_id}
+
+              {:error, _reason} ->
+                %{unapplied_messages: Dispatch.bounded_steer_texts(steers)}
+            end
+          end
+
+        with :ok <- complete_steer_events_in_tx(repo, steers, now) do
+          {:ok, outcome}
+        end
+    end
   end
 
-  defp enforce_no_unapplied_terminal_steer(_repo, %Job{}, _attrs, _turn_ref),
+  defp resolve_open_steers_after_commit(repo, %Job{status: status} = job, now, _opts)
+       when status in ["failed", "stopped"] do
+    with :ok <-
+           complete_steer_events_in_tx(
+             repo,
+             Dispatch.open_steer_events_in_tx(repo, job.id, job.agent_uid),
+             now
+           ) do
+      {:ok, nil}
+    end
+  end
+
+  defp resolve_open_steers_after_commit(_repo, %Job{}, _now, _opts), do: {:ok, nil}
+
+  defp complete_steer_events_in_tx(_repo, [], _now), do: :ok
+
+  defp complete_steer_events_in_tx(repo, steers, now) do
+    Enum.reduce_while(steers, :ok, fn steer, :ok ->
+      case SignalsGateway.mark_actor_event_completed_in_tx(repo, steer, now) do
+        {:ok, _event} -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  # An external completion is an accountable override of the worker deliverable
+  # contract: the caller has verified the outcome outside the runtime, so no
+  # completed lead Turn is required.
+  defp enforce_turn_trajectory_completion(_repo, %Job{}, _attrs, external_completion: true),
     do: :ok
 
   defp enforce_turn_trajectory_completion(
          repo,
          %Job{} = job,
-         %{"status" => status}
+         %{"status" => status},
+         _opts
        )
        when status in ["waiting_on_user", "succeeded"],
        do:
@@ -317,12 +386,13 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
   defp enforce_turn_trajectory_completion(
          repo,
          %Job{attempts: attempts} = job,
-         %{"status" => status}
+         %{"status" => status},
+         _opts
        )
        when attempts > 0 and status in ["failed", "stopped"],
        do: Turns.ensure_lead_closed_for_current_attempt_in_tx(repo, job)
 
-  defp enforce_turn_trajectory_completion(_repo, %Job{}, _attrs), do: :ok
+  defp enforce_turn_trajectory_completion(_repo, %Job{}, _attrs, _opts), do: :ok
 
   defp terminal_turn_interruption(%{"status" => "succeeded"}) do
     %{
@@ -530,9 +600,18 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
        when status in @terminal_statuses,
        do: {:error, {:background_agent_job_terminal, job}}
 
-  defp claim_attempt(_repo, %Job{attempts: attempts}, _expected_attempt, _turn_start_spec)
-       when attempts >= @max_execution_attempts,
+  defp claim_attempt(
+         _repo,
+         %Job{execution_failures: failures},
+         _expected_attempt,
+         _turn_start_spec
+       )
+       when failures >= @max_execution_attempts,
        do: {:error, :background_agent_job_attempts_exhausted}
+
+  defp claim_attempt(_repo, %Job{attempts: attempts}, _expected_attempt, _turn_start_spec)
+       when attempts >= @max_claims,
+       do: {:error, :background_agent_job_claims_exhausted}
 
   defp claim_attempt(_repo, %Job{attempts: attempts}, expected_attempt, _turn_start_spec)
        when attempts + 1 != expected_attempt,
@@ -549,6 +628,10 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
          _turn_start_spec
        ),
        do: {:error, {:background_agent_job_terminal, job}}
+
+  defp claim_continuation(_repo, %Job{attempts: attempts}, _expected_attempt, _turn_start_spec)
+       when attempts >= @max_claims,
+       do: {:error, :background_agent_job_claims_exhausted}
 
   defp claim_continuation(_repo, %Job{attempts: attempts}, expected_attempt, _turn_start_spec)
        when attempts + 1 != expected_attempt,
@@ -571,7 +654,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
 
   defp start_attempt(repo, %Job{} = job, expected_attempt, turn_start_spec) do
     if job.status not in @running_statuses and
-         running_count(repo, job.agent_uid, job.id) >= @max_running_per_agent do
+         running_count(repo, job.agent_uid, job.id) >= max_running_per_agent() do
       {:error, :background_agent_job_agent_at_capacity}
     else
       now = now()
@@ -603,7 +686,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
   defp ensure_runtime_projection(repo, %Job{} = job, %{} = turn_start_spec),
     do: RuntimeProjection.capture(repo, job.agent_uid, turn_start_spec)
 
-  defp append_wakeup_event(repo, %Job{} = job, now) do
+  defp append_wakeup_event(repo, %Job{} = job, now, steer_outcome) do
     case wakeup_event_type(job.status) do
       nil ->
         {:ok, nil}
@@ -623,7 +706,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
             source_entry_id: Map.get(reply_route, "source_entry_id"),
             type: event_type,
             available_at: now,
-            payload: wakeup_payload(job, source_event_id, event_type, now)
+            payload: wakeup_payload(job, source_event_id, event_type, now, steer_outcome)
           })
         else
           nil -> {:error, :background_agent_job_reply_route_binding_missing}
@@ -644,7 +727,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
     "background_agent_job:#{job.id}:#{job.status}:#{job.attempts}"
   end
 
-  defp wakeup_payload(job, source_event_id, event_type, now) do
+  defp wakeup_payload(job, source_event_id, event_type, now, steer_outcome) do
     %{
       "specversion" => "1.0",
       "id" => source_event_id,
@@ -666,7 +749,9 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
           "artifact_roots" => bounded_path_handoff(Map.get(job.result || %{}, "artifact_roots")),
           "project_path" => Map.get(job.result || %{}, "project_path"),
           "reply_route" => job.reply_route || %{},
-          "pending_user_input" => get_in(job.metadata || %{}, ["pending_user_input"])
+          "pending_user_input" => get_in(job.metadata || %{}, ["pending_user_input"]),
+          "successor_job_id" => steer_outcome[:successor_job_id],
+          "unapplied_messages" => steer_outcome[:unapplied_messages]
         })
     }
   end
@@ -834,6 +919,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
 
   defp enforce_running_limit(repo, %Job{} = job, attrs) do
     status = Map.get(attrs, "status")
+    limit = max_running_per_agent()
 
     cond do
       status not in @running_statuses ->
@@ -842,13 +928,16 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
       job.status in @running_statuses ->
         :ok
 
-      running_count(repo, job.agent_uid, job.id) < @max_running_per_agent ->
+      running_count(repo, job.agent_uid, job.id) < limit ->
         :ok
 
       true ->
-        {:error, {:background_agent_job_agent_running_limit_exceeded, @max_running_per_agent}}
+        {:error, {:background_agent_job_agent_running_limit_exceeded, limit}}
     end
   end
+
+  defp max_running_per_agent,
+    do: Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobWorkerConfig.max_running_per_agent()
 
   defp enforce_status_transition(%Job{status: current}, attrs) do
     case Map.get(attrs, "status") do

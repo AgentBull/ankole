@@ -8,6 +8,7 @@ version: 1.2.1
 author: Ankole
 license: MIT
 platforms: [linux, macos, windows]
+ankole-runtime: background_job
 metadata:
   hermes:
     tags: [GitHub, Pull-Requests, CI/CD, Git, Automation, Merge]

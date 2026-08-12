@@ -219,6 +219,12 @@ import type {
   AnkoleWebBackgroundAgentJobControllerCancelData,
   AnkoleWebBackgroundAgentJobControllerCancelErrors,
   AnkoleWebBackgroundAgentJobControllerCancelResponses,
+  AnkoleWebBackgroundAgentJobControllerCompleteData,
+  AnkoleWebBackgroundAgentJobControllerCompleteErrors,
+  AnkoleWebBackgroundAgentJobControllerCompleteResponses,
+  AnkoleWebBackgroundAgentJobControllerHealthData,
+  AnkoleWebBackgroundAgentJobControllerHealthErrors,
+  AnkoleWebBackgroundAgentJobControllerHealthResponses,
   AnkoleWebBackgroundAgentJobControllerIndexData,
   AnkoleWebBackgroundAgentJobControllerIndexErrors,
   AnkoleWebBackgroundAgentJobControllerIndexResponses,
@@ -3111,6 +3117,36 @@ export const ankoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredential 
   })
 
 /**
+ * Commit an externally verified completion for one background Agent Job
+ */
+export const ankoleWebBackgroundAgentJobControllerComplete = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebBackgroundAgentJobControllerCompleteData, ThrowOnError>
+): RequestResult<
+  AnkoleWebBackgroundAgentJobControllerCompleteResponses,
+  AnkoleWebBackgroundAgentJobControllerCompleteErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).post<
+    AnkoleWebBackgroundAgentJobControllerCompleteResponses,
+    AnkoleWebBackgroundAgentJobControllerCompleteErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/background-agent-jobs/{job_id}/complete',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
  * Delete one installation-wide worker shell variable
  */
 export const ankoleWebWorkerEnvControllerDelete = <ThrowOnError extends boolean = false>(
@@ -3490,6 +3526,32 @@ export const ankoleWebWorkerEnvControllerIndexForAgent = <ThrowOnError extends b
       }
     ],
     url: '/api/v1/agents/{agent_uid}/worker-envs',
+    ...options
+  })
+
+/**
+ * Read installation-wide background Agent Job reliability metrics
+ */
+export const ankoleWebBackgroundAgentJobControllerHealth = <ThrowOnError extends boolean = false>(
+  options?: Options<AnkoleWebBackgroundAgentJobControllerHealthData, ThrowOnError>
+): RequestResult<
+  AnkoleWebBackgroundAgentJobControllerHealthResponses,
+  AnkoleWebBackgroundAgentJobControllerHealthErrors,
+  ThrowOnError
+> =>
+  (options?.client ?? client).get<
+    AnkoleWebBackgroundAgentJobControllerHealthResponses,
+    AnkoleWebBackgroundAgentJobControllerHealthErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/background-agent-jobs/health',
     ...options
   })
 

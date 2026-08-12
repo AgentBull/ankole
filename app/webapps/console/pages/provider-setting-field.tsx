@@ -1,4 +1,13 @@
-import { Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@ankole/uikit'
+import {
+  CreatableCombobox,
+  Input,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  Switch
+} from '@ankole/uikit'
 import type { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
 import { JSONField, LabeledField } from '../console-form'
@@ -7,6 +16,7 @@ import { humanizeKey, settingDraftValue, type ProviderSetting } from './provider
 
 const UNSET_BOOLEAN = '__unset__'
 export const UNSET_SELECT = '__unset_select__'
+const UNSET_SERVICE_TIER = '__unset_service_tier__'
 
 /**
  * Resolves what a select control presents for a draft: an explicit draft wins,
@@ -41,6 +51,8 @@ export function providerSettingPresentation(t: TFunction, key: string): { label:
         label: t('console.providers.text_verbosity'),
         description: t('console.providers.text_verbosity_hint')
       }
+    case 'upstream_transport':
+      return { label: 'WebSocket' }
     default:
       return { label: humanizeKey(key) }
   }
@@ -111,6 +123,49 @@ export function ProviderSettingField({
             <SelectItem value="false">{t('common.boolean_false')}</SelectItem>
           </SelectContent>
         </Select>
+      </LabeledField>
+    )
+  }
+
+  if (
+    setting.key === 'upstream_transport' &&
+    setting.type === 'select' &&
+    setting.options.includes('sse') &&
+    setting.options.includes('websocket')
+  ) {
+    const enabled = (draft || defaultDraft) === 'websocket'
+
+    return (
+      <LabeledField label={label} description={description} required={setting.required}>
+        <div className="flex min-h-12 items-center justify-between border border-border bg-muted/30 px-4 py-3">
+          <span className="text-sm text-foreground">{t('common.enable')}</span>
+          <Switch
+            aria-label={label}
+            checked={enabled}
+            onCheckedChange={checked => onChange(checked ? 'websocket' : 'sse')}
+          />
+        </div>
+      </LabeledField>
+    )
+  }
+
+  if (setting.key === 'serviceTier' && setting.type === 'string') {
+    const options = [
+      { value: UNSET_SERVICE_TIER, label: t('common.unset') },
+      ...setting.options.map(option => ({ value: option }))
+    ]
+
+    return (
+      <LabeledField label={label} description={description} required={setting.required}>
+        <CreatableCombobox
+          ariaLabel={label}
+          clearLabel={t('common.clear')}
+          value={draft}
+          options={options}
+          createLabel={tier => t('console.providers.service_tier_use', { tier })}
+          triggerLabel={t('common.open')}
+          onValueChange={next => onChange(next === UNSET_SERVICE_TIER ? '' : next)}
+        />
       </LabeledField>
     )
   }

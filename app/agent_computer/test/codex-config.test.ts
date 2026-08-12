@@ -43,6 +43,8 @@ function aigatewayRuntime(): CodexRuntimeConfig {
 describe('@ankole/agent-computer Codex config', () => {
   it('shares one AIGateway Codex Home at Agent scope without CODEX_SQLITE_HOME', () => {
     const agentsRoot = mkdtempSync(join(tmpdir(), 'ankole-codex-config-'))
+    const previousStateRoot = process.env.ANKOLE_CODEX_STATE_ROOT
+    process.env.ANKOLE_CODEX_STATE_ROOT = join(agentsRoot, 'codex-state')
     try {
       const materialized = materializeCodexConfig({
         agentsRoot,
@@ -55,7 +57,7 @@ describe('@ankole/agent-computer Codex config', () => {
         any
       >
       expect(materialized.agentHome).toBe(join(agentsRoot, 'agent-1'))
-      expect(materialized.codexHome).toBe(join(agentsRoot, 'agent-1', '.codex'))
+      expect(materialized.codexHome).toBe(join(agentsRoot, 'codex-state', 'agent-1', '.codex'))
       expect(materialized.env.HOME).toBe(materialized.agentHome)
       expect(materialized.env.CODEX_HOME).toBe(materialized.codexHome)
       expect(materialized.env.CODEX_SQLITE_HOME).toBeUndefined()
@@ -80,9 +82,11 @@ describe('@ankole/agent-computer Codex config', () => {
       })
 
       expect(overlappingJob.codexHome).toBe(materialized.codexHome)
-      expect(anotherAgent.codexHome).toBe(join(agentsRoot, 'agent-2', '.codex'))
+      expect(anotherAgent.codexHome).toBe(join(agentsRoot, 'codex-state', 'agent-2', '.codex'))
       expect(anotherAgent.codexHome).not.toBe(materialized.codexHome)
     } finally {
+      if (previousStateRoot === undefined) delete process.env.ANKOLE_CODEX_STATE_ROOT
+      else process.env.ANKOLE_CODEX_STATE_ROOT = previousStateRoot
       rmSync(agentsRoot, { recursive: true, force: true })
     }
   })

@@ -331,6 +331,8 @@ defmodule Ankole.ScheduleTest do
                Schedule.fire_due_event(event.id, now: late_fire)
 
       assert input.type == "cron.fire"
+      assert input.session_id == Schedule.cron_execution_session_id(schedule.id)
+      assert input.session_id != schedule.owner_session_id
       assert input.signal_channel_id == "mock:chat:schedule"
       assert input.source_entry_id == nil
 
@@ -1014,7 +1016,7 @@ defmodule Ankole.ScheduleTest do
           Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
             Schedule.update_cron_schedule(
               schedule.id,
-              %{"payload" => %{"version" => 2}},
+              %{"payload" => %{"version" => 2, "task" => "digest"}},
               now: first_slot
             )
           end)
@@ -1046,7 +1048,7 @@ defmodule Ankole.ScheduleTest do
 
         assert [%ScheduledEvent{} = next] = live_events
         assert next.cron_fire_slot_at == current.next_fire_at
-        assert next.wake_payload["payload"] == %{"version" => 2}
+        assert next.wake_payload["payload"] == %{"version" => 2, "task" => "digest"}
 
         source_event_id = "cron:#{schedule.id}:#{DateTime.to_iso8601(first_slot)}"
 
@@ -1084,13 +1086,16 @@ defmodule Ankole.ScheduleTest do
       assert {:ok, fetched} =
                Schedule.get_cron_schedule_by_name(
                  agent.uid,
-                 current.session_id,
+                 current.owner_session_id,
                  "reusable-name"
                )
 
       assert fetched.id == current.id
 
-      assert Enum.map(Schedule.list_cron_schedules(agent.uid, current.session_id), & &1.id) == [
+      assert Enum.map(
+               Schedule.list_cron_schedules(agent.uid, current.owner_session_id),
+               & &1.id
+             ) == [
                current.id
              ]
 
@@ -1115,6 +1120,100 @@ defmodule Ankole.ScheduleTest do
 
       assert {:error, {:unknown_cron_schedule_update_fields, ["failure_policy"]}} =
                Schedule.update_cron_schedule(schedule.id, %{"failure_policy" => %{}})
+    end
+
+    test "direct-Agent cron requires a self-contained task and a real owner conversation" do
+      %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
+
+      assert {:error, :cron_task_required} =
+               Schedule.create_cron_schedule(
+                 cron_attrs(agent.uid, payload: %{}),
+                 now: @base_time
+               )
+
+      assert {:error, :cron_task_required} =
+               Schedule.create_cron_schedule(
+                 cron_attrs(agent.uid, payload: %{"task" => "   "}),
+                 now: @base_time
+               )
+
+      assert {:error, :cron_owner_session_reserved} =
+               Schedule.create_cron_schedule(
+                 cron_attrs(agent.uid, owner_session_id: "cron:#{Ecto.UUID.generate()}"),
+                 now: @base_time
+               )
+
+      assert {:ok, %{cron_schedule: schedule}} =
+               Schedule.create_cron_schedule(
+                 cron_attrs(agent.uid, status: "paused", name: "task-guard"),
+                 now: @base_time
+               )
+
+      assert {:error, :cron_task_required} =
+               Schedule.update_cron_schedule(schedule.id, %{"payload" => %{"notes" => "no task"}})
+
+      assert {:ok, updated} =
+               Schedule.update_cron_schedule(schedule.id, %{"payload" => %{"task" => "new task"}})
+
+      assert updated.payload == %{"task" => "new task"}
+    end
+
+    test "payload and delivery changes end the execution conversation and terminal states end it too" do
+      %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
+
+      assert {:ok, %{cron_schedule: schedule}} =
+               Schedule.create_cron_schedule(
+                 cron_attrs(agent.uid, status: "paused", name: "conversation-lifecycle"),
+                 now: @base_time
+               )
+
+      execution_session_id = Schedule.cron_execution_session_id(schedule.id)
+
+      ensure_execution_conversation = fn ->
+        {:ok, conversation} =
+          Ankole.AIGateway.Conversations.ensure_conversation(agent.uid, execution_session_id)
+
+        conversation
+      end
+
+      active_execution_conversation = fn ->
+        Ankole.SignalsGateway.AIGatewayLink.active_conversation(agent.uid, execution_session_id)
+      end
+
+      first = ensure_execution_conversation.()
+
+      # A time-only change keeps the execution conversation and its history.
+      assert {:ok, _updated} =
+               Schedule.update_cron_schedule(schedule.id, %{
+                 "schedule" => every_schedule(DateTime.add(@base_time, 2, :minute))
+               })
+
+      assert active_execution_conversation.().id == first.id
+
+      # A task change makes the old history a wrong prefix, so it ends.
+      assert {:ok, _updated} =
+               Schedule.update_cron_schedule(schedule.id, %{
+                 "payload" => %{"task" => "changed task"}
+               })
+
+      assert active_execution_conversation.() == nil
+
+      second = ensure_execution_conversation.()
+
+      assert {:ok, _updated} =
+               Schedule.update_cron_schedule(schedule.id, %{
+                 "delivery" => %{
+                   "signal_channel_id" => "mock:chat:elsewhere",
+                   "provider_thread_id" => "thread-elsewhere"
+                 }
+               })
+
+      assert active_execution_conversation.() == nil
+
+      third = ensure_execution_conversation.()
+      assert {:ok, %{status: "deleted"}} = Schedule.remove_cron_schedule(schedule.id)
+      assert active_execution_conversation.() == nil
+      assert Enum.uniq([first.id, second.id, third.id]) |> length() == 3
     end
 
     test "a timezone-only cron update changes the rule and its pending event" do
@@ -2103,6 +2202,109 @@ defmodule Ankole.ScheduleTest do
       assert mirror.metadata["actor_event_id"] == input.id
     end
 
+    test "a running conversation turn does not delay a cron fire, and one schedule stays serial" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore, "mock-provider")
+      seed_mock_channel(agent.uid, "bot")
+
+      route = unique_route()
+      :ok = Broker.register_local_worker(route, self())
+      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      assert {:ok, _worker} = admit_worker(route)
+
+      # Hold the owner conversation open with an addressed message turn.
+      assert {:ok, %{actor_event: channel_input}} =
+               emit_entry(agent.uid, "bot", group_entry(%{explicit: true}), now: @base_time)
+
+      assert {:ok, %{send_outcome: "sent_or_queued"}} =
+               process_ready_events_once(
+                 now: DateTime.add(@base_time, 1, :second),
+                 lease_seconds: @long_lease_seconds
+               )
+
+      assert_receive {:actor_lane, channel_envelope}
+      channel_turn_ref = turn_start_payload!(channel_envelope).turn
+
+      assert {:ok, [_delivery]} =
+               ActorRuntime.handle_turn_accepted(turn_accepted_payload(channel_turn_ref))
+
+      first_slot = DateTime.add(@base_time, 1, :minute)
+
+      assert {:ok, %{cron_schedule: schedule}} =
+               Schedule.create_cron_schedule(
+                 cron_attrs(agent.uid,
+                   owner_session_id: channel_input.session_id,
+                   delivery: %{
+                     "signal_channel_id" => channel_input.signal_channel_id,
+                     "provider_thread_id" => channel_input.provider_thread_id
+                   },
+                   schedule: %{
+                     "kind" => "every",
+                     "every_ms" => 60_000,
+                     "timezone" => "Etc/UTC",
+                     "anchor_at" => DateTime.to_iso8601(first_slot)
+                   }
+                 ),
+                 now: @base_time
+               )
+
+      [event] = Schedule.list_cron_runs(schedule.id, 10)
+
+      assert {:ok, %{actor_event: cron_input}} =
+               Schedule.fire_due_event(event.id, now: first_slot)
+
+      execution_actor = %{
+        agent_uid: agent.uid,
+        session_id: Schedule.cron_execution_session_id(schedule.id)
+      }
+
+      assert cron_input.session_id == execution_actor.session_id
+
+      # The fire admits while the owner conversation turn still runs.
+      assert {:ok, %{send_outcome: "sent_or_queued", conversation: cron_conversation}} =
+               ActorRuntime.process_ready_event_for_actor(execution_actor,
+                 now: DateTime.add(first_slot, 1, :second),
+                 lease_seconds: @long_lease_seconds
+               )
+
+      assert cron_conversation.conversation_key == execution_actor.session_id
+
+      assert_receive {:actor_lane, cron_envelope}
+      cron_turn_start = turn_start_payload!(cron_envelope)
+      cron_turn_ref = cron_turn_start.turn
+      assert decoded_request_context(cron_turn_start)["turn_mode"] == "cron"
+
+      assert {:ok, [_delivery]} =
+               ActorRuntime.handle_turn_accepted(turn_accepted_payload(cron_turn_ref))
+
+      # A second fire of the same schedule waits for the first turn.
+      assert {:ok, %{scheduled_event: manual_event}} =
+               Schedule.run_cron_schedule(schedule.id, idempotency_key: "manual-while-running")
+
+      assert {:ok, %{actor_event: manual_input}} =
+               Schedule.fire_due_event(manual_event.id, now: DateTime.add(first_slot, 2, :second))
+
+      assert manual_input.session_id == execution_actor.session_id
+
+      assert {:ok, %{status: :idle}} =
+               ActorRuntime.process_ready_event_for_actor(execution_actor,
+                 now: DateTime.add(first_slot, 3, :second)
+               )
+
+      committed = complete_turn_via_aigateway!(cron_turn_ref, "first fire done")
+      dispatch_final_reply_outbox!(committed.id)
+      assert wait_for_final_mirror(committed.id).ai_message_id == committed.id
+
+      assert {:ok, %{send_outcome: "sent_or_queued"}} =
+               ActorRuntime.process_ready_event_for_actor(execution_actor,
+                 now: DateTime.add(first_slot, 4, :second),
+                 lease_seconds: @long_lease_seconds
+               )
+
+      assert_receive {:actor_lane, manual_envelope}
+      assert turn_start_payload!(manual_envelope).actor_event.actor_event_id == manual_input.id
+    end
+
     test "cron-origin turns cannot broadly mutate cron schedules" do
       %{principal: agent} = agent_fixture()
       route = unique_route()
@@ -2152,6 +2354,20 @@ defmodule Ankole.ScheduleTest do
       refute Map.has_key?(projected_run, "oban_job_id")
       refute Map.has_key?(projected_run, "fire_attempts")
       refute Map.has_key?(projected_run, "last_fire_error")
+
+      # A cron-origin turn resolves exactly its own schedule through provenance.
+      assert {:ok, %{"schedules" => [own_schedule]}} =
+               schedule_rpc("cron.list", %FabricProto.ScheduleCronListRequest{}, turn_ref, route)
+
+      assert own_schedule["name"] == "daily-digest"
+
+      assert {:ok, %{"schedule" => %{"name" => "daily-digest"}}} =
+               schedule_rpc(
+                 "cron.get",
+                 %FabricProto.ScheduleCronTargetRequest{name: "daily-digest"},
+                 turn_ref,
+                 route
+               )
 
       assert {:error, %{"code" => "cron_origin_broad_cron_mutation_denied"}} =
                schedule_rpc(
@@ -2221,12 +2437,8 @@ defmodule Ankole.ScheduleTest do
 
     test "session reset preserves an overdue cron fire until it materializes" do
       %{principal: agent} = agent_fixture()
-      session_id = "mock:chat:schedule"
       first_slot = DateTime.add(@base_time, 1, :minute)
       reset_at = DateTime.add(@base_time, 2, :minute)
-
-      assert {:ok, _conversation} =
-               Ankole.AIGateway.Conversations.ensure_conversation(agent.uid, session_id)
 
       assert {:ok, %{cron_schedule: schedule}} =
                Schedule.create_cron_schedule(
@@ -2241,11 +2453,16 @@ defmodule Ankole.ScheduleTest do
                  now: @base_time
                )
 
+      execution_session_id = Schedule.cron_execution_session_id(schedule.id)
+
+      assert {:ok, _conversation} =
+               Ankole.AIGateway.Conversations.ensure_conversation(agent.uid, execution_session_id)
+
       [old_event] = Schedule.list_cron_runs(schedule.id, 10)
       assert old_event.due_at == first_slot
 
       assert {:ok, reset_event} =
-               append_runtime_actor_event(agent.uid, session_id, "session.reset_due",
+               append_runtime_actor_event(agent.uid, execution_session_id, "session.reset_due",
                  now: reset_at,
                  boundary_at: reset_at
                )
@@ -2470,7 +2687,7 @@ defmodule Ankole.ScheduleTest do
     Map.merge(
       %{
         "agent_uid" => agent_uid,
-        "session_id" => "mock:chat:schedule",
+        "owner_session_id" => "mock:chat:schedule",
         "binding_name" => "bot",
         "name" => "daily-digest",
         "schedule" => %{

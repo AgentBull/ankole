@@ -106,7 +106,7 @@ defmodule Ankole.Schedule.Store do
     query =
       CronSchedule
       |> where([schedule], schedule.agent_uid == ^attrs.agent_uid)
-      |> where([schedule], schedule.session_id == ^attrs.session_id)
+      |> where([schedule], schedule.owner_session_id == ^attrs.owner_session_id)
       |> where([schedule], schedule.idempotency_key == ^attrs.idempotency_key)
       |> lock("FOR UPDATE")
 

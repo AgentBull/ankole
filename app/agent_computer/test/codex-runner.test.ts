@@ -1112,6 +1112,7 @@ function prepareFixture(firstResponse: string, behavior: FakeCodexBehavior = {})
   const fakeBwrap = join(root, 'fake-bwrap')
   const fakeFlock = join(root, 'fake-flock')
   const previousFlockBinary = process.env.ANKOLE_FLOCK_BINARY
+  const previousStateRoot = process.env.ANKOLE_CODEX_STATE_ROOT
   mkdirSync(jobProjectFor(root), { recursive: true })
   writeFakeBwrap(fakeBwrap)
   writeFakeFlock(fakeFlock)
@@ -1119,11 +1120,14 @@ function prepareFixture(firstResponse: string, behavior: FakeCodexBehavior = {})
   process.env.ANKOLE_CODEX_BINARY = fakeCodex
   process.env.ANKOLE_BWRAP_PATH = fakeBwrap
   process.env.ANKOLE_FLOCK_BINARY = fakeFlock
+  process.env.ANKOLE_CODEX_STATE_ROOT = join(root, 'codex-state')
   return {
     root,
     cleanup: () => {
       if (previousFlockBinary === undefined) delete process.env.ANKOLE_FLOCK_BINARY
       else process.env.ANKOLE_FLOCK_BINARY = previousFlockBinary
+      if (previousStateRoot === undefined) delete process.env.ANKOLE_CODEX_STATE_ROOT
+      else process.env.ANKOLE_CODEX_STATE_ROOT = previousStateRoot
       rmSync(root, { recursive: true, force: true })
     }
   }
@@ -1398,6 +1402,8 @@ function jobProjectFor(root: string, workspaceOwnerJobID = jobID): string {
   return join(root, 'agents', 'agent-1', 'jobs', workspaceOwnerJobID)
 }
 
+// Mirrors the Worker-local shard rule: Codex state lives under the state
+// root, not under the shared agents root.
 function codexHomeFor(root: string): string {
-  return join(root, 'agents', 'agent-1', '.codex')
+  return join(root, 'codex-state', 'agent-1', '.codex')
 }

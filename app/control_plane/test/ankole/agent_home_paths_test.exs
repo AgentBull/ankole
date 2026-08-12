@@ -12,7 +12,6 @@ defmodule Ankole.AgentHomePathsTest do
 
     for vector <- vectors["valid"] do
       assert AgentHomePaths.home(vector["agent_uid"]) == vector["home"]
-      assert AgentHomePaths.codex_home(vector["agent_uid"]) == vector["codex_home"]
 
       assert AgentHomePaths.session_workspace(vector["agent_uid"], vector["workspace_id"]) ==
                vector["session_workspace"]

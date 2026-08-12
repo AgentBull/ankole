@@ -14,6 +14,7 @@ defmodule AnkoleWeb.BackgroundAgentJobController do
   alias AnkoleWeb.ConsoleParams
   alias AnkoleWeb.ConsolePolicy
   alias AnkoleWeb.Schemas.ConsoleAPI.ErrorEnvelope
+  alias AnkoleWeb.Schemas.ConsoleAPI.BackgroundAgentJobHealthResponse
   alias AnkoleWeb.Schemas.ConsoleAPI.BackgroundAgentJobListResponse
   alias AnkoleWeb.Schemas.ConsoleAPI.BackgroundAgentJobResponse
   alias OpenAPISpex.Schema
@@ -46,6 +47,15 @@ defmodule AnkoleWeb.BackgroundAgentJobController do
     ]
   )
 
+  operation(:health,
+    summary: "Read installation-wide background Agent Job reliability metrics",
+    responses: [
+      ok: {"Background Agent Job health", "application/json", BackgroundAgentJobHealthResponse},
+      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
+      forbidden: {"Forbidden", "application/json", ErrorEnvelope}
+    ]
+  )
+
   operation(:show,
     summary: "Read one background Agent Job and its runtime Turn trajectory",
     parameters: [
@@ -60,6 +70,33 @@ defmodule AnkoleWeb.BackgroundAgentJobController do
       unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
       forbidden: {"Forbidden", "application/json", ErrorEnvelope},
       not_found: {"Not found", "application/json", ErrorEnvelope}
+    ]
+  )
+
+  operation(:complete,
+    summary: "Commit an externally verified completion for one background Agent Job",
+    parameters: [
+      job_id: [
+        in: :path,
+        schema: %Schema{type: :integer, minimum: 1000, maximum: 9_007_199_254_740_991},
+        required: true
+      ]
+    ],
+    request_body:
+      {"Completion result", "application/json",
+       %Schema{
+         type: :object,
+         properties: %{
+           result_summary: %Schema{type: :string, minLength: 1, maxLength: 16_384}
+         },
+         required: [:result_summary]
+       }},
+    responses: [
+      ok: {"Background Agent Job", "application/json", BackgroundAgentJobResponse},
+      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
+      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
+      not_found: {"Not found", "application/json", ErrorEnvelope},
+      conflict: {"Job already failed or stopped", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -98,12 +135,37 @@ defmodule AnkoleWeb.BackgroundAgentJobController do
     end
   end
 
+  def health(conn, _params) do
+    with :ok <- ConsolePolicy.authorize(conn, "background_agent_jobs", "read") do
+      json(conn, BackgroundAgentJobs.health_metrics())
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
   def show(conn, params) do
     with :ok <- ConsolePolicy.authorize(conn, "background_agent_jobs", "read"),
          %Job{} = job <- job(params) do
       json(conn, %{job: detail_projection(job)})
     else
       nil -> error(conn, :not_found)
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  def complete(conn, params) do
+    with :ok <- ConsolePolicy.authorize(conn, "background_agent_jobs", "update"),
+         %Job{} = job <- job(params),
+         {:ok, %{job: completed}} <-
+           BackgroundAgentJobs.request_complete(job.id, %{
+             "agent_uid" => job.agent_uid,
+             "completed_by" => "operator:#{conn.assigns.current_principal_uid}",
+             "result_summary" => param(params, "result_summary")
+           }) do
+      json(conn, %{job: detail_projection(completed)})
+    else
+      nil -> error(conn, :not_found)
+      {:error, :background_agent_job_terminal} -> error(conn, :conflict)
       {:error, reason} -> error(conn, reason)
     end
   end
@@ -151,6 +213,7 @@ defmodule AnkoleWeb.BackgroundAgentJobController do
   defp param_atom("cursor"), do: :cursor
   defp param_atom("limit"), do: :limit
   defp param_atom("job_id"), do: :job_id
+  defp param_atom("result_summary"), do: :result_summary
 
   defp integer_param(params, key, default) do
     case param(params, key) do
@@ -171,6 +234,15 @@ defmodule AnkoleWeb.BackgroundAgentJobController do
 
   defp error(conn, :not_found),
     do: error(conn, 404, "not_found", "background Agent Job was not found")
+
+  defp error(conn, :conflict),
+    do:
+      error(
+        conn,
+        409,
+        "background_agent_job_terminal",
+        "background Agent Job already failed or stopped"
+      )
 
   defp error(conn, reason) do
     error(

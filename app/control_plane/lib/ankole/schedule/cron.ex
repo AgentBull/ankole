@@ -3,6 +3,7 @@ defmodule Ankole.Schedule.Cron do
 
   import Ecto.Query, warn: false
 
+  alias Ankole.AIGateway
   alias Ankole.AutomationJobs
   alias Ankole.Repo
   alias Ankole.Schedule.Attrs
@@ -12,6 +13,32 @@ defmodule Ankole.Schedule.Cron do
   alias Ankole.Schedule.Schemas.CronSchedule
   alias Ankole.Schedule.Schemas.ScheduledEvent
   alias Ankole.Schedule.Store
+
+  @execution_session_prefix "cron:"
+  @execution_session_prefix_size byte_size(@execution_session_prefix)
+
+  @doc """
+  Builds the durable execution session id for one cron schedule.
+
+  Every fire of one schedule runs in this stable session, so one schedule
+  stays serialized and keeps its own bounded conversation history, while the
+  owner conversation and other schedules run concurrently. The stored
+  `owner_session_id` remains the management scope only.
+  """
+  @spec execution_session_id(Ecto.UUID.t()) :: String.t()
+  def execution_session_id(cron_schedule_id) when is_binary(cron_schedule_id),
+    do: @execution_session_prefix <> cron_schedule_id
+
+  @doc "True when the value is a cron execution session id. Usable in guards."
+  defguard is_execution_session_id(session_id)
+           when is_binary(session_id) and
+                  byte_size(session_id) > @execution_session_prefix_size and
+                  binary_part(session_id, 0, @execution_session_prefix_size) ==
+                    @execution_session_prefix
+
+  @doc "The raw prefix, only for storage-boundary prefix matching."
+  @spec execution_session_prefix() :: String.t()
+  def execution_session_prefix, do: @execution_session_prefix
 
   @spec create_cron_schedule(map(), keyword()) ::
           {:ok, %{status: :created | :already_exists, cron_schedule: CronSchedule.t()}}
@@ -83,7 +110,12 @@ defmodule Ankole.Schedule.Cron do
            recurrence_changed? =
              Ecto.Changeset.changed?(changeset, :schedule) or
                Ecto.Changeset.changed?(changeset, :timezone),
+           task_context_changed? =
+             Ecto.Changeset.changed?(changeset, :payload) or
+               Ecto.Changeset.changed?(changeset, :delivery),
            {:ok, schedule} <- repo.update(changeset),
+           :ok <-
+             maybe_end_execution_conversation_in_tx(repo, schedule, task_context_changed?, now),
            {:ok, schedule} <-
              sync_after_update_in_tx(repo, schedule, recurrence_changed?, now, opts) do
         {:ok, schedule}
@@ -158,6 +190,7 @@ defmodule Ankole.Schedule.Cron do
     Repo.transact(fn repo ->
       with %CronSchedule{} = schedule <- Store.lock_cron_schedule(repo, cron_schedule_id),
            {:ok, schedule} <- put_schedule_status(repo, schedule, "deleted"),
+           :ok <- end_execution_conversation_in_tx(repo, schedule, now),
            {:ok, schedule} <- sync_next_event_in_tx(repo, schedule, nil, now, opts),
            {:ok, _events} <- Store.cancel_pending_cron_events(repo, schedule, now) do
         {:ok, schedule}
@@ -287,8 +320,35 @@ defmodule Ankole.Schedule.Cron do
   end
 
   defp complete_schedule_in_tx(repo, schedule, now, opts) do
-    with {:ok, schedule} <- put_schedule_status(repo, schedule, "completed") do
+    with {:ok, schedule} <- put_schedule_status(repo, schedule, "completed"),
+         :ok <- end_execution_conversation_in_tx(repo, schedule, now) do
       sync_next_event_in_tx(repo, schedule, nil, now, opts)
+    end
+  end
+
+  defp maybe_end_execution_conversation_in_tx(_repo, _schedule, false, _now), do: :ok
+
+  defp maybe_end_execution_conversation_in_tx(repo, schedule, true, now),
+    do: end_execution_conversation_in_tx(repo, schedule, now)
+
+  # The execution session's conversation carries the task history and the
+  # delivery channel's Brain scope. A changed payload makes that history a
+  # wrong prefix for the next fire, and a changed delivery channel would fail
+  # the next fire's conversation scope check. Ending the conversation here
+  # makes the next fire start a fresh one from the current schedule facts;
+  # timing-only changes keep history. A fire running right now is unaffected:
+  # turn completion resolves its conversation by id, not by active lookup.
+  # A terminal schedule also ends its conversation so the daily reset stops
+  # selecting the dead session.
+  defp end_execution_conversation_in_tx(repo, %CronSchedule{} = schedule, now) do
+    with {:ok, _conversation} <-
+           AIGateway.end_active_conversation_in_tx(
+             repo,
+             schedule.agent_uid,
+             execution_session_id(schedule.id),
+             now
+           ) do
+      :ok
     end
   end
 
@@ -344,7 +404,7 @@ defmodule Ankole.Schedule.Cron do
     with {:ok, attempted} <-
            repo.insert(changeset,
              on_conflict: :nothing,
-             conflict_target: [:agent_uid, :session_id, :idempotency_key],
+             conflict_target: [:agent_uid, :owner_session_id, :idempotency_key],
              returning: true
            ),
          {:ok, persisted} <- Store.lock_cron_by_idempotency(repo, attrs),
@@ -475,7 +535,7 @@ defmodule Ankole.Schedule.Cron do
       kind: "cron_fire",
       status: "scheduled",
       agent_uid: schedule.agent_uid,
-      session_id: schedule.session_id,
+      session_id: execution_session_id(schedule.id),
       binding_name: schedule.binding_name,
       signal_channel_id: primary_target["signal_channel_id"],
       provider_thread_id: primary_target["provider_thread_id"],

@@ -41,7 +41,7 @@ defmodule Ankole.AIGateway.Providers.AzureOpenAI do
       advanced: true
     )
 
-    setting(:serviceTier, scope: :request, advanced: true)
+    setting(:serviceTier, options: ~w(fast flex), scope: :request, advanced: true)
     setting(:strictJSONSchema, type: :boolean, scope: :request, advanced: true)
 
     setting(:textVerbosity,

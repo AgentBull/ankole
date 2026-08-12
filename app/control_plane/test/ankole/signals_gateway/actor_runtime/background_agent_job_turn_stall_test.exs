@@ -44,7 +44,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobTurnStallTest do
     reloaded_event = Repo.get!(ActorEvent, event.id)
     assert reloaded_event.input_state == "open"
     assert DateTime.compare(reloaded_event.available_at, stalled_at) == :gt
-    assert BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid).status == "running"
+    # R1: the stalled attempt returns the Job to `queued` and the stall charges
+    # one execution failure. See internals/docs/BackgroundAgentJobReliability.zh.md.
+    assert %{status: "queued", execution_failures: 1} =
+             BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid)
 
     # The Worker is told to stop spending tokens on the abandoned Turn.
     assert_receive {:actor_lane, control_envelope}, 200
@@ -66,7 +69,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobTurnStallTest do
 
     # One earlier stall left two rows, so this is the second stall, not the third.
     assert Repo.get!(ActorEvent, event.id).input_state == "open"
-    assert BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid).status == "running"
+    # R1: the stalled attempt returns the Job to `queued` and the stall charges
+    # one execution failure. See internals/docs/BackgroundAgentJobReliability.zh.md.
+    assert %{status: "queued", execution_failures: 1} =
+             BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid)
   end
 
   test "the third stall fails the Job instead of retrying it forever" do

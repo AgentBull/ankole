@@ -9,6 +9,7 @@ defmodule Ankole.BackgroundAgentJobs do
 
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.BackgroundAgentJobs.Control
+  alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.BackgroundAgentJobs.Dispatch
   alias Ankole.BackgroundAgentJobs.Lifecycle
   alias Ankole.BackgroundAgentJobs.Queries
@@ -19,7 +20,17 @@ defmodule Ankole.BackgroundAgentJobs do
   @job_session_prefix_size byte_size(@job_session_prefix)
   @minimum_job_id 1000
   @maximum_job_id 9_007_199_254_740_991
+  # Provider-class failures keep the long ladder so the five-failure budget
+  # spans a realistic upstream outage window (about 3.7 hours). Infrastructure
+  # interruptions restart in seconds and never consume that budget, so they
+  # retry on the short ladder instead of holding the Job for hours.
   @turn_error_retry_seconds [60, 600, 1_800, 3_600, 7_200]
+  @infrastructure_retry_seconds [15, 30, 60, 120, 300]
+  @infrastructure_error_codes ~w(
+    background_agent_job_runtime_exception
+    agent_codex_runtime_busy
+    background_agent_job_steer_delivery_failed
+  )
 
   @doc """
   Builds the durable actor-session id for one BackgroundAgentJob.
@@ -76,14 +87,39 @@ defmodule Ankole.BackgroundAgentJobs do
   def turn_error_retry_at(reason, delivery_attempt_no, %DateTime{} = now)
       when is_map(reason) and is_integer(delivery_attempt_no) and delivery_attempt_no > 0 do
     credential_pool_retry_at(reason, now) ||
-      DateTime.add(
-        now,
-        Enum.at(
-          @turn_error_retry_seconds,
-          min(delivery_attempt_no, length(@turn_error_retry_seconds)) - 1
-        ),
-        :second
-      )
+      DateTime.add(now, ladder_seconds(turn_error_class(reason), delivery_attempt_no), :second)
+  end
+
+  defp ladder_seconds(:infrastructure, delivery_attempt_no) do
+    Enum.at(
+      @infrastructure_retry_seconds,
+      min(delivery_attempt_no, length(@infrastructure_retry_seconds)) - 1
+    )
+  end
+
+  defp ladder_seconds(:execution, delivery_attempt_no) do
+    Enum.at(
+      @turn_error_retry_seconds,
+      min(delivery_attempt_no, length(@turn_error_retry_seconds)) - 1
+    )
+  end
+
+  # Splits worker turn failures into the two retry accounts. Infrastructure
+  # interruptions (runtime loss, the shared-runtime lock, steer transport) are
+  # not the task failing, so they never consume the execution-failure budget.
+  # Everything else, including provider and model failures, is an execution
+  # failure charged against the bounded budget.
+  @doc false
+  @spec turn_error_class(map()) :: :infrastructure | :execution
+  def turn_error_class(reason) when is_map(reason) do
+    details = reason["details_json"] || %{}
+
+    if reason["code"] in @infrastructure_error_codes or
+         details["error_code"] in @infrastructure_error_codes do
+      :infrastructure
+    else
+      :execution
+    end
   end
 
   @doc "Creates one durable work item and its isolated dispatch event atomically."
@@ -241,8 +277,46 @@ defmodule Ankole.BackgroundAgentJobs do
     end
   end
 
+  # A retryable attempt failure returns the Job to `queued` so `running` always
+  # means an active runtime Turn. The Job stops holding an Agent slot and a
+  # Worker assignment while its actor event waits on the retry ladder; the next
+  # delivery claims a fresh attempt through the ordinary capacity checks.
+  def compensate_turn_error_in_tx(
+        repo,
+        %ActorEvent{
+          agent_uid: agent_uid,
+          session_id: session_id,
+          input_state: "open"
+        },
+        reason,
+        %DateTime{}
+      )
+      when is_map(reason) do
+    case parse_job_session_id(session_id) do
+      {:ok, job_id} ->
+        case Lifecycle.requeue_retryable_attempt_in_tx(
+               repo,
+               job_id,
+               agent_uid,
+               charge: charged_turn_error?(reason)
+             ) do
+          {:ok, %Job{} = job} -> {:ok, %{kind: :retryable_requeued, job: job}}
+          {:ok, nil} -> {:ok, nil}
+          {:error, _reason} = error -> error
+        end
+
+      :error ->
+        {:ok, nil}
+    end
+  end
+
   def compensate_turn_error_in_tx(_repo, %ActorEvent{}, _reason, %DateTime{}),
     do: {:ok, nil}
+
+  # Context overflow is an automatic compact-and-retry recovery, not the task
+  # failing, so it consumes no execution-failure budget.
+  defp charged_turn_error?(%{"code" => "context_overflow"}), do: false
+  defp charged_turn_error?(reason), do: turn_error_class(reason) == :execution
 
   defp credential_pool_retry_at(%{"details_json" => details}, now) when is_map(details) do
     if credential_pool_exhausted_details?(details) do
@@ -280,9 +354,10 @@ defmodule Ankole.BackgroundAgentJobs do
   def finalize_turn_error(
         {:ok,
          %{
-           turn_error_compensation: %{kind: :credential_pool_requeued} = compensation
+           turn_error_compensation: %{kind: kind} = compensation
          } = result}
-      ) do
+      )
+      when kind in [:credential_pool_requeued, :retryable_requeued] do
     {:ok,
      result
      |> Map.delete(:turn_error_compensation)
@@ -316,6 +391,9 @@ defmodule Ankole.BackgroundAgentJobs do
   @doc "Lists installation-wide Console work with a stable keyset cursor."
   def list_for_console(opts \\ []), do: Queries.list_for_console(opts)
 
+  @doc "Returns operator reliability metrics for the Console health panel."
+  defdelegate health_metrics(), to: Ankole.BackgroundAgentJobs.Health, as: :metrics
+
   @doc "Fetches one job without chat visibility constraints for Console."
   defdelegate get_job(job_id), to: Queries, as: :get
 
@@ -331,7 +409,10 @@ defmodule Ankole.BackgroundAgentJobs do
   @doc "Durably requests cancellation without trusting worker-local state."
   defdelegate request_stop(job_id, attrs), to: Control
 
-  @doc "Journals one message for a running or waiting Job."
+  @doc "Commits an externally verified completion with the caller's result summary."
+  defdelegate request_complete(job_id, attrs), to: Control
+
+  @doc "Journals one message for a live Job."
   defdelegate send_message(job_id, attrs), to: Control
 
   @doc false

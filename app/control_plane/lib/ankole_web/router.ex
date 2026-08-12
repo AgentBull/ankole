@@ -87,10 +87,6 @@ defmodule AnkoleWeb.Router do
     delete "/session", AuthController, :delete_session
     post "/oauth/token", AuthController, :oauth_token
     get "/identity-providers", AuthController, :identity_providers
-
-    post "/identity-providers/:provider_id/oidc/authorizations",
-         AuthController,
-         :oidc_authorization
   end
 
   # The spec document is public (no bearer token) so tooling can read it without
@@ -203,8 +199,11 @@ defmodule AnkoleWeb.Router do
     get "/agent-computer-workers", AgentComputerWorkerController, :index
 
     get "/background-agent-jobs", BackgroundAgentJobController, :index
+
+    get "/background-agent-jobs/health", BackgroundAgentJobController, :health
     get "/background-agent-jobs/:job_id", BackgroundAgentJobController, :show
     post "/background-agent-jobs/:job_id/cancel", BackgroundAgentJobController, :cancel
+    post "/background-agent-jobs/:job_id/complete", BackgroundAgentJobController, :complete
 
     get "/ai-gateway/conversations", AIGatewayConversationController, :index
 
@@ -413,6 +412,7 @@ defmodule AnkoleWeb.Router do
 
     get "/", SpaController, :home
     get "/sessions/new", SpaController, :sessions_new
+    get "/sessions/oidc/:provider_id/authorization", AuthController, :oidc_authorization
     # The OIDC redirect lands here as a top-level browser navigation (not via the
     # SPA), so it carries the session cookie holding the pending OIDC state.
     get "/sessions/oidc/:provider_id/callback", AuthController, :oidc_callback

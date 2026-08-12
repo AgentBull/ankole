@@ -57,7 +57,7 @@ defmodule Ankole.AIGateway.Providers.ChatGPTSubscription do
       scope: :request
     )
 
-    setting(:serviceTier, scope: :request, advanced: true)
+    setting(:serviceTier, options: ~w(fast flex), scope: :request, advanced: true)
 
     language_model do
       upstream(:sse)

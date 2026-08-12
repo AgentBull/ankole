@@ -67,6 +67,7 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
     :title,
     :status,
     :attempts,
+    :execution_failures,
     :workspace_template_id,
     :queued_at,
     :started_at,
@@ -202,6 +203,7 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
       title: row.title,
       status: row.status,
       attempts: row.attempts,
+      execution_failures: row.execution_failures,
       workspace_template_id: row.workspace_template_id,
       duration_seconds: duration_seconds(row),
       inserted_at: iso8601(row.inserted_at)
@@ -222,6 +224,7 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
       task: job.task,
       status: job.status,
       attempts: job.attempts,
+      execution_failures: job.execution_failures,
       workspace_template_id: job.workspace_template_id,
       model_profile: job.model_profile,
       reply_route: job.reply_route || %{},
