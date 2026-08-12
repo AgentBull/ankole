@@ -43,13 +43,10 @@ import { logoutConsoleSession } from './api/tokens'
 import { ConsoleReadiness } from './console-readiness'
 
 /**
- * Shared shell for the console: the routed layout, list-page and editor-page
- * frames, and the small form building blocks (labeled field, JSON field,
- * destructive confirm) every resource screen reuses.
- *
- * Each resource owns its queries, mutations, and form body; these frames own the
- * consistent chrome — navigation, headers, empty/loading/error surfaces, and the
- * primary/secondary action layout — so the workspaces stop re-deriving it.
+ * Routed console shell: the header, sidebar navigation, and page outlet every
+ * console route renders inside. Each resource page owns its queries, mutations,
+ * and body; the list frame lives in `console-list-page` and the editor frame in
+ * `console-form`.
  */
 
 type NavItem = {
@@ -64,10 +61,10 @@ type NavSection = {
   items: NavItem[]
 }
 
-// Thirteen destinations in one flat list forced the operator to read every label
-// to find one. The sections below name the question each group answers — what my
-// agents are doing, what they can do, what they are connected to, and how the
-// Installation itself is run — so a search becomes a scan of four headings.
+// One flat list of destinations forced the operator to read every label to find
+// one. Each section names the question its group answers: what my agents do,
+// what they can do, what they connect to, and how the Installation runs. A
+// search becomes a scan of four headings.
 const NAV_SECTIONS: NavSection[] = [
   { items: [{ to: '/', label: 'console.nav.home', icon: RiDashboardLine }] },
   {
@@ -121,8 +118,8 @@ export function ConsoleLayout() {
     <TooltipProvider>
       <div className="h-screen overflow-y-scroll bg-background text-foreground [scrollbar-gutter:stable]">
         {/* Reaching the page content by keyboard meant tabbing past the header and
-            all fourteen navigation links, on every page. The bypass sits first in
-            the tab order and shows itself only while focused. */}
+            every navigation link, on every page. The bypass sits first in the
+            tab order and shows itself only while focused. */}
         <a
           href="#console-content"
           className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:bg-primary focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-primary-foreground">

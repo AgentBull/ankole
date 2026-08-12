@@ -2355,6 +2355,7 @@
       "SignalDeliveryFailureItem": {
         "additionalProperties": false,
         "properties": {
+          "agent_uid": { "type": "string" },
           "attempt_count": { "minimum": 0, "type": "integer" },
           "binding_name": { "type": "string" },
           "can_retry": { "type": "boolean" },
@@ -2366,6 +2367,7 @@
           "updated_at": { "format": "date-time", "type": "string" }
         },
         "required": [
+          "agent_uid",
           "binding_name",
           "outbound_key",
           "status",
@@ -2845,32 +2847,6 @@
       }
     },
     "/api/v1/agents/{agent_uid}/cron-schedules": {
-      "get": {
-        "callbacks": {},
-        "operationId": "AnkoleWeb.ScheduleController.index_cron",
-        "parameters": [
-          { "description": "", "in": "path", "name": "agent_uid", "required": true, "schema": { "type": "string" } }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/ScheduleCronScheduleListResponse" } }
-            },
-            "description": "Cron schedules"
-          },
-          "401": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Forbidden"
-          }
-        },
-        "security": [{ "consoleBearer": [] }],
-        "summary": "List recurring schedules for one Agent",
-        "tags": ["Schedule"]
-      },
       "post": {
         "callbacks": {},
         "operationId": "AnkoleWeb.ScheduleController.create_cron",
@@ -3260,6 +3236,41 @@
         "security": [{ "consoleBearer": [] }],
         "summary": "Preview active Principals matching a computed group condition",
         "tags": ["AuthZ"]
+      }
+    },
+    "/api/v1/checkbacks": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.ScheduleController.index_checkbacks",
+        "parameters": [
+          { "description": "", "in": "query", "name": "agent", "required": false, "schema": { "type": "string" } },
+          {
+            "description": "",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": { "maximum": 500, "minimum": 1, "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/ScheduleEventListResponse" } }
+            },
+            "description": "Scheduled events"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "List checkback wakeups",
+        "tags": ["Schedule"]
       }
     },
     "/api/v1/signal-channels/{channel_id}/standing-orders": {
@@ -3951,6 +3962,34 @@
         "tags": ["AuthZ"]
       }
     },
+    "/api/v1/webhook-endpoints": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.WebhookEndpointController.index",
+        "parameters": [
+          { "description": "", "in": "query", "name": "agent", "required": false, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/WebhookEndpointListResponse" } }
+            },
+            "description": "Webhook endpoints"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "List webhook endpoints",
+        "tags": ["Webhooks"]
+      }
+    },
     "/api/v1/ai-gateway/files": {
       "get": {
         "callbacks": {},
@@ -4570,38 +4609,6 @@
         "tags": ["AuthZ"]
       }
     },
-    "/api/v1/agents/{agent_uid}/signal-bindings": {
-      "get": {
-        "callbacks": {},
-        "operationId": "AnkoleWeb.SignalBindingController.index",
-        "parameters": [
-          { "description": "", "in": "path", "name": "agent_uid", "required": true, "schema": { "type": "string" } }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/SignalBindingListResponse" } }
-            },
-            "description": "Signal bindings"
-          },
-          "401": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Forbidden"
-          },
-          "404": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Not found"
-          }
-        },
-        "security": [{ "consoleBearer": [] }],
-        "summary": "List signal bindings for one agent",
-        "tags": ["Signal Bindings"]
-      }
-    },
     "/api/v1/agents/{agent_uid}/model-profiles/{profile}": {
       "delete": {
         "callbacks": {},
@@ -5188,6 +5195,34 @@
         "tags": ["Automation Jobs"]
       }
     },
+    "/api/v1/signal-bindings": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.SignalBindingController.index",
+        "parameters": [
+          { "description": "", "in": "query", "name": "agent", "required": false, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/SignalBindingListResponse" } }
+            },
+            "description": "Signal bindings"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "List signal bindings",
+        "tags": ["Signal Bindings"]
+      }
+    },
     "/api/v1/principals/{uid}/grants": {
       "get": {
         "callbacks": {},
@@ -5339,34 +5374,6 @@
         "tags": ["AIGateway"]
       }
     },
-    "/api/v1/agents/{agent_uid}/webhook-endpoints": {
-      "get": {
-        "callbacks": {},
-        "operationId": "AnkoleWeb.WebhookEndpointController.index",
-        "parameters": [
-          { "description": "", "in": "path", "name": "agent_uid", "required": true, "schema": { "type": "string" } }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/WebhookEndpointListResponse" } }
-            },
-            "description": "Webhook endpoints"
-          },
-          "401": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Forbidden"
-          }
-        },
-        "security": [{ "consoleBearer": [] }],
-        "summary": "List webhook endpoints for one Agent",
-        "tags": ["Webhooks"]
-      }
-    },
     "/api/v1/agents/{agent_uid}/cron-schedules/{cron_schedule_id}/resume": {
       "post": {
         "callbacks": {},
@@ -5392,6 +5399,41 @@
         "security": [{ "consoleBearer": [] }],
         "summary": "Resume one recurring schedule",
         "tags": ["Schedule"]
+      }
+    },
+    "/api/v1/automation-jobs": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AutomationJobController.index",
+        "parameters": [
+          { "description": "", "in": "query", "name": "agent", "required": false, "schema": { "type": "string" } },
+          {
+            "description": "",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": { "maximum": 500, "minimum": 1, "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/AutomationJobListResponse" } }
+            },
+            "description": "Automation jobs"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "List automation jobs",
+        "tags": ["Automation Jobs"]
       }
     },
     "/api/v1/agents/{agent_uid}/model-profiles": {
@@ -5739,26 +5781,6 @@
         "tags": ["Brain"]
       }
     },
-    "/api/v1/agents/{agent_uid}/checkbacks": {
-      "get": {
-        "callbacks": {},
-        "operationId": "AnkoleWeb.ScheduleController.index_checkbacks",
-        "parameters": [
-          { "description": "", "in": "path", "name": "agent_uid", "required": true, "schema": { "type": "string" } }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/ScheduleEventListResponse" } }
-            },
-            "description": "Scheduled events"
-          }
-        },
-        "security": [{ "consoleBearer": [] }],
-        "summary": "List checkback wakeups for one Agent",
-        "tags": ["Schedule"]
-      }
-    },
     "/api/v1/ai-gateway/web_search": {
       "post": {
         "callbacks": {},
@@ -5786,6 +5808,34 @@
         "security": [{ "aiGatewayBearer": [] }, { "consoleBearer": [] }],
         "summary": "Search the web through AIGateway",
         "tags": ["AIGateway"]
+      }
+    },
+    "/api/v1/cron-schedules": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.ScheduleController.index_cron",
+        "parameters": [
+          { "description": "", "in": "query", "name": "agent", "required": false, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/ScheduleCronScheduleListResponse" } }
+            },
+            "description": "Cron schedules"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "List recurring schedules",
+        "tags": ["Schedule"]
       }
     },
     "/api/v1/agents/{agent_uid}/signal-bindings/{adapter_id}/{binding_name}": {
@@ -5950,6 +6000,13 @@
         "parameters": [
           { "description": "", "in": "query", "name": "subject", "required": false, "schema": { "type": "string" } },
           { "description": "", "in": "query", "name": "key", "required": false, "schema": { "type": "string" } },
+          {
+            "description": "Matches an exact subject UID, a conversation-key fragment, or a fragment of a channel or DM peer name.",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": { "type": "string" }
+          },
           { "description": "", "in": "query", "name": "active", "required": false, "schema": { "type": "boolean" } },
           {
             "description": "",
@@ -6454,41 +6511,6 @@
         "security": [{ "consoleBearer": [] }],
         "summary": "List installation-wide worker shell variables",
         "tags": ["WorkerEnv"]
-      }
-    },
-    "/api/v1/agents/{agent_uid}/automation-jobs": {
-      "get": {
-        "callbacks": {},
-        "operationId": "AnkoleWeb.AutomationJobController.index",
-        "parameters": [
-          { "description": "", "in": "path", "name": "agent_uid", "required": true, "schema": { "type": "string" } },
-          {
-            "description": "",
-            "in": "query",
-            "name": "limit",
-            "required": false,
-            "schema": { "maximum": 500, "minimum": 1, "type": "integer" }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/AutomationJobListResponse" } }
-            },
-            "description": "Automation jobs"
-          },
-          "401": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Forbidden"
-          }
-        },
-        "security": [{ "consoleBearer": [] }],
-        "summary": "List automation jobs for one Agent",
-        "tags": ["Automation Jobs"]
       }
     },
     "/api/v1/background-agent-jobs/{job_id}/cancel": {

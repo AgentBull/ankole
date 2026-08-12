@@ -717,6 +717,8 @@ export type {
   AnkoleWebScheduleControllerCronRunsResponse,
   AnkoleWebScheduleControllerCronRunsResponses,
   AnkoleWebScheduleControllerIndexCheckbacksData,
+  AnkoleWebScheduleControllerIndexCheckbacksError,
+  AnkoleWebScheduleControllerIndexCheckbacksErrors,
   AnkoleWebScheduleControllerIndexCheckbacksResponse,
   AnkoleWebScheduleControllerIndexCheckbacksResponses,
   AnkoleWebScheduleControllerIndexCronData,

@@ -5,6 +5,7 @@ import type {
   AiGatewayProviderKindItem as AIGatewayProviderKindItem
 } from '../api/generated/types.gen'
 import type { ProfileDraft } from '../state/model-profiles-model'
+import type { SettingValidationError } from './provider-settings'
 
 export type ModelProfileCapability = 'llm' | 'embedding' | 'rerank' | 'web_search' | 'web_fetch' | 'image_generate'
 
@@ -22,18 +23,27 @@ export function profileUsesConfigurableModel(profile: string): boolean {
   return capability !== 'web_search' && capability !== 'web_fetch'
 }
 
-/** Adapts provider-only profiles to the backend's existing model-profile write shape. */
+export type ModelProfileRequestFields =
+  | { ok: true; fields: { model: string; context_length?: number } }
+  | { ok: false; error: SettingValidationError }
+
+/**
+ * Adapts provider-only profiles to the backend's existing model-profile write
+ * shape. A context length draft must be a positive integer; anything else is a
+ * validation error, never a silent drop or truncation.
+ */
 export function modelProfileRequestFields(
   profile: string,
   draft: Pick<ProfileDraft, 'model' | 'contextLength'>
-): { model: string; context_length?: number } {
-  if (!profileUsesConfigurableModel(profile)) return { model: 'default' }
+): ModelProfileRequestFields {
+  if (!profileUsesConfigurableModel(profile)) return { ok: true, fields: { model: 'default' } }
 
-  const contextLength = draft.contextLength.trim() ? Number.parseInt(draft.contextLength, 10) : undefined
-  return {
-    model: draft.model,
-    context_length: Number.isFinite(contextLength) ? contextLength : undefined
-  }
+  const contextLength = draft.contextLength.trim()
+  if (!contextLength) return { ok: true, fields: { model: draft.model } }
+
+  const value = /^\d+$/.test(contextLength) ? Number(contextLength) : Number.NaN
+  if (!Number.isSafeInteger(value) || value <= 0) return { ok: false, error: 'integer' }
+  return { ok: true, fields: { model: draft.model, context_length: value } }
 }
 
 /** Keeps only configured providers whose DSL declares the profile's capability. */

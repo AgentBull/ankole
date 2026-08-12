@@ -55,6 +55,8 @@ defmodule Ankole.AIGateway.ChatGPTAuthTest do
       end)
 
     create_chatgpt_provider!("chatgpt-device", issuer)
+    # A current-time base keeps the stored credential fresh for the final
+    # unpinned resolve_credential call, which must not take the refresh path.
     now = DateTime.utc_now(:second)
 
     assert {:ok, login} =

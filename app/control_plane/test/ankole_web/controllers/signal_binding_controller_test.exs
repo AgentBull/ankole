@@ -86,7 +86,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> get(~p"/api/v1/agents/#{agent.uid}/signal-bindings")
+      |> get(~p"/api/v1/signal-bindings?agent=#{agent.uid}")
 
     assert %{"signal_bindings" => [listed]} = json_response(conn, 200)
     assert listed["agent_uid"] == agent.uid
@@ -144,11 +144,12 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> get(~p"/api/v1/agents/#{agent.uid}/signal-bindings")
+      |> get(~p"/api/v1/signal-bindings?agent=#{agent.uid}")
 
     assert %{
              "delivery_failures" => [
                %{
+                 "agent_uid" => failure_agent_uid,
                  "binding_name" => "lark-main",
                  "outbound_key" => "ai-reply:console-failure",
                  "status" => "failed",
@@ -160,6 +161,8 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
                }
              ]
            } = json_response(conn, 200)
+
+    assert failure_agent_uid == agent.uid
 
     conn =
       conn

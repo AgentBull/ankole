@@ -132,6 +132,15 @@ export function defaultBrainOwnerUID(principals: BrainOwnerOption[]): string {
   return principals.find(principal => principal.type === 'agent')?.uid ?? principals[0]?.uid ?? ''
 }
 
+/**
+ * Resolves a `?owner` request on the agent-only Brain surfaces, whose pickers
+ * list only agents. An owner that is not a listed agent falls back to the
+ * default, so the page and the picker always agree.
+ */
+export function agentOwnerUID(requested: string | null, agents: BrainOwnerOption[]): string {
+  return requested && agents.some(agent => agent.uid === requested) ? requested : defaultBrainOwnerUID(agents)
+}
+
 /** Builds the smallest structured operation batch for the editable entry metadata. */
 export function buildMetadataOperations(
   entry: BrainEntrySnapshot,

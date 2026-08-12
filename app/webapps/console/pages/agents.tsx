@@ -120,7 +120,7 @@ export function AgentEditorPage() {
   const uidInput = useRef<HTMLInputElement>(null)
   const roleInput = useRef<HTMLInputElement>(null)
   const params = useParams()
-  const uid = params.uid ? decodeURIComponent(params.uid) : undefined
+  const uid = params.uid
   const mode = uid ? 'edit' : 'new'
   const [touched, setTouched] = useState({ displayName: false, role: false, uid: false })
 
@@ -212,9 +212,17 @@ export function AgentEditorPage() {
       title={mode === 'new' ? t('console.agents.new') : (uid ?? '')}
       description={t('console.agents.editor_description')}
       backTo="/agents"
-      error={createAgent.error ?? updateAgent.error}
+      error={
+        createAgent.error ??
+        updateAgent.error ??
+        agents.error ??
+        providers.error ??
+        providerKinds.error ??
+        modelCatalog.error
+      }
       submitting={createAgent.isPending || updateAgent.isPending}
       submitDisabled={mode === 'edit' && !model.dirty.value}
+      submitUnavailable={mode === 'edit' && !selectedAgent}
       submitDisabledReason={submitDisabledReason}
       submitLabel={mode === 'edit' ? t('console.agents.save_identity') : t('common.save')}
       contentWidth={mode === 'edit' ? 'wide' : 'form'}

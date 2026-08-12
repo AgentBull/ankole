@@ -299,7 +299,7 @@ defmodule AnkoleWeb.Router do
 
     get "/signal-adapters", SignalBindingController, :adapters
 
-    get "/agents/:agent_uid/signal-bindings", SignalBindingController, :index
+    get "/signal-bindings", SignalBindingController, :index
 
     get "/agents/:agent_uid/signal-bindings/:binding_name",
         SignalBindingController,
@@ -331,7 +331,7 @@ defmodule AnkoleWeb.Router do
 
     get "/agents/:agent_uid/sessions", AgentSessionController, :index
 
-    get "/agents/:agent_uid/cron-schedules", ScheduleController, :index_cron
+    get "/cron-schedules", ScheduleController, :index_cron
     post "/agents/:agent_uid/cron-schedules", ScheduleController, :create_cron
     get "/agents/:agent_uid/cron-schedules/:cron_schedule_id", ScheduleController, :show_cron
     patch "/agents/:agent_uid/cron-schedules/:cron_schedule_id", ScheduleController, :update_cron
@@ -347,19 +347,19 @@ defmodule AnkoleWeb.Router do
     delete "/agents/:agent_uid/cron-schedules/:cron_schedule_id", ScheduleController, :remove_cron
     post "/agents/:agent_uid/cron-schedules/:cron_schedule_id/runs", ScheduleController, :run_cron
     get "/agents/:agent_uid/cron-schedules/:cron_schedule_id/runs", ScheduleController, :cron_runs
-    get "/agents/:agent_uid/checkbacks", ScheduleController, :index_checkbacks
+    get "/checkbacks", ScheduleController, :index_checkbacks
 
     delete "/agents/:agent_uid/checkbacks/:scheduled_event_id",
            ScheduleController,
            :cancel_checkback
 
-    get "/agents/:agent_uid/webhook-endpoints", WebhookEndpointController, :index
+    get "/webhook-endpoints", WebhookEndpointController, :index
 
     delete "/agents/:agent_uid/webhook-endpoints/:webhook_endpoint_id",
            WebhookEndpointController,
            :delete
 
-    get "/agents/:agent_uid/automation-jobs", AutomationJobController, :index
+    get "/automation-jobs", AutomationJobController, :index
 
     get "/agents/:agent_uid/automation-jobs/:automation_job_id",
         AutomationJobController,

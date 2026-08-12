@@ -1,31 +1,15 @@
-import { Alert, AlertDescription, AlertTitle } from '@ankole/uikit'
-import { RiErrorWarningLine } from '@remixicon/react'
 import { recordValue, type JsonObject as JSONObject } from '@agentbull/active-support'
 import { format, type Locale } from 'date-fns'
-import { enUS, zhCN } from 'date-fns/locale'
-import type { ReactNode } from 'react'
+import { enUS, ja, ko, zhCN } from 'date-fns/locale'
 import i18n from '../common/i18n'
 import { requestErrorMessage } from '../common/request-errors'
 
 /**
- * Cross-workspace helpers shared by the console pages: the inline error surface
- * and the JSON/text parsing used by the freeform payload fields. Page chrome
- * (layout, list, editor frames) lives in `console-shell`.
+ * JSON/text parsing and date formatting shared by the console pages. The
+ * inline error surface is `common/error-block`; page chrome lives in
+ * `console-shell-chrome` (layout), `console-list-page` (list frame), and
+ * `console-form` (editor frame).
  */
-
-export function ErrorBlock({ action, error, title }: { action?: ReactNode; error: unknown; title?: string }) {
-  if (!error) return null
-  return (
-    <Alert className="min-w-0 overflow-hidden" variant="destructive">
-      <RiErrorWarningLine aria-hidden />
-      <AlertTitle>{title ?? i18n.t('common.error')}</AlertTitle>
-      <AlertDescription className="min-w-0 break-all whitespace-pre-wrap">
-        {requestErrorMessage(error)}
-      </AlertDescription>
-      {action ? <div className="mt-3">{action}</div> : null}
-    </Alert>
-  )
-}
 
 // --- JSON / text helpers ---
 
@@ -67,15 +51,18 @@ export function formatJSON(value: unknown): string {
 // The pattern follows the language too. One English pattern rendered under the
 // zh-CN locale produced "7月 26, 2026 1:09 上午" — Chinese month and meridiem
 // glued to an English date order — and a 12-hour clock is not how an operator
-// reads a timestamp in Chinese.
-const CONSOLE_DATE_FORMATS = { en: 'MMM d, yyyy h:mm a', zh: 'yyyy年M月d日 HH:mm' }
-
-function usesChinese(): boolean {
-  return Boolean(i18n.language?.startsWith('zh'))
+// reads a timestamp in zh, ja, or ko. One entry per first-class locale catalog;
+// a language without an entry falls back to the en pattern.
+const CONSOLE_DATE_FORMATS: Record<string, { pattern: string; locale: Locale }> = {
+  en: { pattern: 'MMM d, yyyy h:mm a', locale: enUS },
+  ja: { pattern: 'yyyy年M月d日 H:mm', locale: ja },
+  ko: { pattern: 'yyyy. M. d. HH:mm', locale: ko },
+  zh: { pattern: 'yyyy年M月d日 HH:mm', locale: zhCN }
 }
 
-function consoleDateLocale(): Locale {
-  return usesChinese() ? zhCN : enUS
+function consoleDateFormat(): { pattern: string; locale: Locale } {
+  const language = i18n.language ?? ''
+  return CONSOLE_DATE_FORMATS[language.slice(0, 2)] ?? CONSOLE_DATE_FORMATS.en
 }
 
 /**
@@ -87,7 +74,6 @@ export function formatConsoleDate(value?: string | null): string {
   if (!value) return '—'
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
-  return format(date, usesChinese() ? CONSOLE_DATE_FORMATS.zh : CONSOLE_DATE_FORMATS.en, {
-    locale: consoleDateLocale()
-  })
+  const { pattern, locale } = consoleDateFormat()
+  return format(date, pattern, { locale })
 }

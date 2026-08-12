@@ -27,6 +27,11 @@ import type { ConsoleReadinessResponse } from './api/generated/types.gen'
 
 const AUTO_OPEN_STORAGE_KEY = 'ankole.console.readiness.seen.v1'
 
+/**
+ * Setup-progress popover in the console header. It renders nothing once the
+ * Installation reports ready — the early return below is the contract, so no
+ * branch after it handles a ready state.
+ */
 export function ConsoleReadiness() {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
@@ -76,13 +81,7 @@ export function ConsoleReadiness() {
     <Popover open={open} onOpenChange={changeOpen}>
       <PopoverTrigger
         render={<Button aria-label={triggerLabel} size="sm" type="button" variant="ghost" className="px-2 sm:px-3" />}>
-        {query.isError ? (
-          <RiErrorWarningLine className="text-destructive" aria-hidden />
-        ) : readiness?.ready ? (
-          <RiCheckboxCircleLine className="text-success" aria-hidden />
-        ) : (
-          <RiListCheck3 aria-hidden />
-        )}
+        {query.isError ? <RiErrorWarningLine className="text-destructive" aria-hidden /> : <RiListCheck3 aria-hidden />}
         <span className="hidden normal-case sm:inline">{t('console.readiness.trigger_short')}</span>
         {query.isError ? (
           <span aria-hidden>—</span>
@@ -109,7 +108,7 @@ export function ConsoleReadiness() {
             ) : null}
           </div>
           <PopoverDescription className="line-clamp-2 text-pretty text-xs leading-5">
-            {readiness?.ready ? t('console.readiness.ready_description') : t('console.readiness.description')}
+            {t('console.readiness.description')}
           </PopoverDescription>
           {readiness ? (
             <Progress

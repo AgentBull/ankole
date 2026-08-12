@@ -65,7 +65,7 @@ A signal routing rule (`Signal Binding` in the API schema) connects a provider a
 | Method | Path | Purpose |
 |---|---|---|
 | `GET` | `/signal-adapters` | List adapters this deployment instance declared |
-| `GET` | `/agents/:agent_uid/signal-bindings` | List an Agent's routing rules |
+| `GET` | `/signal-bindings` | List routing rules; `?agent=` filters to one Agent |
 | `PUT` | `/agents/:agent_uid/signal-bindings/:adapter_id/:binding_name` | Create or replace a routing rule |
 | `PATCH` | `/agents/:agent_uid/signal-bindings/:binding_name` | Update a routing rule |
 | `DELETE` | `/agents/:agent_uid/signal-bindings/:binding_name` | Remove a routing rule |
@@ -138,7 +138,7 @@ Control Plane Plugins are the first-party extensions that change what the contro
 
 Alongside configuration, the Console is the observability path for the rest of the system — each subsystem already documented has its read surface here:
 
-- **Agents in flight**: `/agents/:agent_uid/sessions`, per-session cron schedules and checkbacks.
+- **Agents in flight**: `/agents/:agent_uid/sessions`, per-Agent cron schedule and checkback management; the list endpoints are installation-wide with an `agent` filter.
 - **Workers**: `/agent-computer-workers`, with file upload, move, and listing per worker.
 - **Jobs**: `/background-agent-jobs` (list, read, cancel).
 - **AI activity**: `/ai-gateway/conversations`, with messages per conversation.
