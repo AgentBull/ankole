@@ -173,15 +173,15 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
       hostedTools: [{ type: 'image_generation' }]
     })
     const hostedOnly = buildResponseCreateParams(model, {
-      messages: [{ role: 'user', content: 'draw' }],
-      hostedTools: [{ type: 'image_generation' }]
+      messages: [{ role: 'user', content: 'draw and research' }],
+      hostedTools: [{ type: 'image_generation' }, { type: 'web_search' }]
     })
 
     expect(withHosted.tools).toEqual([
       expect.objectContaining({ type: 'function', name: 'annotate' }),
       { type: 'image_generation' }
     ])
-    expect(hostedOnly.tools).toEqual([{ type: 'image_generation' }])
+    expect(hostedOnly.tools).toEqual([{ type: 'image_generation' }, { type: 'web_search' }])
     expect(withHosted.prompt_cache_key).not.toBe(withoutHosted.prompt_cache_key)
   })
 

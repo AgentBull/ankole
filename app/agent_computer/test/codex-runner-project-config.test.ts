@@ -32,7 +32,8 @@ describe('@ankole/agent-computer Codex job project config', () => {
 
     try {
       const materialized = materializeCodexJobProjectConfig({
-        projectRoot: root
+        projectRoot: root,
+        hostedWebSearch: false
       })
       const config = TOML.parse(readFileSync(configPath, 'utf8')) as Record<string, any>
 
@@ -62,6 +63,20 @@ describe('@ankole/agent-computer Codex job project config', () => {
     }
   })
 
+  it('enables Codex web search only from the projected hosted-tool declaration', () => {
+    const root = mkdtempSync(join(tmpdir(), 'ankole-codex-project-config-web-search-'))
+    try {
+      materializeCodexJobProjectConfig({
+        projectRoot: root,
+        hostedWebSearch: true
+      })
+      const config = TOML.parse(readFileSync(join(root, '.codex', 'config.toml'), 'utf8')) as Record<string, any>
+      expect(config.web_search).toBe('live')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   it('fails closed on invalid template config', () => {
     const root = mkdtempSync(join(tmpdir(), 'ankole-codex-project-config-invalid-'))
     mkdirSync(join(root, '.codex'), { recursive: true })
@@ -69,7 +84,8 @@ describe('@ankole/agent-computer Codex job project config', () => {
     try {
       expect(() =>
         materializeCodexJobProjectConfig({
-          projectRoot: root
+          projectRoot: root,
+          hostedWebSearch: false
         })
       ).toThrow('invalid Codex project config')
     } finally {
@@ -81,9 +97,11 @@ describe('@ankole/agent-computer Codex job project config', () => {
     const root = mkdtempSync(join(tmpdir(), 'ankole-codex-project-config-default-'))
     try {
       materializeCodexJobProjectConfig({
-        projectRoot: root
+        projectRoot: root,
+        hostedWebSearch: false
       })
       const config = TOML.parse(readFileSync(join(root, '.codex', 'config.toml'), 'utf8')) as Record<string, any>
+      expect(config.web_search).toBe('disabled')
       expect(config.features.plugins).toBe(false)
       expect(config.model).toBeUndefined()
       expect(config.model_provider).toBeUndefined()

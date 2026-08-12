@@ -123,7 +123,7 @@ export interface ToolDefinition<TSchema extends z.ZodType = z.ZodType> {
 
 export type ToolSet = Record<string, ToolDefinition>
 
-export type HostedTool = { type: 'image_generation' }
+export type HostedTool = { type: 'image_generation' } | { type: 'web_search' }
 
 export interface CallModelOptions {
   instructions?: string

@@ -971,6 +971,50 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     assert turn_start_spec.hosted_tools == [%{"type" => "image_generation"}]
   end
 
+  test "turn start specs declare hosted web search from the provider connection" do
+    %{principal: agent} = agent_fixture()
+
+    assert {:ok, provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "compat-hosted-search",
+               provider_kind: "openai_compatible",
+               base_url: "https://compat.example.test/v1",
+               connection_options: %{
+                 "endpoint_kind" => "responses",
+                 "hosted_web_search" => true
+               },
+               credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => "sk-test"}]}
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "compat-hosted-search",
+               model: "sonar-live"
+             })
+
+    actor_key = %{agent_uid: agent.uid, session_id: "session-hosted-web-search"}
+
+    assert {:ok, turn_start_spec} = TurnPolicy.build_turn_start_spec(actor_key)
+    assert turn_start_spec.hosted_tools == [%{"type" => "web_search"}]
+
+    assert {:ok, _provider} =
+             ProviderConfigs.update_provider(provider.provider_id, %{
+               "connection_options" => %{"endpoint_kind" => "responses"}
+             })
+
+    assert {:ok, turn_start_spec} = TurnPolicy.build_turn_start_spec(actor_key)
+    refute Map.has_key?(turn_start_spec, :hosted_tools)
+
+    assert {:error,
+            {:connection_options, {:hosted_web_search_requires_endpoint_kind, "responses"}}} =
+             ProviderConfigs.update_provider(provider.provider_id, %{
+               "connection_options" => %{
+                 "endpoint_kind" => "chat_completions",
+                 "hosted_web_search" => true
+               }
+             })
+  end
+
   test "turn start specs include scoped agent runtime policy without creating a default output cap" do
     %{principal: agent} = agent_fixture()
     assert :ok = AgentConfig.ensure_registered()

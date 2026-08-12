@@ -410,7 +410,7 @@ describe('@ankole/agent-computer runtime', () => {
     })
   })
 
-  it('accepts only the image generation hosted-tool declaration on turn_start', () => {
+  it('accepts only supported hosted-tool declarations on turn_start', () => {
     const hostedToolsEnvelope = (hostedTools: unknown): Envelope =>
       createEnvelope({
         ...envelopeHeader('turn-start-hosted-tools'),
@@ -430,11 +430,14 @@ describe('@ankole/agent-computer runtime', () => {
         }
       })
 
-    expect(turnStartFromEnvelope(hostedToolsEnvelope([{ type: 'image_generation' }])).hosted_tools).toEqual([
-      { type: 'image_generation' }
-    ])
+    expect(
+      turnStartFromEnvelope(hostedToolsEnvelope([{ type: 'image_generation' }, { type: 'web_search' }])).hosted_tools
+    ).toEqual([{ type: 'image_generation' }, { type: 'web_search' }])
+    expect(() => turnStartFromEnvelope(hostedToolsEnvelope([{ type: 'computer_use' }]))).toThrow(
+      /must declare a supported hosted tool type/
+    )
     expect(() => turnStartFromEnvelope(hostedToolsEnvelope([{ type: 'function', name: 'untrusted' }]))).toThrow(
-      /must declare only image_generation/
+      /must declare a supported hosted tool type/
     )
   })
 

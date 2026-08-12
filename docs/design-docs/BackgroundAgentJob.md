@@ -418,6 +418,12 @@ consume.
 Projected `web_search` and `web_fetch` calls send their semantic selectors
 directly to AIGateway. A Job does not query or cache a separate web-tool catalog.
 
+Codex built-in `web_search` follows the Job's frozen hosted-tool projection.
+When the Job's provider connection declares hosted `web_search`, the project
+config sets `web_search = "live"` and the provider executes that search inside
+the model request. Every other Job keeps `web_search = "disabled"`. The
+workspace template never decides this value.
+
 For AIGateway, the Agent Codex Home selects the `ankole_aigateway` provider.
 The Job configuration contains the real Codex model name and its supported
 reasoning effort. The runner never sends a logical profile name to Codex. It

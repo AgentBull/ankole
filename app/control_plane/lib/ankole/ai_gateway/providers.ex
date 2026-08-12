@@ -167,7 +167,8 @@ defmodule Ankole.AIGateway.Providers do
     with {:ok, provider} <- fetch(provider_kind),
          :ok <-
            reject_unknown_keys(options, connection_option_keys(provider), :connection_options),
-         :ok <- validate_setting_options(provider, :connection, options, :connection_options) do
+         :ok <- validate_setting_options(provider, :connection, options, :connection_options),
+         :ok <- validate_provider_connection_options(provider, options) do
       {:ok, options}
     end
   end
@@ -204,6 +205,14 @@ defmodule Ankole.AIGateway.Providers do
 
   def normalize_credential_options(_provider_kind, _options),
     do: {:error, :invalid_credential_options}
+
+  defp validate_provider_connection_options(provider, options) do
+    if function_exported?(provider.module, :validate_connection_options, 1) do
+      provider.module.validate_connection_options(options)
+    else
+      :ok
+    end
+  end
 
   defp validate_provider_credential_options(provider, options) do
     if function_exported?(provider.module, :validate_credential_options, 1) do

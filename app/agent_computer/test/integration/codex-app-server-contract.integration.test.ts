@@ -767,7 +767,8 @@ test ! -e ./AGENTS.override.md
     resetCodexAgentRuntimeConfig(materialized.codexHome, runtimeConfig.aiGatewayKey.baseUrl)
     refreshCodexAgentRuntimeCredential(materialized.codexHome, runtimeConfig.aiGatewayKey.apiKey)
     materializeCodexJobProjectConfig({
-      projectRoot: project.root
+      projectRoot: project.root,
+      hostedWebSearch: false
     })
     appendOptionalMCPFixtures(project.root)
     let realClient: CodexAppServerClient | undefined

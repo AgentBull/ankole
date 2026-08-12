@@ -146,6 +146,16 @@ A setting has one scope:
 A language-model capability can declare `supports_parallel_tool_calls` and
 `supports_native_image_generation`. Both declarations default to false.
 
+Hosted-tool support that changes per endpoint belongs to the provider row, not
+to the provider kind. The `openai_compatible` provider accepts a
+`hosted_web_search` connection setting. It declares that the connection's
+Responses endpoint executes the hosted `web_search` tool itself. Configuration
+writes reject the declaration unless `endpoint_kind` is `responses`.
+`TurnPolicy` reads the stored declaration and adds `web_search` to the turn's
+hosted tools, so Main Turns and Background Jobs project one consistent
+capability. The supported turn hosted-tool types are `image_generation` and
+`web_search`; every boundary rejects other types.
+
 Trusted Plugins can add providers through `ai_gateway.provider`. A Plugin
 cannot replace AIGateway storage, authorization, profiles, credential
 selection, or secret handling.

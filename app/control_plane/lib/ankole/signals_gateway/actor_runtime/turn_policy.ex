@@ -2,6 +2,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnPolicy do
   @moduledoc false
 
   alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.Providers
   alias Ankole.SignalsGateway.ActorRuntime.AgentConfig
 
@@ -94,13 +95,28 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnPolicy do
   end
 
   defp hosted_tools(agent_uid, model_ref) do
+    case image_generation_hosted_tools(agent_uid, model_ref) ++ web_search_hosted_tools(model_ref) do
+      [] -> nil
+      tools -> tools
+    end
+  end
+
+  defp image_generation_hosted_tools(agent_uid, model_ref) do
     if Providers.supports_native_image_generation?(model_ref) do
       [%{"type" => "image_generation"}]
     else
       case ModelProfiles.resolve_runtime_profile(agent_uid, "image_generate") do
         {:ok, _runtime_profile} -> [%{"type" => "image_generation"}]
-        {:error, _reason} -> nil
+        {:error, _reason} -> []
       end
+    end
+  end
+
+  defp web_search_hosted_tools(model_ref) do
+    if ProviderConfigs.supports_hosted_web_search?(model_ref) do
+      [%{"type" => "web_search"}]
+    else
+      []
     end
   end
 

@@ -168,9 +168,18 @@ defmodule Ankole.BackgroundAgentJobs.RuntimeProjection do
 
   defp hosted_tool_overrides(projection) do
     case Map.fetch(projection, "hosted_tools") do
-      {:ok, [%{}] = hosted_tools} -> {:ok, %{hosted_tools: hosted_tools}}
-      :error -> {:ok, %{}}
-      _invalid -> {:error, :background_agent_job_runtime_projection_invalid}
+      {:ok, [_ | _] = hosted_tools} ->
+        if Enum.all?(hosted_tools, &is_map/1) do
+          {:ok, %{hosted_tools: hosted_tools}}
+        else
+          {:error, :background_agent_job_runtime_projection_invalid}
+        end
+
+      :error ->
+        {:ok, %{}}
+
+      _invalid ->
+        {:error, :background_agent_job_runtime_projection_invalid}
     end
   end
 

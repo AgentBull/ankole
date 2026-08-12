@@ -81,6 +81,32 @@ defmodule Ankole.AIGateway.ProviderConfigs do
   end
 
   @doc """
+  Returns whether the model's active provider connection declares the
+  provider-hosted `web_search` tool.
+
+  The write path already enforces that `hosted_web_search` pairs with a
+  Responses endpoint, so this read checks only the stored declaration. A
+  missing, disabled, or re-kinded provider row declares nothing.
+  """
+  @spec supports_hosted_web_search?(map()) :: boolean()
+  def supports_hosted_web_search?(%{
+        "provider_id" => provider_id,
+        "provider_kind" => provider_kind
+      })
+      when is_binary(provider_id) and is_binary(provider_kind) do
+    case fetch_active_provider(provider_id) do
+      {:ok, %Provider{provider_kind: ^provider_kind, connection_options: options}}
+      when is_map(options) ->
+        Map.get(options, "hosted_web_search") == true
+
+      _unavailable_or_changed ->
+        false
+    end
+  end
+
+  def supports_hosted_web_search?(_model_ref), do: false
+
+  @doc """
   Returns a safe projection for one provider.
   """
   @spec get_provider(String.t()) :: {:ok, map()} | {:error, term()}

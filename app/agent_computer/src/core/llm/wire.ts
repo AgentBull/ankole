@@ -26,9 +26,7 @@ export function buildResponseCreateParams(model: ModelConfig, options: CallModel
     ...localTools,
     ...(hasDeferredTools ? [{ type: 'tool_search' as const, execution: 'server' as const }] : []),
     ...(options.programmaticToolCalling ? [{ type: 'programmatic_tool_calling' as const }] : []),
-    ...(options.hostedTools ?? []).map(() => ({
-      type: 'image_generation' as const
-    }))
+    ...(options.hostedTools ?? []).map(tool => ({ type: tool.type }))
   ]
   const promptCacheKey = reusablePromptCacheKey(options.instructions, tools)
 

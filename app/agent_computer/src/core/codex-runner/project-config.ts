@@ -15,14 +15,21 @@ export function readCodexJobProjectConfig(projectRoot: string): Record<string, u
 /**
  * Applies Job execution settings and runner safety invariants over the
  * project initialized from selected Agent Plugin workspace templates.
+ *
+ * `hostedWebSearch` mirrors the Job's frozen hosted-tool projection: the
+ * provider connection decides Codex `web_search`, never the workspace
+ * template.
  */
-export function materializeCodexJobProjectConfig(input: { projectRoot: string }): MaterializedCodexJobProjectConfig {
+export function materializeCodexJobProjectConfig(input: {
+  projectRoot: string
+  hostedWebSearch: boolean
+}): MaterializedCodexJobProjectConfig {
   const path = join(input.projectRoot, '.codex', 'config.toml')
   const config = readToml(path)
 
   removeThreadRuntimeConfig(config)
   delete config.mcp_servers
-  applyRunnerSafety(config)
+  applyRunnerSafety(config, input.hostedWebSearch)
   // The published Bun types lag the canary runtime's documented stringify API.
   atomicWrite(path, (TOML as typeof TOML & { stringify(value: object): string }).stringify(config))
 
@@ -37,11 +44,11 @@ function removeThreadRuntimeConfig(config: TomlTable): void {
   delete config.service_tier
 }
 
-function applyRunnerSafety(config: TomlTable): void {
+function applyRunnerSafety(config: TomlTable, hostedWebSearch: boolean): void {
   config.approval_policy = 'never'
   config.sandbox_mode = 'danger-full-access'
   config.cli_auth_credentials_store = 'file'
-  config.web_search = 'disabled'
+  config.web_search = hostedWebSearch ? 'live' : 'disabled'
   config.project_doc_max_bytes = 131_072
 
   const features = tableAt(config, 'features')

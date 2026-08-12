@@ -1294,6 +1294,39 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert second_attempt.runtime_projection["model_ref"]["model"] == "openai/gpt-5.6-sol"
   end
 
+  test "runtime projections carry the frozen hosted tool declarations" do
+    %{principal: agent} = background_agent_fixture()
+    job = create_job!(agent.uid, "hosted-tool-projection")
+
+    spec =
+      runtime_turn_start_spec()
+      |> Map.put(:hosted_tools, [%{"type" => "image_generation"}, %{"type" => "web_search"}])
+
+    assert {:ok, attempt} =
+             BackgroundAgentJobs.claim_attempt_in_tx(Repo, job.id, agent.uid, 1, spec)
+
+    assert attempt.runtime_projection["hosted_tools"] == [
+             %{"type" => "image_generation"},
+             %{"type" => "web_search"}
+           ]
+
+    assert {:ok, overrides} =
+             RuntimeProjection.turn_start_overrides(attempt.runtime_projection,
+               agent_uid: agent.uid
+             )
+
+    assert overrides.hosted_tools == [
+             %{"type" => "image_generation"},
+             %{"type" => "web_search"}
+           ]
+
+    assert {:error, :background_agent_job_runtime_projection_invalid} =
+             RuntimeProjection.turn_start_overrides(
+               Map.put(attempt.runtime_projection, "hosted_tools", ["web_search"]),
+               agent_uid: agent.uid
+             )
+  end
+
   test "a legacy projection freezes inferred modalities on its next claim" do
     %{principal: agent} = background_agent_fixture()
     job = create_job!(agent.uid, "legacy-runtime-modalities")
