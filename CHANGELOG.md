@@ -1,5 +1,9 @@
 # Changelog
 
+## Version 0.67.1 (2026-08-12)
+
+- Correct the Console API and Automation blueprints guides in all four locales: cron schedules and checkbacks are agent-scoped (`/agents/:agent_uid/...`), not session-nested, and the cron creation example now carries the required `owner_session_id`, `delivery`, and `idempotency_key` body fields.
+
 ## Version 0.67.0 (2026-08-12)
 
 - Make BackgroundAgentJob retries honest and bounded: a retryable attempt failure returns the Job to `queued` and frees its Agent slot and Worker assignment, the new `execution_failures` budget (5) counts only real execution failures while total claims cap at 25, and infrastructure interruptions retry within minutes while provider-class failures keep the hours-spanning ladder. Operators see `execution_failures` beside `attempts`, and the per-Agent running cap becomes the `agent_computer.background_agent_job.max_running_per_agent` setting (default 3; confirm provider quota before raising it).

@@ -138,7 +138,7 @@ Control Plane Plugins are the first-party extensions that change what the contro
 
 Alongside configuration, the Console is the observability path for the rest of the system — each subsystem already documented has its read surface here:
 
-- **Agents in flight**: `/agents/:agent_uid/sessions`, per-session cron schedules and checkbacks.
+- **Agents in flight**: `/agents/:agent_uid/sessions`, per-Agent cron schedules and checkbacks.
 - **Workers**: `/agent-computer-workers`, with file upload, move, and listing per worker.
 - **Jobs**: `/background-agent-jobs` (list, read, cancel).
 - **AI activity**: `/ai-gateway/conversations`, with messages per conversation.

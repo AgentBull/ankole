@@ -138,7 +138,7 @@ Control Plane Plugins는 컨트롤 플레인 자체가 하는 일을 바꾸는 �
 
 구성과 함께, Console은 나머지 시스템의 관찰 경로이기도 합니다. 이미 문서화된 각 하위 시스템은 여기에 읽기 표면을 가집니다.
 
-- **실행 중인 Agents**: `/agents/:agent_uid/sessions`, 세션별 cron 일정과 checkback.
+- **실행 중인 Agents**: `/agents/:agent_uid/sessions`, Agent별 cron 일정과 checkback.
 - **Workers**: `/agent-computer-workers`, Worker별 파일 업로드, 이동, 목록.
 - **Jobs**: `/background-agent-jobs`(목록, 읽기, 취소).
 - **AI 활동**: `/ai-gateway/conversations`, 대화별 메시지.

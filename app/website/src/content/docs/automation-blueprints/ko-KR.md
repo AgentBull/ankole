@@ -35,15 +35,18 @@ Ankole은 워크플로 언어나 단계 그래프를 추가하지 않습니다. 
 스케줄이 하루에 한 번 Agent를 깨웁니다. Agent는 요청된 정보를 수집하고 요약한 다음 결과를 바인딩된 chat channel에 게시합니다. 일일 cron 표현식을 설정하기 전에 [스케줄](../schedules/) 문서로 만들고 테스트하세요.
 
 ```bash
-curl -X POST https://ankole.example.com/api/v1/agents/<agent_uid>/sessions/<session_id>/cron-schedules \
+curl -X POST https://ankole.example.com/api/v1/agents/<agent_uid>/cron-schedules \
   -H "Authorization: Bearer $CONSOLE_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
+    "owner_session_id": "<session_id>",
     "binding_name": "main",
     "name": "daily-digest",
     "schedule": { "cron": "0 9 * * *", "kind": "cron" },
     "timezone": "Asia/Shanghai",
-    "payload": { "task": "Produce today'\''s digest of the topics in your mission." }
+    "delivery": { "targets": [{ "binding_name": "main", "signal_channel_id": "<signal_channel_id>" }] },
+    "payload": { "task": "Produce today'\''s digest of the topics in your mission." },
+    "idempotency_key": "daily-digest-1"
   }'
 ```
 
@@ -65,7 +68,7 @@ curl -X POST https://ankole.example.com/api/v1/agents/<agent_uid>/sessions/<sess
 
 agent가 turn에서 어떤 것을 요청받고, 나중에 다시 다루기로 결정합니다. 고정 cron 대신 agent 자신이 `check_back_later`로 일회성 깨우기를 설정합니다. agent 쪽에서의 형태는 “한 시간 후에 다시 보라”입니다. agent가 도구를 호출하고, operator 표면은 읽기 전용입니다.
 
-이것은 주기가 없는 작업에 맞습니다. “배포가 한 시간 안에 끝났는지 확인하세요”, “스탠드업 후 이 스레드를 다시 읽으세요” 같은 경우입니다. agent가 타이밍을 소유합니다. 대기 중인 checkback은 `GET /agents/:agent_uid/sessions/:session_id/checkbacks`로 확인하고 `DELETE`로 취소할 수 있습니다.
+이것은 주기가 없는 작업에 맞습니다. “배포가 한 시간 안에 끝났는지 확인하세요”, “스탠드업 후 이 스레드를 다시 읽으세요” 같은 경우입니다. agent가 타이밍을 소유합니다. 대기 중인 checkback은 `GET /agents/:agent_uid/checkbacks`로 확인하고 `DELETE`로 취소할 수 있습니다.
 
 ## 블루프린트: 리서치 후 보고(스케줄 + background job)
 

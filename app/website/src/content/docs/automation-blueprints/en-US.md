@@ -35,15 +35,18 @@ Start with a direct Agent wake while the handling is unclear. Move only the prov
 A schedule wakes the Agent once a day. The Agent collects and summarizes the requested information, then posts the result to the bound chat channel. Create and test it with [Schedules](../schedules/) before you set the daily cron expression.
 
 ```bash
-curl -X POST https://ankole.example.com/api/v1/agents/<agent_uid>/sessions/<session_id>/cron-schedules \
+curl -X POST https://ankole.example.com/api/v1/agents/<agent_uid>/cron-schedules \
   -H "Authorization: Bearer $CONSOLE_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
+    "owner_session_id": "<session_id>",
     "binding_name": "main",
     "name": "daily-digest",
     "schedule": { "cron": "0 9 * * *", "kind": "cron" },
     "timezone": "Asia/Shanghai",
-    "payload": { "task": "Produce today'\''s digest of the topics in your mission." }
+    "delivery": { "targets": [{ "binding_name": "main", "signal_channel_id": "<signal_channel_id>" }] },
+    "payload": { "task": "Produce today'\''s digest of the topics in your mission." },
+    "idempotency_key": "daily-digest-1"
   }'
 ```
 
@@ -65,7 +68,7 @@ Keep the direct Agent schedule when every run needs semantic judgment. Read [Wor
 
 The agent is asked something in a turn, and decides to come back to it later. Instead of a fixed cron, the agent itself sets a one-shot wakeup with `check_back_later`. The shape from the agent's side is "look again in an hour" — the agent calls the tool; the operator surface is read-only.
 
-This fits work that is not on a cadence: "check whether the deploy finished in an hour," "re-read this thread after the standup." The agent owns the timing; you see the pending checkback through `GET /agents/:agent_uid/sessions/:session_id/checkbacks` and can cancel one with `DELETE`.
+This fits work that is not on a cadence: "check whether the deploy finished in an hour," "re-read this thread after the standup." The agent owns the timing; you see the pending checkback through `GET /agents/:agent_uid/checkbacks` and can cancel one with `DELETE`.
 
 ## Blueprint: research-and-report (schedule + background job)
 
