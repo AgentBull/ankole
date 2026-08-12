@@ -33,33 +33,27 @@ import {
 } from '../api/generated/@tanstack/react-query.gen'
 import { ankoleWebBrainControllerSourceRaw } from '../api/generated/sdk.gen'
 import type { BrainSourceEntry } from '../api/generated/types.gen'
-import { PageStack } from '../console-page'
-import { ErrorBlock, formatJSON } from '../console-primitives'
+import { BackLink, PageStack } from '../console-page'
+import { ErrorBlock } from '../../common/error-block'
+import { formatConsoleDate, formatJSON } from '../console-primitives'
 import { LabeledField, ResourceEditorPage } from '../console-form'
 import { ResourceListPage, RowViewAction } from '../console-list-page'
-import { defaultBrainOwnerUID, setBrainFilter } from '../state/brain-editor-model'
-import {
-  BrainOwnerField,
-  BrainStoreField,
-  BrainStoreName,
-  BrainTaskNavigation,
-  brainSearch,
-  formatBrainDate
-} from './brain-shared'
+import { agentOwnerUID, setBrainFilter } from '../state/brain-editor-model'
+import { BrainOwnerField, BrainStoreField, BrainStoreName, BrainTaskNavigation, brainSearch } from './brain-shared'
 
 export function BrainSourcesPage() {
   const { t } = useTranslation()
   const [searchParams, setSearchParams] = useSearchParams()
   const principals = useQuery(ankoleWebPrincipalControllerIndexOptions())
   const agents = (principals.data?.principals ?? []).filter(principal => principal.type === 'agent')
-  const ownerUID = searchParams.get('owner') ?? defaultBrainOwnerUID(agents)
+  const ownerUID = agentOwnerUID(searchParams.get('owner'), agents)
   const sources = useQuery({
     ...ankoleWebBrainControllerSourceIndexOptions({ query: { owner_uid: ownerUID } }),
     enabled: Boolean(ownerUID)
   })
 
   useEffect(() => {
-    if (searchParams.has('owner') || !ownerUID) return
+    if (searchParams.get('owner') === ownerUID || !ownerUID) return
     const next = new URLSearchParams(searchParams)
     next.set('owner', ownerUID)
     setSearchParams(next, { replace: true })
@@ -86,7 +80,7 @@ export function BrainSourcesPage() {
       emptyIcon={<RiBrainLine aria-hidden />}
       emptyDescription={t('console.brain.sources_empty_description')}
       error={sources.error ?? principals.error}
-      subNav={<BrainTaskNavigation active="sources" ownerUID={ownerUID} />}
+      subNav={<BrainTaskNavigation ownerUID={ownerUID} />}
       toolbarCanRevealRows
       toolbar={
         <div className="border border-border bg-card p-4">
@@ -116,7 +110,7 @@ export function BrainSourcesPage() {
             <Badge variant={sourceStatusVariant(source)}>{sourceStatusLabel(t, source)}</Badge>
           </TableCell>
           <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
-            {formatBrainDate(source.captured_at)}
+            {formatConsoleDate(source.captured_at)}
           </TableCell>
           <RowViewAction
             label={t('common.view_details_for', { name: source.title })}
@@ -136,7 +130,7 @@ export function BrainSourceLearnPage() {
   const principals = useQuery(ankoleWebPrincipalControllerIndexOptions())
   const allPrincipals = principals.data?.principals ?? []
   const agents = allPrincipals.filter(principal => principal.type === 'agent')
-  const ownerUID = searchParams.get('owner') ?? defaultBrainOwnerUID(agents)
+  const ownerUID = agentOwnerUID(searchParams.get('owner'), agents)
   const [store, setStore] = useState(searchParams.get('store') || 'shared')
   const [kind, setKind] = useState<'url' | 'file' | 'paste'>('url')
   const [title, setTitle] = useState('')
@@ -148,7 +142,7 @@ export function BrainSourceLearnPage() {
   const learn = useMutation(ankoleWebBrainControllerLearnSourceMutation())
 
   useEffect(() => {
-    if (searchParams.has('owner') || !ownerUID) return
+    if (searchParams.get('owner') === ownerUID || !ownerUID) return
     const next = new URLSearchParams(searchParams)
     next.set('owner', ownerUID)
     setSearchParams(next, { replace: true })
@@ -220,7 +214,7 @@ export function BrainSourceLearnPage() {
       submitting={create.isPending || learn.isPending}
       submitLabel={kind === 'file' ? t('console.brain.save_and_learn') : t('console.brain.save_material')}
       onSubmit={() => void submit()}>
-      <BrainTaskNavigation active="sources" ownerUID={ownerUID} store={store} />
+      <BrainTaskNavigation ownerUID={ownerUID} store={store} />
       <BrainOwnerField ownerUID={ownerUID} principals={agents} onChange={changeOwner} />
       <BrainStoreField ownerUID={ownerUID} store={store} principals={allPrincipals} onChange={setStore} />
       <LabeledField label={t('console.brain.source_kind')}>
@@ -317,10 +311,8 @@ export function BrainSourcePage() {
 
   return (
     <PageStack className="mx-auto max-w-4xl">
-      <Link to={backTo} className="w-fit text-sm text-muted-foreground hover:text-foreground">
-        ← {t('common.back')}
-      </Link>
-      <BrainTaskNavigation active="sources" ownerUID={ownerUID} store={item?.store_key} />
+      <BackLink to={backTo} />
+      <BrainTaskNavigation ownerUID={ownerUID} store={item?.store_key} />
       <div>
         <h2 className="text-2xl font-semibold">{item?.title || t('console.brain.source_title')}</h2>
         <p className="break-all font-mono text-xs text-muted-foreground">{documentID}</p>
@@ -335,7 +327,7 @@ export function BrainSourcePage() {
               <div>
                 <CardTitle>{item.kind === 'signal_message' ? sourceAuthor(item.author) : item.title}</CardTitle>
                 <CardDescription>
-                  <BrainStoreName store={item.store_key} principals={[]} /> · {formatBrainDate(item.captured_at)}
+                  <BrainStoreName store={item.store_key} principals={[]} /> · {formatConsoleDate(item.captured_at)}
                 </CardDescription>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -346,11 +338,13 @@ export function BrainSourcePage() {
           </CardHeader>
           <CardContent className="grid gap-4">
             <p className="whitespace-pre-wrap text-sm leading-6">{item.text || '—'}</p>
-            {item.kind === 'retained_source' && item.capture_method === 'file' ? (
+            {(item.kind === 'retained_source' && item.capture_method === 'file') || canRetryLearning(item) ? (
               <div className="flex flex-wrap gap-2">
-                <Button type="button" size="sm" variant="outline" disabled={downloading} onClick={download}>
-                  {t('console.brain.download_source')}
-                </Button>
+                {item.kind === 'retained_source' && item.capture_method === 'file' ? (
+                  <Button type="button" size="sm" variant="outline" disabled={downloading} onClick={download}>
+                    {t('console.brain.download_source')}
+                  </Button>
+                ) : null}
                 {canRetryLearning(item) ? (
                   <Button
                     type="button"
@@ -431,20 +425,19 @@ function sourceCaptureLabel(t: ReturnType<typeof useTranslation>['t'], source: B
   return t('console.brain.source_kind_file')
 }
 
+// One family rule for the status badge: a reported sync_state selects the sync
+// family, anything else the learning family. Label and variant share it, so a
+// connector source without a sync report shows its learning status instead of a
+// fabricated sync failure.
 function sourceStatusLabel(t: ReturnType<typeof useTranslation>['t'], source: BrainSourceEntry): string {
-  if (source.connector_id || source.sync_state) {
-    return t(`console.brain.source_sync_status_${source.sync_state ?? 'failed'}`)
-  }
+  if (source.sync_state) return t(`console.brain.source_sync_status_${source.sync_state}`)
   return t(`console.brain.learning_status_${source.learning_status ?? 'stored'}`)
 }
 
 function sourceStatusVariant(
   source: BrainSourceEntry
 ): 'secondary' | 'outline' | 'success' | 'warning' | 'destructive' {
-  if (source.sync_state === 'current') return 'success'
-  if (source.sync_state === 'deleted' || source.sync_state === 'access_lost' || source.sync_state === 'failed') {
-    return 'destructive'
-  }
+  if (source.sync_state) return source.sync_state === 'current' ? 'success' : 'destructive'
 
   const status = source.learning_status
   if (status === 'integrated' || status === 'no_change') return 'success'
@@ -454,8 +447,11 @@ function sourceStatusVariant(
   return 'secondary'
 }
 
+// The learn endpoint takes only the document and owner, so every retained
+// source can rerun learning — the capture-then-learn flow already calls it for
+// url and paste captures when it saves them.
 function canRetryLearning(source: BrainSourceEntry): boolean {
-  if (source.capture_method !== 'file') return false
+  if (source.kind !== 'retained_source') return false
   const status = source.learning_status
   return status === 'stored' || status === 'no_change' || status === 'incomplete' || status === 'failed'
 }

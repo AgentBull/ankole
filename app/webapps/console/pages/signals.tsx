@@ -44,10 +44,10 @@ import {
   ankoleWebSignalBindingControllerUpdateBindingMutation
 } from '../api/generated/@tanstack/react-query.gen'
 import type { SignalAdapterItem, SignalBindingItem, SignalDeliveryFailureItem } from '../api/generated/types.gen'
+import { AgentFilter, resolveAgentUID, useAgentScope } from '../console-agent-scope'
 import { FormSection, LabeledField, ReadOnlyValue, ResourceEditorPage, StatusIndicator } from '../console-form'
-import { FilterSwitch, ResourceListPage, ResourceSearch, RowActions } from '../console-list-page'
+import { AgentCell, FilterSwitch, ResourceListPage, ResourceSearch, RowActions } from '../console-list-page'
 import {
-  defaultSignalBindingAgentUID,
   groupMessageModeFromPolicy,
   SignalBindingEditorModel,
   type GroupMessageMode,
@@ -58,31 +58,28 @@ import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/re
 export function SignalsListPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
-  const [searchParams, setSearchParams] = useSearchParams()
   const [query, setQuery] = useState('')
   const [showDisabled, setShowDisabled] = useState(false)
   const deferredQuery = useDeferredValue(query)
   const searchQuery = effectiveResourceSearchQuery(query, deferredQuery)
-  const agents = useQuery(ankoleWebAgentControllerIndexOptions())
-  const agentList = agents.data?.agents ?? []
-  const agentUID = searchParams.get('agent') ?? agentList[0]?.uid ?? ''
-  const bindings = useQuery({
-    ...ankoleWebSignalBindingControllerIndexOptions({ path: { agent_uid: agentUID } }),
-    enabled: Boolean(agentUID)
-  })
-  const rows = (bindings.data?.signal_bindings ?? [])
+  const scope = useAgentScope()
+  const signals = useQuery(
+    ankoleWebSignalBindingControllerIndexOptions({ query: { agent: scope.agentUID || undefined } })
+  )
+  const rows = (signals.data?.signal_bindings ?? [])
     .filter(binding => showDisabled || binding.enabled)
     .filter(binding =>
       matchesResourceSearch(
         searchQuery,
         binding.name,
+        binding.agent_uid,
         binding.adapter,
         binding.unaddressed_group_message_policy,
         binding.confidential_memory,
         binding.enabled
       )
     )
-  const stoppedDeliveries = bindings.data?.delivery_failures ?? []
+  const stoppedDeliveries = signals.data?.delivery_failures ?? []
   const disableBinding = useMutation({
     ...ankoleWebSignalBindingControllerDeleteMutation(),
     onSuccess: (_data, variables) => {
@@ -108,22 +105,27 @@ export function SignalsListPage() {
     onError: error => toast.error(requestErrorMessage(error))
   })
 
-  const selectAgent = (uid: string) => setSearchParams(uid ? { agent: uid } : {})
-
   return (
     <ResourceListPage
       title={t('console.signals.title')}
       description={t('console.signals.description')}
-      createTo={agentUID ? `new?agent=${encodeURIComponent(agentUID)}` : undefined}
+      createTo={
+        scope.agents.length > 0
+          ? scope.agentUID
+            ? `new?agent=${encodeURIComponent(scope.agentUID)}`
+            : 'new'
+          : undefined
+      }
       createLabel={t('console.signals.new')}
       columns={[
         t('console.signals.name'),
+        t('console.agents.agent'),
         t('console.signals.adapter'),
         t('console.signals.policy'),
         t('console.signals.memory_scope'),
         t('console.signals.state')
       ]}
-      isLoading={bindings.isLoading || agents.isLoading}
+      isLoading={signals.isLoading}
       isEmpty={rows.length === 0}
       count={rows.length}
       emptyTitle={t(showDisabled ? 'console.signals.empty_title' : 'console.signals.empty_active_title')}
@@ -131,7 +133,7 @@ export function SignalsListPage() {
       emptyDescription={t(
         showDisabled ? 'console.signals.empty_description' : 'console.signals.empty_active_description'
       )}
-      error={agents.error ?? bindings.error}
+      error={signals.error}
       isFiltered={Boolean(query.trim())}
       onClearFilters={() => setQuery('')}
       toolbarCanRevealRows
@@ -143,18 +145,7 @@ export function SignalsListPage() {
           onChange={setQuery}
           filters={
             <>
-              <Select value={agentUID} onValueChange={value => selectAgent(String(value))}>
-                <SelectTrigger aria-label={t('console.agents.agent')} className="w-56">
-                  <SelectValue placeholder={t('console.signals.select_agent')} />
-                </SelectTrigger>
-                <SelectContent emptyLabel={agents.isLoading ? t('common.loading') : t('common.select_no_agents')}>
-                  {agentList.map(agent => (
-                    <SelectItem key={agent.uid} value={agent.uid}>
-                      {agent.uid}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <AgentFilter scope={scope} />
               <FilterSwitch
                 checked={showDisabled}
                 label={t('console.signals.show_disabled')}
@@ -167,10 +158,9 @@ export function SignalsListPage() {
       footer={
         stoppedDeliveries.length > 0 ? (
           <StoppedDeliveries
-            agentUID={agentUID}
             rows={stoppedDeliveries}
             retryPending={retryDelivery.isPending}
-            onRetry={(bindingName, outboundKey) =>
+            onRetry={(agentUID, bindingName, outboundKey) =>
               retryDelivery.mutate({
                 path: { agent_uid: agentUID },
                 body: { binding_name: bindingName, outbound_key: outboundKey }
@@ -180,14 +170,15 @@ export function SignalsListPage() {
         ) : undefined
       }>
       {rows.map(binding => (
-        <TableRow key={`${binding.adapter}:${binding.name}`}>
+        <TableRow key={`${binding.agent_uid}:${binding.adapter}:${binding.name}`}>
           <TableCell className="font-mono text-xs">
             <Link
               className="text-foreground hover:text-link hover:underline"
-              to={editTo(agentUID, binding.adapter, binding.name)}>
+              to={editTo(binding.agent_uid, binding.adapter, binding.name)}>
               {binding.name}
             </Link>
           </TableCell>
+          <AgentCell uid={binding.agent_uid} />
           <TableCell>{binding.adapter}</TableCell>
           {/* The stored value is a policy identifier, not a phrase an operator reads. */}
           <TableCell>{t(`console.signals.policy_${binding.unaddressed_group_message_policy}`)}</TableCell>
@@ -202,13 +193,14 @@ export function SignalsListPage() {
             </StatusIndicator>
           </TableCell>
           <RowActions
-            action={
+            actions={[
               binding.enabled
                 ? {
                     icon: <RiPauseCircleLine />,
                     label: t('common.disable'),
                     pending: disableBinding.isPending,
-                    onAction: () => disableBinding.mutate({ path: { agent_uid: agentUID, binding_name: binding.name } })
+                    onAction: () =>
+                      disableBinding.mutate({ path: { agent_uid: binding.agent_uid, binding_name: binding.name } })
                   }
                 : {
                     icon: <RiPlayCircleLine />,
@@ -216,17 +208,17 @@ export function SignalsListPage() {
                     pending: enableBinding.isPending,
                     onAction: () =>
                       enableBinding.mutate({
-                        path: { agent_uid: agentUID, binding_name: binding.name },
+                        path: { agent_uid: binding.agent_uid, binding_name: binding.name },
                         body: {
-                          target_agent_uid: agentUID,
+                          target_agent_uid: binding.agent_uid,
                           config: {},
                           group_message_mode: groupMessageModeFromPolicy(binding.unaddressed_group_message_policy),
                           confidential_memory: binding.confidential_memory
                         }
                       })
                   }
-            }
-            editTo={editTo(agentUID, binding.adapter, binding.name)}
+            ]}
+            editTo={editTo(binding.agent_uid, binding.adapter, binding.name)}
             editLabel={t('common.edit')}
           />
         </TableRow>
@@ -236,13 +228,11 @@ export function SignalsListPage() {
 }
 
 function StoppedDeliveries({
-  agentUID,
   onRetry,
   retryPending,
   rows
 }: {
-  agentUID: string
-  onRetry: (bindingName: string, outboundKey: string) => void
+  onRetry: (agentUID: string, bindingName: string, outboundKey: string) => void
   retryPending: boolean
   rows: SignalDeliveryFailureItem[]
 }) {
@@ -263,6 +253,7 @@ function StoppedDeliveries({
         <TableHeader>
           <TableRow>
             <TableHead>{t('console.signals.name')}</TableHead>
+            <TableHead>{t('console.agents.agent')}</TableHead>
             <TableHead>{t('console.signals.delivery_reply')}</TableHead>
             <TableHead>{t('console.signals.delivery_attempts')}</TableHead>
             <TableHead>{t('console.signals.state')}</TableHead>
@@ -273,8 +264,9 @@ function StoppedDeliveries({
         </TableHeader>
         <TableBody>
           {rows.map(row => (
-            <TableRow key={`${agentUID}:${row.binding_name}:${row.outbound_key}`}>
+            <TableRow key={`${row.agent_uid}:${row.binding_name}:${row.outbound_key}`}>
               <TableCell className="font-mono text-xs">{row.binding_name}</TableCell>
+              <AgentCell uid={row.agent_uid} />
               <TableCell>
                 <span className="block max-w-64 truncate font-mono text-xs" title={row.outbound_key}>
                   {row.outbound_key}
@@ -295,7 +287,7 @@ function StoppedDeliveries({
                     size="sm"
                     type="button"
                     variant="outline"
-                    onClick={() => onRetry(row.binding_name, row.outbound_key)}>
+                    onClick={() => onRetry(row.agent_uid, row.binding_name, row.outbound_key)}>
                     {t('common.retry')}
                   </Button>
                 ) : (
@@ -326,7 +318,7 @@ export function SignalBindingEditorPage() {
 
   const agents = useQuery(ankoleWebAgentControllerIndexOptions())
   const agentList = agents.data?.agents ?? []
-  const defaultAgentUID = defaultSignalBindingAgentUID(agentList, sourceAgentUID)
+  const defaultAgentUID = resolveAgentUID(agentList, sourceAgentUID)
   const adapters = useQuery(ankoleWebSignalBindingControllerAdaptersOptions())
   const signalAdapters = adapters.data?.signal_adapters ?? []
   const bindingDetail = useQuery({
@@ -350,11 +342,12 @@ export function SignalBindingEditorPage() {
     const draft =
       editing && currentBinding ? formFromBinding(currentBinding, bindingDetail.data?.config) : formFromAdapter(adapter)
     model.initialize(`binding:${sourceAgentUID}:${lockedAdapter ?? ''}:${lockedName ?? 'new'}`, {
-      agentUID: editing ? defaultSignalBindingAgentUID(agentList, currentBinding?.agent_uid ?? '') : defaultAgentUID,
+      // An existing binding stays pinned to its stored agent; a fallback here
+      // would silently move the binding on save.
+      agentUID: editing ? (currentBinding?.agent_uid ?? '') : defaultAgentUID,
       ...draft
     })
   }, [
-    agentList,
     bindingDetail.data?.config,
     currentBinding,
     defaultAgentUID,
@@ -442,10 +435,17 @@ export function SignalBindingEditorPage() {
       submitUnavailable={!ready}
       contentWidth="wide"
       onSubmit={submit}>
+      {/* Saving upserts the binding as enabled (server contract), so an operator
+          editing a disabled rule must learn that before pressing Save. */}
+      {editing && currentBinding && !currentBinding.enabled ? (
+        <p className="border border-l-4 border-border border-l-warning bg-card p-3 text-sm text-foreground">
+          {t('console.signals.edit_reenable_hint')}
+        </p>
+      ) : null}
       <FormSection title={t('console.signals.section_basic')} description={t('console.signals.section_basic_hint')}>
         <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
           <LabeledField label={t('console.signals.target_agent')} required>
-            <Select value={targetAgentUID} onValueChange={value => model.selectAgent(String(value))}>
+            <Select value={targetAgentUID || null} onValueChange={value => model.selectAgent(String(value))}>
               <SelectTrigger className="w-full">
                 <SelectValue placeholder={t('console.signals.select_agent')} />
               </SelectTrigger>

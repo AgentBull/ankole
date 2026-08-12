@@ -472,6 +472,7 @@ import type {
   AnkoleWebScheduleControllerCronRunsData,
   AnkoleWebScheduleControllerCronRunsResponse,
   AnkoleWebScheduleControllerIndexCheckbacksData,
+  AnkoleWebScheduleControllerIndexCheckbacksError,
   AnkoleWebScheduleControllerIndexCheckbacksResponse,
   AnkoleWebScheduleControllerIndexCronData,
   AnkoleWebScheduleControllerIndexCronError,
@@ -856,34 +857,6 @@ export const ankoleWebControlPlanePluginControllerUpdateMutation = (
   return mutationOptions
 }
 
-export const ankoleWebScheduleControllerIndexCronQueryKey = (
-  options: Options<AnkoleWebScheduleControllerIndexCronData>
-) => createQueryKey('ankoleWebScheduleControllerIndexCron', options)
-
-/**
- * List recurring schedules for one Agent
- */
-export const ankoleWebScheduleControllerIndexCronOptions = (
-  options: Options<AnkoleWebScheduleControllerIndexCronData>
-) =>
-  queryOptions<
-    AnkoleWebScheduleControllerIndexCronResponse,
-    AnkoleWebScheduleControllerIndexCronError,
-    AnkoleWebScheduleControllerIndexCronResponse,
-    ReturnType<typeof ankoleWebScheduleControllerIndexCronQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebScheduleControllerIndexCron({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebScheduleControllerIndexCronQueryKey(options)
-  })
-
 /**
  * Create one recurring schedule
  */
@@ -1254,6 +1227,34 @@ export const ankoleWebAuthZGroupControllerPreviewComputedMembersMutation = (
   }
   return mutationOptions
 }
+
+export const ankoleWebScheduleControllerIndexCheckbacksQueryKey = (
+  options?: Options<AnkoleWebScheduleControllerIndexCheckbacksData>
+) => createQueryKey('ankoleWebScheduleControllerIndexCheckbacks', options)
+
+/**
+ * List checkback wakeups
+ */
+export const ankoleWebScheduleControllerIndexCheckbacksOptions = (
+  options?: Options<AnkoleWebScheduleControllerIndexCheckbacksData>
+) =>
+  queryOptions<
+    AnkoleWebScheduleControllerIndexCheckbacksResponse,
+    AnkoleWebScheduleControllerIndexCheckbacksError,
+    AnkoleWebScheduleControllerIndexCheckbacksResponse,
+    ReturnType<typeof ankoleWebScheduleControllerIndexCheckbacksQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebScheduleControllerIndexCheckbacks({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebScheduleControllerIndexCheckbacksQueryKey(options)
+  })
 
 export const ankoleWebSignalBindingControllerShowChannelStandingOrdersQueryKey = (
   options: Options<AnkoleWebSignalBindingControllerShowChannelStandingOrdersData>
@@ -1712,6 +1713,34 @@ export const ankoleWebAuthZGroupControllerAddMemberMutation = (
   }
   return mutationOptions
 }
+
+export const ankoleWebWebhookEndpointControllerIndexQueryKey = (
+  options?: Options<AnkoleWebWebhookEndpointControllerIndexData>
+) => createQueryKey('ankoleWebWebhookEndpointControllerIndex', options)
+
+/**
+ * List webhook endpoints
+ */
+export const ankoleWebWebhookEndpointControllerIndexOptions = (
+  options?: Options<AnkoleWebWebhookEndpointControllerIndexData>
+) =>
+  queryOptions<
+    AnkoleWebWebhookEndpointControllerIndexResponse,
+    AnkoleWebWebhookEndpointControllerIndexError,
+    AnkoleWebWebhookEndpointControllerIndexResponse,
+    ReturnType<typeof ankoleWebWebhookEndpointControllerIndexQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebWebhookEndpointControllerIndex({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebWebhookEndpointControllerIndexQueryKey(options)
+  })
 
 export const ankoleWebAiGatewayFilesControllerIndexQueryKey = (
   options?: Options<AnkoleWebAiGatewayFilesControllerIndexData>
@@ -2188,34 +2217,6 @@ export const ankoleWebAuthZGroupControllerUpdateMutation = (
   return mutationOptions
 }
 
-export const ankoleWebSignalBindingControllerIndexQueryKey = (
-  options: Options<AnkoleWebSignalBindingControllerIndexData>
-) => createQueryKey('ankoleWebSignalBindingControllerIndex', options)
-
-/**
- * List signal bindings for one agent
- */
-export const ankoleWebSignalBindingControllerIndexOptions = (
-  options: Options<AnkoleWebSignalBindingControllerIndexData>
-) =>
-  queryOptions<
-    AnkoleWebSignalBindingControllerIndexResponse,
-    AnkoleWebSignalBindingControllerIndexError,
-    AnkoleWebSignalBindingControllerIndexResponse,
-    ReturnType<typeof ankoleWebSignalBindingControllerIndexQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebSignalBindingControllerIndex({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebSignalBindingControllerIndexQueryKey(options)
-  })
-
 /**
  * Clear one optional model profile for an agent
  */
@@ -2676,6 +2677,34 @@ export const ankoleWebAutomationJobControllerShowOptions = (
     queryKey: ankoleWebAutomationJobControllerShowQueryKey(options)
   })
 
+export const ankoleWebSignalBindingControllerIndexQueryKey = (
+  options?: Options<AnkoleWebSignalBindingControllerIndexData>
+) => createQueryKey('ankoleWebSignalBindingControllerIndex', options)
+
+/**
+ * List signal bindings
+ */
+export const ankoleWebSignalBindingControllerIndexOptions = (
+  options?: Options<AnkoleWebSignalBindingControllerIndexData>
+) =>
+  queryOptions<
+    AnkoleWebSignalBindingControllerIndexResponse,
+    AnkoleWebSignalBindingControllerIndexError,
+    AnkoleWebSignalBindingControllerIndexResponse,
+    ReturnType<typeof ankoleWebSignalBindingControllerIndexQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebSignalBindingControllerIndex({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebSignalBindingControllerIndexQueryKey(options)
+  })
+
 export const ankoleWebPrincipalControllerGrantsQueryKey = (options: Options<AnkoleWebPrincipalControllerGrantsData>) =>
   createQueryKey('ankoleWebPrincipalControllerGrants', options)
 
@@ -2809,34 +2838,6 @@ export const ankoleWebAiGatewayProviderControllerIndexOptions = (
     queryKey: ankoleWebAiGatewayProviderControllerIndexQueryKey(options)
   })
 
-export const ankoleWebWebhookEndpointControllerIndexQueryKey = (
-  options: Options<AnkoleWebWebhookEndpointControllerIndexData>
-) => createQueryKey('ankoleWebWebhookEndpointControllerIndex', options)
-
-/**
- * List webhook endpoints for one Agent
- */
-export const ankoleWebWebhookEndpointControllerIndexOptions = (
-  options: Options<AnkoleWebWebhookEndpointControllerIndexData>
-) =>
-  queryOptions<
-    AnkoleWebWebhookEndpointControllerIndexResponse,
-    AnkoleWebWebhookEndpointControllerIndexError,
-    AnkoleWebWebhookEndpointControllerIndexResponse,
-    ReturnType<typeof ankoleWebWebhookEndpointControllerIndexQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebWebhookEndpointControllerIndex({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebWebhookEndpointControllerIndexQueryKey(options)
-  })
-
 /**
  * Resume one recurring schedule
  */
@@ -2863,6 +2864,34 @@ export const ankoleWebScheduleControllerResumeCronMutation = (
   }
   return mutationOptions
 }
+
+export const ankoleWebAutomationJobControllerIndexQueryKey = (
+  options?: Options<AnkoleWebAutomationJobControllerIndexData>
+) => createQueryKey('ankoleWebAutomationJobControllerIndex', options)
+
+/**
+ * List automation jobs
+ */
+export const ankoleWebAutomationJobControllerIndexOptions = (
+  options?: Options<AnkoleWebAutomationJobControllerIndexData>
+) =>
+  queryOptions<
+    AnkoleWebAutomationJobControllerIndexResponse,
+    AnkoleWebAutomationJobControllerIndexError,
+    AnkoleWebAutomationJobControllerIndexResponse,
+    ReturnType<typeof ankoleWebAutomationJobControllerIndexQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebAutomationJobControllerIndex({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebAutomationJobControllerIndexQueryKey(options)
+  })
 
 export const ankoleWebAgentControllerIndexModelProfilesQueryKey = (
   options: Options<AnkoleWebAgentControllerIndexModelProfilesData>
@@ -3136,34 +3165,6 @@ export const ankoleWebBrainControllerSourceOptions = (options: Options<AnkoleWeb
     queryKey: ankoleWebBrainControllerSourceQueryKey(options)
   })
 
-export const ankoleWebScheduleControllerIndexCheckbacksQueryKey = (
-  options: Options<AnkoleWebScheduleControllerIndexCheckbacksData>
-) => createQueryKey('ankoleWebScheduleControllerIndexCheckbacks', options)
-
-/**
- * List checkback wakeups for one Agent
- */
-export const ankoleWebScheduleControllerIndexCheckbacksOptions = (
-  options: Options<AnkoleWebScheduleControllerIndexCheckbacksData>
-) =>
-  queryOptions<
-    AnkoleWebScheduleControllerIndexCheckbacksResponse,
-    DefaultError,
-    AnkoleWebScheduleControllerIndexCheckbacksResponse,
-    ReturnType<typeof ankoleWebScheduleControllerIndexCheckbacksQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebScheduleControllerIndexCheckbacks({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebScheduleControllerIndexCheckbacksQueryKey(options)
-  })
-
 /**
  * Search the web through AIGateway
  */
@@ -3190,6 +3191,34 @@ export const ankoleWebAiGatewayControllerWebSearchMutation = (
   }
   return mutationOptions
 }
+
+export const ankoleWebScheduleControllerIndexCronQueryKey = (
+  options?: Options<AnkoleWebScheduleControllerIndexCronData>
+) => createQueryKey('ankoleWebScheduleControllerIndexCron', options)
+
+/**
+ * List recurring schedules
+ */
+export const ankoleWebScheduleControllerIndexCronOptions = (
+  options?: Options<AnkoleWebScheduleControllerIndexCronData>
+) =>
+  queryOptions<
+    AnkoleWebScheduleControllerIndexCronResponse,
+    AnkoleWebScheduleControllerIndexCronError,
+    AnkoleWebScheduleControllerIndexCronResponse,
+    ReturnType<typeof ankoleWebScheduleControllerIndexCronQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebScheduleControllerIndexCron({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebScheduleControllerIndexCronQueryKey(options)
+  })
 
 /**
  * Create or update one signal binding for an agent
@@ -3766,34 +3795,6 @@ export const ankoleWebWorkerEnvControllerIndexOptions = (options?: Options<Ankol
       return data
     },
     queryKey: ankoleWebWorkerEnvControllerIndexQueryKey(options)
-  })
-
-export const ankoleWebAutomationJobControllerIndexQueryKey = (
-  options: Options<AnkoleWebAutomationJobControllerIndexData>
-) => createQueryKey('ankoleWebAutomationJobControllerIndex', options)
-
-/**
- * List automation jobs for one Agent
- */
-export const ankoleWebAutomationJobControllerIndexOptions = (
-  options: Options<AnkoleWebAutomationJobControllerIndexData>
-) =>
-  queryOptions<
-    AnkoleWebAutomationJobControllerIndexResponse,
-    AnkoleWebAutomationJobControllerIndexError,
-    AnkoleWebAutomationJobControllerIndexResponse,
-    ReturnType<typeof ankoleWebAutomationJobControllerIndexQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebAutomationJobControllerIndex({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebAutomationJobControllerIndexQueryKey(options)
   })
 
 /**

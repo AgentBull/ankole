@@ -165,6 +165,27 @@ defmodule Ankole.SignalsGateway.Bindings do
     end
   end
 
+  @doc """
+  Lists bindings across the installation for the Console, including disabled
+  bindings. An agent filter narrows the list without an existence check: an
+  unknown agent reads as an empty list, not an error.
+  """
+  @spec list_bindings(String.t() | nil) :: {:ok, [Binding.t()]}
+  def list_bindings(agent_uid \\ nil) do
+    bindings =
+      Binding
+      |> maybe_where_agent(agent_uid)
+      |> order_by([binding], asc: binding.agent_uid, asc: binding.adapter, asc: binding.name)
+      |> Repo.all()
+
+    {:ok, bindings}
+  end
+
+  defp maybe_where_agent(query, nil), do: query
+
+  defp maybe_where_agent(query, agent_uid) when is_binary(agent_uid),
+    do: where(query, [binding], binding.agent_uid == ^String.downcase(agent_uid))
+
   @spec list_agent_bindings(String.t(), keyword()) ::
           {:ok, [Binding.t()]} | {:error, term()}
   def list_agent_bindings(agent_uid, opts \\ [])

@@ -15,8 +15,10 @@ defmodule Ankole.AIGateway.ConsoleQueries do
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.BackgroundAgentJobs
   alias Ankole.Principals
+  alias Ankole.Principals.Principal
   alias Ankole.Repo
   alias Ankole.Schedule.Cron
+  alias Ankole.SignalsGateway.Channel
   alias Ankole.SignalsGateway.ConversationChannel
 
   require Ankole.BackgroundAgentJobs
@@ -34,6 +36,7 @@ defmodule Ankole.AIGateway.ConsoleQueries do
     with {:ok, subject_uid} <- normalize_subject_uid(Keyword.get(opts, :subject_uid)),
          {:ok, conversation_key} <-
            normalize_conversation_key(Keyword.get(opts, :conversation_key)),
+         {:ok, search} <- normalize_search(Keyword.get(opts, :search)),
          {:ok, cursor} <- decode_cursor(Keyword.get(opts, :cursor)) do
       limit =
         clamp(Keyword.get(opts, :limit, @conversation_limit_default), @conversation_limit_max)
@@ -42,9 +45,10 @@ defmodule Ankole.AIGateway.ConsoleQueries do
       min_messages = Keyword.get(opts, :min_messages)
 
       rows =
-        Conversation
+        from(conversation in Conversation, as: :conversation)
         |> maybe_filter_subject_uid(subject_uid)
         |> maybe_filter_conversation_key(conversation_key)
+        |> maybe_filter_search(search)
         |> maybe_filter_active(active)
         |> maybe_filter_min_messages(min_messages)
         |> maybe_before_cursor(cursor)
@@ -211,6 +215,53 @@ defmodule Ankole.AIGateway.ConsoleQueries do
     do:
       where(query, [conversation], ilike(conversation.conversation_key, ^"%#{conversation_key}%"))
 
+  defp maybe_filter_search(query, nil), do: query
+
+  # One operator search box: an exact subject UID, a session-key fragment, or a
+  # fragment of a name the list shows. The name sources are the SignalsGateway
+  # channel mirror for groups and Principal display names for DM peers. The
+  # filter matches them as a disjunction. It does not copy the display
+  # precedence.
+  defp maybe_filter_search(query, search) do
+    pattern = "%#{escape_like(search)}%"
+    # Stored subject UIDs are canonical lowercase.
+    subject = String.downcase(search)
+
+    channel_match =
+      from channel in Channel,
+        where:
+          ilike(channel.name, ^pattern) and
+            (parent_as(:conversation).conversation_key ==
+               fragment("'signal-channel:' || ?", channel.id) or
+               fragment(
+                 "? -> 'brain' ->> 'channel_id' = ?",
+                 parent_as(:conversation).metadata,
+                 channel.id
+               ))
+
+    peer_match =
+      from principal in Principal,
+        where:
+          ilike(principal.display_name, ^pattern) and
+            principal.uid ==
+              fragment("? -> 'brain' ->> 'peer_uid'", parent_as(:conversation).metadata)
+
+    where(
+      query,
+      [conversation],
+      conversation.subject_uid == ^subject or
+        ilike(conversation.conversation_key, ^pattern) or
+        exists(channel_match) or
+        exists(peer_match)
+    )
+  end
+
+  # Session keys use `_` often, so a raw ILIKE pattern would read it as a
+  # single-character wildcard.
+  defp escape_like(text) do
+    String.replace(text, ~r/([\\%_])/, "\\\\\\1")
+  end
+
   defp maybe_filter_active(query, nil), do: query
   defp maybe_filter_active(query, true), do: where(query, [c], is_nil(c.ended_at))
   defp maybe_filter_active(query, false), do: where(query, [c], not is_nil(c.ended_at))
@@ -290,6 +341,17 @@ defmodule Ankole.AIGateway.ConsoleQueries do
       {:error, _reason} -> {:error, :invalid_subject_uid}
     end
   end
+
+  defp normalize_search(nil), do: {:ok, nil}
+
+  defp normalize_search(search) when is_binary(search) do
+    case String.trim(search) do
+      "" -> {:ok, nil}
+      trimmed -> {:ok, trimmed}
+    end
+  end
+
+  defp normalize_search(_value), do: {:error, :invalid_search}
 
   defp normalize_conversation_key(nil), do: {:ok, nil}
   defp normalize_conversation_key(""), do: {:ok, nil}

@@ -35,14 +35,17 @@ Ankole은 워크플로 언어나 단계 그래프를 추가하지 않습니다. 
 스케줄이 하루에 한 번 Agent를 깨웁니다. Agent는 요청된 정보를 수집하고 요약한 다음 결과를 바인딩된 chat channel에 게시합니다. 일일 cron 표현식을 설정하기 전에 [스케줄](../schedules/) 문서로 만들고 테스트하세요.
 
 ```bash
-curl -X POST https://ankole.example.com/api/v1/agents/<agent_uid>/sessions/<session_id>/cron-schedules \
+curl -X POST https://ankole.example.com/api/v1/agents/<agent_uid>/cron-schedules \
   -H "Authorization: Bearer $CONSOLE_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
+    "owner_session_id": "<session_id>",
     "binding_name": "main",
     "name": "daily-digest",
-    "schedule": { "cron": "0 9 * * *", "kind": "cron" },
+    "idempotency_key": "daily-digest-1",
+    "schedule": { "kind": "cron", "expression": "0 9 * * *" },
     "timezone": "Asia/Shanghai",
+    "delivery": { "targets": [{ "binding_name": "main", "signal_channel_id": "<signal_channel_id>" }] },
     "payload": { "task": "Produce today'\''s digest of the topics in your mission." }
   }'
 ```
@@ -54,7 +57,7 @@ curl -X POST https://ankole.example.com/api/v1/agents/<agent_uid>/sessions/<sess
 스케줄이 자주 발동하지만 점검이 기계적이고 보통 결과가 없을 때는 automation job을 사용하세요. Agent가 스크립트를 작성하고 등록한 다음 cron schedule을 해당 `automation_job_id`에 바인딩합니다.
 
 ```json
-{ "cron": "0 * * * *", "kind": "cron" }
+{ "kind": "cron", "expression": "0 * * * *" }
 ```
 
 스크립트는 소스를 읽고 조건이 거짓이면 `emitEvent` 없이 종료합니다. 조건이 참이면 범위가 제한된 소스 사실을 소유자 session에 발행하며, Agent가 이를 확인하고 무엇을 할지 결정합니다. 등록 전에 non-SDK 분기를 직접 테스트하고, `context()` 또는 `emitEvent`를 호출하는 모든 분기에 실제 테스트 트리거를 사용하세요.
@@ -65,7 +68,7 @@ curl -X POST https://ankole.example.com/api/v1/agents/<agent_uid>/sessions/<sess
 
 agent가 turn에서 어떤 것을 요청받고, 나중에 다시 다루기로 결정합니다. 고정 cron 대신 agent 자신이 `check_back_later`로 일회성 깨우기를 설정합니다. agent 쪽에서의 형태는 “한 시간 후에 다시 보라”입니다. agent가 도구를 호출하고, operator 표면은 읽기 전용입니다.
 
-이것은 주기가 없는 작업에 맞습니다. “배포가 한 시간 안에 끝났는지 확인하세요”, “스탠드업 후 이 스레드를 다시 읽으세요” 같은 경우입니다. agent가 타이밍을 소유합니다. 대기 중인 checkback은 `GET /agents/:agent_uid/sessions/:session_id/checkbacks`로 확인하고 `DELETE`로 취소할 수 있습니다.
+이것은 주기가 없는 작업에 맞습니다. “배포가 한 시간 안에 끝났는지 확인하세요”, “스탠드업 후 이 스레드를 다시 읽으세요” 같은 경우입니다. agent가 타이밍을 소유합니다. 대기 중인 checkback은 `GET /api/v1/checkbacks?agent=<agent_uid>`로 확인하고 `DELETE /api/v1/agents/:agent_uid/checkbacks/:scheduled_event_id`로 하나씩 취소할 수 있습니다.
 
 ## 블루프린트: 리서치 후 보고(스케줄 + background job)
 

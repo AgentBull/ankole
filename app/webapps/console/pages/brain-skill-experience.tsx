@@ -20,9 +20,10 @@ import {
 } from '../api/generated/@tanstack/react-query.gen'
 import type { AgentLibrarySkillOverlayItem } from '../api/generated/types.gen'
 import { PageHeader, PageStack, RefreshButton } from '../console-page'
-import { ErrorBlock } from '../console-primitives'
-import { defaultBrainOwnerUID, setBrainFilter } from '../state/brain-editor-model'
-import { BrainOwnerField, BrainTaskNavigation, formatBrainDate } from './brain-shared'
+import { ErrorBlock } from '../../common/error-block'
+import { formatConsoleDate } from '../console-primitives'
+import { agentOwnerUID, setBrainFilter } from '../state/brain-editor-model'
+import { BrainOwnerField, BrainTaskNavigation } from './brain-shared'
 
 // Skill experience is Agent Library state that dreaming writes, so this surface
 // stays read-only and hands editing back to the Agent Library page that owns it.
@@ -31,11 +32,7 @@ export function BrainSkillExperiencePage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const principals = useQuery(ankoleWebPrincipalControllerIndexOptions())
   const agents = (principals.data?.principals ?? []).filter(principal => principal.type === 'agent')
-  const requestedOwnerUID = searchParams.get('owner')
-  const ownerUID =
-    requestedOwnerUID && agents.some(agent => agent.uid === requestedOwnerUID)
-      ? requestedOwnerUID
-      : defaultBrainOwnerUID(agents)
+  const ownerUID = agentOwnerUID(searchParams.get('owner'), agents)
   const overlays = useQuery({
     ...ankoleWebAgentLibrarySkillOverlayControllerIndexOptions({ path: { agent_uid: ownerUID } }),
     enabled: Boolean(ownerUID)
@@ -56,7 +53,7 @@ export function BrainSkillExperiencePage() {
         description={t('console.brain.experience_description')}
         actions={<RefreshButton />}
       />
-      <BrainTaskNavigation active="experience" ownerUID={ownerUID} />
+      <BrainTaskNavigation ownerUID={ownerUID} />
 
       <div className="grid grid-cols-1 gap-4 border border-border bg-card p-4 md:grid-cols-2">
         <BrainOwnerField
@@ -116,7 +113,7 @@ function SkillExperienceCard({ item, ownerUID }: { item: AgentLibrarySkillOverla
           {item.text}
         </pre>
         <span className="text-xs text-muted-foreground">
-          {t('console.brain.experience_updated')} {formatBrainDate(item.updated_at)}
+          {t('console.brain.experience_updated')} {formatConsoleDate(item.updated_at)}
         </span>
       </CardContent>
     </Card>

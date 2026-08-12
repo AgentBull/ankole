@@ -15,14 +15,15 @@ import {
   TableRow,
   cn
 } from '@ankole/uikit'
-import { RiArrowLeftLine, RiChat3Line, RiFunctionLine, RiInboxLine } from '@remixicon/react'
+import { RiChat3Line, RiFunctionLine, RiInboxLine } from '@remixicon/react'
 import { match } from '@agentbull/active-support'
-import { useQuery } from '@tanstack/react-query'
-import { type ReactNode } from 'react'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
+import { useEffect, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
-import { PageStack } from '../console-page'
-import { ErrorBlock, formatConsoleDate } from '../console-primitives'
+import { Link, useParams, useSearchParams } from 'react-router'
+import { BackLink, PageStack } from '../console-page'
+import { ErrorBlock } from '../../common/error-block'
+import { formatConsoleDate } from '../console-primitives'
 import { conversationDisplayName } from '../conversation-presentation'
 import { MarkdownBody } from '../markdown-body'
 import { StatusIndicator } from '../console-form'
@@ -54,34 +55,53 @@ type ResponseItem = Record<string, unknown>
 export function ConversationsListPage() {
   const { t } = useTranslation()
   const [searchParams, setSearchParams] = useSearchParams()
-  const subjectFilter = searchParams.get('subject') ?? ''
+  const searchFilter = searchParams.get('q') ?? ''
   const cursor = searchParams.get('cursor') ?? undefined
   const activeFilter = searchParams.get('active')
   // Stub conversations (fewer than two messages — no exchange recorded) are
   // hidden by default; `min_messages=0` opts back into the full list.
   const showAll = searchParams.get('min_messages') === '0'
+  // Typing stays local in the draft; the URL — and with it the server query
+  // and the route loader revalidation — commits after a 300 ms pause.
+  const [searchDraft, setSearchDraft] = useState(searchFilter)
 
-  const list = useQuery(
-    ankoleWebAIGatewayConversationControllerIndexOptions({
+  useEffect(() => setSearchDraft(searchFilter), [searchFilter])
+
+  useEffect(() => {
+    if (searchDraft === searchFilter) return
+
+    const timeout = window.setTimeout(() => {
+      setSearchParams(
+        current => {
+          const next = new URLSearchParams(current)
+          if (searchDraft) next.set('q', searchDraft)
+          else next.delete('q')
+          return resetCursorParams(next)
+        },
+        { replace: true }
+      )
+    }, 300)
+
+    return () => window.clearTimeout(timeout)
+  }, [searchDraft, searchFilter, setSearchParams])
+
+  // A committed search changes the query key; keeping the previous page
+  // visible stops the list from flashing empty.
+  const list = useQuery({
+    ...ankoleWebAIGatewayConversationControllerIndexOptions({
       query: {
-        subject: subjectFilter.trim() || undefined,
+        q: searchFilter.trim() || undefined,
         active: activeFilter === 'true' ? true : activeFilter === 'false' ? false : undefined,
         min_messages: showAll ? undefined : 2,
         cursor,
         limit: 50
       }
-    })
-  )
+    }),
+    placeholderData: keepPreviousData
+  })
 
   const conversations = list.data?.conversations ?? []
   const nextCursor = list.data?.next_cursor ?? undefined
-
-  const setSubjectFilter = (value: string) => {
-    const next = new URLSearchParams(searchParams)
-    if (value) next.set('subject', value)
-    else next.delete('subject')
-    setSearchParams(resetCursorParams(next), { replace: true })
-  }
 
   const toggleActive = () => {
     const next = new URLSearchParams(searchParams)
@@ -99,10 +119,10 @@ export function ConversationsListPage() {
     setSearchParams(resetCursorParams(next), { replace: true })
   }
 
-  const isFiltered = Boolean(subjectFilter.trim()) || activeFilter !== null
+  const isFiltered = Boolean(searchFilter.trim()) || activeFilter !== null
   const clearFilters = () => {
     const next = new URLSearchParams(searchParams)
-    next.delete('subject')
+    next.delete('q')
     next.delete('active')
     setSearchParams(resetCursorParams(next), { replace: true })
   }
@@ -134,10 +154,10 @@ export function ConversationsListPage() {
       toolbarCanRevealRows
       toolbar={
         <ResourceSearch
-          label={t('console.conversations.subject_filter')}
-          placeholder={t('console.conversations.subject_filter')}
-          value={subjectFilter}
-          onChange={setSubjectFilter}
+          label={t('console.conversations.search')}
+          placeholder={t('console.conversations.search')}
+          value={searchDraft}
+          onChange={setSearchDraft}
           filters={
             <>
               <Button type="button" size="sm" variant={activeFilter ? 'default' : 'outline'} onClick={toggleActive}>
@@ -308,7 +328,6 @@ function ConversationHeader({ conversation }: { conversation: AIGatewayConversat
  */
 export function ConversationDetailPage() {
   const { t } = useTranslation()
-  const navigate = useNavigate()
   const { conversationID = '' } = useParams()
   const [searchParams, setSearchParams] = useSearchParams()
   const cursor = searchParams.get('cursor') ?? undefined
@@ -334,10 +353,12 @@ export function ConversationDetailPage() {
   const thread = messages.data?.messages ?? []
   const nextCursor = messages.data?.next_cursor ?? undefined
 
+  // The detail URL does not carry the list's filter or cursor params, so the
+  // back link targets the plain list; the browser's own back keeps list state.
   if (conversation.error || (!conversation.isLoading && !detail)) {
     return (
       <PageStack className="max-w-5xl">
-        <BackLink label={t('console.conversations.back')} onClick={() => navigate('/conversations')} />
+        <BackLink label={t('console.conversations.back')} to="/conversations" />
         <ErrorBlock error={conversation.error ?? new Error(t('console.conversations.not_found'))} />
       </PageStack>
     )
@@ -345,7 +366,7 @@ export function ConversationDetailPage() {
 
   return (
     <PageStack className="max-w-5xl">
-      <BackLink label={t('console.conversations.back')} onClick={() => navigate('/conversations')} />
+      <BackLink label={t('console.conversations.back')} to="/conversations" />
 
       {conversation.isLoading || !detail ? (
         <Skeleton className="h-40 w-full" />
@@ -413,20 +434,6 @@ export function ConversationDetailPage() {
         />
       </section>
     </PageStack>
-  )
-}
-
-function BackLink({ label, onClick }: { label: string; onClick: () => void }) {
-  return (
-    <div>
-      <button
-        type="button"
-        onClick={onClick}
-        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-        <RiArrowLeftLine className="size-4" aria-hidden />
-        {label}
-      </button>
-    </div>
   )
 }
 
