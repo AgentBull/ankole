@@ -253,6 +253,38 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert provider_output["call_id"] == provider_call["call_id"]
   end
 
+  test "openai-compatible Responses passes the hosted web_search declaration through" do
+    %{principal: agent} = agent_fixture()
+
+    base_url =
+      start_recording_upstream(self(), fn _request ->
+        {:json, 200,
+         %{
+           "id" => "resp_hosted_web_search",
+           "object" => "response",
+           "status" => "completed",
+           "output" => [],
+           "usage" => %{}
+         }}
+      end)
+
+    configure_openai_compatible_responses_provider!(
+      agent.uid,
+      base_url,
+      "compatible-hosted-search"
+    )
+
+    assert {:ok, %{body: %{"id" => "resp_hosted_web_search"}}} =
+             AIGateway.create_response(agent.uid, %{
+               "model" => "primary",
+               "input" => "current weather in Berlin",
+               "tools" => [%{"type" => "web_search"}]
+             })
+
+    assert_receive {:gateway_request, request}
+    assert request.body["tools"] == [%{"type" => "web_search"}]
+  end
+
   test "first-party OpenAI preserves PTC tools whose execution owner is native" do
     %{principal: agent} = agent_fixture()
 

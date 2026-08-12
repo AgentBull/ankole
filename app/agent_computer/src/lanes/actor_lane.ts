@@ -59,7 +59,9 @@ export type TurnStart = {
   runtime_env?: Record<string, string>
 }
 
-export type TurnHostedTool = { type: 'image_generation' }
+export type TurnHostedTool = { type: 'image_generation' } | { type: 'web_search' }
+
+const TURN_HOSTED_TOOL_TYPES = new Set(['image_generation', 'web_search'])
 
 export type TurnSteerUpdate = {
   turn: ActorTurnRef
@@ -248,9 +250,14 @@ function turnHostedToolsFromBytes(bytes: Uint8Array): TurnHostedTool[] | undefin
   if (!Array.isArray(value)) throw new Error('turn_start.hosted_tools must be an array')
 
   return value.map((tool, index) => {
-    if (!isRecord(tool) || tool.type !== 'image_generation' || Object.keys(tool).length !== 1) {
-      throw new Error(`turn_start.hosted_tools[${index}] must declare only image_generation`)
+    if (
+      !isRecord(tool) ||
+      typeof tool.type !== 'string' ||
+      !TURN_HOSTED_TOOL_TYPES.has(tool.type) ||
+      Object.keys(tool).length !== 1
+    ) {
+      throw new Error(`turn_start.hosted_tools[${index}] must declare a supported hosted tool type`)
     }
-    return { type: 'image_generation' }
+    return { type: tool.type } as TurnHostedTool
   })
 }

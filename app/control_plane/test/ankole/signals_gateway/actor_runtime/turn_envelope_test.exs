@@ -6,20 +6,49 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnEnvelopeTest do
   alias Ankole.SignalsGateway.ActorRuntime.TurnEnvelope
   alias Ankole.SignalsGateway.ActorRuntime.TurnRef
 
-  test "projects only the declared image generation hosted tool" do
+  test "projects the declared hosted tools in policy order" do
     envelope =
       TurnEnvelope.turn_start(turn_ref(), actor_event(), [], %{
         workspace_id: 10_000,
         model_ref: model_ref(),
         request_context: %{},
-        hosted_tools: [%{"type" => "image_generation"}]
+        hosted_tools: [%{"type" => "image_generation"}, %{"type" => "web_search"}]
       })
 
     assert %FabricProto.Envelope{body: {:turn_start, turn_start}} = envelope
 
     assert Torque.decode!(turn_start.hosted_tools_json) == [
-             %{"type" => "image_generation"}
+             %{"type" => "image_generation"},
+             %{"type" => "web_search"}
            ]
+  end
+
+  test "rejects unsupported and duplicate hosted tools" do
+    spec = fn hosted_tools ->
+      %{
+        workspace_id: 10_000,
+        model_ref: model_ref(),
+        request_context: %{},
+        hosted_tools: hosted_tools
+      }
+    end
+
+    assert_raise ArgumentError, ~r/unsupported turn hosted tool/, fn ->
+      TurnEnvelope.turn_start(turn_ref(), actor_event(), [], spec.([%{"type" => "computer_use"}]))
+    end
+
+    assert_raise ArgumentError, ~r/duplicate turn hosted tools/, fn ->
+      TurnEnvelope.turn_start(
+        turn_ref(),
+        actor_event(),
+        [],
+        spec.([%{"type" => "web_search"}, %{"type" => "web_search"}])
+      )
+    end
+
+    assert_raise ArgumentError, ~r/invalid turn hosted tools/, fn ->
+      TurnEnvelope.turn_start(turn_ref(), actor_event(), [], spec.([]))
+    end
   end
 
   test "omits hosted tools when the turn policy did not declare one" do

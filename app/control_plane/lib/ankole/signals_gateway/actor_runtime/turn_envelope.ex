@@ -165,19 +165,36 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnEnvelope do
     end
   end
 
+  @supported_hosted_tool_types ["image_generation", "web_search"]
+
   defp turn_hosted_tools(turn_start_spec) do
     case map_get(turn_start_spec, :hosted_tools) do
-      [%{} = tool] -> normalize_turn_hosted_tool(tool)
-      nil -> nil
-      tools -> raise ArgumentError, "invalid turn hosted tools: #{inspect(tools)}"
+      [_ | _] = tools ->
+        normalized = Enum.map(tools, &normalize_turn_hosted_tool/1)
+
+        if normalized != Enum.uniq(normalized) do
+          raise ArgumentError, "duplicate turn hosted tools: #{inspect(tools)}"
+        end
+
+        normalized
+
+      nil ->
+        nil
+
+      tools ->
+        raise ArgumentError, "invalid turn hosted tools: #{inspect(tools)}"
+    end
+  end
+
+  defp normalize_turn_hosted_tool(%{} = tool) do
+    case map_get(tool, :type) do
+      type when type in @supported_hosted_tool_types -> %{"type" => type}
+      type -> raise ArgumentError, "unsupported turn hosted tool: #{inspect(type)}"
     end
   end
 
   defp normalize_turn_hosted_tool(tool) do
-    case map_get(tool, :type) do
-      "image_generation" -> [%{"type" => "image_generation"}]
-      type -> raise ArgumentError, "unsupported turn hosted tool: #{inspect(type)}"
-    end
+    raise ArgumentError, "invalid turn hosted tool: #{inspect(tool)}"
   end
 
   defp map_get(map, key) when is_atom(key) and is_map(map) do

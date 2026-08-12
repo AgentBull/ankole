@@ -1,5 +1,10 @@
 # Changelog
 
+## Version 0.66.0 (2026-08-12)
+
+- Let an OpenAI-compatible Responses connection declare provider-hosted `web_search`, and project that capability end to end: Main Turns declare the hosted tool to the provider, and Background Agent Jobs enable Codex live web search from the same frozen declaration.
+- Reject `hosted_web_search` on a connection whose `endpoint_kind` is not `responses`.
+
 ## Version 0.65.0 (2026-08-12)
 
 - Run each recurring Agent or BackgroundAgentJob task once and deliver the same final reply and attachments through one independently retryable outbox row for each configured Signal target.

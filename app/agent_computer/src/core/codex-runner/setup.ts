@@ -123,7 +123,8 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput) {
     agentUID: job.agentUid
   })
   materializeCodexJobProjectConfig({
-    projectRoot: jobProject.root
+    projectRoot: jobProject.root,
+    hostedWebSearch: (turnStart.hosted_tools ?? []).some(tool => tool.type === 'web_search')
   })
   const projectionAPIKey = runtimeConfig.aiGatewayKey
   opts.abortSignal?.throwIfAborted()

@@ -14,6 +14,7 @@ defmodule Ankole.AIGateway.Providers.OpenAICompatible do
 
     setting(:api_key, encrypted: true, scope: :credential)
     setting(:endpoint_kind, default: "chat_completions")
+    setting(:hosted_web_search, type: :boolean, default: false)
     setting(:headers, type: :map, advanced: true)
     setting(:query_params, type: :map, advanced: true)
 
@@ -58,6 +59,20 @@ defmodule Ankole.AIGateway.Providers.OpenAICompatible do
         |> UniversalAIRequest.new("chat/completions", :openai_chat_completions)
         |> UniversalAIRequest.bearer_auth()
         |> ReasoningEffort.put_provider_options(ctx, target: :reasoning_effort)
+    end
+  end
+
+  @doc """
+  Rejects hosted `web_search` on a connection that does not use the Responses
+  endpoint. Hosted tools ride the Responses wire, so a Chat Completions
+  connection cannot serve them.
+  """
+  def validate_connection_options(options) when is_map(options) do
+    if Map.get(options, "hosted_web_search") == true and
+         Map.get(options, "endpoint_kind") != "responses" do
+      {:error, {:connection_options, {:hosted_web_search_requires_endpoint_kind, "responses"}}}
+    else
+      :ok
     end
   end
 
