@@ -278,9 +278,11 @@ defmodule Ankole.E2E.WaitHelpers do
   @doc """
   Waits for the latest final IM mirror of one completed actor event.
 
-  Ordinary streamed AI replies commit a final `ai-reply:<message_id>` outbox row.
-  A steer keeps that message on the original Turn stream but makes the accepted
-  steer event own the outbox. The outbox maps those two ActorEvent identities.
+  Ordinary streamed AI replies commit one final outbox row. Cron replies can
+  commit one target-scoped row for each delivery target. This helper selects
+  the primary row. A steer keeps that message on the original Turn stream but
+  makes the accepted steer event own the outbox. The outbox maps those two
+  ActorEvent identities.
   The e2e wait loop advances due RuntimeEvents from the durable snapshot because
   SQL sandbox tests do not commit the transaction that would release pg_notify.
   """
@@ -502,19 +504,44 @@ defmodule Ankole.E2E.WaitHelpers do
 
   defp mirrored_latest_final_reply_for_actor_event(actor_event_id) do
     with %Message{} = message <- final_ai_message_for_actor_event(actor_event_id),
-         %OutboxEntry{source_actor_event_id: reply_actor_event_id} <-
-           Repo.get_by(OutboxEntry, outbound_key: "ai-reply:#{message.id}"),
-         %Entry{} = entry <-
-           Entry
-           |> where([entry], entry.ai_message_id == ^message.id)
-           |> where(
-             [entry],
-             fragment("?#>>'{actor_event_id}'", entry.metadata) == ^reply_actor_event_id
-           )
-           |> Repo.one() do
+         %OutboxEntry{} = outbox <- primary_final_outbox(actor_event_id, message.id),
+         %Entry{} = entry <- primary_final_entry(outbox) do
       {entry, message}
     else
       _missing -> nil
+    end
+  end
+
+  defp primary_final_outbox(actor_event_id, ai_message_id) do
+    OutboxEntry
+    |> where([outbox], outbox.source_actor_event_id == ^actor_event_id)
+    |> where([outbox], outbox.ai_message_id == ^ai_message_id)
+    |> Repo.all()
+    |> Enum.find(fn outbox ->
+      metadata = get_in(outbox.payload, ["metadata"]) || %{}
+
+      metadata["source"] == "ai_gateway_final_reply" and
+        get_in(metadata, ["delivery_target", "primary"]) != false
+    end)
+  end
+
+  defp primary_final_entry(%OutboxEntry{} = outbox) do
+    case outbox.created_source_entry_id || outbox.target_source_entry_id do
+      source_entry_id when is_binary(source_entry_id) ->
+        Repo.get_by(Entry,
+          signal_channel_id: outbox.signal_channel_id,
+          source_entry_id: source_entry_id
+        )
+
+      nil ->
+        Entry
+        |> where([entry], entry.ai_message_id == ^outbox.ai_message_id)
+        |> where([entry], entry.signal_channel_id == ^outbox.signal_channel_id)
+        |> Repo.all()
+        |> Enum.find(fn entry ->
+          entry.metadata["actor_event_id"] == outbox.source_actor_event_id and
+            get_in(entry.metadata, ["delivery_target", "primary"]) != false
+        end)
     end
   end
 

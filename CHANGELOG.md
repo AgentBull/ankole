@@ -1,5 +1,12 @@
 # Changelog
 
+## Version 0.65.0 (2026-08-12)
+
+- Run each recurring Agent or BackgroundAgentJob task once and deliver the same final reply and attachments through one independently retryable outbox row for each configured Signal target.
+- Normalize existing single-target schedules and live event snapshots without rewriting terminal history or replaying old outbox effects; downgrade stops before it can lose a multi-target route.
+- Let operators manage canonical `delivery.targets` in Console while target edits preserve worker-owned `quiet_success` and Agent tools preserve operator targets; schedule reads use the canonical list and legacy scalar writes still normalize to one target.
+- Cover one-turn multi-target delivery and isolated retry with a real Worker and Lark adapter E2E case.
+
 ## Version 0.64.2 (2026-08-12)
 
 - Update the public Console guides for reversible Signal Routing, safe credential replacement, Provider-dependent model options, and the editable boundaries of Principals, permission groups, and grants.

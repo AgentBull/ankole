@@ -92,7 +92,7 @@ The `status` value is one of:
 - `deleted`
 
 Each row stores the Agent, Session, binding, time rule, time zone, input, and
-delivery route. It also records the previous and next planned wake-up.
+delivery targets. It also records the previous and next planned wake-up.
 
 The creation idempotency key is:
 
@@ -217,8 +217,46 @@ It works for an active or paused rule. The caller must provide a request key.
 RuntimeFabric uses the provider tool call ID, and REST uses `Idempotency-Key`.
 Repeating the same request returns the same event.
 
-Cron delivery requires a `signal_channel_id`.
-The delivery route must match the source turn route for worker-originated requests.
+Cron delivery uses this form:
+
+```json
+{
+  "targets": [
+    {
+      "binding_name": "lark-primary",
+      "signal_channel_id": "lark:channel-a"
+    },
+    {
+      "binding_name": "lark-record",
+      "signal_channel_id": "lark:channel-b",
+      "provider_thread_id": "thread-b"
+    }
+  ],
+  "quiet_success": false
+}
+```
+
+The list must contain at least one target. Each target requires a binding and a
+channel. A provider thread is optional. Duplicate binding, channel, and thread
+tuples are invalid.
+
+The first target is the primary target. Its binding must equal the recurring
+rule's binding. Schedule copies that route into the scalar fields on the
+ScheduledEvent and ActorEvent, so the one Agent turn and its live preview keep
+one route. The full target list is frozen in the event `wake_payload`.
+
+An operator can add targets through the Console or REST API. A worker-originated
+request can create or replace only the current turn route. A worker can change
+`quiet_success` on an operator-managed multi-target rule without replacing its
+targets. An operator route update that omits `quiet_success` keeps the existing
+value.
+
+The control plane accepts the old scalar delivery form as input and normalizes
+it to one target. The data migration normalizes stored recurring rules and live
+`scheduled` or `firing` event snapshots. Terminal event history and existing
+outbox rows stay unchanged and are never replayed. A downgrade can convert a
+one-target rule back to the scalar form, but it stops if any rule has multiple
+targets because that conversion would lose configured routes.
 
 Cron turns can use quiet success only when the delivery object enables it.
 
@@ -245,10 +283,10 @@ A checkback fire produces `check_back_later.wakeup`.
 A cron fire produces `cron.fire`.
 
 The event uses a CloudEvents 1.0 envelope. It contains the scheduled event
-identifier, due time, fire time, time zone, and reply route. A direct consumer
-stores this envelope in an ActorEvent. An automation job consumer stores the
-same envelope in its run. The model wake-up prompt omits the event identifier
-and reply route.
+identifier, due time, fire time, time zone, primary reply route, and frozen
+delivery targets. A direct consumer stores this envelope in an ActorEvent. An
+automation job consumer stores the same envelope in its run. The model wake-up
+prompt omits the event identifier and delivery routes.
 
 After it writes the consumer record, Schedule changes the row to `fired`. It
 records `actor_event_id` for a direct consumer or `automation_job_run_id` for
@@ -289,7 +327,11 @@ ActorRuntime maps scheduled ActorEvents to dedicated turn kinds:
 
 The request tells the Agent which schedule woke it and whether it can report
 success without a reply. A cron turn also says that Ankole will deliver the
-configured output.
+configured output. The Agent runs once even when the rule has multiple targets.
+After completion, SignalsGateway stores one target-scoped outbox intent for each
+target. A BackgroundAgentJob created by that turn keeps the same frozen targets
+for its terminal notification. Interactive clarification stays on the primary
+target.
 
 The model must not send the same cron result through another messaging tool.
 
@@ -318,8 +360,9 @@ The RPC API provides these cron operations:
 RPCLane authenticates the worker before it calls `Schedule.RPCBroker`. The
 broker limits every read or change to the current Agent and Session.
 
-Checkback creation and update require an exact reply-route match.
-Cron delivery must match the current binding and channel.
+Checkback creation and update require an exact reply-route match. A
+worker-originated cron route must contain exactly one target and match the
+current binding and channel.
 An optional `automation_job_id` must name an active job for the same Agent.
 Checkback and cron updates can clear or replace this binding.
 
@@ -335,7 +378,8 @@ set of more cron rules.
 - A canceled automatic event can be replaced in the same slot.
 - A fired or failed automatic slot cannot run again.
 - One scheduled event creates at most one ActorEvent or automation job run.
-- A worker cannot schedule output to an unrelated provider route.
+- A worker cannot add an unrelated provider route to a schedule.
+- One cron event runs at most one Agent turn, independent of its target count.
 - A cron-originated turn cannot change or manually run cron definitions.
 - A canceled source entry cannot retain a pending checkback.
 - The schedule row must explicitly allow success without a reply.

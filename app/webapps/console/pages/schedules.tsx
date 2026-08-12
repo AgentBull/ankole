@@ -56,6 +56,7 @@ import { FilterSwitch, ResourceSearch, RowActions, ScopeBar } from '../console-l
 import {
   ScheduleEditorModel,
   type CronStatus,
+  type DeliveryTargetDraft,
   type ScheduleEditorDraft,
   type ScheduleKind
 } from '../state/schedule-editor-model'
@@ -73,7 +74,13 @@ type CronScheduleRow = {
   schedule: Record<string, unknown> | null
   timezone?: string | null
   payload?: Record<string, unknown> | null
-  delivery?: { signal_channel_id?: string; provider_thread_id?: string } | null
+  delivery?: {
+    targets?: Array<{
+      binding_name?: string
+      signal_channel_id?: string
+      provider_thread_id?: string
+    }>
+  } | null
   idempotency_key?: string
   next_fire_at?: string | null
   last_fire_at?: string | null
@@ -640,19 +647,23 @@ export function ScheduleCronEditorPage() {
 
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           <LabeledField label={t('console.schedules.binding')} required>
-            <Select value={model.bindingName.value} onValueChange={value => (model.bindingName.value = String(value))}>
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder={t('console.schedules.binding_placeholder')} />
-              </SelectTrigger>
-              <SelectContent emptyLabel={t('common.select_empty')}>
-                {bindingList.map(binding => (
-                  <SelectItem key={`${binding.adapter}:${binding.name}`} value={binding.name}>
-                    {binding.name}
-                    <span className="text-muted-foreground"> ({binding.adapter})</span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {editing ? (
+              <ReadOnlyValue mono>{model.bindingName.value || '—'}</ReadOnlyValue>
+            ) : (
+              <Select value={model.bindingName.value} onValueChange={value => model.setBindingName(String(value))}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder={t('console.schedules.binding_placeholder')} />
+                </SelectTrigger>
+                <SelectContent emptyLabel={t('common.select_empty')}>
+                  {bindingList.map(binding => (
+                    <SelectItem key={`${binding.adapter}:${binding.name}`} value={binding.name}>
+                      {binding.name}
+                      <span className="text-muted-foreground"> ({binding.adapter})</span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
           </LabeledField>
           <LabeledField label={t('console.schedules.name')} description={t('console.schedules.name_hint')}>
             <Input value={model.name.value} onChange={event => (model.name.value = event.target.value)} />
@@ -714,19 +725,67 @@ export function ScheduleCronEditorPage() {
           </div>
         )}
 
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <LabeledField label={t('console.schedules.delivery_channel')} required>
-            <Input
-              value={model.deliveryChannelId.value}
-              onChange={event => (model.deliveryChannelId.value = event.target.value)}
-            />
-          </LabeledField>
-          <LabeledField label={t('console.schedules.delivery_thread')}>
-            <Input
-              value={model.deliveryThreadId.value}
-              onChange={event => (model.deliveryThreadId.value = event.target.value)}
-            />
-          </LabeledField>
+        <div className="flex flex-col gap-3">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-medium">{t('console.schedules.delivery_targets')}</h3>
+              <p className="text-xs text-muted-foreground">{t('console.schedules.delivery_targets_hint')}</p>
+            </div>
+            <Button type="button" size="sm" variant="outline" onClick={() => model.addDeliveryTarget()}>
+              {t('console.schedules.add_delivery_target')}
+            </Button>
+          </div>
+
+          {model.deliveryTargets.value.map((target, index) => (
+            <div key={index} className="flex flex-col gap-3 border border-border p-3">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-xs font-medium text-muted-foreground">
+                  {t('console.schedules.delivery_target', { number: index + 1 })}
+                </span>
+                {index > 0 ? (
+                  <Button type="button" size="xs" variant="ghost" onClick={() => model.removeDeliveryTarget(index)}>
+                    {t('common.delete')}
+                  </Button>
+                ) : null}
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                <LabeledField label={t('console.schedules.binding')} required>
+                  {index === 0 ? (
+                    <ReadOnlyValue mono>{model.bindingName.value || '—'}</ReadOnlyValue>
+                  ) : (
+                    <Select
+                      value={target.bindingName}
+                      onValueChange={value => model.updateDeliveryTarget(index, { bindingName: String(value) })}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder={t('console.schedules.binding_placeholder')} />
+                      </SelectTrigger>
+                      <SelectContent emptyLabel={t('common.select_empty')}>
+                        {bindingList.map(binding => (
+                          <SelectItem key={`${binding.adapter}:${binding.name}`} value={binding.name}>
+                            {binding.name}
+                            <span className="text-muted-foreground"> ({binding.adapter})</span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </LabeledField>
+                <LabeledField label={t('console.schedules.delivery_channel')} required>
+                  <Input
+                    value={target.channelId}
+                    onChange={event => model.updateDeliveryTarget(index, { channelId: event.target.value })}
+                  />
+                </LabeledField>
+                <LabeledField label={t('console.schedules.delivery_thread')}>
+                  <Input
+                    value={target.threadId}
+                    onChange={event => model.updateDeliveryTarget(index, { threadId: event.target.value })}
+                  />
+                </LabeledField>
+              </div>
+            </div>
+          ))}
         </div>
 
         {!editing ? (
@@ -865,7 +924,6 @@ function eventTone(status: string): 'positive' | 'warning' | 'neutral' | 'danger
 
 function draftFromCron(row: CronScheduleRow, schedule: Record<string, unknown>): ScheduleEditorDraft {
   const kind = (String(schedule.kind ?? 'cron') || 'cron') as ScheduleKind
-  const delivery = row.delivery ?? {}
   return {
     sessionId: row.session_id,
     bindingName: row.binding_name,
@@ -876,8 +934,7 @@ function draftFromCron(row: CronScheduleRow, schedule: Record<string, unknown>):
     everyMs: String(schedule.every_ms ?? ''),
     anchorAt: String(schedule.anchor_at ?? ''),
     timezone: row.timezone ?? '',
-    deliveryChannelId: delivery.signal_channel_id ?? '',
-    deliveryThreadId: delivery.provider_thread_id ?? '',
+    deliveryTargets: deliveryTargetsFromCron(row),
     payload: safeStringify(row.payload ?? {}),
     idempotencyKey: row.idempotency_key ?? ''
   }
@@ -894,11 +951,21 @@ function emptyDraft(): ScheduleEditorDraft {
     everyMs: '',
     anchorAt: '',
     timezone: '',
-    deliveryChannelId: '',
-    deliveryThreadId: '',
+    deliveryTargets: [{ bindingName: '', channelId: '', threadId: '' }],
     payload: '{}',
     idempotencyKey: ''
   }
+}
+
+function deliveryTargetsFromCron(row: CronScheduleRow): DeliveryTargetDraft[] {
+  const delivery = row.delivery ?? {}
+  const targets = Array.isArray(delivery.targets) ? delivery.targets : []
+
+  return targets.map(target => ({
+    bindingName: target.binding_name ?? '',
+    channelId: target.signal_channel_id ?? '',
+    threadId: target.provider_thread_id ?? ''
+  }))
 }
 
 function safeStringify(value: unknown): string {

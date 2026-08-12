@@ -3,6 +3,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBrokerTest do
 
   alias Ankole.BackgroundAgentJobs
   alias Ankole.Repo
+  alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.ActorRuntime.ReadyEventProcessor
 
   test "parent turn creates a durable job with server-frozen identity and reply route" do
@@ -40,6 +41,59 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBrokerTest do
     assert job.workspace_owner_job_id == job.id
     assert job.model_profile == "coding"
     assert payload.model_profile == "coding"
+  end
+
+  test "a cron parent freezes its delivery targets in the BackgroundAgentJob reply route" do
+    %{principal: agent} = agent_fixture()
+    binding_fixture(agent.uid, "bot", :ignore)
+    route = unique_route()
+    turn_ref = start_parent_turn!(agent.uid, route)
+    source = Repo.get!(ActorEvent, turn_ref.actor_event_id)
+
+    delivery = %{
+      "targets" => [
+        %{
+          "binding_name" => source.binding_name,
+          "signal_channel_id" => source.signal_channel_id,
+          "provider_thread_id" => source.provider_thread_id
+        },
+        %{
+          "binding_name" => "archive-bot",
+          "signal_channel_id" => "archive-channel"
+        }
+      ]
+    }
+
+    source
+    |> ActorEvent.changeset(%{
+      type: "cron.fire",
+      payload: %{"data" => %{"wake_payload" => %{"delivery" => delivery}}}
+    })
+    |> Repo.update!()
+
+    assert {:ok, envelope} =
+             RPCLane.handle_request(
+               rpc_request(
+                 "background-agent-job-create-from-cron",
+                 "background_agent_job.create",
+                 %FabricProto.BackgroundAgentJobCreateRequest{
+                   source_tool_call_id: "tool-background-agent-job-from-cron",
+                   title: "Prepare scheduled brief",
+                   task: "Write and verify the scheduled brief."
+                 },
+                 turn: turn_ref
+               ),
+               route
+             )
+
+    job =
+      envelope
+      |> job_payload()
+      |> Map.fetch!(:job_id)
+      |> domain_job_id!()
+      |> BackgroundAgentJobs.get_job_for_agent(agent.uid)
+
+    assert job.reply_route["delivery"] == delivery
   end
 
   test "parent turn respawns one terminal job into one linear successor" do

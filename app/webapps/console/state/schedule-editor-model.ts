@@ -12,6 +12,12 @@ export type CronStatus = 'active' | 'paused'
 
 export type ScheduleKind = 'cron' | 'every'
 
+export type DeliveryTargetDraft = {
+  bindingName: string
+  channelId: string
+  threadId: string
+}
+
 export type ScheduleEditorDraft = {
   sessionId: string
   bindingName: string
@@ -22,8 +28,7 @@ export type ScheduleEditorDraft = {
   everyMs: string
   anchorAt: string
   timezone: string
-  deliveryChannelId: string
-  deliveryThreadId: string
+  deliveryTargets: DeliveryTargetDraft[]
   payload: string
   idempotencyKey: string
 }
@@ -36,7 +41,7 @@ export type CronCreateBody = {
   schedule: Record<string, unknown>
   timezone?: string | null
   payload?: unknown
-  delivery: { signal_channel_id: string; provider_thread_id?: string }
+  delivery: { targets: DeliveryTarget[] }
   idempotency_key: string
 }
 
@@ -45,7 +50,13 @@ export type CronUpdateBody = {
   schedule?: Record<string, unknown>
   timezone?: string | null
   payload?: unknown
-  delivery?: { signal_channel_id: string; provider_thread_id?: string }
+  delivery?: { targets: DeliveryTarget[] }
+}
+
+type DeliveryTarget = {
+  binding_name: string
+  signal_channel_id: string
+  provider_thread_id?: string
 }
 
 export const ScheduleEditorModel = createModel(() => {
@@ -59,8 +70,7 @@ export const ScheduleEditorModel = createModel(() => {
   const everyMs = signal('')
   const anchorAt = signal('')
   const timezone = signal('')
-  const deliveryChannelId = signal('')
-  const deliveryThreadId = signal('')
+  const deliveryTargets = signal<DeliveryTargetDraft[]>([])
   const payload = signal('{}')
   const idempotencyKey = signal('')
   const initialDraft = signal<ScheduleEditorDraft>()
@@ -77,8 +87,8 @@ export const ScheduleEditorModel = createModel(() => {
       everyMs.value = draft.everyMs
       anchorAt.value = draft.anchorAt
       timezone.value = draft.timezone
-      deliveryChannelId.value = draft.deliveryChannelId
-      deliveryThreadId.value = draft.deliveryThreadId
+      deliveryTargets.value =
+        draft.deliveryTargets.length > 0 ? draft.deliveryTargets.map(target => ({ ...target })) : [emptyTarget()]
       payload.value = draft.payload
       idempotencyKey.value = draft.idempotencyKey
       validationError.value = undefined
@@ -101,12 +111,29 @@ export const ScheduleEditorModel = createModel(() => {
     return out
   }
 
-  const buildDelivery = (): { signal_channel_id: string; provider_thread_id?: string } | null => {
-    const signal_channel_id = deliveryChannelId.value.trim()
-    if (!signal_channel_id) return null
-    const out: { signal_channel_id: string; provider_thread_id?: string } = { signal_channel_id }
-    if (deliveryThreadId.value.trim()) out.provider_thread_id = deliveryThreadId.value.trim()
-    return out
+  const buildDelivery = (): { targets: DeliveryTarget[] } | null => {
+    const targets = deliveryTargets.value.map(target => {
+      const out: DeliveryTarget = {
+        binding_name: target.bindingName.trim(),
+        signal_channel_id: target.channelId.trim()
+      }
+      if (target.threadId.trim()) out.provider_thread_id = target.threadId.trim()
+      return out
+    })
+
+    if (
+      targets.length === 0 ||
+      targets.some(target => !target.binding_name || !target.signal_channel_id) ||
+      targets[0]?.binding_name !== bindingName.value.trim()
+    ) {
+      return null
+    }
+
+    const keys = targets.map(target =>
+      [target.binding_name, target.signal_channel_id, target.provider_thread_id ?? ''].join('\u0000')
+    )
+    if (new Set(keys).size !== keys.length) return null
+    return { targets }
   }
 
   const buildPayload = (): unknown => {
@@ -125,8 +152,7 @@ export const ScheduleEditorModel = createModel(() => {
     original.timezone.trim() !== timezone.value.trim()
 
   const deliveryFieldsChanged = (original: ScheduleEditorDraft): boolean =>
-    original.deliveryChannelId.trim() !== deliveryChannelId.value.trim() ||
-    original.deliveryThreadId.trim() !== deliveryThreadId.value.trim()
+    !sameJSON(normalizeDraftTargets(original.deliveryTargets), normalizeDraftTargets(deliveryTargets.value))
 
   return {
     sourceKey,
@@ -139,8 +165,7 @@ export const ScheduleEditorModel = createModel(() => {
     everyMs,
     anchorAt,
     timezone,
-    deliveryChannelId,
-    deliveryThreadId,
+    deliveryTargets,
     payload,
     idempotencyKey,
     validationError,
@@ -152,6 +177,23 @@ export const ScheduleEditorModel = createModel(() => {
     },
     clearValidation() {
       validationError.value = undefined
+    },
+    setBindingName(value: string) {
+      bindingName.value = value
+      const targets = deliveryTargets.value.length > 0 ? deliveryTargets.value : [emptyTarget()]
+      deliveryTargets.value = targets.map((target, index) => (index === 0 ? { ...target, bindingName: value } : target))
+    },
+    addDeliveryTarget() {
+      deliveryTargets.value = [...deliveryTargets.value, emptyTarget()]
+    },
+    updateDeliveryTarget(index: number, update: Partial<DeliveryTargetDraft>) {
+      deliveryTargets.value = deliveryTargets.value.map((target, targetIndex) =>
+        targetIndex === index ? { ...target, ...update } : target
+      )
+    },
+    removeDeliveryTarget(index: number) {
+      if (index === 0) return
+      deliveryTargets.value = deliveryTargets.value.filter((_target, targetIndex) => targetIndex !== index)
     },
     isComplete(): boolean {
       return Boolean(
@@ -214,4 +256,16 @@ function parseJSON(value: string): unknown {
 
 function sameJSON(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right)
+}
+
+function emptyTarget(): DeliveryTargetDraft {
+  return { bindingName: '', channelId: '', threadId: '' }
+}
+
+function normalizeDraftTargets(targets: DeliveryTargetDraft[]): DeliveryTargetDraft[] {
+  return targets.map(target => ({
+    bindingName: target.bindingName.trim(),
+    channelId: target.channelId.trim(),
+    threadId: target.threadId.trim()
+  }))
 }

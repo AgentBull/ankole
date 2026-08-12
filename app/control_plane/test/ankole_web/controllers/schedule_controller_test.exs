@@ -75,7 +75,7 @@ defmodule AnkoleWeb.ScheduleControllerTest do
     assert remaining_id == evening.id
   end
 
-  test "creation carries the owning session in the request body", %{conn: conn} do
+  test "creation normalizes legacy delivery and update accepts multiple targets", %{conn: conn} do
     %{principal: agent} = agent_fixture()
     api_spec = AnkoleWeb.APISpec.spec()
     conn = bearer_conn(conn)
@@ -88,6 +88,30 @@ defmodule AnkoleWeb.ScheduleControllerTest do
     assert_schema(created, "ScheduleCronScheduleResponse", api_spec)
     assert get_in(created, ["cron_schedule", "session_id"]) == "session-a"
     assert get_in(created, ["cron_schedule", "status"]) == "active"
+
+    assert get_in(created, ["cron_schedule", "delivery", "targets"]) == [
+             %{
+               "binding_name" => "lark",
+               "signal_channel_id" => "lark:chat:digest"
+             }
+           ]
+
+    schedule_id = get_in(created, ["cron_schedule", "id"])
+
+    targets = [
+      %{"binding_name" => "lark", "signal_channel_id" => "lark:chat:digest"},
+      %{"binding_name" => "lark-record", "signal_channel_id" => "lark:chat:archive"}
+    ]
+
+    updated =
+      conn
+      |> recycle_bearer()
+      |> patch(~p"/api/v1/agents/#{agent.uid}/cron-schedules/#{schedule_id}", %{
+        "delivery" => %{"targets" => targets}
+      })
+      |> json_response(200)
+
+    assert get_in(updated, ["cron_schedule", "delivery", "targets"]) == targets
 
     assert conn
            |> recycle_bearer()

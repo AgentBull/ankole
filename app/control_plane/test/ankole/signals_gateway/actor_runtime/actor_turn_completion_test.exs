@@ -4,6 +4,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorTurnCompletionTest do
   alias Ankole.SignalsGateway.Channel
   alias Ankole.SignalsGateway.InputTombstone
   alias Ankole.SignalsGateway.ReplyInteractionState
+  alias Ankole.Schedule.Delivery
 
   setup context do
     Ankole.SignalsGateway.ActorRuntimeCase.use_mock_signal_provider_plugin(context)
@@ -53,6 +54,296 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorTurnCompletionTest do
                ),
                :count
              ) == 1
+    end
+
+    test "one cron completion creates independently retryable outboxes for every target" do
+      %{agent: agent, event: event, turn_ref: turn_ref} =
+        start_accepted_turn("cron-delivery-fanout")
+
+      secondary_channel_id = "mock:chat:cron-delivery-secondary"
+
+      %Channel{}
+      |> Channel.changeset(%{
+        id: secondary_channel_id,
+        kind: :im_group,
+        reply_mode: :channel,
+        name: "Secondary schedule delivery",
+        metadata: %{},
+        raw_payload: %{},
+        first_seen_at: @base_time,
+        last_seen_at: @base_time
+      })
+      |> Repo.insert!()
+
+      targets = [
+        %{
+          "binding_name" => event.binding_name,
+          "signal_channel_id" => event.signal_channel_id,
+          "provider_thread_id" => event.provider_thread_id
+        },
+        %{
+          "binding_name" => event.binding_name,
+          "signal_channel_id" => secondary_channel_id,
+          "provider_thread_id" => "secondary-thread"
+        }
+      ]
+
+      event =
+        event
+        |> ActorEvent.changeset(%{
+          type: "cron.fire",
+          source_entry_id: nil,
+          payload: %{
+            "data" => %{
+              "wake_payload" => %{
+                "delivery" => %{"targets" => targets},
+                "payload" => %{"task" => "prepare one report"}
+              }
+            }
+          }
+        })
+        |> Repo.update!()
+
+      final = complete_response(agent.uid, event, "one report for both targets")
+
+      assert {:ok,
+              %{
+                status: :turn_completed,
+                outboxes: %{finals: [%OutboxEntry{} = primary, %OutboxEntry{} = secondary]}
+              }} = complete_turn(turn_ref, final)
+
+      assert primary.outbound_key == "ai-reply:#{final.id}:#{Delivery.target_key(hd(targets))}"
+      assert primary.signal_channel_id == event.signal_channel_id
+      assert primary.operation == :post
+      assert get_in(primary.payload, ["metadata", "delivery_target", "primary"]) == true
+      assert is_map(primary.payload["reply_presentation"])
+
+      assert secondary.outbound_key ==
+               "ai-reply:#{final.id}:#{Delivery.target_key(List.last(targets))}"
+
+      assert secondary.signal_channel_id == secondary_channel_id
+      assert secondary.operation == :post
+      assert get_in(secondary.payload, ["metadata", "delivery_target", "primary"]) == false
+      refute Map.has_key?(secondary.payload, "reply_presentation")
+      assert secondary.ai_message_id == primary.ai_message_id
+      assert secondary.payload["text"] == primary.payload["text"]
+
+      success_adapter =
+        outbox_adapter([:post_entry], fn _outbox ->
+          {:ok, %{created_source_entry_id: "provider-primary", raw_payload: %{}}}
+        end)
+
+      assert {:ok, %OutboxEntry{status: :succeeded, attempt_count: 1}} =
+               SignalsGateway.dispatch_outbox(
+                 primary.agent_uid,
+                 primary.binding_name,
+                 primary.outbound_key,
+                 success_adapter
+               )
+
+      failing_adapter =
+        outbox_adapter([:post_entry], fn _outbox ->
+          {:error, {:reply_delivery, :retryable, %{"code" => "provider_unavailable"}}}
+        end)
+
+      assert {:ok, %OutboxEntry{status: :failed, attempt_count: 1} = failed} =
+               SignalsGateway.dispatch_outbox(
+                 secondary.agent_uid,
+                 secondary.binding_name,
+                 secondary.outbound_key,
+                 failing_adapter
+               )
+
+      retry_adapter =
+        outbox_adapter([:post_entry], fn _outbox ->
+          {:ok, %{created_source_entry_id: "provider-secondary", raw_payload: %{}}}
+        end)
+
+      assert {:ok, %OutboxEntry{status: :succeeded, attempt_count: 2}} =
+               SignalsGateway.dispatch_outbox(
+                 secondary.agent_uid,
+                 secondary.binding_name,
+                 secondary.outbound_key,
+                 retry_adapter,
+                 now: DateTime.add(failed.next_attempt_at, 1, :second)
+               )
+
+      assert Repo.get_by!(OutboxEntry,
+               agent_uid: primary.agent_uid,
+               binding_name: primary.binding_name,
+               outbound_key: primary.outbound_key
+             ).attempt_count == 1
+
+      assert {:ok, %{status: :already_completed}} = complete_turn(turn_ref, final)
+
+      assert Repo.aggregate(
+               from(outbox in OutboxEntry, where: outbox.source_actor_event_id == ^event.id),
+               :count
+             ) == 2
+    end
+
+    test "one cron completion creates a target-scoped attachment outbox for every target" do
+      %{agent: agent, event: event, turn_ref: turn_ref} =
+        start_accepted_turn("cron-attachment-fanout")
+
+      secondary_channel_id = "mock:chat:cron-attachment-secondary"
+
+      %Channel{}
+      |> Channel.changeset(%{
+        id: secondary_channel_id,
+        kind: :im_group,
+        reply_mode: :channel,
+        name: "Secondary schedule attachment delivery",
+        metadata: %{},
+        raw_payload: %{},
+        first_seen_at: @base_time,
+        last_seen_at: @base_time
+      })
+      |> Repo.insert!()
+
+      targets = [
+        %{
+          "binding_name" => event.binding_name,
+          "signal_channel_id" => event.signal_channel_id,
+          "provider_thread_id" => event.provider_thread_id
+        },
+        %{
+          "binding_name" => event.binding_name,
+          "signal_channel_id" => secondary_channel_id,
+          "provider_thread_id" => "secondary-attachment-thread"
+        }
+      ]
+
+      event =
+        event
+        |> ActorEvent.changeset(%{
+          type: "cron.fire",
+          payload: %{
+            "data" => %{
+              "wake_payload" => %{"delivery" => %{"targets" => targets}}
+            }
+          }
+        })
+        |> Repo.update!()
+
+      attachment = %{
+        "agent_computer_path" => "/agents/#{agent.uid}/user-files/reports/scheduled.txt",
+        "user_files_relative_path" => "reports/scheduled.txt",
+        "name" => "scheduled.txt",
+        "mime_type" => "text/plain",
+        "size" => 42
+      }
+
+      final =
+        complete_response_items(agent.uid, event, [
+          %{
+            "type" => "function_call",
+            "call_id" => "call-cron-attachment",
+            "name" => "reply_attachment",
+            "arguments" => "{}"
+          },
+          %{
+            "type" => "function_call_output",
+            "call_id" => "call-cron-attachment",
+            "output" => %{
+              "tool" => "reply_attachment",
+              "ok" => true,
+              "attachments" => [attachment]
+            }
+          }
+        ])
+
+      assert {:ok,
+              %{
+                status: :turn_completed,
+                outboxes: %{
+                  attachments: [
+                    %OutboxEntry{} = primary,
+                    %OutboxEntry{} = secondary
+                  ],
+                  finals: []
+                }
+              }} = complete_turn(turn_ref, final)
+
+      assert primary.outbound_key ==
+               "ai-reply-attachment:#{final.id}:#{Delivery.target_key(hd(targets))}:0"
+
+      assert primary.signal_channel_id == event.signal_channel_id
+      assert get_in(primary.payload, ["metadata", "delivery_target", "primary"]) == true
+
+      assert secondary.outbound_key ==
+               "ai-reply-attachment:#{final.id}:#{Delivery.target_key(List.last(targets))}:0"
+
+      assert secondary.signal_channel_id == secondary_channel_id
+      assert secondary.provider_thread_id == "secondary-attachment-thread"
+      assert secondary.operation == :post
+      assert is_nil(secondary.reply_to_source_entry_id)
+      assert secondary.payload["attachments"] == [attachment]
+      assert get_in(secondary.payload, ["metadata", "delivery_target", "primary"]) == false
+    end
+
+    test "a BackgroundAgentJob completion preserves its originating cron targets" do
+      %{agent: agent, event: event, turn_ref: turn_ref} =
+        start_accepted_turn("background-job-delivery-fanout")
+
+      secondary_channel_id = "mock:chat:background-job-delivery-secondary"
+
+      %Channel{}
+      |> Channel.changeset(%{
+        id: secondary_channel_id,
+        kind: :im_group,
+        reply_mode: :channel,
+        name: "Secondary background job delivery",
+        metadata: %{},
+        raw_payload: %{},
+        first_seen_at: @base_time,
+        last_seen_at: @base_time
+      })
+      |> Repo.insert!()
+
+      targets = [
+        %{
+          "binding_name" => event.binding_name,
+          "signal_channel_id" => event.signal_channel_id,
+          "provider_thread_id" => event.provider_thread_id
+        },
+        %{
+          "binding_name" => event.binding_name,
+          "signal_channel_id" => secondary_channel_id
+        }
+      ]
+
+      event =
+        event
+        |> ActorEvent.changeset(%{
+          type: "background_agent_job.completed",
+          source_entry_id: nil,
+          payload: %{
+            "data" => %{
+              "job_id" => 1000,
+              "reply_route" => %{
+                "binding_name" => event.binding_name,
+                "signal_channel_id" => event.signal_channel_id,
+                "delivery" => %{"targets" => targets}
+              }
+            }
+          }
+        })
+        |> Repo.update!()
+
+      final = complete_response(agent.uid, event, "one completed background report")
+
+      assert {:ok,
+              %{
+                status: :turn_completed,
+                outboxes: %{finals: [%OutboxEntry{} = primary, %OutboxEntry{} = secondary]}
+              }} = complete_turn(turn_ref, final)
+
+      assert primary.signal_channel_id == event.signal_channel_id
+      assert secondary.signal_channel_id == secondary_channel_id
+      assert secondary.ai_message_id == primary.ai_message_id
+      assert secondary.payload["text"] == primary.payload["text"]
+      refute Map.has_key?(secondary.payload, "reply_presentation")
     end
 
     test "noop RPC commits once and acknowledges a retry" do
@@ -223,7 +514,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorTurnCompletionTest do
       assert {:ok,
               %{
                 status: :turn_completed,
-                outboxes: %{final: %OutboxEntry{} = outbox}
+                outboxes: %{finals: [%OutboxEntry{} = outbox]}
               }} = complete_turn(turn_ref, final)
 
       assert outbox.binding_name == event.binding_name
@@ -245,7 +536,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorTurnCompletionTest do
       # The work happened and the answer is in the transcript. Failing the
       # completion would retry the whole turn, and every retry costs another
       # model call while the channel stays exactly as unreachable.
-      assert {:ok, %{status: :turn_completed, outboxes: %{final: nil, attachments: []}}} =
+      assert {:ok, %{status: :turn_completed, outboxes: %{finals: [], attachments: []}}} =
                complete_turn(turn_ref, final)
 
       assert %DateTime{} = Repo.get!(ActorEvent, event.id).completed_at
@@ -456,7 +747,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorTurnCompletionTest do
       assert {:ok,
               %{
                 status: :turn_completed,
-                outboxes: %{attachments: [], clarify: nil, final: nil}
+                outboxes: %{attachments: [], clarify: nil, finals: []}
               }} = complete_turn(turn_ref, final)
 
       completed_event = Repo.get!(ActorEvent, event.id)
@@ -494,7 +785,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorTurnCompletionTest do
       assert {:ok,
               %{
                 status: :turn_completed,
-                outboxes: %{clarify: %OutboxEntry{} = outbox, final: nil, attachments: []}
+                outboxes: %{clarify: %OutboxEntry{} = outbox, finals: [], attachments: []}
               }} = complete_turn(turn_ref, final)
 
       assert outbox.payload["metadata"]["source"] == "ai_gateway_clarify"
@@ -607,7 +898,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorTurnCompletionTest do
       assert {:ok,
               %{
                 status: :turn_completed,
-                outboxes: %{attachments: [%OutboxEntry{} = outbox], clarify: nil, final: nil}
+                outboxes: %{attachments: [%OutboxEntry{} = outbox], clarify: nil, finals: []}
               }} = complete_turn(turn_ref, final)
 
       assert outbox.outbound_key == "ai-reply-attachment:#{final.id}:0"
@@ -655,7 +946,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorTurnCompletionTest do
               %{
                 outboxes: %{
                   attachments: [%OutboxEntry{} = attachment_outbox],
-                  final: %OutboxEntry{} = final_outbox
+                  finals: [%OutboxEntry{} = final_outbox]
                 }
               }} = complete_turn(turn_ref, final)
 
@@ -796,7 +1087,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorTurnCompletionTest do
               %{
                 status: :turn_completed,
                 outcome: "iteration_exhausted",
-                outboxes: %{final: %OutboxEntry{} = outbox}
+                outboxes: %{finals: [%OutboxEntry{} = outbox]}
               }} = complete_turn(turn_ref, final, "iteration_exhausted")
 
       assert outbox.payload["metadata"]["turn_completion_outcome"] ==

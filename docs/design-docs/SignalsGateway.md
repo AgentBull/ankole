@@ -408,6 +408,20 @@ another model call while the route stays exactly as unreachable.
 When an Agent turn ends, SignalsGateway stores every provider operation before
 it sends anything. The same transaction completes the ActorEvent.
 
+A `cron.fire` event can contain more than one delivery target. One completion
+uses the same final AIGateway message and stores one outbox row for each target.
+The target tuple contributes a stable hash to the outbox key, so two channels
+on the same binding remain separate idempotent operations. Each row keeps its
+own status, attempt count, error, deadline, and provider result.
+
+The primary target can finalize the live preview. Other targets use top-level
+posts with the same final text and attachments. They do not carry the mutable
+reply presentation or share the primary source entry and preview state. A
+missing binding, channel, adapter, or provider failure affects only that
+target's dispatch; it does not roll back the Turn completion or another
+target's intent. The dispatcher and every adapter still process one row and one
+provider target at a time.
+
 Outbox operations are:
 
 - `post`
@@ -563,6 +577,7 @@ RuntimeFabric carries worker messages and checks their protocol.
 
 - A provider redelivery cannot create a duplicate ActorEvent for the same binding.
 - Each provider operation stored in PostgreSQL has one outbox key.
+- One scheduled result has one target-scoped outbox key for each delivery target.
 - A provider acknowledgement never depends on model execution.
 - A provider mirror records provider state and never replaces an ActorEvent.
 - A live preview never replaces a stored final reply.

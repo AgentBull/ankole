@@ -239,6 +239,16 @@ describe('schedule tools', () => {
     expect(requests).toHaveLength(2)
     expect(requests[0]!.idempotencyKey).toBe(requests[1]!.idempotencyKey)
     expect(String(requests[0]!.idempotencyKey).startsWith('cron:add:00000000-0000-0000-0000-000000000123:')).toBe(true)
+    expect(jsonFromBytes(requests[0]!.deliveryJson as Uint8Array)).toEqual({
+      targets: [
+        {
+          binding_name: 'mock',
+          signal_channel_id: 'mock:chat:schedule',
+          provider_thread_id: 'thread-1'
+        }
+      ],
+      quiet_success: true
+    })
     expect(result.presentation).toEqual([
       {
         kind: 'effect.receipt',
@@ -252,6 +262,29 @@ describe('schedule tools', () => {
         }
       }
     ])
+  })
+
+  it('updates cron delivery options without replacing operator-managed targets', async () => {
+    const calls: Array<{ method: ScheduleRPCMethod; request: JSONObject }> = []
+    const cron = createScheduleTools({
+      turnStart: turnStartForScheduleTool(),
+      requestScheduleRPC: async (method: ScheduleRPCMethod, request: Record<string, unknown>): Promise<JSONObject> => {
+        calls.push({ method, request })
+        return { status: 'updated' }
+      }
+    }).find(tool => tool.name === 'cron')!
+
+    await cron.execute('call_update_delivery_option', {
+      action: 'update',
+      name: 'market-open-check',
+      delivery: { quiet_success: true }
+    })
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.method).toBe(rpcMethods.scheduleCronUpdate)
+    expect(jsonFromBytes(calls[0]!.request.updatesJson as Uint8Array)).toEqual({
+      delivery: { quiet_success: true }
+    })
   })
 
   it('passes an occurrence bound through the schedule JSON and rejects malformed bounds', async () => {
