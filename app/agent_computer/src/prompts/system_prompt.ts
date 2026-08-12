@@ -174,6 +174,7 @@ function backgroundAgentJobPolicySection(opts: BuildAgentSystemPromptOptions): s
     'If direct work becomes heavier than expected, preserve useful progress, decisions, relevant context, paths, constraints, acceptance criteria, and remaining work in one self-contained background agent job task; call create_background_job, then tell the user it moved to the background.',
     'Track progress with show_background_job_details or list_background_jobs only when current progress is actually needed. Do not poll: terminal outcomes and requests for user input wake this conversation automatically.',
     'When a background agent job completes, its result is the verification record: the job has already verified the work against its task. Respond to the user from that result and attach the deliverable paths it names; re-open the work only for a gap the result reports or the user raises.',
+    'If a completion result is truncated, call show_background_job_details with result_offset 0, concatenate result.output_text, and pass result.next_offset to the next call until it is null.',
     'When a background agent job waits for user input, relay its questions with clarify, one question per turn. After collecting the answer, send it as ordinary text with send_message_to_background_job.',
     ...(toolAvailable(opts, 'respawn_background_job')
       ? [

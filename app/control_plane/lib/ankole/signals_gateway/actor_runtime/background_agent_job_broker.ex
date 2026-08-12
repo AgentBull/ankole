@@ -10,6 +10,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
 
   alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Schemas.Job
+  alias Ankole.BackgroundAgentJobs.Text
   alias Ankole.Repo
   alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.SignalsGateway.ActorEvent
@@ -21,6 +22,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
   require Ankole.BackgroundAgentJobs
 
   @terminal_statuses Job.terminal_statuses()
+  @max_result_offset 2_147_483_646
 
   @spec handle_create(TurnRef.t(), FabricProto.BackgroundAgentJobCreateRequest.t(), map()) ::
           {:ok, FabricProto.BackgroundAgentJobResponse.t()} | {:error, map()}
@@ -88,6 +90,28 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
 
   @spec handle_get(TurnRef.t(), FabricProto.BackgroundAgentJobGetRequest.t(), map()) ::
           {:ok, FabricProto.BackgroundAgentJobResponse.t()} | {:error, map()}
+  def handle_get(
+        %TurnRef{} = turn_ref,
+        %FabricProto.BackgroundAgentJobGetRequest{result_offset: result_offset} = request,
+        ctx
+      )
+      when result_offset != "" do
+    with {:ok, job_id} <- request_job_id(request.job_id),
+         {:ok, offset} <- request_result_offset(result_offset),
+         %{
+           job: %Job{} = job,
+           output_window: output_window,
+           total_bytes: total_bytes
+         } <- BackgroundAgentJobs.get_result_window_for_agent(job_id, turn_ref.agent_uid, offset),
+         :ok <- authorize_visible_job(turn_ref, job),
+         {:ok, response} <- result_output_response(job, offset, output_window, total_bytes) do
+      {:ok, response}
+    else
+      nil -> error(ctx.request_id, turn_ref.agent_uid, :job_not_found)
+      {:error, reason} -> error(ctx.request_id, turn_ref.agent_uid, reason)
+    end
+  end
+
   def handle_get(
         %TurnRef{} = turn_ref,
         %FabricProto.BackgroundAgentJobGetRequest{} = request,
@@ -430,7 +454,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
       queued_at: iso8601(job.queued_at),
       started_at: iso8601(job.started_at),
       completed_at: iso8601(job.completed_at),
-      result_json: encode_optional_json(job.result),
       error_json: encode_optional_json(job.error),
       metadata_json: encode_optional_json(job.metadata),
       runtime_projection_json: encode_optional_json(job.runtime_projection)
@@ -471,6 +494,63 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
 
   defp result_ref(%Job{}), do: nil
 
+  defp result_output_response(%Job{} = job, offset, output_window, total_bytes) do
+    with {:ok, {output_text, total_bytes}} <-
+           result_output_window(job, offset, output_window, total_bytes) do
+      {:ok,
+       %FabricProto.BackgroundAgentJobResponse{
+         job_id: Integer.to_string(job.id),
+         status: job.status,
+         title: job.title,
+         result_ref: result_ref(job),
+         result_output_text: output_text,
+         result_output_total_bytes: Integer.to_string(total_bytes)
+       }}
+    end
+  end
+
+  defp result_output_window(%Job{status: status}, _offset, _output_window, _total_bytes)
+       when status != "succeeded",
+       do: {:ok, {"", 0}}
+
+  defp result_output_window(
+         %Job{status: "succeeded"},
+         offset,
+         output_window,
+         total_bytes
+       )
+       when is_binary(output_window) and is_integer(total_bytes) and total_bytes >= 0 do
+    cond do
+      offset > total_bytes ->
+        {:error, :invalid_background_agent_job_result_offset}
+
+      utf8_boundary?(output_window, offset, total_bytes) ->
+        {:ok, {result_output_prefix(output_window), total_bytes}}
+
+      true ->
+        {:error, :invalid_background_agent_job_result_offset}
+    end
+  end
+
+  defp result_output_window(%Job{}, _offset, _output_window, _total_bytes),
+    do: {:error, :background_agent_job_result_output_missing}
+
+  defp utf8_boundary?(_output_window, offset, total_bytes) when offset == total_bytes, do: true
+
+  defp utf8_boundary?(<<byte, _suffix::binary>>, _offset, _total_bytes) do
+    byte < 0x80 or byte >= 0xC0
+  end
+
+  defp utf8_boundary?(<<>>, _offset, _total_bytes), do: false
+
+  defp result_output_prefix(output_window) do
+    if String.valid?(output_window) do
+      output_window
+    else
+      Text.utf8_prefix(output_window, byte_size(output_window) - 1)
+    end
+  end
+
   defp optional_job_id(nil), do: ""
   defp optional_job_id(job_id) when is_integer(job_id), do: Integer.to_string(job_id)
 
@@ -506,6 +586,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
     case BackgroundAgentJobs.parse_job_id(value) do
       {:ok, job_id} -> {:ok, job_id}
       :error -> {:error, :invalid_background_agent_job_id}
+    end
+  end
+
+  defp request_result_offset(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {offset, ""} when offset >= 0 and offset <= @max_result_offset -> {:ok, offset}
+      _value -> {:error, :invalid_background_agent_job_result_offset}
     end
   end
 

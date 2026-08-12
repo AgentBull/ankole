@@ -1,3 +1,5 @@
+import { ms } from '@agentbull/active-support'
+
 import { appRootPath, loadAppDevelopmentEnv, runMixCaptured } from './utils'
 
 export type WorkerBootstrapMount = {
@@ -93,17 +95,36 @@ export function buildDockerRunArgs(spec: WorkerBootstrapSpec, options: DockerRun
   ]
 }
 
+// Mix writes compile warnings and "Waiting for lock on the build directory
+// (held by process <pid>)" to stderr. Stream stderr so a held _build lock is
+// visible immediately, and bound the wait so an unattended run fails instead
+// of hanging without output.
+const renderTimeout = ms('10m')
+
 async function renderBootstrapSpec(
   args: string[],
   expectedKind: WorkerBootstrapSpec['kind']
 ): Promise<WorkerBootstrapSpec> {
   const result = await runMixCaptured(['ankole.actor_runtime.worker_bootstrap', '--format', 'json', ...args], {
     cwd: appRootPath,
-    env: loadAppDevelopmentEnv()
+    env: loadAppDevelopmentEnv(),
+    stdio: ['ignore', 'pipe', 'inherit'],
+    timeout: renderTimeout,
+    killSignal: 'SIGKILL'
   })
 
+  if (result.status === null && !result.error) {
+    throw new Error(
+      `worker bootstrap render did not finish in ${ms(renderTimeout)}; ` +
+        'another mix process can hold the _build lock (for example a running dev server): ' +
+        'stop it, or run `mix compile` in app/control_plane to finish a long first compile, then retry'
+    )
+  }
+
   if (result.status !== 0) {
-    throw new Error(`worker bootstrap render failed: ${result.stderr || result.stdout}`)
+    throw new Error(
+      `worker bootstrap render failed: ${result.error?.message || result.stdout || 'see the mix output above'}`
+    )
   }
 
   const spec = parseWorkerBootstrapSpec(result.stdout)

@@ -214,6 +214,7 @@ message BackgroundAgentJobGetRequest {
   string job_id = 1;
   optional uint32 trajectory_limit = 2;
   string trajectory_cursor = 3;
+  string result_offset = 4; // UTF-8 byte offset; empty omits the result window
 }
 
 message BackgroundAgentJobListRequest {
@@ -316,7 +317,8 @@ message BackgroundAgentJobResponse {
   string queued_at = 20;
   string started_at = 21;
   string completed_at = 22;
-  bytes result_json = 23;
+  reserved 23;
+  reserved "result_json";
   bytes error_json = 24;
   bytes metadata_json = 25;
   // Rich nested execution document rendered for the model.
@@ -325,6 +327,8 @@ message BackgroundAgentJobResponse {
   BackgroundAgentJobResultRef result_ref = 28;
   bytes runtime_projection_json = 29;
   string model_profile = 30;
+  string result_output_text = 31;
+  string result_output_total_bytes = 32;
 }
 
 message BackgroundAgentJobSummary {

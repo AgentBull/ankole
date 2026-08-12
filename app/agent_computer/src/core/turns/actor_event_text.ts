@@ -196,6 +196,7 @@ function backgroundAgentJobWakeupInputText(payload: JSONObject | undefined, type
   const jobID = firstNumber(data, ['job_id'])
   const title = stringArg(data, 'title')
   const summary = boundedBackgroundAgentJobSummary(stringArg(data, 'result_summary'))
+  const resultSummaryTruncated = summary?.endsWith(BACKGROUND_AGENT_JOB_TRUNCATION_SUFFIX) ?? false
   const attempts = firstNumber(data, ['attempts'])
   const deliveryStatus = stringArg(data, 'delivery_status')
   const deliveryIssueCount = firstNumber(data, ['delivery_issue_count'])
@@ -218,6 +219,9 @@ function backgroundAgentJobWakeupInputText(payload: JSONObject | undefined, type
         ? `Artifact discovery roots:\n${artifactRoots.paths.map(path => `- ${path}`).join('\n')}`
         : undefined,
       summary ? `Reported result: ${summary}` : undefined,
+      resultSummaryTruncated && jobID !== undefined
+        ? `The reported result is truncated. Use show_background_job_details with background agent job ${jobID} and result_offset 0 to read the exact persisted output.`
+        : undefined,
       deliveryStatus
         ? `Delivery observation: ${deliveryStatus}${deliveryIssueCount ? ` (${deliveryIssueCount} issues)` : ''}`
         : undefined,

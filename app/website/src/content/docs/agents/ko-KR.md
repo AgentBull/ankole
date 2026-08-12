@@ -47,6 +47,10 @@ Agent 페이지에서 **MISSION / SOUL / DESIGN**을 엽니다.
 - Agent가 이미지를 만들어야 할 때 `image_generate`를 구성하십시오.
 - Job이 별도의 provider 또는 모델을 필요로 할 때 **Background Agent Jobs**를 구성하십시오. ChatGPT 구독은 [ChatGPT subscription provider](../chatgpt-subscription-provider/)를 통해 동일한 provider 선택을 사용합니다.
 
+모델을 선택하거나 입력하기 전에 Provider를 선택하세요. context length 필드도 Provider를 선택한 후 사용할 수 있습니다. 비워 두면 Provider와 모델의 기본값을 사용합니다.
+
+고급 설정에는 선택한 Provider가 선언한 옵션만 표시됩니다. **Reasoning summary**는 Responses API에만 적용됩니다. **Answer detail**은 기본 응답 상세 수준을 설정합니다. **Service tier**는 이 model profile의 request tier를 재정의합니다. 사용 가능한 값은 Provider, 계정, 모델에 따라 다릅니다. 비워 두면 Provider 기본값을 사용합니다.
+
 첫 LLM Provider와 모델 설정은 [Quick start](../quickstart/#3-add-an-llm-provider-and-create-an-agent)를 참조하십시오.
 
 ## 기능과 environment variable 구성
@@ -71,7 +75,7 @@ Skill, 명령줄 tool 또는 MCP service에 API key가 필요하면 Agent 페이
 
 display name, 역할, durable 지침, 모델, 기능은 언제든 변경할 수 있습니다. UID는 다른 configuration이 Agent를 식별하는 데 사용하므로 변경할 수 없습니다.
 
-비활성화된 Agent는 새 작업을 받지 않습니다. 하나의 chat entry point만 중지하려면 Agent 전체를 비활성화하는 대신 관련 signal routing 규칙을 비활성화하거나 삭제하십시오.
+비활성화된 Agent는 새 작업을 받지 않습니다. 하나의 chat entry point만 중지하려면 Agent 전체를 비활성화하는 대신 관련 signal routing 규칙을 비활성화하십시오.
 
 ## Agent가 응답하지 않는 경우
 

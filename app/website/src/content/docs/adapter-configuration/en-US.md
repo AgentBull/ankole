@@ -38,6 +38,10 @@ A chat adapter receives messages and sends Agent replies. For production use, cr
 
 After you prepare the external application, open **Console → Signal Routing → New routing rule**. Select the Agent and adapter, and enter the credentials. Use the same `platformSubjectNamespace` for the IdP and chat application only when both applications belong to the same enterprise organization. Do not share a namespace across organizations.
 
+## Update a stored credential
+
+When you edit an Identity Provider or signal routing rule, the Console only states that an encrypted credential is stored. It does not return the token or secret to the browser or put it in the page. Leave the credential field empty to keep the stored value. Enter and save a new value only when you want to replace it. Use the external provider to rotate or revoke the old credential. You cannot view its current value in the Console.
+
 ## Verification order
 
 1. Verify IdP sign-in and confirm that the first administrator can open the Console.

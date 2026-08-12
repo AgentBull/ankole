@@ -495,6 +495,9 @@ describe('@ankole/agent-computer background agent job completion input', () => {
 
     expect(new TextEncoder().encode(text).byteLength).toBeLessThanOrEqual(32_768)
     expect(text).toContain('...[truncated]')
+    expect(text).toContain(
+      'Use show_background_job_details with background agent job 1000 and result_offset 0 to read the exact persisted output.'
+    )
     expect(text).toContain(`Project path: ${projectPath}`)
     expect(text).toContain(`Artifact discovery roots:\n- ${projectPath}\n- ${mountedOutputRoot}`)
     expect(text).toContain('Artifact handoff: showing 32 of 50000 paths (truncated).')

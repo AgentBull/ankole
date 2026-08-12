@@ -36,7 +36,7 @@ Open **Console → Access → Principals**. The list shows the name, UID, type, 
 - **Agent** principals appear when you create Agents.
 - **System** principals are created by Ankole for internal service work.
 
-Select a principal to see its groups and direct grants. Check both areas when you investigate access. A principal can have no direct grant but still get access through a group.
+Select the principal name or the trailing **View details** action to see its groups and direct grants. The principal UID, type, and state come from the identity or runtime owner and are read-only on this page. Check both groups and direct grants when you investigate access. A principal can have no direct grant but still get access through a group.
 
 ## Select the correct permission group
 
@@ -49,7 +49,7 @@ Each group source has a different membership owner:
 | **Static group** | The team exists only in Ankole, or its small membership changes infrequently | An administrator |
 | **Computed group** | Principal attributes can identify the members reliably | A CEL expression that Ankole evaluates |
 
-Directory and IM groups appear automatically in the permission-group list. They are read-only in the Console. Administrators create static and computed groups in Ankole.
+Directory and IM groups appear automatically in the permission-group list. Their memberships come from the external system and are read-only in the Console. Administrators create and maintain static and computed groups in Ankole.
 
 Use a directory group when the company directory already represents the target team. When a person changes teams or leaves, the next incremental or full directory sync adjusts access.
 
@@ -92,7 +92,7 @@ principal.type == "agent" && principal.uid.startsWith("research-")
 
 The Console previews all matching active principals while you enter the expression. Confirm the count and names before you save so that the group does not give access to more principals than you intended.
 
-You cannot change the group name, type, or membership condition after you save it. To change the rule, create a new group, confirm its preview, move the grants, and then delete the old group.
+You cannot change the group name or type after you save it. You can edit the membership condition of a normal computed group. Check the live preview again before you save. Ankole owns the condition of a built-in computed group, so it is read-only in the Console.
 
 CEL cannot currently read an employee's email address, job title, or department memberships. Use a synchronized directory group for department access. Do not infer organization membership from a display name.
 
@@ -106,6 +106,8 @@ Open a permission group or principal and select **New grant** in the grants sect
 - **Description:** why this access is necessary.
 
 Prefer grants on permission groups. Use a direct principal grant only for an exception. A changed or deleted grant immediately affects its owner and related group members.
+
+The grant owner is read-only after creation. To move a grant to another principal or group, create it under the new owner, verify the access result, and then delete the old grant.
 
 ## Assign access by organization structure
 

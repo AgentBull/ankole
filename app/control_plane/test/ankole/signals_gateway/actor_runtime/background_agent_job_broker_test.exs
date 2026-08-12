@@ -255,6 +255,119 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBrokerTest do
     assert summary.status == "queued"
   end
 
+  test "result offset returns one bounded UTF-8 window without the full Job document" do
+    %{principal: agent} = agent_fixture()
+    binding_fixture(agent.uid, "bot", :ignore)
+    route = unique_route()
+    turn_ref = start_parent_turn!(agent.uid, route)
+
+    assert {:ok, created} =
+             RPCLane.handle_request(
+               rpc_request(
+                 "background-agent-job-create-for-result-read",
+                 "background_agent_job.create",
+                 %FabricProto.BackgroundAgentJobCreateRequest{
+                   source_tool_call_id: "tool-background-agent-job-result-read",
+                   title: "Prepare exact report",
+                   task: "Return the exact report."
+                 },
+                 turn: turn_ref
+               ),
+               route
+             )
+
+    job_id = job_payload(created).job_id
+    output_text = String.duplicate("季😀\"\\\n", 4_000)
+
+    job_id
+    |> domain_job_id!()
+    |> BackgroundAgentJobs.get_job_for_agent(agent.uid)
+    |> Ecto.Changeset.change(%{
+      status: "succeeded",
+      result: %{"output_text" => output_text},
+      completed_at: DateTime.utc_now(:microsecond)
+    })
+    |> Repo.update!()
+
+    assert {:ok, first_response} =
+             RPCLane.handle_request(
+               rpc_request(
+                 "background-agent-job-result-first",
+                 "background_agent_job.get",
+                 %FabricProto.BackgroundAgentJobGetRequest{
+                   job_id: job_id,
+                   result_offset: "0"
+                 },
+                 turn: turn_ref
+               ),
+               route
+             )
+
+    first = job_payload(first_response)
+    assert first.status == "succeeded"
+    assert first.result_ref.job_id == job_id
+    assert first.execution_json == ""
+    assert first.result_output_total_bytes == Integer.to_string(byte_size(output_text))
+    assert byte_size(first.result_output_text) <= 16_384
+    assert String.valid?(first.result_output_text)
+
+    next_offset = byte_size(first.result_output_text)
+
+    assert {:ok, second_response} =
+             RPCLane.handle_request(
+               rpc_request(
+                 "background-agent-job-result-second",
+                 "background_agent_job.get",
+                 %FabricProto.BackgroundAgentJobGetRequest{
+                   job_id: job_id,
+                   result_offset: Integer.to_string(next_offset)
+                 },
+                 turn: turn_ref
+               ),
+               route
+             )
+
+    second = job_payload(second_response)
+    remaining = binary_part(output_text, next_offset, byte_size(output_text) - next_offset)
+
+    assert second.result_output_text ==
+             Ankole.BackgroundAgentJobs.Text.utf8_prefix(remaining, 16_384)
+
+    assert {:ok, invalid_response} =
+             RPCLane.handle_request(
+               rpc_request(
+                 "background-agent-job-result-invalid-offset",
+                 "background_agent_job.get",
+                 %FabricProto.BackgroundAgentJobGetRequest{
+                   job_id: job_id,
+                   result_offset: "1"
+                 },
+                 turn: turn_ref
+               ),
+               route
+             )
+
+    assert rpc_error(invalid_response)["code"] ==
+             "invalid_background_agent_job_result_offset"
+
+    assert {:ok, oversized_response} =
+             RPCLane.handle_request(
+               rpc_request(
+                 "background-agent-job-result-oversized-offset",
+                 "background_agent_job.get",
+                 %FabricProto.BackgroundAgentJobGetRequest{
+                   job_id: job_id,
+                   result_offset: "2147483647"
+                 },
+                 turn: turn_ref
+               ),
+               route
+             )
+
+    assert rpc_error(oversized_response)["code"] ==
+             "invalid_background_agent_job_result_offset"
+  end
+
   test "readonly Agent Plugin catalog exposes enabled packages and Skill names" do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "bot", :ignore)

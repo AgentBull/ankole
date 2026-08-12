@@ -42,6 +42,8 @@ AIGateway는 실시간 대화 전사를 소유합니다. 각 메시지는 `ai_ga
 
 내용은 유효한 정규 ChatML이어야 합니다 — 스키마는 `Trajectory.valid_group_content?/1`로 이를 검증하여 정규 ChatML 메시지를 포함하지 않는 그룹을 거부합니다. `revision` 필드는 제자리 steer 또는 nudge가 새 행을 삽입하지 않고 동일한 그룹의 내용을 업데이트할 수 있게 하므로, 궤적은 해당 그룹의 최신 상태를 반영합니다.
 
+도구 결과 메시지의 metadata는 `execution_mechanism`을 기록합니다. 모델 Provider가 실행한 도구에는 `provider_hosted`를 사용하고, Codex가 호출한 Ankole 동적 도구에는 `local_dynamic`을 사용합니다. 이 안정적인 사실로 표시 이름이 같은 도구도 구분할 수 있습니다.
+
 이것은 AIGateway 대화 메시지와 별개의 저장 형태입니다. 백그라운드 Job의 궤적은 대화가 아니라 Job에 속하기 때문입니다. Job의 턴은 자체 스레드이며, Job이 보고하는 대화는 궤적이 아니라 결과를 받습니다.
 
 ## 모델 가시 투영
