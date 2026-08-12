@@ -1101,6 +1101,11 @@
           "files_changed": { "items": { "type": "string" }, "maxItems": 1024, "type": "array" },
           "plan": { "$ref": "#/components/schemas/BackgroundAgentJobTurnPlan" },
           "tool_calls": { "minimum": 0, "type": "integer" },
+          "tool_execution_mechanisms": {
+            "items": { "$ref": "#/components/schemas/BackgroundAgentJobTurnToolExecutionMechanism" },
+            "maxItems": 256,
+            "type": "array"
+          },
           "tools_used": {
             "items": { "$ref": "#/components/schemas/BackgroundAgentJobTurnToolUsage" },
             "maxItems": 128,
@@ -1935,6 +1940,17 @@
         },
         "required": ["thread_total", "last_model_call"],
         "title": "BackgroundAgentJobTurnUsage",
+        "type": "object"
+      },
+      "BackgroundAgentJobTurnToolExecutionMechanism": {
+        "additionalProperties": false,
+        "properties": {
+          "calls": { "minimum": 1, "type": "integer" },
+          "execution_mechanism": { "enum": ["local_dynamic", "provider_hosted"], "type": "string" },
+          "name": { "minLength": 1, "type": "string" }
+        },
+        "required": ["name", "execution_mechanism", "calls"],
+        "title": "BackgroundAgentJobTurnToolExecutionMechanism",
         "type": "object"
       },
       "SignalChannelStandingOrdersResponse": {

@@ -226,9 +226,7 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
          upstream_stream?
        ) do
     with {:ok, main_spec} <-
-           Providers.build_response_request(runtime, provider_request,
-             stream?: upstream_stream? and is_nil(image_generation)
-           ) do
+           build_main_spec(runtime, provider_request, image_generation, upstream_stream?) do
       spec =
         main_spec
         |> composite_spec(public_request, image_generation)
@@ -246,6 +244,27 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
       end
 
       {:ok, CredentialAttempts.reattach(spec, rebuild, provider_request)}
+    end
+  end
+
+  defp build_main_spec(runtime, provider_request, nil, upstream_stream?) do
+    Providers.build_response_request(runtime, provider_request, stream?: upstream_stream?)
+  end
+
+  defp build_main_spec(runtime, provider_request, _image_generation, false) do
+    Providers.build_response_request(runtime, provider_request, stream?: false)
+  end
+
+  defp build_main_spec(runtime, provider_request, _image_generation, true) do
+    case Providers.build_response_request(runtime, provider_request, stream?: true) do
+      {:ok, %{upstream: %{kind: :websocket_text}} = spec} ->
+        {:ok, spec}
+
+      {:ok, _stream_spec} ->
+        Providers.build_response_request(runtime, provider_request, stream?: false)
+
+      {:error, _reason} = error ->
+        error
     end
   end
 

@@ -152,7 +152,8 @@ defmodule Ankole.Schedule.Cron do
     Repo.transact(fn repo ->
       case Store.lock_cron_schedule(repo, cron_schedule_id) do
         %CronSchedule{status: "paused"} = schedule ->
-          with {:ok, next_fire_at} <-
+          with :ok <- Normalizer.validate_cron_task(schedule.payload, schedule.automation_job_id),
+               {:ok, next_fire_at} <-
                  Planner.next_fire_after(schedule.schedule, schedule.timezone, now) do
             # A bound that ran out while the schedule was paused makes resume
             # complete it: that is the schedule's true state, not an error.
@@ -166,7 +167,8 @@ defmodule Ankole.Schedule.Cron do
           end
 
         %CronSchedule{status: "active"} = schedule ->
-          with :ok <- assert_recurring_invariant_in_tx(repo, schedule) do
+          with :ok <- Normalizer.validate_cron_task(schedule.payload, schedule.automation_job_id),
+               :ok <- assert_recurring_invariant_in_tx(repo, schedule) do
             {:ok, schedule}
           end
 
@@ -210,6 +212,7 @@ defmodule Ankole.Schedule.Cron do
     Repo.transact(fn repo ->
       with %CronSchedule{} = schedule <- Store.lock_cron_schedule(repo, cron_schedule_id),
            :ok <- Store.reject_terminal(schedule),
+           :ok <- Normalizer.validate_cron_task(schedule.payload, schedule.automation_job_id),
            {:ok, request_id} <- manual_request_id(opts),
            {:ok, result} <- arm_manual_cron_fire_in_tx(repo, schedule, request_id, now, opts) do
         {:ok, result}
@@ -221,12 +224,19 @@ defmodule Ankole.Schedule.Cron do
   end
 
   @spec validate_fire_schedule(CronSchedule.t(), ScheduledEvent.t()) ::
-          :ok | {:cancel, :cron_schedule_not_active}
-  def validate_fire_schedule(%CronSchedule{status: status}, %ScheduledEvent{} = event) do
+          :ok | {:cancel, :cron_schedule_not_active | :cron_task_required}
+  def validate_fire_schedule(%CronSchedule{status: status} = schedule, %ScheduledEvent{} = event) do
     case {event_trigger(event), status} do
-      {"scheduled", "active"} -> :ok
-      {"manual", status} when status in ["active", "paused"] -> :ok
+      {"scheduled", "active"} -> validate_fire_task(schedule)
+      {"manual", status} when status in ["active", "paused"] -> validate_fire_task(schedule)
       {_trigger, _status} -> {:cancel, :cron_schedule_not_active}
+    end
+  end
+
+  defp validate_fire_task(%CronSchedule{} = schedule) do
+    case Normalizer.validate_cron_task(schedule.payload, schedule.automation_job_id) do
+      :ok -> :ok
+      {:error, reason} -> {:cancel, reason}
     end
   end
 

@@ -377,20 +377,6 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
   defp ensure_seedable_task(""), do: {:error, :background_agent_job_steer_text_missing}
   defp ensure_seedable_task(task) when is_binary(task), do: :ok
 
-  @doc false
-  @spec bounded_steer_texts([ActorEvent.t()]) :: [String.t()]
-  def bounded_steer_texts(steers) do
-    steers
-    |> Enum.map(&steer_text/1)
-    |> Enum.reject(&is_nil/1)
-    |> Enum.map(fn text ->
-      if byte_size(text) > 2_000,
-        do: Ankole.BackgroundAgentJobs.Text.truncate_utf8(text, 2_000, "...[truncated]"),
-        else: text
-    end)
-    |> Enum.take(8)
-  end
-
   defp steer_text(%ActorEvent{payload: payload}) do
     case get_in(payload || %{}, ["data", "command", "argsText"]) do
       text when is_binary(text) and text != "" -> text

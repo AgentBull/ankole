@@ -83,13 +83,15 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
       {
         profile: 'primary',
         provider_id: 'openrouter',
-        model: 'z-ai/glm-5.2'
+        model: 'z-ai/glm-5.2',
+        provider_options: { reasoningEffort: 'high', serviceTier: 'fast' }
       },
       aiGatewayKeyForTest('agent-1', 'agent-key')
     )
 
     expect(model.selector).toBe('openrouter/z-ai/glm-5.2')
     expect(model.provider).toBe('openrouter')
+    expect(model.providerOptions).toEqual({ reasoningEffort: 'high', serviceTier: 'fast' })
     expect(model.responseWebSocket?.url).toBe('wss://control.test/api/v1/ai-gateway/responses')
     await expect(model.responseWebSocket?.authorization()).resolves.toBe('Bearer agent-key')
   })

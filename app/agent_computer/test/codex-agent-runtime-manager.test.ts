@@ -24,6 +24,7 @@ describe('@ankole/agent-computer Agent Codex runtime manager', () => {
       const [first, second] = await Promise.all([
         manager.acquire({
           agentUID: 'agent-1',
+          agentHome: fixture.agentHome,
           codexHome: fixture.codexHome,
           aiGatewayBaseURL: 'http://control.test/api/v1/ai-gateway',
           aiGatewayAPIKey: 'initial-agent-token',
@@ -31,6 +32,7 @@ describe('@ankole/agent-computer Agent Codex runtime manager', () => {
         }),
         manager.acquire({
           agentUID: 'agent-1',
+          agentHome: fixture.agentHome,
           codexHome: fixture.codexHome,
           aiGatewayBaseURL: 'http://control.test/api/v1/ai-gateway',
           aiGatewayAPIKey: 'initial-agent-token',
@@ -44,6 +46,7 @@ describe('@ankole/agent-computer Agent Codex runtime manager', () => {
 
       const refreshed = await manager.acquire({
         agentUID: 'agent-1',
+        agentHome: fixture.agentHome,
         codexHome: fixture.codexHome,
         aiGatewayBaseURL: 'http://control.test/api/v1/ai-gateway',
         aiGatewayAPIKey: 'refreshed-agent-token',
@@ -69,6 +72,7 @@ describe('@ankole/agent-computer Agent Codex runtime manager', () => {
     try {
       const cancelled = manager.acquire({
         agentUID: 'agent-1',
+        agentHome: fixture.agentHome,
         codexHome: fixture.codexHome,
         aiGatewayBaseURL: 'http://control.test/api/v1/ai-gateway',
         aiGatewayAPIKey: 'agent-token',
@@ -77,6 +81,7 @@ describe('@ankole/agent-computer Agent Codex runtime manager', () => {
       })
       const retained = manager.acquire({
         agentUID: 'agent-1',
+        agentHome: fixture.agentHome,
         codexHome: fixture.codexHome,
         aiGatewayBaseURL: 'http://control.test/api/v1/ai-gateway',
         aiGatewayAPIKey: 'agent-token',
@@ -123,6 +128,7 @@ describe('@ankole/agent-computer Agent Codex runtime manager', () => {
       await expect(
         manager.acquire({
           agentUID: 'agent-1',
+          agentHome: fixture.agentHome,
           codexHome: fixture.codexHome,
           aiGatewayBaseURL: 'http://replacement.test/api/v1/ai-gateway',
           aiGatewayAPIKey: 'replacement-token',
@@ -146,6 +152,7 @@ describe('@ankole/agent-computer Agent Codex runtime manager', () => {
       const [first, second, third] = await Promise.all([
         manager.acquire({
           agentUID: 'agent-1',
+          agentHome: fixture.agentHome,
           codexHome: fixture.codexHome,
           aiGatewayBaseURL: 'http://control.test/api/v1/ai-gateway',
           aiGatewayAPIKey: 'agent-token',
@@ -153,6 +160,7 @@ describe('@ankole/agent-computer Agent Codex runtime manager', () => {
         }),
         manager.acquire({
           agentUID: 'agent-1',
+          agentHome: fixture.agentHome,
           codexHome: fixture.codexHome,
           aiGatewayBaseURL: 'http://control.test/api/v1/ai-gateway',
           aiGatewayAPIKey: 'agent-token',
@@ -160,6 +168,7 @@ describe('@ankole/agent-computer Agent Codex runtime manager', () => {
         }),
         manager.acquire({
           agentUID: 'agent-1',
+          agentHome: fixture.agentHome,
           codexHome: fixture.codexHome,
           aiGatewayBaseURL: 'http://control.test/api/v1/ai-gateway',
           aiGatewayAPIKey: 'agent-token',
@@ -201,6 +210,7 @@ describe('@ankole/agent-computer Agent Codex runtime manager', () => {
       await Promise.all([second.release(), third.release()])
       const replacement = await manager.acquire({
         agentUID: 'agent-1',
+        agentHome: fixture.agentHome,
         codexHome: fixture.codexHome,
         aiGatewayBaseURL: 'http://control.test/api/v1/ai-gateway',
         aiGatewayAPIKey: 'replacement-agent-token',
@@ -320,6 +330,32 @@ describe('@ankole/agent-computer Agent Codex runtime manager', () => {
 })
 
 describe('@ankole/agent-computer Agent Codex thread router', () => {
+  it('keeps a bounded redacted stderr diagnostic for unscoped runtime failures', () => {
+    const records: Array<Record<string, unknown> | undefined> = []
+    const fakeClient = { async closeAndWait() {} } as unknown as CodexAppServerClient
+    const runtime = new AgentCodexRuntime('agent-1', fakeClient, {
+      info(_event, _message, fields) {
+        records.push(fields)
+      },
+      warning() {}
+    })
+
+    runtime.routeNotification({
+      method: '$stderr',
+      params: {
+        text: `startup failed Authorization: Bearer sk-${'c'.repeat(24)} token=top-secret bx_mcp_${'a'.repeat(60)} ${'b'.repeat(60)}`
+      }
+    })
+
+    expect(records).toEqual([
+      {
+        agent_uid: 'agent-1',
+        method: '$stderr',
+        diagnostic: 'startup failed Authorization: [REDACTED] token=[REDACTED] [REDACTED] [REDACTED]'
+      }
+    ])
+  })
+
   it('buffers start races, inherits child ownership, fails unknown requests closed, and cleans one Job tree', async () => {
     const calls: Array<{ method: string; params: Record<string, unknown> }> = []
     const responses: Array<{ id: string | number; code: number; message: string }> = []
@@ -704,6 +740,7 @@ function messageMethodThread(message: JSONRPCMessage): string {
 }
 
 function runtimeFixture(options: { initializeDelayMs?: number } = {}): {
+  agentHome: string
   codexHome: string
   initializeMarker: string
   sandbox: CodexAppServerSandboxSpec
@@ -747,6 +784,7 @@ process.stdin.resume()
 `
   )
   return {
+    agentHome: root,
     codexHome,
     initializeMarker,
     sandbox: {

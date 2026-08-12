@@ -26,7 +26,7 @@ const CRON_DESCRIPTION = [
   'Each schedule runs in its own scheduled-task session, not in this conversation: fires never see this transcript, and Ankole delivers their replies to the configured channel.',
   'payload.task must therefore carry the complete standing instruction (goal, inputs, constraints, output form) unless automation_job_id consumes the trigger.',
   'Supports kind=every/cron only. For bounded repetitions ("ten times", "until Sept"), set schedule.occurrences with count/until (auto-completes when spent).',
-  "Updating payload or delivery clears the schedule's own run history; schedule/timezone changes keep it.",
+  'Updating payload or delivery starts a new scheduled-task conversation on the next fire; existing run history remains. Schedule or timezone changes keep the current conversation.',
   'After add/update, summarize in visible reply: name, schedule/timezone, and quiet_success status.',
   'Use quiet_success=true for monitors to stay quiet on success and report only failures, blockers, or state changes.',
   AUTOMATION_JOB_POINTER,

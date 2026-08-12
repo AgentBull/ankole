@@ -8,6 +8,16 @@ import type { z } from 'zod'
 import { createScheduleTools } from '../src/tools/schedule/schedule-tools'
 
 describe('schedule tools', () => {
+  it('describes conversation resets without claiming that run history is cleared', () => {
+    const cron = createScheduleTools({
+      turnStart: turnStartForScheduleTool(),
+      requestScheduleRPC: async () => ({})
+    }).find(tool => tool.name === 'cron')
+
+    expect(cron?.description).toContain('existing run history remains')
+    expect(cron?.description).not.toContain("clears the schedule's own run history")
+  })
+
   it('uses a stable default check_back_later idempotency key across provider tool call retries', async () => {
     const requests: JSONObject[] = []
     const tools = createScheduleTools({

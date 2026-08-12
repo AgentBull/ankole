@@ -748,6 +748,7 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
           completed_items: 0,
           tool_calls: 0,
           tools: %{},
+          tool_execution_mechanisms: %{},
           files: MapSet.new(),
           skills: MapSet.new()
         },
@@ -757,6 +758,11 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
               completed_items: acc.completed_items + nonnegative(progress["completed_items"]),
               tool_calls: acc.tool_calls + nonnegative(progress["tool_calls"]),
               tools: merge_tool_usage(acc.tools, progress["tools_used"]),
+              tool_execution_mechanisms:
+                merge_tool_execution_mechanisms(
+                  acc.tool_execution_mechanisms,
+                  progress["tool_execution_mechanisms"]
+                ),
               files: merge_files(acc.files, progress["files_changed"]),
               skills: merge_files(acc.skills, progress["skills_used"])
             }
@@ -774,6 +780,12 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
           totals.tools
           |> Enum.sort_by(fn {name, _calls} -> name end)
           |> Enum.map(fn {name, calls} -> %{name: name, calls: calls} end),
+        tool_execution_mechanisms:
+          totals.tool_execution_mechanisms
+          |> Enum.sort_by(fn {{name, mechanism}, _calls} -> {name, mechanism} end)
+          |> Enum.map(fn {{name, mechanism}, calls} ->
+            %{name: name, execution_mechanism: mechanism, calls: calls}
+          end),
         files_changed: totals.files |> MapSet.to_list() |> Enum.sort(),
         active_items: active_items(turns, job)
       }
@@ -799,6 +811,20 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
   end
 
   defp merge_tool_usage(acc, _tools), do: acc
+
+  defp merge_tool_execution_mechanisms(acc, executions) when is_list(executions) do
+    Enum.reduce(executions, acc, fn
+      %{"name" => name, "execution_mechanism" => mechanism, "calls" => calls}, result
+      when is_binary(name) and mechanism in ~w(local_dynamic provider_hosted) and
+             is_integer(calls) and calls > 0 ->
+        Map.update(result, {name, mechanism}, calls, &(&1 + calls))
+
+      _execution, result ->
+        result
+    end)
+  end
+
+  defp merge_tool_execution_mechanisms(acc, _executions), do: acc
 
   defp merge_files(acc, files) when is_list(files) do
     Enum.reduce(files, acc, fn

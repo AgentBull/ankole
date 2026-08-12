@@ -168,6 +168,33 @@ describe('@ankole/agent-computer Codex job runner', () => {
     }
   })
 
+  it('uses provider-hosted web search without projecting the local duplicate', async () => {
+    const fixture = prepareFixture('searched')
+    const statusUpdates: RecordedStatusUpdate[] = []
+    const start = turnStart()
+    start.hosted_tools = [{ type: 'web_search' }]
+
+    try {
+      const result = await runCodexJob(start, options(fixture.root, statusUpdates, []))
+
+      expect(result).toEqual({ kind: 'noop_completed', reason: 'background_agent_job_committed' })
+      expect(parsedJSON(statusUpdates[0]?.metadataJson)?.projected_tool_names).toEqual([
+        'web_fetch',
+        'memory_search',
+        'memory_open',
+        'memory_update',
+        'memory_browse',
+        'memory_health_check',
+        'request_parent_input'
+      ])
+      expect(readFileSync(join(jobProjectFor(fixture.root), '.codex', 'config.toml'), 'utf8')).toContain(
+        'web_search = "live"'
+      )
+    } finally {
+      fixture.cleanup()
+    }
+  })
+
   it('keeps a committed terminal Job successful when app-server cleanup fails', async () => {
     const fixture = prepareFixture('done before cleanup failure', { cleanupError: true })
     const statusUpdates: RecordedStatusUpdate[] = []

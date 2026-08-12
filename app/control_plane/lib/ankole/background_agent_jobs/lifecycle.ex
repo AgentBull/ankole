@@ -302,37 +302,26 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
     end
   end
 
-  # A terminal commit never waits for steering. Open steers on a succeeded Job
-  # become one successor Job seeded with every message in order, so the reply
-  # to those messages is visible follow-up work instead of a blocked commit.
+  # Open steers on a succeeded Job become one successor Job seeded with every
+  # message in order. Successor storage and steer completion are one
+  # transaction, so a storage failure leaves the source Job and steers open.
   # Failed and stopped commits, and an external completion, answer open steers
-  # with the terminal notice itself. When the successor cannot be created (for
-  # example a manual respawn already exists), the messages travel in the wakeup
-  # payload instead of vanishing.
+  # with the terminal notice itself.
   defp resolve_open_steers_after_commit(repo, %Job{status: "succeeded"} = job, now, opts) do
     case Dispatch.open_steer_events_in_tx(repo, job.id, job.agent_uid) do
       [] ->
         {:ok, nil}
 
       steers ->
-        outcome =
-          if Keyword.get(opts, :external_completion, false) do
-            nil
-          else
-            case Dispatch.seed_steer_successor_in_tx(repo, job, steers, now) do
-              {:ok, successor} ->
-                %{successor_job_id: successor.id}
-
-              {:error, {:background_agent_job_already_respawned, successor_id}} ->
-                %{successor_job_id: successor_id}
-
-              {:error, _reason} ->
-                %{unapplied_messages: Dispatch.bounded_steer_texts(steers)}
-            end
+        if Keyword.get(opts, :external_completion, false) do
+          with :ok <- complete_steer_events_in_tx(repo, steers, now) do
+            {:ok, nil}
           end
-
-        with :ok <- complete_steer_events_in_tx(repo, steers, now) do
-          {:ok, outcome}
+        else
+          with {:ok, successor} <- Dispatch.seed_steer_successor_in_tx(repo, job, steers, now),
+               :ok <- complete_steer_events_in_tx(repo, steers, now) do
+            {:ok, %{successor_job_id: successor.id}}
+          end
         end
     end
   end
@@ -750,8 +739,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
           "project_path" => Map.get(job.result || %{}, "project_path"),
           "reply_route" => job.reply_route || %{},
           "pending_user_input" => get_in(job.metadata || %{}, ["pending_user_input"]),
-          "successor_job_id" => steer_outcome[:successor_job_id],
-          "unapplied_messages" => steer_outcome[:unapplied_messages]
+          "successor_job_id" => steer_outcome[:successor_job_id]
         })
     }
   end

@@ -208,6 +208,11 @@ Authentication and permission errors require operator action. A recovery
 refresh that fails with a not-retryable error records a blocked
 `recovery_state` on the checkpoint and stops; an operator update to the
 binding requeues blocked previews together with blocked outbox replies.
+Terminal recovery renders the terminal presentation from the durable outbox,
+even when the last confirmed CardKit checkpoint still contains a working
+presentation. If CardKit requires a plain-text fallback during that refresh,
+the preview records a non-retry fallback and stops; the outbox remains the sole
+owner of provider-visible terminal delivery.
 
 Preview updates can disappear. The final assistant reply remains in the outbox.
 SignalsGateway records that reply only after the provider confirms it.

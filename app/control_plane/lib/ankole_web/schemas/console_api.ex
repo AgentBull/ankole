@@ -3246,6 +3246,29 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
     )
   end
 
+  defmodule BackgroundAgentJobTurnToolExecutionMechanism do
+    @moduledoc false
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "BackgroundAgentJobTurnToolExecutionMechanism",
+        type: :object,
+        properties: %{
+          name: %Schema{type: :string, minLength: 1},
+          execution_mechanism: %Schema{
+            type: :string,
+            enum: ["local_dynamic", "provider_hosted"]
+          },
+          calls: %Schema{type: :integer, minimum: 1}
+        },
+        required: [:name, :execution_mechanism, :calls],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
   defmodule BackgroundAgentJobTurnPlanStep do
     @moduledoc false
     require OpenAPISpex
@@ -3315,6 +3338,11 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           completed_items: %Schema{type: :integer, minimum: 0},
           tool_calls: %Schema{type: :integer, minimum: 0},
           tools_used: %Schema{type: :array, items: BackgroundAgentJobTurnToolUsage, maxItems: 128},
+          tool_execution_mechanisms: %Schema{
+            type: :array,
+            items: BackgroundAgentJobTurnToolExecutionMechanism,
+            maxItems: 256
+          },
           files_changed: %Schema{type: :array, items: %Schema{type: :string}, maxItems: 1024},
           plan: BackgroundAgentJobTurnPlan,
           active_item: BackgroundAgentJobTurnActiveItem

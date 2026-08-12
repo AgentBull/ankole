@@ -892,6 +892,7 @@ export type {
   BackgroundAgentJobTurnPlan,
   BackgroundAgentJobTurnPlanStep,
   BackgroundAgentJobTurnProgress,
+  BackgroundAgentJobTurnToolExecutionMechanism,
   BackgroundAgentJobTurnToolUsage,
   BackgroundAgentJobTurnUsage,
   BackgroundAgentJobTurnUsageBreakdown,

@@ -233,6 +233,10 @@ describe('@ankole/agent-computer durable BackgroundAgentJob Turn recorder', () =
         }
       })
     ])
+    expect(upserts.at(-1)?.progress.tool_execution_mechanisms).toEqual([
+      { name: 'web_search', execution_mechanism: 'local_dynamic', calls: 1 },
+      { name: 'web_search', execution_mechanism: 'provider_hosted', calls: 1 }
+    ])
   })
 
   it('records the exact MultiAgentV2 calls, outputs, and stable child identities', async () => {

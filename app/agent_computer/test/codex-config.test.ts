@@ -121,6 +121,8 @@ describe('@ankole/agent-computer Codex config', () => {
 
   it('keeps shared config model-free and sends each frozen binding through thread config', () => {
     const agentsRoot = mkdtempSync(join(tmpdir(), 'ankole-codex-config-aigateway-'))
+    const previousStateRoot = process.env.ANKOLE_CODEX_STATE_ROOT
+    process.env.ANKOLE_CODEX_STATE_ROOT = join(agentsRoot, 'codex-state')
     try {
       const materialized = materializeCodexConfig({
         agentsRoot,
@@ -174,6 +176,8 @@ describe('@ankole/agent-computer Codex config', () => {
       expect(threadConfig.model_reasoning_effort).toBe('xhigh')
       expect(threadConfig.shell_environment_policy).toEqual({ inherit: 'all', set: { JOB: 'one' } })
     } finally {
+      if (previousStateRoot === undefined) delete process.env.ANKOLE_CODEX_STATE_ROOT
+      else process.env.ANKOLE_CODEX_STATE_ROOT = previousStateRoot
       rmSync(agentsRoot, { recursive: true, force: true })
     }
   })

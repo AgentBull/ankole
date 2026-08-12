@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::future::Future;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -524,6 +524,259 @@ async fn run_websocket_stream(
     }
 }
 
+pub(in crate::universal_ai_client) async fn run_websocket_model_request_once(
+    mut spec: StreamSpec,
+) -> Result<Value, StreamError> {
+    if spec.upstream.kind != UpstreamKind::WebSocketText {
+        return Err(StreamError::new(
+            "invalid_websocket_model_request",
+            "hosted_responses",
+            "hosted WebSocket model execution requires a websocket_text upstream",
+        ));
+    }
+
+    spec.hosted_tools = None;
+    let spec = request_builder::prepare_stream_spec(spec)?;
+    let (mut websocket, status, response_headers) = transport::open_websocket(&spec).await?;
+
+    if status != 101 {
+        return Err(StreamError::new(
+            "websocket_status_rejected",
+            "connect",
+            format!("upstream WebSocket returned status {status}"),
+        )
+        .provider_status(status)
+        .provider_headers(&response_headers));
+    }
+
+    let initial_messages = websocket_initial_messages(&spec);
+    for payload in &initial_messages {
+        if payload.len() > spec.limits.max_websocket_text_bytes {
+            return Err(StreamError::new(
+                "websocket_message_too_large",
+                "connect",
+                format!(
+                    "initial WebSocket text payload exceeded {} bytes",
+                    spec.limits.max_websocket_text_bytes
+                ),
+            )
+            .provider_status(413));
+        }
+
+        websocket
+            .send(Message::text(payload.clone()))
+            .await
+            .map_err(|reason| {
+                StreamError::new(
+                    "websocket_send_failed",
+                    "connect",
+                    format!("failed to send initial WebSocket payload: {reason}"),
+                )
+            })?;
+    }
+
+    let mut resolver =
+        api_resolver::APIResolver::new(spec.api_resolver, spec.response_context.clone());
+    let mut completed_items = BTreeMap::new();
+    let mut raw_body_bytes = 0usize;
+
+    loop {
+        match timeout(spec.upstream.timeout.idle_duration(), websocket.next()).await {
+            Ok(Some(Ok(Message::Text(text)))) => {
+                if text.len() > spec.limits.max_websocket_text_bytes {
+                    return Err(StreamError::new(
+                        "websocket_message_too_large",
+                        "wire",
+                        format!(
+                            "upstream WebSocket text payload exceeded {} bytes",
+                            spec.limits.max_websocket_text_bytes
+                        ),
+                    )
+                    .provider_status(413));
+                }
+
+                raw_body_bytes = raw_body_bytes.saturating_add(text.len());
+                if text == "[DONE]" {
+                    resolver.finish()?;
+                    return Err(missing_websocket_terminal_error());
+                }
+
+                let value = sonic_rs::from_str::<Value>(&text).map_err(|reason| {
+                    StreamError::new(
+                        "invalid_provider_event",
+                        "api_resolver",
+                        format!("WebSocket text payload was not valid JSON: {reason}"),
+                    )
+                })?;
+                let events = resolver.ingest(value)?;
+                remember_completed_items(&events, &mut completed_items);
+
+                if let Some(body) = collected_terminal_body(&events, &completed_items) {
+                    ensure_collected_body_size(&body, spec.limits.max_pending_bytes)?;
+                    return Ok(json!({
+                        "status": status,
+                        "headers": response_headers,
+                        "body": body,
+                        "raw_body_bytes": raw_body_bytes,
+                        "upstream_kind": spec.upstream.kind.as_str(),
+                        "websocket_initial_messages": initial_messages.len()
+                    }));
+                }
+            }
+            Ok(Some(Ok(Message::Close(Some(frame))))) if frame.code == CloseCode::Size => {
+                return Err(StreamError::new(
+                    "websocket_message_too_large",
+                    "wire",
+                    "upstream WebSocket closed because a message was too large",
+                )
+                .provider_status(413));
+            }
+            Ok(Some(Ok(Message::Close(_)))) | Ok(None) => {
+                resolver.finish()?;
+                return Err(missing_websocket_terminal_error());
+            }
+            Ok(Some(Ok(Message::Ping(_)))) | Ok(Some(Ok(Message::Pong(_)))) => {}
+            Ok(Some(Ok(Message::Binary(bytes)))) => {
+                return Err(StreamError::new(
+                    "unsupported_websocket_frame",
+                    "wire",
+                    format!(
+                        "upstream WebSocket binary frame is unsupported ({} bytes)",
+                        bytes.len()
+                    ),
+                ));
+            }
+            Ok(Some(Ok(Message::Frame(_)))) => {}
+            Ok(Some(Err(reason))) => return Err(websocket_read_error(reason)),
+            Err(_) => {
+                return Err(StreamError::new(
+                    "idle_timeout",
+                    "read",
+                    "upstream WebSocket idle timeout",
+                )
+                .retry_through_credential_pool());
+            }
+        }
+    }
+}
+
+fn remember_completed_items(events: &[Value], completed_items: &mut BTreeMap<usize, Value>) {
+    for event in events {
+        if event.get("type").and_then(Value::as_str) != Some("response.output_item.done") {
+            continue;
+        }
+        let Some(output_index) = event
+            .get("output_index")
+            .and_then(Value::as_u64)
+            .and_then(|value| usize::try_from(value).ok())
+        else {
+            continue;
+        };
+        let Some(item) = event.get("item").filter(|item| item.is_object()) else {
+            continue;
+        };
+        completed_items.insert(output_index, item.clone());
+    }
+}
+
+fn collected_terminal_body(
+    events: &[Value],
+    completed_items: &BTreeMap<usize, Value>,
+) -> Option<Value> {
+    events.iter().find_map(|event| {
+        let event_type = event.get("type").and_then(Value::as_str)?;
+        if !matches!(
+            event_type,
+            "response.completed" | "response.failed" | "response.incomplete"
+        ) {
+            return None;
+        }
+
+        let mut response = event
+            .get("response")
+            .filter(|value| value.is_object())?
+            .clone();
+        reconcile_terminal_items(&mut response, completed_items);
+        Some(response)
+    })
+}
+
+fn reconcile_terminal_items(response: &mut Value, completed_items: &BTreeMap<usize, Value>) {
+    let Some(response) = response.as_object_mut() else {
+        return;
+    };
+    let items = response
+        .entry("output".to_string())
+        .or_insert_with(|| Value::Array(Vec::new()));
+    let Some(items) = items.as_array_mut() else {
+        return;
+    };
+
+    for (output_index, item) in items.iter_mut().enumerate() {
+        let Some(recorded_item) = completed_items.get(&output_index) else {
+            continue;
+        };
+        if terminal_item_subset(item, recorded_item) {
+            *item = recorded_item.clone();
+        }
+    }
+
+    while let Some(recorded_item) = completed_items.get(&items.len()) {
+        items.push(recorded_item.clone());
+    }
+}
+
+fn terminal_item_subset(item: &Value, recorded_item: &Value) -> bool {
+    let (Some(item), Some(recorded_item)) = (item.as_object(), recorded_item.as_object()) else {
+        return false;
+    };
+    if item.get("id").and_then(Value::as_str).is_some() {
+        return false;
+    }
+    let Some(item_type) = item.get("type").and_then(Value::as_str) else {
+        return false;
+    };
+    if recorded_item.get("type").and_then(Value::as_str) != Some(item_type) {
+        return false;
+    }
+
+    let snapshot = item
+        .iter()
+        .filter(|(key, _value)| key.as_str() != "id")
+        .collect::<Vec<_>>();
+    !snapshot.is_empty()
+        && snapshot
+            .into_iter()
+            .all(|(key, value)| recorded_item.get(key) == Some(value))
+}
+
+fn ensure_collected_body_size(body: &Value, max_response_bytes: usize) -> Result<(), StreamError> {
+    let body_bytes = sonic_rs::to_vec(body).map_err(|reason| {
+        StreamError::new(
+            "response_encode_failed",
+            "hosted_responses",
+            format!("collected WebSocket response could not be encoded: {reason}"),
+        )
+    })?;
+    if body_bytes.len() <= max_response_bytes.max(1) {
+        Ok(())
+    } else {
+        Err(StreamError::new(
+            "response_body_too_large",
+            "hosted_responses",
+            "collected WebSocket response exceeded the configured response byte limit",
+        ))
+    }
+}
+
+fn missing_websocket_terminal_error() -> StreamError {
+    StreamError::new(
+        "upstream_stream_closed_before_terminal_event",
+        "api_resolver",
+        "upstream WebSocket closed before a terminal response event",
+    )
+}
+
 fn websocket_read_error(reason: WebSocketError) -> StreamError {
     match reason {
         WebSocketError::Capacity(CapacityError::MessageTooLong { size, max_size }) => {
@@ -929,6 +1182,71 @@ fn websocket_initial_messages(spec: &StreamSpec) -> Vec<String> {
         spec.upstream.body.clone().into_iter().collect()
     } else {
         spec.upstream.websocket_initial_messages.clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn terminal_output_uses_completed_items_when_the_provider_omits_it() {
+        let completed_items = BTreeMap::from([
+            (
+                0,
+                json!({
+                    "id": "msg_complete",
+                    "type": "message",
+                    "role": "assistant",
+                    "status": "completed",
+                    "content": [{"type": "output_text", "text": "done"}]
+                }),
+            ),
+            (
+                1,
+                json!({
+                    "id": "fc_complete",
+                    "type": "function_call",
+                    "call_id": "call_complete",
+                    "name": "command",
+                    "arguments": "{}",
+                    "status": "completed"
+                }),
+            ),
+        ]);
+        let mut response = json!({"id": "resp_complete", "status": "completed", "output": []});
+
+        reconcile_terminal_items(&mut response, &completed_items);
+
+        assert_eq!(response["output"].as_array().unwrap().len(), 2);
+        assert_eq!(response["output"][0], completed_items[&0]);
+        assert_eq!(response["output"][1], completed_items[&1]);
+    }
+
+    #[test]
+    fn terminal_output_does_not_replace_a_conflicting_authoritative_item() {
+        let completed_items = BTreeMap::from([(
+            0,
+            json!({
+                "id": "msg_streamed",
+                "type": "message",
+                "role": "assistant",
+                "status": "completed",
+                "content": [{"type": "output_text", "text": "streamed"}]
+            }),
+        )]);
+        let terminal_item = json!({
+            "id": "msg_terminal",
+            "type": "message",
+            "role": "assistant",
+            "status": "completed",
+            "content": [{"type": "output_text", "text": "terminal"}]
+        });
+        let mut response = json!({"output": [terminal_item.clone()]});
+
+        reconcile_terminal_items(&mut response, &completed_items);
+
+        assert_eq!(response["output"][0], terminal_item);
     }
 }
 

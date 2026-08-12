@@ -9,4 +9,4 @@ pub use core::{
     start_stream,
 };
 pub(super) use core::{StreamCommand, run_model_request_once};
-pub(super) use stream::Delivery;
+pub(super) use stream::{Delivery, run_websocket_model_request_once};

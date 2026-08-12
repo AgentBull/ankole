@@ -127,6 +127,95 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
     assert error.message =~ "native image generation"
   end
 
+  test "hosted image fallback keeps a configured main-model WebSocket" do
+    %{principal: agent} = agent_fixture()
+    suffix = System.unique_integer([:positive])
+    main_provider_id = "compatible-hosted-websocket-#{suffix}"
+    image_provider_id = "image-hosted-websocket-#{suffix}"
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: main_provider_id,
+               provider_kind: "openai_compatible",
+               base_url: "https://compatible.test/v1",
+               connection_options: %{
+                 "endpoint_kind" => "responses",
+                 "upstream_transport" => "websocket"
+               },
+               credential_pool: %{
+                 "entries" => [%{"label" => "Main", "api_key" => "sk-main"}]
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: main_provider_id,
+               model: "compatible-main-model",
+               provider_options: %{"serviceTier" => "fast"}
+             })
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: image_provider_id,
+               provider_kind: "openrouter",
+               base_url: "http://127.0.0.1:1/api/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Image", "api_key" => "sk-image"}]
+               }
+             })
+
+    :ok =
+      ModelMetadataCache.put(
+        {:image_model_catalog, image_provider_id, "images/models"},
+        [%{"id" => "openai/gpt-image-2"}],
+        60_000
+      )
+
+    :ok =
+      ModelMetadataCache.put(
+        {:image_model_endpoints, image_provider_id, "images/models/openai/gpt-image-2/endpoints"},
+        [
+          %{
+            "provider_slug" => "openai",
+            "provider_tag" => "openai/gpt-image-2:openai",
+            "supported_parameters" => %{}
+          }
+        ],
+        60_000
+      )
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "image_generate", %{
+               provider_id: image_provider_id,
+               model: "openai/gpt-image-2"
+             })
+
+    assert {:ok, request} =
+             AIGateway.prepare_websocket_request(agent.uid, %{
+               "model" => "primary",
+               "input" => "Run one tool.",
+               "metadata" => %{"actor_event_id" => "hosted-websocket-event"},
+               "tools" => [
+                 %{"type" => "function", "name" => "command", "parameters" => %{}},
+                 %{"type" => "image_generation"}
+               ]
+             })
+
+    assert request.upstream.kind == :websocket_text
+    assert request.upstream.method == "GET"
+    assert request.upstream.url == "wss://compatible.test/v1/responses"
+    assert request.response_context.stream == true
+    assert request.response_context.provider_options["service_tier"] == "fast"
+    refute Map.has_key?(request.response_context.request, "metadata")
+
+    assert request.hosted_tools.public_request["metadata"] == %{
+             "actor_event_id" => "hosted-websocket-event"
+           }
+
+    assert request.hosted_tools.image_generation["selected_model"] == "openai/gpt-image-2"
+    refute Map.has_key?(request, :body)
+  end
+
   test "requires JPEG or WebP when image output compression is set" do
     %{principal: agent} = agent_fixture()
 

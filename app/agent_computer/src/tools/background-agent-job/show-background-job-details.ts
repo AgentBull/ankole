@@ -41,6 +41,15 @@ const ExecutionProgressSchema = z.object({
       calls: NonNegativeIntegerSchema
     })
   ),
+  tool_execution_mechanisms: z
+    .array(
+      z.object({
+        name: z.string(),
+        execution_mechanism: z.enum(['provider_hosted', 'local_dynamic']),
+        calls: NonNegativeIntegerSchema
+      })
+    )
+    .default([]),
   files_changed: z.array(z.string()),
   skills_used: z.array(z.string()).optional(),
   active_items: z.array(
@@ -143,7 +152,7 @@ export function createShowBackgroundJobDetailsTool(
   return {
     name: 'show_background_job_details',
     description: [
-      'Show job status, progress, usage, attempt history, and the latest trajectory page.',
+      'Show job status, progress, tool execution mechanisms, usage, attempt history, and the latest trajectory page.',
       'For an exact persisted result from a succeeded job, set result_offset to 0, concatenate result.output_text, and pass result.next_offset to the next call until it is null.',
       'Result offsets are stable and can be resumed in a later turn.'
     ].join(' '),

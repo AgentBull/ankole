@@ -853,6 +853,7 @@ export type BackgroundAgentJobTurnProgress = {
   files_changed: Array<string>
   plan?: BackgroundAgentJobTurnPlan
   tool_calls: number
+  tool_execution_mechanisms?: Array<BackgroundAgentJobTurnToolExecutionMechanism>
   tools_used: Array<BackgroundAgentJobTurnToolUsage>
 }
 
@@ -1535,6 +1536,15 @@ export type BackgroundAgentJobTurnUsage = {
   last_model_call: BackgroundAgentJobTurnUsageBreakdown
   model_context_window?: number
   thread_total: BackgroundAgentJobTurnUsageBreakdown
+}
+
+/**
+ * BackgroundAgentJobTurnToolExecutionMechanism
+ */
+export type BackgroundAgentJobTurnToolExecutionMechanism = {
+  calls: number
+  execution_mechanism: 'local_dynamic' | 'provider_hosted'
+  name: string
 }
 
 /**

@@ -61,6 +61,23 @@ export function codexHomeLockedLogsDeleteArgv(codexHome: string): string[] {
   ]
 }
 
+export function legacySharedCodexConfigDeleteArgv(agentHome: string): string[] {
+  const legacyCodexHome = join(agentHome, '.codex')
+  return [
+    flockCommand(),
+    '-n',
+    '-E',
+    String(CODEX_HOME_LOCK_BUSY_EXIT_CODE),
+    '-F',
+    codexHomeRuntimeLockPath(legacyCodexHome),
+    '/bin/sh',
+    '-c',
+    'legacy_home=$1; find -P "$legacy_home" -mindepth 1 -maxdepth 1 -name config.toml ! -type d -print -delete',
+    'ankole-legacy-codex-config-retirement',
+    legacyCodexHome
+  ]
+}
+
 function lockedRuntimeScript(writeRuntimeFiles: boolean, deleteLogs: boolean): string {
   const statements = ['set -eu', 'umask 077']
 

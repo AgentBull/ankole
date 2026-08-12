@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
+import type { ResponseCreateParams } from 'openai/resources/responses/responses'
 import { z } from 'zod'
 import { runAgentLoop } from '../../src/core/agent-loop'
 import { callModel, createModel } from '../../src/core/llm'
@@ -10,11 +11,42 @@ import {
   responseEventStaleTimeoutMs,
   responseFrameRefreshesStaleDeadline
 } from '../../src/core/llm/session'
-import { buildResponseCreateParams, toResponseInput } from '../../src/core/llm/wire'
+import { buildResponseCreateParams, statefulToolResultsRecordParams, toResponseInput } from '../../src/core/llm/wire'
 
 import { fakeResponseSocket } from '../support/llm'
 
 describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire shape', () => {
+  it('forwards frozen provider options on model calls and tool-result recording', () => {
+    const model = createModel({
+      apiKey: 'unused',
+      baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
+      selector: 'openai-compatible/gpt-5.6-sol',
+      providerOptions: { reasoningEffort: 'high', serviceTier: 'fast' }
+    })
+    const providerOptions = { reasoningEffort: 'high', serviceTier: 'fast' }
+
+    const request = buildResponseCreateParams(model, {
+      messages: [{ role: 'user', content: 'run one command' }]
+    }) as ResponseCreateParams & JSONObject
+    const toolResults = statefulToolResultsRecordParams(
+      model,
+      toResponseInput([
+        {
+          role: 'tool',
+          toolCallID: 'call_1',
+          result: '{"counter":1}'
+        }
+      ]),
+      {
+        actorEventID: '00000000-0000-0000-0000-000000000301',
+        previousResponseID: 'resp_1'
+      }
+    ) as ResponseCreateParams & JSONObject
+
+    expect(request.provider_options).toEqual(providerOptions)
+    expect(toolResults.provider_options).toEqual(providerOptions)
+  })
+
   it('uses a 300-second post-output stale window only above 100k estimated request tokens', () => {
     expect(responseEventStaleTimeoutMs(100_000)).toBe(180_000)
     expect(responseEventStaleTimeoutMs(100_001)).toBe(300_000)

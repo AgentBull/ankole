@@ -7,6 +7,7 @@ export function createModel(opts: {
   selector: string
   name?: string
   provider?: string
+  providerOptions?: ModelConfig['providerOptions']
   fetch?: typeof fetch
   responseWebSocket?: ResponseWebSocketTransport
 }): ModelConfig {
@@ -21,6 +22,7 @@ export function createModel(opts: {
     selector: opts.selector,
     name: opts.name ?? (opts.selector.includes('/') ? opts.selector.split('/').pop()! : opts.selector),
     provider: opts.provider ?? 'ai-gateway',
+    providerOptions: opts.providerOptions,
     responseWebSocket: opts.responseWebSocket
   }
 }

@@ -55,7 +55,7 @@ defmodule Ankole.AIGateway.ChatGPTAuthTest do
       end)
 
     create_chatgpt_provider!("chatgpt-device", issuer)
-    now = ~U[2026-07-29 08:00:00Z]
+    now = DateTime.utc_now(:second)
 
     assert {:ok, login} =
              ChatGPTAuth.start_login(

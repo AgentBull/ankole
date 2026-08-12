@@ -79,6 +79,7 @@ export interface ModelConfig {
   selector: string
   name: string
   provider: string
+  providerOptions?: JSONObject
   responseWebSocket?: ResponseWebSocketTransport
 }
 

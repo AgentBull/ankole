@@ -69,6 +69,73 @@ describe('@ankole/agent-computer Codex app-server protocol contract', () => {
     expect(`${stdout}${stderr}`.trim()).toBe('codex-cli 0.147.0')
   })
 
+  it('carries a Job hosted web search through standard Responses', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ankole-codex-hosted-web-search-'))
+    const workspace = join(root, 'workspace')
+    const codexHome = join(root, 'codex-home')
+    const requests: JSONObject[] = []
+    const bindings: JSONObject[] = []
+    const notifications: JSONRPCMessage[] = []
+    const provider = createHostedWebSearchResponsesProvider(requests, bindings)
+    if (typeof provider.port !== 'number') throw new Error('Hosted web search provider did not bind a TCP port')
+    let client: CodexAppServerClient | undefined
+
+    try {
+      mkdirSync(workspace, { recursive: true })
+      mkdirSync(codexHome, { recursive: true })
+      const baseURL = `http://127.0.0.1:${provider.port}/v1`
+      resetCodexAgentRuntimeConfig(codexHome, baseURL)
+      refreshCodexAgentRuntimeCredential(codexHome, 'contract-key')
+      materializeCodexJobProjectConfig({ projectRoot: workspace, hostedWebSearch: true })
+
+      const runtime = pluginTestRuntime(baseURL, 'gpt-5.6-sol')
+      const config = codexJobThreadConfig({
+        cwd: workspace,
+        codexHome,
+        env: {},
+        runtime,
+        projectConfig: readCodexJobProjectConfig(workspace)
+      }) as Record<string, any>
+      client = new CodexAppServerClient({
+        cwd: workspace,
+        env: {
+          PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin',
+          HOME: workspace,
+          CODEX_HOME: codexHome,
+          CODEX_UNSAFE_ALLOW_NO_SANDBOX: '1',
+          LANG: 'C.UTF-8'
+        },
+        onNotification: notification => notifications.push(notification)
+      })
+
+      await client.initialize()
+      const thread = (await client.request('thread/start', {
+        cwd: workspace,
+        model: runtime.modelProfile.model,
+        modelProvider: 'ankole_aigateway',
+        approvalPolicy: 'never',
+        sandbox: 'danger-full-access',
+        config
+      })) as ThreadStartResponse
+      const turn = (await client.request('turn/start', {
+        threadId: thread.thread.id,
+        input: [{ type: 'text', text: 'Use live web search for this probe.', text_elements: [] }],
+        cwd: workspace,
+        approvalPolicy: 'never',
+        sandboxPolicy: { type: 'dangerFullAccess' }
+      })) as { turn: { id: string } }
+      await waitForPluginTurn(notifications, turn.turn.id)
+
+      expect(requests).toHaveLength(1)
+      expect(requests[0]?.tools).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'web_search' })]))
+      expect(bindings).toHaveLength(1)
+    } finally {
+      await client?.close()
+      provider.stop(true)
+      rmSync(root, { recursive: true, force: true })
+    }
+  }, 60_000)
+
   it('routes MultiAgentV2 children from sub-agent activity and exposes their raw tool calls', async () => {
     const root = mkdtempSync(join(tmpdir(), 'ankole-codex-multi-agent-v2-'))
     const workspace = join(root, 'workspace')
@@ -287,14 +354,25 @@ describe('@ankole/agent-computer Codex app-server protocol contract', () => {
   it('releases the Agent Codex Home lock after each real sandboxed app-server exit', async () => {
     const agentsRoot = mkdtempSync('/agents/ankole-codex-lock-contract-')
     const materialized = materializeCodexConfig({ agentsRoot, agentUID: 'agent-1' })
+    mkdirSync(materialized.agentHome, { recursive: true })
     const sandbox = codexAgentRuntimeSandboxSpec({ materialized })
     const manager = new AgentCodexRuntimeManager()
     let lease: AgentCodexRuntimeLease | undefined
 
     try {
+      expect(
+        sandbox.commandArgv.some(
+          (value, index) =>
+            value === '--bind' &&
+            sandbox.commandArgv[index + 1] === materialized.codexHome &&
+            sandbox.commandArgv[index + 2] === materialized.codexHome
+        )
+      ).toBe(true)
+
       for (let index = 0; index < 6; index += 1) {
         lease = await manager.acquire({
           agentUID: 'agent-1',
+          agentHome: materialized.agentHome,
           codexHome: materialized.codexHome,
           aiGatewayBaseURL: 'http://control.test/api/v1/ai-gateway',
           aiGatewayAPIKey: `contract-key-${index}`,
@@ -1107,6 +1185,96 @@ function createExecOutputResponsesProvider(requests: JSONObject[]) {
           content: [{ type: 'output_text', text: 'Output contract checked.', annotations: [] }]
         }
       ])
+    }
+  })
+}
+
+function createHostedWebSearchResponsesProvider(requests: JSONObject[], bindings: JSONObject[]) {
+  return Bun.serve({
+    hostname: '127.0.0.1',
+    port: 0,
+    async fetch(request, server) {
+      const url = new URL(request.url)
+      if (request.method === 'GET' && url.pathname === '/v1/models') {
+        return Response.json({
+          models: [execOutputModelCard('gpt-5.6-sol')]
+        })
+      }
+      if (request.method === 'GET' && url.pathname === '/v1/responses') {
+        const encodedBinding = request.headers.get('x-ankole-aigateway-model-binding')
+        if (encodedBinding) {
+          bindings.push(JSON.parse(Buffer.from(encodedBinding, 'base64url').toString('utf8')) as JSONObject)
+        }
+        if (server.upgrade(request)) return
+      }
+      if (request.method !== 'POST' || url.pathname !== '/v1/responses') {
+        return Response.json({ error: { message: 'not found' } }, { status: 404 })
+      }
+
+      const body = (await request.json()) as JSONObject
+      requests.push(body)
+      const encodedBinding = request.headers.get('x-ankole-aigateway-model-binding')
+      if (encodedBinding) {
+        bindings.push(JSON.parse(Buffer.from(encodedBinding, 'base64url').toString('utf8')) as JSONObject)
+      }
+      return execOutputResponse('hosted-web-search-done', 'gpt-5.6-sol', [
+        {
+          id: 'hosted-web-search-message',
+          type: 'message',
+          status: 'completed',
+          role: 'assistant',
+          content: [{ type: 'output_text', text: 'Hosted web search contract checked.', annotations: [] }]
+        }
+      ])
+    },
+    websocket: {
+      message(ws, message) {
+        const request = JSON.parse(
+          typeof message === 'string' ? message : new TextDecoder().decode(message)
+        ) as JSONObject
+        if (request.generate !== false) requests.push(request)
+        const response = {
+          id: 'hosted-web-search-done',
+          object: 'response',
+          created_at: 1_764_967_971,
+          completed_at: null,
+          status: 'in_progress',
+          model: 'gpt-5.6-sol',
+          previous_response_id: null,
+          output: [],
+          usage: null
+        }
+        const item = {
+          id: 'hosted-web-search-message',
+          type: 'message',
+          status: 'completed',
+          role: 'assistant',
+          content: [{ type: 'output_text', text: 'Hosted web search contract checked.', annotations: [] }]
+        }
+        for (const event of [
+          { type: 'response.created', sequence_number: 0, response },
+          { type: 'response.output_item.done', sequence_number: 1, output_index: 0, item },
+          {
+            type: 'response.completed',
+            sequence_number: 2,
+            response: {
+              ...response,
+              completed_at: 1_764_967_972,
+              status: 'completed',
+              output: [item],
+              usage: {
+                input_tokens: 1,
+                input_tokens_details: { cached_tokens: 0 },
+                output_tokens: 1,
+                output_tokens_details: { reasoning_tokens: 0 },
+                total_tokens: 2
+              }
+            }
+          }
+        ]) {
+          ws.send(JSON.stringify(event))
+        }
+      }
     }
   })
 }

@@ -44,6 +44,7 @@ export function modelConfigFromAIGatewayAPIKey(
     selector,
     name: modelRef.model,
     provider: modelRef.provider_id,
+    providerOptions: modelRef.provider_options,
     fetch: gatewayFetch as never,
     responseWebSocket: {
       kind: 'aigateway-websocket',
