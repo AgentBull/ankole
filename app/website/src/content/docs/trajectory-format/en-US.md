@@ -42,6 +42,8 @@ A background job stores its per-turn execution as trajectory groups in `backgrou
 
 The content must be valid canonical ChatML — the schema validates it with `Trajectory.valid_group_content?/1`, rejecting a group that does not contain canonical ChatML messages. The `revision` field lets an in-place steer or nudge update the same group's content without inserting a new row, so the trajectory reflects the latest state of that group.
 
+Tool-result message metadata records `execution_mechanism` as `provider_hosted` when the model Provider executes the tool, or `local_dynamic` when Codex invokes a dynamic tool implemented by Ankole. This stable fact distinguishes tools that use the same display name.
+
 This is a separate storage shape from the AIGateway conversation messages, because a background job's trajectory belongs to the job, not to a conversation. The job's turns are their own thread; the conversation it reports back to receives the result, not the trajectory.
 
 ## The model-visible projection

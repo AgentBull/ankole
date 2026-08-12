@@ -42,6 +42,8 @@ AIGateway 拥有实时会话转写。每条消息是 `ai_gateway_messages` 里�
 
 内容必须是有效的规范 ChatML——结构由 `Trajectory.valid_group_content?/1` 校验，不含规范 ChatML 消息的组会被拒绝。`revision` 让就地 steer 或 nudge 更新同一组的内容而不插新行，使轨迹反映该组的最新状态。
 
+工具结果消息的 metadata 会记录 `execution_mechanism`。模型 Provider 执行的工具使用 `provider_hosted`，Codex 调用的 Ankole 动态工具使用 `local_dynamic`。即使两个工具的展示名相同，这一稳定事实也能区分它们。
+
 这是与 AIGateway 会话消息分开的存储形态，因为后台任务的轨迹属于任务，不属于会话。任务的回合是它们自己的线；它回报的会话收到结果，不是轨迹。
 
 ## 模型可见投影

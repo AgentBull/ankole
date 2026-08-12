@@ -26,8 +26,10 @@ then by `id` descending. Each item contains only `job_id`, `title`, the concrete
 Job `status`. The page also contains `next_page`. Its value is `null` when no
 older Job is available.
 
-`show_background_job_details` is a read-only tool. Its input contains only
-`job_id`. It returns `title`, the concrete Job `status`, attempt counts, compact
+`show_background_job_details` is a read-only tool. Its input contains `job_id`
+and an optional stable UTF-8 byte `result_offset`. Without `result_offset`, it returns
+`title`, the concrete Job `status`, the terminal
+`result_ref` when one exists, attempt counts, compact
 attempt history, the current Turn status, thread and Turn counts, aggregate
 progress, latest usage, the execution update time, a current error summary, and
 `recent_trajectory`. Turn counts use runtime thread ownership and do not expose
@@ -44,6 +46,17 @@ preserves the trajectory-level `metadata.redacted` and
 `content_truncated` when it must reduce selected message content to keep the
 page within its byte limit. The fixed three-group selection does not set this
 content flag.
+
+With `result_offset`, the same tool accepts only a succeeded Job with a persisted
+`output_text`. Use `0` for the first read. It returns `title`, `status`, the terminal
+`result_ref`, and one exact UTF-8-safe `result`. This field contains `offset`,
+`output_text`, and `next_offset`. The serialized tool result is at most 8,000 UTF-8 bytes. This byte
+limit keeps the result below the 10,000-token model-visible tool-output limit,
+including JSON escaping. Concatenating the segments in order reconstructs the
+persisted final response exactly. A later Turn can resume from the same offset
+because a succeeded result is immutable. The Control Plane returns only a bounded
+window instead of transferring the full persisted result. This field does not
+change the bounded completion notification.
 
 `create_background_job` creates one durable Job. Its input contains only:
 
@@ -221,6 +234,12 @@ package hash, package bytes, overlay bytes, Hook state, or Plugin cache state.
 the semantic `ankole_chatml` history selected from Codex events, not a copy of
 raw app-server frames. Each Turn row stores the trajectory header. Append-only
 trajectory-group rows store its messages.
+
+A stored tool-result message keeps the stable execution mechanism in metadata.
+`provider_hosted` means that the model Provider executed the tool.
+`local_dynamic` means that Codex invoked a dynamic tool implemented by Ankole.
+This fact distinguishes tools that have the same display name without changing
+that name or storing the raw app-server frame.
 
 New Codex root threads request experimental raw response-item notifications. The
 trajectory recorder selects only collaboration `function_call` and

@@ -47,6 +47,10 @@ Agent ページで **MISSION / SOUL / DESIGN** を開きます。
 - Agent が画像を作成する必要があるときは、`image_generate` を設定します。
 - Job が別の provider かモデルを必要とするときは、**Background Agent Jobs** を設定します。ChatGPT サブスクリプションは、[ChatGPT サブスクリプション provider](../chatgpt-subscription-provider/)を通じて同じ provider 選択を使います。
 
+モデルを選択または入力する前に Provider を選択します。context length フィールドも Provider の選択後に使用できます。空のままにすると、Provider とモデルのデフォルト値を使います。
+
+高度な設定には、選択した Provider が宣言したオプションだけが表示されます。**Reasoning summary** は Responses API だけに適用されます。**Answer detail** は応答の既定の詳しさを設定します。**Service tier** は、このモデルプロファイルの request tier を上書きします。使用できる値は Provider、アカウント、モデルによって異なります。空のままにすると Provider のデフォルト値を使います。
+
 最初の LLM Provider とモデルのセットアップは、[Quick start](../quickstart/#3-add-an-llm-provider-and-create-an-agent)を参照してください。
 
 ## 機能と環境変数を設定する
@@ -71,7 +75,7 @@ Skill、コマンドラインツール、または MCP サービスが API key �
 
 表示名、ロール、永続的な指示、モデル、機能はいつでも変更できます。他の設定が UID を使って Agent を識別するため、UID は変更できません。
 
-無効化された Agent は新しい作業を受け付けません。1 つのチャットの入口だけを止めたい場合は、Agent 全体を無効化するのではなく、関連する signal routing ルールを無効化または削除してください。
+無効化された Agent は新しい作業を受け付けません。1 つのチャットの入口だけを止めたい場合は、Agent 全体を無効化するのではなく、関連する signal routing ルールを無効化してください。
 
 ## Agent が応答しない場合
 

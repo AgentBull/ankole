@@ -16,6 +16,8 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
     "live" => ~w(queued running waiting_on_user),
     "stop" => ~w(succeeded failed stopped)
   }
+  @result_read_columns [:id, :agent_uid, :owner_session_id, :status, :title, :reply_route]
+  @result_window_bytes 16_384
 
   @type list_item :: %{
           job_id: pos_integer(),
@@ -124,6 +126,35 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
     query
     |> maybe_lock(Keyword.get(opts, :lock))
     |> repo.one()
+  end
+
+  @spec get_result_window_for_agent(pos_integer(), String.t(), non_neg_integer()) ::
+          %{job: Job.t(), output_window: binary() | nil, total_bytes: non_neg_integer() | nil}
+          | nil
+  def get_result_window_for_agent(job_id, agent_uid, offset)
+      when is_integer(job_id) and job_id > 0 and is_binary(agent_uid) and is_integer(offset) and
+             offset >= 0 do
+    query =
+      from job in Job,
+        where: job.id == ^job_id and job.agent_uid == ^agent_uid,
+        select: {
+          map(job, ^@result_read_columns),
+          fragment(
+            "substring(convert_to(?->>'output_text', 'UTF8') from ? for ?)",
+            job.result,
+            ^(offset + 1),
+            ^@result_window_bytes
+          ),
+          fragment("octet_length(?->>'output_text')", job.result)
+        }
+
+    case Repo.one(query) do
+      {job, output_window, total_bytes} ->
+        %{job: struct(Job, job), output_window: output_window, total_bytes: total_bytes}
+
+      nil ->
+        nil
+    end
   end
 
   @spec get_summary_for_agent(pos_integer(), String.t(), keyword()) ::

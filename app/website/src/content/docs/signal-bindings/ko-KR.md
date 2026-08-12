@@ -46,11 +46,15 @@ Slack, Microsoft Teams, Lark, Feishu는 세 가지 mode를 모두 지원합니�
 
 **Channel only**는 그룹 메시지를 이 channel만 읽을 수 있는 memory에 보관합니다. 고객 데이터, 기밀 프로젝트 또는 분리되어야 하는 팀에 사용하십시오.
 
-## 규칙 재구성 또는 제거
+## 규칙 편집, 비활성화 또는 활성화
 
-대상 Agent, group-message mode, memory scope 또는 chat credential을 변경할 수 있습니다. 다른 Agent를 선택하면 새 메시지가 그 Agent로 전달됩니다. 기존 conversation과 memory는 자동으로 이동하지 않습니다.
+목록에는 기본적으로 활성화된 규칙만 표시됩니다. 이전 규칙을 확인하거나 복원해야 하면 **비활성 규칙 표시**를 켜세요.
 
-규칙을 제거하면 새 메시지 전달이 중지되지만 chat application은 삭제되지 않습니다. 나중에 동일한 application으로 새 규칙을 만들 수 있습니다.
+**편집**을 선택하면 현재의 비밀 정보가 아닌 설정을 볼 수 있습니다. 대상 Agent, group-message mode, memory scope 또는 chat credential을 변경할 수 있습니다. 다른 Agent를 선택하면 새 메시지가 그 Agent로 전달됩니다. 기존 conversation과 memory는 자동으로 이동하지 않습니다.
+
+server는 저장된 token이나 secret을 브라우저로 반환하지 않습니다. credential 필드를 비워 두면 암호화된 기존 값을 유지합니다. 값을 바꾸려는 경우에만 새 값을 입력하세요.
+
+**비활성화**를 선택하면 규칙, chat application 연결, 기록을 유지하면서 새 메시지 전달을 중지합니다. 복원하려면 **비활성 규칙 표시**에서 해당 규칙을 찾고 **활성화**를 선택하세요. 규칙을 다시 만들 필요가 없습니다.
 
 ## Agent가 응답하지 않는 경우
 

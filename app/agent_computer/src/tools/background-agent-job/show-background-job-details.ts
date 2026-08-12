@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { AgentTool } from '../../core'
+import { truncateUtf16Safe, utf8ByteLength } from '../../common/text-sanitize'
 import { ModelIntegerID, modelIntegerIDFromWire, modelIntegerIDToWire } from '../../core/model-integer-id'
 import { jsonToolResult } from '../../core/tool-result'
 import { jsonObjectFromBytes } from '../../fabric/envelope_proto'
@@ -12,9 +13,20 @@ import {
 } from './model-trajectory'
 import { BackgroundAgentJobStatusSchema, type BackgroundAgentJobStatus } from './status'
 
+const RESULT_TOOL_OUTPUT_MAX_BYTES = 8_000
+
 const ShowBackgroundJobDetailsParamsSchema = z
   .object({
-    job_id: ModelIntegerID.describe('Background agent job id.')
+    job_id: ModelIntegerID.describe('Background agent job id.'),
+    result_offset: z
+      .number()
+      .int()
+      .nonnegative()
+      .max(Number.MAX_SAFE_INTEGER)
+      .describe(
+        'Stable UTF-8 byte offset into the persisted result. Use 0 for the first chunk; omit it to show execution details.'
+      )
+      .optional()
   })
   .strict()
 
@@ -79,9 +91,15 @@ const ExecutionSchema = z.object({
   updated_at: z.string()
 })
 
-type ShowBackgroundJobDetailsResult = {
+type ResultRef = {
+  type: 'background_agent_job'
+  job_id: number
+}
+
+type ShowBackgroundJobExecutionDetails = {
   title: string
   status: BackgroundAgentJobStatus
+  result_ref: ResultRef | null
   continued_from_job_id: number | null
   workspace_owner_job_id: number
   attempts: number
@@ -101,6 +119,19 @@ type ShowBackgroundJobDetailsResult = {
   recent_trajectory: BackgroundAgentJobTrajectory
 }
 
+type ShowBackgroundJobResultChunk = {
+  title: string
+  status: 'succeeded'
+  result_ref: ResultRef
+  result: {
+    offset: number
+    output_text: string
+    next_offset: number | null
+  }
+}
+
+type ShowBackgroundJobDetailsResult = ShowBackgroundJobExecutionDetails | ShowBackgroundJobResultChunk
+
 export type ShowBackgroundJobDetailsToolOptions = {
   turnStart: TurnStart
   rpc: RPCRequester
@@ -111,19 +142,46 @@ export function createShowBackgroundJobDetailsTool(
 ): AgentTool<typeof ShowBackgroundJobDetailsParamsSchema, ShowBackgroundJobDetailsResult> {
   return {
     name: 'show_background_job_details',
-    description: 'Show job details: status, current progress, usage, attempt history, and the latest trajectory page.',
+    description: [
+      'Show job status, progress, usage, attempt history, and the latest trajectory page.',
+      'For an exact persisted result from a succeeded job, set result_offset to 0, concatenate result.output_text, and pass result.next_offset to the next call until it is null.',
+      'Result offsets are stable and can be resumed in a later turn.'
+    ].join(' '),
     schema: ShowBackgroundJobDetailsParamsSchema,
     executionMode: 'parallel',
     isReadOnly: true,
     isDestructive: false,
     describeActivity: () => ({ key: 'signals_gateway.reply.activity.background_job_show' }),
     async execute(_toolCallID, params) {
-      const request: RPCRequestInit<'background_agent_job.get'> = {
-        jobId: modelIntegerIDToWire(params.job_id),
-        trajectoryLimit: 3,
-        trajectoryCursor: ''
-      }
+      const request: RPCRequestInit<'background_agent_job.get'> =
+        params.result_offset === undefined
+          ? {
+              jobId: modelIntegerIDToWire(params.job_id),
+              trajectoryLimit: 3,
+              trajectoryCursor: ''
+            }
+          : {
+              jobId: modelIntegerIDToWire(params.job_id),
+              resultOffset: String(params.result_offset)
+            }
       const response = await opts.rpc(rpcMethods.backgroundAgentJobGet, request, { turn: opts.turnStart.turn })
+      const status = BackgroundAgentJobStatusSchema.parse(response.status)
+
+      if (params.result_offset !== undefined) {
+        if (status !== 'succeeded') {
+          throw new Error(`background agent job ${params.job_id} has status ${status}; only succeeded jobs have output`)
+        }
+
+        const resultRef = terminalResultRef(response.resultRef, params.job_id)
+        const totalBytes = nonNegativeSafeIntegerFromWire(
+          response.resultOutputTotalBytes,
+          'background_agent_job.result_output_total_bytes'
+        )
+        return jsonToolResult(
+          resultChunk(response.title, response.resultOutputText, params.result_offset, totalBytes, resultRef)
+        )
+      }
+
       const execution = ExecutionSchema.parse(
         jsonObjectFromBytes(response.executionJson, 'background_agent_job.execution_json')
       )
@@ -131,7 +189,8 @@ export function createShowBackgroundJobDetailsTool(
 
       return jsonToolResult({
         title: response.title,
-        status: BackgroundAgentJobStatusSchema.parse(response.status),
+        status,
+        result_ref: response.resultRef ? terminalResultRef(response.resultRef, params.job_id) : null,
         continued_from_job_id: response.continuedFromJobId
           ? modelIntegerIDFromWire(response.continuedFromJobId, 'background_agent_job.continued_from_job_id')
           : null,
@@ -161,6 +220,90 @@ export function createShowBackgroundJobDetailsTool(
       })
     }
   }
+}
+
+function terminalResultRef(resultRef: { type: string; jobId: string } | undefined, jobID: number): ResultRef {
+  if (!resultRef || resultRef.type !== 'background_agent_job') {
+    throw new Error(`background agent job ${jobID} has no terminal result reference`)
+  }
+  const resultJobID = modelIntegerIDFromWire(resultRef.jobId, 'background_agent_job.result_ref.job_id')
+  if (resultJobID !== jobID) {
+    throw new Error(`background agent job ${jobID} returned a mismatched result reference`)
+  }
+  return { type: 'background_agent_job', job_id: resultJobID }
+}
+
+function resultChunk(
+  title: string,
+  outputWindow: string,
+  offset: number,
+  totalBytes: number,
+  resultRef: ResultRef
+): ShowBackgroundJobResultChunk {
+  if (offset > totalBytes) throw invalidResultOffset(offset)
+  const windowBytes = utf8ByteLength(outputWindow)
+  if (windowBytes > totalBytes - offset || (offset < totalBytes && windowBytes === 0)) {
+    throw new Error('background agent job returned an invalid result output window')
+  }
+
+  const complete = resultChunkDetails(
+    title,
+    resultRef,
+    offset,
+    outputWindow,
+    offset + windowBytes < totalBytes ? offset + windowBytes : null
+  )
+  if (serializedBytes(complete) <= RESULT_TOOL_OUTPUT_MAX_BYTES) return complete
+
+  let low = 1
+  let high = outputWindow.length - 1
+  let outputText = ''
+
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2)
+    const candidate = truncateUtf16Safe(outputWindow, middle)
+    const nextOffset = offset + utf8ByteLength(candidate)
+    const candidateDetails = resultChunkDetails(title, resultRef, offset, candidate, nextOffset)
+    if (serializedBytes(candidateDetails) <= RESULT_TOOL_OUTPUT_MAX_BYTES) {
+      outputText = candidate
+      low = middle + 1
+    } else {
+      high = middle - 1
+    }
+  }
+
+  if (!outputText) throw new Error('background agent job result metadata exceeds the tool output limit')
+  return resultChunkDetails(title, resultRef, offset, outputText, offset + utf8ByteLength(outputText))
+}
+
+function resultChunkDetails(
+  title: string,
+  resultRef: ResultRef,
+  offset: number,
+  outputText: string,
+  nextOffset: number | null
+): ShowBackgroundJobResultChunk {
+  return {
+    title,
+    status: 'succeeded',
+    result_ref: resultRef,
+    result: { offset, output_text: outputText, next_offset: nextOffset }
+  }
+}
+
+function serializedBytes(value: ShowBackgroundJobResultChunk): number {
+  return utf8ByteLength(JSON.stringify(value))
+}
+
+function invalidResultOffset(offset: number): Error {
+  return new Error(`background agent job result offset ${offset} is invalid`)
+}
+
+function nonNegativeSafeIntegerFromWire(value: string, field: string): number {
+  if (!/^(0|[1-9][0-9]*)$/.test(value)) throw new Error(`${field} is not a non-negative integer`)
+  const parsed = Number(value)
+  if (!Number.isSafeInteger(parsed)) throw new Error(`${field} exceeds the model integer range`)
+  return parsed
 }
 
 type ModelVisibleJobError = {

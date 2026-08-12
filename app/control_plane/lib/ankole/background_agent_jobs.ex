@@ -350,6 +350,9 @@ defmodule Ankole.BackgroundAgentJobs do
   @doc "Fetches one job for an agent."
   defdelegate get_job_for_agent(job_id, agent_uid), to: Queries, as: :get_for_agent
 
+  @doc false
+  defdelegate get_result_window_for_agent(job_id, agent_uid, offset), to: Queries
+
   @doc "Fetches one job with its orchestrator-facing execution projection."
   def get_job_summary_for_agent(job_id, agent_uid, opts \\ []),
     do: Queries.get_summary_for_agent(job_id, agent_uid, opts)

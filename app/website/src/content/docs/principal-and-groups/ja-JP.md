@@ -36,7 +36,7 @@ Ankole は Identity Provider を保存すると、最初の完全 sync を開始
 - **Agent** の Principal は、Agent を作成すると現れます。
 - **System** の Principal は、内部のサービス作業のために Ankole が作成します。
 
-Principal を選択すると、その group と直接 grant を確認できます。アクセスを調査するときは、両方の領域を確認してください。Principal は直接 grant を持たなくても、group を通じてアクセスを得ることがあります。
+Principal の名前または行末の **詳細を表示** を選択すると、その group と直接 grant を確認できます。Principal の UID、タイプ、状態は Identity または runtime の所有者から取得され、このページでは読み取り専用です。アクセスを調査するときは、group と直接 grant の両方を確認してください。Principal は直接 grant を持たなくても、group を通じてアクセスを得ることがあります。
 
 ## 正しい permission group を選択する
 
@@ -49,7 +49,7 @@ group の source ごとに、メンバーシップの所有者が異なります
 | **Static group** | チームが Ankole にしか存在しない、または少数のメンバーシップがめったに変わらない | 管理者 |
 | **Computed group** | Principal の属性でメンバーを確実に識別できる | Ankole が評価する CEL expression |
 
-Directory group と IM group は permission group のリストに自動的に表示されます。それらは Console では読み取り専用です。管理者は Ankole で static group と computed group を作成します。
+Directory group と IM group は permission group のリストに自動的に表示されます。これらのメンバーシップは外部システムから取得され、Console では読み取り専用です。管理者は Ankole で static group と computed group を作成して管理します。
 
 企業ディレクトリが対象チームを既に表している場合は、directory group を使用してください。人がチームを移動したり退職したりすると、次の incremental または完全な directory sync がアクセスを調整します。
 
@@ -92,7 +92,7 @@ principal.type == "agent" && principal.uid.startsWith("research-")
 
 Console は expression の入力中に、一致するすべての active Principal をプレビューします。保存する前に数と名前を確認し、group が意図した以上の Principal にアクセスを与えないようにしてください。
 
-保存後は、group の名前、タイプ、メンバーシップ条件を変更できません。規則を変更するには、新しい group を作成し、プレビューを確認し、grant を移動してから、古い group を削除します。
+保存後は、group の名前とタイプを変更できません。通常の computed group ではメンバーシップ条件を編集できます。保存する前に live preview を再度確認してください。組み込み computed group の条件は Ankole が管理するため、Console では読み取り専用です。
 
 CEL は現在、従業員のメールアドレス、役職、部門メンバーシップを読み取れません。部門アクセスには、同期された directory group を使用してください。表示名から組織のメンバーシップを推測しないでください。
 
@@ -106,6 +106,8 @@ permission group または Principal を開き、grant セクションで **新�
 - **description:** このアクセスが必要な理由。
 
 grant は permission group に付与することを優先してください。直接の Principal grant は例外のためだけに使用します。変更または削除された grant は、その所有者と関連する group メンバーに即座に影響します。
+
+grant の所有者は作成後に変更できません。別の Principal または group に grant を移すには、新しい所有者の下に grant を作成し、アクセス結果を確認してから古い grant を削除します。
 
 ## 組織構造でアクセスを割り当てる
 

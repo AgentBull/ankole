@@ -47,6 +47,10 @@ Configure optional profiles only when the Agent needs them:
 - Configure `image_generate` when the Agent must create images.
 - Configure **Background Agent Jobs** when Jobs need a separate provider or model. A ChatGPT subscription uses the same provider selection through its [ChatGPT subscription provider](../chatgpt-subscription-provider/).
 
+Select the Provider before you select or enter the model. The context-length field also becomes available after you select the Provider. Leave the context length empty to use the Provider and model default.
+
+Advanced settings show only options that the selected Provider declares. **Reasoning summary** applies only to the Responses API. **Answer detail** sets the default response detail. **Service tier** overrides the request tier for this model profile. Available values depend on the Provider, account, and model. Leave these options empty to use the Provider defaults.
+
 See [Quick start](../quickstart/#3-add-an-llm-provider-and-create-an-agent) for the first LLM Provider and model setup.
 
 ## Configure capabilities and environment variables
@@ -71,7 +75,7 @@ See [Signal routing rules](../signal-bindings/).
 
 You can change the display name, role, durable instructions, models, and capabilities at any time. You cannot change the UID because other configuration uses it to identify the Agent.
 
-A disabled Agent does not accept new work. If you only want to stop one chat entry point, disable or delete the related signal routing rule instead of disabling the full Agent.
+A disabled Agent does not accept new work. If you only want to stop one chat entry point, disable the related signal routing rule instead of disabling the full Agent.
 
 ## If the Agent does not reply
 

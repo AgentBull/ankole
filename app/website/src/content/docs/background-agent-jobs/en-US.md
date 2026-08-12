@@ -44,6 +44,8 @@ The wakeup is a normal actor event — same queue, same fencing, same session co
 
 The wakeup event's source id encodes the job, the status, and the attempt number, so a resumed job's later wakeup cannot be confused with an earlier one.
 
+A completion wakeup carries a bounded result summary. When the persisted final response is larger than the summary limit, the owner Agent calls `show_background_job_details` with `result_offset: 0`, then passes each returned `result.next_offset` to the next call until it is `null`. The UTF-8-safe segments reconstruct the exact response. This keeps the wakeup and each result read bounded without adding another Job operation or losing access to the durable result.
+
 ## Resume and wait-for-input
 
 `waiting_on_user` is the pause that keeps the job alive without holding a slot. When the job needs a human decision, it transitions to `waiting_on_user`; the latest-status projection records `interrupted` with error code `request_user_input` and a pending tool call, so the owner's next turn has a precise place to resume from. When the human answers, the job transitions back to `running` and continues.

@@ -183,6 +183,58 @@ describe('@ankole/agent-computer durable BackgroundAgentJob Turn recorder', () =
     expect(upserts).toHaveLength(checkpointCount)
   })
 
+  it('distinguishes provider-hosted search from a same-name local dynamic tool', async () => {
+    const { recorder, upserts } = fixture()
+    recorder.recordTurnStarted('thread-1', startedTurn(), '搜索并核对', 'event-1')
+
+    recorder.handleNotification(
+      notification('item/completed', {
+        item: {
+          type: 'webSearch',
+          id: 'hosted-search',
+          query: 'example query',
+          action: null,
+          results: null
+        }
+      })
+    )
+    recorder.handleNotification(
+      notification('item/completed', {
+        item: {
+          type: 'dynamicToolCall',
+          id: 'local-search',
+          namespace: null,
+          tool: 'web_search',
+          arguments: { query: 'example query' },
+          status: 'completed',
+          contentItems: [],
+          success: true,
+          durationMs: 3
+        }
+      })
+    )
+    await recorder.flush()
+
+    const searchResults = trajectoryMessages(upserts).filter(message => message.role === 'tool')
+    expect(searchResults).toEqual([
+      expect.objectContaining({
+        tool_call_id: 'hosted-search',
+        name: 'web_search',
+        metadata: { status: 'completed', execution_mechanism: 'provider_hosted' }
+      }),
+      expect.objectContaining({
+        tool_call_id: 'local-search',
+        name: 'web_search',
+        metadata: {
+          status: 'completed',
+          success: true,
+          duration_ms: 3,
+          execution_mechanism: 'local_dynamic'
+        }
+      })
+    ])
+  })
+
   it('records the exact MultiAgentV2 calls, outputs, and stable child identities', async () => {
     const { recorder, upserts } = fixture()
     recorder.recordTurnStarted('thread-1', startedTurn(), '委派并收取结果', 'event-1')
@@ -289,7 +341,12 @@ describe('@ankole/agent-computer durable BackgroundAgentJob Turn recorder', () =
           role: 'tool',
           tool_call_id: call.id,
           name: `collaboration.${call.tool}`,
-          metadata: { status: 'completed', success: null, duration_ms: null }
+          metadata: {
+            status: 'completed',
+            success: null,
+            duration_ms: null,
+            execution_mechanism: 'local_dynamic'
+          }
         })
       ])
     }

@@ -38,6 +38,10 @@ Provider를 구성한 후 콜백 URL을 `/setup`에 표시된 그대로 등록�
 
 외부 애플리케이션을 준비한 후 **Console → Signal Routing → New routing rule**을 여세요. Agent와 어댑터를 선택하고 자격 증명을 입력하세요. IdP와 채팅 애플리케이션이 같은 엔터프라이즈 조직에 속할 때만 두 곳에 같은 `platformSubjectNamespace`를 사용하세요. 네임스페이스를 조직 간에 공유하지 마세요.
 
+## 저장된 자격 증명 업데이트
+
+Identity Provider 또는 signal routing 규칙을 편집할 때 Console은 암호화된 자격 증명이 저장되어 있다는 사실만 표시합니다. token이나 secret을 브라우저로 반환하거나 페이지에 넣지 않습니다. 저장된 값을 유지하려면 자격 증명 필드를 비워 두세요. 값을 바꾸려는 경우에만 새 값을 입력하고 저장하세요. 이전 자격 증명의 순환 또는 취소는 외부 provider에서 수행합니다. Console에서는 현재 값을 볼 수 없습니다.
+
 ## 검증 순서
 
 1. IdP 로그인을 검증하고 첫 번째 관리자가 Console을 열 수 있는지 확인합니다.

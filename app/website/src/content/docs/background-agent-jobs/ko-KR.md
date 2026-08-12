@@ -44,6 +44,8 @@ wakeup은 일반 액터 이벤트입니다. 다른 시그널과 같은 큐, 같�
 
 wakeup 이벤트의 source id는 Job, 상태, 시도 번호를 인코딩하므로, 재개된 Job의 나중 wakeup이 이전 wakeup과 혼동될 수 없습니다.
 
+완료 wakeup은 크기가 제한된 결과 요약을 전달합니다. 저장된 최종 응답이 요약 한도를 넘으면 owner Agent는 `result_offset: 0`을 지정해 `show_background_job_details`를 호출합니다. 반환된 `result.next_offset`을 다음 호출에 전달하고 값이 `null`이 될 때까지 계속합니다. UTF-8 안전한 각 구간을 순서대로 연결하면 원래 응답을 정확히 복원할 수 있습니다. 따라서 별도의 Job 작업을 추가하지 않고도 wakeup과 각 읽기의 크기를 제한할 수 있습니다.
+
 ## 재개와 입력 대기
 
 `waiting_on_user`는 슬롯을 붙잡지 않고 Job을 살아 있는 상태로 유지하는 일시 정지입니다. Job이 사람의 결정을 필요로 하면 `waiting_on_user`로 전환합니다. 최신 상태 프로젝션은 오류 코드 `request_user_input`과 대기 중인 tool 호출과 함께 `interrupted`를 기록하므로, 소유자의 다음 turn은 재개할 정확한 지점을 갖게 됩니다. 사람이 답하면 Job은 `running`으로 돌아가 계속됩니다.

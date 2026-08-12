@@ -42,6 +42,8 @@ Background Agent Jobはターンごとの実行を `background_agent_job_turn_tr
 
 コンテンツは有効な正規 ChatML でなければなりません。スキーマは `Trajectory.valid_group_content?/1` で検証し、正規 ChatML メッセージを含まないグループを拒否します。`revision` フィールドにより、インプレースのステアやプロンプトは新しい行を挿入せずに同じグループのコンテンツを更新でき、軌跡はそのグループの最新状態を反映します。
 
+ツール結果メッセージの metadata は `execution_mechanism` を記録します。モデル Provider が実行したツールには `provider_hosted`、Codex が呼び出した Ankole の動的ツールには `local_dynamic` を使います。この安定した事実により、表示名が同じツールも区別できます。
+
 これは AIGateway 会話メッセージとは別の保存形状です。Background Agent Jobの軌跡は会話ではなく Job に属するからです。Job のターンは独自のスレッドであり、報告先の会話は軌跡ではなく結果を受け取ります。
 
 ## モデル可視プロジェクション

@@ -832,7 +832,12 @@ function projectThreadItem(value: JSONObject, state: SanitizeState): JSONObject[
         name,
         item.arguments,
         item.contentItems ?? '',
-        { status: item.status, success: item.success, duration_ms: item.durationMs },
+        {
+          status: item.status,
+          success: item.success,
+          duration_ms: item.durationMs,
+          execution_mechanism: 'local_dynamic'
+        },
         state
       )
     }
@@ -844,7 +849,7 @@ function projectThreadItem(value: JSONObject, state: SanitizeState): JSONObject[
         toolName(value) ?? 'web_search',
         { query: item.query, action: item.action },
         '',
-        { status: 'completed' },
+        { status: 'completed', execution_mechanism: 'provider_hosted' },
         state
       )
     case 'imageView':

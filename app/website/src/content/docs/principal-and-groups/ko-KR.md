@@ -36,7 +36,7 @@ Ankole은 Identity Provider를 저장한 후 첫 번째 full sync를 시작합�
 - **Agent** principal은 Agent를 만들 때 나타납니다.
 - **System** principal은 내부 서비스 작업을 위해 Ankole이 만듭니다.
 
-Principal을 선택하면 해당 group과 직접 grant를 볼 수 있습니다. 액세스를 조사할 때는 두 영역을 모두 확인하세요. Principal은 직접 grant가 없어도 group을 통해 액세스를 얻을 수 있습니다.
+Principal 이름 또는 행 끝의 **상세 보기**를 선택하면 해당 group과 직접 grant를 볼 수 있습니다. Principal UID, 유형, 상태는 identity 또는 runtime 소유자에서 가져오며 이 페이지에서는 읽기 전용입니다. 액세스를 조사할 때는 group과 직접 grant를 모두 확인하세요. Principal은 직접 grant가 없어도 group을 통해 액세스를 얻을 수 있습니다.
 
 ## 올바른 permission group 선택
 
@@ -49,7 +49,7 @@ Principal을 선택하면 해당 group과 직접 grant를 볼 수 있습니다. 
 | **Static group** | 팀이 Ankole에만 존재하거나 멤버 수가 적고 자주 바뀌지 않음 | 관리자 |
 | **Computed group** | Principal 속성으로 멤버를 안정적으로 식별할 수 있음 | Ankole이 평가하는 CEL expression |
 
-Directory group과 IM group은 permission group 목록에 자동으로 나타납니다. Console에서는 읽기 전용입니다. 관리자는 Ankole에서 static group과 computed group을 만듭니다.
+Directory group과 IM group은 permission group 목록에 자동으로 나타납니다. 이 group의 멤버십은 외부 시스템에서 가져오며 Console에서는 읽기 전용입니다. 관리자는 Ankole에서 static group과 computed group을 만들고 관리합니다.
 
 회사 디렉터리가 대상 팀을 이미 나타내고 있으면 directory group을 사용하세요. 사람이 팀을 옮기거나 퇴사하면 다음 incremental 또는 전체 directory sync가 액세스를 조정합니다.
 
@@ -92,7 +92,7 @@ principal.type == "agent" && principal.uid.startsWith("research-")
 
 expression을 입력하는 동안 Console은 일치하는 모든 활성 principal을 미리 보여줍니다. 저장하기 전에 개수와 이름을 확인하여 group이 의도한 것보다 더 많은 principal에 액세스를 부여하지 않도록 하세요.
 
-저장한 후에는 group 이름, 유형, 멤버십 조건을 변경할 수 없습니다. 규칙을 변경하려면 새 group을 만들고 미리 보기를 확인한 다음 grant를 옮기고 이전 group을 삭제하세요.
+저장한 후에는 group 이름과 유형을 변경할 수 없습니다. 일반 computed group의 멤버십 조건은 편집할 수 있습니다. 저장하기 전에 live preview를 다시 확인하세요. 내장 computed group의 조건은 Ankole이 관리하므로 Console에서는 읽기 전용입니다.
 
 CEL은 현재 직원의 이메일 주소, 직책, 부서 멤버십을 읽을 수 없습니다. 부서 액세스에는 동기화된 directory group을 사용하세요. 표시 이름에서 조직 멤버십을 추론하지 마세요.
 
@@ -106,6 +106,8 @@ permission group 또는 principal을 열고 grant 섹션에서 **새 grant**를 
 - **Description:** 이 액세스가 필요한 이유
 
 grant는 permission group에 부여하는 것을 권장합니다. 직접 principal grant는 예외적인 경우에만 사용하세요. 변경되거나 삭제된 grant는 해당 소유자와 관련 group 멤버에게 즉시 영향을 미칩니다.
+
+grant 소유자는 생성 후 변경할 수 없습니다. grant를 다른 Principal 또는 group으로 옮기려면 새 소유자 아래에 grant를 만들고 액세스 결과를 확인한 다음 이전 grant를 삭제하세요.
 
 ## 조직 구조에 따라 액세스 할당
 

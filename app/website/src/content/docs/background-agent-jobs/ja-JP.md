@@ -44,6 +44,8 @@ wakeup は通常の actor イベントです。他の signal と同じキュー�
 
 wakeup イベントの source id は Job、ステータス、試行番号をエンコードするため、再開された Job の後の wakeup が以前のものと混同されることはありません。
 
+完了 wakeup はサイズが制限された結果概要を保持します。保存された最終応答が概要の上限を超える場合、owner Agent は `result_offset: 0` を指定して `show_background_job_details` を呼び出します。返された `result.next_offset` を次の呼び出しに渡し、値が `null` になるまで続けます。UTF-8 安全な各セグメントを順番に連結すると、元の応答を正確に復元できます。これにより、別の Job 操作を追加せずに、wakeup と各読み取りのサイズを制限できます。
+
 ## 再開と入力待ち
 
 `waiting_on_user` は、スロットを保持せずに Job を生かしておく一時停止です。Job が人の決定を必要とするとき、`waiting_on_user` に遷移します。最新ステータスの投影は、エラーコード `request_user_input` と保留中の tool call を持つ `interrupted` を記録するため、owner の次の turn には再開する正確な場所があります。人が回答すると、Job は `running` に戻って続行します。

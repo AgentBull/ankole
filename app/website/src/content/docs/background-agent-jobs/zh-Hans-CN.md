@@ -44,6 +44,8 @@ queued → running → waiting_on_user → running → … → succeeded | faile
 
 唤醒事件的 source id 编码了任务、状态和尝试序号，所以一个被恢复的任务后续的唤醒，不会和早先那一次混淆。
 
+完成唤醒只携带有界的结果摘要。持久化的最终回复超过摘要上限时，owner Agent 调用 `show_background_job_details` 并传入 `result_offset: 0`，随后把每次返回的 `result.next_offset` 传给下一次调用，直到它为 `null`。按顺序拼接这些 UTF-8 安全的片段，可以逐字还原最终回复。这样既能限制唤醒和每次读取的大小，也无需增加另一种任务操作，同时不会失去对持久结果的访问。
+
 ## 恢复与等待输入
 
 `waiting_on_user` 是那种让任务保持存活、又不占槽的暂停。当任务需要人类决策时，它迁移到 `waiting_on_user`；最新状态投影记下 `interrupted`，错误码 `request_user_input`，并带一个待处理 tool call，这样 owner 的下一回合就有一个精确的续接点。人类回答后，任务迁移回 `running` 并继续。

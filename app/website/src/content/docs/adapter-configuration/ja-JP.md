@@ -38,6 +38,10 @@ chat アダプターはメッセージを受信し、Agent の返信を送信し
 
 外部アプリケーションを準備したら、**Console → Signal Routing → New routing rule** を開きます。Agent とアダプターを選択し、credential を入力します。IdP と chat アプリケーションの両方が同じエンタープライズ組織に属する場合にだけ、両者で同じ `platformSubjectNamespace` を使います。組織をまたいで namespace を共有しないでください。
 
+## 保存済み credential を更新する
+
+Identity Provider または signal routing ルールを編集するとき、Console は暗号化された credential が保存されていることだけを表示します。token や secret をブラウザーに返したり、ページに埋め込んだりしません。保存済みの値を維持する場合は credential フィールドを空のままにします。値を置き換える場合だけ、新しい値を入力して保存します。古い credential のローテーションまたは失効は外部 provider で実行します。現在の値を Console で表示することはできません。
+
 ## 検証の順序
 
 1. IdP のサインインを検証し、最初の管理者が Console を開けることを確認します。
