@@ -1,5 +1,9 @@
 # Changelog
 
+## Version 0.68.4 (2026-08-13)
+
+- No product behavior changes. A `bun test` started outside the Worker image now stops with the correct Agent Computer test commands instead of reporting host environment failures, and the contributor guidelines state that a package's declared test or build script is the only correct entrypoint.
+
 ## Version 0.68.3 (2026-08-13)
 
 - Let an Agent Plugin workspace template hold a Background Job to single-Agent execution: `features.multi_agent_v2.enabled` in the template `.codex/config.toml` now keeps the value the operator wrote, and Ankole supplies its default only when the template leaves the switch unset.

@@ -123,6 +123,8 @@ Before adding a dependency in any ecosystem, confirm that an existing workspace 
 
 Use Bun as the TypeScript runtime, package manager, installer, and script launcher (`bun`, `bun install`, `bun run`, and `bunx`). Run package-declared test and build tools through Bun and do not replace them solely because of this rule; when a package declares no alternative, default to `bun test` and `bun build`. TypeScript dependency changes use `bun install` and update the committed `bun.lock`. Bun loads `.env` automatically, so do not add `dotenv`.
 
+Read the package `scripts` before you run a test or build. A declared script is the only correct entrypoint, including when it starts a container or another runtime, and a bare `bun test` or `bun build` never substitutes for it. A bare run that reaches the wrong runtime produces environment failures that say nothing about the code; do not report those results, and do not treat them as a baseline.
+
 ### `@agentbull/active-support`
 
 Use `@agentbull/active-support` as the general-purpose utility library where it is already available; adding it follows the dependency rule above. It provides Lodash-style helpers and re-exports `ts-pattern`; use `match().with().exhaustive()` for complex branching and `ms('24h')`-style duration helpers.
@@ -132,6 +134,7 @@ Use `@agentbull/active-support` as the general-purpose utility library where it 
 Module-specific schemas, events, storage layouts, and transport mechanics belong in `docs/design-docs/`, while language- and runtime-specific rules belong in the applicable agent skill. Before editing a module, read its scoped guidance, owning design documentation and code, and available language or runtime skill. If no explicit guidance exists, proceed only when ownership is unambiguous from the current code and the boundaries below; if multiple owners remain plausible, ask instead of inventing one. If guidance sources conflict in a way that could change files, commands, ownership, external effects, or claimed outcomes, do not perform the disputed action; report the conflict and ask for resolution.
 
 - For each change under `app/webapps/`, also read and follow `app/webapps/AGENTS.md`.
+- For each change under `app/agent_computer/`, also read and follow `app/agent_computer/AGENTS.md`.
 - Treat one Ankole private deployment instance as the product boundary. Each enterprise operates its own instance. Do not add hidden SaaS tenant IDs, cross-enterprise identity rules, or routing between organizations unless the task explicitly changes that model.
 - Keep Principal/AuthZ as the accountable subject and permission boundary; do not invent parallel subject models or organization-scoped identity.
 - Keep bootstrap configuration separate from runtime-owned state. Environment variables or infrastructure secret mounts may carry process-startup facts and credentials required before application storage is reachable. Operator-managed settings belong in declared `Ankole.AppConfigure` keys, while runtime-generated credentials and secrets belong in the owning subsystem's encrypted storage.
