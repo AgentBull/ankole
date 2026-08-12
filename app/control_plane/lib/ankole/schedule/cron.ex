@@ -6,6 +6,7 @@ defmodule Ankole.Schedule.Cron do
   alias Ankole.AutomationJobs
   alias Ankole.Repo
   alias Ankole.Schedule.Attrs
+  alias Ankole.Schedule.Delivery
   alias Ankole.Schedule.Normalizer
   alias Ankole.Schedule.Planner
   alias Ankole.Schedule.Schemas.CronSchedule
@@ -468,6 +469,7 @@ defmodule Ankole.Schedule.Cron do
 
   defp event_attrs(schedule, slot_at, due_at, now, trigger, idempotency_key, tool_call_id) do
     delivery = schedule.delivery || %{}
+    {:ok, primary_target} = Delivery.primary_target(delivery, schedule.binding_name)
 
     %{
       kind: "cron_fire",
@@ -475,8 +477,8 @@ defmodule Ankole.Schedule.Cron do
       agent_uid: schedule.agent_uid,
       session_id: schedule.session_id,
       binding_name: schedule.binding_name,
-      signal_channel_id: Attrs.map_text(delivery, "signal_channel_id"),
-      provider_thread_id: Attrs.map_text(delivery, "provider_thread_id"),
+      signal_channel_id: primary_target["signal_channel_id"],
+      provider_thread_id: primary_target["provider_thread_id"],
       due_at: due_at,
       timezone: schedule.timezone,
       requested_at: now,
@@ -497,13 +499,14 @@ defmodule Ankole.Schedule.Cron do
 
   defp update_scheduled_event_snapshot(repo, event, schedule, slot_at) do
     delivery = schedule.delivery || %{}
+    {:ok, primary_target} = Delivery.primary_target(delivery, schedule.binding_name)
 
     event
     |> ScheduledEvent.changeset(%{
       binding_name: schedule.binding_name,
       automation_job_id: schedule.automation_job_id,
-      signal_channel_id: Attrs.map_text(delivery, "signal_channel_id"),
-      provider_thread_id: Attrs.map_text(delivery, "provider_thread_id"),
+      signal_channel_id: primary_target["signal_channel_id"],
+      provider_thread_id: primary_target["provider_thread_id"],
       due_at: slot_at,
       timezone: schedule.timezone,
       origin_ai_message_id: Attrs.map_text(schedule.created_by || %{}, "origin_ai_message_id"),

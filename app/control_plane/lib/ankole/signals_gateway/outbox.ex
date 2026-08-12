@@ -103,37 +103,35 @@ defmodule Ankole.SignalsGateway.Outbox do
         opts \\ []
       )
       when is_binary(ai_message_id) and is_list(attachments) do
-    with {:ok, attachments} <- ReplyAttachment.normalize_attachments(attachments),
-         {:ok, operation} <- outbox_operation_for_actor_event(actor_event, repo) do
-      attachments
-      |> Enum.with_index()
-      |> Enum.map(fn {attachment, index} ->
+    with {:ok, attachments} <- ReplyAttachment.normalize_attachments(attachments) do
+      for target <- reply_targets(actor_event, opts),
+          {attachment, index} <- Enum.with_index(attachments) do
         commit_reply_attachment_outbox_in_tx(
           repo,
           actor_event,
           ai_message_id,
-          operation,
+          target,
           attachment,
           index,
           opts
         )
-      end)
+      end
       |> collect_results()
     end
   end
 
   @doc """
-  Commits the durable final IM reply adopted by an explicit Agent Turn completion.
+  Commits the durable final IM replies adopted by an explicit Agent Turn completion.
   """
-  @spec commit_final_reply_outbox_in_tx(
+  @spec commit_final_reply_outboxes_in_tx(
           module(),
           ActorEvent.t(),
           Message.t(),
           String.t(),
           keyword()
         ) ::
-          {:ok, OutboxEntry.t() | nil} | {:error, term()}
-  def commit_final_reply_outbox_in_tx(
+          {:ok, [OutboxEntry.t()]} | {:error, term()}
+  def commit_final_reply_outboxes_in_tx(
         repo,
         %ActorEvent{} = actor_event,
         %Message{} = message,
@@ -142,49 +140,22 @@ defmodule Ankole.SignalsGateway.Outbox do
       ) do
     case normalize_visible_text(text) do
       "" ->
-        {:ok, nil}
+        {:ok, []}
 
       final_text ->
-        with {:ok, operation, operation_attrs} <-
-               final_reply_operation(repo, actor_event) do
-          outbound_key = "ai-reply:#{message.id}"
-
-          commit_outbox_in_tx(
+        actor_event
+        |> reply_targets(opts)
+        |> Enum.map(
+          &commit_final_reply_outbox_in_tx(
             repo,
-            Map.merge(
-              %{
-                agent_uid: actor_event.agent_uid,
-                binding_name: actor_event.binding_name,
-                outbound_key: outbound_key,
-                operation: operation,
-                signal_channel_id: actor_event.signal_channel_id,
-                provider_thread_id: actor_event.provider_thread_id,
-                source_actor_event_id: actor_event.id,
-                ai_message_id: message.id,
-                delivery_class: :durable_ai_reply,
-                payload: %{
-                  "text" => final_text,
-                  "reply_presentation" =>
-                    terminal_reply_presentation(
-                      actor_event,
-                      "completed",
-                      final_text,
-                      attachment_count: Keyword.get(opts, :attachment_count, 0)
-                    ),
-                  "metadata" => %{
-                    "ai_message_id" => message.id,
-                    "actor_event_id" => actor_event.id,
-                    "source" => "ai_gateway_final_reply",
-                    "turn_completion_outcome" => Keyword.get(opts, :turn_completion_outcome)
-                  }
-                },
-                fallback_visible_text: final_text,
-                idempotency_key: outbound_key
-              },
-              operation_attrs
-            )
+            actor_event,
+            message,
+            final_text,
+            &1,
+            opts
           )
-        end
+        )
+        |> collect_results()
     end
   end
 
@@ -879,10 +850,12 @@ defmodule Ankole.SignalsGateway.Outbox do
 
   defp reply_preview_finalization?(%OutboxEntry{
          source_actor_event_id: actor_event_id,
-         payload: %{"metadata" => %{"source" => source}}
+         payload: %{"metadata" => %{"source" => source} = metadata}
        })
        when is_binary(actor_event_id),
-       do: source in @reply_preview_finalization_sources
+       do:
+         source in @reply_preview_finalization_sources and
+           get_in(metadata, ["delivery_target", "primary"]) != false
 
   defp reply_preview_finalization?(%OutboxEntry{}), do: false
 
@@ -922,35 +895,180 @@ defmodule Ankole.SignalsGateway.Outbox do
          repo,
          %ActorEvent{} = actor_event,
          ai_message_id,
-         operation,
+         target,
          attachment,
          index,
          opts
        ) do
-    outbound_key = "ai-reply-attachment:#{ai_message_id}:#{index}"
+    routed_event = routed_actor_event(actor_event, target)
 
-    commit_outbox_in_tx(repo, %{
-      agent_uid: actor_event.agent_uid,
+    with {:ok, operation} <- reply_attachment_operation(repo, routed_event, target) do
+      outbound_key = reply_attachment_outbound_key(ai_message_id, target, index)
+
+      commit_outbox_in_tx(repo, %{
+        agent_uid: routed_event.agent_uid,
+        binding_name: routed_event.binding_name,
+        outbound_key: outbound_key,
+        operation: operation,
+        signal_channel_id: routed_event.signal_channel_id,
+        provider_thread_id: routed_event.provider_thread_id,
+        reply_to_source_entry_id: ActorEvent.reply_anchor_source_entry_id(routed_event),
+        # Source table: source_actor_event_id stores the actor_events.id that
+        # caused this provider-visible side effect.
+        source_actor_event_id: actor_event.id,
+        ai_message_id: ai_message_id,
+        delivery_class: :durable_ai_reply,
+        payload: %{
+          "attachments" => [attachment],
+          "metadata" =>
+            reply_metadata(target, %{
+              "turn_completion_outcome" => Keyword.get(opts, :turn_completion_outcome)
+            })
+        },
+        idempotency_key: outbound_key
+      })
+    end
+  end
+
+  defp commit_final_reply_outbox_in_tx(
+         repo,
+         %ActorEvent{} = actor_event,
+         %Message{} = message,
+         final_text,
+         target,
+         opts
+       ) do
+    routed_event = routed_actor_event(actor_event, target)
+
+    with {:ok, operation, operation_attrs} <-
+           final_reply_operation_for_target(repo, routed_event, target) do
+      outbound_key = final_reply_outbound_key(message.id, target)
+
+      payload = %{
+        "text" => final_text,
+        "metadata" =>
+          reply_metadata(target, %{
+            "ai_message_id" => message.id,
+            "actor_event_id" => actor_event.id,
+            "source" => "ai_gateway_final_reply",
+            "turn_completion_outcome" => Keyword.get(opts, :turn_completion_outcome)
+          })
+      }
+
+      payload = maybe_put_reply_presentation(payload, routed_event, target, final_text, opts)
+
+      commit_outbox_in_tx(
+        repo,
+        Map.merge(
+          %{
+            agent_uid: routed_event.agent_uid,
+            binding_name: routed_event.binding_name,
+            outbound_key: outbound_key,
+            operation: operation,
+            signal_channel_id: routed_event.signal_channel_id,
+            provider_thread_id: routed_event.provider_thread_id,
+            source_actor_event_id: actor_event.id,
+            ai_message_id: message.id,
+            delivery_class: :durable_ai_reply,
+            payload: payload,
+            fallback_visible_text: final_text,
+            idempotency_key: outbound_key
+          },
+          operation_attrs
+        )
+      )
+    end
+  end
+
+  defp reply_targets(actor_event, opts) do
+    Keyword.get(opts, :delivery_targets, [default_reply_target(actor_event)])
+  end
+
+  defp default_reply_target(actor_event) do
+    %{
       binding_name: actor_event.binding_name,
-      outbound_key: outbound_key,
-      operation: operation,
       signal_channel_id: actor_event.signal_channel_id,
       provider_thread_id: actor_event.provider_thread_id,
-      reply_to_source_entry_id: ActorEvent.reply_anchor_source_entry_id(actor_event),
-      # Source table: source_actor_event_id stores the actor_events.id that
-      # caused this provider-visible side effect.
-      source_actor_event_id: actor_event.id,
-      ai_message_id: ai_message_id,
-      delivery_class: :durable_ai_reply,
-      payload: %{
-        "attachments" => [attachment],
-        "metadata" => %{
-          "turn_completion_outcome" => Keyword.get(opts, :turn_completion_outcome)
-        }
-      },
-      idempotency_key: outbound_key
+      primary: true,
+      key: nil
+    }
+  end
+
+  defp routed_actor_event(actor_event, target) do
+    routed = %{
+      actor_event
+      | binding_name: target.binding_name,
+        signal_channel_id: target.signal_channel_id,
+        provider_thread_id: target.provider_thread_id
+    }
+
+    if target.primary do
+      routed
+    else
+      %{
+        routed
+        | source_entry_id: nil,
+          ambient_asked_source_entry_id: nil,
+          reply_preview_source_entry_id: nil
+      }
+    end
+  end
+
+  defp reply_attachment_operation(repo, actor_event, %{key: nil}),
+    do: outbox_operation_for_actor_event(actor_event, repo)
+
+  defp reply_attachment_operation(_repo, _actor_event, %{key: key}) when is_binary(key),
+    do: {:ok, :post}
+
+  defp final_reply_operation_for_target(repo, actor_event, %{key: nil}),
+    do: final_reply_operation(repo, actor_event)
+
+  defp final_reply_operation_for_target(
+         _repo,
+         %ActorEvent{reply_preview_source_entry_id: source_entry_id},
+         %{primary: true, key: key}
+       )
+       when is_binary(source_entry_id) and is_binary(key),
+       do: {:ok, :edit, %{target_source_entry_id: source_entry_id}}
+
+  defp final_reply_operation_for_target(_repo, _actor_event, %{key: key})
+       when is_binary(key),
+       do: {:ok, :post, %{}}
+
+  defp final_reply_outbound_key(message_id, %{key: nil}), do: "ai-reply:#{message_id}"
+
+  defp final_reply_outbound_key(message_id, %{key: key}),
+    do: "ai-reply:#{message_id}:#{key}"
+
+  defp reply_attachment_outbound_key(message_id, %{key: nil}, index),
+    do: "ai-reply-attachment:#{message_id}:#{index}"
+
+  defp reply_attachment_outbound_key(message_id, %{key: key}, index),
+    do: "ai-reply-attachment:#{message_id}:#{key}:#{index}"
+
+  defp reply_metadata(%{key: nil}, metadata), do: metadata
+
+  defp reply_metadata(target, metadata) do
+    Map.put(metadata, "delivery_target", %{
+      "binding_name" => target.binding_name,
+      "signal_channel_id" => target.signal_channel_id,
+      "provider_thread_id" => target.provider_thread_id,
+      "primary" => target.primary,
+      "key" => target.key
     })
   end
+
+  defp maybe_put_reply_presentation(payload, actor_event, %{primary: true}, text, opts) do
+    Map.put(
+      payload,
+      "reply_presentation",
+      terminal_reply_presentation(actor_event, "completed", text,
+        attachment_count: Keyword.get(opts, :attachment_count, 0)
+      )
+    )
+  end
+
+  defp maybe_put_reply_presentation(payload, _actor_event, _target, _text, _opts), do: payload
 
   # A committed final reply reuses the streaming preview message when one was
   # established: editing it in place turns the transient preview into the durable

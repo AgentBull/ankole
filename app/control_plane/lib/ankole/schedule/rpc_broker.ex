@@ -9,6 +9,7 @@ defmodule Ankole.Schedule.RPCBroker do
   alias Ankole.Repo
   alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.Schedule
+  alias Ankole.Schedule.Delivery
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.ActorRuntime.Common
   alias Ankole.SignalsGateway.ActorRuntime.ReplyRoute
@@ -390,8 +391,15 @@ defmodule Ankole.Schedule.RPCBroker do
 
   defp validate_cron_update_delivery_route(turn, binding_name, updates) do
     case Map.has_key?(updates, "delivery") or Map.has_key?(updates, :delivery) do
-      true -> validate_cron_delivery_route(turn, binding_name, RPCWire.value(updates, "delivery"))
-      false -> :ok
+      true ->
+        delivery = RPCWire.value(updates, "delivery")
+
+        if cron_delivery_route_update?(delivery),
+          do: validate_cron_delivery_route(turn, binding_name, delivery),
+          else: :ok
+
+      false ->
+        :ok
     end
   end
 
@@ -400,22 +408,31 @@ defmodule Ankole.Schedule.RPCBroker do
 
   defp validate_cron_delivery_route(turn, binding_name, delivery) do
     with {:ok, source} <- ReplyRoute.source(turn),
-         true <- cron_delivery_route_matches?(source, binding_name, delivery) do
+         {:ok, [target]} <- Delivery.targets(delivery, binding_name),
+         true <- cron_delivery_route_matches?(source, target) do
       :ok
     else
       false -> {:error, :reply_route_not_in_turn}
+      {:ok, _targets} -> {:error, :reply_route_not_in_turn}
       {:error, _reason} = error -> error
     end
   end
 
-  defp cron_delivery_route_matches?(source, binding_name, delivery) do
-    RPCWire.text(delivery, "signal_channel_id") == source.signal_channel_id and
-      binding_name == source.binding_name and
+  defp cron_delivery_route_matches?(source, primary_target) do
+    primary_target["signal_channel_id"] == source.signal_channel_id and
+      primary_target["binding_name"] == source.binding_name and
       cron_provider_thread_matches?(
         source.provider_thread_id,
-        nullable_text(delivery, "provider_thread_id")
+        nullable_text(primary_target, "provider_thread_id")
       )
   end
+
+  defp cron_delivery_route_update?(delivery) when is_map(delivery) do
+    not is_nil(RPCWire.value(delivery, "targets")) or
+      not is_nil(RPCWire.value(delivery, "signal_channel_id"))
+  end
+
+  defp cron_delivery_route_update?(_delivery), do: false
 
   defp cron_provider_thread_matches?(_source_thread_id, nil), do: true
 

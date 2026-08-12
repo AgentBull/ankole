@@ -13,6 +13,7 @@ defmodule Ankole.E2E.ScheduleE2ETest do
       run_checkback_tool_loop: 1,
       run_checkback_fire: 2,
       run_cron_tool_loop: 1,
+      configure_cron_fanout: 2,
       run_cron_fire: 2
     ]
 
@@ -20,7 +21,8 @@ defmodule Ankole.E2E.ScheduleE2ETest do
 
   @tag timeout: 300_000
   @tag ownership_timeout: 300_000
-  test "checkback and cron schedules are created by tools and fire into turns" do
+  @tag :schedule_fanout
+  test "scheduled work runs once and cron results fan out with independent retry" do
     ctx = start_worker_e2e_stack!()
 
     checkback = run_checkback_tool_loop(ctx)
@@ -53,7 +55,8 @@ defmodule Ankole.E2E.ScheduleE2ETest do
       "om_cron_tool_1"
     )
 
-    cron_fire = run_cron_fire(ctx, cron.cron_schedule)
+    cron_schedule = configure_cron_fanout(ctx, cron.cron_schedule)
+    cron_fire = run_cron_fire(ctx, cron_schedule)
 
     assert_lark_final_reply(
       ctx.fake_feishu,
@@ -62,6 +65,16 @@ defmodule Ankole.E2E.ScheduleE2ETest do
       :post,
       "oc_chaos_schedule"
     )
+
+    assert_lark_final_reply(
+      ctx.fake_feishu,
+      cron_fire.secondary_reply,
+      "CHAOS_CRON_WAKE_OK",
+      :post,
+      "oc_chaos_schedule_secondary"
+    )
+
+    assert Enum.sort(Enum.map(cron_fire.outboxes, & &1.attempt_count)) == [1, 2]
 
     counters = FakeOpenAIState.counters()
     assert counters[:checkback_tool] == 2

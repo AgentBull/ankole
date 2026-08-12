@@ -4,6 +4,7 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
   """
 
   import ExUnit.Assertions
+  import Ecto.Query
 
   import Ankole.E2E.Harness
 
@@ -12,6 +13,7 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
       cron_event_for_schedule!: 1,
       deadline: 1,
       wait_until: 2,
+      wait_for_completed_actor_event_message: 3,
       wait_for_completed_final_reply: 3,
       wait_for_completed_outbox: 3,
       ai_messages_for_actor_event: 1
@@ -21,7 +23,9 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
   alias Ankole.Repo
   alias Ankole.Schedule
   alias Ankole.Schedule.Schemas.{CronSchedule, ScheduledEvent}
+  alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.ActorEvent
+  alias Ankole.SignalsGateway.Channel
   alias Ankole.SignalsGateway.Entry
   alias Ankole.SignalsGateway.OutboxEntry
 
@@ -127,8 +131,10 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
     assert cron_schedule.schedule["kind"] == "every"
     assert cron_schedule.schedule["every_ms"] == 60_000
     assert cron_schedule.payload == %{"task" => "CHAOS_CRON_WAKE_OK"}
-    assert cron_schedule.delivery["signal_channel_id"] == "lark:oc_chaos_schedule"
-    assert is_nil(cron_schedule.delivery["provider_thread_id"])
+    assert [primary_target] = cron_schedule.delivery["targets"]
+    assert primary_target["binding_name"] == "lark-chaos-primary"
+    assert primary_target["signal_channel_id"] == "lark:oc_chaos_schedule"
+    assert is_nil(primary_target["provider_thread_id"])
 
     cron_event = cron_event_for_schedule!(cron_schedule.id)
     assert cron_event.status == "scheduled"
@@ -140,7 +146,57 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
     %{input: input, reply: reply, cron_schedule: cron_schedule}
   end
 
-  def run_cron_fire(%{fake_feishu: _fake_feishu, container: container}, cron_schedule) do
+  def configure_cron_fanout(
+        %{fake_feishu: fake_feishu, primary_binding: primary, record_binding: secondary},
+        cron_schedule
+      ) do
+    secondary_channel_id = "lark:oc_chaos_schedule_secondary"
+
+    assert :ok =
+             FakeFeishu.State.user_sends_message(fake_feishu.state,
+               event_id: "evt_cron_target_secondary_1",
+               message_id: "om_cron_target_secondary_1",
+               chat_id: "oc_chaos_schedule_secondary",
+               chat_type: "group",
+               text: "Seed the secondary cron delivery channel.",
+               mentions: [],
+               to_app: record_app_id(),
+               create_time_ms:
+                 DateTime.to_unix(DateTime.add(@base_time, 3_500, :millisecond), :millisecond)
+             )
+
+    assert %Entry{} =
+             wait_for_signal_entry!(secondary_channel_id, "om_cron_target_secondary_1")
+
+    assert %Channel{reply_mode: :entry} = Repo.get!(Channel, secondary_channel_id)
+
+    targets = [
+      %{
+        "binding_name" => primary.name,
+        "signal_channel_id" => "lark:oc_chaos_schedule"
+      },
+      %{
+        "binding_name" => secondary.name,
+        "signal_channel_id" => secondary_channel_id
+      }
+    ]
+
+    assert {:ok, %CronSchedule{} = updated} =
+             Schedule.update_cron_schedule(cron_schedule.id, %{
+               "delivery" => %{"targets" => targets}
+             })
+
+    assert updated.delivery == %{"targets" => targets}
+
+    cron_event = cron_event_for_schedule!(updated.id)
+    assert cron_event.binding_name == primary.name
+    assert cron_event.signal_channel_id == "lark:oc_chaos_schedule"
+    assert cron_event.wake_payload["delivery"] == %{"targets" => targets}
+
+    updated
+  end
+
+  def run_cron_fire(%{fake_feishu: fake_feishu, container: container}, cron_schedule) do
     cron_event = cron_event_for_schedule!(cron_schedule.id)
 
     assert {:ok, %{status: :fired, actor_event: fire_input}} =
@@ -154,14 +210,102 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
                DateTime.add(cron_event.due_at, 1, :second)
              )
 
-    assert {:ok, reply, message} =
-             wait_for_completed_final_reply(container, fire_input.id, deadline(60_000))
+    assert {:ok, message} =
+             wait_for_completed_actor_event_message(container, fire_input.id, deadline(60_000))
+
+    assert {:ok, [_primary, _secondary] = outboxes} =
+             wait_until(deadline(10_000), fn ->
+               case final_outboxes(fire_input.id, message.id) do
+                 [_, _] = outboxes -> outboxes
+                 _other -> nil
+               end
+             end)
+
+    assert Enum.all?(outboxes, &(&1.status == :created))
+    assert Enum.map(outboxes, & &1.ai_message_id) |> Enum.uniq() == [message.id]
+    assert Enum.map(outboxes, & &1.payload["text"]) |> Enum.uniq() == ["CHAOS_CRON_WAKE_OK"]
+
+    # One provider route rejects one request. Each target is a separate outbox
+    # row, so the other route succeeds and is never sent again when this row retries.
+    assert :ok =
+             FakeFeishu.State.fail_next(
+               fake_feishu.state,
+               :post_message,
+               {:code, 500_100}
+             )
+
+    first_attempts =
+      Enum.map(outboxes, fn outbox ->
+        assert {:ok, %OutboxEntry{} = dispatched} =
+                 SignalsGateway.dispatch_outbox_by_key(
+                   outbox.agent_uid,
+                   outbox.binding_name,
+                   outbox.outbound_key
+                 )
+
+        dispatched
+      end)
+
+    assert [%OutboxEntry{status: :failed} = failed] =
+             Enum.filter(first_attempts, &(&1.status == :failed))
+
+    assert [%OutboxEntry{status: :succeeded, attempt_count: 1}] =
+             Enum.filter(first_attempts, &(&1.status == :succeeded))
+
+    assert %DateTime{} = failed.next_attempt_at
+
+    assert {:ok, %OutboxEntry{status: :succeeded, attempt_count: 2}} =
+             SignalsGateway.dispatch_outbox_by_key(
+               failed.agent_uid,
+               failed.binding_name,
+               failed.outbound_key,
+               now: DateTime.add(failed.next_attempt_at, 1, :second)
+             )
+
+    final_outboxes = final_outboxes(fire_input.id, message.id)
+    assert Enum.all?(final_outboxes, &(&1.status == :succeeded))
+    assert Enum.sort(Enum.map(final_outboxes, & &1.attempt_count)) == [1, 2]
+
+    assert {:ok, reply, ^message} =
+             wait_for_completed_final_reply(container, fire_input.id, deadline(10_000))
+
+    secondary =
+      Enum.find(final_outboxes, fn outbox ->
+        get_in(outbox.payload, ["metadata", "delivery_target", "primary"]) == false
+      end)
+
+    secondary_source_entry_id =
+      secondary.created_source_entry_id || secondary.target_source_entry_id
+
+    secondary_reply =
+      Repo.get_by!(Entry,
+        signal_channel_id: secondary.signal_channel_id,
+        source_entry_id: secondary_source_entry_id
+      )
 
     assert reply.text =~ "CHAOS_CRON_WAKE_OK"
     assert reply.signal_channel_id == "lark:oc_chaos_schedule"
+    assert secondary_reply.text == reply.text
+    assert secondary_reply.ai_message_id == reply.ai_message_id
 
     assert_actor_event_completed!(fire_input.id)
-    %{input: fire_input, reply: reply, message: message}
+
+    %{
+      input: fire_input,
+      reply: reply,
+      secondary_reply: secondary_reply,
+      message: message,
+      outboxes: final_outboxes
+    }
+  end
+
+  defp final_outboxes(actor_event_id, ai_message_id) do
+    OutboxEntry
+    |> where([outbox], outbox.source_actor_event_id == ^actor_event_id)
+    |> where([outbox], outbox.ai_message_id == ^ai_message_id)
+    |> Repo.all()
+    |> Enum.filter(&(get_in(&1.payload, ["metadata", "source"]) == "ai_gateway_final_reply"))
+    |> Enum.sort_by(&get_in(&1.payload, ["metadata", "delivery_target", "primary"]), :desc)
   end
 
   def run_file_attachment_roundtrip(%{

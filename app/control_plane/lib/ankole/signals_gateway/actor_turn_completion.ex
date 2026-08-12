@@ -21,6 +21,7 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
   alias Ankole.Logging
   alias Ankole.Repo
   alias Ankole.RuntimeFabric.V1, as: FabricProto
+  alias Ankole.Schedule.Delivery
   alias Ankole.SignalsGateway.AIGatewayLink
   alias Ankole.SignalsGateway.AIReplyPreview
   alias Ankole.SignalsGateway.Outbox
@@ -194,7 +195,7 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
          actor_event: completed_main_event(completed_events, event),
          activation: activation,
          completed_actor_events: completed_events,
-         outboxes: %{attachments: [], clarify: nil, final: nil},
+         outboxes: %{attachments: [], clarify: nil, finals: []},
          deleted_deliveries: deleted_count,
          superseded_deliveries: superseded_count
        }}
@@ -330,8 +331,9 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
   # would retry the whole Turn, and every retry costs another model call while
   # the route stays exactly as unreachable.
   #
-  # Route checks run before any outbox row is written, so nothing is committed
-  # when this path is taken.
+  # Ordinary replies check their one route before any outbox row is written.
+  # Cron targets commit directly as independent intents and cannot enter this
+  # branch because one unavailable target must not cancel the others.
   defp skip_unroutable_reply(%ActorEvent{} = event, reason) do
     if Outbox.unroutable_reply_reason?(reason) do
       Logging.warning(
@@ -352,10 +354,10 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
     end
   end
 
-  defp no_outboxes, do: %{attachments: [], clarify: nil, final: nil}
+  defp no_outboxes, do: %{attachments: [], clarify: nil, finals: []}
 
   defp commit_im_outboxes(repo, event, completion, outcome, now) do
-    opts = [turn_completion_outcome: outcome]
+    opts = [turn_completion_outcome: outcome, delivery_targets: delivery_targets(event)]
 
     with {:ok, attachments} <-
            Outbox.commit_reply_attachment_outboxes_in_tx(
@@ -366,8 +368,8 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
              opts
            ),
          {:ok, clarify} <- commit_clarify_outbox(repo, event, completion, opts, now),
-         {:ok, final} <- commit_final_outbox(repo, event, completion, opts) do
-      {:ok, %{attachments: attachments, clarify: clarify, final: final}}
+         {:ok, finals} <- commit_final_outboxes(repo, event, completion, opts) do
+      {:ok, %{attachments: attachments, clarify: clarify, finals: finals}}
     end
   end
 
@@ -404,10 +406,10 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
     end
   end
 
-  defp commit_final_outbox(repo, event, completion, opts) do
+  defp commit_final_outboxes(repo, event, completion, opts) do
     if AIReplyPreview.im_visible_event?(event) and is_nil(completion.clarify_prompt) and
          is_binary(completion.final_text) do
-      Outbox.commit_final_reply_outbox_in_tx(
+      Outbox.commit_final_reply_outboxes_in_tx(
         repo,
         event,
         completion.final_response,
@@ -415,8 +417,56 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
         Keyword.put(opts, :attachment_count, length(completion.attachments))
       )
     else
-      {:ok, nil}
+      {:ok, []}
     end
+  end
+
+  defp delivery_targets(%ActorEvent{} = event) do
+    case ActorEvent.scheduled_delivery_snapshot(event) do
+      %{} = delivery -> normalized_delivery_targets(event, delivery)
+      _missing -> [default_delivery_target(event)]
+    end
+  end
+
+  defp normalized_delivery_targets(event, delivery) do
+    case Delivery.targets(delivery, event.binding_name) do
+      {:ok, targets} ->
+        targets
+        |> Enum.with_index()
+        |> Enum.map(fn {target, index} ->
+          %{
+            binding_name: target["binding_name"],
+            signal_channel_id: target["signal_channel_id"],
+            provider_thread_id: target["provider_thread_id"],
+            primary: index == 0,
+            key: Delivery.target_key(target)
+          }
+        end)
+
+      {:error, reason} ->
+        Logging.warning(
+          "signals_gateway.actor_turn_completion.scheduled_delivery_invalid",
+          "scheduled work completed with an invalid delivery snapshot",
+          %{
+            actor_event_id: event.id,
+            agent_uid: event.agent_uid,
+            actor_event_type: event.type,
+            reason: inspect(reason, limit: 20)
+          }
+        )
+
+        [default_delivery_target(event)]
+    end
+  end
+
+  defp default_delivery_target(event) do
+    %{
+      binding_name: event.binding_name,
+      signal_channel_id: event.signal_channel_id,
+      provider_thread_id: event.provider_thread_id,
+      primary: true,
+      key: nil
+    }
   end
 
   defp join_clarify_text(nil, fallback), do: fallback

@@ -148,6 +148,19 @@ defmodule Ankole.SignalsGateway.ActorEvent do
   end
 
   @doc false
+  @spec scheduled_delivery_snapshot(t()) :: term()
+  def scheduled_delivery_snapshot(%__MODULE__{type: "cron.fire", payload: payload})
+      when is_map(payload),
+      do: get_in(payload, ["data", "wake_payload", "delivery"])
+
+  def scheduled_delivery_snapshot(%__MODULE__{type: type, payload: payload})
+      when type in ["background_agent_job.completed", "background_agent_job.failed"] and
+             is_map(payload),
+      do: get_in(payload, ["data", "reply_route", "delivery"])
+
+  def scheduled_delivery_snapshot(%__MODULE__{}), do: nil
+
+  @doc false
   @spec source_entry_ids(t()) :: [String.t()]
   def source_entry_ids(%__MODULE__{} = event) do
     [event.source_entry_id | payload_source_entry_ids(event.payload)]

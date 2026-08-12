@@ -11,8 +11,7 @@ const draft: ScheduleEditorDraft = {
   everyMs: '',
   anchorAt: '',
   timezone: 'Asia/Shanghai',
-  deliveryChannelId: 'lark:market',
-  deliveryThreadId: '',
+  deliveryTargets: [{ bindingName: 'lark-agent', channelId: 'lark:market', threadId: '' }],
   payload: '{"task":"prepare report"}',
   idempotencyKey: 'cron:add:market-open'
 }
@@ -47,7 +46,9 @@ describe('ScheduleEditorModel', () => {
       },
       timezone: 'Asia/Shanghai',
       payload: { task: 'prepare report' },
-      delivery: { signal_channel_id: 'lark:market' },
+      delivery: {
+        targets: [{ binding_name: 'lark-agent', signal_channel_id: 'lark:market' }]
+      },
       idempotency_key: 'cron:add:market-open'
     })
 
@@ -67,6 +68,44 @@ describe('ScheduleEditorModel', () => {
       name: 'market-open-report',
       payload: { task: 'prepare updated report' }
     })
+
+    model[Symbol.dispose]()
+  })
+
+  test('sends target-only updates while the control plane preserves quiet success', () => {
+    const model = new ScheduleEditorModel()
+    model.initialize('cron:market-open', draft)
+
+    model.addDeliveryTarget()
+    model.updateDeliveryTarget(1, {
+      bindingName: 'lark-secondary',
+      channelId: 'lark:research',
+      threadId: 'morning-report'
+    })
+
+    expect(model.toUpdateBody()).toEqual({
+      delivery: {
+        targets: [
+          { binding_name: 'lark-agent', signal_channel_id: 'lark:market' },
+          {
+            binding_name: 'lark-secondary',
+            signal_channel_id: 'lark:research',
+            provider_thread_id: 'morning-report'
+          }
+        ]
+      }
+    })
+
+    model.setBindingName('changed-execution-binding')
+    expect(model.deliveryTargets.value[0]?.bindingName).toBe('changed-execution-binding')
+
+    model.updateDeliveryTarget(1, {
+      bindingName: 'changed-execution-binding',
+      channelId: 'lark:market',
+      threadId: ''
+    })
+    model.updateDeliveryTarget(0, { channelId: 'lark:market', threadId: '' })
+    expect(model.isComplete()).toBe(false)
 
     model[Symbol.dispose]()
   })

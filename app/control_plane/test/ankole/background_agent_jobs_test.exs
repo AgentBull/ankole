@@ -820,6 +820,56 @@ defmodule Ankole.BackgroundAgentJobsTest do
              ]
   end
 
+  test "a terminal wakeup preserves frozen scheduled delivery targets" do
+    %{principal: agent} = background_agent_fixture()
+
+    delivery = %{
+      "targets" => [
+        %{"binding_name" => "lark", "signal_channel_id" => "chat-primary"},
+        %{"binding_name" => "archive", "signal_channel_id" => "chat-archive"}
+      ]
+    }
+
+    assert {:ok, %{job: job}} =
+             BackgroundAgentJobs.create_with_dispatch(%{
+               "agent_uid" => agent.uid,
+               "owner_session_id" => "parent-session-scheduled-delivery",
+               "source_tool_call_id" => "tool-background-agent-job-scheduled-delivery",
+               "title" => "Scheduled report",
+               "task" => "Complete the scheduled report.",
+               "reply_route" => %{
+                 "binding_name" => "lark",
+                 "signal_channel_id" => "chat-primary",
+                 "delivery" => delivery
+               }
+             })
+
+    assert {:ok, %{job: running}} =
+             BackgroundAgentJobs.commit_status_with_wakeup(job.id, agent.uid, %{
+               "status" => "running",
+               "runtime_thread_id" => "thread-scheduled-delivery"
+             })
+
+    running = set_attempts!(running, 1)
+
+    _turn =
+      insert_turn!(
+        running,
+        1,
+        "thread-scheduled-delivery",
+        "turn-scheduled-delivery",
+        "completed"
+      )
+
+    assert {:ok, %{wakeup_event: %ActorEvent{} = event}} =
+             BackgroundAgentJobs.commit_status_with_wakeup(job.id, agent.uid, %{
+               "status" => "succeeded",
+               "result" => %{"summary" => "Scheduled report complete."}
+             })
+
+    assert get_in(event.payload, ["data", "reply_route", "delivery"]) == delivery
+  end
+
   test "failure wakeups omit unrecognized diagnostic maps" do
     %{principal: agent} = background_agent_fixture()
     job = create_job!(agent.uid, "opaque-failure")

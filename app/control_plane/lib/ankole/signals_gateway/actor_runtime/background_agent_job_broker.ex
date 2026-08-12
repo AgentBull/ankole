@@ -422,14 +422,20 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
   end
 
   defp reply_route(actor_event) do
-    %{
-      "binding_name" => actor_event.binding_name,
-      "signal_channel_id" => actor_event.signal_channel_id,
-      "provider_thread_id" => actor_event.provider_thread_id,
-      "source_entry_id" => actor_event.source_entry_id
-    }
-    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
-    |> Map.new()
+    route =
+      %{
+        "binding_name" => actor_event.binding_name,
+        "signal_channel_id" => actor_event.signal_channel_id,
+        "provider_thread_id" => actor_event.provider_thread_id,
+        "source_entry_id" => actor_event.source_entry_id
+      }
+      |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+      |> Map.new()
+
+    case ActorEvent.scheduled_delivery_snapshot(actor_event) do
+      %{} = delivery -> Map.put(route, "delivery", delivery)
+      _missing -> route
+    end
   end
 
   # Wire projection of one durable Job row. The Console keeps its own map

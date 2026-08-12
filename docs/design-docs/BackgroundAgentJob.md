@@ -140,6 +140,12 @@ child trajectory.
 The authorized parent turn supplies the Agent, originating conversation, tool
 call, and reply route. The task can use real paths inside that Agent Home.
 
+When the parent is a cron turn, the Job reply route also freezes that cron
+event's delivery targets. A terminal Job notification keeps this snapshot. The
+parent Agent still handles the notification once, and SignalsGateway creates
+one independent outbox intent for each target from its one final reply. Jobs
+created from ordinary turns keep the existing one-target route.
+
 Success, failure, and `waiting_on_user` write a notification for the originating
 conversation. A success notification includes the final Codex response.
 Stopping a Job does not send a notification.

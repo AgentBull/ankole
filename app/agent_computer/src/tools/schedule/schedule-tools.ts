@@ -369,7 +369,7 @@ function createCronTool(
         .with('update', () =>
           call(rpcMethods.scheduleCronUpdate, {
             ...target(),
-            updatesJson: jsonBytes(cronUpdates(params, opts.turnStart))
+            updatesJson: jsonBytes(cronUpdates(params))
           })
         )
         .exhaustive()
@@ -588,23 +588,26 @@ function defaultCronAddIdempotencyKey(
 /**
  * Builds the partial update object for cron update actions.
  */
-function cronUpdates(params: z.output<typeof CronParams>, turnStart: TurnStart): JSONObject {
-  const route = currentReplyRoute(turnStart)
+function cronUpdates(params: z.output<typeof CronParams>): JSONObject {
   const updates: JSONObject = {}
   if (params.schedule !== undefined) updates.schedule = params.schedule
   if (params.payload !== undefined) updates.payload = params.payload
-  if (params.delivery !== undefined) updates.delivery = cronDelivery(params, route)
+  if (params.delivery !== undefined) updates.delivery = params.delivery
   if (params.automation_job_id !== undefined) updates.automation_job_id = params.automation_job_id
   return updates
 }
 
 /**
- * Merges explicit delivery options with the current provider reply route.
+ * Builds the canonical delivery list from the current provider reply route.
  */
 function cronDelivery(params: z.output<typeof CronParams>, route: ReplyRoute | undefined): JSONObject | undefined {
-  const delivery = {
+  const target = {
+    ...(route?.binding_name ? { binding_name: route.binding_name } : {}),
     ...(route?.signal_channel_id ? { signal_channel_id: route.signal_channel_id } : {}),
-    ...(route?.provider_thread_id ? { provider_thread_id: route.provider_thread_id } : {}),
+    ...(route?.provider_thread_id ? { provider_thread_id: route.provider_thread_id } : {})
+  }
+  const delivery = {
+    ...(target.binding_name && target.signal_channel_id ? { targets: [target] } : {}),
     ...(params.delivery?.quiet_success !== undefined ? { quiet_success: params.delivery.quiet_success } : {})
   }
   return Object.keys(delivery).length > 0 ? delivery : undefined

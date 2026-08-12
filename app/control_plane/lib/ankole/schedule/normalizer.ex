@@ -2,6 +2,7 @@ defmodule Ankole.Schedule.Normalizer do
   @moduledoc false
 
   alias Ankole.Schedule.Attrs
+  alias Ankole.Schedule.Delivery
   alias Ankole.Schedule.Planner
   alias Ankole.Schedule.Schemas.CronSchedule
   alias Ankole.Schedule.Schemas.ScheduledEvent
@@ -138,7 +139,8 @@ defmodule Ankole.Schedule.Normalizer do
          {:ok, idempotency_key} <- Attrs.required_text(attrs, "idempotency_key"),
          {:ok, schedule, timezone} <-
            Planner.normalize_schedule_json(Attrs.map_value(attrs, "schedule"), attrs, opts),
-         {:ok, delivery} <- normalize_cron_delivery(Attrs.map_value(attrs, "delivery")),
+         {:ok, delivery} <-
+           Delivery.normalize(Attrs.map_value(attrs, "delivery"), binding_name),
          {:ok, status} <- normalize_cron_status(Attrs.map_text(attrs, "status") || "active"),
          {:ok, automation_job_id} <- optional_positive_integer(attrs, "automation_job_id"),
          {:ok, next_fire_at} <- Planner.next_fire_after(schedule, timezone, now),
@@ -170,7 +172,7 @@ defmodule Ankole.Schedule.Normalizer do
     with :ok <- validate_cron_update_fields(attrs),
          {:ok, name} <- normalize_updated_name(attrs),
          {:ok, schedule, timezone} <- normalize_updated_schedule(existing, attrs, opts),
-         {:ok, delivery} <- normalize_updated_delivery(attrs),
+         {:ok, delivery} <- normalize_updated_delivery(existing, attrs),
          {:ok, payload} <- normalize_updated_payload(attrs),
          {:ok, automation_job_id} <- normalize_updated_automation_job_id(attrs) do
       changes =
@@ -204,15 +206,6 @@ defmodule Ankole.Schedule.Normalizer do
 
   defp normalize_cron_status(status) when status in ["active", "paused"], do: {:ok, status}
   defp normalize_cron_status(_status), do: {:error, :invalid_cron_status}
-
-  defp normalize_cron_delivery(delivery) when is_map(delivery) do
-    case Attrs.required_text(delivery, "signal_channel_id") do
-      {:ok, _signal_channel_id} -> {:ok, delivery}
-      {:error, _reason} -> {:error, :cron_delivery_route_required}
-    end
-  end
-
-  defp normalize_cron_delivery(_delivery), do: {:error, :cron_delivery_route_required}
 
   defp validate_cron_update_fields(attrs) do
     allowed = ~w(name schedule timezone payload delivery automation_job_id)
@@ -248,9 +241,9 @@ defmodule Ankole.Schedule.Normalizer do
     Planner.normalize_schedule_json(schedule_input, base, opts)
   end
 
-  defp normalize_updated_delivery(attrs) do
+  defp normalize_updated_delivery(existing, attrs) do
     case Map.fetch(attrs, "delivery") do
-      {:ok, delivery} -> normalize_cron_delivery(delivery)
+      {:ok, delivery} -> Delivery.merge_update(existing.delivery, delivery, existing.binding_name)
       :error -> {:ok, nil}
     end
   end

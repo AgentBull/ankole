@@ -311,6 +311,17 @@ defmodule Ankole.ScheduleTest do
                )
 
       assert [event] = Schedule.list_cron_runs(schedule.id, 10)
+
+      assert schedule.delivery == %{
+               "targets" => [
+                 %{
+                   "binding_name" => "bot",
+                   "signal_channel_id" => "mock:chat:schedule",
+                   "provider_thread_id" => "thread-schedule"
+                 }
+               ]
+             }
+
       assert event.due_at == first_slot
       assert event.signal_channel_id == "mock:chat:schedule"
       assert event.provider_thread_id == "thread-schedule"
@@ -373,6 +384,114 @@ defmodule Ankole.ScheduleTest do
       assert paused.status == "paused"
       assert paused.next_fire_at == nil
       assert Schedule.list_cron_runs(paused.id, 10) == []
+    end
+
+    test "cron delivery keeps targets and quiet success across independent updates" do
+      %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
+      first_slot = DateTime.add(@base_time, 1, :minute)
+
+      targets = [
+        %{
+          "binding_name" => "bot",
+          "signal_channel_id" => "mock:chat:schedule",
+          "provider_thread_id" => "thread-schedule"
+        },
+        %{
+          "binding_name" => "secondary-bot",
+          "signal_channel_id" => "mock:chat:secondary"
+        }
+      ]
+
+      assert {:ok, %{cron_schedule: schedule}} =
+               Schedule.create_cron_schedule(
+                 cron_attrs(agent.uid,
+                   name: "multi-target-delivery",
+                   idempotency_key: "multi-target-delivery",
+                   delivery: %{"targets" => targets},
+                   schedule: %{
+                     "kind" => "every",
+                     "every_ms" => 60_000,
+                     "anchor_at" => DateTime.to_iso8601(first_slot)
+                   }
+                 ),
+                 now: @base_time
+               )
+
+      assert schedule.delivery == %{"targets" => targets}
+
+      assert {:ok, updated} =
+               Schedule.update_cron_schedule(
+                 schedule.id,
+                 %{"delivery" => %{"quiet_success" => true}},
+                 now: @base_time
+               )
+
+      assert updated.delivery == %{"targets" => targets, "quiet_success" => true}
+
+      replacement_targets = [
+        hd(targets),
+        %{
+          "binding_name" => "archive-bot",
+          "signal_channel_id" => "mock:chat:archive"
+        }
+      ]
+
+      assert {:ok, route_updated} =
+               Schedule.update_cron_schedule(
+                 schedule.id,
+                 %{"delivery" => %{"targets" => replacement_targets}},
+                 now: @base_time
+               )
+
+      assert route_updated.delivery == %{
+               "targets" => replacement_targets,
+               "quiet_success" => true
+             }
+
+      assert {:ok, explicitly_noisy} =
+               Schedule.update_cron_schedule(
+                 schedule.id,
+                 %{
+                   "delivery" => %{
+                     "targets" => targets,
+                     "quiet_success" => false
+                   }
+                 },
+                 now: @base_time
+               )
+
+      assert explicitly_noisy.delivery == %{"targets" => targets, "quiet_success" => false}
+
+      assert {:error, :duplicate_cron_delivery_target} =
+               Schedule.update_cron_schedule(
+                 schedule.id,
+                 %{"delivery" => %{"targets" => [hd(targets), hd(targets)]}},
+                 now: @base_time
+               )
+
+      assert {:error, :cron_primary_delivery_binding_mismatch} =
+               Schedule.update_cron_schedule(
+                 schedule.id,
+                 %{"delivery" => %{"targets" => Enum.reverse(targets)}},
+                 now: @base_time
+               )
+    end
+
+    test "an invalid explicit target list cannot fall back to legacy fields" do
+      %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
+
+      assert {:error, :cron_delivery_route_required} =
+               Schedule.create_cron_schedule(
+                 cron_attrs(agent.uid,
+                   name: "invalid-target-list",
+                   idempotency_key: "invalid-target-list",
+                   delivery: %{
+                     "targets" => [],
+                     "signal_channel_id" => "mock:chat:legacy"
+                   }
+                 ),
+                 now: @base_time
+               )
     end
 
     test "payload updates keep the live slot and update its event snapshot in place" do
@@ -1621,6 +1740,69 @@ defmodule Ankole.ScheduleTest do
                  route
                )
 
+      assert {:error, %{"code" => "reply_route_not_in_turn"}} =
+               schedule_rpc(
+                 "cron.update",
+                 %FabricProto.ScheduleCronUpdateRequest{
+                   name: "dashboard-route-cron",
+                   updates_json:
+                     Torque.encode!(%{
+                       "delivery" => %{
+                         "targets" => [
+                           %{
+                             "binding_name" => source_event.binding_name,
+                             "signal_channel_id" => source_event.signal_channel_id
+                           },
+                           %{
+                             "binding_name" => "secondary-binding",
+                             "signal_channel_id" => "secondary-channel"
+                           }
+                         ]
+                       }
+                     })
+                 },
+                 turn_ref,
+                 route
+               )
+
+      assert {:ok, stored_schedule} =
+               Schedule.get_cron_schedule_by_name(
+                 turn_ref.actor.agent_uid,
+                 turn_ref.actor.session_id,
+                 "dashboard-route-cron"
+               )
+
+      targets = [
+        %{
+          "binding_name" => source_event.binding_name,
+          "signal_channel_id" => source_event.signal_channel_id,
+          "provider_thread_id" => source_event.provider_thread_id
+        },
+        %{
+          "binding_name" => "secondary-binding",
+          "signal_channel_id" => "secondary-channel"
+        }
+      ]
+
+      assert {:ok, _updated} =
+               Schedule.update_cron_schedule(stored_schedule.id, %{
+                 "delivery" => %{"targets" => targets}
+               })
+
+      assert {:ok, %{"status" => "updated"}} =
+               schedule_rpc(
+                 "cron.update",
+                 %FabricProto.ScheduleCronUpdateRequest{
+                   name: "dashboard-route-cron",
+                   updates_json: Torque.encode!(%{"delivery" => %{"quiet_success" => true}})
+                 },
+                 turn_ref,
+                 route
+               )
+
+      assert {:ok, option_updated} = Schedule.get_cron_schedule(stored_schedule.id)
+      assert option_updated.delivery == %{"targets" => targets, "quiet_success" => true}
+
       assert {:error, %{"code" => "worker_not_assigned_to_turn"}} =
                schedule_rpc(
                  "check_back_later.create",
@@ -2228,7 +2410,16 @@ defmodule Ankole.ScheduleTest do
   end
 
   defp dispatch_final_reply_outbox!(ai_message_id) do
-    case Repo.get_by(OutboxEntry, outbound_key: "ai-reply:#{ai_message_id}") do
+    outbox =
+      OutboxEntry
+      |> where([outbox], outbox.ai_message_id == ^ai_message_id)
+      |> Repo.all()
+      |> Enum.find(fn outbox ->
+        get_in(outbox.payload, ["metadata", "source"]) == "ai_gateway_final_reply" and
+          get_in(outbox.payload, ["metadata", "delivery_target", "primary"]) != false
+      end)
+
+    case outbox do
       %OutboxEntry{} = outbox ->
         assert {:ok, %OutboxEntry{status: :succeeded}} =
                  SignalsGateway.dispatch_outbox(
