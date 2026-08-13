@@ -3,6 +3,9 @@ import {
   BrainMetadataEditorModel,
   type BrainOwnerOption,
   agentOwnerUID,
+  brainAuditSelectionAfterRestore,
+  brainAuditSelectionForScope,
+  brainAuditSelectionScope,
   buildMetadataOperations,
   defaultBrainOwnerUID,
   normalizeAliases,
@@ -184,5 +187,51 @@ describe('Brain editor model', () => {
     const next = setBrainFilter(params, 'owner', 'agent-two')
 
     expect(next.toString()).toBe('owner=agent-two&store=shared&q=policy')
+  })
+
+  test('binds audit selections to the owner and filters but not the cursor page', () => {
+    const firstPage = brainAuditSelectionScope(
+      'agent-one',
+      new URLSearchParams('owner=agent-one&store=self&action=edit_block&cursor=page-one')
+    )
+    const nextPage = brainAuditSelectionScope(
+      'agent-one',
+      new URLSearchParams('owner=agent-one&store=self&action=edit_block&cursor=page-two')
+    )
+    const anotherOwner = brainAuditSelectionScope(
+      'agent-two',
+      new URLSearchParams('owner=agent-two&store=self&action=edit_block&cursor=page-one')
+    )
+    const anotherFilter = brainAuditSelectionScope(
+      'agent-one',
+      new URLSearchParams('owner=agent-one&store=shared&action=edit_block&cursor=page-one')
+    )
+    const selection = { scope: firstPage, ids: new Set(['audit-one']), confirming: true }
+
+    expect(nextPage).toBe(firstPage)
+    expect(brainAuditSelectionForScope(selection, nextPage)).toBe(selection)
+
+    const ownerChanged = brainAuditSelectionForScope(selection, anotherOwner)
+    expect([...ownerChanged.ids]).toEqual([])
+    expect(ownerChanged.confirming).toBe(false)
+    expect([...brainAuditSelectionForScope(ownerChanged, firstPage).ids]).toEqual([])
+
+    const nextOwnerSelection = { ...ownerChanged, ids: new Set(['audit-two']), confirming: true }
+    expect(brainAuditSelectionAfterRestore(nextOwnerSelection, selection)).toBe(nextOwnerSelection)
+
+    const returnedOwnerSelection = {
+      ...brainAuditSelectionForScope(ownerChanged, firstPage),
+      ids: new Set(['audit-three']),
+      confirming: true
+    }
+    expect(brainAuditSelectionAfterRestore(returnedOwnerSelection, selection)).toBe(returnedOwnerSelection)
+
+    const restoredSelection = brainAuditSelectionAfterRestore(selection, selection)
+    expect([...restoredSelection.ids]).toEqual([])
+    expect(restoredSelection.confirming).toBe(false)
+
+    const filterChanged = brainAuditSelectionForScope(selection, anotherFilter)
+    expect([...filterChanged.ids]).toEqual([])
+    expect(filterChanged.confirming).toBe(false)
   })
 })

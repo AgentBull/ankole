@@ -205,52 +205,66 @@ export function BrainSourceLearnPage() {
     if (store === `dm:${value}`) setStore('shared')
   }
 
+  // Only a file always reaches the learning queue. Pasted text, and a URL whose
+  // body is text, are stored as an entry and return before the learn call, so
+  // the other kinds must not promise learning that never runs.
+  const submitLabel = t(kind === 'file' ? 'console.brain.save_and_learn' : 'console.brain.save_material')
+
   return (
-    <ResourceEditorPage
-      title={t('console.brain.learn_source')}
-      description={t('console.brain.learn_source_description')}
-      backTo={`/brain/sources?${brainSearch(ownerUID)}`}
-      error={validationError ?? create.error ?? learn.error ?? principals.error}
-      submitting={create.isPending || learn.isPending}
-      submitLabel={kind === 'file' ? t('console.brain.save_and_learn') : t('console.brain.save_material')}
-      onSubmit={() => void submit()}>
-      <BrainTaskNavigation ownerUID={ownerUID} store={store} />
-      <BrainOwnerField ownerUID={ownerUID} principals={agents} onChange={changeOwner} />
-      <BrainStoreField ownerUID={ownerUID} store={store} principals={allPrincipals} onChange={setStore} />
-      <LabeledField label={t('console.brain.source_kind')}>
-        <Select value={kind} onValueChange={value => setKind(value as 'url' | 'file' | 'paste')}>
-          <SelectTrigger>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="url">{t('console.brain.source_kind_url')}</SelectItem>
-            <SelectItem value="file">{t('console.brain.source_kind_file')}</SelectItem>
-            <SelectItem value="paste">{t('console.brain.source_kind_paste')}</SelectItem>
-          </SelectContent>
-        </Select>
-      </LabeledField>
-      <LabeledField
-        label={t('console.brain.source_name')}
-        description={t('console.brain.source_name_hint')}
-        required={kind === 'paste'}>
-        <Input required={kind === 'paste'} value={title} onChange={event => setTitle(event.target.value)} />
-      </LabeledField>
-      {kind === 'url' ? (
-        <LabeledField label="URL" required>
-          <Input required type="url" value={url} onChange={event => setURL(event.target.value)} />
+    <PageStack className="mx-auto w-full max-w-3xl">
+      {/* Outside the editor frame: a child of ResourceEditorPage renders inside
+          the bordered form body, where area navigation does not belong. */}
+      <BrainTaskNavigation ownerUID={ownerUID} store={store} active="sources" />
+      <ResourceEditorPage
+        title={t('console.brain.learn_source')}
+        description={t('console.brain.learn_source_description')}
+        backTo={`/brain/sources?${brainSearch(ownerUID)}`}
+        error={validationError ?? create.error ?? learn.error ?? principals.error}
+        submitting={create.isPending || learn.isPending}
+        submitLabel={submitLabel}
+        onSubmit={() => void submit()}>
+        <BrainOwnerField ownerUID={ownerUID} principals={agents} onChange={changeOwner} />
+        <BrainStoreField ownerUID={ownerUID} store={store} principals={allPrincipals} onChange={setStore} />
+        <LabeledField label={t('console.brain.source_kind')}>
+          <Select value={kind} onValueChange={value => setKind(value as 'url' | 'file' | 'paste')}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="url">{t('console.brain.source_kind_url')}</SelectItem>
+              <SelectItem value="file">{t('console.brain.source_kind_file')}</SelectItem>
+              <SelectItem value="paste">{t('console.brain.source_kind_paste')}</SelectItem>
+            </SelectContent>
+          </Select>
         </LabeledField>
-      ) : null}
-      {kind === 'file' ? (
-        <LabeledField label={t('console.brain.source_file')} required>
-          <Input required type="file" onChange={event => setFile(event.target.files?.[0])} />
+        <LabeledField
+          label={t('console.brain.source_name')}
+          description={t('console.brain.source_name_hint')}
+          required={kind === 'paste'}>
+          <Input required={kind === 'paste'} value={title} onChange={event => setTitle(event.target.value)} />
         </LabeledField>
-      ) : null}
-      {kind === 'paste' ? (
-        <LabeledField label={t('console.brain.source_content')} required>
-          <Textarea required className="min-h-64" value={content} onChange={event => setContent(event.target.value)} />
-        </LabeledField>
-      ) : null}
-    </ResourceEditorPage>
+        {kind === 'url' ? (
+          <LabeledField label="URL" required>
+            <Input required type="url" value={url} onChange={event => setURL(event.target.value)} />
+          </LabeledField>
+        ) : null}
+        {kind === 'file' ? (
+          <LabeledField label={t('console.brain.source_file')} required>
+            <Input required type="file" onChange={event => setFile(event.target.files?.[0])} />
+          </LabeledField>
+        ) : null}
+        {kind === 'paste' ? (
+          <LabeledField label={t('console.brain.source_content')} required>
+            <Textarea
+              required
+              className="min-h-64"
+              value={content}
+              onChange={event => setContent(event.target.value)}
+            />
+          </LabeledField>
+        ) : null}
+      </ResourceEditorPage>
+    </PageStack>
   )
 }
 
@@ -434,16 +448,14 @@ function sourceStatusLabel(t: ReturnType<typeof useTranslation>['t'], source: Br
   return t(`console.brain.learning_status_${source.learning_status ?? 'stored'}`)
 }
 
-function sourceStatusVariant(
-  source: BrainSourceEntry
-): 'secondary' | 'outline' | 'success' | 'warning' | 'destructive' {
+function sourceStatusVariant(source: BrainSourceEntry): 'secondary' | 'info' | 'success' | 'warning' | 'destructive' {
   if (source.sync_state) return source.sync_state === 'current' ? 'success' : 'destructive'
 
   const status = source.learning_status
   if (status === 'integrated' || status === 'no_change') return 'success'
   if (status === 'incomplete') return 'warning'
   if (status === 'failed') return 'destructive'
-  if (status === 'learning') return 'outline'
+  if (status === 'learning') return 'info'
   return 'secondary'
 }
 

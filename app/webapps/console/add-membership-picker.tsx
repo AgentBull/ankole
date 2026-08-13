@@ -8,6 +8,7 @@ import {
   ComboboxList
 } from '@ankole/uikit'
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { requestErrorMessage } from '../common/request-errors'
 
 /** One addable membership target: a group (id = name) or a principal (id = uid). */
@@ -27,6 +28,7 @@ export function AddMembershipPicker({
   emptyText,
   error,
   excludedIDs,
+  isLoading = false,
   onAdd,
   pending,
   placeholder
@@ -37,10 +39,13 @@ export function AddMembershipPicker({
   /** Candidate-query error, shown in the empty slot instead of `emptyText`. */
   error: unknown
   excludedIDs: ReadonlySet<string>
+  /** Candidate query still in flight, shown instead of a false "nothing to add". */
+  isLoading?: boolean
   onAdd: (id: string) => void
   pending: boolean
   placeholder: string
 }) {
+  const { t } = useTranslation()
   const [inputValue, setInputValue] = useState('')
   const available = candidates.filter(candidate => !excludedIDs.has(candidate.id))
   const normalized = inputValue.trim().toLowerCase()
@@ -66,8 +71,10 @@ export function AddMembershipPicker({
       <ComboboxInput aria-label={ariaLabel} placeholder={placeholder} disabled={pending} className="w-full max-w-md" />
       <ComboboxContent>
         <ComboboxList>
-          {/* A failed candidate fetch must not read as "nothing left to add". */}
-          <ComboboxEmpty>{error ? requestErrorMessage(error) : emptyText}</ComboboxEmpty>
+          {/* A failed or still-loading candidate fetch must not read as "nothing left to add". */}
+          <ComboboxEmpty>
+            {error ? requestErrorMessage(error) : isLoading ? t('common.loading') : emptyText}
+          </ComboboxEmpty>
           <ComboboxCollection>
             {(candidate: MembershipCandidate) => (
               <ComboboxItem key={candidate.id} value={candidate}>

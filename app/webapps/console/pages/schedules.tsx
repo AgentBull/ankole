@@ -15,7 +15,14 @@ import {
   Textarea,
   toast
 } from '@ankole/uikit'
-import { RiCalendarScheduleLine, RiPauseCircleLine, RiPlayCircleLine, RiTimerLine } from '@remixicon/react'
+import {
+  RiCalendarScheduleLine,
+  RiCloseCircleLine,
+  RiPauseCircleLine,
+  RiPlayCircleLine,
+  RiTimerLine
+} from '@remixicon/react'
+import type { TFunction } from 'i18next'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -46,6 +53,8 @@ import { ConfirmDeleteButton, LabeledField, ReadOnlyValue, ResourceEditorPage, S
 import { AgentCell, FilterSwitch, ResourceListPage, ResourceSearch, RowActions, SubNav } from '../console-list-page'
 import {
   deliveryTargetDrafts,
+  isMutableCronStatus,
+  scheduleOccurrenceBound,
   ScheduleEditorModel,
   type CronDeliveryProjection,
   type CronStatus,
@@ -100,7 +109,10 @@ export function SchedulesListPage() {
   const [query, setQuery] = useState('')
   const scope = useAgentScope()
 
-  const crons = useQuery(ankoleWebScheduleControllerIndexCronOptions({ query: { agent: scope.agentUID || undefined } }))
+  const crons = useQuery({
+    ...ankoleWebScheduleControllerIndexCronOptions({ query: { agent: scope.agentUID || undefined } }),
+    refetchInterval: 15_000
+  })
 
   const rows = (crons.data?.cron_schedules ?? [])
     .map(row => row as CronScheduleRow)
@@ -112,7 +124,8 @@ export function SchedulesListPage() {
         row.agent_uid,
         row.owner_session_id,
         row.status,
-        describeSchedule(row.schedule)
+        scheduleStatusLabel(t, row.status),
+        describeSchedule(t, row.schedule)
       )
     )
 
@@ -193,7 +206,7 @@ export function SchedulesListPage() {
       }>
       {rows.map(row => {
         const editTo = `new?agent=${encodeURIComponent(row.agent_uid)}&cron=${encodeURIComponent(row.id)}`
-        const toggleable = row.status === 'active' || row.status === 'paused'
+        const toggleable = isMutableCronStatus(row.status)
         return (
           <TableRow key={`${row.agent_uid}:${row.id}`}>
             <TableCell className="font-mono text-xs">
@@ -209,19 +222,19 @@ export function SchedulesListPage() {
               </span>
             </TableCell>
             <TableCell className="text-xs">
-              <span className="font-mono">{describeSchedule(row.schedule)}</span>
+              <span className="font-mono">{describeSchedule(t, row.schedule)}</span>
               {row.timezone ? <div className="text-muted-foreground">{row.timezone}</div> : null}
             </TableCell>
             <TableCell className="text-xs">{formatConsoleDate(row.next_fire_at)}</TableCell>
             <TableCell className="text-xs">{formatConsoleDate(row.last_fire_at)}</TableCell>
             <TableCell>
-              <StatusIndicator tone={statusTone(row.status)}>{row.status}</StatusIndicator>
+              <StatusIndicator tone={statusTone(row.status)}>{scheduleStatusLabel(t, row.status)}</StatusIndicator>
             </TableCell>
             <RowActions
               editTo={editTo}
               editLabel={t('common.edit')}
               actions={[
-                ...(row.status !== 'deleted'
+                ...(toggleable
                   ? [
                       {
                         icon: <RiPlayCircleLine />,
@@ -272,14 +285,25 @@ export function ScheduleCheckbacksPage() {
   const [includeFinished, setIncludeFinished] = useState(false)
   const scope = useAgentScope()
 
-  const checkbacks = useQuery(
-    ankoleWebScheduleControllerIndexCheckbacksOptions({ query: { agent: scope.agentUID || undefined } })
-  )
+  const checkbacks = useQuery({
+    ...ankoleWebScheduleControllerIndexCheckbacksOptions({ query: { agent: scope.agentUID || undefined } }),
+    refetchInterval: 15_000
+  })
 
   const rows = (checkbacks.data?.schedule_events ?? [])
     .map(row => row as ScheduledEventRow)
     .filter(row => includeFinished || pending(row))
-    .filter(row => matchesResourceSearch(query, row.kind, row.status, row.agent_uid, row.session_id, row.binding_name))
+    .filter(row =>
+      matchesResourceSearch(
+        query,
+        row.kind,
+        row.status,
+        eventStatusLabel(t, row.status),
+        row.agent_uid,
+        row.session_id,
+        row.binding_name
+      )
+    )
 
   const cancelCheckback = useMutation({
     ...ankoleWebScheduleControllerCancelCheckbackMutation(),
@@ -346,7 +370,7 @@ export function ScheduleCheckbacksPage() {
             {checkbackReason(row.wake_payload)}
           </TableCell>
           <TableCell>
-            <StatusIndicator tone={eventTone(row.status)}>{row.status}</StatusIndicator>
+            <StatusIndicator tone={eventTone(row.status)}>{eventStatusLabel(t, row.status)}</StatusIndicator>
           </TableCell>
           <TableCell className="w-12 text-right">
             {pending(row) ? (
@@ -356,6 +380,7 @@ export function ScheduleCheckbacksPage() {
                   description: t('console.schedules.cancel_description'),
                   confirmLabel: t('console.schedules.cancel')
                 }}
+                icon={<RiCloseCircleLine />}
                 pending={cancelCheckback.isPending}
                 onConfirm={() =>
                   cancelCheckback.mutate({ path: { agent_uid: row.agent_uid, scheduled_event_id: row.id } })
@@ -449,20 +474,55 @@ export function ScheduleCronEditorPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editing, existingRow, model])
 
+  // Save errors render once in the page ErrorBlock; a toast on top of the
+  // same message would say it twice.
   const saveCron = useMutation({
     ...ankoleWebScheduleControllerCreateCronMutation(),
     onSuccess: () => {
       toast.success(t('console.schedules.saved'))
       void queryClient.invalidateQueries()
       navigate(backTo)
-    },
-    onError: error => toast.error(requestErrorMessage(error))
+    }
   })
   const updateCron = useMutation({
     ...ankoleWebScheduleControllerUpdateCronMutation(),
     onSuccess: () => {
       toast.success(t('console.schedules.saved'))
       void queryClient.invalidateQueries()
+      navigate(backTo)
+    }
+  })
+
+  const invalidate = () => void queryClient.invalidateQueries()
+  const runCron = useMutation({
+    ...ankoleWebScheduleControllerRunCronMutation(),
+    onSuccess: () => {
+      toast.success(t('console.schedules.ran'))
+      invalidate()
+    },
+    onError: error => toast.error(requestErrorMessage(error))
+  })
+  const pauseCron = useMutation({
+    ...ankoleWebScheduleControllerPauseCronMutation(),
+    onSuccess: () => {
+      toast.success(t('console.schedules.paused'))
+      invalidate()
+    },
+    onError: error => toast.error(requestErrorMessage(error))
+  })
+  const resumeCron = useMutation({
+    ...ankoleWebScheduleControllerResumeCronMutation(),
+    onSuccess: () => {
+      toast.success(t('console.schedules.resumed'))
+      invalidate()
+    },
+    onError: error => toast.error(requestErrorMessage(error))
+  })
+  const removeCron = useMutation({
+    ...ankoleWebScheduleControllerRemoveCronMutation(),
+    onSuccess: () => {
+      toast.success(t('console.schedules.deleted'))
+      invalidate()
       navigate(backTo)
     },
     onError: error => toast.error(requestErrorMessage(error))
@@ -475,7 +535,7 @@ export function ScheduleCronEditorPage() {
       return
     }
     if (editing) {
-      if (!cronID) return
+      if (!cronID || !existingRow || !isMutableCronStatus(existingRow.status)) return
       const body = model.toUpdateBody()
       if (!body) {
         model.validationError.value = t('console.schedules.schedule_invalid')
@@ -506,11 +566,18 @@ export function ScheduleCronEditorPage() {
   const backTo = agentUID ? `/schedules?agent=${encodeURIComponent(agentUID)}` : '/schedules'
   const updateBody = editing ? model.toUpdateBody() : undefined
   const unchanged = Boolean(editing && updateBody && Object.keys(updateBody).length === 0)
+  const existingRunnable = Boolean(existingRow && isMutableCronStatus(existingRow.status))
+  const terminalReadOnly = Boolean(editing && existingRow && !existingRunnable)
 
   return (
     <ResourceEditorPage
       title={editing ? t('console.schedules.edit') : t('console.schedules.new')}
       backTo={backTo}
+      description={
+        terminalReadOnly && existingRow
+          ? t('console.schedules.terminal_read_only', { status: scheduleStatusLabel(t, existingRow.status) })
+          : undefined
+      }
       error={
         model.validationError.value ??
         agents.error ??
@@ -520,10 +587,65 @@ export function ScheduleCronEditorPage() {
         updateCron.error
       }
       onSubmit={submit}
+      readOnly={terminalReadOnly}
       submitting={saveCron.isPending || updateCron.isPending}
       submitDisabled={unchanged}
       submitDisabledReason={t('common.save_disabled')}
       submitUnavailable={Boolean(editing && !existingRow)}
+      secondary={
+        editing && existingRow ? (
+          <div className="flex flex-wrap items-center gap-2">
+            {existingRunnable ? (
+              <Button
+                size="sm"
+                type="button"
+                variant="outline"
+                disabled={runCron.isPending}
+                onClick={() =>
+                  runCron.mutate({
+                    headers: { 'Idempotency-Key': crypto.randomUUID() },
+                    path: { agent_uid: agentUID, cron_schedule_id: existingRow.id }
+                  })
+                }>
+                <RiPlayCircleLine data-icon="inline-start" />
+                {t('console.schedules.run_now')}
+              </Button>
+            ) : null}
+            {existingRunnable ? (
+              <Button
+                size="sm"
+                type="button"
+                variant="outline"
+                disabled={pauseCron.isPending || resumeCron.isPending}
+                onClick={() => {
+                  const path = { agent_uid: agentUID, cron_schedule_id: existingRow.id }
+                  if (existingRow.status === 'paused') resumeCron.mutate({ path })
+                  else pauseCron.mutate({ path })
+                }}>
+                {existingRow.status === 'paused' ? (
+                  <RiPlayCircleLine data-icon="inline-start" />
+                ) : (
+                  <RiPauseCircleLine data-icon="inline-start" />
+                )}
+                {existingRow.status === 'paused' ? t('console.schedules.resume') : t('console.schedules.pause')}
+              </Button>
+            ) : null}
+            <ConfirmDeleteButton
+              confirm={{
+                title: t('console.schedules.delete_title'),
+                description: t('console.schedules.delete_description', {
+                  name: existingRow.name || existingRow.binding_name
+                }),
+                confirmLabel: t('common.delete')
+              }}
+              label={t('common.delete')}
+              pending={removeCron.isPending}
+              size="sm"
+              onConfirm={() => removeCron.mutate({ path: { agent_uid: agentUID, cron_schedule_id: existingRow.id } })}
+            />
+          </div>
+        ) : undefined
+      }
       supplementary={
         editing ? (
           <div className="flex flex-col gap-3">
@@ -546,7 +668,9 @@ export function ScheduleCronEditorPage() {
                       <TableRow key={row.id}>
                         <TableCell className="text-xs">{formatConsoleDate(row.due_at)}</TableCell>
                         <TableCell>
-                          <StatusIndicator tone={eventTone(row.status)}>{row.status}</StatusIndicator>
+                          <StatusIndicator tone={eventTone(row.status)}>
+                            {eventStatusLabel(t, row.status)}
+                          </StatusIndicator>
                         </TableCell>
                         <TableCell className="text-xs">{formatConsoleDate(row.fired_at)}</TableCell>
                       </TableRow>
@@ -786,8 +910,8 @@ export function ScheduleCronEditorPage() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="active">{t('console.status.active')}</SelectItem>
-              <SelectItem value="paused">{t('console.schedules.paused_status')}</SelectItem>
+              <SelectItem value="active">{t('console.schedules.status_active')}</SelectItem>
+              <SelectItem value="paused">{t('console.schedules.status_paused')}</SelectItem>
             </SelectContent>
           </Select>
         </LabeledField>
@@ -798,17 +922,32 @@ export function ScheduleCronEditorPage() {
 
 // --- helpers ---
 
-function describeSchedule(schedule: Record<string, unknown> | null | undefined): string {
+/** Localized status labels; an unknown token renders as itself instead of a raw i18n key. */
+function scheduleStatusLabel(t: TFunction, status: string): string {
+  return t(`console.schedules.status_${status}`, { defaultValue: status })
+}
+
+function eventStatusLabel(t: TFunction, status: string): string {
+  return t(`console.schedules.event_status_${status}`, { defaultValue: status })
+}
+
+function describeSchedule(t: TFunction, schedule: Record<string, unknown> | null | undefined): string {
   if (!schedule || typeof schedule !== 'object') return '—'
   const kind = String((schedule as { kind?: unknown }).kind ?? '')
   if (kind === 'cron') return String((schedule as { expression?: unknown }).expression ?? '—')
   if (kind === 'every') {
     const ms = Number((schedule as { every_ms?: unknown }).every_ms)
-    if (!Number.isFinite(ms) || ms <= 0) return 'every ?'
-    if (ms >= 86_400_000 && ms % 86_400_000 === 0) return `every ${ms / 86_400_000}d`
-    if (ms >= 3_600_000 && ms % 3_600_000 === 0) return `every ${ms / 3_600_000}h`
-    if (ms >= 60_000 && ms % 60_000 === 0) return `every ${ms / 60_000}m`
-    return `every ${ms}ms`
+    const interval =
+      !Number.isFinite(ms) || ms <= 0
+        ? '?'
+        : ms >= 86_400_000 && ms % 86_400_000 === 0
+          ? `${ms / 86_400_000}d`
+          : ms >= 3_600_000 && ms % 3_600_000 === 0
+            ? `${ms / 3_600_000}h`
+            : ms >= 60_000 && ms % 60_000 === 0
+              ? `${ms / 60_000}m`
+              : `${ms}ms`
+    return t('console.schedules.every_interval', { interval })
   }
   return kind || '—'
 }
@@ -859,12 +998,13 @@ function draftFromCron(row: CronScheduleRow, schedule: Record<string, unknown>):
     ownerSessionId: row.owner_session_id,
     bindingName: row.binding_name,
     name: row.name ?? '',
-    status: (row.status === 'paused' ? 'paused' : 'active') as CronStatus,
+    status: isMutableCronStatus(row.status) ? row.status : '',
     scheduleKind: kind,
     cronExpression: String(schedule.expression ?? ''),
     everyMs: String(schedule.every_ms ?? ''),
     anchorAt: String(schedule.anchor_at ?? ''),
     timezone: row.timezone ?? '',
+    occurrences: scheduleOccurrenceBound(schedule),
     deliveryTargets: deliveryTargetDrafts(row.delivery, row.binding_name),
     task: typeof payload.task === 'string' ? payload.task : '',
     payload: safeStringify(payload),

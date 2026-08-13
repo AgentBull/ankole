@@ -1,5 +1,5 @@
 import { recordValue, type JsonObject as JSONObject } from '@agentbull/active-support'
-import { Button, Input, toast } from '@ankole/uikit'
+import { Button, Input, Skeleton, toast } from '@ankole/uikit'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation } from '@tanstack/react-query'
@@ -66,7 +66,7 @@ export function CustomModelProfilesEditor({
         </Button>
       </div>
       <ErrorBlock error={error} />
-      {loading ? <span className="text-xs text-muted-foreground">{t('common.loading')}</span> : null}
+      {loading ? <Skeleton className="h-48 w-full" aria-busy="true" /> : null}
       {adding ? (
         <NewCustomModelProfileEditor
           agentUID={agentUID}

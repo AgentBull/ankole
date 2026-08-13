@@ -1,5 +1,11 @@
 import { describe, expect, test } from 'bun:test'
-import { deliveryTargetDrafts, ScheduleEditorModel, type ScheduleEditorDraft } from './schedule-editor-model'
+import {
+  deliveryTargetDrafts,
+  isMutableCronStatus,
+  scheduleOccurrenceBound,
+  ScheduleEditorModel,
+  type ScheduleEditorDraft
+} from './schedule-editor-model'
 
 const draft: ScheduleEditorDraft = {
   ownerSessionId: 'lark:chat:market',
@@ -87,6 +93,37 @@ describe('ScheduleEditorModel', () => {
     })
 
     model[Symbol.dispose]()
+  })
+
+  test('preserves a finite occurrence bound when schedule timing changes', () => {
+    const model = new ScheduleEditorModel()
+    model.initialize('cron:bounded', { ...draft, occurrences: { count: 5 } })
+
+    model.cronExpression.value = '0 9 * * 1'
+
+    expect(model.toUpdateBody()).toEqual({
+      schedule: {
+        kind: 'cron',
+        expression: '0 9 * * 1',
+        timezone: 'Asia/Shanghai',
+        occurrences: { count: 5 }
+      }
+    })
+
+    model[Symbol.dispose]()
+  })
+
+  test('reads both supported occurrence bounds and keeps terminal statuses immutable', () => {
+    expect(scheduleOccurrenceBound({ occurrences: { count: 3 } })).toEqual({ count: 3 })
+    expect(scheduleOccurrenceBound({ occurrences: { until: '2026-08-31T00:00:00Z' } })).toEqual({
+      until: '2026-08-31T00:00:00Z'
+    })
+    expect(scheduleOccurrenceBound({ occurrences: { count: 0 } })).toBeUndefined()
+
+    expect(isMutableCronStatus('active')).toBe(true)
+    expect(isMutableCronStatus('paused')).toBe(true)
+    expect(isMutableCronStatus('completed')).toBe(false)
+    expect(isMutableCronStatus('deleted')).toBe(false)
   })
 
   test('sends target-only updates while the control plane preserves quiet success', () => {

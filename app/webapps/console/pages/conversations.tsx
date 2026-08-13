@@ -4,7 +4,6 @@ import {
   AccordionItem,
   AccordionTrigger,
   Badge,
-  Button,
   Select,
   SelectContent,
   SelectItem,
@@ -17,10 +16,11 @@ import {
 } from '@ankole/uikit'
 import { RiChat3Line, RiFunctionLine, RiInboxLine } from '@remixicon/react'
 import { match } from '@agentbull/active-support'
-import { keepPreviousData, useQuery } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { useEffect, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useParams, useSearchParams } from 'react-router'
+import { AgentFilter, useAgentScope } from '../console-agent-scope'
 import { BackLink, PageStack } from '../console-page'
 import { ErrorBlock } from '../../common/error-block'
 import { formatConsoleDate } from '../console-primitives'
@@ -48,13 +48,14 @@ import type {
 type ResponseItem = Record<string, unknown>
 
 /**
- * Conversations list page — installation-wide browser for AIGateway conversations.
+ * Conversations list page — instance-wide browser for AIGateway conversations.
  * The list is read-only; selecting a row opens the detail route that renders the
  * message thread.
  */
 export function ConversationsListPage() {
   const { t } = useTranslation()
   const [searchParams, setSearchParams] = useSearchParams()
+  const scope = useAgentScope()
   const searchFilter = searchParams.get('q') ?? ''
   const cursor = searchParams.get('cursor') ?? undefined
   const activeFilter = searchParams.get('active')
@@ -85,30 +86,27 @@ export function ConversationsListPage() {
     return () => window.clearTimeout(timeout)
   }, [searchDraft, searchFilter, setSearchParams])
 
-  // A committed search changes the query key; keeping the previous page
-  // visible stops the list from flashing empty.
   const list = useQuery({
     ...ankoleWebAIGatewayConversationControllerIndexOptions({
       query: {
         q: searchFilter.trim() || undefined,
+        subject: scope.agentUID || undefined,
         active: activeFilter === 'true' ? true : activeFilter === 'false' ? false : undefined,
         min_messages: showAll ? undefined : 2,
         cursor,
         limit: 50
       }
-    }),
-    placeholderData: keepPreviousData
+    })
   })
 
   const conversations = list.data?.conversations ?? []
   const nextCursor = list.data?.next_cursor ?? undefined
 
-  const toggleActive = () => {
+  const setActiveFilter = (value: string) => {
     const next = new URLSearchParams(searchParams)
-    const current = next.get('active')
-    const value = current === 'true' ? 'false' : current === 'false' ? null : 'true'
-    if (value === null) next.delete('active')
-    else next.set('active', value)
+    if (value === 'active') next.set('active', 'true')
+    else if (value === 'ended') next.set('active', 'false')
+    else next.delete('active')
     setSearchParams(resetCursorParams(next), { replace: true })
   }
 
@@ -119,11 +117,12 @@ export function ConversationsListPage() {
     setSearchParams(resetCursorParams(next), { replace: true })
   }
 
-  const isFiltered = Boolean(searchFilter.trim()) || activeFilter !== null
+  const isFiltered = Boolean(searchFilter.trim()) || activeFilter !== null || Boolean(scope.agentUID)
   const clearFilters = () => {
     const next = new URLSearchParams(searchParams)
     next.delete('q')
     next.delete('active')
+    next.delete('agent')
     setSearchParams(resetCursorParams(next), { replace: true })
   }
 
@@ -160,13 +159,19 @@ export function ConversationsListPage() {
           onChange={setSearchDraft}
           filters={
             <>
-              <Button type="button" size="sm" variant={activeFilter ? 'default' : 'outline'} onClick={toggleActive}>
-                {activeFilter === 'true'
-                  ? t('console.conversations.filter_active_only')
-                  : activeFilter === 'false'
-                    ? t('console.conversations.filter_ended_only')
-                    : t('console.conversations.filter_all')}
-              </Button>
+              <AgentFilter scope={scope} />
+              <Select
+                value={activeFilter === 'true' ? 'active' : activeFilter === 'false' ? 'ended' : 'all'}
+                onValueChange={value => setActiveFilter(String(value ?? 'all'))}>
+                <SelectTrigger size="sm" aria-label={t('console.conversations.status')}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">{t('console.conversations.filter_all')}</SelectItem>
+                  <SelectItem value="active">{t('console.conversations.status_active')}</SelectItem>
+                  <SelectItem value="ended">{t('console.conversations.status_ended')}</SelectItem>
+                </SelectContent>
+              </Select>
               <Select
                 value={showAll ? 'all' : 'with_messages'}
                 onValueChange={value => setMessageFilter(value ?? 'with_messages')}>

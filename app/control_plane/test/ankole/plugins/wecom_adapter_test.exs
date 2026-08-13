@@ -210,12 +210,6 @@ defmodule Ankole.Plugins.WeComAdapterTest do
   end
 
   defp start_fake_client(config, script \\ %{}) do
-    registry = Ankole.Plugins.WeComAdapter.ConnectionRegistry
-
-    if is_nil(Process.whereis(registry)) do
-      start_supervised!({Registry, keys: :unique, name: registry})
-    end
-
     key = Config.connection_key(config)
 
     start_supervised!(%{

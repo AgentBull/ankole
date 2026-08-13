@@ -32,7 +32,7 @@ export function AutomationJobsPage() {
   const [query, setQuery] = useState('')
   const [includeFinished, setIncludeFinished] = useState(false)
   const scope = useAgentScope()
-  const selectedID = resourceID(searchParams.get('job'))
+  const selectedID = resourceID(searchParams.get('job'), 1)
 
   const jobs = useQuery({
     ...ankoleWebAutomationJobControllerIndexOptions({
@@ -41,24 +41,18 @@ export function AutomationJobsPage() {
     refetchInterval: 5_000
   })
   const allJobs = jobs.data?.automation_jobs ?? []
-
-  // Job ids are installation-wide, so the list resolves the agent that owns a
-  // deep-linked job before the per-agent detail endpoint can load it. A job
-  // absent from the loaded list falls back to the URL's agent scope.
-  const selectedAgentUID = allJobs.find(job => job.id === selectedID)?.agent_uid ?? scope.agentUID
+  const selectedAgentUID = automationJobAgentUID(allJobs, selectedID, scope.agentUID)
 
   const detail = useQuery({
     ...ankoleWebAutomationJobControllerShowOptions({
-      path: {
-        agent_uid: selectedAgentUID,
-        automation_job_id: selectedID ?? 1000
-      },
+      path: { agent_uid: selectedAgentUID, automation_job_id: selectedID ?? 1000 },
       query: { runs: 20 }
     }),
     enabled: Boolean(selectedAgentUID) && selectedID !== undefined,
     refetchInterval: selectedID !== undefined ? 5_000 : false,
     retry: false
   })
+  const detailNotFound = detail.error?.error?.code === 'not_found'
 
   const rows = allJobs
     .filter(job => includeFinished || job.status === 'active')
@@ -74,17 +68,16 @@ export function AutomationJobsPage() {
       )
     )
 
-  const openJob = (id: number) => {
-    const next = new URLSearchParams(searchParams)
-    next.set('job', String(id))
-    setSearchParams(next)
-  }
+  const openJob = (job: Pick<AutomationJobItem, 'id' | 'agent_uid'>) =>
+    setSearchParams(current => automationJobDetailParams(current, job))
 
   const closeJob = () => {
     const next = new URLSearchParams(searchParams)
     next.delete('job')
     setSearchParams(next, { replace: true })
   }
+
+  const selectAgent = (agentUID: string) => setSearchParams(current => automationJobScopeParams(current, agentUID))
 
   return (
     <>
@@ -117,7 +110,7 @@ export function AutomationJobsPage() {
             onChange={setQuery}
             filters={
               <>
-                <AgentFilter scope={scope} />
+                <AgentFilter scope={{ ...scope, selectAgent }} />
                 <FilterSwitch
                   checked={includeFinished}
                   label={t('console.include_finished')}
@@ -128,7 +121,7 @@ export function AutomationJobsPage() {
           />
         }>
         {rows.map(job => (
-          <AutomationJobRow key={job.id} job={job} onOpen={() => openJob(job.id)} />
+          <AutomationJobRow key={job.id} job={job} onOpen={() => openJob(job)} />
         ))}
       </ResourceListPage>
 
@@ -145,13 +138,11 @@ export function AutomationJobsPage() {
             </SheetDescription>
           </SheetHeader>
           <div className="min-w-0 flex-1 overflow-y-auto px-8 py-6">
-            {detail.error ? (
+            {detailNotFound ? (
+              <ErrorBlock error={t('console.automation_jobs.not_found', { id: selectedID })} />
+            ) : detail.error ? (
               <ErrorBlock error={detail.error} />
             ) : selectedID !== undefined && !selectedAgentUID && !jobs.isLoading ? (
-              // Without a list match or a scope agent no detail query can run,
-              // so the deep-linked id would otherwise stay a skeleton forever.
-              // With a scope agent the query runs and a real 404 surfaces
-              // through detail.error above.
               <ErrorBlock error={t('console.automation_jobs.not_found', { id: selectedID })} />
             ) : detail.isLoading || !detail.data?.automation_job ? (
               <Skeleton className="h-64 w-full" />
@@ -165,6 +156,32 @@ export function AutomationJobsPage() {
   )
 }
 
+export function automationJobAgentUID(
+  jobs: ReadonlyArray<Pick<AutomationJobItem, 'id' | 'agent_uid'>>,
+  selectedID: number | undefined,
+  scopeAgentUID: string
+): string {
+  return jobs.find(job => job.id === selectedID)?.agent_uid ?? scopeAgentUID
+}
+
+export function automationJobDetailParams(
+  current: URLSearchParams,
+  job: Pick<AutomationJobItem, 'id' | 'agent_uid'>
+): URLSearchParams {
+  const next = new URLSearchParams(current)
+  next.set('agent', job.agent_uid)
+  next.set('job', String(job.id))
+  return next
+}
+
+export function automationJobScopeParams(current: URLSearchParams, agentUID: string): URLSearchParams {
+  const next = new URLSearchParams(current)
+  next.delete('job')
+  if (agentUID) next.set('agent', agentUID)
+  else next.delete('agent')
+  return next
+}
+
 function AutomationJobRow({ job, onOpen }: { job: AutomationJobItem; onOpen: () => void }) {
   const { t } = useTranslation()
 
@@ -172,7 +189,7 @@ function AutomationJobRow({ job, onOpen }: { job: AutomationJobItem; onOpen: () 
     <TableRow>
       <TableCell>
         <button type="button" className="grid gap-1 text-left" onClick={onOpen}>
-          <span className="font-medium">{job.label}</span>
+          <span className="font-medium text-foreground hover:text-link hover:underline">{job.label}</span>
           <span className="font-mono text-xs text-muted-foreground">#{job.id}</span>
         </button>
       </TableCell>
@@ -260,7 +277,7 @@ function AutomationJobRun({ run }: { run: AutomationJobRunItem }) {
         <span>{formatConsoleDate(run.started_at)}</span>
         <span>→</span>
         <span>{formatConsoleDate(run.finished_at)}</span>
-        {run.exit_code == null ? null : <span>exit {run.exit_code}</span>}
+        {run.exit_code == null ? null : <span>{t('console.automation_jobs.exit_code', { code: run.exit_code })}</span>}
       </div>
       {run.error ? <p className="break-words text-sm text-destructive">{run.error}</p> : null}
       {run.stdout ? <RunLog label="stdout" value={run.stdout} /> : null}

@@ -3,12 +3,13 @@ import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router'
 import { ankoleWebAgentControllerIndexOptions } from './api/generated/@tanstack/react-query.gen'
+import { resetCursorParams } from './state/cursor-pagination'
 
 /**
  * The agent a list page is scoped to, held in `?agent=`. Without the
  * parameter the page covers every agent.
  *
- * The console list endpoints are installation-wide and take the selected
+ * The console list endpoints are instance-wide and take the selected
  * agent as an optional filter. Pages pass `agentUID || undefined` straight
  * into that query parameter.
  */
@@ -17,14 +18,16 @@ export function useAgentScope() {
   const agents = useQuery(ankoleWebAgentControllerIndexOptions())
   const agentUID = searchParams.get('agent') ?? ''
 
-  // Only the `agent` key changes: the other parameters, such as an open
-  // `?job=` detail, stay valid across a scope change and must survive it.
+  // Only the `agent` key and the paging cursor change: the other parameters,
+  // such as an open `?job=` detail, stay valid across a scope change and must
+  // survive it. The cursor belongs to the previous scope's result order, so a
+  // scope change restarts at the first page.
   const selectAgent = (uid: string) =>
     setSearchParams(current => {
       const next = new URLSearchParams(current)
       if (uid) next.set('agent', uid)
       else next.delete('agent')
-      return next
+      return resetCursorParams(next)
     })
 
   return {

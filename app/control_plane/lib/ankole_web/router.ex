@@ -250,6 +250,10 @@ defmodule AnkoleWeb.Router do
     put "/ai-gateway/providers/:provider_id", AIGatewayProviderController, :put_provider
     delete "/ai-gateway/providers/:provider_id", AIGatewayProviderController, :delete_provider
 
+    post "/ai-gateway/providers/:provider_id/enable",
+         AIGatewayProviderController,
+         :enable_provider
+
     post "/ai-gateway/providers/:provider_id/credentials",
          AIGatewayProviderController,
          :add_credential

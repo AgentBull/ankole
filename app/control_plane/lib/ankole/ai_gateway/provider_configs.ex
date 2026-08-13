@@ -143,30 +143,16 @@ defmodule Ankole.AIGateway.ProviderConfigs do
   """
   @spec update_provider(String.t(), map()) :: provider_result()
   def update_provider(provider_id, attrs) when is_map(attrs) do
-    credential_pool_changed? =
-      Map.has_key?(attrs, "credential_pool") or Map.has_key?(attrs, :credential_pool)
-
-    result =
-      Repo.transact(fn repo ->
-        with %Provider{} = provider <- lock_provider(repo, provider_id),
-             {:ok, attrs} <- provider_attrs_for_write(attrs, provider) do
-          provider
-          |> Provider.changeset(attrs)
-          |> repo.update()
-        else
-          nil -> {:error, :not_found}
-          {:error, _reason} = error -> error
-        end
-      end)
-
-    case result do
-      {:ok, %Provider{} = provider} when credential_pool_changed? ->
-        clear_pool_health(provider)
-        result
-
-      _result ->
-        result
-    end
+    Repo.transact(fn repo ->
+      with %Provider{} = provider <- lock_provider(repo, provider_id),
+           {:ok, attrs} <- provider_attrs_for_write(attrs, provider),
+           {:ok, provider} <- provider |> Provider.changeset(attrs) |> repo.update() do
+        {:ok, provider}
+      else
+        nil -> {:error, :not_found}
+        {:error, _reason} = error -> error
+      end
+    end)
   end
 
   @doc """
@@ -192,6 +178,33 @@ defmodule Ankole.AIGateway.ProviderConfigs do
         nil -> {:error, :not_found}
         references when is_list(references) -> {:error, {:provider_in_use, references}}
         {:error, _reason} = error -> error
+      end
+    end)
+  end
+
+  @doc """
+  Re-enables a disabled provider and clears health from before it was disabled.
+
+  Enabling an active provider returns it unchanged and preserves current
+  credential health. A disabled provider whose kind or connection options are
+  no longer valid is rejected instead of returning to service.
+  """
+  @spec enable_provider(String.t()) :: provider_result()
+  def enable_provider(provider_id) when is_binary(provider_id) do
+    Repo.transact(fn repo ->
+      case lock_provider(repo, provider_id) do
+        nil ->
+          {:error, :not_found}
+
+        %Provider{disabled_at: nil} = provider ->
+          {:ok, provider}
+
+        %Provider{} = provider ->
+          with {:ok, attrs} <- provider_attrs_for_write(%{"disabled_at" => nil}, provider),
+               attrs <- Map.update!(attrs, "credential_pool", &rotate_health_revisions/1),
+               {:ok, provider} <- provider |> Provider.changeset(attrs) |> repo.update() do
+            {:ok, provider}
+          end
       end
     end)
   end
@@ -320,29 +333,19 @@ defmodule Ankole.AIGateway.ProviderConfigs do
   """
   @spec add_credential(String.t(), map()) :: provider_result()
   def add_credential(provider_id, attrs) when is_binary(provider_id) and is_map(attrs) do
-    result =
-      Repo.transact(fn repo ->
-        with %Provider{} = provider <- lock_provider(repo, provider_id),
-             {:ok, pool, credential_id} <- append_credential(provider, attrs),
-             {:ok, provider} <-
-               provider
-               |> Provider.changeset(%{credential_pool: pool})
-               |> repo.update() do
-          {:ok, {provider, credential_id}}
-        else
-          nil -> {:error, :not_found}
-          {:error, _reason} = error -> error
-        end
-      end)
-
-    case result do
-      {:ok, {%Provider{} = provider, credential_id}} ->
-        :ok = CredentialPool.mark_ok(provider.id, credential_id)
+    Repo.transact(fn repo ->
+      with %Provider{} = provider <- lock_provider(repo, provider_id),
+           {:ok, pool, _credential_id} <- append_credential(provider, attrs),
+           {:ok, provider} <-
+             provider
+             |> Provider.changeset(%{credential_pool: pool})
+             |> repo.update() do
         {:ok, provider}
-
-      {:error, _reason} = error ->
-        error
-    end
+      else
+        nil -> {:error, :not_found}
+        {:error, _reason} = error -> error
+      end
+    end)
   end
 
   @doc """
@@ -354,30 +357,20 @@ defmodule Ankole.AIGateway.ProviderConfigs do
   def update_credential(provider_id, credential_id, attrs)
       when is_binary(provider_id) and is_binary(credential_id) and is_map(attrs) do
     attrs = normalize_external_attrs(attrs)
-    credential_replaced? = credential_replaced?(attrs)
 
-    result =
-      Repo.transact(fn repo ->
-        with %Provider{} = provider <- lock_provider(repo, provider_id),
-             {:ok, pool} <- replace_credential(provider, credential_id, attrs),
-             {:ok, provider} <-
-               provider
-               |> Provider.changeset(%{credential_pool: pool})
-               |> repo.update() do
-          {:ok, provider}
-        else
-          nil -> {:error, :not_found}
-          {:error, _reason} = error -> error
-        end
-      end)
-
-    with {:ok, %Provider{} = provider} <- result do
-      if credential_replaced? do
-        :ok = CredentialPool.mark_ok(provider.id, credential_id)
+    Repo.transact(fn repo ->
+      with %Provider{} = provider <- lock_provider(repo, provider_id),
+           {:ok, pool} <- replace_credential(provider, credential_id, attrs),
+           {:ok, provider} <-
+             provider
+             |> Provider.changeset(%{credential_pool: pool})
+             |> repo.update() do
+        {:ok, provider}
+      else
+        nil -> {:error, :not_found}
+        {:error, _reason} = error -> error
       end
-
-      result
-    end
+    end)
   end
 
   @doc """
@@ -386,25 +379,19 @@ defmodule Ankole.AIGateway.ProviderConfigs do
   @spec delete_credential(String.t(), String.t()) :: provider_result()
   def delete_credential(provider_id, credential_id)
       when is_binary(provider_id) and is_binary(credential_id) do
-    result =
-      Repo.transact(fn repo ->
-        with %Provider{} = provider <- lock_provider(repo, provider_id),
-             {:ok, pool} <- drop_credential(provider, credential_id),
-             {:ok, provider} <-
-               provider
-               |> Provider.changeset(%{credential_pool: pool})
-               |> repo.update() do
-          {:ok, provider}
-        else
-          nil -> {:error, :not_found}
-          {:error, _reason} = error -> error
-        end
-      end)
-
-    with {:ok, %Provider{} = provider} <- result do
-      :ok = CredentialPool.mark_dead(provider.id, credential_id, %{reason: "deleted"})
-      result
-    end
+    Repo.transact(fn repo ->
+      with %Provider{} = provider <- lock_provider(repo, provider_id),
+           {:ok, pool} <- drop_credential(provider, credential_id),
+           {:ok, provider} <-
+             provider
+             |> Provider.changeset(%{credential_pool: pool})
+             |> repo.update() do
+        {:ok, provider}
+      else
+        nil -> {:error, :not_found}
+        {:error, _reason} = error -> error
+      end
+    end)
   end
 
   @doc """
@@ -430,27 +417,28 @@ defmodule Ankole.AIGateway.ProviderConfigs do
   @doc """
   Runs an atomic read-modify-write for one credential.
 
-  The callback runs after the provider row is locked and receives the latest
-  plaintext credential. It can return `{:ok, credential}` to replace the
-  encrypted value, `{:ok, :unchanged}` to keep it, or an error tuple. This is
-  used for rotating refresh tokens, where releasing the row lock between the
-  upstream exchange and the database write could consume the same refresh
-  token twice. The write does not clear derived health because a concurrent
-  provider response can contain a newer quota observation.
+  The callback runs after the provider row is locked. It receives the provider,
+  the stored entry, and the latest plaintext credential. It can return
+  `{:ok, credential}` to replace the encrypted value, `{:ok, :unchanged}` to
+  keep it, or an error tuple. This is used for rotating refresh tokens, where
+  releasing the row lock between the upstream exchange and the database write
+  could consume the same refresh token twice. The write keeps the health
+  revision because an automatic token refresh continues the same credential.
   """
   @spec update_credential_under_lock(
           String.t(),
           String.t(),
-          (Provider.t(), map() -> {:ok, map()} | {:ok, :unchanged} | {:error, term()})
+          (Provider.t(), map(), map() ->
+             {:ok, map()} | {:ok, :unchanged} | {:error, term()})
         ) :: {:ok, map()} | {:error, term()}
   def update_credential_under_lock(provider_id, credential_id, callback)
-      when is_binary(provider_id) and is_binary(credential_id) and is_function(callback, 2) do
+      when is_binary(provider_id) and is_binary(credential_id) and is_function(callback, 3) do
     result =
       Repo.transact(fn repo ->
         with %Provider{} = provider <- lock_provider(repo, provider_id),
              {:ok, entry} <- fetch_credential_entry(provider, credential_id),
              {:ok, credential} <- decrypt_credential(provider, entry) do
-          case callback.(provider, credential) do
+          case callback.(provider, entry, credential) do
             {:ok, :unchanged} ->
               {:ok,
                %{
@@ -616,6 +604,7 @@ defmodule Ankole.AIGateway.ProviderConfigs do
            "priority" => 0,
            "source" => "provider_default",
            "disabled_at" => nil,
+           "health_revision" => health_revision(),
            "encrypted_credential" => ciphertext
          }
        ])}
@@ -779,15 +768,6 @@ defmodule Ankole.AIGateway.ProviderConfigs do
     end)
   end
 
-  defp clear_pool_health(%Provider{} = provider) do
-    provider
-    |> credential_pool()
-    |> Map.get("entries", [])
-    |> Enum.each(fn entry ->
-      CredentialPool.mark_ok(provider.id, Map.fetch!(entry, "id"))
-    end)
-  end
-
   defp seal_credential_entries(
          entries,
          existing_entries,
@@ -867,6 +847,7 @@ defmodule Ankole.AIGateway.ProviderConfigs do
           "priority" => priority,
           "source" => source,
           "disabled_at" => disabled_at,
+          "health_revision" => health_revision(existing, credential_replaced?),
           "encrypted_credential" => ciphertext
         }
         |> maybe_preserve_reauth_metadata(entry, existing, credential_replaced?)
@@ -957,6 +938,23 @@ defmodule Ankole.AIGateway.ProviderConfigs do
           value not in [nil, ""]
     end)
   end
+
+  defp rotate_health_revisions(pool) do
+    Map.update!(pool, "entries", fn entries ->
+      Enum.map(entries, &Map.put(&1, "health_revision", health_revision()))
+    end)
+  end
+
+  defp health_revision(_existing, true), do: health_revision()
+
+  defp health_revision(%{"health_revision" => revision}, false)
+       when is_binary(revision) and revision != "",
+       do: revision
+
+  defp health_revision(%{}, false), do: "legacy"
+  defp health_revision(nil, false), do: health_revision()
+
+  defp health_revision, do: Ankole.Ecto.UUIDv7.autogenerate()
 
   defp maybe_put_text(map, key, value) when is_binary(value) and value != "",
     do: Map.put(map, key, value)

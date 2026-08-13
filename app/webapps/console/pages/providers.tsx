@@ -26,9 +26,12 @@ import {
   RiArrowDownSLine,
   RiExternalLinkLine,
   RiLoaderLine,
+  RiPauseCircleLine,
+  RiPlayCircleLine,
   RiRefreshLine,
   RiSparkling2Line
 } from '@remixicon/react'
+import type { TFunction } from 'i18next'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -41,6 +44,7 @@ import {
   ankoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginMutation as completeChatGPTBrowserLoginMutation,
   ankoleWebAiGatewayProviderControllerDeleteCredentialMutation as deleteCredentialMutation,
   ankoleWebAiGatewayProviderControllerDeleteProviderMutation as deleteProviderMutation,
+  ankoleWebAiGatewayProviderControllerEnableProviderMutation as enableProviderMutation,
   ankoleWebAiGatewayProviderControllerIndexOptions as providerIndexOptions,
   ankoleWebAiGatewayProviderControllerPollChatgptLoginMutation as pollChatGPTLoginMutation,
   ankoleWebAiGatewayProviderControllerProviderKindsOptions as providerKindsOptions,
@@ -61,11 +65,13 @@ import i18n from '../../common/i18n'
 import { requestErrorMessage } from '../../common/request-errors'
 import {
   ConfirmDeleteButton,
+  DiscardConfirmDialog,
   LabeledField,
   ReadOnlyValue,
   ResourceEditorPage,
   SaveButton,
-  StatusIndicator
+  StatusIndicator,
+  useDialogDiscardGuard
 } from '../console-form'
 import { ResourceListPage, ResourceSearch, RowActions } from '../console-list-page'
 import { EncryptedValueInput } from '../encrypted-value-input'
@@ -139,6 +145,14 @@ export function ProvidersListPage() {
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
+  const enableProvider = useMutation({
+    ...enableProviderMutation(),
+    onSuccess: (_data, variables) => {
+      toast.success(t('console.providers.enabled', { id: variables.path.provider_id }))
+      void queryClient.invalidateQueries()
+    },
+    onError: error => toast.error(requestErrorMessage(error))
+  })
 
   return (
     <ResourceListPage
@@ -205,6 +219,18 @@ export function ProvidersListPage() {
             <RowActions
               editTo={encodeURIComponent(provider.provider_id)}
               editLabel={t('common.edit')}
+              actions={
+                provider.disabled_at
+                  ? [
+                      {
+                        icon: <RiPlayCircleLine />,
+                        label: t('common.enable'),
+                        pending: enableProvider.isPending,
+                        onAction: () => enableProvider.mutate({ path: { provider_id: provider.provider_id } })
+                      }
+                    ]
+                  : []
+              }
               deletePending={removeProvider.isPending}
               deleteConfirm={{
                 title: t(provider.disabled_at ? 'console.providers.delete_title' : 'console.providers.disable_title'),
@@ -214,7 +240,8 @@ export function ProvidersListPage() {
                     : 'console.providers.disable_description',
                   { id: provider.provider_id }
                 ),
-                confirmLabel: t(provider.disabled_at ? 'common.delete' : 'common.disable')
+                confirmLabel: t(provider.disabled_at ? 'common.delete' : 'common.disable'),
+                icon: provider.disabled_at ? undefined : <RiPauseCircleLine />
               }}
               onDelete={() => removeProvider.mutate({ path: { provider_id: provider.provider_id } })}
             />
@@ -562,7 +589,7 @@ function CredentialPoolEditor({
                   <div className="flex flex-wrap gap-x-4 gap-y-1 font-mono text-xs text-muted-foreground">
                     <span>{entry.id}</span>
                     <span>{t('console.providers.priority_value', { priority: entry.priority })}</span>
-                    <span>{entry.source ?? 'manual'}</span>
+                    <span>{credentialSourceLabel(t, entry.source)}</span>
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -616,7 +643,10 @@ function CredentialPoolEditor({
                   value={entry.auth_type ? humanizeKey(entry.auth_type) : undefined}
                 />
                 <CredentialFact label={t('console.providers.request_count')} value={String(entry.request_count ?? 0)} />
-                <CredentialFact label={t('console.providers.token_usage')} value={formatCredentialUsage(entry.usage)} />
+                <CredentialFact
+                  label={t('console.providers.token_usage')}
+                  value={formatCredentialUsage(t, entry.usage)}
+                />
                 <CredentialFact
                   label={t('console.providers.last_selected_at')}
                   value={entry.last_selected_at ? formatConsoleDate(entry.last_selected_at) : undefined}
@@ -770,10 +800,15 @@ function CredentialEditorDialog({
         const value = values[setting.key]?.trim()
         return setting.required && !value
       }))
+  const dirty =
+    label !== (entry?.label ?? '') ||
+    priority !== String(entry?.priority ?? 0) ||
+    Object.values(values).some(value => value.trim() !== '')
+  const guard = useDialogDiscardGuard({ dirty: open && dirty, pending, onOpenChange })
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent closeLabel={t('common.close')}>
+    <Dialog open={open} onOpenChange={guard.requestOpenChange}>
+      <DialogContent closeLabel={t('common.close')} showCloseButton={!pending}>
         <DialogHeader>
           <DialogTitle>
             {entry ? t('console.providers.edit_credential') : t('console.providers.add_credential')}
@@ -815,7 +850,7 @@ function CredentialEditorDialog({
             ))}
           </div>
           <DialogFooter>
-            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
+            <Button type="button" variant="ghost" disabled={pending} onClick={() => guard.requestOpenChange(false)}>
               {t('common.cancel')}
             </Button>
             <SaveButton type="submit" disabled={pending} incomplete={incomplete && !pending} loading={pending}>
@@ -824,6 +859,7 @@ function CredentialEditorDialog({
           </DialogFooter>
         </form>
       </DialogContent>
+      <DiscardConfirmDialog open={guard.confirming} onDiscard={guard.confirmDiscard} onKeep={guard.keepEditing} />
     </Dialog>
   )
 }
@@ -933,10 +969,16 @@ function ChatGPTLoginDialog({
   }
   const error = validationError ?? start.error ?? poll.error ?? complete.error
   const pending = start.isPending || poll.isPending || complete.isPending
+  const dirty =
+    Boolean(login) ||
+    label !== (entry?.label ?? '') ||
+    priority !== String(entry?.priority ?? 0) ||
+    callbackURL.trim() !== ''
+  const guard = useDialogDiscardGuard({ dirty: open && dirty, pending, onOpenChange })
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent closeLabel={t('common.close')}>
+    <Dialog open={open} onOpenChange={guard.requestOpenChange}>
+      <DialogContent closeLabel={t('common.close')} showCloseButton={!pending}>
         <form
           className="contents"
           noValidate
@@ -1021,7 +1063,7 @@ function ChatGPTLoginDialog({
           </div>
 
           <DialogFooter>
-            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
+            <Button type="button" variant="ghost" disabled={pending} onClick={() => guard.requestOpenChange(false)}>
               {t('common.cancel')}
             </Button>
             {!login ? (
@@ -1043,6 +1085,7 @@ function ChatGPTLoginDialog({
           </DialogFooter>
         </form>
       </DialogContent>
+      <DiscardConfirmDialog open={guard.confirming} onDiscard={guard.confirmDiscard} onKeep={guard.keepEditing} />
     </Dialog>
   )
 }
@@ -1119,77 +1162,97 @@ function EnterpriseCredentialDialog({
     })
   }
   const incomplete = !label.trim() || !accessToken.trim() || !accountID.trim()
+  const dirty =
+    label !== (entry?.label ?? '') ||
+    priority !== String(entry?.priority ?? 0) ||
+    accessToken.trim() !== '' ||
+    accountID !== (entry?.account_id ?? '') ||
+    planType !== (entry?.plan_type ?? '') ||
+    email !== (entry?.email ?? '')
+  const guard = useDialogDiscardGuard({ dirty: open && dirty, pending: save.isPending, onOpenChange })
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent closeLabel={t('common.close')}>
-        <DialogHeader>
-          <DialogTitle>
-            {entry ? t('console.providers.reauthenticate') : t('console.providers.add_enterprise_token')}
-          </DialogTitle>
-          <DialogDescription>{t('console.providers.enterprise_token_description')}</DialogDescription>
-        </DialogHeader>
-        <div className="grid gap-4">
-          {validationError || save.error ? (
-            <p className="text-sm text-destructive" aria-live="assertive">
-              {validationError ?? requestErrorMessage(save.error)}
-            </p>
-          ) : null}
-          <LabeledField label={t('console.providers.credential_label')} required>
-            <Input
-              ref={labelInput}
-              value={label}
-              onChange={event => {
-                setLabel(event.target.value)
-                setValidationError(undefined)
-              }}
-            />
-          </LabeledField>
-          <LabeledField label={t('console.providers.priority')}>
-            <Input type="number" step={1} value={priority} onChange={event => setPriority(event.target.value)} />
-          </LabeledField>
-          <LabeledField label={t('console.providers.access_token')} required>
-            <EncryptedValueInput
-              ref={accessTokenInput}
-              revealLabel={t('console.aria.reveal_secret')}
-              value={accessToken}
-              onChange={event => {
-                setAccessToken(event.target.value)
-                setValidationError(undefined)
-              }}
-            />
-          </LabeledField>
-          <LabeledField label={t('console.providers.account_id')} required>
-            <Input
-              ref={accountIDInput}
-              value={accountID}
-              onChange={event => {
-                setAccountID(event.target.value)
-                setValidationError(undefined)
-              }}
-            />
-          </LabeledField>
-          <LabeledField label={t('console.providers.plan_type')}>
-            <Input value={planType} onChange={event => setPlanType(event.target.value)} />
-          </LabeledField>
-          <LabeledField label={t('console.providers.email')}>
-            <Input type="email" value={email} onChange={event => setEmail(event.target.value)} />
-          </LabeledField>
-        </div>
-        <DialogFooter>
-          <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
-            {t('common.cancel')}
-          </Button>
-          <SaveButton
-            type="button"
-            disabled={save.isPending}
-            incomplete={incomplete && !save.isPending}
-            loading={save.isPending}
-            onClick={submit}>
-            {t('common.save')}
-          </SaveButton>
-        </DialogFooter>
+    <Dialog open={open} onOpenChange={guard.requestOpenChange}>
+      <DialogContent closeLabel={t('common.close')} showCloseButton={!save.isPending}>
+        <form
+          className="contents"
+          noValidate
+          onSubmit={event => {
+            event.preventDefault()
+            submit()
+          }}>
+          <DialogHeader>
+            <DialogTitle>
+              {entry ? t('console.providers.reauthenticate') : t('console.providers.add_enterprise_token')}
+            </DialogTitle>
+            <DialogDescription>{t('console.providers.enterprise_token_description')}</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4">
+            {validationError || save.error ? (
+              <p className="text-sm text-destructive" aria-live="assertive">
+                {validationError ?? requestErrorMessage(save.error)}
+              </p>
+            ) : null}
+            <LabeledField label={t('console.providers.credential_label')} required>
+              <Input
+                ref={labelInput}
+                value={label}
+                onChange={event => {
+                  setLabel(event.target.value)
+                  setValidationError(undefined)
+                }}
+              />
+            </LabeledField>
+            <LabeledField label={t('console.providers.priority')}>
+              <Input type="number" step={1} value={priority} onChange={event => setPriority(event.target.value)} />
+            </LabeledField>
+            <LabeledField label={t('console.providers.access_token')} required>
+              <EncryptedValueInput
+                ref={accessTokenInput}
+                revealLabel={t('console.aria.reveal_secret')}
+                value={accessToken}
+                onChange={event => {
+                  setAccessToken(event.target.value)
+                  setValidationError(undefined)
+                }}
+              />
+            </LabeledField>
+            <LabeledField label={t('console.providers.account_id')} required>
+              <Input
+                ref={accountIDInput}
+                value={accountID}
+                onChange={event => {
+                  setAccountID(event.target.value)
+                  setValidationError(undefined)
+                }}
+              />
+            </LabeledField>
+            <LabeledField label={t('console.providers.plan_type')}>
+              <Input value={planType} onChange={event => setPlanType(event.target.value)} />
+            </LabeledField>
+            <LabeledField label={t('console.providers.email')}>
+              <Input type="email" value={email} onChange={event => setEmail(event.target.value)} />
+            </LabeledField>
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={save.isPending}
+              onClick={() => guard.requestOpenChange(false)}>
+              {t('common.cancel')}
+            </Button>
+            <SaveButton
+              type="submit"
+              disabled={save.isPending}
+              incomplete={incomplete && !save.isPending}
+              loading={save.isPending}>
+              {t('common.save')}
+            </SaveButton>
+          </DialogFooter>
+        </form>
       </DialogContent>
+      <DiscardConfirmDialog open={guard.confirming} onDiscard={guard.confirmDiscard} onKeep={guard.keepEditing} />
     </Dialog>
   )
 }
@@ -1233,10 +1296,10 @@ function credentialStatusTone(
   }
 }
 
-function formatCredentialUsage(value: Record<string, unknown>): string | undefined {
+function formatCredentialUsage(t: TFunction, value: Record<string, unknown>): string | undefined {
   const buckets = [
-    ['model', asRecord(value.model)],
-    ['image_gen', asRecord(value.image_gen)]
+    [t('console.providers.usage_model'), asRecord(value.model)],
+    [t('console.providers.usage_image_generation'), asRecord(value.image_gen)]
   ] as const
 
   const parts = buckets.flatMap(([name, usage]) => {
@@ -1246,7 +1309,14 @@ function formatCredentialUsage(value: Record<string, unknown>): string | undefin
     const output = numberValue(usage.output_tokens) ?? numberValue(usage.completion_tokens)
     if (total === undefined && input === undefined && output === undefined) return []
 
-    return [`${name}: ${total ?? (input ?? 0) + (output ?? 0)} (${input ?? 0} in / ${output ?? 0} out)`]
+    return [
+      t('console.providers.usage_bucket', {
+        name,
+        total: total ?? (input ?? 0) + (output ?? 0),
+        input: input ?? 0,
+        output: output ?? 0
+      })
+    ]
   })
 
   return parts.length > 0 ? parts.join(' · ') : undefined
@@ -1296,5 +1366,18 @@ function credentialStrategyLabel(t: ReturnType<typeof useTranslation>['t'], stra
       return t('console.providers.strategy_least_used')
     case 'random':
       return t('console.providers.strategy_random')
+  }
+}
+
+function credentialSourceLabel(t: TFunction, source: string): string {
+  switch (source) {
+    case 'manual':
+    case 'provider_default':
+    case 'device_oauth':
+    case 'browser_oauth':
+    case 'enterprise_access_token':
+      return t(`console.providers.source_${source}`)
+    default:
+      return humanizeKey(source)
   }
 }

@@ -56,6 +56,7 @@ export function ResourceEditorPage({
   description,
   error,
   onSubmit,
+  readOnly = false,
   secondary,
   supplementary,
   submitDisabled,
@@ -71,6 +72,7 @@ export function ResourceEditorPage({
   description?: string
   error?: unknown
   onSubmit: () => void
+  readOnly?: boolean
   secondary?: ReactNode
   supplementary?: ReactNode
   submitDisabled?: boolean
@@ -113,27 +115,111 @@ export function ResourceEditorPage({
         onInput={formCompleteness.refresh}
         onSubmit={handleSubmit}>
         <ErrorBlock error={error} />
-        <div className="grid gap-5 border border-border bg-card p-5 md:p-6">{children}</div>
-        <div className="sticky bottom-0 flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-border bg-background/95 py-4 backdrop-blur">
-          <SaveButton
-            aria-describedby={disabledReason ? disabledReasonID : undefined}
-            disabled={saveDisabled}
-            incomplete={formCompleteness.incomplete && !submitting && !submitUnavailable}
-            loading={submitting}
-            size="sm"
-            type="submit">
-            {submitLabel ?? t('common.save')}
-          </SaveButton>
-          {disabledReason ? (
-            <p id={disabledReasonID} className="basis-full text-xs leading-5 text-muted-foreground" aria-live="polite">
-              {disabledReason}
-            </p>
-          ) : null}
+        <div className="grid gap-5 border border-border bg-card p-5 md:p-6">
+          {readOnly ? (
+            <fieldset className="contents" disabled>
+              {children}
+            </fieldset>
+          ) : (
+            children
+          )}
         </div>
+        {readOnly ? null : (
+          <div className="sticky bottom-0 flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-border bg-background/95 py-4 backdrop-blur">
+            <SaveButton
+              aria-describedby={disabledReason ? disabledReasonID : undefined}
+              disabled={saveDisabled}
+              incomplete={formCompleteness.incomplete && !submitting && !submitUnavailable}
+              loading={submitting}
+              size="sm"
+              type="submit">
+              {submitLabel ?? t('common.save')}
+            </SaveButton>
+            {disabledReason ? (
+              <p
+                id={disabledReasonID}
+                className="basis-full text-xs leading-5 text-muted-foreground"
+                aria-live="polite">
+                {disabledReason}
+              </p>
+            ) : null}
+          </div>
+        )}
       </form>
       {supplementary}
     </PageStack>
   )
+}
+
+/**
+ * Shows one confirmation dialog for each request to discard a draft.
+ * Closing the dialog or pressing Escape keeps the draft.
+ */
+export function DiscardConfirmDialog({
+  onDiscard,
+  onKeep,
+  open
+}: {
+  onDiscard: () => void
+  onKeep: () => void
+  open: boolean
+}) {
+  const { t } = useTranslation()
+
+  return (
+    <Dialog open={open} onOpenChange={nextOpen => !nextOpen && onKeep()}>
+      <DialogContent closeLabel={t('common.close')}>
+        <DialogHeader>
+          <DialogTitle>{t('common.discard_title')}</DialogTitle>
+          <DialogDescription>{t('common.discard_description')}</DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <DialogClose render={<Button variant="outline" />}>{t('common.keep_editing')}</DialogClose>
+          <Button variant="destructive" onClick={onDiscard}>
+            {t('common.discard')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/**
+ * Controls close requests for a dialog that contains a draft. Use
+ * `requestOpenChange` for user requests to close the dialog. The hook keeps
+ * the dialog open while a request is pending. Call `onOpenChange` directly
+ * after a successful save.
+ */
+export function useDialogDiscardGuard({
+  dirty,
+  onOpenChange,
+  pending
+}: {
+  dirty: boolean
+  onOpenChange: (open: boolean) => void
+  pending: boolean
+}) {
+  const [confirmRequested, setConfirmRequested] = useState(false)
+
+  return {
+    confirming: dirty && confirmRequested,
+    confirmDiscard: () => {
+      setConfirmRequested(false)
+      onOpenChange(false)
+    },
+    keepEditing: () => setConfirmRequested(false),
+    requestOpenChange: (open: boolean) => {
+      if (open) {
+        setConfirmRequested(false)
+        onOpenChange(true)
+      } else if (pending) return
+      else if (dirty) setConfirmRequested(true)
+      else {
+        setConfirmRequested(false)
+        onOpenChange(false)
+      }
+    }
+  }
 }
 
 export function useFormCompleteness() {
@@ -368,6 +454,7 @@ export function JSONField({
 /** Button that opens a confirmation dialog before running a destructive action. */
 export function ConfirmDeleteButton({
   confirm,
+  icon,
   label,
   onConfirm,
   pending,
@@ -375,6 +462,8 @@ export function ConfirmDeleteButton({
   variant
 }: {
   confirm: { title: string; description?: string; confirmLabel: string }
+  /** Icon for the compact form when the action is not a delete; the default is the trash icon. */
+  icon?: ReactNode
   /** Text form for form and toolbar placements; the default is the compact icon form. */
   label?: string
   onConfirm: () => void
@@ -398,7 +487,7 @@ export function ConfirmDeleteButton({
           event.stopPropagation()
           setOpen(true)
         }}>
-        {label ?? <RiDeleteBin6Line />}
+        {label ?? icon ?? <RiDeleteBin6Line />}
       </Button>
       <DialogContent closeLabel={t('common.close')} onClick={event => event.stopPropagation()}>
         <DialogHeader>

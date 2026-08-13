@@ -94,6 +94,12 @@ names.
   writes each changed key separately, and it checks every changed value before
   the first write, so one rejected value does not leave the group part written.
 
+The generic encrypted-value editor keeps input as an opaque string unless the
+complete input is a valid JSON object or array. Thus, a secret such as `1234`,
+`true`, or `{vault-token` does not change type by accident. A valid object or
+array is structured data, not an opaque string. A subsystem that needs another
+encrypted value shape must provide its own editor.
+
 ## Global Values and Agent Overrides
 
 Each row applies either to the complete deployment instance or to one Agent:

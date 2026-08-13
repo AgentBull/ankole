@@ -2968,10 +2968,9 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
         title: "ConsoleReadinessSignalRoute",
         type: :object,
         properties: %{
-          complete: %Schema{type: :boolean},
-          agent_uid: %Schema{type: :string, nullable: true}
+          complete: %Schema{type: :boolean}
         },
-        required: [:complete, :agent_uid],
+        required: [:complete],
         additionalProperties: false
       },
       struct?: false

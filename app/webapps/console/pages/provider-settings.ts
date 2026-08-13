@@ -7,14 +7,15 @@ import { humanizeTechnicalLabel } from '../../common/humanize-technical-label'
 import i18n from '../../common/i18n'
 
 /**
- * Maps an AIGateway provider kind's declared connection settings into the shape
- * the provider editor renders. The backend already owns the contract: each
- * `setting` with `scope: "connection"` is an operator-editable connection
- * option, and options flagged `encrypted` are sealed server-side when submitted
- * through `connection_options` (this is how an API key is stored). The console
- * previously ignored this and dumped a raw JSON textarea, so there was no field
- * to enter a credential at all — this module is what turns the declaration into
- * a labeled form.
+ * Maps an AIGateway provider kind's declared settings into the shape the
+ * provider editor and credential dialogs render. The backend owns the
+ * contract: each `setting` with `scope: "connection"` is a plain
+ * operator-editable connection option, and `encrypted` settings exist only in
+ * `scope: "credential"` — the declaration layer rejects every other
+ * combination, so secrets live only in the sealed credential pool. The console
+ * previously ignored the declarations and dumped a raw JSON textarea, so there
+ * was no field to enter a credential at all — this module is what turns the
+ * declaration into a labeled form.
  */
 
 export type ProviderSetting = {
@@ -107,9 +108,12 @@ export function humanizeKey(key: string): string {
 }
 
 /**
- * Builds the initial string draft for one connection setting. Encrypted values
- * are never returned by the API (only a presence flag), so their inputs always
- * start empty; a blank encrypted input on save means "keep the stored secret".
+ * Builds the initial string draft for one connection setting. Connection
+ * options are plain values, and the declaration layer rejects an encrypted
+ * setting outside credential scope, so a secret should never reach this form.
+ * The blank stays as the second lock: a Plugin that declares its provider by
+ * hand bypasses the compile-time guard, and a secret is not a value to render
+ * into an input on the strength of a rule enforced somewhere else.
  */
 export function initialSettingValue(setting: ProviderSetting, provider: AIGatewayProviderItem | undefined): string {
   if (setting.encrypted) return ''

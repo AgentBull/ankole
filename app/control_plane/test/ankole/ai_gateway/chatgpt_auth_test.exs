@@ -314,16 +314,19 @@ defmodule Ankole.AIGateway.ChatGPTAuthTest do
         )
       ])
 
+    [entry] = provider.credential_pool["entries"]
+
     :ok =
       CredentialPool.mark_exhausted(
         provider.id,
-        "refresh-race",
+        entry,
         429,
         %{"x-codex-primary-reset-at" => Integer.to_string(DateTime.to_unix(reset_at))}
       )
 
     assert {:ok,
             %{
+              "entry" => refreshed_entry,
               "credential" => %{
                 "access_token" => rotated_access,
                 "refresh_token" => "rotated-refresh"
@@ -332,6 +335,7 @@ defmodule Ankole.AIGateway.ChatGPTAuthTest do
              ChatGPTAuth.force_refresh("chatgpt-refresh-health-race", "refresh-race")
 
     assert rotated_access =~ "."
+    assert refreshed_entry["health_revision"] == entry["health_revision"]
 
     assert {:ok, projection} =
              ProviderConfigs.get_provider("chatgpt-refresh-health-race")

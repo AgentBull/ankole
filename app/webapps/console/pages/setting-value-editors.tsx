@@ -113,8 +113,14 @@ function BooleanSettingEditor({ onChange, value }: SettingValueEditorProps) {
   return (
     <LabeledField label={t('console.settings.value')}>
       <div className="flex min-h-12 items-center justify-between border border-border bg-muted/30 px-4 py-3">
-        <span className="text-sm text-foreground">{value === 'true' ? 'true' : 'false'}</span>
-        <Switch checked={value === 'true'} onCheckedChange={checked => onChange(checked ? 'true' : 'false')} />
+        <span className="text-sm text-foreground">
+          {value === 'true' ? t('common.boolean_true') : t('common.boolean_false')}
+        </span>
+        <Switch
+          aria-label={t('console.settings.value')}
+          checked={value === 'true'}
+          onCheckedChange={checked => onChange(checked ? 'true' : 'false')}
+        />
       </div>
     </LabeledField>
   )
@@ -267,7 +273,11 @@ function BrainEmbeddingEditor({ onChange, value }: SettingValueEditorProps) {
           <span className="text-sm text-foreground">
             {draft.enabled ? t('console.status.enabled') : t('console.status.disabled')}
           </span>
-          <Switch checked={draft.enabled} onCheckedChange={enabled => update({ enabled })} />
+          <Switch
+            aria-label={t('console.settings.brain_embedding_enabled')}
+            checked={draft.enabled}
+            onCheckedChange={enabled => update({ enabled })}
+          />
         </div>
       </LabeledField>
 

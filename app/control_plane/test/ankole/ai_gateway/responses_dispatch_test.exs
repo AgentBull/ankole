@@ -1569,7 +1569,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                connection_options: %{"transport" => %{"http_versions" => ["h1"]}}
              })
 
-    :ok = CredentialPool.mark_dead(provider.id, "dead")
+    dead_entry = Enum.find(provider.credential_pool["entries"], &(&1["id"] == "dead"))
+    :ok = CredentialPool.mark_dead(provider.id, dead_entry)
 
     assert {:ok, _profile} =
              ModelProfiles.put_model_profile(agent.uid, "primary", %{

@@ -29,6 +29,7 @@ import {
 import type { PermissionGrantItem } from '../api/generated/types.gen'
 import { requestErrorMessage } from '../../common/request-errors'
 import { ErrorBlock } from '../../common/error-block'
+import { BackLink, PageStack } from '../console-page'
 import { LabeledField, ReadOnlyValue, ResourceEditorPage } from '../console-form'
 import { RowActions } from '../console-list-page'
 import {
@@ -172,10 +173,7 @@ export function PermissionGrantEditorPage({ createFor }: { createFor?: 'group' |
         ? { principalUID: params.uid }
         : undefined
 
-  const grant = useQuery({
-    ...ankoleWebPermissionGrantControllerShowOptions({ path: { id: grantID ?? '' } }),
-    enabled: Boolean(grantID)
-  })
+  const grant = useQuery(permissionGrantDetailOptions(grantID ?? ''))
   const loadedGrant = grant.data?.permission_grant
   // The edit-mode back link and owner label need the owning group's name, which
   // only the groups index carries (the grant itself stores the opaque group id).
@@ -250,6 +248,19 @@ export function PermissionGrantEditorPage({ createFor }: { createFor?: 'group' |
     }
   }
 
+  // A stale or hand-typed grant link must state that the grant is gone, not
+  // render an editable form under a red request failure. This is a show
+  // endpoint, so a missing grant arrives as a 404 rather than an empty result;
+  // any other failure keeps its own error on the form below.
+  if (mode === 'edit' && grant.error?.error?.code === 'not_found') {
+    return (
+      <PageStack className="mx-auto w-full max-w-3xl">
+        <BackLink to={backTo} />
+        <ErrorBlock title={t('console.not_found.title')} error={new Error(t('console.not_found.description'))} />
+      </PageStack>
+    )
+  }
+
   return (
     <ResourceEditorPage
       title={mode === 'new' ? t('console.permission_grants.new') : t('console.permission_grants.edit')}
@@ -295,11 +306,13 @@ export function PermissionGrantEditorPage({ createFor }: { createFor?: 'group' |
         label={t('console.permission_grants.condition')}
         description={t('console.permission_grants.condition_hint')}
         error={serverFieldError('condition')}>
+        {/* A CEL condition is usually one short expression. The field starts at
+            the height of its sibling inputs and grows with the expression, so
+            its underline sits under the text instead of an empty box. */}
         <Textarea
           aria-invalid={serverFieldError('condition') ? true : undefined}
-          className="font-mono text-xs"
+          className="min-h-10 font-mono text-xs"
           spellCheck={false}
-          style={{ minHeight: '6rem' }}
           value={model.condition.value}
           onChange={event => (model.condition.value = event.target.value)}
         />
@@ -309,6 +322,14 @@ export function PermissionGrantEditorPage({ createFor }: { createFor?: 'group' |
       </LabeledField>
     </ResourceEditorPage>
   )
+}
+
+export function permissionGrantDetailOptions(grantID: string) {
+  return {
+    ...ankoleWebPermissionGrantControllerShowOptions({ path: { id: grantID } }),
+    enabled: Boolean(grantID),
+    refetchOnMount: 'always' as const
+  }
 }
 
 function ownerBackTo(owner: PermissionGrantOwner | undefined): string | undefined {

@@ -151,75 +151,78 @@ export function ModelProfileEditorCard({
         event.preventDefault()
         onSave()
       }}>
-      <fieldset className="contents" disabled={hostedActive}>
-        <Collapsible
-          className="border border-border bg-card"
-          open={open}
-          onOpenChange={nextOpen => {
-            manuallyToggled.current = true
-            setOpen(nextOpen)
-          }}>
-          <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
-            <CollapsibleTrigger className="group flex min-w-0 flex-1 basis-64 items-center gap-3 px-4 py-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
-              <Badge className="shrink-0" variant={required ? 'default' : 'outline'}>
-                {label}
-              </Badge>
-              <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-                {configured
-                  ? [providerID, configurableModel ? selectedModelLabel : null].filter(Boolean).join(' · ')
-                  : t('console.models.not_configured')}
-              </span>
-              {required ? (
-                <span className="shrink-0 text-xs text-muted-foreground">{t('console.models.required')}</span>
-              ) : null}
-              {dirty ? (
-                <span className="shrink-0 text-xs text-muted-foreground">{t('console.models.unsaved')}</span>
-              ) : null}
-              <RiArrowDownSLine
-                className="size-4 shrink-0 transition-transform group-aria-expanded:rotate-180"
-                aria-hidden
-              />
-            </CollapsibleTrigger>
-            <div className="flex shrink-0 items-center gap-2 pr-4">
-              {providerHosted ? (
-                <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <Switch
-                    aria-label={providerHosted.label}
-                    checked={providerHosted.checked}
-                    disabled={providerHosted.pending}
-                    onCheckedChange={providerHosted.onChange}
-                  />
-                  {providerHosted.label}
-                </label>
-              ) : null}
-              <SaveButton
-                disabled={disableSave || hostedActive}
-                incomplete={incomplete && !disableSave}
-                loading={persistencePending}
-                size="xs"
-                type="submit">
-                {t('common.save')}
-              </SaveButton>
-              {deleteConfirm ? (
-                <ConfirmDeleteButton
-                  confirm={deleteConfirm}
-                  label={deleteLabel}
-                  pending={deleteDisabled || persistencePending}
-                  onConfirm={onDelete}
+      <Collapsible
+        className="border border-border bg-card"
+        open={open}
+        onOpenChange={nextOpen => {
+          manuallyToggled.current = true
+          setOpen(nextOpen)
+        }}>
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+          <CollapsibleTrigger className="group flex min-w-0 flex-1 basis-64 items-center gap-3 px-4 py-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
+            <Badge className="shrink-0" variant={required ? 'default' : 'outline'}>
+              {label}
+            </Badge>
+            <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+              {configured
+                ? [providerID, configurableModel ? selectedModelLabel : null].filter(Boolean).join(' · ')
+                : t('console.models.not_configured')}
+            </span>
+            {required ? (
+              <span className="shrink-0 text-xs text-muted-foreground">{t('console.models.required')}</span>
+            ) : null}
+            {dirty ? (
+              <span className="shrink-0 text-xs text-muted-foreground">{t('console.models.unsaved')}</span>
+            ) : null}
+            <RiArrowDownSLine
+              className="size-4 shrink-0 transition-transform group-aria-expanded:rotate-180"
+              aria-hidden
+            />
+          </CollapsibleTrigger>
+          <div className="flex shrink-0 items-center gap-2 pr-4">
+            {providerHosted ? (
+              <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Switch
+                  aria-label={providerHosted.label}
+                  checked={providerHosted.checked}
+                  disabled={providerHosted.pending}
+                  onCheckedChange={providerHosted.onChange}
                 />
-              ) : (
-                <Button
-                  disabled={deleteDisabled || persistencePending}
-                  size="xs"
-                  type="button"
-                  variant="ghost"
-                  onClick={onDelete}>
-                  {deleteLabel}
-                </Button>
-              )}
-            </div>
+                {providerHosted.label}
+              </label>
+            ) : null}
+            <SaveButton
+              disabled={disableSave || hostedActive}
+              incomplete={incomplete && !disableSave}
+              loading={persistencePending}
+              size="xs"
+              type="submit">
+              {t('common.save')}
+            </SaveButton>
+            {deleteConfirm ? (
+              <ConfirmDeleteButton
+                confirm={deleteConfirm}
+                label={deleteLabel}
+                pending={deleteDisabled || persistencePending || hostedActive}
+                onConfirm={onDelete}
+              />
+            ) : (
+              <Button
+                disabled={deleteDisabled || persistencePending || hostedActive}
+                size="xs"
+                type="button"
+                variant="ghost"
+                onClick={onDelete}>
+                {deleteLabel}
+              </Button>
+            )}
           </div>
-          <CollapsibleContent className="grid gap-4 border-t border-border px-4 py-4">
+        </div>
+        <CollapsibleContent className="grid gap-4 border-t border-border px-4 py-4">
+          {/* Only the profile fields freeze while the provider hosts the
+                capability. The header switch and the collapse trigger must stay
+                operable, or turning hosting on would lock its own off switch. */}
+          <fieldset className="contents" disabled={hostedActive}>
             {providerHosted ? (
               <p className="text-xs leading-5 text-muted-foreground">{providerHosted.description}</p>
             ) : null}
@@ -334,9 +337,9 @@ export function ModelProfileEditorCard({
                 </>
               )}
             </div>
-          </CollapsibleContent>
-        </Collapsible>
-      </fieldset>
+          </fieldset>
+        </CollapsibleContent>
+      </Collapsible>
     </form>
   )
 }

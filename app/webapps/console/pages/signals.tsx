@@ -1,5 +1,7 @@
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import {
+  Alert,
+  AlertDescription,
   Button,
   Input,
   Select,
@@ -33,6 +35,7 @@ import {
 } from '../../common/config-fields'
 import i18n from '../../common/i18n'
 import { requestErrorMessage } from '../../common/request-errors'
+import { formatConsoleDate } from '../console-primitives'
 import {
   ankoleWebAgentControllerIndexOptions,
   ankoleWebSignalBindingControllerAdaptersOptions,
@@ -63,9 +66,10 @@ export function SignalsListPage() {
   const deferredQuery = useDeferredValue(query)
   const searchQuery = effectiveResourceSearchQuery(query, deferredQuery)
   const scope = useAgentScope()
-  const signals = useQuery(
-    ankoleWebSignalBindingControllerIndexOptions({ query: { agent: scope.agentUID || undefined } })
-  )
+  const signals = useQuery({
+    ...ankoleWebSignalBindingControllerIndexOptions({ query: { agent: scope.agentUID || undefined } }),
+    refetchInterval: 15_000
+  })
   const rows = (signals.data?.signal_bindings ?? [])
     .filter(binding => showDisabled || binding.enabled)
     .filter(binding =>
@@ -279,7 +283,7 @@ function StoppedDeliveries({
                 <StatusIndicator tone="danger">{t(`console.signals.delivery_state_${row.state}`)}</StatusIndicator>
               </TableCell>
               <TableCell>{row.possible_duplicate ? t('console.signals.delivery_possible_duplicate') : '—'}</TableCell>
-              <TableCell>{new Date(row.updated_at).toLocaleString(i18n.language)}</TableCell>
+              <TableCell>{formatConsoleDate(row.updated_at)}</TableCell>
               <TableCell className="text-right">
                 {row.can_retry ? (
                   <Button
@@ -438,9 +442,9 @@ export function SignalBindingEditorPage() {
       {/* Saving upserts the binding as enabled (server contract), so an operator
           editing a disabled rule must learn that before pressing Save. */}
       {editing && currentBinding && !currentBinding.enabled ? (
-        <p className="border border-l-4 border-border border-l-warning bg-card p-3 text-sm text-foreground">
-          {t('console.signals.edit_reenable_hint')}
-        </p>
+        <Alert variant="warning">
+          <AlertDescription>{t('console.signals.edit_reenable_hint')}</AlertDescription>
+        </Alert>
       ) : null}
       <FormSection title={t('console.signals.section_basic')} description={t('console.signals.section_basic_hint')}>
         <div className="grid grid-cols-1 gap-5 md:grid-cols-3">

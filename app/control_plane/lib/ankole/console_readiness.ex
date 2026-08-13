@@ -1,6 +1,6 @@
 defmodule Ankole.ConsoleReadiness do
   @moduledoc """
-  Builds the console readiness snapshot from installation-owned facts.
+  Builds the console readiness snapshot from deployment instance facts.
 
   The snapshot keeps readiness rules in the control plane, so each console
   client shows the same result without reconstructing provider, Agent, profile,
@@ -12,30 +12,39 @@ defmodule Ankole.ConsoleReadiness do
   alias Ankole.SignalsGateway
 
   @required_profiles ~w(primary light heavy)
-  @total_core_steps 4
+  @total_core_steps 5
 
   @doc """
-  Returns the current installation readiness snapshot.
+  Returns the current deployment instance readiness snapshot.
   """
   @spec snapshot() :: map()
   def snapshot do
     ready_providers = Enum.filter(ProviderConfigs.list_providers(), &ready_llm_provider?/1)
     ready_provider_ids = MapSet.new(ready_providers, &Map.fetch!(&1, "provider_id"))
-    target = select_target_agent(Principals.list_active_agents(), ready_provider_ids)
+    active_agents = Principals.list_active_agents()
+    target = select_target_agent(active_agents, ready_provider_ids)
     missing_profiles = missing_profiles(target, ready_provider_ids)
     agent_complete = valid_agent?(target)
     profiles_complete = agent_complete and missing_profiles == []
     ready_worker_count = Enum.count(SignalsGateway.list_workers(), &(&1.status == "ready"))
+    agent_uid = agent_uid(target)
+    # An Agent with no bound channel receives nothing, so a Signal Binding is
+    # part of a working deployment instance rather than an optional extra. The
+    # question is whether the deployment instance can receive at all, not
+    # whether the Agent that exemplifies the model-profile step is the bound
+    # one. Those can be different Agents in a deployment instance that runs a
+    # background-only Agent.
+    signal_route_complete = signal_route_complete?(active_agents)
 
     core_steps = [
       ready_providers != [],
       agent_complete,
       profiles_complete,
-      ready_worker_count > 0
+      ready_worker_count > 0,
+      signal_route_complete
     ]
 
     completed_core_steps = Enum.count(core_steps, & &1)
-    agent_uid = agent_uid(target)
 
     %{
       ready: completed_core_steps == @total_core_steps,
@@ -60,8 +69,7 @@ defmodule Ankole.ConsoleReadiness do
         ready_count: ready_worker_count
       },
       signal_route: %{
-        complete: agent_complete and signal_route_complete?(agent_uid),
-        agent_uid: agent_uid
+        complete: signal_route_complete
       }
     }
   end
@@ -109,16 +117,14 @@ defmodule Ankole.ConsoleReadiness do
 
   defp missing_profiles(_agent, _ready_provider_ids), do: @required_profiles
 
-  defp signal_route_complete?(nil), do: false
+  defp signal_route_complete?(active_agents) do
+    active_agent_uids = MapSet.new(active_agents, & &1.principal.uid)
+    {:ok, bindings} = SignalsGateway.list_bindings()
 
-  defp signal_route_complete?(agent_uid) do
-    case SignalsGateway.list_agent_bindings(agent_uid) do
-      {:ok, bindings} ->
-        Enum.any?(bindings, &(&1.enabled and is_nil(&1.unavailable_reason)))
-
-      {:error, _reason} ->
-        false
-    end
+    Enum.any?(bindings, fn binding ->
+      binding.enabled and is_nil(binding.unavailable_reason) and
+        MapSet.member?(active_agent_uids, binding.agent_uid)
+    end)
   end
 
   defp agent_uid(%{principal: principal}), do: principal.uid

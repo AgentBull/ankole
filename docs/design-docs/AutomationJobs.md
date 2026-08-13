@@ -133,15 +133,19 @@ job. The list and show commands return only jobs owned by the current Agent
 Session. Cancellation changes queued runs to `cancelled` in the same
 transaction. A running attempt can finish and emit.
 
-The Console API is read-only. It lists jobs and recent runs for one Agent
-Session. It shows the attempt count, terminal result, exit code, error, and
-bounded logs.
+The Console API is read-only. It lists jobs across the deployment instance or
+filters them by Agent. The list requires `automation_jobs/read`. It reads one
+job and its recent runs through the owning Agent path. The detail read requires
+`agent:<agent_uid>:automation_jobs/read`. It shows the attempt count, terminal
+result, exit code, error, and bounded logs.
 
 ## Rules
 
 - A trigger claim and its consumer record commit together.
 - A trigger envelope does not change when its consumer changes.
-- Only the owning Agent can bind, inspect, cancel, or emit from a job.
+- Only the owning Agent can bind, inspect through the Agent API, cancel, or emit
+  from a job. The Console can inspect job detail with the owning Agent read
+  permission.
 - Only the current attempt UUID can emit or finish.
 - Script failures do not retry.
 - Infrastructure failures can use at most five attempts.

@@ -5,6 +5,7 @@ import {
   RiBroadcastLine,
   RiChat3Line,
   RiGitBranchLine,
+  RiListCheck3,
   RiRobot2Line,
   RiServerLine,
   RiSparkling2Line
@@ -20,6 +21,7 @@ import {
   ankoleWebAiGatewayConversationControllerIndexOptions,
   ankoleWebAiGatewayProviderControllerIndexOptions as ankoleWebAIGatewayProviderControllerIndexOptions,
   ankoleWebBackgroundAgentJobControllerIndexOptions,
+  ankoleWebConsoleReadinessControllerShowOptions,
   ankoleWebIdentityProviderControllerIndexOptions
 } from '../api/generated/@tanstack/react-query.gen'
 import type { BackgroundAgentJobItem } from '../api/generated/types.gen'
@@ -28,26 +30,45 @@ import { formatConsoleDate } from '../console-primitives'
 import { conversationDisplayName } from '../conversation-presentation'
 import { StatusIndicator } from '../console-form'
 import { PageHeader, PageStack, RefreshButton } from '../console-page'
+import { readinessSteps, type ReadinessStep } from '../console-readiness'
+
+const NEXT_STEP_ICONS: Record<ReadinessStep['key'], ComponentType<{ className?: string }>> = {
+  provider: RiSparkling2Line,
+  agent: RiRobot2Line,
+  profiles: RiListCheck3,
+  worker: RiServerLine,
+  signal: RiBroadcastLine
+}
 
 /**
  * Console start page.
  *
  * The console used to open on the agent list, which answers "which agents exist"
  * — a question an operator asks once. This page answers the one they ask every
- * time they open the console: is the Installation able to work right now, and is
+ * time they open the console: can the deployment instance work right now, and is
  * anything waiting on me. Every number below is counted from a list the console
  * already reads; nothing here is a metric the control plane does not own.
  */
 export function HomePage() {
   const { t } = useTranslation()
 
-  const agents = useQuery(ankoleWebAgentControllerIndexOptions())
-  const workers = useQuery(ankoleWebAgentComputerWorkerControllerIndexOptions())
-  const providers = useQuery(ankoleWebAIGatewayProviderControllerIndexOptions())
-  const identityProviders = useQuery(ankoleWebIdentityProviderControllerIndexOptions())
+  // Refresh each Attention source every 15 seconds so the page updates after
+  // a condition changes.
+  const agents = useQuery({ ...ankoleWebAgentControllerIndexOptions(), refetchInterval: 15_000 })
+  const workers = useQuery({ ...ankoleWebAgentComputerWorkerControllerIndexOptions(), refetchInterval: 15_000 })
+  const providers = useQuery({ ...ankoleWebAIGatewayProviderControllerIndexOptions(), refetchInterval: 15_000 })
+  const identityProviders = useQuery({
+    ...ankoleWebIdentityProviderControllerIndexOptions(),
+    refetchInterval: 15_000
+  })
   const jobs = useQuery({
     ...ankoleWebBackgroundAgentJobControllerIndexOptions({ query: { limit: 20 } }),
     refetchInterval: 15_000
+  })
+  // Use the header readiness query key so both views share cached data.
+  const readiness = useQuery({
+    ...ankoleWebConsoleReadinessControllerShowOptions(),
+    refetchInterval: 30_000
   })
   // `min_messages: 2` matches the conversation list's own default. Without it the
   // newest rows are empty placeholder conversations, which look identical to each
@@ -56,7 +77,7 @@ export function HomePage() {
     ankoleWebAiGatewayConversationControllerIndexOptions({ query: { limit: 5, min_messages: 2 } })
   )
 
-  const queries = [agents, workers, providers, identityProviders, jobs, conversations]
+  const queries = [agents, workers, providers, identityProviders, jobs, conversations, readiness]
   const error = queries.find(query => query.error)?.error
 
   const agentRows = agents.data?.agents ?? []
@@ -70,6 +91,11 @@ export function HomePage() {
   const runningJobs = jobRows.filter(job => job.status === 'running' || job.status === 'waiting_on_user').length
   const queuedJobs = jobRows.filter(job => job.status === 'queued').length
   const failedJobs = jobRows.filter(job => job.status === 'failed')
+
+  // Use the same readiness report and step definitions as the header. Hide
+  // completed steps. Hide this section when the deployment instance is ready.
+  const nextSteps =
+    readiness.data && !readiness.data.ready ? readinessSteps(t, readiness.data).filter(step => !step.complete) : []
 
   // Only conditions that stop or degrade real work appear here. A blocker is a
   // link to the page that fixes it, because an alert the operator cannot act on
@@ -137,7 +163,8 @@ export function HomePage() {
           icon={RiRobot2Line}
           label={t('console.nav.agents')}
           to="/agents"
-          loading={!agents.data}
+          loading={agents.isLoading}
+          unavailable={Boolean(agents.error)}
           value={activeAgents}
           detail={t('console.home.of_total', { total: agentRows.length })}
         />
@@ -145,7 +172,8 @@ export function HomePage() {
           icon={RiServerLine}
           label={t('console.home.ready_workers')}
           to="/workers"
-          loading={!workers.data}
+          loading={workers.isLoading}
+          unavailable={Boolean(workers.error)}
           value={readyWorkers}
           detail={t('console.home.of_total', { total: workerRows.length })}
         />
@@ -153,7 +181,8 @@ export function HomePage() {
           icon={RiGitBranchLine}
           label={t('console.home.running_jobs')}
           to="/background-agent-jobs"
-          loading={!jobs.data}
+          loading={jobs.isLoading}
+          unavailable={Boolean(jobs.error)}
           value={runningJobs}
           detail={t('console.home.queued_jobs', { count: queuedJobs })}
         />
@@ -161,7 +190,8 @@ export function HomePage() {
           icon={RiSparkling2Line}
           label={t('console.home.enabled_providers')}
           to="/providers"
-          loading={!providers.data}
+          loading={providers.isLoading}
+          unavailable={Boolean(providers.error)}
           value={enabledProviders}
           detail={t('console.home.of_total', { total: providerRows.length })}
         />
@@ -237,29 +267,22 @@ export function HomePage() {
         </Panel>
       </div>
 
-      <section className="grid gap-3" aria-label={t('console.home.next_steps')}>
-        <h3 className="text-sm font-semibold text-foreground">{t('console.home.next_steps')}</h3>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <NextStep
-            to="/agents/new"
-            icon={RiRobot2Line}
-            title={t('console.home.step_agent_title')}
-            description={t('console.home.step_agent_description')}
-          />
-          <NextStep
-            to="/signals"
-            icon={RiBroadcastLine}
-            title={t('console.home.step_signal_title')}
-            description={t('console.home.step_signal_description')}
-          />
-          <NextStep
-            to="/agent-library"
-            icon={RiSparkling2Line}
-            title={t('console.home.step_library_title')}
-            description={t('console.home.step_library_description')}
-          />
-        </div>
-      </section>
+      {nextSteps.length > 0 ? (
+        <section className="grid gap-3" aria-label={t('console.home.next_steps')}>
+          <h3 className="text-sm font-semibold text-foreground">{t('console.home.next_steps')}</h3>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            {nextSteps.map(step => (
+              <NextStep
+                key={step.key}
+                to={step.to}
+                icon={NEXT_STEP_ICONS[step.key]}
+                title={step.title}
+                description={step.detail}
+              />
+            ))}
+          </div>
+        </section>
+      ) : null}
     </PageStack>
   )
 }
@@ -360,6 +383,7 @@ function MetricTile({
   icon: Icon,
   label,
   loading,
+  unavailable = false,
   to,
   value
 }: {
@@ -367,6 +391,8 @@ function MetricTile({
   icon: ComponentType<{ className?: string }>
   label: string
   loading: boolean
+  /** The query failed. Show "—" instead of a loading indicator or zero. */
+  unavailable?: boolean
   to: string
   value: number
 }) {
@@ -378,7 +404,9 @@ function MetricTile({
         <Icon className="size-4 shrink-0" aria-hidden />
         {label}
       </span>
-      {loading ? (
+      {unavailable ? (
+        <span className="text-3xl font-semibold tabular-nums text-muted-foreground">—</span>
+      ) : loading ? (
         <Skeleton className="h-9 w-16" />
       ) : (
         <span className="text-3xl font-semibold tabular-nums text-foreground">{value}</span>

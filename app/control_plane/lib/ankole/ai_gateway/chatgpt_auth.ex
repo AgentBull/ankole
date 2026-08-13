@@ -199,11 +199,11 @@ defmodule Ankole.AIGateway.ChatGPTAuth do
   def client_id, do: @client_id
 
   defp refresh_credential(provider_id, credential_id, opts) do
-    result =
-      ProviderConfigs.update_credential_under_lock(
-        provider_id,
-        credential_id,
-        fn provider, credential ->
+    ProviderConfigs.update_credential_under_lock(
+      provider_id,
+      credential_id,
+      fn provider, entry, credential ->
+        result =
           cond do
             not oauth?(credential) ->
               {:error, :credential_not_refreshable}
@@ -217,25 +217,31 @@ defmodule Ankole.AIGateway.ChatGPTAuth do
             true ->
               refresh_from_authority(provider, credential, opts)
           end
-        end
-      )
 
-    case result do
-      {:error, {:chatgpt_refresh_permanent, _reason} = reason} ->
-        mark_dead(provider_id, credential_id)
-        {:error, reason}
-
-      {:error, {:chatgpt_refresh_transient, 429, headers, _code} = reason} ->
-        mark_exhausted(provider_id, credential_id, 429, headers)
-        {:error, reason}
-
-      {:error, {:chatgpt_refresh_transient, _status, _headers, _code} = reason} ->
-        {:error, reason}
-
-      other ->
-        other
-    end
+        record_refresh_health(provider, entry, result)
+      end
+    )
   end
+
+  defp record_refresh_health(
+         provider,
+         entry,
+         {:error, {:chatgpt_refresh_permanent, _reason}} = error
+       ) do
+    :ok = CredentialPool.mark_dead(provider.id, entry)
+    error
+  end
+
+  defp record_refresh_health(
+         provider,
+         entry,
+         {:error, {:chatgpt_refresh_transient, 429, headers, _reason}} = error
+       ) do
+    :ok = CredentialPool.mark_exhausted(provider.id, entry, 429, headers)
+    error
+  end
+
+  defp record_refresh_health(_provider, _entry, result), do: result
 
   defp refresh_from_authority(provider, credential, opts) do
     with {:ok, refresh_token} <- required_text(credential, "refresh_token"),
@@ -704,18 +710,6 @@ defmodule Ankole.AIGateway.ChatGPTAuth do
   end
 
   defp response_error_code(_body), do: nil
-
-  defp mark_dead(provider_id, credential_id) do
-    with {:ok, provider} <- ProviderConfigs.fetch_provider(provider_id) do
-      CredentialPool.mark_dead(provider.id, credential_id)
-    end
-  end
-
-  defp mark_exhausted(provider_id, credential_id, status, headers) do
-    with {:ok, provider} <- ProviderConfigs.fetch_provider(provider_id) do
-      CredentialPool.mark_exhausted(provider.id, credential_id, status, headers)
-    end
-  end
 
   defp credential_attrs(attrs) when is_map(attrs) do
     attrs

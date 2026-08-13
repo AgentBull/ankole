@@ -12,6 +12,7 @@ import {
   ankoleWebAgentControllerDeleteMutation,
   ankoleWebAgentControllerIndexOptions,
   ankoleWebAgentControllerIndexModelProfilesOptions,
+  ankoleWebAgentControllerShowOptions,
   ankoleWebAgentControllerUpdateMutation,
   ankoleWebAiGatewayControllerModelsOptions as ankoleWebAIGatewayControllerModelsOptions,
   ankoleWebAiGatewayProviderControllerIndexOptions as ankoleWebAIGatewayProviderControllerIndexOptions,
@@ -19,8 +20,10 @@ import {
 } from '../api/generated/@tanstack/react-query.gen'
 import type { AgentItem } from '../api/generated/types.gen'
 import { requestErrorMessage } from '../../common/request-errors'
+import { ErrorBlock } from '../../common/error-block'
 import { blankToNull } from '../console-primitives'
 import { LabeledField, ReadOnlyValue, ResourceEditorPage, StatusIndicator } from '../console-form'
+import { BackLink, PageStack } from '../console-page'
 import { ResourceListPage, ResourceSearch, RowActions } from '../console-list-page'
 import { agentUIDError, AgentEditorModel, type AgentEditorDraft } from '../state/agent-editor-model'
 import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
@@ -110,6 +113,14 @@ export function AgentsListPage() {
   )
 }
 
+export function agentEditorDetailOptions(uid: string) {
+  return {
+    ...ankoleWebAgentControllerShowOptions({ path: { agent_uid: uid } }),
+    enabled: Boolean(uid),
+    refetchOnMount: 'always' as const
+  }
+}
+
 export function AgentEditorPage() {
   useSignals()
   const { t } = useTranslation()
@@ -124,7 +135,7 @@ export function AgentEditorPage() {
   const mode = uid ? 'edit' : 'new'
   const [touched, setTouched] = useState({ displayName: false, role: false, uid: false })
 
-  const agents = useQuery(ankoleWebAgentControllerIndexOptions())
+  const agentDetail = useQuery(agentEditorDetailOptions(uid ?? ''))
   const providers = useQuery(ankoleWebAIGatewayProviderControllerIndexOptions())
   const providerKinds = useQuery({
     ...ankoleWebAIGatewayProviderControllerProviderKindsOptions(),
@@ -134,7 +145,8 @@ export function AgentEditorPage() {
     ...ankoleWebAIGatewayControllerModelsOptions(),
     enabled: Boolean(uid)
   })
-  const selectedAgent = agents.data?.agents.find(agent => agent.uid === uid)
+  const detailAgent = agentDetail.data?.agent
+  const selectedAgent = detailAgent?.status === 'active' ? detailAgent : undefined
   const modelProfiles = useQuery({
     ...ankoleWebAgentControllerIndexModelProfilesOptions({ path: { agent_uid: selectedAgent?.uid ?? '' } }),
     enabled: Boolean(selectedAgent?.uid)
@@ -207,6 +219,22 @@ export function AgentEditorPage() {
   const submitDisabledReason =
     mode === 'edit' && !model.dirty.value ? t('console.agents.save_disabled_unchanged') : undefined
 
+  // The detail endpoint owns absence. A fresh list cache can predate a create,
+  // while deletion keeps a disabled row that must not reopen as an editor.
+  const agentUnavailable =
+    agentDetail.error?.error?.code === 'not_found' || (detailAgent !== undefined && detailAgent.status !== 'active')
+  if (mode === 'edit' && agentUnavailable) {
+    return (
+      <PageStack className="mx-auto w-full max-w-3xl">
+        <BackLink to="/agents" />
+        <ErrorBlock
+          title={t('console.not_found.title')}
+          error={new Error(t('console.agents.not_found', { uid: uid ?? '' }))}
+        />
+      </PageStack>
+    )
+  }
+
   return (
     <ResourceEditorPage
       title={mode === 'new' ? t('console.agents.new') : (uid ?? '')}
@@ -215,7 +243,7 @@ export function AgentEditorPage() {
       error={
         createAgent.error ??
         updateAgent.error ??
-        agents.error ??
+        agentDetail.error ??
         providers.error ??
         providerKinds.error ??
         modelCatalog.error

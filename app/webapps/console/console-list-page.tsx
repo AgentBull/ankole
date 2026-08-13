@@ -237,8 +237,11 @@ export function SubNav({
   items
 }: {
   ariaLabel: string
-  /** `end` marks a tab whose path prefixes its siblings, so it matches exactly. */
-  items: { to: string; label: string; end?: boolean }[]
+  /**
+   * `end` marks a tab whose path prefixes its siblings, so it matches exactly.
+   * `active` forces the highlight for a page whose path does not prefix its tab.
+   */
+  items: { to: string; label: string; end?: boolean; active?: boolean }[]
 }) {
   return (
     <nav aria-label={ariaLabel} className="-mt-1 flex min-w-0 flex-wrap gap-1 border-b border-border">
@@ -250,7 +253,7 @@ export function SubNav({
           className={({ isActive }) =>
             cn(
               '-mb-px border-b-2 px-4 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
-              isActive
+              (item.active ?? isActive)
                 ? 'border-primary font-medium text-foreground'
                 : 'border-transparent text-muted-foreground hover:border-border hover:text-foreground'
             )
@@ -492,7 +495,8 @@ export function RowActions({
   onDelete
 }: {
   actions?: RowAction[]
-  deleteConfirm?: { title: string; description?: string; confirmLabel: string }
+  /** `icon` names a non-delete confirmed action in the menu; the default is the trash icon. */
+  deleteConfirm?: { title: string; description?: string; confirmLabel: string; icon?: ReactNode }
   deletePending?: boolean
   editLabel: string
   editTo: string
@@ -549,7 +553,7 @@ export function RowActions({
           ))}
           {onDelete && deleteConfirm ? (
             <DropdownMenuItem variant="destructive" disabled={deletePending} onClick={() => setConfirmOpen(true)}>
-              <RiDeleteBin6Line />
+              {deleteConfirm.icon ?? <RiDeleteBin6Line />}
               {deleteConfirm.confirmLabel}
             </DropdownMenuItem>
           ) : null}

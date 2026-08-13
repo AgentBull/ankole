@@ -19,6 +19,7 @@ import {
   RiListCheck3
 } from '@remixicon/react'
 import { useQuery } from '@tanstack/react-query'
+import type { TFunction } from 'i18next'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router'
@@ -28,9 +29,8 @@ import type { ConsoleReadinessResponse } from './api/generated/types.gen'
 const AUTO_OPEN_STORAGE_KEY = 'ankole.console.readiness.seen.v1'
 
 /**
- * Setup-progress popover in the console header. It renders nothing once the
- * Installation reports ready — the early return below is the contract, so no
- * branch after it handles a ready state.
+ * The Console header shows setup progress while the deployment instance is not
+ * ready. The component renders nothing after the instance reports ready.
  */
 export function ConsoleReadiness() {
   const { t } = useTranslation()
@@ -146,15 +146,25 @@ export function ConsoleReadiness() {
   )
 }
 
-function ReadinessContent({ readiness, close }: { readiness: ConsoleReadinessResponse; close: () => void }) {
-  const { t } = useTranslation()
+export type ReadinessStep = {
+  complete: boolean
+  detail: string
+  key: 'provider' | 'agent' | 'profiles' | 'worker' | 'signal'
+  title: string
+  to: string
+}
+
+/**
+ * Defines the setup steps for both the header and the home page.
+ */
+export function readinessSteps(t: TFunction, readiness: ConsoleReadinessResponse): ReadinessStep[] {
   const providerID = readiness.provider.provider_id
   const agentUID = readiness.agent.uid
   const profileAgentUID = readiness.model_profiles.agent_uid
-  const signalAgentUID = readiness.signal_route.agent_uid
 
-  const coreSteps = [
+  return [
     {
+      key: 'provider',
       complete: readiness.provider.complete,
       detail: readiness.provider.complete
         ? t('console.readiness.provider_complete', { id: providerID })
@@ -163,6 +173,7 @@ function ReadinessContent({ readiness, close }: { readiness: ConsoleReadinessRes
       to: providerID ? `/providers/${encodeURIComponent(providerID)}` : '/providers/new'
     },
     {
+      key: 'agent',
       complete: readiness.agent.complete,
       detail: readiness.agent.complete
         ? t('console.readiness.agent_complete', { name: readiness.agent.display_name ?? agentUID })
@@ -173,6 +184,7 @@ function ReadinessContent({ readiness, close }: { readiness: ConsoleReadinessRes
       to: agentUID ? `/agents/${encodeURIComponent(agentUID)}` : '/agents/new'
     },
     {
+      key: 'profiles',
       complete: readiness.model_profiles.complete,
       detail: readiness.model_profiles.complete
         ? t('console.readiness.profiles_complete')
@@ -185,41 +197,44 @@ function ReadinessContent({ readiness, close }: { readiness: ConsoleReadinessRes
       to: profileAgentUID ? `/agents/${encodeURIComponent(profileAgentUID)}#model-profiles` : '/agents'
     },
     {
+      key: 'worker',
       complete: readiness.worker.complete,
       detail: readiness.worker.complete
         ? t('console.readiness.worker_complete', { count: readiness.worker.ready_count })
         : t('console.readiness.worker_incomplete'),
       title: t('console.readiness.worker_title'),
       to: '/workers'
+    },
+    {
+      key: 'signal',
+      complete: readiness.signal_route.complete,
+      detail: readiness.signal_route.complete
+        ? t('console.readiness.signal_complete')
+        : t('console.readiness.signal_incomplete'),
+      title: t('console.readiness.signal_title'),
+      to:
+        !readiness.signal_route.complete && agentUID ? `/signals/new?agent=${encodeURIComponent(agentUID)}` : '/signals'
     }
   ]
+}
+
+function ReadinessContent({ readiness, close }: { readiness: ConsoleReadinessResponse; close: () => void }) {
+  const { t } = useTranslation()
+  const steps = readinessSteps(t, readiness)
 
   return (
-    <>
-      <ul className="divide-y divide-border">
-        {coreSteps.map(step => (
-          <ReadinessRow key={step.title} {...step} onNavigate={close} />
-        ))}
-      </ul>
-      <div className="border-t border-border">
-        <h3 className="px-4 pt-3 pb-1 text-xs font-semibold text-muted-foreground">
-          {t('console.readiness.recommended')}
-        </h3>
-        <ul>
-          <ReadinessRow
-            complete={readiness.signal_route.complete}
-            detail={
-              readiness.signal_route.complete
-                ? t('console.readiness.signal_complete')
-                : t('console.readiness.signal_incomplete')
-            }
-            title={t('console.readiness.signal_title')}
-            to={signalAgentUID ? `/signals/new?agent=${encodeURIComponent(signalAgentUID)}` : '/signals'}
-            onNavigate={close}
-          />
-        </ul>
-      </div>
-    </>
+    <ul className="divide-y divide-border">
+      {steps.map(step => (
+        <ReadinessRow
+          key={step.key}
+          complete={step.complete}
+          detail={step.detail}
+          title={step.title}
+          to={step.to}
+          onNavigate={close}
+        />
+      ))}
+    </ul>
   )
 }
 

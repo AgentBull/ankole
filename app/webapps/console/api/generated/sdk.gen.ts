@@ -139,6 +139,9 @@ import type {
   AnkoleWebAiGatewayProviderControllerDeleteProviderData,
   AnkoleWebAiGatewayProviderControllerDeleteProviderErrors,
   AnkoleWebAiGatewayProviderControllerDeleteProviderResponses,
+  AnkoleWebAiGatewayProviderControllerEnableProviderData,
+  AnkoleWebAiGatewayProviderControllerEnableProviderErrors,
+  AnkoleWebAiGatewayProviderControllerEnableProviderResponses,
   AnkoleWebAiGatewayProviderControllerIndexData,
   AnkoleWebAiGatewayProviderControllerIndexErrors,
   AnkoleWebAiGatewayProviderControllerIndexResponses,
@@ -3681,6 +3684,32 @@ export const ankoleWebAgentControllerPutProviderHosted = <ThrowOnError extends b
       'Content-Type': 'application/json',
       ...options.headers
     }
+  })
+
+/**
+ * Re-enable one disabled AIGateway provider
+ */
+export const ankoleWebAiGatewayProviderControllerEnableProvider = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAiGatewayProviderControllerEnableProviderData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAiGatewayProviderControllerEnableProviderResponses,
+  AnkoleWebAiGatewayProviderControllerEnableProviderErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).post<
+    AnkoleWebAiGatewayProviderControllerEnableProviderResponses,
+    AnkoleWebAiGatewayProviderControllerEnableProviderErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/ai-gateway/providers/{provider_id}/enable',
+    ...options
   })
 
 /**

@@ -158,11 +158,12 @@ defmodule Ankole.AIGateway.ChatGPTSubscriptionRealLLMTest do
              })
 
     reset_at = DateTime.utc_now(:second) |> DateTime.add(600)
+    first_entry = Enum.find(provider.credential_pool["entries"], &(&1["id"] == "first-real"))
 
     :ok =
       CredentialPool.mark_exhausted(
         provider.id,
-        "first-real",
+        first_entry,
         429,
         %{"x-codex-primary-reset-at" => Integer.to_string(DateTime.to_unix(reset_at))},
         %{"code" => "verification_cooldown"}

@@ -44,7 +44,15 @@ defmodule Ankole.Plugins.WeComAdapter.ConnectionReconciler do
   @impl true
   def init(opts) do
     state = {
-      Keyword.get(opts, :interval_ms, @default_interval_ms),
+      Keyword.get(
+        opts,
+        :interval_ms,
+        Application.get_env(
+          :ankole,
+          :signal_connection_reconcile_interval_ms,
+          @default_interval_ms
+        )
+      ),
       Keyword.take(opts, [:repo])
     }
 
@@ -79,6 +87,8 @@ defmodule Ankole.Plugins.WeComAdapter.ConnectionReconciler do
 
     result
   end
+
+  defp schedule_next({nil, _opts} = state), do: state
 
   defp schedule_next({interval_ms, _opts} = state) do
     Process.send_after(self(), :reconcile, interval_ms)

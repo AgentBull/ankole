@@ -28,13 +28,13 @@ defmodule AnkoleWeb.ConsoleReadinessControllerTest do
     :ok
   end
 
-  test "admin sees incomplete installation facts", %{conn: conn} do
+  test "admin sees incomplete deployment instance facts", %{conn: conn} do
     conn = bearer_conn(conn) |> get(~p"/api/v1/console-readiness")
 
     assert %{
              "ready" => false,
              "completed_core_steps" => 0,
-             "total_core_steps" => 4,
+             "total_core_steps" => 5,
              "provider" => %{"complete" => false, "provider_id" => nil},
              "agent" => %{"complete" => false, "uid" => nil, "display_name" => nil},
              "model_profiles" => %{
@@ -43,11 +43,11 @@ defmodule AnkoleWeb.ConsoleReadinessControllerTest do
                "missing_profiles" => ["primary", "light", "heavy"]
              },
              "worker" => %{"complete" => false, "ready_count" => 0},
-             "signal_route" => %{"complete" => false, "agent_uid" => nil}
+             "signal_route" => %{"complete" => false}
            } = json_response(conn, 200)
   end
 
-  test "admin sees a fully ready installation and its recommended signal route", %{conn: conn} do
+  test "readiness follows the active owner of a deployment instance signal route", %{conn: conn} do
     provider_id = "readiness-#{System.unique_integer([:positive])}"
 
     assert {:ok, _provider} =
@@ -70,15 +70,16 @@ defmodule AnkoleWeb.ConsoleReadinessControllerTest do
     end
 
     insert_ready_worker!()
-    insert_signal_binding!(agent.uid)
+    %{principal: route_agent} = agent_fixture(%{display_name: "Route Agent"})
+    insert_signal_binding!(route_agent.uid)
 
-    conn = bearer_conn(conn) |> get(~p"/api/v1/console-readiness")
+    conn = bearer_conn(conn)
     agent_uid = agent.uid
 
     assert %{
              "ready" => true,
-             "completed_core_steps" => 4,
-             "total_core_steps" => 4,
+             "completed_core_steps" => 5,
+             "total_core_steps" => 5,
              "provider" => %{"complete" => true, "provider_id" => ^provider_id},
              "agent" => %{
                "complete" => true,
@@ -91,8 +92,17 @@ defmodule AnkoleWeb.ConsoleReadinessControllerTest do
                "missing_profiles" => []
              },
              "worker" => %{"complete" => true, "ready_count" => 1},
-             "signal_route" => %{"complete" => true, "agent_uid" => ^agent_uid}
-           } = json_response(conn, 200)
+             "signal_route" => %{"complete" => true}
+           } = conn |> get(~p"/api/v1/console-readiness") |> json_response(200)
+
+    assert {:ok, _principal} = Ankole.Principals.disable_principal(route_agent.uid)
+
+    assert %{
+             "ready" => false,
+             "completed_core_steps" => 4,
+             "total_core_steps" => 5,
+             "signal_route" => %{"complete" => false}
+           } = conn |> get(~p"/api/v1/console-readiness") |> json_response(200)
   end
 
   test "missing bearer token is rejected", %{conn: conn} do
