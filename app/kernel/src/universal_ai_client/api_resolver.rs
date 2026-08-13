@@ -16,6 +16,7 @@ mod opaque_tool_fields;
 mod openai_chat;
 mod openai_responses;
 mod openrouter_images;
+mod reasoning_envelope;
 mod rerank;
 mod standard;
 #[cfg(test)]

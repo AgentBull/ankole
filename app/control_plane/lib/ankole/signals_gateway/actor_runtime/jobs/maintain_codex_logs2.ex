@@ -45,9 +45,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Jobs.MaintainCodexLogs2 do
 
   # Codex state shards are Worker-local, and the control plane does not track
   # which workers hold one for this Agent, so maintenance reaches every ready
-  # worker. A worker without a shard deletes nothing and reports that. One
-  # failed worker fails the run so the warning stays visible; the other
-  # workers keep their completed deletions.
+  # worker. A worker without a shard deletes nothing and reports that. Every
+  # worker is asked even when an earlier one fails, because stopping at the first
+  # failure would leave the shards behind it unmaintained for as long as that one
+  # worker stays unreachable. The run reports the failures it collected.
   defp request_maintenance(job_id, agent_uid) do
     request = %FabricProto.CodexLogs2DailyMaintenanceRequest{agent_uid: agent_uid}
 
@@ -56,32 +57,64 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Jobs.MaintainCodexLogs2 do
         {:error, :no_worker_available}
 
       routes ->
-        Enum.reduce_while(routes, {:ok, %{workers: 0, deleted_files: []}}, fn route, {:ok, acc} ->
-          with {:ok, payload} <-
-                 Broker.request_rpc(
-                   route,
-                   "codex_logs2.daily_maintenance",
-                   encode(request),
-                   timeout_ms: @rpc_timeout_ms,
-                   request_id: "codex-logs2-daily-#{job_id}-#{route}"
-                 ),
-               {:ok, response} <- FabricProto.CodexLogs2DailyMaintenanceResponse.decode(payload),
-               :ok <- validate_response_status(response.status) do
-            {:cont,
-             {:ok,
+        routes
+        |> Enum.reduce(%{workers: 0, deleted_files: [], failures: []}, fn route, acc ->
+          case maintain_worker(job_id, agent_uid, route, request) do
+            {:ok, deleted_files} ->
               %{
-                workers: acc.workers + 1,
-                deleted_files: acc.deleted_files ++ (response.deleted_files || [])
-              }}}
-          else
-            {:error, reason} -> {:halt, {:error, reason}}
+                acc
+                | workers: acc.workers + 1,
+                  deleted_files: acc.deleted_files ++ deleted_files
+              }
+
+            {:error, reason} ->
+              %{acc | failures: acc.failures ++ [%{route: route, reason: inspect(reason)}]}
           end
         end)
+        |> then(&{:ok, &1})
+    end
+  end
+
+  defp maintain_worker(job_id, agent_uid, route, request) do
+    with {:ok, payload} <-
+           Broker.request_rpc(
+             route,
+             "codex_logs2.daily_maintenance",
+             encode(request),
+             timeout_ms: @rpc_timeout_ms,
+             request_id: "codex-logs2-daily-#{job_id}-#{route}"
+           ),
+         {:ok, response} <- FabricProto.CodexLogs2DailyMaintenanceResponse.decode(payload),
+         :ok <- validate_response_status(response.status) do
+      {:ok, response.deleted_files || []}
+    else
+      {:error, reason} ->
+        Logging.warning(
+          "signals_gateway.codex_logs2_daily_maintenance_worker_failed",
+          "Codex logs daily maintenance could not reach one worker",
+          %{agent_uid: agent_uid, route: route, reason: inspect(reason)}
+        )
+
+        {:error, reason}
     end
   end
 
   defp validate_response_status(status) when status in @response_statuses, do: :ok
   defp validate_response_status(status), do: {:error, {:unexpected_codex_logs2_status, status}}
+
+  defp log_result(agent_uid, boundary_at, {:ok, %{failures: [_first | _rest]} = summary}) do
+    Logging.warning(
+      "signals_gateway.codex_logs2_daily_maintenance_incomplete",
+      "Codex logs daily maintenance completed on some workers only",
+      %{
+        agent_uid: agent_uid,
+        boundary_at: boundary_at,
+        workers: summary.workers,
+        deleted_files: summary.deleted_files,
+        failures: summary.failures
+      }
+    )
+  end
 
   defp log_result(agent_uid, boundary_at, {:ok, summary}) do
     Logging.info(

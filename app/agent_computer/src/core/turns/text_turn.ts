@@ -30,7 +30,7 @@ import {
 import { steeringMessagesWithAcknowledgement } from './turn_control'
 import { createTurnActivity } from './turn_activity'
 import { resolveAgentConversationContext } from './turn_context'
-import { agentRuntimePolicyFromTurnStart } from './turn_runtime_policy'
+import { agentRuntimePolicyFromTurnStart, webSearchIsProviderHosted } from './turn_runtime_policy'
 import { createTurnWebTools, resolveRenderedFetchRuntimeConfig } from './rendered_fetch_runtime_config'
 import { materializeLarkCredential, type MaterializedLarkCredential } from './lark-credential'
 import { resolveAgentWorkerEnvParts } from './worker_env'
@@ -166,7 +166,7 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
           turnStart,
           requestMemoryRPC: memoryRPCRequester(opts.rpc, turnStart.turn)
         }),
-        ...webTools,
+        ...webTools.filter(tool => !webSearchIsProviderHosted(turnStart) || tool.name !== 'web_search'),
         createClarifyTool(),
         ...backgroundAgentJobTools,
         ...createSkillTools(opts.workspaceRoot, {

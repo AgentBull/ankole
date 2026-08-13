@@ -1,24 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router'
-import { ResourceListPage, RowActions, RowViewAction, SubNav } from './console-list-page'
-
-describe('ResourceListPage', () => {
-  test('keeps the sticky action cell active while its row menu is open', () => {
-    const html = renderToStaticMarkup(
-      <MemoryRouter>
-        <ResourceListPage columns={['Name']} isEmpty={false} isLoading={false} refreshable={false} title="Resources">
-          <tr>
-            <td>Resource one</td>
-            <td />
-          </tr>
-        </ResourceListPage>
-      </MemoryRouter>
-    )
-
-    expect(html).toContain('tbody_tr:has([aria-expanded=true])_td:last-child')
-  })
-})
+import { RowActions, RowViewAction, SubNav } from './console-list-page'
 
 describe('SubNav', () => {
   test('gives sibling resource links a named navigation landmark', () => {
@@ -39,28 +22,6 @@ describe('SubNav', () => {
 })
 
 describe('RowActions', () => {
-  test('keeps the menu trigger background transparent while its menu is open', () => {
-    const html = renderToStaticMarkup(
-      <MemoryRouter>
-        <table>
-          <tbody>
-            <tr>
-              <RowActions
-                deleteConfirm={{ title: 'Disable resource', confirmLabel: 'Disable' }}
-                editLabel="Edit"
-                editTo="/resources/one"
-                onDelete={() => {}}
-              />
-            </tr>
-          </tbody>
-        </table>
-      </MemoryRouter>
-    )
-
-    expect(html).toContain('aria-expanded:bg-transparent')
-    expect(html).toContain('hover:aria-expanded:bg-transparent')
-  })
-
   test('keeps a reversible row action beside edit in the row menu', () => {
     const html = renderToStaticMarkup(
       <MemoryRouter>

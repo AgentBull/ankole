@@ -81,15 +81,18 @@ defmodule Ankole.AIGateway.ProviderConfigs do
   end
 
   @doc """
-  Returns whether the model's active provider connection declares the
-  provider-hosted `web_search` tool.
+  Returns whether an OpenAI-compatible connection declares that its endpoint
+  runs web search itself.
 
-  The write path already enforces that `hosted_web_search` pairs with a
-  Responses endpoint, so this read checks only the stored declaration. A
-  missing, disabled, or re-kinded provider row declares nothing.
+  Only a generic compatible row needs this: its endpoint is whatever the operator
+  pointed it at, so the capability cannot be known from the provider kind. Every
+  other provider declares the capability statically. The write path already
+  enforces that `hosted_web_search` pairs with a Responses endpoint, so this read
+  checks only the stored declaration. A missing, disabled, or re-kinded provider
+  row declares nothing.
   """
-  @spec supports_hosted_web_search?(map()) :: boolean()
-  def supports_hosted_web_search?(%{
+  @spec hosted_web_search_endpoint?(map()) :: boolean()
+  def hosted_web_search_endpoint?(%{
         "provider_id" => provider_id,
         "provider_kind" => provider_kind
       })
@@ -104,7 +107,7 @@ defmodule Ankole.AIGateway.ProviderConfigs do
     end
   end
 
-  def supports_hosted_web_search?(_model_ref), do: false
+  def hosted_web_search_endpoint?(_model_ref), do: false
 
   @doc """
   Returns a safe projection for one provider.

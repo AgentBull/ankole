@@ -972,6 +972,17 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
                model: "openai/gpt-image-1"
              })
 
+    # This Agent's model provider cannot generate images. While the capability is
+    # left to that provider, the Agent simply has none: the configured profile is
+    # not a silent substitute.
+    assert {:ok, turn_start_spec} = TurnPolicy.build_turn_start_spec(actor_key)
+    refute Map.has_key?(turn_start_spec, :hosted_tools)
+
+    assert {:ok, _capabilities} =
+             ModelProfiles.put_provider_hosted_capabilities(agent.uid, %{
+               "image_generate" => false
+             })
+
     assert {:ok, turn_start_spec} = TurnPolicy.build_turn_start_spec(actor_key)
     assert turn_start_spec.hosted_tools == [%{"type" => "image_generation"}]
 
@@ -996,8 +1007,17 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
                model: "gpt-5"
              })
 
+    # Back to the default: this Agent leaves both capabilities to its model
+    # provider, and OpenAI runs both inside its own turn.
+    assert {:ok, _capabilities} =
+             ModelProfiles.put_provider_hosted_capabilities(agent.uid, %{"image_generate" => true})
+
     assert {:ok, turn_start_spec} = TurnPolicy.build_turn_start_spec(actor_key)
-    assert turn_start_spec.hosted_tools == [%{"type" => "image_generation"}]
+
+    assert turn_start_spec.hosted_tools == [
+             %{"type" => "image_generation"},
+             %{"type" => "web_search"}
+           ]
   end
 
   test "turn start specs declare hosted web search from the provider connection" do

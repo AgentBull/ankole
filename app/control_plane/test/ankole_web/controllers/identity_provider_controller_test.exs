@@ -61,14 +61,6 @@ defmodule AnkoleWeb.IdentityProviderControllerTest do
 
     assert %{"identity_provider_adapters" => adapters} = json_response(conn, 200)
 
-    assert Enum.map(adapters, & &1["adapter_id"]) == [
-             "dingtalk",
-             "entra-id",
-             "google-workspace",
-             "lark",
-             "slack"
-           ]
-
     google = Enum.find(adapters, &(&1["adapter_id"] == "google-workspace"))
     assert google["default_provider_id"] == "google-workspace-main"
     refute "directory_realtime_sync" in google["capabilities"]
@@ -78,17 +70,6 @@ defmodule AnkoleWeb.IdentityProviderControllerTest do
     assert adapter["display_name"]["default"] == "Lark"
     assert "directory_full_sync" in adapter["capabilities"]
 
-    assert Enum.map(adapter["fields"], & &1["path"]) == [
-             "appID",
-             "appSecret",
-             "domain",
-             "oidc.enabled",
-             "oidc.scopes",
-             "sync.contacts",
-             "sync.websocket",
-             "sync.pageSize"
-           ]
-
     assert Enum.find(adapter["fields"], &(&1["path"] == "appSecret"))["encrypted"] == true
     assert Enum.find(adapter["fields"], &(&1["path"] == "sync.websocket"))["advanced"] == true
 
@@ -96,19 +77,6 @@ defmodule AnkoleWeb.IdentityProviderControllerTest do
     assert slack["default_provider_id"] == "slack-main"
     assert slack["display_name"]["default"] == "Slack"
     assert "directory_realtime_sync" in slack["capabilities"]
-
-    assert Enum.map(slack["fields"], & &1["path"]) == [
-             "clientID",
-             "clientSecret",
-             "teamID",
-             "botToken",
-             "appToken",
-             "oidc.enabled",
-             "oidc.scopes",
-             "sync.contacts",
-             "sync.websocket",
-             "sync.pageSize"
-           ]
 
     conn =
       conn

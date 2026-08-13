@@ -173,6 +173,14 @@ defmodule FakeFeishu.Router do
     end)
   end
 
+  patch "/open-apis/im/v1/messages/:message_id" do
+    authed(conn, fn conn ->
+      with_fault(conn, :edit_message, fn conn ->
+        reply_data(conn, State.bot_edit_message(state(conn), message_id, conn.params))
+      end)
+    end)
+  end
+
   delete "/open-apis/im/v1/messages/:message_id" do
     authed(conn, fn conn ->
       with_fault(conn, :delete_message, fn conn ->

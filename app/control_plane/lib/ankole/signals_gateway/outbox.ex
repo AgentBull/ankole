@@ -513,11 +513,17 @@ defmodule Ankole.SignalsGateway.Outbox do
       OutboxEntry
       |> maybe_where_agent(agent_uid)
       |> where([entry], entry.delivery_class == :durable_ai_reply)
-      |> where([entry], entry.status in [:failed, :unknown_after_send])
-      |> where([entry], is_nil(entry.next_attempt_at))
+      # `:unsupported` is already terminal by itself: the route can never accept
+      # this reply, so it carries no retry state to inspect. Retryable classes
+      # only stop once their recovery state says they will not run again.
       |> where(
         [entry],
-        fragment("?->>'state' IN ('blocked', 'permanent', 'exhausted')", entry.recovery_state)
+        entry.status == :unsupported or
+          (entry.status in [:failed, :unknown_after_send] and is_nil(entry.next_attempt_at) and
+             fragment(
+               "?->>'state' IN ('blocked', 'permanent', 'exhausted')",
+               entry.recovery_state
+             ))
       )
       |> order_by(
         [entry],
@@ -904,31 +910,38 @@ defmodule Ankole.SignalsGateway.Outbox do
        ) do
     routed_event = routed_actor_event(actor_event, target)
 
-    with {:ok, operation} <- reply_attachment_operation(repo, routed_event, target) do
+    with {:ok, operation, operation_attrs} <-
+           reply_attachment_operation(repo, routed_event, target) do
       outbound_key = reply_attachment_outbound_key(ai_message_id, target, index)
 
-      commit_outbox_in_tx(repo, %{
-        agent_uid: routed_event.agent_uid,
-        binding_name: routed_event.binding_name,
-        outbound_key: outbound_key,
-        operation: operation,
-        signal_channel_id: routed_event.signal_channel_id,
-        provider_thread_id: routed_event.provider_thread_id,
-        reply_to_source_entry_id: ActorEvent.reply_anchor_source_entry_id(routed_event),
-        # Source table: source_actor_event_id stores the actor_events.id that
-        # caused this provider-visible side effect.
-        source_actor_event_id: actor_event.id,
-        ai_message_id: ai_message_id,
-        delivery_class: :durable_ai_reply,
-        payload: %{
-          "attachments" => [attachment],
-          "metadata" =>
-            reply_metadata(target, %{
-              "turn_completion_outcome" => Keyword.get(opts, :turn_completion_outcome)
-            })
-        },
-        idempotency_key: outbound_key
-      })
+      commit_outbox_in_tx(
+        repo,
+        Map.merge(
+          %{
+            agent_uid: routed_event.agent_uid,
+            binding_name: routed_event.binding_name,
+            outbound_key: outbound_key,
+            operation: operation,
+            signal_channel_id: routed_event.signal_channel_id,
+            provider_thread_id: routed_event.provider_thread_id,
+            reply_to_source_entry_id: ActorEvent.reply_anchor_source_entry_id(routed_event),
+            # Source table: source_actor_event_id stores the actor_events.id that
+            # caused this provider-visible side effect.
+            source_actor_event_id: actor_event.id,
+            ai_message_id: ai_message_id,
+            delivery_class: :durable_ai_reply,
+            payload: %{
+              "attachments" => [attachment],
+              "metadata" =>
+                reply_metadata(target, %{
+                  "turn_completion_outcome" => Keyword.get(opts, :turn_completion_outcome)
+                })
+            },
+            idempotency_key: outbound_key
+          },
+          operation_attrs
+        )
+      )
     end
   end
 
@@ -1016,26 +1029,51 @@ defmodule Ankole.SignalsGateway.Outbox do
     end
   end
 
-  defp reply_attachment_operation(repo, actor_event, %{key: nil}),
-    do: outbox_operation_for_actor_event(actor_event, repo)
+  # Every target resolves its own route through the same reader. The caller
+  # already projected the target onto `routed_event`, so a single default target
+  # is the one-element case of the same rule rather than a separate path.
+  defp reply_attachment_operation(repo, routed_event, %{key: nil}) do
+    with {:ok, operation} <- outbox_operation_for_actor_event(routed_event, repo) do
+      {:ok, operation, %{}}
+    end
+  end
 
-  defp reply_attachment_operation(_repo, _actor_event, %{key: key}) when is_binary(key),
-    do: {:ok, :post}
+  defp reply_attachment_operation(repo, routed_event, %{key: key}) when is_binary(key) do
+    case outbox_operation_for_actor_event(routed_event, repo) do
+      {:ok, operation} -> {:ok, operation, %{}}
+      {:error, reason} -> unroutable_target_operation(reason, :post)
+    end
+  end
 
-  defp final_reply_operation_for_target(repo, actor_event, %{key: nil}),
-    do: final_reply_operation(repo, actor_event)
+  defp final_reply_operation_for_target(repo, routed_event, %{key: nil}),
+    do: final_reply_operation(repo, routed_event)
 
-  defp final_reply_operation_for_target(
-         _repo,
-         %ActorEvent{reply_preview_source_entry_id: source_entry_id},
-         %{primary: true, key: key}
-       )
-       when is_binary(source_entry_id) and is_binary(key),
-       do: {:ok, :edit, %{target_source_entry_id: source_entry_id}}
+  defp final_reply_operation_for_target(repo, routed_event, %{key: key}) when is_binary(key) do
+    case final_reply_operation(repo, routed_event) do
+      {:ok, _operation, _attrs} = operation -> operation
+      {:error, reason} -> unroutable_target_operation(reason, :post)
+    end
+  end
 
-  defp final_reply_operation_for_target(_repo, _actor_event, %{key: key})
-       when is_binary(key),
-       do: {:ok, :post, %{}}
+  # A cron target is an independent delivery intent, so one unreachable route
+  # must not cancel the others. The target is still recorded, as a terminal
+  # `:unsupported` row, because a deleted channel or binding is a durable fact of
+  # the route. An operator then sees a route that can never accept this reply
+  # instead of a row that waits for a retry that can never help.
+  defp unroutable_target_operation(reason, operation) do
+    if unroutable_reply_reason?(reason) do
+      {:ok, operation,
+       %{
+         status: :unsupported,
+         last_error: %{
+           "code" => "unroutable_reply_route",
+           "reason" => inspect(reason, limit: 20)
+         }
+       }}
+    else
+      {:error, reason}
+    end
+  end
 
   defp final_reply_outbound_key(message_id, %{key: nil}), do: "ai-reply:#{message_id}"
 

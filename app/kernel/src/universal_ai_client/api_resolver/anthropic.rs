@@ -1,4 +1,7 @@
 use super::*;
+
+const ANTHROPIC_REASONING_PREFIX: &str = "ankole-aigateway-anthropic-reasoning:";
+
 #[derive(Debug)]
 pub(super) struct AnthropicState {
     sequence: u64,
@@ -12,6 +15,9 @@ pub(super) struct AnthropicState {
     tool_calls: BTreeMap<usize, ToolCall>,
     tool_done_indices: BTreeSet<usize>,
     active_blocks: BTreeMap<usize, String>,
+    thinking_blocks: BTreeMap<usize, Value>,
+    reasoning_item_id: Option<String>,
+    reasoning_output_index: Option<usize>,
     usage: Value,
     stop_reason: Option<String>,
     terminal: bool,
@@ -32,6 +38,9 @@ impl AnthropicState {
             tool_calls: BTreeMap::new(),
             tool_done_indices: BTreeSet::new(),
             active_blocks: BTreeMap::new(),
+            thinking_blocks: BTreeMap::new(),
+            reasoning_item_id: None,
+            reasoning_output_index: None,
             usage: json!({}),
             stop_reason: None,
             terminal: false,
@@ -87,6 +96,11 @@ impl AnthropicState {
         let block = value.get("content_block").unwrap_or(&Value::Null);
 
         match block.get("type").and_then(Value::as_str) {
+            Some("thinking" | "redacted_thinking") => {
+                self.active_blocks.insert(index, "reasoning".to_string());
+                self.thinking_blocks.insert(index, block.clone());
+                self.ensure_reasoning_item()
+            }
             Some("text") => {
                 self.active_blocks.insert(index, "text".to_string());
                 let mut events = Vec::new();
@@ -131,6 +145,22 @@ impl AnthropicState {
         let delta = value.get("delta").unwrap_or(&Value::Null);
 
         match delta.get("type").and_then(Value::as_str) {
+            Some("thinking_delta") => {
+                let text = delta
+                    .get("thinking")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                self.append_block_text(index, "thinking", text);
+                Vec::new()
+            }
+            Some("signature_delta") => {
+                let signature = delta
+                    .get("signature")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                self.append_block_text(index, "signature", signature);
+                Vec::new()
+            }
             Some("text_delta") => delta
                 .get("text")
                 .and_then(Value::as_str)
@@ -238,8 +268,51 @@ impl AnthropicState {
         match self.active_blocks.get(&index).map(String::as_str) {
             Some("text") => self.finish_text_part(),
             Some("tool_use") => self.finish_tool_call(index),
+            Some("reasoning") => Vec::new(),
             _block => Vec::new(),
         }
+    }
+
+    fn ensure_reasoning_item(&mut self) -> Vec<Value> {
+        if self.reasoning_item_id.is_some() {
+            return Vec::new();
+        }
+
+        let item_id = generated_id("rs");
+        let output_index = self.next_output_index;
+        self.next_output_index += 1;
+        self.reasoning_item_id = Some(item_id.clone());
+        self.reasoning_output_index = Some(output_index);
+
+        vec![self.event(
+            "response.output_item.added",
+            json!({
+                "output_index": output_index,
+                "item": {
+                    "id": item_id,
+                    "type": "reasoning",
+                    "status": "in_progress",
+                    "summary": []
+                }
+            }),
+        )]
+    }
+
+    fn append_block_text(&mut self, index: usize, key: &str, delta: &str) {
+        let Some(block) = self
+            .thinking_blocks
+            .get_mut(&index)
+            .and_then(Value::as_object_mut)
+        else {
+            return;
+        };
+
+        let current = block
+            .get(key)
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        block.insert(key.to_string(), json!(format!("{current}{delta}")));
     }
 
     fn finish_text_part(&mut self) -> Vec<Value> {
@@ -328,6 +401,15 @@ impl AnthropicState {
         self.terminal = true;
         let mut events = Vec::new();
         if status == "completed" {
+            if let (Some(item), Some(output_index)) = (
+                self.reasoning_item(context, "completed"),
+                self.reasoning_output_index,
+            ) {
+                events.push(self.event(
+                    "response.output_item.done",
+                    json!({"output_index": output_index, "item": item}),
+                ));
+            }
             if self.text_started {
                 events.extend(self.finish_text_part());
             }
@@ -381,27 +463,39 @@ impl AnthropicState {
         error: Option<&StreamError>,
     ) -> Value {
         let item_status = response_item_status(status);
-        let mut output = Vec::new();
-        if let Some(item_id) = &self.message_item_id {
-            output.push(json!({
-                "id": item_id,
-                "type": "message",
-                "status": item_status,
-                "role": "assistant",
-                "content": [{
-                    "type": "output_text",
-                    "text": self.text,
-                    "annotations": []
-                }]
-            }));
+        let mut indexed_output = Vec::new();
+        if let (Some(item), Some(output_index)) = (
+            self.reasoning_item(context, item_status),
+            self.reasoning_output_index,
+        ) {
+            indexed_output.push((output_index, item));
         }
-        let mut calls = self.tool_calls.values().cloned().collect::<Vec<_>>();
-        calls.sort_by_key(|call| call.output_index);
-        output.extend(
-            calls
-                .iter()
-                .map(|call| function_call_item(call, item_status)),
+        if let Some(item_id) = &self.message_item_id {
+            indexed_output.push((
+                self.message_output_index.unwrap_or(0),
+                json!({
+                    "id": item_id,
+                    "type": "message",
+                    "status": item_status,
+                    "role": "assistant",
+                    "content": [{
+                        "type": "output_text",
+                        "text": self.text,
+                        "annotations": []
+                    }]
+                }),
+            ));
+        }
+        indexed_output.extend(
+            self.tool_calls
+                .values()
+                .map(|call| (call.output_index, function_call_item(call, item_status))),
         );
+        indexed_output.sort_by_key(|(output_index, _item)| *output_index);
+        let output = indexed_output
+            .into_iter()
+            .map(|(_output_index, item)| item)
+            .collect::<Vec<_>>();
 
         complete_response_resource(
             context,
@@ -419,6 +513,20 @@ impl AnthropicState {
                 "metadata": {}
             }),
         )
+    }
+
+    fn reasoning_item(&self, context: &ResponseContext, status: &str) -> Option<Value> {
+        let item_id = self.reasoning_item_id.as_ref()?;
+        let content = self.thinking_blocks.values().cloned().collect::<Vec<_>>();
+        let encrypted_content = encode_anthropic_reasoning(context, &content)?;
+
+        Some(json!({
+            "id": item_id,
+            "type": "reasoning",
+            "status": status,
+            "encrypted_content": encrypted_content,
+            "summary": []
+        }))
     }
 
     fn event(&mut self, event_type: &str, fields: Value) -> Value {
@@ -478,13 +586,13 @@ impl APIProtocol for AnthropicState {
 fn anthropic_body_to_response(context: &ResponseContext, body: Value) -> Value {
     let mut output = Vec::new();
     let mut text = String::new();
-
-    for block in body
+    let content = body
         .get("content")
         .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-    {
+        .cloned()
+        .unwrap_or_default();
+
+    for block in &content {
         match block.get("type").and_then(Value::as_str) {
             Some("text") => {
                 if let Some(delta) = block.get("text").and_then(Value::as_str) {
@@ -518,6 +626,19 @@ fn anthropic_body_to_response(context: &ResponseContext, body: Value) -> Value {
         );
     }
 
+    if let Some(encrypted_content) = encode_anthropic_reasoning(context, &content) {
+        output.insert(
+            0,
+            json!({
+                "id": generated_id("rs"),
+                "type": "reasoning",
+                "status": "completed",
+                "encrypted_content": encrypted_content,
+                "summary": []
+            }),
+        );
+    }
+
     complete_response_resource(
         context,
         json!({
@@ -532,6 +653,46 @@ fn anthropic_body_to_response(context: &ResponseContext, body: Value) -> Value {
             "metadata": {}
         }),
     )
+}
+
+// Claude requires the original `thinking` blocks, with their signatures, at the
+// front of the assistant turn that produced a tool call. Only those blocks travel
+// in the envelope: the visible text and `tool_use` blocks are already public
+// Responses items, and replay rebuilds the turn from them.
+fn encode_anthropic_reasoning(context: &ResponseContext, content: &[Value]) -> Option<String> {
+    let thinking = thinking_blocks(content);
+    if thinking.is_empty() {
+        return None;
+    }
+
+    let mut payload = Map::new();
+    payload.insert("thinking".to_string(), Value::Array(thinking));
+
+    reasoning_envelope::encode(ANTHROPIC_REASONING_PREFIX, context, payload)
+}
+
+fn decode_anthropic_reasoning(context: &ResponseContext, encoded: &str) -> Option<Vec<Value>> {
+    let object = reasoning_envelope::decode(ANTHROPIC_REASONING_PREFIX, context, encoded)?;
+    let thinking = thinking_blocks(object.get("thinking").and_then(Value::as_array)?);
+
+    if thinking.is_empty() {
+        None
+    } else {
+        Some(thinking)
+    }
+}
+
+fn thinking_blocks(content: &[Value]) -> Vec<Value> {
+    content
+        .iter()
+        .filter(|block| {
+            matches!(
+                block.get("type").and_then(Value::as_str),
+                Some("thinking" | "redacted_thinking")
+            )
+        })
+        .cloned()
+        .collect()
 }
 
 fn build_anthropic_body(context: &ResponseContext) -> Map<String, Value> {
@@ -578,46 +739,122 @@ fn build_anthropic_body(context: &ResponseContext) -> Map<String, Value> {
     );
     body.insert(
         "messages".to_string(),
-        anthropic_messages(request.get("input")),
+        anthropic_messages(context, request.get("input")),
     );
     body
 }
 
-fn anthropic_messages(input: Option<&Value>) -> Value {
+// One Anthropic assistant turn arrives back as several Responses items: a
+// `reasoning` item, an assistant `message`, and one `function_call` for each tool
+// use. Replay merges each run of assistant items into one message and puts the
+// decoded `thinking` blocks in front, which is the order Claude requires. Merging
+// by adjacency needs no count of derived items, so a history that lost or
+// reordered items degrades into a turn without private reasoning instead of a
+// failed request.
+fn anthropic_messages(context: &ResponseContext, input: Option<&Value>) -> Value {
     match input {
-        Some(Value::String(text)) => {
-            json!([{ "role": "user", "content": [{ "type": "text", "text": text }] }])
-        }
-        Some(Value::Array(items)) => Value::Array(
-            items
-                .iter()
-                .map(|item| match item {
-                    Value::Object(map)
-                        if map.get("type").and_then(Value::as_str)
-                            == Some("function_call_output") =>
-                    {
-                        json!({
-                            "role": "user",
-                            "content": [{
-                                "type": "tool_result",
-                                "tool_use_id": map.get("call_id").map(value_to_text).unwrap_or_default(),
-                                "content": map.get("output").map(value_to_text).unwrap_or_default()
-                            }]
-                        })
+        Some(Value::String(text)) => json!([
+            {"role": "user", "content": [{"type": "text", "text": text}]}
+        ]),
+        Some(Value::Array(items)) => {
+            let mut replay = AnthropicReplay::default();
+
+            for item in items {
+                let Some(map) = item.as_object() else {
+                    replay.push_user(json!([{"type": "text", "text": value_to_text(item)}]));
+                    continue;
+                };
+
+                match map.get("type").and_then(Value::as_str) {
+                    Some("reasoning") => {
+                        replay.pending_thinking = map
+                            .get("encrypted_content")
+                            .and_then(Value::as_str)
+                            .and_then(|encoded| decode_anthropic_reasoning(context, encoded))
+                            .unwrap_or_default();
                     }
-                    Value::Object(map) => json!({
-                        "role": anthropic_role(map.get("role").and_then(Value::as_str)),
-                        "content": anthropic_content(map.get("content"))
-                    }),
-                    value => json!({
-                        "role": "user",
-                        "content": [{ "type": "text", "text": value_to_text(value) }]
-                    }),
-                })
-                .collect(),
-        ),
+                    Some("function_call") => replay.push_assistant(vec![anthropic_tool_use(map)]),
+                    Some("function_call_output") => replay.push_user(json!([{
+                        "type": "tool_result",
+                        "tool_use_id": map.get("call_id").map(value_to_text).unwrap_or_default(),
+                        "content": map.get("output").map(value_to_text).unwrap_or_default()
+                    }])),
+                    _type => replay.push_item(map),
+                }
+            }
+
+            Value::Array(replay.finish())
+        }
         _input => json!([]),
     }
+}
+
+#[derive(Debug, Default)]
+struct AnthropicReplay {
+    messages: Vec<Value>,
+    assistant_blocks: Vec<Value>,
+    pending_thinking: Vec<Value>,
+}
+
+impl AnthropicReplay {
+    fn push_assistant(&mut self, mut blocks: Vec<Value>) {
+        if self.assistant_blocks.is_empty() {
+            self.assistant_blocks.append(&mut self.pending_thinking);
+        }
+        self.assistant_blocks.append(&mut blocks);
+    }
+
+    fn push_user(&mut self, content: Value) {
+        self.flush_assistant();
+        self.pending_thinking.clear();
+        self.messages
+            .push(json!({"role": "user", "content": content}));
+    }
+
+    // An item with no content is not a message. Anthropic rejects an empty
+    // content array, so an item this adapter does not model is dropped instead of
+    // being sent as an empty one.
+    fn push_item(&mut self, map: &Map<String, Value>) {
+        let Some(content) = map.get("content") else {
+            return;
+        };
+        match anthropic_role(map.get("role").and_then(Value::as_str)) {
+            "assistant" => match anthropic_content(Some(content)) {
+                Value::Array(blocks) => self.push_assistant(blocks),
+                _content => {}
+            },
+            _role => self.push_user(anthropic_content(Some(content))),
+        }
+    }
+
+    fn flush_assistant(&mut self) {
+        if self.assistant_blocks.is_empty() {
+            return;
+        }
+        let content = std::mem::take(&mut self.assistant_blocks);
+        self.messages
+            .push(json!({"role": "assistant", "content": content}));
+    }
+
+    fn finish(mut self) -> Vec<Value> {
+        self.flush_assistant();
+        self.messages
+    }
+}
+
+fn anthropic_tool_use(call: &Map<String, Value>) -> Value {
+    let input = call
+        .get("arguments")
+        .and_then(Value::as_str)
+        .and_then(|arguments| serde_json::from_str::<Value>(arguments).ok())
+        .unwrap_or_else(|| json!({}));
+
+    json!({
+        "type": "tool_use",
+        "id": call.get("call_id").map(value_to_text).unwrap_or_default(),
+        "name": call.get("name").map(value_to_text).unwrap_or_default(),
+        "input": input
+    })
 }
 
 fn anthropic_role(role: Option<&str>) -> &'static str {

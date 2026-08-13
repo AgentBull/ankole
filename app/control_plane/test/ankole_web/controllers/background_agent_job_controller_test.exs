@@ -135,6 +135,26 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
     assert cancelled["metadata"]["cancel_requested_by"] =~ "operator:"
   end
 
+  test "external completion reads its result summary from the JSON body", %{conn: conn} do
+    agent = background_agent_fixture().principal
+    job = create_job!(agent.uid, "external-completion")
+    api_spec = AnkoleWeb.APISpec.spec()
+
+    response =
+      conn
+      |> bearer_conn()
+      |> post(~p"/api/v1/background-agent-jobs/#{job.id}/complete", %{
+        "result_summary" => "EXTERNALLY-VERIFIED"
+      })
+      |> json_response(200)
+
+    assert_schema(response, "BackgroundAgentJobResponse", api_spec)
+    completed = Map.fetch!(response, "job")
+
+    assert completed["status"] == "succeeded"
+    assert completed["result"]["summary"] == "EXTERNALLY-VERIFIED"
+  end
+
   test "cursor pagination neither skips nor repeats jobs with the same queued timestamp", %{
     conn: conn
   } do

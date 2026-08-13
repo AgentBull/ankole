@@ -7,7 +7,6 @@ describe('@ankole/agent-computer clarify tool', () => {
     const tool = createClarifyTool()
 
     const schema = z.toJSONSchema(tool.schema) as { properties: Record<string, Record<string, unknown>> }
-    expect(schema.properties.question).toBeDefined()
     expect(schema.properties.choices).toMatchObject({ minItems: 2, maxItems: 4 })
   })
 

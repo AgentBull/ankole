@@ -19,7 +19,11 @@ fn encrypted_send_message_tool() -> Value {
     })
 }
 
-fn chat_reasoning_context(provider_type: &str, model: &str, mut request: Value) -> ResponseContext {
+fn reasoning_source_context(
+    provider_type: &str,
+    model: &str,
+    mut request: Value,
+) -> ResponseContext {
     request.as_object_mut().unwrap().insert(
         "__ankole_reasoning_source".to_string(),
         json!({"provider_type": provider_type, "model_id": model}),
@@ -109,9 +113,58 @@ fn openai_responses_preserves_encrypted_reasoning_output_item() {
 }
 
 #[test]
-fn aigateway_removes_encrypted_tool_markers_before_every_provider_adapter() {
-    for kind in [
+fn openai_responses_preserves_native_encrypted_tool_schema() {
+    let resolver = APIResolver::new(
         APIResolverKind::OpenAIResponses,
+        ResponseContext {
+            model: "provider-test".to_string(),
+            request: json!({
+                "__ankole_native_encrypted_tool_fields": true,
+                "tools": [encrypted_send_message_tool()],
+                "input": "start"
+            }),
+            provider_options: json!({}),
+            stream: Some(false),
+            include_model: true,
+        },
+    );
+
+    let provider_body = Value::Object(resolver.build_body().unwrap());
+
+    assert_eq!(
+        provider_body["tools"][0]["parameters"]["properties"]["message"]["encrypted"],
+        true
+    );
+}
+
+#[test]
+fn openai_responses_adapter_emulates_encrypted_tool_fields() {
+    let resolver = APIResolver::new(
+        APIResolverKind::OpenAIResponses,
+        ResponseContext {
+            model: "compatible-test".to_string(),
+            request: json!({
+                "tools": [encrypted_send_message_tool()],
+                "input": "start"
+            }),
+            provider_options: json!({}),
+            stream: Some(false),
+            include_model: true,
+        },
+    );
+
+    let provider_body = Value::Object(resolver.build_body().unwrap());
+
+    assert!(
+        provider_body["tools"][0]["parameters"]["properties"]["message"]
+            .get("encrypted")
+            .is_none()
+    );
+}
+
+#[test]
+fn adapter_routes_remove_aigateway_encrypted_tool_markers() {
+    for kind in [
         APIResolverKind::OpenAIChatCompletions,
         APIResolverKind::AnthropicMessages,
         APIResolverKind::GeminiGenerateContent,
@@ -139,10 +192,13 @@ fn aigateway_removes_encrypted_tool_markers_before_every_provider_adapter() {
 }
 
 #[test]
-fn aigateway_encodes_marked_outputs_after_responses_and_anthropic_adapters() {
+fn openai_responses_preserves_provider_encrypted_function_arguments() {
     let context = || ResponseContext {
         model: "provider-test".to_string(),
-        request: json!({"tools": [encrypted_send_message_tool()]}),
+        request: json!({
+            "__ankole_native_encrypted_tool_fields": true,
+            "tools": [encrypted_send_message_tool()]
+        }),
         provider_options: json!({}),
         stream: Some(false),
         include_model: true,
@@ -160,14 +216,36 @@ fn aigateway_encodes_marked_outputs_after_responses_and_anthropic_adapters() {
                     "type": "function_call",
                     "call_id": "call_responses",
                     "name": "send_message",
-                    "arguments": "{\"message\":\"responses secret\",\"task_name\":\"r\"}",
+                    "arguments": "{\"message\":\"provider ciphertext\",\"task_name\":\"r\"}",
+                    "encrypted_function_args": ["message"],
                     "status": "completed"
                 }]
             }),
         )
         .unwrap();
 
-    let mut anthropic = APIResolver::new(APIResolverKind::AnthropicMessages, context());
+    assert_eq!(
+        responses_body["output"][0]["arguments"],
+        "{\"message\":\"provider ciphertext\",\"task_name\":\"r\"}"
+    );
+    assert_eq!(
+        responses_body["output"][0]["encrypted_function_args"],
+        json!(["message"])
+    );
+}
+
+#[test]
+fn aigateway_encodes_marked_outputs_after_anthropic_adapter() {
+    let mut anthropic = APIResolver::new(
+        APIResolverKind::AnthropicMessages,
+        ResponseContext {
+            model: "provider-test".to_string(),
+            request: json!({"tools": [encrypted_send_message_tool()]}),
+            provider_options: json!({}),
+            stream: Some(false),
+            include_model: true,
+        },
+    );
     let anthropic_body = anthropic
         .normalize_body(
             200,
@@ -185,38 +263,35 @@ fn aigateway_encodes_marked_outputs_after_responses_and_anthropic_adapters() {
         )
         .unwrap();
 
-    for (body, plain_text) in [
-        (responses_body, "responses secret"),
-        (anthropic_body, "anthropic secret"),
-    ] {
-        let arguments: Value =
-            serde_json::from_str(body["output"][0]["arguments"].as_str().unwrap()).unwrap();
-        assert_eq!(arguments["task_name"].as_str().unwrap().len(), 1);
-        assert_ne!(arguments["message"], plain_text);
-        assert!(
-            arguments["message"]
-                .as_str()
-                .unwrap()
-                .starts_with("ankole-aigateway-opaque-v1:")
-        );
-        assert!(!body.to_string().contains(plain_text));
-    }
+    let arguments: Value =
+        serde_json::from_str(anthropic_body["output"][0]["arguments"].as_str().unwrap()).unwrap();
+    assert_eq!(arguments["task_name"], "a");
+    assert!(
+        arguments["message"]
+            .as_str()
+            .unwrap()
+            .starts_with("ankole-aigateway-opaque-v1:")
+    );
+    assert!(!anthropic_body.to_string().contains("anthropic secret"));
 }
 
 #[test]
-fn aigateway_buffers_and_encodes_native_responses_tool_streams() {
+fn openai_responses_stream_preserves_provider_encrypted_function_arguments() {
     let mut resolver = APIResolver::new(
         APIResolverKind::OpenAIResponses,
         ResponseContext {
             model: "gpt-test".to_string(),
-            request: json!({"tools": [encrypted_send_message_tool()]}),
+            request: json!({
+                "__ankole_native_encrypted_tool_fields": true,
+                "tools": [encrypted_send_message_tool()]
+            }),
             provider_options: json!({}),
             stream: Some(true),
             include_model: true,
         },
     );
     let mut public_events = Vec::new();
-    let arguments = "{\"message\":\"native stream secret\",\"task_name\":\"stream\"}";
+    let arguments = "{\"message\":\"provider ciphertext\",\"task_name\":\"stream\"}";
 
     for event in [
         json!({
@@ -239,7 +314,7 @@ fn aigateway_buffers_and_encodes_native_responses_tool_streams() {
             "type": "response.function_call_arguments.delta",
             "item_id": "fc_native_opaque",
             "output_index": 0,
-            "delta": "{\"message\":\"native stream secret\","
+            "delta": "{\"message\":\"provider ciphertext\","
         }),
         json!({
             "type": "response.function_call_arguments.delta",
@@ -262,6 +337,7 @@ fn aigateway_buffers_and_encodes_native_responses_tool_streams() {
                 "call_id": "call_native_opaque",
                 "name": "send_message",
                 "arguments": arguments,
+                "encrypted_function_args": ["message"],
                 "status": "completed"
             }
         }),
@@ -276,6 +352,7 @@ fn aigateway_buffers_and_encodes_native_responses_tool_streams() {
                     "call_id": "call_native_opaque",
                     "name": "send_message",
                     "arguments": arguments,
+                    "encrypted_function_args": ["message"],
                     "status": "completed"
                 }]
             }
@@ -284,24 +361,11 @@ fn aigateway_buffers_and_encodes_native_responses_tool_streams() {
         public_events.extend(resolver.ingest(event).unwrap());
     }
 
-    assert!(
-        public_events
-            .iter()
-            .all(|event| !event.to_string().contains("native stream secret"))
-    );
     let terminal = public_events.last().unwrap();
-    let encoded: Value = serde_json::from_str(
-        terminal["response"]["output"][0]["arguments"]
-            .as_str()
-            .unwrap(),
-    )
-    .unwrap();
-    assert_eq!(encoded["task_name"], "stream");
-    assert!(
-        encoded["message"]
-            .as_str()
-            .unwrap()
-            .starts_with("ankole-aigateway-opaque-v1:")
+    assert_eq!(terminal["response"]["output"][0]["arguments"], arguments);
+    assert_eq!(
+        terminal["response"]["output"][0]["encrypted_function_args"],
+        json!(["message"])
     );
     for (expected, event) in public_events.iter().enumerate() {
         assert_eq!(event["sequence_number"], expected as u64);
@@ -373,6 +437,7 @@ fn aigateway_decodes_opaque_history_before_native_responses_provider() {
         ResponseContext {
             model: "gpt-test".to_string(),
             request: json!({
+                "__ankole_native_encrypted_tool_fields": true,
                 "tools": [encrypted_send_message_tool()],
                 "input": [
                     {
@@ -666,7 +731,7 @@ fn aigateway_rejects_corrupt_opaque_history_values() {
 #[test]
 fn aigateway_rejects_nested_encrypted_tool_fields_before_provider_dispatch() {
     let resolver = APIResolver::new(
-        APIResolverKind::OpenAIResponses,
+        APIResolverKind::OpenAIChatCompletions,
         ResponseContext {
             model: "gpt-test".to_string(),
             request: json!({
@@ -948,7 +1013,7 @@ fn openai_chat_stream_round_trips_reasoning_details_with_tool_calls() {
         }
     ]);
     let mut resolver = APIResolver::new(APIResolverKind::OpenAIChatCompletions, {
-        let mut context = chat_reasoning_context(
+        let mut context = reasoning_source_context(
             "openrouter",
             "gemini-test",
             json!({
@@ -1028,7 +1093,7 @@ fn openai_chat_stream_round_trips_reasoning_details_with_tool_calls() {
     }));
     let replay = APIResolver::new(
         APIResolverKind::OpenAIChatCompletions,
-        chat_reasoning_context(
+        reasoning_source_context(
             "openrouter",
             "gemini-test",
             json!({
@@ -1067,7 +1132,7 @@ fn openai_chat_non_streaming_round_trips_reasoning_details() {
     }]);
     let mut resolver = APIResolver::new(
         APIResolverKind::OpenAIChatCompletions,
-        chat_reasoning_context(
+        reasoning_source_context(
             "openrouter",
             "gemini-test",
             json!({"tools": tools.clone(), "input": "Look it up."}),
@@ -1103,7 +1168,7 @@ fn openai_chat_non_streaming_round_trips_reasoning_details() {
 
     let replay = APIResolver::new(
         APIResolverKind::OpenAIChatCompletions,
-        chat_reasoning_context(
+        reasoning_source_context(
             "openrouter",
             "gemini-test",
             json!({
@@ -1204,7 +1269,7 @@ fn openai_chat_drops_reasoning_that_has_no_message_or_tool_call() {
 fn openai_chat_drops_foreign_reasoning_replay() {
     let resolver = APIResolver::new(
         APIResolverKind::OpenAIChatCompletions,
-        chat_reasoning_context(
+        reasoning_source_context(
             "openrouter",
             "openrouter-test",
             json!({
@@ -1225,7 +1290,7 @@ fn openai_chat_drops_foreign_reasoning_replay() {
 fn openai_chat_drops_reasoning_when_provider_type_or_model_changes() {
     let mut source = APIResolver::new(
         APIResolverKind::OpenAIChatCompletions,
-        chat_reasoning_context(
+        reasoning_source_context(
             "openrouter",
             "deepseek/model-a",
             json!({"input": "Answer."}),
@@ -1254,7 +1319,7 @@ fn openai_chat_drops_reasoning_when_provider_type_or_model_changes() {
     ] {
         let replay = APIResolver::new(
             APIResolverKind::OpenAIChatCompletions,
-            chat_reasoning_context(
+            reasoning_source_context(
                 provider_type,
                 model_id,
                 json!({"input": response["output"].clone()}),
@@ -2414,6 +2479,234 @@ fn jina_embeddings_preserves_string_embedding_and_multimodal_usage() {
     assert_eq!(body["usage"]["image_tokens"], 1);
     assert_eq!(body["usage"]["audio_tokens"], 1);
     assert_eq!(body["usage"]["video_tokens"], 1);
+}
+
+#[test]
+fn anthropic_non_streaming_round_trips_thinking_blocks() {
+    let native_content = json!([
+        {
+            "type": "thinking",
+            "thinking": "Use the lookup tool.",
+            "signature": "signed-thinking"
+        },
+        {
+            "type": "redacted_thinking",
+            "data": "opaque-redacted-state"
+        },
+        {
+            "type": "text",
+            "text": "I will look it up."
+        },
+        {
+            "type": "tool_use",
+            "id": "toolu_lookup",
+            "name": "lookup",
+            "input": {"query": "weather"}
+        }
+    ]);
+    let mut resolver = APIResolver::new(
+        APIResolverKind::AnthropicMessages,
+        reasoning_source_context("claude", "claude-test", json!({"input": "start"})),
+    );
+
+    let response = resolver
+        .normalize_body(
+            200,
+            json!({
+                "id": "msg_thinking",
+                "model": "claude-test",
+                "content": native_content,
+                "stop_reason": "tool_use",
+                "usage": {}
+            }),
+        )
+        .unwrap();
+    let output = response["output"].as_array().unwrap();
+    assert_eq!(output[0]["type"], "reasoning");
+    assert!(
+        output[0]["encrypted_content"]
+            .as_str()
+            .unwrap()
+            .starts_with("ankole-aigateway-anthropic-reasoning:")
+    );
+
+    let mut replay_input = output.clone();
+    replay_input.push(json!({
+        "type": "function_call_output",
+        "call_id": "toolu_lookup",
+        "output": "sunny"
+    }));
+    let replay = APIResolver::new(
+        APIResolverKind::AnthropicMessages,
+        reasoning_source_context(
+            "claude",
+            "claude-test",
+            json!({"input": Value::Array(replay_input.clone())}),
+        ),
+    );
+    let body = Value::Object(replay.build_body().unwrap());
+
+    assert_eq!(body["messages"].as_array().unwrap().len(), 2);
+    assert_eq!(body["messages"][0]["role"], "assistant");
+    assert_eq!(body["messages"][0]["content"], native_content);
+    assert_eq!(body["messages"][1]["content"][0]["type"], "tool_result");
+}
+
+#[test]
+fn anthropic_stream_round_trips_thinking_and_signature_deltas() {
+    let mut resolver = APIResolver::new(
+        APIResolverKind::AnthropicMessages,
+        reasoning_source_context("claude", "claude-test", json!({"input": "start"})),
+    );
+    let mut events = Vec::new();
+    for event in [
+        json!({
+            "type": "message_start",
+            "message": {"id": "msg_stream_thinking", "model": "claude-test"}
+        }),
+        json!({
+            "type": "content_block_start",
+            "index": 0,
+            "content_block": {"type": "thinking", "thinking": "", "signature": ""}
+        }),
+        json!({
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "thinking_delta", "thinking": "Check the evidence."}
+        }),
+        json!({
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "signature_delta", "signature": "signed-stream"}
+        }),
+        json!({"type": "content_block_stop", "index": 0}),
+        json!({
+            "type": "content_block_start",
+            "index": 1,
+            "content_block": {"type": "text", "text": ""}
+        }),
+        json!({
+            "type": "content_block_delta",
+            "index": 1,
+            "delta": {"type": "text_delta", "text": "Done."}
+        }),
+        json!({"type": "content_block_stop", "index": 1}),
+        json!({
+            "type": "message_delta",
+            "delta": {"stop_reason": "end_turn"},
+            "usage": {"output_tokens": 4}
+        }),
+        json!({"type": "message_stop"}),
+    ] {
+        events.extend(resolver.ingest(event).unwrap());
+    }
+
+    let terminal = events.last().unwrap();
+    let output = terminal["response"]["output"].as_array().unwrap();
+    assert_eq!(output[0]["type"], "reasoning");
+    assert!(events.iter().any(|event| {
+        event["type"] == "response.output_item.done"
+            && event["item"]["type"] == "reasoning"
+            && event["item"]["encrypted_content"].is_string()
+    }));
+
+    let mut replay_input = output.clone();
+    replay_input.push(json!({
+        "type": "message",
+        "role": "user",
+        "content": "continue"
+    }));
+    let replay = APIResolver::new(
+        APIResolverKind::AnthropicMessages,
+        reasoning_source_context(
+            "claude",
+            "claude-test",
+            json!({"input": Value::Array(replay_input.clone())}),
+        ),
+    );
+    let body = Value::Object(replay.build_body().unwrap());
+
+    assert_eq!(body["messages"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        body["messages"][0]["content"],
+        json!([
+            {
+                "type": "thinking",
+                "thinking": "Check the evidence.",
+                "signature": "signed-stream"
+            },
+            {"type": "text", "text": "Done."}
+        ])
+    );
+
+    // Claude verifies a thinking signature against the model that minted it, so
+    // another model's turn keeps the visible message and drops the private state.
+    let foreign = APIResolver::new(
+        APIResolverKind::AnthropicMessages,
+        reasoning_source_context(
+            "claude",
+            "claude-other",
+            json!({"input": Value::Array(replay_input)}),
+        ),
+    );
+    let foreign_body = Value::Object(foreign.build_body().unwrap());
+
+    assert_eq!(
+        foreign_body["messages"][0]["content"],
+        json!([{"type": "text", "text": "Done."}])
+    );
+}
+
+#[test]
+fn anthropic_replays_tool_calls_without_a_reasoning_envelope() {
+    let replay_input = json!([
+        {
+            "id": "msg_plain",
+            "type": "message",
+            "status": "completed",
+            "role": "assistant",
+            "content": [{"type": "output_text", "text": "Looking it up."}]
+        },
+        {
+            "id": "fc_plain",
+            "type": "function_call",
+            "call_id": "toolu_plain",
+            "name": "lookup",
+            "arguments": "{\"query\":\"weather\"}",
+            "status": "completed"
+        },
+        {
+            "type": "function_call_output",
+            "call_id": "toolu_plain",
+            "output": "sunny"
+        }
+    ]);
+    let replay = APIResolver::new(
+        APIResolverKind::AnthropicMessages,
+        reasoning_source_context("claude", "claude-test", json!({"input": replay_input})),
+    );
+    let body = Value::Object(replay.build_body().unwrap());
+    let messages = body["messages"].as_array().unwrap();
+
+    // One assistant turn, then its tool result. Thinking is off here, so the turn
+    // has to rebuild from the public items alone.
+    assert_eq!(messages.len(), 2);
+    assert_eq!(messages[0]["role"], "assistant");
+    assert_eq!(
+        messages[0]["content"],
+        json!([
+            {"type": "text", "text": "Looking it up."},
+            {
+                "type": "tool_use",
+                "id": "toolu_plain",
+                "name": "lookup",
+                "input": {"query": "weather"}
+            }
+        ])
+    );
+    assert_eq!(messages[1]["role"], "user");
+    assert_eq!(messages[1]["content"][0]["type"], "tool_result");
+    assert_eq!(messages[1]["content"][0]["tool_use_id"], "toolu_plain");
 }
 
 #[test]

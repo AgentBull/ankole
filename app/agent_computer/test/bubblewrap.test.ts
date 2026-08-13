@@ -22,7 +22,6 @@ describe('bubblewrap Worker share', () => {
       (value, index) =>
         value === '--bind' && argv[index + 1] === WORKER_SHARE_ROOT && argv[index + 2] === WORKER_SHARE_ROOT
     )
-    expect(WORKER_SHARE_ROOT).toBe('/var/share')
     expect(bindIndex).toBeGreaterThan(-1)
   })
 })

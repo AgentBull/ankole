@@ -10,6 +10,7 @@ defmodule Ankole.AIGateway.Providers do
 
   alias Ankole.AIGateway.PrepareContext
   alias Ankole.AIGateway.CredentialAttempts
+  alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.ProviderDefinition
   alias Ankole.AIGateway.ProviderDefinition.Capability
   alias Ankole.AIGateway.ProviderDefinition.Setting
@@ -261,6 +262,32 @@ defmodule Ankole.AIGateway.Providers do
   end
 
   def supports_native_image_generation?(_runtime), do: false
+
+  @doc """
+  Returns whether the selected language-model provider runs web search itself.
+
+  A provider whose wire protocol always carries the capability declares it. A
+  generic OpenAI-compatible row cannot be known statically, because its endpoint
+  is whatever the operator pointed it at, so that row declares the capability
+  through its `hosted_web_search` connection option instead.
+
+  This answers only what the provider can do. Whether an Agent uses it is the
+  Agent's `provider_hosted` setting.
+  """
+  @spec supports_native_web_search?(map()) :: boolean()
+  def supports_native_web_search?(%{"provider_kind" => provider_kind} = model_ref) do
+    declared? =
+      with {:ok, provider} <- fetch(provider_kind),
+           {:ok, capability} <- ProviderDefinition.capability(provider, :language_model) do
+        capability.supports_native_web_search?
+      else
+        _error -> false
+      end
+
+    declared? or ProviderConfigs.hosted_web_search_endpoint?(model_ref)
+  end
+
+  def supports_native_web_search?(_runtime), do: false
 
   @doc """
   Loads and validates a provider module's compiled definition.
@@ -671,25 +698,58 @@ defmodule Ankole.AIGateway.Providers do
     }
   end
 
+  # The Console API is a public contract, so a declared setting type is enforced
+  # here and not only in the operator form. Every declared type has its own
+  # clause, and an undeclared one is rejected, so a new setting type cannot pass
+  # validation by omission and then read as a wrong value at request time.
   defp validate_setting_options(provider, scope, options, error_tag) do
     provider.settings
-    |> Enum.filter(&(&1.scope == scope and &1.type == :select))
+    |> Enum.filter(&(&1.scope == scope))
     |> Enum.reduce_while(:ok, fn setting, :ok ->
       key = Atom.to_string(setting.key)
 
       case Map.fetch(options, key) do
-        :error ->
-          {:cont, :ok}
-
-        {:ok, value} ->
-          if value in setting.options do
-            {:cont, :ok}
-          else
-            {:halt, {:error, {error_tag, {:invalid_value, key, value, setting.options}}}}
-          end
+        :error -> {:cont, :ok}
+        {:ok, value} -> validate_setting_value(setting, key, value, error_tag)
       end
     end)
   end
+
+  # A cleared option carries no shape to check. Whether it may be absent is
+  # `validate_required_setting_options/4`'s decision, not this one's.
+  defp validate_setting_value(%Setting{}, _key, nil, _error_tag), do: {:cont, :ok}
+
+  defp validate_setting_value(%Setting{type: :select} = setting, key, value, error_tag) do
+    if value in setting.options do
+      {:cont, :ok}
+    else
+      {:halt, {:error, {error_tag, {:invalid_value, key, value, setting.options}}}}
+    end
+  end
+
+  defp validate_setting_value(%Setting{type: :boolean}, _key, value, _error_tag)
+       when is_boolean(value),
+       do: {:cont, :ok}
+
+  defp validate_setting_value(%Setting{type: :integer}, _key, value, _error_tag)
+       when is_integer(value),
+       do: {:cont, :ok}
+
+  defp validate_setting_value(%Setting{type: :map}, _key, value, _error_tag)
+       when is_map(value),
+       do: {:cont, :ok}
+
+  # A setting without a declared type carries no shape constraint. A credential
+  # such as `api_key` accepts a plain token or a JSON object of provider-specific
+  # parts, and only the provider knows which.
+  defp validate_setting_value(%Setting{type: nil}, _key, _value, _error_tag), do: {:cont, :ok}
+
+  defp validate_setting_value(%Setting{type: type}, key, value, error_tag)
+       when type in [:select, :boolean, :integer, :map],
+       do: {:halt, {:error, {error_tag, {:invalid_setting_type, key, type, value}}}}
+
+  defp validate_setting_value(%Setting{type: type}, key, _value, error_tag),
+    do: {:halt, {:error, {error_tag, {:unsupported_setting_type, key, type}}}}
 
   defp validate_required_setting_options(provider, scope, options, error_tag) do
     provider.settings

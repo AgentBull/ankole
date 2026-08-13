@@ -2,6 +2,7 @@ defmodule Ankole.Schedule.Projections do
   @moduledoc false
 
   alias Ankole.Schedule.Cron
+  alias Ankole.Schedule.Delivery
   alias Ankole.Schedule.Planner
   alias Ankole.Schedule.Schemas.CronSchedule
   alias Ankole.Schedule.Schemas.ScheduledEvent
@@ -40,6 +41,10 @@ defmodule Ankole.Schedule.Projections do
     }
   end
 
+  # The rule's UUID stays internal and model tools address a rule by `name`, so
+  # the count is how many targets a reply reaches, without naming a provider
+  # channel. A model asked "how many targets" otherwise has to guess, and a guess
+  # reads as fact in the reply.
   @spec cron_model_projection(CronSchedule.t()) :: map()
   def cron_model_projection(%CronSchedule{} = schedule) do
     %{
@@ -49,10 +54,18 @@ defmodule Ankole.Schedule.Projections do
       "timezone" => schedule.timezone,
       "payload" => schedule.payload || %{},
       "quiet_success" => get_in(schedule.delivery || %{}, ["quiet_success"]) == true,
+      "delivery_target_count" => delivery_target_count(schedule),
       "next_fire_at" => Planner.datetime(schedule.next_fire_at),
       "last_fire_at" => Planner.datetime(schedule.last_fire_at),
       "automation_job_id" => schedule.automation_job_id
     }
+  end
+
+  defp delivery_target_count(%CronSchedule{} = schedule) do
+    case Delivery.targets(schedule.delivery || %{}, schedule.binding_name) do
+      {:ok, targets} -> length(targets)
+      {:error, _reason} -> 0
+    end
   end
 
   @spec event_projection(ScheduledEvent.t()) :: map()

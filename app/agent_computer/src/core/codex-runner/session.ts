@@ -298,7 +298,14 @@ class CodexJobSession implements AgentCodexRuntimeSession {
       }
       if (decision.action !== 'replace_thread') throw error
       if (this.input.job.continuedFromJobId) {
-        throw new Error('Respawned background agent job could not resume its source Codex thread')
+        // A continued Job inherits its source's thread, and that thread only
+        // exists on the Worker that created it. Placement carries the source
+        // assignment forward, so reaching here means that Worker is gone and the
+        // thread with it. Name the cause: replacing the thread would silently
+        // drop the context the continuation was created to build on.
+        throw new Error(
+          "The Worker holding this Job's Codex thread is no longer available, so the continued Job cannot resume it"
+        )
       }
       this.runtimeThreadID = undefined
       return true

@@ -1185,6 +1185,66 @@ fn websocket_initial_messages(spec: &StreamSpec) -> Vec<String> {
     }
 }
 
+async fn finish_after_ready_error(
+    delivery: Delivery,
+    resolver: &mut api_resolver::APIResolver,
+    error: StreamError,
+) {
+    let events = resolver.fail(&error);
+    delivery.finish_error_events(events, error).await;
+}
+
+fn eventstream_provider_error(message: &wire::EventStreamMessage) -> StreamError {
+    let provider_message = sonic_rs::from_slice::<Value>(&message.payload)
+        .ok()
+        .and_then(|value| {
+            value
+                .get("message")
+                .or_else(|| value.get("Message"))
+                .or_else(|| value.get("error"))
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned)
+        })
+        .unwrap_or_else(|| {
+            message
+                .event_type
+                .as_deref()
+                .unwrap_or("AWS eventstream error")
+                .to_string()
+        });
+
+    StreamError::new("provider_eventstream_error", "read", provider_message)
+        .provider_body_excerpt(&message.payload)
+}
+
+async fn provider_status_error(
+    spec: &StreamSpec,
+    status: u16,
+    headers: &[(String, String)],
+    body: &mut futures_util::stream::BoxStream<'static, Result<bytes::Bytes, reqwest::Error>>,
+) -> StreamError {
+    let mut excerpt = Vec::new();
+
+    while excerpt.len() < 4096 {
+        match timeout(spec.upstream.timeout.idle_duration(), body.next()).await {
+            Ok(Some(Ok(bytes))) => {
+                let remaining = 4096 - excerpt.len();
+                excerpt.extend_from_slice(&bytes[..bytes.len().min(remaining)]);
+            }
+            _ => break,
+        }
+    }
+
+    StreamError::new(
+        "provider_status_rejected",
+        "connect",
+        format!("upstream returned HTTP status {status}"),
+    )
+    .provider_status(status)
+    .provider_body_excerpt(excerpt)
+    .provider_headers(headers)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1248,64 +1308,4 @@ mod tests {
 
         assert_eq!(response["output"][0], terminal_item);
     }
-}
-
-async fn finish_after_ready_error(
-    delivery: Delivery,
-    resolver: &mut api_resolver::APIResolver,
-    error: StreamError,
-) {
-    let events = resolver.fail(&error);
-    delivery.finish_error_events(events, error).await;
-}
-
-fn eventstream_provider_error(message: &wire::EventStreamMessage) -> StreamError {
-    let provider_message = sonic_rs::from_slice::<Value>(&message.payload)
-        .ok()
-        .and_then(|value| {
-            value
-                .get("message")
-                .or_else(|| value.get("Message"))
-                .or_else(|| value.get("error"))
-                .and_then(Value::as_str)
-                .map(ToOwned::to_owned)
-        })
-        .unwrap_or_else(|| {
-            message
-                .event_type
-                .as_deref()
-                .unwrap_or("AWS eventstream error")
-                .to_string()
-        });
-
-    StreamError::new("provider_eventstream_error", "read", provider_message)
-        .provider_body_excerpt(&message.payload)
-}
-
-async fn provider_status_error(
-    spec: &StreamSpec,
-    status: u16,
-    headers: &[(String, String)],
-    body: &mut futures_util::stream::BoxStream<'static, Result<bytes::Bytes, reqwest::Error>>,
-) -> StreamError {
-    let mut excerpt = Vec::new();
-
-    while excerpt.len() < 4096 {
-        match timeout(spec.upstream.timeout.idle_duration(), body.next()).await {
-            Ok(Some(Ok(bytes))) => {
-                let remaining = 4096 - excerpt.len();
-                excerpt.extend_from_slice(&bytes[..bytes.len().min(remaining)]);
-            }
-            _ => break,
-        }
-    }
-
-    StreamError::new(
-        "provider_status_rejected",
-        "connect",
-        format!("upstream returned HTTP status {status}"),
-    )
-    .provider_status(status)
-    .provider_body_excerpt(excerpt)
-    .provider_headers(headers)
 }

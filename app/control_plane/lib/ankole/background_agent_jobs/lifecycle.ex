@@ -7,6 +7,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
 
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.ActorEvent
+  alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionWorkerAssignment
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
   alias Ankole.SignalsGateway.ActorRuntime.TurnRef
@@ -151,11 +152,14 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
           {:ok, Job.t() | nil} | {:error, term()}
   def requeue_retryable_attempt_in_tx(repo, job_id, agent_uid, opts \\ [])
       when is_integer(job_id) and job_id > 0 and is_binary(agent_uid) do
-    actor_key = %{agent_uid: agent_uid, session_id: BackgroundAgentJobs.job_session_id(job_id)}
     charge? = Keyword.get(opts, :charge, false)
 
-    with :ok <- WorkerPool.release_assignment_for_actor_in_tx(repo, actor_key),
-         :ok <- lock_agent_slots(repo, agent_uid) do
+    # The assignment is kept on purpose. Releasing it returns no turn capacity —
+    # that is `reserve_worker_slot`'s ledger — and only discards the one fact the
+    # retry needs, because the Job's Codex thread lives in that worker's local
+    # runtime shard. Placement revalidates the worker anyway and moves the Job
+    # when the worker is gone.
+    with :ok <- lock_agent_slots(repo, agent_uid) do
       case Queries.get_for_agent(repo, job_id, agent_uid, lock: "FOR UPDATE") do
         %Job{status: "running"} = job ->
           job
@@ -291,7 +295,8 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
              |> lifecycle_timestamps(job, now)
            )
            |> repo.update(),
-         {:ok, steer_outcome} <- resolve_open_steers_after_commit(repo, job, now, opts),
+         {:ok, steer_outcome} <-
+           resolve_open_steers_after_commit(repo, job, now, turn_ref, opts),
          :ok <- maybe_release_worker_assignment(repo, job, turn_ref),
          {:ok, wakeup_event} <- append_wakeup_event(repo, job, now, steer_outcome),
          :ok <- maybe_nudge_queued_after_status_commit(repo, job, now, turn_ref) do
@@ -302,13 +307,23 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
     end
   end
 
-  # Open steers on a succeeded Job become one successor Job seeded with every
-  # message in order. Successor storage and steer completion are one
-  # transaction, so a storage failure leaves the source Job and steers open.
+  # Open steers outside the terminal Turn's applied input prefix become one
+  # successor Job in arrival order. The final Turn acknowledgement consumes the
+  # applied prefix. Successor storage and completion of the remaining steers are
+  # one transaction, so a storage failure leaves the source Job and steers open.
   # Failed and stopped commits, and an external completion, answer open steers
   # with the terminal notice itself.
-  defp resolve_open_steers_after_commit(repo, %Job{status: "succeeded"} = job, now, opts) do
-    case Dispatch.open_steer_events_in_tx(repo, job.id, job.agent_uid) do
+  defp resolve_open_steers_after_commit(
+         repo,
+         %Job{status: "succeeded"} = job,
+         now,
+         turn_ref,
+         opts
+       ) do
+    open_steers = Dispatch.open_steer_events_in_tx(repo, job.id, job.agent_uid)
+    steers = unapplied_steers_in_tx(repo, open_steers, turn_ref)
+
+    case steers do
       [] ->
         {:ok, nil}
 
@@ -319,6 +334,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
           end
         else
           with {:ok, successor} <- Dispatch.seed_steer_successor_in_tx(repo, job, steers, now),
+               :ok <- inherit_worker_assignment(repo, job, successor, now),
                :ok <- complete_steer_events_in_tx(repo, steers, now) do
             {:ok, %{successor_job_id: successor.id}}
           end
@@ -326,7 +342,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
     end
   end
 
-  defp resolve_open_steers_after_commit(repo, %Job{status: status} = job, now, _opts)
+  defp resolve_open_steers_after_commit(repo, %Job{status: status} = job, now, _turn_ref, _opts)
        when status in ["failed", "stopped"] do
     with :ok <-
            complete_steer_events_in_tx(
@@ -338,7 +354,31 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
     end
   end
 
-  defp resolve_open_steers_after_commit(_repo, %Job{}, _now, _opts), do: {:ok, nil}
+  defp resolve_open_steers_after_commit(_repo, %Job{}, _now, _turn_ref, _opts), do: {:ok, nil}
+
+  defp unapplied_steers_in_tx(_repo, steers, nil), do: steers
+  defp unapplied_steers_in_tx(_repo, [], %TurnRef{}), do: []
+
+  defp unapplied_steers_in_tx(repo, steers, %TurnRef{} = turn_ref) do
+    event_ids = Enum.map(steers, & &1.id)
+
+    applied_event_ids =
+      ActorEventDelivery
+      |> where([delivery], delivery.agent_uid == ^turn_ref.agent_uid)
+      |> where([delivery], delivery.session_id == ^turn_ref.session_id)
+      |> where([delivery], delivery.activation_uid == ^turn_ref.activation_uid)
+      |> where([delivery], delivery.actor_epoch == ^turn_ref.actor_epoch)
+      |> where([delivery], delivery.actor_event_id_fence == ^turn_ref.actor_event_id)
+      |> where([delivery], delivery.actor_event_id in ^event_ids)
+      |> where([delivery], delivery.state in ^ActorEventDelivery.live_states())
+      |> where([delivery], delivery.revision <= ^turn_ref.revision)
+      |> lock("FOR UPDATE")
+      |> repo.all()
+      |> Enum.filter(&ActorEventDelivery.applied_by_worker?(&1, turn_ref.revision))
+      |> MapSet.new(& &1.actor_event_id)
+
+    Enum.reject(steers, &MapSet.member?(applied_event_ids, &1.id))
+  end
 
   defp complete_steer_events_in_tx(_repo, [], _now), do: :ok
 
@@ -569,6 +609,25 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
   end
 
   defp maybe_release_worker_assignment(_repo, %Job{}, _turn_ref), do: :ok
+
+  # The successor carries the source Job's `runtime_thread_id`, and that Codex
+  # thread lives in one worker's local runtime shard. The source assignment is
+  # still live here, because a Worker-committed terminal status keeps it, so the
+  # successor starts with the same worker as its placement hint.
+  defp inherit_worker_assignment(repo, %Job{} = source_job, %Job{} = successor, now) do
+    WorkerPool.inherit_assignment_in_tx(
+      repo,
+      %{
+        agent_uid: source_job.agent_uid,
+        session_id: BackgroundAgentJobs.job_session_id(source_job.id)
+      },
+      %{
+        agent_uid: successor.agent_uid,
+        session_id: BackgroundAgentJobs.job_session_id(successor.id)
+      },
+      now
+    )
+  end
 
   defp release_worker_assignment(repo, job) do
     WorkerPool.release_assignment_for_actor_in_tx(repo, %{

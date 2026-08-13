@@ -31,6 +31,9 @@ import type {
   AnkoleWebAgentControllerPutModelProfileData,
   AnkoleWebAgentControllerPutModelProfileErrors,
   AnkoleWebAgentControllerPutModelProfileResponses,
+  AnkoleWebAgentControllerPutProviderHostedData,
+  AnkoleWebAgentControllerPutProviderHostedErrors,
+  AnkoleWebAgentControllerPutProviderHostedResponses,
   AnkoleWebAgentControllerShowData,
   AnkoleWebAgentControllerShowErrors,
   AnkoleWebAgentControllerShowResponses,
@@ -3643,6 +3646,36 @@ export const ankoleWebAgentLibraryControllerUpdate = <ThrowOnError extends boole
       }
     ],
     url: '/api/v1/agents/{agent_uid}/library-documents/{document_kind}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
+ * Set which capabilities an agent leaves to its language-model provider
+ */
+export const ankoleWebAgentControllerPutProviderHosted = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAgentControllerPutProviderHostedData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAgentControllerPutProviderHostedResponses,
+  AnkoleWebAgentControllerPutProviderHostedErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).put<
+    AnkoleWebAgentControllerPutProviderHostedResponses,
+    AnkoleWebAgentControllerPutProviderHostedErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/agents/{agent_uid}/provider-hosted',
     ...options,
     headers: {
       'Content-Type': 'application/json',

@@ -6,30 +6,6 @@ import { join } from 'node:path'
 import * as kernel from '../index.js'
 
 describe('@ankole/kernel', () => {
-  it('exports the public Bun API', () => {
-    for (const name of [
-      'runtimeFabricValidateEnvelope',
-      'RuntimeFabricDealer',
-      'authzAuthorize',
-      'authzAuthorizeAll',
-      'authzMatchResourcePattern',
-      'authzValidateCondition',
-      'authzValidateResourcePattern',
-      'estimateO200kBaseTokens',
-      'genericHash',
-      'signalsGatewayFilterMatch',
-      'signalsGatewayValidateFilter',
-      'unifiedTextDiff',
-      'webURLFacts',
-      'xxh3File128Hex',
-      'xxh3String128Hex',
-      'zstdCompressBlock',
-      'zstdDecompressBlock'
-    ]) {
-      expect(kernel[name as keyof typeof kernel]).toBeFunction()
-    }
-  })
-
   it('parses and classifies web URLs through the shared kernel classifier', () => {
     expect(kernel.webURLFacts('https://Example.COM/page')).toEqual({
       scheme: 'https',

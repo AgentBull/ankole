@@ -167,6 +167,18 @@ defmodule Ankole.AIGateway.ProviderDSL do
     end
   end
 
+  @doc """
+  Declares that this provider runs web search inside its own model turn.
+
+  The provider owns the search loop and its citations. An Agent chooses whether
+  to use it; this only states that the provider can.
+  """
+  defmacro supports_native_web_search(value \\ true) do
+    quote do
+      @ai_provider_capability_attrs {:supports_native_web_search, unquote(value)}
+    end
+  end
+
   @doc false
   defmacro __before_compile__(env) do
     provider_kind =
@@ -230,6 +242,8 @@ defmodule Ankole.AIGateway.ProviderDSL do
     supports_native_image_generation? =
       Map.get(attrs, :supports_native_image_generation, false)
 
+    supports_native_web_search? = Map.get(attrs, :supports_native_web_search, false)
+
     unless upstream in @upstream_kinds do
       raise ArgumentError,
             "unsupported upstream #{inspect(upstream)} for #{inspect(module)} #{kind}"
@@ -252,7 +266,8 @@ defmodule Ankole.AIGateway.ProviderDSL do
       prepare: prepare,
       timeout_ms: Map.get(attrs, :timeout_ms),
       supports_parallel_tool_calls?: supports_parallel_tool_calls?,
-      supports_native_image_generation?: supports_native_image_generation?
+      supports_native_image_generation?: supports_native_image_generation?,
+      supports_native_web_search?: supports_native_web_search?
     }
 
     Module.put_attribute(module, :ai_provider_capabilities, capability)

@@ -71,8 +71,9 @@ export function turnRequestEnvironmentInfoLines(turnStart: TurnStart): string[] 
   if (cronScheduleName) lines.push(`cron_schedule_name: ${cronScheduleName}`)
 
   const identicalReplies = context?.consecutive_identical_replies
-  if (typeof identicalReplies === 'number' && identicalReplies >= 2)
+  if (typeof identicalReplies === 'number' && identicalReplies >= 2) {
     lines.push(`schedule_consecutive_identical_replies: ${identicalReplies}`)
+  }
 
   const payload = recordValue(origin.payload)
   if (payload && Object.keys(payload).length > 0) lines.push(`schedule_payload: ${JSON.stringify(payload)}`)

@@ -331,9 +331,10 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
   # would retry the whole Turn, and every retry costs another model call while
   # the route stays exactly as unreachable.
   #
-  # Ordinary replies check their one route before any outbox row is written.
-  # Cron targets commit directly as independent intents and cannot enter this
-  # branch because one unavailable target must not cancel the others.
+  # A single default reply checks its one route before any outbox row is written,
+  # so it reaches this branch. A cron target resolves its own route too, but
+  # records an unreachable one as a terminal `:unsupported` row instead, because
+  # one unavailable target must not cancel the others.
   defp skip_unroutable_reply(%ActorEvent{} = event, reason) do
     if Outbox.unroutable_reply_reason?(reason) do
       Logging.warning(

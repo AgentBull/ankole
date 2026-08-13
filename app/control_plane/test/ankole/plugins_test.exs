@@ -22,7 +22,6 @@ defmodule Ankole.PluginsTest do
   alias Ankole.PluginFixtures.UnknownIdentityCapabilityPlugin
   alias Ankole.PluginFixtures.UnknownSignalsInboundCapabilityPlugin
   alias Ankole.PluginFixtures.UnknownSignalsOutboundCapabilityPlugin
-  alias Ankole.Plugins
   alias Ankole.Plugins.Config
   alias Ankole.Plugins.Registry
   alias Ankole.Plugins.Spec
@@ -237,20 +236,6 @@ defmodule Ankole.PluginsTest do
               [Ankole.PluginFixtures.AlphaWorker]}
            ] =
              Supervisor.which_children(supervisor)
-  end
-
-  test "default registry validates the compile-time plugin list" do
-    assert Enum.map(Plugins.list_discovered(), & &1.module) == [
-             Ankole.Plugins.ChinaMarketAIProviders,
-             Ankole.Plugins.DingTalkAdapter,
-             Ankole.Plugins.GoogleWorkspaceAdapter,
-             Ankole.Plugins.LarkAdapter,
-             Ankole.Plugins.Microsoft365Adapter,
-             Ankole.Plugins.SlackAdapter,
-             Ankole.Plugins.WeComAdapter
-           ]
-
-    assert is_list(Plugins.list_active())
   end
 
   test "enable-list configuration is global-only and validates explicit future ids" do

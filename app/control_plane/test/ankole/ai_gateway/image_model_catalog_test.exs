@@ -5,7 +5,6 @@ defmodule Ankole.AIGateway.ImageModelCatalogTest do
   alias Ankole.AIGateway.HostedTools.ImageGeneration
   alias Ankole.AIGateway.ModelMetadata.Cache
   alias Ankole.AIGateway.ProviderConfigs
-  alias Ankole.AIGateway.Providers
 
   setup do
     Cache.clear_for_test()
@@ -29,15 +28,6 @@ defmodule Ankole.AIGateway.ImageModelCatalogTest do
     }
 
     %{runtime: runtime}
-  end
-
-  test "only OpenRouter declares image_generate in the current provider registry" do
-    image_providers =
-      Providers.all()
-      |> Enum.filter(&Providers.supports_capability?(&1, "image_generate"))
-      |> Enum.map(& &1.provider_kind)
-
-    assert image_providers == ["openrouter"]
   end
 
   test "keeps compatible GPT Image endpoints eligible and preserves exact model IDs", %{

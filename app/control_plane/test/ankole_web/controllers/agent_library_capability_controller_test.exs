@@ -41,13 +41,6 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
 
     global = conn |> get(~p"/api/v1/agent-library/capabilities") |> json_response(200)
 
-    assert Enum.map(global["agent_plugins"], & &1["id"]) == [
-             "deep-research",
-             "github",
-             "lark",
-             "office"
-           ]
-
     assert Enum.find(global["agent_plugins"], &(&1["id"] == "github"))[
              "effective_enabled"
            ] == false

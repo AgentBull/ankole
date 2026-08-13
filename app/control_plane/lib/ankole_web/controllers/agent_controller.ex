@@ -22,6 +22,8 @@ defmodule AnkoleWeb.AgentController do
   alias AnkoleWeb.Schemas.ConsoleAPI.ModelProfileResponse
   alias AnkoleWeb.Schemas.ConsoleAPI.ModelProfileWriteRequest
   alias AnkoleWeb.Schemas.ConsoleAPI.ModelProfilesResponse
+  alias AnkoleWeb.Schemas.ConsoleAPI.ProviderHostedResponse
+  alias AnkoleWeb.Schemas.ConsoleAPI.ProviderHostedWriteRequest
 
   tags(["Agents"])
   security([%{"consoleBearer" => []}])
@@ -90,6 +92,18 @@ defmodule AnkoleWeb.AgentController do
     responses: [
       ok: {"Model profiles", "application/json", ModelProfilesResponse},
       not_found: {"Not found", "application/json", ErrorEnvelope}
+    ]
+  )
+
+  operation(:put_provider_hosted,
+    summary: "Set which capabilities an agent leaves to its language-model provider",
+    parameters: [agent_uid: [in: :path, type: :string, required: true]],
+    request_body:
+      {"Provider hosted capabilities", "application/json", ProviderHostedWriteRequest,
+       required: true},
+    responses: [
+      ok: {"Provider hosted capabilities", "application/json", ProviderHostedResponse},
+      unprocessable_entity: {"Invalid capability", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -172,10 +186,40 @@ defmodule AnkoleWeb.AgentController do
     with {:ok, agent_uid} <- agent_uid_param(params),
          :ok <- ConsolePolicy.authorize(conn, "agent:#{agent_uid}:model_profiles", "read"),
          {:ok, profiles} <- ModelProfiles.get_model_profiles(agent_uid) do
-      json(conn, %{model_profiles: profiles})
+      json(conn, %{
+        model_profiles: profiles,
+        provider_hosted: provider_hosted_payload(agent_uid)
+      })
     else
       {:error, reason} -> error(conn, reason)
     end
+  end
+
+  def put_provider_hosted(conn, params) do
+    with {:ok, agent_uid} <- agent_uid_param(params),
+         :ok <- ConsolePolicy.authorize(conn, "agent:#{agent_uid}:model_profiles", "update"),
+         {:ok, capabilities} <-
+           ModelProfiles.put_provider_hosted_capabilities(agent_uid, conn.body_params) do
+      json(conn, %{provider_hosted: normalized_provider_hosted(capabilities)})
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  defp provider_hosted_payload(agent_uid) do
+    case ModelProfiles.provider_hosted_capabilities(agent_uid) do
+      {:ok, capabilities} -> normalized_provider_hosted(capabilities)
+      {:error, _reason} -> normalized_provider_hosted(%{})
+    end
+  end
+
+  # Always answer with every capability so a client never has to know the
+  # default. An unset capability belongs to the Provider.
+  defp normalized_provider_hosted(capabilities) do
+    %{
+      web_search: ModelProfiles.provider_hosted?(capabilities, "web_search"),
+      image_generate: ModelProfiles.provider_hosted?(capabilities, "image_generate")
+    }
   end
 
   def put_model_profile(conn, params) do

@@ -62,7 +62,8 @@ defmodule Ankole.AIGateway.ProviderDefinition do
       :prepare,
       :timeout_ms,
       supports_parallel_tool_calls?: false,
-      supports_native_image_generation?: false
+      supports_native_image_generation?: false,
+      supports_native_web_search?: false
     ]
 
     @type kind ::
@@ -84,7 +85,8 @@ defmodule Ankole.AIGateway.ProviderDefinition do
             prepare: atom(),
             timeout_ms: pos_integer() | nil,
             supports_parallel_tool_calls?: boolean(),
-            supports_native_image_generation?: boolean()
+            supports_native_image_generation?: boolean(),
+            supports_native_web_search?: boolean()
           }
   end
 

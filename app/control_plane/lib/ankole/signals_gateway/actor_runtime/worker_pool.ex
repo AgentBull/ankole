@@ -10,11 +10,18 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerPool do
   fences, not by an Agent-level pin. Assignments remain rebuildable hints:
   the `agent_computer_worker` table remains the liveness source, and every
   placement revalidates the worker behind the assignment. If the assigned worker
-  is gone, the assignment is released and re-placed. Crucially, an assignment is
-  not part of the durable user story — losing one only means the actor event is
-  retried onto another worker, never that work is dropped. Placement deliberately
-  considers only liveness and free capacity because all workers run one image; a
-  heterogeneous pool is out of scope for this path.
+  is gone, the assignment is released and re-placed.
+
+  An assignment is not part of the durable user story: no committed work is lost
+  when one goes away. What a move does cost is the worker-local Codex thread. A
+  Job that moves rebuilds its thread and loses the context it had accumulated,
+  and a Job that inherited a thread from another Job cannot resume it at all, so
+  a continuation carries its source's assignment forward through
+  `inherit_assignment_in_tx/4` instead of being placed by capacity alone. Only a
+  caller that has no thread to keep should release an assignment.
+
+  Placement deliberately considers only liveness and free capacity because all
+  workers run one image; a heterogeneous pool is out of scope for this path.
   """
 
   import Ecto.Query, warn: false
@@ -156,6 +163,38 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerPool do
     :ok
   end
 
+  @doc """
+  Copies one actor's live assignment onto another actor key.
+
+  A steer successor Job continues its source Job's Codex thread, and that thread
+  lives in one worker's local runtime shard. The successor is a new Session, so
+  ordinary placement would pick by free capacity and prefer a worker without the
+  thread. Copying the assignment makes placement reuse the same worker through
+  the normal revalidation path, which still moves the Job when that worker is
+  gone. It reserves no turn capacity: the successor claims its slot when it
+  starts.
+
+  A source without a live assignment returns `:ok`. There is then no thread host
+  to inherit and ordinary placement is already correct.
+  """
+  @spec inherit_assignment_in_tx(module(), actor_key() | map(), actor_key() | map(), DateTime.t()) ::
+          :ok | {:error, term()}
+  def inherit_assignment_in_tx(repo, source_actor_key, target_actor_key, %DateTime{} = now) do
+    source_actor_key = normalize_actor_key(source_actor_key)
+    target_actor_key = normalize_actor_key(target_actor_key)
+
+    case live_assignment_snapshot(repo, source_actor_key) do
+      %ActorSessionWorkerAssignment{} = assignment ->
+        case insert_assignment(repo, target_actor_key, assignment, now) do
+          {:ok, _assignment} -> :ok
+          {:error, _reason} = error -> error
+        end
+
+      nil ->
+        :ok
+    end
+  end
+
   # Keeps actor-to-worker affinity while the assigned worker is still usable.
   # This lowers churn without making the worker part of the durable user story:
   # stale workers release the assignment and the actor event can be retried.
@@ -169,9 +208,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerPool do
     end
   end
 
-  # The Agent advisory lock serializes placement across all of its Sessions and Jobs. Reading the
-  # assignment first without a row lock lets revalidation acquire the worker
-  # before the assignment, matching worker-stale recovery's global lock order.
+  # The advisory lock is per actor key, so it serializes placement of one Session
+  # or Job without blocking the Agent's others. Reading the assignment first
+  # without a row lock lets revalidation acquire the worker before the
+  # assignment, matching worker-stale recovery's global lock order.
   defp live_assignment_snapshot(repo, actor_key) do
     ActorSessionWorkerAssignment
     |> where([assignment], assignment.agent_uid == ^actor_key.agent_uid)
@@ -337,13 +377,15 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerPool do
 
   # Captures the route chosen for this actor session. Delivery and turn replies
   # re-check the route so assignment remains a placement hint, not durable truth.
-  defp insert_assignment(repo, actor_key, worker, now) do
+  # A worker row and an existing assignment carry the same route pair, so both
+  # can seed a new assignment.
+  defp insert_assignment(repo, actor_key, %{worker_id: worker_id} = route, now) do
     %ActorSessionWorkerAssignment{}
     |> ActorSessionWorkerAssignment.changeset(%{
       agent_uid: actor_key.agent_uid,
       session_id: actor_key.session_id,
-      worker_id: worker.worker_id,
-      transport_route: worker.transport_route,
+      worker_id: worker_id,
+      transport_route: route.transport_route,
       status: "assigned",
       assigned_at: now,
       last_used_at: now,

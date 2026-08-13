@@ -458,6 +458,9 @@ web_fetch_description = "Used to read web page content and metadata."
 web_fetch_label = "Web fetch model"
 web_search_description = "Used to search the web and return structured results."
 web_search_label = "Web search model"
+provider_hosted_label = "Use the model's provider"
+provider_hosted_web_search_description = "The language-model provider runs web search inside its own turn, and this profile is not used. If the agent's model provider does not run search, the agent has no web search at all."
+provider_hosted_image_generate_description = "The language-model provider generates images inside its own turn, and this profile is not used. If the agent's model provider does not generate images, the agent has no image generation at all."
 
 [console.nav]
 home = "Home"

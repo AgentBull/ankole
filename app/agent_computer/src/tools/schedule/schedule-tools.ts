@@ -28,6 +28,7 @@ const CRON_DESCRIPTION = [
   'Supports kind=every/cron only. For bounded repetitions ("ten times", "until Sept"), set schedule.occurrences with count/until (auto-completes when spent).',
   'Updating payload or delivery starts a new scheduled-task conversation on the next fire; existing run history remains. Schedule or timezone changes keep the current conversation.',
   'After add/update, summarize in visible reply: name, schedule/timezone, and quiet_success status.',
+  'Schedules are addressed by name; they have no user-facing id, so answer an id request with the name. Report delivery reach from delivery_target_count in the result, and never state a count the result does not contain.',
   'Use quiet_success=true for monitors to stay quiet on success and report only failures, blockers, or state changes.',
   AUTOMATION_JOB_POINTER,
   'In principle, a polling interval of less than 30 minutes should only be used for script tasks (create-automation-job), as frequently waking up an LLM can be quite costly.'

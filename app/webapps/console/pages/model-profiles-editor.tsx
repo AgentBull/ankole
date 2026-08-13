@@ -8,13 +8,15 @@ import type { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
 import {
   ankoleWebAgentControllerDeleteModelProfileMutation,
-  ankoleWebAgentControllerPutModelProfileMutation
+  ankoleWebAgentControllerPutModelProfileMutation,
+  ankoleWebAgentControllerPutProviderHostedMutation
 } from '../api/generated/@tanstack/react-query.gen'
 import type {
   AgentItem,
   AiGatewayProviderItem as AIGatewayProviderItem,
   AiGatewayProviderKindItem as AIGatewayProviderKindItem,
-  ModelProfileWriteRequest
+  ModelProfileWriteRequest,
+  ProviderHostedCapabilities
 } from '../api/generated/types.gen'
 import { ErrorBlock } from '../../common/error-block'
 import {
@@ -44,6 +46,7 @@ export function ModelProfilesEditor({
   loading,
   onChanged,
   profiles,
+  providerHosted,
   providers,
   providerKinds,
   modelCatalog
@@ -53,6 +56,7 @@ export function ModelProfilesEditor({
   loading: boolean
   onChanged: () => void
   profiles: JSONObject
+  providerHosted: ProviderHostedCapabilities
   providers: AIGatewayProviderItem[]
   providerKinds: AIGatewayProviderKindItem[]
   modelCatalog: unknown
@@ -159,6 +163,29 @@ export function ModelProfilesEditor({
     persistProfile(profile, model.submission(profile), built.body)
   }
 
+  const saveProviderHosted = useMutation({
+    ...ankoleWebAgentControllerPutProviderHostedMutation(),
+    onSuccess: () => onChanged(),
+    onError: () => onChanged()
+  })
+
+  const providerHostedFor = (profile: ProfileName) => {
+    if (profile !== 'web_search' && profile !== 'image_generate') return undefined
+    const checked = profile === 'web_search' ? providerHosted.web_search : providerHosted.image_generate
+
+    return {
+      checked,
+      pending: saveProviderHosted.isPending,
+      label: t('console.models.provider_hosted_label'),
+      description: t(`console.models.provider_hosted_${profile}_description`),
+      onChange: (next: boolean) =>
+        saveProviderHosted.mutate({
+          path: { agent_uid: agent.uid },
+          body: { [profile]: next }
+        })
+    }
+  }
+
   // `mutation.variables` names only the latest call, so overlapping saves to
   // two profiles would drop the first card's pending state. The submission
   // maps track every in-flight profile; `isPending` keeps the render
@@ -177,7 +204,7 @@ export function ModelProfilesEditor({
         <h3 className="text-lg font-semibold tracking-normal">{t('console.models.title')}</h3>
         <p className="text-sm leading-6 text-muted-foreground">{t('console.models.description')}</p>
       </div>
-      <ErrorBlock error={error ?? saveProfile.error ?? clearProfile.error} />
+      <ErrorBlock error={error ?? saveProfile.error ?? clearProfile.error ?? saveProviderHosted.error} />
       {loading ? <span className="text-xs text-muted-foreground">{t('common.loading')}</span> : null}
       <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4 [&>*]:min-w-0">
         {PROFILE_NAMES.map(profile => {
@@ -204,6 +231,7 @@ export function ModelProfilesEditor({
               required={required}
               hint={profileDescription(t, profile)}
               persistencePending={profilePersistencePending(profile)}
+              providerHosted={providerHostedFor(profile)}
               deleteConfirm={
                 required
                   ? undefined

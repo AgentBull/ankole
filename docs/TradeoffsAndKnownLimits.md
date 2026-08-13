@@ -115,6 +115,23 @@ unknown result retries only inside its attempt budget and carries a
 possible-duplicate notice. Other uncertain operations remain
 `unknown_after_send`. Every automatic delivery stops at its stored retry limit.
 
+## A Steered Turn Splits Its Record Across Two Events
+
+A `/steer` that reaches the Worker while a Turn runs becomes a separate
+ActorEvent. At Turn completion the latest applied steer owns the final reply and
+its outbox, so the answer lands under the message the user sent last instead of
+the one that opened the Turn.
+
+The AI message stays recorded against the event that opened the Turn, because
+that Turn produced it. One Turn therefore writes its record under two
+ActorEvents. Neither event alone answers "what did this Turn reply". The
+`ai_message_id` on the outbox row is the link, so a reader starts from the
+outbox and follows it to the message. A reader that starts from an ActorEvent
+and expects both parts under it finds only one of them.
+
+This split is the cost of anchoring the reply where the user is looking. Ankole
+accepts it instead of posting the answer under an older message.
+
 ## Message Edits and Files Have Provider Limits
 
 SignalsGateway has no common contract for an inbound message edit. An adapter

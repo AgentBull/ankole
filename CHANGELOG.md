@@ -1,5 +1,15 @@
 # Changelog
 
+## Version 0.69.0 (2026-08-13)
+
+- Keep a Claude model's extended thinking across a tool-calling conversation. AIGateway carries the signed thinking blocks between rounds and rebuilds each assistant turn from the stored history, so Claude tool calls now replay correctly even with thinking off. Reasoning from one model is never replayed to another, and a conversation whose stored reasoning is missing or unreadable continues without it instead of failing.
+- Deliver every configured target of a recurring task, and stop losing the ones that cannot be reached. A target whose channel or binding was deleted no longer leaves an undeliverable row waiting forever: it is recorded as unsupported, appears in the stopped-delivery view, and the remaining targets still deliver.
+- Keep a Background Job on the Worker that holds its Codex thread. A retry, and a Job continued from steering messages, both stay put instead of moving to the emptiest Worker and rebuilding or failing to resume that thread. A continuation that truly lost its Worker now reports that cause.
+- Stop rewriting what the pinned Codex runtime declares: model-visible tool descriptions keep their official `exec` declarations, and native OpenAI Responses keeps the encrypted tool-parameter marker it owns instead of an AIGateway emulation. A malformed marker is still rejected on every route.
+- Give each Agent one switch per capability for web search and image generation: leave it to the Agent's language-model Provider, or use the Agent's own capability Provider. Turning it on disables that capability's model profile, because the Provider then runs the work inside its own turn and owns its results. A model that cannot run the capability means the Agent has none, rather than silently switching executor mid-conversation. Both switches default on for new Agents; an Agent that already configured a search or image Provider keeps it. This replaces the previous behavior where a provider-hosted search was declared alongside a competing local `web_search` tool, which let the model pick either one.
+- Repair the operator endpoint that commits an externally verified Job completion: it read the result summary from the wrong place and rejected every valid request. Agents can also now state how many targets a recurring schedule delivers to instead of guessing.
+- Maintenance with no user-visible behavior: declared Provider setting types are validated on write, daily Codex log maintenance no longer stops at the first unreachable Worker, the Rust lint gate passes again, the end-to-end steering check now looks for the final reply where a steer actually owns it, and the repository-only `audit-ankole-trajectories` Skill and the unit tests that only inventoried catalogs, restated source or locale copy, or snapshotted CSS class names are removed.
+
 ## Version 0.68.4 (2026-08-13)
 
 - No product behavior changes. A `bun test` started outside the Worker image now stops with the correct Agent Computer test commands instead of reporting host environment failures, and the contributor guidelines state that a package's declared test or build script is the only correct entrypoint.

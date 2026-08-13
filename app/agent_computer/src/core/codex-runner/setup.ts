@@ -27,6 +27,7 @@ import {
   type MaterializedLarkCredential
 } from '../turns/lark-credential'
 import { resolveAgentWorkerEnvParts } from '../turns/worker_env'
+import { webSearchIsProviderHosted } from '../turns/turn_runtime_policy'
 import type { CodexJobOptions } from '../turns/turn_options'
 import { join } from 'node:path'
 import {
@@ -122,6 +123,10 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput) {
     agentsRoot: opts.agentsRoot,
     agentUID: job.agentUid
   })
+  // Two different facts. The Agent's choice decides whether the Worker declares a
+  // web_search tool; the hosted declaration says whether the Provider will really
+  // run a search this turn, which is what Codex's own switch must follow.
+  const providerHostedWebSearch = webSearchIsProviderHosted(turnStart)
   const hostedWebSearch = (turnStart.hosted_tools ?? []).some(tool => tool.type === 'web_search')
   materializeCodexJobProjectConfig({
     projectRoot: jobProject.root,
@@ -148,7 +153,7 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput) {
   })
   opts.abortSignal?.throwIfAborted()
   const projectedTools = [
-    ...baseWebTools.filter(tool => !hostedWebSearch || tool.name !== 'web_search'),
+    ...baseWebTools.filter(tool => !providerHostedWebSearch || tool.name !== 'web_search'),
     // Brain attributes job-issued memory operations to the job because the
     // turn fence session is the job session; no extra scope payload is needed.
     ...createMemoryTools({

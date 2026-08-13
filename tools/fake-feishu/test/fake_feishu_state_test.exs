@@ -87,6 +87,17 @@ defmodule FakeFeishu.StateTest do
                  "actions" =>
                    JSON.encode!([
                      %{
+                       "action" => "update_element",
+                       "params" => %{
+                         "element_id" => "answer",
+                         "element" => %{
+                           "tag" => "markdown",
+                           "element_id" => "answer",
+                           "content" => "Sealed answer"
+                         }
+                       }
+                     },
+                     %{
                        "action" => "partial_update_setting",
                        "params" => %{"settings" => %{"config" => %{"streaming_mode" => false}}}
                      }
@@ -97,6 +108,7 @@ defmodule FakeFeishu.StateTest do
 
       card = State.card(state, card_id)
       assert card.message_id == message_id
+      assert State.rendered_message_text(state, message_id) == "Sealed answer"
       assert get_in(card.settings, ["config", "streaming_mode"]) == false
     end
   end
@@ -184,7 +196,7 @@ defmodule FakeFeishu.StateTest do
       assert page_two["has_more"] == false
     end
 
-    test "lists only the chats whose members include the asking app's bot" do
+    test "lists only group chats whose members include the asking app's bot" do
       state = start_state!()
       :ok = State.register_app(state, "app_a", "s", bot_open_id: "ou_bot_a")
       :ok = State.register_app(state, "app_b", "s", bot_open_id: "ou_bot_b")
@@ -199,6 +211,13 @@ defmodule FakeFeishu.StateTest do
         State.put_chat(state, %{
           "id" => "oc_b",
           "members" => [%{"type" => "bot", "app_id" => "app_b"}]
+        })
+
+      {:ok, _chat} =
+        State.put_chat(state, %{
+          "id" => "oc_p2p_a",
+          "type" => "p2p",
+          "members" => [%{"type" => "bot", "app_id" => "app_a"}]
         })
 
       assert {:ok, %{"items" => [%{"chat_id" => "oc_a"}]}} =

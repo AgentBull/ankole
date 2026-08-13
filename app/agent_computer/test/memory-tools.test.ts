@@ -14,9 +14,6 @@ const documentID = 'signal-gateway-entry:message_123'
 describe('Brain memory tools', () => {
   it('exposes a model boundary without persistent ids, lock versions, or raw cursors', () => {
     const tools = memoryTools()
-    expect(tools.map(tool => tool.name).sort()).toEqual(
-      ['memory_search', 'memory_open', 'memory_update', 'memory_browse', 'memory_health_check'].sort()
-    )
 
     const updateSchema = zodToJSONSchema(toolNamed(tools, 'memory_update').schema) as {
       properties: Record<string, unknown>

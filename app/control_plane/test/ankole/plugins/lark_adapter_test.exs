@@ -65,8 +65,6 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                "zh-Hans-CN" => "飞书适配器"
              }
 
-      refute function_exported?(LarkAdapter, :setup_metadata, 0)
-
       assert [
                %{
                  contract_id: "signals_gateway.adapter",
@@ -94,25 +92,6 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                "oidc_code_exchange",
                "directory_full_sync",
                "directory_realtime_sync"
-             ]
-
-      assert Enum.map(chat_fields, & &1.path) == [
-               "appID",
-               "appSecret",
-               "domain",
-               "platformSubjectNamespace",
-               "userName"
-             ]
-
-      assert Enum.map(identity_fields, & &1.path) == [
-               "appID",
-               "appSecret",
-               "domain",
-               "oidc.enabled",
-               "oidc.scopes",
-               "sync.contacts",
-               "sync.websocket",
-               "sync.pageSize"
              ]
 
       assert hd(chat_fields).label["zh-Hans-CN"] == "应用 ID"

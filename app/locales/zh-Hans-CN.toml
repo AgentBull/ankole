@@ -443,6 +443,9 @@ web_fetch_description = "用于读取网页正文和元数据。"
 web_fetch_label = "网页读取模型"
 web_search_description = "用于联网搜索并返回结构化搜索结果。"
 web_search_label = "联网搜索模型"
+provider_hosted_label = "由模型的 Provider 执行"
+provider_hosted_web_search_description = "由语言模型 Provider 在自己的这一轮里完成搜索，不使用此档位。如果该 Agent 的模型 Provider 不做搜索，这个 Agent 就没有联网搜索能力。"
+provider_hosted_image_generate_description = "由语言模型 Provider 在自己的这一轮里生成图像，不使用此档位。如果该 Agent 的模型 Provider 不生成图像，这个 Agent 就没有图像生成能力。"
 
 [console.nav]
 home = "首页"

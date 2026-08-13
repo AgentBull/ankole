@@ -565,17 +565,25 @@ The message tool stores input for any live Job. It cannot resume a terminal
 Job. Respawning a terminal Job creates a new queued Job and never changes the
 source Job.
 
-The control plane allows at most three running Jobs for one Agent.
-It allows at most five acquired execution attempts for one Job.
+The `agent_computer.background_agent_job.max_running_per_agent` setting caps how
+many Jobs of one Agent run at once, with a default of three. One Job spends at
+most five execution failures and at most twenty-five total claims, so
+interruptions that never became execution failures cannot consume the task's own
+budget.
 
 The control plane increments `attempts` only after it acquires a real execution
 lease.
 A placement failure returns an unstarted attempt to `queued`.
 
-A retryable worker failure waits before the next execution attempt. Job
-sessions wait on a fixed ladder from one minute to two hours, so the five
-attempts span some hours and a Job survives an upstream outage. Other actor
+A retryable worker failure waits before the next execution attempt.
+Infrastructure interruptions retry within minutes, while provider-class failures
+use a ladder that spans hours so a Job survives an upstream outage. Other actor
 events keep a short exponential backoff, because a user waits on them.
+
+A retry keeps the Job's Worker assignment. The Job's Codex thread lives in that
+worker's local runtime shard, and releasing the assignment would return no turn
+capacity while discarding the one fact the retry needs. Placement revalidates
+the worker and moves the Job only when that worker is gone.
 
 AIGateway quota exhaustion with a known future recovery time returns the Job
 to `queued` and releases its Worker assignment until that time. The acquired
@@ -735,11 +743,20 @@ this rule covers the short interval between trajectory storage and Job-state
 commit. A completed, stopped, or dead-letter command that never appears in a
 trajectory returns a delivery error.
 
-If a succeeded commit finds open steer events, the same transaction creates
-one successor with those messages in order and then completes the events. If
-the successor cannot be stored, the transaction fails and leaves the source
-Job and steer events unchanged. A failed, stopped, or external completion
-answers open steers with the terminal notification instead.
+If a succeeded commit finds open steer events outside the terminal Turn's
+applied delivery prefix, the same transaction creates one successor with those
+messages in order and then completes the events. The final Turn acknowledgement
+consumes messages inside the applied prefix. If the successor cannot be stored,
+the transaction fails and leaves the source Job and unapplied steer events
+unchanged. A failed, stopped, or external completion answers open steers with
+the terminal notification instead.
+
+The successor continues the source Job's Codex thread, so the same transaction
+copies the source's Worker assignment onto it. Without that, the successor is a
+new Session and placement would choose by free capacity, landing on a worker that
+does not hold the thread. A successor cannot replace an inherited thread, because
+that would silently discard the context it was created to build on, so it fails
+with a stated cause when the worker holding the thread is gone.
 
 Background Codex gives child agents `request_parent_input`, not
 `request_user_input`. A child sends its question to the lead agent.

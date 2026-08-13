@@ -359,8 +359,11 @@ defmodule Ankole.E2E.Scenarios.Lifecycle do
 
     assert steered_turn_ref.actor_event_id == input.id
 
+    # A steer that reached the Worker owns the final reply and its outbox, so the
+    # completion is observed on the steer event rather than the event that opened
+    # the Turn. That is also the reply target asserted below.
     assert {:ok, reply, _message} =
-             wait_for_completed_final_reply(container, input.id, deadline(90_000))
+             wait_for_completed_final_reply(container, steer_input.id, deadline(90_000))
 
     assert reply.text =~ "CHAOS_STEERED_OK"
 

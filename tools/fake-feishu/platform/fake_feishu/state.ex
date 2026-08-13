@@ -670,8 +670,8 @@ defmodule FakeFeishu.State do
         {:reply, {:error, 23_000, "message not exist"}, state}
 
       _target ->
-        state =
-          update_in_message(state, target_id, fn message ->
+        {state, card_id} =
+          update_bot_message(state, target_id, fn message ->
             msg_type = params["msg_type"] || message.msg_type
             content = params["content"] || message.content
 
@@ -683,6 +683,8 @@ defmodule FakeFeishu.State do
                   decoded_text(%{"msg_type" => msg_type, "content" => content}) || message.text
             }
           end)
+
+        state = link_card_message(state, card_id, target_id)
 
         notify(state, {:bot_message_edited, target_id})
         {:reply, {:ok, %{"message_id" => target_id}}, state}
@@ -786,7 +788,8 @@ defmodule FakeFeishu.State do
       state.chats
       |> Map.values()
       |> Enum.filter(fn chat ->
-        Enum.any?(chat.members, &(&1.type == "bot" and &1.open_id == bot_open_id))
+        chat.type == "group" and
+          Enum.any?(chat.members, &(&1.type == "bot" and &1.open_id == bot_open_id))
       end)
       |> Enum.sort_by(& &1.id)
       |> Enum.map(&chat_list_item/1)
@@ -1178,6 +1181,16 @@ defmodule FakeFeishu.State do
 
   defp interactive_card_id(_params), do: nil
 
+  defp update_bot_message(state, message_id, fun) do
+    message = state.messages |> Map.fetch!(message_id) |> fun.()
+
+    card_id =
+      interactive_card_id(%{"msg_type" => message.msg_type, "content" => message.content})
+
+    message = %{message | card_id: card_id}
+    {%{state | messages: Map.put(state.messages, message_id, message)}, card_id}
+  end
+
   defp link_card_message(state, nil, _message_id), do: state
 
   defp link_card_message(state, card_id, message_id) do
@@ -1194,6 +1207,20 @@ defmodule FakeFeishu.State do
     case JSON.decode(content) do
       {:ok, %{"text" => text}} -> text
       _other -> nil
+    end
+  end
+
+  defp decoded_text(%{"msg_type" => "interactive", "content" => content})
+       when is_binary(content) do
+    case JSON.decode(content) do
+      {:ok, %{"body" => %{"elements" => elements}}} when is_list(elements) ->
+        elements
+        |> Enum.map(&element_text/1)
+        |> Enum.reject(&(&1 in [nil, ""]))
+        |> Enum.join("\n")
+
+      _other ->
+        nil
     end
   end
 
@@ -1314,6 +1341,24 @@ defmodule FakeFeishu.State do
 
   defp apply_card_action(%{"action" => "add_elements", "params" => params}, card) do
     %{card | body_elements: card.body_elements ++ (params["elements"] || [])}
+  end
+
+  defp apply_card_action(
+         %{
+           "action" => "update_element",
+           "params" => %{"element_id" => element_id, "element" => element}
+         },
+         card
+       )
+       when is_binary(element_id) and is_map(element) do
+    body_elements =
+      Enum.map(card.body_elements, fn current ->
+        if current["element_id"] == element_id,
+          do: Map.put(element, "element_id", element_id),
+          else: current
+      end)
+
+    %{card | body_elements: body_elements, elements: Map.delete(card.elements, element_id)}
   end
 
   defp apply_card_action(%{"action" => "delete_elements", "params" => params}, card) do

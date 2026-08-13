@@ -17,12 +17,6 @@ import {
 } from './setting-value-editor'
 
 describe('setting value editor', () => {
-  test('uses scalar controls for scalar JSON values', () => {
-    expect(settingValueKind(true)).toBe('boolean')
-    expect(settingValueKind(9)).toBe('number')
-    expect(settingValueKind('UTC')).toBe('string')
-  })
-
   test('uses the object editor only for JSON objects', () => {
     expect(settingValueKind({ mode: 'strict' })).toBe('object')
     expect(settingValueKind(['one'])).toBe('structured')

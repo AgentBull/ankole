@@ -2,7 +2,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnPolicy do
   @moduledoc false
 
   alias Ankole.AIAgent.ModelProfiles
-  alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.Providers
   alias Ankole.SignalsGateway.ActorRuntime.AgentConfig
 
@@ -44,12 +43,18 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnPolicy do
          {:ok, runtime_policy} <-
            AgentConfig.runtime_policy(agent_uid,
              max_completion_tokens: model_ref["max_completion_tokens"]
-           ) do
+           ),
+         {:ok, hosted_capabilities} <- ModelProfiles.provider_hosted_capabilities(agent_uid) do
       {:ok,
        %{
          model_ref: model_ref,
-         runtime_policy: runtime_policy,
-         hosted_tools: hosted_tools(agent_uid, model_ref)
+         runtime_policy:
+           Map.put(runtime_policy, "provider_hosted", %{
+             "web_search" => ModelProfiles.provider_hosted?(hosted_capabilities, "web_search"),
+             "image_generate" =>
+               ModelProfiles.provider_hosted?(hosted_capabilities, "image_generate")
+           }),
+         hosted_tools: hosted_tools(agent_uid, model_ref, hosted_capabilities)
        }}
     end
   end
@@ -94,16 +99,23 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnPolicy do
     end
   end
 
-  defp hosted_tools(agent_uid, model_ref) do
-    case image_generation_hosted_tools(agent_uid, model_ref) ++ web_search_hosted_tools(model_ref) do
+  # A capability the Agent leaves to its Provider is declared to the Provider and
+  # has no Ankole tool this turn. A Provider that cannot run it means the Agent
+  # simply has no such capability: falling back to a configured profile would
+  # silently change who executes the work and what the result looks like.
+  defp hosted_tools(agent_uid, model_ref, hosted_capabilities) do
+    case image_generation_hosted_tools(agent_uid, model_ref, hosted_capabilities) ++
+           web_search_hosted_tools(model_ref, hosted_capabilities) do
       [] -> nil
       tools -> tools
     end
   end
 
-  defp image_generation_hosted_tools(agent_uid, model_ref) do
-    if Providers.supports_native_image_generation?(model_ref) do
-      [%{"type" => "image_generation"}]
+  defp image_generation_hosted_tools(agent_uid, model_ref, hosted_capabilities) do
+    if ModelProfiles.provider_hosted?(hosted_capabilities, "image_generate") do
+      if Providers.supports_native_image_generation?(model_ref),
+        do: [%{"type" => "image_generation"}],
+        else: []
     else
       case ModelProfiles.resolve_runtime_profile(agent_uid, "image_generate") do
         {:ok, _runtime_profile} -> [%{"type" => "image_generation"}]
@@ -112,8 +124,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnPolicy do
     end
   end
 
-  defp web_search_hosted_tools(model_ref) do
-    if ProviderConfigs.supports_hosted_web_search?(model_ref) do
+  # Unlike image generation, an Ankole-executed web search is a Worker tool
+  # rather than a gateway-composed hosted tool, so the Agent's own choice needs
+  # no declaration here.
+  defp web_search_hosted_tools(model_ref, hosted_capabilities) do
+    if ModelProfiles.provider_hosted?(hosted_capabilities, "web_search") and
+         Providers.supports_native_web_search?(model_ref) do
       [%{"type" => "web_search"}]
     else
       []

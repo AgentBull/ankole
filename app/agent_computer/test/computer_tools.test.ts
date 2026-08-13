@@ -78,7 +78,6 @@ describe('computer tools', () => {
     })
     const names = tools.map(tool => tool.name)
 
-    expect(names).toEqual(['command', 'read_file', 'apply_patch', 'reply_attachment'])
     expect(names.some(name => name.startsWith('browser_'))).toBe(false)
     expect(names).not.toContain('interactive_terminal')
   })

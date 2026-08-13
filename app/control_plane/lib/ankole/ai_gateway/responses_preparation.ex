@@ -8,7 +8,6 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
 
   alias Ankole.AIGateway.CompactionArtifacts
   alias Ankole.AIGateway.ChatGPTProtocol
-  alias Ankole.AIGateway.CodexCodeMode
   alias Ankole.AIGateway.CodexVision
   alias Ankole.AIGateway.CredentialAttempts
   alias Ankole.AIGateway.HostedTools.ImageGeneration
@@ -87,7 +86,6 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
 
   defp build(subject_uid, runtime, request, opts) do
     stream? = Keyword.get(opts, :stream?, false)
-    request = CodexCodeMode.plain_tool_descriptions(request)
 
     with {:ok, provider_request} <- provider_request(runtime, request),
          {:ok, provider_request, tool_plan} <- plan_tools(runtime, provider_request),
@@ -229,6 +227,7 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
            build_main_spec(runtime, provider_request, image_generation, upstream_stream?) do
       spec =
         main_spec
+        |> put_native_encrypted_tool_fields(native_openai_tools?(runtime))
         |> composite_spec(public_request, image_generation)
         |> put_tool_loop(tool_plan, provider_request)
 
@@ -275,6 +274,17 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
     request = Map.delete(request, "service_tier")
     ChatGPTProtocol.normalize_non_subscription(request, Map.get(runtime, "request_context", %{}))
   end
+
+  # Native OpenAI Responses owns the `encrypted` tool-parameter marker and the
+  # encrypted function arguments it returns, so the resolver keeps the declared
+  # schema instead of substituting the AIGateway opaque value.
+  defp put_native_encrypted_tool_fields(spec, true) do
+    update_in(spec, [:response_context, :request], fn request ->
+      Map.put(request || %{}, "__ankole_native_encrypted_tool_fields", true)
+    end)
+  end
+
+  defp put_native_encrypted_tool_fields(spec, false), do: spec
 
   # The loop context rides inside the spec so every existing prepare caller
   # forwards it unchanged; `ResponseStream.open` pops it before the spec

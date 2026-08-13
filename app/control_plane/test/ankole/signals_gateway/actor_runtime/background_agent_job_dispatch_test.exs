@@ -349,7 +349,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     assert child_turn.runtime_thread_id == "thread-child"
   end
 
-  test "waiting for user releases the worker assignment and the agent running slot" do
+  test "a waiting reply completes the same Job without a successor" do
     %{principal: agent} = agent_fixture()
     route = unique_route()
     :ok = Broker.register_local_worker(route, self())
@@ -453,6 +453,202 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
              )
 
     assert Ankole.BackgroundAgentJobs.Schemas.Job.running_statuses() == ["running"]
+
+    assert {:ok, %{command_event: reply_event}} =
+             BackgroundAgentJobs.send_message(job.id, %{
+               "agent_uid" => agent.uid,
+               "message" => "The test code is CODE-123.",
+               "request_id" => "waiting-reply-completes"
+             })
+
+    assert {:ok, %{send_outcome: "sent_or_queued"}} =
+             ReadyEventProcessor.process_ready_event_for_actor(actor_key,
+               now: DateTime.add(reply_event.available_at, 1, :second),
+               lease_seconds: @long_lease_seconds
+             )
+
+    assert_receive {:actor_lane, reply_envelope}, 200
+    reply_start = turn_start_payload!(reply_envelope)
+    assert reply_start.actor_event.actor_event_id == reply_event.id
+
+    assert {:ok, [_delivery]} =
+             ActorRuntime.handle_turn_accepted(turn_accepted_payload(reply_start.turn))
+
+    assert {:ok, reply_turn_ref} =
+             Ankole.SignalsGateway.ActorRuntime.TurnRef.from_proto(reply_start.turn)
+
+    assert {:ok, %{job: %{status: "running", attempts: 2}}} =
+             BackgroundAgentJobs.commit_status_with_wakeup(
+               job.id,
+               agent.uid,
+               %{"status" => "running", "runtime_thread_id" => "thread-waiting"},
+               turn_ref: reply_turn_ref,
+               worker_route: route
+             )
+
+    completed_at = DateTime.utc_now(:microsecond)
+
+    assert {:ok, _turn} =
+             BackgroundAgentJobs.upsert_turn_from_worker(
+               job.id,
+               agent.uid,
+               %{
+                 "attempt" => 2,
+                 "runtime_thread_id" => "thread-waiting",
+                 "runtime_turn_id" => "turn-waiting-reply",
+                 "kind" => "agent",
+                 "status" => "completed",
+                 "revision" => 0,
+                 "trajectory" => trajectory_header(),
+                 "trajectory_groups" =>
+                   trajectory_groups([
+                     %{"role" => "user", "content" => "The test code is CODE-123."},
+                     %{"role" => "assistant", "content" => "ANSWER=CODE-123"}
+                   ]),
+                 "progress" => empty_turn_progress(),
+                 "usage" => nil,
+                 "error" => %{},
+                 "started_at" => completed_at,
+                 "completed_at" => completed_at
+               },
+               reply_turn_ref,
+               route
+             )
+
+    assert {:ok, %{job: %{status: "succeeded"}, wakeup_event: wakeup}} =
+             BackgroundAgentJobs.commit_status_with_wakeup(
+               job.id,
+               agent.uid,
+               %{
+                 "status" => "succeeded",
+                 "result" => %{"output_text" => "ANSWER=CODE-123"}
+               },
+               turn_ref: reply_turn_ref,
+               worker_route: route
+             )
+
+    assert get_in(wakeup.payload, ["data", "successor_job_id"]) == nil
+    refute Repo.get_by(Ankole.BackgroundAgentJobs.Schemas.Job, continued_from_job_id: job.id)
+    assert Repo.get!(Ankole.SignalsGateway.ActorEvent, reply_event.id).completed_at == nil
+
+    assert {:ok, %{status: :noop_completed}} =
+             ActorRuntime.handle_turn_noop_completed(
+               turn_noop_completed_payload(reply_start.turn, "background_agent_job_committed")
+             )
+
+    assert %DateTime{} =
+             Repo.get!(Ankole.SignalsGateway.ActorEvent, reply_event.id).completed_at
+  end
+
+  test "an accepted active steer completes with its current Job" do
+    %{principal: agent} = agent_fixture()
+    binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
+    route = unique_route()
+    :ok = Broker.register_local_worker(route, self())
+    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    assert {:ok, _worker} = admit_worker(route)
+
+    job = create_job!(agent.uid, "accepted-active-steer")
+    actor_key = %{agent_uid: agent.uid, session_id: BackgroundAgentJobs.job_session_id(job.id)}
+    now = DateTime.add(job.queued_at, 1, :second)
+
+    assert {:ok, %{send_outcome: "sent_or_queued"}} =
+             ReadyEventProcessor.process_ready_event_for_actor(actor_key,
+               now: now,
+               lease_seconds: @long_lease_seconds
+             )
+
+    assert_receive {:actor_lane, turn_start_envelope}, 200
+    initial_turn = turn_start_payload!(turn_start_envelope).turn
+
+    assert {:ok, [_delivery]} =
+             ActorRuntime.handle_turn_accepted(turn_accepted_payload(initial_turn))
+
+    assert {:ok, %{command_event: steer_event}} =
+             BackgroundAgentJobs.send_message(job.id, %{
+               "agent_uid" => agent.uid,
+               "message" => "Replace the old answer.",
+               "request_id" => "accepted-active-steer"
+             })
+
+    assert {:ok, %{status: :active_steer_nudged}} =
+             ReadyEventProcessor.process_ready_event_for_actor(actor_key,
+               now: DateTime.add(now, 30, :second)
+             )
+
+    assert_receive {:actor_lane, mailbox_envelope}, 200
+    mailbox = envelope_body!(mailbox_envelope, :mailbox_updated)
+    assert mailbox.actor_event.actor_event_id == steer_event.id
+    assert mailbox.turn.revision == 1
+
+    assert {:ok, [_delivery]} =
+             ActorRuntime.handle_turn_accepted(turn_accepted_payload(mailbox.turn))
+
+    assert {:ok, terminal_turn_ref} =
+             Ankole.SignalsGateway.ActorRuntime.TurnRef.from_proto(mailbox.turn)
+
+    assert {:ok, %{job: %{status: "running"}}} =
+             BackgroundAgentJobs.commit_status_with_wakeup(
+               job.id,
+               agent.uid,
+               %{"status" => "running", "runtime_thread_id" => "thread-active-steer"},
+               turn_ref: terminal_turn_ref,
+               worker_route: route
+             )
+
+    completed_at = DateTime.utc_now(:microsecond)
+
+    assert {:ok, _turn} =
+             BackgroundAgentJobs.upsert_turn_from_worker(
+               job.id,
+               agent.uid,
+               %{
+                 "attempt" => 1,
+                 "runtime_thread_id" => "thread-active-steer",
+                 "runtime_turn_id" => "turn-active-steer",
+                 "kind" => "agent",
+                 "status" => "completed",
+                 "revision" => 1,
+                 "trajectory" => trajectory_header(),
+                 "trajectory_groups" =>
+                   trajectory_groups([
+                     %{"role" => "user", "content" => "Complete the initial task."},
+                     %{"role" => "user", "content" => "Replace the old answer."},
+                     %{"role" => "assistant", "content" => "Replacement answer."}
+                   ]),
+                 "progress" => empty_turn_progress(),
+                 "usage" => nil,
+                 "error" => %{},
+                 "started_at" => completed_at,
+                 "completed_at" => completed_at
+               },
+               terminal_turn_ref,
+               route
+             )
+
+    assert {:ok, %{job: %{status: "succeeded"}, wakeup_event: wakeup}} =
+             BackgroundAgentJobs.commit_status_with_wakeup(
+               job.id,
+               agent.uid,
+               %{
+                 "status" => "succeeded",
+                 "result" => %{"output_text" => "Replacement answer."}
+               },
+               turn_ref: terminal_turn_ref,
+               worker_route: route
+             )
+
+    assert get_in(wakeup.payload, ["data", "successor_job_id"]) == nil
+    refute Repo.get_by(Ankole.BackgroundAgentJobs.Schemas.Job, continued_from_job_id: job.id)
+    assert Repo.get!(Ankole.SignalsGateway.ActorEvent, steer_event.id).completed_at == nil
+
+    assert {:ok, %{status: :noop_completed}} =
+             ActorRuntime.handle_turn_noop_completed(
+               turn_noop_completed_payload(mailbox.turn, "background_agent_job_committed")
+             )
+
+    assert %DateTime{} =
+             Repo.get!(Ankole.SignalsGateway.ActorEvent, steer_event.id).completed_at
   end
 
   # Reversal of the removed `enforce_no_unapplied_terminal_steer` gate: a

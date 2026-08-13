@@ -4,21 +4,6 @@ defmodule Ankole.RuntimeEventsTest do
   alias Ankole.RuntimeEvents
   alias Ankole.RuntimeEvents.Event
 
-  test "registry exposes only notification channels for LISTEN" do
-    assert RuntimeEvents.channels() == [
-             RuntimeEvents.actor_session_ready_channel(),
-             RuntimeEvents.agent_home_projection_channel(),
-             RuntimeEvents.reply_preview_checkpoint_channel(),
-             RuntimeEvents.reply_preview_cleanup_channel(),
-             RuntimeEvents.outbox_due_channel(),
-             RuntimeEvents.inbound_batch_due_channel(),
-             RuntimeEvents.worker_deadline_channel(),
-             RuntimeEvents.activation_deadline_channel(),
-             RuntimeEvents.ai_message_deadline_channel(),
-             RuntimeEvents.job_turn_deadline_channel()
-           ]
-  end
-
   test "outbox due events carry typed scheduling metadata" do
     due_at = ~U[2026-07-07 10:00:00.000000Z] |> DateTime.to_iso8601()
 

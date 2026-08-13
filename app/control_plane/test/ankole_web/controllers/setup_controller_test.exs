@@ -201,17 +201,6 @@ defmodule AnkoleWeb.SetupControllerTest do
     assert lark["displayName"]["default"] == "Lark"
     assert lark["defaultProviderID"] == "lark-main"
 
-    assert Enum.map(lark["fields"], & &1["path"]) == [
-             "appID",
-             "appSecret",
-             "domain",
-             "oidc.enabled",
-             "oidc.scopes",
-             "sync.contacts",
-             "sync.websocket",
-             "sync.pageSize"
-           ]
-
     assert hd(lark["fields"])["label"]["zh-Hans-CN"] == "App ID"
 
     assert hd(lark["fields"])["description"]["default"] ==

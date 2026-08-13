@@ -289,6 +289,8 @@ defmodule AnkoleWeb.Router do
     put "/identity-providers/:provider_id", IdentityProviderController, :put_provider
     post "/identity-providers/:provider_id/sync-runs", IdentityProviderController, :run_sync
 
+    put "/agents/:agent_uid/provider-hosted", AgentController, :put_provider_hosted
+
     put "/agents/:agent_uid/model-profiles/:profile",
         AgentController,
         :put_model_profile

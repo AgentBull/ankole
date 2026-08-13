@@ -3,6 +3,7 @@ use crate::common::{base64_url_safe_decode, base64_url_safe_encode};
 
 const OPAQUE_CONTENT_PREFIX: &str = "ankole-aigateway-opaque-v1:";
 const LEGACY_CHAT_CONTENT_PREFIX: &str = "ankole-chat-encoded-v1:";
+const NATIVE_ENCRYPTED_TOOL_FIELDS: &str = "__ankole_native_encrypted_tool_fields";
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct ToolIdentity {
@@ -83,9 +84,27 @@ impl OpaqueToolFields {
         kind: APIResolverKind,
         context: &ResponseContext,
     ) -> Result<(Self, ResponseContext), StreamError> {
-        let plan = ToolFieldPlan::from_context(context)?;
         let mut provider_context = context.clone();
-        sanitize_context_tools(&mut provider_context)?;
+
+        let native_encrypted_tool_fields = context
+            .request
+            .get(NATIVE_ENCRYPTED_TOOL_FIELDS)
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+
+        if native_encrypted_tool_fields {
+            if kind != APIResolverKind::OpenAIResponses {
+                return Err(invalid_tool_schema_error(
+                    "native encrypted tool fields require the OpenAI Responses wire protocol",
+                ));
+            }
+            normalize_context_tool_markers(&mut provider_context, false)?;
+            lower_context(&mut provider_context, true)?;
+            return Ok((Self::inactive(), provider_context));
+        }
+
+        let plan = ToolFieldPlan::from_context(context)?;
+        normalize_context_tool_markers(&mut provider_context, true)?;
         lower_context(
             &mut provider_context,
             kind == APIResolverKind::OpenAIResponses,
@@ -630,16 +649,31 @@ impl ToolFieldPlan {
     }
 }
 
-fn sanitize_context_tools(context: &mut ResponseContext) -> Result<(), StreamError> {
-    sanitize_request_tools(&mut context.provider_options)?;
-    sanitize_request_tools(&mut context.request)
+// Marker validation and marker removal are separate decisions. Native OpenAI
+// Responses owns the declared marker and keeps it, but every route still has to
+// reject a marker the Worker-facing contract does not allow, so validation runs
+// even when removal does not.
+fn normalize_context_tool_markers(
+    context: &mut ResponseContext,
+    remove_markers: bool,
+) -> Result<(), StreamError> {
+    for request in [&mut context.provider_options, &mut context.request] {
+        for_each_tool_schema(request, &mut |schema| {
+            encrypted_schema_fields(schema)?;
+            if remove_markers {
+                strip_direct_encrypted_markers(schema);
+            }
+            Ok(())
+        })?;
+    }
+    Ok(())
 }
 
-fn sanitize_request_tools(request: &mut Value) -> Result<(), StreamError> {
-    let Some(tools) = request.get_mut("tools") else {
-        return Ok(());
-    };
-    let Some(tools) = tools.as_array_mut() else {
+fn for_each_tool_schema(
+    request: &mut Value,
+    apply: &mut impl FnMut(&mut Value) -> Result<(), StreamError>,
+) -> Result<(), StreamError> {
+    let Some(tools) = request.get_mut("tools").and_then(Value::as_array_mut) else {
         return Ok(());
     };
     for tool in tools {
@@ -651,24 +685,26 @@ fn sanitize_request_tools(request: &mut Value) -> Result<(), StreamError> {
                 if let Some(children) = tool.get_mut("tools").and_then(Value::as_array_mut) {
                     for child in children {
                         if let Some(child) = child.as_object_mut() {
-                            sanitize_function_schema(child)?;
+                            for_each_function_schema(child, apply)?;
                         }
                     }
                 }
             }
-            Some("function") => sanitize_function_schema(tool)?,
+            Some("function") => for_each_function_schema(tool, apply)?,
             _tool => {}
         }
     }
     Ok(())
 }
 
-fn sanitize_function_schema(tool: &mut Map<String, Value>) -> Result<(), StreamError> {
+fn for_each_function_schema(
+    tool: &mut Map<String, Value>,
+    apply: &mut impl FnMut(&mut Value) -> Result<(), StreamError>,
+) -> Result<(), StreamError> {
     let function = function_map_mut(tool);
     for key in ["parameters", "input_schema"] {
         if let Some(schema) = function.get_mut(key) {
-            encrypted_schema_fields(schema)?;
-            strip_direct_encrypted_markers(schema);
+            apply(schema)?;
         }
     }
     Ok(())

@@ -115,92 +115,6 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert model_ref["provider_id"] == "openai-responses-main"
   end
 
-  test "every tool path removes the Codex code-mode exec declaration before dispatch" do
-    %{principal: agent} = agent_fixture()
-
-    base_url =
-      start_recording_upstream(self(), fn _request ->
-        {:json, 200,
-         %{
-           "id" => "resp_code_mode",
-           "object" => "response",
-           "status" => "completed",
-           "output" => [],
-           "usage" => %{}
-         }}
-      end)
-
-    declaration =
-      "\n\nexec tool declaration:\n```ts\n" <>
-        "declare const tools: { exec_command(args: { cmd: string }): Promise<unknown>; };\n```"
-
-    tools = [
-      %{
-        "type" => "function",
-        "name" => "exec_command",
-        "description" => "Run one shell command." <> declaration,
-        "parameters" => %{"type" => "object", "properties" => %{}}
-      },
-      %{
-        "type" => "namespace",
-        "name" => "skills",
-        "description" => "Agent Skills.",
-        "tools" => [
-          %{
-            "type" => "function",
-            "name" => "read",
-            "description" => "Read one Skill." <> declaration,
-            "parameters" => %{"type" => "object", "properties" => %{}}
-          }
-        ]
-      }
-    ]
-
-    request = %{"model" => "primary", "input" => "Read one Skill.", "tools" => tools}
-
-    configure_openai_responses_provider!(agent.uid, base_url, "openai-code-mode")
-
-    assert {:ok, %{body: %{"id" => "resp_code_mode"}}} =
-             AIGateway.create_response(agent.uid, request)
-
-    assert_receive {:gateway_request, native}
-
-    assert native.body["tools"] == [
-             %{
-               "type" => "function",
-               "name" => "exec_command",
-               "description" => "Run one shell command.",
-               "parameters" => %{"type" => "object", "properties" => %{}}
-             },
-             %{
-               "type" => "namespace",
-               "name" => "skills",
-               "description" => "Agent Skills.",
-               "tools" => [
-                 %{
-                   "type" => "function",
-                   "name" => "read",
-                   "description" => "Read one Skill.",
-                   "parameters" => %{"type" => "object", "properties" => %{}}
-                 }
-               ]
-             }
-           ]
-
-    configure_openai_compatible_responses_provider!(agent.uid, base_url, "compatible-code-mode")
-
-    assert {:ok, %{body: %{"id" => "resp_code_mode"}}} =
-             AIGateway.create_response(agent.uid, request)
-
-    assert_receive {:gateway_request, local}
-    assert Enum.map(local.body["tools"], & &1["name"]) == ["exec_command", "skills__read"]
-
-    assert Enum.map(local.body["tools"], & &1["description"]) == [
-             "Run one shell command.",
-             "Read one Skill."
-           ]
-  end
-
   test "openai-compatible Responses flattens namespaced replay without current tools" do
     %{principal: agent} = agent_fixture()
 
@@ -334,6 +248,87 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert_receive {:gateway_request, request}
     assert request.body["tools"] == tools
     assert request.body["max_tool_calls"] == 1
+  end
+
+  test "first-party OpenAI preserves the native Codex collaboration schema" do
+    %{principal: agent} = agent_fixture()
+
+    base_url =
+      start_recording_upstream(self(), fn _request ->
+        {:json, 200,
+         %{
+           "id" => "resp_native_collaboration_schema",
+           "object" => "response",
+           "status" => "completed",
+           "output" => [],
+           "usage" => %{}
+         }}
+      end)
+
+    configure_openai_responses_provider!(
+      agent.uid,
+      base_url,
+      "openai-native-collaboration-schema"
+    )
+
+    exec_description =
+      "Run one command.\n\nexec tool declaration:\n```ts\n" <>
+        "declare const tools: { exec_command(args: { cmd: string }): Promise<unknown>; };\n```"
+
+    tools = [
+      %{
+        "type" => "namespace",
+        "name" => "collaboration",
+        "description" => "Tools for spawning and managing sub-agents.",
+        "tools" => [
+          %{
+            "type" => "function",
+            "name" => "followup_task",
+            "description" =>
+              "Send a follow-up task to an existing non-root target agent and trigger a turn if it is idle. If the target is already running, deliver the task promptly at message boundaries while sampling, or after the pending tool call completes.",
+            "strict" => false,
+            "parameters" => %{
+              "type" => "object",
+              "properties" => %{
+                "message" => %{
+                  "type" => "string",
+                  "description" => "Message text to send to the target agent.",
+                  "encrypted" => true
+                },
+                "target" => %{
+                  "type" => "string",
+                  "description" =>
+                    "Agent id or canonical task name to send a follow-up task to (from spawn_agent)."
+                }
+              },
+              "required" => ["target", "message"],
+              "additionalProperties" => false
+            }
+          }
+        ]
+      },
+      %{
+        "type" => "function",
+        "name" => "exec_command",
+        "description" => exec_description,
+        "parameters" => %{
+          "type" => "object",
+          "properties" => %{"cmd" => %{"type" => "string"}},
+          "required" => ["cmd"]
+        }
+      }
+    ]
+
+    assert {:ok, %{body: %{"id" => "resp_native_collaboration_schema"}}} =
+             AIGateway.create_response(agent.uid, %{
+               "model" => "primary",
+               "input" => "Delegate the next step.",
+               "tools" => tools
+             })
+
+    assert_receive {:gateway_request, request}
+    assert request.body["tools"] == tools
+    refute Map.has_key?(request.body, "__ankole_native_encrypted_tool_fields")
   end
 
   test "ChatGPT Subscription keeps Codex tools native and runs Main Agent PTC locally" do
@@ -2003,23 +1998,40 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                model: "gpt-5.4"
              })
 
-    assert {:ok, %{body: body}} =
+    assert {:ok, %{body: first_body}} =
              AIGateway.create_response(agent.uid, %{
                "model" => "primary",
-               "input" => [
-                 encrypted_reasoning,
-                 %{"type" => "message", "role" => "user", "content" => "continue"}
-               ],
+               "input" => "start",
                "include" => ["reasoning.encrypted_content"],
                "prompt_cache_key" => "codex-thread-1",
                "store" => false
              })
 
-    assert_receive {:gateway_request, request}
-    assert request.body["include"] == ["reasoning.encrypted_content"]
-    assert request.body["prompt_cache_key"] == "codex-thread-1"
-    assert List.first(request.body["input"])["encrypted_content"] == "ENCRYPTED_CODEX_STATE"
-    assert List.first(body["output"])["encrypted_content"] == "ENCRYPTED_CODEX_STATE"
+    assert_receive {:gateway_request, first_request}
+    assert first_request.body["include"] == ["reasoning.encrypted_content"]
+    assert first_request.body["prompt_cache_key"] == "codex-thread-1"
+
+    [wrapped_reasoning] = first_body["output"]
+    assert wrapped_reasoning == encrypted_reasoning
+
+    assert {:ok, %{body: second_body}} =
+             AIGateway.create_response(agent.uid, %{
+               "model" => "primary",
+               "input" => [
+                 wrapped_reasoning,
+                 %{"type" => "message", "role" => "user", "content" => "continue"}
+               ],
+               "include" => ["reasoning.encrypted_content"],
+               "store" => false
+             })
+
+    assert_receive {:gateway_request, second_request}
+
+    assert List.first(second_request.body["input"])["encrypted_content"] ==
+             "ENCRYPTED_CODEX_STATE"
+
+    assert List.first(second_body["output"])["encrypted_content"] ==
+             "ENCRYPTED_CODEX_STATE"
   end
 
   test "chat providers round-trip AIGateway encrypted tool parameters" do

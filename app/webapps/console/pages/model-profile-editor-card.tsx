@@ -10,7 +10,8 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue
+  SelectValue,
+  Switch
 } from '@ankole/uikit'
 import { RiArrowDownSLine } from '@remixicon/react'
 import type { TFunction } from 'i18next'
@@ -49,6 +50,7 @@ export function ModelProfileEditorCard({
   saveIncomplete,
   showDescription,
   persistencePending,
+  providerHosted,
   deleteConfirm,
   deleteDisabled,
   deleteLabel,
@@ -69,6 +71,19 @@ export function ModelProfileEditorCard({
   saveIncomplete?: boolean
   showDescription?: boolean
   persistencePending: boolean
+  /**
+   * When set, this capability can be left to the Agent's language-model
+   * Provider. While that is on, the Provider owns the capability and this
+   * profile is not used, so the form is disabled rather than hidden: the
+   * operator can still see the configuration they would return to.
+   */
+  providerHosted?: {
+    checked: boolean
+    pending: boolean
+    label: string
+    description: string
+    onChange: (checked: boolean) => void
+  }
   /** When set, the delete action asks for confirmation before it fires. */
   deleteConfirm?: { title: string; description?: string; confirmLabel: string }
   deleteDisabled: boolean
@@ -102,6 +117,7 @@ export function ModelProfileEditorCard({
   const changedDraftIncomplete = Boolean(dirty && (!configured || (showDescription && !draft.description.trim())))
   const incomplete = Boolean(saveIncomplete || requiredConfigurationMissing || changedDraftIncomplete)
   const disableSave = persistencePending || (!dirty && !requiredConfigurationMissing)
+  const hostedActive = providerHosted?.checked === true
   const [open, setOpen] = useState(needsAttention)
   const manuallyToggled = useRef(false)
   const providerError = draft.error && !providerID.trim() ? draft.error : undefined
@@ -135,174 +151,192 @@ export function ModelProfileEditorCard({
         event.preventDefault()
         onSave()
       }}>
-      <Collapsible
-        className="border border-border bg-card"
-        open={open}
-        onOpenChange={nextOpen => {
-          manuallyToggled.current = true
-          setOpen(nextOpen)
-        }}>
-        <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
-          <CollapsibleTrigger className="group flex min-w-0 flex-1 basis-64 items-center gap-3 px-4 py-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
-            <Badge className="shrink-0" variant={required ? 'default' : 'outline'}>
-              {label}
-            </Badge>
-            <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-              {configured
-                ? [providerID, configurableModel ? selectedModelLabel : null].filter(Boolean).join(' · ')
-                : t('console.models.not_configured')}
-            </span>
-            {required ? (
-              <span className="shrink-0 text-xs text-muted-foreground">{t('console.models.required')}</span>
-            ) : null}
-            {dirty ? (
-              <span className="shrink-0 text-xs text-muted-foreground">{t('console.models.unsaved')}</span>
-            ) : null}
-            <RiArrowDownSLine
-              className="size-4 shrink-0 transition-transform group-aria-expanded:rotate-180"
-              aria-hidden
-            />
-          </CollapsibleTrigger>
-          <div className="flex shrink-0 gap-2 pr-4">
-            <SaveButton
-              disabled={disableSave}
-              incomplete={incomplete && !disableSave}
-              loading={persistencePending}
-              size="xs"
-              type="submit">
-              {t('common.save')}
-            </SaveButton>
-            {deleteConfirm ? (
-              <ConfirmDeleteButton
-                confirm={deleteConfirm}
-                label={deleteLabel}
-                pending={deleteDisabled || persistencePending}
-                onConfirm={onDelete}
+      <fieldset className="contents" disabled={hostedActive}>
+        <Collapsible
+          className="border border-border bg-card"
+          open={open}
+          onOpenChange={nextOpen => {
+            manuallyToggled.current = true
+            setOpen(nextOpen)
+          }}>
+          <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+            <CollapsibleTrigger className="group flex min-w-0 flex-1 basis-64 items-center gap-3 px-4 py-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
+              <Badge className="shrink-0" variant={required ? 'default' : 'outline'}>
+                {label}
+              </Badge>
+              <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+                {configured
+                  ? [providerID, configurableModel ? selectedModelLabel : null].filter(Boolean).join(' · ')
+                  : t('console.models.not_configured')}
+              </span>
+              {required ? (
+                <span className="shrink-0 text-xs text-muted-foreground">{t('console.models.required')}</span>
+              ) : null}
+              {dirty ? (
+                <span className="shrink-0 text-xs text-muted-foreground">{t('console.models.unsaved')}</span>
+              ) : null}
+              <RiArrowDownSLine
+                className="size-4 shrink-0 transition-transform group-aria-expanded:rotate-180"
+                aria-hidden
               />
-            ) : (
-              <Button
-                disabled={deleteDisabled || persistencePending}
+            </CollapsibleTrigger>
+            <div className="flex shrink-0 items-center gap-2 pr-4">
+              {providerHosted ? (
+                <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Switch
+                    aria-label={providerHosted.label}
+                    checked={providerHosted.checked}
+                    disabled={providerHosted.pending}
+                    onCheckedChange={providerHosted.onChange}
+                  />
+                  {providerHosted.label}
+                </label>
+              ) : null}
+              <SaveButton
+                disabled={disableSave || hostedActive}
+                incomplete={incomplete && !disableSave}
+                loading={persistencePending}
                 size="xs"
-                type="button"
-                variant="ghost"
-                onClick={onDelete}>
-                {deleteLabel}
-              </Button>
-            )}
+                type="submit">
+                {t('common.save')}
+              </SaveButton>
+              {deleteConfirm ? (
+                <ConfirmDeleteButton
+                  confirm={deleteConfirm}
+                  label={deleteLabel}
+                  pending={deleteDisabled || persistencePending}
+                  onConfirm={onDelete}
+                />
+              ) : (
+                <Button
+                  disabled={deleteDisabled || persistencePending}
+                  size="xs"
+                  type="button"
+                  variant="ghost"
+                  onClick={onDelete}>
+                  {deleteLabel}
+                </Button>
+              )}
+            </div>
           </div>
-        </div>
-        <CollapsibleContent className="grid gap-4 border-t border-border px-4 py-4">
-          {hint ? <p className="text-pretty text-xs leading-5 text-muted-foreground">{hint}</p> : null}
-          {nameField}
-          {showDescription ? (
-            <LabeledField label={t('console.models.custom_profile_description')} required>
-              <Input
-                maxLength={200}
-                value={draft.description}
-                onChange={event => onUpdate({ description: event.target.value, error: undefined })}
-              />
-            </LabeledField>
-          ) : null}
-          {formError ? <ErrorBlock error={formError} /> : null}
-          <div
-            className={configurableModel ? 'grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_9rem]' : 'grid gap-4'}>
-            <LabeledField label={t('console.models.provider')} error={providerError} required>
-              <Select
-                value={draft.providerID}
-                onValueChange={value => {
-                  const nextProviderID = String(value)
-                  onUpdate(
-                    nextProviderID === draft.providerID
-                      ? { providerID: nextProviderID }
-                      : {
-                          providerID: nextProviderID,
-                          ...(configurableModel ? { model: '', contextLength: '' } : {}),
-                          providerOptions: {},
-                          error: undefined
-                        }
-                  )
-                }}>
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder={t('console.models.provider_placeholder')} />
-                </SelectTrigger>
-                <SelectContent emptyLabel={t('console.models.provider_empty')}>
-                  {profileProviders.map(provider => (
-                    <SelectItem key={provider.provider_id} value={provider.provider_id}>
-                      {provider.provider_id}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </LabeledField>
-            {configurableModel ? (
-              <>
-                <LabeledField label={t('console.models.model')} error={modelError} required>
-                  <CreatableCombobox
-                    ariaLabel={t('console.models.model')}
-                    clearLabel={t('common.clear')}
-                    disabled={!providerID}
-                    required
-                    options={modelOptions}
-                    placeholder={
-                      providerID
-                        ? t('console.models.model_placeholder')
-                        : t('console.models.provider_required_placeholder')
-                    }
-                    emptyLabel={t('console.models.model_empty')}
-                    createLabel={value => t('console.models.model_use', { model: value })}
-                    triggerLabel={t('common.open')}
-                    value={draft.model}
-                    onValueChange={value => onUpdate({ model: value, error: undefined })}
-                  />
-                </LabeledField>
-                <LabeledField label={t('console.models.context')}>
-                  <Input
-                    disabled={!providerID}
-                    inputMode="numeric"
-                    placeholder={providerID ? undefined : t('console.models.provider_required_placeholder')}
-                    value={draft.contextLength}
-                    onChange={event => onUpdate({ contextLength: event.target.value })}
-                  />
-                </LabeledField>
-              </>
+          <CollapsibleContent className="grid gap-4 border-t border-border px-4 py-4">
+            {providerHosted ? (
+              <p className="text-xs leading-5 text-muted-foreground">{providerHosted.description}</p>
             ) : null}
-          </div>
-          <div className="grid gap-3">
-            <h4 className="text-sm font-medium">{t('console.models.provider_options')}</h4>
-            {!hasCompatibleProvider ? (
-              <p className="text-xs text-muted-foreground">{t('console.models.provider_options_unavailable')}</p>
-            ) : !providerID ? (
-              <p className="text-xs text-muted-foreground">{t('console.models.provider_options_select')}</p>
-            ) : !selectedKind ? (
-              <p className="text-xs text-muted-foreground">{t('common.loading')}</p>
-            ) : optionSettings.length === 0 ? (
-              <p className="text-xs text-muted-foreground">{t('console.models.provider_options_empty')}</p>
-            ) : (
-              <>
-                {basicOptionSettings.length > 0 ? (
-                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                    {basicOptionSettings.map(renderOptionSetting)}
-                  </div>
-                ) : null}
-                {advancedOptionSettings.length > 0 ? (
-                  <Collapsible className="grid gap-4" defaultOpen={false}>
-                    <CollapsibleTrigger className="flex w-full items-center justify-between gap-3 border border-border bg-muted/40 px-4 py-3 text-left text-sm font-medium">
-                      <span>{t('common.advanced_settings')}</span>
-                      <span className="flex items-center gap-2 text-xs text-muted-foreground">
-                        {advancedOptionSettings.length}
-                        <RiArrowDownSLine className="size-4" aria-hidden />
-                      </span>
-                    </CollapsibleTrigger>
-                    <CollapsibleContent className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                      {advancedOptionSettings.map(renderOptionSetting)}
-                    </CollapsibleContent>
-                  </Collapsible>
-                ) : null}
-              </>
-            )}
-          </div>
-        </CollapsibleContent>
-      </Collapsible>
+            {hint ? <p className="text-pretty text-xs leading-5 text-muted-foreground">{hint}</p> : null}
+            {nameField}
+            {showDescription ? (
+              <LabeledField label={t('console.models.custom_profile_description')} required>
+                <Input
+                  maxLength={200}
+                  value={draft.description}
+                  onChange={event => onUpdate({ description: event.target.value, error: undefined })}
+                />
+              </LabeledField>
+            ) : null}
+            {formError ? <ErrorBlock error={formError} /> : null}
+            <div
+              className={
+                configurableModel ? 'grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_9rem]' : 'grid gap-4'
+              }>
+              <LabeledField label={t('console.models.provider')} error={providerError} required>
+                <Select
+                  value={draft.providerID}
+                  onValueChange={value => {
+                    const nextProviderID = String(value)
+                    onUpdate(
+                      nextProviderID === draft.providerID
+                        ? { providerID: nextProviderID }
+                        : {
+                            providerID: nextProviderID,
+                            ...(configurableModel ? { model: '', contextLength: '' } : {}),
+                            providerOptions: {},
+                            error: undefined
+                          }
+                    )
+                  }}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder={t('console.models.provider_placeholder')} />
+                  </SelectTrigger>
+                  <SelectContent emptyLabel={t('console.models.provider_empty')}>
+                    {profileProviders.map(provider => (
+                      <SelectItem key={provider.provider_id} value={provider.provider_id}>
+                        {provider.provider_id}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </LabeledField>
+              {configurableModel ? (
+                <>
+                  <LabeledField label={t('console.models.model')} error={modelError} required>
+                    <CreatableCombobox
+                      ariaLabel={t('console.models.model')}
+                      clearLabel={t('common.clear')}
+                      disabled={!providerID}
+                      required
+                      options={modelOptions}
+                      placeholder={
+                        providerID
+                          ? t('console.models.model_placeholder')
+                          : t('console.models.provider_required_placeholder')
+                      }
+                      emptyLabel={t('console.models.model_empty')}
+                      createLabel={value => t('console.models.model_use', { model: value })}
+                      triggerLabel={t('common.open')}
+                      value={draft.model}
+                      onValueChange={value => onUpdate({ model: value, error: undefined })}
+                    />
+                  </LabeledField>
+                  <LabeledField label={t('console.models.context')}>
+                    <Input
+                      disabled={!providerID}
+                      inputMode="numeric"
+                      placeholder={providerID ? undefined : t('console.models.provider_required_placeholder')}
+                      value={draft.contextLength}
+                      onChange={event => onUpdate({ contextLength: event.target.value })}
+                    />
+                  </LabeledField>
+                </>
+              ) : null}
+            </div>
+            <div className="grid gap-3">
+              <h4 className="text-sm font-medium">{t('console.models.provider_options')}</h4>
+              {!hasCompatibleProvider ? (
+                <p className="text-xs text-muted-foreground">{t('console.models.provider_options_unavailable')}</p>
+              ) : !providerID ? (
+                <p className="text-xs text-muted-foreground">{t('console.models.provider_options_select')}</p>
+              ) : !selectedKind ? (
+                <p className="text-xs text-muted-foreground">{t('common.loading')}</p>
+              ) : optionSettings.length === 0 ? (
+                <p className="text-xs text-muted-foreground">{t('console.models.provider_options_empty')}</p>
+              ) : (
+                <>
+                  {basicOptionSettings.length > 0 ? (
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                      {basicOptionSettings.map(renderOptionSetting)}
+                    </div>
+                  ) : null}
+                  {advancedOptionSettings.length > 0 ? (
+                    <Collapsible className="grid gap-4" defaultOpen={false}>
+                      <CollapsibleTrigger className="flex w-full items-center justify-between gap-3 border border-border bg-muted/40 px-4 py-3 text-left text-sm font-medium">
+                        <span>{t('common.advanced_settings')}</span>
+                        <span className="flex items-center gap-2 text-xs text-muted-foreground">
+                          {advancedOptionSettings.length}
+                          <RiArrowDownSLine className="size-4" aria-hidden />
+                        </span>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                        {advancedOptionSettings.map(renderOptionSetting)}
+                      </CollapsibleContent>
+                    </Collapsible>
+                  ) : null}
+                </>
+              )}
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
+      </fieldset>
     </form>
   )
 }

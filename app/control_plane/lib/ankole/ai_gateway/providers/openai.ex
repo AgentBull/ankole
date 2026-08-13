@@ -72,6 +72,7 @@ defmodule Ankole.AIGateway.Providers.OpenAI do
       prepare(:prepare_language_model)
       supports_parallel_tool_calls()
       supports_native_image_generation()
+      supports_native_web_search()
     end
   end
 

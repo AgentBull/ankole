@@ -153,6 +153,9 @@ defmodule AnkoleWeb.BackgroundAgentJobController do
     end
   end
 
+  # `CastAndValidate` leaves the validated request body in `conn.body_params` and
+  # keeps only path and query parameters in the action params, so the summary is
+  # read from the body like every other console write.
   def complete(conn, params) do
     with :ok <- ConsolePolicy.authorize(conn, "background_agent_jobs", "update"),
          %Job{} = job <- job(params),
@@ -160,7 +163,7 @@ defmodule AnkoleWeb.BackgroundAgentJobController do
            BackgroundAgentJobs.request_complete(job.id, %{
              "agent_uid" => job.agent_uid,
              "completed_by" => "operator:#{conn.assigns.current_principal_uid}",
-             "result_summary" => param(params, "result_summary")
+             "result_summary" => param(conn.body_params, "result_summary")
            }) do
       json(conn, %{job: detail_projection(completed)})
     else

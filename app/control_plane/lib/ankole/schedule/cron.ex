@@ -224,12 +224,32 @@ defmodule Ankole.Schedule.Cron do
   end
 
   @spec validate_fire_schedule(CronSchedule.t(), ScheduledEvent.t()) ::
-          :ok | {:cancel, :cron_schedule_not_active | :cron_task_required}
+          :ok
+          | {:cancel,
+             :cron_schedule_not_active | :cron_task_required | :cron_delivery_route_required}
   def validate_fire_schedule(%CronSchedule{status: status} = schedule, %ScheduledEvent{} = event) do
     case {event_trigger(event), status} do
-      {"scheduled", "active"} -> validate_fire_task(schedule)
-      {"manual", status} when status in ["active", "paused"] -> validate_fire_task(schedule)
-      {_trigger, _status} -> {:cancel, :cron_schedule_not_active}
+      {"scheduled", "active"} ->
+        validate_fire_preconditions(schedule)
+
+      {"manual", status} when status in ["active", "paused"] ->
+        validate_fire_preconditions(schedule)
+
+      {_trigger, _status} ->
+        {:cancel, :cron_schedule_not_active}
+    end
+  end
+
+  # A schedule that cannot say what to run, or where to deliver the result, is
+  # cancelled rather than fired. Both are durable facts of the stored row, so a
+  # later attempt cannot clear them.
+  defp validate_fire_preconditions(%CronSchedule{} = schedule) do
+    with :ok <- validate_fire_task(schedule),
+         {:ok, _primary_target} <- primary_delivery_target(schedule) do
+      :ok
+    else
+      {:cancel, _reason} = cancel -> cancel
+      {:error, reason} -> {:cancel, reason}
     end
   end
 
@@ -239,6 +259,12 @@ defmodule Ankole.Schedule.Cron do
       {:error, reason} -> {:cancel, reason}
     end
   end
+
+  # Single reader of the stored delivery route. Arming, snapshot refresh, and the
+  # fire precondition all resolve it here, so a broken stored row fails the same
+  # way everywhere instead of raising inside a transaction.
+  defp primary_delivery_target(%CronSchedule{} = schedule),
+    do: Delivery.primary_target(schedule.delivery || %{}, schedule.binding_name)
 
   @spec advance_after_fire(
           module(),
@@ -512,35 +538,61 @@ defmodule Ankole.Schedule.Cron do
   end
 
   defp arm_scheduled_cron_fire_in_tx(repo, schedule, slot_at, now, opts) do
-    schedule
-    |> event_attrs(
-      slot_at,
-      slot_at,
-      now,
-      "scheduled",
-      Store.cron_arm_idempotency_key(schedule.id, slot_at),
-      nil
-    )
-    |> then(&Store.insert_event_and_wake_in_tx(repo, &1, opts))
+    with {:ok, attrs} <-
+           event_attrs(
+             schedule,
+             slot_at,
+             slot_at,
+             now,
+             "scheduled",
+             Store.cron_arm_idempotency_key(schedule.id, slot_at),
+             nil
+           ) do
+      Store.insert_event_and_wake_in_tx(repo, attrs, opts)
+    end
   end
 
   defp arm_manual_cron_fire_in_tx(repo, schedule, request_id, now, opts) do
-    schedule
-    |> event_attrs(
-      now,
-      now,
-      now,
-      "manual",
-      Store.cron_manual_idempotency_key(schedule.id, request_id),
-      request_id
-    )
-    |> then(&Store.insert_idempotent_event_and_wake_in_tx(repo, &1, opts))
+    with {:ok, attrs} <-
+           event_attrs(
+             schedule,
+             now,
+             now,
+             now,
+             "manual",
+             Store.cron_manual_idempotency_key(schedule.id, request_id),
+             request_id
+           ) do
+      Store.insert_idempotent_event_and_wake_in_tx(repo, attrs, opts)
+    end
   end
 
   defp event_attrs(schedule, slot_at, due_at, now, trigger, idempotency_key, tool_call_id) do
-    delivery = schedule.delivery || %{}
-    {:ok, primary_target} = Delivery.primary_target(delivery, schedule.binding_name)
+    with {:ok, primary_target} <- primary_delivery_target(schedule) do
+      {:ok,
+       event_attrs(
+         schedule,
+         primary_target,
+         slot_at,
+         due_at,
+         now,
+         trigger,
+         idempotency_key,
+         tool_call_id
+       )}
+    end
+  end
 
+  defp event_attrs(
+         schedule,
+         primary_target,
+         slot_at,
+         due_at,
+         now,
+         trigger,
+         idempotency_key,
+         tool_call_id
+       ) do
     %{
       kind: "cron_fire",
       status: "scheduled",
@@ -568,9 +620,12 @@ defmodule Ankole.Schedule.Cron do
   end
 
   defp update_scheduled_event_snapshot(repo, event, schedule, slot_at) do
-    delivery = schedule.delivery || %{}
-    {:ok, primary_target} = Delivery.primary_target(delivery, schedule.binding_name)
+    with {:ok, primary_target} <- primary_delivery_target(schedule) do
+      update_scheduled_event_snapshot(repo, event, schedule, slot_at, primary_target)
+    end
+  end
 
+  defp update_scheduled_event_snapshot(repo, event, schedule, slot_at, primary_target) do
     event
     |> ScheduledEvent.changeset(%{
       binding_name: schedule.binding_name,

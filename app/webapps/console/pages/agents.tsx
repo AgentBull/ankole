@@ -235,6 +235,7 @@ export function AgentEditorPage() {
               error={modelProfiles.error}
               loading={modelProfiles.isLoading}
               profiles={recordValue(modelProfiles.data?.model_profiles) ?? {}}
+              providerHosted={modelProfiles.data?.provider_hosted ?? { web_search: true, image_generate: true }}
               providers={providers.data?.ai_gateway_providers ?? []}
               providerKinds={providerKinds.data?.provider_kinds ?? []}
               modelCatalog={modelCatalog.data}

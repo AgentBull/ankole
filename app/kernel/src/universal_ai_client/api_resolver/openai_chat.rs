@@ -1,32 +1,6 @@
 use super::*;
-use crate::common::{base64_url_safe_decode, base64_url_safe_encode};
 
 const CHAT_REASONING_PREFIX: &str = "ankole-aigateway-chat-reasoning:";
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct ChatReasoningSource {
-    provider_type: String,
-    model_id: String,
-}
-
-impl ChatReasoningSource {
-    fn from_context(context: &ResponseContext) -> Option<Self> {
-        let source = context
-            .request
-            .get("__ankole_reasoning_source")?
-            .as_object()?;
-        let provider_type = source.get("provider_type")?.as_str()?.trim();
-        let model_id = source.get("model_id")?.as_str()?.trim();
-        if provider_type.is_empty() || model_id.is_empty() {
-            return None;
-        }
-
-        Some(Self {
-            provider_type: provider_type.to_string(),
-            model_id: model_id.to_string(),
-        })
-    }
-}
 
 #[derive(Debug, Clone, Default)]
 struct ChatReasoning {
@@ -78,35 +52,19 @@ impl ChatReasoning {
     }
 
     fn encoded_content(&self, context: &ResponseContext) -> Option<String> {
-        let source = ChatReasoningSource::from_context(context)?;
-        let payload = json!({
-            "provider_type": source.provider_type,
-            "model_id": source.model_id,
-            "reasoning_details": self.details,
-            "reasoning": self.text
-        });
-        let encoded = payload.to_string();
+        let mut payload = Map::new();
+        payload.insert(
+            "reasoning_details".to_string(),
+            Value::Array(self.details.clone()),
+        );
+        payload.insert("reasoning".to_string(), json!(self.text));
 
-        Some(format!(
-            "{CHAT_REASONING_PREFIX}{}",
-            base64_url_safe_encode(encoded.as_bytes())
-        ))
+        reasoning_envelope::encode(CHAT_REASONING_PREFIX, context, payload)
     }
 
     fn decode_item(item: &Map<String, Value>, context: &ResponseContext) -> Option<Self> {
-        let current_source = ChatReasoningSource::from_context(context)?;
         let encoded = item.get("encrypted_content").and_then(Value::as_str)?;
-        let payload = encoded.strip_prefix(CHAT_REASONING_PREFIX)?;
-        let decoded = base64_url_safe_decode(payload).ok()?;
-        let value: Value = serde_json::from_slice(&decoded).ok()?;
-        let object = value.as_object()?;
-        let source = ChatReasoningSource {
-            provider_type: object.get("provider_type")?.as_str()?.to_string(),
-            model_id: object.get("model_id")?.as_str()?.to_string(),
-        };
-        if source != current_source {
-            return None;
-        }
+        let object = reasoning_envelope::decode(CHAT_REASONING_PREFIX, context, encoded)?;
 
         let details = match object.get("reasoning_details") {
             Some(Value::Array(details)) => details.clone(),

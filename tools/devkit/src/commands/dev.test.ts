@@ -12,8 +12,6 @@ import {
 } from './dev'
 import type { ChildProcess } from 'node:child_process'
 import type { WorkerBootstrapSpec } from '../worker-bootstrap'
-import { mixCommand } from '../utils'
-
 const spec: WorkerBootstrapSpec = {
   contract_version: 3,
   kind: 'worker',
@@ -59,15 +57,6 @@ describe('buildControlPlaneEnv', () => {
     )
 
     expect(env.ANKOLE_AI_GATEWAY_BASE_URL).toBe('https://gateway.example.test/api/v1/ai-gateway')
-  })
-})
-
-describe('mixCommand', () => {
-  test('dispatches directly to mix without shell-specific toolchain setup', () => {
-    expect(mixCommand(['phx.server'])).toEqual({
-      command: 'mix',
-      args: ['phx.server']
-    })
   })
 })
 

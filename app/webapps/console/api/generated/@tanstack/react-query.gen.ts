@@ -17,6 +17,7 @@ import {
   ankoleWebAgentControllerIndex,
   ankoleWebAgentControllerIndexModelProfiles,
   ankoleWebAgentControllerPutModelProfile,
+  ankoleWebAgentControllerPutProviderHosted,
   ankoleWebAgentControllerShow,
   ankoleWebAgentControllerUpdate,
   ankoleWebAgentLibraryCapabilityControllerAgentIndex,
@@ -174,6 +175,9 @@ import type {
   AnkoleWebAgentControllerPutModelProfileData,
   AnkoleWebAgentControllerPutModelProfileError,
   AnkoleWebAgentControllerPutModelProfileResponse,
+  AnkoleWebAgentControllerPutProviderHostedData,
+  AnkoleWebAgentControllerPutProviderHostedError,
+  AnkoleWebAgentControllerPutProviderHostedResponse,
   AnkoleWebAgentControllerShowData,
   AnkoleWebAgentControllerShowError,
   AnkoleWebAgentControllerShowResponse,
@@ -4171,6 +4175,33 @@ export const ankoleWebAgentLibraryControllerUpdateMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await ankoleWebAgentLibraryControllerUpdate({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * Set which capabilities an agent leaves to its language-model provider
+ */
+export const ankoleWebAgentControllerPutProviderHostedMutation = (
+  options?: Partial<Options<AnkoleWebAgentControllerPutProviderHostedData>>
+): UseMutationOptions<
+  AnkoleWebAgentControllerPutProviderHostedResponse,
+  AnkoleWebAgentControllerPutProviderHostedError,
+  Options<AnkoleWebAgentControllerPutProviderHostedData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebAgentControllerPutProviderHostedResponse,
+    AnkoleWebAgentControllerPutProviderHostedError,
+    Options<AnkoleWebAgentControllerPutProviderHostedData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebAgentControllerPutProviderHosted({
         ...options,
         ...fnOptions,
         throwOnError: true

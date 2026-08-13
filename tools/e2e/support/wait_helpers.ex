@@ -503,8 +503,8 @@ defmodule Ankole.E2E.WaitHelpers do
   end
 
   defp mirrored_latest_final_reply_for_actor_event(actor_event_id) do
-    with %Message{} = message <- final_ai_message_for_actor_event(actor_event_id),
-         %OutboxEntry{} = outbox <- primary_final_outbox(actor_event_id, message.id),
+    with %OutboxEntry{} = outbox <- primary_final_outbox(actor_event_id),
+         %Message{} = message <- Repo.get(Message, outbox.ai_message_id),
          %Entry{} = entry <- primary_final_entry(outbox) do
       {entry, message}
     else
@@ -512,10 +512,13 @@ defmodule Ankole.E2E.WaitHelpers do
     end
   end
 
-  defp primary_final_outbox(actor_event_id, ai_message_id) do
+  # The final outbox is the anchor, not the AI message. A steer that reached the
+  # Worker owns the reply and its outbox, while the AI message stays recorded
+  # against the Turn that produced it, so the two can sit under different actor
+  # events. `ai_message_id` on the outbox is the link between them.
+  defp primary_final_outbox(actor_event_id) do
     OutboxEntry
     |> where([outbox], outbox.source_actor_event_id == ^actor_event_id)
-    |> where([outbox], outbox.ai_message_id == ^ai_message_id)
     |> Repo.all()
     |> Enum.find(fn outbox ->
       metadata = get_in(outbox.payload, ["metadata"]) || %{}

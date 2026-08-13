@@ -53,6 +53,16 @@ export type AiGatewayProviderListResponse = {
 }
 
 /**
+ * ProviderHostedWriteRequest
+ *
+ * Sets one or both capability switches. Omitted keys stay unchanged.
+ */
+export type ProviderHostedWriteRequest = {
+  image_generate?: boolean
+  web_search?: boolean
+}
+
+/**
  * BrainEntryRelation
  */
 export type BrainEntryRelation = {
@@ -875,6 +885,17 @@ export type ModelProfilesResponse = {
   model_profiles: {
     [key: string]: unknown
   }
+  provider_hosted: ProviderHostedCapabilities
+}
+
+/**
+ * ProviderHostedCapabilities
+ *
+ * Capabilities the Agent leaves to its language-model Provider. A capability set to true declares no Ankole tool or capability profile, and the Agent has no such capability when its Provider cannot run it.
+ */
+export type ProviderHostedCapabilities = {
+  image_generate: boolean
+  web_search: boolean
 }
 
 /**
@@ -1911,6 +1932,13 @@ export type PermissionGrantCreateRequest = {
    * AuthZ resource glob pattern, for example workspace:**
    */
   resource_pattern: string
+}
+
+/**
+ * ProviderHostedResponse
+ */
+export type ProviderHostedResponse = {
+  provider_hosted: ProviderHostedCapabilities
 }
 
 /**
@@ -6744,6 +6772,38 @@ export type AnkoleWebAgentLibraryControllerUpdateResponses = {
 
 export type AnkoleWebAgentLibraryControllerUpdateResponse =
   AnkoleWebAgentLibraryControllerUpdateResponses[keyof AnkoleWebAgentLibraryControllerUpdateResponses]
+
+export type AnkoleWebAgentControllerPutProviderHostedData = {
+  /**
+   * Provider hosted capabilities
+   */
+  body: ProviderHostedWriteRequest
+  path: {
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v1/agents/{agent_uid}/provider-hosted'
+}
+
+export type AnkoleWebAgentControllerPutProviderHostedErrors = {
+  /**
+   * Invalid capability
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebAgentControllerPutProviderHostedError =
+  AnkoleWebAgentControllerPutProviderHostedErrors[keyof AnkoleWebAgentControllerPutProviderHostedErrors]
+
+export type AnkoleWebAgentControllerPutProviderHostedResponses = {
+  /**
+   * Provider hosted capabilities
+   */
+  200: ProviderHostedResponse
+}
+
+export type AnkoleWebAgentControllerPutProviderHostedResponse =
+  AnkoleWebAgentControllerPutProviderHostedResponses[keyof AnkoleWebAgentControllerPutProviderHostedResponses]
 
 export type AnkoleWebPermissionGrantControllerDeleteData = {
   body?: never

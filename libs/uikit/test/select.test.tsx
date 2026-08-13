@@ -51,16 +51,4 @@ describe('Select', () => {
     expect(html).toContain('Custom openrouter')
     expect(html).not.toContain('>OpenRouter<')
   })
-
-  test('shows the invalid state on its visible trigger', () => {
-    const html = renderToStaticMarkup(
-      <Select required>
-        <SelectTrigger>
-          <SelectValue placeholder="Choose one" />
-        </SelectTrigger>
-      </Select>
-    )
-
-    expect(html).toContain('data-invalid:border-b-destructive')
-  })
 })

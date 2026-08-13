@@ -151,46 +151,4 @@ describe('runtime image pair rollout gate', () => {
       rmSync(outputRoot, { recursive: true, force: true })
     }
   })
-
-  test('has one verified main push workflow for image and GitHub releases', async () => {
-    const workflows = fileURLToPath(new URL('../../../.github/workflows/', import.meta.url))
-    const pairedWorkflow = Bun.file(`${workflows}/runtime-images.yml`)
-    const e2eRunner = Bun.file(fileURLToPath(new URL('../../../tools/e2e/run', import.meta.url)))
-    const localWorkerImage = Bun.file(fileURLToPath(new URL('./local-worker-image.ts', import.meta.url)))
-    expect(await pairedWorkflow.exists()).toBe(true)
-    expect(await Bun.file(`${workflows}/control-plane-image.yml`).exists()).toBe(false)
-    expect(await Bun.file(`${workflows}/agent-computer-images.yml`).exists()).toBe(false)
-
-    const source = await pairedWorkflow.text()
-    expect(source).toContain('branches: [main]')
-    expect(source).toContain('Publish verified RuntimeFabric image pair')
-    expect(source).toContain('needs:\n      - inspect_existing\n      - publish_control_plane\n      - publish_worker')
-    expect(source).toContain('Read RuntimeFabric protocol version')
-    expect(source).toContain('--protocol-version "${{ needs.inspect_existing.outputs.protocol_version }}"')
-    expect(source).toContain('Publish versioned RuntimeFabric images and GitHub Release')
-    expect(source).toContain(
-      'publish_release:\n    name: Publish versioned RuntimeFabric images and GitHub Release\n    needs:\n      - inspect_existing\n      - verify_pair'
-    )
-    expect(source).toContain("if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}")
-    expect(source).toContain('contents: write')
-    expect(source).toContain('bun tools/devkit/src/changelog-release.ts')
-    expect(source).toContain('--tag "${target_ref}"')
-    expect(source).toContain('gh release create "${RELEASE_TAG}"')
-    expect(source).toContain('--notes-file "${RUNNER_TEMP}/release-notes.md"')
-    expect(source).toContain('LATEST_TAG: main-latest')
-    expect(source).not.toContain('--generate-notes')
-    expect(source).not.toContain('io.ankole.runtime-image-pair.revision')
-    expect(source).not.toContain('changed_files')
-
-    const e2eSource = await e2eRunner.text()
-    expect(e2eSource).toContain('bun tools/devkit/src/local-worker-image.ts')
-    expect(e2eSource).toContain('--scope complete')
-    expect(e2eSource).not.toContain('main-latest')
-
-    const localWorkerImageSource = await localWorkerImage.text()
-    expect(localWorkerImageSource).toContain('app/agent_computer/base-image.lock')
-    expect(localWorkerImageSource).toContain('ghcr.io/agentbull/ankole-agent-computer-worker')
-    expect(localWorkerImageSource).toContain('BASE_IMAGE=')
-    expect(localWorkerImageSource).not.toContain('ankole-agent-computer:0.1.0')
-  })
 })

@@ -662,7 +662,7 @@ describe('@ankole/agent-computer Codex job runner', () => {
           turnStart(),
           options(fixture.root, [], [], () => currentJob)
         )
-      ).rejects.toThrow('could not resume its source Codex thread')
+      ).rejects.toThrow('the continued Job cannot resume it')
       expect(existsSync(join(codexHomeFor(fixture.root), 'turn-input.txt'))).toBe(false)
     } finally {
       fixture.cleanup()

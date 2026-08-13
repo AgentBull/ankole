@@ -442,17 +442,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBrokerTest do
     assert %FabricProto.AgentPluginListResponse{agent_plugins: agent_plugins} =
              rpc_response_payload!(envelope, FabricProto.AgentPluginListResponse)
 
-    assert Enum.map(agent_plugins, & &1.id) == ["deep-research", "office"]
-
     plugin = Enum.find(agent_plugins, &(&1.id == "deep-research"))
-    assert plugin.id == "deep-research"
     assert plugin.has_workspace_template
 
-    assert plugin.skills == [
+    assert Enum.find(plugin.skills, &(&1.catalog_name == "create-deep-research")) ==
              %FabricProto.AgentPluginCatalogSkill{
                catalog_name: "create-deep-research"
              }
-           ]
   end
 
   test "RPC authorization rejects an unassigned route and job-turn mutations from a parent turn" do

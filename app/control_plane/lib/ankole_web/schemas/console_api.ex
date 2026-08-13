@@ -2713,6 +2713,68 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
     )
   end
 
+  defmodule ProviderHostedCapabilities do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "ProviderHostedCapabilities",
+        description:
+          "Capabilities the Agent leaves to its language-model Provider. " <>
+            "A capability set to true declares no Ankole tool or capability " <>
+            "profile, and the Agent has no such capability when its Provider " <>
+            "cannot run it.",
+        type: :object,
+        properties: %{
+          web_search: %Schema{type: :boolean},
+          image_generate: %Schema{type: :boolean}
+        },
+        required: [:web_search, :image_generate],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule ProviderHostedWriteRequest do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "ProviderHostedWriteRequest",
+        description: "Sets one or both capability switches. Omitted keys stay unchanged.",
+        type: :object,
+        properties: %{
+          web_search: %Schema{type: :boolean},
+          image_generate: %Schema{type: :boolean}
+        },
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule ProviderHostedResponse do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "ProviderHostedResponse",
+        type: :object,
+        properties: %{provider_hosted: ProviderHostedCapabilities},
+        required: [:provider_hosted],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
   defmodule ModelProfilesResponse do
     @moduledoc false
 
@@ -2723,9 +2785,10 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
         title: "ModelProfilesResponse",
         type: :object,
         properties: %{
-          model_profiles: %Schema{type: :object, additionalProperties: true}
+          model_profiles: %Schema{type: :object, additionalProperties: true},
+          provider_hosted: ProviderHostedCapabilities
         },
-        required: [:model_profiles],
+        required: [:model_profiles, :provider_hosted],
         additionalProperties: false
       },
       struct?: false

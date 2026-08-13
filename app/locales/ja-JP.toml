@@ -442,6 +442,9 @@ web_fetch_description = "Web ページのコンテンツとメタデータを読
 web_fetch_label = "Web fetch モデル"
 web_search_description = "Web を検索して構造化された結果を返すために使用します。"
 web_search_label = "Web 検索モデル"
+provider_hosted_label = "モデルのプロバイダーが実行"
+provider_hosted_web_search_description = "言語モデルのプロバイダーが自身のターン内で Web 検索を実行し、このプロファイルは使用されません。エージェントのモデルプロバイダーが検索を実行しない場合、そのエージェントに Web 検索機能はありません。"
+provider_hosted_image_generate_description = "言語モデルのプロバイダーが自身のターン内で画像を生成し、このプロファイルは使用されません。エージェントのモデルプロバイダーが画像生成を行わない場合、そのエージェントに画像生成機能はありません。"
 
 [console.nav]
 home = "ホーム"

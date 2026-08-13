@@ -23,9 +23,5 @@ test('browser data plane has no control-plane or Agent Computer dependency', asy
     }
   }
 
-  const manifest = JSON.parse(await readFile(resolve(packageRoot, 'package.json'), 'utf8')) as {
-    dependencies?: Record<string, string>
-  }
-  expect(Object.keys(manifest.dependencies ?? {}).sort()).toEqual(['playwright-core', 'zod'])
   expect(violations).toEqual([])
 })

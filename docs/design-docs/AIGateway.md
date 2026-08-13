@@ -109,18 +109,6 @@ the output, but a larger value does not raise the model-visible limit. The card
 instructions state the same limit. Codex processes larger output in code before
 it returns the result, or it writes that output to a Job Workspace file.
 
-Codex code mode declares one `exec` tool that runs JavaScript over the other
-tools. It also appends one TypeScript `declare const tools` block to every other
-tool description. Each block documents one tool, so every direct tool ends
-with instructions for the indirect path, and models wrap one call in a
-JavaScript program instead of calling the tool. AIGateway removes the appended
-block and keeps `exec` declared. One call then uses the direct tool, and `exec`
-keeps the case it exists for: more than one call. The same rule runs on tool
-descriptions that a client loads through Tool Search, so a loaded tool still
-matches its known contract. Codex has no configuration that separates the
-appended block from the `exec` tool, so this marker is part of the pinned Codex
-output format.
-
 The binding also carries the direct modalities and the optional frozen vision
 fallback. AIGateway sends an image directly only when the selected model
 accepts it. For a text-only model, AIGateway makes one stateless request to the
@@ -891,19 +879,41 @@ If reasoning has no assistant content or tool call, the adapter discards it
 during replay. It cannot attach that state to a valid Chat message, and some
 Chat providers reject an assistant message with no content or tool call.
 
-## Keep Encrypted Tool Fields inside AIGateway
+For Anthropic Messages, the adapter keeps the native `thinking` and
+`redacted_thinking` blocks with their signatures, and emits one Responses
+`reasoning` item whose `encrypted_content` is a reversible AIGateway transport
+value. That envelope obeys the same rule as the Chat one: it is bound to the
+upstream provider type and model ID, and a missing, corrupt, old, or mismatched
+envelope discards only the private reasoning state. Claude verifies a thinking
+signature against the model that produced it, so replaying one to another model
+is never correct.
 
-A tool can set `encrypted: true` on a direct string parameter. This marker is
-part of the Worker-facing Responses contract. It is not a provider capability.
+A continuation rebuilds one Anthropic assistant turn from the several Responses
+items that describe it. It merges each run of assistant items into one message,
+puts the decoded thinking blocks first, and converts each stored function call to
+a `tool_use` block. Visible text and tool calls come from the public items, so a
+turn whose envelope was dropped still replays as a valid tool-calling turn
+without private reasoning.
 
-The Rust API resolver removes the marker before it builds a provider request.
-It decodes AIGateway opaque values in replayed function calls and Agent
-messages. The values are self-describing through their versioned prefix, so
-this decode does not need the tool definitions; a request that replays history
-without tools, such as a Codex local compaction request, still reaches the
-provider with plain parameter values. A quoted prefix inside a longer plain
-value stays verbatim, and a plaintext value of a marked field passes through.
-The provider receives a normal schema and plain parameter values.
+## Preserve Encrypted Tool Fields at Their Owner
+
+A tool can set `encrypted: true` on a direct string parameter. Native OpenAI
+Responses owns this marker: it accepts the declared schema and reports the
+parameters it applied through `encrypted_function_args`. AIGateway forwards that
+schema unchanged and leaves those arguments to the provider, because emulating a
+capability the provider already has would replace the real contract with a
+different one.
+
+No other provider has the marker, so their adapters remove it and use an
+AIGateway opaque value in the public contract instead. They decode that value in
+replayed function calls and Agent messages, so the provider receives its normal
+schema and plain parameter values. The AIGateway value is self-describing through
+its versioned prefix and does not need the tool definitions during replay.
+
+The marker's shape is a Worker-facing contract on every route, so validation is
+independent of removal. A marker that is not a boolean, or that sits anywhere
+other than a direct string property of an object schema, is rejected before
+dispatch even on the native route that keeps it.
 
 Native OpenAI Responses input can also carry provider-owned
 `encrypted_content` parts, for example in a Codex Agent message or a function
@@ -918,10 +928,11 @@ Turn projection and the Job trajectory message, reveal stored opaque values
 through `Ankole.AIGateway.OpaqueContent`. The Worker resume projection keeps
 the stored form, because a resumed thread must restore what the Worker stored.
 
-After the provider adapter creates public Response events, AIGateway encodes
-each marked parameter as a versioned Base64URL value. It buffers the complete
-function arguments before it emits a marked value. An incomplete or invalid
-value fails closed and does not enter the public stream or stored Response.
+On an emulating route, after the provider adapter creates public Response events,
+AIGateway encodes each marked parameter as a versioned Base64URL value. It
+buffers the complete function arguments before it emits a marked value. An
+incomplete or invalid value fails closed and does not enter the public stream or
+stored Response.
 
 This encoding does not provide cryptographic secrecy. Provider-owned
 `encrypted_content`, including reasoning state, is a separate protocol field

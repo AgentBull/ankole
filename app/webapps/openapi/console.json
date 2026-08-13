@@ -64,6 +64,13 @@
         "title": "AIGatewayProviderListResponse",
         "type": "object"
       },
+      "ProviderHostedWriteRequest": {
+        "additionalProperties": false,
+        "description": "Sets one or both capability switches. Omitted keys stay unchanged.",
+        "properties": { "image_generate": { "type": "boolean" }, "web_search": { "type": "boolean" } },
+        "title": "ProviderHostedWriteRequest",
+        "type": "object"
+      },
       "BrainEntryRelation": {
         "additionalProperties": false,
         "properties": {
@@ -1131,9 +1138,20 @@
       },
       "ModelProfilesResponse": {
         "additionalProperties": false,
-        "properties": { "model_profiles": { "additionalProperties": true, "type": "object" } },
-        "required": ["model_profiles"],
+        "properties": {
+          "model_profiles": { "additionalProperties": true, "type": "object" },
+          "provider_hosted": { "$ref": "#/components/schemas/ProviderHostedCapabilities" }
+        },
+        "required": ["model_profiles", "provider_hosted"],
         "title": "ModelProfilesResponse",
+        "type": "object"
+      },
+      "ProviderHostedCapabilities": {
+        "additionalProperties": false,
+        "description": "Capabilities the Agent leaves to its language-model Provider. A capability set to true declares no Ankole tool or capability profile, and the Agent has no such capability when its Provider cannot run it.",
+        "properties": { "image_generate": { "type": "boolean" }, "web_search": { "type": "boolean" } },
+        "required": ["web_search", "image_generate"],
+        "title": "ProviderHostedCapabilities",
         "type": "object"
       },
       "SignalAdapterItem": {
@@ -2397,6 +2415,13 @@
         },
         "required": ["resource_pattern", "action"],
         "title": "PermissionGrantCreateRequest",
+        "type": "object"
+      },
+      "ProviderHostedResponse": {
+        "additionalProperties": false,
+        "properties": { "provider_hosted": { "$ref": "#/components/schemas/ProviderHostedCapabilities" } },
+        "required": ["provider_hosted"],
+        "title": "ProviderHostedResponse",
         "type": "object"
       },
       "PermissionGrantResponse": {
@@ -6929,6 +6954,35 @@
         },
         "security": [{ "consoleBearer": [] }],
         "summary": "Replace one agent MISSION, SOUL, or DESIGN document",
+        "tags": ["Agents"]
+      }
+    },
+    "/api/v1/agents/{agent_uid}/provider-hosted": {
+      "put": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AgentController.put_provider_hosted",
+        "parameters": [
+          { "description": "", "in": "path", "name": "agent_uid", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/ProviderHostedWriteRequest" } }
+          },
+          "description": "Provider hosted capabilities",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProviderHostedResponse" } } },
+            "description": "Provider hosted capabilities"
+          },
+          "422": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Invalid capability"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Set which capabilities an agent leaves to its language-model provider",
         "tags": ["Agents"]
       }
     },

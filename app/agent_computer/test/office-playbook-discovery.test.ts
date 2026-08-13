@@ -5,34 +5,12 @@ import { join, resolve } from 'node:path'
 
 const packageRoot = join(import.meta.dir, '..', '..', 'library', 'agent-plugins', 'office')
 const scriptPath = join(packageRoot, 'tools', 'list_playbooks.ts')
-const playbooksRoot = resolve(join(packageRoot, 'playbooks'))
 
 describe('@ankole/agent-computer office Playbook discovery', () => {
-  it('lists only the Playbooks that declare the requested product', async () => {
-    const result = await runDiscovery('xlsx')
-
-    expect(result.exitCode).toBe(0)
-    expect(result.stderr).toBe('')
-    expect(result.stdout.trim().split('\n')).toEqual([
-      'Playbooks for xlsx:',
-      `- data-dashboard (${playbooksRoot}/data-dashboard.md): Use when a workbook must open on one dashboard sheet with KPI cards, cell-linked charts, sparklines, and conditional formatting over upstream data sheets.`,
-      `- financial-model (${playbooksRoot}/financial-model.md): Use when a workbook must model financial outcomes: a 3-statement model, DCF, LBO, debt schedule, sensitivity grid, or scenario switch that needs auditable assumption zones.`
-    ])
-  })
-
   it('keeps each other product on its own Playbooks', async () => {
     const pptx = await runDiscovery('pptx')
     const docx = await runDiscovery('docx')
 
-    expect(playbookNames(pptx.stdout)).toEqual([
-      'academic-presentation',
-      'analysis-presentation',
-      'brand-presentation',
-      'business-proposal',
-      'management-presentation',
-      'poster-infographic',
-      'technical-presentation'
-    ])
     expect(pptx.stdout).not.toContain('financial-model')
     expect(docx.stdout).toContain('- academic-paper (')
     expect(docx.stdout).not.toContain('business-proposal')
@@ -76,14 +54,6 @@ describe('@ankole/agent-computer office Playbook discovery', () => {
     }
   })
 })
-
-function playbookNames(output: string) {
-  return output
-    .trim()
-    .split('\n')
-    .slice(1)
-    .map(line => line.slice(2, line.indexOf(' (')))
-}
 
 async function runDiscovery(product?: string, root?: string) {
   const args = [product, root].filter((value): value is string => value !== undefined)

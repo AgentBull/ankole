@@ -23,6 +23,10 @@ defmodule Ankole.AIAgent.ModelProfiles do
   @profiles ~w(
     primary light heavy coding vision_fallback embedding rerank web_search web_fetch image_generate
   )
+
+  # Capabilities a language-model Provider can run inside its own turn, so an
+  # Agent can choose between its Provider and an Ankole capability profile.
+  @provider_hosted_capabilities ~w(web_search image_generate)
   @required_profiles ~w(primary light heavy)
   @custom_profile_name ~r/\A[a-z][a-z0-9_-]{0,63}\z/
   @custom_profile_description_max_length 200
@@ -62,6 +66,31 @@ defmodule Ankole.AIAgent.ModelProfiles do
       {:ok, profiles_from_agent(agent)}
     end
   end
+
+  @doc """
+  Reads which capabilities this Agent leaves to its language-model Provider.
+
+  A capability set to `true` is executed by the Provider inside its own model
+  turn, and the Agent declares no Ankole tool or profile for it. A capability set
+  to `false` uses the Agent's configured profile for that capability.
+
+  Both default to `true`: an Agent that never chose a search or image Provider
+  should use whatever its model already does, not silently have no capability.
+  """
+  @spec provider_hosted_capabilities(String.t()) :: {:ok, map()} | {:error, term()}
+  def provider_hosted_capabilities(agent_uid) do
+    with {:ok, agent} <- fetch_agent(agent_uid) do
+      {:ok, provider_hosted_from_agent(agent)}
+    end
+  end
+
+  @doc """
+  Returns whether one capability is left to the language-model Provider.
+  """
+  @spec provider_hosted?(map(), String.t()) :: boolean()
+  def provider_hosted?(capabilities, capability)
+      when is_map(capabilities) and is_binary(capability),
+      do: Map.get(capabilities, capability, true) == true
 
   @doc """
   Lists the configured custom LLM profile names and descriptions for an Agent.
@@ -131,6 +160,55 @@ defmodule Ankole.AIAgent.ModelProfiles do
         {:error, _reason} = error -> error
       end
     end)
+  end
+
+  @doc """
+  Sets which capabilities this Agent leaves to its language-model Provider.
+
+  Only the named capabilities change, so one switch can be saved without
+  restating the other.
+  """
+  @spec put_provider_hosted_capabilities(String.t(), map()) :: {:ok, map()} | {:error, term()}
+  def put_provider_hosted_capabilities(agent_uid, attrs) when is_map(attrs) do
+    Repo.transact(fn repo ->
+      with %Agent{} = agent <- lock_agent(repo, agent_uid),
+           {:ok, updates} <- normalize_provider_hosted_attrs(attrs),
+           capabilities = Map.merge(provider_hosted_from_agent(agent), updates),
+           options = put_provider_hosted_options(agent.options || %{}, capabilities),
+           {:ok, _agent} <- update_agent_options(repo, agent, options) do
+        {:ok, capabilities}
+      else
+        nil -> {:error, :agent_not_found}
+        {:error, _reason} = error -> error
+      end
+    end)
+  end
+
+  defp normalize_provider_hosted_attrs(attrs) do
+    Enum.reduce_while(attrs, {:ok, %{}}, fn {key, value}, {:ok, acc} ->
+      capability = to_string(key)
+
+      cond do
+        capability not in @provider_hosted_capabilities ->
+          {:halt, {:error, {:unknown_provider_hosted_capability, capability}}}
+
+        not is_boolean(value) ->
+          {:halt, {:error, {:invalid_provider_hosted_capability, capability}}}
+
+        true ->
+          {:cont, {:ok, Map.put(acc, capability, value)}}
+      end
+    end)
+  end
+
+  defp put_provider_hosted_options(options, capabilities) do
+    ai_agent =
+      case Map.get(options, "ai_agent") do
+        value when is_map(value) -> value
+        _value -> %{}
+      end
+
+    Map.put(options, "ai_agent", Map.put(ai_agent, "provider_hosted", capabilities))
   end
 
   @doc """
@@ -348,6 +426,15 @@ defmodule Ankole.AIAgent.ModelProfiles do
       _value -> %{}
     end
   end
+
+  defp provider_hosted_from_agent(%Agent{options: options}) when is_map(options) do
+    case get_in(options, ["ai_agent", "provider_hosted"]) do
+      capabilities when is_map(capabilities) -> capabilities
+      _value -> %{}
+    end
+  end
+
+  defp provider_hosted_from_agent(%Agent{}), do: %{}
 
   defp profile_result(nil, _profile), do: {:error, :model_profile_not_configured}
   defp profile_result(%{} = attrs, profile), do: {:ok, Map.put(attrs, "profile", profile)}

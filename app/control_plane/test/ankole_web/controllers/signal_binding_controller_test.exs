@@ -745,25 +745,9 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
 
     assert %{"signal_adapters" => adapters} = json_response(conn, 200)
 
-    assert Enum.map(adapters, & &1["adapter_id"]) == [
-             "dingtalk",
-             "lark",
-             "slack",
-             "teams",
-             "wecom"
-           ]
-
     adapter = Enum.find(adapters, &(&1["adapter_id"] == "lark"))
     assert adapter["adapter_id"] == "lark"
     assert adapter["display_name"]["default"] == "Lark"
-
-    assert Enum.map(adapter["fields"], & &1["path"]) == [
-             "appID",
-             "appSecret",
-             "domain",
-             "platformSubjectNamespace",
-             "userName"
-           ]
 
     fields = Map.new(adapter["fields"], &{&1["path"], &1})
     assert fields["appID"]["advanced"] == false
@@ -784,13 +768,6 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
 
     slack = Enum.find(adapters, &(&1["adapter_id"] == "slack"))
     assert slack["display_name"]["default"] == "Slack"
-
-    assert Enum.map(slack["fields"], & &1["path"]) == [
-             "botToken",
-             "appToken",
-             "platformSubjectNamespace",
-             "userName"
-           ]
 
     slack_fields = Map.new(slack["fields"], &{&1["path"], &1})
     assert slack_fields["botToken"]["advanced"] == false

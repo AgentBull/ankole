@@ -45,6 +45,9 @@ defmodule FakeFeishu.StandaloneE2ETest do
       match?({:ok, %{"connections" => 1}}, HTTP.get(base, "/sim/v1/status"))
     end)
 
+    assert {:ok, %{"data" => %{"items" => [%{"chat_id" => "oc_sim_general"}]}}} =
+             FeishuOpenAPI.get(client, "im/v1/chats")
+
     {:ok, ids} =
       HTTP.post(base, "/sim/v1/chats/oc_sim_general/messages", %{
         "text" => "ping",
@@ -61,6 +64,31 @@ defmodule FakeFeishu.StandaloneE2ETest do
       end)
     end)
 
+    working_card = JSON.encode!(%{"schema" => "2.0", "body" => %{"elements" => []}})
+
+    assert {:ok, %{"data" => %{"message_id" => card_message_id}}} =
+             FeishuOpenAPI.post(client, "im/v1/messages/:message_id/reply",
+               path_params: %{message_id: ids["message_id"]},
+               body: %{msg_type: "interactive", content: working_card}
+             )
+
+    terminal_card =
+      JSON.encode!(%{
+        "schema" => "2.0",
+        "body" => %{"elements" => [%{"tag" => "markdown", "content" => "done"}]}
+      })
+
+    assert {:ok, %{"data" => %{"message_id" => ^card_message_id}}} =
+             FeishuOpenAPI.request(client, :patch, "im/v1/messages/:message_id",
+               path_params: %{message_id: card_message_id},
+               body: %{content: terminal_card}
+             )
+
+    {:ok, messages} = HTTP.get(base, "/sim/v1/chats/oc_sim_general/messages")
+    terminal_message = Enum.find(messages, &(&1["message_id"] == card_message_id))
+    assert terminal_message["content"] == terminal_card
+    assert terminal_message["text"] == "done"
+
     # The CLI binary path: argument parsing, command dispatch, and rendering.
     send_output =
       capture_io(fn -> CLI.main(["--url", base, "send", "ping-from-cli", "--mention-bot"]) end)
@@ -70,6 +98,18 @@ defmodule FakeFeishu.StandaloneE2ETest do
     wait_until!("second echo in transcript", fn ->
       {:ok, messages} = HTTP.get(base, "/sim/v1/chats/oc_sim_general/messages")
       Enum.any?(messages, &((&1["text"] || "") =~ "echo: @_user_1 ping-from-cli"))
+    end)
+
+    {:ok, dm_ids} =
+      HTTP.post(base, "/sim/v1/chats/oc_sim_p2p_cli_echo/messages", %{"text" => "dm-ping"})
+
+    wait_until!("DM echo reply in transcript", fn ->
+      {:ok, messages} = HTTP.get(base, "/sim/v1/chats/oc_sim_p2p_cli_echo/messages")
+
+      Enum.any?(messages, fn message ->
+        message["sender"] == "bot" and message["text"] == "echo: dm-ping" and
+          message["reply_to"] == dm_ids["message_id"]
+      end)
     end)
 
     ls_output = capture_io(fn -> CLI.main(["--url", base, "ls", "--chat", "oc_sim_general"]) end)
