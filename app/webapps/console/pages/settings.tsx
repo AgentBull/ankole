@@ -50,7 +50,7 @@ import {
   ankoleWebControlPlanePluginControllerIndexQueryKey
 } from '../api/generated/@tanstack/react-query.gen'
 import type { AppConfigurationItem, JsonValue as JSONValue } from '../api/generated/types.gen'
-import { SaveButton, useFormCompleteness } from '../console-form'
+import { DiscardConfirmDialog, SaveButton, useFormCompleteness } from '../console-form'
 import { ErrorBlock } from '../../common/error-block'
 import { formatJSON, parseJSON } from '../console-primitives'
 import { ENCRYPTED_VALUE_MASK, isEncryptedValueMask } from '../encrypted-value-input'
@@ -63,7 +63,7 @@ import {
   settingRows,
   type SettingGroup
 } from '../state/setting-groups'
-import { SettingEditorModel } from '../state/setting-editor-model'
+import { encryptedSettingValue, SettingEditorModel, settingDecryptedDraft } from '../state/setting-editor-model'
 import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
 import { settingDescription } from '../state/setting-description'
 import {
@@ -95,15 +95,21 @@ function SettingsList() {
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
   const searchQuery = effectiveResourceSearchQuery(query, deferredQuery)
+  // Search every word the row renders and keep the internal tokens for
+  // operators who know the registry vocabulary.
   const items = (list.data?.app_configurations ?? []).filter(item =>
     matchesResourceSearch(
       searchQuery,
       item.key,
       settingDescription(t, item),
       item.kind,
+      t(`console.settings.kind_${item.kind}`),
       item.source,
+      t(`console.settings.source_${item.source}`),
       item.encrypted ? 'encrypted' : '',
-      item.overridden ? 'overridden' : ''
+      item.encrypted ? t('console.status.encrypted') : '',
+      item.overridden ? 'overridden' : '',
+      item.overridden ? t('console.status.global') : ''
     )
   )
   const rows = settingRows(items)
@@ -306,7 +312,7 @@ export function SettingEditorDrawer() {
   const decrypt = useMutation({
     ...ankoleWebAppConfigurationControllerDecryptMutation(),
     gcTime: 0,
-    onSuccess: response => model.reveal(JSON.stringify(response.decrypted_value.value) ?? ''),
+    onSuccess: response => model.reveal(settingDecryptedDraft(response.decrypted_value.value)),
     onError: error => toast.error(requestErrorMessage(error))
   })
   const finish = (message: string) => {
@@ -340,8 +346,10 @@ export function SettingEditorDrawer() {
     )
   }, [detail.isLoading, item, model, sourceKey])
 
-  const requestClose = () => navigate('/settings')
   const saving = update.isPending || restoreDefault.isPending
+  const requestClose = () => {
+    if (!saving) navigate('/settings')
+  }
   const drawerError =
     model.validationError.value ??
     update.error ??
@@ -363,17 +371,29 @@ export function SettingEditorDrawer() {
       model.validationError.value = t('common.field_required', { field: t('console.settings.value') })
       return
     }
+    if (item.encrypted) {
+      const value = encryptedSettingValue(model.text.value)
+      const validationError = settingValidationMessage(t, item.key, value)
+      if (validationError) {
+        model.validationError.value = validationError
+        return
+      }
+      update.mutate({ body: { value }, path: { key: item.key } })
+      return
+    }
+
     const parsed = parseJSON(model.text.value, t('console.settings.value'))
     if (!parsed.ok) {
       model.validationError.value = parsed.error
       return
     }
-    const validationError = settingValidationMessage(t, item.key, parsed.value)
+    const value = parsed.value
+    const validationError = settingValidationMessage(t, item.key, value)
     if (validationError) {
       model.validationError.value = validationError
       return
     }
-    update.mutate({ body: { value: parsed.value }, path: { key: item.key } })
+    update.mutate({ body: { value }, path: { key: item.key } })
   }
 
   return (
@@ -414,6 +434,7 @@ export function SettingEditorDrawer() {
                 ) : null}
                 <Button
                   aria-label={t('common.close')}
+                  disabled={saving}
                   size="icon-sm"
                   type="button"
                   variant="ghost"
@@ -486,8 +507,8 @@ export function SettingEditorDrawer() {
         </DrawerContent>
       </Drawer>
 
-      <Dialog open={restoreDefaultOpen} onOpenChange={setRestoreDefaultOpen}>
-        <DialogContent closeLabel={t('common.close')}>
+      <Dialog open={restoreDefaultOpen} onOpenChange={open => !restoreDefault.isPending && setRestoreDefaultOpen(open)}>
+        <DialogContent closeLabel={t('common.close')} showCloseButton={!restoreDefault.isPending}>
           <DialogHeader>
             <DialogTitle>{t('console.settings.restore_default_title')}</DialogTitle>
             <DialogDescription>
@@ -512,22 +533,11 @@ export function SettingEditorDrawer() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={blocker.state === 'blocked'}>
-        <DialogContent closeLabel={t('common.close')}>
-          <DialogHeader>
-            <DialogTitle>{t('console.settings.discard_title')}</DialogTitle>
-            <DialogDescription>{t('console.settings.discard_description')}</DialogDescription>
-          </DialogHeader>
-          <DialogFooter showCloseButton={false}>
-            <DialogClose render={<Button variant="outline" />} onClick={() => blocker.reset?.()}>
-              {t('console.settings.keep_editing')}
-            </DialogClose>
-            <Button variant="destructive" onClick={() => blocker.proceed?.()}>
-              {t('console.settings.discard')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <DiscardConfirmDialog
+        open={blocker.state === 'blocked' && !saving}
+        onDiscard={() => blocker.proceed?.()}
+        onKeep={() => blocker.reset?.()}
+      />
     </>
   )
 }
@@ -632,8 +642,6 @@ export function SettingGroupDrawer() {
     onError: error => toast.error(requestErrorMessage(error))
   })
 
-  const requestClose = () => navigate('/settings')
-
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     setEditorError(undefined)
@@ -706,6 +714,11 @@ export function SettingGroupDrawer() {
     navigate('/settings')
   }
 
+  const busy = saving || restoreDefault.isPending
+  const requestClose = () => {
+    if (!busy) navigate('/settings')
+  }
+
   return (
     <>
       <Drawer open onOpenChange={open => !open && requestClose()} swipeDirection="right">
@@ -721,6 +734,7 @@ export function SettingGroupDrawer() {
               <div className="absolute top-3 right-3">
                 <Button
                   aria-label={t('common.close')}
+                  disabled={busy}
                   size="icon-sm"
                   type="button"
                   variant="ghost"
@@ -810,7 +824,7 @@ export function SettingGroupDrawer() {
               {dirty ? (
                 <span className="mr-auto text-xs text-muted-foreground">{t('console.settings.unsaved')}</span>
               ) : null}
-              <Button disabled={saving} type="button" variant="ghost" onClick={requestClose}>
+              <Button disabled={busy} type="button" variant="ghost" onClick={requestClose}>
                 {t('common.cancel')}
               </Button>
               <SaveButton
@@ -825,8 +839,10 @@ export function SettingGroupDrawer() {
         </DrawerContent>
       </Drawer>
 
-      <Dialog open={Boolean(restoreItem)} onOpenChange={open => !open && setRestoreItem(undefined)}>
-        <DialogContent closeLabel={t('common.close')}>
+      <Dialog
+        open={Boolean(restoreItem)}
+        onOpenChange={open => !open && !restoreDefault.isPending && setRestoreItem(undefined)}>
+        <DialogContent closeLabel={t('common.close')} showCloseButton={!restoreDefault.isPending}>
           <DialogHeader>
             <DialogTitle>{t('console.settings.restore_default_title')}</DialogTitle>
             <DialogDescription>
@@ -850,22 +866,11 @@ export function SettingGroupDrawer() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={blocker.state === 'blocked'}>
-        <DialogContent closeLabel={t('common.close')}>
-          <DialogHeader>
-            <DialogTitle>{t('console.settings.discard_title')}</DialogTitle>
-            <DialogDescription>{t('console.settings.discard_description')}</DialogDescription>
-          </DialogHeader>
-          <DialogFooter showCloseButton={false}>
-            <DialogClose render={<Button variant="outline" />} onClick={() => blocker.reset?.()}>
-              {t('console.settings.keep_editing')}
-            </DialogClose>
-            <Button variant="destructive" onClick={() => blocker.proceed?.()}>
-              {t('console.settings.discard')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <DiscardConfirmDialog
+        open={blocker.state === 'blocked' && !busy}
+        onDiscard={() => blocker.proceed?.()}
+        onKeep={() => blocker.reset?.()}
+      />
     </>
   )
 }

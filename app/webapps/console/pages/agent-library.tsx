@@ -12,11 +12,16 @@ import {
   CardHeader,
   CardTitle,
   cn,
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
+  Skeleton,
   Switch,
   Tabs,
   TabsContent,
@@ -25,7 +30,7 @@ import {
   Textarea,
   toast
 } from '@ankole/uikit'
-import { RiArrowLeftLine, RiInformationLine, RiRestartLine } from '@remixicon/react'
+import { RiInformationLine, RiRestartLine } from '@remixicon/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useDeferredValue, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -52,7 +57,7 @@ import type {
   AgentPluginCapabilityItem,
   ControlPlanePluginItem
 } from '../api/generated/types.gen'
-import { PageHeader, PageStack } from '../console-page'
+import { BackLink, PageHeader, PageStack, RefreshButton } from '../console-page'
 import { ErrorBlock } from '../../common/error-block'
 import { formatConsoleDate } from '../console-primitives'
 import { ConfirmDeleteButton, SaveButton } from '../console-form'
@@ -105,7 +110,12 @@ export function AgentLibraryPage() {
       <PageHeader
         title={t('console.agent_library_capabilities.title')}
         description={t('console.agent_library_capabilities.description')}
-        actions={<ScopeSelect scope={scope} agents={data.agents} onChange={setScope} />}
+        actions={
+          <>
+            <RefreshButton />
+            <ScopeSelect scope={scope} agents={data.agents} onChange={setScope} />
+          </>
+        }
       />
 
       <ErrorBlock error={data.error ?? experience?.error} />
@@ -135,7 +145,9 @@ export function AgentLibraryPage() {
           <CapabilityGrid
             loading={data.loading}
             empty={plugins.length === 0}
-            emptyText={t('console.agent_library_capabilities.no_agent_plugins')}>
+            isFiltered={Boolean(pluginQuery.trim())}
+            emptyDescription={t('console.agent_library.empty_agent_plugins')}
+            onClearFilters={() => setPluginQuery('')}>
             {plugins.map(plugin => (
               <AgentPluginCard
                 key={plugin.id}
@@ -153,10 +165,12 @@ export function AgentLibraryPage() {
           <CapabilityGrid
             loading={data.loading}
             empty={skills.length === 0}
-            emptyText={t('console.agent_library_capabilities.no_skills')}>
+            isFiltered={Boolean(skillQuery.trim())}
+            emptyDescription={t('console.agent_library.empty_skills')}
+            onClearFilters={() => setSkillQuery('')}>
             {skills.map(skill => (
               <SkillCard
-                key={skill.id}
+                key={`${scope}:${skill.id}`}
                 skill={skill}
                 scope={scope}
                 pending={capabilityMutations.pending}
@@ -173,7 +187,9 @@ export function AgentLibraryPage() {
             <CapabilityGrid
               loading={data.controlPlaneLoading}
               empty={controlPlanePlugins.length === 0}
-              emptyText={t('console.agent_library_capabilities.no_control_plane_plugins')}>
+              isFiltered={Boolean(controlPlaneQuery.trim())}
+              emptyDescription={t('console.agent_library.empty_control_plane_plugins')}
+              onClearFilters={() => setControlPlaneQuery('')}>
               {controlPlanePlugins.map(plugin => (
                 <ControlPlanePluginCard
                   key={plugin.id}
@@ -206,16 +222,14 @@ export function AgentPluginDetailPage() {
 
   return (
     <PageStack>
-      <header className="grid min-w-0 grid-cols-1 gap-4 border-b border-border pb-5 lg:grid-cols-[minmax(0,1fr)_minmax(260px,360px)] lg:items-end">
+      <header className="grid min-w-0 grid-cols-1 gap-4 border-b border-border pb-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
         <div className="grid gap-3">
-          <Link
+          <BackLink
             to={agentLibraryScopeQuery('/agent-library', scope)}
-            className="inline-flex w-fit items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
-            <RiArrowLeftLine className="size-4" aria-hidden />
-            {t('console.agent_library_capabilities.back')}
-          </Link>
+            label={t('console.agent_library_capabilities.back')}
+          />
           <div>
-            <h2 className="text-2xl font-semibold tracking-tight">
+            <h2 className="text-2xl font-semibold tracking-normal">
               {plugin ? humanizeAgentPluginID(plugin.id) : pluginID}
             </h2>
             <p className="mt-1 max-w-3xl text-sm leading-6 text-muted-foreground">
@@ -223,7 +237,10 @@ export function AgentPluginDetailPage() {
             </p>
           </div>
         </div>
-        <ScopeSelect scope={scope} agents={data.agents} onChange={setScope} />
+        <div className="flex flex-wrap items-end gap-2">
+          <RefreshButton />
+          <ScopeSelect scope={scope} agents={data.agents} onChange={setScope} />
+        </div>
       </header>
 
       <ErrorBlock error={data.error ?? experience?.error} />
@@ -267,10 +284,10 @@ export function AgentPluginDetailPage() {
             <CapabilityGrid
               loading={false}
               empty={plugin.skills.length === 0}
-              emptyText={t('console.agent_library_capabilities.no_plugin_skills')}>
+              emptyDescription={t('console.agent_library_capabilities.no_plugin_skills')}>
               {plugin.skills.map(skill => (
                 <SkillCard
-                  key={skill.id}
+                  key={`${scope}:${skill.id}`}
                   skill={skill}
                   scope={scope}
                   pending={mutations.pending}
@@ -460,7 +477,7 @@ function SkillExperience({
   writable: boolean
 }) {
   const { t } = useTranslation()
-  const [draft, setDraft] = useState<string>()
+  const [draft, setDraft] = useState<SkillExperienceDraft>()
   const item = controller.byName.get(skillName)
   const editing = draft !== undefined
 
@@ -470,7 +487,7 @@ function SkillExperience({
         <h4 className="text-sm font-medium">{t('console.agent_library_capabilities.experience')}</h4>
         <div className="flex items-center gap-1">
           {writable && !editing ? (
-            <Button type="button" size="xs" variant="outline" onClick={() => setDraft(item?.text ?? '')}>
+            <Button type="button" size="xs" variant="outline" onClick={() => setDraft(skillExperienceDraft(item))}>
               {item ? t('common.edit') : t('console.agent_library_capabilities.experience_add')}
             </Button>
           ) : null}
@@ -495,15 +512,15 @@ function SkillExperience({
           className="grid gap-2"
           onSubmit={event => {
             event.preventDefault()
-            controller.save(skillName, draft, item?.content_hash ?? '', () => setDraft(undefined))
+            controller.save(skillName, draft, () => setDraft(undefined))
           }}>
           <Textarea
             aria-label={t('console.agent_library_capabilities.experience')}
             className="min-h-32"
             required
-            value={draft}
+            value={draft.text}
             placeholder={t('console.agent_library_capabilities.experience_placeholder')}
-            onChange={event => setDraft(event.target.value)}
+            onChange={event => setDraft(current => (current ? { ...current, text: event.target.value } : current))}
           />
           <div className="flex justify-end gap-2">
             <Button type="button" size="sm" variant="ghost" onClick={() => setDraft(undefined)}>
@@ -514,7 +531,7 @@ function SkillExperience({
               size="sm"
               disabled={controller.pending}
               loading={controller.pending}
-              incomplete={!draft.trim() && !controller.pending}>
+              incomplete={!draft.text.trim() && !controller.pending}>
               {t('common.save')}
             </SaveButton>
           </div>
@@ -537,6 +554,28 @@ function SkillExperience({
       ) : null}
     </section>
   )
+}
+
+export type SkillExperienceDraft = {
+  expectedContentHash: string
+  text: string
+}
+
+/** Freezes the optimistic-lock baseline for the lifetime of one edit. */
+export function skillExperienceDraft(
+  item: Pick<AgentLibrarySkillOverlayItem, 'content_hash' | 'text'> | undefined
+): SkillExperienceDraft {
+  return {
+    expectedContentHash: item?.content_hash ?? '',
+    text: item?.text ?? ''
+  }
+}
+
+export function skillExperienceUpdateBody(draft: SkillExperienceDraft) {
+  return {
+    expected_content_hash: draft.expectedContentHash,
+    text: draft.text
+  }
 }
 
 function ControlPlanePluginCard({
@@ -667,18 +706,39 @@ function TabCount({ value }: { value: number }) {
 function CapabilityGrid({
   children,
   empty,
-  emptyText,
-  loading
+  emptyDescription,
+  isFiltered = false,
+  loading,
+  onClearFilters
 }: {
   children: React.ReactNode
   empty: boolean
-  emptyText: string
+  /** Explanation for a source that is empty without a search. */
+  emptyDescription?: string
+  isFiltered?: boolean
   loading: boolean
+  onClearFilters?: () => void
 }) {
+  const { t } = useTranslation()
+
   if (loading) return <LoadingCards />
   if (empty) {
     return (
-      <p className="border border-dashed border-border p-8 text-center text-sm text-muted-foreground">{emptyText}</p>
+      <Empty className="items-start border border-border bg-card p-8 text-left md:p-10">
+        <EmptyHeader className="max-w-xl items-start">
+          <EmptyTitle>{isFiltered ? t('console.empty.no_results_title') : t('console.empty.title')}</EmptyTitle>
+          {isFiltered || emptyDescription ? (
+            <EmptyDescription className="text-balance">
+              {isFiltered ? t('console.empty.no_results_description') : emptyDescription}
+            </EmptyDescription>
+          ) : null}
+        </EmptyHeader>
+        {isFiltered && onClearFilters ? (
+          <Button size="sm" type="button" variant="outline" onClick={onClearFilters}>
+            {t('console.empty.clear_filters')}
+          </Button>
+        ) : null}
+      </Empty>
     )
   }
   return <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">{children}</div>
@@ -688,7 +748,7 @@ function LoadingCards() {
   return (
     <div className="grid grid-cols-1 gap-4 xl:grid-cols-2" aria-busy="true">
       {[0, 1, 2].map(index => (
-        <div key={index} className="h-36 animate-pulse bg-muted" />
+        <Skeleton key={index} className="h-36" />
       ))}
     </div>
   )
@@ -768,7 +828,7 @@ type SkillExperienceController = {
   error: unknown
   pending: boolean
   remove: (skillName: string) => void
-  save: (skillName: string, text: string, expectedContentHash: string, onSuccess: () => void) => void
+  save: (skillName: string, draft: SkillExperienceDraft, onSuccess: () => void) => void
 }
 
 // Dreaming and the Agent's own `skill_append` write the same rows, so a save
@@ -810,11 +870,11 @@ function useSkillExperience(scope: string): SkillExperienceController | undefine
     remove(skillName) {
       remove.mutate({ path: { agent_uid: scope, skill_name: skillName } })
     },
-    save(skillName, text, expectedContentHash, onSuccess) {
+    save(skillName, draft, onSuccess) {
       save.mutate(
         {
           path: { agent_uid: scope, skill_name: skillName },
-          body: { text, expected_content_hash: expectedContentHash }
+          body: skillExperienceUpdateBody(draft)
         },
         { onSuccess }
       )

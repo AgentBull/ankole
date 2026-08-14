@@ -53,6 +53,7 @@ import {
   ankoleWebAiGatewayProviderControllerCompleteChatgptBrowserLogin,
   ankoleWebAiGatewayProviderControllerDeleteCredential,
   ankoleWebAiGatewayProviderControllerDeleteProvider,
+  ankoleWebAiGatewayProviderControllerEnableProvider,
   ankoleWebAiGatewayProviderControllerIndex,
   ankoleWebAiGatewayProviderControllerPollChatgptLogin,
   ankoleWebAiGatewayProviderControllerProviderKinds,
@@ -283,6 +284,9 @@ import type {
   AnkoleWebAiGatewayProviderControllerDeleteProviderData,
   AnkoleWebAiGatewayProviderControllerDeleteProviderError,
   AnkoleWebAiGatewayProviderControllerDeleteProviderResponse,
+  AnkoleWebAiGatewayProviderControllerEnableProviderData,
+  AnkoleWebAiGatewayProviderControllerEnableProviderError,
+  AnkoleWebAiGatewayProviderControllerEnableProviderResponse,
   AnkoleWebAiGatewayProviderControllerIndexData,
   AnkoleWebAiGatewayProviderControllerIndexError,
   AnkoleWebAiGatewayProviderControllerIndexResponse,
@@ -4202,6 +4206,33 @@ export const ankoleWebAgentControllerPutProviderHostedMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await ankoleWebAgentControllerPutProviderHosted({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * Re-enable one disabled AIGateway provider
+ */
+export const ankoleWebAiGatewayProviderControllerEnableProviderMutation = (
+  options?: Partial<Options<AnkoleWebAiGatewayProviderControllerEnableProviderData>>
+): UseMutationOptions<
+  AnkoleWebAiGatewayProviderControllerEnableProviderResponse,
+  AnkoleWebAiGatewayProviderControllerEnableProviderError,
+  Options<AnkoleWebAiGatewayProviderControllerEnableProviderData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebAiGatewayProviderControllerEnableProviderResponse,
+    AnkoleWebAiGatewayProviderControllerEnableProviderError,
+    Options<AnkoleWebAiGatewayProviderControllerEnableProviderData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebAiGatewayProviderControllerEnableProvider({
         ...options,
         ...fnOptions,
         throwOnError: true

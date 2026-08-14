@@ -140,6 +140,10 @@ A setting has one scope:
 - `credential` settings are encrypted in each pool member.
 - `request` settings belong to a model profile or one request.
 
+Only `credential` settings can set `encrypted`. Connection and request values
+are stored and projected in plain form, so the declaration layer rejects an
+encrypted setting in any other scope.
+
 A `select` setting limits input to its declared options. A string setting can
 declare suggested options and still accept another string. The ChatGPT
 Subscription, Azure OpenAI, OpenAI, and OpenAI-compatible providers use this
@@ -178,10 +182,11 @@ contains:
 The application checks each kind against built-in and active Plugin
 definitions.
 
-The pool has one row-level strategy and an ordered list of entries. Each entry
-contains `id`, `label`, `source`, `priority`, optional `disabled_at`, and the
-encrypted fields declared for that provider kind. A single credential is a
-pool with one entry. There is no non-pool execution path.
+The pool has one row-level strategy and an ordered list of entries. Each stored
+entry contains `id`, `label`, `source`, `priority`, optional `disabled_at`, an
+internal `health_revision`, and the encrypted fields declared for that provider
+kind. The Console API does not return `health_revision`. A single credential is
+a pool with one entry. There is no non-pool execution path.
 
 The four strategies are:
 
@@ -194,18 +199,26 @@ A stateful request uses its thread or cache key as an affinity key. Affinity
 wins over the configured strategy while that entry is usable. This keeps
 account-scoped provider caches stable.
 
-Runtime health is process-local and has three states. `ok` entries can be
-selected. `exhausted` entries stay out of selection until their recovery time.
-`dead` entries stay out until an operator replaces or reauthenticates them.
-Disabled entries also stay out. PostgreSQL stores the credential facts, but it
-does not store these rebuildable health facts.
+Runtime health is process-local and has three states. It uses the provider row,
+credential ID, and health revision as its key. `ok` entries can be selected.
+`exhausted` entries stay out of selection until their recovery time. `dead`
+entries stay out until an operator replaces or reauthenticates them, or
+re-enables their disabled provider. Each of these operations writes a new
+health revision. An automatic OAuth token refresh keeps the current revision.
+Thus, a late result from an old credential changes only the old revision's
+health, affinity, and rate-limit state. Enabling an active provider does not
+change the revision or health. Disabled entries also stay out. PostgreSQL
+stores the credential revision, but it does not store these rebuildable health
+facts. An entry without this field uses one stable legacy revision until its
+next credential write.
 
 An upstream reset header sets the recovery time when it is available. The
 fallback is five minutes for HTTP 401 and one hour for HTTP 429. A process
 restart can cause one additional probe.
 
-The selected credential ID stays in the private request context until success
-or failure. A failure that has no credential attribution does not change any
+The selected credential entry stays in the private request context until
+success or failure. This entry supplies both the credential ID and its health
+revision. A failure that has no credential attribution does not change any
 entry. Credential retries stop after one pool lap.
 
 HTTP 401 is a credential authentication failure. AIGateway can refresh, mark,

@@ -1,5 +1,5 @@
 import { recordValue, type JsonObject as JSONObject } from '@agentbull/active-support'
-import { toast } from '@ankole/uikit'
+import { Skeleton, toast } from '@ankole/uikit'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation } from '@tanstack/react-query'
@@ -205,54 +205,61 @@ export function ModelProfilesEditor({
         <p className="text-sm leading-6 text-muted-foreground">{t('console.models.description')}</p>
       </div>
       <ErrorBlock error={error ?? saveProfile.error ?? clearProfile.error ?? saveProviderHosted.error} />
-      {loading ? <span className="text-xs text-muted-foreground">{t('common.loading')}</span> : null}
-      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4 [&>*]:min-w-0">
-        {PROFILE_NAMES.map(profile => {
-          const signals = model.profiles[profile]
-          const draft: ProfileDraft = {
-            description: signals.description.value,
-            providerID: signals.providerID.value,
-            model: signals.model.value,
-            contextLength: signals.contextLength.value,
-            providerOptions: signals.providerOptions.value,
-            error: signals.error.value
-          }
-          const configurableModel = profileUsesConfigurableModel(profile)
-          const configured = Boolean(draft.providerID && (!configurableModel || draft.model))
-          const required = REQUIRED_PROFILES.has(profile)
+      {loading ? (
+        <div className="grid gap-4" aria-busy="true">
+          <Skeleton className="h-48 w-full" />
+          <Skeleton className="h-48 w-full" />
+          <Skeleton className="h-48 w-full" />
+        </div>
+      ) : (
+        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4 [&>*]:min-w-0">
+          {PROFILE_NAMES.map(profile => {
+            const signals = model.profiles[profile]
+            const draft: ProfileDraft = {
+              description: signals.description.value,
+              providerID: signals.providerID.value,
+              model: signals.model.value,
+              contextLength: signals.contextLength.value,
+              providerOptions: signals.providerOptions.value,
+              error: signals.error.value
+            }
+            const configurableModel = profileUsesConfigurableModel(profile)
+            const configured = Boolean(draft.providerID && (!configurableModel || draft.model))
+            const required = REQUIRED_PROFILES.has(profile)
 
-          return (
-            <ModelProfileEditorCard
-              key={profile}
-              profile={profile}
-              label={modelProfileLabel(t, profile)}
-              draft={draft}
-              dirty={signals.dirty.value}
-              required={required}
-              hint={profileDescription(t, profile)}
-              persistencePending={profilePersistencePending(profile)}
-              providerHosted={providerHostedFor(profile)}
-              deleteConfirm={
-                required
-                  ? undefined
-                  : {
-                      title: t('console.models.clear_title'),
-                      description: t('console.models.clear_description', { profile: modelProfileLabel(t, profile) }),
-                      confirmLabel: t('console.models.clear')
-                    }
-              }
-              deleteDisabled={!configured}
-              deleteLabel={t('console.models.clear')}
-              providers={providers}
-              providerKinds={providerKinds}
-              modelCatalog={modelCatalog}
-              onUpdate={patch => updateDraft(profile, patch)}
-              onSave={() => submit(profile)}
-              onDelete={() => (required ? model.clear(profile) : clear(profile))}
-            />
-          )
-        })}
-      </div>
+            return (
+              <ModelProfileEditorCard
+                key={profile}
+                profile={profile}
+                label={modelProfileLabel(t, profile)}
+                draft={draft}
+                dirty={signals.dirty.value}
+                required={required}
+                hint={profileDescription(t, profile)}
+                persistencePending={profilePersistencePending(profile)}
+                providerHosted={providerHostedFor(profile)}
+                deleteConfirm={
+                  required
+                    ? undefined
+                    : {
+                        title: t('console.models.clear_title'),
+                        description: t('console.models.clear_description', { profile: modelProfileLabel(t, profile) }),
+                        confirmLabel: t('console.models.clear')
+                      }
+                }
+                deleteDisabled={!configured}
+                deleteLabel={t('console.models.clear')}
+                providers={providers}
+                providerKinds={providerKinds}
+                modelCatalog={modelCatalog}
+                onUpdate={patch => updateDraft(profile, patch)}
+                onSave={() => submit(profile)}
+                onDelete={() => (required ? model.clear(profile) : clear(profile))}
+              />
+            )
+          })}
+        </div>
+      )}
     </section>
   )
 }

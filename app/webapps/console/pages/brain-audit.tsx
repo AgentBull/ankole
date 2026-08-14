@@ -18,11 +18,10 @@ import {
   cn,
   toast
 } from '@ankole/uikit'
-import { RiRefreshLine, RiSparkling2Line } from '@remixicon/react'
+import { RiArrowGoBackLine, RiSparkling2Line } from '@remixicon/react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useParams, useSearchParams } from 'react-router'
-import { requestErrorMessage } from '../../common/request-errors'
 import {
   ankoleWebBrainControllerAuditIndexOptions,
   ankoleWebBrainControllerAuditLogOptions,
@@ -32,9 +31,9 @@ import {
   ankoleWebBrainControllerRunDreamingMutation,
   ankoleWebPrincipalControllerIndexOptions
 } from '../api/generated/@tanstack/react-query.gen'
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { BrainDreamingFitnessRun } from '../api/generated/types.gen'
-import { BackLink, PageHeader, PageStack } from '../console-page'
+import { BackLink, PageHeader, PageStack, RefreshButton } from '../console-page'
 import { ErrorBlock } from '../../common/error-block'
 import { formatConsoleDate } from '../console-primitives'
 import { LabeledField, StatusIndicator } from '../console-form'
@@ -58,7 +57,15 @@ import {
   previousCursorParams,
   resetCursorParams
 } from '../state/cursor-pagination'
-import { agentOwnerUID, setBrainFilter, defaultBrainOwnerUID } from '../state/brain-editor-model'
+import {
+  agentOwnerUID,
+  brainAuditSelectionAfterRestore,
+  brainAuditSelectionForScope,
+  brainAuditSelectionScope,
+  defaultBrainOwnerUID,
+  setBrainFilter,
+  type BrainAuditSelection
+} from '../state/brain-editor-model'
 
 export function BrainAuditPage() {
   const { t } = useTranslation()
@@ -73,8 +80,15 @@ export function BrainAuditPage() {
   const insertedAfter = searchParams.get('after') ?? ''
   const insertedBefore = searchParams.get('before') ?? ''
   const cursor = searchParams.get('cursor') ?? ''
-  const [selectedIDs, setSelectedIDs] = useState<Set<string>>(() => new Set())
-  const [confirmOpen, setConfirmOpen] = useState(false)
+  const selectionScope = brainAuditSelectionScope(ownerUID, searchParams)
+  const [selection, setSelection] = useState<BrainAuditSelection>(() => ({
+    scope: selectionScope,
+    ids: new Set(),
+    confirming: false
+  }))
+  const activeSelection = brainAuditSelectionForScope(selection, selectionScope)
+  if (activeSelection !== selection) setSelection(activeSelection)
+  const selectedIDs = activeSelection.ids
   const audit = useQuery({
     ...ankoleWebBrainControllerAuditIndexOptions({
       query: {
@@ -89,23 +103,31 @@ export function BrainAuditPage() {
         limit: 50
       }
     }),
-    enabled: Boolean(ownerUID),
-    placeholderData: keepPreviousData
+    enabled: Boolean(ownerUID)
   })
   const restore = useMutation({
     ...ankoleWebBrainControllerRestoreAuditsMutation(),
-    onSuccess: () => {
-      toast.success(t('console.brain.batch_restored', { count: selectedIDs.size }))
-      setConfirmOpen(false)
-      setSelectedIDs(new Set())
+    onMutate: variables => ({ selection: activeSelection, count: variables.body.audit_ids.length }),
+    onSuccess: (_data, _variables, submitted) => {
+      if (!submitted) return
+      toast.success(t('console.brain.batch_restored', { count: submitted.count }))
+      setSelection(current => brainAuditSelectionAfterRestore(current, submitted.selection))
       void queryClient.invalidateQueries()
-    },
-    onError: error => toast.error(requestErrorMessage(error))
+    }
   })
   const rows = audit.data?.audit_log ?? []
   const restorableRows = rows.filter(row => RESTORABLE_AUDIT_ACTIONS.has(row.action))
   const allPageSelected = restorableRows.length > 0 && restorableRows.every(row => selectedIDs.has(row.id))
-  const activeFilterCount = [store, action, actor, runID, insertedAfter, insertedBefore].filter(Boolean).length
+
+  const restoreSelected = () => {
+    const auditIDs = [...selectedIDs]
+    if (!ownerUID || auditIDs.length === 0) return
+
+    restore.mutate({
+      query: { owner_uid: ownerUID },
+      body: { audit_ids: auditIDs }
+    })
+  }
 
   useEffect(() => {
     if (searchParams.has('owner') || !ownerUID) return
@@ -115,17 +137,18 @@ export function BrainAuditPage() {
   }, [ownerUID, searchParams, setSearchParams])
 
   const setFilter = (key: string, value: string) => {
-    setSelectedIDs(new Set())
     setSearchParams(setBrainFilter(searchParams, key, value), { replace: true })
   }
 
   const clearFilters = () => {
-    setSelectedIDs(new Set())
     const next = new URLSearchParams(searchParams)
     for (const key of ['store', 'action', 'actor', 'run', 'after', 'before']) next.delete(key)
     setSearchParams(resetCursorParams(next), { replace: true })
   }
 
+  const anyFilterActive = Boolean(store || action || actor || runID || insertedAfter || insertedBefore)
+  // Only the filters the disclosure hides: its badge counts what the collapsed
+  // panel holds, and its chips restate values no visible input already shows.
   const activeAdvancedFilters: ActiveFilter[] = []
   if (store) {
     activeAdvancedFilters.push({
@@ -146,22 +169,24 @@ export function BrainAuditPage() {
   }
 
   const toggleRow = (id: string, selected: boolean) => {
-    setSelectedIDs(current => {
-      const next = new Set(current)
+    setSelection(current => {
+      const active = brainAuditSelectionForScope(current, selectionScope)
+      const next = new Set(active.ids)
       if (selected) next.add(id)
       else next.delete(id)
-      return next
+      return { ...active, ids: next }
     })
   }
 
   const togglePage = (selected: boolean) => {
-    setSelectedIDs(current => {
-      const next = new Set(current)
+    setSelection(current => {
+      const active = brainAuditSelectionForScope(current, selectionScope)
+      const next = new Set(active.ids)
       for (const row of restorableRows) {
         if (selected) next.add(row.id)
         else next.delete(row.id)
       }
-      return next
+      return { ...active, ids: next }
     })
   }
 
@@ -171,14 +196,23 @@ export function BrainAuditPage() {
         title={t('console.brain.audit_title')}
         description={t('console.brain.audit_description')}
         actions={
-          <Button
-            type="button"
-            variant="outline"
-            disabled={selectedIDs.size === 0 || restore.isPending}
-            onClick={() => setConfirmOpen(true)}>
-            <RiRefreshLine />
-            {t('console.brain.restore_selected', { count: selectedIDs.size })}
-          </Button>
+          <>
+            <RefreshButton />
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={selectedIDs.size === 0 || restore.isPending}
+              onClick={() =>
+                setSelection(current => ({
+                  ...brainAuditSelectionForScope(current, selectionScope),
+                  confirming: true
+                }))
+              }>
+              <RiArrowGoBackLine />
+              {t('console.brain.restore_selected', { count: selectedIDs.size })}
+            </Button>
+          </>
         }
       />
       <BrainTaskNavigation ownerUID={ownerUID} store={store || undefined} />
@@ -192,7 +226,10 @@ export function BrainAuditPage() {
         <div className="grid gap-3 border-t border-border pt-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h3 className="text-sm font-medium">{t('console.brain.filters')}</h3>
-            {activeFilterCount > 0 ? (
+            {/* The button clears every filter, so it has to appear for every
+                filter — the visible fields included, not only the two the
+                disclosure hides. */}
+            {anyFilterActive ? (
               <Button type="button" size="xs" variant="ghost" onClick={clearFilters}>
                 {t('console.brain.clear_filters')}
               </Button>
@@ -246,7 +283,6 @@ export function BrainAuditPage() {
         </div>
       </div>
 
-      <ErrorBlock error={restore.error} />
       {restorableRows.length > 0 ? (
         <div className="flex justify-end">
           <label className="flex items-end gap-3 pb-2 text-sm">
@@ -279,24 +315,28 @@ export function BrainAuditPage() {
         />
       ) : null}
 
-      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-        <DialogContent closeLabel={t('common.close')}>
+      <Dialog
+        open={activeSelection.confirming && selectedIDs.size > 0}
+        onOpenChange={open => {
+          if (restore.isPending) return
+          setSelection(current => ({
+            ...brainAuditSelectionForScope(current, selectionScope),
+            confirming: open
+          }))
+        }}>
+        <DialogContent closeLabel={t('common.close')} showCloseButton={!restore.isPending}>
           <DialogHeader>
             <DialogTitle>{t('console.brain.restore_selected_title')}</DialogTitle>
             <DialogDescription>
               {t('console.brain.restore_selected_description', { count: selectedIDs.size })}
             </DialogDescription>
           </DialogHeader>
+          <ErrorBlock error={restore.error} />
           <DialogFooter>
-            <DialogClose render={<Button variant="outline" />}>{t('common.cancel')}</DialogClose>
-            <Button
-              disabled={!ownerUID || selectedIDs.size === 0 || restore.isPending}
-              onClick={() =>
-                restore.mutate({
-                  query: { owner_uid: ownerUID },
-                  body: { audit_ids: [...selectedIDs] }
-                })
-              }>
+            <DialogClose render={<Button variant="outline" disabled={restore.isPending} />}>
+              {t('common.cancel')}
+            </DialogClose>
+            <Button disabled={!ownerUID || selectedIDs.size === 0 || restore.isPending} onClick={restoreSelected}>
               {t('console.brain.restore_selected', { count: selectedIDs.size })}
             </Button>
           </DialogFooter>
@@ -321,8 +361,7 @@ export function BrainDreamingPage() {
         t('console.brain.dreaming_finished', { status: t(`console.brain.dreaming_status_${data.run.status}`) })
       )
       void queryClient.invalidateQueries()
-    },
-    onError: error => toast.error(requestErrorMessage(error))
+    }
   })
 
   useEffect(() => {
@@ -340,13 +379,17 @@ export function BrainDreamingPage() {
         title={t('console.brain.dreaming_title')}
         description={t('console.brain.dreaming_description')}
         actions={
-          <Button
-            type="button"
-            disabled={!ownerUID || runDreaming.isPending}
-            onClick={() => runDreaming.mutate({ query: { owner_uid: ownerUID } })}>
-            <RiSparkling2Line />
-            {runDreaming.isPending ? t('console.brain.dreaming_running') : t('console.brain.run_dreaming')}
-          </Button>
+          <>
+            <RefreshButton />
+            <Button
+              type="button"
+              size="sm"
+              disabled={!ownerUID || runDreaming.isPending}
+              onClick={() => runDreaming.mutate({ query: { owner_uid: ownerUID } })}>
+              <RiSparkling2Line />
+              {runDreaming.isPending ? t('console.brain.dreaming_running') : t('console.brain.run_dreaming')}
+            </Button>
+          </>
         }
       />
       <BrainTaskNavigation ownerUID={ownerUID} />
@@ -426,13 +469,13 @@ export function BrainEntryAuditPage() {
       if (restorationAction(data.restoration) === 'delete_entry') {
         navigate(`/brain/${entryID}?${brainSearch(ownerUID, store)}`)
       }
-    },
-    onError: error => toast.error(requestErrorMessage(error))
+    }
   })
 
   return (
     <PageStack className="mx-auto max-w-3xl">
       <BackLink to={`/brain?${brainSearch(ownerUID, store)}`} />
+      <BrainTaskNavigation ownerUID={ownerUID} store={store} />
       <div>
         <h2 className="text-2xl font-semibold">{t('console.brain.deleted_audit_title')}</h2>
         <p className="break-all font-mono text-xs text-muted-foreground">{entryID}</p>

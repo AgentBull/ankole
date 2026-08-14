@@ -57,6 +57,19 @@ describe('console forms', () => {
     expect(html.match(/href="\/resources"/g)).toHaveLength(1)
   })
 
+  test('makes a terminal resource read-only without offering a save action', () => {
+    const html = renderToStaticMarkup(
+      <MemoryRouter>
+        <ResourceEditorPage backTo="/resources" onSubmit={() => {}} readOnly title="Completed resource">
+          <Input value="Final value" />
+        </ResourceEditorPage>
+      </MemoryRouter>
+    )
+
+    expect(html).toContain('<fieldset class="contents" disabled="">')
+    expect(html).not.toContain('type="submit"')
+  })
+
   test('keeps a stored secret out of the editable input value', () => {
     const html = renderToStaticMarkup(
       <ConfigFields

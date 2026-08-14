@@ -126,14 +126,7 @@ defmodule Ankole.SignalsGateway do
   defdelegate get_binding(agent_uid, binding_name), to: Bindings
 
   @doc """
-  Lists signal bindings for one agent, including disabled bindings.
-  """
-  @spec list_agent_bindings(String.t(), keyword()) ::
-          {:ok, [Binding.t()]} | {:error, term()}
-  defdelegate list_agent_bindings(agent_uid, opts \\ []), to: Bindings
-
-  @doc """
-  Lists bindings across the installation for the Console, with an optional
+  Lists bindings across the deployment instance for the Console, with an optional
   agent filter and no agent existence check.
   """
   @spec list_bindings(String.t() | nil) :: {:ok, [Binding.t()]}

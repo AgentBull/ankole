@@ -7,9 +7,13 @@ import {
   CardHeader,
   CardTitle,
   cn,
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
   Skeleton
 } from '@ankole/uikit'
-import { RiExternalLinkLine } from '@remixicon/react'
+import { RiArrowRightLine } from '@remixicon/react'
 import { useQuery } from '@tanstack/react-query'
 import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -55,7 +59,7 @@ export function BrainSkillExperiencePage() {
       />
       <BrainTaskNavigation ownerUID={ownerUID} />
 
-      <div className="grid grid-cols-1 gap-4 border border-border bg-card p-4 md:grid-cols-2">
+      <div className="border border-border bg-card p-4">
         <BrainOwnerField
           ownerUID={ownerUID}
           principals={agents}
@@ -67,10 +71,14 @@ export function BrainSkillExperiencePage() {
       {overlays.isLoading || principals.isLoading ? (
         <Skeleton className="h-48 w-full" />
       ) : items.length === 0 ? (
-        <div className="grid gap-1 border border-dashed border-border p-8 text-center">
-          <h3 className="text-sm font-medium">{t('console.brain.experience_empty_title')}</h3>
-          <p className="text-sm text-muted-foreground">{t('console.brain.experience_empty_description')}</p>
-        </div>
+        <Empty className="items-start border border-border bg-card p-8 text-left md:p-10">
+          <EmptyHeader className="max-w-xl items-start">
+            <EmptyTitle>{t('console.brain.experience_empty_title')}</EmptyTitle>
+            <EmptyDescription className="text-balance">
+              {t('console.brain.experience_empty_description')}
+            </EmptyDescription>
+          </EmptyHeader>
+        </Empty>
       ) : (
         <div className="grid gap-4">
           {items.map(item => (
@@ -103,7 +111,7 @@ function SkillExperienceCard({ item, ownerUID }: { item: AgentLibrarySkillOverla
             <CardDescription>{item.description ?? '—'}</CardDescription>
           </div>
           <Link className={cn(buttonVariants({ size: 'sm', variant: 'outline' }))} to={editHref}>
-            <RiExternalLinkLine />
+            <RiArrowRightLine />
             {t('console.brain.experience_manage')}
           </Link>
         </div>

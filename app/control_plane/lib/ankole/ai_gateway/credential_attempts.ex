@@ -452,15 +452,16 @@ defmodule Ankole.AIGateway.CredentialAttempts do
     runtime = context.runtime
 
     with credential_id when is_binary(credential_id) <- Map.get(runtime, "credential_id"),
+         %{"id" => ^credential_id} = credential <- Map.get(runtime, "credential_entry"),
          provider_row_id when is_binary(provider_row_id) <- provider_row_id(runtime) do
       case mark do
         :dead ->
-          CredentialPool.mark_dead(provider_row_id, credential_id, failure.error)
+          CredentialPool.mark_dead(provider_row_id, credential, failure.error)
 
         :exhausted ->
           CredentialPool.mark_exhausted(
             provider_row_id,
-            credential_id,
+            credential,
             failure.status,
             failure.headers,
             failure.error
@@ -645,8 +646,9 @@ defmodule Ankole.AIGateway.CredentialAttempts do
 
   defp mark_runtime_ok(runtime, headers) do
     with provider_row_id when is_binary(provider_row_id) <- provider_row_id(runtime),
-         credential_id when is_binary(credential_id) <- Map.get(runtime, "credential_id") do
-      CredentialPool.observe_success(provider_row_id, credential_id, headers)
+         credential_id when is_binary(credential_id) <- Map.get(runtime, "credential_id"),
+         %{"id" => ^credential_id} = credential <- Map.get(runtime, "credential_entry") do
+      CredentialPool.observe_success(provider_row_id, credential, headers)
     else
       _value -> :ok
     end

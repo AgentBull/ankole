@@ -57,9 +57,15 @@ export function BrainStatusPage() {
         />
         <div className="flex items-center justify-between gap-3 self-end border border-border p-3">
           <span className="text-sm text-muted-foreground">{t('console.brain.status_overall')}</span>
-          <StatusIndicator tone={status?.status === 'ok' ? 'positive' : 'warning'}>
-            {textValue(status?.status) ?? '—'}
-          </StatusIndicator>
+          {/* The warning tone is reserved for a report that arrived degraded; a
+              pending or failed query shows a neutral placeholder or nothing. */}
+          {status ? (
+            <StatusIndicator tone={status.status === 'ok' ? 'positive' : 'warning'}>
+              {textValue(status.status) ?? '—'}
+            </StatusIndicator>
+          ) : principals.isPending || (Boolean(ownerUID) && query.isPending) ? (
+            <Skeleton className="h-6 w-24" />
+          ) : null}
         </div>
       </div>
 

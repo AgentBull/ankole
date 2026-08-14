@@ -38,6 +38,10 @@ config :ankole, Oban, testing: :manual, plugins: false, queues: false
 config :ankole, :identity_provider_startup_sync, enabled: false
 config :ankole, :identity_provider_realtime_reconcile, on_save: false
 
+# Startup reconciliation remains active. Periodic plugin processes must not
+# borrow the current test's shared SQL Sandbox owner after it exits.
+config :ankole, :signal_connection_reconcile_interval_ms, nil
+
 config :ankole, :runtime_events, enabled: false
 
 # The limiter test uses a real interval. Other tests do not need wall-clock waits.

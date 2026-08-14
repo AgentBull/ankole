@@ -82,8 +82,7 @@ export function WorkersListPage() {
         t('console.workers.worker_id'),
         t('console.workers.status'),
         t('console.workers.version'),
-        t('console.workers.slots'),
-        t('console.workers.active_turns'),
+        t('console.workers.load'),
         t('console.workers.last_heartbeat')
       ]}
       isLoading={workers.isLoading}
@@ -109,7 +108,7 @@ export function WorkersListPage() {
           <TableCell className="font-mono text-xs">
             <Link
               to={`${encodeURIComponent(worker.worker_id)}/files`}
-              className="text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40">
+              className="text-foreground hover:text-link hover:underline">
               {worker.worker_id}
             </Link>
           </TableCell>
@@ -117,8 +116,7 @@ export function WorkersListPage() {
             <StatusIndicator tone={statusTone(worker.status)}>{t(`console.status.${worker.status}`)}</StatusIndicator>
           </TableCell>
           <TableCell className="text-xs text-muted-foreground">{worker.version}</TableCell>
-          <TableCell>{formatSlots(worker)}</TableCell>
-          <TableCell>{formatActiveTurns(worker)}</TableCell>
+          <TableCell>{formatLoad(worker)}</TableCell>
           <TableCell className="text-xs text-muted-foreground">
             {formatConsoleDate(worker.last_worker_heartbeat_at)}
           </TableCell>
@@ -161,17 +159,19 @@ function statusTone(status: AgentComputerWorkerItem['status']): 'danger' | 'info
   return 'danger'
 }
 
-function formatSlots(worker: AgentComputerWorkerItem): string {
-  const available = integerField(worker.capacity, 'available_turn_slots')
+/**
+ * Active turns over total turn slots, in the used-over-total order capacity
+ * columns are read in. A worker that reports only capacity derives its active
+ * count from the free slots.
+ */
+function formatLoad(worker: AgentComputerWorkerItem): string {
   const max = integerField(worker.capacity, 'max_turns')
-  if (available === undefined && max === undefined) return '–'
-  if (max !== undefined) return `${available ?? 0} / ${max}`
-  return String(available ?? 0)
-}
-
-function formatActiveTurns(worker: AgentComputerWorkerItem): string {
-  const value = integerField(worker.load, 'active_turns')
-  return value === undefined ? '–' : String(value)
+  const available = integerField(worker.capacity, 'available_turn_slots')
+  const active =
+    integerField(worker.load, 'active_turns') ??
+    (max !== undefined && available !== undefined ? Math.max(max - available, 0) : undefined)
+  if (active === undefined) return '–'
+  return max === undefined ? String(active) : `${active} / ${max}`
 }
 
 function integerField(map: { [key: string]: unknown } | undefined, key: string): number | undefined {
@@ -217,16 +217,30 @@ export function WorkerFilesPage() {
     matchesResourceSearch(searchQuery, entry.relative_path, entry.kind, basename(entry.relative_path))
   )
   const truncated = files.data?.file_listing.truncated === true
+  // Without an Agent no per-agent directory exists, so "this directory is
+  // empty" would misreport the missing prerequisite. A path that names its own
+  // Agent is a real directory and keeps the plain empty state even when the
+  // Agent list is empty.
+  const agentsEmpty = agents.isSuccess && agents.data.agents.length === 0 && !pathAgentUID
 
   const refresh = () => void queryClient.invalidateQueries()
 
+  // One toast per file, each naming the file it belongs to: a rejected upload
+  // has to say which file the Worker refused and why, and a per-file handler
+  // says it without a batching layer that has to track outcomes of its own.
   const upload = useMutation({
     ...ankoleWebWorkerFileControllerUploadMutation(),
-    onSuccess: () => {
-      toast.success(t('console.worker_files.uploaded'))
+    onSuccess: (_data, variables) => {
+      toast.success(t('console.worker_files.uploaded', { name: basename(variables.body.path) }))
       refresh()
     },
-    onError: error => toast.error(requestErrorMessage(error))
+    onError: (error, variables) =>
+      toast.error(
+        t('console.worker_files.upload_failed', {
+          name: basename(variables.body.path),
+          reason: requestErrorMessage(error)
+        })
+      )
   })
 
   const move = useMutation({
@@ -277,14 +291,10 @@ export function WorkerFilesPage() {
       />
       <div className="ml-auto">
         <UploadDialog
-          root={root}
           currentPath={path}
           disabled={!path || upload.isPending}
-          onUpload={(body, workerPath) =>
-            upload.mutate({
-              path: { worker_id: workerID },
-              body: { root: body.root, path: workerPath, file: body.file }
-            })
+          onUpload={body =>
+            upload.mutate({ path: { worker_id: workerID }, body: { root, path: body.workerPath, file: body.file } })
           }
         />
       </div>
@@ -318,9 +328,18 @@ export function WorkerFilesPage() {
       isLoading={agents.isLoading || files.isLoading}
       isEmpty={entries.length === 0}
       count={entries.length}
-      emptyTitle={t('console.worker_files.empty_title')}
+      emptyTitle={agentsEmpty ? t('console.agents.empty_title') : t('console.worker_files.empty_title')}
       emptyIcon={<RiFolder3Line aria-hidden />}
-      emptyDescription={t('console.worker_files.empty_description')}
+      emptyDescription={
+        agentsEmpty ? t('console.agents.empty_description') : t('console.worker_files.empty_description')
+      }
+      emptyAction={
+        agentsEmpty ? (
+          <Link to="/agents/new" className={cn(buttonVariants({ size: 'sm' }))}>
+            {t('console.agents.new')}
+          </Link>
+        ) : undefined
+      }
       isFiltered={Boolean(query.trim())}
       onClearFilters={() => setQuery('')}
       error={agents.error ?? files.error}>
@@ -626,15 +645,13 @@ function FileRow({
 }
 
 function UploadDialog({
-  root,
   currentPath,
   disabled,
   onUpload
 }: {
-  root: WorkerFileRoot
   currentPath: string
   disabled: boolean
-  onUpload: (body: { root: WorkerFileRoot; file: File }, workerPath: string) => void
+  onUpload: (body: { file: File; workerPath: string }) => void
 }) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
@@ -646,11 +663,11 @@ function UploadDialog({
     setSubdir('')
   }
 
+  // Each file reports its own outcome through its own toast, so the dialog
+  // hands them over and closes rather than tracking a batch result.
   const submit = () => {
     if (disabled || files.length === 0) return
-    for (const file of files) {
-      onUpload({ root, file }, joinPath(currentPath, subdir.trim(), file.name))
-    }
+    for (const file of files) onUpload({ file, workerPath: joinPath(currentPath, subdir.trim(), file.name) })
     reset()
     setOpen(false)
   }

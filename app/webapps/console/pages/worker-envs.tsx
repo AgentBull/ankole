@@ -366,7 +366,7 @@ export function WorkerEnvEditorPage() {
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant={declared ? 'outline' : 'secondary'}>{t(`console.worker_envs.kind_${item.kind}`)}</Badge>
             <WorkerEnvSourceBadge source={item.source} />
-            {item.secret ? <Badge variant="destructive">{t('console.status.encrypted')}</Badge> : null}
+            {item.secret ? <Badge variant="info">{t('console.status.encrypted')}</Badge> : null}
             {item.declared_key ? (
               <span className="font-mono text-xs text-muted-foreground">{item.declared_key}</span>
             ) : null}

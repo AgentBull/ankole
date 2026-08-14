@@ -213,6 +213,7 @@ function PrincipalGroupsSection({ principal }: { principal: PrincipalItem }) {
           .map(group => ({ id: group.name, label: group.display_name }))}
         excludedIDs={new Set(memberships.map(group => group.name))}
         error={allGroups.error}
+        isLoading={allGroups.isLoading}
         pending={addMember.isPending}
         onAdd={name => addMember.mutate({ path: { name, principal_uid: principal.uid } })}
       />

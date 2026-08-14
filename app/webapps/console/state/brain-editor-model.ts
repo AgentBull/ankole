@@ -65,6 +65,12 @@ export type BrainMetadataEditorDraft = {
 
 export type BrainOwnerOption = Pick<PrincipalItem, 'uid' | 'type'>
 
+export type BrainAuditSelection = {
+  scope: string
+  ids: Set<string>
+  confirming: boolean
+}
+
 export const BrainMetadataEditorModel = createModel(() => {
   const sourceKey = signal<string>()
   const name = signal('')
@@ -139,6 +145,24 @@ export function defaultBrainOwnerUID(principals: BrainOwnerOption[]): string {
  */
 export function agentOwnerUID(requested: string | null, agents: BrainOwnerOption[]): string {
   return requested && agents.some(agent => agent.uid === requested) ? requested : defaultBrainOwnerUID(agents)
+}
+
+export function brainAuditSelectionScope(ownerUID: string, searchParams: URLSearchParams): string {
+  return JSON.stringify([
+    ownerUID,
+    ...['store', 'action', 'actor', 'run', 'after', 'before'].map(key => searchParams.get(key) ?? '')
+  ])
+}
+
+export function brainAuditSelectionForScope(selection: BrainAuditSelection, scope: string): BrainAuditSelection {
+  return selection.scope === scope ? selection : { scope, ids: new Set(), confirming: false }
+}
+
+export function brainAuditSelectionAfterRestore(
+  selection: BrainAuditSelection,
+  restoredSelection: BrainAuditSelection
+): BrainAuditSelection {
+  return selection === restoredSelection ? { ...selection, ids: new Set(), confirming: false } : selection
 }
 
 /** Builds the smallest structured operation batch for the editable entry metadata. */

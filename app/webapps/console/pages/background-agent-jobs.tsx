@@ -42,7 +42,7 @@ import {
   RiUser3Line
 } from '@remixicon/react'
 import { match } from '@agentbull/active-support'
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { type ReactNode, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router'
@@ -61,7 +61,7 @@ import type {
   BackgroundAgentJobTurnPlanStep,
   BackgroundAgentJobTurnUsageBreakdown
 } from '../api/generated/types.gen'
-import { AgentFilter, useAgentScope } from '../console-agent-scope'
+import { AgentFilter, type AgentScope, useAgentScope } from '../console-agent-scope'
 import { ErrorBlock } from '../../common/error-block'
 import { formatConsoleDate, formatJSON } from '../console-primitives'
 import { resourceID } from '../console-route-loaders'
@@ -88,11 +88,15 @@ const columns: Column[] = [
 ]
 
 export function BackgroundAgentJobsPage() {
+  const scope = useAgentScope()
+  return <BackgroundAgentJobsForScope key={scope.agentUID} scope={scope} />
+}
+
+function BackgroundAgentJobsForScope({ scope }: { scope: AgentScope }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
-  const scope = useAgentScope()
-  const selectedID = resourceID(searchParams.get('job'))
+  const selectedID = resourceID(searchParams.get('job'), 1000)
   const [cancelTargetID, setCancelTargetID] = useState<number>()
   const [completeTargetID, setCompleteTargetID] = useState<number>()
   const [completeSummary, setCompleteSummary] = useState('')
@@ -101,13 +105,7 @@ export function BackgroundAgentJobsPage() {
     refetchInterval: 15_000
   })
   // This list endpoint spans agents on its own; the scope only narrows it.
-  const list = useQuery({
-    ...ankoleWebBackgroundAgentJobControllerIndexOptions({
-      query: { agent: scope.agentUID || undefined, limit: 100 }
-    }),
-    placeholderData: keepPreviousData,
-    refetchInterval: 5_000
-  })
+  const list = useQuery(backgroundAgentJobListOptions(scope.agentUID))
   const detail = useQuery({
     ...ankoleWebBackgroundAgentJobControllerShowOptions({
       path: { job_id: selectedID ?? 1000 }
@@ -152,6 +150,10 @@ export function BackgroundAgentJobsPage() {
     setSearchParams(next, { replace: true })
   }
 
+  const selectAgent = (agentUID: string) => {
+    setSearchParams(current => backgroundAgentJobScopeParams(current, agentUID))
+  }
+
   const grouped = useMemo(
     () =>
       Object.fromEntries(
@@ -168,7 +170,7 @@ export function BackgroundAgentJobsPage() {
         actions={<RefreshButton />}
       />
       <ScopeBar>
-        <AgentFilter scope={scope} />
+        <AgentFilter scope={{ ...scope, selectAgent }} />
       </ScopeBar>
 
       {health.data ? <JobHealthStrip health={health.data} /> : null}
@@ -192,7 +194,7 @@ export function BackgroundAgentJobsPage() {
           </EmptyHeader>
           {scope.agentUID ? (
             <EmptyContent className="items-start">
-              <Button type="button" size="sm" variant="outline" onClick={() => scope.selectAgent('')}>
+              <Button type="button" size="sm" variant="outline" onClick={() => selectAgent('')}>
                 {t('console.empty.clear_filters')}
               </Button>
             </EmptyContent>
@@ -234,7 +236,7 @@ export function BackgroundAgentJobsPage() {
       )}
 
       {/* The board reads one page and the finished column grows without bound, so
-          a busy Installation silently loses its older jobs off the end. Say that
+          a busy deployment instance silently loses its older jobs off the end. Say that
           the view is capped rather than let it look complete. */}
       {list.data?.next_cursor ? (
         <p className="text-sm text-muted-foreground">
@@ -360,6 +362,23 @@ export function BackgroundAgentJobsPage() {
       </Dialog>
     </PageStack>
   )
+}
+
+export function backgroundAgentJobListOptions(agentUID: string) {
+  return {
+    ...ankoleWebBackgroundAgentJobControllerIndexOptions({
+      query: { agent: agentUID || undefined, limit: 100 }
+    }),
+    refetchInterval: 5_000
+  }
+}
+
+export function backgroundAgentJobScopeParams(current: URLSearchParams, agentUID: string): URLSearchParams {
+  const next = new URLSearchParams(current)
+  next.delete('job')
+  if (agentUID) next.set('agent', agentUID)
+  else next.delete('agent')
+  return next
 }
 
 /**

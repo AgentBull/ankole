@@ -10,6 +10,13 @@ import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
   Select,
   SelectContent,
   SelectItem,
@@ -17,17 +24,27 @@ import {
   SelectValue,
   Skeleton
 } from '@ankole/uikit'
-import { RiArrowDownSLine, RiCloseLine, RiFilter3Line, RiHistoryLine, RiRefreshLine } from '@remixicon/react'
-import { useState, type ReactNode } from 'react'
+import { RiArrowDownSLine, RiArrowGoBackLine, RiCloseLine, RiFilter3Line, RiHistoryLine } from '@remixicon/react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router'
 import type { BrainAuditLog, PrincipalItem } from '../api/generated/types.gen'
 import { ErrorBlock } from '../../common/error-block'
+import { humanizeTechnicalLabel } from '../../common/humanize-technical-label'
 import { formatConsoleDate, formatJSON } from '../console-primitives'
 import { LabeledField } from '../console-form'
 import { SubNav } from '../console-list-page'
 
-export function BrainTaskNavigation({ ownerUID, store }: { ownerUID: string; store?: string }) {
+export function BrainTaskNavigation({
+  active,
+  ownerUID,
+  store
+}: {
+  /** Area of a page whose path does not prefix its tab, such as `/brain/learn` under Sources. */
+  active?: 'sources'
+  ownerUID: string
+  store?: string
+}) {
   const { t } = useTranslation()
   const search = brainSearch(ownerUID, store)
   return (
@@ -35,7 +52,11 @@ export function BrainTaskNavigation({ ownerUID, store }: { ownerUID: string; sto
       ariaLabel={t('console.brain.task_surfaces')}
       items={[
         { to: `/brain?${search}`, label: t('console.brain.entries_tab'), end: true },
-        { to: `/brain/sources?${search}`, label: t('console.brain.sources_tab') },
+        {
+          to: `/brain/sources?${search}`,
+          label: t('console.brain.sources_tab'),
+          active: active === 'sources' || undefined
+        },
         { to: `/brain/skill-experience?${brainSearch(ownerUID)}`, label: t('console.brain.experience_tab') },
         { to: `/brain/status?${brainSearch(ownerUID)}`, label: t('console.brain.status_tab') },
         { to: `/brain/audit?${search}`, label: t('console.brain.audit_tab') },
@@ -123,6 +144,15 @@ export function BrainStoreField({
 
 export function BrainStoreName({ store, principals }: { store: string; principals: PrincipalOption[] }) {
   const { t } = useTranslation()
+  return brainStoreLabel(t, store, principals)
+}
+
+/** String form of `BrainStoreName` for plain-text surfaces such as editor descriptions. */
+export function brainStoreLabel(
+  t: ReturnType<typeof useTranslation>['t'],
+  store: string,
+  principals: PrincipalOption[]
+): string {
   if (store === 'shared') return t('console.brain.store_shared')
   if (store === 'self') return t('console.brain.store_self')
 
@@ -247,6 +277,17 @@ export function AuditTrail({
   entryHref?: (row: BrainAuditLog) => string | undefined
 }) {
   const { t } = useTranslation()
+  // The confirmation reuses the batch-restore dialog copy: a single restore
+  // mutates history-derived state just as irreversibly as a batch of one.
+  const [confirmID, setConfirmID] = useState<string>()
+  // A refetch can drop the row the confirmation points at. Forgetting it there
+  // stops the dialog from returning later over an entry the operator has
+  // already moved on from.
+  const confirmedRowPresent = confirmID !== undefined && rows.some(row => row.id === confirmID)
+  useEffect(() => {
+    if (confirmID !== undefined && !confirmedRowPresent) setConfirmID(undefined)
+  }, [confirmID, confirmedRowPresent])
+
   if (loading) return <Skeleton className="h-72 w-full" />
   if (error) return <ErrorBlock error={error} />
   if (rows.length === 0) return <p className="text-sm text-muted-foreground">{t('console.brain.no_audit')}</p>
@@ -271,9 +312,9 @@ export function AuditTrail({
                     />
                   ) : null}
                   <div className="min-w-0">
-                    <CardTitle className="flex flex-wrap items-center gap-2">
+                    <CardTitle className="flex flex-wrap items-center gap-2 normal-case">
                       <RiHistoryLine />
-                      {row.action}
+                      {humanizeTechnicalLabel(row.action)}
                     </CardTitle>
                     <CardDescription>
                       {row.store_key} · {row.actor_kind} · {row.actor_uid || '—'} · {formatConsoleDate(row.inserted_at)}
@@ -299,8 +340,8 @@ export function AuditTrail({
                     size="sm"
                     variant="outline"
                     disabled={restoring}
-                    onClick={() => onRestore(row.id)}>
-                    <RiRefreshLine />
+                    onClick={() => setConfirmID(row.id)}>
+                    <RiArrowGoBackLine />
                     {t('console.brain.restore')}
                   </Button>
                 ) : null}
@@ -313,6 +354,31 @@ export function AuditTrail({
           </Card>
         )
       })}
+      {/* A refetch can drop the row while its confirmation is open. Tying the
+          dialog to a row that still exists stops it from reappearing later over
+          an entry the operator has moved on from. */}
+      {onRestore ? (
+        <Dialog open={confirmedRowPresent} onOpenChange={open => !open && setConfirmID(undefined)}>
+          <DialogContent closeLabel={t('common.close')}>
+            <DialogHeader>
+              <DialogTitle>{t('console.brain.restore_selected_title')}</DialogTitle>
+              <DialogDescription>{t('console.brain.restore_selected_description', { count: 1 })}</DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <DialogClose render={<Button variant="outline" />}>{t('common.cancel')}</DialogClose>
+              <Button
+                disabled={restoring}
+                onClick={() => {
+                  const auditID = confirmID
+                  setConfirmID(undefined)
+                  if (auditID) onRestore(auditID)
+                }}>
+                {t('console.brain.restore_selected', { count: 1 })}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      ) : null}
     </div>
   )
 }

@@ -1,4 +1,4 @@
-import { Button, Tabs, TabsContent, TabsList, TabsTrigger, Textarea, toast } from '@ankole/uikit'
+import { Button, Skeleton, Tabs, TabsContent, TabsList, TabsTrigger, Textarea, toast } from '@ankole/uikit'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { RiEditLine } from '@remixicon/react'
@@ -108,7 +108,10 @@ export function AgentLibraryEditor({ agentUID }: { agentUID: string }) {
 
       <ErrorBlock error={documents.error} />
       {documents.isLoading ? (
-        <span className="text-xs text-muted-foreground">{t('common.loading')}</span>
+        <div className="grid gap-4 border border-border bg-card p-4 md:p-5" aria-busy="true">
+          <Skeleton className="h-10 w-full" />
+          <Skeleton className="h-80 w-full" />
+        </div>
       ) : initialized ? (
         <Tabs
           className="grid gap-4 border border-border bg-card p-4 md:p-5"
@@ -159,6 +162,9 @@ export function AgentLibraryEditor({ agentUID }: { agentUID: string }) {
                       onChange={event => model.setDraft(kind, event.target.value)}
                     />
                     <div className="flex flex-wrap items-center gap-2">
+                      <Button size="xs" type="button" variant="ghost" onClick={() => model.cancel(kind)}>
+                        {t('common.cancel')}
+                      </Button>
                       <SaveButton
                         disabled={replaceDocument.isPending || state.draft.value === state.sourceContent.value}
                         loading={replaceDocument.isPending}
@@ -167,9 +173,6 @@ export function AgentLibraryEditor({ agentUID }: { agentUID: string }) {
                         onClick={() => save(kind)}>
                         {t('common.save')}
                       </SaveButton>
-                      <Button size="xs" type="button" variant="ghost" onClick={() => model.cancel(kind)}>
-                        {t('common.cancel')}
-                      </Button>
                     </div>
                   </>
                 ) : state.sourceContent.value ? (

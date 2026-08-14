@@ -15,6 +15,8 @@ export type CronStatus = 'active' | 'paused'
 
 export type ScheduleKind = 'cron' | 'every'
 
+export type ScheduleOccurrenceBound = { count: number } | { until: string }
+
 export type DeliveryTargetDraft = {
   bindingName: string
   channelId: string
@@ -31,6 +33,7 @@ export type ScheduleEditorDraft = {
   everyMs: string
   anchorAt: string
   timezone: string
+  occurrences?: ScheduleOccurrenceBound
   deliveryTargets: DeliveryTargetDraft[]
   task: string
   payload: string
@@ -102,6 +105,22 @@ export function deliveryTargetDrafts(
   return [{ bindingName, channelId, threadId: delivery?.provider_thread_id ?? '' }]
 }
 
+/** Reads the normalized occurrence bound that the editor must preserve. */
+export function scheduleOccurrenceBound(schedule: Record<string, unknown>): ScheduleOccurrenceBound | undefined {
+  const occurrences = schedule.occurrences
+  if (!occurrences || typeof occurrences !== 'object' || Array.isArray(occurrences)) return undefined
+
+  const count = (occurrences as { count?: unknown }).count
+  if (Number.isSafeInteger(count) && Number(count) > 0) return { count: Number(count) }
+
+  const until = (occurrences as { until?: unknown }).until
+  return typeof until === 'string' && until ? { until } : undefined
+}
+
+export function isMutableCronStatus(status: string): status is CronStatus {
+  return status === 'active' || status === 'paused'
+}
+
 export const ScheduleEditorModel = createModel(() => {
   const sourceKey = signal<string>()
   const ownerSessionId = signal('')
@@ -143,12 +162,14 @@ export const ScheduleEditorModel = createModel(() => {
   }
 
   const buildSchedule = (): Record<string, unknown> | null => {
+    const occurrences = initialDraft.value?.occurrences
     const kind = (scheduleKind.value || 'cron') as ScheduleKind
     if (kind === 'cron') {
       const expression = cronExpression.value.trim()
       if (!expression) return null
       const out: Record<string, unknown> = { kind: 'cron', expression }
       if (timezone.value.trim()) out.timezone = timezone.value.trim()
+      if (occurrences) out.occurrences = { ...occurrences }
       return out
     }
     const ms = Number(everyMs.value)
@@ -157,7 +178,12 @@ export const ScheduleEditorModel = createModel(() => {
     // server-side default.
     const anchor = anchorAt.value.trim()
     if (!anchor) return null
-    return { kind: 'every', every_ms: Math.floor(ms), anchor_at: anchor }
+    return {
+      kind: 'every',
+      every_ms: Math.floor(ms),
+      anchor_at: anchor,
+      ...(occurrences ? { occurrences: { ...occurrences } } : {})
+    }
   }
 
   // The timezone field renders only for cron schedules, so a value typed

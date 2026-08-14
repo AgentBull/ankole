@@ -15,6 +15,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
 
   alias Ankole.AIAgent.Library
   alias Ankole.AIGateway.CodexModels
+  alias Ankole.AIGateway.CredentialPool
   alias Ankole.AIGateway.ModelMetadata.Cache, as: ModelMetadataCache
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.ProviderConfigs.Crypto
@@ -167,6 +168,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     refute Map.has_key?(provider.connection_options, "api_key")
     [stored_credential] = provider.credential_pool["entries"]
     assert is_binary(stored_credential["encrypted_credential"])
+    assert is_binary(stored_credential["health_revision"])
     refute stored_credential["encrypted_credential"] == "sk-test"
     assert {:ok, connection} = ProviderConfigs.runtime_connection(provider)
     refute Map.has_key?(connection, "transport")
@@ -177,6 +179,8 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
 
     assert [%{"credential_present" => true, "status" => "ok"}] =
              projection["credential_pool"]["entries"]
+
+    refute Map.has_key?(hd(projection["credential_pool"]["entries"]), "health_revision")
 
     refute Map.has_key?(projection["connection_options"], "api_key")
     refute inspect(projection) =~ "sk-test"
@@ -373,6 +377,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
 
     assert [updated_entry] = updated.credential_pool["entries"]
     assert updated_entry["label"] == "Renamed"
+    assert updated_entry["health_revision"] == entry["health_revision"]
     assert updated_entry["reauth_required"] == true
     assert updated_entry["migration_error"] == "legacy_secret_invalid"
 
@@ -1183,6 +1188,135 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
              ProviderConfigs.delete_provider("openrouter-main")
 
     assert references == Enum.sort(["#{agent.uid}:primary", "#{agent.uid}:light"])
+  end
+
+  test "disable then enable restores a provider without losing its pool" do
+    assert {:ok, provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "enable-cycle",
+               provider_kind: "openrouter",
+               credential_pool: %{
+                 "entries" => [
+                   %{"id" => "cycle-key", "label" => "Default", "api_key" => "sk-test"}
+                 ]
+               }
+             })
+
+    [old_entry] = provider.credential_pool["entries"]
+    :ok = CredentialPool.mark_dead(provider.id, old_entry)
+    assert {:ok, disabled} = ProviderConfigs.delete_provider("enable-cycle")
+    assert %DateTime{} = disabled.disabled_at
+
+    assert {:ok, enabled} = ProviderConfigs.enable_provider("enable-cycle")
+    assert enabled.disabled_at == nil
+    assert [entry] = enabled.credential_pool["entries"]
+    assert is_binary(entry["encrypted_credential"])
+    refute entry["health_revision"] == old_entry["health_revision"]
+
+    :ok = CredentialPool.mark_dead(provider.id, old_entry, %{"code" => "late_old_failure"})
+    assert {:ok, projection} = ProviderConfigs.get_provider("enable-cycle")
+    assert [%{"status" => "ok"}] = projection["credential_pool"]["entries"]
+
+    assert {:error, :not_found} = ProviderConfigs.enable_provider("missing-provider")
+
+    # A provider whose kind stopped existing while it was disabled must not
+    # return to service: every request it received would fail to resolve.
+    Repo.get_by!(Provider, provider_id: "enable-cycle")
+    |> Ecto.Changeset.change(
+      provider_kind: "retired_kind",
+      disabled_at: DateTime.utc_now(:microsecond)
+    )
+    |> Repo.update!()
+
+    assert {:error, :unknown_ai_gateway_provider} =
+             ProviderConfigs.enable_provider("enable-cycle")
+  end
+
+  test "enabling an active provider preserves current credential health" do
+    assert {:ok, provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "active-enable-health",
+               provider_kind: "openrouter",
+               credential_pool: %{
+                 "entries" => [
+                   %{"id" => "dead-key", "label" => "Dead", "api_key" => "sk-dead"},
+                   %{"id" => "cooldown-key", "label" => "Cooldown", "api_key" => "sk-cooldown"}
+                 ]
+               }
+             })
+
+    dead_entry = Enum.find(provider.credential_pool["entries"], &(&1["id"] == "dead-key"))
+    cooldown_entry = Enum.find(provider.credential_pool["entries"], &(&1["id"] == "cooldown-key"))
+
+    :ok = CredentialPool.mark_dead(provider.id, dead_entry, %{"code" => "token_revoked"})
+
+    :ok =
+      CredentialPool.mark_exhausted(
+        provider.id,
+        cooldown_entry,
+        429,
+        %{
+          "x-codex-primary-reset-at" =>
+            DateTime.utc_now(:second) |> DateTime.add(600) |> DateTime.to_unix()
+        }
+      )
+
+    assert {:ok, %Provider{disabled_at: nil}} =
+             ProviderConfigs.enable_provider("active-enable-health")
+
+    assert {:ok, projection} = ProviderConfigs.get_provider("active-enable-health")
+
+    assert %{"cooldown-key" => "exhausted", "dead-key" => "dead"} ==
+             Map.new(projection["credential_pool"]["entries"], &{&1["id"], &1["status"]})
+  end
+
+  test "credential replacement isolates the new credential from late old failures" do
+    assert {:ok, provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "replacement-failure-order",
+               provider_kind: "openrouter",
+               credential_pool: %{
+                 "entries" => [
+                   %{"id" => "replacement-key", "label" => "Default", "api_key" => "sk-old"}
+                 ]
+               }
+             })
+
+    [old_entry] = provider.credential_pool["entries"]
+    :ok = CredentialPool.mark_dead(provider.id, old_entry, %{"code" => "old_failure"})
+
+    assert {:error, {:credential_pool_exhausted, _details}} =
+             ProviderConfigs.resolve_credential(provider)
+
+    assert {:ok, updated} =
+             ProviderConfigs.update_provider("replacement-failure-order", %{
+               "credential_pool" => %{
+                 "entries" => [
+                   %{
+                     "id" => "replacement-key",
+                     "label" => "Default",
+                     "api_key" => "sk-new"
+                   }
+                 ]
+               }
+             })
+
+    [new_entry] = updated.credential_pool["entries"]
+    refute new_entry["health_revision"] == old_entry["health_revision"]
+
+    :ok =
+      CredentialPool.mark_dead(provider.id, old_entry, %{"code" => "late_old_failure"})
+
+    assert {:ok, projection} = ProviderConfigs.get_provider("replacement-failure-order")
+    assert [%{"status" => "ok"}] = projection["credential_pool"]["entries"]
+
+    assert {:ok, current_selection} = ProviderConfigs.resolve_credential(updated)
+    assert current_selection["credential"]["api_key"] == "sk-new"
+
+    :ok = CredentialPool.mark_dead(provider.id, new_entry, %{"code" => "new_failure"})
+
+    assert {:ok, projection} = ProviderConfigs.get_provider("replacement-failure-order")
+    assert [%{"status" => "dead"}] = projection["credential_pool"]["entries"]
   end
 
   test "runtime RPCLane resolves agent conversation context and DB-backed skill overlays" do

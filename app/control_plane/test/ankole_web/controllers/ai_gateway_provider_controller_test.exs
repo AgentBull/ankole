@@ -9,9 +9,11 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
   alias Ankole.AIGateway.CredentialPool
   alias Ankole.AIGateway.ModelMetadata.Cache, as: ModelMetadataCache
   alias Ankole.AIGateway.ProviderConfigs
+  alias Ankole.AIGateway.ProviderConfigs.Provider
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
   alias Ankole.AuthZ
+  alias Ankole.Repo
   alias Ankole.Setup.Config, as: SetupConfig
   alias AnkoleWeb.Session, as: WebSession
 
@@ -182,6 +184,50 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
       })
 
     assert %{"error" => %{"code" => "provider_id_mismatch"}} = json_response(conn, 422)
+  end
+
+  test "admin enables only a valid disabled provider", %{conn: conn} do
+    conn = bearer_conn(conn)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "enable-route",
+               provider_kind: "openrouter",
+               credential_pool: %{"entries" => []}
+             })
+
+    assert {:ok, %{disabled_at: %DateTime{}}} =
+             ProviderConfigs.delete_provider("enable-route")
+
+    conn = post(conn, ~p"/api/v1/ai-gateway/providers/enable-route/enable")
+
+    assert %{
+             "ai_gateway_provider" => %{
+               "provider_id" => "enable-route",
+               "disabled_at" => nil
+             }
+           } = json_response(conn, 200)
+
+    missing =
+      conn
+      |> recycle_api()
+      |> post(~p"/api/v1/ai-gateway/providers/missing-provider/enable")
+
+    assert %{"error" => %{"code" => "not_found"}} = json_response(missing, 404)
+
+    Repo.get_by!(Provider, provider_id: "enable-route")
+    |> Ecto.Changeset.change(
+      provider_kind: "retired_kind",
+      disabled_at: DateTime.utc_now(:microsecond)
+    )
+    |> Repo.update!()
+
+    invalid =
+      conn
+      |> recycle_api()
+      |> post(~p"/api/v1/ai-gateway/providers/enable-route/enable")
+
+    assert %{"error" => %{"code" => "invalid_value"}} = json_response(invalid, 422)
   end
 
   test "admin creates, edits, lists, and deletes an Agent custom model profile", %{conn: conn} do
@@ -658,7 +704,8 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
              json_response(conn, 200)
 
     assert {:ok, provider} = ProviderConfigs.fetch_provider("openrouter-dead-update")
-    :ok = CredentialPool.mark_dead(provider.id, "dead-key", %{"code" => "token_revoked"})
+    [dead_entry] = provider.credential_pool["entries"]
+    :ok = CredentialPool.mark_dead(provider.id, dead_entry, %{"code" => "token_revoked"})
 
     conn =
       conn

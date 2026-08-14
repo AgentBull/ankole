@@ -224,15 +224,27 @@ defmodule Ankole.AIGateway.ProviderDSL do
 
   @doc false
   def __put_setting__(module, key, opts) do
+    scope = Keyword.get(opts, :scope, :connection)
+    encrypted? = Keyword.get(opts, :encrypted, false)
+
+    # Secrets live only in the encrypted credential pool. Connection and
+    # request settings are stored and projected in plain form, so an encrypted
+    # declaration outside :credential scope would store its value unprotected
+    # and return it to API readers.
+    if encrypted? and scope != :credential do
+      raise ArgumentError,
+            "encrypted setting #{inspect(key)} in #{inspect(module)} must use scope: :credential"
+    end
+
     setting = %Setting{
       key: normalize_setting_key(key),
       type: Keyword.get(opts, :type),
       default: Keyword.get(opts, :default),
       options: normalize_setting_options(Keyword.get(opts, :options, [])),
       required?: Keyword.get(opts, :required, false),
-      encrypted?: Keyword.get(opts, :encrypted, false),
+      encrypted?: encrypted?,
       advanced?: Keyword.get(opts, :advanced, false),
-      scope: Keyword.get(opts, :scope, :connection)
+      scope: scope
     }
 
     Module.put_attribute(module, :ai_provider_settings, setting)

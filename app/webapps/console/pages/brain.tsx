@@ -18,14 +18,13 @@ import {
   Textarea,
   toast
 } from '@ankole/uikit'
-import { RiBrainLine, RiExternalLinkLine } from '@remixicon/react'
+import { RiArrowRightLine, RiBrainLine } from '@remixicon/react'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
-import { requestErrorMessage } from '../../common/request-errors'
 import {
   ankoleWebBrainControllerApplyOperationsMutation,
   ankoleWebBrainControllerAuditLogOptions,
@@ -37,6 +36,7 @@ import {
 import type { BrainCitation, BrainEntry, BrainEntryOperation } from '../api/generated/types.gen'
 import { PageHeader, PageStack } from '../console-page'
 import { ErrorBlock } from '../../common/error-block'
+import { requestErrorMessage } from '../../common/request-errors'
 import { formatConsoleDate } from '../console-primitives'
 import { ConfirmDeleteButton, LabeledField, ResourceEditorPage } from '../console-form'
 import { CursorPagination, ResourceListPage, RowActions, SearchField } from '../console-list-page'
@@ -50,6 +50,7 @@ import {
   BrainTaskNavigation,
   FilterDisclosure,
   brainSearch,
+  brainStoreLabel,
   localDateStartISO,
   restorationAction
 } from './brain-shared'
@@ -82,6 +83,30 @@ export function BrainEntriesPage() {
   const cursor = searchParams.get('cursor') ?? ''
   const advancedFilterCount = [entryType, store, author, updated].filter(Boolean).length
   const isFiltered = Boolean(query || advancedFilterCount)
+  // Typing stays local in the draft; the URL — and with it the server query —
+  // commits after a 300 ms pause.
+  const [searchDraft, setSearchDraft] = useState(query)
+
+  useEffect(() => setSearchDraft(query), [query])
+
+  useEffect(() => {
+    if (searchDraft === query) return
+
+    const timeout = window.setTimeout(() => {
+      setSearchParams(
+        current => {
+          const next = new URLSearchParams(current)
+          if (searchDraft) next.set('q', searchDraft)
+          else next.delete('q')
+          return resetCursorParams(next)
+        },
+        { replace: true }
+      )
+    }, 300)
+
+    return () => window.clearTimeout(timeout)
+  }, [searchDraft, query, setSearchParams])
+
   const list = useQuery({
     ...ankoleWebBrainControllerIndexOptions({
       query: {
@@ -95,8 +120,7 @@ export function BrainEntriesPage() {
         limit: 50
       }
     }),
-    enabled: Boolean(ownerUID),
-    placeholderData: keepPreviousData
+    enabled: Boolean(ownerUID)
   })
   const guide = useQuery({
     ...ankoleWebBrainControllerIndexOptions({
@@ -225,9 +249,9 @@ export function BrainEntriesPage() {
             <LabeledField label={t('console.brain.search')}>
               <SearchField
                 label={t('console.brain.search')}
-                value={query}
+                value={searchDraft}
                 placeholder={t('console.brain.search_placeholder')}
-                onChange={value => setFilter('q', value)}
+                onChange={setSearchDraft}
               />
             </LabeledField>
             <BrainOwnerField
@@ -307,8 +331,9 @@ export function BrainEntryCreatePage() {
       void queryClient.invalidateQueries()
       const entryID = data.touched_entry_ids[0]
       navigate(entryID ? `/brain/${entryID}?${brainSearch(ownerUID, store)}` : `/brain?${brainSearch(ownerUID, store)}`)
-    },
-    onError: error => toast.error(requestErrorMessage(error))
+    }
+    // A failed mutation reports only through the page ErrorBlock; a toast would
+    // repeat the same message.
   })
 
   useEffect(() => {
@@ -419,7 +444,16 @@ export function BrainEntryEditorPage() {
   const entryID = params.id ?? ''
   const ownerUID = searchParams.get('owner') ?? ''
   const auditCursor = searchParams.get('audit_cursor') ?? ''
-  const [activeTab, setActiveTab] = useState('edit')
+  // The tab lives in the URL so a reloaded or shared link — an audit page link
+  // with its `audit_cursor` in particular — reopens on the same tab.
+  const tabParam = searchParams.get('tab')
+  const activeTab = tabParam === 'projection' || tabParam === 'audit' ? tabParam : 'edit'
+  const selectTab = (tab: string) => {
+    const next = new URLSearchParams(searchParams)
+    if (tab === 'edit') next.delete('tab')
+    else next.set('tab', tab)
+    setSearchParams(next, { replace: true })
+  }
   const detail = useQuery({
     ...ankoleWebBrainControllerShowOptions({ path: { id: entryID }, query: { owner_uid: ownerUID } }),
     enabled: Boolean(entryID && ownerUID),
@@ -441,15 +475,16 @@ export function BrainEntryEditorPage() {
   const [validationError, setValidationError] = useState<string>()
   const apply = useMutation({
     ...ankoleWebBrainControllerApplyOperationsMutation(),
+    onError: error => toast.error(requestErrorMessage(error)),
     onSuccess: () => {
       toast.success(t('console.brain.saved'))
       setValidationError(undefined)
       void queryClient.invalidateQueries()
-    },
-    onError: error => toast.error(requestErrorMessage(error))
+    }
   })
   const restore = useMutation({
     ...ankoleWebBrainControllerRestoreAuditMutation(),
+    onError: error => toast.error(requestErrorMessage(error)),
     onSuccess: async data => {
       toast.success(t('console.brain.restored'))
       if (restorationAction(data.restoration) === 'create_entry') {
@@ -474,17 +509,16 @@ export function BrainEntryEditorPage() {
         // initialize effect rebaseline from the next successful refetch.
         model.sourceKey.value = undefined
       }
-    },
-    onError: error => toast.error(requestErrorMessage(error))
+    }
   })
   const deleteEntry = useMutation({
     ...ankoleWebBrainControllerApplyOperationsMutation(),
+    onError: error => toast.error(requestErrorMessage(error)),
     onSuccess: () => {
       toast.success(t('console.brain.deleted'))
       void queryClient.invalidateQueries()
       navigate(`/brain/audit/${entryID}?${brainSearch(ownerUID, entry?.store_key)}`)
-    },
-    onError: error => toast.error(requestErrorMessage(error))
+    }
   })
 
   useEffect(() => {
@@ -505,6 +539,9 @@ export function BrainEntryEditorPage() {
 
   const saveMetadata = () => {
     if (!entry) return
+    // A stale validation message outranks the mutation error in the ErrorBlock,
+    // so it must not survive into a submission that passed validation.
+    setValidationError(undefined)
     if (!model.name.value.trim() || !model.type.value.trim()) {
       setValidationError(t('console.brain.required_fields'))
       return
@@ -569,9 +606,9 @@ export function BrainEntryEditorPage() {
   return (
     <ResourceEditorPage
       title={entry.name}
-      description={`${entry.type} · ${entry.store_key} · ${t('console.brain.version', { count: entry.lock_version })}`}
+      description={`${entry.type} · ${brainStoreLabel(t, entry.store_key, [])} · ${t('console.brain.version', { count: entry.lock_version })}`}
       backTo={`/brain?${brainSearch(ownerUID, entry.store_key)}`}
-      error={validationError ?? detail.error ?? apply.error ?? restore.error ?? deleteEntry.error}
+      error={validationError ?? detail.error ?? apply.error}
       submitting={apply.isPending || deleteEntry.isPending}
       submitDisabled={!model.dirty.value}
       contentWidth="wide"
@@ -601,7 +638,7 @@ export function BrainEntryEditorPage() {
           }
         />
       }>
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="grid gap-5">
+      <Tabs value={activeTab} onValueChange={value => selectTab(String(value))} className="grid gap-5">
         <TabsList className="w-full">
           <TabsTrigger value="edit">{t('console.brain.edit')}</TabsTrigger>
           <TabsTrigger value="projection">{t('console.brain.projection')}</TabsTrigger>
@@ -711,7 +748,7 @@ function SourceLinks({
             key={documentID}
             to={`/brain/sources/${encodeURIComponent(documentID)}?owner=${encodeURIComponent(ownerUID)}&entry=${encodeURIComponent(entryID)}`}
             className="flex items-center gap-2 border border-border px-3 py-2 font-mono text-xs text-link hover:bg-muted">
-            <RiExternalLinkLine />
+            <RiArrowRightLine />
             {documentID}
           </Link>
         ))}

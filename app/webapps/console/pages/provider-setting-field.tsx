@@ -86,7 +86,7 @@ export function ProviderSettingField({
     return (
       <LabeledField label={label} description={description} required={setting.required && !secretPresent}>
         <EncryptedValueInput
-          placeholder="sk-..."
+          placeholder={secretPresent ? '••••••••' : 'sk-...'}
           revealLabel={t('console.aria.reveal_secret')}
           value={draft}
           onChange={event => onChange(event.target.value)}

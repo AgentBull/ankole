@@ -1529,7 +1529,6 @@ export type AutomationJobListResponse = {
  * ConsoleReadinessSignalRoute
  */
 export type ConsoleReadinessSignalRoute = {
-  agent_uid: string | null
   complete: boolean
 }
 
@@ -4885,6 +4884,10 @@ export type AnkoleWebAutomationJobControllerShowErrors = {
    * Not found
    */
   404: ConsoleApiErrorEnvelope
+  /**
+   * Invalid job identifier
+   */
+  422: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebAutomationJobControllerShowError =
@@ -5146,6 +5149,10 @@ export type AnkoleWebAutomationJobControllerIndexErrors = {
    * Forbidden
    */
   403: ConsoleApiErrorEnvelope
+  /**
+   * Invalid filters
+   */
+  422: ConsoleApiErrorEnvelope
 }
 
 export type AnkoleWebAutomationJobControllerIndexError =
@@ -6813,6 +6820,47 @@ export type AnkoleWebAgentControllerPutProviderHostedResponses = {
 
 export type AnkoleWebAgentControllerPutProviderHostedResponse =
   AnkoleWebAgentControllerPutProviderHostedResponses[keyof AnkoleWebAgentControllerPutProviderHostedResponses]
+
+export type AnkoleWebAiGatewayProviderControllerEnableProviderData = {
+  body?: never
+  path: {
+    provider_id: string
+  }
+  query?: never
+  url: '/api/v1/ai-gateway/providers/{provider_id}/enable'
+}
+
+export type AnkoleWebAiGatewayProviderControllerEnableProviderErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+  /**
+   * Invalid provider configuration
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebAiGatewayProviderControllerEnableProviderError =
+  AnkoleWebAiGatewayProviderControllerEnableProviderErrors[keyof AnkoleWebAiGatewayProviderControllerEnableProviderErrors]
+
+export type AnkoleWebAiGatewayProviderControllerEnableProviderResponses = {
+  /**
+   * AIGateway provider
+   */
+  200: AiGatewayProviderResponse
+}
+
+export type AnkoleWebAiGatewayProviderControllerEnableProviderResponse =
+  AnkoleWebAiGatewayProviderControllerEnableProviderResponses[keyof AnkoleWebAiGatewayProviderControllerEnableProviderResponses]
 
 export type AnkoleWebPermissionGrantControllerDeleteData = {
   body?: never

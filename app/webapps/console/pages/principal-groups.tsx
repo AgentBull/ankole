@@ -291,9 +291,8 @@ export function PrincipalGroupEditorPage() {
           ) : (
             <Textarea
               required
-              className="font-mono text-xs"
+              className="min-h-10 font-mono text-xs"
               spellCheck={false}
-              style={{ minHeight: '6rem' }}
               value={model.computedCondition.value}
               onChange={event => (model.computedCondition.value = event.target.value)}
             />
@@ -444,6 +443,7 @@ function GroupMembersSection({ group }: { group: PrincipalGroupItem }) {
               }))}
               excludedIDs={new Set(memberList.map(member => member.uid))}
               error={principals.error}
+              isLoading={principals.isLoading}
               pending={addMember.isPending}
               onAdd={uid => addMember.mutate({ path: { name: group.name, principal_uid: uid } })}
             />

@@ -81,12 +81,6 @@ defmodule Ankole.Plugins.WeComAdapterAIStreamTest do
     |> Channel.changeset(%{metadata: Map.merge(channel.metadata, channel_metadata)})
     |> Repo.update!()
 
-    registry = Ankole.Plugins.WeComAdapter.ConnectionRegistry
-
-    if is_nil(Process.whereis(registry)) do
-      start_supervised!({Registry, keys: :unique, name: registry})
-    end
-
     key = Config.connection_key(config)
 
     start_supervised!(%{

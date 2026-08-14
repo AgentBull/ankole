@@ -37,7 +37,8 @@ defmodule AnkoleWeb.AutomationJobController do
     responses: [
       ok: {"Automation jobs", "application/json", AutomationJobListResponse},
       unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope}
+      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
+      unprocessable_entity: {"Invalid filters", "application/json", ErrorEnvelope}
     ]
   )
 
@@ -50,7 +51,7 @@ defmodule AnkoleWeb.AutomationJobController do
             in: :path,
             schema: %Schema{
               type: :integer,
-              minimum: 1000,
+              minimum: 1,
               maximum: 9_007_199_254_740_991
             },
             required: true
@@ -65,7 +66,8 @@ defmodule AnkoleWeb.AutomationJobController do
       ok: {"Automation job", "application/json", AutomationJobResponse},
       unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
       forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope}
+      not_found: {"Not found", "application/json", ErrorEnvelope},
+      unprocessable_entity: {"Invalid job identifier", "application/json", ErrorEnvelope}
     ]
   )
 

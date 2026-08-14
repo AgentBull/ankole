@@ -28,7 +28,16 @@ defmodule Ankole.Plugins.SlackAdapter.ConnectionReconciler do
   def init(opts) do
     {:ok,
      %{
-       interval_ms: Keyword.get(opts, :interval_ms, @default_interval_ms),
+       interval_ms:
+         Keyword.get(
+           opts,
+           :interval_ms,
+           Application.get_env(
+             :ankole,
+             :signal_connection_reconcile_interval_ms,
+             @default_interval_ms
+           )
+         ),
        reconcile_opts: Keyword.take(opts, [:repo])
      }, {:continue, :reconcile}}
   end
@@ -61,6 +70,8 @@ defmodule Ankole.Plugins.SlackAdapter.ConnectionReconciler do
 
     result
   end
+
+  defp schedule_next(%{interval_ms: nil} = state), do: state
 
   defp schedule_next(state) do
     Process.send_after(self(), :reconcile, state.interval_ms)

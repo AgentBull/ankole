@@ -187,6 +187,18 @@ defmodule AnkoleWeb.AIGatewayProviderController do
     ]
   )
 
+  operation(:enable_provider,
+    summary: "Re-enable one disabled AIGateway provider",
+    parameters: [provider_id: [in: :path, type: :string, required: true]],
+    responses: [
+      ok: {"AIGateway provider", "application/json", AIGatewayProviderResponse},
+      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
+      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
+      not_found: {"Not found", "application/json", ErrorEnvelope},
+      unprocessable_entity: {"Invalid provider configuration", "application/json", ErrorEnvelope}
+    ]
+  )
+
   operation(:delete_provider,
     summary: "Disable or delete one AIGateway provider",
     parameters: [provider_id: [in: :path, type: :string, required: true]],
@@ -241,6 +253,16 @@ defmodule AnkoleWeb.AIGatewayProviderController do
          :ok <- ConsolePolicy.authorize(conn, "ai_gateway_provider:#{provider_id}", "delete"),
          {:ok, provider} <- ProviderConfigs.delete_provider(provider_id) do
       json(conn, %{ai_gateway_provider: ProviderConfigs.projection(provider)})
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  def enable_provider(conn, params) do
+    with {:ok, provider_id} <- provider_id_param(params),
+         :ok <- ConsolePolicy.authorize(conn, "ai_gateway_provider:#{provider_id}", "update"),
+         {:ok, provider} <- ProviderConfigs.enable_provider(provider_id) do
+      render_provider(conn, provider)
     else
       {:error, reason} -> error(conn, reason)
     end

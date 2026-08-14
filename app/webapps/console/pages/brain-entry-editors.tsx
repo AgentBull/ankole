@@ -17,12 +17,25 @@ import {
   Textarea
 } from '@ankole/uikit'
 import { RiAddLine, RiDeleteBin6Line, RiLinkM } from '@remixicon/react'
-import { useState } from 'react'
+import { useState, type KeyboardEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { BrainEntry, BrainEntryBlock, BrainEntryOperation, BrainEntryRelation } from '../api/generated/types.gen'
 import { formatConsoleDate } from '../console-primitives'
 import { LabeledField } from '../console-form'
 import type { PropertyDraft } from '../state/brain-editor-model'
+
+/**
+ * These editors render inside the metadata form, so Enter in a single-line
+ * input would submit the whole page. Intercept it and run the row's own action
+ * when that action is ready.
+ */
+export function enterRunsRowAction(action: () => void, ready: boolean) {
+  return (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key !== 'Enter' || event.nativeEvent.isComposing) return
+    event.preventDefault()
+    if (ready) action()
+  }
+}
 
 export function MetadataEditor({
   name,
@@ -250,6 +263,21 @@ function BlockEditor({
   const [retireOpen, setRetireOpen] = useState(false)
   const incomplete = !body.trim()
   const unchanged = body === block.body
+  const canCorrect = !pending && !unchanged && !incomplete
+  const correctBlock = () =>
+    onApply(
+      [
+        {
+          operation: 'edit_block',
+          entry_id: block.entry_id,
+          block_id: block.id,
+          body: body.trim(),
+          expected_block_lock_version: block.lock_version
+        }
+      ],
+      () => setReason(''),
+      reason
+    )
   return (
     <article className="grid gap-3 border border-border p-4">
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
@@ -268,29 +296,19 @@ function BlockEditor({
         onChange={event => setBody(event.target.value)}
       />
       <LabeledField label={t('console.brain.correction_reason')} description={t('console.brain.reason_optional')}>
-        <Input value={reason} onChange={event => setReason(event.target.value)} />
+        <Input
+          value={reason}
+          onChange={event => setReason(event.target.value)}
+          onKeyDown={enterRunsRowAction(correctBlock, canCorrect)}
+        />
       </LabeledField>
       <div className="flex flex-wrap gap-2">
         <Button
           type="button"
           size="sm"
-          disabled={pending || unchanged || incomplete}
+          disabled={!canCorrect}
           incomplete={incomplete && !pending}
-          onClick={() =>
-            onApply(
-              [
-                {
-                  operation: 'edit_block',
-                  entry_id: block.entry_id,
-                  block_id: block.id,
-                  body: body.trim(),
-                  expected_block_lock_version: block.lock_version
-                }
-              ],
-              () => setReason(''),
-              reason
-            )
-          }>
+          onClick={correctBlock}>
           {t('console.brain.correct_block')}
         </Button>
         <Button type="button" size="sm" variant="destructive" disabled={pending} onClick={() => setRetireOpen(true)}>
@@ -364,6 +382,23 @@ export function RelationsEditor({
       : candidate.store_key === 'shared' || candidate.store_key === entry.store_key
   })
   const targetListID = `brain-relation-targets-${entry.id}`
+  const canAddRelation = !pending && Boolean(predicate.trim()) && Boolean(targetEntryID.trim())
+  const addRelation = () =>
+    onApply(
+      [
+        {
+          operation: 'add_relation',
+          entry_id: entry.id,
+          target_entry_id: targetEntryID.trim(),
+          predicate: predicate.trim(),
+          expected_entry_lock_version: entry.lock_version
+        }
+      ],
+      () => {
+        setPredicate('')
+        setTargetEntryID('')
+      }
+    )
   return (
     <Card>
       <CardHeader>
@@ -400,6 +435,7 @@ export function RelationsEditor({
             placeholder={t('console.brain.predicate')}
             value={predicate}
             onChange={event => setPredicate(event.target.value)}
+            onKeyDown={enterRunsRowAction(addRelation, canAddRelation)}
           />
           <Input
             aria-label={t('console.brain.target_entry_id')}
@@ -407,6 +443,7 @@ export function RelationsEditor({
             placeholder={t('console.brain.target_entry_id')}
             value={targetEntryID}
             onChange={event => setTargetEntryID(event.target.value)}
+            onKeyDown={enterRunsRowAction(addRelation, canAddRelation)}
           />
           <datalist id={targetListID}>
             {allowedTargets.map(candidate => (
@@ -418,25 +455,9 @@ export function RelationsEditor({
           <Button
             type="button"
             size="sm"
-            disabled={pending || !predicate.trim() || !targetEntryID.trim()}
+            disabled={!canAddRelation}
             incomplete={(!predicate.trim() || !targetEntryID.trim()) && !pending}
-            onClick={() =>
-              onApply(
-                [
-                  {
-                    operation: 'add_relation',
-                    entry_id: entry.id,
-                    target_entry_id: targetEntryID.trim(),
-                    predicate: predicate.trim(),
-                    expected_entry_lock_version: entry.lock_version
-                  }
-                ],
-                () => {
-                  setPredicate('')
-                  setTargetEntryID('')
-                }
-              )
-            }>
+            onClick={addRelation}>
             <RiLinkM />
             {t('console.brain.add_relation')}
           </Button>

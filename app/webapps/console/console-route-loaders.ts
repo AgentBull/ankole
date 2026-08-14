@@ -9,7 +9,6 @@ import {
   ankoleWebAppConfigurationControllerIndexOptions,
   ankoleWebAuthZGroupControllerIndexOptions,
   ankoleWebAutomationJobControllerIndexOptions,
-  ankoleWebAutomationJobControllerShowOptions,
   ankoleWebBackgroundAgentJobControllerIndexOptions,
   ankoleWebBackgroundAgentJobControllerShowOptions,
   ankoleWebBrainControllerIndexOptions,
@@ -90,39 +89,21 @@ export function createConsoleRouteLoaders(queryClient: QueryClient) {
         ensure(ankoleWebAgentControllerIndexOptions()),
         ensure(ankoleWebWebhookEndpointControllerIndexOptions({ query: { agent: agentFilter(request) } }))
       ),
-    automationJobs: async ({ request }: LoaderFunctionArgs) => {
-      const agentUID = agentFilter(request)
-      const selectedID = resourceID(new URL(request.url).searchParams.get('job'))
-      const [, jobs] = await Promise.all([
+    automationJobs: ({ request }: LoaderFunctionArgs) =>
+      all(
         ensure(ankoleWebAgentControllerIndexOptions()),
         ensure(
           ankoleWebAutomationJobControllerIndexOptions({
-            query: { agent: agentUID, limit: 100 }
+            query: { agent: agentFilter(request), limit: 100 }
           })
         )
-      ])
-
-      // The detail endpoint stays per agent, so the loaded list names the
-      // owner of a deep-linked job before its detail read can start. A job
-      // absent from the list falls back to the URL's agent scope.
-      const selectedAgentUID = jobs.automation_jobs.find(job => job.id === selectedID)?.agent_uid ?? agentUID
-      if (selectedID !== undefined && selectedAgentUID) {
-        await ensure(
-          ankoleWebAutomationJobControllerShowOptions({
-            path: { agent_uid: selectedAgentUID, automation_job_id: selectedID },
-            query: { runs: 20 }
-          })
-        )
-      }
-
-      return null
-    },
+      ),
     settings: () => ensure(ankoleWebAppConfigurationControllerIndexOptions()).then(() => null),
     workerEnvs: () => ensure(ankoleWebWorkerEnvControllerIndexOptions()).then(() => null),
     workers: () => ensure(ankoleWebAgentComputerWorkerControllerIndexOptions()).then(() => null),
     backgroundAgentJobs: ({ request }: LoaderFunctionArgs) => {
       const searchParams = new URL(request.url).searchParams
-      const selectedID = resourceID(searchParams.get('job'))
+      const selectedID = resourceID(searchParams.get('job'), 1000)
       const list = ensure(
         ankoleWebBackgroundAgentJobControllerIndexOptions({
           query: { agent: searchParams.get('agent')?.trim() || undefined, limit: 100 }
@@ -142,6 +123,7 @@ export function createConsoleRouteLoaders(queryClient: QueryClient) {
         ankoleWebAIGatewayConversationControllerIndexOptions({
           query: {
             q: searchParams.get('q')?.trim() || undefined,
+            subject: searchParams.get('agent')?.trim() || undefined,
             active: active === 'true' ? true : active === 'false' ? false : undefined,
             min_messages: showAll ? undefined : 2,
             cursor: searchParams.get('cursor') || undefined,
@@ -181,11 +163,10 @@ export function createConsoleRouteLoaders(queryClient: QueryClient) {
   }
 }
 
-/** Parses a route or search parameter into a resource id. Real resource ids
- * are integers that start at 1000; anything else means "nothing selected". */
-export function resourceID(value: string | null): number | undefined {
+/** Parses a decimal route identifier and applies the owning API's lower bound. */
+export function resourceID(value: string | null, minimum: number): number | undefined {
   if (!value || !/^[1-9][0-9]*$/.test(value)) return undefined
 
   const parsed = Number(value)
-  return Number.isSafeInteger(parsed) && parsed >= 1000 ? parsed : undefined
+  return Number.isSafeInteger(parsed) && parsed >= minimum ? parsed : undefined
 }

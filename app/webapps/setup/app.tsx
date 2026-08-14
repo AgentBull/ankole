@@ -67,10 +67,15 @@ type IdentityAdapter = {
   pluginID: string
 }
 
-const BootstrapSchema = v.object({
-  activationCode: v.pipe(v.string(), v.nonEmpty('Activation code is required.')),
+const bootstrapSchema = v.object({
+  activationCode: v.pipe(
+    v.string(),
+    v.nonEmpty(() => i18n.t('common.field_required', { field: i18n.t('setup.activation_code') }))
+  ),
   locale: v.pipe(v.string(), v.nonEmpty())
 })
+
+type BootstrapInput = v.InferOutput<typeof bootstrapSchema>
 
 const providerIDPattern = /^[a-z][a-z0-9_-]*$/
 
@@ -87,6 +92,10 @@ export function SetupApp() {
   const { t } = useTranslation()
   const pluginsModel = useModel(PluginsStepModel)
   const identityModel = useModel(IdentitySetupModel)
+  // A reload restarts at the plugin step. The selected plugins live only in
+  // this model, and the identity step reads them to know which adapters to
+  // offer, so restoring the step alone would land the operator on a screen
+  // that reports no adapters at all.
   const [step, setStep] = useState<'plugins' | 'identity'>('plugins')
   const [pluginsCompleted, setPluginsCompleted] = useState(false)
   const state = useQuery({
@@ -208,14 +217,13 @@ function BootstrapGate({ setupState, onAuthenticated }: { setupState?: SetupStat
   const { t } = useTranslation()
   const locale = setupState?.currentLocale ?? i18n.language
   const form = useForm({
-    schema: BootstrapSchema,
+    schema: bootstrapSchema,
     initialInput: { activationCode: '', locale },
     validate: 'submit',
     revalidate: 'input'
   })
   const mutation = useMutation({
-    mutationFn: (input: v.InferOutput<typeof BootstrapSchema>) =>
-      internalAPIPost<{ ok: true }>('/.internal-apis/setup/sessions', input),
+    mutationFn: (input: BootstrapInput) => internalAPIPost<{ ok: true }>('/.internal-apis/setup/sessions', input),
     onSuccess: onAuthenticated
   })
   const printActivationCode = useMutation({
@@ -288,9 +296,13 @@ function BootstrapGate({ setupState, onAuthenticated }: { setupState?: SetupStat
         </FieldGroup>
 
         <div className="flex flex-wrap items-center gap-3 border-t border-border/70 pt-5">
-          <Button disabled={mutation.isPending} type="submit">
+          <Button aria-busy={mutation.isPending} disabled={mutation.isPending} type="submit">
             {t('common.continue')}
-            <RiArrowRightSLine data-icon="inline-end" />
+            {mutation.isPending ? (
+              <RiLoaderLine aria-hidden className="animate-spin" data-icon="inline-end" />
+            ) : (
+              <RiArrowRightSLine data-icon="inline-end" />
+            )}
           </Button>
         </div>
       </Form>
@@ -365,13 +377,14 @@ function IdentityStep({
   publicBaseURL: string
 }) {
   useSignals()
+  const { t } = useTranslation()
   const query = useQuery({
     queryKey: ['setup-identity-provider-adapters'],
     queryFn: () => internalAPIGet<{ adapters: IdentityAdapter[] }>('/.internal-apis/setup/identity-provider-adapters')
   })
   const adapters = filterSelectedPluginItems(query.data?.adapters ?? [], pluginsModel.selectedPluginIDs.value)
 
-  if (query.isLoading) return <Panel title="">{i18n.t('common.loading')}</Panel>
+  if (query.isLoading) return <Panel title={t('setup.identity_provider')}>{t('common.loading')}</Panel>
   if (adapters.length === 0) return <NoAdapters error={query.error} />
 
   return <IdentityForm adapters={adapters} model={model} publicBaseURL={publicBaseURL} />

@@ -45,7 +45,16 @@ defmodule Ankole.Plugins.DingTalkAdapter.ConnectionReconciler do
   @impl true
   def init(opts) do
     state = %{
-      interval_ms: Keyword.get(opts, :interval_ms, @default_interval_ms),
+      interval_ms:
+        Keyword.get(
+          opts,
+          :interval_ms,
+          Application.get_env(
+            :ankole,
+            :signal_connection_reconcile_interval_ms,
+            @default_interval_ms
+          )
+        ),
       reconcile_opts: Keyword.take(opts, [:repo])
     }
 
@@ -80,6 +89,8 @@ defmodule Ankole.Plugins.DingTalkAdapter.ConnectionReconciler do
 
     result
   end
+
+  defp schedule_next(%{interval_ms: nil} = state), do: state
 
   defp schedule_next(%{interval_ms: interval_ms} = state) do
     Process.send_after(self(), :reconcile, interval_ms)

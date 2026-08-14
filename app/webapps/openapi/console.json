@@ -1925,8 +1925,8 @@
       },
       "ConsoleReadinessSignalRoute": {
         "additionalProperties": false,
-        "properties": { "agent_uid": { "nullable": true, "type": "string" }, "complete": { "type": "boolean" } },
-        "required": ["complete", "agent_uid"],
+        "properties": { "complete": { "type": "boolean" } },
+        "required": ["complete"],
         "title": "ConsoleReadinessSignalRoute",
         "type": "object"
       },
@@ -5197,7 +5197,7 @@
             "in": "path",
             "name": "automation_job_id",
             "required": true,
-            "schema": { "maximum": 9007199254740991, "minimum": 1000, "type": "integer" }
+            "schema": { "maximum": 9007199254740991, "minimum": 1, "type": "integer" }
           },
           {
             "description": "",
@@ -5223,6 +5223,10 @@
           "404": {
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
             "description": "Not found"
+          },
+          "422": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Invalid job identifier"
           }
         },
         "security": [{ "consoleBearer": [] }],
@@ -5464,6 +5468,10 @@
           "403": {
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
             "description": "Forbidden"
+          },
+          "422": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Invalid filters"
           }
         },
         "security": [{ "consoleBearer": [] }],
@@ -6994,6 +7002,42 @@
         "security": [{ "consoleBearer": [] }],
         "summary": "Set which capabilities an agent leaves to its language-model provider",
         "tags": ["Agents"]
+      }
+    },
+    "/api/v1/ai-gateway/providers/{provider_id}/enable": {
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AIGatewayProviderController.enable_provider",
+        "parameters": [
+          { "description": "", "in": "path", "name": "provider_id", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/AIGatewayProviderResponse" } }
+            },
+            "description": "AIGateway provider"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Not found"
+          },
+          "422": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Invalid provider configuration"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Re-enable one disabled AIGateway provider",
+        "tags": ["AIGateway"]
       }
     },
     "/api/v1/permission-grants/{id}": {

@@ -37,7 +37,9 @@ import {
   ankoleWebIdentityProviderControllerRunSyncMutation
 } from '../api/generated/@tanstack/react-query.gen'
 import type { IdentityProviderAdapterItem, IdentityProviderItem } from '../api/generated/types.gen'
+import { ErrorBlock } from '../../common/error-block'
 import { LabeledField, ReadOnlyValue, ResourceEditorPage, StatusIndicator } from '../console-form'
+import { BackLink, PageStack } from '../console-page'
 import { ResourceListPage, ResourceSearch, RowActions } from '../console-list-page'
 import { IdentityEditorModel, type IdentityEditorDraft } from '../state/identity-editor-model'
 import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
@@ -48,8 +50,16 @@ export function IdentityProvidersListPage() {
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
   const searchQuery = effectiveResourceSearchQuery(query, deferredQuery)
+  // Search matches the words the table shows, not internal boolean tokens, so
+  // typing a visible status label finds the row in every locale.
   const rows = (providers.data?.identity_providers ?? []).filter(provider =>
-    matchesResourceSearch(searchQuery, provider.provider_id, provider.adapter_id, provider.enabled)
+    matchesResourceSearch(
+      searchQuery,
+      provider.provider_id,
+      provider.adapter_id,
+      provider.enabled ? t('console.status.enabled') : t('console.status.disabled'),
+      syncEnabled(provider) ? t('console.status.contacts') : t('console.status.off')
+    )
   )
 
   return (
@@ -120,7 +130,12 @@ export function IdentityProviderEditorPage() {
   const locale = i18n.language
 
   const adapters = useQuery(ankoleWebIdentityProviderControllerAdaptersOptions())
-  const providers = useQuery(ankoleWebIdentityProviderControllerIndexOptions())
+  const providers = useQuery({
+    ...ankoleWebIdentityProviderControllerIndexOptions(),
+    // Identity providers do not have a detail endpoint. Refresh the list before
+    // the page decides that the provider does not exist.
+    refetchOnMount: 'always'
+  })
   const identityAdapters = adapters.data?.identity_provider_adapters ?? []
   const selected = providers.data?.identity_providers.find(provider => provider.provider_id === providerID)
 
@@ -133,7 +148,8 @@ export function IdentityProviderEditorPage() {
     (mode === 'new' ? identityAdapters[0] : undefined)
   const selectedAdapter = identityAdapters.find(adapter => adapter.adapter_id === selected?.adapter_id)
 
-  const ready = identityAdapters.length > 0 && (mode === 'new' || Boolean(selected))
+  const ready =
+    mode === 'new' ? adapters.isSuccess && identityAdapters.length > 0 : providers.isSuccess && Boolean(selected)
   useEffect(() => {
     if (!ready) return
     if (mode === 'edit' && selected) {
@@ -148,8 +164,11 @@ export function IdentityProviderEditorPage() {
     ...ankoleWebIdentityProviderControllerPutProviderMutation(),
     onSuccess: response => {
       toast.success(t('console.identity.saved', { id: response.identity_provider.provider_id }))
+      // Stay on the editor so the operator can continue to change the
+      // configuration after each save.
+      model.markSaved(formFromProvider(response.identity_provider))
       refresh()
-      navigate('/identity')
+      if (mode === 'new') navigate(`/identity/${encodeURIComponent(response.identity_provider.provider_id)}`)
     }
   })
   const runSync = useMutation({
@@ -190,13 +209,31 @@ export function IdentityProviderEditorPage() {
   )
   const activeFields = asConfigFields(activeAdapter?.fields ?? [])
   const submitDisabled = mode === 'edit' && !model.dirty.value
+  // Explain why Save is unavailable when the configured adapter is missing.
+  // The operator must restore its plugin before the provider can be edited.
+  const adapterUnavailable = mode === 'edit' && adapters.isSuccess && Boolean(selected) && !activeAdapter
+
+  if (mode === 'edit' && providers.isSuccess && !providers.isFetching && !selected) {
+    return (
+      <PageStack className="mx-auto w-full max-w-3xl">
+        <BackLink to="/identity" />
+        <ErrorBlock title={t('console.not_found.title')} error={new Error(t('console.not_found.description'))} />
+      </PageStack>
+    )
+  }
 
   return (
     <ResourceEditorPage
       title={mode === 'new' ? t('console.identity.new') : (providerID ?? '')}
       description={t('console.identity.editor_description')}
       backTo="/identity"
-      error={model.validationError.value ?? saveProvider.error ?? adapters.error ?? providers.error}
+      error={
+        model.validationError.value ??
+        saveProvider.error ??
+        adapters.error ??
+        providers.error ??
+        (adapterUnavailable ? new Error(t('console.identity.adapter_unavailable')) : undefined)
+      }
       submitting={saveProvider.isPending}
       submitDisabled={submitDisabled}
       submitUnavailable={!ready || !activeAdapter}

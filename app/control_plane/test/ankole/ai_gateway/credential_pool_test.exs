@@ -10,6 +10,7 @@ defmodule Ankole.AIGateway.CredentialPoolTest do
 
   test "fill-first, round-robin, least-used, and random select only usable entries" do
     entries = entries()
+    [first, second | _rest] = entries
 
     assert {:ok, %{credential_id: "first"}} =
              CredentialPool.select("fill", entries, "fill_first")
@@ -35,8 +36,8 @@ defmodule Ankole.AIGateway.CredentialPoolTest do
 
     assert Enum.all?(random_ids, &(&1 in ~w(first second third)))
 
-    :ok = CredentialPool.mark_dead("random-single", "first")
-    :ok = CredentialPool.mark_dead("random-single", "second")
+    :ok = CredentialPool.mark_dead("random-single", first)
+    :ok = CredentialPool.mark_dead("random-single", second)
 
     assert {:ok, %{credential_id: "third"}} =
              CredentialPool.select("random-single", entries, "random")
@@ -44,6 +45,7 @@ defmodule Ankole.AIGateway.CredentialPoolTest do
 
   test "thread affinity wins over strategy until its credential becomes unavailable" do
     entries = entries()
+    [first | _rest] = entries
 
     assert {:ok, %{credential_id: "first"}} =
              CredentialPool.select("affinity", entries, "round_robin", affinity_key: "thread-1")
@@ -54,7 +56,7 @@ defmodule Ankole.AIGateway.CredentialPoolTest do
     :ok =
       CredentialPool.mark_exhausted(
         "affinity",
-        "first",
+        first,
         429,
         %{"x-codex-primary-reset-at" => DateTime.utc_now() |> DateTime.add(600) |> unix()}
       )
@@ -67,13 +69,14 @@ defmodule Ankole.AIGateway.CredentialPoolTest do
   end
 
   test "upstream reset time controls cooldown and expired entries return automatically" do
-    entries = [hd(entries())]
+    first = hd(entries())
+    entries = [first]
     retry_at = DateTime.utc_now(:second) |> DateTime.add(900)
 
     :ok =
       CredentialPool.mark_exhausted(
         "cooldown",
-        "first",
+        first,
         429,
         %{"x-codex-primary-reset-at" => unix(retry_at)},
         %{"code" => "rate_limit", "reason" => "quota", "message" => "wait"}
@@ -100,7 +103,7 @@ defmodule Ankole.AIGateway.CredentialPoolTest do
     :ok =
       CredentialPool.mark_exhausted(
         "cooldown",
-        "first",
+        first,
         429,
         %{"x-codex-primary-reset-at" => DateTime.utc_now() |> DateTime.add(-1) |> unix()}
       )
@@ -113,7 +116,7 @@ defmodule Ankole.AIGateway.CredentialPoolTest do
     [first, second, third] = entries()
     disabled = Map.put(third, "disabled_at", DateTime.utc_now() |> DateTime.to_iso8601())
 
-    :ok = CredentialPool.mark_dead("health", "first", %{"code" => "token_revoked"})
+    :ok = CredentialPool.mark_dead("health", first, %{"code" => "token_revoked"})
 
     assert {:ok, %{credential_id: "second"}} =
              CredentialPool.select("health", [first, second, disabled], "fill_first")
@@ -123,17 +126,74 @@ defmodule Ankole.AIGateway.CredentialPoolTest do
              "third" => %{"status" => "disabled"}
            } = CredentialPool.statuses("health", [first, second, disabled])
 
-    :ok = CredentialPool.mark_ok("health", "first")
+    reauthenticated = Map.put(first, "health_revision", "reauthenticated")
 
     assert {:ok, %{credential_id: "first"}} =
-             CredentialPool.select("health", [first, second, disabled], "fill_first")
+             CredentialPool.select("health", [reauthenticated, second, disabled], "fill_first")
+  end
+
+  test "runtime health and rate limits belong to one stored credential revision" do
+    [first, second | _rest] = entries()
+    old_first = Map.put(first, "health_revision", "old")
+    new_first = Map.put(first, "health_revision", "new")
+
+    :ok = CredentialPool.mark_dead("revision", old_first, %{"code" => "old_failure"})
+
+    assert {:ok, %{credential_id: "second"}} =
+             CredentialPool.select("revision", [old_first, second], "fill_first")
+
+    assert {:ok, %{credential_id: "first"}} =
+             CredentialPool.select("revision", [new_first, second], "fill_first")
+
+    :ok = CredentialPool.mark_dead("revision", old_first, %{"code" => "late_old_failure"})
+
+    :ok =
+      CredentialPool.observe_success(
+        "revision",
+        old_first,
+        %{"x-codex-primary-used-percent" => "90"}
+      )
+
+    assert %{"first" => %{"status" => "ok", "rate_limits" => %{}}} =
+             CredentialPool.statuses("revision", [new_first, second])
+
+    :ok = CredentialPool.mark_dead("revision", new_first, %{"code" => "new_failure"})
+
+    assert %{"first" => %{"status" => "dead"}} =
+             CredentialPool.statuses("revision", [new_first, second])
+  end
+
+  test "a late failure from an old revision does not remove new revision affinity" do
+    [first, second | _rest] = entries()
+    old_first = Map.put(first, "health_revision", "old")
+    new_first = Map.put(first, "health_revision", "new")
+
+    assert {:ok, %{entry: ^old_first}} =
+             CredentialPool.select("revision-affinity", [old_first, second], "round_robin",
+               affinity_key: "thread-1"
+             )
+
+    assert {:ok, %{entry: ^new_first}} =
+             CredentialPool.select("revision-affinity", [new_first, second], "fill_first",
+               affinity_key: "thread-1"
+             )
+
+    :ok =
+      CredentialPool.mark_dead(
+        "revision-affinity",
+        old_first,
+        %{"code" => "late_old_failure"}
+      )
+
+    assert {:ok, %{entry: ^new_first}} =
+             CredentialPool.select("revision-affinity", [new_first, second], "round_robin",
+               affinity_key: "thread-1"
+             )
   end
 
   test "persisted reauthentication requirements survive runtime health reset" do
     [first, second | _rest] = entries()
     persisted_dead = Map.put(first, "reauth_required", true)
-
-    :ok = CredentialPool.mark_ok("persisted-dead", "first")
 
     assert {:ok, %{credential_id: "second", available_count: 1}} =
              CredentialPool.select(
@@ -171,7 +231,7 @@ defmodule Ankole.AIGateway.CredentialPoolTest do
     :ok =
       CredentialPool.mark_exhausted(
         "earliest",
-        "first",
+        first,
         429,
         %{"x-codex-primary-reset-at" => unix(later)}
       )
@@ -179,7 +239,7 @@ defmodule Ankole.AIGateway.CredentialPoolTest do
     :ok =
       CredentialPool.mark_exhausted(
         "earliest",
-        "second",
+        second,
         429,
         %{"x-codex-primary-reset-at" => unix(earlier)}
       )
@@ -189,13 +249,15 @@ defmodule Ankole.AIGateway.CredentialPoolTest do
 
     assert_iso_equal(retry_at, earlier)
 
-    :ok = CredentialPool.mark_ok("earliest", "first")
+    reset_first = Map.put(first, "health_revision", "reset")
 
     assert {:error, {:credential_pool_exhausted, _details}} =
-             CredentialPool.select("earliest", [first, second], "fill_first", exclude: ["first"])
+             CredentialPool.select("earliest", [reset_first, second], "fill_first",
+               exclude: ["first"]
+             )
 
     assert %{"first" => %{"status" => "ok"}} =
-             CredentialPool.statuses("earliest", [first, second])
+             CredentialPool.statuses("earliest", [reset_first, second])
   end
 
   test "removed credentials do not supply a recovery time for the current pool" do
@@ -205,7 +267,7 @@ defmodule Ankole.AIGateway.CredentialPoolTest do
     :ok =
       CredentialPool.mark_exhausted(
         "removed-entry",
-        "removed",
+        %{"id" => "removed"},
         429,
         %{"x-codex-primary-reset-at" => unix(retry_at)}
       )
@@ -224,13 +286,14 @@ defmodule Ankole.AIGateway.CredentialPoolTest do
   end
 
   test "successful headers and token usage stay attributed to one credential" do
-    entries = [hd(entries())]
+    first = hd(entries())
+    entries = [first]
 
     assert {:ok, %{credential_id: "first"}} =
              CredentialPool.select("usage", entries, "fill_first")
 
     :ok =
-      CredentialPool.mark_ok("usage", "first", [
+      CredentialPool.observe_success("usage", first, [
         {"x-codex-primary-used-percent", "25"},
         {"X-Codex-Primary-Window-Minutes", "300"},
         {"set-cookie", "must-not-leak"}
@@ -281,13 +344,14 @@ defmodule Ankole.AIGateway.CredentialPoolTest do
   end
 
   test "a later success observation does not erase an active cooldown" do
-    entries = [hd(entries())]
+    first = hd(entries())
+    entries = [first]
     retry_at = DateTime.utc_now(:second) |> DateTime.add(600)
 
     :ok =
       CredentialPool.mark_exhausted(
         "concurrent-health",
-        "first",
+        first,
         429,
         %{"x-codex-primary-reset-at" => unix(retry_at)}
       )
@@ -295,7 +359,7 @@ defmodule Ankole.AIGateway.CredentialPoolTest do
     :ok =
       CredentialPool.observe_success(
         "concurrent-health",
-        "first",
+        first,
         %{"x-codex-primary-used-percent" => "80"}
       )
 

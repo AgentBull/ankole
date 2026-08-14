@@ -1,12 +1,14 @@
 defmodule AnkoleWeb.AutomationJobControllerTest do
   use AnkoleWeb.ConnCase, async: false
 
+  import Ecto.Query
   import Ankole.PrincipalsFixtures
   import OpenApiSpex.TestAssertions
 
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
   alias Ankole.AuthZ
+  alias Ankole.AuthZ.Grant
   alias Ankole.AutomationJobs
   alias Ankole.Repo
   alias Ankole.Setup.Config, as: SetupConfig
@@ -25,7 +27,7 @@ defmodule AnkoleWeb.AutomationJobControllerTest do
     :ok
   end
 
-  test "admin reads every session's jobs of one agent and bounded run history", %{conn: conn} do
+  test "admin reads deployment instance jobs and bounded run history by job id", %{conn: conn} do
     %{principal: agent} = agent_fixture()
     %{principal: other_agent} = agent_fixture()
     source = source_event!(agent.uid)
@@ -101,14 +103,83 @@ defmodule AnkoleWeb.AutomationJobControllerTest do
 
     assert conn
            |> recycle_bearer()
-           |> get(~p"/api/v1/agents/#{other_agent.uid}/automation-jobs/#{job.id}")
+           |> get(~p"/api/v1/agents/#{agent.uid}/automation-jobs/9007199254740991")
            |> json_response(404)
+
+    assert conn
+           |> recycle_bearer()
+           |> get(~p"/api/v1/agents/#{agent.uid}/automation-jobs/999")
+           |> json_response(404)
+
+    for invalid_id <- [0, 9_007_199_254_740_992] do
+      assert %{"error" => %{"code" => "validation_failed"}} =
+               conn
+               |> recycle_bearer()
+               |> get("/api/v1/agents/#{agent.uid}/automation-jobs/#{invalid_id}")
+               |> json_response(422)
+    end
   end
 
   test "missing bearer token is rejected", %{conn: conn} do
     assert conn
            |> get(~p"/api/v1/automation-jobs")
            |> json_response(401)
+  end
+
+  test "job detail requires the owning Agent read permission", %{conn: conn} do
+    %{principal: agent} = agent_fixture()
+    %{principal: other_agent} = agent_fixture()
+    job = create_job!(agent.uid, source_event!(agent.uid), "Permission test consumer")
+    {conn, admin_uid} = bearer_conn_with_principal(conn)
+
+    Repo.delete_all(from grant in Grant, where: grant.resource_pattern == "**")
+
+    assert {:ok, _grant} =
+             AuthZ.create_permission_grant(%{
+               principal_uid: admin_uid,
+               resource_pattern: "agent:#{agent.uid}:automation_jobs",
+               action: "read",
+               condition: "true",
+               metadata: %{}
+             })
+
+    assert conn
+           |> get(~p"/api/v1/agents/#{agent.uid}/automation-jobs/#{job.id}")
+           |> json_response(200)
+
+    Repo.delete_all(from grant in Grant, where: grant.principal_uid == ^admin_uid)
+
+    assert {:ok, _grant} =
+             AuthZ.create_permission_grant(%{
+               principal_uid: admin_uid,
+               resource_pattern: "automation_jobs",
+               action: "read",
+               condition: "true",
+               metadata: %{}
+             })
+
+    assert %{"error" => %{"code" => "forbidden"}} =
+             conn
+             |> recycle_bearer()
+             |> get(~p"/api/v1/agents/#{agent.uid}/automation-jobs/#{job.id}")
+             |> json_response(403)
+
+    Repo.delete_all(from grant in Grant, where: grant.principal_uid == ^admin_uid)
+
+    assert {:ok, _grant} =
+             AuthZ.create_permission_grant(%{
+               principal_uid: admin_uid,
+               resource_pattern: "agent:#{other_agent.uid}:automation_jobs",
+               action: "read",
+               condition: "true",
+               metadata: %{}
+             })
+
+    assert %{"error" => %{"code" => "forbidden"}} =
+             conn
+             |> recycle_bearer()
+             |> get(~p"/api/v1/agents/#{agent.uid}/automation-jobs/#{job.id}")
+             |> json_response(403)
   end
 
   defp create_job!(agent_uid, source, label) do
@@ -159,8 +230,14 @@ defmodule AnkoleWeb.AutomationJobControllerTest do
   end
 
   defp bearer_conn(conn) do
+    {conn, _principal_uid} = bearer_conn_with_principal(conn)
     conn
-    |> active_admin_conn()
+  end
+
+  defp bearer_conn_with_principal(conn) do
+    {conn, principal_uid} = active_admin_conn(conn)
+
+    conn
     |> post(~p"/.internal-apis/oauth/token", %{
       "grant_type" => "urn:ankole:params:oauth:grant-type:browser-session"
     })
@@ -172,6 +249,7 @@ defmodule AnkoleWeb.AutomationJobControllerTest do
       |> put_req_header("authorization", "Bearer #{access_token}")
       |> put_req_header("content-type", "application/json")
     end)
+    |> then(&{&1, principal_uid})
   end
 
   defp recycle_bearer(conn) do
@@ -188,12 +266,15 @@ defmodule AnkoleWeb.AutomationJobControllerTest do
     human = human_fixture(%{uid: unique_uid("automation-console-admin")})
     assert {:ok, _root} = AuthZ.root_init_admin(human.principal.uid)
 
-    conn
-    |> init_test_session(%{})
-    |> WebSession.put_admin_session(%{
-      principal_uid: human.principal.uid,
-      provider_id: "lark-main",
-      external_id: "external-1"
-    })
+    session_conn =
+      conn
+      |> init_test_session(%{})
+      |> WebSession.put_admin_session(%{
+        principal_uid: human.principal.uid,
+        provider_id: "lark-main",
+        external_id: "external-1"
+      })
+
+    {session_conn, human.principal.uid}
   end
 end

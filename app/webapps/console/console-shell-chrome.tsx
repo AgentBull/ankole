@@ -37,7 +37,7 @@ import {
 import { useMutation } from '@tanstack/react-query'
 import { useRef, useState, type ComponentType } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, NavLink, Outlet } from 'react-router'
+import { Link, NavLink, Outlet, useLocation } from 'react-router'
 import { ThemeToggle } from '../common/theme-toggle'
 import { logoutConsoleSession } from './api/tokens'
 import { ConsoleReadiness } from './console-readiness'
@@ -51,6 +51,8 @@ import { ConsoleReadiness } from './console-readiness'
 
 type NavItem = {
   to: string
+  /** Path prefix that also lights this item, when siblings of `to` share its nav area. */
+  match?: string
   label: string
   icon: ComponentType<{ className?: string }>
 }
@@ -63,7 +65,7 @@ type NavSection = {
 
 // One flat list of destinations forced the operator to read every label to find
 // one. Each section names the question its group answers: what my agents do,
-// what they can do, what they connect to, and how the Installation runs. A
+// what they can do, what they connect to, and how the deployment instance runs. A
 // search becomes a scan of four headings.
 const NAV_SECTIONS: NavSection[] = [
   { items: [{ to: '/', label: 'console.nav.home', icon: RiDashboardLine }] },
@@ -98,7 +100,7 @@ const NAV_SECTIONS: NavSection[] = [
     label: 'console.nav.group_platform',
     items: [
       { to: '/workers', label: 'console.nav.workers', icon: RiServerLine },
-      { to: '/access/groups', label: 'console.nav.access', icon: RiKey2Line },
+      { to: '/access/groups', match: '/access', label: 'console.nav.access', icon: RiKey2Line },
       { to: '/settings', label: 'console.nav.settings', icon: RiSettings3Line }
     ]
   }
@@ -221,6 +223,7 @@ export function ConsoleLayout() {
 }
 
 function ConsoleNavigation({ onNavigate }: { onNavigate?: () => void }) {
+  const location = useLocation()
   const { t } = useTranslation()
   const version = systemVersion()
 
@@ -236,6 +239,7 @@ function ConsoleNavigation({ onNavigate }: { onNavigate?: () => void }) {
             ) : null}
             {section.items.map(item => {
               const Icon = item.icon
+              const matchesArea = Boolean(item.match) && location.pathname.startsWith(`${item.match}/`)
               return (
                 <NavLink
                   key={item.to}
@@ -247,7 +251,7 @@ function ConsoleNavigation({ onNavigate }: { onNavigate?: () => void }) {
                       'flex min-h-10 items-center gap-3 border-l-4 px-3 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
                       isPending
                         ? 'border-primary/60 bg-accent text-accent-foreground'
-                        : isActive
+                        : isActive || matchesArea
                           ? 'border-primary bg-accent text-accent-foreground'
                           : 'border-transparent text-muted-foreground hover:bg-accent hover:text-accent-foreground'
                     )

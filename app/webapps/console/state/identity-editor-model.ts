@@ -54,6 +54,10 @@ export const IdentityEditorModel = createModel(() => {
     changeAdapter(draft: IdentityEditorDraft) {
       apply(draft)
     },
+    /** Rebaselines the draft to the persisted provider, so a save clears dirty without leaving the page. */
+    markSaved(draft: IdentityEditorDraft) {
+      apply(draft)
+    },
     clearValidation() {
       validationError.value = undefined
     }

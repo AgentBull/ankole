@@ -1,5 +1,5 @@
 import { TableCell, TableRow, toast } from '@ankole/uikit'
-import { RiWebhookLine } from '@remixicon/react'
+import { RiCloseCircleLine, RiWebhookLine } from '@remixicon/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -27,9 +27,10 @@ export function WebhooksPage() {
   const [includeFinished, setIncludeFinished] = useState(false)
   const scope = useAgentScope()
 
-  const endpoints = useQuery(
-    ankoleWebWebhookEndpointControllerIndexOptions({ query: { agent: scope.agentUID || undefined } })
-  )
+  const endpoints = useQuery({
+    ...ankoleWebWebhookEndpointControllerIndexOptions({ query: { agent: scope.agentUID || undefined } }),
+    refetchInterval: 15_000
+  })
 
   const rows = (endpoints.data?.webhook_endpoints ?? [])
     .filter(endpoint => includeFinished || live(endpoint))
@@ -152,6 +153,7 @@ function WebhookEndpointRow({
       <TableCell className="text-right">
         {live(endpoint) ? (
           <ConfirmDeleteButton
+            icon={<RiCloseCircleLine />}
             pending={cancelling}
             confirm={{
               title: t('console.webhooks.cancel_title'),
