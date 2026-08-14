@@ -2,13 +2,14 @@ defmodule Ankole.AIGateway.CompactionRetention do
   @moduledoc """
   Selects verbatim originals to replay alongside compaction summaries.
 
-  Two selections exist. User originals replay recent user messages inside a
-  token budget. The pending clarify pair replays the newest `clarify` exchange
-  whose answer has not yet entered the history, because the next user message
-  answers that question and stays uninterpretable without it.
+  User originals replay recent user messages inside a token budget. The pending
+  clarify pair preserves one unanswered question. Client Tool Search pairs
+  preserve loaded tool contracts that would otherwise leave effective history.
   """
 
   alias Ankole.AIGateway.CompactionRender
+  alias Ankole.AIGateway.ResponseItems
+  alias Ankole.AIGateway.ToolContract
 
   @clarify_tool "clarify"
 
@@ -74,6 +75,102 @@ defmodule Ankole.AIGateway.CompactionRetention do
   end
 
   def collect_pending_clarify(_items), do: []
+
+  @doc """
+  Selects settled client Tool Search pairs whose contracts are not in the
+  surviving history.
+
+  Selection runs newest-first and keeps a whole original pair when it adds at
+  least one contract version. This preserves conflicting contracts for normal
+  validation, while equal later pairs replace redundant earlier pairs.
+  """
+  @spec collect_client_tool_search([map()], [map()]) ::
+          {:ok, [map()]} | {:error, term()}
+  def collect_client_tool_search(source_items, surviving_items \\ [])
+
+  def collect_client_tool_search(source_items, surviving_items)
+      when is_list(source_items) and is_list(surviving_items) do
+    with {:ok, surviving_pairs} <- client_tool_search_pairs(surviving_items),
+         {:ok, source_pairs} <- client_tool_search_pairs(source_items),
+         {:ok, seen_versions} <- pair_contract_versions(surviving_pairs) do
+      source_pairs
+      |> Enum.reverse()
+      |> Enum.reduce_while({:ok, [], seen_versions}, fn pair, {:ok, selected, seen} ->
+        case tool_contract_versions(pair.output) do
+          {:ok, versions} ->
+            if MapSet.size(MapSet.difference(versions, seen)) > 0 do
+              selected = [pair.call, pair.output | selected]
+              {:cont, {:ok, selected, MapSet.union(seen, versions)}}
+            else
+              {:cont, {:ok, selected, seen}}
+            end
+
+          {:error, _reason} = error ->
+            {:halt, error}
+        end
+      end)
+      |> case do
+        {:ok, selected, _seen} -> {:ok, selected}
+        {:error, _reason} = error -> error
+      end
+    end
+  end
+
+  def collect_client_tool_search(_source_items, _surviving_items),
+    do: {:error, :invalid_compaction_items}
+
+  defp client_tool_search_pairs(items) do
+    case ResponseItems.analyze_history(items) do
+      %ResponseItems.History{error: nil, ledger: ledger} ->
+        ledger
+        |> ResponseItems.search_pairs()
+        |> Enum.filter(&match?({:search, :client, _call_id}, &1.pair_key))
+        |> Enum.reduce_while({:ok, []}, fn
+          %{
+            call: %{item: call},
+            output: %{item: %{"tools" => tools, "status" => "completed"} = output}
+          },
+          {:ok, pairs}
+          when is_list(tools) ->
+            if ResponseItems.executable_call?(call) do
+              {:cont, {:ok, [%{call: call, output: output} | pairs]}}
+            else
+              {:halt, {:error, {:invalid_tool_search_call, call["call_id"]}}}
+            end
+
+          %{call: %{item: call}}, _acc ->
+            {:halt, {:error, {:unsettled_tool_search_call, call["call_id"]}}}
+        end)
+        |> case do
+          {:ok, pairs} -> {:ok, Enum.reverse(pairs)}
+          {:error, _reason} = error -> error
+        end
+
+      %ResponseItems.History{error: %{reason: reason}} ->
+        {:error, reason}
+    end
+  end
+
+  defp pair_contract_versions(pairs) do
+    Enum.reduce_while(pairs, {:ok, MapSet.new()}, fn pair, {:ok, seen} ->
+      case tool_contract_versions(pair.output) do
+        {:ok, versions} ->
+          {:cont, {:ok, MapSet.union(seen, versions)}}
+
+        {:error, _reason} = error ->
+          {:halt, error}
+      end
+    end)
+  end
+
+  defp tool_contract_versions(%{"tools" => tools}) do
+    with {:ok, descriptors} <- ToolContract.normalize(tools, reserved_names: []) do
+      {:ok,
+       MapSet.new(descriptors, fn descriptor ->
+         {ToolContract.identity(descriptor), ToolContract.fingerprint([descriptor])}
+       end)}
+    end
+  end
 
   defp user_original?(%{"role" => "user"} = item), do: Map.get(item, "type") in [nil, "message"]
   defp user_original?(_item), do: false

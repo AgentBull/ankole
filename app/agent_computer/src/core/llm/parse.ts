@@ -29,6 +29,7 @@ export function parseResponse(response: OpenAIResponse, modelName: string): Mode
   const terminal = responseTerminalProjection(response)
   const result = parseOutputItems(output, modelName, usage, terminal.status, '', terminal.errorMessage)
   result.responseID = response.id
+  if (terminal.errorRetryable !== undefined) result.errorRetryable = terminal.errorRetryable
   return result
 }
 
@@ -123,11 +124,13 @@ export function parseOutputItems(
 function responseTerminalProjection(response: OpenAIResponse): {
   status?: StopReason
   errorMessage?: string
+  errorRetryable?: boolean
 } {
   if (response.status === 'failed') {
     return {
       status: 'error',
-      errorMessage: terminalErrorMessage(response as unknown as JSONObject, {})
+      errorMessage: terminalErrorMessage(response as unknown as JSONObject, {}),
+      errorRetryable: terminalErrorRetryable(response as unknown as JSONObject, {})
     }
   }
 
@@ -249,6 +252,14 @@ export function terminalErrorMessage(response: JSONObject | undefined, frame: JS
   const incomplete = recordValue(response?.incomplete_details)
   if (typeof incomplete?.reason === 'string') return incomplete.reason
   return undefined
+}
+
+export function terminalErrorRetryable(response: JSONObject | undefined, frame: JSONObject): boolean | undefined {
+  const responseValue = recordValue(response?.error)?.retryable
+  if (typeof responseValue === 'boolean') return responseValue
+
+  const frameValue = recordValue(frame.error)?.retryable
+  return typeof frameValue === 'boolean' ? frameValue : undefined
 }
 
 export function aigatewayErrorFromFrame(frame: JSONObject): AIGatewayWebSocketError {

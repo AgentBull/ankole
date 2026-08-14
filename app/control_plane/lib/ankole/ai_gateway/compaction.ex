@@ -413,16 +413,13 @@ defmodule Ankole.AIGateway.Compaction do
     with {:ok, _model} <- standalone_model(request),
          {:ok, input} <- standalone_input(request),
          {:ok, resolved_input} <- CompactionArtifacts.resolve_input_handles(subject_uid, input),
-         {:ok, store_context} <- compact_store_context(subject_uid, request),
-         {:ok, runtime} <-
-           compact_response_runtime(subject_uid, request, prefer_upstream?) do
+         {:ok, store_context} <- compact_store_context(subject_uid, request) do
       compact_standalone(
         subject_uid,
         request,
         input,
         resolved_input,
         store_context,
-        runtime,
         prefer_upstream?
       )
     end
@@ -610,11 +607,21 @@ defmodule Ankole.AIGateway.Compaction do
       history: history,
       request: request,
       total_tokens: total_tokens,
+      runtime: runtime,
       visible_previous_response_id: visible_previous_response_id
     } = context
 
-    with {:ok, candidate} <- compaction_candidate(subject_uid, history, []),
+    threshold = threshold_spec(runtime, request)
+
+    with {:ok, candidate} <-
+           compaction_candidate(
+             subject_uid,
+             history,
+             [],
+             retained_tail_budget_tokens(threshold)
+           ),
          {:ok, summary} <- summarize_candidate(subject_uid, candidate),
+         :ok <- checkpoint_within_budget(candidate, summary, [], threshold),
          {:ok, artifact} <-
            create_artifact_for_candidate(subject_uid, conversation_id, candidate, summary),
          {:ok, checkpoint} <-
@@ -683,40 +690,64 @@ defmodule Ankole.AIGateway.Compaction do
          original_input,
          resolved_input,
          store_context,
-         runtime,
-         prefer_upstream?
+         false
        ) do
-    case UpstreamCompaction.compact(runtime, resolved_input, request,
-           enabled?: prefer_upstream?,
-           subject_uid: subject_uid
-         ) do
-      {:ok, upstream} ->
-        with {:ok, artifact} <-
-               CompactionArtifacts.insert_artifact(
-                 upstream_artifact_attrs(subject_uid, store_context.conversation_id, upstream)
-               ),
-             {:ok, ankole_extension} <-
-               maybe_store_compaction_checkpoint(
-                 subject_uid,
-                 request,
-                 store_context,
-                 artifact
-               ) do
-          {:ok, CompactionArtifacts.response_body(artifact, ankole: ankole_extension)}
-        end
+    if UpstreamCompaction.opaque_input?(resolved_input) do
+      {:error, :opaque_compaction_fallback_unavailable}
+    else
+      compact_standalone_locally(
+        subject_uid,
+        request,
+        original_input,
+        resolved_input,
+        store_context,
+        nil
+      )
+    end
+  end
 
-      {:fallback, _reason} ->
-        if UpstreamCompaction.opaque_input?(resolved_input) do
-          {:error, :opaque_compaction_fallback_unavailable}
-        else
-          compact_standalone_locally(
-            subject_uid,
-            request,
-            original_input,
-            resolved_input,
-            store_context
-          )
-        end
+  defp compact_standalone(
+         subject_uid,
+         request,
+         original_input,
+         resolved_input,
+         store_context,
+         true
+       ) do
+    with {:ok, runtime} <- ResponsesPreparation.resolve_runtime(subject_uid, request) do
+      case UpstreamCompaction.compact(runtime, resolved_input, request,
+             enabled?: true,
+             subject_uid: subject_uid
+           ) do
+        {:ok, upstream} ->
+          with {:ok, artifact} <-
+                 CompactionArtifacts.insert_artifact(
+                   upstream_artifact_attrs(subject_uid, store_context.conversation_id, upstream)
+                 ),
+               {:ok, ankole_extension} <-
+                 maybe_store_compaction_checkpoint(
+                   subject_uid,
+                   request,
+                   store_context,
+                   artifact
+                 ) do
+            {:ok, CompactionArtifacts.response_body(artifact, ankole: ankole_extension)}
+          end
+
+        {:fallback, _reason} ->
+          if UpstreamCompaction.opaque_input?(resolved_input) do
+            {:error, :opaque_compaction_fallback_unavailable}
+          else
+            compact_standalone_locally(
+              subject_uid,
+              request,
+              original_input,
+              resolved_input,
+              store_context,
+              runtime
+            )
+          end
+      end
     end
   end
 
@@ -725,11 +756,15 @@ defmodule Ankole.AIGateway.Compaction do
          request,
          original_input,
          resolved_input,
-         store_context
+         store_context,
+         runtime
        ) do
     with {:ok, candidate} <-
            standalone_compaction_candidate(subject_uid, original_input, resolved_input),
+         {:ok, runtime} <- standalone_local_runtime(runtime, subject_uid, request),
+         threshold = threshold_spec(runtime, request),
          {:ok, summary} <- summarize_standalone(subject_uid, candidate),
+         :ok <- checkpoint_within_budget(candidate, summary, [], threshold),
          {:ok, artifact} <-
            create_standalone_artifact(subject_uid, store_context, candidate, summary),
          {:ok, ankole_extension} <-
@@ -737,6 +772,11 @@ defmodule Ankole.AIGateway.Compaction do
       {:ok, CompactionArtifacts.response_body(artifact, ankole: ankole_extension)}
     end
   end
+
+  defp standalone_local_runtime(%{} = runtime, _subject_uid, _request), do: {:ok, runtime}
+
+  defp standalone_local_runtime(nil, subject_uid, request),
+    do: ResponsesPreparation.resolve_runtime(subject_uid, request)
 
   defp upstream_artifact_attrs(subject_uid, conversation_id, upstream) do
     %{
@@ -861,7 +901,9 @@ defmodule Ankole.AIGateway.Compaction do
       subject_uid: subject_uid,
       conversation_id: conversation_id,
       summary_text: summary.text,
-      retained_items: provider_neutral_tail_items(candidate.retained_tail),
+      retained_items:
+        candidate.retained_client_tool_search ++
+          provider_neutral_tail_items(candidate.retained_tail),
       # The replayed originals may end with a still-unanswered clarify
       # call/output pair; "user_message_count" counts only user messages.
       retained_user_originals:
@@ -882,7 +924,7 @@ defmodule Ankole.AIGateway.Compaction do
       subject_uid: subject_uid,
       conversation_id: store_context.conversation_id,
       summary_text: summary.text,
-      retained_items: candidate.retained_tail,
+      retained_items: candidate.retained_client_tool_search ++ candidate.retained_tail,
       retained_user_originals:
         candidate.retained_user_originals ++ candidate.retained_pending_clarify,
       retention:
@@ -1088,7 +1130,21 @@ defmodule Ankole.AIGateway.Compaction do
 
     with {:ok, truncated_history} <-
            truncate_history_to_stable_tail(history, current_input),
-         {:ok, retained_items} <- history_items_for_artifact(subject_uid, truncated_history) do
+         {:ok, retained_items} <- history_items_for_artifact(subject_uid, truncated_history),
+         {:ok, history_items} <- history_items_for_artifact(subject_uid, history),
+         {:ok, retained_client_tool_search} <-
+           CompactionRetention.collect_client_tool_search(
+             history_items ++ input_items(current_input),
+             retained_items ++ input_items(current_input)
+           ),
+         :ok <-
+           checkpoint_items_within_budget(
+             [compaction_summary_item(@stable_tail_summary)] ++
+               retained_client_tool_search ++
+               retained_items ++ input_items(current_input),
+             threshold
+           ) do
+      retained_items = retained_client_tool_search ++ retained_items
       previous_response_id = previous_response_id_for(history, request)
 
       auto_truncation =
@@ -1133,8 +1189,8 @@ defmodule Ankole.AIGateway.Compaction do
          }
        }}
     else
-      {:error, :no_safe_truncation_boundary} ->
-        {:error, context_overflow(total_tokens, :no_safe_truncation_boundary, "auto", threshold)}
+      {:error, failure_reason} ->
+        {:error, context_overflow(total_tokens, failure_reason, "auto", threshold)}
     end
   end
 
@@ -1354,11 +1410,37 @@ defmodule Ankole.AIGateway.Compaction do
          subject_uid,
          history,
          current_input,
-         retained_tail_budget_tokens \\ nil,
+         retained_tail_budget_tokens,
          tail_rows_requested \\ nil
        ) do
     tail_rows_requested = tail_rows_requested || tail_rows()
 
+    with {:ok, candidate} <-
+           build_compaction_candidate(
+             subject_uid,
+             history,
+             current_input,
+             retained_tail_budget_tokens,
+             tail_rows_requested
+           ) do
+      fit_compaction_candidate(
+        candidate,
+        subject_uid,
+        history,
+        current_input,
+        retained_tail_budget_tokens,
+        tail_rows_requested
+      )
+    end
+  end
+
+  defp build_compaction_candidate(
+         subject_uid,
+         history,
+         current_input,
+         retained_tail_budget_tokens,
+         tail_rows_requested
+       ) do
     with %Message{} = anchor <- List.last(history),
          rows_after_compaction = rows_after_last_compaction(history),
          preferred_prefix_count when preferred_prefix_count > 0 <-
@@ -1376,10 +1458,17 @@ defmodule Ankole.AIGateway.Compaction do
              retained_tail_budget_tokens
            ),
          prefix = Enum.take(rows_after_compaction, prefix_count),
-         %Message{} = _covers_until <- List.last(prefix) do
-      retained_tail = Enum.drop(rows_after_compaction, length(prefix))
-      prefix_items = messages_to_items(prefix)
-
+         %Message{} = _covers_until <- List.last(prefix),
+         retained_tail = Enum.drop(rows_after_compaction, length(prefix)),
+         prefix_items = messages_to_items(prefix),
+         surviving_items =
+           provider_neutral_tail_items(retained_tail) ++ input_items(current_input),
+         {:ok, previous_checkpoint_items} <- previous_checkpoint_items(subject_uid, history),
+         {:ok, retained_client_tool_search} <-
+           CompactionRetention.collect_client_tool_search(
+             previous_checkpoint_items ++ prefix_items,
+             surviving_items
+           ) do
       {retained_user_originals, _used_tokens} =
         CompactionRetention.collect_user_originals(
           prefix_items,
@@ -1393,12 +1482,103 @@ defmodule Ankole.AIGateway.Compaction do
          retained_tail: retained_tail,
          retained_user_originals: retained_user_originals,
          retained_pending_clarify: CompactionRetention.collect_pending_clarify(prefix_items),
-         recent_items: provider_neutral_tail_items(retained_tail) ++ input_items(current_input),
+         retained_client_tool_search: retained_client_tool_search,
+         recent_items: surviving_items,
          previous_chat_history: previous_compaction_summary(subject_uid, history),
          tail_rows_requested: tail_rows_requested
        }}
     else
+      {:error, _reason} = error -> error
       _value -> {:error, :no_compaction_candidate}
+    end
+  end
+
+  defp fit_compaction_candidate(
+         candidate,
+         _subject_uid,
+         _history,
+         _current_input,
+         nil,
+         _tail_rows_requested
+       ) do
+    {:ok, candidate}
+  end
+
+  defp fit_compaction_candidate(
+         candidate,
+         subject_uid,
+         history,
+         current_input,
+         retained_tail_budget_tokens,
+         tail_rows_requested
+       ) do
+    if candidate_retention_within_budget?(candidate, retained_tail_budget_tokens) do
+      {:ok, candidate}
+    else
+      with {:ok, maximum_retained_client_tool_search} <-
+             maximum_retained_client_tool_search(
+               subject_uid,
+               history,
+               current_input
+             ),
+           adjusted_tail_budget =
+             max(
+               retained_tail_budget_tokens -
+                 retained_items_token_estimate(maximum_retained_client_tool_search),
+               0
+             ),
+           {:ok, fitted_candidate} <-
+             build_compaction_candidate(
+               subject_uid,
+               history,
+               current_input,
+               adjusted_tail_budget,
+               tail_rows_requested
+             ),
+           :ok <-
+             candidate_retention_within_budget(
+               fitted_candidate,
+               retained_tail_budget_tokens
+             ) do
+        {:ok, fitted_candidate}
+      else
+        {:error, :no_compaction_candidate} -> {:error, :compaction_output_over_budget}
+        {:error, _reason} = error -> error
+      end
+    end
+  end
+
+  defp maximum_retained_client_tool_search(subject_uid, history, current_input) do
+    rows_after_compaction = rows_after_last_compaction(history)
+
+    compactable_count =
+      rows_after_compaction
+      |> Enum.take_while(&text_compactable_message?/1)
+      |> length()
+
+    boundary_plan = compaction_boundary_plan(rows_after_compaction, current_input)
+
+    maximum_safe_prefix_count =
+      compactable_count
+      |> Range.new(0, -1)
+      |> Enum.find(0, &safe_row_boundary?(boundary_plan, &1))
+
+    prefix_items =
+      rows_after_compaction
+      |> Enum.take(maximum_safe_prefix_count)
+      |> messages_to_items()
+
+    surviving_items =
+      rows_after_compaction
+      |> Enum.drop(maximum_safe_prefix_count)
+      |> provider_neutral_tail_items()
+      |> Kernel.++(input_items(current_input))
+
+    with {:ok, previous_checkpoint_items} <- previous_checkpoint_items(subject_uid, history) do
+      CompactionRetention.collect_client_tool_search(
+        previous_checkpoint_items ++ prefix_items,
+        surviving_items
+      )
     end
   end
 
@@ -1504,9 +1684,30 @@ defmodule Ankole.AIGateway.Compaction do
     elem(plan.tail_token_estimates, row_count) <= retained_tail_budget_tokens
   end
 
+  defp candidate_retention_within_budget(candidate, retained_tail_budget_tokens) do
+    if candidate_retention_within_budget?(candidate, retained_tail_budget_tokens) do
+      :ok
+    else
+      {:error, :compaction_output_over_budget}
+    end
+  end
+
+  defp candidate_retention_within_budget?(candidate, retained_tail_budget_tokens) do
+    retained_items_token_estimate(candidate.retained_client_tool_search ++ candidate.recent_items) <=
+      retained_tail_budget_tokens
+  end
+
+  defp retained_items_token_estimate([]), do: 0
+  defp retained_items_token_estimate(items), do: items_token_estimate(items)
+
   defp rows_after_last_compaction(history) do
     {_checkpoint, rest} = split_last_compaction(history)
     rest
+  end
+
+  defp previous_checkpoint_items(subject_uid, history) do
+    {checkpoint, _rest} = split_last_compaction(history)
+    history_items_for_artifact(subject_uid, checkpoint)
   end
 
   # The checkpoint side is a list so that a caller can prepend it without a
@@ -1772,15 +1973,6 @@ defmodule Ankole.AIGateway.Compaction do
 
   defp standalone_input(_request), do: {:error, :missing_input}
 
-  # An off switch resolves no runtime. `compact_standalone` passes this empty
-  # map only to `UpstreamCompaction.compact/4`, which requires a map argument
-  # and returns `{:fallback, :upstream_compaction_disabled}` before it reads
-  # the runtime.
-  defp compact_response_runtime(_subject_uid, _request, false), do: {:ok, %{}}
-
-  defp compact_response_runtime(subject_uid, request, true),
-    do: ResponsesPreparation.resolve_runtime(subject_uid, request)
-
   defp standalone_compaction_candidate(subject_uid, original_input, resolved_input) do
     {region_start_index, previous_compaction_item} = items_after_last_compaction(original_input)
     prefix_items = Enum.drop(resolved_input, region_start_index)
@@ -1795,16 +1987,20 @@ defmodule Ankole.AIGateway.Compaction do
       {retained_user_originals, _used_tokens} =
         CompactionRetention.collect_user_originals(original_region, user_message_budget_tokens())
 
-      {:ok,
-       %{
-         prefix_items: prefix_items,
-         retained_tail: [],
-         retained_user_originals: retained_user_originals,
-         retained_pending_clarify: CompactionRetention.collect_pending_clarify(original_region),
-         previous_chat_history: previous_chat_history,
-         previous_summary_discarded: previous_summary_discarded,
-         tail_rows_requested: 0
-       }}
+      with {:ok, retained_client_tool_search} <-
+             CompactionRetention.collect_client_tool_search(original_region) do
+        {:ok,
+         %{
+           prefix_items: prefix_items,
+           retained_tail: [],
+           retained_user_originals: retained_user_originals,
+           retained_pending_clarify: CompactionRetention.collect_pending_clarify(original_region),
+           retained_client_tool_search: retained_client_tool_search,
+           previous_chat_history: previous_chat_history,
+           previous_summary_discarded: previous_summary_discarded,
+           tail_rows_requested: 0
+         }}
+      end
     end
   end
 
@@ -1975,19 +2171,28 @@ defmodule Ankole.AIGateway.Compaction do
   defp checkpoint_within_budget(candidate, summary, current_input, threshold) do
     checkpoint_items =
       candidate.retained_user_originals ++
-        [
-          %{
-            "type" => "compaction",
-            "encrypted_content" => summary.text,
-            "created_by" => "ankole-aigateway"
-          }
-        ] ++ provider_neutral_tail_items(candidate.retained_tail) ++ input_items(current_input)
+        candidate.retained_pending_clarify ++
+        [compaction_summary_item(summary.text)] ++
+        candidate.retained_client_tool_search ++
+        provider_neutral_tail_items(candidate.retained_tail) ++ input_items(current_input)
 
+    checkpoint_items_within_budget(checkpoint_items, threshold)
+  end
+
+  defp checkpoint_items_within_budget(checkpoint_items, threshold) do
     if items_token_estimate(checkpoint_items) <= checkpoint_budget_tokens(threshold) do
       :ok
     else
       {:error, :compaction_output_over_budget}
     end
+  end
+
+  defp compaction_summary_item(summary_text) do
+    %{
+      "type" => "compaction",
+      "encrypted_content" => summary_text,
+      "created_by" => "ankole-aigateway"
+    }
   end
 
   defp checkpoint_budget_tokens(threshold) do

@@ -67,6 +67,23 @@ export function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value : undefined
 }
 
+export function normalizedCollaborationToolName(tool: string | undefined): string {
+  switch (tool) {
+    case 'spawnAgent':
+      return 'spawn_agent'
+    case 'sendInput':
+      return 'send_message'
+    case 'resumeAgent':
+      return 'followup_task'
+    case 'wait':
+      return 'wait_agent'
+    case 'closeAgent':
+      return 'interrupt_agent'
+    default:
+      return tool ?? 'agent_interaction'
+  }
+}
+
 export function normalizeCodexThreadUsage(value: unknown): BackgroundAgentJobTurnUsage | undefined {
   const usage = jsonObject(value)
   const threadTotal = usageBreakdown(usage.total)

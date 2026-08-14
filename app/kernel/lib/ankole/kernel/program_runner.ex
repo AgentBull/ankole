@@ -20,10 +20,16 @@ defmodule Ankole.Kernel.ProgramRunner do
           required(String.t()) => term()
         }
 
+  @type tool_binding :: %{
+          required(String.t()) => String.t() | nil
+        }
+
   @type outcome :: %{
           required(:status) => :completed | :pending | :failed,
           required(:output) => [%{kind: String.t(), value: String.t()}],
-          required(:pending_calls) => [%{name: String.t(), arguments: term()}],
+          required(:pending_calls) => [
+            %{namespace: String.t() | nil, name: String.t(), arguments: term()}
+          ],
           required(:error) => String.t() | nil,
           required(:error_code) => String.t() | nil
         }
@@ -31,11 +37,11 @@ defmodule Ankole.Kernel.ProgramRunner do
   @doc """
   Runs one program and returns its outcome.
 
-  `tools` lists the binding names available as `tools.<name>(args)` inside the
-  program. `memo` entries answer replayed calls in order:
-  `%{"name" => name, "arguments" => args, "output" => output}`.
+  `tools` keeps each public `namespace` and `name` beside the JavaScript
+  `global_name` available as `tools[global_name](args)`. `memo` entries answer
+  replayed calls in order with the same structured identity.
   """
-  @spec run(String.t(), [String.t()], [memo_entry()]) ::
+  @spec run(String.t(), [tool_binding()], [memo_entry()]) ::
           {:ok, outcome()} | {:error, String.t()}
   def run(program, tools, memo)
       when is_binary(program) and is_list(tools) and is_list(memo) do
@@ -43,7 +49,7 @@ defmodule Ankole.Kernel.ProgramRunner do
   end
 
   @doc false
-  @spec run(run_id(), String.t(), [String.t()], [memo_entry()]) ::
+  @spec run(run_id(), String.t(), [tool_binding()], [memo_entry()]) ::
           {:ok, outcome()} | {:error, String.t()}
   def run(run_id, program, tools, memo)
       when is_binary(run_id) and is_binary(program) and is_list(tools) and is_list(memo) do
@@ -88,7 +94,13 @@ defmodule Ankole.Kernel.ProgramRunner do
       pending_calls:
         outcome
         |> Map.get("pending_calls", [])
-        |> Enum.map(&%{name: &1["name"], arguments: Map.get(&1, "arguments")}),
+        |> Enum.map(
+          &%{
+            namespace: Map.get(&1, "namespace"),
+            name: &1["name"],
+            arguments: Map.get(&1, "arguments")
+          }
+        ),
       error: outcome["error"],
       error_code: outcome["error_code"]
     }

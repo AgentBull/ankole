@@ -69,6 +69,7 @@ defmodule Ankole.BackgroundAgentJobs.TurnItemProjection do
   defp do_project("commandExecution", item) do
     tool_pair(
       item["id"],
+      nil,
       "shell",
       %{"command" => item["command"], "cwd" => item["cwd"]},
       string(item["aggregatedOutput"]),
@@ -81,15 +82,18 @@ defmodule Ankole.BackgroundAgentJobs.TurnItemProjection do
   end
 
   defp do_project("fileChange", item) do
-    tool_pair(item["id"], "apply_patch", %{"changes" => item["changes"]}, "", %{
+    tool_pair(item["id"], nil, "apply_patch", %{"changes" => item["changes"]}, "", %{
       "status" => item["status"]
     })
   end
 
   defp do_project("mcpToolCall", item) do
+    {namespace, name} = mcp_tool_identity(item)
+
     tool_pair(
       item["id"],
-      mcp_tool_name(item),
+      namespace,
+      name,
       item["arguments"],
       item["result"] || item["error"] || "",
       %{"status" => item["status"], "duration_ms" => item["durationMs"]}
@@ -101,7 +105,7 @@ defmodule Ankole.BackgroundAgentJobs.TurnItemProjection do
          %{"tool" => "request_user_input", "status" => "inProgress"} = item
        ) do
     {message, truncated} =
-      tool_call_message(item["id"], dynamic_tool_name(item), item["arguments"], %{
+      tool_call_message(item["id"], text(item["namespace"]), item["tool"], item["arguments"], %{
         "status" => "pending_user_input"
       })
 
@@ -111,7 +115,8 @@ defmodule Ankole.BackgroundAgentJobs.TurnItemProjection do
   defp do_project("dynamicToolCall", item) do
     tool_pair(
       item["id"],
-      dynamic_tool_name(item),
+      text(item["namespace"]),
+      text(item["tool"]) || "dynamic_tool",
       item["arguments"],
       item["contentItems"] || "",
       %{
@@ -126,7 +131,8 @@ defmodule Ankole.BackgroundAgentJobs.TurnItemProjection do
   defp do_project("collabAgentToolCall", item) do
     tool_pair(
       item["id"],
-      "collaboration.#{string(item["tool"])}",
+      "collaboration",
+      collaboration_replay_tool(string(item["tool"])),
       collab_arguments(item),
       collab_outcome(item),
       %{"status" => item["status"]}
@@ -136,6 +142,7 @@ defmodule Ankole.BackgroundAgentJobs.TurnItemProjection do
   defp do_project("webSearch", item) do
     tool_pair(
       item["id"],
+      nil,
       "web_search",
       %{"query" => item["query"], "action" => item["action"]},
       "",
@@ -144,17 +151,19 @@ defmodule Ankole.BackgroundAgentJobs.TurnItemProjection do
   end
 
   defp do_project("imageView", item) do
-    tool_pair(item["id"], "view_image", %{"path" => item["path"]}, "", %{"status" => "completed"})
+    tool_pair(item["id"], nil, "view_image", %{"path" => item["path"]}, "", %{
+      "status" => "completed"
+    })
   end
 
   defp do_project("sleep", item) do
-    tool_pair(item["id"], "sleep", %{"duration_ms" => item["durationMs"]}, "", %{
+    tool_pair(item["id"], nil, "sleep", %{"duration_ms" => item["durationMs"]}, "", %{
       "status" => "completed"
     })
   end
 
   defp do_project("imageGeneration", item) do
-    tool_pair(item["id"], "image_generation", item, "", %{"status" => "completed"})
+    tool_pair(item["id"], nil, "image_generation", item, "", %{"status" => "completed"})
   end
 
   defp do_project("enteredReviewMode", item),
@@ -164,7 +173,7 @@ defmodule Ankole.BackgroundAgentJobs.TurnItemProjection do
     do: [assistant_phase(item["id"], item["review"], "exited_review_mode")]
 
   defp do_project("contextCompaction", item) do
-    tool_pair(item["id"], "context_compaction", %{}, "", %{"status" => "completed"})
+    tool_pair(item["id"], nil, "context_compaction", %{}, "", %{"status" => "completed"})
   end
 
   defp do_project(_type, _item), do: []
@@ -178,8 +187,8 @@ defmodule Ankole.BackgroundAgentJobs.TurnItemProjection do
     }
   end
 
-  defp tool_pair(id, name, arguments, result, metadata) do
-    {call, call_truncated} = tool_call_message(id, name, arguments, nil)
+  defp tool_pair(id, namespace, name, arguments, result, metadata) do
+    {call, call_truncated} = tool_call_message(id, namespace, name, arguments, nil)
 
     {content, result_truncated} =
       if is_binary(result), do: {result, false}, else: bounded_json_string(result)
@@ -193,11 +202,12 @@ defmodule Ankole.BackgroundAgentJobs.TurnItemProjection do
         "content" => content,
         "metadata" => metadata
       }
+      |> put_present("namespace", namespace)
 
     {[call, result_message], call_truncated or result_truncated}
   end
 
-  defp tool_call_message(id, name, arguments, metadata) do
+  defp tool_call_message(id, namespace, name, arguments, metadata) do
     {encoded_arguments, truncated} = bounded_json_string(arguments || %{})
 
     message =
@@ -209,7 +219,9 @@ defmodule Ankole.BackgroundAgentJobs.TurnItemProjection do
           %{
             "id" => id,
             "type" => "function",
-            "function" => %{"name" => name, "arguments" => encoded_arguments}
+            "function" =>
+              %{"name" => name, "arguments" => encoded_arguments}
+              |> put_present("namespace", namespace)
           }
         ]
       }
@@ -218,20 +230,26 @@ defmodule Ankole.BackgroundAgentJobs.TurnItemProjection do
     {message, truncated}
   end
 
-  defp mcp_tool_name(item) do
+  defp mcp_tool_identity(item) do
     server = text(item["server"])
     tool = text(item["tool"])
-    if server && tool, do: "#{server}.#{tool}", else: tool || "mcp_tool"
+
+    namespace = text(item["namespace"]) || if(server, do: mcp_namespace(server))
+    name = text(item["name"]) || responses_identifier(tool || "mcp_tool")
+    {namespace, name}
   end
 
-  defp dynamic_tool_name(item) do
-    tool = text(item["tool"]) || "dynamic_tool"
+  defp mcp_namespace("mcp__" <> _rest = server), do: server
+  defp mcp_namespace(server), do: "mcp__#{responses_identifier(server)}"
 
-    case text(item["namespace"]) do
-      nil -> tool
-      namespace -> "#{namespace}.#{tool}"
-    end
-  end
+  defp responses_identifier(value), do: String.replace(value, ~r/[^A-Za-z0-9_]/, "_")
+
+  defp collaboration_replay_tool("spawnAgent"), do: "spawn_agent"
+  defp collaboration_replay_tool("sendInput"), do: "send_message"
+  defp collaboration_replay_tool("resumeAgent"), do: "followup_task"
+  defp collaboration_replay_tool("wait"), do: "wait_agent"
+  defp collaboration_replay_tool("closeAgent"), do: "interrupt_agent"
+  defp collaboration_replay_tool(tool), do: tool
 
   defp collab_arguments(%{"tool" => "spawnAgent"} = item) do
     %{}

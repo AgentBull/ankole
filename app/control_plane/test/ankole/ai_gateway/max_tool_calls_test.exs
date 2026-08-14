@@ -120,14 +120,23 @@ defmodule Ankole.AIGateway.MaxToolCallsTest do
     assert MaxToolCalls.details(policy)["observed"] == 1
   end
 
-  test "a gateway program is counted at admission without observing its output" do
+  test "terminal admission gives irreversible provider effects priority over gateway effects" do
     policy = MaxToolCalls.new(1, :openai_responses, force: true)
     program = program("prog_1", "return 1")
-    event = %{"type" => "response.output_item.done", "item" => program}
 
-    policy = MaxToolCalls.admit_gateway_event(policy, event)
+    provider_call = %{
+      "type" => "web_search_call",
+      "id" => "web_1",
+      "status" => "completed"
+    }
 
-    assert MaxToolCalls.item_admitted?(policy, program)
+    policy =
+      policy
+      |> MaxToolCalls.reconcile_provider_items([program, provider_call], :single_response)
+      |> MaxToolCalls.admit_gateway_items([program, provider_call], :single_response)
+
+    refute MaxToolCalls.item_admitted?(policy, program)
+    assert MaxToolCalls.item_admitted?(policy, provider_call)
     assert MaxToolCalls.exhausted?(policy)
     assert MaxToolCalls.details(policy) == details(1, 1)
   end

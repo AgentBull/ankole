@@ -1099,7 +1099,7 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
     ).rejects.toThrow('duplicate tool name: duplicate')
   })
 
-  it('rejects root and namespaced tools that flatten to the same provider name', async () => {
+  it('treats functions as the Codex default namespace during tool lookup', async () => {
     const model = createModel({
       apiKey: 'unused',
       baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
@@ -1112,27 +1112,97 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
         maxModelIterations: 90,
         messages: [{ role: 'user', content: 'hello' }],
         stateful: {
-          actorEventID: '00000000-0000-0000-0000-000000000026',
-          conversationID: '26262626-2626-2626-2626-262626262626'
+          actorEventID: '00000000-0000-0000-0000-000000000027',
+          conversationID: '27272727-2727-2727-2727-272727272727'
         },
         tools: [
           {
-            name: 'a__b',
-            description: 'Root tool.',
+            name: 'lookup',
+            description: 'Root lookup.',
             schema: z.object({}),
             describeActivity: () => null,
             execute: async () => ({ content: [{ type: 'text', text: 'root' }], details: {} })
           },
           {
-            namespace: 'a',
-            name: 'b',
-            description: 'Namespaced tool.',
+            namespace: 'functions',
+            name: 'lookup',
+            description: 'Default namespace lookup.',
             schema: z.object({}),
             describeActivity: () => null,
-            execute: async () => ({ content: [{ type: 'text', text: 'child' }], details: {} })
+            execute: async () => ({ content: [{ type: 'text', text: 'default' }], details: {} })
           }
         ]
       })
-    ).rejects.toThrow('duplicate provider tool name: a__b')
+    ).rejects.toThrow('duplicate tool name: lookup')
+  })
+
+  it('keeps root and namespaced tools distinct even when a single-name adapter would collide', async () => {
+    const sentPayloads: JSONObject[] = []
+    const model = createModel({
+      apiKey: 'unused',
+      baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
+      selector: 'primary',
+      responseWebSocket: {
+        kind: 'aigateway-websocket',
+        url: 'ws://aigateway.invalid/api/v1/ai-gateway/responses',
+        authorization: () => 'Bearer agent-key',
+        createWebSocket: (_url, init) =>
+          fakeResponseSocket(init, data => {
+            sentPayloads.push(JSON.parse(data) as JSONObject)
+            return [
+              {
+                type: 'response.completed',
+                response: {
+                  id: 'resp_namespace_aliases',
+                  status: 'completed',
+                  output: [
+                    {
+                      type: 'message',
+                      role: 'assistant',
+                      content: [{ type: 'output_text', text: 'done' }]
+                    }
+                  ]
+                }
+              }
+            ]
+          })
+      }
+    })
+
+    await runAgentLoop({
+      model,
+      maxModelIterations: 90,
+      messages: [{ role: 'user', content: 'hello' }],
+      stateful: {
+        actorEventID: '00000000-0000-0000-0000-000000000026',
+        conversationID: '26262626-2626-2626-2626-262626262626'
+      },
+      tools: [
+        {
+          name: 'a__b',
+          description: 'Root tool.',
+          schema: z.object({}),
+          describeActivity: () => null,
+          execute: async () => ({ content: [{ type: 'text', text: 'root' }], details: {} })
+        },
+        {
+          namespace: 'a',
+          name: 'b',
+          description: 'Namespaced tool.',
+          schema: z.object({}),
+          describeActivity: () => null,
+          execute: async () => ({ content: [{ type: 'text', text: 'child' }], details: {} })
+        }
+      ]
+    })
+
+    expect(sentPayloads[0]!.tools).toEqual([
+      expect.objectContaining({ type: 'function', name: 'a__b' }),
+      expect.objectContaining({
+        type: 'namespace',
+        name: 'a',
+        tools: [expect.objectContaining({ type: 'function', name: 'b' })]
+      })
+    ])
   })
 })

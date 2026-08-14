@@ -3,6 +3,10 @@ defmodule Ankole.Kernel.ProgramRunnerTest do
 
   alias Ankole.Kernel.ProgramRunner
 
+  defp tool(namespace, name, global_name) do
+    %{"namespace" => namespace, "name" => name, "global_name" => global_name}
+  end
+
   test "completes a pure program with output" do
     assert {:ok, outcome} = ProgramRunner.run(~s|text("hello"); text(1 + 2);|, [], [])
 
@@ -15,19 +19,25 @@ defmodule Ankole.Kernel.ProgramRunnerTest do
   test "pauses on unanswered tool calls and resumes through memo replay" do
     program = ~s|const data = await tools.market({ symbol: "600519" }); text(data.price);|
 
-    assert {:ok, paused} = ProgramRunner.run(program, ["market"], [])
+    bindings = [tool(nil, "market", "market")]
+
+    assert {:ok, paused} = ProgramRunner.run(program, bindings, [])
     assert paused.status == :pending
-    assert paused.pending_calls == [%{name: "market", arguments: %{"symbol" => "600519"}}]
+
+    assert paused.pending_calls == [
+             %{namespace: nil, name: "market", arguments: %{"symbol" => "600519"}}
+           ]
 
     memo = [
       %{
+        "namespace" => nil,
         "name" => "market",
         "arguments" => %{"symbol" => "600519"},
         "output" => %{"price" => 1700}
       }
     ]
 
-    assert {:ok, resumed} = ProgramRunner.run(program, ["market"], memo)
+    assert {:ok, resumed} = ProgramRunner.run(program, bindings, memo)
     assert resumed.status == :completed
     assert resumed.output == [%{kind: "text", value: "1700"}]
   end
@@ -35,13 +45,46 @@ defmodule Ankole.Kernel.ProgramRunnerTest do
   test "preserves null arguments across pause and replay" do
     program = ~s|const data = await tools.market(null); text(data.price);|
 
-    assert {:ok, %{status: :pending, pending_calls: [%{name: "market", arguments: nil}]}} =
-             ProgramRunner.run(program, ["market"], [])
+    bindings = [tool(nil, "market", "market")]
 
-    memo = [%{"name" => "market", "arguments" => nil, "output" => %{"price" => 1700}}]
+    assert {:ok,
+            %{
+              status: :pending,
+              pending_calls: [%{namespace: nil, name: "market", arguments: nil}]
+            }} = ProgramRunner.run(program, bindings, [])
+
+    memo = [
+      %{
+        "namespace" => nil,
+        "name" => "market",
+        "arguments" => nil,
+        "output" => %{"price" => 1700}
+      }
+    ]
 
     assert {:ok, %{status: :completed, output: [%{kind: "text", value: "1700"}]}} =
-             ProgramRunner.run(program, ["market"], memo)
+             ProgramRunner.run(program, bindings, memo)
+  end
+
+  test "keeps namespace separate from the JavaScript global name" do
+    bindings = [tool("collaboration", "spawn_agent", "collaboration__spawn_agent")]
+
+    assert {:ok,
+            %{
+              status: :pending,
+              pending_calls: [
+                %{
+                  namespace: "collaboration",
+                  name: "spawn_agent",
+                  arguments: %{"task" => "audit"}
+                }
+              ]
+            }} =
+             ProgramRunner.run(
+               ~s|await tools.collaboration__spawn_agent({ task: "audit" });|,
+               bindings,
+               []
+             )
   end
 
   test "program failures surface the thrown error" do

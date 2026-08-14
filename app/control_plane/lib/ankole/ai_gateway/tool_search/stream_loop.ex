@@ -425,7 +425,6 @@ defmodule Ankole.AIGateway.ToolSearch.StreamLoop do
     if rewritable_call_item?(loop, item) do
       {:suppress, remember_suppressed(loop, item)}
     else
-      event = Map.put(event, "item", ToolSearch.public_function_call(loop.plan, item))
       {:emit, renumber(event, loop), bump_sequence(loop, event)}
     end
   end
@@ -440,7 +439,6 @@ defmodule Ankole.AIGateway.ToolSearch.StreamLoop do
       event = event |> Map.put("item", rewrite_call_item(loop, item)) |> renumber(loop)
       {:emit, event, bump_sequence(loop, event)}
     else
-      event = Map.put(event, "item", ToolSearch.public_function_call(loop.plan, item))
       {:emit, renumber(event, loop), bump_sequence(loop, event)}
     end
   end
@@ -462,7 +460,7 @@ defmodule Ankole.AIGateway.ToolSearch.StreamLoop do
         PTC.public_item(loop.plan.ptc, item)
 
       true ->
-        ToolSearch.public_function_call(loop.plan, item)
+        item
     end
   end
 

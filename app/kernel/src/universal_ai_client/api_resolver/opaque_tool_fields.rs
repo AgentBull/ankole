@@ -591,11 +591,11 @@ impl ToolFieldPlan {
         }
         self.by_identity.insert(identity.clone(), fields.clone());
 
-        let provider_name = match &identity.namespace {
-            Some(namespace) if namespace.ends_with("__") => format!("{namespace}{name}"),
-            Some(namespace) => format!("{namespace}__{name}"),
-            None => name.to_string(),
-        };
+        let provider_name = identity
+            .namespace
+            .as_deref()
+            .map(|namespace| flattened_namespace_tool_name(namespace, name))
+            .unwrap_or_else(|| flattened_namespace_tool_name("", name));
         if let Some(existing) = self.by_provider_name.get(&provider_name)
             && existing != &fields
         {

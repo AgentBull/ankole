@@ -81,6 +81,49 @@ defmodule Ankole.BackgroundAgentJobs.TurnItemsTest do
       assert [%{"function" => %{"name" => "request_user_input"}}] = call["tool_calls"]
     end
 
+    test "projects a namespaced tool without flattening its identity" do
+      {messages, _truncated} =
+        TurnItemProjection.project(%{
+          "type" => "dynamicToolCall",
+          "id" => "collab-1",
+          "namespace" => "collaboration",
+          "tool" => "spawn_agent",
+          "arguments" => %{"message" => "audit"},
+          "status" => "completed",
+          "contentItems" => "spawned",
+          "success" => true,
+          "durationMs" => 1
+        })
+
+      assert [call, result] = messages
+
+      assert [%{"function" => function}] = call["tool_calls"]
+      assert function["namespace"] == "collaboration"
+      assert function["name"] == "spawn_agent"
+      assert result["namespace"] == "collaboration"
+      assert result["name"] == "spawn_agent"
+    end
+
+    test "reconstructs a legacy MCP identity with the Codex name sanitizer" do
+      {messages, _truncated} =
+        TurnItemProjection.project(%{
+          "type" => "mcpToolCall",
+          "id" => "mcp-legacy",
+          "server" => "my-server",
+          "tool" => "get-price",
+          "arguments" => %{},
+          "result" => "42",
+          "status" => "completed"
+        })
+
+      assert [call, result] = messages
+      assert [%{"function" => function}] = call["tool_calls"]
+      assert function["namespace"] == "mcp__my_server"
+      assert function["name"] == "get_price"
+      assert result["namespace"] == "mcp__my_server"
+      assert result["name"] == "get_price"
+    end
+
     test "keeps replay-only items out of the projection" do
       assert {[], false} =
                TurnItemProjection.project(%{

@@ -1199,7 +1199,8 @@ defmodule Ankole.AIGateway.ResponseStream do
 
         {state, failure_events, outcome} =
           fail_stream(state, "image_persistence_failed: #{inspect(reason)}",
-            code: "artifact_persistence_failed"
+            code: "artifact_persistence_failed",
+            retryable: false
           )
 
         state = finish_public_stream(state, :cancel_upstream)

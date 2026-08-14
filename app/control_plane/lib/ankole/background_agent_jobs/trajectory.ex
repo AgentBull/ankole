@@ -42,7 +42,8 @@ defmodule Ankole.BackgroundAgentJobs.Trajectory do
          } = message
        )
        when is_binary(tool_call_id) and is_binary(name) and is_binary(content) do
-    valid_optional_id?(message) and valid_optional_metadata?(message)
+    valid_optional_id?(message) and valid_optional_metadata?(message) and
+      valid_optional_namespace?(message)
   end
 
   defp valid_message?(_message), do: false
@@ -71,10 +72,10 @@ defmodule Ankole.BackgroundAgentJobs.Trajectory do
       %{
         "id" => id,
         "type" => "function",
-        "function" => %{"name" => name, "arguments" => arguments}
+        "function" => %{"name" => name, "arguments" => arguments} = function
       }
       when is_binary(id) and is_binary(name) and is_binary(arguments) ->
-        true
+        valid_optional_namespace?(function)
 
       _tool_call ->
         false
@@ -82,6 +83,11 @@ defmodule Ankole.BackgroundAgentJobs.Trajectory do
   end
 
   defp valid_tool_calls?(_tool_calls), do: false
+
+  defp valid_optional_namespace?(value),
+    do:
+      not Map.has_key?(value, "namespace") or
+        (is_binary(value["namespace"]) and value["namespace"] != "")
 
   defp valid_metadata?(nil), do: true
 

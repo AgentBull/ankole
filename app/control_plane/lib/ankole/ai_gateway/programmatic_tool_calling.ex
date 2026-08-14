@@ -13,12 +13,13 @@ defmodule Ankole.AIGateway.ProgrammaticToolCalling do
 
   @tool_name "program"
   @contract_description_budget_bytes 32_768
-  @fingerprint_prefix "ankole_ptc_v1."
+  @fingerprint_prefix "ankole_ptc_v2."
   @fingerprint_max_bytes 16_384
   @fingerprint_payload_max_bytes 12_000
   @fingerprint_max_bindings 128
-  @fingerprint_max_name_bytes 64
+  @fingerprint_max_global_name_bytes 256
   @max_nested_tool_calls 256
+  @default_function_namespace "functions"
 
   defmodule Plan do
     @moduledoc false
@@ -137,7 +138,10 @@ defmodule Ankole.AIGateway.ProgrammaticToolCalling do
         program: %{tool_name: tool_name}
       }) do
     collision? =
-      Enum.any?(base_tools, &(&1.provider_name == tool_name)) or
+      Enum.any?(
+        base_tools,
+        &(&1.namespace in [nil, "", @default_function_namespace] and &1.name == tool_name)
+      ) or
         Enum.any?(passthrough_tools, &(Map.get(&1, "name") == tool_name))
 
     case collision? do
@@ -153,7 +157,7 @@ defmodule Ankole.AIGateway.ProgrammaticToolCalling do
     bindings =
       ((program && program.bindings) || [])
       |> Kernel.++(bindings)
-      |> Enum.uniq_by(& &1.provider_name)
+      |> Enum.uniq()
 
     with {:ok, synthesized_tool} <- synthesized_program_tool(bindings) do
       {:ok,
@@ -166,21 +170,21 @@ defmodule Ankole.AIGateway.ProgrammaticToolCalling do
   end
 
   defp synthesized_program_tool(bindings) do
-    binding_names = Enum.map(bindings, & &1.provider_name)
+    runtime_bindings = Enum.map(bindings, &runtime_binding/1)
 
-    with :ok <- validate_program_binding_snapshot(binding_names) do
+    with :ok <- validate_program_binding_snapshot(runtime_bindings) do
       {direct_bindings, programmatic_only_bindings} =
-        Enum.split_with(bindings, &("direct" in &1.allowed_callers))
+        Enum.split_with(bindings, &("direct" in binding_allowed_callers(&1)))
 
-      direct_binding_names =
+      direct_global_names =
         direct_bindings
-        |> Enum.map(& &1.provider_name)
+        |> Enum.map(&binding_name/1)
         |> Enum.sort()
         |> Ankole.JSON.encode!()
 
       embedded_contracts =
         programmatic_only_bindings
-        |> ToolContract.executable_snapshot()
+        |> embedded_program_contracts()
         |> Ankole.JSON.encode!()
 
       description =
@@ -188,7 +192,7 @@ defmodule Ankole.AIGateway.ProgrammaticToolCalling do
           "parallel calls with Promise.all, and intermediate processing. " <>
           "The code runs in an isolated runtime without Node, network, " <>
           "filesystem, or timers. Call tools with `await tools[\"<name>\"](args)`; " <>
-          "bindings with matching direct tool declarations: #{direct_binding_names}; " <>
+          "JavaScript globals with matching direct tool declarations: #{direct_global_names}; " <>
           "programmatic-only bindings and contracts: #{embedded_contracts}. Emit results " <>
           "with `text(value)` or `image(url)`. tool_search is not callable " <>
           "from code; load deferred tools before starting a program."
@@ -222,8 +226,8 @@ defmodule Ankole.AIGateway.ProgrammaticToolCalling do
     end
   end
 
-  defp validate_program_binding_snapshot(binding_names) do
-    case validate_fingerprint_binding_names(binding_names) do
+  defp validate_program_binding_snapshot(runtime_bindings) do
+    case validate_fingerprint_bindings(runtime_bindings) do
       :ok ->
         :ok
 
@@ -273,10 +277,10 @@ defmodule Ankole.AIGateway.ProgrammaticToolCalling do
 
   @spec fingerprint(String.t(), [Descriptor.t()]) :: String.t()
   def fingerprint(code, bindings) when is_binary(code) and is_list(bindings) do
-    binding_names = Enum.map(bindings, & &1.provider_name)
+    runtime_bindings = Enum.map(bindings, &runtime_binding/1)
 
     payload = %{
-      "bindings" => binding_names,
+      "bindings" => runtime_bindings,
       "code_sha256" => sha256(code),
       "contracts_sha256" => ToolContract.fingerprint(bindings)
     }
@@ -284,7 +288,7 @@ defmodule Ankole.AIGateway.ProgrammaticToolCalling do
     encoded_payload = Ankole.JSON.encode!(payload)
     fingerprint = @fingerprint_prefix <> Base.url_encode64(encoded_payload, padding: false)
 
-    case validate_fingerprint_bounds(fingerprint, encoded_payload, binding_names) do
+    case validate_fingerprint_bounds(fingerprint, encoded_payload, runtime_bindings) do
       :ok ->
         fingerprint
 
@@ -306,7 +310,7 @@ defmodule Ankole.AIGateway.ProgrammaticToolCalling do
          code: public["code"],
          fingerprint: public["fingerprint"],
          bindings: bindings,
-         binding_names: Enum.map(bindings, & &1.provider_name),
+         runtime_bindings: Enum.map(bindings, &runtime_binding/1),
          memo: memo
        }}
     end
@@ -318,14 +322,14 @@ defmodule Ankole.AIGateway.ProgrammaticToolCalling do
   @spec resume_job(Plan.t(), map()) :: {:ok, map()} | {:error, term()}
   def resume_job(%Plan{program: %{bindings: bindings}}, %{} = resume) do
     case frozen_program_bindings(resume.fingerprint, resume.code, bindings) do
-      {:ok, frozen_bindings} ->
+      {:ok, frozen_bindings, runtime_bindings} ->
         {:ok,
          %{
            call_id: resume.call_id,
            code: resume.code,
            fingerprint: resume.fingerprint,
            bindings: frozen_bindings,
-           binding_names: Enum.map(frozen_bindings, & &1.provider_name),
+           runtime_bindings: runtime_bindings,
            memo: resume.memo
          }}
 
@@ -521,8 +525,10 @@ defmodule Ankole.AIGateway.ProgrammaticToolCalling do
 
   @spec nested_call(String.t(), non_neg_integer(), map(), [Descriptor.t()]) ::
           {:ok, map()} | {:error, term()}
-  def nested_call(program_call_id, index, %{name: provider_name, arguments: arguments}, bindings) do
-    case Enum.find(bindings, &(&1.provider_name == provider_name)) do
+  def nested_call(program_call_id, index, %{name: name, arguments: arguments} = call, bindings) do
+    namespace = Map.get(call, :namespace)
+
+    case Enum.find(bindings, &(binding_identity(&1) == {namespace, name})) do
       %Descriptor{type: "function"} = binding ->
         case Ankole.JSON.encode(arguments) do
           {:ok, encoded_arguments} ->
@@ -533,7 +539,8 @@ defmodule Ankole.AIGateway.ProgrammaticToolCalling do
 
           {:error, reason} ->
             {:error,
-             {:invalid_program_tool_arguments, binding.provider_name, binding.type, reason}}
+             {:invalid_program_tool_arguments, binding_qualified_name(binding), binding.type,
+              reason}}
         end
 
       %Descriptor{type: "custom"} = binding when is_binary(arguments) ->
@@ -544,10 +551,11 @@ defmodule Ankole.AIGateway.ProgrammaticToolCalling do
 
       %Descriptor{} = binding ->
         {:error,
-         {:invalid_program_tool_arguments, binding.provider_name, binding.type, arguments}}
+         {:invalid_program_tool_arguments, binding_qualified_name(binding), binding.type,
+          arguments}}
 
       nil ->
-        {:error, {:program_tool_not_allowed, provider_name}}
+        {:error, {:program_tool_not_allowed, public_path(namespace, name)}}
     end
   end
 
@@ -625,7 +633,10 @@ defmodule Ankole.AIGateway.ProgrammaticToolCalling do
         %{"type" => type, "call_id" => call_id, "caller" => %{"caller_id" => program_id}},
         _ledger
       )
-      when type in ["function_call_output", "custom_tool_call_output"] and
+      when type in [
+             "function_call_output",
+             "custom_tool_call_output"
+           ] and
              elem(reason, 0) in [
                :duplicate_history_item,
                :conflicting_output_pair,
@@ -796,7 +807,7 @@ defmodule Ankole.AIGateway.ProgrammaticToolCalling do
       fingerprint = group.root.item["fingerprint"]
 
       case frozen_program_bindings(fingerprint, code, program.bindings) do
-        {:ok, frozen_bindings} ->
+        {:ok, frozen_bindings, _runtime_bindings} ->
           with {:ok, calls} <- replay_calls(group.children),
                {:ok, memo} <- replay_memo(calls, frozen_bindings) do
             round = %{
@@ -828,13 +839,16 @@ defmodule Ankole.AIGateway.ProgrammaticToolCalling do
       item = child.call.item
 
       with {:ok, arguments} <- replay_tool_arguments(item) do
+        {namespace, name} = replay_tool_identity(item)
+
         call = %{
           item: item,
           call_id: Map.get(item, "call_id"),
           type: Map.get(item, "type"),
-          name: replay_tool_name(item),
+          namespace: namespace,
+          name: name,
           arguments: arguments,
-          output: child.output.item["output"]
+          output_item: child.output.item
         }
 
         {:cont, {:ok, [call | calls_rev]}}
@@ -849,14 +863,15 @@ defmodule Ankole.AIGateway.ProgrammaticToolCalling do
   end
 
   defp replay_memo(calls, bindings) do
-    bindings_by_name = Map.new(bindings, &{&1.provider_name, &1})
+    bindings_by_identity = Map.new(bindings, &{binding_identity(&1), &1})
 
     case Enum.reduce_while(calls, {:ok, []}, fn call, {:ok, memo_rev} ->
-           case Map.get(bindings_by_name, call.name) do
-             %Descriptor{} = binding ->
-               with {:ok, output} <- ToolContract.decode_output(binding, call.output) do
+           case Map.get(bindings_by_identity, {call.namespace, call.name}) do
+             binding when not is_nil(binding) ->
+               with {:ok, output} <- decode_binding_output(binding, call.output_item) do
                  entry = %{
-                   "name" => call.name,
+                   "namespace" => elem(binding_identity(binding), 0),
+                   "name" => elem(binding_identity(binding), 1),
                    "arguments" => call.arguments,
                    "output" => output
                  }
@@ -867,7 +882,7 @@ defmodule Ankole.AIGateway.ProgrammaticToolCalling do
                end
 
              nil ->
-               {:halt, {:error, {:binding_missing, call.name}}}
+               {:halt, {:error, {:binding_missing, public_path(call.namespace, call.name)}}}
            end
          end) do
       {:ok, memo_rev} -> {:ok, Enum.reverse(memo_rev)}
@@ -875,11 +890,12 @@ defmodule Ankole.AIGateway.ProgrammaticToolCalling do
     end
   end
 
-  defp replay_tool_name(%{"namespace" => namespace, "name" => name})
+  defp replay_tool_identity(%{"namespace" => namespace, "name" => name})
        when is_binary(namespace) and is_binary(name),
-       do: ToolContract.provider_alias(namespace, name)
+       do: {namespace, name}
 
-  defp replay_tool_name(item), do: Map.get(item, "name")
+  defp replay_tool_identity(%{"name" => name}) when is_binary(name), do: {nil, name}
+  defp replay_tool_identity(_item), do: {nil, nil}
 
   defp replay_tool_arguments(%{"type" => "function_call"} = item) do
     case Ankole.JSON.decode(Map.get(item, "arguments")) do
@@ -894,6 +910,12 @@ defmodule Ankole.AIGateway.ProgrammaticToolCalling do
   defp replay_tool_arguments(%{"type" => "custom_tool_call"} = item),
     do: {:ok, Map.get(item, "input")}
 
+  defp replay_tool_arguments(item),
+    do: {:error, {:invalid_program_tool_arguments, item["type"], item["call_id"]}}
+
+  defp decode_binding_output(%Descriptor{} = binding, output_item),
+    do: ToolContract.decode_output(binding, output_item["output"])
+
   defp frozen_program_bindings(fingerprint, code, current_bindings)
        when is_binary(fingerprint) and is_binary(code) and is_list(current_bindings) do
     with :ok <- validate_fingerprint_token_size(fingerprint),
@@ -901,12 +923,13 @@ defmodule Ankole.AIGateway.ProgrammaticToolCalling do
          {:ok, payload_json} <- Base.url_decode64(encoded_payload, padding: false),
          :ok <- validate_fingerprint_payload_size(payload_json),
          {:ok, payload} <- Ankole.JSON.decode(payload_json),
-         {:ok, binding_names, code_hash, contracts_hash} <- fingerprint_fields(payload),
-         :ok <- validate_fingerprint_bounds(fingerprint, payload_json, binding_names),
+         {:ok, binding_snapshot, code_hash, contracts_hash} <- fingerprint_fields(payload),
+         :ok <- validate_fingerprint_bounds(fingerprint, payload_json, binding_snapshot),
          true <- code_hash == sha256(code),
-         {:ok, frozen_bindings} <- select_frozen_bindings(binding_names, current_bindings),
+         {:ok, frozen_bindings, runtime_bindings} <-
+           select_frozen_bindings(binding_snapshot, current_bindings),
          true <- contracts_hash == ToolContract.fingerprint(frozen_bindings) do
-      {:ok, frozen_bindings}
+      {:ok, frozen_bindings, runtime_bindings}
     else
       _invalid_or_drifted -> {:error, :invalid_program_fingerprint}
     end
@@ -933,13 +956,13 @@ defmodule Ankole.AIGateway.ProgrammaticToolCalling do
   defp fingerprint_fields(%{} = payload) when map_size(payload) == 3 do
     case payload do
       %{
-        "bindings" => binding_names,
+        "bindings" => binding_snapshot,
         "code_sha256" => code_hash,
         "contracts_sha256" => contracts_hash
       } ->
         with :ok <- validate_sha256(code_hash),
              :ok <- validate_sha256(contracts_hash) do
-          {:ok, binding_names, code_hash, contracts_hash}
+          {:ok, binding_snapshot, code_hash, contracts_hash}
         end
 
       _invalid_shape ->
@@ -949,10 +972,10 @@ defmodule Ankole.AIGateway.ProgrammaticToolCalling do
 
   defp fingerprint_fields(_payload), do: {:error, :invalid_program_fingerprint_payload}
 
-  defp validate_fingerprint_bounds(fingerprint, payload, binding_names) do
+  defp validate_fingerprint_bounds(fingerprint, payload, binding_snapshot) do
     with :ok <- validate_fingerprint_token_size(fingerprint),
          :ok <- validate_fingerprint_payload_size(payload),
-         :ok <- validate_fingerprint_binding_names(binding_names) do
+         :ok <- validate_fingerprint_bindings(binding_snapshot) do
       :ok
     end
   end
@@ -971,27 +994,49 @@ defmodule Ankole.AIGateway.ProgrammaticToolCalling do
   defp validate_fingerprint_payload_size(_payload),
     do: {:error, :program_fingerprint_payload_too_large}
 
-  defp validate_fingerprint_binding_names(binding_names)
-       when is_list(binding_names) and length(binding_names) <= @fingerprint_max_bindings do
+  defp validate_fingerprint_bindings(bindings)
+       when is_list(bindings) and length(bindings) <= @fingerprint_max_bindings do
     valid? =
-      Enum.all?(binding_names, fn name ->
-        is_binary(name) and name != "" and byte_size(name) <= @fingerprint_max_name_bytes
+      Enum.all?(bindings, fn
+        %{"namespace" => namespace, "name" => name, "global_name" => global_name}
+        when (is_nil(namespace) or is_binary(namespace)) and is_binary(name) ->
+          (is_nil(namespace) or namespace != "") and name != "" and
+            valid_global_name?(global_name) and global_name == binding_name(namespace, name)
+
+        _invalid ->
+          false
+      end)
+
+    identities = Enum.map(bindings, &snapshot_identity/1)
+
+    global_names =
+      Enum.map(bindings, fn
+        binding when is_map(binding) -> Map.get(binding, "global_name")
+        _invalid -> nil
       end)
 
     cond do
       not valid? ->
-        {:error, :invalid_program_fingerprint_binding_name}
+        {:error, :invalid_program_fingerprint_binding}
 
-      MapSet.size(MapSet.new(binding_names)) != length(binding_names) ->
+      MapSet.size(MapSet.new(identities)) != length(identities) ->
         {:error, :duplicate_program_fingerprint_binding}
+
+      MapSet.size(MapSet.new(global_names)) != length(global_names) ->
+        {:error, :duplicate_program_global_binding}
 
       true ->
         :ok
     end
   end
 
-  defp validate_fingerprint_binding_names(_binding_names),
+  defp validate_fingerprint_bindings(_bindings),
     do: {:error, :invalid_program_fingerprint_bindings}
+
+  defp valid_global_name?(name),
+    do:
+      is_binary(name) and name != "" and
+        byte_size(name) <= @fingerprint_max_global_name_bytes
 
   defp validate_sha256(hash) when is_binary(hash) and byte_size(hash) == 64 do
     if String.match?(hash, ~r/\A[0-9a-f]{64}\z/), do: :ok, else: {:error, :invalid_sha256}
@@ -999,41 +1044,119 @@ defmodule Ankole.AIGateway.ProgrammaticToolCalling do
 
   defp validate_sha256(_hash), do: {:error, :invalid_sha256}
 
-  defp select_frozen_bindings(binding_names, current_bindings) do
-    current_names =
-      Enum.map(current_bindings, fn
-        %Descriptor{provider_name: provider_name} -> provider_name
-        _invalid -> nil
-      end)
+  defp select_frozen_bindings(binding_snapshot, current_bindings) do
+    current_by_identity =
+      Map.new(current_bindings, &{binding_identity(&1), &1})
 
-    cond do
-      Enum.any?(current_names, &is_nil/1) ->
-        {:error, :invalid_current_program_bindings}
+    select_bindings(binding_snapshot, fn snapshot ->
+      identity = snapshot_identity(snapshot)
 
-      MapSet.size(MapSet.new(current_names)) != length(current_names) ->
-        {:error, :duplicate_current_program_binding}
+      case Map.get(current_by_identity, identity) do
+        binding when not is_nil(binding) ->
+          runtime_binding = runtime_binding(binding)
 
-      true ->
-        current_by_name = Map.new(Enum.zip(current_names, current_bindings))
+          if snapshot == runtime_binding,
+            do: {:ok, binding, runtime_binding},
+            else: {:error, {:binding_snapshot_mismatch, binding_qualified_name(binding)}}
 
-        case Enum.reduce_while(binding_names, {:ok, []}, fn provider_name, {:ok, selected_rev} ->
-               case Map.get(current_by_name, provider_name) do
-                 %Descriptor{allowed_callers: callers} = binding when is_list(callers) ->
-                   if "programmatic" in callers do
-                     {:cont, {:ok, [binding | selected_rev]}}
-                   else
-                     {:halt, {:error, {:binding_not_programmatic, provider_name}}}
-                   end
+        nil ->
+          {:error, {:binding_missing, public_path(elem(identity, 0), elem(identity, 1))}}
+      end
+    end)
+  end
 
-                 nil ->
-                   {:halt, {:error, {:binding_missing, provider_name}}}
-               end
-             end) do
-          {:ok, selected_rev} -> {:ok, Enum.reverse(selected_rev)}
-          {:error, _reason} = error -> error
-        end
+  defp select_bindings(snapshot, resolve) do
+    Enum.reduce_while(snapshot, {:ok, [], []}, fn entry, {:ok, bindings_rev, runtime_rev} ->
+      case resolve.(entry) do
+        {:ok, binding, runtime_binding} ->
+          callers = binding_allowed_callers(binding)
+
+          if "programmatic" in callers do
+            {:cont, {:ok, [binding | bindings_rev], [runtime_binding | runtime_rev]}}
+          else
+            {:halt, {:error, {:binding_not_programmatic, binding_qualified_name(binding)}}}
+          end
+
+        {:error, reason} ->
+          {:halt, {:error, reason}}
+      end
+    end)
+    |> case do
+      {:ok, bindings_rev, runtime_rev} ->
+        {:ok, Enum.reverse(bindings_rev), Enum.reverse(runtime_rev)}
+
+      {:error, _reason} = error ->
+        error
     end
   end
+
+  defp runtime_binding(%Descriptor{} = descriptor) do
+    %{
+      "namespace" => descriptor.namespace,
+      "name" => descriptor.name,
+      "global_name" => binding_name(descriptor)
+    }
+  end
+
+  defp embedded_program_contracts(bindings) do
+    global_names = Map.new(bindings, &{binding_identity(&1), binding_name(&1)})
+
+    bindings
+    |> ToolContract.executable_snapshot()
+    |> Enum.map(fn %{"public" => %{"namespace" => namespace, "name" => name}} = contract ->
+      Map.put(contract, "global_name", Map.fetch!(global_names, {namespace, name}))
+    end)
+  end
+
+  # Match Codex code mode: the JavaScript global is only a local binding. The
+  # runtime still carries the structured tool identity beside it.
+  defp binding_name(%Descriptor{namespace: namespace, name: name}),
+    do: binding_name(namespace, name)
+
+  defp binding_name(namespace, name)
+       when namespace in [nil, "", @default_function_namespace],
+       do: normalize_code_mode_identifier(name)
+
+  defp binding_name(namespace, name) do
+    separator =
+      if String.ends_with?(namespace, "_") or String.starts_with?(name, "_"), do: "", else: "__"
+
+    normalize_code_mode_identifier(namespace <> separator <> name)
+  end
+
+  defp normalize_code_mode_identifier(value) do
+    value
+    |> String.to_charlist()
+    |> Enum.with_index()
+    |> Enum.map(fn {character, index} ->
+      valid? =
+        if index == 0 do
+          character == ?_ or character == ?$ or character in ?A..?Z or character in ?a..?z
+        else
+          character == ?_ or character == ?$ or character in ?A..?Z or character in ?a..?z or
+            character in ?0..?9
+        end
+
+      if valid?, do: character, else: ?_
+    end)
+    |> case do
+      [] -> "_"
+      characters -> List.to_string(characters)
+    end
+  end
+
+  defp binding_allowed_callers(%Descriptor{allowed_callers: callers}), do: callers
+
+  defp binding_identity(%Descriptor{} = descriptor), do: ToolContract.identity(descriptor)
+
+  defp binding_qualified_name(%Descriptor{} = descriptor),
+    do: ToolContract.qualified_name(descriptor)
+
+  defp snapshot_identity(%{"namespace" => namespace, "name" => name}), do: {namespace, name}
+  defp snapshot_identity(_invalid), do: {nil, nil}
+
+  defp public_path(nil, name), do: name
+  defp public_path(namespace, name), do: "#{namespace}.#{name}"
 
   defp program_result(outcome) do
     parts =

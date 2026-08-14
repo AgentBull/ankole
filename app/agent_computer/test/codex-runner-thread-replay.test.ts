@@ -51,6 +51,67 @@ describe('@ankole/agent-computer thread replay conversion', () => {
     expect(outputs[0]?.output).toContain('interrupted')
   })
 
+  it('preserves namespaced dynamic and collaboration identities as separate wire fields', () => {
+    const wire = wireItemsFromTurnItems([
+      {
+        type: 'dynamicToolCall',
+        id: 'spawn-1',
+        namespace: 'collaboration',
+        tool: 'spawn_agent',
+        arguments: { message: 'review' },
+        status: 'completed',
+        contentItems: [{ type: 'inputText', text: 'started' }]
+      },
+      {
+        type: 'collabAgentToolCall',
+        id: 'send-1',
+        tool: 'sendInput',
+        receiverThreadIds: ['thread-2'],
+        agentsStates: {}
+      }
+    ])
+
+    expect(wire[0]).toMatchObject({
+      type: 'function_call',
+      call_id: 'spawn-1',
+      namespace: 'collaboration',
+      name: 'spawn_agent'
+    })
+    expect(wire[2]).toMatchObject({
+      type: 'function_call',
+      call_id: 'send-1',
+      namespace: 'collaboration',
+      name: 'send_message'
+    })
+    expect(wire[0]).not.toHaveProperty('name', 'collaboration.spawn_agent')
+  })
+
+  it('uses persisted MCP wire identity and keeps the legacy reconstruction namespaced', () => {
+    const wire = wireItemsFromTurnItems([
+      {
+        type: 'mcpToolCall',
+        id: 'mcp-current',
+        server: 'raw-server',
+        tool: 'raw-tool',
+        namespace: 'mcp__model_server',
+        name: 'model_tool',
+        arguments: {},
+        result: 'ok'
+      },
+      {
+        type: 'mcpToolCall',
+        id: 'mcp-legacy',
+        server: 'legacy-server',
+        tool: 'lookup-metric',
+        arguments: {},
+        result: 'ok'
+      }
+    ])
+
+    expect(wire[0]).toMatchObject({ namespace: 'mcp__model_server', name: 'model_tool' })
+    expect(wire[2]).toMatchObject({ namespace: 'mcp__legacy_server', name: 'lookup_metric' })
+  })
+
   it('drops reasoning, compaction markers, and empty content instead of inventing wire items', () => {
     const wire = wireItemsFromTurnItems([
       { type: 'reasoning', id: 'r1', summary: ['摘要'] },

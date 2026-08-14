@@ -937,11 +937,13 @@ export type BackgroundAgentJobTurnPlan = JSONObject & {
 }
 
 export type BackgroundAgentJobTurnToolUsage = JSONObject & {
+  namespace?: string
   name: string
   calls: number
 }
 
 export type BackgroundAgentJobTurnToolExecutionMechanism = JSONObject & {
+  namespace?: string
   name: string
   execution_mechanism: 'provider_hosted' | 'local_dynamic'
   calls: number
@@ -949,6 +951,7 @@ export type BackgroundAgentJobTurnToolExecutionMechanism = JSONObject & {
 
 export type BackgroundAgentJobTurnActiveItem = JSONObject & {
   id: string
+  namespace?: string
   name: string
 }
 
@@ -974,7 +977,7 @@ export type BackgroundAgentJobExecution = {
   threads: { total: number; child: number }
   turns: { lead: number; child: number; compaction: number; active: number }
   progress: Omit<BackgroundAgentJobTurnProgress, 'active_item'> & {
-    active_items: Array<{ scope: 'lead' | 'child'; name: string }>
+    active_items: Array<{ scope: 'lead' | 'child'; namespace?: string; name: string }>
   }
   usage?: BackgroundAgentJobTurnUsage
   trajectory_page: BackgroundAgentJobTurnTrajectory & { next_cursor?: string }

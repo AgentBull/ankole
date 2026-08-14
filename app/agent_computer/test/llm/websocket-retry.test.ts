@@ -293,7 +293,7 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
     expect(sentPayloads).toHaveLength(2)
   })
 
-  it('retries retryable terminal response.failed results in the agent loop', async () => {
+  it('falls back to terminal status classification when retryable is absent', async () => {
     const sentPayloads: JSONObject[] = []
     const logs: Array<{ level: 'info' | 'warning'; event: string; fields?: JSONObject }> = []
     const model = createModel({
@@ -395,6 +395,138 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
     })
     expect(JSON.stringify(logs)).not.toContain('transient upstream response failed')
     expect(JSON.stringify(logs)).not.toContain('retry terminal rate limit')
+  })
+
+  it('honors explicit retryable true on an otherwise unknown terminal failure', async () => {
+    const sentPayloads: JSONObject[] = []
+    const logs: Array<{ level: 'info' | 'warning'; event: string; fields?: JSONObject }> = []
+    const model = createModel({
+      apiKey: 'unused',
+      baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
+      selector: 'primary',
+      responseWebSocket: {
+        kind: 'aigateway-websocket',
+        url: 'ws://aigateway.invalid/api/v1/ai-gateway/responses',
+        authorization: () => 'Bearer agent-key',
+        createWebSocket: (_url, init) =>
+          fakeResponseSocket(init, data => {
+            sentPayloads.push(JSON.parse(data) as JSONObject)
+
+            if (sentPayloads.length === 1) {
+              return [
+                {
+                  type: 'response.failed',
+                  response: {
+                    id: 'resp_failed_explicit_retry',
+                    status: 'failed',
+                    error: {
+                      code: 'provider_specific_failure',
+                      message: 'opaque failure',
+                      retryable: true
+                    },
+                    output: []
+                  }
+                }
+              ]
+            }
+
+            return [
+              {
+                type: 'response.completed',
+                response: {
+                  id: 'resp_after_explicit_retry',
+                  status: 'completed',
+                  output: [
+                    {
+                      type: 'message',
+                      role: 'assistant',
+                      content: [{ type: 'output_text', text: 'retried from explicit metadata' }]
+                    }
+                  ]
+                }
+              }
+            ]
+          })
+      }
+    })
+
+    const final = await runAgentLoop({
+      model,
+      maxModelIterations: 1,
+      messages: [{ role: 'user', content: 'retry explicit terminal metadata' }],
+      stateful: {
+        actorEventID: '00000000-0000-0000-0000-000000000021',
+        conversationID: '21212121-2121-2121-2121-212121212121'
+      },
+      logger: {
+        info: (event, _message, fields) => logs.push({ level: 'info', event, fields }),
+        warning: (event, _message, fields) => logs.push({ level: 'warning', event, fields })
+      }
+    })
+
+    expect(final.message.content).toEqual([{ type: 'text', text: 'retried from explicit metadata' }])
+    expect(sentPayloads).toHaveLength(2)
+    expect(logs.find(log => log.event === 'worker.model_call_failed')).toMatchObject({
+      fields: {
+        error_kind: 'unknown',
+        retryable: true,
+        will_retry: true
+      }
+    })
+  })
+
+  it('honors explicit retryable false over a retryable-looking terminal failure', async () => {
+    const sentPayloads: JSONObject[] = []
+    let caught: unknown
+    const model = createModel({
+      apiKey: 'unused',
+      baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
+      selector: 'primary',
+      responseWebSocket: {
+        kind: 'aigateway-websocket',
+        url: 'ws://aigateway.invalid/api/v1/ai-gateway/responses',
+        authorization: () => 'Bearer agent-key',
+        createWebSocket: (_url, init) =>
+          fakeResponseSocket(init, data => {
+            sentPayloads.push(JSON.parse(data) as JSONObject)
+            return [
+              {
+                type: 'response.failed',
+                response: {
+                  id: 'resp_failed_explicit_stop',
+                  status: 'failed',
+                  error: {
+                    code: 'rate_limit_exceeded',
+                    provider_status: 429,
+                    message: 'rate limited',
+                    retryable: false
+                  },
+                  output: []
+                }
+              }
+            ]
+          })
+      }
+    })
+
+    try {
+      await runAgentLoop({
+        model,
+        maxModelIterations: 1,
+        messages: [{ role: 'user', content: 'do not retry explicit terminal metadata' }],
+        stateful: {
+          actorEventID: '00000000-0000-0000-0000-000000000022',
+          conversationID: '22222222-2222-2222-2222-222222222222'
+        }
+      })
+    } catch (error) {
+      caught = error
+    }
+
+    expect(caught).toBeInstanceOf(Error)
+    expect(caught).toMatchObject({ retryable: false })
+    expect(classifyLLMError(caught)).toMatchObject({ kind: 'rate_limit', retryable: false })
+    expect(sentPayloads).toHaveLength(1)
   })
 
   it('retries an upstream-closed partial call from the stable anchor without executing it', async () => {

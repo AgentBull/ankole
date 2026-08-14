@@ -423,7 +423,11 @@
                             "properties": {
                               "function": {
                                 "additionalProperties": true,
-                                "properties": { "arguments": { "type": "string" }, "name": { "type": "string" } },
+                                "properties": {
+                                  "arguments": { "type": "string" },
+                                  "name": { "type": "string" },
+                                  "namespace": { "type": "string" }
+                                },
                                 "required": ["name", "arguments"],
                                 "type": "object"
                               },
@@ -446,6 +450,7 @@
                         "id": { "type": "string" },
                         "metadata": { "additionalProperties": true, "type": "object" },
                         "name": { "type": "string" },
+                        "namespace": { "type": "string" },
                         "role": { "enum": ["tool"], "type": "string" },
                         "tool_call_id": { "type": "string" }
                       },
@@ -700,7 +705,11 @@
       },
       "BackgroundAgentJobTurnActiveItem": {
         "additionalProperties": false,
-        "properties": { "id": { "minLength": 1, "type": "string" }, "name": { "minLength": 1, "type": "string" } },
+        "properties": {
+          "id": { "minLength": 1, "type": "string" },
+          "name": { "minLength": 1, "type": "string" },
+          "namespace": { "minLength": 1, "type": "string" }
+        },
         "required": ["id", "name"],
         "title": "BackgroundAgentJobTurnActiveItem",
         "type": "object"
@@ -1213,7 +1222,11 @@
       },
       "BackgroundAgentJobTurnToolUsage": {
         "additionalProperties": false,
-        "properties": { "calls": { "minimum": 0, "type": "integer" }, "name": { "minLength": 1, "type": "string" } },
+        "properties": {
+          "calls": { "minimum": 0, "type": "integer" },
+          "name": { "minLength": 1, "type": "string" },
+          "namespace": { "minLength": 1, "type": "string" }
+        },
         "required": ["name", "calls"],
         "title": "BackgroundAgentJobTurnToolUsage",
         "type": "object"
@@ -1979,7 +1992,8 @@
         "properties": {
           "calls": { "minimum": 1, "type": "integer" },
           "execution_mechanism": { "enum": ["local_dynamic", "provider_hosted"], "type": "string" },
-          "name": { "minLength": 1, "type": "string" }
+          "name": { "minLength": 1, "type": "string" },
+          "namespace": { "minLength": 1, "type": "string" }
         },
         "required": ["name", "execution_mechanism", "calls"],
         "title": "BackgroundAgentJobTurnToolExecutionMechanism",

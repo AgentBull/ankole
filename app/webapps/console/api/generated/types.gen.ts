@@ -357,6 +357,7 @@ export type BackgroundAgentJobTurnItem = {
             function: {
               arguments: string
               name: string
+              namespace?: string
               [key: string]: unknown
             }
             id: string
@@ -372,6 +373,7 @@ export type BackgroundAgentJobTurnItem = {
             [key: string]: unknown
           }
           name: string
+          namespace?: string
           role: 'tool'
           tool_call_id: string
           [key: string]: unknown
@@ -550,6 +552,7 @@ export type AiGatewayConversationItem = {
 export type BackgroundAgentJobTurnActiveItem = {
   id: string
   name: string
+  namespace?: string
 }
 
 /**
@@ -946,6 +949,7 @@ export type ConsoleTokenRequest = {
 export type BackgroundAgentJobTurnToolUsage = {
   calls: number
   name: string
+  namespace?: string
 }
 
 /**
@@ -1570,6 +1574,7 @@ export type BackgroundAgentJobTurnToolExecutionMechanism = {
   calls: number
   execution_mechanism: 'local_dynamic' | 'provider_hosted'
   name: string
+  namespace?: string
 }
 
 /**

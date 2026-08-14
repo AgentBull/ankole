@@ -5,7 +5,7 @@ use std::time::Instant;
 fn run_program(program: &str, tools: &[&str], memo: Vec<MemoEntry>) -> RunOutcome {
     run(RunRequest {
         program: program.to_string(),
-        tools: tools.iter().map(ToString::to_string).collect(),
+        tools: tools.iter().map(|name| tool(None, name, name)).collect(),
         memo,
         timeout_ms: Some(5_000),
         heap_limit_bytes: None,
@@ -16,6 +16,14 @@ fn run_program(program: &str, tools: &[&str], memo: Vec<MemoEntry>) -> RunOutcom
         max_memo_entries: None,
         max_memo_bytes: None,
     })
+}
+
+fn tool(namespace: Option<&str>, name: &str, global_name: &str) -> ToolDefinition {
+    ToolDefinition {
+        namespace: namespace.map(ToString::to_string),
+        name: name.to_string(),
+        global_name: global_name.to_string(),
+    }
 }
 
 #[test]
@@ -51,10 +59,91 @@ fn pauses_on_the_first_unanswered_tool_call() {
     assert_eq!(
         outcome.pending_calls,
         vec![PendingCall {
+            namespace: None,
             name: "market".to_string(),
             arguments: json!({"symbol": "600519"})
         }]
     );
+}
+
+#[test]
+fn keeps_namespace_identity_separate_from_the_javascript_global() {
+    let outcome = run(RunRequest {
+        program: "await tools.collaboration__spawn_agent({ task: \"audit\" });".to_string(),
+        tools: vec![tool(
+            Some("collaboration"),
+            "spawn_agent",
+            "collaboration__spawn_agent",
+        )],
+        memo: Vec::new(),
+        timeout_ms: Some(5_000),
+        heap_limit_bytes: None,
+        max_program_bytes: None,
+        max_output_bytes: None,
+        max_pending_calls: None,
+        max_pending_bytes: None,
+        max_memo_entries: None,
+        max_memo_bytes: None,
+    });
+
+    assert_eq!(outcome.status, "pending");
+    assert_eq!(
+        outcome.pending_calls,
+        vec![PendingCall {
+            namespace: Some("collaboration".to_string()),
+            name: "spawn_agent".to_string(),
+            arguments: json!({"task": "audit"}),
+        }]
+    );
+}
+
+#[test]
+fn validates_the_codex_default_namespace_and_normalized_global() {
+    let outcome = run(RunRequest {
+        program: "await tools.price_check({});".to_string(),
+        tools: vec![tool(Some("functions"), "price-check", "price_check")],
+        memo: Vec::new(),
+        timeout_ms: Some(5_000),
+        heap_limit_bytes: None,
+        max_program_bytes: None,
+        max_output_bytes: None,
+        max_pending_calls: None,
+        max_pending_bytes: None,
+        max_memo_entries: None,
+        max_memo_bytes: None,
+    });
+
+    assert_eq!(outcome.status, "pending");
+    assert_eq!(
+        outcome.pending_calls[0].namespace.as_deref(),
+        Some("functions")
+    );
+    assert_eq!(outcome.pending_calls[0].name, "price-check");
+
+    let legacy = run(RunRequest {
+        program: "await tools['functions__price-check']({});".to_string(),
+        tools: vec![tool(
+            Some("functions"),
+            "price-check",
+            "functions__price-check",
+        )],
+        memo: Vec::new(),
+        timeout_ms: Some(5_000),
+        heap_limit_bytes: None,
+        max_program_bytes: None,
+        max_output_bytes: None,
+        max_pending_calls: None,
+        max_pending_bytes: None,
+        max_memo_entries: None,
+        max_memo_bytes: None,
+    });
+
+    assert_eq!(legacy.status, "pending");
+    assert_eq!(
+        legacy.pending_calls[0].namespace.as_deref(),
+        Some("functions")
+    );
+    assert_eq!(legacy.pending_calls[0].name, "price-check");
 }
 
 #[test]
@@ -90,6 +179,7 @@ fn collects_a_parallel_batch_in_one_pause() {
 #[test]
 fn replays_memoized_calls_and_continues_to_the_next_pause() {
     let memo = vec![MemoEntry {
+        namespace: None,
         name: "market".to_string(),
         arguments: json!({"symbol": "600519"}),
         output: json!({"price": 1700}),
@@ -107,6 +197,7 @@ fn replays_memoized_calls_and_continues_to_the_next_pause() {
     assert_eq!(
         outcome.pending_calls,
         vec![PendingCall {
+            namespace: None,
             name: "news".to_string(),
             arguments: json!({"topic": 1700})
         }]
@@ -116,6 +207,7 @@ fn replays_memoized_calls_and_continues_to_the_next_pause() {
 #[test]
 fn completes_after_full_memo_replay() {
     let memo = vec![MemoEntry {
+        namespace: None,
         name: "market".to_string(),
         arguments: json!({"symbol": "600519"}),
         output: json!({"price": 1700}),
@@ -134,6 +226,7 @@ fn completes_after_full_memo_replay() {
 #[test]
 fn memo_output_cannot_impersonate_a_host_replay_error() {
     let memo = vec![MemoEntry {
+        namespace: None,
         name: "market".to_string(),
         arguments: json!({}),
         output: json!({
@@ -156,6 +249,7 @@ fn memo_output_cannot_impersonate_a_host_replay_error() {
 #[test]
 fn divergent_replay_fails_loudly() {
     let memo = vec![MemoEntry {
+        namespace: None,
         name: "market".to_string(),
         arguments: json!({"symbol": "600519"}),
         output: json!({"price": 1700}),
@@ -293,6 +387,7 @@ fn rejects_direct_op_calls_for_tools_outside_the_allowlist() {
 #[test]
 fn timeout_after_an_async_resume_never_reenters_user_javascript() {
     let memo = vec![MemoEntry {
+        namespace: None,
         name: "market".to_string(),
         arguments: json!({}),
         output: json!({"ok": true}),
@@ -300,7 +395,7 @@ fn timeout_after_an_async_resume_never_reenters_user_javascript() {
 
     let outcome = run(RunRequest {
         program: "await tools.market({}); for (;;) {}".to_string(),
-        tools: vec!["market".to_string()],
+        tools: vec![tool(None, "market", "market")],
         memo,
         timeout_ms: Some(250),
         heap_limit_bytes: None,
@@ -357,7 +452,7 @@ fn output_byte_overflow_fails_loudly() {
 fn pending_call_overflow_fails_loudly() {
     let outcome = run(RunRequest {
         program: "await Promise.all([tools.a({}), tools.b({})]);".to_string(),
-        tools: vec!["a".to_string(), "b".to_string()],
+        tools: vec![tool(None, "a", "a"), tool(None, "b", "b")],
         memo: Vec::new(),
         timeout_ms: Some(5_000),
         heap_limit_bytes: None,
@@ -402,6 +497,7 @@ fn source_byte_overflow_fails_before_creating_an_isolate() {
 #[test]
 fn unused_memo_entries_are_replay_divergence() {
     let memo = vec![MemoEntry {
+        namespace: None,
         name: "market".to_string(),
         arguments: json!({}),
         output: json!({"ok": true}),

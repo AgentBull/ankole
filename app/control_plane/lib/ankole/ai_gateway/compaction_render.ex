@@ -83,7 +83,7 @@ defmodule Ankole.AIGateway.CompactionRender do
     args = Map.get(item, "arguments") || Map.get(item, "input") || ""
     args = stringify(args) |> truncate_text(cap(caps, :function_call_arguments))
 
-    "function_call #{name || "(unknown)"} call_ref=#{call_ref} arguments=#{args}"
+    "function_call #{tool_path(item, name)} call_ref=#{call_ref} arguments=#{args}"
   end
 
   def item_text(%{"type" => "function_call_output"} = item, opts) do
@@ -103,7 +103,7 @@ defmodule Ankole.AIGateway.CompactionRender do
     input =
       Map.get(item, "input") |> stringify() |> truncate_text(cap(caps, :function_call_arguments))
 
-    "custom_tool_call #{name || "(unknown)"} call_ref=#{call_ref} input=#{input}"
+    "custom_tool_call #{tool_path(item, name)} call_ref=#{call_ref} input=#{input}"
   end
 
   def item_text(%{"type" => "custom_tool_call_output"} = item, opts) do
@@ -337,6 +337,15 @@ defmodule Ankole.AIGateway.CompactionRender do
   defp user_message_item?(_item), do: false
 
   defp cap(caps, key), do: Map.get(caps, key) || Map.get(caps, Atom.to_string(key))
+
+  defp tool_path(item, name) do
+    name = name || "(unknown)"
+
+    case Map.get(item, "namespace") do
+      namespace when is_binary(namespace) and namespace != "" -> "#{namespace}.#{name}"
+      _root -> name
+    end
+  end
 
   defp paired_item_text(item, opts, role) do
     caps = Keyword.get(opts, :caps, @item_caps_tokens)

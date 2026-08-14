@@ -415,7 +415,7 @@ impl ChatState {
             && !arguments.is_empty()
         {
             call.arguments.push_str(arguments);
-            if !chat_custom_tool(context, &call.name) {
+            if !chat_provider_custom_tool(context, &call.name) {
                 events.push(self.event(
                     "response.function_call_arguments.delta",
                     json!({
@@ -491,7 +491,7 @@ impl ChatState {
 
         if completed {
             for call in self.tool_calls.values().cloned().collect::<Vec<_>>() {
-                if chat_custom_tool(context, &call.name) {
+                if chat_provider_custom_tool(context, &call.name) {
                     events.push(self.event(
                         "response.custom_tool_call_input.done",
                         json!({
@@ -897,7 +897,7 @@ fn build_openai_chat_body(context: &ResponseContext) -> Result<Map<String, Value
         body.insert("max_tokens".to_string(), value);
     }
 
-    if let Some(tools) = chat_tools(request.get("tools")) {
+    if let Some(tools) = chat_tools(request.get("tools"))? {
         body.insert("tools".to_string(), tools);
     }
 
@@ -1215,7 +1215,7 @@ fn chat_function_call(
         .filter(|namespace| !namespace.is_empty())
     {
         Some(namespace) => flattened_namespace_tool_name(namespace, &name),
-        None => name,
+        None => flattened_namespace_tool_name("", &name),
     };
     let arguments = map
         .get("arguments")
@@ -1243,6 +1243,14 @@ fn chat_custom_tool_call(map: &Map<String, Value>) -> Result<Value, StreamError>
         .map(value_to_text)
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| "unknown".to_string());
+    let name = match map
+        .get("namespace")
+        .and_then(Value::as_str)
+        .filter(|namespace| !namespace.is_empty())
+    {
+        Some(namespace) => flattened_namespace_tool_name(namespace, &name),
+        None => flattened_namespace_tool_name("", &name),
+    };
     let input = map.get("input").map(value_to_text).unwrap_or_default();
     let arguments = serde_json::to_string(&json!({ "input": input })).map_err(|error| {
         StreamError::new("custom_tool_encode_failed", "request", error.to_string())
@@ -1456,8 +1464,10 @@ fn chat_image_url_part(image_url: Option<&Value>) -> Value {
     }
 }
 
-fn chat_tools(tools: Option<&Value>) -> Option<Value> {
-    let tools = tools?.as_array()?;
+fn chat_tools(tools: Option<&Value>) -> Result<Option<Value>, StreamError> {
+    let Some(tools) = tools.and_then(Value::as_array) else {
+        return Ok(None);
+    };
     let mapped: Vec<Value> = tools
         .iter()
         .flat_map(|tool| {
@@ -1485,7 +1495,30 @@ fn chat_tools(tools: Option<&Value>) -> Option<Value> {
         })
         .collect();
 
-    (!mapped.is_empty()).then_some(Value::Array(mapped))
+    reject_duplicate_emulated_tool_names(mapped.iter().filter_map(|tool| {
+        tool.get("function")
+            .and_then(|function| function.get("name"))
+            .or_else(|| tool.get("name"))
+            .and_then(Value::as_str)
+    }))?;
+
+    Ok((!mapped.is_empty()).then_some(Value::Array(mapped)))
+}
+
+pub(super) fn reject_duplicate_emulated_tool_names<'a>(
+    names: impl IntoIterator<Item = &'a str>,
+) -> Result<(), StreamError> {
+    let mut seen = BTreeSet::new();
+    for name in names {
+        if !seen.insert(name) {
+            return Err(StreamError::new(
+                "tool_namespace_alias_collision",
+                "request",
+                format!("single-name provider cannot distinguish tool identity {name}"),
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn chat_custom_function_tool(tool: &Map<String, Value>) -> Value {
@@ -1496,8 +1529,14 @@ fn chat_custom_function_tool(tool: &Map<String, Value>) -> Value {
         .map(|definition| format!("Raw tool input. It must match this grammar:\n{definition}"))
         .unwrap_or_else(|| "Raw tool input.".to_string());
 
+    let name = tool
+        .get("name")
+        .and_then(Value::as_str)
+        .map(|name| flattened_namespace_tool_name("", name))
+        .unwrap_or_else(|| "unknown".to_string());
+
     json!({
-        "name": tool.get("name").cloned().unwrap_or_else(|| json!("unknown")),
+        "name": name,
         "description": tool.get("description").cloned().unwrap_or(Value::Null),
         "parameters": {
             "type": "object",
@@ -1527,16 +1566,19 @@ fn chat_namespace_tools(namespace: &Map<String, Value>) -> Vec<Value> {
         .flatten()
         .filter_map(|tool| {
             let tool = tool.as_object()?;
-            if tool.get("type").and_then(Value::as_str) != Some("function") {
-                return None;
-            }
-
-            let function = tool
-                .get("function")
-                .and_then(Value::as_object)
-                .unwrap_or(tool);
-            let child_name = function.get("name").and_then(Value::as_str)?;
-            let mut function = chat_function_tool(function, tool);
+            let tool_type = tool.get("type").and_then(Value::as_str);
+            let (source, mut function) = match tool_type {
+                Some("function") => {
+                    let source = tool
+                        .get("function")
+                        .and_then(Value::as_object)
+                        .unwrap_or(tool);
+                    (source, chat_function_tool(source, tool))
+                }
+                Some("custom") => (tool, chat_custom_function_tool(tool)),
+                _other => return None,
+            };
+            let child_name = source.get("name").and_then(Value::as_str)?;
             function["name"] = json!(flattened_namespace_tool_name(namespace_name, child_name));
 
             Some(json!({
@@ -1558,7 +1600,8 @@ fn restore_custom_tool(context: &ResponseContext, item: &mut Value) {
     let Some(name) = item.get("name").and_then(Value::as_str) else {
         return;
     };
-    if !chat_custom_tool(context, name) {
+    let namespace = item.get("namespace").and_then(Value::as_str);
+    if !chat_custom_tool(context, namespace, name) {
         return;
     }
 
@@ -1587,7 +1630,7 @@ fn custom_tool_input(arguments: &str) -> String {
         .unwrap_or_else(|| arguments.to_string())
 }
 
-fn chat_custom_tool(context: &ResponseContext, name: &str) -> bool {
+fn chat_custom_tool(context: &ResponseContext, namespace: Option<&str>, name: &str) -> bool {
     context
         .request
         .get("tools")
@@ -1595,26 +1638,49 @@ fn chat_custom_tool(context: &ResponseContext, name: &str) -> bool {
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
-        .any(|tool| {
-            tool.get("type").and_then(Value::as_str) == Some("custom")
-                && tool.get("name").and_then(Value::as_str) == Some(name)
+        .any(|tool| match tool.get("type").and_then(Value::as_str) {
+            Some("custom") => {
+                namespace.is_none() && tool.get("name").and_then(Value::as_str) == Some(name)
+            }
+            Some("namespace") => {
+                tool.get("name").and_then(Value::as_str) == namespace
+                    && tool
+                        .get("tools")
+                        .and_then(Value::as_array)
+                        .into_iter()
+                        .flatten()
+                        .any(|child| {
+                            child.get("type").and_then(Value::as_str) == Some("custom")
+                                && child.get("name").and_then(Value::as_str) == Some(name)
+                        })
+            }
+            _other => false,
         })
 }
 
-fn restore_tool_namespace(context: &ResponseContext, item: &mut Value) {
+fn chat_provider_custom_tool(context: &ResponseContext, flattened_name: &str) -> bool {
+    chat_tool_for_flattened_name(context, flattened_name).is_some_and(|(_namespace, tool)| {
+        tool.get("type").and_then(Value::as_str) == Some("custom")
+    })
+}
+
+pub(super) fn restore_tool_namespace(context: &ResponseContext, item: &mut Value) {
     let Some(flattened_name) = item.get("name").and_then(Value::as_str) else {
         return;
     };
-    let Some((Some(namespace), function)) = chat_tool_for_flattened_name(context, flattened_name)
-    else {
+    let Some((namespace, function)) = chat_tool_for_flattened_name(context, flattened_name) else {
         return;
     };
     let Some(name) = function.get("name").and_then(Value::as_str) else {
         return;
     };
 
-    item["namespace"] = json!(namespace);
     item["name"] = json!(name);
+    if let Some(namespace) = namespace {
+        item["namespace"] = json!(namespace);
+    } else if let Some(item) = item.as_object_mut() {
+        item.remove("namespace");
+    }
 }
 
 fn chat_tool_for_flattened_name<'a>(
@@ -1641,7 +1707,10 @@ fn chat_tool_for_flattened_name<'a>(
                     let Some(child) = child.as_object() else {
                         continue;
                     };
-                    if child.get("type").and_then(Value::as_str) != Some("function") {
+                    if !matches!(
+                        child.get("type").and_then(Value::as_str),
+                        Some("function" | "custom")
+                    ) {
                         continue;
                     }
                     let function = child
@@ -1656,12 +1725,14 @@ fn chat_tool_for_flattened_name<'a>(
                     }
                 }
             }
-            Some("function") => {
+            Some("function" | "custom") => {
                 let function = tool
                     .get("function")
                     .and_then(Value::as_object)
                     .unwrap_or(tool);
-                if function.get("name").and_then(Value::as_str) == Some(flattened_name) {
+                if let Some(name) = function.get("name").and_then(Value::as_str)
+                    && flattened_namespace_tool_name("", name) == flattened_name
+                {
                     return Some((None, function));
                 }
             }
@@ -1674,19 +1745,14 @@ fn chat_tool_for_flattened_name<'a>(
     None
 }
 
-fn flattened_namespace_tool_name(namespace: &str, name: &str) -> String {
-    if namespace.is_empty() {
-        name.to_string()
-    } else if namespace.ends_with("__") {
-        format!("{namespace}{name}")
-    } else {
-        format!("{namespace}__{name}")
-    }
-}
-
 fn chat_function_tool(function: &Map<String, Value>, tool: &Map<String, Value>) -> Value {
     let mut mapped = Map::new();
-    maybe_put_from(&mut mapped, function, "name");
+    if let Some(name) = function.get("name").and_then(Value::as_str) {
+        mapped.insert(
+            "name".to_string(),
+            json!(flattened_namespace_tool_name("", name)),
+        );
+    }
     maybe_put_from(&mut mapped, function, "description");
     if let Some(parameters) = function
         .get("parameters")
@@ -1725,9 +1791,15 @@ fn chat_tool_choice(choice: Option<&Value>) -> Option<Value> {
         return Some(value.clone());
     }
 
-    if map.get("type").and_then(Value::as_str) == Some("function")
-        && let Some(name) = map.get("name").and_then(Value::as_str)
+    if matches!(
+        map.get("type").and_then(Value::as_str),
+        Some("function" | "custom")
+    ) && let Some(name) = map.get("name").and_then(Value::as_str)
     {
+        let name = match map.get("namespace").and_then(Value::as_str) {
+            Some(namespace) => flattened_namespace_tool_name(namespace, name),
+            None => flattened_namespace_tool_name("", name),
+        };
         return Some(json!({ "type": "function", "function": { "name": name } }));
     }
 

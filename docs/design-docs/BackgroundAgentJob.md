@@ -42,9 +42,10 @@ the stored Turn kind. The error projection keeps only `code`, `summary`,
 failure diagnostics with `[internal-id]`. It does not rewrite successful results
 or assistant content.
 Aggregate progress keeps `tool_execution_mechanisms` for calls whose execution
-boundary is meaningful. Each entry contains the tool name, `provider_hosted` or
-`local_dynamic`, and the call count. This compact fact survives trajectory
-pagination, so the parent Agent does not infer the mechanism from tool prose.
+boundary is meaningful. Each entry contains an optional `namespace`, the tool
+`name`, `provider_hosted` or `local_dynamic`, and the call count. This compact
+fact survives trajectory pagination, so the parent Agent does not infer the
+mechanism from tool prose.
 `recent_trajectory` is an `ankole_chatml` trajectory built from the latest three
 stored semantic trajectory groups on the Job root thread. It does not filter
 these groups by the stored Turn kind. It removes stored message IDs, maps
@@ -265,16 +266,17 @@ no items.
 A stored tool-result message keeps the stable execution mechanism in metadata.
 `provider_hosted` means that the model Provider executed the tool.
 `local_dynamic` means that Codex invoked a dynamic tool implemented by Ankole.
-This fact distinguishes tools that have the same display name without changing
-that name or storing the raw app-server frame.
+The call and result keep `namespace` separate from the leaf `name`. This fact
+distinguishes tools that have the same leaf name without changing their
+identity or storing the raw app-server frame.
 
 New Codex root threads request experimental raw response-item notifications. The
 trajectory recorder selects only collaboration `function_call` and
 `function_call_output` items from those notifications. It stores one semantic
 tool call and result pair in the caller Turn; it does not store the raw frame.
-The pair keeps the exact V2 tool name, arguments, and output for `spawn_agent`,
-`send_message`, `followup_task`, `interrupt_agent`, `list_agents`, and
-`wait_agent`.
+The pair keeps `namespace: collaboration`, the exact V2 leaf name, arguments,
+and output for `spawn_agent`, `send_message`, `followup_task`,
+`interrupt_agent`, `list_agents`, and `wait_agent`.
 
 The parent-scoped `subAgentActivity` item has the same call ID as the raw
 collaboration call. The recorder adds its stable child thread ID and Agent path
@@ -448,7 +450,8 @@ but MCP-backed Skills do not enter that tool registry. A Job follows the Skill
 and runs mcporter through its terminal. Code mode remains the Codex client-side
 programmatic calling path for eligible local tools. It is not the Responses API
 `programmatic_tool_calling` wire type, which the pinned Codex runtime does not
-consume.
+consume. The JavaScript global can combine the namespace and leaf name, but the
+runtime keeps the structured identity beside that local binding.
 Projected `web_search` and `web_fetch` calls send their semantic selectors
 directly to AIGateway. A Job does not query or cache a separate web-tool catalog.
 
@@ -685,6 +688,9 @@ a lost state file reaches this ladder instead of failing the Job:
 1. Replay. The Worker pages the stored lead-thread turn items of the Job's
    workspace lineage over `background_agent_job.turn_items.list`, converts
    them back to wire response items, and injects them into a fresh thread.
+   Each replayed `function_call` restores its stored `namespace` and `name` as
+   separate fields. An app-server restart during a deployment cannot turn a
+   namespaced tool into a root tool.
    Codex re-compacts when the replayed history exceeds the model window. The
    Job metadata records `runtime_checkpoint_recovery: replayed_from_transcript`.
 2. Workspace rebuild. When the store has no items or the inject fails, the

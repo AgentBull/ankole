@@ -52,8 +52,11 @@ defmodule Ankole.AIGateway.ProgramCallsTest do
     {StreamLoop.new(%{plan: plan, provider_request: provider_request}), provider_request, plan}
   end
 
-  defp binding_names(%{ptc: %{program: %{bindings: bindings}}}),
-    do: Enum.map(bindings, & &1.provider_name)
+  defp binding_identities(%{ptc: %{program: %{bindings: bindings}}}) do
+    Enum.map(bindings, fn %Descriptor{namespace: namespace, name: name} ->
+      {namespace, name}
+    end)
+  end
 
   defp program_call(call_id, code, extra \\ %{}) do
     Map.merge(
@@ -111,6 +114,10 @@ defmodule Ankole.AIGateway.ProgramCallsTest do
 
   defp result(call_id, outcome), do: %{call_id: call_id, outcome: outcome}
 
+  defp runtime_binding(namespace, name, global_name) do
+    %{"namespace" => namespace, "name" => name, "global_name" => global_name}
+  end
+
   defp with_limits(loop, overrides),
     do: %{loop | limits: Map.merge(loop.limits, Map.new(overrides))}
 
@@ -130,7 +137,7 @@ defmodule Ankole.AIGateway.ProgramCallsTest do
   end
 
   defp rewrite_fingerprint_payload(fingerprint, rewrite) do
-    prefix = "ankole_ptc_v1."
+    prefix = "ankole_ptc_v2."
     encoded = String.replace_prefix(fingerprint, prefix, "")
     payload = encoded |> Base.url_decode64!(padding: false) |> Ankole.JSON.decode!()
     prefix <> Base.url_encode64(Ankole.JSON.encode!(rewrite.(payload)), padding: false)
@@ -182,7 +189,7 @@ defmodule Ankole.AIGateway.ProgramCallsTest do
     test "a pure JavaScript declaration synthesizes program with zero bindings" do
       {provider_request, plan} = plan!(request([]))
 
-      assert binding_names(plan) == []
+      assert binding_identities(plan) == []
       assert Enum.map(provider_request["tools"], & &1["name"]) == ["program"]
 
       [program] = provider_request["tools"]
@@ -191,7 +198,7 @@ defmodule Ankole.AIGateway.ProgramCallsTest do
       assert program["description"] =~ ~s|tools["<name>"](args)|
 
       assert {:ok, job} = PTC.job(plan.ptc, program_call("prog_js", "text(42)"))
-      assert job.binding_names == []
+      assert job.runtime_bindings == []
       assert job.bindings == []
       assert is_binary(job.fingerprint)
     end
@@ -217,7 +224,8 @@ defmodule Ankole.AIGateway.ProgramCallsTest do
 
       assert [
                %Descriptor{
-                 provider_name: "market",
+                 namespace: nil,
+                 name: "market",
                  type: "function",
                  allowed_callers: ["direct", "programmatic"],
                  output_schema: ^output_schema,
@@ -232,6 +240,7 @@ defmodule Ankole.AIGateway.ProgramCallsTest do
              ]
 
       refute Enum.any?(provider_request["tools"], &Map.has_key?(&1, "allowed_callers"))
+
       [program] = Enum.filter(provider_request["tools"], &(&1["name"] == "program"))
       assert program["description"] =~ ~s|matching direct tool declarations: ["market"]|
       refute program["description"] =~ "output_schema"
@@ -278,11 +287,45 @@ defmodule Ankole.AIGateway.ProgramCallsTest do
         })
 
       assert provider_request["tools"] == nil
-      assert binding_names(plan) == ["market"]
+      assert binding_identities(plan) == [{nil, "market"}]
 
       assert Enum.map(hd(provider_request["input"])["tools"], & &1["name"]) == [
                "market",
                "program"
+             ]
+    end
+
+    test "runtime globals match Codex default namespace and identifier normalization" do
+      tools = [
+        function_tool("1-root", ["programmatic"]),
+        %{
+          "type" => "namespace",
+          "name" => "functions",
+          "description" => "Default function tools",
+          "tools" => [function_tool("price-check", ["programmatic"])]
+        },
+        %{
+          "type" => "namespace",
+          "name" => "team-zone",
+          "description" => "Team tools",
+          "tools" => [function_tool("1-send-note", ["programmatic"])]
+        }
+      ]
+
+      {_provider_request, plan} = plan!(request(tools))
+      call = program_call("codex_globals", "text('ok')")
+
+      description = PTC.provider_tool(plan.ptc)["description"]
+      assert description =~ ~s|"global_name":"__root"|
+      assert description =~ ~s|"global_name":"price_check"|
+      assert description =~ ~s|"global_name":"team_zone__1_send_note"|
+
+      assert {:ok, job} = PTC.job(plan.ptc, call)
+
+      assert job.runtime_bindings == [
+               runtime_binding(nil, "1-root", "__root"),
+               runtime_binding("functions", "price-check", "price_check"),
+               runtime_binding("team-zone", "1-send-note", "team_zone__1_send_note")
              ]
     end
 
@@ -299,7 +342,7 @@ defmodule Ankole.AIGateway.ProgramCallsTest do
       {provider_request, plan} =
         plan!(request([namespace, %{"type" => "tool_search", "execution" => "server"}]))
 
-      assert binding_names(plan) == []
+      assert binding_identities(plan) == []
       assert Enum.map(provider_request["tools"], & &1["name"]) == ["tool_search", "program"]
 
       assert {:ok, [loaded]} = ToolSearch.search_paths(plan, ["mcp__finance"])
@@ -307,10 +350,10 @@ defmodule Ankole.AIGateway.ProgramCallsTest do
       assert {:ok, loaded_plan, provider_tools} =
                ToolSearch.load_tools(plan, provider_request["tools"], [loaded])
 
-      assert binding_names(loaded_plan) == ["mcp__finance__market"]
+      assert binding_identities(loaded_plan) == [{"mcp__finance", "market"}]
 
       assert Enum.sort(Enum.map(provider_tools, & &1["name"])) == [
-               "mcp__finance__market",
+               "mcp__finance",
                "program",
                "tool_search"
              ]
@@ -319,7 +362,7 @@ defmodule Ankole.AIGateway.ProgramCallsTest do
                PTC.nested_call(
                  "prog_1",
                  0,
-                 %{name: "mcp__finance__market", arguments: %{}},
+                 %{namespace: "mcp__finance", name: "market", arguments: %{}},
                  loaded_plan.ptc.program.bindings
                )
 
@@ -338,6 +381,41 @@ defmodule Ankole.AIGateway.ProgramCallsTest do
       assert plan.ptc.program == nil
       assert Enum.map(provider_request["tools"], & &1["name"]) == ["market"]
       refute Map.has_key?(hd(provider_request["tools"]), "allowed_callers")
+    end
+
+    test "provider built-ins stay native-only" do
+      unsupported = [
+        %{
+          "type" => "apply_patch",
+          "allowed_callers" => ["programmatic"]
+        },
+        %{
+          "type" => "shell",
+          "environment" => %{"type" => "local"},
+          "allowed_callers" => ["programmatic"]
+        },
+        %{
+          "type" => "mcp",
+          "server_label" => "inventory",
+          "server_url" => "https://mcp.example.test",
+          "allowed_callers" => ["programmatic"]
+        },
+        %{
+          "type" => "shell",
+          "environment" => %{"type" => "container_auto"},
+          "allowed_callers" => ["programmatic"]
+        },
+        %{
+          "type" => "code_interpreter",
+          "container" => %{"type" => "auto"},
+          "allowed_callers" => ["programmatic"]
+        }
+      ]
+
+      for tool <- unsupported do
+        type = tool["type"]
+        assert {:error, {:unsupported_tool_type, ^type}} = ToolSearch.plan(request([tool]))
+      end
     end
   end
 
@@ -436,7 +514,12 @@ defmodule Ankole.AIGateway.ProgramCallsTest do
 
       assert {:ok, jobs, context, loop} = StreamLoop.take_initial_local_effect(loop)
       assert Enum.map(jobs, & &1.call_id) == ["prog_a", "prog_b"]
-      assert Enum.map(jobs, & &1.binding_names) == [["market"], ["market"]]
+
+      assert Enum.map(jobs, & &1.runtime_bindings) == [
+               [runtime_binding(nil, "market", "market")],
+               [runtime_binding(nil, "market", "market")]
+             ]
+
       assert Enum.map(jobs, &hd(&1.memo)["output"]) == ["raw-a", "raw-b"]
       refute StreamLoop.initial_local_effect?(loop)
 
@@ -553,6 +636,7 @@ defmodule Ankole.AIGateway.ProgramCallsTest do
       assert [round] = replay_plan.ptc.resumes
 
       assert hd(round.memo) == %{
+               "namespace" => nil,
                "name" => "shell",
                "arguments" => "pwd",
                "output" => %{"stdout" => "/tmp"}
@@ -575,13 +659,13 @@ defmodule Ankole.AIGateway.ProgramCallsTest do
                )
 
       assert job.code == "text(42)"
-      assert job.binding_names == ["market"]
+      assert job.runtime_bindings == [runtime_binding(nil, "market", "market")]
       assert job.memo == []
 
       outcomes =
-        ProgramExecution.run_jobs([job], fn code, binding_names, memo ->
+        ProgramExecution.run_jobs([job], fn code, runtime_bindings, memo ->
           assert code == "text(42)"
-          assert binding_names == ["market"]
+          assert runtime_bindings == [runtime_binding(nil, "market", "market")]
           assert memo == []
           {:ok, completed_outcome("42")}
         end)
@@ -642,7 +726,7 @@ defmodule Ankole.AIGateway.ProgramCallsTest do
       ]
 
       {loop, _provider_request, initial_plan} = loop!(request(tools))
-      assert binding_names(initial_plan) == ["market"]
+      assert binding_identities(initial_plan) == [{nil, "market"}]
 
       output = [
         search_call("search_1", "late_tool"),
@@ -656,9 +740,9 @@ defmodule Ankole.AIGateway.ProgramCallsTest do
                  terminal_response(output)
                )
 
-      assert job.binding_names == ["market"]
+      assert job.runtime_bindings == [runtime_binding(nil, "market", "market")]
       assert job.fingerprint == PTC.fingerprint(job.code, job.bindings)
-      assert binding_names(loop.plan) == ["market", "late_tool"]
+      assert binding_identities(loop.plan) == [{nil, "market"}, {nil, "late_tool"}]
 
       outcomes = [
         result(
@@ -693,7 +777,7 @@ defmodule Ankole.AIGateway.ProgramCallsTest do
       {loop, _provider_request, initial_plan} = loop!(request(tools))
       code = "const quote = await tools.market({}); text(quote);"
 
-      assert binding_names(initial_plan) == ["market"]
+      assert binding_identities(initial_plan) == [{nil, "market"}]
 
       assert {:local, [job], context, widened_loop} =
                StreamLoop.intercept_terminal(
@@ -705,8 +789,8 @@ defmodule Ankole.AIGateway.ProgramCallsTest do
                  ])
                )
 
-      assert job.binding_names == ["market"]
-      assert binding_names(widened_loop.plan) == ["market", "late_tool"]
+      assert job.runtime_bindings == [runtime_binding(nil, "market", "market")]
+      assert binding_identities(widened_loop.plan) == [{nil, "market"}, {nil, "late_tool"}]
 
       outcomes = [
         result(
@@ -734,15 +818,15 @@ defmodule Ankole.AIGateway.ProgramCallsTest do
       history = [search, program, search_output, nested, nested_output]
       {resume_loop, _provider_request, resume_plan} = loop!(request(tools, history))
 
-      assert binding_names(resume_plan) == ["market", "late_tool"]
+      assert binding_identities(resume_plan) == [{nil, "market"}, {nil, "late_tool"}]
       assert [round] = resume_plan.ptc.resumes
-      assert Enum.map(round.bindings, & &1.provider_name) == ["market"]
+      assert Enum.map(round.bindings, &{&1.namespace, &1.name}) == [{nil, "market"}]
       assert hd(round.memo)["output"] == "raw-market-result"
 
       assert {:ok, [resume_job], _context, _loop} =
                StreamLoop.take_initial_local_effect(resume_loop)
 
-      assert resume_job.binding_names == ["market"]
+      assert resume_job.runtime_bindings == [runtime_binding(nil, "market", "market")]
       assert resume_job.fingerprint == program["fingerprint"]
       refute Map.has_key?(resume_job, :preflight_outcome)
     end
@@ -773,11 +857,27 @@ defmodule Ankole.AIGateway.ProgramCallsTest do
       }
 
       assert {:ok, restored} = PTC.resume_job(reordered_ptc, resume)
-      assert restored.binding_names == ["market", "weather"]
+
+      assert restored.runtime_bindings == [
+               runtime_binding(nil, "market", "market"),
+               runtime_binding(nil, "weather", "weather")
+             ]
 
       duplicate =
         rewrite_fingerprint_payload(fingerprint, fn payload ->
-          Map.put(payload, "bindings", ["market", "market"])
+          [binding | _] = payload["bindings"]
+          Map.put(payload, "bindings", [binding, binding])
+        end)
+
+      wrong_global_name =
+        rewrite_fingerprint_payload(fingerprint, fn payload ->
+          [binding | rest] = payload["bindings"]
+          Map.put(payload, "bindings", [Map.put(binding, "global_name", "wrong") | rest])
+        end)
+
+      non_object_binding =
+        rewrite_fingerprint_payload(fingerprint, fn payload ->
+          Map.put(payload, "bindings", ["not-a-binding"])
         end)
 
       missing_ptc = %{plan.ptc | program: %{plan.ptc.program | bindings: []}}
@@ -791,11 +891,16 @@ defmodule Ankole.AIGateway.ProgramCallsTest do
           }
       }
 
+      unsupported_v1 =
+        String.replace_prefix(fingerprint, "ankole_ptc_v2.", "ankole_ptc_v1.")
+
       invalid_cases = [
         {plan.ptc, %{resume | fingerprint: "0123456789abcdef0123456789abcdef"}},
-        {plan.ptc, %{resume | fingerprint: "ankole_ptc_v1.not-base64!"}},
+        {plan.ptc, %{resume | fingerprint: unsupported_v1}},
         {plan.ptc, %{resume | fingerprint: String.duplicate("x", 16_385)}},
         {plan.ptc, %{resume | fingerprint: duplicate}},
+        {plan.ptc, %{resume | fingerprint: wrong_global_name}},
+        {plan.ptc, %{resume | fingerprint: non_object_binding}},
         {missing_ptc, resume},
         {non_programmatic_ptc, resume}
       ]
@@ -1067,7 +1172,7 @@ defmodule Ankole.AIGateway.ProgramCallsTest do
                )
 
       assert public["type"] == "tool_search_call"
-      assert limited.plan.loaded_names == MapSet.new()
+      assert limited.plan.loaded_identities == MapSet.new()
 
       assert StreamLoop.incomplete_reason(limited) ==
                "provider_history_item_limit_exceeded"
@@ -1101,7 +1206,7 @@ defmodule Ankole.AIGateway.ProgramCallsTest do
 
       assert Enum.map(public, & &1["type"]) == ["tool_search_call", "tool_search_call"]
       assert Enum.all?(public, &is_nil(&1["call_id"]))
-      assert failed.plan.loaded_names == MapSet.new()
+      assert failed.plan.loaded_identities == MapSet.new()
       assert StreamLoop.incomplete_reason(failed) == "unknown_tool_search_path"
     end
 
@@ -1126,7 +1231,7 @@ defmodule Ankole.AIGateway.ProgramCallsTest do
                )
 
       assert public["arguments"] == %{"query" => "late_tool"}
-      assert failed.plan.loaded_names == MapSet.new()
+      assert failed.plan.loaded_identities == MapSet.new()
       assert StreamLoop.incomplete_reason(failed) == "invalid_tool_search_arguments"
     end
 
@@ -1221,7 +1326,7 @@ defmodule Ankole.AIGateway.ProgramCallsTest do
                "program"
              ]
 
-      assert limited.plan.loaded_names == MapSet.new()
+      assert limited.plan.loaded_identities == MapSet.new()
       assert StreamLoop.incomplete_reason(limited) == "program_batch_limit_exceeded"
     end
 

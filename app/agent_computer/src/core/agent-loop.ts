@@ -33,6 +33,7 @@ import {
   type ToolResultMessage,
   type UserMessage,
   type ImageContent,
+  type ModelCallResult,
   type ModelTurn,
   type ToolCall
 } from './llm'
@@ -162,7 +163,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
               text: config.text
             })
             config.onActivity?.('model_call_done')
-            const terminalError = terminalModelError(result.message)
+            const terminalError = terminalModelError(result)
             if (terminalError) throw terminalError
             config.logger?.info('worker.model_call_completed', 'worker model call completed', {
               ...requestFields,
@@ -343,32 +344,22 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
  */
 function agentToolMap(tools: AgentTool[]): Map<string, AgentTool> {
   const byName = new Map<string, AgentTool>()
-  const providerAliases = new Set<string>()
 
   for (const tool of tools) {
     const identity = toolIdentity(tool.namespace, tool.name)
     if (byName.has(identity)) {
-      throw new Error(`duplicate tool name: ${identity}`)
-    }
-
-    const providerAlias = toolProviderAlias(tool.namespace, tool.name)
-    if (providerAliases.has(providerAlias)) {
-      throw new Error(`duplicate provider tool name: ${providerAlias}`)
+      throw new Error(`duplicate tool name: ${toolDisplayName(tool.namespace, tool.name)}`)
     }
 
     byName.set(identity, tool)
-    providerAliases.add(providerAlias)
   }
 
   return byName
 }
 
 function toolIdentity(namespace: string | undefined, name: string): string {
-  return namespace ? `${namespace}\0${name}` : name
-}
-
-function toolProviderAlias(namespace: string | undefined, name: string): string {
-  return namespace ? `${namespace}__${name}` : name
+  const canonicalNamespace = !namespace || namespace === 'functions' ? 'functions' : namespace
+  return `${canonicalNamespace}\0${name}`
 }
 
 function programmaticCallers(tool: AgentTool): Array<'direct' | 'programmatic'> {
@@ -395,10 +386,12 @@ export function shouldNudgeEmptyAfterTools(
  * classifier, not this projection layer, decides whether the same request is
  * safe to issue again.
  */
-function terminalModelError(message: AssistantMessage): Error | undefined {
+function terminalModelError(result: ModelCallResult): Error | undefined {
+  const { message } = result
   if (message.stopReason !== 'error' && message.stopReason !== 'aborted') return undefined
   const error = new Error(message.errorMessage || 'LLM provider returned an error')
   error.name = 'LLMProviderTerminalError'
+  if (result.errorRetryable !== undefined) Object.assign(error, { retryable: result.errorRetryable })
   return error
 }
 
@@ -558,17 +551,19 @@ async function executeToolCall(
   emitPresentationEvent: PresentationEmitter
 ): Promise<ExecutedToolCall> {
   const tool = toolByName?.get(toolIdentity(toolCall.namespace, toolCall.name))
+  const displayName = toolDisplayName(toolCall.namespace, toolCall.name)
 
   if (!tool) {
-    const message = `Unknown tool: ${toolCall.name}`
+    const message = `Unknown tool: ${displayName}`
     config.logger?.warning('worker.tool_call_rejected', 'worker tool call rejected', {
       actor_event_id: config.stateful.actorEventID,
       tool_name: toolCall.name,
+      ...(toolCall.namespace ? { tool_namespace: toolCall.namespace } : {}),
       tool_call_id: toolCall.id,
       failure_code: 'unknown_tool'
     })
     return {
-      toolName: toolCall.name,
+      toolName: displayName,
       resultMsg: {
         role: 'tool',
         toolCallID: toolCall.id,
@@ -581,23 +576,24 @@ async function executeToolCall(
       terminate: false,
       failure: {
         key: toolCallFailureKey(toolCall, 'unknown_tool', toolCall.arguments),
-        toolName: toolCall.name
+        toolName: displayName
       }
     }
   }
 
   const caller = toolCall.caller?.type === 'program' ? 'programmatic' : 'direct'
   if (!programmaticCallers(tool).includes(caller)) {
-    const message = `Caller ${caller} is not allowed for tool ${toolCall.name}`
+    const message = `Caller ${caller} is not allowed for tool ${displayName}`
     config.logger?.warning('worker.tool_call_rejected', 'worker tool call rejected', {
       actor_event_id: config.stateful.actorEventID,
       tool_name: toolCall.name,
+      ...(toolCall.namespace ? { tool_namespace: toolCall.namespace } : {}),
       tool_call_id: toolCall.id,
       failure_code: 'caller_not_allowed',
       caller
     })
     return {
-      toolName: toolCall.name,
+      toolName: displayName,
       resultMsg: {
         role: 'tool',
         toolCallID: toolCall.id,
@@ -610,7 +606,7 @@ async function executeToolCall(
       terminate: false,
       failure: {
         key: toolCallFailureKey(toolCall, 'caller_not_allowed', caller),
-        toolName: toolCall.name
+        toolName: displayName
       }
     }
   }
@@ -618,7 +614,7 @@ async function executeToolCall(
   let parsedArgs: unknown
   try {
     if ((toolCall.type === 'custom') !== Boolean(tool.inputFormat)) {
-      throw new Error(`tool input type does not match ${toolCall.name}`)
+      throw new Error(`tool input type does not match ${displayName}`)
     }
 
     if (toolCall.type === 'custom') {
@@ -632,15 +628,16 @@ async function executeToolCall(
       if (validated.repair !== 'none') config.onActivity?.(`tool_arguments_repaired:${validated.repair}`)
     }
   } catch (error) {
-    const message = `Invalid arguments for tool ${toolCall.name}: ${errorMessage(error)}`
+    const message = `Invalid arguments for tool ${displayName}: ${errorMessage(error)}`
     config.logger?.warning('worker.tool_call_rejected', 'worker tool call rejected', {
       actor_event_id: config.stateful.actorEventID,
       tool_name: toolCall.name,
+      ...(toolCall.namespace ? { tool_namespace: toolCall.namespace } : {}),
       tool_call_id: toolCall.id,
       failure_code: 'invalid_arguments'
     })
     return {
-      toolName: toolCall.name,
+      toolName: displayName,
       resultMsg: {
         role: 'tool',
         toolCallID: toolCall.id,
@@ -653,7 +650,7 @@ async function executeToolCall(
       terminate: false,
       failure: {
         key: toolCallFailureKey(toolCall, 'invalid_arguments', toolCall.arguments),
-        toolName: toolCall.name
+        toolName: displayName
       }
     }
   }
@@ -671,8 +668,9 @@ async function executeToolCall(
   let followUpMessages: UserMessage[] = []
   let failure: ExecutedToolCall['failure']
   const toolStartedAt = Date.now()
-  const toolSpan = startWorkerSpan(config.turnTrace, `tool ${toolCall.name}`, {
+  const toolSpan = startWorkerSpan(config.turnTrace, `tool ${displayName}`, {
     'gen_ai.tool.name': toolCall.name,
+    ...(toolCall.namespace ? { 'gen_ai.tool.namespace': toolCall.namespace } : {}),
     'gen_ai.tool.call.id': toolCall.id
   })
   let toolSpanError: string | undefined
@@ -680,6 +678,7 @@ async function executeToolCall(
   config.logger?.info('worker.tool_call_started', 'worker tool call started', {
     actor_event_id: config.stateful.actorEventID,
     tool_name: toolCall.name,
+    ...(toolCall.namespace ? { tool_namespace: toolCall.namespace } : {}),
     tool_call_id: toolCall.id,
     execution_mode: tool.executionMode,
     read_only: tool.isReadOnly === true,
@@ -687,7 +686,7 @@ async function executeToolCall(
   })
 
   try {
-    config.onActivity?.(`tool:${toolCall.name}:start`)
+    config.onActivity?.(`tool:${displayName}:start`)
     config.abortSignal?.throwIfAborted()
     toolResult = await tool.execute(toolCall.id, parsedArgs as never, config.abortSignal)
     const processed = await processToolResultForModel(toolResult, config)
@@ -711,16 +710,17 @@ async function executeToolCall(
     resultText = formatToolError(message)
     failure = {
       key: toolCallFailureKey(toolCall, 'runtime_error', parsedArgs),
-      toolName: toolCall.name
+      toolName: displayName
     }
   } finally {
     finishWorkerSpan(toolSpan, { errorType: toolSpanError })
-    config.onActivity?.(`tool:${toolCall.name}:done`)
+    config.onActivity?.(`tool:${displayName}:done`)
   }
 
   const toolLogFields: JSONObject = {
     actor_event_id: config.stateful.actorEventID,
     tool_name: toolCall.name,
+    ...(toolCall.namespace ? { tool_namespace: toolCall.namespace } : {}),
     tool_call_id: toolCall.id,
     duration_ms: Date.now() - toolStartedAt,
     output_chars: resultText.length,
@@ -746,7 +746,7 @@ async function executeToolCall(
   }
 
   return {
-    toolName: toolCall.name,
+    toolName: displayName,
     resultMsg: {
       role: 'tool',
       toolCallID: toolCall.id,
@@ -930,10 +930,15 @@ function repeatedToolFailureWarning(toolName: string, count: number): string {
 function toolCallFailureKey(toolCall: ToolCall, kind: string, args: unknown): string {
   const stableInput = {
     kind,
+    namespace: !toolCall.namespace || toolCall.namespace === 'functions' ? 'functions' : toolCall.namespace,
     name: toolCall.name,
     arguments: scrubVolatileToolArguments(parseToolArguments(args))
   }
   return createHash('sha256').update(stableJSON(stableInput)).digest('hex').slice(0, 16)
+}
+
+function toolDisplayName(namespace: string | undefined, name: string): string {
+  return namespace && namespace !== 'functions' ? `${namespace}.${name}` : name
 }
 
 function parseToolArguments(args: unknown): unknown {

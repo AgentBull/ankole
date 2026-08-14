@@ -269,6 +269,76 @@ defmodule Ankole.AIGateway.FailureDiagnosticsTest do
     refute Map.has_key?(classification, :provider_event?)
   end
 
+  test "keeps a provider error diagnostic subordinate to a transport terminal" do
+    terminal_error = %{
+      "code" => "upstream_stream_closed_before_terminal_event",
+      "failure_kind" => "transport",
+      "message" => "provider stream broke",
+      "provider_error_code" => "upstream_stream_break",
+      "provider_error_type" => "provider_disconnect",
+      "retryable" => true,
+      "details_json" => %{}
+    }
+
+    assert %{
+             error_code: "upstream_stream_closed_before_terminal_event",
+             failure_kind: :transport,
+             provider_error_code: "upstream_stream_break",
+             provider_error_type: "provider_disconnect",
+             retryable: true
+           } = FailureDiagnostics.classify(terminal_error)
+
+    log =
+      capture_log(
+        [
+          level: :error,
+          metadata: [
+            :event,
+            :error_code,
+            :failure_kind,
+            :provider_error_code,
+            :provider_error_type,
+            :retryable
+          ]
+        ],
+        fn ->
+          assert :ok =
+                   FailureDiagnostics.log(
+                     "ai_gateway.test_failed",
+                     "AIGateway test failed",
+                     %{},
+                     terminal_error
+                   )
+        end
+      )
+
+    assert log =~ "error_code=upstream_stream_closed_before_terminal_event"
+    assert log =~ "failure_kind=transport"
+    assert log =~ "provider_error_code=upstream_stream_break"
+    assert log =~ "provider_error_type=provider_disconnect"
+    assert log =~ "retryable=true"
+    refute log =~ "provider stream broke"
+  end
+
+  test "bounds provider error identifiers before public or durable projection" do
+    code = String.duplicate("c", 300)
+    type = String.duplicate("t", 300)
+
+    assert %{
+             error_code: bounded_code,
+             provider_error_code: provider_error_code,
+             provider_error_type: bounded_type
+           } =
+             FailureDiagnostics.classify(
+               {:provider_event_failed,
+                %{"error" => %{"code" => code, "type" => type, "message" => "safe"}}}
+             )
+
+    assert bounded_code == String.slice(code, 0, 256)
+    assert provider_error_code == bounded_code
+    assert bounded_type == String.slice(type, 0, 256)
+  end
+
   test "classifies Codex overload aliases as retryable provider failures" do
     for code <- ["server_is_overloaded", "slow_down"] do
       assert %{

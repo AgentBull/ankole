@@ -1,5 +1,12 @@
 # Changelog
 
+## Version 0.72.2 (2026-08-15)
+
+- Preserve `namespace` and tool `name` as separate, validated identities across Provider requests, Tool Search, program execution, trajectories, progress, Background Job history, and deployment recovery. Keep valid Chat Completions and Anthropic wire names unchanged, reject alias collisions, and use only structured V2 fingerprints.
+- Keep tools loaded by client Tool Search callable across later turns and local compaction until the caller removes them from the surviving Tool Search output. Compaction budgets every complete retained pair and returns a structured context overflow instead of crashing or storing an oversized checkpoint.
+- Apply one `max_tool_calls` budget across provider-owned built-ins and locally implemented Tool Search or program calls instead of rejecting requests that use both owners.
+- Recover a retryable model attempt when a Responses-compatible Provider sends an error event before its terminal failure. AIGateway exposes only the canonical terminal, retains bounded Provider diagnostics, and Agent Computer uses explicit retryability or compatible fallback signals for its retry decision.
+
 ## Version 0.72.1 (2026-08-14)
 
 - Preserve a streamed Chat Completions tool call's non-empty ID and name when later argument fragments repeat either field as an empty string, so OpenAI-compatible Providers cannot turn an otherwise valid client tool call into a partial completion.

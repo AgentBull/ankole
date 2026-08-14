@@ -51,9 +51,9 @@ impl AnthropicState {
     fn ingest(&mut self, context: &ResponseContext, value: Value) -> Vec<Value> {
         match value.get("type").and_then(Value::as_str) {
             Some("message_start") => self.message_start(context, &value),
-            Some("content_block_start") => self.content_block_start(&value),
+            Some("content_block_start") => self.content_block_start(context, &value),
             Some("content_block_delta") => self.content_block_delta(&value),
-            Some("content_block_stop") => self.content_block_stop(&value),
+            Some("content_block_stop") => self.content_block_stop(context, &value),
             Some("message_delta") => {
                 self.message_delta(&value);
                 Vec::new()
@@ -91,7 +91,7 @@ impl AnthropicState {
         )]
     }
 
-    fn content_block_start(&mut self, value: &Value) -> Vec<Value> {
+    fn content_block_start(&mut self, context: &ResponseContext, value: &Value) -> Vec<Value> {
         let index = value.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
         let block = value.get("content_block").unwrap_or(&Value::Null);
 
@@ -130,7 +130,7 @@ impl AnthropicState {
                     "response.output_item.added",
                     json!({
                         "output_index": output_index,
-                        "item": function_call_item(&call, "in_progress")
+                        "item": anthropic_function_call_item(context, &call, "in_progress")
                     }),
                 );
                 self.tool_calls.insert(index, call);
@@ -263,11 +263,11 @@ impl AnthropicState {
         vec![event]
     }
 
-    fn content_block_stop(&mut self, value: &Value) -> Vec<Value> {
+    fn content_block_stop(&mut self, context: &ResponseContext, value: &Value) -> Vec<Value> {
         let index = value.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
         match self.active_blocks.get(&index).map(String::as_str) {
             Some("text") => self.finish_text_part(),
-            Some("tool_use") => self.finish_tool_call(index),
+            Some("tool_use") => self.finish_tool_call(context, index),
             Some("reasoning") => Vec::new(),
             _block => Vec::new(),
         }
@@ -347,7 +347,7 @@ impl AnthropicState {
         ]
     }
 
-    fn finish_tool_call(&mut self, index: usize) -> Vec<Value> {
+    fn finish_tool_call(&mut self, context: &ResponseContext, index: usize) -> Vec<Value> {
         if self.tool_done_indices.contains(&index) {
             return Vec::new();
         }
@@ -369,7 +369,7 @@ impl AnthropicState {
                 "response.output_item.done",
                 json!({
                     "output_index": call.output_index,
-                    "item": function_call_item(&call, "completed")
+                    "item": anthropic_function_call_item(context, &call, "completed")
                 }),
             ),
         ]
@@ -414,7 +414,7 @@ impl AnthropicState {
                 events.extend(self.finish_text_part());
             }
             for index in self.tool_calls.keys().copied().collect::<Vec<_>>() {
-                events.extend(self.finish_tool_call(index));
+                events.extend(self.finish_tool_call(context, index));
             }
             if let Some(item_id) = self.message_item_id.clone() {
                 events.push(self.event(
@@ -486,11 +486,12 @@ impl AnthropicState {
                 }),
             ));
         }
-        indexed_output.extend(
-            self.tool_calls
-                .values()
-                .map(|call| (call.output_index, function_call_item(call, item_status))),
-        );
+        indexed_output.extend(self.tool_calls.values().map(|call| {
+            (
+                call.output_index,
+                anthropic_function_call_item(context, call, item_status),
+            )
+        }));
         indexed_output.sort_by_key(|(output_index, _item)| *output_index);
         let output = indexed_output
             .into_iter()
@@ -543,7 +544,7 @@ impl AnthropicState {
 
 impl APIProtocol for AnthropicState {
     fn build_body(&self, context: &ResponseContext) -> Result<Map<String, Value>, StreamError> {
-        Ok(build_anthropic_body(context))
+        build_anthropic_body(context)
     }
 
     fn on_provider_event(
@@ -600,14 +601,16 @@ fn anthropic_body_to_response(context: &ResponseContext, body: Value) -> Value {
                 }
             }
             Some("tool_use") => {
-                output.push(json!({
+                let mut item = json!({
                     "id": generated_id("fc"),
                     "type": "function_call",
                     "call_id": block.get("id").and_then(Value::as_str).unwrap_or("call"),
                     "name": block.get("name").and_then(Value::as_str).unwrap_or("unknown"),
                     "arguments": block.get("input").map(|input| sonic_rs::to_string(input).unwrap_or_else(|_| "{}".to_string())).unwrap_or_else(|| "{}".to_string()),
                     "status": "completed"
-                }));
+                });
+                restore_tool_namespace(context, &mut item);
+                output.push(item);
             }
             _block => {}
         }
@@ -695,7 +698,7 @@ fn thinking_blocks(content: &[Value]) -> Vec<Value> {
         .collect()
 }
 
-fn build_anthropic_body(context: &ResponseContext) -> Map<String, Value> {
+fn build_anthropic_body(context: &ResponseContext) -> Result<Map<String, Value>, StreamError> {
     let request = context.resolved_provider_request_object();
     let mut body = context
         .provider_options
@@ -722,7 +725,7 @@ fn build_anthropic_body(context: &ResponseContext) -> Map<String, Value> {
         maybe_put_from(&mut body, &request, key);
     }
 
-    if let Some(tools) = anthropic_tools(request.get("tools")) {
+    if let Some(tools) = anthropic_tools(request.get("tools"))? {
         body.insert("tools".to_string(), tools);
     }
 
@@ -741,7 +744,7 @@ fn build_anthropic_body(context: &ResponseContext) -> Map<String, Value> {
         "messages".to_string(),
         anthropic_messages(context, request.get("input")),
     );
-    body
+    Ok(body)
 }
 
 // One Anthropic assistant turn arrives back as several Responses items: a
@@ -849,10 +852,19 @@ fn anthropic_tool_use(call: &Map<String, Value>) -> Value {
         .and_then(|arguments| serde_json::from_str::<Value>(arguments).ok())
         .unwrap_or_else(|| json!({}));
 
+    let name = call
+        .get("name")
+        .and_then(Value::as_str)
+        .map(|name| match call.get("namespace").and_then(Value::as_str) {
+            Some(namespace) => flattened_namespace_tool_name(namespace, name),
+            None => flattened_namespace_tool_name("", name),
+        })
+        .unwrap_or_default();
+
     json!({
         "type": "tool_use",
         "id": call.get("call_id").map(value_to_text).unwrap_or_default(),
-        "name": call.get("name").map(value_to_text).unwrap_or_default(),
+        "name": name,
         "input": input
     })
 }
@@ -1000,44 +1012,112 @@ fn anthropic_image_placeholder() -> Value {
     json!({ "type": "text", "text": "[image content omitted: unsupported image source]" })
 }
 
-fn anthropic_tools(tools: Option<&Value>) -> Option<Value> {
-    let tools = tools?.as_array()?;
+fn anthropic_tools(tools: Option<&Value>) -> Result<Option<Value>, StreamError> {
+    let Some(tools) = tools.and_then(Value::as_array) else {
+        return Ok(None);
+    };
     let mapped: Vec<Value> = tools
         .iter()
-        .filter_map(|tool| {
-            let map = tool.as_object()?;
+        .flat_map(|tool| {
+            let Some(map) = tool.as_object() else {
+                return Vec::new();
+            };
+            if map.get("type").and_then(Value::as_str) == Some("namespace") {
+                return anthropic_namespace_tools(map);
+            }
             if let Some(function) = map.get("function").and_then(Value::as_object) {
-                return Some(json!({
-                    "name": function.get("name").map(value_to_text).unwrap_or_default(),
+                let name = function
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .map(|name| flattened_namespace_tool_name("", name))
+                    .unwrap_or_default();
+                return vec![json!({
+                    "name": name,
                     "description": function.get("description").map(value_to_text).unwrap_or_default(),
                     "input_schema": function.get("parameters").cloned().unwrap_or_else(|| json!({ "type": "object" }))
-                }));
+                })];
             }
             if let Some(name) = map.get("name").filter(|value| useful_value(value)) {
-                return Some(json!({
-                    "name": value_to_text(name),
+                let name = flattened_namespace_tool_name("", &value_to_text(name));
+                return vec![json!({
+                    "name": name,
                     "description": map.get("description").map(value_to_text).unwrap_or_default(),
                     "input_schema": map.get("input_schema").or_else(|| map.get("parameters")).cloned().unwrap_or_else(|| json!({ "type": "object" }))
-                }));
+                })];
             }
-            None
+            Vec::new()
         })
         .collect();
 
-    (!mapped.is_empty()).then_some(Value::Array(mapped))
+    reject_duplicate_emulated_tool_names(
+        mapped
+            .iter()
+            .filter_map(|tool| tool.get("name").and_then(Value::as_str)),
+    )?;
+
+    Ok((!mapped.is_empty()).then_some(Value::Array(mapped)))
+}
+
+fn anthropic_namespace_tools(namespace: &Map<String, Value>) -> Vec<Value> {
+    let namespace_name = namespace
+        .get("name")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+
+    namespace
+        .get("tools")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|tool| {
+            let tool = tool.as_object()?;
+            let function = tool
+                .get("function")
+                .and_then(Value::as_object)
+                .unwrap_or(tool);
+            let name = function.get("name").and_then(Value::as_str)?;
+
+            Some(json!({
+                "name": flattened_namespace_tool_name(namespace_name, name),
+                "description": function.get("description").map(value_to_text).unwrap_or_default(),
+                "input_schema": function.get("parameters").or_else(|| function.get("input_schema")).cloned().unwrap_or_else(|| json!({ "type": "object" }))
+            }))
+        })
+        .collect()
+}
+
+fn anthropic_function_call_item(context: &ResponseContext, call: &ToolCall, status: &str) -> Value {
+    let mut item = function_call_item(call, status);
+    restore_tool_namespace(context, &mut item);
+    item
 }
 
 fn anthropic_tool_choice(choice: Option<&Value>) -> Option<Value> {
     match choice {
         Some(Value::Object(map)) => match map.get("type").and_then(Value::as_str) {
-            Some("function") => map
-                .get("function")
-                .and_then(Value::as_object)
-                .and_then(|function| function.get("name"))
-                .and_then(Value::as_str)
-                .map(|name| json!({ "type": "tool", "name": name })),
-            Some("tool") if map.get("name").and_then(Value::as_str).is_some() => {
-                Some(Value::Object(map.clone()))
+            Some("function") => {
+                let function = map
+                    .get("function")
+                    .and_then(Value::as_object)
+                    .unwrap_or(map);
+                let name = function.get("name").and_then(Value::as_str)?;
+                let namespace = function
+                    .get("namespace")
+                    .or_else(|| map.get("namespace"))
+                    .and_then(Value::as_str);
+                let name = namespace
+                    .map(|namespace| flattened_namespace_tool_name(namespace, name))
+                    .unwrap_or_else(|| flattened_namespace_tool_name("", name));
+                Some(json!({ "type": "tool", "name": name }))
+            }
+            Some("tool") => {
+                let name = map.get("name").and_then(Value::as_str)?;
+                let name = map
+                    .get("namespace")
+                    .and_then(Value::as_str)
+                    .map(|namespace| flattened_namespace_tool_name(namespace, name))
+                    .unwrap_or_else(|| flattened_namespace_tool_name("", name));
+                Some(json!({ "type": "tool", "name": name }))
             }
             _type => None,
         },

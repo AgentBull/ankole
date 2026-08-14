@@ -156,6 +156,13 @@ copying Codex internals:
   projection. An adapter must not delete or rewrite constraints to imitate the
   other runtime's implementation details.
 
+The model-visible identity is always the pair `{namespace, name}`. Responses
+uses a namespace container and returns the same namespace on each
+`function_call`. Durable history, Job replay, Tool Search, and execution keep
+both fields. A runtime that has one local name slot can create a reversible
+alias at that terminal boundary, but the alias is not an MCP or Ankole tool
+identity.
+
 Codex reserves the `mcp__` prefix for native MCP. The Background dynamic-tool
 projection quarantines that prefix, but it still accepts explicitly allowed
 non-MCP namespaces. A future integration adds its concrete server owner and

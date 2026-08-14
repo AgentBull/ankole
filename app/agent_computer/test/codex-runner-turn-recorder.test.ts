@@ -310,6 +310,73 @@ describe('@ankole/agent-computer durable BackgroundAgentJob Turn recorder', () =
     ])
   })
 
+  it('persists the model-visible MCP namespace and name for durable replay', async () => {
+    const { recorder, upserts } = fixture()
+    recorder.recordTurnStarted('thread-1', startedTurn(), '查询指标', 'event-1')
+
+    recorder.handleNotification(
+      notification('rawResponseItem/completed', {
+        item: {
+          type: 'function_call',
+          call_id: 'mcp-call-1',
+          namespace: 'mcp__metrics_server',
+          name: 'lookup_metric',
+          arguments: '{"metric":"latency"}'
+        }
+      })
+    )
+    recorder.handleNotification(
+      notification('item/completed', {
+        item: {
+          type: 'mcpToolCall',
+          id: 'mcp-call-1',
+          server: 'metrics-server',
+          tool: 'lookup.metric',
+          arguments: { metric: 'latency' },
+          result: '42',
+          error: null,
+          status: 'completed'
+        }
+      })
+    )
+    await recorder.flush()
+
+    expect(turnItems(upserts).at(-1)?.item).toEqual(
+      expect.objectContaining({
+        type: 'mcpToolCall',
+        id: 'mcp-call-1',
+        namespace: 'mcp__metrics_server',
+        name: 'lookup_metric'
+      })
+    )
+    expect(upserts.at(-1)?.progress.tools_used).toEqual([
+      { namespace: 'mcp__metrics_server', name: 'lookup_metric', calls: 1 }
+    ])
+  })
+
+  it('reconstructs legacy MCP progress with the Codex name sanitizer', async () => {
+    const { recorder, upserts } = fixture()
+    recorder.recordTurnStarted('thread-1', startedTurn(), '查询价格', 'event-1')
+
+    recorder.handleNotification(
+      notification('item/completed', {
+        item: {
+          type: 'mcpToolCall',
+          id: 'mcp-legacy',
+          server: 'my-server',
+          tool: 'get-price',
+          arguments: {},
+          result: '42',
+          error: null,
+          status: 'completed'
+        }
+      })
+    )
+    await recorder.flush()
+
+    expect(upserts.at(-1)?.progress.tools_used).toEqual([{ namespace: 'mcp__my_server', name: 'get_price', calls: 1 }])
+  })
+
   it('records the exact MultiAgentV2 calls, outputs, and stable child identities', async () => {
     const { recorder, upserts } = fixture()
     recorder.recordTurnStarted('thread-1', startedTurn(), '委派并收取结果', 'event-1')
@@ -421,12 +488,12 @@ describe('@ankole/agent-computer durable BackgroundAgentJob Turn recorder', () =
     expect(upserts.at(-1)?.progress).toMatchObject({
       tool_calls: 6,
       tools_used: [
-        { name: 'collaboration.followup_task', calls: 1 },
-        { name: 'collaboration.interrupt_agent', calls: 1 },
-        { name: 'collaboration.list_agents', calls: 1 },
-        { name: 'collaboration.send_message', calls: 1 },
-        { name: 'collaboration.spawn_agent', calls: 1 },
-        { name: 'collaboration.wait_agent', calls: 1 }
+        { namespace: 'collaboration', name: 'followup_task', calls: 1 },
+        { namespace: 'collaboration', name: 'interrupt_agent', calls: 1 },
+        { namespace: 'collaboration', name: 'list_agents', calls: 1 },
+        { namespace: 'collaboration', name: 'send_message', calls: 1 },
+        { namespace: 'collaboration', name: 'spawn_agent', calls: 1 },
+        { namespace: 'collaboration', name: 'wait_agent', calls: 1 }
       ]
     })
   })
@@ -449,7 +516,7 @@ describe('@ankole/agent-computer durable BackgroundAgentJob Turn recorder', () =
     expect(upserts.at(-1)?.progress).toMatchObject({
       completed_items: 1,
       tool_calls: 1,
-      tools_used: [{ name: 'collaboration.agent_interaction', calls: 1 }],
+      tools_used: [{ namespace: 'collaboration', name: 'agent_interaction', calls: 1 }],
       files_changed: []
     })
     const entry = turnItems(upserts).find(candidate => candidate.item_key === 'activity-1')

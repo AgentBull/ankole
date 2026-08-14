@@ -3,9 +3,10 @@ defmodule Ankole.AIGateway.MaxToolCalls do
   Tracks one public Response's `max_tool_calls` budget.
 
   Provider effects enter the budget from provider item lifecycle events.
-  Gateway effects enter it when the response owner admits the executable call.
-  Both sources use the same identity ledger, so lifecycle replays are
-  idempotent and later calls are rejected when the limit is full.
+  Gateway effects enter it after the provider terminal fixes that round's
+  irreversible provider effects. Both sources use the same identity ledger,
+  so lifecycle replays are idempotent and later calls are rejected when the
+  limit is full.
   """
 
   alias Ankole.AIGateway.ResponseItems
@@ -79,22 +80,7 @@ defmodule Ankole.AIGateway.MaxToolCalls do
     end)
   end
 
-  @doc "Admits one gateway-owned executable effect at its decision point."
-  @spec admit_gateway_event(t() | nil, map(), term()) :: t() | nil
-  def admit_gateway_event(policy, event, scope \\ :single_response)
-  def admit_gateway_event(nil, _event, _scope), do: nil
-
-  def admit_gateway_event(
-        %__MODULE__{} = policy,
-        %{"type" => "response.output_item.done", "item" => %{} = item} = event,
-        scope
-      ) do
-    admit_gateway_item(policy, item, event, :done, scope)
-  end
-
-  def admit_gateway_event(%__MODULE__{} = policy, _event, _scope), do: policy
-
-  @doc "Admits terminal-only gateway effects in their response order."
+  @doc "Admits gateway effects after provider effects for the round are known."
   @spec admit_gateway_items(t() | nil, [map()], term()) :: t() | nil
   def admit_gateway_items(nil, _items, _scope), do: nil
 

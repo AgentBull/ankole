@@ -37,6 +37,12 @@ export interface LLMErrorClassification {
  * status, code, and message before matching.
  */
 export function classifyLLMError(error: unknown): LLMErrorClassification {
+  const classification = classifyLLMErrorBySignals(error)
+  const retryable = findErrorProperty(error, ['retryable'], value => (typeof value === 'boolean' ? value : undefined))
+  return retryable === undefined ? classification : { ...classification, retryable }
+}
+
+function classifyLLMErrorBySignals(error: unknown): LLMErrorClassification {
   const status = findErrorProperty(error, ['status', 'statusCode', 'code'], value => {
     const parsed = typeof value === 'number' ? value : typeof value === 'string' ? Number.parseInt(value, 10) : NaN
     return Number.isInteger(parsed) && parsed >= 100 && parsed <= 599 ? parsed : undefined
@@ -207,9 +213,8 @@ export function isRetryableLLMError(error: unknown): boolean {
 }
 
 /**
- * Local retries re-issue the request from inside the worker. Most retryable LLM errors are safe here,
- * but the AIGateway WebSocket adapter marks failures that happened after `response.create` was sent as
- * durable-only retries so the control plane can redeliver from the actor event fence instead.
+ * Local retries re-issue the request from inside the worker. A transport owner can use an explicit
+ * local hint when only durable redelivery is safe.
  */
 export function isLocallyRetryableLLMError(error: unknown): boolean {
   if (!isRetryableLLMError(error)) return false

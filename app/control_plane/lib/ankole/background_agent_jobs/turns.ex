@@ -964,13 +964,19 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
         tool_calls: totals.tool_calls,
         tools_used:
           totals.tools
-          |> Enum.sort_by(fn {name, _calls} -> name end)
-          |> Enum.map(fn {name, calls} -> %{name: name, calls: calls} end),
+          |> Enum.sort_by(fn {{namespace, name}, _calls} -> {namespace || "", name} end)
+          |> Enum.map(fn {{namespace, name}, calls} ->
+            %{name: name, calls: calls}
+            |> maybe_put(:namespace, namespace)
+          end),
         tool_execution_mechanisms:
           totals.tool_execution_mechanisms
-          |> Enum.sort_by(fn {{name, mechanism}, _calls} -> {name, mechanism} end)
-          |> Enum.map(fn {{name, mechanism}, calls} ->
+          |> Enum.sort_by(fn {{{namespace, name}, mechanism}, _calls} ->
+            {namespace || "", name, mechanism}
+          end)
+          |> Enum.map(fn {{{namespace, name}, mechanism}, calls} ->
             %{name: name, execution_mechanism: mechanism, calls: calls}
+            |> maybe_put(:namespace, namespace)
           end),
         files_changed: totals.files |> MapSet.to_list() |> Enum.sort(),
         active_items: active_items(turns, job)
@@ -987,9 +993,15 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
 
   defp merge_tool_usage(acc, tools) when is_list(tools) do
     Enum.reduce(tools, acc, fn
-      %{"name" => name, "calls" => calls}, result
+      %{"name" => name, "calls" => calls} = tool, result
       when is_binary(name) and is_integer(calls) and calls >= 0 ->
-        Map.update(result, name, calls, &(&1 + calls))
+        case Map.get(tool, "namespace") do
+          namespace when is_nil(namespace) or is_binary(namespace) ->
+            Map.update(result, {namespace, name}, calls, &(&1 + calls))
+
+          _invalid_namespace ->
+            result
+        end
 
       _tool, result ->
         result
@@ -1000,10 +1012,16 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
 
   defp merge_tool_execution_mechanisms(acc, executions) when is_list(executions) do
     Enum.reduce(executions, acc, fn
-      %{"name" => name, "execution_mechanism" => mechanism, "calls" => calls}, result
+      %{"name" => name, "execution_mechanism" => mechanism, "calls" => calls} = execution, result
       when is_binary(name) and mechanism in ~w(local_dynamic provider_hosted) and
              is_integer(calls) and calls > 0 ->
-        Map.update(result, {name, mechanism}, calls, &(&1 + calls))
+        case Map.get(execution, "namespace") do
+          namespace when is_nil(namespace) or is_binary(namespace) ->
+            Map.update(result, {{namespace, name}, mechanism}, calls, &(&1 + calls))
+
+          _invalid_namespace ->
+            result
+        end
 
       _execution, result ->
         result
@@ -1044,12 +1062,13 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
     |> Enum.sort_by(&turn_update_key/1, :desc)
     |> Enum.flat_map(fn turn ->
       case turn.progress do
-        %{"active_item" => %{"name" => name}} when is_binary(name) ->
+        %{"active_item" => %{"name" => name} = active_item} when is_binary(name) ->
           [
             %{
               scope: if(lead_turn?(turn, job.runtime_thread_id), do: "lead", else: "child"),
               name: name
             }
+            |> maybe_put(:namespace, Map.get(active_item, "namespace"))
           ]
 
         _progress ->
@@ -1254,6 +1273,7 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
        ]) do
     id = Map.get(tool_call, "id", "bounded-tool-call")
     name = get_in(tool_call, ["function", "name"]) || "bounded_tool"
+    namespace = get_in(tool_call, ["function", "namespace"])
 
     call =
       assistant
@@ -1265,7 +1285,9 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
         %{
           "id" => id,
           "type" => "function",
-          "function" => %{"name" => name, "arguments" => "{}"}
+          "function" =>
+            %{"name" => name, "arguments" => "{}"}
+            |> maybe_put("namespace", namespace)
         }
       ])
       |> Map.delete("metadata")

@@ -36,7 +36,6 @@ defmodule Ankole.AIGateway.ToolContractTest do
                name: "market",
                namespace: nil,
                namespace_description: nil,
-               provider_name: "market",
                description: "Read one market quote.",
                parameters: parameters,
                format: nil,
@@ -48,14 +47,16 @@ defmodule Ankole.AIGateway.ToolContractTest do
                codec: :json
              }
 
-      assert ToolContract.provider_spec(descriptor) == %{
-               "type" => "function",
-               "name" => "market",
-               "description" => "Read one market quote.",
-               "parameters" => parameters,
-               "output_schema" => output_schema,
-               "strict" => true
-             }
+      assert ToolContract.response_specs([descriptor]) == [
+               %{
+                 "type" => "function",
+                 "name" => "market",
+                 "description" => "Read one market quote.",
+                 "parameters" => parameters,
+                 "output_schema" => output_schema,
+                 "strict" => true
+               }
+             ]
     end
 
     test "normalizes a namespaced custom tool without losing its public path" do
@@ -85,7 +86,6 @@ defmodule Ankole.AIGateway.ToolContractTest do
       assert descriptor.name == "apply"
       assert descriptor.namespace == "editor"
       assert descriptor.namespace_description == "Editing tools."
-      assert descriptor.provider_name == "editor__apply"
       assert descriptor.parameters == nil
       assert descriptor.format == format
       assert descriptor.output_schema == output_schema
@@ -105,12 +105,21 @@ defmodule Ankole.AIGateway.ToolContractTest do
                "defer_loading" => true
              }
 
-      assert ToolContract.provider_spec(descriptor) == %{
-               "type" => "custom",
-               "name" => "editor__apply",
-               "description" => "Apply one edit.",
-               "format" => format
-             }
+      assert ToolContract.response_specs([descriptor]) == [
+               %{
+                 "type" => "namespace",
+                 "name" => "editor",
+                 "description" => "Editing tools.",
+                 "tools" => [
+                   %{
+                     "type" => "custom",
+                     "name" => "apply",
+                     "description" => "Apply one edit.",
+                     "format" => format
+                   }
+                 ]
+               }
+             ]
 
       assert [%{"output_schema" => ^output_schema}] =
                ToolContract.executable_snapshot([descriptor])
@@ -139,32 +148,24 @@ defmodule Ankole.AIGateway.ToolContractTest do
              ]
     end
 
-    test "normalizes the current expanded namespace carrier to the same descriptor" do
-      child = %{
-        "type" => "function",
-        "name" => "stock_price",
-        "parameters" => %{"type" => "object"},
-        "allowed_callers" => ["direct", "programmatic"],
-        "defer_loading" => true
-      }
+    test "uses the Codex default namespace descriptions" do
+      assert {:ok, descriptors} =
+               ToolContract.normalize([
+                 %{
+                   "type" => "namespace",
+                   "name" => "analysis_tools",
+                   "tools" => [%{"type" => "function", "name" => "inspect"}]
+                 },
+                 %{
+                   "type" => "namespace",
+                   "name" => "functions",
+                   "tools" => [%{"type" => "function", "name" => "default_tool"}]
+                 }
+               ])
 
-      root = %{
-        "type" => "namespace",
-        "name" => "mcp__finance",
-        "description" => "Financial tools.",
-        "tools" => [child]
-      }
-
-      expanded =
-        child
-        |> Map.put("name", "mcp__finance__stock_price")
-        |> Map.put("__ankole_namespace", "mcp__finance")
-        |> Map.put("__ankole_public_name", "stock_price")
-        |> Map.put("__ankole_namespace_description", "Financial tools.")
-
-      assert {:ok, [from_root]} = ToolContract.normalize([root])
-      assert {:ok, [from_expanded]} = ToolContract.normalize([expanded])
-      assert from_expanded == from_root
+      assert [analysis, functions] = ToolContract.response_specs(descriptors)
+      assert analysis["description"] == "Tools in the analysis_tools namespace."
+      assert functions["description"] == ""
     end
 
     test "defaults an omitted caller list to direct execution" do
@@ -248,9 +249,8 @@ defmodule Ankole.AIGateway.ToolContractTest do
       end
     end
 
-    test "detects root and namespace provider alias collisions" do
-      assert {:error,
-              {:invalid_tool_contract, {:provider_alias_collision, "a__b", ["a__b", "a.b"]}}} =
+    test "keeps root and namespace identities distinct even when one-slot aliases would collide" do
+      assert {:ok, descriptors} =
                ToolContract.normalize([
                  %{"type" => "function", "name" => "a__b"},
                  %{
@@ -259,12 +259,23 @@ defmodule Ankole.AIGateway.ToolContractTest do
                    "tools" => [%{"type" => "function", "name" => "b"}]
                  }
                ])
+
+      assert Enum.map(descriptors, &ToolContract.identity/1) == [{nil, "a__b"}, {"a", "b"}]
     end
 
     test "protects the synthesized names and accepts an explicit replacement set" do
       for reserved <- ["program", "tool_search"] do
-        assert {:error, {:invalid_tool_contract, {:reserved_provider_name, ^reserved, ^reserved}}} =
+        assert {:error, {:invalid_tool_contract, {:reserved_tool_name, ^reserved}}} =
                  ToolContract.normalize([%{"type" => "function", "name" => reserved}])
+
+        assert {:error, {:invalid_tool_contract, {:reserved_tool_name, ^reserved}}} =
+                 ToolContract.normalize([
+                   %{
+                     "type" => "namespace",
+                     "name" => "functions",
+                     "tools" => [%{"type" => "function", "name" => reserved}]
+                   }
+                 ])
       end
 
       assert {:ok, [%Descriptor{name: "find_tools"}]} =
@@ -273,43 +284,68 @@ defmodule Ankole.AIGateway.ToolContractTest do
                  reserved_names: ["program", "find_tools_internal"]
                )
 
-      assert {:error,
-              {:invalid_tool_contract, {:reserved_provider_name, "find_tools", "find_tools"}}} =
+      assert {:error, {:invalid_tool_contract, {:reserved_tool_name, "find_tools"}}} =
                ToolContract.normalize(
                  [%{"type" => "function", "name" => "find_tools"}],
                  reserved_names: ["program", "find_tools"]
                )
     end
 
-    test "builds deterministic bounded aliases for non-provider names" do
-      namespace = String.duplicate("金融", 40)
-      name = String.duplicate("价格", 40)
+    test "rejects names that the Responses API cannot accept" do
+      assert {:error, {:invalid_tool_contract, {:invalid_responses_identifier, :tool, "a.b"}}} =
+               ToolContract.normalize([%{"type" => "function", "name" => "a.b"}])
 
-      first = ToolContract.provider_alias(namespace, name)
-      second = ToolContract.provider_alias(namespace, name)
-      different = ToolContract.provider_alias(namespace, name <> "x")
-
-      assert first == second
-      assert first != different
-      assert byte_size(first) <= 64
-      assert Regex.match?(~r/^[A-Za-z0-9_-]+$/, first)
-      assert ToolContract.provider_alias(nil, "a😀b") == "a____b_6fba5b2ea783"
-    end
-
-    test "rejects an expanded tool whose supplied provider alias drifted" do
       assert {:error,
-              {:invalid_tool_contract,
-               {:expanded_provider_alias_mismatch, "mcp__finance.quote", "wrong", expected}}} =
+              {:invalid_tool_contract, {:invalid_responses_identifier, :namespace, "extension/"}}} =
                ToolContract.normalize([
                  %{
-                   "type" => "function",
-                   "name" => "wrong",
-                   "__ankole_namespace" => "mcp__finance",
-                   "__ankole_public_name" => "quote"
+                   "type" => "namespace",
+                   "name" => "extension/",
+                   "description" => "Extension tools.",
+                   "tools" => [%{"type" => "function", "name" => "valid"}]
                  }
                ])
 
-      assert expected == "mcp__finance__quote"
+      assert {:error, {:invalid_tool_contract, {:invalid_responses_identifier, :tool, "运行😀"}}} =
+               ToolContract.normalize([
+                 %{
+                   "type" => "namespace",
+                   "name" => "extension",
+                   "description" => "Extension tools.",
+                   "tools" => [%{"type" => "function", "name" => "运行😀"}]
+                 }
+               ])
+    end
+
+    test "rejects duplicate leaves across root and the Codex default namespace" do
+      assert {:error, {:invalid_tool_contract, {:duplicate_public_tool, "functions.lookup"}}} =
+               ToolContract.normalize([
+                 %{"type" => "function", "name" => "lookup"},
+                 %{
+                   "type" => "namespace",
+                   "name" => "functions",
+                   "tools" => [%{"type" => "function", "name" => "lookup"}]
+                 }
+               ])
+    end
+
+    test "rejects conflicting descriptions for one namespace container" do
+      assert {:error,
+              {:invalid_tool_contract, {:namespace_description_mismatch, "collaboration"}}} =
+               ToolContract.normalize([
+                 %{
+                   "type" => "function",
+                   "namespace" => "collaboration",
+                   "namespace_description" => "First description.",
+                   "name" => "spawn_agent"
+                 },
+                 %{
+                   "type" => "function",
+                   "namespace" => "collaboration",
+                   "namespace_description" => "Second description.",
+                   "name" => "send_message"
+                 }
+               ])
     end
 
     test "rejects ambiguous function and custom input contracts" do
@@ -514,20 +550,113 @@ defmodule Ankole.AIGateway.ToolContractTest do
                ToolContract.validate_loaded([changed_search_text], known: [known])
     end
 
-    test "rejects a new public path that collides with a known provider alias" do
+    test "reconciles a root tool loaded through the Codex functions namespace" do
+      assert {:ok, [known]} =
+               ToolContract.normalize([
+                 %{
+                   "type" => "function",
+                   "name" => "lookup",
+                   "description" => "Lookup a marker",
+                   "defer_loading" => true
+                 }
+               ])
+
+      assert {:ok, [^known]} =
+               ToolContract.validate_loaded(
+                 [
+                   %{
+                     "type" => "namespace",
+                     "name" => "functions",
+                     "description" => "",
+                     "tools" => [
+                       %{
+                         "type" => "function",
+                         "name" => "lookup",
+                         "description" => "Lookup a marker",
+                         "defer_loading" => true
+                       }
+                     ]
+                   }
+                 ],
+                 known: [known]
+               )
+    end
+
+    test "reconciles an implicit namespace description with the Codex default" do
+      assert {:ok, [known]} =
+               ToolContract.normalize([
+                 %{
+                   "type" => "namespace",
+                   "name" => "analysis_tools",
+                   "tools" => [
+                     %{
+                       "type" => "function",
+                       "name" => "inspect",
+                       "defer_loading" => true
+                     }
+                   ]
+                 }
+               ])
+
+      assert {:ok, [^known]} =
+               ToolContract.validate_loaded(
+                 [
+                   %{
+                     "type" => "namespace",
+                     "name" => "analysis_tools",
+                     "description" => "Tools in the analysis_tools namespace.",
+                     "tools" => [
+                       %{
+                         "type" => "function",
+                         "name" => "inspect",
+                         "defer_loading" => true
+                       }
+                     ]
+                   }
+                 ],
+                 known: [known]
+               )
+    end
+
+    test "accepts a new namespaced path beside a root name with the same flattened spelling" do
       assert {:ok, known} =
                ToolContract.normalize([
                  %{"type" => "function", "name" => "a__b"}
                ])
 
-      assert {:error,
-              {:invalid_tool_contract, {:provider_alias_collision, "a__b", ["a__b", "a.b"]}}} =
+      assert {:ok, [%Descriptor{namespace: "a", name: "b"}]} =
                ToolContract.validate_loaded(
                  [
                    %{
                      "type" => "namespace",
                      "name" => "a",
                      "tools" => [%{"type" => "function", "name" => "b"}]
+                   }
+                 ],
+                 known: known
+               )
+    end
+
+    test "rejects a new loaded child that changes a known namespace description" do
+      assert {:ok, known} =
+               ToolContract.normalize([
+                 %{
+                   "type" => "namespace",
+                   "name" => "collaboration",
+                   "description" => "Team tools.",
+                   "tools" => [%{"type" => "function", "name" => "spawn_agent"}]
+                 }
+               ])
+
+      assert {:error,
+              {:invalid_tool_contract, {:namespace_description_mismatch, "collaboration"}}} =
+               ToolContract.validate_loaded(
+                 [
+                   %{
+                     "type" => "namespace",
+                     "name" => "collaboration",
+                     "description" => "Different tools.",
+                     "tools" => [%{"type" => "function", "name" => "send_message"}]
                    }
                  ],
                  known: known

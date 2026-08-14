@@ -179,7 +179,7 @@ defmodule Ankole.AIGateway.ToolSearchTest do
                ToolSearch.plan(request)
     end
 
-    test "flattens namespace children only at the provider boundary" do
+    test "keeps namespace children native across search and provider rounds" do
       namespace = %{
         "type" => "namespace",
         "name" => "mcp__finance",
@@ -198,7 +198,7 @@ defmodule Ankole.AIGateway.ToolSearchTest do
                  )
                )
 
-      assert Enum.map(plan.catalog, & &1["__ankole_public_name"]) == [
+      assert Enum.map(plan.catalog, & &1["name"]) == [
                "stock_price",
                "company_news"
              ]
@@ -208,7 +208,8 @@ defmodule Ankole.AIGateway.ToolSearchTest do
       refute hd(provider_request["tools"])["description"] =~ "stock_price"
 
       assert {:ok, [loaded]} = ToolSearch.search_paths(plan, ["mcp__finance"])
-      assert loaded["__ankole_public_name"] == "stock_price"
+      assert loaded["namespace"] == "mcp__finance"
+      assert loaded["name"] == "stock_price"
 
       output =
         ToolSearch.public_search_output(
@@ -231,26 +232,16 @@ defmodule Ankole.AIGateway.ToolSearchTest do
                }
              ] = output["tools"]
 
-      assert {:ok, plan, provider_tools} =
+      assert {:ok, _plan, provider_tools} =
                ToolSearch.load_tools(plan, provider_request["tools"], [loaded])
 
-      [loaded_provider, _search] = Enum.sort_by(provider_tools, & &1["name"])
-      refute Map.has_key?(loaded_provider, "namespace")
-      refute Map.has_key?(loaded_provider, "defer_loading")
-
-      public_call =
-        ToolSearch.public_function_call(plan, %{
-          "type" => "function_call",
-          "name" => loaded_provider["name"],
-          "call_id" => "call_price",
-          "arguments" => "{}"
-        })
-
-      assert public_call["namespace"] == "mcp__finance"
-      assert public_call["name"] == "stock_price"
+      loaded_provider = Enum.find(provider_tools, &(&1["type"] == "namespace"))
+      assert loaded_provider["name"] == "mcp__finance"
+      assert [%{"name" => "stock_price"} = child] = loaded_provider["tools"]
+      refute Map.has_key?(child, "defer_loading")
     end
 
-    test "flattens namespaced custom tool history for provider replay" do
+    test "keeps namespaced custom tool history native for Responses replay" do
       namespace = %{
         "type" => "namespace",
         "name" => "functions",
@@ -281,24 +272,22 @@ defmodule Ankole.AIGateway.ToolSearchTest do
           }
         ])
 
-      assert {:ok, provider_request, plan} = ToolSearch.plan(request)
+      assert {:ok, provider_request, nil} = ToolSearch.plan(request)
 
-      assert [%{"type" => "custom", "name" => "functions__exec"}] =
+      assert [%{"type" => "namespace", "name" => "functions"} = provider_namespace] =
                provider_request["tools"]
+
+      assert [%{"type" => "custom", "name" => "exec"}] = provider_namespace["tools"]
 
       [provider_call, provider_output] = provider_request["input"]
       assert provider_call["type"] == "custom_tool_call"
-      assert provider_call["name"] == "functions__exec"
-      refute Map.has_key?(provider_call, "namespace")
+      assert provider_call["namespace"] == "functions"
+      assert provider_call["name"] == "exec"
       assert provider_output["type"] == "custom_tool_call_output"
       assert provider_output["call_id"] == provider_call["call_id"]
-
-      public_call = ToolSearch.public_function_call(plan, provider_call)
-      assert public_call["namespace"] == "functions"
-      assert public_call["name"] == "exec"
     end
 
-    test "flattens namespaced custom tool history with an empty Responses Lite carrier" do
+    test "passes namespaced custom tool history through an empty Responses Lite carrier" do
       request = %{
         "model" => "gpt-5.6",
         "tools" => nil,
@@ -319,18 +308,18 @@ defmodule Ankole.AIGateway.ToolSearchTest do
         ]
       }
 
-      assert {:ok, provider_request, %ToolSearch.Plan{}} = ToolSearch.plan(request)
+      assert {:ok, provider_request, nil} = ToolSearch.plan(request)
 
       [carrier, provider_call, provider_output] = provider_request["input"]
       assert carrier["tools"] == []
       assert provider_request["tools"] == nil
       assert provider_call["type"] == "custom_tool_call"
-      assert provider_call["name"] == "functions__apply_patch"
-      refute Map.has_key?(provider_call, "namespace")
+      assert provider_call["namespace"] == "functions"
+      assert provider_call["name"] == "apply_patch"
       assert provider_output["call_id"] == provider_call["call_id"]
     end
 
-    test "flattens namespaced function history without current tools" do
+    test "passes namespaced function history through without current tools" do
       request = %{
         "model" => "gpt-5.6",
         "input" => [
@@ -349,13 +338,12 @@ defmodule Ankole.AIGateway.ToolSearchTest do
         ]
       }
 
-      assert {:ok, provider_request, %ToolSearch.Plan{}} = ToolSearch.plan(request)
+      assert {:ok, provider_request, nil} = ToolSearch.plan(request)
 
       [provider_call, provider_output] = provider_request["input"]
-      assert provider_request["tools"] == []
       assert provider_call["type"] == "function_call"
-      assert provider_call["name"] == "functions__shell"
-      refute Map.has_key?(provider_call, "namespace")
+      assert provider_call["namespace"] == "functions"
+      assert provider_call["name"] == "shell"
       assert provider_output["call_id"] == provider_call["call_id"]
     end
 
@@ -366,8 +354,7 @@ defmodule Ankole.AIGateway.ToolSearchTest do
           deferred_tool("bx_market_data", "行情")
         ])
 
-      assert {:error,
-              {:invalid_tool_contract, {:reserved_provider_name, "tool_search", "tool_search"}}} =
+      assert {:error, {:invalid_tool_contract, {:reserved_tool_name, "tool_search"}}} =
                ToolSearch.plan(request)
     end
 
@@ -531,13 +518,13 @@ defmodule Ankole.AIGateway.ToolSearchTest do
 
       tool_names = Enum.map(provider_request["tools"], & &1["name"])
       assert "bx_market_data" in tool_names
-      assert MapSet.member?(plan.loaded_names, "bx_market_data")
+      assert MapSet.member?(plan.loaded_identities, {nil, "bx_market_data"})
 
       [loaded_tool] = Enum.filter(provider_request["tools"], &(&1["name"] == "bx_market_data"))
       refute Map.has_key?(loaded_tool, "defer_loading")
     end
 
-    test "replays Codex 0.146 namespace search output and restores namespaced calls" do
+    test "replays Codex namespace search output without flattening namespaced calls" do
       loaded_namespace = %{
         "type" => "namespace",
         "name" => "mcp__calendar",
@@ -572,12 +559,9 @@ defmodule Ankole.AIGateway.ToolSearchTest do
       [search_call, search_output, provider_call] = provider_request["input"]
       assert search_call["name"] == "tool_search"
       assert search_output["type"] == "function_call_output"
-      refute Map.has_key?(provider_call, "namespace")
-      assert provider_call["name"] == "mcp__calendar__create_event"
-
-      public_call = ToolSearch.public_function_call(plan, provider_call)
-      assert public_call["namespace"] == "mcp__calendar"
-      assert public_call["name"] == "create_event"
+      assert provider_call["namespace"] == "mcp__calendar"
+      assert provider_call["name"] == "create_event"
+      assert %ToolSearch.Plan{} = plan
     end
 
     test "keeps loaded tools out of the searchable listing" do
@@ -635,7 +619,7 @@ defmodule Ankole.AIGateway.ToolSearchTest do
       end
     end
 
-    test "replays a complete client search pair without re-exposing its loaded tool" do
+    test "keeps a client-loaded tool callable without another Tool Search declaration" do
       loaded = %{
         "type" => "function",
         "name" => "calendar",
@@ -656,21 +640,34 @@ defmodule Ankole.AIGateway.ToolSearchTest do
 
       assert plan.execution == nil
       assert plan.tool_name == nil
-      assert plan.loaded_names == MapSet.new()
+      assert plan.loaded_identities == MapSet.new([{nil, "calendar"}])
 
       assert Enum.map(provider_request["input"], & &1["type"]) == [
                "function_call",
                "function_call_output"
              ]
 
+      assert Enum.map(provider_request["tools"], & &1["name"]) == ["calendar"]
+    end
+
+    test "removes a client-loaded tool when the surviving output omits it" do
+      assert {:ok, provider_request, plan} =
+               ToolSearch.plan(
+                 base_request(
+                   [],
+                   [@codex_tool_search_call, client_search_output("search-1", [])]
+                 )
+               )
+
+      assert plan.loaded_identities == MapSet.new()
       assert provider_request["tools"] == []
     end
 
-    test "does not re-expose a prior-turn client-loaded tool when Tool Search remains declared" do
+    test "keeps a prior-turn client-loaded tool callable when Tool Search remains declared" do
       loaded = %{
         "type" => "function",
-        "name" => "retired_calendar",
-        "description" => "Read a removed calendar.",
+        "name" => "prior_calendar",
+        "description" => "Read the prior calendar.",
         "parameters" => %{"type" => "object"}
       }
 
@@ -687,12 +684,12 @@ defmodule Ankole.AIGateway.ToolSearchTest do
                )
 
       assert plan.execution == :client
-      assert plan.loaded_names == MapSet.new()
-      assert Enum.map(provider_request["tools"], & &1["name"]) == ["tool_search"]
+      assert plan.loaded_identities == MapSet.new([{nil, "prior_calendar"}])
 
-      refute Enum.any?(provider_request["tools"], fn tool ->
-               tool["name"] == "retired_calendar"
-             end)
+      assert Enum.map(provider_request["tools"], & &1["name"]) == [
+               "prior_calendar",
+               "tool_search"
+             ]
     end
 
     test "accepts the same client tool when Codex reloads it in a later user turn" do
@@ -728,7 +725,7 @@ defmodule Ankole.AIGateway.ToolSearchTest do
                  )
                )
 
-      assert plan.loaded_names == MapSet.new(["calendar"])
+      assert plan.loaded_identities == MapSet.new([{nil, "calendar"}])
       assert Enum.map(provider_request["tools"], & &1["name"]) == ["calendar", "tool_search"]
 
       [calendar] = Enum.filter(provider_request["tools"], &(&1["name"] == "calendar"))
@@ -740,7 +737,7 @@ defmodule Ankole.AIGateway.ToolSearchTest do
              }
     end
 
-    test "does not let client-loaded history bypass current server Tool Search" do
+    test "keeps client-loaded history callable beside current server Tool Search" do
       loaded = deferred_tool("calendar", "Read the calendar")
 
       assert {:ok, provider_request, plan} =
@@ -756,11 +753,11 @@ defmodule Ankole.AIGateway.ToolSearchTest do
                )
 
       assert plan.execution == :server
-      assert plan.loaded_names == MapSet.new()
-      assert Enum.map(provider_request["tools"], & &1["name"]) == ["tool_search"]
+      assert plan.loaded_identities == MapSet.new([{nil, "calendar"}])
+      assert Enum.map(provider_request["tools"], & &1["name"]) == ["calendar", "tool_search"]
 
-      [search_tool] = provider_request["tools"]
-      assert search_tool["description"] =~ "calendar"
+      search_tool = Enum.find(provider_request["tools"], &(&1["name"] == "tool_search"))
+      refute search_tool["description"] =~ "calendar:"
     end
 
     test "replays a complete server search pair after its tool leaves the current catalog" do
@@ -824,30 +821,29 @@ defmodule Ankole.AIGateway.ToolSearchTest do
 
       assert plan.execution == nil
       assert plan.tool_name == nil
-      assert plan.loaded_names == MapSet.new()
+      assert plan.loaded_identities == MapSet.new()
 
       assert [provider_search_call, provider_search_output, provider_call, _provider_output] =
                provider_request["input"]
 
       assert provider_search_call["name"] == "tool_search"
       assert provider_search_output["call_id"] == provider_search_call["call_id"]
-      assert provider_call["name"] == "mcp__retired_server__render_report"
-      refute Map.has_key?(provider_call, "namespace")
+      assert provider_call["namespace"] == "mcp__retired_server"
+      assert provider_call["name"] == "render_report"
 
       assert provider_request["tools"] == []
 
       historical_contract =
-        Enum.find(plan.contracts, &(&1.provider_name == "mcp__retired_server__render_report"))
+        Enum.find(
+          plan.contracts,
+          &({&1.namespace, &1.name} == {"mcp__retired_server", "render_report"})
+        )
 
       assert historical_contract.parameters["properties"]["width"] == %{
                "type" => "integer",
                "minimum" => 1,
                "maximum" => 4_096
              }
-
-      public_call = ToolSearch.public_function_call(plan, provider_call)
-      assert public_call["namespace"] == "mcp__retired_server"
-      assert public_call["name"] == "render_report"
 
       current_namespace = %{
         "type" => "namespace",
@@ -914,7 +910,7 @@ defmodule Ankole.AIGateway.ToolSearchTest do
                  )
                )
 
-      assert {:error, {:invalid_tool_contract, {:reserved_provider_name, "program", "program"}}} =
+      assert {:error, {:invalid_tool_contract, {:reserved_tool_name, "program"}}} =
                ToolSearch.plan(
                  base_request(
                    [],
@@ -989,7 +985,15 @@ defmodule Ankole.AIGateway.ToolSearchTest do
           [loaded]
         )
 
-      assert [public_tool] = public["tools"]
+      assert [
+               %{
+                 "type" => "namespace",
+                 "name" => "functions",
+                 "description" => "",
+                 "tools" => [public_tool]
+               }
+             ] = public["tools"]
+
       assert public_tool["type"] == "custom"
       assert public_tool["format"] == format
       assert public_tool["output_schema"] == output_schema
@@ -1002,7 +1006,7 @@ defmodule Ankole.AIGateway.ToolSearchTest do
       assert provider_tool["format"] == format
       refute Map.has_key?(provider_tool, "output_schema")
       refute Map.has_key?(provider_tool, "parameters")
-      assert Enum.any?(loaded_plan.ptc.program.bindings, &(&1.provider_name == "apply_edit"))
+      assert Enum.any?(loaded_plan.ptc.program.bindings, &(&1.name == "apply_edit"))
     end
 
     test "rejects a complete loaded list when any member is invalid" do
@@ -1015,10 +1019,10 @@ defmodule Ankole.AIGateway.ToolSearchTest do
       assert {:error, {:invalid_tool_contract, {:invalid_allowed_callers, "broken", []}}} =
                ToolSearch.load_tools(plan, provider_request["tools"], [loaded, invalid])
 
-      assert plan.loaded_names == MapSet.new()
+      assert plan.loaded_identities == MapSet.new()
     end
 
-    test "rejects root and namespace aliases that flatten to one provider name" do
+    test "keeps root and namespace identities separate before terminal adapters" do
       request =
         base_request([
           %{"type" => "function", "name" => "a__b"},
@@ -1029,9 +1033,7 @@ defmodule Ankole.AIGateway.ToolSearchTest do
           }
         ])
 
-      assert {:error,
-              {:invalid_tool_contract, {:provider_alias_collision, "a__b", ["a__b", "a.b"]}}} =
-               ToolSearch.plan(request)
+      assert {:ok, ^request, nil} = ToolSearch.plan(request)
     end
 
     test "rejects a program contract that exceeds the description budget" do
@@ -1246,7 +1248,8 @@ defmodule Ankole.AIGateway.ToolSearchTest do
         )
 
       assert {:ok, [loaded]} = ToolSearch.search_paths(plan, ["market"])
-      assert loaded["__ankole_public_name"] == "opaque_tool"
+      assert loaded["namespace"] == "market"
+      assert loaded["name"] == "opaque_tool"
 
       output =
         ToolSearch.public_search_output(
@@ -1261,7 +1264,8 @@ defmodule Ankole.AIGateway.ToolSearchTest do
       assert {:ok, _plan, provider_tools} =
                ToolSearch.load_tools(plan, provider_request["tools"], [loaded])
 
-      provider_tool = Enum.find(provider_tools, &(&1["name"] == "market__opaque_tool"))
+      provider_namespace = Enum.find(provider_tools, &(&1["name"] == "market"))
+      provider_tool = Enum.find(provider_namespace["tools"], &(&1["name"] == "opaque_tool"))
       refute Map.has_key?(provider_tool, "__ankole_search_text")
     end
 
@@ -1277,12 +1281,15 @@ defmodule Ankole.AIGateway.ToolSearchTest do
         ToolSearch.plan(base_request([namespace, %{"type" => "tool_search"}]))
 
       assert {:ok, [loaded]} = ToolSearch.search_paths(plan, ["mcp__e2e_ptc"])
-      assert loaded["__ankole_namespace_description"] == ""
+      assert loaded["namespace_description"] == ""
 
       assert {:ok, _loaded_plan, provider_tools} =
                ToolSearch.load_tools(plan, provider_request["tools"], [loaded])
 
-      assert Enum.any?(provider_tools, &(&1["name"] == "mcp__e2e_ptc__lookup_ptc_marker"))
+      assert Enum.any?(provider_tools, fn tool ->
+               tool["type"] == "namespace" and tool["name"] == "mcp__e2e_ptc" and
+                 Enum.any?(tool["tools"], &(&1["name"] == "lookup_ptc_marker"))
+             end)
 
       output =
         ToolSearch.public_search_output(
@@ -1347,7 +1354,15 @@ defmodule Ankole.AIGateway.ToolSearchTest do
       assert output["call_id"] == nil
       assert output["execution"] == "server"
       refute Map.has_key?(output, "provider_call_id")
-      assert [%{"name" => "bx_news", "defer_loading" => true}] = output["tools"]
+
+      assert [
+               %{
+                 "type" => "namespace",
+                 "name" => "functions",
+                 "description" => "",
+                 "tools" => [%{"name" => "bx_news", "defer_loading" => true}]
+               }
+             ] = output["tools"]
     end
 
     test "load_tools merges loaded tools once and reuses the unchanged plan" do
@@ -1416,10 +1431,10 @@ defmodule Ankole.AIGateway.ToolSearchTest do
 
       assert {:ok, loaded} = ToolSearch.search_paths(plan, ["crm", "get_weather"])
 
-      assert Enum.map(loaded, & &1["name"]) == [
-               "crm__get_customer",
-               "crm__list_orders",
-               "get_weather"
+      assert Enum.map(loaded, &{&1["namespace"], &1["name"]}) == [
+               {"crm", "get_customer"},
+               {"crm", "list_orders"},
+               {nil, "get_weather"}
              ]
 
       assert {:error, {:unknown_tool_search_path, "crm.list_orders"}} =

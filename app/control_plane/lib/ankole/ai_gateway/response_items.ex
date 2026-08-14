@@ -307,6 +307,7 @@ defmodule Ankole.AIGateway.ResponseItems do
     completed_status?(item) and
       non_empty_binary?(item["call_id"]) and
       non_empty_binary?(item["name"]) and
+      valid_optional_namespace?(item) and
       is_binary(item["arguments"]) and
       valid_caller?(item)
   end
@@ -315,6 +316,7 @@ defmodule Ankole.AIGateway.ResponseItems do
     completed_status?(item) and
       non_empty_binary?(item["call_id"]) and
       non_empty_binary?(item["name"]) and
+      valid_optional_namespace?(item) and
       is_binary(item["input"]) and
       valid_caller?(item)
   end
@@ -1186,6 +1188,11 @@ defmodule Ankole.AIGateway.ResponseItems do
   defp enclosing_program_executable?(_ledger, _item), do: true
 
   defp completed_status?(item), do: Map.get(item, "status") in [nil, "completed"]
+
+  defp valid_optional_namespace?(item),
+    do:
+      not Map.has_key?(item, "namespace") or
+        (is_binary(item["namespace"]) and item["namespace"] != "")
 
   defp output_name_mismatch?(call, output) do
     call_name = Map.get(call, "name")

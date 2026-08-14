@@ -116,7 +116,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert model_ref["provider_id"] == "openai-responses-main"
   end
 
-  test "openai-compatible Responses flattens namespaced replay without current tools" do
+  test "openai-compatible Responses preserves namespaced replay without current tools" do
     %{principal: agent} = agent_fixture()
 
     base_url =
@@ -166,8 +166,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     [provider_call, provider_output] = request.body["input"]
     assert provider_call["type"] == "custom_tool_call"
-    assert provider_call["name"] == "functions__apply_patch"
-    refute Map.has_key?(provider_call, "namespace")
+    assert provider_call["namespace"] == "functions"
+    assert provider_call["name"] == "apply_patch"
     assert provider_output["call_id"] == provider_call["call_id"]
   end
 
@@ -765,12 +765,12 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     refute_receive {:gateway_request, _request}
   end
 
-  test "positive max_tool_calls rejects mixed local and provider effect owners" do
+  test "positive max_tool_calls accepts mixed local and provider effect owners" do
     %{principal: agent} = agent_fixture()
 
     base_url =
       start_recording_upstream(self(), fn _request ->
-        {:json, 500, %{"error" => %{"message" => "must not dispatch"}}}
+        {:json, 500, %{"error" => %{"message" => "not called during preparation"}}}
       end)
 
     configure_openai_compatible_responses_provider!(
@@ -789,39 +789,6 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
       %{"type" => "programmatic_tool_calling"}
     ]
 
-    provider_owned_types = ~w(
-      computer
-      computer_use_preview
-      file_search
-      image_generation
-      local_shell
-      web_search
-      web_search_2025_08_26
-      web_search_preview
-      web_search_preview_2025_03_11
-    )
-
-    expected = %OpenAIError{
-      status: 400,
-      type: "invalid_request_error",
-      param: "max_tool_calls",
-      code: "unsupported_value",
-      message:
-        "Do not use a positive max_tool_calls with local Tool Search or " <>
-          "Programmatic Tool Calling and another built-in tool."
-    }
-
-    for type <- provider_owned_types do
-      request = %{
-        "model" => "primary",
-        "input" => "Run tools.",
-        "tools" => local_tools ++ [%{"type" => type}],
-        "max_tool_calls" => 1
-      }
-
-      assert {:error, ^expected} = ResponsesPreparation.prepare(agent.uid, request)
-    end
-
     request = %{
       "model" => "primary",
       "input" => "Run tools.",
@@ -829,8 +796,9 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
       "max_tool_calls" => 1
     }
 
-    assert {:error, ^expected} = AIGateway.create_response(agent.uid, request)
-    assert {:error, ^expected} = AIGateway.open_sse_stream(agent.uid, request)
+    assert {:ok, %{driver: :response_stream, request: ^request}} =
+             ResponsesPreparation.prepare(agent.uid, request)
+
     refute_receive {:gateway_request, _request}
   end
 
@@ -999,8 +967,112 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              "message"
            ]
 
-    assert get_in(body, ["output", Access.at(1), "tools", Access.at(0), "name"]) ==
-             "market_quote"
+    assert get_in(body, ["output", Access.at(1), "tools", Access.at(0)]) == %{
+             "type" => "namespace",
+             "name" => "functions",
+             "description" => "",
+             "tools" => [
+               %{
+                 "type" => "function",
+                 "name" => "market_quote",
+                 "description" => "Returns a current market quote.",
+                 "allowed_callers" => ["direct"],
+                 "defer_loading" => true,
+                 "parameters" => %{
+                   "type" => "object",
+                   "properties" => %{"symbol" => %{"type" => "string"}}
+                 }
+               }
+             ]
+           }
+  end
+
+  test "non-streaming mixed tool owners do not execute a gateway effect beyond the shared limit" do
+    %{principal: agent} = agent_fixture()
+
+    arguments = Ankole.JSON.encode!(%{"paths" => ["market_quote"]})
+
+    search_call = %{
+      "type" => "function_call",
+      "id" => "fc_search_over_budget",
+      "name" => "tool_search",
+      "call_id" => "call_search_over_budget",
+      "status" => "completed",
+      "arguments" => arguments
+    }
+
+    web_search = %{
+      "type" => "web_search_call",
+      "id" => "web_budget_winner",
+      "status" => "completed",
+      "action" => %{"type" => "search"}
+    }
+
+    response = %{
+      "id" => "resp_mixed_tool_budget",
+      "object" => "response",
+      "status" => "in_progress",
+      "model" => "gpt-compatible",
+      "output" => []
+    }
+
+    base_url =
+      start_recording_upstream(self(), fn _request ->
+        {:sse, 200,
+         [
+           %{"type" => "response.created", "sequence_number" => 0, "response" => response},
+           %{
+             "type" => "response.output_item.done",
+             "sequence_number" => 1,
+             "output_index" => 0,
+             "item" => search_call
+           },
+           %{
+             "type" => "response.output_item.done",
+             "sequence_number" => 2,
+             "output_index" => 1,
+             "item" => web_search
+           },
+           %{
+             "type" => "response.completed",
+             "sequence_number" => 3,
+             "response" => %{
+               response
+               | "status" => "completed",
+                 "output" => [search_call, web_search]
+             }
+           }
+         ]}
+      end)
+
+    configure_openai_compatible_responses_provider!(
+      agent.uid,
+      base_url,
+      "compatible-non-stream-mixed-tool-budget"
+    )
+
+    assert {:ok, %{body: body}} =
+             AIGateway.create_response(agent.uid, %{
+               "model" => "primary",
+               "input" => "Search once.",
+               "max_tool_calls" => 1,
+               "tools" => [
+                 %{
+                   "type" => "function",
+                   "name" => "market_quote",
+                   "defer_loading" => true,
+                   "parameters" => %{"type" => "object", "properties" => %{}}
+                 },
+                 %{"type" => "web_search"}
+               ]
+             })
+
+    assert_receive {:gateway_request, request}
+    assert request.body["max_tool_calls"] == 1
+    refute_receive {:gateway_request, _request}
+
+    assert body["status"] == "completed"
+    assert Enum.map(body["output"], & &1["type"]) == ["web_search_call"]
   end
 
   test "non-streaming PTC waits for the async program after native done and returns one final body" do
@@ -1061,7 +1133,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         )
       end)
 
-    assert_receive {:http_program_runner_started, program_pid, "text('42')", ["market"], []},
+    assert_receive {:http_program_runner_started, program_pid, "text('42')",
+                    [%{"namespace" => nil, "name" => "market", "global_name" => "market"}], []},
                    2_000
 
     # The upstream SSE response has already closed. Its native :done must not
@@ -4022,6 +4095,296 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert Enum.drop(artifact.content["output"], 3) == m3.content
   end
 
+  test "websocket stateful auto-compaction keeps client-loaded tools callable" do
+    %{principal: agent} = agent_fixture()
+
+    with_compaction_config(threshold: 0.50, max_threshold_tokens: 10, tail_rows: 1)
+
+    base_url =
+      start_recording_upstream(self(), fn request ->
+        assert request.path == "v1/responses"
+        assert request.body["model"] == "gpt-compact-light"
+
+        {:sse, 200,
+         openai_response_stream_events(
+           "resp_summary_client_tool_search",
+           "gpt-compact-light",
+           "## Active Task\nThe loaded calendar tool remains available."
+         )}
+      end)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "compatible-auto-compaction-client-tool-search",
+               provider_kind: "openai_compatible",
+               base_url: "#{base_url}/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-compatible"}]
+               },
+               connection_options: %{
+                 "endpoint_kind" => "responses",
+                 "transport" => %{"http_versions" => ["h1"], "compression" => ["gzip"]}
+               }
+             })
+
+    for {profile, model} <- [{"primary", "gpt-main"}, {"light", "gpt-compact-light"}] do
+      assert {:ok, _profile} =
+               ModelProfiles.put_model_profile(agent.uid, profile, %{
+                 provider_id: "compatible-auto-compaction-client-tool-search",
+                 model: model
+               })
+    end
+
+    {:ok, conversation} =
+      StatefulResponses.ensure_conversation(
+        agent.uid,
+        "dispatch-auto-compaction-client-tool-search"
+      )
+
+    loaded_tool = %{
+      "type" => "function",
+      "name" => "calendar",
+      "description" => "Read the calendar.",
+      "defer_loading" => true,
+      "parameters" => %{"type" => "object", "properties" => %{}}
+    }
+
+    search_call = %{
+      "type" => "tool_search_call",
+      "call_id" => "search-calendar",
+      "status" => "completed",
+      "execution" => "client",
+      "arguments" => %{"query" => "calendar"}
+    }
+
+    search_output = %{
+      "type" => "tool_search_output",
+      "call_id" => "search-calendar",
+      "status" => "completed",
+      "execution" => "client",
+      "tools" => [loaded_tool]
+    }
+
+    {:ok, anchor} =
+      start_stateful_message(agent.uid, conversation, "client-search-anchor", [
+        text_message("user", "Load the calendar tool")
+      ])
+
+    {:ok, anchor} = StatefulResponses.commit_complete(anchor, [], camel_usage(10))
+
+    assert {:ok, previous_checkpoint} =
+             insert_compaction_checkpoint(
+               agent.uid,
+               conversation,
+               anchor,
+               "The calendar tool was loaded.",
+               [search_call, search_output]
+             )
+
+    {:ok, first} =
+      start_linked_stateful_message(
+        agent.uid,
+        conversation,
+        previous_checkpoint,
+        "client-search-loaded",
+        [text_message("user", "Continue after the first checkpoint")]
+      )
+
+    {:ok, first} = StatefulResponses.commit_complete(first, [], camel_usage(160_000))
+
+    {:ok, tail} =
+      start_linked_stateful_message(agent.uid, conversation, first, "client-search-tail", [
+        text_message("assistant", "The calendar tool is ready.")
+      ])
+
+    {:ok, tail} = StatefulResponses.commit_complete(tail, [], camel_usage(320_004))
+
+    current_input = [text_message("user", "Use the loaded tool now")]
+
+    assert {:ok, request, _stateful_context} =
+             StatefulLifecycle.prepare_and_start_websocket_provider_request(agent.uid, %{
+               "model" => "primary",
+               "input" => current_input,
+               "store" => true,
+               "conversation" => "conv_#{conversation.id}",
+               "metadata" => %{"actor_event_id" => "client-search-compaction-event"}
+             })
+
+    assert_receive {:gateway_request, _summarizer_request}
+
+    provider_request = request.response_context.request
+    assert Enum.map(provider_request["tools"], & &1["name"]) == ["calendar"]
+
+    assert Enum.any?(provider_request["input"], fn
+             %{"type" => "function_call", "call_id" => "search-calendar"} -> true
+             _item -> false
+           end)
+
+    checkpoint =
+      Repo.all(Message)
+      |> Enum.find(&(&1.type == "checkpoint" and &1.previous_message_id == tail.id))
+
+    artifact = Repo.get!(CompactionArtifact, checkpoint.id)
+
+    assert Enum.any?(artifact.content["output"], &(&1 == search_call))
+    assert Enum.any?(artifact.content["output"], &(&1 == search_output))
+  end
+
+  test "auto-compaction fits the tail after crossing another client Tool Search pair" do
+    %{principal: agent} = agent_fixture()
+
+    with_compaction_config(threshold: 0.50, max_threshold_tokens: 45_000, tail_rows: 3)
+
+    base_url =
+      start_recording_upstream(self(), fn request ->
+        assert request.path == "v1/responses"
+        assert request.body["model"] == "gpt-compact-light"
+
+        {:sse, 200,
+         openai_response_stream_events(
+           "resp_summary_multiple_client_tool_search",
+           "gpt-compact-light",
+           "## Active Task\nBoth loaded tools remain available."
+         )}
+      end)
+
+    create_openai_compaction_provider!(
+      agent,
+      "multiple-client-tool-search-compaction",
+      base_url
+    )
+
+    contract_description = String.duplicate("contract ", 875)
+    first_pair = client_tool_search_pair("search-a", "tool_a", contract_description)
+    second_pair = client_tool_search_pair("search-b", "tool_b", contract_description)
+
+    large_tail =
+      text_message("assistant", String.duplicate("tail-body ", 1_700))
+
+    tail_marker =
+      text_message(
+        "assistant",
+        "#{brain_pre_compaction_nudge_marker()} latest"
+      )
+
+    history =
+      [first_pair, second_pair, [large_tail], [tail_marker]]
+      |> Enum.map(fn content ->
+        %Message{
+          id: UUIDv7.autogenerate(),
+          type: "message",
+          status: "complete",
+          content: content,
+          metadata: %{}
+        }
+      end)
+      |> List.update_at(-1, &%{&1 | metadata: camel_usage(100_000)})
+
+    assert {:ok, %{compaction: %{artifact_attrs: artifact_attrs}}} =
+             Compaction.maybe_plan_history(
+               agent.uid,
+               UUIDv7.autogenerate(),
+               history,
+               [],
+               %{},
+               %{"context_length" => 256_000}
+             )
+
+    retained_items = artifact_attrs.retained_items
+
+    assert artifact_attrs.retention["actual"] == 1
+
+    assert Enum.flat_map(retained_items, fn
+             %{"type" => "tool_search_call", "call_id" => call_id} -> [call_id]
+             _item -> []
+           end) == ["search-a", "search-b"]
+
+    assert List.last(retained_items) == tail_marker
+    refute Enum.any?(retained_items, &(&1 == large_tail))
+  end
+
+  test "auto-compaction refit respects a cross-turn call boundary" do
+    %{principal: agent} = agent_fixture()
+
+    with_compaction_config(threshold: 0.50, max_threshold_tokens: 45_000, tail_rows: 2)
+
+    base_url =
+      start_recording_upstream(self(), fn request ->
+        assert request.path == "v1/responses"
+        assert request.body["model"] == "gpt-compact-light"
+
+        {:sse, 200,
+         openai_response_stream_events(
+           "resp_summary_cross_turn_call_boundary",
+           "gpt-compact-light",
+           "## Active Task\nThe loaded tool and pending result remain available."
+         )}
+      end)
+
+    create_openai_compaction_provider!(
+      agent,
+      "cross-turn-call-boundary-compaction",
+      base_url
+    )
+
+    search_pair =
+      client_tool_search_pair(
+        "search-cross-turn",
+        "tool_cross_turn",
+        String.duplicate("contract ", 875)
+      )
+
+    large_tail =
+      text_message(
+        "assistant",
+        "#{brain_pre_compaction_nudge_marker()} " <> String.duplicate("tail-body ", 2_400)
+      )
+
+    function_call = %{
+      "type" => "function_call",
+      "call_id" => "call-cross-turn",
+      "name" => "tool_cross_turn",
+      "arguments" => "{}",
+      "status" => "completed"
+    }
+
+    function_output = %{
+      "type" => "function_call_output",
+      "call_id" => "call-cross-turn",
+      "output" => "done"
+    }
+
+    history =
+      [search_pair, [large_tail], [function_call]]
+      |> Enum.map(fn content ->
+        %Message{
+          id: UUIDv7.autogenerate(),
+          type: "message",
+          status: "complete",
+          content: content,
+          metadata: %{}
+        }
+      end)
+      |> List.update_at(-1, &%{&1 | metadata: camel_usage(100_000)})
+
+    assert {:ok, %{compaction: %{artifact_attrs: artifact_attrs}}} =
+             Compaction.maybe_plan_history(
+               agent.uid,
+               UUIDv7.autogenerate(),
+               history,
+               [function_output],
+               %{},
+               %{"context_length" => 256_000}
+             )
+
+    retained_items = artifact_attrs.retained_items
+
+    assert artifact_attrs.retention["actual"] == 1
+    assert Enum.any?(retained_items, &(&1["call_id"] == "search-cross-turn"))
+    assert List.last(retained_items) == function_call
+    refute Enum.any?(retained_items, &(&1 == large_tail))
+  end
+
   test "websocket stateful auto-compaction closes a complete client tool batch" do
     %{principal: agent} = agent_fixture()
 
@@ -4639,6 +5002,124 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert List.last(provider_input) == List.last(current_input)
     assert length(provider_input) == 16
     refute Enum.any?(Repo.all(Message), &(&1.type == "checkpoint"))
+  end
+
+  test "auto truncation returns context overflow for an unsettled client Tool Search call" do
+    %{principal: agent} = agent_fixture()
+
+    with_compaction_config(threshold: 0.50, max_threshold_tokens: 10, tail_rows: 1)
+
+    history = [
+      %Message{
+        id: UUIDv7.autogenerate(),
+        type: "message",
+        status: "complete",
+        content: [
+          %{
+            "type" => "tool_search_call",
+            "call_id" => "search-unsettled",
+            "status" => "completed",
+            "execution" => "client",
+            "arguments" => %{"query" => "calendar"}
+          }
+        ],
+        metadata: camel_usage(20)
+      },
+      %Message{
+        id: UUIDv7.autogenerate(),
+        type: "message",
+        status: "complete",
+        content: [
+          text_message(
+            "assistant",
+            "latest response #{brain_pre_compaction_nudge_marker()}"
+          )
+        ],
+        metadata: camel_usage(20)
+      }
+    ]
+
+    assert {:error,
+            {:context_overflow,
+             %{
+               truncation: "auto",
+               reason: reason
+             }}} =
+             Compaction.maybe_plan_history(
+               agent.uid,
+               UUIDv7.autogenerate(),
+               history,
+               [],
+               %{"truncation" => "auto"}
+             )
+
+    assert reason =~ "unsettled_tool_search_call"
+  end
+
+  test "auto truncation rejects a retained client Tool Search pair beyond the checkpoint budget" do
+    %{principal: agent} = agent_fixture()
+
+    with_compaction_config(threshold: 0.50, max_threshold_tokens: 10, tail_rows: 1)
+
+    search_call = %{
+      "type" => "tool_search_call",
+      "call_id" => "search-oversized",
+      "status" => "completed",
+      "execution" => "client",
+      "arguments" => %{"query" => "calendar"}
+    }
+
+    search_output = %{
+      "type" => "tool_search_output",
+      "call_id" => "search-oversized",
+      "status" => "completed",
+      "execution" => "client",
+      "tools" => [
+        %{
+          "type" => "function",
+          "name" => "calendar",
+          "description" => String.duplicate("large contract ", 3_000),
+          "defer_loading" => true,
+          "parameters" => %{"type" => "object", "properties" => %{}}
+        }
+      ]
+    }
+
+    history = [
+      %Message{
+        id: UUIDv7.autogenerate(),
+        type: "message",
+        status: "complete",
+        content: [search_call, search_output],
+        metadata: camel_usage(20)
+      },
+      %Message{
+        id: UUIDv7.autogenerate(),
+        type: "message",
+        status: "complete",
+        content: [
+          text_message(
+            "assistant",
+            "latest response #{brain_pre_compaction_nudge_marker()}"
+          )
+        ],
+        metadata: camel_usage(20)
+      }
+    ]
+
+    assert {:error,
+            {:context_overflow,
+             %{
+               truncation: "auto",
+               reason: "compaction_output_over_budget"
+             }}} =
+             Compaction.maybe_plan_history(
+               agent.uid,
+               UUIDv7.autogenerate(),
+               history,
+               [],
+               %{"truncation" => "auto"}
+             )
   end
 
   test "websocket stateful truncation expands the stable tail for current tool output" do
@@ -6020,8 +6501,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                    open_sse_events(agent_uid, %{"model" => "primary", "input" => input})
 
           if String.starts_with?(input, "bad-") do
-            assert Enum.any?(events, &(&1["type"] == "error"))
-            assert Enum.any?(events, &(&1["type"] == "response.failed"))
+            refute Enum.any?(events, &(&1["type"] == "error"))
+            assert Enum.count(events, &(&1["type"] == "response.failed")) == 1
             {input, :failed}
           else
             body = terminal_response_body!(events)
@@ -6656,6 +7137,53 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     refute inspect(artifact.content["output"]) =~ "ankole:compact:v1:"
   end
 
+  test "local standalone compact uses the request model context budget" do
+    %{principal: agent} = agent_fixture()
+
+    with_compaction_config(threshold: 0.50, max_threshold_tokens: 100_000, tail_rows: 1)
+
+    base_url =
+      start_recording_upstream(self(), fn request ->
+        assert request.path == "v1/responses"
+        assert request.body["model"] == "gpt-compact-light"
+
+        {:sse, 200,
+         openai_response_stream_events(
+           "resp_summary_standalone_context_budget",
+           "gpt-compact-light",
+           "## Active Task\nThe large loaded contract remains active."
+         )}
+      end)
+
+    create_openai_compaction_provider!(
+      agent,
+      "standalone-context-budget",
+      base_url,
+      profiles: [
+        {"primary", "gpt-main", 131_072},
+        {"light", "gpt-compact-light", 131_072}
+      ]
+    )
+
+    oversized_pair =
+      client_tool_search_pair(
+        "search-oversized-context",
+        "large_contract",
+        String.duplicate("x", 270_000)
+      )
+
+    assert {:error, :compaction_output_over_budget} =
+             Compaction.compact_response(agent.uid, %{
+               "model" => "primary",
+               "input" => oversized_pair,
+               "store" => false
+             })
+
+    assert_receive {:gateway_request, %{path: "v1/responses"}}
+    refute_receive {:gateway_request, %{path: "v1/responses/compact"}}, 100
+    assert Repo.all(CompactionArtifact) == []
+  end
+
   test "stateful compaction replays native output and replaces it locally after a binding change" do
     %{principal: agent} = agent_fixture()
     prefer_provider_compaction!(agent.uid)
@@ -7030,6 +7558,33 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
       "role" => role,
       "content" => [%{"type" => content_type, "text" => text, "annotations" => []}]
     }
+  end
+
+  defp client_tool_search_pair(call_id, tool_name, description) do
+    tool = %{
+      "type" => "function",
+      "name" => tool_name,
+      "description" => description,
+      "defer_loading" => true,
+      "parameters" => %{"type" => "object", "properties" => %{}}
+    }
+
+    [
+      %{
+        "type" => "tool_search_call",
+        "call_id" => call_id,
+        "status" => "completed",
+        "execution" => "client",
+        "arguments" => %{"query" => tool_name}
+      },
+      %{
+        "type" => "tool_search_output",
+        "call_id" => call_id,
+        "status" => "completed",
+        "execution" => "client",
+        "tools" => [tool]
+      }
+    ]
   end
 
   defp media_message(image_url) do

@@ -100,6 +100,45 @@ defmodule Ankole.AIGateway.CompactionRetentionTest do
              ])
   end
 
+  test "keeps the whole client Tool Search pair when one loaded contract would be lost" do
+    {old_call, old_output} =
+      client_search_pair("search-old", [tool("calendar"), tool("weather")])
+
+    {new_call, new_output} = client_search_pair("search-new", [tool("calendar")])
+
+    assert {:ok, [^old_call, ^old_output]} =
+             CompactionRetention.collect_client_tool_search(
+               [old_call, old_output],
+               [new_call, new_output]
+             )
+  end
+
+  test "drops an earlier client Tool Search pair when later history has the same contract" do
+    {old_call, old_output} = client_search_pair("search-old", [tool("calendar")])
+    {new_call, new_output} = client_search_pair("search-new", [tool("calendar")])
+
+    assert {:ok, []} =
+             CompactionRetention.collect_client_tool_search(
+               [old_call, old_output],
+               [new_call, new_output]
+             )
+  end
+
+  test "keeps conflicting client Tool Search contracts for normal history validation" do
+    {first_call, first_output} = client_search_pair("search-1", [tool("calendar")])
+
+    {second_call, second_output} =
+      client_search_pair("search-2", [tool("calendar", "Changed contract")])
+
+    assert {:ok, [^first_call, ^first_output, ^second_call, ^second_output]} =
+             CompactionRetention.collect_client_tool_search([
+               first_call,
+               first_output,
+               second_call,
+               second_output
+             ])
+  end
+
   defp user_item(text) do
     %{
       "type" => "message",
@@ -123,5 +162,35 @@ defmodule Ankole.AIGateway.CompactionRetentionTest do
     }
 
     {call, output}
+  end
+
+  defp client_search_pair(call_id, tools) do
+    call = %{
+      "type" => "tool_search_call",
+      "call_id" => call_id,
+      "status" => "completed",
+      "execution" => "client",
+      "arguments" => %{"query" => "calendar"}
+    }
+
+    output = %{
+      "type" => "tool_search_output",
+      "call_id" => call_id,
+      "status" => "completed",
+      "execution" => "client",
+      "tools" => tools
+    }
+
+    {call, output}
+  end
+
+  defp tool(name, description \\ "Stable contract") do
+    %{
+      "type" => "function",
+      "name" => name,
+      "description" => description,
+      "defer_loading" => true,
+      "parameters" => %{"type" => "object", "properties" => %{}}
+    }
   end
 end

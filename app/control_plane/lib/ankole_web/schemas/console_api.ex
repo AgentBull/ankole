@@ -3304,6 +3304,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
         title: "BackgroundAgentJobTurnToolUsage",
         type: :object,
         properties: %{
+          namespace: %Schema{type: :string, minLength: 1},
           name: %Schema{type: :string, minLength: 1},
           calls: %Schema{type: :integer, minimum: 0}
         },
@@ -3323,6 +3324,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
         title: "BackgroundAgentJobTurnToolExecutionMechanism",
         type: :object,
         properties: %{
+          namespace: %Schema{type: :string, minLength: 1},
           name: %Schema{type: :string, minLength: 1},
           execution_mechanism: %Schema{
             type: :string,
@@ -3385,6 +3387,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
         type: :object,
         properties: %{
           id: %Schema{type: :string, minLength: 1},
+          namespace: %Schema{type: :string, minLength: 1},
           name: %Schema{type: :string, minLength: 1}
         },
         required: [:id, :name],
@@ -3450,6 +3453,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
         function: %Schema{
           type: :object,
           properties: %{
+            namespace: %Schema{type: :string},
             name: %Schema{type: :string},
             arguments: %Schema{type: :string}
           },
@@ -3492,6 +3496,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
             id: %Schema{type: :string},
             role: %Schema{type: :string, enum: ["tool"]},
             tool_call_id: %Schema{type: :string},
+            namespace: %Schema{type: :string},
             name: %Schema{type: :string},
             content: %Schema{type: :string},
             metadata: @message_metadata

@@ -143,7 +143,6 @@ describe('@ankole/agent-computer Codex job capability projection', () => {
       schema: z.record(z.string(), z.unknown()),
       jsonSchema: inputSchema,
       namespace: 'analysis_tools',
-      namespaceDescription: 'Data analysis tools.',
       deferLoading: true,
       isReadOnly: true,
       isDestructive: false,
@@ -164,7 +163,7 @@ describe('@ankole/agent-computer Codex job capability projection', () => {
       {
         type: 'namespace',
         name: 'analysis_tools',
-        description: 'Data analysis tools.',
+        description: 'Tools in the analysis_tools namespace.',
         tools: [
           {
             type: 'function',

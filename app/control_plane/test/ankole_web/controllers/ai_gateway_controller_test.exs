@@ -35,13 +35,25 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
       send(opts[:test_pid], {:native_controller_upstream_request, request})
 
       case opts[:mode] do
-        :malformed ->
+        :error_then_close ->
           conn =
             conn
             |> put_resp_content_type("text/event-stream")
             |> send_chunked(200)
 
-          {:ok, conn} = Plug.Conn.chunk(conn, "data: {bad json\n\n")
+          error_event = %{
+            "type" => "error",
+            "sequence_number" => 0,
+            "error" => %{
+              "type" => "server_error",
+              "code" => "upstream_stream_break",
+              "message" => "provider stream broke"
+            }
+          }
+
+          {:ok, conn} =
+            Plug.Conn.chunk(conn, "data: #{Ankole.JSON.encode!(error_event)}\n\n")
+
           conn
 
         :rate_limit ->
@@ -1490,7 +1502,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     assert request.body["max_tool_calls"] == 1
   end
 
-  test "responses maps invalid tool contracts to an OpenAI-compatible request error" do
+  test "native Responses rejects an invalid tool name before provider dispatch" do
     %{principal: agent} = agent_fixture()
 
     base_url =
@@ -1500,18 +1512,18 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
 
     assert {:ok, _provider} =
              ProviderConfigs.create_provider(%{
-               provider_id: "openrouter-invalid-tool-contract-http",
-               provider_kind: "openrouter",
-               base_url: base_url,
+               provider_id: "openai-invalid-tool-name-http",
+               provider_kind: "openai",
+               base_url: "#{base_url}/v1",
                credential_pool: %{
-                 "entries" => [%{"label" => "Default", "api_key" => "sk-openrouter"}]
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
                }
              })
 
     assert {:ok, _profile} =
              ModelProfiles.put_model_profile(agent.uid, "primary", %{
-               provider_id: "openrouter-invalid-tool-contract-http",
-               model: "test/main-model"
+               provider_id: "openai-invalid-tool-name-http",
+               model: "gpt-5.5"
              })
 
     assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
@@ -1525,11 +1537,9 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
         "tools" => [
           %{
             "type" => "function",
-            "name" => "broken",
-            "parameters" => %{"type" => "object", "properties" => %{}},
-            "allowed_callers" => ["bogus"]
-          },
-          %{"type" => "programmatic_tool_calling"}
+            "name" => "get.price",
+            "parameters" => %{"type" => "object", "properties" => %{}}
+          }
         ]
       })
 
@@ -1543,8 +1553,8 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
            } = json_response(conn, 400)
 
     assert message == "The Responses tool declaration or tool-call history is invalid."
-    refute response(conn, 400) =~ "invalid_allowed_callers"
-    refute response(conn, 400) =~ "bogus"
+    refute response(conn, 400) =~ "invalid_responses_identifier"
+    refute response(conn, 400) =~ "get.price"
     refute_receive {:gateway_request, _request}
   end
 
@@ -1853,13 +1863,13 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     refute response(conn, 429) =~ "data: [DONE]"
   end
 
-  test "streaming responses errors stay parseable by the Responses client", %{conn: conn} do
+  test "a provider error before close yields only the canonical Responses terminal", %{conn: conn} do
     %{principal: agent} = agent_fixture()
 
     server =
       start_supervised!(
         {Bandit,
-         plug: {NativeResponsesUpstreamPlug, test_pid: self(), mode: :malformed},
+         plug: {NativeResponsesUpstreamPlug, test_pid: self(), mode: :error_then_close},
          scheme: :http,
          ip: {127, 0, 0, 1},
          port: 0}
@@ -1906,10 +1916,11 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     assert_receive {:native_controller_upstream_request, upstream_request}
     assert upstream_request["stream"] == true
 
-    assert Enum.any?(decode_sse_events(response), &(&1["type"] == "error"))
-    assert Enum.any?(decode_sse_events(response), &(&1["type"] == "response.failed"))
+    events = decode_sse_events(response)
+    refute Enum.any?(events, &(&1["type"] == "error"))
+    assert Enum.count(events, &(&1["type"] == "response.failed")) == 1
 
-    assert response =~ "event: error"
+    refute response =~ "event: error"
     assert response =~ "data: [DONE]"
   end
 

@@ -5,8 +5,9 @@ defmodule Ankole.AIGateway.ToolSearch do
   AIGateway implements the official `tool_search` tool type, the
   `defer_loading` tool marker for every downstream provider. It coordinates
   loaded tools with `ProgrammaticToolCalling`, which owns the PTC declaration,
-  history, and job semantics. Upstream providers only see plain function tools
-  and plain function call items.
+  history, and job semantics. Responses providers keep native namespace
+  containers and namespaced call items; adapters for single-name protocols own
+  any required terminal alias.
 
   Two search execution modes exist and one request declares one of them:
 
@@ -44,8 +45,7 @@ defmodule Ankole.AIGateway.ToolSearch do
               catalog: [],
               search_context: "",
               contracts: [],
-              loaded_names: MapSet.new(),
-              provider_tool_paths: %{},
+              loaded_identities: MapSet.new(),
               ptc: %PTC.Plan{}
 
     @type t :: %__MODULE__{
@@ -55,8 +55,7 @@ defmodule Ankole.AIGateway.ToolSearch do
             catalog: [map()],
             search_context: String.t(),
             contracts: [Descriptor.t()],
-            loaded_names: MapSet.t(String.t()),
-            provider_tool_paths: %{String.t() => map()},
+            loaded_identities: MapSet.t({String.t() | nil, String.t()}),
             ptc: PTC.Plan.t()
           }
   end
@@ -90,11 +89,9 @@ defmodule Ankole.AIGateway.ToolSearch do
         declared_search? or settled_search_history?(history) or client_search_history?(history)
 
       projection_required? =
-        namespaced_call_history?(history) or settled_program_history?(history) or
+        settled_program_history?(history) or
           Enum.any?(contracts, fn contract ->
-            contract.deferred? or
-              not is_nil(contract.namespace) or
-              contract.allowed_callers != ["direct"]
+            contract.deferred? or contract.allowed_callers != ["direct"]
           end)
 
       with :ok <-
@@ -107,7 +104,14 @@ defmodule Ankole.AIGateway.ToolSearch do
         if not search_managed? and not PTC.enabled?(ptc) and not projection_required? do
           {:ok, request, nil}
         else
-          build_plan(request, declaration, contracts, passthrough_tools, ptc, history)
+          build_plan(
+            request,
+            declaration,
+            contracts,
+            passthrough_tools,
+            ptc,
+            history
+          )
         end
       end
     end
@@ -137,7 +141,7 @@ defmodule Ankole.AIGateway.ToolSearch do
       loaded =
         paths
         |> Enum.flat_map(&resolve_search_path(plan, catalog, &1))
-        |> Enum.uniq_by(&Map.get(&1, "name"))
+        |> Enum.uniq_by(&tool_identity/1)
 
       if length(loaded) <= @max_result_limit do
         {:ok, Enum.map(loaded, &Map.put(&1, "defer_loading", true))}
@@ -212,7 +216,10 @@ defmodule Ankole.AIGateway.ToolSearch do
              reserved_names: [PTC.tool_name(), plan.tool_name || @default_tool_name]
            ),
          loaded =
-           Enum.reject(loaded_contracts, &MapSet.member?(plan.loaded_names, &1.provider_name)) do
+           Enum.reject(
+             loaded_contracts,
+             &MapSet.member?(plan.loaded_identities, ToolContract.identity(&1))
+           ) do
       merge_loaded_tools(plan, downstream_tools, loaded)
     end
   end
@@ -226,15 +233,15 @@ defmodule Ankole.AIGateway.ToolSearch do
       plan = %{
         plan
         | contracts: merge_contracts(plan.contracts, loaded),
-          loaded_names: Enum.into(Enum.map(loaded, & &1.provider_name), plan.loaded_names),
-          provider_tool_paths: Map.merge(plan.provider_tool_paths, provider_tool_paths(loaded)),
+          loaded_identities:
+            Enum.into(Enum.map(loaded, &ToolContract.identity/1), plan.loaded_identities),
           ptc: ptc
       }
 
       downstream_tools =
         downstream_tools
-        |> Enum.reject(&(Map.get(&1, "name") == PTC.tool_name()))
-        |> Kernel.++(Enum.map(direct, &ToolContract.provider_spec/1))
+        |> Enum.reject(&root_tool_named?(&1, PTC.tool_name()))
+        |> merge_response_tools(ToolContract.response_specs(direct))
         |> PTC.append_provider_tool(ptc)
 
       {:ok, plan, downstream_tools}
@@ -273,7 +280,14 @@ defmodule Ankole.AIGateway.ToolSearch do
   # Request planning
   # ─────────────────────────────────────────────────────────────────
 
-  defp build_plan(request, declaration, contracts, passthrough_tools, ptc, history) do
+  defp build_plan(
+         request,
+         declaration,
+         contracts,
+         passthrough_tools,
+         ptc,
+         history
+       ) do
     deferred = Enum.filter(contracts, & &1.deferred?)
     remaining_tools = Enum.reject(contracts, & &1.deferred?)
     execution = execution_mode(declaration, deferred)
@@ -281,7 +295,7 @@ defmodule Ankole.AIGateway.ToolSearch do
 
     with :ok <- validate_search_execution_contract(declaration, execution),
          :ok <- validate_search_history(history),
-         {:ok, input_items, loaded_spec_groups, current_client_loaded_spec_groups,
+         {:ok, input_items, loaded_spec_groups, client_loaded_spec_groups,
           server_loaded_spec_groups} <-
            rewrite_input_items(history, tool_name),
          {:ok, loaded_tools} <-
@@ -290,9 +304,9 @@ defmodule Ankole.AIGateway.ToolSearch do
              contracts,
              [PTC.tool_name(), tool_name]
            ),
-         {:ok, current_client_loaded_tools} <-
+         {:ok, client_loaded_tools} <-
            validate_loaded_history(
-             current_client_loaded_spec_groups,
+             client_loaded_spec_groups,
              contracts,
              [PTC.tool_name(), tool_name]
            ),
@@ -304,18 +318,22 @@ defmodule Ankole.AIGateway.ToolSearch do
            ) do
       search_declared? = not is_nil(declaration) or deferred != []
 
-      callable_loaded_tools =
+      callable_server_loaded_tools =
         case {search_declared?, execution} do
-          {true, :client} ->
-            current_client_loaded_tools
-
           {true, :server} ->
-            deferred_names = MapSet.new(deferred, & &1.provider_name)
-            Enum.filter(server_loaded_tools, &MapSet.member?(deferred_names, &1.provider_name))
+            deferred_identities = MapSet.new(deferred, &ToolContract.identity/1)
 
-          {false, _execution} ->
+            Enum.filter(
+              server_loaded_tools,
+              &MapSet.member?(deferred_identities, ToolContract.identity(&1))
+            )
+
+          {_search_declared?, _execution} ->
             []
         end
+
+      callable_loaded_tools =
+        merge_contracts(client_loaded_tools, callable_server_loaded_tools)
 
       {direct_tools, program_bindings} =
         PTC.partition_tools(remaining_tools ++ callable_loaded_tools, ptc)
@@ -324,8 +342,8 @@ defmodule Ankole.AIGateway.ToolSearch do
            :ok <- ensure_no_tool_name_collision(direct_tools, passthrough_tools, tool_name),
            :ok <- PTC.ensure_no_collision(direct_tools, passthrough_tools, ptc),
            :ok <- validate_search_surface_paths(deferred, execution) do
-        catalog = Enum.map(deferred, &expanded_spec/1)
-        callable_loaded_specs = Enum.map(callable_loaded_tools, &expanded_spec/1)
+        catalog = Enum.map(deferred, &ToolContract.public_spec/1)
+        callable_loaded_specs = Enum.map(callable_loaded_tools, &ToolContract.public_spec/1)
 
         synthesized =
           synthesized_search_tool(
@@ -343,14 +361,13 @@ defmodule Ankole.AIGateway.ToolSearch do
           catalog: catalog,
           search_context: search_context(Map.get(request, "input")),
           contracts: merge_contracts(contracts, loaded_tools),
-          loaded_names: MapSet.new(Enum.map(callable_loaded_tools, & &1.provider_name)),
-          provider_tool_paths: provider_tool_paths(remaining_tools ++ deferred ++ loaded_tools),
+          loaded_identities: MapSet.new(callable_loaded_tools, &ToolContract.identity/1),
           ptc: ptc
         }
 
         provider_tools =
           passthrough_tools ++
-            Enum.map(direct_tools, &ToolContract.provider_spec/1) ++
+            ToolContract.response_specs(direct_tools) ++
             if(search_declared?, do: [synthesized], else: [])
 
         provider_tools = PTC.append_provider_tool(provider_tools, ptc)
@@ -375,34 +392,6 @@ defmodule Ankole.AIGateway.ToolSearch do
   end
 
   defp additional_tools_carrier(_request), do: nil
-
-  defp provider_tool_paths(tools) do
-    tools
-    |> Enum.filter(&is_binary(&1.namespace))
-    |> Map.new(fn descriptor ->
-      {descriptor.provider_name,
-       %{
-         "namespace" => descriptor.namespace,
-         "name" => descriptor.name
-       }}
-    end)
-  end
-
-  @doc false
-  @spec public_function_call(Plan.t(), map()) :: map()
-  def public_function_call(%Plan{} = plan, %{"name" => provider_name} = item) do
-    case Map.get(plan.provider_tool_paths, provider_name) do
-      %{"namespace" => namespace, "name" => name} ->
-        item
-        |> Map.put("namespace", namespace)
-        |> Map.put("name", name)
-
-      nil ->
-        item
-    end
-  end
-
-  def public_function_call(_plan, item), do: item
 
   defp split_tool_search_declaration(tools) do
     case Enum.split_with(tools, &(Map.get(&1, "type") == "tool_search")) do
@@ -464,8 +453,8 @@ defmodule Ankole.AIGateway.ToolSearch do
 
   defp ensure_no_tool_name_collision(base_tools, passthrough_tools, tool_name) do
     collision? =
-      Enum.any?(base_tools, &(&1.provider_name == tool_name)) or
-        Enum.any?(passthrough_tools, &(Map.get(&1, "name") == tool_name))
+      Enum.any?(base_tools, &(&1.namespace in [nil, "", "functions"] and &1.name == tool_name)) or
+        Enum.any?(passthrough_tools, &root_tool_named?(&1, tool_name))
 
     case collision? do
       false -> :ok
@@ -541,20 +530,6 @@ defmodule Ankole.AIGateway.ToolSearch do
   end
 
   defp settled_program_history?(_history), do: false
-
-  defp namespaced_call_history?(%ResponseItems.History{entries: entries}) do
-    Enum.any?(entries, fn
-      %{
-        item: %{"type" => type, "namespace" => namespace, "name" => name}
-      }
-      when type in ["function_call", "custom_tool_call"] and is_binary(namespace) and
-             is_binary(name) ->
-        true
-
-      _entry ->
-        false
-    end)
-  end
 
   defp settled_search_history?(%ResponseItems.History{error: nil, ledger: ledger}) do
     pairs = ResponseItems.search_pairs(ledger)
@@ -728,24 +703,22 @@ defmodule Ankole.AIGateway.ToolSearch do
        do: {:ok, input, [], [], []}
 
   defp rewrite_input_items(%ResponseItems.History{entries: entries}, tool_name) do
-    user_boundary = latest_user_message_index(entries)
-
     Enum.reduce_while(entries, {:ok, [], [], [], []}, fn entry,
                                                          {:ok, items_rev, loaded_groups_rev,
-                                                          current_client_loaded_groups_rev,
+                                                          client_loaded_groups_rev,
                                                           server_loaded_groups_rev} ->
       case rewrite_input_entry(entry, tool_name) do
         {:item, item} ->
           {:cont,
-           {:ok, [item | items_rev], loaded_groups_rev, current_client_loaded_groups_rev,
+           {:ok, [item | items_rev], loaded_groups_rev, client_loaded_groups_rev,
             server_loaded_groups_rev}}
 
         {:search_output, output, loaded} ->
-          current_client_loaded_groups_rev =
-            if current_client_search_output?(entry, user_boundary) do
-              [loaded | current_client_loaded_groups_rev]
+          client_loaded_groups_rev =
+            if client_search_output?(entry) do
+              [loaded | client_loaded_groups_rev]
             else
-              current_client_loaded_groups_rev
+              client_loaded_groups_rev
             end
 
           server_loaded_groups_rev =
@@ -756,37 +729,25 @@ defmodule Ankole.AIGateway.ToolSearch do
             end
 
           {:cont,
-           {:ok, [output | items_rev], [loaded | loaded_groups_rev],
-            current_client_loaded_groups_rev, server_loaded_groups_rev}}
+           {:ok, [output | items_rev], [loaded | loaded_groups_rev], client_loaded_groups_rev,
+            server_loaded_groups_rev}}
 
         :omit ->
           {:cont,
-           {:ok, items_rev, loaded_groups_rev, current_client_loaded_groups_rev,
-            server_loaded_groups_rev}}
+           {:ok, items_rev, loaded_groups_rev, client_loaded_groups_rev, server_loaded_groups_rev}}
 
         {:error, reason} ->
           {:halt, {:error, {:invalid_tool_search_history, reason}}}
       end
     end)
     |> case do
-      {:ok, items_rev, loaded_groups_rev, current_client_loaded_groups_rev,
-       server_loaded_groups_rev} ->
+      {:ok, items_rev, loaded_groups_rev, client_loaded_groups_rev, server_loaded_groups_rev} ->
         {:ok, Enum.reverse(items_rev), Enum.reverse(loaded_groups_rev),
-         Enum.reverse(current_client_loaded_groups_rev), Enum.reverse(server_loaded_groups_rev)}
+         Enum.reverse(client_loaded_groups_rev), Enum.reverse(server_loaded_groups_rev)}
 
       {:error, _reason} = error ->
         error
     end
-  end
-
-  defp latest_user_message_index(entries) do
-    Enum.reduce(entries, -1, fn
-      %{item: %{"role" => "user"} = item, index: index}, latest ->
-        if Map.get(item, "type") in [nil, "message"], do: index, else: latest
-
-      _entry, latest ->
-        latest
-    end)
   end
 
   defp validate_loaded_history(spec_groups, known, reserved_names) do
@@ -801,16 +762,12 @@ defmodule Ankole.AIGateway.ToolSearch do
     end)
   end
 
-  defp current_client_search_output?(
-         %{
-           item: %{"type" => "tool_search_output", "execution" => "client"},
-           index: index
-         },
-         user_boundary
-       ),
-       do: index > user_boundary
+  defp client_search_output?(%{
+         item: %{"type" => "tool_search_output", "execution" => "client"}
+       }),
+       do: true
 
-  defp current_client_search_output?(_entry, _user_boundary), do: false
+  defp client_search_output?(_entry), do: false
 
   defp server_search_output?(%{
          item: %{"type" => "tool_search_output", "execution" => "server"}
@@ -855,21 +812,9 @@ defmodule Ankole.AIGateway.ToolSearch do
     case PTC.provider_history_item(item) do
       {:handled, %{} = provider_item} -> {:item, provider_item}
       {:handled, nil} -> :omit
-      :unhandled -> {:item, rewrite_ordinary_input_item(item)}
+      :unhandled -> {:item, item}
     end
   end
-
-  defp rewrite_ordinary_input_item(
-         %{"type" => type, "namespace" => namespace, "name" => name} = item
-       )
-       when type in ["function_call", "custom_tool_call"] and is_binary(namespace) and
-              is_binary(name) do
-    item
-    |> Map.put("name", ToolContract.provider_alias(namespace, name))
-    |> Map.delete("namespace")
-  end
-
-  defp rewrite_ordinary_input_item(item), do: item
 
   defp replay_search_call_id(_item, {:search, :client, call_id}), do: call_id
 
@@ -899,14 +844,17 @@ defmodule Ankole.AIGateway.ToolSearch do
   defp flat_public_specs(specs) when is_list(specs) do
     specs
     |> Enum.reduce_while({:ok, []}, fn
-      %{"type" => "namespace", "name" => namespace, "tools" => children}, {:ok, reversed}
+      %{"type" => "namespace", "name" => namespace, "tools" => children} = container,
+      {:ok, reversed}
       when is_binary(namespace) and namespace != "" and is_list(children) ->
         if Enum.all?(children, &is_map/1) do
+          description = Map.get(container, "description")
+
           expanded =
             Enum.map(children, fn child ->
               child
-              |> Map.put("__ankole_namespace", namespace)
-              |> Map.put("__ankole_public_name", Map.get(child, "name"))
+              |> Map.put("namespace", namespace)
+              |> maybe_put("namespace_description", description)
             end)
 
           {:cont, {:ok, Enum.reverse(expanded, reversed)}}
@@ -1014,7 +962,7 @@ defmodule Ankole.AIGateway.ToolSearch do
   # upfront. A plain-function downstream has no schema-free tool slot, so the
   # listing rides inside the search tool description under a fixed budget.
   defp searchable_listing(deferred, loaded_tools) do
-    loaded_names = MapSet.new(Enum.map(loaded_tools, & &1["name"]))
+    loaded_identities = MapSet.new(loaded_tools, &tool_identity/1)
 
     {lines_rev, omitted, _seen, _bytes} =
       Enum.reduce(deferred, {[], 0, MapSet.new(), 0}, fn tool,
@@ -1022,7 +970,8 @@ defmodule Ankole.AIGateway.ToolSearch do
         identity = listing_identity(tool)
 
         cond do
-          MapSet.member?(loaded_names, tool["name"]) or MapSet.member?(seen, identity) ->
+          MapSet.member?(loaded_identities, tool_identity(tool)) or
+              MapSet.member?(seen, identity) ->
             acc
 
           true ->
@@ -1047,9 +996,9 @@ defmodule Ankole.AIGateway.ToolSearch do
 
   defp listing_line(%{"name" => name} = tool) do
     {public_name, description} =
-      case Map.get(tool, "__ankole_namespace") do
+      case Map.get(tool, "namespace") do
         namespace when is_binary(namespace) ->
-          {namespace, Map.get(tool, "__ankole_namespace_description")}
+          {namespace, Map.get(tool, "namespace_description")}
 
         _root ->
           {name, Map.get(tool, "description")}
@@ -1065,7 +1014,7 @@ defmodule Ankole.AIGateway.ToolSearch do
   end
 
   defp listing_identity(tool),
-    do: Map.get(tool, "__ankole_namespace") || Map.get(tool, "name")
+    do: Map.get(tool, "namespace") || Map.get(tool, "name")
 
   defp truncate(text, max_bytes) do
     if byte_size(text) <= max_bytes do
@@ -1184,12 +1133,12 @@ defmodule Ankole.AIGateway.ToolSearch do
   end
 
   defp unloaded_catalog(%Plan{} = plan) do
-    Enum.reject(plan.catalog, &MapSet.member?(plan.loaded_names, Map.get(&1, "name")))
+    Enum.reject(plan.catalog, &MapSet.member?(plan.loaded_identities, tool_identity(&1)))
   end
 
   defp tools_for_path(catalog, path) do
     Enum.filter(catalog, fn tool ->
-      namespace = Map.get(tool, "__ankole_namespace")
+      namespace = Map.get(tool, "namespace")
 
       cond do
         is_binary(namespace) and path == namespace -> true
@@ -1202,7 +1151,7 @@ defmodule Ankole.AIGateway.ToolSearch do
   defp resolve_search_path(plan, catalog, path) do
     candidates = tools_for_path(catalog, path)
 
-    if Enum.any?(candidates, &is_binary(Map.get(&1, "__ankole_namespace"))) do
+    if Enum.any?(candidates, &is_binary(Map.get(&1, "namespace"))) do
       case Index.search(candidates, plan.search_context, @default_result_limit) do
         [] -> candidates
         ranked -> ranked
@@ -1288,53 +1237,39 @@ defmodule Ankole.AIGateway.ToolSearch do
   end
 
   defp public_tool_specs(tools) do
-    root_tools =
-      tools
-      |> Enum.reject(&is_binary(Map.get(&1, "__ankole_namespace")))
-      |> Enum.map(&public_child_tool/1)
+    grouped =
+      Enum.group_by(tools, fn tool -> Map.get(tool, "namespace") || "functions" end)
 
-    namespace_tools =
-      tools
-      |> Enum.filter(&is_binary(Map.get(&1, "__ankole_namespace")))
-      |> Enum.group_by(& &1["__ankole_namespace"])
-      |> Enum.sort_by(&elem(&1, 0))
-      |> Enum.map(fn {namespace, children} ->
-        %{
-          "type" => "namespace",
-          "name" => namespace,
-          "description" =>
-            hd(children)["__ankole_namespace_description"] || "Tools from #{namespace}.",
-          "tools" => Enum.map(children, &public_child_tool/1)
-        }
-      end)
+    namespaces =
+      case Map.pop(grouped, "functions") do
+        {nil, remaining} -> Enum.sort_by(remaining, &elem(&1, 0))
+        {children, remaining} -> [{"functions", children} | Enum.sort_by(remaining, &elem(&1, 0))]
+      end
 
-    root_tools ++ namespace_tools
+    Enum.map(namespaces, fn {namespace, children} ->
+      description =
+        case Enum.find(children, &Map.has_key?(&1, "namespace_description")) do
+          nil -> ToolContract.default_namespace_description(namespace)
+          child -> Map.get(child, "namespace_description")
+        end
+
+      %{
+        "type" => "namespace",
+        "name" => namespace,
+        "description" => description,
+        "tools" => Enum.map(children, &public_child_tool/1)
+      }
+    end)
   end
 
   defp public_child_tool(tool) do
-    public_name = Map.get(tool, "__ankole_public_name") || Map.get(tool, "name")
-
     tool
-    |> Map.put("name", public_name)
     |> Map.put("defer_loading", true)
     |> Map.drop([
-      "__ankole_namespace",
-      "__ankole_public_name",
-      "__ankole_namespace_description",
+      "namespace",
+      "namespace_description",
       "__ankole_search_text"
     ])
-  end
-
-  defp expanded_spec(%Descriptor{} = descriptor) do
-    descriptor
-    |> ToolContract.provider_spec()
-    |> Map.put("allowed_callers", descriptor.allowed_callers)
-    |> maybe_put_optional("output_schema", descriptor.output_schema)
-    |> maybe_put_boolean("defer_loading", descriptor.deferred?)
-    |> maybe_put("__ankole_namespace", descriptor.namespace)
-    |> maybe_put("__ankole_public_name", if(descriptor.namespace, do: descriptor.name))
-    |> maybe_put_optional("__ankole_namespace_description", descriptor.namespace_description)
-    |> maybe_put("__ankole_search_text", descriptor.search_text)
   end
 
   defp merge_contracts(existing, loaded) do
@@ -1347,17 +1282,19 @@ defmodule Ankole.AIGateway.ToolSearch do
   end
 
   defp merge_contract(descriptor, {order_rev, by_name}) do
-    name = descriptor.provider_name
-    order_rev = if Map.has_key?(by_name, name), do: order_rev, else: [name | order_rev]
-    {order_rev, Map.put(by_name, name, descriptor)}
+    identity = ToolContract.identity(descriptor)
+    order_rev = if Map.has_key?(by_name, identity), do: order_rev, else: [identity | order_rev]
+    {order_rev, Map.put(by_name, identity, descriptor)}
   end
 
   defp public_tool_path(tool) do
-    case Map.get(tool, "__ankole_namespace") do
-      namespace when is_binary(namespace) -> "#{namespace}.#{tool["__ankole_public_name"]}"
+    case Map.get(tool, "namespace") do
+      namespace when is_binary(namespace) -> "#{namespace}.#{tool["name"]}"
       _root -> Map.get(tool, "name")
     end
   end
+
+  defp tool_identity(tool), do: {Map.get(tool, "namespace"), Map.get(tool, "name")}
 
   defp public_item_id(item, prefix) do
     case Map.get(item, "id") do
@@ -1371,18 +1308,45 @@ defmodule Ankole.AIGateway.ToolSearch do
     end
   end
 
+  defp merge_response_tools(existing, additions) do
+    Enum.reduce(additions, existing, fn
+      %{"type" => "namespace", "name" => namespace, "tools" => added_children} = addition,
+      tools ->
+        case Enum.find_index(tools, &namespace_tool_named?(&1, namespace)) do
+          nil ->
+            tools ++ [addition]
+
+          index ->
+            List.update_at(tools, index, fn current ->
+              Map.update!(current, "tools", fn children ->
+                (children ++ added_children)
+                |> Enum.uniq_by(&Map.get(&1, "name"))
+              end)
+            end)
+        end
+
+      addition, tools ->
+        tools ++ [addition]
+    end)
+  end
+
+  defp namespace_tool_named?(%{"type" => "namespace", "name" => name}, expected),
+    do: name == expected
+
+  defp namespace_tool_named?(_tool, _expected), do: false
+
+  defp root_tool_named?(%{"type" => type, "name" => name}, expected)
+       when type != "namespace",
+       do: name == expected
+
+  defp root_tool_named?(_tool, _expected), do: false
+
   defp maybe_put(map, _key, nil), do: map
 
   defp maybe_put(map, key, value) when is_binary(value) and value != "",
     do: Map.put(map, key, value)
 
   defp maybe_put(map, _key, _value), do: map
-
-  defp maybe_put_optional(map, _key, nil), do: map
-  defp maybe_put_optional(map, key, value), do: Map.put(map, key, value)
-
-  defp maybe_put_boolean(map, key, true), do: Map.put(map, key, true)
-  defp maybe_put_boolean(map, _key, false), do: map
 
   defp put_input(request, input) when is_list(input), do: Map.put(request, "input", input)
   defp put_input(request, _input), do: request

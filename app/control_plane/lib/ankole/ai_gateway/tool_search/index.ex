@@ -53,9 +53,8 @@ defmodule Ankole.AIGateway.ToolSearch.Index do
     [
       Map.get(tool, "__ankole_search_text"),
       Map.get(tool, "name"),
-      Map.get(tool, "__ankole_public_name"),
-      Map.get(tool, "__ankole_namespace"),
-      Map.get(tool, "__ankole_namespace_description"),
+      Map.get(tool, "namespace"),
+      Map.get(tool, "namespace_description"),
       Map.get(tool, "description"),
       parameter_names(tool)
     ]

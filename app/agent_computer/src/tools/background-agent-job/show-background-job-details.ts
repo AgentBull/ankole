@@ -37,6 +37,7 @@ const ExecutionProgressSchema = z.object({
   tool_calls: NonNegativeIntegerSchema,
   tools_used: z.array(
     z.object({
+      namespace: z.string().optional(),
       name: z.string(),
       calls: NonNegativeIntegerSchema
     })
@@ -44,6 +45,7 @@ const ExecutionProgressSchema = z.object({
   tool_execution_mechanisms: z
     .array(
       z.object({
+        namespace: z.string().optional(),
         name: z.string(),
         execution_mechanism: z.enum(['provider_hosted', 'local_dynamic']),
         calls: NonNegativeIntegerSchema
@@ -55,6 +57,7 @@ const ExecutionProgressSchema = z.object({
   active_items: z.array(
     z.object({
       scope: z.enum(['lead', 'child']),
+      namespace: z.string().optional(),
       name: z.string()
     })
   ),

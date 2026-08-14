@@ -4,6 +4,7 @@ import { errorMessage } from '../../common/errors'
 import { truncateUTF8Safe, utf8ByteLength } from '../../common/text-sanitize'
 import type { AgentTool } from '../index'
 import { zodToJSONSchema } from '../llm/tool-schema'
+import { defaultNamespaceDescription } from '../llm/wire'
 import type { DynamicToolCallParams } from './generated/protocol/v2/DynamicToolCallParams'
 import type { DynamicToolCallResponse } from './generated/protocol/v2/DynamicToolCallResponse'
 import type { DynamicToolSpec } from './generated/protocol/v2/DynamicToolSpec'
@@ -74,7 +75,7 @@ export function buildCodexJobProjection(input: {
       const inputSchema = (tool.jsonSchema ?? zodToJSONSchema(tool.schema)) as unknown as JSONValue
       if (tool.namespace !== undefined) {
         const existing = namespaces.get(tool.namespace)
-        const description = tool.namespaceDescription ?? tool.namespace
+        const description = tool.namespaceDescription ?? defaultNamespaceDescription(tool.namespace)
         if (existing && existing.description !== description) {
           throw new Error(`Dynamic namespace ${tool.namespace} has conflicting descriptions`)
         }
@@ -171,7 +172,7 @@ function assertCodexDynamicToolIdentity(tool: AgentTool): void {
   if (tool.namespace === undefined) return
 
   assertCodexDynamicIdentifier(tool.namespace, 'tool namespace', codexDynamicNamespaceMaxLength)
-  const description = tool.namespaceDescription ?? tool.namespace
+  const description = tool.namespaceDescription ?? defaultNamespaceDescription(tool.namespace)
   if ([...description].length > codexDynamicNamespaceDescriptionMaxLength) {
     throw new Error(
       `Dynamic tool namespace description must be at most ${codexDynamicNamespaceDescriptionMaxLength} characters`

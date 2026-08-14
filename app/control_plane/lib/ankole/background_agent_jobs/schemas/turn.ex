@@ -201,9 +201,10 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Turn do
 
   defp valid_tools_used?(tools_used, tool_calls) when is_list(tools_used) do
     if length(tools_used) <= @max_tools_used and Enum.all?(tools_used, &valid_tool_usage?/1) do
-      tool_names = Enum.map(tools_used, & &1["name"])
+      tool_identities = Enum.map(tools_used, &tool_identity/1)
 
-      tool_names == Enum.sort(tool_names) and tool_names == Enum.uniq(tool_names) and
+      tool_identities == Enum.sort(tool_identities) and
+        tool_identities == Enum.uniq(tool_identities) and
         Enum.sum(Enum.map(tools_used, & &1["calls"])) == tool_calls
     else
       false
@@ -218,13 +219,15 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Turn do
        when is_list(executions) and is_list(tools_used) do
     if length(executions) <= @max_tool_execution_mechanisms and
          Enum.all?(executions, &valid_tool_execution_mechanism?/1) do
-      tool_calls = Map.new(tools_used, &{&1["name"], &1["calls"]})
-      pairs = Enum.map(executions, &{&1["name"], &1["execution_mechanism"]})
+      tool_calls = Map.new(tools_used, &{tool_identity(&1), &1["calls"]})
+      pairs = Enum.map(executions, &{tool_identity(&1), &1["execution_mechanism"]})
 
       pairs == Enum.sort(pairs) and pairs == Enum.uniq(pairs) and
         executions
-        |> Enum.group_by(& &1["name"], & &1["calls"])
-        |> Enum.all?(fn {name, calls} -> Enum.sum(calls) <= Map.get(tool_calls, name, -1) end)
+        |> Enum.group_by(&tool_identity/1, & &1["calls"])
+        |> Enum.all?(fn {identity, calls} ->
+          Enum.sum(calls) <= Map.get(tool_calls, identity, -1)
+        end)
     else
       false
     end
@@ -233,7 +236,8 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Turn do
   defp valid_optional_tool_execution_mechanisms?(_executions, _tools_used), do: false
 
   defp valid_tool_execution_mechanism?(execution) when is_map(execution) do
-    Map.keys(execution) -- ~w(name execution_mechanism calls) == [] and
+    Map.keys(execution) -- ~w(namespace name execution_mechanism calls) == [] and
+      valid_optional_namespace?(execution) and
       nonempty_string?(execution["name"]) and
       execution["execution_mechanism"] in @tool_execution_mechanisms and
       is_integer(execution["calls"]) and execution["calls"] > 0
@@ -249,7 +253,8 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Turn do
   end
 
   defp valid_tool_usage?(%{"name" => name, "calls" => calls} = usage) do
-    Map.keys(usage) -- ~w(name calls) == [] and nonempty_string?(name) and
+    Map.keys(usage) -- ~w(namespace name calls) == [] and valid_optional_namespace?(usage) and
+      nonempty_string?(name) and
       nonnegative_integer?(calls)
   end
 
@@ -276,10 +281,18 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Turn do
   defp valid_optional_active_item?(nil), do: true
 
   defp valid_optional_active_item?(%{"id" => id, "name" => name} = item) do
-    Map.keys(item) -- ~w(id name) == [] and nonempty_string?(id) and nonempty_string?(name)
+    Map.keys(item) -- ~w(id namespace name) == [] and valid_optional_namespace?(item) and
+      nonempty_string?(id) and nonempty_string?(name)
   end
 
   defp valid_optional_active_item?(_item), do: false
+
+  defp valid_optional_namespace?(value),
+    do:
+      not Map.has_key?(value, "namespace") or
+        (is_binary(value["namespace"]) and value["namespace"] != "")
+
+  defp tool_identity(value), do: {Map.get(value, "namespace") || "", value["name"]}
 
   defp validate_usage(changeset) do
     validate_change(changeset, :usage, fn :usage, usage ->

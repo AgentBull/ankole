@@ -4,7 +4,7 @@ defmodule Ankole.AIGateway.ProgramExecutionTest do
   alias Ankole.AIGateway.ProgramExecution
 
   defp job(call_id, code \\ ~s|text("ok");|) do
-    %{call_id: call_id, code: code, binding_names: [], memo: []}
+    %{call_id: call_id, code: code, runtime_bindings: [], memo: []}
   end
 
   defp assert_completed(handle, call_id) do

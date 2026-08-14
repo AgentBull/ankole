@@ -161,7 +161,7 @@
   "footer.project.issues": "问题反馈",
   "footer.copyright": "© {year} AgentBull",
   "footer.licenseLine": "以 Apache-2.0 许可证开源。",
-  "docs.index.title": "把 Ankole 跑起来，要知道的都在这里",
+  "docs.index.title": "把 Ankole 跑起来，要知道的都在这",
   "docs.index.subtitle": "完成部署，理解运行时模型，并运维一个完全由你掌控的私有化部署实例。",
   "docs.index.start": "从「介绍」开始读",
   "docs.sidebar.title": "文档",

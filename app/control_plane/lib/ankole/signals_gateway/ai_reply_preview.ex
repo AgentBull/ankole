@@ -1695,14 +1695,20 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   defp remember_tool_call(tool_calls, _call_id, _name), do: tool_calls
 
   defp tool_activity_name(payload, call_id, tool_calls) do
-    normalize_optional_text(
-      payload[:name] || payload["name"] || payload[:tool] || payload["tool"] ||
-        payload[:type] || payload["type"]
-    ) ||
-      tool_name_from_output(payload[:output] || payload["output"]) ||
-      if(is_binary(call_id), do: Map.get(tool_calls, call_id)) ||
-      call_id ||
-      "tool"
+    name =
+      normalize_optional_text(
+        payload[:name] || payload["name"] || payload[:tool] || payload["tool"] ||
+          payload[:type] || payload["type"]
+      ) ||
+        tool_name_from_output(payload[:output] || payload["output"]) ||
+        if(is_binary(call_id), do: Map.get(tool_calls, call_id)) ||
+        call_id ||
+        "tool"
+
+    case normalize_optional_text(payload[:namespace] || payload["namespace"]) do
+      nil -> name
+      namespace -> "#{namespace}.#{name}"
+    end
   end
 
   defp tool_name_from_output(%{"tool" => tool}), do: normalize_optional_text(tool)

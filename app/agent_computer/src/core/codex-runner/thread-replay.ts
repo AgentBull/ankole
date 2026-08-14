@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { jsonObject, type JsonObject as JSONObject } from '@agentbull/active-support'
 import type { ActorTurnRef } from '../../lanes/actor_lane'
 import { rpcMethods, type RPCRequester } from '../../lanes/rpc_lane'
-import { stringValue } from './protocol'
+import { normalizedCollaborationToolName, stringValue } from './protocol'
 
 /**
  * Rebuilds a lost Codex thread from the control plane's stored turn items.
@@ -52,32 +52,40 @@ function wireItemsFromSemanticItem(item: JSONObject): JSONObject[] {
     case 'plan':
       return textMessage('assistant', 'output_text', stringValue(item.text) ?? '')
     case 'commandExecution':
-      return toolCallPair(item.id, 'shell', { command: item.command, cwd: item.cwd }, commandOutput(item))
+      return toolCallPair(item.id, { name: 'shell' }, { command: item.command, cwd: item.cwd }, commandOutput(item))
     case 'fileChange':
-      return toolCallPair(item.id, 'apply_patch', { changes: item.changes }, stringValue(item.status) ?? 'completed')
+      return toolCallPair(
+        item.id,
+        { name: 'apply_patch' },
+        { changes: item.changes },
+        stringValue(item.status) ?? 'completed'
+      )
     case 'mcpToolCall':
       return toolCallPair(
         item.id,
-        joinName(stringValue(item.server), stringValue(item.tool)) ?? 'mcp_tool',
+        replayMCPToolIdentity(item),
         item.arguments,
         jsonText(item.result ?? item.error ?? '')
       )
     case 'dynamicToolCall':
       return toolCallPair(
         item.id,
-        joinName(stringValue(item.namespace), stringValue(item.tool)) ?? 'dynamic_tool',
+        {
+          namespace: stringValue(item.namespace),
+          name: stringValue(item.tool) ?? 'dynamic_tool'
+        },
         item.arguments,
         dynamicToolOutput(item)
       )
     case 'collabAgentToolCall':
       return toolCallPair(
         item.id,
-        `collaboration.${stringValue(item.tool) ?? 'agent_interaction'}`,
+        { namespace: 'collaboration', name: normalizedCollaborationToolName(stringValue(item.tool)) },
         { receiver_thread_ids: item.receiverThreadIds },
         jsonText(item.agentsStates ?? '')
       )
     case 'webSearch':
-      return toolCallPair(item.id, 'web_search', { query: item.query }, '')
+      return toolCallPair(item.id, { name: 'web_search' }, { query: item.query }, '')
     default:
       // reasoning, contextCompaction, imageView, sleep, imageGeneration and
       // review markers carry no continuation value the workspace or the pair
@@ -110,13 +118,16 @@ function textMessage(role: string, partType: string, text: string): JSONObject[]
   ]
 }
 
-function toolCallPair(id: unknown, name: string, args: unknown, output: string): JSONObject[] {
+type ReplayToolIdentity = { namespace?: string; name: string }
+
+function toolCallPair(id: unknown, identity: ReplayToolIdentity, args: unknown, output: string): JSONObject[] {
   const callID = replayCallID(stringValue(id) ?? crypto.randomUUID())
   return [
     {
       type: 'function_call',
       ['call_id']: callID,
-      name,
+      ...(identity.namespace ? { namespace: identity.namespace } : {}),
+      name: identity.name,
       arguments: jsonText(args ?? {})
     },
     {
@@ -127,9 +138,26 @@ function toolCallPair(id: unknown, name: string, args: unknown, output: string):
   ]
 }
 
-function joinName(namespace: string | undefined, name: string | undefined): string | undefined {
-  if (!name) return undefined
-  return namespace ? `${namespace}.${name}` : name
+function replayMCPToolIdentity(item: JSONObject): ReplayToolIdentity {
+  const namespace = stringValue(item.namespace)
+  const name = stringValue(item.name)
+
+  // Older durable turn items predate the model-visible MCP identity fields.
+  // Rebuild the common Codex namespace form without flattening it into `name`.
+  const server = stringValue(item.server)
+  const tool = stringValue(item.tool)
+  return {
+    ...(namespace
+      ? { namespace }
+      : server
+        ? { namespace: server.startsWith('mcp__') ? server : `mcp__${responsesIdentifier(server)}` }
+        : {}),
+    name: name ?? (tool ? responsesIdentifier(tool) : 'mcp_tool')
+  }
+}
+
+function responsesIdentifier(value: string): string {
+  return value.replace(/[^A-Za-z0-9_]/gu, '_')
 }
 
 function userText(content: unknown): string {

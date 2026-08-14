@@ -145,16 +145,18 @@ defmodule Ankole.AIGateway.ToolSearchStreamTest do
         end)
 
       assert Enum.all?(statuses, &(&1 == :continue))
-      assert Enum.map(events, & &1["type"]) == ["response.created", "response.output_item.done"]
+      assert Enum.map(events, & &1["type"]) == ["response.created"]
 
-      {_state, [terminal], {:terminal, outcome, :keep_upstream}} =
+      {_state, [call_event, terminal], {:terminal, outcome, :keep_upstream}} =
         observe!(state, completed_event([search_call_item("search-1", arguments)], 4))
 
+      assert call_event["type"] == "response.output_item.done"
+      assert call_event["item"]["type"] == "tool_search_call"
       assert terminal["type"] == "response.completed"
       assert Enum.map(outcome.public_items, & &1["type"]) == ["tool_search_call"]
     end
 
-    test "restores one namespaced function call across streamed and terminal output" do
+    test "preserves one native namespaced function call across streamed and terminal output" do
       namespace = %{
         "type" => "namespace",
         "name" => "mcp__finance",
@@ -179,7 +181,8 @@ defmodule Ankole.AIGateway.ToolSearchStreamTest do
       provider_call = %{
         "type" => "function_call",
         "id" => "fc_quote",
-        "name" => "mcp__finance__get_quote",
+        "namespace" => "mcp__finance",
+        "name" => "get_quote",
         "call_id" => "call_quote",
         "status" => "completed",
         "arguments" => ~s({"symbol":"600519.SH"})
@@ -274,8 +277,14 @@ defmodule Ankole.AIGateway.ToolSearchStreamTest do
       assert is_binary(output_event["item"]["id"])
       refute search_call_event["item"]["id"] == output_event["item"]["id"]
 
-      assert [%{"name" => "bx_market_data", "defer_loading" => true}] =
-               output_event["item"]["tools"]
+      assert [
+               %{
+                 "type" => "namespace",
+                 "name" => "functions",
+                 "description" => "",
+                 "tools" => [%{"name" => "bx_market_data", "defer_loading" => true}]
+               }
+             ] = output_event["item"]["tools"]
 
       continuation_tools = Enum.map(continuation_request["tools"], & &1["name"])
       assert "get_weather" in continuation_tools
@@ -768,9 +777,10 @@ defmodule Ankole.AIGateway.ToolSearchStreamTest do
 
       assert Enum.all?(statuses, &(&1 == :continue))
 
-      {state, [output_event], {:round, continuation_request}} =
+      {state, [call_event, output_event], {:round, continuation_request}} =
         observe!(state, completed_event([search_call_item("call_1", arguments)], 4))
 
+      assert call_event["item"]["type"] == "tool_search_call"
       assert output_event["item"]["type"] == "tool_search_output"
       refute Map.has_key?(continuation_request, "max_tool_calls")
 
@@ -843,21 +853,129 @@ defmodule Ankole.AIGateway.ToolSearchStreamTest do
         )
 
       assert Enum.map(streamed_events, & &1["type"]) == [
-               "response.created",
-               "response.output_item.done"
+               "response.created"
              ]
 
-      {_, [output_event], {:round, continuation_request}} =
+      {_, [call_event, output_event], {:round, continuation_request}} =
         observe!(state, completed_event([first, second], 7))
 
+      assert call_event["item"]["type"] == "tool_search_call"
+      assert is_binary(call_event["item"]["id"])
       assert output_event["item"]["type"] == "tool_search_output"
       assert output_event["sequence_number"] == 2
-      assert [%{"name" => "bx_market_data"}] = output_event["item"]["tools"]
+
+      assert [
+               %{
+                 "type" => "namespace",
+                 "name" => "functions",
+                 "tools" => [%{"name" => "bx_market_data"}]
+               }
+             ] = output_event["item"]["tools"]
 
       encoded_input = Ankole.JSON.encode!(continuation_request["input"])
       assert encoded_input =~ "call_1"
       refute encoded_input =~ "call_2"
       refute encoded_input =~ "bx_news"
+    end
+
+    test "provider built-ins consume the shared budget before deferred server search" do
+      request = %{
+        "model" => "gpt-5.6",
+        "max_tool_calls" => 1,
+        "tools" => [
+          deferred_tool("bx_market_data", "A股行情数据查询"),
+          %{"type" => "web_search"}
+        ],
+        "input" => []
+      }
+
+      {state, _provider_request} =
+        new_state(request, request, %{"api_resolver" => :openai_responses})
+
+      arguments = ~s({"paths":["bx_market_data"]})
+      search_call = search_call_item("call_search", arguments)
+
+      {state, streamed_events, statuses} =
+        Enum.reduce(search_call_events("call_search", arguments), {state, [], []}, fn event,
+                                                                                      {state,
+                                                                                       events,
+                                                                                       statuses} ->
+          {state, emitted, status} = observe!(state, event)
+          {state, events ++ emitted, statuses ++ [status]}
+        end)
+
+      assert Enum.all?(statuses, &(&1 == :continue))
+      assert Enum.map(streamed_events, & &1["type"]) == ["response.created"]
+
+      web_search = %{
+        "type" => "web_search_call",
+        "id" => "web_1",
+        "status" => "completed",
+        "action" => %{"type" => "search"}
+      }
+
+      {state, [web_event], :continue} =
+        observe!(state, %{
+          "type" => "response.output_item.done",
+          "sequence_number" => 4,
+          "output_index" => 1,
+          "item" => web_search
+        })
+
+      assert web_event["item"]["type"] == "web_search_call"
+      assert web_event["output_index"] == 0
+
+      {_state, [terminal], {:terminal, outcome, :keep_upstream}} =
+        observe!(state, completed_event([search_call, web_search], 5))
+
+      assert terminal["type"] == "response.completed"
+      assert Enum.map(terminal["response"]["output"], & &1["type"]) == ["web_search_call"]
+      assert Enum.map(outcome.public_items, & &1["type"]) == ["web_search_call"]
+    end
+
+    test "terminal-only provider built-ins consume the shared budget before a program" do
+      request = %{
+        "model" => "gpt-5.6",
+        "max_tool_calls" => 1,
+        "tools" => [
+          %{
+            "type" => "function",
+            "name" => "market",
+            "allowed_callers" => ["programmatic"],
+            "parameters" => %{"type" => "object", "properties" => %{}}
+          },
+          %{"type" => "programmatic_tool_calling"},
+          %{"type" => "web_search"}
+        ],
+        "input" => []
+      }
+
+      {state, _provider_request} =
+        new_state(request, request, %{"api_resolver" => :openai_responses})
+
+      program_call = %{
+        "type" => "function_call",
+        "id" => "fc_program_over_budget",
+        "name" => "program",
+        "call_id" => "program_over_budget",
+        "status" => "completed",
+        "arguments" => Ankole.JSON.encode!(%{"code" => "text(market())"})
+      }
+
+      web_search = %{
+        "type" => "web_search_call",
+        "id" => "web_terminal_winner",
+        "status" => "completed",
+        "action" => %{"type" => "search"}
+      }
+
+      {_state, [web_event, terminal], {:terminal, outcome, :keep_upstream}} =
+        observe!(state, completed_event([program_call, web_search], 0))
+
+      assert web_event["item"]["type"] == "web_search_call"
+      assert terminal["type"] == "response.completed"
+      assert Enum.map(terminal["response"]["output"], & &1["type"]) == ["web_search_call"]
+      assert Enum.map(outcome.public_items, & &1["type"]) == ["web_search_call"]
     end
 
     test "exhausted round budget finalizes as an explicit incomplete", %{state: state} do

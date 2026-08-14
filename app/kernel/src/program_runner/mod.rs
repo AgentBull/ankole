@@ -121,7 +121,7 @@ impl RunControl {
 pub struct RunRequest {
     pub program: String,
     #[serde(default)]
-    pub tools: Vec<String>,
+    pub tools: Vec<ToolDefinition>,
     #[serde(default)]
     pub memo: Vec<MemoEntry>,
     #[serde(default)]
@@ -142,8 +142,24 @@ pub struct RunRequest {
     pub max_memo_bytes: Option<usize>,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ToolDefinition {
+    pub namespace: Option<String>,
+    pub name: String,
+    pub global_name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct ToolIdentity {
+    namespace: Option<String>,
+    name: String,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub struct MemoEntry {
+    #[serde(default)]
+    pub namespace: Option<String>,
     pub name: String,
     pub arguments: JsonValue,
     pub output: JsonValue,
@@ -151,6 +167,7 @@ pub struct MemoEntry {
 
 #[derive(Debug, Serialize, PartialEq)]
 pub struct PendingCall {
+    pub namespace: Option<String>,
     pub name: String,
     pub arguments: JsonValue,
 }
@@ -185,7 +202,7 @@ enum ProgramStatus {
 }
 
 struct ProgramState {
-    allowed_tools: HashSet<String>,
+    allowed_tools: HashMap<String, ToolIdentity>,
     memo: Vec<MemoEntry>,
     memo_cursor: usize,
     pending_calls: Vec<PendingCall>,
@@ -298,21 +315,32 @@ async fn op_ankole_tool_call(
         let program = op_state.borrow_mut::<ProgramState>();
         program.activity += 1;
 
-        if !program.allowed_tools.contains(&name) {
+        let Some(identity) = program.allowed_tools.get(&name).cloned() else {
             let message = format!("program tool is not enabled: {name}");
             program.fail("program_tool_not_allowed", message.clone());
-            Reply::Diverged(message)
-        } else if program.memo_cursor < program.memo.len() {
+            return serde_json::json!({
+                "__ankole_reply": "error",
+                "error": message,
+            });
+        };
+
+        if program.memo_cursor < program.memo.len() {
             let entry = &program.memo[program.memo_cursor];
 
-            if entry.name == name && entry.arguments == arguments {
+            if entry.namespace == identity.namespace
+                && entry.name == identity.name
+                && entry.arguments == arguments
+            {
                 let output = entry.output.clone();
                 program.memo_cursor += 1;
                 Reply::Memo(output)
             } else {
                 let message = format!(
                     "program replay diverged: expected {}({}), got {}({})",
-                    entry.name, entry.arguments, name, arguments
+                    qualified_name(entry.namespace.as_deref(), &entry.name),
+                    entry.arguments,
+                    qualified_name(identity.namespace.as_deref(), &identity.name),
+                    arguments
                 );
                 program.divergence = Some(message.clone());
                 Reply::Diverged(message)
@@ -334,7 +362,11 @@ async fn op_ankole_tool_call(
                 Reply::Diverged(message)
             } else {
                 program.pending_bytes = next_pending_bytes;
-                program.pending_calls.push(PendingCall { name, arguments });
+                program.pending_calls.push(PendingCall {
+                    namespace: identity.namespace,
+                    name: identity.name,
+                    arguments,
+                });
                 Reply::Pend
             }
         }
@@ -514,7 +546,7 @@ fn execute(request: RunRequest, control: Arc<RunControl>) -> RunOutcome {
 async fn drive(
     js_runtime: &mut JsRuntime,
     program: &str,
-    tools: &[String],
+    tools: &[ToolDefinition],
     execution_phase: &AtomicU8,
 ) -> RunOutcome {
     if let Err(error) = js_runtime.execute_script("ankole:prelude", prelude(tools)) {
@@ -622,10 +654,11 @@ async fn drive(
     }
 }
 
-fn prelude(tools: &[String]) -> String {
+fn prelude(tools: &[ToolDefinition]) -> String {
     let tool_bindings = tools
         .iter()
-        .map(|name| {
+        .map(|tool| {
+            let name = &tool.global_name;
             format!(
                 "Object.defineProperty(globalThis.tools, {name:?}, {{\
                    value: async (args = {{}}) => {{\
@@ -805,21 +838,26 @@ fn validate_request(request: &RunRequest) -> Result<(), ProgramFailure> {
     }
 
     let allowed_tools = validate_tools(&request.tools)?;
-    if let Some(entry) = request
-        .memo
-        .iter()
-        .find(|entry| !allowed_tools.contains(&entry.name))
-    {
+    if let Some(entry) = request.memo.iter().find(|entry| {
+        !allowed_tools
+            .values()
+            .any(|identity| identity.namespace == entry.namespace && identity.name == entry.name)
+    }) {
         return Err(ProgramFailure {
             code: "program_memo_tool_not_allowed".to_string(),
-            message: format!("program memo references a disabled tool: {}", entry.name),
+            message: format!(
+                "program memo references a disabled tool: {}",
+                qualified_name(entry.namespace.as_deref(), &entry.name)
+            ),
         });
     }
 
     Ok(())
 }
 
-fn validate_tools(tools: &[String]) -> Result<HashSet<String>, ProgramFailure> {
+fn validate_tools(
+    tools: &[ToolDefinition],
+) -> Result<HashMap<String, ToolIdentity>, ProgramFailure> {
     if tools.len() > DEFAULT_MAX_TOOLS {
         return Err(ProgramFailure {
             code: "program_tool_limit_exceeded".to_string(),
@@ -827,23 +865,46 @@ fn validate_tools(tools: &[String]) -> Result<HashSet<String>, ProgramFailure> {
         });
     }
 
-    let mut unique = HashSet::with_capacity(tools.len());
+    let mut global_names = HashMap::with_capacity(tools.len());
+    let mut identities = HashSet::with_capacity(tools.len());
     let mut total_bytes = 0usize;
     for tool in tools {
-        total_bytes = total_bytes.saturating_add(tool.len());
-        if tool.is_empty()
-            || tool.len() > DEFAULT_MAX_TOOL_NAME_BYTES
+        let identity = ToolIdentity {
+            namespace: tool.namespace.clone(),
+            name: tool.name.clone(),
+        };
+        total_bytes = total_bytes
+            .saturating_add(tool.namespace.as_ref().map_or(0, String::len))
+            .saturating_add(tool.name.len())
+            .saturating_add(tool.global_name.len());
+        if tool.name.is_empty()
+            || tool
+                .namespace
+                .as_ref()
+                .is_some_and(|namespace| namespace.is_empty())
+            || tool.global_name.is_empty()
+            || tool.global_name.len() > DEFAULT_MAX_TOOL_NAME_BYTES
             || total_bytes > DEFAULT_MAX_TOOL_NAMES_BYTES
-            || !unique.insert(tool.clone())
+            || !identities.insert(identity.clone())
+            || global_names
+                .insert(tool.global_name.clone(), identity)
+                .is_some()
         {
             return Err(ProgramFailure {
                 code: "program_invalid_tools".to_string(),
-                message: "program tools must be non-empty, unique, and within name limits"
+                message: "program tool identities and JavaScript globals must be valid and unique"
                     .to_string(),
             });
         }
     }
-    Ok(unique)
+    Ok(global_names)
+}
+
+fn qualified_name(namespace: Option<&str>, name: &str) -> String {
+    namespace.map_or_else(
+        || name.to_string(),
+        |namespace| format!("{namespace}.{name}"),
+    )
 }
 
 fn capped(requested: Option<usize>, hard_max: usize) -> usize {

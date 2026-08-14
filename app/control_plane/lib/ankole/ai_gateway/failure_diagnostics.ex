@@ -25,6 +25,7 @@ defmodule Ankole.AIGateway.FailureDiagnostics do
     rate_limit rate_limited rate_limit_exceeded server_is_overloaded slow_down too_many_requests
   )
   @warning_codes ~w(response_stream_cancelled stream_consumer_terminated)
+  @identifier_limit 256
   @provider_message_limit 2_000
 
   @spec classify(term()) :: map()
@@ -240,6 +241,23 @@ defmodule Ankole.AIGateway.FailureDiagnostics do
         value(error, "provider_body_excerpt") ||
         value(reason, "provider_body_excerpt")
 
+    explicit_provider_fields =
+      %{
+        provider_error_code:
+          first_string([
+            value(reason, "provider_error_code"),
+            value(error, "provider_error_code"),
+            value(details, "provider_error_code")
+          ]),
+        provider_error_type:
+          first_string([
+            value(reason, "provider_error_type"),
+            value(error, "provider_error_type"),
+            value(details, "provider_error_type")
+          ])
+      }
+      |> Map.reject(fn {_key, value} -> is_nil(value) end)
+
     %{
       error_code: error_code,
       error_stage:
@@ -253,6 +271,7 @@ defmodule Ankole.AIGateway.FailureDiagnostics do
       retryable: retryable(explicit_retryable, provider_status || http_status, error_code)
     }
     |> Map.merge(provider_error_fields(excerpt))
+    |> Map.merge(explicit_provider_fields)
   end
 
   defp reason_fields(reason) when is_atom(reason),
@@ -366,8 +385,11 @@ defmodule Ankole.AIGateway.FailureDiagnostics do
   defp integer(_value), do: nil
 
   defp string(nil), do: nil
-  defp string(value) when is_binary(value) and value != "", do: value
-  defp string(value) when is_atom(value), do: Atom.to_string(value)
+
+  defp string(value) when is_binary(value) and value != "",
+    do: String.slice(value, 0, @identifier_limit)
+
+  defp string(value) when is_atom(value), do: value |> Atom.to_string() |> string()
   defp string(_value), do: nil
 
   defp bounded_provider_message(value) when is_binary(value) do

@@ -559,12 +559,19 @@ can subscribe and use its own metadata to select relevant events.
 ## Run Tool Search and Program Calls
 
 AIGateway normalizes the executable tool contract before the first provider
-round. One descriptor keeps the public name and namespace, provider alias,
-input and output schemas, codec, deferred-loading state, and allowed callers.
-It rejects ambiguous provider aliases and incompatible duplicate tools. It also
+round. One descriptor keeps `namespace` and `name` as the canonical tool
+identity. It also keeps the input and output schemas, codec, deferred-loading
+state, and allowed callers. It rejects incompatible duplicate identities and
 creates one fingerprint from the complete executable snapshot. A later Tool
 Search result can repeat a known tool only when its descriptor is equal, and a
 program can resume only against the same fingerprint.
+
+Native Responses declarations group namespaced tools in a `namespace`
+container. A `function_call` keeps that container name in `namespace` and the
+leaf name in `name`. Tool Search, execution, history, and replay keep these
+fields separate. They do not parse a combined tool name. AIGateway rejects a
+namespace or leaf name that does not match `^[A-Za-z0-9_-]+$` before provider
+dispatch.
 
 `ResponseItems` is the semantic owner for Responses call/output pairs. The
 current registry covers function, custom, program, Tool Search, computer,
@@ -581,18 +588,16 @@ executes the search in AIGateway. Client mode returns the search call to the
 caller. Both modes preserve one public response lifecycle across later provider
 rounds.
 
-A settled Tool Search call and output remain readable provider history when a
-later request no longer declares Tool Search or the loaded tool. The stored
-output carries the historical tool descriptor, so AIGateway can replay the pair
-and its completed calls without adding the removed tool to the current provider
-tool set or searchable catalog. An unsettled server search still requires the
-current declaration. A client-loaded tool stays callable only in the user turn
-that contains its search output. A later user turn must load it again from the
-client's current catalog. A server-loaded tool stays callable only while its
-provider identity remains in AIGateway's current deferred catalog. Equal
-client-loaded contracts can recur in later settled outputs and coalesce to one
-provider tool. Client and server outputs never establish each other's current
-loading state. A conflicting contract for the same public identity is invalid.
+A settled Tool Search call and output remain provider history when a later
+request no longer declares Tool Search. Every client-loaded contract in the
+effective input stays callable across later user turns. Removing a contract
+from its surviving `tool_search_output` removes that contract from the loaded
+set. Local compaction keeps the minimum complete client call/output pairs that
+preserve this set; a later equal contract makes an earlier pair redundant. A
+server-loaded tool stays callable only while its structured identity remains in
+AIGateway's current deferred catalog. Client and server outputs do not
+establish each other's loading state. A conflicting contract for the same
+public identity is invalid.
 
 A nonempty provider terminal output remains authoritative. If the terminal
 omits output after complete output-item events, the loop uses the raw items from
@@ -607,10 +612,21 @@ Agent Computer executes one only when the frozen tool descriptor permits the
 `programmatic` caller. A direct-only or incomplete call becomes an explicit
 tool failure and does not cross the execution boundary.
 
-The synthesized program tool lists only the provider aliases of bindings that
-also have direct declarations. Their schemas already exist in the provider tool
-array. It embeds the full contract only for programmatic-only bindings, because
-the model has no other way to receive those schemas.
+The synthesized program tool lists only the JavaScript global names of bindings
+that also have direct declarations. Their schemas already exist in the provider
+tool array. Each runtime binding also keeps its separate `namespace` and `name`.
+The global name follows Codex code mode. A root tool and the default
+`functions` namespace use `name`. Another namespace normally uses
+`namespace__name`, and no separator is added when the namespace already ends
+with `_` or the name starts with `_`. Codex then replaces characters that are
+not valid in a JavaScript identifier with `_`. The program tool embeds the full
+contract only for programmatic-only bindings, because the model has no other
+way to receive those schemas. Two structured identities that map to the same
+global name make the contract invalid.
+
+Stored program fingerprints use `ankole_ptc_v2.` and freeze `namespace`,
+`name`, and the JavaScript global name for every binding. Other fingerprint
+versions are unsupported.
 
 A settled program call and output remain readable provider history when a
 later request has no PTC declaration. This can occur when a release, Skill
@@ -627,7 +643,19 @@ from the main Agent, so the main Agent uses local planning with that provider.
 This provider-and-client-protocol decision cannot change when a later turn
 adds or removes a tool. OpenAI Chat Completions and other providers also use
 local planning. Only function and custom tools can become local program
-bindings; each provider-hosted tool keeps its provider-owned contract.
+bindings; each provider-hosted tool keeps its provider-owned contract. Codex
+and Agent Computer declare apply-patch as a custom tool and shell execution as
+a function tool, so AIGateway does not emulate provider built-in apply-patch or
+shell declarations for local PTC.
+
+OpenAI Chat Completions and Anthropic Messages have only one tool-name field.
+Their terminal adapters derive one Provider wire alias from the structured
+identity and restore `namespace` and `name` before an event enters the public
+Responses contract. A name that matches `[A-Za-z0-9_-]{1,64}` stays unchanged.
+Another name uses a valid readable prefix and a 12-character BLAKE3 suffix.
+This wire rule is separate from the Codex code-mode JavaScript global-name
+rule. The adapters reject two structured identities that produce the same
+Provider alias. No earlier AIGateway layer flattens the identity.
 
 `ResponseStream` remains the sole owner of public events, sequence numbers,
 loop advancement, and durable commit. Program execution runs under a bounded
@@ -640,22 +668,15 @@ loss replaces a separate reservation and guardian protocol. The same lifecycle
 owner serves SSE, WebSocket, and collected non-streaming Responses.
 
 One public `max_tool_calls` budget covers all internal rounds. A zero budget
-removes every built-in tool before the first provider call. A positive budget
-admits calls in response order, ignores later attempts, and removes built-ins
-and stale `tool_choice` values from later rounds. Function and custom calls are
-outside this built-in-tool budget. Native Responses providers receive the
-positive limit directly; AIGateway enforces the same rule for locally owned
-Tool Search, program, hosted-image, and adapted-provider effects. Budget
-exhaustion does not synthesize `response.incomplete`; the real provider or loop
-terminal remains authoritative.
-
-AIGateway rejects a positive budget when one request mixes a local Tool Search
-or program owner with a provider-owned built-in tool. HTTP returns 400, and
-WebSocket returns the equivalent `unsupported_value` error for
-`max_tool_calls`. No single owner can enforce the call order for that
-combination. A `tool_choice: "none"` request is the exception because it
-prevents every tool effect, so the positive limit cannot cross an
-execution-owner boundary.
+removes every built-in tool before the first provider call. Every provider
+round receives the remaining positive limit. At its terminal, provider-owned
+built-in calls consume the budget before AIGateway admits locally owned Tool
+Search or program calls from that round. An unadmitted local call is not
+published or executed. Later rounds remove built-ins and stale `tool_choice`
+values after the budget is exhausted. Function and custom calls are outside
+this built-in-tool budget. Budget exhaustion does not synthesize
+`response.incomplete`; the real provider or loop terminal remains
+authoritative.
 
 Internal work is bounded before it can amplify provider or worker cost. One
 public response permits at most 16 internal rounds, 8 top-level programs, 256
@@ -772,7 +793,8 @@ contract, and a v2 failure remains a normal turn failure after Codex retries it.
 The local summary always uses the Agent's `light` profile, whatever model the
 compacted conversation itself used. The summarizer is internal work with its
 own cost and latency profile, so it does not follow the request model. An Agent
-that configures no `light` profile resolves it to `primary`.
+that configures no `light` profile resolves it to `primary`. The local
+checkpoint budget still uses the request model's context length.
 
 `ai_gateway_compaction_artifacts` stores each compaction result. Version 2 is a
 local artifact. It contains one summary object and a list of output items. Its
@@ -821,8 +843,13 @@ compaction boundary forward to include a completed call batch or to keep the
 retained tail and current input within the history budget. It can move the
 boundary backward when the current input closes a call. Before AIGateway stores
 a checkpoint, it estimates the selected user originals, summary, retained tail,
-and current input together. An over-budget result cannot create an artifact and
-uses the normal overflow policy.
+retained client Tool Search pairs, pending clarification, and current input
+together. It moves the safe boundary forward once when the retained Tool Search
+pairs reduce the available tail budget. That refit reserves every pair that can
+cross the maximum safe compaction boundary, so another crossed pair cannot make
+the fitted checkpoint exceed the budget. An over-budget result cannot create
+an artifact and uses the normal overflow policy. AIGateway does not discard an
+active Tool Search pair to make a checkpoint fit.
 
 The summarizer uses the standard streaming Responses preparation and stream
 owner. AIGateway creates its request context before model resolution and keeps
@@ -858,8 +885,10 @@ stable-tail checkpoint replaces the prior fixed summary instead of stacking
 another copy, but it keeps a real earlier compaction summary.
 
 A suffix size cannot be derived from cumulative snapshots, so this path reports
-no post-truncation token estimate and leaves the measurement to the provider.
-When no valid boundary exists, the request returns `context_overflow`.
+no exact post-truncation Provider token count. It still applies the local
+checkpoint estimator to the fixed summary, retained client Tool Search pairs,
+selected tail, and current input before it stores the artifact. When no valid
+boundary fits, the request returns `context_overflow`.
 
 ## Store Vision Files and Generated Images
 
@@ -1053,11 +1082,25 @@ and WebSocket responses to one event format. It owns native stream and program
 run identities, resource limits, and cancellation handles, but it does not
 advance the public Response lifecycle.
 
-The public stream accepts `response.completed`, `response.failed`, and `response.incomplete` as terminal types.
-It rejects a provider completion that contains an incomplete client tool call.
-If a terminal output omits its item identity, AIGateway restores the streamed
-item at the same provider output index only when the terminal item is a
-field-for-field subset of that streamed item.
+The public stream accepts `response.completed`, `response.failed`, and
+`response.incomplete` as terminal types. Provider `error` events are diagnostic
+events and do not enter the public Response lifecycle. `ResponseStream`
+consumes them and waits for one canonical terminal event. It keeps the first
+bounded Provider error code, type, and message for that Provider round. A
+later transport failure keeps its canonical code and retry decision, and adds
+those Provider fields for the authenticated caller and durable error. Logs
+include the Provider code and type but omit the Provider message. If a stream
+closes without a terminal event, AIGateway produces one `response.failed` event.
+Request-validation errors and socket command errors stay outside this Provider
+stream rule. For retry decisions, a boolean
+`response.failed.error.retryable` value is authoritative. When this field is
+absent, a caller infers retryability from compatible status, code, and message
+signals.
+
+The public stream rejects a provider completion that contains an incomplete
+client tool call. If a terminal output omits its item identity, AIGateway
+restores the streamed item at the same provider output index only when the
+terminal item is a field-for-field subset of that streamed item.
 
 OpenAI Responses mode can use an upstream WebSocket transport. OpenAI and
 OpenAI-compatible provider rows default `upstream_transport` to `sse`. A row

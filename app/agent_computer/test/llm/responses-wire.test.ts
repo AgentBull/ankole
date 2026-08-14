@@ -4,7 +4,7 @@ import type { ResponseCreateParams } from 'openai/resources/responses/responses'
 import { z } from 'zod'
 import { runAgentLoop } from '../../src/core/agent-loop'
 import { callModel, createModel } from '../../src/core/llm'
-import { parseOutputItems } from '../../src/core/llm/parse'
+import { parseOutputItems, parseResponse } from '../../src/core/llm/parse'
 import { classifyLLMError, isLocallyRetryableLLMError } from '../../src/core/llm-error-classifier'
 import {
   estimateResponseRequestTokens,
@@ -395,6 +395,25 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
         caller: { type: 'program', caller_id: 'program_1' }
       })
     ])
+  })
+
+  it('preserves explicit false retryability from an HTTP terminal response', () => {
+    const result = parseResponse(
+      {
+        id: 'resp_http_failed',
+        status: 'failed',
+        error: {
+          code: 'rate_limit_exceeded',
+          message: 'rate limited',
+          retryable: false
+        },
+        output: []
+      } as never,
+      'gpt-5.6'
+    )
+
+    expect(result.message.stopReason).toBe('error')
+    expect(result.errorRetryable).toBe(false)
   })
 
   it('uses changed terminal arguments instead of the same caller-scoped streamed fallback', () => {

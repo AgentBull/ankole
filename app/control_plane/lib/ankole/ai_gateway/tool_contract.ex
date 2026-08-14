@@ -2,14 +2,14 @@ defmodule Ankole.AIGateway.ToolContract do
   @moduledoc """
   Normalizes executable tools before Tool Search or program execution.
 
-  A descriptor keeps the public tool identity separate from the provider alias.
-  This prevents namespace flattening, deferred loading, and program execution
-  from changing the tool contract between model rounds.
+  A descriptor keeps `namespace` and `name` as the tool identity. Deferred
+  loading and program execution must preserve both fields between model rounds.
   """
 
-  @reserved_provider_names ["program", "tool_search"]
+  @reserved_root_names ["program", "tool_search"]
   @supported_callers ["direct", "programmatic"]
-  @provider_name_pattern ~r/^[A-Za-z0-9_-]+$/
+  @responses_identifier_pattern ~r/\A[A-Za-z0-9_-]+\z/
+  @default_function_namespace "functions"
 
   defmodule Descriptor do
     @moduledoc """
@@ -19,7 +19,6 @@ defmodule Ankole.AIGateway.ToolContract do
     @enforce_keys [
       :type,
       :name,
-      :provider_name,
       :allowed_callers,
       :deferred?,
       :codec
@@ -29,7 +28,6 @@ defmodule Ankole.AIGateway.ToolContract do
       :name,
       :namespace,
       :namespace_description,
-      :provider_name,
       :description,
       :parameters,
       :format,
@@ -48,7 +46,6 @@ defmodule Ankole.AIGateway.ToolContract do
             name: String.t(),
             namespace: String.t() | nil,
             namespace_description: String.t() | nil,
-            provider_name: String.t(),
             description: String.t() | nil,
             parameters: map() | nil,
             format: map() | nil,
@@ -106,7 +103,8 @@ defmodule Ankole.AIGateway.ToolContract do
          {:ok, loaded} <- normalize(specs, opts),
          {:ok, reserved_names} <- reserved_names(opts),
          :ok <- validate_descriptor_set(known, reserved_names),
-         {:ok, reconciled} <- reconcile_loaded_against_known(loaded, known) do
+         {:ok, reconciled} <- reconcile_loaded_against_known(loaded, known),
+         :ok <- ensure_consistent_namespace_descriptions(known ++ reconciled) do
       {:ok, reconciled}
     end
   end
@@ -115,34 +113,78 @@ defmodule Ankole.AIGateway.ToolContract do
     do: {:error, {:invalid_tool_contract, :loaded_tools_must_be_a_list}}
 
   @doc """
-  Returns the deterministic provider name for one public tool path.
+  Builds Responses tool declarations while preserving namespace containers.
   """
-  @spec provider_alias(String.t() | nil, String.t()) :: String.t()
-  def provider_alias(namespace, name)
-      when (is_nil(namespace) or is_binary(namespace)) and is_binary(name) and name != "" do
-    combined = if namespace, do: "#{namespace}__#{name}", else: name
+  @spec response_specs([Descriptor.t()]) :: [map()]
+  def response_specs(descriptors) when is_list(descriptors) do
+    {order_rev, entries} =
+      Enum.reduce(descriptors, {[], %{}}, fn descriptor, {order_rev, entries} ->
+        case descriptor.namespace do
+          nil ->
+            key = {:root, identity(descriptor)}
+            {[key | order_rev], Map.put(entries, key, response_leaf_spec(descriptor))}
 
-    if byte_size(combined) <= 64 and Regex.match?(@provider_name_pattern, combined) do
-      combined
-    else
-      digest =
-        :crypto.hash(:sha256, combined)
-        |> Base.encode16(case: :lower)
-        |> binary_part(0, 12)
+          namespace ->
+            key = {:namespace, namespace}
 
-      readable =
-        sanitize_identifier_prefix(combined, 48, [])
+            case Map.get(entries, key) do
+              nil ->
+                container = %{
+                  "type" => "namespace",
+                  "name" => namespace,
+                  "description" => effective_namespace_description(descriptor),
+                  "tools" => [response_leaf_spec(descriptor)]
+                }
 
-      "#{readable}_#{digest}"
-    end
+                {[key | order_rev], Map.put(entries, key, container)}
+
+              container ->
+                updated =
+                  Map.update!(container, "tools", &(&1 ++ [response_leaf_spec(descriptor)]))
+
+                {order_rev, Map.put(entries, key, updated)}
+            end
+        end
+      end)
+
+    order_rev
+    |> Enum.reverse()
+    |> Enum.uniq()
+    |> Enum.map(&Map.fetch!(entries, &1))
   end
 
-  @doc """
-  Builds the plain provider tool represented by a descriptor.
-  """
-  @spec provider_spec(Descriptor.t()) :: map()
-  def provider_spec(%Descriptor{} = descriptor) do
-    %{"type" => descriptor.type, "name" => descriptor.provider_name}
+  @doc "Returns the canonical structured identity for one descriptor."
+  @spec identity(Descriptor.t()) :: {String.t() | nil, String.t()}
+  def identity(%Descriptor{namespace: namespace, name: name}), do: {namespace, name}
+
+  @doc "Returns a human-readable qualified tool name."
+  @spec qualified_name(Descriptor.t()) :: String.t()
+  def qualified_name(%Descriptor{} = descriptor),
+    do: public_path(descriptor.namespace, descriptor.name)
+
+  @doc "Returns the namespace description that Codex sends when none is declared."
+  @spec default_namespace_description(String.t()) :: String.t()
+  def default_namespace_description("functions"), do: ""
+
+  def default_namespace_description(namespace) when is_binary(namespace),
+    do: "Tools in the #{namespace} namespace."
+
+  @doc "Validates every model-visible Responses namespace and tool name."
+  @spec validate_responses_identifiers([map()]) :: :ok | {:error, error()}
+  def validate_responses_identifiers(specs) when is_list(specs) do
+    Enum.reduce_while(specs, :ok, fn spec, :ok ->
+      case validate_response_spec_identifiers(spec) do
+        :ok -> {:cont, :ok}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  def validate_responses_identifiers(_specs),
+    do: {:error, {:invalid_tool_contract, :tools_must_be_a_list}}
+
+  defp response_leaf_spec(%Descriptor{} = descriptor) do
+    %{"type" => descriptor.type, "name" => descriptor.name}
     |> maybe_put("description", descriptor.description)
     |> maybe_put("parameters", descriptor.parameters)
     |> maybe_put("format", descriptor.format)
@@ -183,10 +225,9 @@ defmodule Ankole.AIGateway.ToolContract do
     |> Enum.map(&descriptor_snapshot/1)
     |> Enum.sort_by(fn snapshot ->
       {
-        snapshot["provider_name"],
-        snapshot["type"],
         snapshot["public"]["namespace"] || "",
-        snapshot["public"]["name"]
+        snapshot["public"]["name"],
+        snapshot["type"]
       }
     end)
   end
@@ -215,8 +256,8 @@ defmodule Ankole.AIGateway.ToolContract do
   @spec decode_output(Descriptor.t(), term()) :: {:ok, term()} | {:error, term()}
   def decode_output(%Descriptor{output_schema: nil}, output), do: {:ok, output}
 
-  def decode_output(%Descriptor{output_schema: %{}, provider_name: name}, output),
-    do: decode_declared_json(output, name)
+  def decode_output(%Descriptor{output_schema: %{}} = descriptor, output),
+    do: decode_declared_json(output, qualified_name(descriptor))
 
   defp normalize_specs(specs) do
     specs
@@ -239,22 +280,22 @@ defmodule Ankole.AIGateway.ToolContract do
   end
 
   defp normalize_spec(%{} = spec) do
-    case {Map.get(spec, "__ankole_namespace"), Map.get(spec, "__ankole_public_name")} do
+    case {Map.get(spec, "namespace"), Map.get(spec, "namespace_description")} do
       {nil, nil} ->
-        with {:ok, descriptor} <- normalize_leaf(spec, nil, nil, false, false) do
+        with {:ok, descriptor} <- normalize_leaf(spec, nil, nil, false) do
           {:ok, [descriptor]}
         end
 
-      {namespace, public_name}
-      when is_binary(namespace) and namespace != "" and is_binary(public_name) and
-             public_name != "" ->
-        with {:ok, descriptor} <-
-               normalize_leaf(spec, namespace, nil, false, true, public_name) do
+      {namespace, description}
+      when is_binary(namespace) and namespace != "" and
+             (is_nil(description) or is_binary(description)) ->
+        with {:ok, namespace} <- validate_name(namespace, :namespace),
+             {:ok, descriptor} <- normalize_leaf(spec, namespace, description, false) do
           {:ok, [descriptor]}
         end
 
-      _incomplete_expanded_identity ->
-        {:error, {:invalid_tool_contract, :invalid_expanded_identity}}
+      _invalid_namespace_identity ->
+        {:error, {:invalid_tool_contract, :invalid_namespace_identity}}
     end
   end
 
@@ -272,8 +313,7 @@ defmodule Ankole.AIGateway.ToolContract do
                child,
                namespace,
                description,
-               inherited_deferred?,
-               false
+               inherited_deferred?
              ) do
           {:ok, descriptor} -> {:cont, {:ok, [descriptor | reversed]}}
           {:error, reason} -> {:halt, {:error, reason}}
@@ -290,16 +330,46 @@ defmodule Ankole.AIGateway.ToolContract do
   defp reverse_normalized({:ok, reversed}), do: {:ok, Enum.reverse(reversed)}
   defp reverse_normalized({:error, _reason} = error), do: error
 
+  defp validate_response_spec_identifiers(%{"type" => "namespace"} = spec) do
+    with {:ok, _namespace} <- required_name(spec, :namespace),
+         {:ok, tools} <- required_tool_list(spec, Map.get(spec, "name")) do
+      validate_responses_identifiers(tools)
+    end
+  end
+
+  defp validate_response_spec_identifiers(%{"type" => type} = spec)
+       when type in ["function", "custom"] do
+    with {:ok, _name} <- required_name(spec, :tool) do
+      case Map.get(spec, "namespace") do
+        nil -> :ok
+        namespace -> validate_name(namespace, :namespace) |> ok_value()
+      end
+    end
+  end
+
+  defp validate_response_spec_identifiers(%{"type" => "tool_search"} = spec) do
+    case Map.fetch(spec, "name") do
+      :error -> :ok
+      {:ok, name} -> validate_name(name, :tool) |> ok_value()
+    end
+  end
+
+  defp validate_response_spec_identifiers(%{}), do: :ok
+
+  defp validate_response_spec_identifiers(spec),
+    do: {:error, {:invalid_tool_contract, {:tool_must_be_an_object, spec}}}
+
+  defp ok_value({:ok, _value}), do: :ok
+  defp ok_value({:error, _reason} = error), do: error
+
   defp normalize_leaf(
          spec,
          namespace,
          namespace_description,
-         inherited_deferred?,
-         expanded?,
-         public_name \\ nil
+         inherited_deferred?
        ) do
     with {:ok, type} <- supported_type(spec),
-         {:ok, name} <- public_name(spec, public_name),
+         {:ok, name} <- required_name(spec, :tool),
          {:ok, description} <- optional_binary(spec, "description", public_path(namespace, name)),
          {:ok, parameters} <- input_parameters(spec, type, namespace, name),
          {:ok, format} <- input_format(spec, type, namespace, name),
@@ -310,17 +380,13 @@ defmodule Ankole.AIGateway.ToolContract do
            optional_binary(spec, "__ankole_search_text", public_path(namespace, name)),
          {:ok, callers} <- allowed_callers(spec, namespace, name),
          {:ok, deferred?} <-
-           deferred(spec, inherited_deferred?, public_path(namespace, name)),
-         provider_name = provider_alias(namespace, name),
-         :ok <- validate_expanded_alias(spec, expanded?, provider_name, namespace, name) do
+           deferred(spec, inherited_deferred?, public_path(namespace, name)) do
       {:ok,
        %Descriptor{
          type: type,
          name: name,
          namespace: namespace,
-         namespace_description:
-           namespace_description || Map.get(spec, "__ankole_namespace_description"),
-         provider_name: provider_name,
+         namespace_description: namespace_description,
          description: description,
          parameters: parameters,
          format: format,
@@ -342,14 +408,21 @@ defmodule Ankole.AIGateway.ToolContract do
   defp supported_type(_spec),
     do: {:error, {:invalid_tool_contract, :missing_tool_type}}
 
-  defp required_name(%{"name" => name}, _kind) when is_binary(name) and name != "",
-    do: {:ok, name}
+  defp required_name(%{"name" => name}, kind), do: validate_name(name, kind)
 
   defp required_name(spec, kind),
     do: {:error, {:invalid_tool_contract, {:invalid_name, kind, Map.get(spec, "name")}}}
 
-  defp public_name(_spec, name) when is_binary(name) and name != "", do: {:ok, name}
-  defp public_name(spec, nil), do: required_name(spec, :tool)
+  defp validate_name(name, kind) when is_binary(name) and name != "" do
+    if Regex.match?(@responses_identifier_pattern, name) do
+      {:ok, name}
+    else
+      {:error, {:invalid_tool_contract, {:invalid_responses_identifier, kind, name}}}
+    end
+  end
+
+  defp validate_name(name, kind),
+    do: {:error, {:invalid_tool_contract, {:invalid_name, kind, name}}}
 
   defp required_tool_list(%{"tools" => tools}, _name) when is_list(tools), do: {:ok, tools}
 
@@ -465,57 +538,47 @@ defmodule Ankole.AIGateway.ToolContract do
     end
   end
 
-  defp validate_expanded_alias(_spec, false, _provider_name, _namespace, _name), do: :ok
-
-  defp validate_expanded_alias(spec, true, provider_name, namespace, name) do
-    case Map.get(spec, "name") do
-      ^provider_name ->
-        :ok
-
-      supplied ->
-        {:error,
-         {:invalid_tool_contract,
-          {:expanded_provider_alias_mismatch, public_path(namespace, name), supplied,
-           provider_name}}}
-    end
-  end
-
   defp validate_descriptor_set(descriptors, reserved_names) do
     with :ok <- ensure_unique_public_identity(descriptors),
-         :ok <- ensure_unique_provider_alias(descriptors),
+         :ok <- ensure_consistent_namespace_descriptions(descriptors),
          :ok <- ensure_not_reserved(descriptors, reserved_names) do
       :ok
     end
   end
 
   defp ensure_unique_public_identity(descriptors) do
-    case duplicate_group(descriptors, &public_key/1) do
-      nil -> :ok
-      {key, _descriptors} -> {:error, {:invalid_tool_contract, {:duplicate_public_tool, key}}}
-    end
-  end
-
-  defp ensure_unique_provider_alias(descriptors) do
-    case duplicate_group(descriptors, & &1.provider_name) do
+    case duplicate_group(descriptors, &routing_identity/1) do
       nil ->
         :ok
 
-      {provider_name, colliding} ->
-        identities = Enum.map(colliding, &public_key/1)
+      {{namespace, name}, _descriptors} ->
+        {:error, {:invalid_tool_contract, {:duplicate_public_tool, public_path(namespace, name)}}}
+    end
+  end
 
-        {:error, {:invalid_tool_contract, {:provider_alias_collision, provider_name, identities}}}
+  defp ensure_consistent_namespace_descriptions(descriptors) do
+    conflict =
+      descriptors
+      |> Enum.reject(&is_nil(&1.namespace))
+      |> Enum.group_by(& &1.namespace, &effective_namespace_description/1)
+      |> Enum.find(fn {_namespace, descriptions} -> length(Enum.uniq(descriptions)) > 1 end)
+
+    case conflict do
+      nil ->
+        :ok
+
+      {namespace, _descriptions} ->
+        {:error, {:invalid_tool_contract, {:namespace_description_mismatch, namespace}}}
     end
   end
 
   defp ensure_not_reserved(descriptors, reserved_names) do
-    case Enum.find(descriptors, &(&1.provider_name in reserved_names)) do
+    case Enum.find(descriptors, &(default_namespace?(&1.namespace) and &1.name in reserved_names)) do
       nil ->
         :ok
 
       descriptor ->
-        {:error,
-         {:invalid_tool_contract,
-          {:reserved_provider_name, descriptor.provider_name, public_key(descriptor)}}}
+        {:error, {:invalid_tool_contract, {:reserved_tool_name, descriptor.name}}}
     end
   end
 
@@ -537,25 +600,16 @@ defmodule Ankole.AIGateway.ToolContract do
     do: {:error, {:invalid_tool_contract, :known_tools_must_be_descriptors}}
 
   defp reconcile_loaded_against_known(loaded, known) do
-    known_by_public = Map.new(known, &{public_key(&1), &1})
-    known_by_provider = Map.new(known, &{&1.provider_name, &1})
+    known_by_public = Map.new(known, &{routing_identity(&1), &1})
 
     loaded
     |> Enum.reduce_while({:ok, []}, fn descriptor, {:ok, reversed} ->
-      public_match = Map.get(known_by_public, public_key(descriptor))
-      provider_match = Map.get(known_by_provider, descriptor.provider_name)
+      public_match = Map.get(known_by_public, routing_identity(descriptor))
 
       cond do
         public_match && not compatible_loaded_projection?(descriptor, public_match) ->
           {:halt,
-           {:error, {:invalid_tool_contract, {:loaded_tool_mismatch, public_key(descriptor)}}}}
-
-        provider_match && public_key(provider_match) != public_key(descriptor) ->
-          {:halt,
-           {:error,
-            {:invalid_tool_contract,
-             {:provider_alias_collision, descriptor.provider_name,
-              [public_key(provider_match), public_key(descriptor)]}}}}
+           {:error, {:invalid_tool_contract, {:loaded_tool_mismatch, qualified_name(descriptor)}}}}
 
         public_match ->
           {:cont, {:ok, [public_match | reversed]}}
@@ -573,7 +627,24 @@ defmodule Ankole.AIGateway.ToolContract do
   defp compatible_loaded_projection?(descriptor, known) do
     descriptor == known or
       (is_nil(descriptor.search_text) and
-         projection_snapshot(descriptor) == projection_snapshot(known))
+         canonical_projection_snapshot(descriptor) == canonical_projection_snapshot(known))
+  end
+
+  defp canonical_projection_snapshot(descriptor) do
+    snapshot = projection_snapshot(descriptor)
+
+    cond do
+      default_namespace?(descriptor.namespace) ->
+        snapshot
+        |> put_in(["public", "namespace"], @default_function_namespace)
+        |> Map.update!("namespace_description", fn
+          description when description in [nil, ""] -> nil
+          description -> description
+        end)
+
+      is_binary(descriptor.namespace) ->
+        Map.put(snapshot, "namespace_description", effective_namespace_description(descriptor))
+    end
   end
 
   defp projection_snapshot(descriptor) do
@@ -583,7 +654,7 @@ defmodule Ankole.AIGateway.ToolContract do
   end
 
   defp reserved_names(opts) do
-    names = Keyword.get(opts, :reserved_names, @reserved_provider_names)
+    names = Keyword.get(opts, :reserved_names, @reserved_root_names)
 
     if is_list(names) and Enum.all?(names, &(is_binary(&1) and &1 != "")) do
       {:ok, Enum.uniq(names)}
@@ -599,7 +670,6 @@ defmodule Ankole.AIGateway.ToolContract do
         "namespace" => descriptor.namespace,
         "name" => descriptor.name
       },
-      "provider_name" => descriptor.provider_name,
       "namespace_description" => descriptor.namespace_description,
       "description" => descriptor.description,
       "parameters" => descriptor.parameters,
@@ -613,8 +683,21 @@ defmodule Ankole.AIGateway.ToolContract do
     }
   end
 
-  defp public_key(%Descriptor{namespace: nil, name: name}), do: name
-  defp public_key(%Descriptor{namespace: namespace, name: name}), do: "#{namespace}.#{name}"
+  defp routing_identity(%Descriptor{namespace: namespace, name: name}) do
+    namespace = if default_namespace?(namespace), do: @default_function_namespace, else: namespace
+    {namespace, name}
+  end
+
+  defp default_namespace?(namespace),
+    do: namespace in [nil, "", @default_function_namespace]
+
+  defp effective_namespace_description(%Descriptor{namespace: nil}), do: nil
+
+  defp effective_namespace_description(%Descriptor{
+         namespace: namespace,
+         namespace_description: description
+       }),
+       do: description || default_namespace_description(namespace)
 
   defp public_path(nil, name), do: name
   defp public_path(namespace, name), do: "#{namespace}.#{name}"
@@ -638,21 +721,6 @@ defmodule Ankole.AIGateway.ToolContract do
       {:ok, decoded} -> {:ok, decoded}
       {:error, reason} -> {:error, {:invalid_tool_output_json, name, reason}}
     end
-  end
-
-  defp sanitize_identifier_prefix(_value, 0, acc),
-    do: acc |> Enum.reverse() |> IO.iodata_to_binary()
-
-  defp sanitize_identifier_prefix(<<>>, _remaining, acc),
-    do: acc |> Enum.reverse() |> IO.iodata_to_binary()
-
-  defp sanitize_identifier_prefix(<<byte, rest::binary>>, remaining, acc) do
-    sanitized =
-      if byte in ?A..?Z or byte in ?a..?z or byte in ?0..?9 or byte in [?_, ?-],
-        do: byte,
-        else: ?_
-
-    sanitize_identifier_prefix(rest, remaining - 1, [sanitized | acc])
   end
 
   defp maybe_put(map, _key, nil), do: map

@@ -139,8 +139,12 @@ defmodule Ankole.Brain.Dreaming.Evidence do
         {%{"type" => "function_call", "name" => name} = item, index}, acc
         when is_binary(name) ->
           case nonempty_text(name) do
-            nil -> acc
-            name -> Map.put_new(acc, call_key(item, index), name)
+            nil ->
+              acc
+
+            name ->
+              identity = %{name: name, namespace: nonempty_text(item["namespace"])}
+              Map.put_new(acc, call_key(item, index), identity)
           end
 
         {_item, _index}, acc ->
@@ -158,16 +162,22 @@ defmodule Ankole.Brain.Dreaming.Evidence do
       end)
 
     calls
-    |> Enum.group_by(fn {_call_id, name} -> name end)
-    |> Enum.map(fn {name, named_calls} ->
+    |> Enum.group_by(fn {_call_id, identity} -> identity end)
+    |> Enum.map(fn {identity, matching_calls} ->
       %{
-        "name" => name,
-        "call_count" => length(named_calls),
+        "name" => identity.name,
+        "call_count" => length(matching_calls),
         "result_count" =>
-          Enum.count(named_calls, fn {call_id, _name} -> MapSet.member?(result_ids, call_id) end)
+          Enum.count(matching_calls, fn {call_id, _identity} ->
+            MapSet.member?(result_ids, call_id)
+          end)
       }
+      |> compact()
+      |> then(fn usage ->
+        if identity.namespace, do: Map.put(usage, "namespace", identity.namespace), else: usage
+      end)
     end)
-    |> Enum.sort_by(& &1["name"])
+    |> Enum.sort_by(&{Map.get(&1, "namespace", ""), &1["name"]})
   end
 
   defp call_key(%{"call_id" => call_id}, _index) when is_binary(call_id), do: call_id

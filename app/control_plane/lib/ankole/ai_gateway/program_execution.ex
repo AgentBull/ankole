@@ -98,7 +98,7 @@ defmodule Ankole.AIGateway.ProgramExecution do
   @doc false
   @spec run_jobs(
           [map()],
-          (String.t(), [String.t()], [map()] -> {:ok, map()} | {:error, term()})
+          (String.t(), [map()], [map()] -> {:ok, map()} | {:error, term()})
         ) :: [map()]
   def run_jobs(jobs, runner \\ &ProgramRunner.run/3)
 
@@ -109,7 +109,7 @@ defmodule Ankole.AIGateway.ProgramExecution do
           %{preflight_outcome: %{} = outcome} ->
             outcome
 
-          %{code: code, binding_names: bindings, memo: memo} ->
+          %{code: code, runtime_bindings: bindings, memo: memo} ->
             safe_run(runner, [code, bindings, memo])
 
           _invalid ->

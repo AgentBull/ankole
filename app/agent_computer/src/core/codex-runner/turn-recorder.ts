@@ -16,7 +16,11 @@ import {
   type RPCRequestInit
 } from '../../lanes/rpc_lane'
 import type { JSONRPCMessage } from './app-server-client'
-import { boundedFilesChangedFromCodexDiff, normalizeCodexThreadUsage } from './protocol'
+import {
+  boundedFilesChangedFromCodexDiff,
+  normalizedCollaborationToolName,
+  normalizeCodexThreadUsage
+} from './protocol'
 import type { ThreadItem } from './generated/protocol/v2/ThreadItem'
 import { boundedBackgroundAgentJobPaths } from '../background-agent-job-handoff'
 import type { Span } from '@opentelemetry/api'
@@ -43,14 +47,15 @@ type RuntimeTurn = {
   enqueuedItemKeys: Set<string>
   anchoredItemKeys: Set<string>
   completedItemIDs: Set<string>
-  toolItemNames: Map<string, string>
+  modelToolIdentities: Map<string, ToolIdentity>
+  toolItemIdentities: Map<string, ToolIdentity>
   toolItemExecutionMechanisms: Map<string, ToolExecutionMechanism>
   usedSkillNames: Set<string>
   filesChanged: Set<string>
   initialItemKey?: string
   usage?: BackgroundAgentJobTurnUsage
   plan?: BackgroundAgentJobTurnPlan
-  activeItem?: { id: string; name: string }
+  activeItem?: { id: string } & ToolIdentity
   error: JSONObject
   startedAt: string
   completedAt?: string
@@ -71,8 +76,12 @@ type ItemEntry = {
   item: JSONObject
 }
 
-type ToolExecutionMechanism = {
+type ToolIdentity = {
+  namespace?: string
   name: string
+}
+
+type ToolExecutionMechanism = ToolIdentity & {
   execution_mechanism: 'provider_hosted' | 'local_dynamic'
 }
 
@@ -250,7 +259,8 @@ export class BackgroundAgentJobTurnRecorder {
         enqueuedItemKeys: new Set(),
         anchoredItemKeys: new Set(),
         completedItemIDs: new Set(),
-        toolItemNames: new Map(),
+        modelToolIdentities: new Map(),
+        toolItemIdentities: new Map(),
         toolItemExecutionMechanisms: new Map(),
         usedSkillNames: new Set(),
         filesChanged: new Set(),
@@ -326,22 +336,24 @@ export class BackgroundAgentJobTurnRecorder {
     const id = stringValue(item.id)
     if (!turn || !id || !shouldRecordItem(item)) return
     if (item.type === 'collabAgentToolCall' && this.pendingCollaborationCalls.has(id)) return
-    const name = toolName(item)
-    if (!name) return
-    if (turn.activeItem?.id === id && turn.activeItem.name === name) return
+    const identity = toolIdentityOf(item)
+    if (!identity) return
+    if (turn.activeItem?.id === id && sameToolIdentity(turn.activeItem, identity)) return
+    const displayName = toolDisplayName(identity)
     if (!turn.toolSpans.has(id)) {
       const span = startWorkerSpan(
         this.input.turnTrace,
-        `tool ${name}`,
+        `tool ${displayName}`,
         {
-          'gen_ai.tool.name': name,
+          'gen_ai.tool.name': identity.name,
+          ...(identity.namespace ? { 'gen_ai.tool.namespace': identity.namespace } : {}),
           'gen_ai.tool.call.id': id
         },
         turn.traceSpan ? { parent: turn.traceSpan } : {}
       )
       if (span) turn.toolSpans.set(id, span)
     }
-    turn.activeItem = { id, name }
+    turn.activeItem = { id, ...identity }
     this.markDirty(turn, true)
   }
 
@@ -416,15 +428,19 @@ export class BackgroundAgentJobTurnRecorder {
     if (!callID) return
 
     if (item.type === 'function_call') {
-      const tool = collaborationToolName(item)
       const turn = this.turn(params)
+      const name = stringValue(item.name)
+      const namespace = stringValue(item.namespace)
+      if (turn && name) turn.modelToolIdentities.set(callID, { ...(namespace ? { namespace } : {}), name })
+
+      const tool = collaborationToolName(item)
       if (!tool || !turn) return
       this.pendingCollaborationCalls.set(callID, {
         runtimeTurnID: turn.runtimeTurnID,
         tool,
         arguments: parseJSONValue(item.arguments, {})
       })
-      turn.activeItem = { id: callID, name: `collaboration.${tool}` }
+      turn.activeItem = { id: callID, namespace: 'collaboration', name: tool }
       this.markDirty(turn, false)
       return
     }
@@ -571,10 +587,17 @@ export class BackgroundAgentJobTurnRecorder {
   }
 
   private canonicalItem(turn: RuntimeTurn, value: JSONObject): JSONObject {
+    const id = stringValue(value.id)
+    const modelIdentity = id && value.type === 'mcpToolCall' ? turn.modelToolIdentities.get(id) : undefined
+    const identifiedValue = modelIdentity ? jsonObject({ ...value, ...modelIdentity }) : value
     const semanticValue =
-      value.type === 'reasoning'
-        ? jsonObject({ type: value.type, id: value.id, summary: arrayValue(value.summary) })
-        : value
+      identifiedValue.type === 'reasoning'
+        ? jsonObject({
+            type: identifiedValue.type,
+            id: identifiedValue.id,
+            summary: arrayValue(identifiedValue.summary)
+          })
+        : identifiedValue
     const item = this.sanitizeObject(semanticValue, turn)
     if (item.type !== 'userMessage' || stringValue(item.clientId) || !turn.initialItemKey) return item
 
@@ -597,11 +620,11 @@ export class BackgroundAgentJobTurnRecorder {
     const id = stringValue(item.id)
     if (!id || turn.completedItemIDs.has(id)) return false
     turn.completedItemIDs.add(id)
-    const name = toolName(item)
-    if (name) turn.toolItemNames.set(id, name)
+    const identity = toolIdentityOf(item)
+    if (identity) turn.toolItemIdentities.set(id, identity)
     const mechanism = toolExecutionMechanism(item)
-    if (name && mechanism) {
-      turn.toolItemExecutionMechanisms.set(id, { name, execution_mechanism: mechanism })
+    if (identity && mechanism) {
+      turn.toolItemExecutionMechanisms.set(id, { ...identity, execution_mechanism: mechanism })
     }
     if (item.type === 'fileChange') {
       const handoff = boundedBackgroundAgentJobPaths([...turn.filesChanged, ...fileChangePaths(item.changes)])
@@ -721,26 +744,28 @@ export class BackgroundAgentJobTurnRecorder {
 }
 
 function progress(turn: RuntimeTurn): BackgroundAgentJobTurnProgress {
-  const counts = new Map<string, number>()
-  for (const name of turn.toolItemNames.values()) counts.set(name, (counts.get(name) ?? 0) + 1)
-  const toolsUsed = [...counts.entries()]
-    .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
-    .map(([name, calls]) => ({ name, calls }))
+  const counts = new Map<string, ToolIdentity & { calls: number }>()
+  for (const identity of turn.toolItemIdentities.values()) {
+    const key = toolIdentityKey(identity)
+    const existing = counts.get(key)
+    counts.set(key, { ...identity, calls: (existing?.calls ?? 0) + 1 })
+  }
+  const toolsUsed = [...counts.values()].sort(compareToolIdentity)
   const executionCounts = new Map<string, ToolExecutionMechanism & { calls: number }>()
   for (const execution of turn.toolItemExecutionMechanisms.values()) {
-    const key = `${execution.name}\u0000${execution.execution_mechanism}`
+    const key = `${toolIdentityKey(execution)}\u0000${execution.execution_mechanism}`
     const existing = executionCounts.get(key)
     executionCounts.set(key, { ...execution, calls: (existing?.calls ?? 0) + 1 })
   }
   const toolExecutionMechanisms = [...executionCounts.values()].sort((left, right) => {
-    const nameOrder = left.name < right.name ? -1 : left.name > right.name ? 1 : 0
-    if (nameOrder !== 0) return nameOrder
+    const identityOrder = compareToolIdentity(left, right)
+    if (identityOrder !== 0) return identityOrder
     return left.execution_mechanism < right.execution_mechanism ? -1 : 1
   })
 
   return {
     completed_items: turn.completedItemIDs.size,
-    tool_calls: turn.toolItemNames.size,
+    tool_calls: turn.toolItemIdentities.size,
     tools_used: toolsUsed,
     ...(toolExecutionMechanisms.length > 0 ? { tool_execution_mechanisms: toolExecutionMechanisms } : {}),
     files_changed: [...turn.filesChanged].sort(),
@@ -770,37 +795,67 @@ function planStatus(value: unknown): BackgroundAgentJobTurnPlan['steps'][number]
   }
 }
 
-function toolName(value: JSONObject): string | undefined {
+function toolIdentityOf(value: JSONObject): ToolIdentity | undefined {
   switch (value.type) {
     case 'commandExecution':
-      return 'shell'
+      return { name: 'shell' }
     case 'fileChange':
-      return 'apply_patch'
+      return { name: 'apply_patch' }
     case 'mcpToolCall': {
       const server = stringValue(value.server)
+      const namespace = stringValue(value.namespace) ?? (server ? mcpNamespace(server) : undefined)
       const tool = stringValue(value.tool)
-      return server && tool ? `${server}.${tool}` : undefined
+      const name = stringValue(value.name) ?? (tool ? responsesIdentifier(tool) : undefined)
+      return name ? { ...(namespace ? { namespace } : {}), name } : undefined
     }
     case 'dynamicToolCall': {
-      const tool = stringValue(value.tool)
+      const name = stringValue(value.tool)
       const namespace = stringValue(value.namespace)
-      return tool ? (namespace ? `${namespace}.${tool}` : tool) : undefined
+      return name ? { ...(namespace ? { namespace } : {}), name } : undefined
     }
     case 'collabAgentToolCall':
-      return stringValue(value.tool) ? `collaboration.${stringValue(value.tool)}` : undefined
+      return stringValue(value.tool)
+        ? { namespace: 'collaboration', name: normalizedCollaborationToolName(stringValue(value.tool)!) }
+        : undefined
     case 'webSearch':
-      return 'web_search'
+      return { name: 'web_search' }
     case 'imageView':
-      return 'view_image'
+      return { name: 'view_image' }
     case 'sleep':
-      return 'sleep'
+      return { name: 'sleep' }
     case 'imageGeneration':
-      return 'image_generation'
+      return { name: 'image_generation' }
     case 'contextCompaction':
-      return 'context_compaction'
+      return { name: 'context_compaction' }
     default:
       return undefined
   }
+}
+
+function mcpNamespace(server: string): string {
+  return server.startsWith('mcp__') ? server : `mcp__${responsesIdentifier(server)}`
+}
+
+function responsesIdentifier(value: string): string {
+  return value.replace(/[^A-Za-z0-9_]/gu, '_')
+}
+
+function toolIdentityKey(identity: ToolIdentity): string {
+  return `${identity.namespace ?? ''}\u0000${identity.name}`
+}
+
+function sameToolIdentity(left: ToolIdentity, right: ToolIdentity): boolean {
+  return left.namespace === right.namespace && left.name === right.name
+}
+
+function compareToolIdentity(left: ToolIdentity, right: ToolIdentity): number {
+  const leftKey = toolIdentityKey(left)
+  const rightKey = toolIdentityKey(right)
+  return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0
+}
+
+function toolDisplayName(identity: ToolIdentity): string {
+  return identity.namespace ? `${identity.namespace}.${identity.name}` : identity.name
 }
 
 function fileChangePaths(value: unknown): string[] {

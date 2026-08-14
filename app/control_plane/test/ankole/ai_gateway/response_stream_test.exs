@@ -375,6 +375,7 @@ defmodule Ankole.AIGateway.ResponseStreamTest do
     assert failure_event["sequence_number"] == 2
     assert failure_event["response"]["id"] == created_event["response"]["id"]
     assert get_in(failure_event, ["response", "error", "code"]) == "resume_open_failed"
+    assert get_in(failure_event, ["response", "error", "retryable"]) == true
     assert outcome.terminal_error["code"] == "resume_open_failed"
 
     assert Enum.any?(failure_event["response"]["output"], fn item ->
@@ -382,6 +383,95 @@ defmodule Ankole.AIGateway.ResponseStreamTest do
            end)
 
     assert_receive {:DOWN, ^stream_monitor, :process, _, :normal}, 1_000
+  end
+
+  test "provider error frames stay diagnostic until one canonical terminal" do
+    state = State.new("agent-test", %{}, %{})
+
+    raw_error = %{
+      "type" => "error",
+      "sequence_number" => 0,
+      "error" => %{
+        "code" => "upstream_stream_break",
+        "message" => "provider stream broke",
+        "type" => "provider_disconnect"
+      }
+    }
+
+    assert {:ok, state, [], :continue} = State.observe(state, raw_error, 0)
+
+    assert state.provider_error_diagnostic == %{
+             provider_error_code: "upstream_stream_break",
+             provider_error_type: "provider_disconnect",
+             provider_message: "provider stream broke"
+           }
+
+    synthesized_error = %{
+      "type" => "error",
+      "sequence_number" => 1,
+      "error" => %{
+        "code" => "upstream_stream_closed_before_terminal_event",
+        "message" => "upstream stream closed before a terminal event"
+      }
+    }
+
+    assert {:ok, ^state, [], :continue} = State.observe(state, synthesized_error, 1)
+
+    terminal =
+      failed_event(%{
+        "code" => "upstream_stream_closed_before_terminal_event",
+        "message" => "upstream stream closed before a terminal event"
+      })
+      |> Map.put("sequence_number", 2)
+
+    assert {:ok, _state, [public_event],
+            {:terminal, %{terminal_error: terminal_error}, :keep_upstream}} =
+             State.observe(state, terminal, 2)
+
+    assert public_event["type"] == "response.failed"
+    assert public_event["sequence_number"] == 2
+    assert terminal_error["code"] == "upstream_stream_closed_before_terminal_event"
+    assert terminal_error["failure_kind"] == "transport"
+    assert terminal_error["message"] == "provider stream broke"
+    assert terminal_error["provider_error_code"] == "upstream_stream_break"
+    assert terminal_error["provider_error_type"] == "provider_disconnect"
+    assert terminal_error["retryable"] == true
+    assert get_in(public_event, ["response", "error", "message"]) == "provider stream broke"
+  end
+
+  test "a local transport terminal keeps the first provider error as bounded diagnostics" do
+    raw_error = %{
+      "type" => "error",
+      "error" => %{
+        "code" => "upstream_stream_break",
+        "message" => "provider stream broke"
+      }
+    }
+
+    assert {:ok, state, [], :continue} =
+             State.observe(State.new("agent-test", %{}, %{}), raw_error, 0)
+
+    assert {_state, [public_event], %{terminal_error: terminal_error}} =
+             State.fail(state, "provider stream closed",
+               code: "provider_stream_closed_without_terminal",
+               retryable: true
+             )
+
+    assert terminal_error["code"] == "provider_stream_closed_without_terminal"
+    assert terminal_error["failure_kind"] == "transport"
+    assert terminal_error["message"] == "provider stream broke"
+    assert terminal_error["provider_error_code"] == "upstream_stream_break"
+    assert terminal_error["retryable"] == true
+
+    assert public_event["response"]["error"] == terminal_error
+  end
+
+  test "a local failure always emits boolean retryability" do
+    assert {_state, [public_event], %{terminal_error: terminal_error}} =
+             State.fail(State.new("agent-test", %{}, %{}), "local failure", retryable: nil)
+
+    assert terminal_error["retryable"] == false
+    assert get_in(public_event, ["response", "error", "retryable"]) == false
   end
 
   test "provider terminal retry classification uses stable fields instead of messages" do
@@ -424,6 +514,7 @@ defmodule Ankole.AIGateway.ResponseStreamTest do
     assert terminal_error["retryable"] == false
     assert terminal_error["code"] == "invalid_request"
     assert terminal_error["message"] == "rate limit 429 too many requests"
+    assert get_in(public_event, ["response", "error", "retryable"]) == false
     assert Ankole.JSON.encode!(public_event) =~ "rate limit 429 too many requests"
   end
 

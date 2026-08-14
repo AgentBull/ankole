@@ -129,11 +129,15 @@ function localToolSpecs(definitions: NonNullable<CallModelOptions['tools']>[stri
   const namespaceTools = [...namespaced.entries()].map(([name, tools]) => ({
     type: 'namespace' as const,
     name,
-    description: tools[0]?.namespaceDescription ?? `Tools from ${name}.`,
+    description: tools[0]?.namespaceDescription ?? defaultNamespaceDescription(name),
     tools: tools.map(localToolSpec)
   }))
 
   return [...rootTools, ...namespaceTools]
+}
+
+export function defaultNamespaceDescription(namespace: string): string {
+  return namespace === 'functions' ? '' : `Tools in the ${namespace} namespace.`
 }
 
 function localToolSpec(tool: NonNullable<CallModelOptions['tools']>[string]) {

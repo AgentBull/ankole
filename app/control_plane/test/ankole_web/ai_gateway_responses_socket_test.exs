@@ -521,18 +521,32 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     refute Map.has_key?(state, :active_stream)
   end
 
-  test "response.create rejects a positive budget with mixed tool effect owners" do
+  test "response.create accepts a positive budget with mixed tool effect owners" do
     %{principal: agent} = agent_fixture()
+
+    server =
+      start_supervised!(
+        {Bandit,
+         plug: {NativeResponsesWebSocketUpstreamPlug, test_pid: self()},
+         scheme: :http,
+         ip: {127, 0, 0, 1},
+         port: 0}
+      )
+
+    {:ok, {_ip, port}} = ThousandIsland.listener_info(server)
 
     assert {:ok, _provider} =
              ProviderConfigs.create_provider(%{
                provider_id: "compatible-mixed-tool-budget-socket",
                provider_kind: "openai_compatible",
-               base_url: "https://compatible.invalid/v1",
+               base_url: "http://127.0.0.1:#{port}/v1",
                credential_pool: %{
                  "entries" => [%{"label" => "Default", "api_key" => "sk-compatible"}]
                },
-               connection_options: %{"endpoint_kind" => "responses"}
+               connection_options: %{
+                 "endpoint_kind" => "responses",
+                 "upstream_transport" => "websocket"
+               }
              })
 
     assert {:ok, _profile} =
@@ -559,21 +573,19 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
         "max_tool_calls" => 1
       })
 
-    assert {:push, {:text, pushed}, state} =
+    assert {:ok, %{active_stream: active} = state} =
              AIGatewayResponsesSocket.handle_in({request, [opcode: :text]}, %{
                subject_uid: agent.uid,
                subject_type: "agent"
              })
 
-    assert %{
-             "type" => "error",
-             "sequence_number" => 0,
-             "code" => "unsupported_value",
-             "param" => "max_tool_calls"
-           } = event = Ankole.JSON.decode!(pushed)
+    assert_receive {:native_socket_upstream_request, upstream_request}
+    assert upstream_request["max_tool_calls"] == 1
+    assert Enum.any?(upstream_request["tools"], &(&1["type"] == "web_search"))
+    assert Enum.any?(upstream_request["tools"], &(&1["name"] == "program"))
 
-    assert event["message"] =~ "positive max_tool_calls"
-    refute Map.has_key?(state, :active_stream)
+    _ = AIGateway.cancel_response_stream(state.active_stream.stream)
+    assert active.ref == state.active_stream.ref
   end
 
   test "response.create accepts mixed tool owners when tool_choice is none" do
@@ -2261,6 +2273,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
              "code" => "invalid_request",
              "failure_kind" => "provider_response",
              "message" => "private provider message",
+             "provider_error_code" => "invalid_request",
              "retryable" => false
            }
   end

@@ -1896,14 +1896,22 @@ defmodule Ankole.BackgroundAgentJobsTest do
       trajectory_groups: [[assistant_message("child-report-must-not-appear")]],
       progress:
         progress_snapshot(2, "web_search", ["child.tmp"])
+        |> Map.put("tools_used", [
+          %{"namespace" => "mcp__search", "name" => "web_search", "calls" => 1}
+        ])
         |> Map.put("tool_execution_mechanisms", [
           %{
+            "namespace" => "mcp__search",
             "name" => "web_search",
             "execution_mechanism" => "provider_hosted",
             "calls" => 1
           }
         ])
-        |> Map.put("active_item", %{"id" => "child-search", "name" => "web_search"}),
+        |> Map.put("active_item", %{
+          "id" => "child-search",
+          "namespace" => "mcp__search",
+          "name" => "web_search"
+        }),
       usage: usage_snapshot(999)
     })
 
@@ -1953,18 +1961,23 @@ defmodule Ankole.BackgroundAgentJobsTest do
              %{name: "apply_patch", calls: 1},
              %{name: "context_compaction", calls: 1},
              %{name: "shell", calls: 1},
-             %{name: "web_search", calls: 1}
+             %{namespace: "mcp__search", name: "web_search", calls: 1}
            ]
 
     assert execution.progress.tool_execution_mechanisms == [
-             %{name: "web_search", execution_mechanism: "provider_hosted", calls: 1}
+             %{
+               namespace: "mcp__search",
+               name: "web_search",
+               execution_mechanism: "provider_hosted",
+               calls: 1
+             }
            ]
 
     assert execution.progress.files_changed == ["a.ts", "b.ts", "child.tmp"]
     assert execution.progress.plan["explanation"] == "Finish verification"
 
     assert Enum.sort_by(execution.progress.active_items, & &1.scope) == [
-             %{scope: "child", name: "web_search"},
+             %{scope: "child", namespace: "mcp__search", name: "web_search"},
              %{scope: "lead", name: "apply_patch"}
            ]
 

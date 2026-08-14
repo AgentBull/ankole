@@ -15,8 +15,8 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
   alias Ankole.AIGateway.OpenAIError
   alias Ankole.AIGateway.Providers
   alias Ankole.AIGateway.RequestContext
-  alias Ankole.AIGateway.ResponseItems
   alias Ankole.AIGateway.Resolver
+  alias Ankole.AIGateway.ToolContract
   alias Ankole.AIGateway.ToolSearch
   alias Ankole.AIGateway.ToolSearch.StreamLoop
 
@@ -89,7 +89,6 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
 
     with {:ok, provider_request} <- provider_request(runtime, request),
          {:ok, provider_request, tool_plan} <- plan_tools(runtime, provider_request),
-         :ok <- validate_tool_budget_owners(request, provider_request, tool_plan),
          response_stream_driver? = response_stream_driver?(runtime, tool_plan),
          provider_request =
            StreamLoop.apply_tool_budget(
@@ -134,52 +133,25 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
   defp response_stream_driver?(%{"provider_kind" => "chatgpt_subscription"}, _plan), do: true
   defp response_stream_driver?(_runtime, plan), do: ToolSearch.response_stream_required?(plan)
 
-  defp validate_tool_budget_owners(
-         %{"max_tool_calls" => limit, "tool_choice" => "none"},
-         _provider_request,
-         _tool_plan
-       )
-       when is_integer(limit) and limit > 0,
-       do: :ok
-
-  defp validate_tool_budget_owners(
-         %{"max_tool_calls" => limit},
-         provider_request,
-         tool_plan
-       )
-       when is_integer(limit) and limit > 0 and not is_nil(tool_plan) do
-    mixed_owners? =
-      ToolSearch.response_stream_required?(tool_plan) and
-        Enum.any?(
-          ToolSearch.list_tools(provider_request),
-          &ResponseItems.budgeted_tool_declaration?/1
-        )
-
-    if mixed_owners? do
-      {:error,
-       OpenAIError.invalid(
-         "max_tool_calls",
-         "unsupported_value",
-         "Do not use a positive max_tool_calls with local Tool Search or " <>
-           "Programmatic Tool Calling and another built-in tool."
-       )}
-    else
-      :ok
-    end
-  end
-
-  defp validate_tool_budget_owners(_request, _provider_request, _tool_plan), do: :ok
-
   # Tool ownership follows the stable provider/client protocol. A tool list
   # change must not switch one conversation between native and local handling.
   defp plan_tools(runtime, provider_request) do
-    if native_openai_tools?(runtime) do
-      {:ok, provider_request, nil}
-    else
-      case ToolSearch.plan(provider_request) do
-        {:ok, _provider_request, _plan} = planned -> planned
-        {:error, reason} -> {:error, invalid_tool_plan(reason)}
+    with :ok <- validate_tool_identifiers(provider_request) do
+      if native_openai_tools?(runtime) do
+        {:ok, provider_request, nil}
+      else
+        case ToolSearch.plan(provider_request) do
+          {:ok, _provider_request, _plan} = planned -> planned
+          {:error, reason} -> {:error, invalid_tool_plan(reason)}
+        end
       end
+    end
+  end
+
+  defp validate_tool_identifiers(provider_request) do
+    case ToolContract.validate_responses_identifiers(ToolSearch.list_tools(provider_request)) do
+      :ok -> :ok
+      {:error, reason} -> {:error, invalid_tool_plan(reason)}
     end
   end
 
