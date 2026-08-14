@@ -21,6 +21,7 @@ dependencies:
       description: "Lookup service"
       transport: streamable_http
       url: https://mcp.example.com/mcp
+      protocol_version: 2026-07-28
       bearer_token_env_var: MCP_HTTP_TOKEN
       enabled_tools:
         - lookup
@@ -40,11 +41,12 @@ dependencies:
 | フィールド | 意味 |
 | --- | --- |
 | `url` | HTTP または HTTPS の server URL |
+| `protocol_version` | 任意のプロトコルモード: `auto`、`legacy`、または `2026-07-28`。デフォルトは `auto` |
 | `bearer_token_env_var` | bearer token を保持する環境変数の名前 |
 | `enabled_tools` | 任意。正確な raw 名の allowlist |
 | `disabled_tools` | 任意。正確な raw 名の denylist |
 
-token は [環境変数](../worker-env/) に保存してください。Skill には変数名だけを置きます。
+server が特定のプロトコル世代を必要とする場合にだけ `protocol_version` を固定してください。token は [環境変数](../worker-env/) に保存してください。Skill には変数名だけを置きます。
 
 ### `stdio`
 

@@ -21,6 +21,7 @@ dependencies:
       description: "Lookup service"
       transport: streamable_http
       url: https://mcp.example.com/mcp
+      protocol_version: 2026-07-28
       bearer_token_env_var: MCP_HTTP_TOKEN
       enabled_tools:
         - lookup
@@ -40,11 +41,12 @@ One Skill can declare at most 64 dependencies. The schema is strict and rejects 
 | Field | Meaning |
 | --- | --- |
 | `url` | HTTP or HTTPS server URL |
+| `protocol_version` | Optional protocol mode: `auto`, `legacy`, or `2026-07-28`; the default is `auto` |
 | `bearer_token_env_var` | Environment variable name that contains the bearer token |
 | `enabled_tools` | Optional exact raw-name allowlist |
 | `disabled_tools` | Optional exact raw-name denylist |
 
-Store the token in [Environment variables](../worker-env/). Put only its variable name in the Skill.
+Pin `protocol_version` only when the server requires one protocol era. Store the token in [Environment variables](../worker-env/). Put only its variable name in the Skill.
 
 ### `stdio`
 

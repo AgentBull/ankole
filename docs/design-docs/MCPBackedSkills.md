@@ -44,6 +44,7 @@ dependencies:
       description: "Remote data service"
       transport: streamable_http
       url: https://example.com/mcp
+      protocol_version: 2026-07-28
       bearer_token_env_var: REMOTE_DATA_API_KEY
       enabled_tools:
         - quote
@@ -61,8 +62,11 @@ dependencies:
 must be `streamable_http` or `stdio`.
 
 A `streamable_http` entry requires an HTTP or HTTPS `url`. It can set
-`bearer_token_env_var`, `enabled_tools`, and `disabled_tools`. The bearer field
-contains an environment variable name. It must never contain a secret value.
+`protocol_version`, `bearer_token_env_var`, `enabled_tools`, and
+`disabled_tools`. `protocol_version` accepts `auto`, `legacy`, or
+`2026-07-28`; its default is `auto`. Pin a version only when the server's
+declared protocol requires it. The bearer field contains an environment
+variable name. It must never contain a secret value.
 
 A `stdio` entry requires `command`. It can set `enabled_tools` and
 `disabled_tools`. It cannot set `url` or `bearer_token_env_var`. Agent Computer
@@ -115,7 +119,9 @@ The generated file always contains `imports: []`. The explicit
 `MCPORTER_CONFIG` path and this empty import list prevent mcporter from reading
 an Agent Home, project, Codex, editor, or host MCP config.
 
-An HTTP entry becomes `baseUrl` plus a `bearerToken` `${VARIABLE}` placeholder.
+A pinned HTTP entry becomes `baseUrl`, `protocolVersion`, and a `bearerToken`
+`${VARIABLE}` placeholder. An unpinned entry omits `protocolVersion` so
+mcporter uses automatic negotiation.
 A stdio entry becomes `command: /bin/sh` plus
 `args: [-lc, <declared command>]`. Credential values are not read while the
 file is generated and cannot enter the file. mcporter resolves the placeholder

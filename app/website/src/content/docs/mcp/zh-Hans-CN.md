@@ -21,6 +21,7 @@ dependencies:
       description: "查询服务"
       transport: streamable_http
       url: https://mcp.example.com/mcp
+      protocol_version: 2026-07-28
       bearer_token_env_var: MCP_HTTP_TOKEN
       enabled_tools:
         - lookup
@@ -40,11 +41,12 @@ dependencies:
 | 字段 | 含义 |
 | --- | --- |
 | `url` | HTTP 或 HTTPS server URL |
+| `protocol_version` | 可选协议模式：`auto`、`legacy` 或 `2026-07-28`；默认值是 `auto` |
 | `bearer_token_env_var` | 保存 bearer token 的环境变量名称 |
 | `enabled_tools` | 可选的原始工具名 allowlist |
 | `disabled_tools` | 可选的原始工具名 denylist |
 
-token 值放在 Console 的 [环境变量](../worker-env/) 中。Skill 只保存变量名。
+只有 server 要求特定协议代际时才固定 `protocol_version`。token 值放在 Console 的 [环境变量](../worker-env/) 中。Skill 只保存变量名。
 
 ### `stdio`
 

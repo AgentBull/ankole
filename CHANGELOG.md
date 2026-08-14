@@ -1,5 +1,10 @@
 # Changelog
 
+## Version 0.71.2 (2026-08-14)
+
+- Let Skill-backed HTTP MCP declarations pin protocol negotiation, so modern
+  POST-only servers do not fall back to the legacy SSE receive channel.
+
 ## Version 0.71.1 (2026-08-14)
 
 - Keep the Background Agent Job board within the desktop viewport with independently scrolling columns. Its five health cards now keep their space while loading, show request failures, and use one wide-screen row. Assistive technology can identify each Job column and the health loading state.

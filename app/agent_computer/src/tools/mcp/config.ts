@@ -29,6 +29,7 @@ const ServerName = z
 const Description = z.string().trim().min(1).max(1024)
 const EnvironmentVariableName = z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/)
 const ToolFilter = z.array(z.string().min(1).max(1024)).max(MAX_FILTERED_TOOLS_PER_SERVER)
+const MCPProtocolVersion = z.enum(['auto', 'legacy', '2026-07-28'])
 const HTTPURL = z
   .string()
   .url()
@@ -42,6 +43,7 @@ const StreamableHTTPDependency = z
     transport: z.literal('streamable_http'),
     url: HTTPURL,
     command: z.never().optional(),
+    protocol_version: MCPProtocolVersion.optional(),
     bearer_token_env_var: EnvironmentVariableName.optional(),
     enabled_tools: ToolFilter.optional(),
     disabled_tools: ToolFilter.optional()
@@ -87,6 +89,7 @@ interface MCPServerBase {
 export interface StreamableHTTPMCPServer extends MCPServerBase {
   transport: 'streamable_http'
   url: string
+  protocolVersion?: z.infer<typeof MCPProtocolVersion>
   bearerTokenEnvVar?: string
 }
 
@@ -205,6 +208,7 @@ function serverConfigFromDependency(skillName: string, dependency: ParsedMCPDepe
       ...(dependency.description ? { description: dependency.description } : {}),
       transport: dependency.transport,
       url: dependency.url,
+      ...(dependency.protocol_version ? { protocolVersion: dependency.protocol_version } : {}),
       ...(dependency.bearer_token_env_var ? { bearerTokenEnvVar: dependency.bearer_token_env_var } : {}),
       ...(dependency.enabled_tools ? { enabledTools: dependency.enabled_tools } : {}),
       ...(dependency.disabled_tools ? { disabledTools: dependency.disabled_tools } : {}),
@@ -232,6 +236,7 @@ function serverConnectionIdentity(server: MCPServerConfig): string {
           description: server.description ?? null,
           transport: server.transport,
           url: server.url,
+          protocolVersion: server.protocolVersion ?? null,
           bearerTokenEnvVar: server.bearerTokenEnvVar ?? null,
           enabledTools: normalizedToolFilter(server.enabledTools),
           disabledTools: normalizedToolFilter(server.disabledTools)
