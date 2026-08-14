@@ -16,6 +16,7 @@ export type MaterializedMCPorterConfig = {
 type MCPorterServer = {
   description?: string
   baseUrl?: string
+  protocolVersion?: 'auto' | 'legacy' | '2026-07-28'
   bearerToken?: string
   command?: string
   args?: string[]
@@ -41,6 +42,7 @@ export function renderMCPorterConfig(servers: readonly MCPorterConfiguredServer[
         ? {
             ...(server.description ? { description: server.description } : {}),
             baseUrl: server.url,
+            ...(server.protocolVersion ? { protocolVersion: server.protocolVersion } : {}),
             ...(server.bearerTokenEnvVar ? { bearerToken: `\${${server.bearerTokenEnvVar}}` } : {}),
             ...filters
           }

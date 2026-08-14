@@ -35,6 +35,7 @@ describe('@ankole/agent-computer Skill MCPorter config', () => {
         sourceSkills: ['remote-skill'],
         transport: 'streamable_http',
         url: 'https://mcp.example.test/rpc',
+        protocolVersion: '2026-07-28',
         bearerTokenEnvVar: 'REMOTE_MCP_TOKEN',
         enabledTools: ['quote', 'news', 'quote'],
         disabledTools: ['news']
@@ -53,6 +54,7 @@ describe('@ankole/agent-computer Skill MCPorter config', () => {
           'a-remote': {
             description: 'Remote data',
             baseUrl: 'https://mcp.example.test/rpc',
+            protocolVersion: '2026-07-28',
             bearerToken: '${REMOTE_MCP_TOKEN}',
             allowedTools: ['quote']
           },
@@ -92,7 +94,11 @@ describe('@ankole/agent-computer Skill MCPorter config', () => {
     const root = temporaryRoot('ankole-mcporter-skills-')
     const builtinSkillsRoot = join(root, 'builtin')
     const agentInstalledSkillsRoot = join(root, 'installed')
-    writeSkill(builtinSkillsRoot, 'background-data', 'shared-data', 'https://mcp.example.test/rpc')
+    writeMetadata(
+      builtinSkillsRoot,
+      'background-data',
+      'dependencies:\n  tools:\n    - type: mcp\n      value: shared-data\n      transport: streamable_http\n      url: https://mcp.example.test/rpc\n      protocol_version: 2026-07-28\n'
+    )
     writeSkill(agentInstalledSkillsRoot, 'installed-data', 'installed-data', 'https://installed.example.test/rpc')
 
     const backgroundSkill = create(RuntimeSkillSummarySchema, {
@@ -117,7 +123,7 @@ describe('@ankole/agent-computer Skill MCPorter config', () => {
     ).toEqual([expect.objectContaining({ name: 'installed-data', sourceSkills: ['installed-data'] })])
     expect(await loadEnabledSkillMCPServers({ enabledSkills: [backgroundSkill, installedSkill], skillRoots })).toEqual([
       expect.objectContaining({ name: 'installed-data' }),
-      expect.objectContaining({ name: 'shared-data' })
+      expect.objectContaining({ name: 'shared-data', protocolVersion: '2026-07-28' })
     ])
   })
 
@@ -200,6 +206,24 @@ describe('@ankole/agent-computer Skill MCPorter config', () => {
         skillRoots
       })
     ).rejects.toThrow('invalid MCP dependency for Skill obsolete-timeout')
+
+    writeMetadata(
+      builtinSkillsRoot,
+      'unknown-protocol',
+      'dependencies:\n  tools:\n    - type: mcp\n      value: modern\n      transport: streamable_http\n      url: https://modern.example.test/rpc\n      protocol_version: 2027-01-01\n'
+    )
+    await expect(
+      loadEnabledSkillMCPServers({
+        enabledSkills: [
+          create(RuntimeSkillSummarySchema, {
+            skillName: 'unknown-protocol',
+            sourceKind: 'builtin',
+            relativePath: 'unknown-protocol'
+          })
+        ],
+        skillRoots
+      })
+    ).rejects.toThrow('invalid MCP dependency for Skill unknown-protocol')
   })
 
   it('resolves internal Skills and rejects metadata symlinks outside the Skill root', async () => {

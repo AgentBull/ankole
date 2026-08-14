@@ -1,6 +1,6 @@
 # BullX Financial Data 的 Skill-first MCP 执行方案
 
-状态：**已实现；mcporter 0.13.0 已验证，真实 BullX 路径被 legacy transport 互操作问题阻塞；不是规范性合同**
+状态：**已实现；mcporter 0.13.0 已通过 `2026-07-28` 协议连接真实 BullX；不是规范性合同**
 日期：2026-08-04
 
 范围说明：本文只决定 BullX Financial Data 的 Skill-first 路径。现行平台合同见
@@ -234,7 +234,8 @@ BullX 的生成结果等价于：
     "bullx-financial-data": {
       "description": "BullX Financial Data MCP server",
       "baseUrl": "https://ai-terminal.yuma.host/api/v1/financial-data/mcp",
-      "bearerToken": "${BULLX_FINANCIAL_DATA_MCP_API_KEY}"
+      "bearerToken": "${BULLX_FINANCIAL_DATA_MCP_API_KEY}",
+      "protocolVersion": "2026-07-28"
     }
   }
 }
@@ -246,8 +247,8 @@ BullX 的生成结果等价于：
   配置。
 - 必须设置 `MCPORTER_CONFIG`，禁止依赖 cwd 或 `~/.mcporter/mcporter.json` 的偶然内容。
 - 文件只保存 WorkerEnv 变量 placeholder，不保存解析后的 secret。
-- `streamable_http` 映射为 `baseUrl` 和 `bearerToken` placeholder。mcporter 在执行时解析变量并添加
-  `Bearer` authorization scheme。
+- `streamable_http` 映射为 `baseUrl`、`bearerToken` placeholder 和可选的 `protocolVersion`。
+  mcporter 在执行时解析变量并添加 `Bearer` authorization scheme。
 - `stdio` 如仍保留支持，使用 `command: "/bin/sh"` 和 `args: ["-lc", <声明命令>]` 保持当前语义。
 - 只有 `enabled_tools` 时生成 `allowedTools`；只有 `disabled_tools` 时生成 `blockedTools`；两者同时存在
   时生成 `enabled_tools - disabled_tools` 的最终 `allowedTools`，因为 mcporter 不允许两种字段同时存在。
@@ -581,6 +582,12 @@ Automation 还要验证真实 trigger → run → BullX → `emitEvent` 或静�
 声明，而是 BullX 的同步 POST-only 2025-era 实现与 mcporter SDK v2 legacy path 不能互操作。可行修复是 BullX
 实现 `2026-07-28`、BullX 提供 legacy receive stream，或 mcporter/SDK 容忍规范允许的 405 后继续 POST。不要把 raw
 HTTP 成功或 fixture 结果冒充真实 mcporter 验收。
+
+2026-08-13 的重新验证已解除上述 transport 阻塞。BullX 本地 Terminal server 支持
+`2026-07-28`；Skill 声明显式设置 `protocol_version: "2026-07-28"`，Agent Computer 将它严格转换为
+mcporter 的 `protocolVersion`。真实 mcporter 调用已读取 `bullx_semantic_query` schema，并完成
+`describe`：`contract_version` 为 `1`，`catalog_revision` 为 `dd2120798a480184`，返回 51 个模型和
+5 个领域，无 warning。这个结果取代上一段的当时状态；第 11.5 节的三运行时业务对照仍是单独验收项。
 
 ## 12. 风险和改变决定的条件
 
