@@ -1,5 +1,9 @@
 # Changelog
 
+## Version 0.72.1 (2026-08-14)
+
+- Preserve a streamed Chat Completions tool call's non-empty ID and name when later argument fragments repeat either field as an empty string, so OpenAI-compatible Providers cannot turn an otherwise valid client tool call into a partial completion.
+
 ## Version 0.72.0 (2026-08-14)
 
 - Always write compaction summaries with the Agent's light model profile. A conversation that asked for high or extra-high reasoning effort skipped that profile and summarized with the primary model instead, so an Agent whose primary Provider was unreachable could not compact at all and lost the turn. An Agent that configures no light profile now resolves it to its primary profile, the way the coding profile already resolves to heavy.

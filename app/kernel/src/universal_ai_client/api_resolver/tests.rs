@@ -1099,7 +1099,8 @@ fn openai_chat_accumulates_tool_calls() {
             "choices": [{
                 "delta": {"tool_calls": [{
                     "index": 0,
-                    "function": {"arguments": ":\"Shanghai\"}"}
+                    "id": "",
+                    "function": {"name": "", "arguments": ":\"Shanghai\"}"}
                 }]},
                 "finish_reason": "tool_calls"
             }]
@@ -1114,6 +1115,7 @@ fn openai_chat_accumulates_tool_calls() {
         .find(|item| item["type"] == "function_call")
         .unwrap();
 
+    assert_eq!(call["call_id"], "call_1");
     assert_eq!(call["name"], "get_weather");
     assert_eq!(call["arguments"], "{\"city\":\"Shanghai\"}");
 }
