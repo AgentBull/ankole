@@ -23,6 +23,7 @@ import {
   AIGatewayAPIKeyResponseSchema,
   AppConfigureResolveResponseSchema,
   BackgroundAgentJobResponseSchema,
+  BackgroundAgentJobTurnItemsListResponseSchema,
   BackgroundAgentJobTurnUpsertResponseSchema,
   RuntimeSkillSummarySchema,
   SkillOverlayResolveResponseSchema,
@@ -44,7 +45,7 @@ type RecordedStatusUpdate = RPCRequestInit<'background_agent_job.status.update'>
 }
 type RecordedTurnUpsert = RPCRequestInit<'background_agent_job.turn.upsert'> & {
   trajectoryJson?: Uint8Array
-  trajectoryGroupsJson?: Uint8Array
+  turnItemsJson?: Uint8Array
   progressJson?: Uint8Array
   usageJson?: Uint8Array
   errorJson?: Uint8Array
@@ -172,6 +173,10 @@ describe('@ankole/agent-computer Codex job runner', () => {
     const fixture = prepareFixture('searched')
     const statusUpdates: RecordedStatusUpdate[] = []
     const start = turnStart()
+    start.request_context = {
+      ...start.request_context,
+      ai_agent: { provider_hosted: { web_search: true } }
+    }
     start.hosted_tools = [{ type: 'web_search' }]
 
     try {
@@ -301,11 +306,12 @@ describe('@ankole/agent-computer Codex job runner', () => {
         JSON.parse(readFileSync(join(codexHomeFor(fixture.root), 'thread-start.json'), 'utf8')).experimentalRawEvents
       ).toBe(true)
       expect(turnUpserts.filter(update => update.runtimeThreadId === 'child-thread').at(-1)?.status).toBe('completed')
-      const trajectory = turnUpserts
-        .flatMap(update => (update.trajectoryGroupsJson ? [new TextDecoder().decode(update.trajectoryGroupsJson)] : []))
+      const recordedItems = turnUpserts
+        .flatMap(update => (update.turnItemsJson ? [new TextDecoder().decode(update.turnItemsJson)] : []))
         .join('')
-      expect(trajectory).toContain('collaboration.spawn_agent')
-      expect(trajectory).toContain('child-thread')
+      expect(recordedItems).toContain('"spawn_agent"')
+      expect(recordedItems).toContain('"collaboration"')
+      expect(recordedItems).toContain('child-thread')
       expect(statusUpdates.at(-1)?.status).toBe('succeeded')
     } finally {
       fixture.cleanup()
@@ -594,13 +600,11 @@ describe('@ankole/agent-computer Codex job runner', () => {
       expect(readFileSync(join(codexHomeFor(fixture.root), 'turn-input.txt'), 'utf8')).toBe(
         'The audience is operators.'
       )
-      const persistedGroups = turnUpserts
-        .flatMap(request =>
-          request.trajectoryGroupsJson ? [new TextDecoder().decode(request.trajectoryGroupsJson)] : []
-        )
+      const persistedItems = turnUpserts
+        .flatMap(request => (request.turnItemsJson ? [new TextDecoder().decode(request.turnItemsJson)] : []))
         .join('\n')
-      expect(persistedGroups).toContain(`client:${continuation.actor_event.actor_event_id}`)
-      expect(persistedGroups).not.toContain('"answers"')
+      expect(persistedItems).toContain(`client:${continuation.actor_event.actor_event_id}`)
+      expect(persistedItems).not.toContain('"answers"')
       expect(statusUpdates.at(-1)?.status).toBe('succeeded')
     } finally {
       fixture.cleanup()
@@ -644,8 +648,9 @@ describe('@ankole/agent-computer Codex job runner', () => {
     }
   })
 
-  it('does not replace the source Codex thread when a respawn cannot resume it', async () => {
-    const fixture = prepareFixture('must not run', { resumeError: 'No rollout found for thread' })
+  it('replays the stored transcript into a replacement thread when a respawn cannot resume natively', async () => {
+    const fixture = prepareFixture('done after replay', { resumeError: 'No rollout found for thread' })
+    const statusUpdates: RecordedStatusUpdate[] = []
     const workspaceOwnerJobID = '1001'
     mkdirSync(jobProjectFor(fixture.root, workspaceOwnerJobID), { recursive: true })
     const currentJob = create(BackgroundAgentJobResponseSchema, {
@@ -657,20 +662,92 @@ describe('@ankole/agent-computer Codex job runner', () => {
     })
 
     try {
-      await expect(
-        runCodexJob(
-          turnStart(),
-          options(fixture.root, [], [], () => currentJob)
-        )
-      ).rejects.toThrow('the continued Job cannot resume it')
-      expect(existsSync(join(codexHomeFor(fixture.root), 'turn-input.txt'))).toBe(false)
+      await runCodexJob(
+        turnStart(),
+        options(fixture.root, statusUpdates, [], () => currentJob, undefined, undefined, [], undefined, [
+          {
+            position: 0,
+            itemKey: 'client:event-0',
+            item: { type: 'userMessage', id: 'user-0', content: [{ type: 'text', text: '源任务原文' }] }
+          },
+          {
+            position: 1,
+            itemKey: 'command-0',
+            item: {
+              type: 'commandExecution',
+              id: 'command-0',
+              command: 'printf source',
+              cwd: '/workdir',
+              status: 'completed',
+              aggregatedOutput: 'source',
+              exitCode: 0,
+              durationMs: 1
+            }
+          },
+          {
+            position: 2,
+            itemKey: 'message-0',
+            item: { type: 'agentMessage', id: 'message-0', text: 'SOURCE_DONE' }
+          }
+        ])
+      )
+
+      const injected = JSON.parse(readFileSync(join(codexHomeFor(fixture.root), 'inject-items.json'), 'utf8'))
+      expect(injected.items).toEqual([
+        { type: 'message', role: 'user', content: [{ type: 'input_text', text: '源任务原文' }] },
+        expect.objectContaining({ type: 'function_call', name: 'shell', call_id: 'command-0' }),
+        expect.objectContaining({ type: 'function_call_output', call_id: 'command-0' }),
+        { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'SOURCE_DONE' }] }
+      ])
+      expect(readFileSync(join(codexHomeFor(fixture.root), 'turn-input.txt'), 'utf8')).toBe('Retry the failed work.')
+      expect(parsedJSON(statusUpdates[0]?.metadataJson)).toMatchObject({
+        runtime_checkpoint_recreated: true,
+        runtime_checkpoint_recovery: 'replayed_from_transcript'
+      })
+      expect(statusUpdates.at(-1)?.status).toBe('succeeded')
     } finally {
       fixture.cleanup()
     }
   })
 
-  it('does not replace the source Codex thread after a respawn starts its first turn', async () => {
-    const fixture = prepareFixture('must not run', { turnError: 'No rollout found for thread' })
+  it('continues a respawn from the durable Workspace when no stored transcript exists', async () => {
+    const fixture = prepareFixture('done after rebuild', { resumeError: 'No rollout found for thread' })
+    const statusUpdates: RecordedStatusUpdate[] = []
+    const workspaceOwnerJobID = '1001'
+    mkdirSync(jobProjectFor(fixture.root, workspaceOwnerJobID), { recursive: true })
+    const currentJob = create(BackgroundAgentJobResponseSchema, {
+      ...response(),
+      task: 'Retry the failed work.',
+      runtimeThreadId: 'missing-source-thread',
+      continuedFromJobId: '1002',
+      workspaceOwnerJobId: workspaceOwnerJobID,
+      resultOutputText: 'SOURCE_DONE: created context-marker.txt'
+    })
+
+    try {
+      await runCodexJob(
+        turnStart(),
+        options(fixture.root, statusUpdates, [], () => currentJob)
+      )
+
+      const turnInputText = readFileSync(join(codexHomeFor(fixture.root), 'turn-input.txt'), 'utf8')
+      expect(turnInputText).toContain('Retry the failed work.')
+      expect(turnInputText).toContain('The previous Codex thread could not be resumed')
+      expect(turnInputText).toContain('This Job continues terminal Job 1002')
+      expect(turnInputText).toContain('SOURCE_DONE: created context-marker.txt')
+      expect(existsSync(join(codexHomeFor(fixture.root), 'inject-items.json'))).toBe(false)
+      expect(parsedJSON(statusUpdates[0]?.metadataJson)).toMatchObject({
+        runtime_checkpoint_recreated: true,
+        runtime_checkpoint_recovery: 'new_thread_from_bounded_history'
+      })
+      expect(statusUpdates.at(-1)?.status).toBe('succeeded')
+    } finally {
+      fixture.cleanup()
+    }
+  })
+
+  it('rebuilds the thread after a mid-run thread loss instead of failing the respawn', async () => {
+    const fixture = prepareFixture('recovered', { turnError: 'No rollout found for thread' })
     const statusUpdates: RecordedStatusUpdate[] = []
     const workspaceOwnerJobID = '1001'
     mkdirSync(jobProjectFor(fixture.root, workspaceOwnerJobID), { recursive: true })
@@ -683,14 +760,16 @@ describe('@ankole/agent-computer Codex job runner', () => {
     })
 
     try {
-      await expect(
-        runCodexJob(
-          turnStart(),
-          options(fixture.root, statusUpdates, [], () => currentJob)
-        )
-      ).rejects.toThrow('lost its source Codex thread')
-      expect(statusUpdates.map(update => update.runtimeThreadId).filter(Boolean)).toEqual(['thread-1'])
-      expect(readFileSync(join(codexHomeFor(fixture.root), 'turn-count.txt'), 'utf8')).toBe('1')
+      await runCodexJob(
+        turnStart(),
+        options(fixture.root, statusUpdates, [], () => currentJob)
+      )
+
+      // The first turn fails with an unknown thread, one replacement thread is
+      // allowed, and the fake keeps failing, so the bounded ladder commits the
+      // turn failure as the Job outcome instead of throwing a refusal.
+      expect(statusUpdates.at(-1)?.status).toBe('failed')
+      expect(Number(readFileSync(join(codexHomeFor(fixture.root), 'turn-count.txt'), 'utf8'))).toBeGreaterThan(1)
     } finally {
       fixture.cleanup()
     }
@@ -736,9 +815,7 @@ describe('@ankole/agent-computer Codex job runner', () => {
     opts.onSteeringApplied = async update => {
       const causalItemKey = `client:${update.actorEvent?.actor_event_id}`
       trajectoryPersistedBeforeAck = turnUpserts.some(request =>
-        request.trajectoryGroupsJson
-          ? new TextDecoder().decode(request.trajectoryGroupsJson).includes(causalItemKey)
-          : false
+        request.turnItemsJson ? new TextDecoder().decode(request.turnItemsJson).includes(causalItemKey) : false
       )
     }
 
@@ -806,7 +883,7 @@ describe('@ankole/agent-computer Codex job runner', () => {
         })
       ).toBe(true)
       const skillDisableItems = turnUpserts.filter(update =>
-        new TextDecoder().decode(update.trajectoryGroupsJson).includes('skill-disabled:pdf')
+        new TextDecoder().decode(update.turnItemsJson ?? new Uint8Array()).includes('skill-disabled:pdf')
       )
       expect(skillDisableItems).toHaveLength(1)
       expect(
@@ -905,7 +982,8 @@ function options(
   onStatusUpdate?: (update: RecordedStatusUpdate) => void,
   onRPC?: (method: unknown) => void,
   contextSkills: RuntimeSkillSummary[] = [],
-  overlayText?: () => string
+  overlayText?: () => string,
+  storedTurnItems: Array<{ position: number; itemKey: string; item: Record<string, unknown> }> = []
 ): CodexJobOptions {
   const job = response(contextSkills)
   const currentJob = () => jobOverride?.() ?? job
@@ -956,6 +1034,18 @@ function options(
           return create(AppConfigureResolveResponseSchema, { values: {} })
         case rpcMethods.backgroundAgentJobGet:
           return currentJob()
+        case rpcMethods.backgroundAgentJobTurnItemsList:
+          return create(BackgroundAgentJobTurnItemsListResponseSchema, {
+            jobId: jobID,
+            items: storedTurnItems.map(entry => ({
+              runtimeThreadId: 'stored-thread',
+              runtimeTurnId: 'stored-turn',
+              position: entry.position,
+              itemKey: entry.itemKey,
+              itemJson: jsonBytes(entry.item)
+            })),
+            nextCursor: ''
+          })
         case rpcMethods.backgroundAgentJobTurnUpsert: {
           const request = payload as RecordedTurnUpsert
           turnUpserts.push(request)
@@ -1244,6 +1334,10 @@ function handle(message) {
     }
     threadCwd = message.params.cwd
     return write({ id: message.id, result: { thread: { id: message.params.threadId } } })
+  }
+  if (message.method === 'thread/inject_items') {
+    writeFileSync(process.env.CODEX_HOME + '/inject-items.json', JSON.stringify(message.params))
+    return write({ id: message.id, result: {} })
   }
   if (message.method === 'turn/start') {
     turnCount += 1

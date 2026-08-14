@@ -9,6 +9,12 @@ import { CODEX_OPT_OUT_NOTIFICATION_METHODS } from '../src/core/codex-runner/app
 import type { ThreadItem } from '../src/core/codex-runner/generated/protocol/v2/ThreadItem'
 import { BackgroundAgentJobTurnRecorder } from '../src/core/codex-runner/turn-recorder'
 import { RPCRejectedError } from '../src/lanes/rpc_lane'
+import {
+  configureWorkerTracing,
+  forceFlushWorkerTracing,
+  workerTurnTrace,
+  type WorkerTurnTrace
+} from '../src/observability/turn-tracing'
 
 /**
  * Decoded snake_case view of one recorded upsert so assertions read the JSON
@@ -23,7 +29,7 @@ type DecodedUpsert = {
   status?: string
   revision?: number
   trajectory: JSONObject
-  trajectory_groups: Array<JSONObject & { messages: JSONObject[] }>
+  turn_items: Array<JSONObject & { position: number; item_key: string; item: JSONObject }>
   progress: JSONObject
   usage?: JSONObject
   error: JSONObject
@@ -45,8 +51,8 @@ function decodedUpsert(request: RPCRequestInit<'background_agent_job.turn.upsert
     status: request.status,
     revision: request.revision,
     trajectory: doc(request.trajectoryJson) ?? {},
-    trajectory_groups: (doc(request.trajectoryGroupsJson) ?? []) as unknown as Array<
-      JSONObject & { messages: JSONObject[] }
+    turn_items: (doc(request.turnItemsJson) ?? []) as unknown as Array<
+      JSONObject & { position: number; item_key: string; item: JSONObject }
     >,
     progress: doc(request.progressJson) ?? {},
     ...(usage ? { usage } : {}),
@@ -134,7 +140,30 @@ describe('@ankole/agent-computer durable BackgroundAgentJob Turn recorder', () =
     expect(upserts.at(-1)).toEqual(baseline)
   })
 
-  it('uses item start only for active progress and completion for one canonical tool pair', async () => {
+  it('ships the initial input as one client-keyed user item exactly once', async () => {
+    const { recorder, upserts } = fixture()
+    recorder.recordTurnStarted('thread-1', startedTurn(), '执行命令', 'event-1')
+    await recorder.flush()
+
+    const entries = turnItems(upserts)
+    expect(entries).toEqual([
+      expect.objectContaining({
+        position: 0,
+        item_key: 'client:event-1',
+        item: expect.objectContaining({
+          type: 'userMessage',
+          clientId: 'event-1',
+          content: [{ type: 'text', text: '执行命令' }]
+        })
+      })
+    ])
+
+    const checkpointCount = upserts.length
+    await recorder.flush()
+    expect(upserts).toHaveLength(checkpointCount)
+  })
+
+  it('uses item start only for active progress and completion for one canonical item', async () => {
     const { recorder, upserts } = fixture()
     recorder.recordTurnStarted('thread-1', startedTurn(), '执行命令', 'event-1')
     await recorder.flush()
@@ -152,7 +181,7 @@ describe('@ankole/agent-computer durable BackgroundAgentJob Turn recorder', () =
       tools_used: [],
       active_item: { id: 'command-1', name: 'shell' }
     })
-    expect(trajectoryMessages(upserts)).toEqual([expect.objectContaining({ role: 'user', content: '执行命令' })])
+    expect(turnItems(upserts).map(entry => entry.item.type)).toEqual(['userMessage'])
 
     recorder.handleNotification(
       notification('item/completed', {
@@ -168,10 +197,18 @@ describe('@ankole/agent-computer durable BackgroundAgentJob Turn recorder', () =
       tools_used: [{ name: 'shell', calls: 1 }],
       files_changed: []
     })
-    expect(completed.trajectory_groups.flatMap(group => group.messages)).toEqual([
-      expect.objectContaining({ role: 'assistant', tool_calls: [expect.objectContaining({ id: 'command-1' })] }),
-      expect.objectContaining({ role: 'tool', tool_call_id: 'command-1', name: 'shell', content: 'hello' })
-    ])
+    expect(turnItems(upserts).at(-1)).toEqual(
+      expect.objectContaining({
+        position: 1,
+        item_key: 'command-1',
+        item: expect.objectContaining({
+          type: 'commandExecution',
+          command: 'printf hello',
+          aggregatedOutput: 'hello',
+          status: 'completed'
+        })
+      })
+    )
 
     const checkpointCount = upserts.length
     recorder.handleNotification(
@@ -181,6 +218,57 @@ describe('@ankole/agent-computer durable BackgroundAgentJob Turn recorder', () =
     )
     await recorder.flush()
     expect(upserts).toHaveLength(checkpointCount)
+  })
+
+  it('records Codex turns and tool items under the explicit worker turn parent', async () => {
+    const exports: Uint8Array[] = []
+    configureWorkerTracing(async payload => {
+      exports.push(payload)
+    })
+    const turnTrace = workerTurnTrace({
+      workspace_id: 10_000,
+      turn: actorTurn,
+      actor_event: {
+        actor_event_id: actorTurn.actor_event_id,
+        queue_sequence: 1,
+        type: 'background_agent_job.dispatch',
+        source_event_id: 'job-1000'
+      },
+      request_context: {
+        traceparent: '00-11111111111111111111111111111111-1111111111111111-01'
+      }
+    })
+    const { recorder } = fixture(0, turnTrace)
+
+    recorder.recordTurnStarted('thread-1', startedTurn(), '执行命令', 'event-1')
+    recorder.handleNotification(
+      notification('item/started', {
+        item: commandItem('command-1', 'printf hello', '', 'inProgress')
+      })
+    )
+    recorder.handleNotification(
+      notification('item/completed', {
+        item: commandItem('command-1', 'printf hello', 'hello', 'completed')
+      })
+    )
+    recorder.handleNotification(
+      notification('turn/completed', {
+        turn: {
+          ...startedTurn(),
+          status: 'completed',
+          completedAt: Date.now() / 1_000
+        }
+      })
+    )
+
+    await recorder.flush()
+    await forceFlushWorkerTracing()
+
+    expect(exports).toHaveLength(1)
+    const wireText = new TextDecoder().decode(exports[0])
+    expect(wireText).toContain('codex.turn')
+    expect(wireText).toContain('tool shell')
+    expect(wireText).toContain('ankole.codex.duration_ms')
   })
 
   it('distinguishes provider-hosted search from a same-name local dynamic tool', async () => {
@@ -215,24 +303,7 @@ describe('@ankole/agent-computer durable BackgroundAgentJob Turn recorder', () =
     )
     await recorder.flush()
 
-    const searchResults = trajectoryMessages(upserts).filter(message => message.role === 'tool')
-    expect(searchResults).toEqual([
-      expect.objectContaining({
-        tool_call_id: 'hosted-search',
-        name: 'web_search',
-        metadata: { status: 'completed', execution_mechanism: 'provider_hosted' }
-      }),
-      expect.objectContaining({
-        tool_call_id: 'local-search',
-        name: 'web_search',
-        metadata: {
-          status: 'completed',
-          success: true,
-          duration_ms: 3,
-          execution_mechanism: 'local_dynamic'
-        }
-      })
-    ])
+    expect(turnItems(upserts).map(entry => entry.item.type)).toEqual(['userMessage', 'webSearch', 'dynamicToolCall'])
     expect(upserts.at(-1)?.progress.tool_execution_mechanisms).toEqual([
       { name: 'web_search', execution_mechanism: 'local_dynamic', calls: 1 },
       { name: 'web_search', execution_mechanism: 'provider_hosted', calls: 1 }
@@ -324,41 +395,26 @@ describe('@ankole/agent-computer durable BackgroundAgentJob Turn recorder', () =
     }
     await recorder.flush()
 
-    const groups = upserts
-      .flatMap(request => request.trajectory_groups)
-      .filter(group => String(group.item_key).startsWith('collab-'))
+    const entries = turnItems(upserts).filter(entry => String(entry.item_key).startsWith('collab-'))
 
-    expect(groups).toHaveLength(calls.length)
+    expect(entries).toHaveLength(calls.length)
     for (const [index, call] of calls.entries()) {
-      expect(groups[index]?.messages).toEqual([
+      expect(entries[index]?.item).toEqual(
         expect.objectContaining({
-          role: 'assistant',
-          tool_calls: [
-            {
-              id: call.id,
-              type: 'function',
-              function: { name: `collaboration.${call.tool}`, arguments: JSON.stringify(call.arguments) }
-            }
-          ]
-        }),
-        expect.objectContaining({
-          role: 'tool',
-          tool_call_id: call.id,
-          name: `collaboration.${call.tool}`,
-          metadata: {
-            status: 'completed',
-            success: null,
-            duration_ms: null,
-            execution_mechanism: 'local_dynamic'
-          }
+          type: 'dynamicToolCall',
+          id: call.id,
+          namespace: 'collaboration',
+          tool: call.tool,
+          arguments: call.arguments,
+          status: 'completed'
         })
-      ])
+      )
     }
-    expect(JSON.parse(String(groups[0]?.messages[1]?.content))).toEqual({
+    expect(jsonObject(entries[0]?.item.contentItems as JSONObject)).toEqual({
       output: { task_name: '/root/research' },
       agents: [{ thread_id: 'thread-child-1', path: '/root/research', activity: 'started' }]
     })
-    expect(JSON.parse(String(groups.at(-1)?.messages[1]?.content))).toEqual({
+    expect(entries.at(-1)?.item.contentItems).toEqual({
       message: 'Wait completed.',
       timed_out: false
     })
@@ -396,14 +452,16 @@ describe('@ankole/agent-computer durable BackgroundAgentJob Turn recorder', () =
       tools_used: [{ name: 'collaboration.agent_interaction', calls: 1 }],
       files_changed: []
     })
-    const messages = trajectoryMessages(upserts)
-    expect(messages[1]?.tool_calls).toEqual([
+    const entry = turnItems(upserts).find(candidate => candidate.item_key === 'activity-1')
+    expect(entry?.item).toEqual(
       expect.objectContaining({
-        id: 'activity-1',
-        function: { name: 'collaboration.agent_interaction', arguments: '{}' }
+        type: 'dynamicToolCall',
+        namespace: 'collaboration',
+        tool: 'agent_interaction',
+        status: 'completed'
       })
-    ])
-    expect(JSON.parse(String(messages[2]?.content))).toEqual({
+    )
+    expect(entry?.item.contentItems).toEqual({
       output: '',
       agents: [{ thread_id: 'thread-child-1', path: '/root/researcher', activity: 'interacted' }]
     })
@@ -487,7 +545,7 @@ describe('@ankole/agent-computer durable BackgroundAgentJob Turn recorder', () =
     })
   })
 
-  it('persists every completed tool without a total trajectory eviction limit', async () => {
+  it('persists every completed tool without a total item eviction limit', async () => {
     const { recorder, upserts } = fixture()
     recorder.recordTurnStarted('thread-1', startedTurn(), '执行批量任务', 'event-1')
 
@@ -522,9 +580,9 @@ describe('@ankole/agent-computer durable BackgroundAgentJob Turn recorder', () =
         { name: 'zeta_tool', calls: 135 }
       ]
     })
-    const groups = upserts.flatMap(request => request.trajectory_groups)
-    expect(groups).toHaveLength(271)
-    expect(new Set(groups.map(group => group.position)).size).toBe(271)
+    const entries = turnItems(upserts)
+    expect(entries).toHaveLength(271)
+    expect(new Set(entries.map(entry => entry.position)).size).toBe(271)
     expect(latest.trajectory.metadata).toBeUndefined()
   })
 
@@ -560,7 +618,7 @@ describe('@ankole/agent-computer durable BackgroundAgentJob Turn recorder', () =
     ])
   })
 
-  it('persists pending request_user_input as the only unmatched tool call', async () => {
+  it('persists pending request_user_input as one in-progress dynamic tool item', async () => {
     const { recorder, upserts } = fixture()
     recorder.recordTurnStarted('thread-1', startedTurn(), '需要时提问', 'event-1')
     recorder.recordRequestUserInput(
@@ -575,21 +633,14 @@ describe('@ankole/agent-computer durable BackgroundAgentJob Turn recorder', () =
     )
     await recorder.flush()
 
-    const messages = trajectoryMessages(upserts)
-    expect(messages).toContainEqual(
+    const entry = turnItems(upserts).find(candidate => candidate.item_key === 'request-user-input-1')
+    expect(entry?.item).toEqual(
       expect.objectContaining({
-        role: 'assistant',
-        metadata: { status: 'pending_user_input' },
-        tool_calls: [
-          expect.objectContaining({
-            id: 'request-user-input-1',
-            function: expect.objectContaining({ name: 'request_user_input' })
-          })
-        ]
+        type: 'dynamicToolCall',
+        tool: 'request_user_input',
+        status: 'inProgress',
+        arguments: { questions: [{ id: 'scope', question: '范围？' }] }
       })
-    )
-    expect(messages.some(message => message.role === 'tool' && message.tool_call_id === 'request-user-input-1')).toBe(
-      false
     )
   })
 
@@ -608,13 +659,16 @@ describe('@ankole/agent-computer durable BackgroundAgentJob Turn recorder', () =
     )
     await recorder.flush()
 
-    const serialized = JSON.stringify(trajectoryMessages(upserts))
-    expect(serialized).toContain('可公开的推理摘要')
-    expect(serialized).toContain('reasoning_summary')
-    expect(serialized).not.toContain('RAW_PRIVATE_REASONING')
+    const entry = turnItems(upserts).find(candidate => candidate.item_key === 'reasoning-1')
+    expect(entry?.item).toEqual({
+      type: 'reasoning',
+      id: 'reasoning-1',
+      summary: ['可公开的推理摘要']
+    })
+    expect(JSON.stringify(turnItems(upserts))).not.toContain('RAW_PRIVATE_REASONING')
   })
 
-  it('redacts secrets while retaining the full sequence across append-only groups', async () => {
+  it('redacts secrets while retaining the full sequence across append-only items', async () => {
     const { recorder, upserts } = fixture()
     const secret = 'sk-secret-value-1234567890'
     recorder.recordTurnStarted('thread-1', startedTurn(), `Use api_key=${secret}`, 'event-1')
@@ -634,22 +688,23 @@ describe('@ankole/agent-computer durable BackgroundAgentJob Turn recorder', () =
     await recorder.flush()
 
     const trajectory = upserts.at(-1)!.trajectory
-    const groups = upserts.flatMap(request => request.trajectory_groups)
-    const serialized = JSON.stringify(groups)
+    const entries = turnItems(upserts)
+    const serialized = JSON.stringify(entries)
     expect(serialized).not.toContain(secret)
     expect(serialized).toContain('[REDACTED]')
     expect(serialized).toContain('FINAL_TAIL_79')
-    expect(groups).toHaveLength(81)
+    expect(entries).toHaveLength(81)
     expect(trajectory.metadata).toMatchObject({ redacted: true, content_truncated: true })
   })
 })
 
-function fixture(delayMs = 5) {
+function fixture(delayMs = 5, turnTrace?: WorkerTurnTrace) {
   const upserts: DecodedUpsert[] = []
   const recorder = new BackgroundAgentJobTurnRecorder({
     jobID: '1000',
     attempt: 1,
     actorTurn,
+    turnTrace,
     checkpointDelayMs: delayMs,
     upsert: async request => {
       upserts.push(decodedUpsert(request))
@@ -694,8 +749,8 @@ function rejectingFixture(rejection: { code: string; message?: string; details?:
   return { recorder, attempts: () => attemptCount }
 }
 
-function trajectoryMessages(upserts: DecodedUpsert[]) {
-  return upserts.flatMap(request => request.trajectory_groups.flatMap(group => group.messages))
+function turnItems(upserts: DecodedUpsert[]) {
+  return upserts.flatMap(request => request.turn_items)
 }
 
 function startedTurn() {

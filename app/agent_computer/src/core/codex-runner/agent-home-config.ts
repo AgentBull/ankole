@@ -14,6 +14,13 @@ export type MaterializedCodexConfig = {
 const AIGATEWAY_TOKEN_FILE_NAME = 'ankole-aigateway.token'
 const AIGATEWAY_AUTH_REFRESH_INTERVAL_MS = 5 * 60 * 1_000
 
+/**
+ * Codex enables OpenAI-only features, such as remote compaction and hosted
+ * tools, only for a provider named "OpenAI". The Ankole gateway supports these
+ * features, so it claims that name.
+ */
+export const AIGATEWAY_PROVIDER_NAME = 'OpenAI'
+
 export function materializeCodexConfig(input: { agentsRoot: string; agentUID: string }): MaterializedCodexConfig {
   const paths = agentHomePaths(input.agentsRoot, input.agentUID)
   mkdirSync(paths.codexHome, { recursive: true, mode: 0o700 })
@@ -127,7 +134,7 @@ model_auto_compact_token_limit = 100000
 ${common}
 
 [model_providers.ankole_aigateway]
-name = "Ankole AIGateway"
+name = ${JSON.stringify(AIGATEWAY_PROVIDER_NAME)}
 base_url = ${JSON.stringify(normalizedBaseURL)}
 wire_api = "responses"
 supports_websockets = true

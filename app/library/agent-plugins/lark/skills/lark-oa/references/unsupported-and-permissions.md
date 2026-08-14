@@ -1,6 +1,6 @@
 # Unsupported operations and permission handling
 
-The OA skill is bot-only. In the pinned `lark-cli` v1.0.84 catalog, every generated Approval method is user-only. Route approval definitions, instances, creation, cancellation, CC, and decisions to `lark-approvals`. Do not relabel an Approval command with `--as bot` or switch identity inside this Skill.
+The OA skill is bot-only. In the pinned `lark-cli` v1.0.86 catalog, every generated Approval method is user-only. Route approval definitions, instances, creation, cancellation, CC, and decisions to `lark-approvals`. Do not relabel an Approval command with `--as bot` or switch identity inside this Skill.
 
 Do not act as an employee, task inbox owner, or personal OKR owner. Personal task views and APIs that depend on a logged-in employee are unsupported.
 

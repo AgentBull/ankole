@@ -38,6 +38,7 @@ import {
 } from './recovery-policy'
 import type { PreparedCodexJobExecution } from './setup'
 import { BackgroundAgentJobTurnRecorder } from './turn-recorder'
+import { workerTurnTrace } from '../../observability/turn-tracing'
 import {
   agentCodexRuntimeManager,
   AgentCodexRuntimeLostError,
@@ -45,6 +46,7 @@ import {
   type AgentCodexRuntimeSession
 } from './agent-runtime-manager'
 import { CodexSkillUsageTracker, skillDisabledNotice, type DiscoveredCodexSkill } from './skill-usage'
+import { fetchReplayTurnItems, wireItemsFromTurnItems } from './thread-replay'
 
 const steerPollIntervalMs = 250
 const maxMCPStartupErrorBytes = 2_048
@@ -77,6 +79,8 @@ class CodexJobSession implements AgentCodexRuntimeSession {
   private pendingCredentialPoolExhaustion: CodexCredentialPoolExhaustion | undefined
   private emptyReportRetries = 0
   private recreatedThreadOnResume = false
+  private replayedThreadOnResume = false
+  private suppressRuntimeCapture = false
   private finalizing = false
   private closing = false
   private acceptingServerRequests = true
@@ -107,6 +111,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
       jobID: input.jobID,
       attempt: input.job.attempts,
       actorTurn: input.turnStart.turn,
+      turnTrace: workerTurnTrace(input.turnStart),
       upsert: request =>
         input.opts.rpc(rpcMethods.backgroundAgentJobTurnUpsert, request, { turn: input.turnStart.turn })
     })
@@ -236,7 +241,9 @@ class CodexJobSession implements AgentCodexRuntimeSession {
     })
     if (await this.finishClaimedFinalization()) return
 
-    this.recreatedThreadOnResume = await this.resumeExistingThread()
+    const resumeOutcome = await this.resumeExistingThread()
+    this.recreatedThreadOnResume = resumeOutcome === 'recreated'
+    this.replayedThreadOnResume = resumeOutcome === 'replayed'
     if (await this.finishClaimedFinalization()) return
     if (!this.runtimeThreadID) await this.startNewThread()
     if (await this.finishClaimedFinalization()) return
@@ -255,7 +262,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
 
     const initialTurnInput = turnInput(this.input.turnStart, this.input.job)
     const effectiveTurnInput = this.recreatedThreadOnResume
-      ? recreatedThreadInput(this.input.job, initialTurnInput)
+      ? recreatedThreadInput(this.input.job, initialTurnInput, await this.continuationSourceContext())
       : initialTurnInput
     await this.startCodexTurn(effectiveTurnInput)
     this.recordUsedSkills(this.skillUsage.observeInput(effectiveTurnInput))
@@ -264,8 +271,8 @@ class CodexJobSession implements AgentCodexRuntimeSession {
     await this.done
   }
 
-  private async resumeExistingThread(): Promise<boolean> {
-    if (!this.runtimeThreadID || !this.client || !this.runtimeLease) return false
+  private async resumeExistingThread(): Promise<'none' | 'resumed' | 'replayed' | 'recreated'> {
+    if (!this.runtimeThreadID || !this.client || !this.runtimeLease) return 'none'
     const resumedThreadID = this.runtimeThreadID
     try {
       await this.runtimeLease.runtime.resumeRoot(resumedThreadID, this, async () => {
@@ -281,7 +288,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
         })
       })
       this.input.opts.onTurnActivity?.('codex:thread_resumed')
-      return false
+      return 'resumed'
     } catch (error) {
       const decision = transitionCodexRecovery({
         stage: 'resume',
@@ -297,18 +304,87 @@ class CodexJobSession implements AgentCodexRuntimeSession {
         )
       }
       if (decision.action !== 'replace_thread') throw error
-      if (this.input.job.continuedFromJobId) {
-        // A continued Job inherits its source's thread, and that thread only
-        // exists on the Worker that created it. Placement carries the source
-        // assignment forward, so reaching here means that Worker is gone and the
-        // thread with it. Name the cause: replacing the thread would silently
-        // drop the context the continuation was created to build on.
-        throw new Error(
-          "The Worker holding this Job's Codex thread is no longer available, so the continued Job cannot resume it"
-        )
+      return this.replaceLostThread()
+    }
+  }
+
+  /**
+   * Rebuilds the runtime thread after the native Codex state is gone.
+   *
+   * The ladder is: replay the control plane's stored turn items into a fresh
+   * thread; when the store has nothing to replay or the inject fails, keep
+   * the fresh thread and let the recreated-thread input continue from the
+   * durable Workspace instead. Both outcomes are disclosed through the Job's
+   * runtime metadata.
+   */
+  private async replaceLostThread(): Promise<'replayed' | 'recreated'> {
+    let wireItems: ReturnType<typeof wireItemsFromTurnItems> = []
+    try {
+      const stored = await fetchReplayTurnItems(this.input.opts.rpc, this.input.turnStart.turn, this.input.jobID)
+      wireItems = wireItemsFromTurnItems(stored)
+    } catch (error) {
+      this.input.opts.logger?.warning(
+        'worker.codex_thread_replay_fetch_failed',
+        'stored turn items were not readable for thread replay',
+        { job_id: this.input.jobID, error: error instanceof Error ? error : new Error(String(error)) }
+      )
+    }
+
+    this.runtimeThreadID = undefined
+    await this.startNewThread()
+    if (wireItems.length === 0) return 'recreated'
+
+    this.suppressRuntimeCapture = true
+    try {
+      await this.client!.request('thread/inject_items', {
+        ['threadId']: this.runtimeThreadID,
+        items: wireItems
+      })
+    } catch (error) {
+      this.input.opts.logger?.warning(
+        'worker.codex_thread_replay_inject_failed',
+        'stored turn items could not be injected into the replacement thread',
+        { job_id: this.input.jobID, error: error instanceof Error ? error : new Error(String(error)) }
+      )
+      return 'recreated'
+    } finally {
+      this.suppressRuntimeCapture = false
+    }
+
+    this.input.opts.onTurnActivity?.('codex:thread_replayed')
+    return 'replayed'
+  }
+
+  /**
+   * Fetches the terminal source Job's task and final report for a continued
+   * Job whose thread context could not be restored. Both facts are durable on
+   * the source Job row; absence of either keeps the rebuild honest instead of
+   * blocking it.
+   */
+  private async continuationSourceContext(): Promise<ContinuationSourceContext | undefined> {
+    const sourceJobID = this.input.job.continuedFromJobId
+    if (!sourceJobID) return undefined
+    try {
+      const source = await this.input.opts.rpc(
+        rpcMethods.backgroundAgentJobGet,
+        { jobId: sourceJobID },
+        { turn: this.input.turnStart.turn }
+      )
+      return {
+        task: stringValue(source.task),
+        finalReport: stringValue(source.resultOutputText)
       }
-      this.runtimeThreadID = undefined
-      return true
+    } catch (error) {
+      this.input.opts.logger?.warning(
+        'worker.codex_continuation_source_unavailable',
+        'the continued Job could not read its source Job for the rebuilt thread seed',
+        {
+          job_id: this.input.jobID,
+          source_job_id: sourceJobID,
+          error: error instanceof Error ? error : new Error(String(error))
+        }
+      )
+      return undefined
     }
   }
 
@@ -331,6 +407,12 @@ class CodexJobSession implements AgentCodexRuntimeSession {
             ? {
                 runtime_checkpoint_recreated: true,
                 runtime_checkpoint_recovery: 'new_thread_from_bounded_history'
+              }
+            : {}),
+          ...(this.replayedThreadOnResume
+            ? {
+                runtime_checkpoint_recreated: true,
+                runtime_checkpoint_recovery: 'replayed_from_transcript'
               }
             : {}),
           projected_tool_names: projection.dynamicTools.map(tool => tool.name),
@@ -621,14 +703,19 @@ class CodexJobSession implements AgentCodexRuntimeSession {
         return
       }
       if (decision.action === 'replace_thread') {
-        if (this.input.job.continuedFromJobId) {
-          throw new Error('Respawned background agent job lost its source Codex thread')
-        }
         await this.turnRecorder.flush()
-        await this.startNewThread()
-        await this.persistRuntimeThreadAnchor('unknown_session')
+        const outcome = await this.replaceLostThread()
+        await this.persistRuntimeThreadAnchor(
+          outcome === 'replayed' ? 'replayed_from_transcript' : 'new_thread_from_bounded_history'
+        )
         this.outputText = ''
-        await this.startCodexTurn(recreatedThreadInput(this.input.job, retryContinuationInput()))
+        if (outcome === 'replayed') {
+          await this.startCodexTurn(retryContinuationInput())
+        } else {
+          await this.startCodexTurn(
+            recreatedThreadInput(this.input.job, retryContinuationInput(), await this.continuationSourceContext())
+          )
+        }
         return
       }
       if (decision.action === 'durable_retry') throw durableRetryError(error)
@@ -650,6 +737,10 @@ class CodexJobSession implements AgentCodexRuntimeSession {
 
   handleRuntimeNotification(message: JSONRPCMessage): void {
     if (this.finalizing) return
+    // Injected replay items echo back as ordinary runtime notifications. They
+    // restate history the control plane already stores, so recording them
+    // would duplicate the turn content stream.
+    if (this.suppressRuntimeCapture) return
     this.turnRecorder.handleNotification(message)
     const params = jsonObject(message.params)
     const notificationThreadID = stringValue(params.threadId)
@@ -1077,11 +1168,23 @@ function retryContinuationInput(): string {
   return 'Continue the Job task after the transient runtime error. Inspect the current workspace before repeating any side effect, then re-check the original acceptance criteria.'
 }
 
-function recreatedThreadInput(job: BackgroundAgentJobResponse, continuation: string): string {
+type ContinuationSourceContext = {
+  task?: string | undefined
+  finalReport?: string | undefined
+}
+
+function recreatedThreadInput(
+  job: BackgroundAgentJobResponse,
+  continuation: string,
+  source?: ContinuationSourceContext
+): string {
   const priorAttempts = job.attemptHistory?.length
     ? `\n\nBounded history from prior execution attempts:\n${JSON.stringify(job.attemptHistory, null, 2)}`
     : ''
-  return `${job.task}\n\nThe previous Codex thread could not be resumed. Inspect the existing working directory and continue from durable artifacts.${priorAttempts}\n\nCurrent continuation instructions:\n${continuation}\n\nRe-check every acceptance criterion before finishing.`.trim()
+  const sourceContext = source?.task
+    ? `\n\nThis Job continues terminal Job ${job.continuedFromJobId}. Its original task:\n${source.task}\n\nIts final report:\n${source.finalReport ?? '(the source Job recorded no final report)'}`
+    : ''
+  return `${job.task}\n\nThe previous Codex thread could not be resumed. Inspect the existing working directory and continue from durable artifacts.${sourceContext}${priorAttempts}\n\nCurrent continuation instructions:\n${continuation}\n\nRe-check every acceptance criterion before finishing.`.trim()
 }
 
 async function steerActiveTurn(

@@ -21,7 +21,10 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
           required(:subject_uid) => String.t(),
           optional(:id) => Ecto.UUID.t(),
           optional(:conversation_id) => Ecto.UUID.t() | nil,
-          required(:summary_text) => String.t(),
+          optional(:source) => :upstream,
+          optional(:summary_text) => String.t(),
+          optional(:binding) => map(),
+          optional(:output) => [term()],
           optional(:retained_items) => [map()],
           optional(:retained_user_originals) => [map()],
           optional(:retention) => map(),
@@ -96,11 +99,17 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
     end
   end
 
-  @spec output(CompactionArtifact.t()) :: [map()]
+  @spec output(CompactionArtifact.t()) :: [term()]
   def output(%CompactionArtifact{content: %{"output" => output}}) when is_list(output),
     do: output
 
   def output(_artifact), do: []
+
+  @spec version(CompactionArtifact.t()) :: 2 | 3 | nil
+  def version(%CompactionArtifact{content: %{"version" => version}}) when version in [2, 3],
+    do: version
+
+  def version(_artifact), do: nil
 
   @spec summary_text(CompactionArtifact.t()) :: String.t() | nil
   def summary_text(%CompactionArtifact{content: %{"summary" => %{"text" => text}}})
@@ -108,6 +117,15 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
       do: text
 
   def summary_text(_artifact), do: nil
+
+  @spec upstream_binding(CompactionArtifact.t()) :: map() | nil
+  def upstream_binding(%CompactionArtifact{
+        content: %{"version" => 3, "source" => "upstream", "binding" => binding}
+      })
+      when is_map(binding),
+      do: binding
+
+  def upstream_binding(_artifact), do: nil
 
   @spec response_body(CompactionArtifact.t(), keyword()) :: map()
   def response_body(%CompactionArtifact{} = artifact, opts \\ []) do
@@ -129,7 +147,7 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
   Materializes a checkpoint row into the artifact output it references.
   """
   @spec output_for_checkpoint(String.t(), Message.t()) ::
-          {:ok, [map()]} | {:error, :invalid_compaction_handle}
+          {:ok, [term()]} | {:error, :invalid_compaction_handle}
   def output_for_checkpoint(subject_uid, %Message{type: "checkpoint", content: [ref]}) do
     case ref do
       %{"type" => "compaction_artifact", "id" => public_id} ->
@@ -143,6 +161,23 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
   end
 
   def output_for_checkpoint(_subject_uid, _message), do: {:ok, []}
+
+  @doc "Returns the stored artifact content for one checkpoint row."
+  @spec content_for_checkpoint(String.t(), Message.t()) ::
+          {:ok, map()} | {:error, :invalid_compaction_handle}
+  def content_for_checkpoint(subject_uid, %Message{type: "checkpoint", content: [ref]}) do
+    case ref do
+      %{"type" => "compaction_artifact", "id" => public_id} ->
+        with {:ok, artifact} <- get_for_subject(subject_uid, public_id) do
+          {:ok, artifact.content}
+        end
+
+      _invalid ->
+        {:error, :invalid_compaction_handle}
+    end
+  end
+
+  def content_for_checkpoint(_subject_uid, _message), do: {:error, :invalid_compaction_handle}
 
   @spec summary_for_checkpoint(String.t(), Message.t()) ::
           {:ok, String.t() | nil} | {:error, :invalid_compaction_handle}
@@ -161,11 +196,10 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
   def summary_for_checkpoint(_subject_uid, _message), do: {:ok, nil}
 
   @doc """
-  Replaces Ankole compaction handles in Response input items with summary text.
+  Replaces Ankole compaction handles in Response input items with a user message.
 
-  Provider-specific projection is still owned by UniversalAIClient. This keeps
-  the public `type = "compaction"` item shape and only resolves Ankole's opaque
-  handle into the text that the provider projection already knows how to use.
+  The checkpoint prompt is AIGateway policy. Provider-native compaction items
+  remain unchanged for a Responses resolver.
   """
   @spec resolve_input_handles(String.t(), [map()]) ::
           {:ok, [map()]} | {:error, :invalid_compaction_handle}
@@ -201,7 +235,7 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
       @handle_prefix <> _rest = handle ->
         with {:ok, artifact} <- get_for_subject(subject_uid, handle),
              summary when is_binary(summary) <- summary_text(artifact) do
-          {:ok, Map.put(item, "encrypted_content", summary)}
+          {:ok, checkpoint_message(summary)}
         else
           _missing_or_invalid -> {:error, :invalid_compaction_handle}
         end
@@ -213,8 +247,45 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
 
   defp resolve_input_item_handle(_subject_uid, item), do: {:ok, item}
 
+  defp checkpoint_message(summary) do
+    %{
+      "type" => "message",
+      "role" => "user",
+      "content" => [
+        %{
+          "type" => "input_text",
+          "text" =>
+            "Context checkpoint: an earlier context window of this same agent already worked on this task and was compacted into the summary below. Tool side effects (files created or edited, commands run, processes started) remain in effect. Messages after this summary are verbatim and take precedence over it; continue the summary's in-progress work unless later messages supersede it.\n\n#{summary}"
+        }
+      ]
+    }
+  end
+
   defp artifact_id(%{id: id}) when is_binary(id), do: UUIDv7.cast(id)
   defp artifact_id(_attrs), do: {:ok, new_id()}
+
+  defp artifact_content(_id, %{source: :upstream} = attrs) do
+    output = Map.get(attrs, :output)
+    binding = Map.get(attrs, :binding)
+
+    cond do
+      not is_list(output) or output == [] ->
+        {:error, :invalid_compaction_artifact}
+
+      not CompactionArtifact.valid_upstream_binding?(binding) ->
+        {:error, :invalid_compaction_artifact}
+
+      true ->
+        {:ok,
+         %{
+           "version" => 3,
+           "source" => "upstream",
+           "binding" => binding,
+           "output" => output,
+           "usage" => response_usage(Map.get(attrs, :usage, %{}))
+         }}
+    end
+  end
 
   defp artifact_content(id, attrs) do
     summary_text = Map.fetch!(attrs, :summary_text)

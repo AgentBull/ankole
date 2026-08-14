@@ -70,13 +70,20 @@ pub(super) trait APIProtocol: std::fmt::Debug + Send + Sync {
 impl APIResolver {
     pub fn new(kind: APIResolverKind, context: ResponseContext) -> Self {
         let protocol = make_protocol(kind, &context);
-        let (opaque_tool_fields, provider_context, prepare_error) =
-            match OpaqueToolFields::prepare(kind, &context) {
-                Ok((opaque_tool_fields, provider_context)) => {
-                    (opaque_tool_fields, provider_context, None)
+        let (opaque_tool_fields, provider_context, opaque_prepare_error) =
+            if kind == APIResolverKind::OpenAIResponsesCompact {
+                (OpaqueToolFields::inactive(), context.clone(), None)
+            } else {
+                match OpaqueToolFields::prepare(kind, &context) {
+                    Ok((opaque_tool_fields, provider_context)) => {
+                        (opaque_tool_fields, provider_context, None)
+                    }
+                    Err(error) => (OpaqueToolFields::inactive(), context.clone(), Some(error)),
                 }
-                Err(error) => (OpaqueToolFields::inactive(), context.clone(), Some(error)),
             };
+        let prepare_error = validate_compaction_replay_wire(kind, &provider_context)
+            .err()
+            .or(opaque_prepare_error);
         Self {
             context,
             provider_context,
@@ -138,6 +145,7 @@ impl APIResolver {
 fn make_protocol(kind: APIResolverKind, context: &ResponseContext) -> Box<dyn APIProtocol> {
     match kind {
         APIResolverKind::OpenAIResponses => Box::new(OpenAIResponsesState::default()),
+        APIResolverKind::OpenAIResponsesCompact => Box::new(OpenAIResponsesCompact),
         APIResolverKind::OpenAIChatCompletions => Box::new(ChatState::new(context.model.clone())),
         APIResolverKind::AnthropicMessages => Box::new(AnthropicState::new(context.model.clone())),
         APIResolverKind::GeminiGenerateContent => {
@@ -159,5 +167,37 @@ fn make_protocol(kind: APIResolverKind, context: &ResponseContext) -> Box<dyn AP
         APIResolverKind::AgentbullWebSearch => Box::new(AgentBullWebSearch),
         APIResolverKind::JinaSearchWebSearch => Box::new(JinaSearchWebSearch),
         APIResolverKind::JinaReaderWebFetch => Box::new(JinaReaderWebFetch),
+    }
+}
+
+fn validate_compaction_replay_wire(
+    kind: APIResolverKind,
+    context: &ResponseContext,
+) -> Result<(), StreamError> {
+    if matches!(
+        kind,
+        APIResolverKind::OpenAIResponses | APIResolverKind::OpenAIResponsesCompact
+    ) {
+        return Ok(());
+    }
+
+    let has_compaction = context
+        .request
+        .get("input")
+        .and_then(Value::as_array)
+        .is_some_and(|items| {
+            items
+                .iter()
+                .any(|item| item.get("type").and_then(Value::as_str) == Some("compaction"))
+        });
+
+    if has_compaction {
+        Err(StreamError::new(
+            "unsupported_compaction_replay_wire",
+            "api_resolver",
+            "provider-native compaction items require the OpenAI Responses wire protocol",
+        ))
+    } else {
+        Ok(())
     }
 }

@@ -220,10 +220,13 @@ export type BrainDreamingFitnessResponse = {
  * BackgroundAgentJobHealthResponse
  */
 export type BackgroundAgentJobHealthResponse = {
+  agents_at_running_cap: number
   claims_24h: number
   dead_letter_notices_24h: number
   execution_failures_24h: number
+  max_running_per_agent: number
   oldest_queued_seconds: number | null
+  queued_behind_running_cap: number
   queued_count: number
   running_count: number
   succeeded_24h: number
@@ -4708,6 +4711,12 @@ export type AnkoleWebAiGatewayControllerCompactResponseErrors = {
    * Unauthorized
    */
   401: {
+    [key: string]: unknown
+  }
+  /**
+   * Compaction fallback unavailable
+   */
+  502: {
     [key: string]: unknown
   }
 }

@@ -53,6 +53,7 @@ defmodule Ankole.AIGateway.CodexModelBinding do
       Keyword.get_lazy(opts, :responses_lite?, fn -> responses_lite_request?(request) end)
 
     request
+    |> strip_codex_private_input_fields()
     |> Map.put("model", Map.fetch!(binding, "selector"))
     |> put_provider_options(defaults)
     |> put_reasoning_effort(defaults)
@@ -88,6 +89,24 @@ defmodule Ankole.AIGateway.CodexModelBinding do
   end
 
   defp decode_vision_fallback(_value), do: {:error, :invalid_codex_model_binding}
+
+  defp strip_codex_private_input_fields(%{"input" => input} = request) when is_list(input) do
+    input =
+      Enum.map(input, fn
+        %{} = item ->
+          Map.drop(item, [
+            "internal_chat_message_metadata_passthrough",
+            "encrypted_function_args"
+          ])
+
+        item ->
+          item
+      end)
+
+    Map.put(request, "input", input)
+  end
+
+  defp strip_codex_private_input_fields(request), do: request
 
   defp decode_modalities(modalities) when is_list(modalities) do
     if modalities != [] and Enum.all?(modalities, &(is_binary(&1) and &1 != "")) do

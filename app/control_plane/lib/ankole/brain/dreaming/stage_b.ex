@@ -1322,7 +1322,13 @@ defmodule Ankole.Brain.Dreaming.StageB do
              spec.materials
            ),
          result <-
-           AIGateway.create_response(model_uid, request, Keyword.get(opts, :request_opts, [])),
+           AIGateway.create_response(
+             model_uid,
+             request,
+             opts
+             |> Keyword.get(:request_opts, [])
+             |> Keyword.put_new(:caller, "brain.dreaming.stage_b")
+           ),
          {:ok, %{body: body}} <- commit_dreaming_trace(response_run, result) do
       decode_dreaming_response(body, phase)
     end

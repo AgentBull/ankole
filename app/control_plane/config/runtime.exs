@@ -7,6 +7,55 @@ Ankole.Config.Bootstrap.load_dotenv!(
   env: config_env()
 )
 
+# AppConfigure is the only owner of trace export. Remove standard exporter
+# variables before the OpenTelemetry application starts, or OS configuration
+# can override the default-off SDK configuration below the application layer.
+ankole_trace_exporter_environment_variables = ~w(
+  OTEL_EXPORTER_OTLP_COMPRESSION
+  OTEL_EXPORTER_OTLP_ENDPOINT
+  OTEL_EXPORTER_OTLP_HEADERS
+  OTEL_EXPORTER_OTLP_PROTOCOL
+  OTEL_EXPORTER_OTLP_TRACES_COMPRESSION
+  OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
+  OTEL_EXPORTER_OTLP_TRACES_HEADERS
+  OTEL_EXPORTER_OTLP_TRACES_PROTOCOL
+  OTEL_TRACES_EXPORTER
+)
+
+Enum.each(ankole_trace_exporter_environment_variables, &System.delete_env/1)
+
+# AppConfigure selects the process-wide OTLP exporter after PostgreSQL-backed
+# settings are available. The exporter is disabled by default. ANKOLE_ENV and
+# ANKOLE_VERSION label exported traces the same way they label logs.
+ankole_otel_env_text = fn name ->
+  case String.trim(System.get_env(name, "")) do
+    "" -> nil
+    value -> value
+  end
+end
+
+ankole_otel_service =
+  case ankole_otel_env_text.("ANKOLE_VERSION") do
+    nil -> %{name: "ankole-control-plane"}
+    version -> %{name: "ankole-control-plane", version: version}
+  end
+
+ankole_otel_resource =
+  case ankole_otel_env_text.("ANKOLE_ENV") do
+    nil ->
+      %{service: ankole_otel_service}
+
+    environment ->
+      %{
+        service: ankole_otel_service,
+        deployment: %{environment: %{name: environment}}
+      }
+  end
+
+config :opentelemetry,
+  traces_exporter: :none,
+  resource: ankole_otel_resource
+
 runtime_fabric_bind_endpoint = System.get_env("ANKOLE_RUNTIME_FABRIC_BIND_ENDPOINT")
 
 if runtime_fabric_bind_endpoint do

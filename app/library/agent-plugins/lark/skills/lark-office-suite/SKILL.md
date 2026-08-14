@@ -7,7 +7,7 @@ tags: [lark, docs, drive, wiki, sheets, base, slides, whiteboard, markdown, mail
 metadata:
   upstream: https://github.com/larksuite/cli/tree/v1.0.69/skills
   upstream_tag: v1.0.69
-  validated_against: v1.0.84
+  validated_against: v1.0.86
   modified_for: Ankole bot-only Agent Plugin runtime
 ---
 

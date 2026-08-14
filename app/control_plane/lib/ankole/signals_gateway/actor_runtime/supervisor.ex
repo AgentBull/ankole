@@ -13,6 +13,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Supervisor do
   alias Ankole.SignalsGateway.ActorRuntime.WorkerAuthKey
   alias Ankole.SignalsGateway.ActorRuntime.WorkerWebFetchConfig
   alias Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobWorkerConfig
+  alias Ankole.SignalsGateway.ActorRuntime.DeadLetterNoticeConfig
   alias Ankole.SignalsGateway.ActorRuntime.AgentConfig
 
   @doc """
@@ -30,6 +31,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Supervisor do
     :ok = AgentConfig.ensure_registered()
     :ok = WorkerWebFetchConfig.ensure_registered()
     :ok = BackgroundAgentJobWorkerConfig.ensure_registered()
+    :ok = DeadLetterNoticeConfig.ensure_registered()
     :ok = Ankole.Security.SSRFFilter.ensure_registered()
     :ok = Ankole.Brain.ensure_registered()
     :ok = Ankole.IdentityProviders.Config.ensure_registered()

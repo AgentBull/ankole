@@ -19,6 +19,8 @@ defmodule Ankole.Application do
     #   - Repo before AppConfigure: durable config is read from PostgreSQL.
     #   - AppConfigure.Registry + Cache before Plugins/I18n: those subsystems read
     #     and register AppConfigure definitions during their own `init/1`.
+    #   - Observability after AppConfigure: the OTLP exporter reads its durable
+    #     endpoint and secret headers once during control-plane startup.
     #   - I18n before Plugins/SignalsGateway: adapter startup and recovered Actor
     #     replies may render user-facing text immediately during their own startup.
     #   - Setup.Bootstrap before Plugins.Registry: the registry reads the durable
@@ -45,6 +47,7 @@ defmodule Ankole.Application do
         {Task.Supervisor, name: Ankole.Brain.TaskSupervisor},
         Ankole.AppConfigure.Registry,
         Ankole.AppConfigure.Cache,
+        Ankole.Observability,
         Ankole.I18n.Catalog,
         Ankole.Setup.Bootstrap,
         {Oban, Application.fetch_env!(:ankole, Oban)},

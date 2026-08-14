@@ -1,7 +1,7 @@
 import { readdir, readFile } from 'node:fs/promises'
 import { join, relative } from 'node:path'
 
-export const supportedLarkCLIVersion = '1.0.84'
+export const supportedLarkCLIVersion = '1.0.86'
 
 export interface LarkCommandExample {
   file: string

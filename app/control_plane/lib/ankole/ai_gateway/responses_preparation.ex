@@ -198,14 +198,11 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
     )
   end
 
-  defp native_openai_tools?(%{"provider_kind" => "openai"} = runtime) do
-    connection_options = Map.get(runtime, "connection_options", %{})
-
-    endpoint_kind =
-      Map.get(connection_options, "endpoint_kind") || Map.get(connection_options, :endpoint_kind)
-
-    endpoint_kind != "chat_completions"
-  end
+  # Only the `openai` kind follows the Responses-wire owner. Azure and
+  # compatible upstreams keep local tool handling on every endpoint kind, and
+  # `chatgpt_subscription` follows the codex client, not the wire.
+  defp native_openai_tools?(%{"provider_kind" => "openai"} = runtime),
+    do: Providers.responses_endpoint?(runtime)
 
   defp native_openai_tools?(%{"provider_kind" => "chatgpt_subscription"} = runtime) do
     runtime

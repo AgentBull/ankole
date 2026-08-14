@@ -120,6 +120,34 @@ defmodule Ankole.AIGateway.CodexModelBindingTest do
            ] == false
   end
 
+  test "bound Codex requests drop OpenAI-only replay fields" do
+    binding = %{
+      "selector" => "primary",
+      "provider_options" => %{},
+      "supports_parallel_tool_calls" => true,
+      "input_modalities" => ["text"]
+    }
+
+    request = %{
+      "input" => [
+        %{
+          "type" => "function_call",
+          "call_id" => "call-1",
+          "encrypted_function_args" => ["secret"],
+          "internal_chat_message_metadata_passthrough" => %{"turn_id" => "turn-1"}
+        },
+        %{"type" => "compaction_trigger"}
+      ]
+    }
+
+    assert [item, %{"type" => "compaction_trigger"}] =
+             CodexModelBinding.apply(request, binding)["input"]
+
+    refute Map.has_key?(item, "encrypted_function_args")
+    refute Map.has_key?(item, "internal_chat_message_metadata_passthrough")
+    assert CodexModelBinding.apply(request, nil) == request
+  end
+
   test "rejects malformed or incomplete bindings" do
     for value <- ["not-base64", Base.url_encode64("{}", padding: false)] do
       assert {:error, :invalid_codex_model_binding} = CodexModelBinding.decode(value)

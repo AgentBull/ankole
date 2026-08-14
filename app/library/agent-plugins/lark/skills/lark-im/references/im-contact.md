@@ -31,6 +31,15 @@ Only proceed if command help lists bot identity. Bot visibility depends on app a
 
 For direct messages, prefer `+messages-send --user-id <open_id>` when supported by command help. Include an idempotency key on retried sends. For cards, use the CLI's documented card input and validate the JSON; do not invent CardKit payload fields.
 
+For the current human sender of an inbound Lark Turn, normally pass the `uid` from `speaker: name(uid)` as the Lark `user_id`. When a direct-message shortcut needs an `open_id`, try to resolve that `user_id` instead of asking the sender for another identifier:
+
+```bash
+lark-cli contact +get-user --user-id user_xxx --user-id-type user_id --as bot --format json
+lark-cli im +messages-send --user-id ou_xxx --text "status update" --as bot --format json
+```
+
+Use the `open_id` returned by the first command in the second command. This is a by-ID lookup, not a name search.
+
 ## Contact and directory
 
 Under the pinned CLI's bot identity, the curated Contact path resolves a user only when a stable ID is already known:
@@ -39,6 +48,6 @@ Under the pinned CLI's bot identity, the curated Contact path resolves a user on
 lark-cli contact +get-user --user-id ou_xxx --user-id-type open_id --as bot --format json
 ```
 
-Do not use `contact +search-user` or `contact user_profiles batch_query`: in v1.0.84 they require user identity. Other typed Contact methods are in scope only when their generated schema explicitly includes `bot` in `_meta.access_tokens`; validate that before presenting the method as available.
+Do not use `contact +search-user` or `contact user_profiles batch_query`: in v1.0.86 they require user identity. Other typed Contact methods are in scope only when their generated schema explicitly includes `bot` in `_meta.access_tokens`; validate that before presenting the method as available.
 
 Directory access is constrained by the application's availability range. When a known target cannot be resolved, distinguish `not found` from `outside app visibility` and `missing scope`; do not fall back to guessing an ID from a display name. If the caller only has an email, phone number, or display name, report that this bot-only CLI surface cannot safely resolve it rather than switching identity.

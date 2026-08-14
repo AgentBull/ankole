@@ -383,6 +383,24 @@ function JobHealthStrip({ health }: { health: BackgroundAgentJobHealthResponse }
       })
     },
     {
+      // A queue wait reads as "add a Worker" unless the panel says otherwise.
+      // The per-Agent cap counts across all Workers, so when it holds the queue
+      // a new Worker changes nothing.
+      key: 'agent_cap',
+      value:
+        health.agents_at_running_cap === 0 ? '—' : `${health.agents_at_running_cap} / ${health.max_running_per_agent}`,
+      hint:
+        health.agents_at_running_cap === 0
+          ? t('console.background_agent_jobs.health_agent_cap_clear_hint', {
+              cap: health.max_running_per_agent
+            })
+          : t('console.background_agent_jobs.health_agent_cap_hint', {
+              agents: health.agents_at_running_cap,
+              cap: health.max_running_per_agent,
+              queued: health.queued_behind_running_cap
+            })
+    },
+    {
       key: 'failure_ratio',
       value: ratio(health.execution_failures_24h, health.claims_24h),
       hint: t('console.background_agent_jobs.health_failure_ratio_hint', {

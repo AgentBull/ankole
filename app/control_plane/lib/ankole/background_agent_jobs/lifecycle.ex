@@ -126,6 +126,10 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
           String.t()
         ) ::
           {:ok, Job.t()} | {:error, term()}
+  # Pool exhaustion is AIGateway backpressure with a declared recovery time,
+  # not the task failing, so it consumes no execution-failure budget. The
+  # requeue keeps the claim, so a persistent storm runs into the total-claims
+  # cap and fails with the infrastructure verdict instead of a task verdict.
   def requeue_credential_pool_exhausted_attempt_in_tx(repo, job_id, agent_uid)
       when is_integer(job_id) and job_id > 0 and is_binary(agent_uid) do
     actor_key = %{agent_uid: agent_uid, session_id: BackgroundAgentJobs.job_session_id(job_id)}
@@ -135,10 +139,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
          %Job{status: "running", attempts: attempts} = job when attempts > 0 <-
            Queries.get_for_agent(repo, job_id, agent_uid, lock: "FOR UPDATE") do
       job
-      |> Job.changeset(%{
-        status: "queued",
-        execution_failures: job.execution_failures + 1
-      })
+      |> Job.changeset(%{status: "queued"})
       |> repo.update()
     else
       nil -> {:error, :job_not_found}

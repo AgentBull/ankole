@@ -369,10 +369,13 @@ logical profile from the original ActorEvent and resolves its current binding.
 
 After five retryable abort results, ActorRuntime moves the event to `dead_letter`.
 For a visible chat message, the same transaction records a localized failure
-notice for the provider. If the channel takes no replies, or its channel or
-binding row is deleted, the notice has no route. ActorRuntime then logs the
-skipped notice and keeps the `dead_letter` row as the record. It does not fail
-the transaction, because that transaction can also be a Worker takeover.
+notice for the provider. The notice hides the Worker error by default. When the
+installation-wide `signals_gateway.show_dead_letter_error_details` AppConfigure
+setting is `true`, it appends a bounded and redacted error preview. If the
+channel takes no replies, or its channel or binding row is deleted, the notice
+has no route. ActorRuntime then logs the skipped notice and keeps the
+`dead_letter` row as the record. It does not fail the transaction, because that
+transaction can also be a Worker takeover.
 
 SignalsGateway rejects a late result while the source message has an active
 tombstone. A removed message cannot produce a later reply.

@@ -19,10 +19,26 @@ A fact lookup or a question with only one meaningful answer does not need ACH.
 When reliable data and a suitable statistical or causal model can answer the
 question, use that model instead of treating ACH as a substitute.
 
+ACH compares answers to one decidable question. It does not fit a task that
+ranks or constructs many objects — a screening, a portfolio, a taxonomy, a
+multi-sector ordering — and it adds nothing when no single question can be
+settled by observation. In those cases, state in one line of the report that
+ACH was not used and why, run the default verification in `AGENTS.md` instead,
+and move on. Do not build a matrix for compliance, and do not bolt one on
+after the analysis is finished; a matrix that did not shape the judgment is
+decoration.
+
 ## Frame comparable hypotheses
 
 State the exact question, information cutoff, and, for a forecast, the horizon
-and outcome definition. Generate the reasonable hypotheses before you evaluate
+and outcome definition. The question itself must be decidable: at the horizon,
+a named observation settles it. A value judgment — whether a price is
+justified, whether news is fully absorbed, whether something is overvalued —
+has no such observation; rewrite it into propositions about what happens in
+the window (orders, revenue, policy actions, flows, which force sets the
+price), or replace the question before you build hypotheses.
+
+Generate the reasonable hypotheses before you evaluate
 the evidence. Separate hypothesis generation from evaluation so that the first
 plausible explanation does not define the whole analysis.
 
@@ -38,6 +54,14 @@ comparison gives a reason to revise or reject it; lack of support is not the
 same as disproof. A residual or unknown hypothesis is useful only when it has
 meaningful observable implications.
 
+Give every hypothesis the same burden of proof. Write each one as a
+forward-looking description of the world with its own expected observations.
+Do not write one hypothesis so that it needs completed, confirmed evidence
+while a rival is true whenever evidence is incomplete: under that construction
+the framing decides the comparison, and the incomplete-evidence hypothesis
+wins every time regardless of the world. A hypothesis of the form "X is not
+yet proven" is a restatement of an evidence gap, not an explanation.
+
 For each hypothesis, record:
 
 - what mechanism or explanation it proposes;
@@ -51,9 +75,11 @@ same information, and all important overlap or incompleteness is explicit.
 ## Build the evidence-and-arguments inventory
 
 When you use ACH, keep one canonical `competing-hypotheses.yaml` file in the
-working directory. The file owns the cross-hypothesis comparison. Keep source
-content in the source notes and narrative conclusions in the report instead of
-duplicating them in the matrix.
+working directory. The file owns the cross-hypothesis comparison. A research
+task with several ACH questions keeps one file per question, named
+`competing-hypotheses-<id>.yaml`, and the checker runs on each file (pass the
+path as its argument). Keep source content in the source notes and narrative
+conclusions in the report instead of duplicating them in the matrix.
 
 Use these structural fields in the matrix:
 
@@ -92,6 +118,13 @@ An absence becomes negative evidence only when the expected signal was
 observable and the search could reasonably have found it. A base rate needs a
 defined reference class and a reason that the target belongs to it. A set of
 purposefully selected cases is not a reference class.
+
+Unavailable information is different from an absent signal, and it is not
+evidence. When a row cannot be assessed because the data does not exist or is
+not disclosed, its relation is `unknown` for every hypothesis it cannot be
+assessed against; record it as a coverage gap in the same YAML file.
+Unavailability is never `expected` support for any hypothesis — including a
+hypothesis that predicts uncertainty or an unclear picture.
 
 Important background can remain in the source notes. If it has audit value but
 does not distinguish the hypotheses, move it out of the active matrix and
@@ -218,7 +251,9 @@ to start from the organized notes, and to open raw material under
 `./sources/raw` only to check a linchpin that it intends to dispute.
 Do not expose `competing-hypotheses.yaml`, the report, your preferred
 hypothesis, or your reasoning. Ask the verifier to reconstruct the comparison
-independently. It must identify the plausible hypotheses, the most diagnostic
+independently. Its first check is the question itself: if no named observation
+at the horizon can settle it, the verifier reports that before anything else.
+It must then identify the plausible hypotheses, the most diagnostic
 information, the expected relation of each item to each hypothesis, the
 linchpins, and its own tentative relative assessment. It must also identify
 expected but absent signals, hidden assumptions, source dependencies, cutoff
@@ -265,9 +300,13 @@ If a valid Pass C objection changes the substantive analysis, update the matrix
 first and then the report. Repeat Pass C for the changed material.
 
 The verifier supplies an adversarial comparison; it does not own the final
-judgment. Do not create a separate verification state file. Verification is
-complete only when every material discrepancy from all three passes has changed
-the affected artifact or remains visible with a reason.
+judgment, and it does not edit the matrix, the report, or the source notes —
+it may write its own verification notes, but it reports defects and the lead
+makes the corrections. Its findings run in both
+directions: a judgment made softer than the evidence warrants is as much a
+defect as one made stronger. Do not create a separate verification state file.
+Verification is complete only when every material discrepancy from all three
+passes has changed the affected artifact or remains visible with a reason.
 
 ## Keep Bayesian claims separate
 

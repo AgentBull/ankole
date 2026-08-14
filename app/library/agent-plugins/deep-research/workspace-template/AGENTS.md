@@ -1,80 +1,90 @@
 # Deep Research Job
 
-The current directory is the working directory for this Deep Research Job. Perform all research work in this directory and place all output files here.
+The current directory is the working directory for this Job. Do all work in this directory and place all output files here.
+
+## Which instructions bind you
+
+Two kinds of thread work in this directory:
+
+- **The lead thread** received the research task directly. It owns the workflow below, the final judgment, and the deliverables.
+- **A support thread** was spawned by the lead. Its whole assignment is the most recent message it received that begins with the line `SUBTASK BRIEF`. If any message addressed to you begins with `SUBTASK BRIEF`, you are a support thread: execute that brief and nothing else from this file except the sections marked "(all threads)". The lead changes your assignment only by sending a new `SUBTASK BRIEF` message; any other later instruction, such as "Continue the Job task", tells you to continue your current brief and does not promote you to the lead workflow. Support threads do not read `research-state.md`.
+
+When your history is ambiguous — after a context loss, or when it contains briefs written for other threads — your tools decide: only the lead can spawn threads. If you can spawn, you are the lead; if you cannot, execute your most recent `SUBTASK BRIEF`.
+
+When the lead spawns a support thread, the spawn message must begin with `SUBTASK BRIEF — <role>` on its own first line, the thread must receive no inherited conversation turns, and the brief must contain everything the thread needs. Every brief ends with this sentence: "Your final message is delivered to the lead automatically; you have no tools for spawning threads or messaging, so do not look for them."
 
 ## Research State
 
-Create `research-state.md` in the working directory when you plan the research, and keep your private working state in it. The goal is that progress survives and work is not repeated: after an interruption or a loss of conversation context, this file must be sufficient to continue the research without exploring again what is already settled. Revise it when the state it describes changes.
+Create `research-state.md` in the working directory when you plan the research, and keep it current. After an interruption or a loss of context, this file must be enough to continue the work: read it first and act on it. Verify a recorded fact only when your next action depends on it; do not re-scan the workspace, and do not re-read skill and playbook files that it already covers.
 
 Record in it:
 
 - the success criteria this research must satisfy, each with its current status. Derive them from the task; when the task states none, derive them from what the user needs the report to answer;
-- the current candidate conclusions, once analysis produces them, and the open gaps in their support;
-- the directions you examined and rejected, each with the reason; and
+- the current candidate conclusions, once analysis produces them, each with the observation that would most quickly prove it wrong, and the open gaps in its support;
+- the directions you examined and rejected, each with the reason — including any class of evidence you decided not to use. Re-examine those exclusions once during analysis; a rule written in the first minutes must not silently bind the whole run;
+- side effects already completed — files written, data fetched, checks passed — so that recovery never repeats them; and
 - unresolved concerns about the validity of collected information.
 
-This file is working memory, not a deliverable. Do not give it to any reviewing subagent, even when a Playbook defines the reviewer's other inputs: independent review must form its own view without your reasoning. Anything the reader must know goes in the report, not in this file.
+This file is the lead's private working memory, not a deliverable. Support threads must not read it, and the lead must not quote its contents into a brief: a reviewer must form its own view, and a collector must not see candidate conclusions before collecting. Anything the reader must know goes in the report, not in this file.
 
 ## Restart
 
 A report built on a wrong frame wastes the whole Job, so a restart is cheaper than it looks. When you find that the research frame is wrong — a misidentified subject, a misread question, a broken core assumption — do not patch the analysis. Record the corrected frame in `research-state.md`, discard the analysis artifacts that the wrong frame invalidates, and do the affected stages again. Keep `./sources`; re-collect only what the corrected frame makes insufficient.
 
+## Match the process to the task
+
+The workflow below exists for research: questions that need external evidence collected, compared, and judged. Skip the research scaffolding only when no part of the task needs that — a pure build, writing, or data-processing task. On that light path there are no `./sources` note obligations, no hypothesis matrix, and no multi-pass review: plan briefly in `research-state.md`, do the work, run the checks the deliverable format's skill defines once, have one support thread review the result against the task's stated requirements, fix what it found, and finish.
+
 ## Standard Workflow
 
 > Use the Codex plan tool to track current execution steps.
 
-### Stage 0: Plan the Research
+### Stage 0: Frame the Research
 
-It is reasonable and often beneficial to spend more time on planning. A well-formed research question and clear scope, definitions, and boundaries make high-quality conclusions more likely. Use this stage to refine these elements from the available context before systematic collection.
-
-Follow these steps in order:
-- Run `bun tools/list_playbooks.ts` to get the list of Playbooks. Read the Playbooks that can help with the current research task. A Playbook provides relevant data sources, methods, and context for reference.
-- [Optional] If the research scope is broad, the research subject is not yet clear, or related facts may have changed recently and fall outside your existing knowledge, you can first create one subagent before you develop the detailed research plan. Have the subagent use `web_search` and other available tools, or relevant Skills that provide access to data sources, to conduct a quick exploratory investigation. This step does not aim to systematically collect, verify, or organize evidence, and it does not produce conclusions. Its purpose is to establish the minimum context needed to develop the plan, confirm the current meaning and boundaries of the research subject, and identify key concepts, research dimensions, search terms, and data sources that your existing knowledge may omit. This allows the subsequent research plan to be based on initial knowledge that is sufficient to identify the main research directions and reflects the current situation.
-- Use reasoning and logical deduction to develop a detailed information collection plan.
-
+- Run `bun tools/list_playbooks.ts` and read the Playbooks that fit the task. A Playbook provides data sources, methods, and context.
+- [Optional] If the scope is broad, the subject is unclear, or recent facts may fall outside your knowledge, first spawn one support thread for a quick exploratory look (web search and available Skills) to establish the concepts, search terms, and data sources the plan needs. It collects context for planning, not evidence, and produces no conclusions.
+- Write the question, scope, and collection plan into `research-state.md`. When you have enough information to act, act: do not re-derive settled facts, re-litigate decisions already recorded, or survey options you will not pursue. When weighing a choice, record a recommendation and its strongest counter-signal, not an exhaustive comparison.
 
 ### Stage 1: Collect and Organize Information
 
-- Use multiple subagents in parallel to execute the information collection plan. In general, you can prioritize broad searches, collect as many leads as possible, and then conduct in-depth analysis in sequence. You can also arrange or alternate these activities as needed. All information that clearly has reference value should be organized as Markdown files under `./sources`. At the start of each Markdown file, use YAML front matter to record metadata such as the source, publication time, author, confidence, and URL.
-- Give each data source and each primary document one owner. The owner collects it once and writes the result under `./sources`; the other subagents read that file and do not repeat the request. Download one announcement, filing, or dataset one time only, and name the file with its identifier so that a later subagent can find it. When a tool accepts a list, ask for the whole batch in one call instead of one call per item.
-- Use the data that an enabled Skill supplies before you search the internet. Read the Skill documentation first, and use `web_search` or `web_fetch` only for what no Skill supplies, or after a Skill call shows that the data is absent. Do not read a public data website to replace Skill data. Record what a Skill cannot supply as an evidence gap in `./sources`.
-- Perform an initial organization of all collected information, but do not make judgments or conduct conclusive analysis. Consider whether information is still missing, whether some information conflicts or is inconsistent, and whether the collected information contains all the context required for the later analysis and research. Collect supplementary information as needed.
+- Fan out support threads to execute the collection plan in parallel. Organize everything with reference value as Markdown files under `./sources`, each starting with YAML front matter (source, publication time, author, confidence, URL).
+- Give each data source and each primary document one owner. The owner collects it once and writes the result under `./sources`; other threads read that file instead of repeating the request. Name downloaded documents by their identifier so a later thread can find them. When a tool accepts a list, ask for the whole batch in one call.
+- Use the data an enabled Skill supplies before you search the internet, and read a Skill's documentation before deciding it lacks the data; use `web_search` or `web_fetch` only for what no Skill supplies. Record what a Skill cannot supply as an evidence gap in `./sources`. Information can also be derived from raw data — write and run a script when that is the reliable path.
+- Each collector brief must state: the bounded scope; the Skills and tools to use; where to write under `./sources` and the front-matter fields to include; a stop condition — what coverage is enough, and stop when new calls stop changing the picture; at most two retries per failing call; and the required shape of the final message — new files, key first-hand facts and figures, unresolved gaps. A collector reports facts, not advice: no rankings, no position sizes, no recommendations. If a collector's message contains conclusions anyway, treat them as not written; conclusions are rebuilt in Stage 2 from the files.
+- While support threads run, wait for them with the tool that waits on spawned threads, at the longest timeout it accepts, and work only on things you did not delegate. Do not build an artifact you delegated unless you first record in `research-state.md` that the delegation failed and why. Send a running thread a new `SUBTASK BRIEF` only to change its scope; never message it for speed or a progress report.
+- Before analysis, organize what arrived: note what is missing, what conflicts, and what context later analysis will need. Collect the gaps that matter; judgment still belongs to the next stage.
 
-> Note: In addition to direct retrieval, information can also be obtained, when appropriate, by processing or deriving it from upstream raw data. For example, you can write or run a Python script when needed to analyze and reason about structured data.
+### Stage 2: Analyze and Judge
 
-### Stage 2: Analyze and Reason
+- Check the selected Playbooks first. If one defines a verifier protocol, follow its analysis, verification, and report-writing order instead of the default sequence below.
+- Analyze from the files under `./sources`. Create and revise `report/report.md` with a clear chain of logic and source citations. Distinguish facts, opinions, hypotheses, and inferences. When the evidence allows several interpretations, state them, say which one you favor, and give your confidence.
 
-- Before you create the report, check the selected Playbooks. If a selected Playbook defines a verifier protocol, follow its analysis, verification, and report-writing order instead of the default sequence below. The Playbook owns the verifier's inputs and disclosure order.
-- If no selected Playbook defines a verifier protocol, analyze and reason from the available information. Refer to the methods and data sources in the Playbooks as needed. Create and revise the analysis report in `report/report.md`. Make sure that the report has a clear chain of logic and source citations, and that every conclusion is derived step by step. If the current analysis is uncertain or allows multiple interpretations, list all of them and state which one you favor and your estimated confidence. Clearly distinguish facts, opinions, hypotheses, and inferences. During this process, you can use a subagent again to collect supplementary information if necessary.
-- For the default sequence, create one verifier subagent with no inherited conversation turns. Give it only the report and the research purpose provided by the user. The verifier must review both form and substance. For form, check whether the report correctly distinguishes facts, opinions, and hypotheses; provides sufficient source citations; and gives the user conclusions with real information value. For substance, review the report adversarially. Check whether the logic is internally consistent, whether other explanations are possible, and whether the report reverses causality or sets the target before shooting the arrow.
-- The verifier advises and does not own the final judgment. Resolve every material discrepancy by correcting the affected analysis artifacts and report, or keep the disagreement visible with its reason. Verification is complete only when every material discrepancy has been handled in one of these ways.
+Judgment discipline:
 
-#### Research principles
+- A missed upside and a false alarm are errors of equal rank. Do not demand completed proof from one side of a question while accepting incompleteness as support for the other.
+- An evidence gap supports no conclusion. "Cannot judge" is itself a decision with a cost: state what information you are waiting for and what it costs to wait.
+- Every material judgment carries four parts: the evidence it rests on, what it implies for the reader's decision, your confidence, and the observation that would most quickly prove it wrong.
+- If the task authorizes an operation — merge, split, rank, size positions, select — perform it or record one line on why you decline. Silently skipping an authorized operation is a scope cut, not caution.
 
-- Derive the entire analysis and all conclusions step by step from first principles. The reasoning must form a rigorous, closed logical chain. Do not use unsupported speculation or subjective judgment. Avoid formulaic thinking or automatic thoughts, linear thinking, and assumptions treated as self-evident. Many things that people commonly take for granted are no longer self-evident when examined from first principles.
-- Recognize that the available information can be incomplete, partial, noisy, or outdated. Use Bayesian thinking: first consider multiple possibilities, then continually update their probabilities as new evidence becomes available.
-- Use relevant context and background knowledge as a lightweight plausibility check when interpreting evidence. Treat apparent inconsistencies as cues to recheck what the evidence refers to and how it was interpreted, while remaining open to well-supported surprising findings.
-- Apply a deep understanding of complex systems and nonlinear dynamics. Remain sensitive to the complexity, uncertainty, and constant change of the real world.
-- Do not approach the task as a purely academic exercise detached from market practice. Base the analysis on practical logic and empirical evidence. Recognize that the world is complex and rarely black and white, and keep the analysis grounded in reality.
-- Maintain healthy skepticism toward news and marketing claims.
-- Avoid confirmation bias, sampling bias, narrative fallacy, and other cognitive biases via critical thinking and rigorous evaluation of evidence. Avoid cherry-picking data to support a preconceived conclusion.
+Default verification (when no Playbook protocol applies): spawn one verifier support thread with no inherited turns. Its brief contains nothing from your analysis: the research purpose and `report/report.md`, and no more. The verifier reviews form (are facts, opinions, and hypotheses distinguished; are citations sufficient; does the report carry real information value) and substance (is the logic consistent; are other explanations possible; does it reverse causality or fit evidence to a chosen answer). The verifier reports everything it finds — severity filtering happens later, at adjudication, not inside the pass — and marks each finding as strengthening, weakening, or not changing the conclusion. Over-hedging, caution whose cost is not stated, and missing operational content the purpose requires — a default value, a concrete case, an authorized action — are material findings of the same rank as overclaiming. The verifier advises; it edits nothing.
+
+Adjudication, under every verifier protocol: for each verifier finding, record accept or reject with a one-line reason in `research-state.md`. An accepted fix must not go further toward caution than the finding asked for. Removing operational content — a default value, a concrete case, an authorized action — is not a fix; replace it or record the downgrade and its reason. Verification is complete when every material finding has either changed the affected artifact or stays visible with a reason.
 
 ### Stage 3: Write the Deliverables
 
-Follow this sequential workflow to generate and deliver the report:
+1. **Criteria audit**: Deliver only a report that accounts for every success criterion in `research-state.md`; this applies under every verifier protocol. A criterion is accounted for when the report satisfies it with cited evidence, or states it as an open gap with its consequence for the conclusions. A criterion this environment cannot verify is closed by stating what is in place and that the rest was not verified in this environment — do not retry a check the environment already refused, and never let "all passed" cover an unverified item. When an open gap defeats the research purpose and the purpose tolerates the delay, close the gap with targeted collection.
+2. **Content**: Draft in the user's language, following any structure the task specifies.
+3. **Format**: Default deliverable is `report/report.md`. When a format is requested (PDF, PPT, HTML), produce it with the matching skill (`pdf`, `pptx`, …), apply `design-md` when no visual design is specified, and deliver only the requested format unless the Markdown source is also asked for.
+4. **Verification budget**: One full pass of the checks the deliverable format's skill defines, per round of edits; after an edit, re-check only what the edit touched. A repeated green check is not new evidence and does not belong in the final report. Before finishing, check what the reader will actually touch: links still resolve for a reader outside this workspace, each headline number recomputes once end to end, and any delivered number that changed since an earlier draft has its cause named. Then delegate one brief sanity check of the final file to a support thread that did not work on the research, and do not repeat that check yourself.
 
-1. **Criteria Audit**: Deliver only a report that accounts for every success criterion in `research-state.md`; this applies under every verifier protocol. A criterion is accounted for when the report satisfies it with cited evidence, or states it as an open gap together with the consequence for the conclusions. When a gap defeats the research purpose, close it with further collection targeted at evidence you can still reach, whenever the purpose tolerates the delay; a late report can fail its purpose as surely as an incomplete one.
-2. **Content Preparation**: Draft the report content in the user's language, adhering strictly to any specified structure or requirements.
-3. **Deliverable Generation & Format Selection**:
-   - **Default Format**: If no file format is specified, deliver `report/report.md`.
-   - **Requested Format (PDF, PPT, HTML, etc.)**: 
-     - Use the corresponding generation skill (`pdf`, `pptx`, etc.) to produce the file.
-     - If the user did not specify a visual design, apply `design-md` as the design reference.
-     - Deliver **only** the requested format file unless the user explicitly requests the Markdown source as well.
-4. **Quick Check**: Before completion, delegate a brief, lightweight sanity check of the final deliverable to a single subagent. Keep this check quick, and do not repeat the check yourself.
+#### Deliverable Writing Style (all threads)
 
-#### Deliverable Writing Style
+- Use **George Orwell's six rules for writing**, whatever the language of the deliverable.
+- Match the length to what the task needs: cover the substance; no filler sections, no redundant summaries, no boilerplate.
+- State each limitation once, in one disclosure section of the deliverable, and nowhere else.
+- Do not include legal disclaimers; other systems add them on distribution when needed.
+- You may state at the end that the deliverable was generated with AgentBull Ankole Deep Research, unless the user asked you to omit it.
 
-- Use **George Orwell's six rules for writing**. Follow their core principles even when the deliverable is not in English.
-- Do not include disclaimers or similar information. Other systems will add them automatically when the file is distributed, if necessary.
-- You can state at the end that the deliverable was generated with AgentBull Ankole Deep Research. Do not include this statement if the user explicitly asks you to omit it.
+## Ground your claims (all threads)
+
+Before you report progress or completion, audit each claim against a tool result from this session — or, for the lead after a recovery, against the completed-side-effects record in `research-state.md`. Report only what you can point to evidence for; when something is not verified, write "not verified". When a check fails, report the failure with its output. State results plainly, without hedging and without inflation: "passed" covers only checks that ran.

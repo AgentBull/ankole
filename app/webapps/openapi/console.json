@@ -239,10 +239,13 @@
       "BackgroundAgentJobHealthResponse": {
         "additionalProperties": false,
         "properties": {
+          "agents_at_running_cap": { "type": "integer" },
           "claims_24h": { "type": "integer" },
           "dead_letter_notices_24h": { "type": "integer" },
           "execution_failures_24h": { "type": "integer" },
+          "max_running_per_agent": { "type": "integer" },
           "oldest_queued_seconds": { "nullable": true, "type": "integer" },
+          "queued_behind_running_cap": { "type": "integer" },
           "queued_count": { "type": "integer" },
           "running_count": { "type": "integer" },
           "succeeded_24h": { "type": "integer" },
@@ -254,6 +257,9 @@
           "oldest_queued_seconds",
           "queued_count",
           "running_count",
+          "max_running_per_agent",
+          "agents_at_running_cap",
+          "queued_behind_running_cap",
           "claims_24h",
           "execution_failures_24h",
           "succeeded_24h",
@@ -5060,6 +5066,10 @@
           "401": {
             "content": { "application/json": { "schema": { "additionalProperties": true, "type": "object" } } },
             "description": "Unauthorized"
+          },
+          "502": {
+            "content": { "application/json": { "schema": { "additionalProperties": true, "type": "object" } } },
+            "description": "Compaction fallback unavailable"
           }
         },
         "security": [{ "aiGatewayBearer": [] }, { "consoleBearer": [] }],

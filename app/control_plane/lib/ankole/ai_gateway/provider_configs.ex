@@ -81,18 +81,15 @@ defmodule Ankole.AIGateway.ProviderConfigs do
   end
 
   @doc """
-  Returns whether an OpenAI-compatible connection declares that its endpoint
-  runs web search itself.
+  Returns whether one configured provider row speaks the Responses wire.
 
-  Only a generic compatible row needs this: its endpoint is whatever the operator
-  pointed it at, so the capability cannot be known from the provider kind. Every
-  other provider declares the capability statically. The write path already
-  enforces that `hosted_web_search` pairs with a Responses endpoint, so this read
-  checks only the stored declaration. A missing, disabled, or re-kinded provider
-  row declares nothing.
+  The row referenced by the model reference holds the operator-configured
+  connection options, so this reads them and delegates the judgment to
+  `Providers.responses_endpoint?/2`. A missing, disabled, or re-kinded
+  provider row declares nothing.
   """
-  @spec hosted_web_search_endpoint?(map()) :: boolean()
-  def hosted_web_search_endpoint?(%{
+  @spec responses_endpoint?(map()) :: boolean()
+  def responses_endpoint?(%{
         "provider_id" => provider_id,
         "provider_kind" => provider_kind
       })
@@ -100,14 +97,14 @@ defmodule Ankole.AIGateway.ProviderConfigs do
     case fetch_active_provider(provider_id) do
       {:ok, %Provider{provider_kind: ^provider_kind, connection_options: options}}
       when is_map(options) ->
-        Map.get(options, "hosted_web_search") == true
+        Providers.responses_endpoint?(provider_kind, options)
 
       _unavailable_or_changed ->
         false
     end
   end
 
-  def hosted_web_search_endpoint?(_model_ref), do: false
+  def responses_endpoint?(_model_ref), do: false
 
   @doc """
   Returns a safe projection for one provider.

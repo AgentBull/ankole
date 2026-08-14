@@ -59,6 +59,8 @@ import {
   BackgroundAgentJobStopRequestSchema,
   BackgroundAgentJobStopResponseSchema,
   BackgroundAgentJobStatusUpdateRequestSchema,
+  BackgroundAgentJobTurnItemsListRequestSchema,
+  BackgroundAgentJobTurnItemsListResponseSchema,
   BackgroundAgentJobTurnUpsertRequestSchema,
   BackgroundAgentJobTurnUpsertResponseSchema,
   CodexLogs2DailyMaintenanceRequestSchema,
@@ -71,6 +73,8 @@ import {
   MemoryOpenRequestSchema,
   MemorySearchRequestSchema,
   MemoryUpdateRequestSchema,
+  ObservabilitySpansExportRequestSchema,
+  ObservabilitySpansExportResponseSchema,
   ScheduleCheckBackLaterCreateRequestSchema,
   ScheduleCheckBackLaterListRequestSchema,
   ScheduleCheckBackLaterTargetRequestSchema,
@@ -130,12 +134,14 @@ export const rpcMethods = {
   backgroundAgentJobRespawn: 'background_agent_job.respawn',
   backgroundAgentJobStop: 'background_agent_job.stop',
   backgroundAgentJobTurnUpsert: 'background_agent_job.turn.upsert',
+  backgroundAgentJobTurnItemsList: 'background_agent_job.turn_items.list',
   backgroundAgentJobStatusUpdate: 'background_agent_job.status.update',
   memorySearch: 'memory_search',
   memoryBrowse: 'memory_browse',
   memoryOpen: 'memory_open',
   memoryUpdate: 'memory_update',
   memoryHealthCheck: 'memory_health_check',
+  observabilitySpansExport: 'observability.spans.export',
   scheduleCheckBackLaterCreate: 'schedule.check_back_later.create',
   scheduleCheckBackLaterList: 'schedule.check_back_later.list',
   scheduleCheckBackLaterGet: 'schedule.check_back_later.get',
@@ -201,12 +207,14 @@ export const rpcOperationMeta = {
   [rpcMethods.backgroundAgentJobRespawn]: { scope: 'turn', effect: 'write' },
   [rpcMethods.backgroundAgentJobStop]: { scope: 'turn', effect: 'write' },
   [rpcMethods.backgroundAgentJobTurnUpsert]: { scope: 'turn', effect: 'write' },
+  [rpcMethods.backgroundAgentJobTurnItemsList]: { scope: 'turn', effect: 'read' },
   [rpcMethods.backgroundAgentJobStatusUpdate]: { scope: 'turn', effect: 'write' },
   [rpcMethods.memorySearch]: { scope: 'turn', effect: 'read' },
   [rpcMethods.memoryBrowse]: { scope: 'turn', effect: 'read' },
   [rpcMethods.memoryOpen]: { scope: 'turn', effect: 'read' },
   [rpcMethods.memoryUpdate]: { scope: 'turn', effect: 'write' },
   [rpcMethods.memoryHealthCheck]: { scope: 'turn', effect: 'read' },
+  [rpcMethods.observabilitySpansExport]: { scope: 'worker_agent' },
   [rpcMethods.scheduleCheckBackLaterCreate]: { scope: 'turn', effect: 'write' },
   [rpcMethods.scheduleCheckBackLaterList]: { scope: 'turn', effect: 'read' },
   [rpcMethods.scheduleCheckBackLaterGet]: { scope: 'turn', effect: 'read' },
@@ -326,6 +334,10 @@ export const rpcSchemas = {
     request: BackgroundAgentJobTurnUpsertRequestSchema,
     response: BackgroundAgentJobTurnUpsertResponseSchema
   },
+  [rpcMethods.backgroundAgentJobTurnItemsList]: {
+    request: BackgroundAgentJobTurnItemsListRequestSchema,
+    response: BackgroundAgentJobTurnItemsListResponseSchema
+  },
   [rpcMethods.backgroundAgentJobStatusUpdate]: {
     request: BackgroundAgentJobStatusUpdateRequestSchema,
     response: BackgroundAgentJobResponseSchema
@@ -337,6 +349,10 @@ export const rpcSchemas = {
   [rpcMethods.memoryHealthCheck]: {
     request: MemoryHealthCheckRequestSchema,
     response: JSONPassthroughResponseSchema
+  },
+  [rpcMethods.observabilitySpansExport]: {
+    request: ObservabilitySpansExportRequestSchema,
+    response: ObservabilitySpansExportResponseSchema
   },
   [rpcMethods.scheduleCheckBackLaterCreate]: {
     request: ScheduleCheckBackLaterCreateRequestSchema,
@@ -805,6 +821,8 @@ export type {
   BackgroundAgentJobSummary,
   BackgroundAgentJobStopResponse,
   BackgroundAgentJobTurn,
+  BackgroundAgentJobTurnItem,
+  BackgroundAgentJobTurnItemsListResponse,
   BackgroundAgentJobTurnUpsertRequest,
   BackgroundAgentJobTurnUpsertResponse,
   BrainSnapshot,
@@ -883,10 +901,15 @@ export type BackgroundAgentJobTurnTrajectoryHeader = JSONObject & {
   metadata?: BackgroundAgentJobTurnTrajectoryMetadata
 }
 
-export type BackgroundAgentJobTurnTrajectoryGroup = JSONObject & {
+/**
+ * One sanitized semantic thread item pending checkpoint. The control plane
+ * stores the item stream verbatim and derives the trajectory-group
+ * projection from it.
+ */
+export type BackgroundAgentJobTurnItemEntry = JSONObject & {
   position: number
   item_key: string
-  messages: BackgroundAgentJobTurnTrajectoryMessage[]
+  item: JSONObject
 }
 
 export type BackgroundAgentJobTurnUsageBreakdown = JSONObject & {

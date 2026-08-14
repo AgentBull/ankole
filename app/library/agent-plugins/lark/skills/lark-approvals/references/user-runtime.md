@@ -10,6 +10,8 @@ it can be read there, so separation between senders holds because this Skill
 always calls the wrapper. It is not a sandbox boundary. Never call `lark-cli`
 directly and never pass `--profile`.
 
+The wrapper also keeps one pending app-registration flow and one pending user-login flow under that HMAC-derived profile. It never stores the Principal UID. Starting the same flow again replaces only that profile's pending state; it cannot complete another profile's flow.
+
 The wrapper removes these bot credential values before it starts Lark CLI:
 
 - app ID and app secret
@@ -35,12 +37,12 @@ The wrapper stores the new app secret through `lark-cli profile add --app-secret
    /repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals profile begin feishu
    ```
 
-   Use `lark` instead of `feishu` only for a Lark tenant. Give the exact `verification_url` to the user and end the Turn. Keep the returned `device_code` in the conversation only.
+   Use `lark` instead of `feishu` only for a Lark tenant. Give the exact `verification_url` to the user and end the Turn. The wrapper keeps the temporary device code in the selected profile's locked CLI state and does not print it for the model to repeat.
 
 3. After the user confirms authorization, complete app registration.
 
    ```bash
-   /repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals profile complete '<device_code>'
+   /repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals profile complete
    ```
 
    A pending result means that authorization has not reached the provider. Wait for the user; do not start another registration.
@@ -59,15 +61,15 @@ The wrapper stores the new app secret through `lark-cli profile add --app-secret
    /repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals auth begin
    ```
 
-   Give the exact `verification_url` to the user and end the Turn.
+   Give the exact `verification_url` to the user and end the Turn. The wrapper keeps the temporary device code in the selected profile's locked CLI state and does not print it.
 
 7. After the user confirms authorization, complete login.
 
    ```bash
-   /repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals auth complete '<device_code>'
+   /repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals auth complete
    ```
 
-Profile creation, profile preflight, login completion, and logout use a file lock in the shared CLI configuration directory. Profile preflight sets profile strict mode to `off` because one PersonalAgent profile must support both identities. The wrapper pins approval commands to user identity and file upload to the same profile's app identity. Approval reads, file uploads, and approval writes do not take this lock, so different profiles can run in parallel.
+Profile creation, both temporary device codes, profile preflight, login completion, and logout use a file lock in the shared CLI configuration directory. Profile preflight sets profile strict mode to `off` because one PersonalAgent profile must support both identities. The wrapper pins approval commands to user identity and file upload to the same profile's app identity. Approval reads, file uploads, and approval writes do not take this lock, so different profiles can run in parallel.
 
 If file upload returns `99991672` or `app_scope_not_applied`, give the provider's developer-console scope link to the user and stop. After the user confirms that the app scopes are published, retry only the failed upload. Do not retry a successful upload or a submission with an unknown result.
 

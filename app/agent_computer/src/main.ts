@@ -47,6 +47,7 @@ import {
   TurnTerminalRejectedError
 } from './worker/turn_completion'
 import { deleteCodexLogs2AtDailyReset } from './core/codex-runner/fix-codex-logs2-sqlite-bug'
+import { configureWorkerTracing, forceFlushWorkerTracing } from './observability/turn-tracing'
 
 const heartbeatIntervalMs = 15_000
 
@@ -73,6 +74,15 @@ async function runWorker(): Promise<void> {
   const sendEnvelope = fabric.sendEnvelope
   const sendFileFrame = fabric.sendFileFrame
   const rpcClient = new RuntimeRPCClient(sendEnvelope)
+  configureWorkerTracing(async (payload, agentUID) => {
+    const response = await rpcClient.request(
+      'observability.spans.export',
+      { payload },
+      { agentUid: agentUID },
+      { timeoutMs: 10_000 }
+    )
+    if ('code' in response) throw new Error(`worker span export rejected: ${response.code}`)
+  })
   const activeTurns = new Map<string, ActiveTurn>()
   const drain = new WorkerDrainState()
   const fileLane = createFileTransferLane(config, sendFileFrame)
@@ -163,7 +173,11 @@ async function runWorker(): Promise<void> {
     try {
       await browserRuntime.stop()
     } finally {
-      fabric.stop()
+      try {
+        await forceFlushWorkerTracing()
+      } finally {
+        fabric.stop()
+      }
     }
   }
 }

@@ -73,7 +73,13 @@ defmodule Ankole.Brain.Dreaming.MemoCompactor do
     }
 
     with {:ok, %{body: body}} <-
-           AIGateway.create_response(owner_uid, request, Keyword.get(opts, :request_opts, [])),
+           AIGateway.create_response(
+             owner_uid,
+             request,
+             opts
+             |> Keyword.get(:request_opts, [])
+             |> Keyword.put_new(:caller, "brain.dreaming.memo_compactor")
+           ),
          {:ok, text} <- AIGateway.completed_output_text(body) do
       {:ok, text}
     end

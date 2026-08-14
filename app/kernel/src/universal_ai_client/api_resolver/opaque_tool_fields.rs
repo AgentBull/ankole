@@ -93,7 +93,7 @@ impl OpaqueToolFields {
             .unwrap_or(false);
 
         if native_encrypted_tool_fields {
-            if kind != APIResolverKind::OpenAIResponses {
+            if !openai_responses_wire(kind) {
                 return Err(invalid_tool_schema_error(
                     "native encrypted tool fields require the OpenAI Responses wire protocol",
                 ));
@@ -105,10 +105,7 @@ impl OpaqueToolFields {
 
         let plan = ToolFieldPlan::from_context(context)?;
         normalize_context_tool_markers(&mut provider_context, true)?;
-        lower_context(
-            &mut provider_context,
-            kind == APIResolverKind::OpenAIResponses,
-        )?;
+        lower_context(&mut provider_context, openai_responses_wire(kind))?;
 
         Ok((
             Self {
@@ -513,6 +510,13 @@ impl OpaqueToolFields {
             })
             .collect()
     }
+}
+
+fn openai_responses_wire(kind: APIResolverKind) -> bool {
+    matches!(
+        kind,
+        APIResolverKind::OpenAIResponses | APIResolverKind::OpenAIResponsesCompact
+    )
 }
 
 impl ToolFieldPlan {

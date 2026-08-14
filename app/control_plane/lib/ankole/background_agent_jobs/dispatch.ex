@@ -16,6 +16,7 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery
+  alias Ankole.SignalsGateway.ActorRuntime.WorkerPool
 
   @legacy_workspace_path_pattern ~r{/workspace(?:/|$)}u
   @supported_create_fields ~w(
@@ -191,7 +192,8 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
                  :ok <- ensure_no_successor(repo, source_job),
                  attrs <- respawn_job_attrs(attrs, source_job, now),
                  {:ok, job} <- repo.insert(Job.creation_changeset(%Job{}, attrs)),
-                 {:ok, dispatch_event} <- append_dispatch_event(repo, job, now) do
+                 {:ok, dispatch_event} <- append_dispatch_event(repo, job, now),
+                 :ok <- inherit_worker_assignment(repo, source_job, job, now) do
               {:ok, %{job: job, dispatch_event: dispatch_event}}
             end
         end
@@ -236,6 +238,25 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
       nil -> :ok
       successor_id -> {:error, {:background_agent_job_already_respawned, successor_id}}
     end
+  end
+
+  # The continued Job inherits the source's Codex thread only while the source
+  # assignment is still live. Terminal finalize releases that assignment, so a
+  # respawn normally finds none, places by capacity, and relies on the replay
+  # ladder; this inherit covers the narrow window before that release.
+  defp inherit_worker_assignment(repo, %Job{} = source_job, %Job{} = successor, now) do
+    WorkerPool.inherit_assignment_in_tx(
+      repo,
+      %{
+        agent_uid: source_job.agent_uid,
+        session_id: BackgroundAgentJobs.job_session_id(source_job.id)
+      },
+      %{
+        agent_uid: successor.agent_uid,
+        session_id: BackgroundAgentJobs.job_session_id(successor.id)
+      },
+      now
+    )
   end
 
   defp respawn_job_attrs(attrs, source_job, now) do

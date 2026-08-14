@@ -142,3 +142,21 @@ impl APIProtocol for OpenAIResponsesState {
         self.terminal
     }
 }
+
+#[derive(Debug, Default)]
+pub(super) struct OpenAIResponsesCompact;
+
+impl APIProtocol for OpenAIResponsesCompact {
+    fn on_provider_body(
+        &mut self,
+        _context: &ResponseContext,
+        status: u16,
+        body: Value,
+    ) -> Result<Value, StreamError> {
+        if !(200..300).contains(&status) {
+            return Err(provider_body_error(status, body));
+        }
+        reject_provider_body_error(status, &body)?;
+        provider_object_body(status, body, "OpenAI Responses compact")
+    }
+}

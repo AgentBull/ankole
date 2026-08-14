@@ -84,7 +84,8 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 60_000
 // Codex can maintain large shared state before initialize returns. Give this
 // operation its own budget instead of consuming the ordinary RPC budget.
 const INITIALIZE_REQUEST_TIMEOUT_MS = 300_000
-const THREAD_REQUEST_TIMEOUT_MS = 120_000
+const THREAD_START_REQUEST_TIMEOUT_MS = 120_000
+const THREAD_RESUME_REQUEST_TIMEOUT_MS = 120_000
 const HEALTH_PROBE_TIMEOUT_MS = 5_000
 const STDOUT_EXIT_GRACE_MS = 50
 const PROCESS_GRACEFUL_CLOSE_MS = 1_000
@@ -395,11 +396,9 @@ export class CodexAppServerClient {
   }
 
   /**
-   * One slow request must not kill the shared app-server for every Job of the
-   * Agent. The transport closes only when the process also fails a short
-   * health probe; a responsive process keeps its other threads, and only the
-   * timed-out request fails. A late result that arrives during the probe still
-   * settles the original request.
+   * One slow uncertain request must not kill the shared app-server for every
+   * Job of the Agent. Keep sibling Jobs only when the process answers a
+   * non-mutating probe; replace the runtime when it cannot answer either.
    */
   private async failTransportUnlessResponsive(
     error: CodexAppServerRequestTimeoutError,
@@ -415,8 +414,8 @@ export class CodexAppServerClient {
   }
 
   /**
-   * Any JSON-RPC reply — including "method not found" — proves the event loop
-   * is alive. Only a probe timeout condemns the process.
+   * Codex 0.147 rejects an unknown method before request scheduling or config
+   * handling. Its JSON-RPC error proves that the stdio request path is alive.
    */
   private async probeResponsive(): Promise<boolean> {
     if (this.closed) return false
@@ -439,7 +438,8 @@ export class CodexAppServerClient {
 }
 
 function defaultRequestTimeoutMs(method: string): number {
-  if (method === 'thread/start' || method === 'thread/resume') return THREAD_REQUEST_TIMEOUT_MS
+  if (method === 'thread/start') return THREAD_START_REQUEST_TIMEOUT_MS
+  if (method === 'thread/resume') return THREAD_RESUME_REQUEST_TIMEOUT_MS
   return DEFAULT_REQUEST_TIMEOUT_MS
 }
 
@@ -459,9 +459,8 @@ export class CodexAppServerExitError extends Error {
   }
 }
 
-// A late `turn/start` result is the one truly unsafe survivor: a ghost Codex
-// turn would keep executing unobserved. Its timeout, and a dead-at-birth
-// `initialize`, still close the transport without a probe.
+// A late `turn/start` result is unsafe because a ghost Codex turn can continue
+// without its caller. It and a failed initialize close the transport directly.
 function transportFatalTimeoutMethod(method: string): boolean {
   return method === 'initialize' || method === 'turn/start'
 }

@@ -77,11 +77,17 @@ Agent 的 Skill、命令行工具或 MCP 服务需要 API Key 等自定义值时
 | 配置键 | 作用范围 | 用途 |
 |---|---|---|
 | `ai_gateway.compaction` | 实例 | 对话历史自动压缩策略 |
+| `observability.traces.enabled` | 实例 | 是否在下次控制面启动时启用进程级 OpenTelemetry 导出 |
+| `observability.traces.provider` | 实例 | `langfuse`、`langsmith` 或通用 `opentelemetry` trace 的语义投影 |
+| `observability.traces.otlp_endpoint` | 实例 | 可选 trace 使用的基础 OTLP/HTTP endpoint |
+| `observability.traces.otlp_headers` | 实例 | 可选 trace 使用的加密认证请求头 |
 | `brain.knowledge` | 实例 | 长期记忆投影预算和召回结果数量 |
 | `brain.dreaming` | 实例或单个 Agent | Dreaming 与知识策展策略 |
 | `brain.embedding` | 实例 | Embedding 模型和向量维度 |
 | `brain.search` | 实例 | 长期记忆衰减和重排策略 |
 | `brain.sources` | 实例 | 外部知识源的同步与保留策略 |
+
+Langfuse、LangSmith、VictoriaTraces 和其他 OTLP/HTTP 接收端的配置方法见 [LLM 可观测性](../llm-observability/)。
 
 ### 身份、插件和实例默认值
 

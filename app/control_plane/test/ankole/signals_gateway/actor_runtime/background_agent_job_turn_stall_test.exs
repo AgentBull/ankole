@@ -164,11 +164,15 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobTurnStallTest do
                  "status" => "in_progress",
                  "revision" => 0,
                  "trajectory" => %{"format" => "ankole_chatml", "version" => 1},
-                 "trajectory_groups" => [
+                 "turn_items" => [
                    %{
                      "position" => 0,
                      "item_key" => "test:0",
-                     "messages" => [%{"role" => "user", "content" => "Start #{suffix}"}]
+                     "item" => %{
+                       "type" => "userMessage",
+                       "id" => "test:0",
+                       "content" => [%{"type" => "text", "text" => "Start #{suffix}"}]
+                     }
                    }
                  ],
                  "progress" => %{

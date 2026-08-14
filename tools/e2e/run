@@ -215,7 +215,8 @@ has_openrouter_key() {
 }
 
 has_real_provider_env() {
-  has_openrouter_key ||
+  [[ -n "${OPENAI_API_KEY:-}" ]] ||
+    has_openrouter_key ||
     [[ -n "${JINA_API_KEY:-}" ]] ||
     [[ -n "${GOOGLE_AI_STUDIO_API_KEY:-}" ]]
 }

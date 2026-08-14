@@ -7,10 +7,10 @@ This Ankole Agent Plugin Skill includes modified documentation from OfficeCLI.
 
 Upstream project: iOfficeAI/OfficeCLI
 Upstream URL: https://github.com/iOfficeAI/OfficeCLI
-Upstream commit: 1ab5978a5ff583a28f7544caf533c8eb52e9f15d
+Upstream commit: 1ced45e900782c5083ed550ddf328ee974e425e7
 License: Apache License 2.0
-License URL: https://github.com/iOfficeAI/OfficeCLI/blob/1ab5978a5ff583a28f7544caf533c8eb52e9f15d/LICENSE
-Notice URL: https://github.com/iOfficeAI/OfficeCLI/blob/1ab5978a5ff583a28f7544caf533c8eb52e9f15d/NOTICE
+License URL: https://github.com/iOfficeAI/OfficeCLI/blob/1ced45e900782c5083ed550ddf328ee974e425e7/LICENSE
+Notice URL: https://github.com/iOfficeAI/OfficeCLI/blob/1ced45e900782c5083ed550ddf328ee974e425e7/NOTICE
 
 Imported source files:
 - SKILL.md <= skills/officecli-pptx/SKILL.md (upstream sha256: 0d53192751d5770984f16f3c34f9923377651555c667150d7f96e16e8c9757b3)
@@ -20,6 +20,7 @@ Modifications:
 - Replaced self-install setup instructions with Ankole Agent Computer runtime notes.
 - Added Playbook routing and Ankole-local frontmatter.
 - Reduced the command catalog to a help-first operating guide.
+- Aligned the adapted guidance with OfficeCLI 1.0.144.
 
 Upstream NOTICE:
 

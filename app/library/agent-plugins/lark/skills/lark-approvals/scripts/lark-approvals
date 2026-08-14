@@ -2,7 +2,7 @@
 set -euo pipefail
 
 readonly script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-readonly registration_script="${script_dir}/app-registration.ts"
+readonly profile_setup_script="${script_dir}/profile-setup.ts"
 readonly principal="${ANKOLE_RUNTIME_CURRENT_ACTOR_SENDER_PRINCIPAL:-}"
 readonly profile="${ANKOLE_RUNTIME_LARK_PROFILE:-}"
 
@@ -40,10 +40,10 @@ usage() {
 Usage:
   lark-approvals profile status
   lark-approvals profile begin [feishu|lark]
-  lark-approvals profile complete <device-code>
+  lark-approvals profile complete
   lark-approvals auth status [--verify]
   lark-approvals auth begin
-  lark-approvals auth complete <device-code>
+  lark-approvals auth complete
   lark-approvals auth logout
   lark-approvals schema approvals|instances|tasks <method>
   lark-approvals approvals|instances|tasks <method> [lark-cli flags]
@@ -56,8 +56,8 @@ user_cli() {
   "${clean_env[@]}" lark-cli --profile "${profile}" "$@"
 }
 
-registration_cli() {
-  "${clean_env[@]}" bun "${registration_script}" "$@"
+profile_setup_cli() {
+  "${clean_env[@]}" bun "${profile_setup_script}" "$@"
 }
 
 profile_exists() {
@@ -103,22 +103,22 @@ profile_begin() {
     return 2
   fi
   if profile_exists; then
+    profile_setup_cli clear app-registration
     ensure_profile_policy
     echo '{"status":"configured"}'
     return
   fi
-  registration_cli begin "${brand}"
+  profile_setup_cli profile-begin "${brand}"
 }
 
 profile_complete() {
-  local device_code="${1:-}"
-  [[ -n "${device_code}" ]] || usage
   if profile_exists; then
+    profile_setup_cli clear app-registration
     ensure_profile_policy
     echo '{"status":"configured"}'
     return
   fi
-  registration_cli complete "${device_code}"
+  profile_setup_cli profile-complete
   ensure_profile_policy
 }
 
@@ -134,21 +134,20 @@ auth_status() {
 auth_begin() {
   require_profile
   ensure_profile_policy
-  user_cli auth login --domain approval --no-wait --json
+  profile_setup_cli auth-begin
 }
 
 auth_complete() {
-  local device_code="${1:-}"
-  [[ -n "${device_code}" ]] || usage
   require_profile
   ensure_profile_policy
-  user_cli auth login --device-code "${device_code}" --json
+  profile_setup_cli auth-complete
 }
 
 auth_logout() {
   require_profile
   ensure_profile_policy
   user_cli auth logout --json
+  profile_setup_cli clear auth-login
 }
 
 reject_identity_flags() {
@@ -192,7 +191,7 @@ case "${1:-}" in
     case "${2:-}" in
       status) shift 2; [[ "$#" -eq 0 ]] || usage; with_account_lock profile_status ;;
       begin) shift 2; [[ "$#" -le 1 ]] || usage; with_account_lock profile_begin "${1:-feishu}" ;;
-      complete) shift 2; [[ "$#" -eq 1 ]] || usage; with_account_lock profile_complete "$1" ;;
+      complete) shift 2; [[ "$#" -eq 0 ]] || usage; with_account_lock profile_complete ;;
       *) usage ;;
     esac
     ;;
@@ -200,7 +199,7 @@ case "${1:-}" in
     case "${2:-}" in
       status) shift 2; [[ "$#" -le 1 ]] || usage; auth_status "${1:-}" ;;
       begin) shift 2; [[ "$#" -eq 0 ]] || usage; with_account_lock auth_begin ;;
-      complete) shift 2; [[ "$#" -eq 1 ]] || usage; with_account_lock auth_complete "$1" ;;
+      complete) shift 2; [[ "$#" -eq 0 ]] || usage; with_account_lock auth_complete ;;
       logout) shift 2; [[ "$#" -eq 0 ]] || usage; with_account_lock auth_logout ;;
       *) usage ;;
     esac

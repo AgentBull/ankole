@@ -123,6 +123,29 @@ describe('Codex app-server client transport', () => {
       expect(transport.killCount()).toBe(1)
     }
   })
+
+  it('fails a timed-out thread resume without closing the shared transport', async () => {
+    const methods: string[] = []
+    const transport = fakeTransport({
+      write: chunk => {
+        const line = typeof chunk === 'string' ? chunk : new TextDecoder().decode(chunk)
+        methods.push(String(JSON.parse(line).method))
+      }
+    })
+    const client = new CodexAppServerClient(clientOptions(), transport.spawn)
+    const resume = rejectionOf(client.request('thread/resume', {}, 10))
+    const sibling = client.request('thread/loaded/list', {}, 10_000)
+
+    await until(() => methods.includes('ankole/health_probe'))
+    transport.stdout('{"id":3,"error":{"code":-32600,"message":"Invalid request"}}\n')
+    expect((await settlesWithin(resume, 250)).message).toBe('codex app-server request timed out: thread/resume')
+    expect(transport.killCount()).toBe(0)
+    expect(methods).toEqual(['thread/resume', 'thread/loaded/list', 'ankole/health_probe'])
+
+    transport.stdout('{"id":2,"result":{"data":[]}}\n')
+    expect(await settlesWithin(sibling, 250)).toEqual({ data: [] })
+    await client.close()
+  })
 })
 
 function clientOptions() {
@@ -179,6 +202,14 @@ async function settlesWithin<T>(promise: Promise<T>, timeoutMs: number): Promise
       setTimeout(() => reject(new Error(`promise did not settle within ${timeoutMs}ms`)), timeoutMs)
     )
   ])
+}
+
+async function until(predicate: () => boolean, timeoutMs = 250): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (!predicate()) {
+    if (Date.now() >= deadline) throw new Error('condition did not become true')
+    await Bun.sleep(1)
+  }
 }
 
 async function rejectionOf(promise: Promise<unknown>): Promise<Error> {

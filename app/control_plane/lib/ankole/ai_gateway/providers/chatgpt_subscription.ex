@@ -63,6 +63,7 @@ defmodule Ankole.AIGateway.Providers.ChatGPTSubscription do
       upstream(:sse)
       api_resolver(:openai_responses)
       prepare(:prepare_language_model)
+      prepare_compaction(:prepare_compaction)
       supports_parallel_tool_calls()
       supports_native_image_generation()
       supports_native_web_search()
@@ -95,6 +96,13 @@ defmodule Ankole.AIGateway.Providers.ChatGPTSubscription do
       |> UniversalAIRequest.put_provider_options(normalize_provider_options(provider_options))
       |> put_protocol_headers(ctx, protocol, websocket?)
       |> UniversalAIRequest.bearer_auth(ctx.settings[:access_token])
+    end
+  end
+
+  @doc "Builds the standalone compact request for the Codex Responses endpoint."
+  def prepare_compaction(ctx) do
+    with %UniversalAIRequest{} = request <- prepare_language_model(%{ctx | stream?: false}) do
+      UniversalAIRequest.put_operation(request, :responses_compact)
     end
   end
 

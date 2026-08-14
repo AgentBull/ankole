@@ -400,12 +400,15 @@ class AIGatewayResponsesTurn implements ModelTurn {
 function responsesSocket(transport: ResponseWebSocketTransport, authorization: string): ResponsesSocket {
   const client = openAIClientForWebSocket(transport.url)
   if (transport.createWebSocket) {
-    return new InjectedResponsesWS(client, transport.createWebSocket, { authorization })
+    return new InjectedResponsesWS(client, transport.createWebSocket, {
+      ...transport.headers,
+      authorization
+    })
   }
 
   return new ResponsesWS(client, {
     reconnect: null,
-    headers: { Authorization: authorization }
+    headers: { ...transport.headers, Authorization: authorization }
   } as never)
 }
 

@@ -7,6 +7,7 @@ defmodule Ankole.AIGateway.RequestContext do
     session-id
     session_id
     thread-id
+    traceparent
     x-codex-beta-features
     x-codex-turn-metadata
     x-codex-turn-state
@@ -55,13 +56,23 @@ defmodule Ankole.AIGateway.RequestContext do
 
   def prepare(_context, request) when is_map(request), do: prepare(%{}, request)
 
-  defp natural_cache_key(context, request) do
-    text(Map.get(request, "prompt_cache_key")) ||
-      text(Map.get(request, "session_id")) ||
+  @doc """
+  Returns the client-declared conversation identity, or nil.
+
+  `prompt_cache_key` is only a cache-routing and credential-affinity input. It
+  is not a conversation identity and must not become an observability session.
+  """
+  @spec session_key(map(), map()) :: String.t() | nil
+  def session_key(context, request) when is_map(context) and is_map(request) do
+    text(Map.get(request, "session_id")) ||
       Enum.find_value(@session_headers, &header(context, &1)) ||
       text(get_in(request, ["metadata", "conversation_id"])) ||
       text(get_in(request, ["metadata", "thread_id"])) ||
       text(get_in(request, ["metadata", "session_id"]))
+  end
+
+  defp natural_cache_key(context, request) do
+    text(Map.get(request, "prompt_cache_key")) || session_key(context, request)
   end
 
   defp maybe_put_affinity(

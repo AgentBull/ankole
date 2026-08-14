@@ -32,10 +32,11 @@ export interface AIGatewayHTTPClient {
 export function modelConfigFromAIGatewayAPIKey(
   modelRef: TurnModelRef,
   apiKey: AIGatewayAPIKeyResponse,
-  refreshAPIKey?: AIGatewayAPIKeyRefresher
+  refreshAPIKey?: AIGatewayAPIKeyRefresher,
+  traceparent?: string
 ): ModelConfig {
   const selector = aiGatewayModelSelector(modelRef)
-  const { baseURL, fetch: gatewayFetch } = httpClientFromAIGatewayAPIKey(apiKey, refreshAPIKey)
+  const { baseURL, fetch: gatewayFetch } = httpClientFromAIGatewayAPIKey(apiKey, refreshAPIKey, traceparent)
   const authorization = aiGatewayAuthorization(apiKey, refreshAPIKey)
 
   return createModel({
@@ -49,7 +50,8 @@ export function modelConfigFromAIGatewayAPIKey(
     responseWebSocket: {
       kind: 'aigateway-websocket',
       url: aiGatewayWebSocketURL(baseURL),
-      authorization
+      authorization,
+      ...(traceparent ? { headers: { traceparent } } : {})
     }
   })
 }
@@ -59,11 +61,12 @@ export function modelConfigFromAIGatewayAPIKey(
  */
 export function httpClientFromAIGatewayAPIKey(
   apiKey: AIGatewayAPIKeyResponse,
-  refreshAPIKey?: AIGatewayAPIKeyRefresher
+  refreshAPIKey?: AIGatewayAPIKeyRefresher,
+  traceparent?: string
 ): AIGatewayHTTPClient {
   return {
     baseURL: apiKey.baseUrl.replace(/\/+$/, ''),
-    fetch: aiGatewayFetch(apiKey, refreshAPIKey)
+    fetch: aiGatewayFetch(apiKey, refreshAPIKey, traceparent)
   }
 }
 
@@ -84,13 +87,15 @@ export function aiGatewayModelSelector(modelRef: TurnModelRef): string {
  */
 function aiGatewayFetch(
   initialAPIKey: AIGatewayAPIKeyResponse,
-  refreshAPIKey?: AIGatewayAPIKeyRefresher
+  refreshAPIKey?: AIGatewayAPIKeyRefresher,
+  traceparent?: string
 ): AIGatewayFetch {
   let currentAPIKey = initialAPIKey
 
   function sendWithKey(input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) {
     const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined))
     headers.set('authorization', `Bearer ${currentAPIKey.apiKey}`)
+    if (traceparent) headers.set('traceparent', traceparent)
     return fetch(input instanceof Request ? input.clone() : input, { ...init, headers })
   }
 

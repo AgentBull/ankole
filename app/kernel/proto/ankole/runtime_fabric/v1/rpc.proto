@@ -102,6 +102,12 @@ message WorkerEnvResolveResponse {
   map<string, string> binding_vars = 3;
 }
 
+message ObservabilitySpansExportRequest {
+  bytes payload = 1;
+}
+
+message ObservabilitySpansExportResponse {}
+
 // ===== agent conversation context =====
 
 message AgentConversationContextRequest {}
@@ -267,12 +273,39 @@ message BackgroundAgentJobTurnUpsertRequest {
   string status = 6; // in_progress | completed | failed | interrupted
   uint32 revision = 7;
   bytes trajectory_json = 8;
-  bytes trajectory_groups_json = 9;
+  reserved 9;
+  reserved "trajectory_groups_json";
   bytes progress_json = 10;
   bytes usage_json = 11;
   bytes error_json = 12;
   string started_at = 13;
   string completed_at = 14;
+  // Ordered sanitized semantic thread items pending checkpoint. The control
+  // plane stores them as the one turn content stream and derives the
+  // trajectory-group projection from them.
+  bytes turn_items_json = 15;
+}
+
+// Pages the stored lead-thread turn items of one Job's workspace lineage in
+// chronological order. The worker replays them into a replacement Codex
+// thread when the native thread state is gone.
+message BackgroundAgentJobTurnItemsListRequest {
+  string job_id = 1;
+  string cursor = 2;
+}
+
+message BackgroundAgentJobTurnItem {
+  string runtime_thread_id = 1;
+  string runtime_turn_id = 2;
+  uint32 position = 3;
+  string item_key = 4;
+  bytes item_json = 5;
+}
+
+message BackgroundAgentJobTurnItemsListResponse {
+  string job_id = 1;
+  repeated BackgroundAgentJobTurnItem items = 2;
+  string next_cursor = 3;
 }
 
 message BackgroundAgentJobStatusUpdateRequest {

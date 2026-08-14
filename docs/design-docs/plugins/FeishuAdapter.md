@@ -93,6 +93,15 @@ other group messages.
 `user_id` identifies the sender. The adapter keeps `open_id` and `union_id` as
 provider details and ignores a sender without `user_id`.
 
+An inbound Turn exposes its canonical Signal channel ID in
+`<agent_environment_info>`. A display name remains a separate optional fact.
+The message webhook does not supply one, so chat observation preserves a name
+already synchronized from Contact and projects it into the current event. For a
+group message, the Worker renders `speaker` as `name(uid)` and repeats the `uid`
+when no name is known. The Lark Agent Plugin knows that a human `uid` is usually
+the Lark `user_id` and can read the contact to obtain the `open_id` required by
+its direct-message shortcut.
+
 Reaction events use the operator `user_id` when it is present. They use the
 operator `open_id` as the stable reaction actor key when Feishu omits
 `user_id`.
@@ -263,6 +272,19 @@ separate provider flows:
    first approval file upload.
 3. User device login grants the user approval scopes and stores the user token
    for that app.
+
+Both device flows keep the opaque device code outside model Turns. A begin
+command returns only the verification data. The wrapper stores the exact code
+under
+`.lark-cli/.ankole-profile-state/<derived-profile>/app-registration.json` or
+`auth-login.json`. The profile directory has mode `0700`, and each state file
+has mode `0600` and an absolute expiry. A complete command takes no device code.
+Each derived profile owns at most one state file for each flow; a new begin
+atomically replaces only that file. The wrapper retains a pending flow, and it
+removes a successful, denied, expired, or invalid flow. The path contains only
+the HMAC-derived profile, not the Principal UID. App-registration failures keep
+the provider error code, description, and HTTP status instead of mapping every
+terminal error to expiry.
 
 `auth login` does not create the app. The wrapper never asks the user for an app
 secret and never puts one in a command argument or WorkerEnv. User login cannot

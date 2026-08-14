@@ -2,6 +2,7 @@ defmodule Ankole.AIGateway.UniversalAIRequestTest do
   use ExUnit.Case, async: true
 
   alias Ankole.AIGateway.PrepareContext
+  alias Ankole.AIGateway.CredentialAttempts
   alias Ankole.AIGateway.Providers
   alias Ankole.AIGateway.Providers.OpenRouter
   alias Ankole.AIGateway.UniversalAIRequest
@@ -52,6 +53,71 @@ defmodule Ankole.AIGateway.UniversalAIRequestTest do
              |> UniversalAIRequest.to_spec()
 
     assert spec.response_context.provider_options == %{"reasoningEffort" => "minimal"}
+  end
+
+  test "responses compact inserts the operation before a query and disables streaming" do
+    compact_request =
+      request(stream?: true)
+      |> Map.put(:path, "responses?api-version=2025-04-01-preview")
+      |> Map.put(:method, "GET")
+      |> Map.put(:upstream, :websocket_text)
+      |> UniversalAIRequest.put_operation(:responses_compact)
+
+    assert {:ok, spec} = UniversalAIRequest.to_spec(compact_request)
+
+    assert spec.api_resolver == :openai_responses_compact
+    assert spec.upstream.method == "POST"
+
+    assert spec.upstream.url ==
+             "https://api.example.test/v1/responses/compact?api-version=2025-04-01-preview"
+
+    refute Map.has_key?(spec.upstream, :kind)
+    assert spec.response_context.stream == false
+  end
+
+  test "built-in Responses providers construct their native compact endpoint" do
+    request = %{"model" => "selected", "input" => []}
+
+    for {runtime, expected_url} <- [
+          {provider_runtime("openai", "https://api.openai.test/v1", %{
+             "endpoint_kind" => "responses"
+           }), "https://api.openai.test/v1/responses/compact"},
+          {provider_runtime("openai_compatible", "https://compatible.test/v1", %{
+             "endpoint_kind" => "responses"
+           }), "https://compatible.test/v1/responses/compact"},
+          {provider_runtime("azure_openai", "https://resource.openai.azure.com", %{
+             "endpoint_kind" => "responses",
+             "api_version" => "2025-04-01-preview"
+           }),
+           "https://resource.openai.azure.com/openai/responses/compact?api-version=2025-04-01-preview"},
+          {provider_runtime("chatgpt_subscription", "https://chatgpt.com/backend-api/codex", %{
+             "access_token" => "oauth-access",
+             "account_id" => "account-stored",
+             "auth_type" => "oauth"
+           }), "https://chatgpt.com/backend-api/codex/responses/compact"}
+        ] do
+      assert {:ok, attached_spec} =
+               Providers.build_compaction_request(runtime, request, stream?: false)
+
+      {_attempt, spec} = CredentialAttempts.pop(attached_spec)
+      assert spec.api_resolver == :openai_responses_compact
+      assert spec.upstream.method == "POST"
+      assert spec.upstream.url == expected_url
+      refute Map.has_key?(spec.upstream, :kind)
+      assert spec.response_context.stream == false
+    end
+  end
+
+  test "chat endpoints do not construct a Responses compact request" do
+    for provider_kind <- ["openai", "openai_compatible", "azure_openai"] do
+      runtime =
+        provider_runtime(provider_kind, "https://chat.example.test/v1", %{
+          "endpoint_kind" => "chat_completions"
+        })
+
+      assert {:error, :responses_compaction_not_applicable} =
+               Providers.build_compaction_request(runtime, %{"input" => []})
+    end
   end
 
   test "response context identifies the reasoning source by provider type and model" do
@@ -185,6 +251,29 @@ defmodule Ankole.AIGateway.UniversalAIRequestTest do
     }
 
     UniversalAIRequest.new(ctx, "responses", :openai_responses)
+  end
+
+  defp provider_runtime(provider_kind, base_url, connection_options) do
+    %{
+      "provider_kind" => provider_kind,
+      "provider_id" => "#{provider_kind}-test",
+      "model" => "provider-model",
+      "connection_options" =>
+        Map.merge(
+          %{
+            "base_url" => base_url,
+            "api_key" => "secret"
+          },
+          connection_options
+        ),
+      "provider_options" => %{},
+      "request_context" => %{
+        "cache_key" => "compact-test-thread",
+        "affinity_key" => "compact-test-thread",
+        "downstream_transport" => "sse",
+        "headers" => %{}
+      }
+    }
   end
 
   defp stream_spec(url) do

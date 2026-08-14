@@ -15,6 +15,7 @@ defmodule Ankole.BackgroundAgentJobs.Health do
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.Repo
   alias Ankole.SignalsGateway.ActorEvent
+  alias Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobWorkerConfig
   alias Ankole.SignalsGateway.OutboxEntry
 
   @wakeup_event_types ~w(
@@ -27,11 +28,16 @@ defmodule Ankole.BackgroundAgentJobs.Health do
   @spec metrics(DateTime.t()) :: map()
   def metrics(now \\ DateTime.utc_now(:microsecond)) do
     window_start = DateTime.add(now, -@window_seconds, :second)
+    cap = BackgroundAgentJobWorkerConfig.max_running_per_agent()
+    %{agents: agents_at_cap, queued: queued_behind_cap} = agent_cap_pressure(cap)
 
     %{
       oldest_queued_seconds: oldest_queued_seconds(now),
       queued_count: count_by_status("queued"),
       running_count: count_by_status("running"),
+      max_running_per_agent: cap,
+      agents_at_running_cap: agents_at_cap,
+      queued_behind_running_cap: queued_behind_cap,
       claims_24h: touched_sum(window_start, :attempts),
       execution_failures_24h: touched_sum(window_start, :execution_failures),
       succeeded_24h: succeeded_in_window(window_start),
@@ -51,6 +57,26 @@ defmodule Ankole.BackgroundAgentJobs.Health do
       %DateTime{} = oldest -> max(DateTime.diff(now, oldest, :second), 0)
       nil -> nil
     end
+  end
+
+  # Queue waits have two different causes and one wrong reflex. When Workers
+  # still have free turn slots but an Agent already runs its maximum, the queue
+  # is held by the per-Agent cap, which is counted across all Workers: adding a
+  # Worker cannot move those Jobs. This reports how many Agents sit at the cap
+  # and how many of their Jobs wait behind it.
+  defp agent_cap_pressure(cap) do
+    Job
+    |> where([job], job.status in ^(Job.running_statuses() ++ ["queued"]))
+    |> group_by([job], job.agent_uid)
+    |> select([job], %{
+      running: count(fragment("CASE WHEN ? = 'queued' THEN NULL ELSE 1 END", job.status)),
+      queued: count(fragment("CASE WHEN ? = 'queued' THEN 1 END", job.status))
+    })
+    |> Repo.all()
+    |> Enum.filter(&(&1.running >= cap and &1.queued > 0))
+    |> Enum.reduce(%{agents: 0, queued: 0}, fn agent, acc ->
+      %{agents: acc.agents + 1, queued: acc.queued + agent.queued}
+    end)
   end
 
   defp count_by_status(status) do

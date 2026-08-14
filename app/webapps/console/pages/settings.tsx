@@ -66,6 +66,17 @@ import {
 import { SettingEditorModel } from '../state/setting-editor-model'
 import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
 import { settingDescription } from '../state/setting-description'
+import {
+  OBSERVABILITY_TRACE_KEYS,
+  observabilityHeaderRows,
+  observabilityHeadersValidationError,
+  observabilityHeadersValue,
+  observabilityTraceDraft,
+  observabilityTraceValidationError,
+  sameObservabilityHeaderRows,
+  type ObservabilityHeaderRow
+} from '../state/observability-setting-editor'
+import { ObservabilitySettingsEditor } from './observability-settings-editor'
 import { SettingValueEditor } from './setting-value-editors'
 
 /** Keeps the list mounted while an optional nested key route renders its drawer. */
@@ -543,27 +554,61 @@ export function SettingGroupDrawer() {
   const [editorError, setEditorError] = useState<string>()
   const [restoreItem, setRestoreItem] = useState<AppConfigurationItem>()
   const [saving, setSaving] = useState(false)
+  // `undefined` keeps the stored encrypted map opaque. An empty array is an explicit replacement,
+  // so editing another field can never turn an unread secret into an empty header map.
+  const [headerRows, setHeaderRows] = useState<ObservabilityHeaderRow[]>()
+  const [initialHeaderRows, setInitialHeaderRows] = useState<ObservabilityHeaderRow[]>()
+  const [headersEditing, setHeadersEditing] = useState(false)
 
   const list = useQuery(ankoleWebAppConfigurationControllerIndexOptions())
   const items = (list.data?.app_configurations ?? []).filter(
     item => item.editable && prefix !== undefined && item.key.startsWith(prefix)
   )
   const signature = items.map(item => item.key).join(',')
-  const dirty = items.some(item => drafts[item.key] !== initial[item.key])
+  const visualObservabilityEditor = groupID === 'observability'
+  const headersItem = items.find(item => item.key === OBSERVABILITY_TRACE_KEYS.headers)
+  const headersDirty =
+    visualObservabilityEditor && headersEditing && !sameObservabilityHeaderRows(headerRows, initialHeaderRows)
+  const dirty = items.some(item => drafts[item.key] !== initial[item.key]) || headersDirty
   const blocker = useBlocker(useCallback(() => !allowNavigation.current && dirty, [dirty]))
 
   useEffect(() => {
     if (!signature || initializedFor.current === signature) return
     initializedFor.current = signature
-    const next = Object.fromEntries(items.map(item => [item.key, formatJSON(item.value ?? null)]))
+    const next = Object.fromEntries(
+      items.map(item => [
+        item.key,
+        item.key === OBSERVABILITY_TRACE_KEYS.headers && item.present
+          ? ENCRYPTED_VALUE_MASK
+          : formatJSON(item.value ?? null)
+      ])
+    )
     setDrafts(next)
     setInitial(next)
+    setHeaderRows(undefined)
+    setInitialHeaderRows(undefined)
+    setHeadersEditing(false)
   }, [items, signature])
 
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: ankoleWebAppConfigurationControllerIndexQueryKey() })
   }
   const update = useMutation(ankoleWebAppConfigurationControllerUpdateMutation())
+  const decrypt = useMutation({
+    ...ankoleWebAppConfigurationControllerDecryptMutation(),
+    gcTime: 0,
+    onSuccess: response => {
+      const rows = observabilityHeaderRows(response.decrypted_value.value)
+      if (!rows) {
+        setEditorError(t('console.settings.observability_headers_invalid'))
+        return
+      }
+      setHeaderRows(rows)
+      setInitialHeaderRows(rows)
+      setHeadersEditing(false)
+    },
+    onError: error => toast.error(requestErrorMessage(error))
+  })
   const restoreDefault = useMutation({
     ...ankoleWebAppConfigurationControllerDeleteMutation(),
     onSuccess: response => {
@@ -575,6 +620,12 @@ export function SettingGroupDrawer() {
       const restoredDraft = formatJSON(response.app_configuration.value ?? null)
       setDrafts(current => ({ ...current, [restoredKey]: restoredDraft }))
       setInitial(current => ({ ...current, [restoredKey]: restoredDraft }))
+      if (restoredKey === OBSERVABILITY_TRACE_KEYS.headers) {
+        setHeaderRows(undefined)
+        setInitialHeaderRows(undefined)
+        setHeadersEditing(false)
+        decrypt.reset()
+      }
       toast.success(t('console.settings.reset_done', { key: restoredKey }))
       refresh()
     },
@@ -589,7 +640,29 @@ export function SettingGroupDrawer() {
 
     const pending: Array<{ key: string; value: JSONValue }> = []
 
+    if (visualObservabilityEditor) {
+      const traceError = observabilityTraceValidationError(observabilityTraceDraft(drafts))
+      if (traceError) {
+        setEditorError(t(`console.settings.observability_error_${traceError}`))
+        return
+      }
+
+      if (headersDirty && headerRows) {
+        const headersError = observabilityHeadersValidationError(headerRows)
+        if (headersError) {
+          setEditorError(t(`console.settings.observability_error_${headersError}`))
+          return
+        }
+      }
+    }
+
     for (const item of items) {
+      if (item.key === OBSERVABILITY_TRACE_KEYS.headers && visualObservabilityEditor) {
+        if (headersDirty && headerRows) {
+          pending.push({ key: item.key, value: observabilityHeadersValue(headerRows) })
+        }
+        continue
+      }
       if (drafts[item.key] === initial[item.key]) continue
 
       const parsed = parseJSON(drafts[item.key] ?? '', item.key)
@@ -615,6 +688,9 @@ export function SettingGroupDrawer() {
       try {
         await update.mutateAsync({ body: { value: entry.value }, path: { key: entry.key } })
         setInitial(current => ({ ...current, [entry.key]: drafts[entry.key] ?? '' }))
+        if (entry.key === OBSERVABILITY_TRACE_KEYS.headers && headerRows) {
+          setInitialHeaderRows(headerRows)
+        }
       } catch (error) {
         setSaving(false)
         setEditorError(t('console.settings.group_save_failed', { key: entry.key, reason: requestErrorMessage(error) }))
@@ -670,36 +746,62 @@ export function SettingGroupDrawer() {
                     error={editorError ?? list.error ?? (prefix ? undefined : t('console.settings.not_found'))}
                   />
 
-                  {items.map(item => (
-                    <section key={item.key} className="grid gap-4">
-                      <div className="flex items-start justify-between gap-3 border-b border-border pb-2">
-                        <div className="grid gap-1">
-                          <h2 className="font-mono text-sm text-foreground">{item.key}</h2>
-                          <p className="text-xs leading-5 text-muted-foreground">{settingDescription(t, item)}</p>
+                  {visualObservabilityEditor ? (
+                    <ObservabilitySettingsEditor
+                      drafts={drafts}
+                      headerRows={headerRows}
+                      headerRevealing={decrypt.isPending}
+                      items={items}
+                      saving={saving || restoreDefault.isPending}
+                      onDraftChange={(key, value) => {
+                        setDrafts(current => ({ ...current, [key]: value }))
+                        setEditorError(undefined)
+                      }}
+                      onHeaderRowsChange={rows => {
+                        setHeaderRows(rows)
+                        setHeadersEditing(true)
+                        setEditorError(undefined)
+                      }}
+                      onReplaceHeaders={() => {
+                        setHeaderRows([])
+                        setHeadersEditing(true)
+                        setEditorError(undefined)
+                      }}
+                      onRestore={setRestoreItem}
+                      onRevealHeaders={() => headersItem && decrypt.mutate({ path: { key: headersItem.key } })}
+                    />
+                  ) : (
+                    items.map(item => (
+                      <section key={item.key} className="grid gap-4">
+                        <div className="flex items-start justify-between gap-3 border-b border-border pb-2">
+                          <div className="grid gap-1">
+                            <h2 className="font-mono text-sm text-foreground">{item.key}</h2>
+                            <p className="text-xs leading-5 text-muted-foreground">{settingDescription(t, item)}</p>
+                          </div>
+                          {item.overridden ? (
+                            <Button
+                              disabled={saving || restoreDefault.isPending}
+                              size="sm"
+                              type="button"
+                              variant="ghost"
+                              onClick={() => setRestoreItem(item)}>
+                              <RiResetLeftLine />
+                              {t('console.settings.restore_default')}
+                            </Button>
+                          ) : null}
                         </div>
-                        {item.overridden ? (
-                          <Button
-                            disabled={saving || restoreDefault.isPending}
-                            size="sm"
-                            type="button"
-                            variant="ghost"
-                            onClick={() => setRestoreItem(item)}>
-                            <RiResetLeftLine />
-                            {t('console.settings.restore_default')}
-                          </Button>
-                        ) : null}
-                      </div>
 
-                      <SettingValueEditor
-                        item={item}
-                        value={drafts[item.key] ?? ''}
-                        onChange={value => {
-                          setDrafts(current => ({ ...current, [item.key]: value }))
-                          setEditorError(undefined)
-                        }}
-                      />
-                    </section>
-                  ))}
+                        <SettingValueEditor
+                          item={item}
+                          value={drafts[item.key] ?? ''}
+                          onChange={value => {
+                            setDrafts(current => ({ ...current, [item.key]: value }))
+                            setEditorError(undefined)
+                          }}
+                        />
+                      </section>
+                    ))
+                  )}
                 </div>
               )}
             </div>

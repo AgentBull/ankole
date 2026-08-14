@@ -271,10 +271,21 @@ function hasArgPair(args: string[], flag: string, value: string): boolean {
 }
 
 /**
- * Returns read-only host system paths needed by normal developer commands.
+ * Returns read-only host system paths needed by normal developer commands and
+ * native CPU runtimes.
  */
 function readOnlySystemBinds(): string[] {
-  const directoryBinds = ['/usr', '/bin', '/lib', '/lib64', '/opt']
+  const directoryBinds = [
+    '/usr',
+    '/bin',
+    '/lib',
+    '/lib64',
+    '/opt',
+    // Native CPU runtimes, such as OpenVINO, read sysfs to find the CPU
+    // topology. This sandbox separates Agent files and processes. It is not a
+    // security boundary, so mount the container sysfs as read-only.
+    '/sys'
+  ]
     .filter(path => existsSync(path))
     .flatMap(path => ['--ro-bind', path, path])
 

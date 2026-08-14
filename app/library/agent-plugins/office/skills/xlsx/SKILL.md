@@ -6,7 +6,7 @@ ankole-runtime: background_job
 category: productivity
 tags: [xlsx, spreadsheet, excel, officecli]
 metadata:
-  upstream: https://github.com/iOfficeAI/OfficeCLI/tree/main/skills/officecli-xlsx
+  upstream: https://github.com/iOfficeAI/OfficeCLI/tree/v1.0.144/skills/officecli-xlsx
   modified_for: Ankole Agent Plugin runtime
 ---
 
@@ -16,7 +16,7 @@ For visual styling, use `design-md` when the user requests the internal design s
 
 ## Setup
 
-Ankole Agent Computer images install `officecli` at build time. Verify the installation with `officecli --version`. If the command is missing, the worker image is stale and must be rebuilt.
+Ankole Agent Computer images install OfficeCLI 1.0.144 at build time. Run `officecli --version` and require the exact output `1.0.144`. A missing command or a different version means the Worker image and this Skill disagree; stop and report that the Worker image must be rebuilt.
 
 ## Playbooks
 
@@ -40,6 +40,8 @@ officecli help xlsx <element> --json        # Machine-readable schema
 ```
 
 Help reflects the installed CLI version. When this skill and help disagree, **help is authoritative**.
+
+`officecli help xlsx ...` covers schema elements only. Use a top-level command's own help for its syntax, such as `officecli import --help`, `officecli batch --help`, or `officecli open --help`. In 1.0.144, `officecli help xlsx import` is invalid because `import` is a command, not an xlsx element.
 
 ## Shell & Execution Discipline
 
@@ -80,13 +82,16 @@ Before you declare done, run `officecli view "$FILE" html` and Read the returned
 
 If any of the above fails, STOP and fix before declaring done.
 
-**Print layout.** Any sheet the user may print or send as a board pack needs page setup. Default portrait + no fit-to-page splits wide tables and charts mid-way. Apply per sheet:
+**Print layout.** Any sheet the user may print or send as a board pack needs page setup. Default portrait + no fit-to-page splits wide tables and charts mid-way. Pick the fit mode by sheet shape:
 
 ```bash
+# Summary / chart / dashboard sheet (small, up to approximately 40 rows): fit to a single page.
 officecli set "$FILE" "/Summary" --prop orientation=landscape --prop fitToPage=true
+# Tall data table: fit the width to one page and let the height paginate.
+officecli set "$FILE" "/Data" --prop orientation=landscape --prop fitToPage=1x0
 ```
 
-Trigger: sheet holds a chart, or > 8 columns, or the user's ask mentions print / board / investor.
+`fitToPage=true` is `1x1`, so use it only when the sheet is already short. `1x0` means one page wide with unlimited pages tall. Apply a print layout when a sheet holds a chart, has more than eight columns, or the user requests a print, board, or investor deliverable.
 
 ### Financial models only — skip this section if you are building a template, tracker, CSV import, or operational sheet
 
@@ -127,7 +132,7 @@ Any hardcoded number without a source is an undocumented assumption — a review
 
 Six steps. Every non-trivial build follows this shape.
 
-1. **Open/save lifecycle.** Use `officecli open <file>` at the start and `officecli save <file>` at the end to flush to disk — `save` only writes and leaves the resident warm for follow-up edits; reach for `officecli close <file>` only to release the resident on a one-shot handoff. Both are always safe (never error or lose work). For many cells, use `batch`: **≤ 50 ops/block recommended; tested up to 80+ ops per block on pure value-set payloads with zero failures. Cross-sheet formula batches are the exception — run those non-resident, single heredoc (see Known Issues)**. **Flush only at the non-officecli boundary:** officecli's own reads always see your edits; run `save`/`close` only before a non-officecli program reads the file (openpyxl/pandas, Excel, a renderer, delivery).
+1. **Use one resident phase.** Run ordinary edits through one `open` ... `close` phase. `save` flushes to disk and keeps the resident warm; `close` flushes and releases it. Do not run CSV or TSV import inside that phase. In 1.0.144 the top-level `import` command bypasses the resident, and an import-only handler can report success without retaining the worksheet changes. Use the non-resident batch recipe below, prove that the imported cells exist, and only then open a resident for later edits. For many cells, use `batch`: **50 ops per block are recommended; pure value-set payloads have been tested above 80 ops. Run cross-sheet formula batches non-resident in one heredoc (see Known Issues).**
 2. **Create or load.** `officecli create "$FILE"` (new) or `officecli view "$FILE" outline` (existing — get the lay of the land first).
 3. **Build incrementally.** One command, read the output, continue. After any structural op (new sheet, chart, named range, pivot), run `get` on it to confirm shape before stacking more on top.
 4. **Format.** Column widths, number formats, freeze panes, tab colors, header fills. Formatting is not optional polish — per "Requirements for Outputs" it is part of the deliverable.
@@ -161,13 +166,23 @@ Verified: `validate` returns `no errors found`, `B5` resolves to `135000`. This 
 
 ## CSV / bulk import
 
-**Native `import` command (preferred for CSV/TSV).** Fastest path; loads a CSV into a sheet in one call. `--header` sets AutoFilter + freeze pane on row 1. Widths and `numFmt` still need a follow-up pass (per D-12 in Dashboard skill).
+**OfficeCLI 1.0.144 import phase.** `import` is a top-level command, so its syntax comes from `officecli import --help`. Do not use a standalone `officecli import` in a delivery workflow: 1.0.144 can print an imported row count while an import-only handler leaves the on-disk sheet unchanged. Close any resident, then run the import and a real workbook mutation in one non-resident batch. The `calc.fullCalcOnLoad` write below is the persistence fence and also tells spreadsheet applications to recalculate imported formulas.
 
 ```bash
-officecli import "$FILE" /Sheet1 --file data.csv --header
-officecli import "$FILE" /Sheet1 --file data.tsv --format tsv --header
-officecli import "$FILE" /Sheet1 --stdin --start-cell B2 < data.csv
+officecli close "$FILE" 2>/dev/null
+jq -Rs '[
+  {"command":"import","parent":"/Sheet1","text":.,"props":{"header":"true"}},
+  {"command":"set","path":"/","props":{"calc.fullCalcOnLoad":"true"}}
+]' data.csv \
+  | OFFICECLI_NO_AUTO_RESIDENT=1 officecli batch "$FILE" --stop-on-error
+
+# Accept the import only after a fresh non-resident read finds cells on disk.
+OFFICECLI_NO_AUTO_RESIDENT=1 officecli query "$FILE" cell --json \
+  | jq -e '.data.results | length > 0'
+OFFICECLI_NO_AUTO_RESIDENT=1 officecli view "$FILE" outline
 ```
+
+For TSV, add `"format":"tsv"` to the import item's `props`. For another anchor, add `"start-cell":"B2"`. `--header` maps to `"header":"true"`. Column widths and `numFmt` still need a follow-up pass.
 
 **Python + batch fallback** — use when you need custom type coercion, formula injection, or the CSV lives inside another data pipeline. Recipe for 600-6000+ cells:
 
@@ -403,11 +418,14 @@ Your first workbook is almost never correct. Treat QA as a bug hunt, not a confi
    ```
 4. `officecli validate "$FILE"` — safe with a resident open; `validate` flushes pending edits to disk itself.
 5. **Visual pass — walk every sheet via the HTML preview.** Run `officecli view "$FILE" html` and Read the returned HTML path. Each sheet renders with charts inline. Scan for `###`, truncated titles, placeholder tokens (`$fy$24`, `{var}`, `<TODO>`), sliced charts, white-slice pie charts, empty chart anchors — **STOP and fix before declaring done**. "validate pass" is not delivery; "the preview looks like a real workbook" is delivery. For human preview, run `officecli watch "$FILE"` (user opens the live preview at their own discretion) or have them open the `.xlsx` directly in Excel / WPS / Numbers.
-6. **Print layout fix (wide tables / multi-chart sheets).** When a sheet holds a chart or a wide table and the user will print it, set per-sheet page layout so it fits on one page:
+6. **Print layout fix (wide tables / multi-chart sheets).** When a sheet holds a chart or a wide table and the user will print it, match the fit mode to the sheet height:
    ```bash
+   # Short summary or chart sheet: fit to one page.
    officecli set "$FILE" "/Summary" --prop orientation=landscape --prop fitToPage=true
+   # Tall data table: fit the width only.
+   officecli set "$FILE" "/Data" --prop orientation=landscape --prop fitToPage=1x0
    ```
-   Outcome: each sheet's print layout is one page with no mid-chart splits. Apply to every sheet that holds a chart or a > 8-column table.
+   Charts and wide tables then avoid horizontal splits, while tall tables keep readable row heights across natural page breaks. Apply this to every sheet that holds a chart or a table with more than eight columns.
 7. If anything failed, fix, then **rerun the full cycle**. One fix commonly creates another problem.
 
 `officecli view issues` + `view html` are the structural QA pair: `issues` catches broken formulas and empty sheets; `view html` (Read the returned HTML path) catches `###`, truncation, and token leakage. Chart fill colors / theme tints can vary across viewers — spot-check in the user's target viewer when color fidelity matters.
@@ -463,7 +481,8 @@ EOF
 CLI constraints and gaps to work around — not defects in the output file.
 
 - **Chart series are immutable after create** — to add/change a series: `remove` + `add` with the full series list. (Position is mutable: `set chart[N] --prop anchor=` / `x/y/width/height`.) `remove chart[N]` shifts subsequent indices down; re-add appends at end.
-- **Cross-sheet formula batches run fine through a resident** — a prior "deadlocks even at 3-5 ops" caution no longer reproduces. Pure value-set batches stay reliable at 50-80+ ops too. If you ever hit a hang, fall back to a non-resident one-big-batch or individual `set`. **Multiple resident processes on the same file/machine can still contend** — expect non-deterministic hangs if another agent/session holds a resident on the same file.
+- **Standalone import does not persist reliably in 1.0.144** — it can print `Imported N rows x M cols` while the next fresh read sees an empty sheet. Use the non-resident import batch in CSV / bulk import; its second mutation makes the batch durable, and the required fresh read rejects an empty result.
+- **Cross-sheet formula batches run fine through one resident** — a prior "deadlocks even at 3-5 ops" caution no longer reproduces. Pure value-set batches stay reliable at 50-80+ ops too. If you hit a hang, fall back to one non-resident batch or individual `set` calls. OfficeCLI 1.0.144 canonicalizes symlinked path identities, but it does not make concurrent writers safe: keep one serial writer for each file.
 - **Conditional formatting naming asymmetry** — the element name for `--type` is `conditionalformatting`; the path suffix is `/cf[N]`. Use `officecli help xlsx conditionalformatting` for schema, `/cf[N]` for paths.
 - **Sheet `position` prop on add** — help says Add processes `position`, but the prop is often ignored. Reorder with `officecli move --index` / `--after` / `--before` after creating the sheet.
 - **`remove /sheet[N]` cascade guard** — rejects sheet remove/rename when the sheet is referenced by validation / conditional format / sparkline / hyperlink / named range on another sheet. Remove those dependent elements first, then remove the sheet.

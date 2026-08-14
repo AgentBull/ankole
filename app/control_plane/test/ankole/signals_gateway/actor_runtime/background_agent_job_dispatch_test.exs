@@ -227,8 +227,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
       "status" => "in_progress",
       "revision" => 0,
       "trajectory" => trajectory_header(),
-      "trajectory_groups" =>
-        trajectory_groups([%{"role" => "user", "content" => "Original task"}]),
+      "turn_items" => turn_items([user_item("Original task", "user-original")]),
       "progress" => empty_turn_progress(),
       "usage" => nil,
       "error" => %{},
@@ -272,10 +271,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
              )
 
     divergent =
-      put_in(
+      Map.put(
         attrs,
-        ["trajectory_groups", Access.at(0), "messages"],
-        [%{"role" => "user", "content" => "Different payload at the same revision"}]
+        "turn_items",
+        turn_items([user_item("Different payload at the same revision", "user-original")])
       )
 
     assert {:error, :background_agent_job_turn_revision_conflict} =
@@ -283,6 +282,23 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
                job.id,
                agent.uid,
                divergent,
+               turn_ref,
+               route
+             )
+
+    header_divergent =
+      Map.put(attrs, "progress", %{
+        "completed_items" => 1,
+        "tool_calls" => 1,
+        "tools_used" => [%{"name" => "shell", "calls" => 1}],
+        "files_changed" => []
+      })
+
+    assert {:error, :background_agent_job_turn_revision_conflict} =
+             BackgroundAgentJobs.upsert_turn_from_worker(
+               job.id,
+               agent.uid,
+               header_divergent,
                turn_ref,
                route
              )
@@ -332,10 +348,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
                  "status" => "completed",
                  "revision" => 0,
                  "trajectory" => trajectory_header(),
-                 "trajectory_groups" =>
-                   trajectory_groups([
-                     %{"role" => "assistant", "content" => "Challenge complete."}
-                   ]),
+                 "turn_items" =>
+                   turn_items([assistant_item("Challenge complete.", "assistant-challenge")]),
                  "progress" => empty_turn_progress(),
                  "usage" => nil,
                  "error" => %{},
@@ -395,24 +409,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
                  "status" => "interrupted",
                  "revision" => 0,
                  "trajectory" => trajectory_header(),
-                 "trajectory_groups" =>
-                   trajectory_groups([
-                     %{"role" => "user", "content" => "Ask when information is missing."},
-                     %{
-                       "role" => "assistant",
-                       "content" => "",
-                       "metadata" => %{"status" => "pending_user_input"},
-                       "tool_calls" => [
-                         %{
-                           "id" => "request-user-input",
-                           "type" => "function",
-                           "function" => %{
-                             "name" => "request_user_input",
-                             "arguments" => ~s({"questions":[]})
-                           }
-                         }
-                       ]
-                     }
+                 "turn_items" =>
+                   turn_items([
+                     user_item("Ask when information is missing.", "user-ask"),
+                     pending_user_input_item()
                    ]),
                  "progress" => empty_turn_progress(),
                  "usage" => nil,
@@ -500,10 +500,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
                  "status" => "completed",
                  "revision" => 0,
                  "trajectory" => trajectory_header(),
-                 "trajectory_groups" =>
-                   trajectory_groups([
-                     %{"role" => "user", "content" => "The test code is CODE-123."},
-                     %{"role" => "assistant", "content" => "ANSWER=CODE-123"}
+                 "turn_items" =>
+                   turn_items([
+                     user_item("The test code is CODE-123.", "user-code"),
+                     assistant_item("ANSWER=CODE-123", "assistant-code")
                    ]),
                  "progress" => empty_turn_progress(),
                  "usage" => nil,
@@ -610,11 +610,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
                  "status" => "completed",
                  "revision" => 1,
                  "trajectory" => trajectory_header(),
-                 "trajectory_groups" =>
-                   trajectory_groups([
-                     %{"role" => "user", "content" => "Complete the initial task."},
-                     %{"role" => "user", "content" => "Replace the old answer."},
-                     %{"role" => "assistant", "content" => "Replacement answer."}
+                 "turn_items" =>
+                   turn_items([
+                     user_item("Complete the initial task.", "user-initial"),
+                     user_item("Replace the old answer.", "user-replace"),
+                     assistant_item("Replacement answer.", "assistant-replacement")
                    ]),
                  "progress" => empty_turn_progress(),
                  "usage" => nil,
@@ -654,6 +654,102 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
   # Reversal of the removed `enforce_no_unapplied_terminal_steer` gate: a
   # terminal commit never blocks on steering. See
   # internals/docs/BackgroundAgentJobReliability.zh.md, R4.
+  test "a tool respawn carries the source Job's worker assignment forward" do
+    %{principal: agent} = agent_fixture()
+    binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
+    route = unique_route()
+    :ok = Broker.register_local_worker(route, self())
+    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    assert {:ok, worker} = admit_worker(route)
+
+    job = create_job!(agent.uid, "respawn-affinity")
+    actor_key = %{agent_uid: agent.uid, session_id: BackgroundAgentJobs.job_session_id(job.id)}
+
+    assert {:ok, %{send_outcome: "sent_or_queued"}} =
+             ReadyEventProcessor.process_ready_event_for_actor(actor_key,
+               now: DateTime.add(job.queued_at, 1, :second),
+               lease_seconds: @long_lease_seconds
+             )
+
+    assert_receive {:actor_lane, turn_start_envelope}, 200
+    turn_ref = turn_start_payload!(turn_start_envelope).turn
+
+    assert {:ok, [_delivery]} =
+             ActorRuntime.handle_turn_accepted(turn_accepted_payload(turn_ref))
+
+    assert {:ok, status_turn_ref} =
+             Ankole.SignalsGateway.ActorRuntime.TurnRef.from_proto(turn_ref)
+
+    assert {:ok, %{job: %{status: "running"}}} =
+             BackgroundAgentJobs.commit_status_with_wakeup(
+               job.id,
+               agent.uid,
+               %{"status" => "running", "runtime_thread_id" => "thread-respawn-affinity"},
+               turn_ref: status_turn_ref,
+               worker_route: route
+             )
+
+    completed_at = DateTime.utc_now(:microsecond)
+
+    assert {:ok, _turn} =
+             BackgroundAgentJobs.upsert_turn_from_worker(
+               job.id,
+               agent.uid,
+               %{
+                 "attempt" => 1,
+                 "runtime_thread_id" => "thread-respawn-affinity",
+                 "runtime_turn_id" => "turn-respawn-affinity",
+                 "kind" => "agent",
+                 "status" => "completed",
+                 "revision" => 0,
+                 "trajectory" => trajectory_header(),
+                 "turn_items" => turn_items([assistant_item("Done.", "assistant-affinity")]),
+                 "progress" => empty_turn_progress(),
+                 "usage" => nil,
+                 "error" => %{},
+                 "started_at" => completed_at,
+                 "completed_at" => completed_at
+               },
+               status_turn_ref,
+               route
+             )
+
+    assert {:ok, %{job: %{status: "succeeded"}}} =
+             BackgroundAgentJobs.commit_status_with_wakeup(
+               job.id,
+               agent.uid,
+               %{"status" => "succeeded", "result" => %{"summary" => "Done"}},
+               turn_ref: status_turn_ref,
+               worker_route: route
+             )
+
+    assert %ActorSessionWorkerAssignment{status: "assigned"} =
+             Repo.get_by!(ActorSessionWorkerAssignment,
+               agent_uid: agent.uid,
+               session_id: actor_key.session_id
+             )
+
+    assert {:ok, %{job: successor}} =
+             BackgroundAgentJobs.respawn_with_dispatch(job.id, %{
+               "agent_uid" => agent.uid,
+               "owner_session_id" => "parent-session-respawn-affinity",
+               "source_tool_call_id" => "tool-respawn-affinity",
+               "message" => "Continue with the follow-up.",
+               "reply_route" => %{
+                 "binding_name" => "lark",
+                 "signal_channel_id" => "chat-respawn-affinity"
+               }
+             })
+
+    assert %ActorSessionWorkerAssignment{status: "assigned", worker_id: inherited_worker_id} =
+             Repo.get_by!(ActorSessionWorkerAssignment,
+               agent_uid: agent.uid,
+               session_id: BackgroundAgentJobs.job_session_id(successor.id)
+             )
+
+    assert inherited_worker_id == worker.worker_id
+  end
+
   test "a steer left unapplied at succeeded commit seeds one successor Job" do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
@@ -711,10 +807,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
                  "status" => "completed",
                  "revision" => 0,
                  "trajectory" => trajectory_header(),
-                 "trajectory_groups" =>
-                   trajectory_groups([
-                     %{"role" => "assistant", "content" => "Report finished."}
-                   ]),
+                 "turn_items" =>
+                   turn_items([assistant_item("Report finished.", "assistant-report")]),
                  "progress" => empty_turn_progress(),
                  "usage" => nil,
                  "error" => %{},
@@ -1410,6 +1504,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     assert requeued.attempts == 1
     assert requeued.started_at == started_at
 
+    # Pool exhaustion is infrastructure backpressure: it keeps the claim but
+    # never charges the execution-failure budget.
+    assert requeued.execution_failures == 0
+
     assert %ActorSessionWorkerAssignment{status: "released"} =
              Repo.get_by!(ActorSessionWorkerAssignment,
                agent_uid: agent.uid,
@@ -1531,6 +1629,76 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     assert persisted_event.available_at == expected_retry_at
   end
 
+  test "a persistent credential pool storm ends with the infrastructure verdict, not a task verdict" do
+    %{principal: agent} = agent_fixture()
+    binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
+    route = unique_route()
+    :ok = Broker.register_local_worker(route, self())
+    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    assert {:ok, _worker} = admit_worker(route)
+
+    job = create_job!(agent.uid, "credential-pool-storm")
+    actor_key = %{agent_uid: agent.uid, session_id: BackgroundAgentJobs.job_session_id(job.id)}
+
+    # Every storm round is identical, so fast-forward the claim ledger to the
+    # edge: the next claim is the twenty-fifth and last one.
+    from(row in Ankole.BackgroundAgentJobs.Schemas.Job, where: row.id == ^job.id)
+    |> Repo.update_all(set: [attempts: 24])
+
+    ready_at = DateTime.add(job.queued_at, 1, :second)
+
+    assert {:ok, %{send_outcome: "sent_or_queued"}} =
+             ReadyEventProcessor.process_ready_event_for_actor(actor_key,
+               now: ready_at,
+               lease_seconds: @long_lease_seconds
+             )
+
+    assert_receive {:actor_lane, envelope}, 200
+    turn_ref = turn_start_payload!(envelope).turn
+    failure_time = DateTime.add(ready_at, 1, :second)
+    pool_retry_at = DateTime.add(failure_time, 60, :second)
+
+    assert {:ok,
+            %{
+              status: :background_agent_job_requeued,
+              background_agent_job_requeue: %{kind: :credential_pool_requeued, job: requeued}
+            }} =
+             ActorRuntime.handle_turn_error(
+               turn_error_payload(
+                 turn_ref,
+                 "worker_turn_failed",
+                 "AIGateway credential pool exhausted.",
+                 %{
+                   "error_code" => "credential_pool_exhausted",
+                   "retryable" => true,
+                   "retry_at" => DateTime.to_iso8601(pool_retry_at)
+                 }
+               ),
+               now: failure_time
+             )
+
+    assert requeued.status == "queued"
+    assert requeued.attempts == 25
+    assert requeued.execution_failures == 0
+
+    assert {:ok, %{status: :claims_exhausted, job: failed}} =
+             ReadyEventProcessor.process_ready_event_for_actor(actor_key,
+               now: pool_retry_at,
+               lease_seconds: @long_lease_seconds
+             )
+
+    assert failed.status == "failed"
+    assert failed.execution_failures == 0
+    assert failed.error["code"] == "infrastructure_retries_exhausted"
+    assert failed.error["summary"] =~ "infrastructure failures, not task failures"
+
+    assert Repo.get_by!(Ankole.SignalsGateway.ActorEvent,
+             agent_uid: agent.uid,
+             session_id: job.owner_session_id,
+             type: "background_agent_job.failed"
+           )
+  end
+
   test "retryable Turn persistence failures exhaust job attempts with a parent wakeup" do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
@@ -1577,10 +1745,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
                        "status" => "in_progress",
                        "revision" => 0,
                        "trajectory" => trajectory_header(),
-                       "trajectory_groups" =>
-                         trajectory_groups([
-                           %{"role" => "user", "content" => "Continue the task."}
-                         ]),
+                       "turn_items" =>
+                         turn_items([user_item("Continue the task.", "user-continue")]),
                        "progress" => empty_turn_progress(),
                        "usage" => nil,
                        "error" => %{},
@@ -1738,10 +1904,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
                  "status" => "in_progress",
                  "revision" => 0,
                  "trajectory" => trajectory_header(),
-                 "trajectory_groups" =>
-                   trajectory_groups([
-                     %{"role" => "user", "content" => "Run the delegated task."}
-                   ]),
+                 "turn_items" =>
+                   turn_items([user_item("Run the delegated task.", "user-delegated")]),
                  "progress" => empty_turn_progress(),
                  "usage" => nil,
                  "error" => %{},
@@ -1877,7 +2041,31 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
 
   defp trajectory_header, do: %{"format" => "ankole_chatml", "version" => 1}
 
-  defp trajectory_groups(messages) do
-    [%{"position" => 0, "item_key" => "test:0", "messages" => messages}]
+  defp turn_items(items) do
+    items
+    |> Enum.with_index()
+    |> Enum.map(fn {item, position} ->
+      %{"position" => position, "item_key" => item["id"], "item" => item}
+    end)
+  end
+
+  defp user_item(text, id) do
+    %{"type" => "userMessage", "id" => id, "content" => [%{"type" => "text", "text" => text}]}
+  end
+
+  defp assistant_item(text, id) do
+    %{"type" => "agentMessage", "id" => id, "text" => text}
+  end
+
+  defp pending_user_input_item do
+    %{
+      "type" => "dynamicToolCall",
+      "id" => "request-user-input",
+      "namespace" => nil,
+      "tool" => "request_user_input",
+      "arguments" => %{"questions" => []},
+      "status" => "inProgress",
+      "contentItems" => nil
+    }
   end
 end

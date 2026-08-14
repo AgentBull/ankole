@@ -6,6 +6,8 @@ import { join } from 'node:path'
 const wrapper = join(import.meta.dir, '../../library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals')
 const roots: string[] = []
 const profile = `ankole-u-${'a'.repeat(43)}`
+const otherProfile = `ankole-u-${'b'.repeat(43)}`
+const longDeviceCode = `${'a'.repeat(170)}.${'b'.repeat(171)}.${'c'.repeat(171)}`
 
 afterEach(async () => {
   await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true })))
@@ -24,14 +26,35 @@ describe('lark-approvals wrapper', () => {
     expect(await Bun.file(join(fixture.home, '.lark-cli/.ankole-account.lock')).exists()).toBe(false)
   })
 
-  it('serializes login setup and enables both identities in the selected profile', async () => {
+  it('keeps the exact login device code inside only the selected profile', async () => {
     const fixture = await wrapperFixture()
-    const result = runWrapper(fixture, ['auth', 'begin'])
+    const begun = runWrapper(fixture, ['auth', 'begin'])
 
-    expect(result.exitCode).toBe(0)
+    expect(begun.exitCode).toBe(0)
+    expect(longDeviceCode).toHaveLength(514)
+    expect(begun.stdout.toString()).not.toContain('device_code')
+    expect(begun.stdout.toString()).not.toContain(longDeviceCode)
+
+    const statePath = join(fixture.home, `.lark-cli/.ankole-profile-state/${profile}/auth-login.json`)
+    expect(JSON.parse(await readFile(statePath, 'utf8')).device_code).toBe(longDeviceCode)
+
+    const wrongProfile = runWrapper(fixture, ['auth', 'complete'], {
+      ANKOLE_RUNTIME_LARK_PROFILE: otherProfile
+    })
+    expect(wrongProfile.exitCode).toBe(1)
+    expect(wrongProfile.stderr.toString()).toContain('no pending user authorization')
+    expect(JSON.parse(await readFile(statePath, 'utf8')).device_code).toBe(longDeviceCode)
+
+    const completed = runWrapper(fixture, ['auth', 'complete'])
+    expect(completed.exitCode).toBe(0)
+    expect(completed.stdout.toString()).toContain('authorization_complete')
+    expect(completed.stdout.toString()).not.toContain(longDeviceCode)
+    expect(await Bun.file(statePath).exists()).toBe(false)
+
     const trace = await readFile(fixture.trace, 'utf8')
     expect(trace).toContain(`--profile ${profile} config strict-mode off`)
     expect(trace).toContain(`--profile ${profile} auth login --domain approval --no-wait --json`)
+    expect(trace).toContain(`--profile ${profile} auth login --device-code ${longDeviceCode} --json`)
     expect(await Bun.file(join(fixture.home, '.lark-cli/.ankole-account.lock')).exists()).toBe(true)
   })
 
@@ -103,6 +126,27 @@ printf 'BOT_ENV=%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\\n' \
   "\${ANKOLE_RUNTIME_LARK_TENANT_ACCESS_TOKEN_FILE:-}" >> "$TRACE_FILE"
 case "$*" in
   *"config show"*) exit 0 ;;
+  *"auth login --domain approval --no-wait --json"*)
+    printf '{"verification_url":"https://accounts.feishu.cn/device","device_code":"%s","expires_in":600}\\n' "$FAKE_DEVICE_CODE"
+    exit 0
+    ;;
+  *"auth login --device-code "*)
+    device_code=""
+    while [ "$#" -gt 0 ]; do
+      if [ "$1" = "--device-code" ]; then
+        shift
+        device_code="$1"
+        break
+      fi
+      shift
+    done
+    if [ "$device_code" != "$FAKE_DEVICE_CODE" ]; then
+      echo "wrong device code" >&2
+      exit 8
+    fi
+    printf '{"event":"authorization_complete","user_open_id":"ou_test"}\\n'
+    exit 0
+    ;;
 esac
 printf '{"ok":true}\\n'
 `
@@ -136,6 +180,7 @@ function runWrapper(
       LARKSUITE_CLI_AUTH_PROXY: 'http://127.0.0.1:1234',
       LARKSUITE_CLI_PROXY_KEY: 'proxy-key',
       ANKOLE_RUNTIME_LARK_TENANT_ACCESS_TOKEN_FILE: '/runtime/lark-token',
+      FAKE_DEVICE_CODE: longDeviceCode,
       ...overrides
     },
     stdout: 'pipe',

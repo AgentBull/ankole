@@ -33,6 +33,7 @@ defmodule AnkoleWeb.AIGatewayController do
   def responses(conn, _params) do
     request = conn.body_params || %{}
     subject_uid = conn.assigns.current_ai_gateway_subject_uid
+    subject_type = conn.assigns.current_ai_gateway_subject_type
     request_context = RequestContext.from_headers(conn.req_headers, "http")
 
     with {:ok, request} <- bind_codex_request(conn, request) do
@@ -41,7 +42,10 @@ defmodule AnkoleWeb.AIGatewayController do
           stream_response(conn, subject_uid, request, request_context)
 
         false ->
-          case AIGateway.create_response(subject_uid, request, request_context: request_context) do
+          case AIGateway.create_response(subject_uid, request,
+                 request_context: request_context,
+                 subject_type: subject_type
+               ) do
             {:ok, %{body: body}} -> json(conn, body)
             {:error, reason} -> error(conn, reason)
           end
@@ -84,6 +88,7 @@ defmodule AnkoleWeb.AIGatewayController do
     responses: [
       ok: {"OpenResponses response", "application/json", @json_object},
       bad_request: {"Invalid compact request", "application/json", @json_object},
+      bad_gateway: {"Compaction fallback unavailable", "application/json", @json_object},
       unauthorized: {"Unauthorized", "application/json", @json_object}
     ]
   )
@@ -253,7 +258,10 @@ defmodule AnkoleWeb.AIGatewayController do
   end
 
   defp stream_response(conn, subject_uid, request, request_context) do
-    case AIGateway.open_sse_stream(subject_uid, request, request_context: request_context) do
+    case AIGateway.open_sse_stream(subject_uid, request,
+           request_context: request_context,
+           subject_type: conn.assigns.current_ai_gateway_subject_type
+         ) do
       {:ok, stream, _meta} ->
         conn =
           conn
@@ -393,6 +401,11 @@ defmodule AnkoleWeb.AIGatewayController do
 
   defp error_tuple(:invalid_compaction_handle),
     do: {400, "invalid_compaction_handle", "compaction encrypted_content handle is invalid"}
+
+  defp error_tuple(:opaque_compaction_fallback_unavailable),
+    do:
+      {502, "opaque_compaction_fallback_unavailable",
+       "provider-native compaction history cannot use the local fallback"}
 
   defp error_tuple(:no_compaction_candidate),
     do:

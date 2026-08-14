@@ -7,19 +7,20 @@ The Playbooks in this Ankole Agent Plugin include modified documentation from Of
 
 Upstream project: iOfficeAI/OfficeCLI
 Upstream URL: https://github.com/iOfficeAI/OfficeCLI
-Upstream commit: 1ab5978a5ff583a28f7544caf533c8eb52e9f15d
+Upstream commit: 1ced45e900782c5083ed550ddf328ee974e425e7
 License: Apache License 2.0
-License URL: https://github.com/iOfficeAI/OfficeCLI/blob/1ab5978a5ff583a28f7544caf533c8eb52e9f15d/LICENSE
-Notice URL: https://github.com/iOfficeAI/OfficeCLI/blob/1ab5978a5ff583a28f7544caf533c8eb52e9f15d/NOTICE
+License URL: https://github.com/iOfficeAI/OfficeCLI/blob/1ced45e900782c5083ed550ddf328ee974e425e7/LICENSE
+Notice URL: https://github.com/iOfficeAI/OfficeCLI/blob/1ced45e900782c5083ed550ddf328ee974e425e7/NOTICE
 
 Imported source files:
-- playbooks/academic-paper.md <= skills/officecli-academic-paper/SKILL.md (upstream sha256: dcdd8247f77704f9fe57f2a243b0759c56ab60e4cfdf21ad439e8da31ec9f6e5)
+- playbooks/academic-paper.md <= skills/officecli-academic-paper/SKILL.md (upstream sha256: 573292e01c2b9b9885c6cd24ffec5f808d88f8a1868aa0e962bcab9a479f40e5)
 - playbooks/data-dashboard.md <= skills/officecli-data-dashboard/SKILL.md (upstream sha256: 38cf745bb04cb7005cd089e6e87073509f190e46e035707528a5d0b01b2dafd0)
 - playbooks/financial-model.md <= skills/officecli-financial-model/SKILL.md (upstream sha256: 65280bce9537ff3192bbc8fe1ad94980662929a71390b258d7f38f24772d8c9e)
 
 Modifications:
 - Converted each upstream scene-layer Skill into an Ankole Playbook with Playbook routing metadata.
 - Replaced self-install setup instructions with Ankole Agent Computer runtime notes.
+- Aligned the adapted guidance and examples with OfficeCLI 1.0.144, including the verified XLSX import boundary.
 
 Upstream NOTICE:
 

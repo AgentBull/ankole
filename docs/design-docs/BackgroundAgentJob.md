@@ -121,10 +121,12 @@ contains only:
 - `message`: the new text sent verbatim as the next Codex user message
 
 The source Job stays terminal. The new Job copies its title, resumes the exact
-Codex thread, and uses the exact Job Workspace that the source Job used. The new
-Job belongs to the current authorized turn and uses the current enabled Agent
-Plugins, Skills, and runtime configuration. The tool returns only the new
-`job_id` and its initial `queued` status.
+Codex thread, and uses the exact Job Workspace that the source Job used. When
+the native thread state is gone, the Job continues through the thread
+replacement ladder described under Turn recovery. The new Job belongs to the
+current authorized turn and uses the current enabled Agent Plugins, Skills, and
+runtime configuration. The tool returns only the new `job_id` and its initial
+`queued` status.
 
 The tool rejects a source Job that is not terminal, has no Codex thread, already
 has a successor, or has no original Job Workspace directory. It does not copy a
@@ -225,13 +227,14 @@ metadata.
 A Job does not store provider credentials. Its runtime projection stores the
 resolved provider, model, effort, options, direct input modalities, optional
 directly image-capable vision fallback, Plugin and Skill selection, MCP
-selection, and non-secret Worker and browser parameters. Retry, continuation,
-and Worker migration use those values instead of silently reading a new Agent
-configuration. A respawn inherits `model_profile` but captures a new projection
-from its current binding. Credentials and mutable Skill content still come from
-their current owners. A Lark tenant token stays out of the Codex thread
-environment: Agent Computer refreshes an execution-local file, and each
-`lark-cli` command reads the current file.
+selection, the Codex compaction mode, and non-secret Worker and browser
+parameters. Retry, continuation, and Worker migration use those values instead
+of silently reading a new Agent configuration. A respawn inherits
+`model_profile` but captures a new projection from its current binding.
+Credentials and mutable Skill content still come from their current owners. A
+Lark tenant token stays out of the Codex thread environment: Agent Computer
+refreshes an execution-local file, and each `lark-cli` command reads the current
+file.
 
 Each execution intersects the projected Skills with the Agent's current
 effective set. Skills with an absent `ankole-runtime` value, `any`, or
@@ -243,8 +246,17 @@ package hash, package bytes, overlay bytes, Hook state, or Plugin cache state.
 
 `background_agent_job_turns` stores one runtime Turn trajectory. A trajectory is
 the semantic `ankole_chatml` history selected from Codex events, not a copy of
-raw app-server frames. Each Turn row stores the trajectory header. Append-only
-trajectory-group rows store its messages.
+raw app-server frames. Each Turn row stores the trajectory header.
+
+The Worker ships one content stream per Turn: sanitized semantic thread items
+with their positions and item keys. Append-only `background_agent_job_turn_items`
+rows store that stream. The control plane derives the append-only
+trajectory-group rows from each accepted item at write time, so the group
+projection and every read path stay unchanged while the Worker sends the
+content once. An item whose projection is empty stays stored for thread
+replay. Turns recorded before the item stream existed keep only their group
+rows; their threads fall back to the Workspace rebuild below when replay finds
+no items.
 
 A stored tool-result message keeps the stable execution mechanism in metadata.
 `provider_hosted` means that the model Provider executed the tool.
@@ -448,6 +460,23 @@ Codex omits configured hosted search from that private carrier. Standard
 Responses sends the native `web_search` declaration.
 
 For AIGateway, the Agent Codex Home selects the `ankole_aigateway` provider.
+Its configured name is `OpenAI`, which tells Codex 0.147 that this hop can carry
+remote compaction. The provider ID does not change. The Job's frozen runtime
+projection then sets `remote_compaction_v2=true` only when
+`ai_gateway.compaction.prefer_upstream=true` and the resolved Provider kind is
+`chatgpt_subscription`. Manual and automatic compaction for that case remain on
+the normal Responses transport: Codex appends `compaction_trigger`, AIGateway
+forwards it, and the ChatGPT Subscription Provider returns its `compaction`
+item. AIGateway does not intercept this v2 exchange or probe it through
+`/responses/compact`.
+
+Every other Job sets `remote_compaction_v2=false`. Codex sends those compact
+requests to AIGateway `POST /responses/compact`, including Jobs backed by
+OpenAI, OpenAI-compatible, or Azure OpenAI Providers. A Job that predates this
+projection field also stays on that v1 path. Changing `prefer_upstream` affects
+new Job projections and respawns, not an admitted Job. In both modes,
+`model_auto_compact_token_limit` stays at `100000`.
+
 The Job configuration contains the real Codex model name and its supported
 reasoning effort. The runner never sends a logical profile name to Codex. It
 attaches the Job's exact provider and model selector, all stored provider
@@ -455,15 +484,31 @@ options, and the stored parallel-tool-call capability to each AIGateway
 request. The same binding carries the main model's direct input modalities and
 its optional frozen vision fallback. AIGateway applies that binding before it
 resolves the provider. The frozen binding wins over conflicting Codex model,
-provider-option, and reasoning-effort values. It sets `parallel_tool_calls`
-from the provider capability unless Codex marks the request as Responses Lite.
-It sends images to the main model only when the direct modalities permit that
-input; otherwise it uses the frozen fallback to produce untrusted text.
+provider-option, and reasoning-effort values. A bound request also removes the
+Codex-only `internal_chat_message_metadata_passthrough` and
+`encrypted_function_args` fields. It sets `parallel_tool_calls` from the
+provider capability unless Codex marks the request as Responses Lite. It sends
+images to the main model only when the direct modalities permit that input;
+otherwise it uses the frozen fallback to produce untrusted text.
 When a persisted projection predates the modality fields, the next admission
 may complete those fields only when its frozen provider ID still resolves to
 the same provider type and model ID, then persists that completed binding. If
 that identity cannot be proved, the legacy Job remains text-only; it never
 borrows visual capability from a different model.
+
+For the v1 path, `ai_gateway.compaction.prefer_upstream=true` makes AIGateway
+try the Job's frozen Responses Provider and model before it uses local
+compaction. Unsupported and transient failures use local compaction while the
+input remains readable. A provider-native compact output is opaque. If a later
+v1 compact request cannot use the same upstream path, AIGateway cannot summarize
+that ciphertext and returns HTTP 502
+`opaque_compaction_fallback_unavailable`. The Job must continue with a
+compatible Provider, or a caller must start a new Job from readable context.
+
+The ChatGPT Subscription v2 path has no AIGateway local fallback because it is
+a normal Responses turn, not a standalone compact operation. Codex applies its
+normal stream retry policy, and a remaining upstream failure fails that compact
+turn. AIGateway does not cache a v2 failure as an unsupported capability.
 
 Worker placement selects the normal owner. The per-Agent `flock` on each
 Worker-local Codex Home is the final same-Worker exclusion boundary. An
@@ -630,8 +675,22 @@ forever. A Job without a live activation is left to the activation and Worker
 deadlines, which already own that recovery.
 
 If Codex cannot resume its thread, one attempt can create one replacement
-thread. The replacement reads the Job files and receives a short history of
-earlier attempts.
+thread. Codex thread state lives on Worker-local disk, so a replaced Worker or
+a lost state file reaches this ladder instead of failing the Job:
+
+1. Replay. The Worker pages the stored lead-thread turn items of the Job's
+   workspace lineage over `background_agent_job.turn_items.list`, converts
+   them back to wire response items, and injects them into a fresh thread.
+   Codex re-compacts when the replayed history exceeds the model window. The
+   Job metadata records `runtime_checkpoint_recovery: replayed_from_transcript`.
+2. Workspace rebuild. When the store has no items or the inject fails, the
+   fresh thread starts from the Job task, the durable Workspace, and a short
+   history of earlier attempts. A continued Job also receives its source Job's
+   task and final report from the source row. The metadata records
+   `runtime_checkpoint_recovery: new_thread_from_bounded_history`.
+
+Both outcomes are disclosed, bounded to one replacement per attempt, and apply
+to first-turn resume and to a thread lost inside a running attempt alike.
 
 ## Create and Dispatch a Job Once
 
@@ -688,8 +747,10 @@ Agent Computer checks that the inherited Workspace is a real directory before
 it sends the respawn request. CodexRunner checks it again before execution. A
 missing directory is an error; neither path creates or copies one. CodexRunner
 resumes the stored thread and sends `task` as the first user message of the new
-Job. A respawned Job fails if Codex cannot resume that thread; it does not
-replace the thread.
+Job. When Codex cannot resume that thread, the respawned Job takes the same
+replacement ladder as any lost thread: transcript replay first, then the
+disclosed Workspace rebuild seeded with the source Job's task and final
+report.
 
 ## Send a Message and Wait for Its Turn
 

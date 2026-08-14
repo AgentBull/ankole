@@ -110,7 +110,15 @@ export function classifyCodexRecoveryFailure(error: JSONObject): CodexRecoveryFa
   }
   if (infoName && infoName !== 'other') return 'terminal'
 
-  if (/unknown[-_ ]?(session|thread)|thread .*not found|no rollout found/.test(message)) return 'unknown_session'
+  // "failed to resolve rollout path" covers the state-mismatch family where
+  // the Codex state DB names a rollout file that is gone, unreadable, or not
+  // a file. The thread is unrecoverable on this Worker exactly like an
+  // unknown thread, so it must reach the same replay-or-replace ladder.
+  if (
+    /unknown[-_ ]?(session|thread)|thread .*not found|no rollout found|failed to resolve rollout path/.test(message)
+  ) {
+    return 'unknown_session'
+  }
   if (/context window|context length|too many tokens/.test(message)) return 'context_overflow'
   if (
     /stream (?:disconnected|closed)(?: before completion)?|response stream .*?(?:disconnected|closed)|http(?: status)?[\s:]+(?:502|503|504)\b|model at capacity|systemerror|server overloaded|temporarily unavailable|agent loop died/.test(

@@ -39,6 +39,7 @@ import {
 import { classifyLLMError, isLocallyRetryableLLMError } from './llm-error-classifier'
 import type { AgentLoopConfig, AgentLoopResult, AgentTool, AgentToolResult, ReplyPresentationEvent } from './types'
 import { contentText, imageSummaryBlock, modelImageAdaptation, responseImageUnavailableText } from './vision'
+import { finishWorkerSpan, startWorkerSpan } from '../observability/turn-tracing'
 
 const EMPTY_AFTER_TOOL_NUDGE_TEXT =
   'You just executed tool calls but returned an empty response. Please process the tool results above and continue with the task.'
@@ -670,6 +671,11 @@ async function executeToolCall(
   let followUpMessages: UserMessage[] = []
   let failure: ExecutedToolCall['failure']
   const toolStartedAt = Date.now()
+  const toolSpan = startWorkerSpan(config.turnTrace, `tool ${toolCall.name}`, {
+    'gen_ai.tool.name': toolCall.name,
+    'gen_ai.tool.call.id': toolCall.id
+  })
+  let toolSpanError: string | undefined
 
   config.logger?.info('worker.tool_call_started', 'worker tool call started', {
     actor_event_id: config.stateful.actorEventID,
@@ -691,8 +697,12 @@ async function executeToolCall(
       await emitPresentationEvent(event)
     }
   } catch (e) {
-    if (config.abortSignal?.aborted) throw config.abortSignal.reason ?? e
+    if (config.abortSignal?.aborted) {
+      toolSpanError = 'tool_execution_aborted'
+      throw config.abortSignal.reason ?? e
+    }
 
+    toolSpanError = 'runtime_error'
     const message = `Error: ${errorMessage(e)}`
     toolResult = {
       content: [{ type: 'text', text: message }],
@@ -704,6 +714,7 @@ async function executeToolCall(
       toolName: toolCall.name
     }
   } finally {
+    finishWorkerSpan(toolSpan, { errorType: toolSpanError })
     config.onActivity?.(`tool:${toolCall.name}:done`)
   }
 

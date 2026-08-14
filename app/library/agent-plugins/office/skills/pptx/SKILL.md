@@ -107,17 +107,18 @@ For replication, analyze the reference images to estimate element positions, fon
 
 ## OfficeCLI Runtime
 
-Ankole Agent Computer images install `officecli` at build time. Verify the installation:
+Ankole Agent Computer images install OfficeCLI 1.0.144 at build time. Verify the exact runtime:
 
 ```bash
 officecli --version
 ```
 
-If the command is missing, the Worker image is stale; a rebuild happens outside this Job, so report the missing runtime as the Job outcome.
+Require the exact output `1.0.144`. A missing command or a different version means the Worker image and this Skill disagree; a rebuild happens outside this Job, so report the stale runtime as the Job outcome.
 
 ### Gotchas
 
 - Help reflects the installed CLI version. When this Skill and help disagree, help is authoritative. Run help before guessing a property, alias, enum value, animation preset, chart type, or canvas control, and after any `UNSUPPORTED props:` or unknown-enum error.
+- `officecli help pptx ...` covers schema elements only. Use a top-level command's own help for its syntax, such as `officecli batch --help`, `officecli open --help`, or `officecli view --help`.
 - Always quote element paths such as `"/slide[1]/shape[@name=Title]"`; zsh treats unquoted brackets as globs.
 - Single-quote values that contain `$`, such as `--prop text='$15M'`. After writing currency or escaped text, use `view text` and compare it character for character.
 - The CLI interprets `\n` and `\t` in `text=` values.

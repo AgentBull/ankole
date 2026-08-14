@@ -105,7 +105,10 @@ defmodule Ankole.E2E.Scenarios.DeepResearchRealLLM do
     assert [start_tool_result] =
              ai_messages_for_actor_event(input.id) |> tool_results("create_background_job")
 
-    assert start_tool_result.arguments == start_arguments
+    # The contract is that the model forwards the task we gave it, not that it
+    # reproduces trailing whitespace: models routinely drop or add a final
+    # newline, and that difference carries no meaning for the Job.
+    assert_forwarded_arguments(start_tool_result.arguments, start_arguments)
     refute tool_result_error?(start_tool_result)
 
     job =
@@ -394,5 +397,21 @@ defmodule Ankole.E2E.Scenarios.DeepResearchRealLLM do
 
   defp shell_quote(value) do
     "'" <> String.replace(value, "'", "'\"'\"'") <> "'"
+  end
+
+  defp assert_forwarded_arguments(actual, expected) do
+    assert Map.keys(actual) |> Enum.sort() == Map.keys(expected) |> Enum.sort()
+
+    for {key, expected_value} <- expected do
+      actual_value = Map.fetch!(actual, key)
+
+      case {actual_value, expected_value} do
+        {actual_text, expected_text} when is_binary(actual_text) and is_binary(expected_text) ->
+          assert String.trim(actual_text) == String.trim(expected_text)
+
+        {actual_value, expected_value} ->
+          assert actual_value == expected_value
+      end
+    end
   end
 end

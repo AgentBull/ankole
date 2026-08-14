@@ -19,6 +19,9 @@ describe('@ankole/agent-computer Codex job project config', () => {
         'service_tier = "priority"',
         'web_search = "live"',
         '',
+        '[features]',
+        'remote_compaction_v2 = true',
+        '',
         '[features.multi_agent_v2]',
         'enabled = false',
         'max_concurrent_threads_per_session = 99',
@@ -45,6 +48,7 @@ describe('@ankole/agent-computer Codex job project config', () => {
       expect(config.model_reasoning_effort).toBeUndefined()
       expect(config.web_search).toBe('disabled')
       expect(config.features.memories).toBe(false)
+      expect(config.features.remote_compaction_v2).toBeUndefined()
       expect(config.features.plugins).toBe(false)
       expect(config.features.code_mode).toEqual({ enabled: true })
       expect(config.features.multi_agent_v2).toEqual({

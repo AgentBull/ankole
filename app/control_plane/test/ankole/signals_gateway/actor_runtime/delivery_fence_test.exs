@@ -1,6 +1,9 @@
 defmodule Ankole.SignalsGateway.ActorRuntime.DeliveryFenceTest do
   use Ankole.SignalsGateway.ActorRuntimeCase
 
+  alias Ankole.AppConfigure
+  alias Ankole.SignalsGateway.ActorRuntime.DeadLetterNoticeConfig
+
   describe "delivery fences" do
     test "record_only input does not start an actor turn or emit PONG" do
       initial_message_count = Repo.aggregate(Message, :count)
@@ -648,6 +651,47 @@ defmodule Ankole.SignalsGateway.ActorRuntime.DeliveryFenceTest do
       assert next_turn_ref.actor_event_id == next_event.id
       assert_receive {:actor_lane, next_envelope}
       assert turn_start_payload!(next_envelope).turn.actor_event_id == next_event.id
+    end
+
+    test "dead-letter notice includes redacted turn error details when configured" do
+      definition = DeadLetterNoticeConfig.definition()
+      :ok = DeadLetterNoticeConfig.ensure_registered()
+      :ok = AppConfigure.delete_global(definition)
+      on_exit(fn -> AppConfigure.delete_global(definition) end)
+      assert {:ok, true} = AppConfigure.put_global(definition, true)
+
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+      route = unique_route()
+
+      :ok = Broker.register_local_worker(route, self())
+      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      assert {:ok, _worker} = admit_worker(route)
+
+      assert {:ok, %{actor_event: poison_event}} =
+               emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "poison with details", explicit: true}),
+                 now: @base_time
+               )
+
+      assert {:ok, %{status: :turn_dead_lettered}} =
+               fail_next_turn!(DateTime.add(@base_time, 2, :second),
+                 details_json: %{
+                   "provider" => %{
+                     "api_key" => "do-not-leak",
+                     "status" => 500
+                   }
+                 }
+               )
+
+      notice = Repo.get_by!(OutboxEntry, outbound_key: "ai-dead-letter:#{poison_event.id}")
+
+      assert notice.fallback_visible_text =~ "worker_loop_failed"
+      assert notice.fallback_visible_text =~ "worker loop failed"
+      assert notice.fallback_visible_text =~ "[REDACTED]"
+      refute notice.fallback_visible_text =~ "do-not-leak"
     end
 
     test "dead-lettering an addressed message finalizes the reply preview with a failure notice" do

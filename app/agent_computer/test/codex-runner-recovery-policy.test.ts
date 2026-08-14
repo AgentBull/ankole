@@ -94,6 +94,12 @@ describe('@ankole/agent-computer Codex recovery policy', () => {
     expect(classifyCodexRecoveryFailure({ codexErrorInfo: { serverOverloaded: {} } })).toBe('transient')
     expect(classifyCodexRecoveryFailure({ code: -32001, message: 'request failed' })).toBe('transient')
     expect(classifyCodexRecoveryFailure({ message: 'No rollout found for thread abc' })).toBe('unknown_session')
+    expect(
+      classifyCodexRecoveryFailure({
+        message:
+          'failed to resolve rollout path `/var/lib/ankole/codex/agent/.codex/sessions/2026/08/13/rollout-x.jsonl`: file does not exist'
+      })
+    ).toBe('unknown_session')
     expect(classifyCodexRecoveryFailure({ message: 'permission denied' })).toBe('terminal')
   })
 

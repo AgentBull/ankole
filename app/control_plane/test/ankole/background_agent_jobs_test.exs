@@ -5,6 +5,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
   alias Ankole.AIAgent.Library.AgentPlugins
   alias Ankole.AgentHomePaths
+  alias Ankole.AIGateway.Compaction
   alias Ankole.AIGateway.ModelMetadata.Cache, as: ModelMetadataCache
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.BackgroundAgentJobs
@@ -206,6 +207,46 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert same_event.id == event.id
     assert Repo.aggregate(Job, :count) == 1
     assert Repo.aggregate(ActorEvent, :count) == 1
+  end
+
+  test "a Worker completion arriving after an external completion keeps the stored result" do
+    %{principal: agent} = background_agent_fixture()
+
+    assert {:ok, %{job: %Job{} = job}} =
+             BackgroundAgentJobs.create_with_dispatch(%{
+               "agent_uid" => agent.uid,
+               "owner_session_id" => "parent-session",
+               "source_tool_call_id" => "tool-late-worker-completion",
+               "title" => "External completion wins",
+               "task" => "Verify the release externally.",
+               "reply_route" => %{
+                 "binding_name" => "lark",
+                 "signal_channel_id" => "chat-1",
+                 "source_entry_id" => "message-1"
+               }
+             })
+
+    assert {:ok, %{job: externally_completed}} =
+             BackgroundAgentJobs.request_complete(job.id, %{
+               "agent_uid" => agent.uid,
+               "completed_by" => "operator:release-bot",
+               "result_summary" => "EXTERNALLY-VERIFIED"
+             })
+
+    assert externally_completed.status == "succeeded"
+
+    # A slow Worker reports its own completion for the same Job. The Job already
+    # has an authoritative result, so the late write must not replace it.
+    _late =
+      BackgroundAgentJobs.commit_status_with_wakeup(job.id, agent.uid, %{
+        "status" => "succeeded",
+        "result" => %{"summary" => "WORKER-LATE"}
+      })
+
+    final = BackgroundAgentJobs.get_job(job.id)
+
+    assert final.status == "succeeded"
+    assert get_in(final.result, ["summary"]) == "EXTERNALLY-VERIFIED"
   end
 
   test "Jobs do not persist AIGateway credentials or a second model-profile copy" do
@@ -1384,6 +1425,84 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert second_attempt.attempts == 2
     assert second_attempt.runtime_projection == first_attempt.runtime_projection
     assert second_attempt.runtime_projection["model_ref"]["model"] == "openai/gpt-5.6-sol"
+  end
+
+  test "the runtime projection enables Codex compaction v2 only for ChatGPT Subscription" do
+    %{principal: agent} = background_agent_fixture()
+    _result = Compaction.delete_config()
+
+    on_exit(fn ->
+      _result = Compaction.delete_config()
+      :ok
+    end)
+
+    disabled_job = create_job!(agent.uid, "subscription-v2-disabled")
+    subscription_spec = runtime_turn_start_spec_for_provider("chatgpt_subscription")
+
+    assert {:ok, disabled_attempt} =
+             BackgroundAgentJobs.claim_attempt_in_tx(
+               Repo,
+               disabled_job.id,
+               agent.uid,
+               1,
+               subscription_spec
+             )
+
+    refute disabled_attempt.runtime_projection["codex"]["remote_compaction_v2"]
+    stop_claimed_job!(disabled_attempt)
+
+    assert {:ok, _config} = Compaction.put_config(%{"prefer_upstream" => true})
+
+    enabled_job = create_job!(agent.uid, "subscription-v2-enabled")
+
+    assert {:ok, enabled_attempt} =
+             BackgroundAgentJobs.claim_attempt_in_tx(
+               Repo,
+               enabled_job.id,
+               agent.uid,
+               1,
+               subscription_spec
+             )
+
+    assert enabled_attempt.runtime_projection["codex"]["remote_compaction_v2"]
+
+    assert {:ok, enabled_overrides} =
+             RuntimeProjection.turn_start_overrides(enabled_attempt.runtime_projection)
+
+    assert enabled_overrides.request_context["codex"] == %{
+             "remote_compaction_v2" => true
+           }
+
+    stop_claimed_job!(enabled_attempt)
+
+    for provider_kind <- ["openai", "openai_compatible", "azure_openai", "openrouter"] do
+      job = create_job!(agent.uid, "#{provider_kind}-v2-disabled")
+      spec = runtime_turn_start_spec_for_provider(provider_kind)
+
+      assert {:ok, attempt} =
+               BackgroundAgentJobs.claim_attempt_in_tx(Repo, job.id, agent.uid, 1, spec)
+
+      refute attempt.runtime_projection["codex"]["remote_compaction_v2"]
+      stop_claimed_job!(attempt)
+    end
+
+    assert {:ok, _config} = Compaction.put_config(%{"prefer_upstream" => false})
+
+    assert {:ok, frozen_overrides} =
+             RuntimeProjection.turn_start_overrides(enabled_attempt.runtime_projection)
+
+    assert frozen_overrides.request_context["codex"]["remote_compaction_v2"]
+  end
+
+  test "a legacy runtime projection keeps Codex compaction v2 disabled" do
+    projection = %{
+      "version" => 1,
+      "model_ref" => runtime_turn_start_spec().model_ref,
+      "runtime_policy" => %{}
+    }
+
+    assert {:ok, overrides} = RuntimeProjection.turn_start_overrides(projection)
+    refute overrides.request_context["codex"]["remote_compaction_v2"]
   end
 
   test "runtime projections carry the frozen hosted tool declarations" do
@@ -2568,6 +2687,12 @@ defmodule Ankole.BackgroundAgentJobsTest do
     |> Repo.update!()
   end
 
+  defp stop_claimed_job!(job) do
+    job
+    |> Ecto.Changeset.change(status: "stopped", completed_at: DateTime.utc_now(:microsecond))
+    |> Repo.update!()
+  end
+
   defp runtime_turn_start_spec(model \\ "openai/gpt-5.6-sol") do
     model_ref = %{
       "profile" => "coding",
@@ -2589,6 +2714,16 @@ defmodule Ankole.BackgroundAgentJobsTest do
         }
       }
     }
+  end
+
+  defp runtime_turn_start_spec_for_provider(provider_kind) do
+    provider_id = "#{provider_kind}-main"
+
+    runtime_turn_start_spec("gpt-5.6-sol")
+    |> put_in([:model_ref, "provider_id"], provider_id)
+    |> put_in([:model_ref, "provider_kind"], provider_kind)
+    |> put_in([:request_context, "model_ref", "provider_id"], provider_id)
+    |> put_in([:request_context, "model_ref", "provider_kind"], provider_kind)
   end
 
   describe "request_complete/2" do

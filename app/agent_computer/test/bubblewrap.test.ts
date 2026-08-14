@@ -24,4 +24,25 @@ describe('bubblewrap Worker share', () => {
     )
     expect(bindIndex).toBeGreaterThan(-1)
   })
+
+  test('binds container sysfs read-only for native CPU runtimes', () => {
+    const argv = bubblewrapArgv(
+      {
+        workspaceRoot: '/agents/agent-1',
+        cwd: '/agents/agent-1/sessions/session-1',
+        env: {
+          PATH: '/usr/local/bin:/usr/bin:/bin',
+          HOME: '/agents/agent-1',
+          LANG: 'C.UTF-8'
+        },
+        commandArgv: ['/bin/true']
+      },
+      'strong'
+    )
+
+    const bindIndex = argv.findIndex(
+      (value, index) => value === '--ro-bind' && argv[index + 1] === '/sys' && argv[index + 2] === '/sys'
+    )
+    expect(bindIndex).toBeGreaterThan(-1)
+  })
 })

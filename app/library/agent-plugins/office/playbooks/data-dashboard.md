@@ -6,7 +6,7 @@ products: [xlsx]
 
 # Data Dashboard Playbook (scene-layer on xlsx)
 
-A dashboard is not "a spreadsheet with charts". It is a composition: **one Dashboard sheet the user lands on** with formula-driven KPI cards, cell-range-linked charts, sparklines, and semantic conditional formatting. Everything else (raw data, aggregations) is upstream infrastructure the user should never need to open. This Playbook teaches the composition pattern. Everything about the xlsx engine — cells, formulas, batch JSON, shell quoting, validate, HTML preview — comes from `xlsx` and is not re-taught here. Its Help-First Rule applies here too: when this Playbook and `officecli help` disagree, **help wins**.
+A dashboard is not "a spreadsheet with charts". It is a composition: **one Dashboard sheet the user lands on** with formula-driven KPI cards, cell-range-linked charts, sparklines, and semantic conditional formatting. Everything else (raw data, aggregations) is upstream infrastructure the user should never need to open. This Playbook teaches the composition pattern. Everything about the xlsx engine — cells, formulas, batch JSON, shell quoting, validate, HTML preview — comes from `xlsx` and is not re-taught here. Its Help-First Rule applies here too: use `officecli help xlsx ...` for schema elements and `officecli <command> --help` for top-level commands. In particular, use `officecli import --help`; `officecli help xlsx import` is invalid.
 
 ## Mental Model & Inheritance
 
@@ -66,9 +66,15 @@ Minimal viable dashboard: 12-month revenue CSV → 4 KPIs + 1 line chart + activ
 
 ```bash
 FILE=my_dashboard.xlsx
-officecli create "$FILE"
-officecli import "$FILE" /Sheet1 --file sales.csv --header
-officecli set "$FILE" '/Sheet1/col[A]' --prop width=12
+OFFICECLI_NO_AUTO_RESIDENT=1 officecli create "$FILE"
+jq -Rs '[
+  {"command":"import","parent":"/Sheet1","text":.,"props":{"header":"true"}},
+  {"command":"set","path":"/Sheet1/col[A]","props":{"width":"12"}}
+]' sales.csv \
+  | OFFICECLI_NO_AUTO_RESIDENT=1 officecli batch "$FILE" --stop-on-error
+OFFICECLI_NO_AUTO_RESIDENT=1 officecli query "$FILE" cell --json \
+  | jq -e '.data.results | length > 0'
+officecli open "$FILE"
 officecli set "$FILE" '/Sheet1/col[B]' --prop width=15
 officecli set "$FILE" '/Sheet1/B2:B13' --prop numFmt='$#,##0'
 officecli set "$FILE" '/Sheet1/A1:B1' --prop fill=1F3864 --prop font.color=FFFFFF --prop font.bold=true
@@ -382,7 +388,7 @@ Scatter charts do not accept `series1.xValues` (UNSUPPORTED) — feed the x-axis
 | D-9 | `chartType=pie` blank-renders in the preview | Use `doughnut` as the safe substitute for part-of-whole breakdowns. |
 | D-10 | `SUMIFS` / `AVERAGEIFS` with date criteria fails silently if the criterion is a string | Wrap with `DATE()` or `DATEVALUE()`: `=SUMIFS(B2:B13,A2:A13,DATE(2025,1,5))`. |
 | D-11 | Summary sheet percentage formulas display as raw decimals (0.098) without `numFmt` | Set `numFmt="0.0%"` at the same `set` call as the formula. |
-| D-12 | `import --header` sets freeze + AutoFilter but does NOT set column widths. | Set widths on `col[]`. `numFmt` on a `col[]` path now applies a column-level style (`<col s=...>`, schema-valid, reads back as `numberformat`); it formats blank cells in the column. Cells with their own style still need a per-cell-range `numFmt`. |
+| D-12 | The 1.0.144 import batch sets freeze + AutoFilter when `header=true`, but it does not infer column widths. A standalone `officecli import` can also report success without persisting its cells. | Use the Phase 1 non-resident batch, keep one required width mutation in that batch as its persistence fence, and reject the import unless a fresh cell query finds data. Set the remaining widths on `col[]`; cells with their own style still need a per-cell-range `numFmt`. |
 | D-13 | Sparkline `highpoint` is a bool (highlight on/off), not a color. `--prop highpoint=FF0000` errors `Invalid boolean value` | `--prop highPoint=true --prop highMarkerColor=FF0000`. Same pattern for lowPoint / firstPoint / lastPoint and their *MarkerColor. |
 | D-14 | Sparkline cross-sectional data is meaningless (a region or department has no ordering) | Skip sparklines unless rows are a sequential time-series (dates, months, quarters). |
 | D-15 | Empty chart `add` is rejected (`Chart requires a 'data' property`) at the CLI layer — legacy skills that relied on silent accept will fail here | Always provide `series1.values=` / `dataRange=` / inline `data=` at chart `add` time. Treat Gate 2 seriesCount check as a belt-and-braces verification. |

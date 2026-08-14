@@ -91,10 +91,14 @@ images or when this usable fallback exists. It reports text only when neither
 path can accept an image.
 
 Agent Computer puts the real model in the Job project configuration and selects
-the `ankole_aigateway` Codex provider. It sends the frozen binding in the
-`x-ankole-aigateway-model-binding` header. AIGateway applies this binding before
-provider resolution. The binding replaces a conflicting Codex model, provider
-option, reasoning effort, or parallel-tool-call choice. Responses Lite stays
+the `ankole_aigateway` Codex provider. The provider name is `OpenAI` because
+Codex 0.147 uses that name to enable its standalone remote-compaction path. The
+provider ID remains `ankole_aigateway`. Agent Computer sends the frozen binding
+in the `x-ankole-aigateway-model-binding` header. AIGateway applies this binding
+before provider resolution. The binding replaces a conflicting Codex model,
+provider option, reasoning effort, or parallel-tool-call choice. It also removes
+the Codex-only `internal_chat_message_metadata_passthrough` and
+`encrypted_function_args` fields before provider dispatch. Responses Lite stays
 serial. AIGateway model cards disable Responses Lite because Codex 0.147 omits
 configured hosted web search from that private carrier. Standard Responses
 keeps the native tool declaration. Thus Codex receives the real model and effort
@@ -146,13 +150,12 @@ A language-model capability can declare `supports_parallel_tool_calls` and
 `supports_native_image_generation`. Both declarations default to false.
 
 Hosted-tool support that changes per endpoint belongs to the provider row, not
-to the provider kind. The `openai_compatible` provider accepts a
-`hosted_web_search` connection setting. It declares that the connection's
-Responses endpoint executes the hosted `web_search` tool itself. Configuration
-writes reject the declaration unless `endpoint_kind` is `responses`.
-`TurnPolicy` reads the stored declaration and adds `web_search` to the turn's
-hosted tools, so Main Turns and Background Jobs project one consistent
-capability. The supported turn hosted-tool types are `image_generation` and
+to the provider kind. An `openai_compatible` row states the capability through
+its `endpoint_kind`: hosted web search is part of the Responses protocol, so a
+connection configured for the Responses wire declares it, and a Chat
+Completions connection declares nothing. `TurnPolicy` reads that stored
+endpoint kind and adds `web_search` to the turn's hosted tools, so Main Turns
+and Background Jobs project one consistent capability. The supported turn hosted-tool types are `image_generation` and
 `web_search`; every boundary rejects other types.
 
 Trusted Plugins can add providers through `ai_gateway.provider`. A Plugin
@@ -304,8 +307,9 @@ The upstream ChatGPT transport always uses `store=false` and requests
 `reasoning.encrypted_content`. This is a Codex-provider transport rule, not the
 main Agent's public lifecycle: a main Agent Response still uses AIGateway
 `store=true` state and local tool-result journals. AIGateway stores and replays
-the encrypted reasoning content and does not use upstream response storage or
-the upstream compact endpoint.
+the encrypted reasoning content and does not use upstream response storage.
+When upstream compaction is enabled, a separate compact operation can use the
+account-scoped Codex `/responses/compact` endpoint.
 
 The provider prepares the Codex protocol as follows:
 
@@ -687,14 +691,85 @@ deletion removes only the rows that AIGateway validated.
 Manual compaction uses `POST /responses/compact`.
 Stateful compaction requires `store=true` when it uses a conversation or Response anchor.
 
-`ai_gateway_compaction_artifacts` stores each compaction result. Version 2
-contains one summary object and a list of output items.
+The `ai_gateway.compaction` AppConfigure value has these fields:
+
+- `threshold` defaults to `0.50` and controls the Main Agent automatic trigger.
+- `max_threshold_tokens` defaults to `100000` and caps that trigger.
+- `tail_rows` defaults to `2` and controls only local retention.
+- `user_message_budget_tokens` defaults to `20000` and controls only local
+  user-message retention.
+- `prefer_upstream` defaults to `false`. When it is `true`, Main Agent automatic
+  compaction, Main Agent `/compress`, and standalone `/responses/compact` first
+  try the current Provider's standalone compact operation. It also enables
+  Codex v2 compaction for a newly admitted Background Job only when that Job's
+  frozen Provider kind is `chatgpt_subscription`.
+
+The standalone upstream path applies only to an effective Responses wire for
+`openai`, `openai_compatible`, `azure_openai`, or `chatgpt_subscription`. A Chat
+Completions wire uses local compaction without a probe. AIGateway sends a real
+`POST /responses/compact` request, so that request is both the capability probe
+and the requested operation. Main Agent compaction always uses this standalone
+path. Background Jobs also use it unless their frozen configuration enables the
+ChatGPT Subscription v2 path.
+
+The v2 path is a normal Responses request whose last input item is
+`compaction_trigger`. AIGateway forwards the request and its provider-native
+`compaction` output without converting it to a standalone request. It enables
+this Codex mode only for `chatgpt_subscription`, whose protocol contract is
+known. OpenAI, OpenAI-compatible, and Azure OpenAI Jobs keep
+`remote_compaction_v2=false` even if a concrete endpoint might accept the
+trigger; their support is not inferred from an OpenAI-compatible surface.
+
+AIGateway keeps one negative, node-local ETS cache for the standalone path. Its
+key contains the Provider row UUID, Provider row update time, and resolved
+model. An HTTP 404 or 405 result stores `unsupported` for one hour. A Provider
+can also map a stable, structured unsupported error to the same result. A cache
+hit uses local compaction without another request. Authentication errors, rate
+limits, timeouts, conflicts, 5xx responses, transport failures, malformed
+responses, and empty output use local compaction for that attempt but do not
+populate the cache. A process restart, Provider update, or model change causes
+a new probe. Concurrent cold probes can each receive an unsupported response.
+The cache does not apply to v2: ChatGPT Subscription support is a static Provider
+contract, and a v2 failure remains a normal turn failure after Codex retries it.
+
+`prefer_upstream` is a rollout guard. It can be removed and upstream-first can
+become fixed after the AIGateway and Codex paths are deployed, the real OpenAI
+compact-and-replay test passes, all four provider families have protocol tests,
+and no open incident requires a global return to local compaction. Local
+fallback and its opaque-history limit remain after that removal.
+
+`ai_gateway_compaction_artifacts` stores each compaction result. Version 2 is a
+local artifact. It contains one summary object and a list of output items. Its
+public `ankole:compact:v1:` handle remains valid. AIGateway resolves that handle
+to a user `Context checkpoint` message before the request reaches the kernel.
+
+Version 3 is an upstream artifact. It contains the provider output as one
+ordered, unmodified JSON array, its usage, and a binding to the provider row
+UUID, provider row update time, and resolved model. It has no public handle.
+AIGateway accepts any nonempty output array and does not interpret, trim, or
+reorder provider-native items.
 
 A checkpoint message contains exactly one `compaction_artifact` reference.
 The checkpoint and artifact use the same UUID.
 
 When AIGateway builds model history, it replaces the checkpoint with that
-output. It also keeps selected original user facts.
+output. For a version 3 artifact, the current binding must match before
+AIGateway sends the output. A provider or model change causes AIGateway to read
+the durable predecessor chain, create a local version 2 checkpoint, and send no
+foreign provider state. The same raw-history fallback runs when a later
+upstream compaction attempt fails. The predecessor messages remain stored, so
+this recovery does not require a second history store.
+
+The standalone endpoint returns version 3 output without an Ankole handle. The
+caller must continue with a compatible Responses provider. If standalone input
+already contains provider-native compaction state and upstream compaction is
+disabled or fails, AIGateway returns HTTP 502 with
+`opaque_compaction_fallback_unavailable`. It cannot create a correct local
+summary from provider ciphertext.
+
+The kernel preserves provider-native compaction items on the Responses and
+Responses Compact wires. It rejects those items on other wires with
+`unsupported_compaction_replay_wire`.
 
 The compaction summarizer uses the shared Responses pair registry for every
 registered call and output type. It renders bounded arguments, code, actions,
@@ -808,8 +883,109 @@ failures. Provider 4xx rejections and explicit consumer cancellations use
 `WARNING`. Provider 5xx responses, transport failures, and internal execution
 failures use `ERROR`.
 
-These logs do not contain prompts, tool arguments, tool results, provider
-messages, provider response bodies, image bytes, or credentials.
+Optional trace export uses the official OpenTelemetry API in the control plane
+and sends OTLP over HTTP/protobuf. OpenTelemetry is the process-wide
+instrumentation and export implementation, and OTLP is the receiver contract.
+An observability Provider adds vendor attributes only to Turn roots and
+AIGateway LLM spans.
+It is not an AIGateway Provider, does not own transport, and does not filter
+other OpenTelemetry spans.
+
+AppConfigure owns four installation-wide values:
+
+- `observability.traces.enabled` defaults to `false`.
+- `observability.traces.provider` selects `langfuse`, `langsmith`, or
+  `opentelemetry`. This value has no default when export is enabled.
+- `observability.traces.otlp_endpoint` is the base OTLP HTTP endpoint. The
+  exporter appends `/v1/traces`.
+- `observability.traces.otlp_headers` is one encrypted string map for receiver
+  authentication and protocol headers.
+
+The three Providers use the process-wide OpenTelemetry SDK and OTLP exporter.
+`langfuse` adds the Langfuse v4 observation projection. `langsmith` adds the
+LangSmith run-type and legacy GenAI content projection that its current OTLP
+mapping accepts. `opentelemetry` adds no vendor attributes and is appropriate
+for generic stores such as VictoriaTraces, Honeycomb, and Grafana Cloud.
+
+The control plane reads these values once during startup. A configuration
+change requires a restart. AppConfigure owns whether the process-wide exporter
+is enabled and its OTLP destination. The control plane removes standard trace
+exporter environment variables before OpenTelemetry starts and again before it
+configures the exporter, so they cannot enable export or replace AppConfigure
+values. An exporter initialization, network, or receiver failure never changes
+a model request result. Traces are best effort and have no database outbox or
+delivery retry owner.
+
+One `turn {actor_event.type}` root span covers each persisted TurnStart. The
+control plane starts it after the dispatch transaction and ends it after the
+normal, noop, or error terminal transaction. The root records the bounded and
+sanitized triggering event and final reply. The `langfuse` Provider marks it as
+an agent observation. A Background Job root also records its Job identifier and
+attempt count. A node-local ETS table holds open roots; its cleanup ends a root
+that has no terminal outcome with `error.type=turn_outcome_lost`.
+
+The control plane writes the root's W3C `traceparent` into the existing
+`request_context_json`. Agent Computer uses it as the explicit remote parent
+for Main Agent tools, `codex.turn`, and Codex tool spans. It also sends the same
+header on each AIGateway HTTP or WebSocket request. Worker spans use a lazy
+OpenTelemetry tracer provider and return protobuf OTLP batches through the
+authenticated Runtime Fabric RPC lane. The control plane forwards those bytes
+to its configured receiver, so receiver credentials never leave the control
+plane. Export and forwarding are best effort and cannot change a Turn result.
+
+Within a traced Turn, one `ai_gateway.response` child span covers each public
+AIGateway Response. A direct AIGateway request with no valid `traceparent`
+keeps `ai_gateway.response` as its root. Each provider round is one
+`chat {model}` child span. A provider retry before any output stays inside the
+same generation, and each credential-pool retry adds one
+`ankole.ai_gateway.credential_retry` event with the classified `error.type` and
+the planned delay. Tool Search or a program continuation starts another
+generation under the same Response span. A provider-native compact call is one
+`compact {model}` root generation of its own. A provider terminal ends the
+generation before image persistence, stateful commit, or public projection
+settles the Response span, so provider completion is not confused with durable
+Response completion or ActorEvent delivery.
+
+An enabled trace contains the public request, the prepared request for each
+provider round, normalized provider output, model and Provider labels, token
+usage with cache-read, cache-write, and reasoning detail buckets, Principal,
+and available conversation and ActorEvent identifiers. The session identity is
+the stateful conversation when one exists; otherwise it is
+`RequestContext.session_key/2`, which accepts explicit client session, thread,
+and conversation identifiers. `prompt_cache_key` stays a cache routing and
+credential-affinity input and never becomes a trace session. Spans also carry
+the Principal type, the client `originator`,
+`user-agent`, and `version` headers, and an `ankole.ai_gateway.caller` label
+for internal callers such as Brain dreaming and compaction. The exported
+resource names `service.name`, and adds `service.version` from
+`ANKOLE_VERSION` and `deployment.environment.name` from `ANKOLE_ENV` when
+those variables are set — the same sources that label logs. The common layer
+includes standard `gen_ai.*` attributes and bounded `ankole.ai_gateway.input`
+and `ankole.ai_gateway.output` values. A Provider can add only its receiver's
+compatibility projection. The common layer removes credentials, headers,
+generic caller metadata, encrypted reasoning and tool fields, and `__ankole_*`
+control fields. It replaces inline `data:` media with its byte count and omits
+an input or output payload that exceeds 1 MiB. Enabling the feature still
+sends model content outside Ankole, so the operator must treat the receiver as
+a trusted system.
+
+For Langfuse v4, use a base endpoint such as
+`https://cloud.langfuse.com/api/public/otel`. Put a Basic `Authorization` value
+and `x-langfuse-ingestion-version: 4` in the encrypted header map. The
+`langfuse` Provider writes the Principal as the Langfuse user, the session key
+as the Langfuse session, `ANKOLE_VERSION` as `langfuse.release`, and the
+Principal, caller, and originator facts as filterable trace metadata. Langfuse
+reads the environment from the exported resource.
+
+For LangSmith, use the regional base endpoint ending in `/otel`, an `x-api-key`
+header, and an optional `Langsmith-Project` header. When a Response belongs to
+a conversation, the `langsmith` Provider copies the conversation identifier to
+the documented `langsmith.trace.session_id` and also keeps the vendor-neutral
+`gen_ai.conversation.id` and `session.id` attributes.
+
+Unlike optional traces, these structured logs do not contain prompts, tool
+arguments, tool results, provider messages, provider response bodies, image
+bytes, or credentials.
 Stateful socket-open, provider terminal, and stream transport failures persist
 safe classification fields and a bounded provider `error.message` when it is
 available. Public failure frames, stored Responses, and response retrieval use

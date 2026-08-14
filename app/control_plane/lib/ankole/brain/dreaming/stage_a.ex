@@ -514,7 +514,8 @@ defmodule Ankole.Brain.Dreaming.StageA do
       ]
     }
 
-    with {:ok, %{body: body}} <- AIGateway.create_response(model_agent_uid, request),
+    with {:ok, %{body: body}} <-
+           AIGateway.create_response(model_agent_uid, request, caller: "brain.dreaming.stage_a"),
          {:ok, text} <- AIGateway.completed_output_text(body),
          {:ok, decoded} <- Ankole.JSON.decode(text),
          {:ok, translated} <- translate_summary_refs(decoded, message_refs) do

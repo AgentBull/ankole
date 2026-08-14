@@ -426,6 +426,9 @@ defmodule Ankole.BackgroundAgentJobs do
   @doc "Lists normalized runtime turns for one job."
   defdelegate list_turns(job_id, opts \\ []), to: Turns, as: :list_for_job
 
+  @doc "Pages the lead-thread turn items of one job's workspace lineage for thread replay."
+  defdelegate replay_items_page(job, cursor), to: Turns
+
   @doc "Projects one complete runtime turn for Console."
   defdelegate console_turn_projection(turn), to: Turns, as: :console_projection
 

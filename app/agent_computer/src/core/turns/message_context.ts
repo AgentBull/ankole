@@ -38,6 +38,9 @@ export function actorEventEnvironmentInfoLines(
   const formattedSendAt = sendAt ? formatZonedDateTime(sendAt, opts.timezone || 'UTC') : undefined
   if (formattedSendAt) lines.push(`send_at: ${formattedSendAt}`)
 
+  const signalChannelID = stringValue(entry.signal_channel_id) ?? stringValue(channel.id)
+  if (signalChannelID) lines.push(`signal_channel_id: ${signalChannelID}`)
+
   if (stringValue(channel.kind) === 'im_group') {
     const speaker = speakerLabel(author)
     if (speaker) lines.push(`speaker: ${speaker}`)
@@ -135,11 +138,14 @@ function isAgentEnvironmentInfoBlock(text: string): boolean {
  * the message.
  */
 function speakerLabel(author: JSONObject): string | undefined {
-  const name = stringValue(author.display_name) ?? stringValue(author.name) ?? stringValue(author.principal_uid)
+  const uid = stringValue(author.principal_uid) ?? stringValue(author.platform_subject)
+  const name = stringValue(author.display_name) ?? stringValue(author.name) ?? uid
   if (!name) return undefined
 
+  const labeledUID = uid ? `${name}(${uid})` : name
+
   const senderType = stringValue((recordValue(author.metadata) ?? {}).sender_type)
-  return senderType && senderType.toLowerCase() !== 'user' ? `${name} (${senderType})` : name
+  return senderType && senderType.toLowerCase() !== 'user' ? `${labeledUID} (${senderType})` : labeledUID
 }
 
 /**

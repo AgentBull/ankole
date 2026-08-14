@@ -16,11 +16,12 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
   Usage:
 
       MIX_ENV=test OPEN_ROUTER_API_KEY=... mix e2e.ai_gateway_real_provider -- --providers=available
+      MIX_ENV=test OPENAI_API_KEY=... mix e2e.ai_gateway_real_provider -- --providers=openai
       MIX_ENV=test OPEN_ROUTER_API_KEY=... mix e2e.ai_gateway_real_provider -- --providers=openrouter
       MIX_ENV=test OPEN_ROUTER_API_KEY=... mix e2e.ai_gateway_real_provider -- --providers=openrouter --cases=openrouter.image_generation_gemini_generate_and_edit
       MIX_ENV=test mix run ../../tools/e2e/ai_gateway_real_provider_e2e.exs -- --list
 
-  Provider names are `openrouter`, `jina`, `google`, `alibaba_cn`,
+  Provider names are `openai`, `openrouter`, `jina`, `google`, `alibaba_cn`,
   `volcengine_ark`, `xiaomi_mimo`, and `zai_coding_plan`.
   Use `--providers=available` to run the groups whose required API keys are
   present in the environment.
@@ -34,6 +35,7 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
 
   @endpoint AnkoleWeb.Endpoint
   @provider_names [
+    :openai,
     :openrouter,
     :jina,
     :google,
@@ -48,6 +50,7 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
                 )
   @concurrency_timeout_ms 90_000
 
+  @openai_compaction_model "gpt-5.6"
   @openrouter_llm_model "z-ai/glm-5.2"
   @openrouter_vision_model "google/gemini-3.1-flash-lite"
   @openrouter_gemini_image_model "google/gemini-3.1-flash-image"
@@ -106,6 +109,7 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
 
     Environment:
       OPENROUTER_API_KEY or OPEN_ROUTER_API_KEY   OpenRouter LLM, embedding, and rerank
+      OPENAI_API_KEY                              OpenAI standalone compaction round trip
       OPEN_ROUTER_API_KEY2                        Optional second OpenRouter pool credential
       AIGATEWAY_E2E_IMAGE_PATH                    Optional local PNG, JPEG, or WebP input
       JINA_API_KEY                                Jina embeddings and rerank
@@ -170,6 +174,7 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
   end
 
   defp provider_name!("openrouter"), do: :openrouter
+  defp provider_name!("openai"), do: :openai
   defp provider_name!("jina"), do: :jina
   defp provider_name!("google"), do: :google
   defp provider_name!("alibaba_cn"), do: :alibaba_cn
@@ -207,6 +212,7 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
   end
 
   defp credential_env_names(:openrouter), do: ["OPENROUTER_API_KEY", "OPEN_ROUTER_API_KEY"]
+  defp credential_env_names(:openai), do: ["OPENAI_API_KEY"]
   defp credential_env_names(:jina), do: ["JINA_API_KEY"]
   defp credential_env_names(:google), do: ["GOOGLE_AI_STUDIO_API_KEY"]
   defp credential_env_names(:alibaba_cn), do: ["DASHSCOPE_API_KEY", "ALIBABA_CN_API_KEY"]
@@ -219,6 +225,9 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
 
     providers
     |> Enum.reduce(%{suffix: suffix}, fn
+      :openai, setup ->
+        setup_openai(setup, credentials.openai)
+
       :openrouter, setup ->
         setup_openrouter(setup, credentials.openrouter, credentials.openrouter_secondary)
 
@@ -240,6 +249,27 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
       :zai_coding_plan, setup ->
         setup_zai_coding_plan(setup, credentials.zai_coding_plan)
     end)
+  end
+
+  defp setup_openai(%{suffix: suffix} = setup, credential) do
+    provider_id = "e2e-openai-#{suffix}"
+
+    create_provider!(%{
+      provider_id: provider_id,
+      provider_kind: "openai",
+      base_url: "https://api.openai.com/v1",
+      connection_options: %{"endpoint_kind" => "responses"},
+      credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => credential}]}
+    })
+
+    agent = create_agent!("e2e-openai-agent-#{suffix}", %{})
+
+    put_profile!(agent.uid, "primary", %{
+      provider_id: provider_id,
+      model: @openai_compaction_model
+    })
+
+    Map.put(setup, :openai_agent, agent)
   end
 
   defp setup_openrouter(%{suffix: suffix} = setup, credential, secondary_credential) do
@@ -464,6 +494,7 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
     }
   end
 
+  defp fake_setup(:openai), do: %{openai_agent: %{uid: "fake-openai-agent"}}
   defp fake_setup(:jina), do: %{jina_agent: %{uid: "fake-jina-agent"}}
   defp fake_setup(:google), do: %{google_agent: %{uid: "fake-google-agent"}}
   defp fake_setup(:alibaba_cn), do: %{alibaba_cn_agent: %{uid: "fake-alibaba-cn-agent"}}
@@ -478,12 +509,22 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
 
   defp cases(setup, image) do
     []
+    |> add_openai_cases(setup)
     |> add_openrouter_cases(setup, image)
     |> add_jina_cases(setup)
     |> add_google_cases(setup, image)
     |> add_china_market_cases(setup)
     |> Enum.reverse()
   end
+
+  defp add_openai_cases(cases, %{openai_agent: agent}) do
+    [
+      {"openai.compaction_round_trip", fn -> case_openai_compaction_round_trip(agent) end}
+      | cases
+    ]
+  end
+
+  defp add_openai_cases(cases, _setup), do: cases
 
   defp add_openrouter_cases(
          cases,
@@ -626,6 +667,71 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
 
   defp maybe_add_llm_case(cases, name, agent) do
     [{name, fn -> case_llm_direct(agent, "primary") end} | cases]
+  end
+
+  defp case_openai_compaction_round_trip(agent) do
+    {:ok, _config} = Ankole.AIGateway.Compaction.put_config(%{"prefer_upstream" => true})
+
+    try do
+      token = mint_agent_token!(agent.uid)
+
+      compact =
+        token
+        |> authed_conn()
+        |> post("/api/v1/ai-gateway/responses/compact", %{
+          "model" => "primary",
+          "store" => false,
+          "input" => [
+            %{
+              "type" => "message",
+              "role" => "user",
+              "content" => "Remember the verification code ANKOLE-COMPACT-7429."
+            },
+            %{
+              "type" => "message",
+              "role" => "assistant",
+              "content" => "I will remember the verification code."
+            }
+          ]
+        })
+        |> json_response!(200)
+
+      compact_output = Map.fetch!(compact, "output")
+      require!(compact_output != [], "OpenAI compact output was empty")
+
+      response =
+        token
+        |> authed_conn()
+        |> post("/api/v1/ai-gateway/responses", %{
+          "model" => "primary",
+          "store" => false,
+          "stream" => false,
+          "input" =>
+            compact_output ++
+              [
+                %{
+                  "type" => "message",
+                  "role" => "user",
+                  "content" => "Reply with only the verification code."
+                }
+              ]
+        })
+        |> json_response!(200)
+
+      text = response |> output_text() |> String.trim()
+
+      require!(
+        String.contains?(text, "ANKOLE-COMPACT-7429"),
+        "OpenAI compact replay lost the verification code"
+      )
+
+      %{
+        compact_output_types: Enum.map(compact_output, &Map.get(&1, "type")),
+        replay_text: text
+      }
+    after
+      :ok = Ankole.AIGateway.Compaction.delete_config()
+    end
   end
 
   defp case_models_http(agent) do

@@ -48,6 +48,24 @@ defmodule Ankole.AIGateway.Schemas.CompactionArtifact do
     |> check_constraint(:content, name: :ai_gateway_compaction_artifacts_content_object)
   end
 
+  @doc """
+  Tells whether `binding` can tie a version 3 upstream artifact to its
+  provider row: non-empty `provider_row_id`, `provider_updated_at`, and
+  `model` strings.
+  """
+  @spec valid_upstream_binding?(term()) :: boolean()
+  def valid_upstream_binding?(%{
+        "provider_row_id" => provider_row_id,
+        "provider_updated_at" => provider_updated_at,
+        "model" => model
+      }) do
+    Enum.all?([provider_row_id, provider_updated_at, model], fn value ->
+      is_binary(value) and String.trim(value) != ""
+    end)
+  end
+
+  def valid_upstream_binding?(_binding), do: false
+
   defp validate_content_contract(changeset) do
     content = get_field(changeset, :content)
 
@@ -55,17 +73,40 @@ defmodule Ankole.AIGateway.Schemas.CompactionArtifact do
       not is_map(content) ->
         add_error(changeset, :content, "must be a JSON object")
 
-      Map.get(content, "version") != 2 ->
-        add_error(changeset, :content, "must use version 2")
+      true ->
+        validate_versioned_content(changeset, content)
+    end
+  end
 
+  defp validate_versioned_content(changeset, %{"version" => 2} = content) do
+    cond do
       not is_map(Map.get(content, "summary")) ->
-        add_error(changeset, :content, "must include a summary object")
+        add_error(changeset, :content, "version 2 must include a summary object")
 
       not is_list(Map.get(content, "output")) ->
-        add_error(changeset, :content, "must include output items")
+        add_error(changeset, :content, "version 2 must include output items")
 
       true ->
         changeset
     end
   end
+
+  defp validate_versioned_content(changeset, %{"version" => 3} = content) do
+    cond do
+      Map.get(content, "source") != "upstream" ->
+        add_error(changeset, :content, "version 3 source must be upstream")
+
+      not valid_upstream_binding?(Map.get(content, "binding")) ->
+        add_error(changeset, :content, "version 3 must include a binding object")
+
+      not is_list(Map.get(content, "output")) or Map.get(content, "output") == [] ->
+        add_error(changeset, :content, "version 3 must include output items")
+
+      true ->
+        changeset
+    end
+  end
+
+  defp validate_versioned_content(changeset, _content),
+    do: add_error(changeset, :content, "must use version 2 or 3")
 end

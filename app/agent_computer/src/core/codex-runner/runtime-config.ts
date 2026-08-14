@@ -1,7 +1,7 @@
 import type { AIGatewayAPIKeyResponse } from '../../lanes/rpc_lane'
 import type { AIGatewayAPIKeyRequester } from '../turns/turn_options'
 import type { TurnStart } from '../../lanes/actor_lane'
-import type { JsonObject as JSONObject } from '@agentbull/active-support'
+import { isRecord, type JsonObject as JSONObject } from '@agentbull/active-support'
 
 export const CODEX_MODEL_REASONING_EFFORTS = [
   'none',
@@ -36,6 +36,7 @@ export type CodexAIGatewayModelTarget = {
 export type CodexRuntimeConfig = {
   aiGatewayKey: AIGatewayAPIKeyResponse
   modelProfile: CodexAIGatewayModelProfile
+  remoteCompactionV2: boolean
 }
 
 export async function resolveCodexRuntimeConfig(input: {
@@ -43,9 +44,12 @@ export async function resolveCodexRuntimeConfig(input: {
   agentUID: string
   requestAIGatewayAPIKey: AIGatewayAPIKeyRequester
 }): Promise<CodexRuntimeConfig> {
+  const codexPolicy = input.turnStart.request_context?.codex
+
   return {
     aiGatewayKey: await input.requestAIGatewayAPIKey(input.agentUID),
-    modelProfile: modelProfile(input.turnStart)
+    modelProfile: modelProfile(input.turnStart),
+    remoteCompactionV2: isRecord(codexPolicy) && codexPolicy.remote_compaction_v2 === true
   }
 }
 

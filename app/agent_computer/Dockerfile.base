@@ -24,7 +24,7 @@ ARG RUST_TOOLCHAIN=1.97.1
 ARG CODEX_VERSION=0.147.0
 ARG MCPORTER_VERSION=0.13.0
 ARG MCPORTER_SHA256=e9d081aee5528ca6ac228fa0e385e768df7e52c756b6c0b6e17ef2b747de1ce9
-ARG OFFICECLI_VERSION=v1.0.143
+ARG OFFICECLI_VERSION=v1.0.144
 ARG PDF_INSPECTOR_VERSION=0.1.7
 ARG TYPST_VERSION=v0.15.1
 ARG TARGETARCH
@@ -279,10 +279,10 @@ RUN set -eux; \
   fc-match 'ChillJinshuSong' | grep -F 'ChillJinshuSong'; \
   rm -rf "${font_assets_dir}"
 
-# Bake the PP-OCRv6 medium models into the rapidocr package directory and
-# prove the OpenVINO path with one rendered-text round trip, so a Job never
-# downloads models or discovers a broken engine at run time. Keep the params
-# aligned with app/library/skills/ocr/scripts/ocr.py.
+# Bake the PP-OCRv6 medium models into the rapidocr package directory and prove
+# the image-level OpenVINO path with one rendered-text round trip. The Agent
+# Computer integration suite proves the same path inside bubblewrap. Keep the
+# params aligned with app/library/skills/ocr/scripts/ocr.py.
 RUN <<'OCR_SMOKE'
 set -eu
 cat > /tmp/ocr-smoke.py <<'PY'

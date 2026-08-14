@@ -2,7 +2,7 @@
 
 Ankole installs `lark-cli` in the Agent Computer image and injects the app ID and a refreshed tenant-token file derived from this Agent's available Lark signal binding. The application belongs to the digital employee; it is not the human operator's identity.
 
-For an inbound Lark Turn, `<agent_environment_info>` includes the canonical `signal_channel_id`. Remove the leading `lark:` before passing that current chat ID to a CLI `--chat-id` flag. Do not search for or guess the current chat ID when this value is present.
+For an inbound Lark Turn, `<agent_environment_info>` includes the canonical `signal_channel_id`. Remove the leading `lark:` before passing that current chat ID to a CLI `--chat-id` flag. A group `speaker` uses `name(uid)` as defined by the Ankole system prompt. Do not search for, guess, or ask the user to repeat the current chat ID when it is present.
 
 ## Preflight
 

@@ -7,7 +7,7 @@ tags: [lark, im, contact, calendar, vc, minutes]
 metadata:
   upstream: https://github.com/larksuite/cli/tree/v1.0.69/skills
   upstream_tag: v1.0.69
-  validated_against: v1.0.84
+  validated_against: v1.0.86
   modified_for: Ankole bot-only Agent Plugin runtime
 ---
 
@@ -25,6 +25,7 @@ Before the first command, read [references/bot-runtime.md](references/bot-runtim
 ## Routing rules
 
 - An inbound signal reply belongs to the Signals Gateway. Use this skill when the Agent must initiate a new message, send to another chat or person, search communication history, or manage Lark collaboration resources.
+- For an inbound Lark Turn, a human `uid` in `speaker: name(uid)` is usually the Feishu/Lark `user_id`. Treat it as a known ID, not a display name or an ambiguous person lookup.
 - Use Contact only to verify a known stable `open_id`, `user_id`, or `union_id`. If a person or destination is ambiguous, request a stable user or `chat_id`; the bot-only Contact surface cannot search by display name, email, or phone.
 - Treat message sends, membership changes, event changes, meeting joins/leaves, and transcript mutations as writes. Inspect command help and use `--dry-run` when the target or payload is uncertain.
 - If the task needs cloud documents, spreadsheets, Base, Wiki, Drive, Slides, Whiteboard, or Lark Markdown, switch to `lark-office-suite`.

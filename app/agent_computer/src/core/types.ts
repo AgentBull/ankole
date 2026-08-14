@@ -19,6 +19,7 @@ import type {
   StatefulResponseContext,
   UserMessage
 } from './llm'
+import type { WorkerTurnTrace } from '../observability/turn-tracing'
 
 // Re-export the core LLM types so consumers can import from one place.
 export type {
@@ -58,6 +59,9 @@ export interface AgentLoopConfig {
 
   /** AIGateway stateful response context for worker-driven response.create rounds. */
   stateful: StatefulResponseContext
+
+  /** Explicit remote parent for turn-local worker spans. */
+  turnTrace?: WorkerTurnTrace
 
   /** Primary model input modalities supplied by the control-plane model ref. */
   modelInputModalities?: string[]

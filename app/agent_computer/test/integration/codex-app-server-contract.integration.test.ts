@@ -69,6 +69,156 @@ describe('@ankole/agent-computer Codex app-server protocol contract', () => {
     expect(`${stdout}${stderr}`.trim()).toBe('codex-cli 0.147.0')
   })
 
+  it('uses the standalone compact endpoint when the frozen projection disables v2', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ankole-codex-standalone-compaction-'))
+    const workspace = join(root, 'workspace')
+    const codexHome = join(root, 'codex-home')
+    const requestPaths: string[] = []
+    const requests: JSONObject[] = []
+    const notifications: JSONRPCMessage[] = []
+    const provider = createRemoteCompactionResponsesProvider(requestPaths, requests)
+    if (typeof provider.port !== 'number') throw new Error('Remote compaction provider did not bind a TCP port')
+    let client: CodexAppServerClient | undefined
+
+    try {
+      mkdirSync(workspace, { recursive: true })
+      mkdirSync(codexHome, { recursive: true })
+      const baseURL = `http://127.0.0.1:${provider.port}/v1`
+      resetCodexAgentRuntimeConfig(codexHome, baseURL)
+      refreshCodexAgentRuntimeCredential(codexHome, 'contract-key')
+
+      const runtime = pluginTestRuntime(baseURL, 'gpt-5.6-sol')
+      const config = codexJobThreadConfig({ cwd: workspace, codexHome, env: {}, runtime }) as Record<string, any>
+      config.model_providers.ankole_aigateway.supports_websockets = false
+      expect(config.features.remote_compaction_v2).toBe(false)
+
+      client = new CodexAppServerClient({
+        cwd: workspace,
+        env: {
+          PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin',
+          HOME: workspace,
+          CODEX_HOME: codexHome,
+          CODEX_UNSAFE_ALLOW_NO_SANDBOX: '1',
+          LANG: 'C.UTF-8'
+        },
+        onNotification: notification => notifications.push(notification)
+      })
+
+      await client.initialize()
+      const thread = (await client.request('thread/start', {
+        cwd: workspace,
+        model: runtime.modelProfile.model,
+        modelProvider: 'ankole_aigateway',
+        approvalPolicy: 'never',
+        sandbox: 'danger-full-access',
+        config
+      })) as ThreadStartResponse
+      const turn = (await client.request('turn/start', {
+        threadId: thread.thread.id,
+        input: [{ type: 'text', text: 'Create one response before compaction.', text_elements: [] }],
+        cwd: workspace,
+        approvalPolicy: 'never',
+        sandboxPolicy: { type: 'dangerFullAccess' }
+      })) as { turn: { id: string } }
+      await waitForPluginTurn(notifications, turn.turn.id)
+
+      await client.request('thread/compact/start', { threadId: thread.thread.id })
+      await waitForContextCompaction(notifications, thread.thread.id)
+
+      expect(requestPaths).toEqual(['/v1/responses', '/v1/responses/compact'])
+      expect(requests).toHaveLength(2)
+      expect(requests[1]?.input).toBeArray()
+    } finally {
+      await client?.close()
+      provider.stop(true)
+      rmSync(root, { recursive: true, force: true })
+    }
+  }, 60_000)
+
+  it('uses compaction_trigger when the frozen ChatGPT Subscription projection enables v2', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ankole-codex-remote-compaction-'))
+    const workspace = join(root, 'workspace')
+    const codexHome = join(root, 'codex-home')
+    const requestPaths: string[] = []
+    const requests: JSONObject[] = []
+    const notifications: JSONRPCMessage[] = []
+    const provider = createRemoteCompactionResponsesProvider(requestPaths, requests)
+    if (typeof provider.port !== 'number') throw new Error('Remote compaction provider did not bind a TCP port')
+    let client: CodexAppServerClient | undefined
+
+    try {
+      mkdirSync(workspace, { recursive: true })
+      mkdirSync(codexHome, { recursive: true })
+      const baseURL = `http://127.0.0.1:${provider.port}/v1`
+      resetCodexAgentRuntimeConfig(codexHome, baseURL)
+      refreshCodexAgentRuntimeCredential(codexHome, 'contract-key')
+
+      const runtime = pluginTestRuntime(baseURL, 'gpt-5.6-sol', undefined, true)
+      const config = codexJobThreadConfig({ cwd: workspace, codexHome, env: {}, runtime }) as Record<string, any>
+      config.model_providers.ankole_aigateway.supports_websockets = false
+      expect(config.model_providers.ankole_aigateway.name).toBe('OpenAI')
+      expect(config.features.remote_compaction_v2).toBe(true)
+
+      client = new CodexAppServerClient({
+        cwd: workspace,
+        env: {
+          PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin',
+          HOME: workspace,
+          CODEX_HOME: codexHome,
+          CODEX_UNSAFE_ALLOW_NO_SANDBOX: '1',
+          LANG: 'C.UTF-8'
+        },
+        onNotification: notification => notifications.push(notification)
+      })
+
+      await client.initialize()
+      const thread = (await client.request('thread/start', {
+        cwd: workspace,
+        model: runtime.modelProfile.model,
+        modelProvider: 'ankole_aigateway',
+        approvalPolicy: 'never',
+        sandbox: 'danger-full-access',
+        config
+      })) as ThreadStartResponse
+      const turn = (await client.request('turn/start', {
+        threadId: thread.thread.id,
+        input: [{ type: 'text', text: 'Create one response before compaction.', text_elements: [] }],
+        cwd: workspace,
+        approvalPolicy: 'never',
+        sandboxPolicy: { type: 'dangerFullAccess' }
+      })) as { turn: { id: string } }
+      await waitForPluginTurn(notifications, turn.turn.id)
+
+      await client.request('thread/compact/start', { threadId: thread.thread.id })
+      await waitForContextCompaction(notifications, thread.thread.id)
+
+      const followUp = (await client.request('turn/start', {
+        threadId: thread.thread.id,
+        input: [{ type: 'text', text: 'Continue after compaction.', text_elements: [] }],
+        cwd: workspace,
+        approvalPolicy: 'never',
+        sandboxPolicy: { type: 'dangerFullAccess' }
+      })) as { turn: { id: string } }
+      await waitForPluginTurn(notifications, followUp.turn.id)
+
+      expect(requestPaths).toEqual(['/v1/responses', '/v1/responses', '/v1/responses'])
+      expect(requests).toHaveLength(3)
+      expect(Array.isArray(requests[1]?.input) ? requests[1].input.at(-1) : undefined).toEqual({
+        type: 'compaction_trigger'
+      })
+      expect(Array.isArray(requests[2]?.input) ? requests[2].input : []).toContainEqual(
+        expect.objectContaining({
+          type: 'compaction',
+          encrypted_content: 'provider-opaque-state'
+        })
+      )
+    } finally {
+      await client?.close()
+      provider.stop(true)
+      rmSync(root, { recursive: true, force: true })
+    }
+  }, 60_000)
+
   it('carries a Job hosted web search through standard Responses', async () => {
     const root = mkdtempSync(join(tmpdir(), 'ankole-codex-hosted-web-search-'))
     const workspace = join(root, 'workspace')
@@ -836,7 +986,8 @@ test ! -e ./AGENTS.override.md
         expiresIn: 3_600n,
         scope: 'ai_gateway',
         baseUrl: 'http://control.test/api/v1/ai-gateway'
-      })
+      }),
+      remoteCompactionV2: false
     }
     const materialized = materializeCodexConfig({
       agentsRoot: root,
@@ -1025,7 +1176,12 @@ function createAgentPluginSkillFixture(
   )
 }
 
-function pluginTestRuntime(baseURL: string, model = 'gpt-5.4', reasoningEffort?: 'low' | 'high'): CodexRuntimeConfig {
+function pluginTestRuntime(
+  baseURL: string,
+  model = 'gpt-5.4',
+  reasoningEffort?: 'low' | 'high',
+  remoteCompactionV2 = false
+): CodexRuntimeConfig {
   return {
     aiGatewayKey: create(AIGatewayAPIKeyResponseSchema, {
       apiKey: 'contract-key',
@@ -1041,7 +1197,8 @@ function pluginTestRuntime(baseURL: string, model = 'gpt-5.4', reasoningEffort?:
       supportsParallelToolCalls: false,
       inputModalities: ['text'],
       ...(reasoningEffort ? { modelReasoningEffort: reasoningEffort } : {})
-    }
+    },
+    remoteCompactionV2
   }
 }
 
@@ -1106,6 +1263,80 @@ function createMultiAgentResponsesProvider(requestKinds: string[]) {
       ])
     }
   })
+}
+
+function createRemoteCompactionResponsesProvider(requestPaths: string[], requests: JSONObject[]) {
+  return Bun.serve({
+    hostname: '127.0.0.1',
+    port: 0,
+    async fetch(request) {
+      const url = new URL(request.url)
+      if (request.method === 'GET' && url.pathname === '/v1/models') {
+        return Response.json({ models: [execOutputModelCard('gpt-5.6-sol')] })
+      }
+      if (request.method !== 'POST') {
+        return Response.json({ error: { message: 'not found' } }, { status: 404 })
+      }
+
+      const body = (await request.json()) as JSONObject
+      requestPaths.push(url.pathname)
+      requests.push(body)
+
+      if (url.pathname === '/v1/responses/compact') {
+        return Response.json({
+          id: 'remote-compaction-contract',
+          object: 'response.compaction',
+          created_at: 1_764_967_971,
+          output: [{ type: 'compaction', encrypted_content: 'provider-opaque-state' }],
+          usage: {
+            input_tokens: 1,
+            input_tokens_details: { cached_tokens: 0 },
+            output_tokens: 1,
+            output_tokens_details: { reasoning_tokens: 0 },
+            total_tokens: 2
+          }
+        })
+      }
+
+      if (url.pathname === '/v1/responses') {
+        const input = Array.isArray(body.input) ? body.input : []
+        if (input.some(item => isObject(item) && item.type === 'compaction_trigger')) {
+          return execOutputResponse('remote-compaction-contract', 'gpt-5.6-sol', [
+            { type: 'compaction', encrypted_content: 'provider-opaque-state' }
+          ])
+        }
+
+        return execOutputResponse('remote-compaction-source', 'gpt-5.6-sol', [
+          {
+            id: 'remote-compaction-source-message',
+            type: 'message',
+            status: 'completed',
+            role: 'assistant',
+            content: [{ type: 'output_text', text: 'Ready to compact.', annotations: [] }]
+          }
+        ])
+      }
+
+      return Response.json({ error: { message: 'not found' } }, { status: 404 })
+    }
+  })
+}
+
+async function waitForContextCompaction(notifications: JSONRPCMessage[], threadID: string): Promise<void> {
+  const deadline = Date.now() + 20_000
+  while (true) {
+    const completed = notifications.some(notification => {
+      if (notification.method !== 'item/completed' || !isObject(notification.params)) return false
+      return (
+        notification.params.threadId === threadID &&
+        isObject(notification.params.item) &&
+        notification.params.item.type === 'contextCompaction'
+      )
+    })
+    if (completed) return
+    if (Date.now() >= deadline) throw new Error('timed out waiting for remote context compaction')
+    await Bun.sleep(10)
+  }
 }
 
 async function waitForTurnTree(

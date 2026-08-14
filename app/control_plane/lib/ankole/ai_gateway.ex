@@ -15,6 +15,7 @@ defmodule Ankole.AIGateway do
   alias Ankole.AIGateway.HostedToolTelemetry
   alias Ankole.AIGateway.MapUtils
   alias Ankole.AIGateway.Models
+  alias Ankole.AIGateway.Observability
   alias Ankole.AIGateway.Providers
   alias Ankole.AIGateway.Resolver
   alias Ankole.AIGateway.ResponsesPreparation
@@ -112,16 +113,36 @@ defmodule Ankole.AIGateway do
   defp execute_response_driver(
          :single_request,
          subject_uid,
-         _request,
+         request,
          runtime,
          prepared_request,
          opts
        ) do
-    with {:ok, upstream_response} <-
-           execute_response_request(runtime, prepared_request, opts),
-         upstream_response <-
-           ResponseStream.project_non_streaming_response(prepared_request, upstream_response) do
-      persist_response(subject_uid, runtime, prepared_request, upstream_response)
+    observation =
+      subject_uid
+      |> Observability.start_response(request, opts)
+      |> Observability.start_round(%{runtime: runtime}, prepared_request)
+
+    execute_opts =
+      Keyword.put(opts, :credential_retry_observer, fn reason, delay_ms ->
+        Observability.record_credential_retry(observation, reason, delay_ms)
+      end)
+
+    case execute_response_request(runtime, prepared_request, execute_opts) do
+      {:ok, upstream_response} ->
+        observation = Observability.finish_round(observation, upstream_response)
+
+        result =
+          prepared_request
+          |> ResponseStream.project_non_streaming_response(upstream_response)
+          |> then(&persist_response(subject_uid, runtime, prepared_request, &1))
+
+        _observation = Observability.finish_response(observation, result)
+        result
+
+      {:error, reason} = error ->
+        _observation = Observability.fail(observation, reason)
+        error
     end
   end
 

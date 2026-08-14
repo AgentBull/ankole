@@ -1020,7 +1020,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
            ]
   end
 
-  test "turn start specs declare hosted web search from the provider connection" do
+  test "turn start specs declare hosted web search for a Responses endpoint the Agent leaves to it" do
     %{principal: agent} = agent_fixture()
 
     assert {:ok, provider} =
@@ -1028,10 +1028,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
                provider_id: "compat-hosted-search",
                provider_kind: "openai_compatible",
                base_url: "https://compat.example.test/v1",
-               connection_options: %{
-                 "endpoint_kind" => "responses",
-                 "hosted_web_search" => true
-               },
+               connection_options: %{"endpoint_kind" => "responses"},
                credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => "sk-test"}]}
              })
 
@@ -1043,25 +1040,30 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
 
     actor_key = %{agent_uid: agent.uid, session_id: "session-hosted-web-search"}
 
+    # Hosted web search rides the Responses wire, so declaring that endpoint kind
+    # is the capability statement. New Agents leave the capability to it.
     assert {:ok, turn_start_spec} = TurnPolicy.build_turn_start_spec(actor_key)
     assert turn_start_spec.hosted_tools == [%{"type" => "web_search"}]
 
-    assert {:ok, _provider} =
-             ProviderConfigs.update_provider(provider.provider_id, %{
-               "connection_options" => %{"endpoint_kind" => "responses"}
-             })
+    # The Agent can take the capability back for its own search provider.
+    assert {:ok, _capabilities} =
+             ModelProfiles.put_provider_hosted_capabilities(agent.uid, %{"web_search" => false})
 
     assert {:ok, turn_start_spec} = TurnPolicy.build_turn_start_spec(actor_key)
     refute Map.has_key?(turn_start_spec, :hosted_tools)
 
-    assert {:error,
-            {:connection_options, {:hosted_web_search_requires_endpoint_kind, "responses"}}} =
+    assert {:ok, _capabilities} =
+             ModelProfiles.put_provider_hosted_capabilities(agent.uid, %{"web_search" => true})
+
+    # A Chat Completions endpoint cannot serve hosted tools, so this Agent has no
+    # web search at all rather than a silent fallback to a search provider.
+    assert {:ok, _provider} =
              ProviderConfigs.update_provider(provider.provider_id, %{
-               "connection_options" => %{
-                 "endpoint_kind" => "chat_completions",
-                 "hosted_web_search" => true
-               }
+               "connection_options" => %{"endpoint_kind" => "chat_completions"}
              })
+
+    assert {:ok, turn_start_spec} = TurnPolicy.build_turn_start_spec(actor_key)
+    refute Map.has_key?(turn_start_spec, :hosted_tools)
   end
 
   test "turn start specs include scoped agent runtime policy without creating a default output cap" do

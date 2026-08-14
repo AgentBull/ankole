@@ -31,7 +31,7 @@ describe('@ankole/agent-computer addressed empty-text input', () => {
       {
         data: {
           entry: {
-            author: { display_name: '余丰任' },
+            author: { display_name: 'Example User' },
             text: ''
           }
         }
@@ -39,7 +39,7 @@ describe('@ankole/agent-computer addressed empty-text input', () => {
       'im.message.addressed'
     )
 
-    expect(text).toContain('余丰任 addressed you')
+    expect(text).toContain('Example User addressed you')
     expect(text).toContain('without any message text')
     expect(text).toContain('quoted recent conversation')
     expect(text).not.toContain('Handle actor event of type')

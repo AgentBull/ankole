@@ -193,7 +193,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
         "revision" => request.revision
       }
       |> put_json_document("trajectory", request.trajectory_json)
-      |> put_json_document("trajectory_groups", request.trajectory_groups_json)
+      |> put_json_document("turn_items", request.turn_items_json)
       |> put_json_document("progress", request.progress_json)
       |> put_json_document("usage", request.usage_json)
       |> put_json_document("error", request.error_json)
@@ -216,6 +216,34 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
          turn: turn_message(BackgroundAgentJobs.worker_turn_projection(turn))
        }}
     else
+      {:error, reason} -> error(ctx.request_id, turn_ref.agent_uid, reason)
+    end
+  end
+
+  @spec handle_turn_items_list(
+          TurnRef.t(),
+          FabricProto.BackgroundAgentJobTurnItemsListRequest.t(),
+          map()
+        ) ::
+          {:ok, FabricProto.BackgroundAgentJobTurnItemsListResponse.t()} | {:error, map()}
+  def handle_turn_items_list(
+        %TurnRef{} = turn_ref,
+        %FabricProto.BackgroundAgentJobTurnItemsListRequest{} = request,
+        ctx
+      ) do
+    with {:ok, job_id} <- request_job_id(request.job_id),
+         :ok <- authorize_job_turn(turn_ref, job_id),
+         %Job{} = job <- BackgroundAgentJobs.get_job_for_agent(job_id, turn_ref.agent_uid),
+         {:ok, page} <-
+           BackgroundAgentJobs.replay_items_page(job, present_or_nil(request.cursor)) do
+      {:ok,
+       %FabricProto.BackgroundAgentJobTurnItemsListResponse{
+         job_id: Integer.to_string(job_id),
+         items: Enum.map(page.items, &turn_item_message/1),
+         next_cursor: page.next_cursor || ""
+       }}
+    else
+      nil -> error(ctx.request_id, turn_ref.agent_uid, :job_not_found)
       {:error, reason} -> error(ctx.request_id, turn_ref.agent_uid, reason)
     end
   end
@@ -630,6 +658,19 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
       value -> Map.put(map, key, value)
     end
   end
+
+  defp turn_item_message(item) when is_map(item) do
+    %FabricProto.BackgroundAgentJobTurnItem{
+      runtime_thread_id: Map.get(item, :runtime_thread_id) || "",
+      runtime_turn_id: Map.get(item, :runtime_turn_id) || "",
+      position: Map.get(item, :position) || 0,
+      item_key: Map.get(item, :item_key) || "",
+      item_json: Torque.encode!(Map.get(item, :item) || %{})
+    }
+  end
+
+  defp present_or_nil(""), do: nil
+  defp present_or_nil(value) when is_binary(value), do: value
 
   defp encode_optional_json(nil), do: ""
   defp encode_optional_json(value) when value == %{}, do: ""

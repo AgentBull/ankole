@@ -13,6 +13,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionActivation
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionWorkerAssignment
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
+  alias Ankole.SignalsGateway.ActorRuntime.DeadLetterNoticeConfig
   alias Ankole.SignalsGateway.ActorRuntime.SessionWorkspaces
   alias Ankole.SignalsGateway.ActorRuntime.TurnEnvelope
   alias Ankole.SignalsGateway.ActorRuntime.TurnRuntimeEnv
@@ -23,11 +24,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
   alias Ankole.SignalsGateway.ActorRuntime.WorkerPool
   alias Ankole.I18n
   alias Ankole.Logging
+  alias Ankole.Observability
   alias Ankole.Repo
   alias Ankole.RuntimeEvents
   alias Ankole.SignalsGateway.ActorRuntime.TurnPolicy
   alias Ankole.SignalsGateway.AIReplyPreview
   alias Ankole.SignalsGateway.Outbox
+  alias Ankole.SignalsGateway.Sanitizer
   alias Ankole.BackgroundAgentJobs
 
   require Ankole.BackgroundAgentJobs
@@ -79,13 +82,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
         deliveries = [delivery]
         turn_ref = TurnEnvelope.turn_ref(actor_key, activation)
 
-        envelope =
-          TurnEnvelope.turn_start(
-            turn_ref,
-            dedupe_delivered_channel_context(actor_event, actor_key, conversation),
-            deliveries,
-            turn_start_spec
-          )
+        delivered_actor_event =
+          dedupe_delivered_channel_context(actor_event, actor_key, conversation)
 
         {:ok,
          %{
@@ -93,10 +91,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
            activation: activation,
            assignment: assignment,
            conversation: conversation,
+           delivered_actor_event: delivered_actor_event,
            deliveries: deliveries,
            turn_ref: turn_ref,
-           turn_start_spec: turn_start_spec,
-           envelope: envelope
+           turn_start_spec: turn_start_spec
          }}
       else
         {:error, _reason} = error -> error
@@ -408,6 +406,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
         end
       end)
       |> stop_preview_after_terminal(turn_ref.actor_event_id)
+      |> finish_turn_after_terminal(turn_ref.actor_event_id)
     end
   end
 
@@ -417,6 +416,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
   end
 
   defp stop_preview_after_terminal({:error, _reason} = error, _actor_event_id), do: error
+
+  defp finish_turn_after_terminal({:ok, _result} = success, actor_event_id) do
+    Observability.finish_turn(actor_event_id)
+    success
+  end
+
+  defp finish_turn_after_terminal({:error, _reason} = error, _actor_event_id), do: error
 
   @doc """
   Handles a worker turn error without consuming the actor event.
@@ -430,7 +436,15 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
   def handle_turn_error(%FabricProto.TurnError{} = payload, opts \\ []) do
     with {:ok, turn_ref} <- TurnRef.from_proto(payload.turn) do
       reason = turn_error_reason(payload)
-      handle_turn_abort(turn_ref, reason, opts)
+
+      case handle_turn_abort(turn_ref, reason, opts) do
+        {:ok, _result} = success ->
+          Observability.finish_turn(turn_ref.actor_event_id, error_type: reason["code"])
+          success
+
+        {:error, _reason} = error ->
+          error
+      end
     end
   end
 
@@ -492,7 +506,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
              now,
              dead_letter?
            ),
-         {:ok, _dead_letter_notice} <- maybe_commit_dead_letter_notice(repo, event, dead_letter?),
+         {:ok, _dead_letter_notice} <-
+           maybe_commit_dead_letter_notice(repo, event, dead_letter?, reason),
          {:ok, activation} <- fail_activation_for_turn_error(repo, activation, reason, now),
          {:ok, compensation} <-
            compensate_turn_error_in_tx(compensate_in_tx, repo, event, reason, now) do
@@ -569,20 +584,45 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
     |> where([delivery], delivery.state == "superseded")
   end
 
-  # Sends the already persisted turn-start envelope after the transaction has
-  # committed. A failed send invalidates the route and leaves delivery rows as
-  # retryable runtime projections instead of rolling back the durable turn.
+  # Builds and sends the turn-start envelope after the transaction has
+  # committed. The turn span starts here, outside the transaction, so a
+  # traceparent can join the request context before the one envelope build.
+  # A failed send invalidates the route and leaves delivery rows as retryable
+  # runtime projections instead of rolling back the durable turn.
   defp send_turn_start(
          {:ok,
           %{
             assignment: assignment,
-            envelope: envelope,
             deliveries: deliveries,
             actor_event: actor_event,
-            conversation: conversation
+            conversation: conversation,
+            delivered_actor_event: delivered_actor_event,
+            turn_ref: turn_ref,
+            turn_start_spec: turn_start_spec
           } =
             result}
        ) do
+    turn_start_spec =
+      case Observability.start_turn(actor_event, turn_start_spec) do
+        traceparent when is_binary(traceparent) ->
+          request_context =
+            (Map.get(turn_start_spec, :request_context) || %{})
+            |> Map.put("traceparent", traceparent)
+
+          Map.put(turn_start_spec, :request_context, request_context)
+
+        nil ->
+          turn_start_spec
+      end
+
+    envelope =
+      TurnEnvelope.turn_start(turn_ref, delivered_actor_event, deliveries, turn_start_spec)
+
+    result =
+      result
+      |> Map.put(:turn_start_spec, turn_start_spec)
+      |> Map.put(:envelope, envelope)
+
     maybe_start_preview(actor_event, conversation)
     route = assignment.transport_route || assignment.worker_id
 
@@ -592,6 +632,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
         {:ok, Map.put(result, :send_outcome, "sent_or_queued")}
 
       {:error, reason} ->
+        Observability.finish_turn(actor_event.id, error_type: "turn_start_send_failed")
         AIReplyPreview.stop(actor_event.id)
         Enum.each(deliveries, &mark_delivery_failed(&1.id, reason, reason))
         WorkerAdmission.mark_route_unusable(route, reason)
@@ -1229,9 +1270,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
   # The dead-letter row and its provider-visible terminal intent are one durable
   # fact. Committing them in separate transactions leaves an accepted message
   # permanently silent if the control plane exits between the two writes.
-  defp maybe_commit_dead_letter_notice(repo, %ActorEvent{} = event, true) do
+  defp maybe_commit_dead_letter_notice(repo, %ActorEvent{} = event, true, reason) do
     if AIReplyPreview.im_visible_event?(event) do
-      text = dead_letter_notice_text(event)
+      text = dead_letter_notice_text(repo, event, reason)
 
       case Outbox.commit_dead_letter_notice_outbox_in_tx(repo, event, text) do
         {:ok, notice} -> {:ok, notice}
@@ -1242,7 +1283,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
     end
   end
 
-  defp maybe_commit_dead_letter_notice(_repo, %ActorEvent{}, false), do: {:ok, nil}
+  defp maybe_commit_dead_letter_notice(_repo, %ActorEvent{}, false, _reason), do: {:ok, nil}
 
   # A dead-lettered Job lifecycle wakeup still owes the user the outcome. The
   # wakeup payload already carries the durable facts, so the notice renders
@@ -1279,6 +1320,20 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
 
   defp dead_letter_notice_text(%ActorEvent{} = event),
     do: I18n.t("signals_gateway.reply.dead_letter", %{"ref" => event.id})
+
+  defp dead_letter_notice_text(repo, %ActorEvent{} = event, reason) do
+    text = dead_letter_notice_text(event)
+
+    if DeadLetterNoticeConfig.enabled_in_tx?(repo) do
+      detail = Sanitizer.preview(reason)
+
+      text <>
+        "\n" <>
+        I18n.t("signals_gateway.reply.dead_letter_error_details", %{"detail" => detail})
+    else
+      text
+    end
+  end
 
   defp text_value(value) when is_binary(value) and value != "", do: value
   defp text_value(_value), do: nil
@@ -1650,7 +1705,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
          {_count, _rows} <-
            supersede_turn_deliveries_by_actor_event_id(actor_event_id, repo, now, reason),
          {:ok, event} <- Actors.mark_event_dead_letter_in_tx(repo, event, now),
-         {:ok, _notice} <- maybe_commit_dead_letter_notice(repo, event, true) do
+         {:ok, _notice} <- maybe_commit_dead_letter_notice(repo, event, true, reason) do
       mark_activation_failed(repo, activation, reason, now)
     else
       nil -> {:error, :actor_runtime_fence_not_found}

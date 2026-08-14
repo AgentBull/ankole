@@ -14,6 +14,7 @@ defmodule Ankole.AIGateway.ResponseStream do
   alias Ankole.AIGateway.FailureDiagnostics
   alias Ankole.AIGateway.HostedTools.ImageGeneration
   alias Ankole.AIGateway.HostedToolTelemetry
+  alias Ankole.AIGateway.Observability
   alias Ankole.AIGateway.ProgramExecution
   alias Ankole.AIGateway.ResponseStream.State
   alias Ankole.AIGateway.ResponseStream.Supervisor
@@ -62,6 +63,7 @@ defmodule Ankole.AIGateway.ResponseStream do
     child_opts = [
       subject_uid: subject_uid,
       request: stream_policy(request),
+      observation_request: request,
       stateful: Keyword.get(opts, :stateful),
       tool_loop: tool_loop,
       hosted_credential_attempt: hosted_credential_attempt,
@@ -193,6 +195,7 @@ defmodule Ankole.AIGateway.ResponseStream do
     loop = ToolSearchStreamLoop.new(raw_tool_loop)
     meta = resolver_meta(prepared_request)
     stateful = Keyword.get(opts, :stateful)
+    request = Keyword.fetch!(opts, :request)
 
     state = %{
       phase: if(ToolSearchStreamLoop.initial_local_effect?(loop), do: :ready, else: :opening),
@@ -201,8 +204,14 @@ defmodule Ankole.AIGateway.ResponseStream do
       receiver: receiver,
       owner_monitor: owner_monitor,
       subject_uid: Keyword.fetch!(opts, :subject_uid),
-      request: Keyword.fetch!(opts, :request),
+      request: request,
       stateful: stateful,
+      observability:
+        Observability.start_response(
+          Keyword.fetch!(opts, :subject_uid),
+          Keyword.get(opts, :observation_request, request),
+          Keyword.take(opts, [:stateful, :request_context, :subject_type, :caller])
+        ),
       semantic: nil,
       round_open: round_open_fun(raw_tool_loop),
       program_runner: Keyword.get(opts, :program_runner),
@@ -290,6 +299,7 @@ defmodule Ankole.AIGateway.ResponseStream do
   end
 
   defp begin_open_episode(state, kind, context, spec) when is_map(spec) do
+    state = start_observed_round(state, context, spec)
     token = make_ref()
     timeout_ms = UniversalAIRequest.ready_timeout_ms(spec)
     deadline_ms = System.monotonic_time(:millisecond) + timeout_ms
@@ -315,6 +325,7 @@ defmodule Ankole.AIGateway.ResponseStream do
   end
 
   defp begin_custom_open(state, kind, fun) when is_function(fun, 0) do
+    state = start_observed_round(state, state.attempt_context, state.attempt_spec)
     token = make_ref()
     timeout_ms = UniversalAIRequest.ready_timeout_ms(state.attempt_spec)
     deadline_ms = System.monotonic_time(:millisecond) + timeout_ms
@@ -461,6 +472,7 @@ defmodule Ankole.AIGateway.ResponseStream do
       stop_after_retry_failure(state, reason)
     else
       state = log_failure_once(state, reason)
+      state = fail_observation(state, reason)
       maybe_emit_open_failure(state.telemetry_spec, reason)
 
       had_waiters? = state.describe_waiters != []
@@ -648,7 +660,7 @@ defmodule Ankole.AIGateway.ResponseStream do
   end
 
   def handle_info(
-        {:response_stream_retry_planned, token, _original_reason,
+        {:response_stream_retry_planned, token, original_reason,
          {:retry, context, spec, delay_ms}},
         %{opening: %{token: token} = opening} = state
       ) do
@@ -658,6 +670,7 @@ defmodule Ankole.AIGateway.ResponseStream do
     if remaining_ms == 0 or delay_ms >= remaining_ms do
       finish_open_failure(state, ready_timeout_error())
     else
+      :ok = Observability.record_credential_retry(state.observability, original_reason, delay_ms)
       :ok = cancel_open_worker(opening.worker)
 
       retry_timer =
@@ -877,7 +890,11 @@ defmodule Ankole.AIGateway.ResponseStream do
 
     case decode_event(chunk) do
       {:ok, event} ->
-        state = %{state | provider_output?: true}
+        state = %{
+          state
+          | provider_output?: true,
+            observability: Observability.observe_output(state.observability, event)
+        }
 
         state =
           state
@@ -988,10 +1005,13 @@ defmodule Ankole.AIGateway.ResponseStream do
     _ = cancel_native(Map.get(state, :native_stream))
     _ = cancel_open_candidate_if_present(state)
     :ok = cancel_program(Map.get(state, :program_task))
+    _observation = Observability.fail(Map.get(state, :observability), :response_stream_terminated)
     :ok
   end
 
   defp observe_event(state, event, sequence) do
+    state = finish_observed_round(state, event)
+
     case State.observe(state.semantic, event, sequence) do
       {:ok, semantic, events, :continue} ->
         state = %{state | semantic: semantic}
@@ -1024,6 +1044,7 @@ defmodule Ankole.AIGateway.ResponseStream do
           state
           |> Map.put(:semantic, semantic)
           |> log_terminal_failure_once(outcome)
+          |> finish_observation(outcome)
 
         state = finish_public_stream(state, upstream_action)
         send_events(state, events, {:terminal, outcome})
@@ -1043,6 +1064,7 @@ defmodule Ankole.AIGateway.ResponseStream do
 
       {:error, semantic, events, {:terminal, outcome, _action}, reason} ->
         state = %{state | semantic: semantic} |> emit_failure_once(reason)
+        state = finish_observation(state, outcome)
         state = finish_public_stream(state, :cancel_upstream)
         send_events(state, events, {:terminal, outcome})
         {:noreply, state}
@@ -1077,6 +1099,7 @@ defmodule Ankole.AIGateway.ResponseStream do
           state
           |> Map.put(:semantic, semantic)
           |> log_terminal_failure_once(outcome)
+          |> finish_observation(outcome)
           |> finish_public_stream(upstream_action)
 
         {:noreply, deliver_local_effect_events(state, events, {:terminal, outcome})}
@@ -1334,6 +1357,29 @@ defmodule Ankole.AIGateway.ResponseStream do
     end
   end
 
+  defp start_observed_round(state, context, spec) do
+    %{state | observability: Observability.start_round(state.observability, context, spec)}
+  end
+
+  defp finish_observed_round(state, %{"type" => type} = event)
+       when type in ["response.completed", "response.failed", "response.incomplete"] do
+    %{state | observability: Observability.finish_round(state.observability, event)}
+  end
+
+  defp finish_observed_round(state, _event), do: state
+
+  defp fail_observed_round(state, reason) do
+    %{state | observability: Observability.fail_round(state.observability, reason)}
+  end
+
+  defp finish_observation(state, outcome) do
+    %{state | observability: Observability.finish_response(state.observability, outcome)}
+  end
+
+  defp fail_observation(state, reason) do
+    %{state | observability: Observability.fail(state.observability, reason)}
+  end
+
   # Replaces the finished provider round with a continuation stream inside the
   # same public response. The old native stream already reached its terminal;
   # cancel is a no-op safety release.
@@ -1403,7 +1449,13 @@ defmodule Ankole.AIGateway.ResponseStream do
       |> emit_failure_once(failure)
 
     {semantic, events, outcome} = State.fail(state.semantic, reason, opts)
-    {%{state | semantic: semantic}, events, outcome}
+
+    state =
+      %{state | semantic: semantic}
+      |> fail_observed_round(failure)
+      |> finish_observation(outcome)
+
+    {state, events, outcome}
   end
 
   defp send_events(state, events, status) do

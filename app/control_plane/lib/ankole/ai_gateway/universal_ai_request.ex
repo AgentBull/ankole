@@ -18,6 +18,7 @@ defmodule Ankole.AIGateway.UniversalAIRequest do
     :ctx,
     :path,
     :api_resolver,
+    :operation,
     method: "POST",
     upstream: nil,
     headers: [],
@@ -37,6 +38,7 @@ defmodule Ankole.AIGateway.UniversalAIRequest do
           ctx: map(),
           path: binary(),
           api_resolver: atom(),
+          operation: :responses_compact | nil,
           method: binary(),
           upstream: atom() | nil,
           headers: [{binary(), binary()}],
@@ -75,6 +77,8 @@ defmodule Ankole.AIGateway.UniversalAIRequest do
   """
   @spec to_spec(t()) :: {:ok, map()} | {:error, term()}
   def to_spec(%__MODULE__{} = request) do
+    request = apply_operation(request)
+
     with {:ok, url} <- request_url(request.ctx, request.path, request.upstream) do
       upstream =
         %{
@@ -92,9 +96,26 @@ defmodule Ankole.AIGateway.UniversalAIRequest do
          api_resolver: request.api_resolver,
          upstream: upstream,
          response_context:
-           response_context(request.ctx, request.include_model, request.provider_options)
+           response_context(
+             request.ctx,
+             request.include_model,
+             request.provider_options,
+             request.operation
+           )
        }}
     end
+  end
+
+  @doc """
+  Selects a provider operation that changes the final request wire shape.
+
+  The provider keeps ownership of its Responses path and authentication. This
+  module applies the shared compact suffix and non-streaming protocol after the
+  provider has selected that path.
+  """
+  @spec put_operation(t(), :responses_compact) :: t()
+  def put_operation(%__MODULE__{} = request, :responses_compact) do
+    %{request | operation: :responses_compact}
   end
 
   @doc """
@@ -397,7 +418,7 @@ defmodule Ankole.AIGateway.UniversalAIRequest do
   # projection. Keep the public request separate from provider-native options
   # so the resolver can filter public control fields without dropping an
   # explicitly configured provider value with the same wire name.
-  defp response_context(ctx, include_model?, provider_options_override) do
+  defp response_context(ctx, include_model?, provider_options_override, operation) do
     model = map_get(ctx, :model) || ""
 
     %{
@@ -409,9 +430,31 @@ defmodule Ankole.AIGateway.UniversalAIRequest do
           model
         ),
       provider_options: provider_options_override || map_get(ctx, :provider_options) || %{},
-      stream: map_get(ctx, :stream?) || false,
+      stream: response_stream(ctx, operation),
       include_model: include_model?
     }
+  end
+
+  defp response_stream(_ctx, :responses_compact), do: false
+  defp response_stream(ctx, _operation), do: map_get(ctx, :stream?) || false
+
+  defp apply_operation(%__MODULE__{operation: :responses_compact} = request) do
+    %{
+      request
+      | path: responses_compact_path(request.path),
+        api_resolver: :openai_responses_compact,
+        method: "POST",
+        upstream: :json
+    }
+  end
+
+  defp apply_operation(%__MODULE__{} = request), do: request
+
+  defp responses_compact_path(path) do
+    case String.split(path, "?", parts: 2) do
+      [route, query] -> "#{String.trim_trailing(route, "/")}/compact?#{query}"
+      [route] -> "#{String.trim_trailing(route, "/")}/compact"
+    end
   end
 
   defp put_reasoning_source(request, provider_type, model_id)

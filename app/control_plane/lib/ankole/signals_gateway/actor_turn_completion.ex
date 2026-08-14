@@ -19,6 +19,7 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
   alias Ankole.SignalsGateway.ActorRuntime.TurnLifecycle
   alias Ankole.SignalsGateway.ActorRuntime.TurnRef
   alias Ankole.Logging
+  alias Ankole.Observability
   alias Ankole.Repo
   alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.Schedule.Delivery
@@ -46,7 +47,7 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
         %ActorEvent{} = event ->
           with :ok <- validate_completion_anchor(event, final_response_id, outcome) do
             {:ok, %{status: :already_completed, actor_event: event, outcome: outcome}}
-            |> after_commit(turn_ref, final_response_id, outcome)
+            |> after_commit(turn_ref, final_response_id, outcome, nil)
           end
 
         nil ->
@@ -57,7 +58,7 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
             Repo.transact(fn repo ->
               commit_in_tx(repo, turn_ref, completion, outcome, now)
             end)
-            |> after_commit(turn_ref, final_response_id, outcome)
+            |> after_commit(turn_ref, final_response_id, outcome, completion.final_text)
           end
       end
     end
@@ -586,8 +587,9 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
     {deleted_count, superseded_count}
   end
 
-  defp after_commit({:ok, result}, turn_ref, final_response_id, outcome) do
+  defp after_commit({:ok, result}, turn_ref, final_response_id, outcome, final_text) do
     AIReplyPreview.stop(turn_ref.actor_event_id)
+    Observability.finish_turn(turn_ref.actor_event_id, output: final_text)
 
     Logging.info(
       "signals_gateway.actor_turn_completed",
@@ -605,7 +607,14 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
     {:ok, result}
   end
 
-  defp after_commit({:error, _reason} = error, _turn_ref, _response_id, _outcome), do: error
+  defp after_commit(
+         {:error, _reason} = error,
+         _turn_ref,
+         _response_id,
+         _outcome,
+         _final_text
+       ),
+       do: error
 
   # The proto enum atom becomes the domain outcome string persisted on the
   # actor event (`turn_outcome`), so downstream rows keep their existing values.

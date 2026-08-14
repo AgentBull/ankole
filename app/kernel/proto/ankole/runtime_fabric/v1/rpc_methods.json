@@ -150,6 +150,13 @@
     "response_type": "ankole.runtime_fabric.v1.BackgroundAgentJobTurnUpsertResponse"
   },
   {
+    "method": "background_agent_job.turn_items.list",
+    "scope": "turn",
+    "effect": "read",
+    "request_type": "ankole.runtime_fabric.v1.BackgroundAgentJobTurnItemsListRequest",
+    "response_type": "ankole.runtime_fabric.v1.BackgroundAgentJobTurnItemsListResponse"
+  },
+  {
     "method": "codex_logs2.daily_maintenance",
     "owner": "worker",
     "request_type": "ankole.runtime_fabric.v1.CodexLogs2DailyMaintenanceRequest",
@@ -189,6 +196,12 @@
     "effect": "write",
     "request_type": "ankole.runtime_fabric.v1.MemoryUpdateRequest",
     "response_type": "ankole.runtime_fabric.v1.JSONPassthroughResponse"
+  },
+  {
+    "method": "observability.spans.export",
+    "scope": "worker_agent",
+    "request_type": "ankole.runtime_fabric.v1.ObservabilitySpansExportRequest",
+    "response_type": "ankole.runtime_fabric.v1.ObservabilitySpansExportResponse"
   },
   {
     "method": "schedule.check_back_later.cancel",

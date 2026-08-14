@@ -87,6 +87,7 @@ export type ResponseWebSocketTransport = {
   kind: 'aigateway-websocket'
   url: string
   authorization: (options?: ResponseWebSocketAuthorizationOptions) => Promise<string> | string
+  headers?: Record<string, string>
   /** Test seam for fake AIGateway sockets; production uses OpenAI SDK ResponsesWS. */
   createWebSocket?: (
     url: string,

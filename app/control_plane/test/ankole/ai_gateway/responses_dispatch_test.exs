@@ -7,6 +7,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
   alias Ankole.AIGateway.CompactionArtifacts
   alias Ankole.AIGateway.CredentialAttempts
   alias Ankole.AIGateway.CredentialPool
+  alias Ankole.AIGateway.ModelMetadata.Cache
   alias Ankole.AIGateway.Artifacts
   alias Ankole.AIGateway.OpenAIError
   alias Ankole.AIGateway.Providers
@@ -431,6 +432,98 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert_receive {:gateway_request, codex_request}
     assert codex_request.path == "responses"
     assert codex_request.body["tools"] == codex_tools
+  end
+
+  test "ChatGPT Subscription forwards Codex v2 compaction through normal Responses" do
+    %{principal: agent} = agent_fixture()
+
+    base_url =
+      start_recording_upstream(self(), fn request ->
+        assert List.last(request.body["input"]) == %{"type" => "compaction_trigger"}
+
+        item = %{
+          "id" => "cmp_chatgpt_v2",
+          "type" => "compaction",
+          "encrypted_content" => "provider-opaque-state"
+        }
+
+        response = %{
+          "id" => "resp_chatgpt_v2",
+          "object" => "response",
+          "created_at" => 1_764_967_971,
+          "completed_at" => nil,
+          "status" => "in_progress",
+          "model" => "gpt-5.6-sol",
+          "previous_response_id" => nil,
+          "output" => [],
+          "usage" => nil
+        }
+
+        {:sse, 200,
+         [
+           %{"type" => "response.created", "sequence_number" => 0, "response" => response},
+           %{
+             "type" => "response.output_item.done",
+             "sequence_number" => 1,
+             "output_index" => 0,
+             "item" => item
+           },
+           %{
+             "type" => "response.completed",
+             "sequence_number" => 2,
+             "response" => %{
+               response
+               | "completed_at" => 1_764_967_972,
+                 "status" => "completed",
+                 "output" => [item]
+             }
+           }
+         ]}
+      end)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "chatgpt-v2-compaction",
+               provider_kind: "chatgpt_subscription",
+               base_url: base_url,
+               credential_pool: %{
+                 "entries" => [
+                   %{
+                     "id" => "enterprise",
+                     "label" => "Enterprise",
+                     "access_token" => "access-token",
+                     "account_id" => "account-id",
+                     "auth_type" => "enterprise_access_token"
+                   }
+                 ]
+               },
+               connection_options: %{"transport" => %{"http_versions" => ["h1"]}}
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "chatgpt-v2-compaction",
+               model: "gpt-5.6-sol"
+             })
+
+    assert {:ok, %{body: body}} =
+             AIGateway.create_response(
+               agent.uid,
+               %{
+                 "model" => "primary",
+                 "input" => [
+                   text_message("user", "compact this history"),
+                   %{"type" => "compaction_trigger"}
+                 ]
+               },
+               request_context: %{"headers" => %{"originator" => "codex_cli_rs"}}
+             )
+
+    assert_receive {:gateway_request, request}
+    assert request.path == "responses"
+
+    assert [%{"type" => "compaction", "encrypted_content" => "provider-opaque-state"}] =
+             body["output"]
   end
 
   test "ChatGPT complete responses collect SSE and strip unsupported request fields" do
@@ -3371,6 +3464,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
   test "compaction threshold follows model context ratio with a configurable cap" do
     _result = Compaction.delete_config()
+    refute Compaction.prefer_upstream?()
 
     assert %{
              tokens: 100_000,
@@ -3389,6 +3483,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              })
 
     with_compaction_config(threshold: 0.25, max_threshold_tokens: 200_000, tail_rows: 2)
+    refute Compaction.prefer_upstream?()
 
     assert %{
              tokens: 100_000,
@@ -3396,6 +3491,9 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              threshold: 0.25,
              max_threshold_tokens: 200_000
            } = Compaction.threshold_spec(%{"context_length" => 400_000}, %{})
+
+    assert {:error, :invalid_compaction_prefer_upstream} =
+             Compaction.put_config(%{"prefer_upstream" => "true"})
   end
 
   test "websocket stateful memory pre-compaction nudge enters an empty continuation" do
@@ -3596,10 +3694,11 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert provider_request["store"] == false
     assert user_orig_1 == hd(m1.content)
     assert user_orig_2 == hd(m2.content)
-    assert compaction_item["type"] == "compaction"
 
-    assert compaction_item["encrypted_content"] ==
-             "## Active Task\nPrior two turns were compressed."
+    assert_local_checkpoint_message(
+      compaction_item,
+      "## Active Task\nPrior two turns were compressed."
+    )
 
     assert rest == m3.content ++ current_input
 
@@ -3752,10 +3851,11 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     [user_orig_1, compaction_item | rest] = provider_request["input"]
 
     assert user_orig_1 == hd(m1.content)
-    assert compaction_item["type"] == "compaction"
 
-    assert compaction_item["encrypted_content"] ==
-             "## Active Task\nThe complete tool batch was compressed."
+    assert_local_checkpoint_message(
+      compaction_item,
+      "## Active Task\nThe complete tool batch was compressed."
+    )
 
     assert rest == m4.content ++ current_input
 
@@ -3886,10 +3986,12 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     provider_input = request.response_context.request["input"]
 
-    assert [%{"type" => "compaction"} = compaction_item | ^current_input] = provider_input
+    assert [compaction_item | ^current_input] = provider_input
 
-    assert compaction_item["encrypted_content"] ==
-             "## Active Task\nThe completed program batch was compressed."
+    assert_local_checkpoint_message(
+      compaction_item,
+      "## Active Task\nThe completed program batch was compressed."
+    )
 
     refute Ankole.JSON.encode!(provider_input) =~ "PROGRAM_RESULT_SENTINEL"
     refute Ankole.JSON.encode!(provider_input) =~ "FINAL_RESPONSE_SENTINEL"
@@ -4312,12 +4414,10 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     provider_request = request.response_context.request
     [compaction_item | stable_input] = provider_request["input"]
 
-    assert compaction_item == %{
-             "type" => "compaction",
-             "encrypted_content" =>
-               "Earlier conversation history was omitted because it exceeded the active context budget.",
-             "created_by" => "ankole-aigateway"
-           }
+    assert_local_checkpoint_message(
+      compaction_item,
+      "Earlier conversation history was omitted because it exceeded the active context budget."
+    )
 
     assert stable_input == call.content ++ tail.content ++ current_input
     assert Enum.count(Repo.all(Message), &(&1.type == "checkpoint")) == 1
@@ -4536,15 +4636,14 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     provider_request = request.response_context.request
 
-    assert [
-             %{
-               "type" => "compaction",
-               "encrypted_content" =>
-                 "Earlier conversation history was omitted because it exceeded the active context budget."
-             },
-             %{"type" => "compaction", "encrypted_content" => "earlier work compressed"}
-             | _rest
-           ] = provider_request["input"]
+    assert [truncation_checkpoint, earlier_checkpoint | _rest] = provider_request["input"]
+
+    assert_local_checkpoint_message(
+      truncation_checkpoint,
+      "Earlier conversation history was omitted because it exceeded the active context budget."
+    )
+
+    assert_local_checkpoint_message(earlier_checkpoint, "earlier work compressed")
 
     stable_tail = tail.content ++ current_input
     assert Enum.take(provider_request["input"], -length(stable_tail)) == stable_tail
@@ -4580,24 +4679,15 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     next_provider_input = next_request.response_context.request["input"]
 
-    assert Enum.count(next_provider_input, fn
-             %{
-               "type" => "compaction",
-               "encrypted_content" =>
-                 "Earlier conversation history was omitted because it exceeded the active context budget."
-             } ->
-               true
-
-             _item ->
-               false
-           end) == 1
+    assert Enum.count(
+             next_provider_input,
+             &(local_checkpoint_summary(&1) ==
+                 "Earlier conversation history was omitted because it exceeded the active context budget.")
+           ) == 1
 
     assert Enum.count(
              next_provider_input,
-             &match?(
-               %{"type" => "compaction", "encrypted_content" => "earlier work compressed"},
-               &1
-             )
+             &(local_checkpoint_summary(&1) == "earlier work compressed")
            ) == 1
 
     assert Enum.take(next_provider_input, -2) == next_tail.content ++ next_input
@@ -4662,10 +4752,11 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     provider_request = request.response_context.request
     [compaction_item | retained_input] = provider_request["input"]
-    assert compaction_item["type"] == "compaction"
 
-    assert compaction_item["encrypted_content"] ==
-             "Earlier conversation history was omitted because it exceeded the active context budget."
+    assert_local_checkpoint_message(
+      compaction_item,
+      "Earlier conversation history was omitted because it exceeded the active context budget."
+    )
 
     assert retained_input == m2.content ++ current_input
     assert provider_request["truncation"] == "auto"
@@ -4876,12 +4967,10 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     provider_request = request.response_context.request
     [compaction_item | _rest] = provider_request["input"]
 
-    assert compaction_item == %{
-             "type" => "compaction",
-             "encrypted_content" =>
-               "Earlier conversation history was omitted because it exceeded the active context budget.",
-             "created_by" => "ankole-aigateway"
-           }
+    assert_local_checkpoint_message(
+      compaction_item,
+      "Earlier conversation history was omitted because it exceeded the active context budget."
+    )
 
     refute Enum.any?(provider_request["input"], &(&1 in m1.content))
     assert Enum.take(provider_request["input"], -2) == m3.content ++ current_input
@@ -6219,6 +6308,273 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert v1_body["id"] == "resp_azure_v1"
   end
 
+  test "standalone compact preserves provider-native output in one version 3 artifact" do
+    %{principal: agent} = agent_fixture()
+    with_compaction_config(prefer_upstream: true)
+
+    native_output = [
+      %{"type" => "message", "role" => "user", "content" => "retained"},
+      %{
+        "type" => "compaction",
+        "encrypted_content" => "provider-opaque-state",
+        "unknown" => %{"preserved" => true}
+      }
+    ]
+
+    base_url =
+      start_recording_upstream(self(), fn request ->
+        assert request.path == "v1/responses/compact"
+        assert request.body["model"] == "gpt-5.6"
+        assert request.body["stream"] == false
+
+        {:json, 200, %{"output" => native_output, "usage" => %{"total_tokens" => 42}}}
+      end)
+
+    configure_openai_responses_provider!(
+      agent.uid,
+      base_url,
+      "openai-native-compact-success"
+    )
+
+    input = [text_message("user", "compact this history")]
+
+    assert {:ok, body} =
+             Compaction.compact_response(agent.uid, %{
+               "model" => "primary",
+               "input" => input,
+               "store" => false
+             })
+
+    assert body["output"] == native_output
+    assert_receive {:gateway_request, %{path: "v1/responses/compact"}}
+
+    artifact =
+      Repo.all(CompactionArtifact)
+      |> Enum.find(&(Map.get(&1.content, "version") == 3))
+
+    assert artifact.content["source"] == "upstream"
+    assert artifact.content["output"] == native_output
+    assert artifact.content["binding"]["model"] == "gpt-5.6"
+    assert is_binary(artifact.content["binding"]["provider_row_id"])
+    refute inspect(artifact.content["output"]) =~ "ankole:compact:v1:"
+  end
+
+  test "stateful compaction replays native output and replaces it locally after a binding change" do
+    %{principal: agent} = agent_fixture()
+    with_compaction_config(prefer_upstream: true, threshold: 0.50, max_threshold_tokens: 10)
+
+    native_output = [
+      %{"type" => "message", "role" => "user", "content" => "provider-retained"},
+      %{
+        "type" => "compaction",
+        "encrypted_content" => "provider-opaque-state",
+        "provider_extension" => %{"preserve" => true}
+      }
+    ]
+
+    base_url =
+      start_recording_upstream(self(), fn request ->
+        case request.path do
+          "v1/responses/compact" ->
+            {:json, 200, %{"output" => native_output, "usage" => %{"total_tokens" => 41}}}
+
+          "v1/responses" ->
+            {:sse, 200,
+             openai_response_stream_events(
+               "resp_binding_fallback_summary",
+               request.body["model"],
+               "## Active Task\nRebuilt from the raw predecessor chain."
+             )}
+        end
+      end)
+
+    create_openai_compaction_provider!(agent, "openai-native-stateful", base_url)
+    {conversation, _tail} = compactable_conversation!(agent, "native-stateful")
+    first_input = [text_message("user", "continue after native compaction")]
+
+    assert {:ok, first_request, first_context} =
+             StatefulLifecycle.prepare_and_start_websocket_provider_request(agent.uid, %{
+               "model" => "primary",
+               "input" => first_input,
+               "store" => true,
+               "conversation" => "conv_#{conversation.id}",
+               "metadata" => %{"actor_event_id" => "native-stateful-first"}
+             })
+
+    assert_receive {:gateway_request, %{path: "v1/responses/compact"}}
+    assert first_request.response_context.request["input"] == native_output ++ first_input
+
+    assert {:ok, _completed} =
+             StatefulResponses.commit_complete(
+               first_context.message,
+               [text_message("assistant", "native continuation complete")],
+               camel_usage(320_010)
+             )
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openai-native-stateful",
+               model: "gpt-main-rebound"
+             })
+
+    second_input = [text_message("user", "continue after the model change")]
+
+    assert {:ok, second_request, _second_context} =
+             StatefulLifecycle.prepare_and_start_websocket_provider_request(agent.uid, %{
+               "model" => "primary",
+               "input" => second_input,
+               "store" => true,
+               "conversation" => "conv_#{conversation.id}",
+               "metadata" => %{"actor_event_id" => "native-stateful-rebound"}
+             })
+
+    assert_receive {:gateway_request, %{path: "v1/responses"}}
+    refute_receive {:gateway_request, %{path: "v1/responses/compact"}}, 100
+
+    second_provider_input = second_request.response_context.request["input"]
+    refute Ankole.JSON.encode!(second_provider_input) =~ "provider-opaque-state"
+    assert Enum.any?(second_provider_input, &local_checkpoint_summary/1)
+    assert Enum.take(second_provider_input, -length(second_input)) == second_input
+
+    versions =
+      Repo.all(CompactionArtifact)
+      |> Enum.filter(&(&1.conversation_id == conversation.id))
+      |> Enum.sort_by(& &1.inserted_at, DateTime)
+      |> Enum.map(& &1.content["version"])
+
+    assert versions == [3, 2]
+  end
+
+  test "manual conversation compaction uses the same upstream selector" do
+    %{principal: agent} = agent_fixture()
+    with_compaction_config(prefer_upstream: true)
+
+    native_output = [
+      %{"type" => "compaction", "encrypted_content" => "manual-provider-state"}
+    ]
+
+    base_url =
+      start_recording_upstream(self(), fn request ->
+        assert request.path == "v1/responses/compact"
+        {:json, 200, %{"output" => native_output}}
+      end)
+
+    create_openai_compaction_provider!(agent, "openai-native-manual", base_url,
+      profiles: [{"primary", "gpt-main"}]
+    )
+
+    {conversation, tail} = compactable_conversation!(agent, "native-manual")
+
+    assert {:ok, %{compaction: checkpoint}} =
+             Compaction.compact_conversation(agent.uid, conversation.id)
+
+    assert_receive {:gateway_request, %{path: "v1/responses/compact"}}
+    assert checkpoint.previous_message_id == tail.id
+
+    artifact = Repo.get!(CompactionArtifact, checkpoint.id)
+    assert artifact.content["version"] == 3
+    assert artifact.content["output"] == native_output
+  end
+
+  test "standalone compact caches only a stable unsupported response" do
+    %{principal: agent} = agent_fixture()
+    with_compaction_config(prefer_upstream: true)
+    :ok = Cache.clear_for_test()
+    {:ok, compact_attempts} = Agent.start_link(fn -> 0 end)
+
+    base_url =
+      start_recording_upstream(self(), fn request ->
+        if request.path == "v1/responses/compact" do
+          Agent.update(compact_attempts, &(&1 + 1))
+          {:json, 404, %{"error" => %{"code" => "not_found"}}}
+        else
+          {:sse, 200,
+           openai_response_stream_events(
+             "resp_local_summary",
+             "gpt-5.6",
+             "## Active Task\nLocal fallback summary"
+           )}
+        end
+      end)
+
+    configure_openai_responses_provider!(
+      agent.uid,
+      base_url,
+      "openai-native-compact-negative-cache"
+    )
+
+    request = %{"model" => "primary", "input" => [text_message("user", "history")]}
+
+    assert {:ok, _body} = Compaction.compact_response(agent.uid, request)
+    assert {:ok, _body} = Compaction.compact_response(agent.uid, request)
+    assert Agent.get(compact_attempts, & &1) == 1
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openai-native-compact-negative-cache",
+               model: "gpt-5.6-revision"
+             })
+
+    assert {:ok, _body} = Compaction.compact_response(agent.uid, request)
+    assert Agent.get(compact_attempts, & &1) == 2
+  end
+
+  test "standalone compact does not cache a transient provider failure" do
+    %{principal: agent} = agent_fixture()
+    with_compaction_config(prefer_upstream: true)
+    :ok = Cache.clear_for_test()
+    {:ok, compact_attempts} = Agent.start_link(fn -> 0 end)
+
+    base_url =
+      start_recording_upstream(self(), fn request ->
+        if request.path == "v1/responses/compact" do
+          Agent.update(compact_attempts, &(&1 + 1))
+          {:json, 503, %{"error" => %{"code" => "provider_unavailable"}}}
+        else
+          {:sse, 200,
+           openai_response_stream_events(
+             "resp_local_summary",
+             "gpt-5.6",
+             "## Active Task\nLocal fallback summary"
+           )}
+        end
+      end)
+
+    configure_openai_responses_provider!(
+      agent.uid,
+      base_url,
+      "openai-native-compact-transient"
+    )
+
+    request = %{"model" => "primary", "input" => [text_message("user", "history")]}
+
+    assert {:ok, _body} = Compaction.compact_response(agent.uid, request)
+    attempts_after_first_request = Agent.get(compact_attempts, & &1)
+    assert attempts_after_first_request > 0
+
+    assert {:ok, _body} = Compaction.compact_response(agent.uid, request)
+    assert Agent.get(compact_attempts, & &1) > attempts_after_first_request
+  end
+
+  test "standalone opaque history rejects an unavailable local fallback" do
+    %{principal: agent} = agent_fixture()
+    with_compaction_config(prefer_upstream: false)
+
+    configure_openai_responses_provider!(
+      agent.uid,
+      "http://127.0.0.1:1",
+      "openai-native-compact-opaque"
+    )
+
+    assert {:error, :opaque_compaction_fallback_unavailable} =
+             Compaction.compact_response(agent.uid, %{
+               "model" => "primary",
+               "input" => [
+                 %{"type" => "compaction", "encrypted_content" => "provider-opaque-state"}
+               ]
+             })
+  end
+
   defp start_recording_upstream(test_pid, response_fun) do
     start_upstream_server(fn request ->
       send(test_pid, {:gateway_request, request})
@@ -6543,6 +6899,27 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
       :ok
     end)
   end
+
+  defp assert_local_checkpoint_message(item, summary) do
+    assert local_checkpoint_summary(item) == summary
+  end
+
+  defp local_checkpoint_summary(%{
+         "type" => "message",
+         "role" => "user",
+         "content" => [%{"type" => "input_text", "text" => text}]
+       })
+       when is_binary(text) do
+    prefix =
+      "Context checkpoint: an earlier context window of this same agent already worked on this task and was compacted into the summary below. Tool side effects (files created or edited, commands run, processes started) remain in effect. Messages after this summary are verbatim and take precedence over it; continue the summary's in-progress work unless later messages supersede it.\n\n"
+
+    case String.split_at(text, byte_size(prefix)) do
+      {^prefix, summary} -> summary
+      _not_checkpoint -> nil
+    end
+  end
+
+  defp local_checkpoint_summary(_item), do: nil
 
   defp insert_compaction_checkpoint(
          agent_uid,

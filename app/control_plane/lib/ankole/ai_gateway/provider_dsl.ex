@@ -140,6 +140,18 @@ defmodule Ankole.AIGateway.ProviderDSL do
   end
 
   @doc """
+  Declares the optional constructor for the standalone Responses compact operation.
+
+  This callback constructs a request. It does not state that the upstream
+  endpoint supports compaction.
+  """
+  defmacro prepare_compaction(function_name) do
+    quote do
+      @ai_provider_capability_attrs {:prepare_compaction, unquote(function_name)}
+    end
+  end
+
+  @doc """
   Declares a capability-specific timeout override in milliseconds.
   """
   defmacro timeout_ms(value) do
@@ -264,6 +276,7 @@ defmodule Ankole.AIGateway.ProviderDSL do
       upstream: upstream,
       api_resolver: api_resolver,
       prepare: prepare,
+      prepare_compaction: Map.get(attrs, :prepare_compaction),
       timeout_ms: Map.get(attrs, :timeout_ms),
       supports_parallel_tool_calls?: supports_parallel_tool_calls?,
       supports_native_image_generation?: supports_native_image_generation?,

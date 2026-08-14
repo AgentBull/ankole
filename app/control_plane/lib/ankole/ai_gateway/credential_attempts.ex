@@ -317,12 +317,20 @@ defmodule Ankole.AIGateway.CredentialAttempts do
       {:error, reason} ->
         case recover(context, spec, reason, opts) do
           {:retry, context, candidate, delay_ms} ->
+            notify_retry(opts, reason, delay_ms)
             sleep_retry(delay_ms, opts)
             run(context, candidate, operation, opts)
 
           {:stop, final_reason, context} ->
             {:error, final_reason, context}
         end
+    end
+  end
+
+  defp notify_retry(opts, reason, delay_ms) do
+    case Keyword.get(opts, :credential_retry_observer) do
+      observer when is_function(observer, 2) -> observer.(reason, delay_ms)
+      _no_observer -> :ok
     end
   end
 
@@ -767,6 +775,7 @@ defmodule Ankole.AIGateway.CredentialAttempts do
       :credential_retry_max_ms,
       :credential_retry_jitter,
       :credential_retry_sleep,
+      :credential_retry_observer,
       :now,
       :req_options,
       :receive_timeout,

@@ -14,7 +14,6 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   alias Ankole.AIGateway.FailureDiagnostics
   alias Ankole.AIGateway.MapUtils
   alias Ankole.AIGateway.ModelMetadata
-  alias Ankole.AIGateway.ProviderDefinition
   alias Ankole.AIGateway.Providers
   alias Ankole.AIGateway.Resolver
   alias Ankole.AIGateway.ResponsesPreparation
@@ -342,12 +341,11 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   defp ensure_stateful_replay_wire(runtime) do
     provider_kind = Map.get(runtime, "provider_kind")
 
-    with {:ok, definition} <- Providers.fetch(provider_kind),
-         {:ok, capability} <- ProviderDefinition.capability(definition, :language_model) do
-      if capability.api_resolver in @stateful_replay_api_resolvers do
+    with {:ok, api_resolver} <- Providers.effective_language_model_api_resolver(runtime) do
+      if api_resolver in @stateful_replay_api_resolvers do
         :ok
       else
-        {:error, {:stateful_wire_unsupported, provider_kind, capability.api_resolver}}
+        {:error, {:stateful_wire_unsupported, provider_kind, api_resolver}}
       end
     end
   end
@@ -825,7 +823,10 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
     messages
     |> Enum.reduce_while({:ok, []}, fn message, {:ok, chunks} ->
       case message_response_items(subject_uid, message) do
-        {:ok, items} ->
+        {:ok, items, :provider_native} ->
+          {:cont, {:ok, [items | chunks]}}
+
+        {:ok, items, :standard} ->
           replay_items = Enum.map(items, &provider_replay_item(&1, supports_image?))
           {:cont, {:ok, [replay_items | chunks]}}
 
@@ -839,13 +840,24 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
     end
   end
 
-  defp message_response_items(subject_uid, %Message{type: "checkpoint"} = message),
-    do: CompactionArtifacts.output_for_checkpoint(subject_uid, message)
+  defp message_response_items(subject_uid, %Message{type: "checkpoint"} = message) do
+    with {:ok, content} <- CompactionArtifacts.content_for_checkpoint(subject_uid, message),
+         output when is_list(output) <- Map.get(content, "output") do
+      projection =
+        if Map.get(content, "version") == 3,
+          do: :provider_native,
+          else: :standard
+
+      {:ok, output, projection}
+    else
+      _invalid -> {:error, :invalid_compaction_handle}
+    end
+  end
 
   defp message_response_items(_subject_uid, %{content: content}) when is_list(content),
-    do: {:ok, content}
+    do: {:ok, content, :standard}
 
-  defp message_response_items(_subject_uid, _message), do: {:ok, []}
+  defp message_response_items(_subject_uid, _message), do: {:ok, [], :standard}
 
   defp provider_replay_item(%{"id" => id} = item, _supports_image?)
        when is_binary(id) and id != "" and map_size(item) == 1,

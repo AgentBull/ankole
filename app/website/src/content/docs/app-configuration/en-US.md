@@ -77,11 +77,17 @@ The following AppConfigure keys are built into Ankole. A Control Plane Plugin ca
 | Key | Scope | Purpose |
 |---|---|---|
 | `ai_gateway.compaction` | Instance | Automatic conversation-history compaction policy |
+| `observability.traces.enabled` | Instance | Whether process-wide OpenTelemetry export starts on the next control-plane boot |
+| `observability.traces.provider` | Instance | Semantic projection for `langfuse`, `langsmith`, or generic `opentelemetry` traces |
+| `observability.traces.otlp_endpoint` | Instance | Base OTLP/HTTP endpoint for optional traces |
+| `observability.traces.otlp_headers` | Instance | Encrypted authentication headers for optional traces |
 | `brain.knowledge` | Instance | Long-term memory projection budget and result limit |
 | `brain.dreaming` | Instance or Agent | Dreaming and knowledge-curation policy |
 | `brain.embedding` | Instance | Embedding model and vector dimensions |
 | `brain.search` | Instance | Long-term memory decay and reranking policy |
 | `brain.sources` | Instance | External-source synchronization and retention policy |
+
+See [LLM observability](../llm-observability/) for Langfuse, LangSmith, VictoriaTraces, and other OTLP/HTTP receivers.
 
 ### Identity, Plugins, and instance defaults
 

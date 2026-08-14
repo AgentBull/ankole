@@ -219,7 +219,7 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
   end
 
   defp emit_prepared_messages({:ok, prepared}) do
-    with :ok <- observe_prepared_authors(prepared),
+    with {:ok, prepared} <- observe_prepared_authors(prepared),
          {:ok, prepared} <- emit_pending_attachments(prepared) do
       prepared
       |> Enum.map(&emit_prepared_message/1)
@@ -230,17 +230,28 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
   defp emit_prepared_messages({:error, _reason} = error), do: error
 
   defp observe_prepared_authors(prepared) do
-    Enum.reduce_while(prepared, :ok, fn
-      %{consumer: consumer, input: input}, :ok ->
-        case observe_author(consumer, input) do
-          :ok -> {:cont, :ok}
-          {:error, _reason} = error -> {:halt, error}
+    prepared
+    |> Enum.map(fn
+      %{consumer: consumer, input: input} = item ->
+        with {:ok, observed} <- observe_author(consumer, input) do
+          {:ok, put_observed_display_name(item, observed)}
         end
 
-      %{result: _result}, :ok ->
-        {:cont, :ok}
+      %{result: _result} = item ->
+        {:ok, item}
     end)
+    |> collect_results()
   end
+
+  defp put_observed_display_name(
+         %{input: %{author: author}} = item,
+         %{principal: %{display_name: display_name}}
+       )
+       when is_binary(display_name) do
+    put_in(item, [:input, :author], Map.put(author, "display_name", display_name))
+  end
+
+  defp put_observed_display_name(item, _observed), do: item
 
   defp emit_pending_attachments(prepared) do
     prepared
@@ -446,23 +457,21 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
          author: %{"platform_subject" => user_id} = author
        })
        when is_binary(user_id) do
-    attrs = %{
-      provider: Map.get(config, "platformSubjectNamespace", "lark-main"),
-      external_id: user_id,
-      uid: user_id,
-      display_name: author["display_name"],
-      metadata: Map.get(author, "metadata", %{})
-    }
+    attrs =
+      %{
+        provider: Map.get(config, "platformSubjectNamespace", "lark-main"),
+        external_id: user_id,
+        uid: user_id,
+        metadata: Map.get(author, "metadata", %{})
+      }
+      |> maybe_put(:display_name, author["display_name"])
 
     # Chat traffic can reveal humans before a full contact sync runs. Observing
     # the platform subject here keeps future mentions and AuthZ checks convergent.
-    case AdapterContext.observe_platform_subject(context, attrs) do
-      {:ok, _observed} -> :ok
-      {:error, _reason} = error -> error
-    end
+    AdapterContext.observe_platform_subject(context, attrs)
   end
 
-  defp observe_author(_consumer, _input), do: :ok
+  defp observe_author(_consumer, _input), do: {:ok, nil}
 
   defp ignored_sender?(sender, event), do: sender_type(sender, event) in ["bot", "app"]
 

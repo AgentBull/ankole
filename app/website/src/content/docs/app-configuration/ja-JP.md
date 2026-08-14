@@ -77,11 +77,17 @@ AppConfigure の一覧には、インスタンスレベルの上書きまたは�
 | キー | 適用範囲 | 用途 |
 |---|---|---|
 | `ai_gateway.compaction` | インスタンス | 会話履歴の自動圧縮ポリシー |
+| `observability.traces.enabled` | インスタンス | 次回の control-plane startup で process-wide OpenTelemetry export を有効にするかどうか |
+| `observability.traces.provider` | インスタンス | `langfuse`、`langsmith`、または汎用 `opentelemetry` trace の semantic projection |
+| `observability.traces.otlp_endpoint` | インスタンス | optional trace の base OTLP/HTTP endpoint |
+| `observability.traces.otlp_headers` | インスタンス | optional trace の暗号化された authentication header |
 | `brain.knowledge` | インスタンス | 長期 memory の投影予算と結果数の上限 |
 | `brain.dreaming` | インスタンスまたは Agent | Dreaming と知識キュレーションのポリシー |
 | `brain.embedding` | インスタンス | Embedding モデルとベクトル次元数 |
 | `brain.search` | インスタンス | 長期 memory の減衰と再ランキングのポリシー |
 | `brain.sources` | インスタンス | 外部ソースの同期と保持のポリシー |
+
+Langfuse、LangSmith、VictoriaTraces と他の OTLP/HTTP receiver の構成については [LLM observability](../llm-observability/) を参照してください。
 
 ### Identity、Plugin、インスタンスのデフォルト値
 

@@ -10,6 +10,7 @@ defmodule Ankole.BackgroundAgentJobs.RuntimeProjection do
   alias Ankole.AIAgent.Library
   alias Ankole.AIAgent.Library.AgentPlugins
   alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.Compaction
   alias Ankole.SignalsGateway.ActorRuntime.WorkerEnv
 
   @version 1
@@ -28,6 +29,9 @@ defmodule Ankole.BackgroundAgentJobs.RuntimeProjection do
           "version" => @version,
           "model_ref" => model_ref,
           "runtime_policy" => Map.get(request_context, "ai_agent", %{}),
+          "codex" => %{
+            "remote_compaction_v2" => remote_compaction_v2?(repo, model_ref)
+          },
           "skills" => Enum.map(skills, &skill_selection/1),
           "agent_plugins" => Enum.map(agent_plugins, &agent_plugin_selection/1),
           "native_mcp_servers" => [],
@@ -61,12 +65,17 @@ defmodule Ankole.BackgroundAgentJobs.RuntimeProjection do
         model_ref
       end
 
-    with {:ok, hosted_tool_overrides} <- hosted_tool_overrides(projection) do
+    with {:ok, codex} <- codex_projection(projection),
+         {:ok, hosted_tool_overrides} <- hosted_tool_overrides(projection) do
       {:ok,
        Map.merge(
          %{
            model_ref: model_ref,
-           request_context: %{"model_ref" => model_ref, "ai_agent" => runtime_policy}
+           request_context: %{
+             "model_ref" => model_ref,
+             "ai_agent" => runtime_policy,
+             "codex" => codex
+           }
          },
          hosted_tool_overrides
        )}
@@ -158,6 +167,25 @@ defmodule Ankole.BackgroundAgentJobs.RuntimeProjection do
   end
 
   defp same_model?(_frozen_ref, _current_ref), do: false
+
+  defp remote_compaction_v2?(repo, model_ref) do
+    Map.get(model_ref, "provider_kind") == "chatgpt_subscription" and
+      Compaction.prefer_upstream_in_tx?(repo)
+  end
+
+  defp codex_projection(%{
+         "codex" => %{"remote_compaction_v2" => remote_compaction_v2}
+       })
+       when is_boolean(remote_compaction_v2),
+       do: {:ok, %{"remote_compaction_v2" => remote_compaction_v2}}
+
+  defp codex_projection(projection) do
+    if Map.has_key?(projection, "codex") do
+      {:error, :background_agent_job_runtime_projection_invalid}
+    else
+      {:ok, %{"remote_compaction_v2" => false}}
+    end
+  end
 
   defp maybe_put_hosted_tools(projection, turn_start_spec) do
     case Map.fetch(turn_start_spec, :hosted_tools) do

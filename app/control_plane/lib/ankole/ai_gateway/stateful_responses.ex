@@ -1344,7 +1344,8 @@ defmodule Ankole.AIGateway.StatefulResponses do
         walk_message_chain(
           conversation_id,
           anchor_id,
-          Keyword.get(opts, :protected_tail_items, [])
+          Keyword.get(opts, :protected_tail_items, []),
+          Keyword.get(opts, :stop_at_checkpoint, true)
         )
       else
         []
@@ -2038,15 +2039,34 @@ defmodule Ankole.AIGateway.StatefulResponses do
   # provider-visible rows. A checkpoint row is a hard provider-visible boundary:
   # its artifact output replaces the older prefix, while the raw chain remains
   # available to audit and function-call counting through `chain_messages/4`.
-  defp walk_message_chain(conversation_id, anchor_id, protected_tail_items) do
-    walk_message_chain(Repo, conversation_id, anchor_id, protected_tail_items)
+  defp walk_message_chain(conversation_id, anchor_id, protected_tail_items, stop_at_checkpoint?) do
+    walk_message_chain(
+      Repo,
+      conversation_id,
+      anchor_id,
+      protected_tail_items,
+      stop_at_checkpoint?
+    )
   end
 
-  defp walk_message_chain(repo, conversation_id, anchor_id, protected_tail_items) do
+  defp walk_message_chain(
+         repo,
+         conversation_id,
+         anchor_id,
+         protected_tail_items,
+         stop_at_checkpoint?
+       ) do
     messages = chain_messages(repo, conversation_id, anchor_id)
     messages_by_id = Map.new(messages, &{&1.id, &1})
 
-    walk_chain(messages_by_id, anchor_id, [], MapSet.new(), protected_tail_items)
+    walk_chain(
+      messages_by_id,
+      anchor_id,
+      [],
+      MapSet.new(),
+      protected_tail_items,
+      stop_at_checkpoint?
+    )
   end
 
   defp chain_messages(repo, conversation_id, anchor_id, max_depth \\ @history_chain_max_depth) do
@@ -2103,9 +2123,24 @@ defmodule Ankole.AIGateway.StatefulResponses do
     Enum.map(result.rows, fn [id] -> id end)
   end
 
-  defp walk_chain(_messages_by_id, nil, acc, _seen, _protected_tail_items), do: acc
+  defp walk_chain(
+         _messages_by_id,
+         nil,
+         acc,
+         _seen,
+         _protected_tail_items,
+         _stop_at_checkpoint?
+       ),
+       do: acc
 
-  defp walk_chain(messages_by_id, message_id, acc, seen, protected_tail_items) do
+  defp walk_chain(
+         messages_by_id,
+         message_id,
+         acc,
+         seen,
+         protected_tail_items,
+         stop_at_checkpoint?
+       ) do
     cond do
       MapSet.member?(seen, message_id) ->
         acc
@@ -2118,7 +2153,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
 
             new_acc = if include?, do: [message | acc], else: acc
 
-            if include? and message.type == "checkpoint" do
+            if include? and message.type == "checkpoint" and stop_at_checkpoint? do
               new_acc
             else
               walk_chain(
@@ -2126,7 +2161,8 @@ defmodule Ankole.AIGateway.StatefulResponses do
                 message.previous_message_id,
                 new_acc,
                 seen,
-                protected_tail_items
+                protected_tail_items,
+                stop_at_checkpoint?
               )
             end
 

@@ -80,8 +80,10 @@ export function classifyLLMError(error: unknown): LLMErrorClassification {
 
   // Transport reset / stall: HTTP 408, an aborted/timed-out fetch, or a dropped socket mid-stream.
   // The `und_err_*` codes are Node/undici internals (headers/body/connect timeouts, socket teardown)
-  // that surface when a streamed response is cut off partway. Retryable — the request may well
-  // succeed on a fresh connection.
+  // that surface when a streamed response is cut off partway. The `websocket_*_failed` codes are the
+  // AIGateway kernel's upstream WebSocket leg (connect/send/read teardown), which the gateway itself
+  // treats as retryable transport; they arrive here verbatim in mid-stream error frames. Retryable —
+  // the request may well succeed on a fresh connection.
   if (
     status === 408 ||
     includesAny(code, [
@@ -93,6 +95,9 @@ export function classifyLLMError(error: unknown): LLMErrorClassification {
       'und_err_socket',
       'upstream_read_failed',
       'upstream_stream_closed',
+      'websocket_connect_failed',
+      'websocket_read_failed',
+      'websocket_send_failed',
       'closed_before_terminal'
     ]) ||
     includesAny(message, [

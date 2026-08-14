@@ -7,6 +7,7 @@ defmodule Ankole.AIGateway.Providers.OpenAICompatible do
 
   alias Ankole.AIGateway.OpenAIRequestOptions
   alias Ankole.AIGateway.ProviderConnectionCheck
+  alias Ankole.AIGateway.Providers
   alias Ankole.AIGateway.ReasoningEffort
   alias Ankole.AIGateway.UniversalAIRequest
 
@@ -20,8 +21,6 @@ defmodule Ankole.AIGateway.Providers.OpenAICompatible do
       default: "chat_completions",
       options: ~w(responses chat_completions)
     )
-
-    setting(:hosted_web_search, type: :boolean, default: false)
 
     setting(:upstream_transport,
       type: :select,
@@ -50,6 +49,7 @@ defmodule Ankole.AIGateway.Providers.OpenAICompatible do
       upstream(:sse)
       api_resolver(:openai_chat_completions)
       prepare(:prepare_language_model)
+      prepare_compaction(:prepare_compaction)
     end
   end
 
@@ -62,10 +62,9 @@ defmodule Ankole.AIGateway.Providers.OpenAICompatible do
   """
   def prepare_language_model(ctx) do
     ctx = keep_metadata_local(ctx)
-    endpoint = endpoint_kind(ctx)
 
-    case {endpoint, ctx.stream?, ctx.settings[:upstream_transport]} do
-      {"responses", true, "websocket"} ->
+    case {Providers.responses_endpoint?(ctx), ctx.stream?, ctx.settings[:upstream_transport]} do
+      {true, true, "websocket"} ->
         ctx
         |> UniversalAIRequest.new("responses", :openai_responses,
           method: "GET",
@@ -75,14 +74,14 @@ defmodule Ankole.AIGateway.Providers.OpenAICompatible do
         |> ReasoningEffort.put_provider_options(ctx, target: :reasoning)
         |> OpenAIRequestOptions.put_provider_options(:responses)
 
-      {"responses", _stream?, _transport} ->
+      {true, _stream?, _transport} ->
         ctx
         |> UniversalAIRequest.new("responses", :openai_responses)
         |> UniversalAIRequest.bearer_auth()
         |> ReasoningEffort.put_provider_options(ctx, target: :reasoning)
         |> OpenAIRequestOptions.put_provider_options(:responses)
 
-      {_endpoint, _stream?, _transport} ->
+      {false, _stream?, _transport} ->
         ctx
         |> UniversalAIRequest.new("chat/completions", :openai_chat_completions)
         |> UniversalAIRequest.bearer_auth()
@@ -91,24 +90,22 @@ defmodule Ankole.AIGateway.Providers.OpenAICompatible do
     end
   end
 
+  @doc "Builds the standalone compact request for a compatible Responses endpoint."
+  def prepare_compaction(ctx) do
+    if Providers.responses_endpoint?(ctx) do
+      ctx
+      |> Map.put(:stream?, false)
+      |> prepare_language_model()
+      |> UniversalAIRequest.put_operation(:responses_compact)
+    else
+      {:error, :responses_compaction_not_applicable}
+    end
+  end
+
   # Generic compatible endpoints do not consistently implement OpenAI's
   # metadata field. AIGateway retains caller metadata in its local Response.
   defp keep_metadata_local(%{request: request} = ctx) when is_map(request) do
     %{ctx | request: Map.delete(request, "metadata")}
-  end
-
-  @doc """
-  Rejects hosted `web_search` on a connection that does not use the Responses
-  endpoint. Hosted tools ride the Responses wire, so a Chat Completions
-  connection cannot serve them.
-  """
-  def validate_connection_options(options) when is_map(options) do
-    if Map.get(options, "hosted_web_search") == true and
-         Map.get(options, "endpoint_kind") != "responses" do
-      {:error, {:connection_options, {:hosted_web_search_requires_endpoint_kind, "responses"}}}
-    else
-      :ok
-    end
   end
 
   @doc """
@@ -122,14 +119,5 @@ defmodule Ankole.AIGateway.Providers.OpenAICompatible do
       |> UniversalAIRequest.bearer_auth(ctx.settings[:api_key])
 
     ProviderConnectionCheck.get(ctx, "models", headers: headers)
-  end
-
-  # Unknown endpoint settings fall back to Chat Completions because that is the
-  # most common shape for generic OpenAI-compatible providers.
-  defp endpoint_kind(ctx) do
-    case ctx.settings[:endpoint_kind] do
-      "responses" -> "responses"
-      _kind -> "chat_completions"
-    end
   end
 end

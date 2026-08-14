@@ -11,8 +11,7 @@ import {
   type BackgroundAgentJobTurnKind,
   type BackgroundAgentJobTurnStatus,
   type BackgroundAgentJobTurnTrajectoryHeader,
-  type BackgroundAgentJobTurnTrajectoryGroup,
-  type BackgroundAgentJobTurnTrajectoryMessage,
+  type BackgroundAgentJobTurnItemEntry,
   type BackgroundAgentJobTurnUsage,
   type RPCRequestInit
 } from '../../lanes/rpc_lane'
@@ -20,10 +19,11 @@ import type { JSONRPCMessage } from './app-server-client'
 import { boundedFilesChangedFromCodexDiff, normalizeCodexThreadUsage } from './protocol'
 import type { ThreadItem } from './generated/protocol/v2/ThreadItem'
 import { boundedBackgroundAgentJobPaths } from '../background-agent-job-handoff'
+import type { Span } from '@opentelemetry/api'
+import { finishWorkerSpan, startWorkerSpan, type WorkerTurnTrace } from '../../observability/turn-tracing'
 
 const checkpointDelayMs = 5_000
 const maxStringBytes = 16 * 1_024
-const maxToolArgumentsBytes = 64 * 1_024
 const maxCollectionItems = 64
 const maxMapKeyBytes = 256
 const maxValueDepth = 8
@@ -54,6 +54,8 @@ type RuntimeTurn = {
   error: JSONObject
   startedAt: string
   completedAt?: string
+  traceSpan: Span | undefined
+  toolSpans: Map<string, Span>
   dirty: boolean
   redacted: boolean
   contentTruncated: boolean
@@ -73,8 +75,6 @@ type ToolExecutionMechanism = {
   name: string
   execution_mechanism: 'provider_hosted' | 'local_dynamic'
 }
-
-type CollabAgentToolCall = Extract<ThreadItem, { type: 'collabAgentToolCall' }>
 
 type CollaborationActivity = {
   kind: string
@@ -105,6 +105,7 @@ export class BackgroundAgentJobTurnRecorder {
         request: RPCRequestInit<'background_agent_job.turn.upsert'>
       ) => Promise<BackgroundAgentJobTurnUpsertResponse>
       checkpointDelayMs?: number
+      turnTrace?: WorkerTurnTrace
     }
   ) {}
 
@@ -196,6 +197,7 @@ export class BackgroundAgentJobTurnRecorder {
     turn.error = this.sanitizeObject({ ...turn.error, ...error }, turn)
     turn.completedAt ??= now()
     turn.activeItem = undefined
+    this.finishTraceTurn(turn, errorType(turn.error) ?? 'codex_turn_interrupted')
     this.markDirty(turn, true)
   }
 
@@ -206,6 +208,7 @@ export class BackgroundAgentJobTurnRecorder {
     turn.error = this.sanitizeObject(error, turn)
     turn.completedAt = now()
     turn.activeItem = undefined
+    this.finishTraceTurn(turn, errorType(turn.error) ?? `codex_turn_${turn.status}`)
     this.markDirty(turn, true)
   }
 
@@ -253,6 +256,16 @@ export class BackgroundAgentJobTurnRecorder {
         filesChanged: new Set(),
         error: {},
         startedAt,
+        traceSpan: startWorkerSpan(
+          this.input.turnTrace,
+          'codex.turn',
+          {
+            'ankole.codex.thread.id': runtimeThreadID,
+            'ankole.codex.turn.id': runtimeTurnID
+          },
+          { startTime: timestampDate(payload.startedAt) }
+        ),
+        toolSpans: new Map(),
         dirty: true,
         redacted: false,
         contentTruncated: false
@@ -273,6 +286,7 @@ export class BackgroundAgentJobTurnRecorder {
     if (terminal(turn.status)) {
       turn.completedAt ??= timestampSeconds(payload.completedAt) ?? now()
       turn.activeItem = undefined
+      this.finishTraceTurn(turn, traceTurnError(turn), timestampDate(payload.completedAt))
       this.markDirty(turn, true)
     } else {
       this.markDirty(turn, true)
@@ -302,6 +316,7 @@ export class BackgroundAgentJobTurnRecorder {
     }
     turn.completedAt ??= timestampSeconds(payload.completedAt) ?? now()
     turn.activeItem = undefined
+    this.finishTraceTurn(turn, traceTurnError(turn), timestampDate(payload.completedAt))
     this.markDirty(turn, true)
   }
 
@@ -314,6 +329,18 @@ export class BackgroundAgentJobTurnRecorder {
     const name = toolName(item)
     if (!name) return
     if (turn.activeItem?.id === id && turn.activeItem.name === name) return
+    if (!turn.toolSpans.has(id)) {
+      const span = startWorkerSpan(
+        this.input.turnTrace,
+        `tool ${name}`,
+        {
+          'gen_ai.tool.name': name,
+          'gen_ai.tool.call.id': id
+        },
+        turn.traceSpan ? { parent: turn.traceSpan } : {}
+      )
+      if (span) turn.toolSpans.set(id, span)
+    }
     turn.activeItem = { id, name }
     this.markDirty(turn, true)
   }
@@ -323,6 +350,7 @@ export class BackgroundAgentJobTurnRecorder {
     const rawItem = jsonObject(params.item)
     const id = stringValue(rawItem.id)
     if (!turn || !id) return
+    this.finishTraceItem(turn, id, rawItem)
     if (rawItem.type === 'subAgentActivity') {
       this.completeSubAgentActivity(turn, rawItem)
       return
@@ -356,6 +384,30 @@ export class BackgroundAgentJobTurnRecorder {
     if (changed || tracked || cleared || redacted !== turn.redacted || truncated !== turn.contentTruncated) {
       this.markDirty(turn, true)
     }
+  }
+
+  private finishTraceItem(turn: RuntimeTurn, id: string, item: JSONObject): void {
+    const span = turn.toolSpans.get(id)
+    if (!span) return
+    turn.toolSpans.delete(id)
+    const durationMs = positiveNumber(item.durationMs)
+    finishWorkerSpan(span, {
+      errorType: traceItemError(item),
+      ...(durationMs === undefined ? {} : { attributes: { 'ankole.codex.duration_ms': durationMs } })
+    })
+  }
+
+  private finishTraceTurn(turn: RuntimeTurn, errorTypeValue?: string, endTime?: Date): void {
+    for (const span of turn.toolSpans.values()) {
+      finishWorkerSpan(span, { errorType: errorTypeValue ?? 'codex_turn_ended' })
+    }
+    turn.toolSpans.clear()
+    if (!turn.traceSpan) return
+    finishWorkerSpan(turn.traceSpan, {
+      errorType: errorTypeValue,
+      ...(endTime ? { endTime } : {})
+    })
+    turn.traceSpan = undefined
   }
 
   private completeRawResponseItem(params: JSONObject): void {
@@ -640,12 +692,12 @@ export class BackgroundAgentJobTurnRecorder {
   }
 
   private request(turn: RuntimeTurn): RPCRequestInit<'background_agent_job.turn.upsert'> {
-    const trajectoryGroups = pendingTrajectoryGroups(turn)
-    for (const group of trajectoryGroups) {
-      turn.enqueuedItemKeys.add(group.item_key)
-      if (group.item_key !== turn.initialItemKey) {
-        turn.items.delete(group.item_key)
-        turn.itemOrder = turn.itemOrder.filter(key => key !== group.item_key)
+    const turnItems = pendingTurnItems(turn)
+    for (const entry of turnItems) {
+      turn.enqueuedItemKeys.add(entry.item_key)
+      if (entry.item_key !== turn.initialItemKey) {
+        turn.items.delete(entry.item_key)
+        turn.itemOrder = turn.itemOrder.filter(key => key !== entry.item_key)
       }
     }
 
@@ -658,7 +710,7 @@ export class BackgroundAgentJobTurnRecorder {
       status: turn.status,
       revision: turn.revision,
       trajectoryJson: jsonBytes(trajectoryHeader(turn)),
-      trajectoryGroupsJson: jsonBytes(trajectoryGroups),
+      turnItemsJson: jsonBytes(turnItems),
       progressJson: jsonBytes(progress(turn)),
       ...(turn.usage ? { usageJson: jsonBytes(turn.usage) } : {}),
       errorJson: jsonBytes(turn.error),
@@ -759,14 +811,9 @@ function fileChangePaths(value: unknown): string[] {
 }
 
 function trajectoryHeader(turn: RuntimeTurn): BackgroundAgentJobTurnTrajectoryHeader {
-  const projectionState: SanitizeState = { redacted: turn.redacted, truncated: turn.contentTruncated }
-  for (const key of turn.itemOrder) {
-    const item = turn.items.get(key)
-    if (item) projectThreadItem(item, projectionState)
-  }
   const metadata = jsonObject({
-    ...(projectionState.redacted ? { redacted: true } : {}),
-    ...(projectionState.truncated ? { content_truncated: true } : {})
+    ...(turn.redacted ? { redacted: true } : {}),
+    ...(turn.contentTruncated ? { content_truncated: true } : {})
   })
 
   return {
@@ -776,183 +823,13 @@ function trajectoryHeader(turn: RuntimeTurn): BackgroundAgentJobTurnTrajectoryHe
   }
 }
 
-function pendingTrajectoryGroups(turn: RuntimeTurn): BackgroundAgentJobTurnTrajectoryGroup[] {
-  const state: SanitizeState = { redacted: turn.redacted, truncated: turn.contentTruncated }
-
+function pendingTurnItems(turn: RuntimeTurn): BackgroundAgentJobTurnItemEntry[] {
   return turn.itemOrder.flatMap(key => {
     if (turn.enqueuedItemKeys.has(key)) return []
     const item = turn.items.get(key)
     const position = turn.itemPositions.get(key)
     if (!item || position === undefined) return []
-    const messages = projectThreadItem(item, state)
-    if (messages.length === 0) return []
-    return [
-      {
-        position,
-        item_key: key,
-        messages: messages as BackgroundAgentJobTurnTrajectoryMessage[]
-      }
-    ]
-  })
-}
-
-function projectThreadItem(value: JSONObject, state: SanitizeState): JSONObject[] {
-  const item = value as unknown as ThreadItem
-  switch (item.type) {
-    case 'userMessage':
-      return [
-        jsonObject({
-          id: item.clientId ?? item.id,
-          role: 'user',
-          content: userContent(item.content)
-        })
-      ]
-    case 'hookPrompt':
-      return [jsonObject({ id: item.id, role: 'developer', content: boundedJSONString(item.fragments, state) })]
-    case 'agentMessage':
-      return [
-        jsonObject({
-          id: item.id,
-          role: 'assistant',
-          content: item.text,
-          metadata: { phase: item.phase ?? 'assistant' }
-        })
-      ]
-    case 'plan':
-      return [assistantPhase(item.id, item.text, 'plan')]
-    case 'reasoning': {
-      const summary = item.summary.filter(Boolean).join('\n')
-      return summary ? [assistantPhase(item.id, summary, 'reasoning_summary')] : []
-    }
-    case 'commandExecution':
-      return toolPair(
-        item.id,
-        toolName(value) ?? 'shell',
-        { command: item.command, cwd: item.cwd },
-        item.aggregatedOutput ?? '',
-        { status: item.status, exit_code: item.exitCode, duration_ms: item.durationMs },
-        state
-      )
-    case 'fileChange':
-      return toolPair(
-        item.id,
-        toolName(value) ?? 'apply_patch',
-        { changes: item.changes },
-        '',
-        { status: item.status },
-        state
-      )
-    case 'mcpToolCall':
-      return toolPair(
-        item.id,
-        toolName(value) ?? `${item.server}.${item.tool}`,
-        item.arguments,
-        item.result ?? item.error ?? '',
-        { status: item.status, duration_ms: item.durationMs },
-        state
-      )
-    case 'dynamicToolCall': {
-      const name = toolName(value) ?? item.tool
-      if (item.tool === 'request_user_input' && item.status === 'inProgress') {
-        return [toolCallMessage(item.id, name, item.arguments, { status: 'pending_user_input' }, state)]
-      }
-      return toolPair(
-        item.id,
-        name,
-        item.arguments,
-        item.contentItems ?? '',
-        {
-          status: item.status,
-          success: item.success,
-          duration_ms: item.durationMs,
-          execution_mechanism: 'local_dynamic'
-        },
-        state
-      )
-    }
-    case 'collabAgentToolCall':
-      return collabAgentToolPair(item, state)
-    case 'webSearch':
-      return toolPair(
-        item.id,
-        toolName(value) ?? 'web_search',
-        { query: item.query, action: item.action },
-        '',
-        { status: 'completed', execution_mechanism: 'provider_hosted' },
-        state
-      )
-    case 'imageView':
-      return toolPair(item.id, toolName(value) ?? 'view_image', { path: item.path }, '', { status: 'completed' }, state)
-    case 'sleep':
-      return toolPair(
-        item.id,
-        toolName(value) ?? 'sleep',
-        { duration_ms: item.durationMs },
-        '',
-        { status: 'completed' },
-        state
-      )
-    case 'imageGeneration':
-      return toolPair(item.id, toolName(value) ?? 'image_generation', item, '', { status: 'completed' }, state)
-    case 'enteredReviewMode':
-      return [assistantPhase(item.id, item.review, 'entered_review_mode')]
-    case 'exitedReviewMode':
-      return [assistantPhase(item.id, item.review, 'exited_review_mode')]
-    case 'contextCompaction':
-      return toolPair(item.id, toolName(value) ?? 'context_compaction', {}, '', { status: 'completed' }, state)
-    default:
-      return []
-  }
-}
-
-// Projects a collaboration call on a thread that predates raw response-item
-// events, where no exact call pair exists. Remove this projection when no
-// resumable stored thread predates raw events.
-function collabAgentToolPair(item: CollabAgentToolCall, state: SanitizeState): JSONObject[] {
-  return toolPair(
-    item.id,
-    `collaboration.${item.tool}`,
-    collabAgentToolArguments(item),
-    collabAgentToolOutcome(item),
-    { status: item.status },
-    state
-  )
-}
-
-function collabAgentToolArguments(item: CollabAgentToolCall): JSONObject {
-  switch (item.tool) {
-    case 'spawnAgent':
-      return jsonObject({
-        ...(item.prompt === null ? {} : { prompt: item.prompt }),
-        ...(item.model === null ? {} : { model: item.model }),
-        ...(item.reasoningEffort === null ? {} : { reasoning_effort: item.reasoningEffort })
-      })
-    case 'sendInput':
-      return jsonObject({
-        receiver_thread_ids: item.receiverThreadIds,
-        ...(item.prompt === null ? {} : { input: item.prompt })
-      })
-    case 'resumeAgent':
-    case 'wait':
-    case 'closeAgent':
-      return jsonObject({ receiver_thread_ids: item.receiverThreadIds })
-    default:
-      return unsupportedCollabAgentTool(item.tool)
-  }
-}
-
-function collabAgentToolOutcome(item: CollabAgentToolCall): JSONObject {
-  const threadIDs = [...new Set([...item.receiverThreadIds, ...Object.keys(item.agentsStates)])]
-  return jsonObject({
-    status: item.status,
-    agents: threadIDs.map(threadID => {
-      const agent = item.agentsStates[threadID]
-      return {
-        thread_id: threadID,
-        ...(agent ? { status: agent.status } : {}),
-        ...(agent?.message === null || agent?.message === undefined ? {} : { message: agent.message })
-      }
-    })
+    return [{ position, item_key: key, item }]
   })
 }
 
@@ -1011,51 +888,6 @@ function parseJSONValue(value: unknown, emptyValue: unknown): unknown {
   }
 }
 
-function unsupportedCollabAgentTool(tool: never): never {
-  throw new Error(`Unsupported collaboration tool: ${String(tool)}`)
-}
-
-function assistantPhase(id: string, content: string, phase: string): JSONObject {
-  return jsonObject({ id, role: 'assistant', content, metadata: { phase } })
-}
-
-function toolPair(
-  id: string,
-  name: string,
-  args: unknown,
-  result: unknown,
-  metadata: unknown,
-  state: SanitizeState
-): JSONObject[] {
-  return [
-    toolCallMessage(id, name, args, undefined, state),
-    jsonObject({
-      id: `${id}:result`,
-      role: 'tool',
-      tool_call_id: id,
-      name,
-      content: typeof result === 'string' ? result : boundedJSONString(result ?? '', state),
-      metadata
-    })
-  ]
-}
-
-function toolCallMessage(id: string, name: string, args: unknown, metadata: unknown, state: SanitizeState): JSONObject {
-  return jsonObject({
-    id: `${id}:call`,
-    role: 'assistant',
-    content: '',
-    tool_calls: [
-      {
-        id,
-        type: 'function',
-        function: { name, arguments: boundedJSONString(args ?? {}, state) }
-      }
-    ],
-    ...(metadata ? { metadata } : {})
-  })
-}
-
 function userContent(content: unknown): string | JSONObject[] {
   const items = arrayValue(content).map(item => jsonObject(item))
   if (items.every(item => item.type === 'text')) return items.map(item => stringValue(item.text) ?? '').join('')
@@ -1104,6 +936,27 @@ function turnStatus(value: unknown): BackgroundAgentJobTurnStatus | undefined {
 
 function terminal(status: BackgroundAgentJobTurnStatus): boolean {
   return status === 'completed' || status === 'failed' || status === 'interrupted'
+}
+
+function traceTurnError(turn: RuntimeTurn): string | undefined {
+  if (turn.status === 'completed') return undefined
+  return errorType(turn.error) ?? `codex_turn_${turn.status}`
+}
+
+function traceItemError(item: JSONObject): string | undefined {
+  const itemError = errorType(jsonObject(item.error))
+  if (itemError) return itemError
+  if (item.success === false || item.status === 'failed') return 'codex_tool_failed'
+  return undefined
+}
+
+function errorType(error: JSONObject): string | undefined {
+  const code = stringValue(error.code)
+  return code && code.trim() ? code : undefined
+}
+
+function positiveNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined
 }
 
 function sanitizeValue(value: unknown, state: SanitizeState, depth = 0, key?: string): unknown {
@@ -1177,16 +1030,6 @@ function sensitiveKey(value: string): boolean {
   )
 }
 
-function boundedJSONString(value: unknown, state: SanitizeState): string {
-  const serialized = JSON.stringify(value ?? null)
-  if (utf8ByteLength(serialized) <= maxToolArgumentsBytes) return serialized
-  state.truncated = true
-  // The preview is encoded once more as a JSON string, where quotes and
-  // backslashes can double. Half the budget is therefore a hard upper bound.
-  const preview = truncateUTF8Window(serialized, (maxToolArgumentsBytes - 1_024) / 2)
-  return JSON.stringify({ truncated: true, preview })
-}
-
 function truncateUTF8Window(value: string, maxBytes: number): string {
   if (utf8ByteLength(value) <= maxBytes) return value
   const available = Math.max(0, maxBytes - utf8ByteLength(truncationMarker))
@@ -1221,6 +1064,10 @@ function truncateUTF8SuffixSafe(value: string, maxBytes: number): string {
 
 function timestampSeconds(value: unknown): string | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? new Date(value * 1_000).toISOString() : undefined
+}
+
+function timestampDate(value: unknown): Date | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? new Date(value * 1_000) : undefined
 }
 
 function stringValue(value: unknown): string | undefined {

@@ -580,15 +580,31 @@ pub(super) fn normalize_anthropic_usage(usage: &Value) -> Value {
         return json!({});
     }
 
-    let input_tokens =
-        integer_value(usage.get("input_tokens").unwrap_or(&Value::Null)).unwrap_or(0);
+    // Anthropic counts uncached input, cache reads, and cache writes as
+    // disjoint fields; the OpenResponses shape counts them all as input and
+    // keeps the cache portions in `input_tokens_details`.
+    let cache_read_tokens =
+        integer_value(usage.get("cache_read_input_tokens").unwrap_or(&Value::Null)).unwrap_or(0);
+    let cache_creation_tokens = integer_value(
+        usage
+            .get("cache_creation_input_tokens")
+            .unwrap_or(&Value::Null),
+    )
+    .unwrap_or(0);
+    let input_tokens = integer_value(usage.get("input_tokens").unwrap_or(&Value::Null))
+        .unwrap_or(0)
+        + cache_read_tokens
+        + cache_creation_tokens;
     let output_tokens =
         integer_value(usage.get("output_tokens").unwrap_or(&Value::Null)).unwrap_or(0);
     json!({
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
         "total_tokens": input_tokens + output_tokens,
-        "input_tokens_details": {},
+        "input_tokens_details": {
+            "cached_tokens": cache_read_tokens,
+            "cache_creation_tokens": cache_creation_tokens
+        },
         "output_tokens_details": {}
     })
 }
@@ -624,33 +640,40 @@ pub(super) fn normalize_provider_token_usage(usage: &Value) -> Value {
             .unwrap_or(&Value::Null),
     )
     .unwrap_or(input_tokens + output_tokens);
+    // Gemini `cachedContentTokenCount` counts tokens that are already part of
+    // `promptTokenCount`, which matches the OpenResponses cached-input shape.
+    let input_details =
+        match integer_value(usage.get("cachedContentTokenCount").unwrap_or(&Value::Null)) {
+            Some(cached_tokens) => json!({ "cached_tokens": cached_tokens }),
+            None => json!({}),
+        };
 
     json!({
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
         "total_tokens": total_tokens,
-        "input_tokens_details": {},
+        "input_tokens_details": input_details,
         "output_tokens_details": {}
     })
 }
 
+// Accumulates raw Anthropic usage counters across stream events. The result
+// stays in Anthropic shape; `normalize_anthropic_usage` converts it when a
+// response body is built.
 pub(super) fn merge_anthropic_usage(left: Value, right: &Value) -> Value {
     let mut merged = left.as_object().cloned().unwrap_or_default();
     if let Some(right) = right.as_object() {
-        for key in ["input_tokens", "output_tokens"] {
+        for key in [
+            "input_tokens",
+            "output_tokens",
+            "cache_read_input_tokens",
+            "cache_creation_input_tokens",
+        ] {
             if let Some(value) = right.get(key) {
                 merged.insert(key.to_string(), value.clone());
             }
         }
     }
-    let input_tokens =
-        integer_value(merged.get("input_tokens").unwrap_or(&Value::Null)).unwrap_or(0);
-    let output_tokens =
-        integer_value(merged.get("output_tokens").unwrap_or(&Value::Null)).unwrap_or(0);
-    merged.insert(
-        "total_tokens".to_string(),
-        json!(input_tokens + output_tokens),
-    );
     Value::Object(merged)
 }
 

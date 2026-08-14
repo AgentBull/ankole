@@ -10,6 +10,8 @@ use crate::common::{KernelError, KernelResult};
 pub enum APIResolverKind {
     #[serde(rename = "openai_responses")]
     OpenAIResponses,
+    #[serde(rename = "openai_responses_compact")]
+    OpenAIResponsesCompact,
     #[serde(rename = "openai_chat_completions")]
     OpenAIChatCompletions,
     AnthropicMessages,
@@ -35,6 +37,7 @@ impl APIResolverKind {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::OpenAIResponses => "openai_responses",
+            Self::OpenAIResponsesCompact => "openai_responses_compact",
             Self::OpenAIChatCompletions => "openai_chat_completions",
             Self::AnthropicMessages => "anthropic_messages",
             Self::GeminiGenerateContent => "gemini_generate_content",
@@ -393,7 +396,6 @@ impl ResponseContext {
             request.remove("service_tier");
         }
 
-        normalize_compaction_input(&mut request);
         normalize_function_call_replay(&mut request);
         request
     }
@@ -432,18 +434,6 @@ pub struct HostedImageGenerationSpec {
     pub resolved_references: Vec<Value>,
     #[serde(default)]
     pub limits: Value,
-}
-
-fn normalize_compaction_input(request: &mut Map<String, Value>) {
-    let Some(Value::Array(items)) = request.get_mut("input") else {
-        return;
-    };
-
-    for item in items {
-        if let Some(normalized) = normalize_compaction_item(item) {
-            *item = normalized;
-        }
-    }
 }
 
 const MAX_FUNCTION_CALL_ARGUMENT_BYTES: usize = 256 * 1024;
@@ -692,41 +682,6 @@ fn remove_trailing_json_commas(input: &str) -> String {
     }
 
     output
-}
-
-fn normalize_compaction_item(item: &Value) -> Option<Value> {
-    let map = item.as_object()?;
-    if map.get("type").and_then(Value::as_str) != Some("compaction") {
-        return None;
-    }
-
-    let summary = map
-        .get("summary")
-        .or_else(|| map.get("encrypted_content"))
-        .map(value_to_prompt_text)
-        .filter(|text| !text.trim().is_empty())
-        .unwrap_or_else(|| value_to_prompt_text(item));
-
-    let projected_summary = format!(
-        "Context checkpoint: an earlier context window of this same agent already worked on this task and was compacted into the summary below. Tool side effects (files created or edited, commands run, processes started) remain in effect. Messages after this summary are verbatim and take precedence over it; continue the summary's in-progress work unless later messages supersede it.\n\n{summary}"
-    );
-
-    Some(json!({
-        "type": "message",
-        "role": "user",
-        "content": [{
-            "type": "input_text",
-            "text": projected_summary
-        }]
-    }))
-}
-
-fn value_to_prompt_text(value: &Value) -> String {
-    match value {
-        Value::String(text) => text.clone(),
-        Value::Null => String::new(),
-        value => serde_json::to_string(value).unwrap_or_default(),
-    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -1139,7 +1094,7 @@ mod tests {
     }
 
     #[test]
-    fn provider_request_projects_internal_compaction_items_as_user_text() {
+    fn provider_request_preserves_internal_compaction_items() {
         let context = ResponseContext {
             model: "gpt-test".to_string(),
             request: json!({
@@ -1159,16 +1114,15 @@ mod tests {
             .and_then(Value::as_array)
             .unwrap();
 
-        assert_eq!(input[0]["type"], json!("message"));
-        assert_eq!(input[0]["role"], json!("user"));
-        let text = input[0]["content"][0]["text"].as_str().unwrap();
-        assert!(text.starts_with("Context checkpoint:"));
-        assert!(text.ends_with("\n\nPrior work was summarized."));
+        assert_eq!(
+            input[0],
+            json!({"type": "compaction", "summary": "Prior work was summarized."})
+        );
         assert_eq!(input[1]["type"], json!("message"));
     }
 
     #[test]
-    fn provider_request_projects_openresponses_compaction_items_as_user_text() {
+    fn provider_request_preserves_openresponses_compaction_items() {
         let context = ResponseContext {
             model: "gpt-test".to_string(),
             request: json!({
@@ -1188,10 +1142,10 @@ mod tests {
             .and_then(Value::as_array)
             .unwrap();
 
-        assert_eq!(input[0]["type"], json!("message"));
-        let text = input[0]["content"][0]["text"].as_str().unwrap();
-        assert!(text.starts_with("Context checkpoint:"));
-        assert!(text.ends_with("\n\nOpenResponses compacted state."));
+        assert_eq!(
+            input[0],
+            json!({"type": "compaction", "encrypted_content": "OpenResponses compacted state."})
+        );
         assert_eq!(input[1]["type"], json!("message"));
     }
 }

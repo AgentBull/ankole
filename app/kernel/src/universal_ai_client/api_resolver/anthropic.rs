@@ -82,7 +82,7 @@ impl AnthropicState {
             self.model = Some(model.to_string());
         }
         if let Some(usage) = message.get("usage").filter(|value| value.is_object()) {
-            self.usage = normalize_anthropic_usage(usage);
+            self.usage = usage.clone();
         }
 
         vec![self.event(
@@ -508,7 +508,7 @@ impl AnthropicState {
                 "incomplete_details": incomplete_reason.map(|reason| json!({"reason": reason})).unwrap_or(Value::Null),
                 "model": self.model.clone().unwrap_or_else(|| context.model.clone()),
                 "output": output,
-                "usage": normalize_response_usage(&self.usage),
+                "usage": normalize_anthropic_usage(&self.usage),
                 "error": error.map(openresponses_error).unwrap_or(Value::Null),
                 "metadata": {}
             }),

@@ -52,6 +52,85 @@ fn openai_responses_passthrough_adds_zero_based_sequence() {
 }
 
 #[test]
+fn openai_responses_preserves_provider_native_compaction_input() {
+    let input = json!([
+        {"type": "compaction", "encrypted_content": "opaque"},
+        {"type": "message", "role": "user", "content": "continue"},
+        {"type": "compaction_trigger"}
+    ]);
+    let resolver = APIResolver::new(
+        APIResolverKind::OpenAIResponses,
+        ResponseContext {
+            model: "gpt-test".to_string(),
+            request: json!({"input": input.clone()}),
+            provider_options: json!({}),
+            stream: Some(false),
+            include_model: true,
+        },
+    );
+
+    assert_eq!(
+        Value::Object(resolver.build_body().unwrap())["input"],
+        input
+    );
+}
+
+#[test]
+fn non_responses_wire_rejects_provider_native_compaction_input() {
+    let resolver = APIResolver::new(
+        APIResolverKind::OpenAIChatCompletions,
+        ResponseContext {
+            model: "gpt-test".to_string(),
+            request: json!({
+                "input": [{"type": "compaction", "encrypted_content": "opaque"}]
+            }),
+            provider_options: json!({}),
+            stream: Some(false),
+            include_model: true,
+        },
+    );
+
+    let error = resolver.build_body().unwrap_err();
+    assert_eq!(error.code, "unsupported_compaction_replay_wire");
+}
+
+#[test]
+fn responses_compact_preserves_request_and_response_output() {
+    let input = json!([
+        {"type": "compaction", "encrypted_content": "opaque"},
+        {"type": "message", "role": "user", "content": "continue"}
+    ]);
+    let mut resolver = APIResolver::new(
+        APIResolverKind::OpenAIResponsesCompact,
+        ResponseContext {
+            model: "gpt-test".to_string(),
+            request: json!({"input": input.clone(), "stream": true}),
+            provider_options: json!({}),
+            stream: Some(false),
+            include_model: true,
+        },
+    );
+
+    let request = Value::Object(resolver.build_body().unwrap());
+    assert_eq!(request["input"], input);
+    assert_eq!(request["stream"], false);
+
+    let output = json!([
+        {"type": "message", "role": "user", "content": "retained"},
+        {"type": "compaction", "encrypted_content": "new-opaque", "unknown": true}
+    ]);
+    let response = resolver
+        .normalize_body(
+            200,
+            json!({"object": "response.compaction", "output": output.clone(), "extra": 1}),
+        )
+        .unwrap();
+
+    assert_eq!(response["output"], output);
+    assert_eq!(response["extra"], 1);
+}
+
+#[test]
 fn openai_responses_requires_terminal_event_on_finish() {
     let mut resolver =
         APIResolver::new(APIResolverKind::OpenAIResponses, ResponseContext::default());
@@ -2761,6 +2840,65 @@ fn anthropic_text_stream_accumulates_response_body() {
 }
 
 #[test]
+fn anthropic_usage_counts_cache_reads_and_writes_as_input() {
+    let mut resolver = APIResolver::new(
+        APIResolverKind::AnthropicMessages,
+        ResponseContext {
+            model: "claude-test".to_string(),
+            request: json!({}),
+            provider_options: json!({}),
+            stream: None,
+            include_model: true,
+        },
+    );
+
+    resolver
+        .ingest(json!({
+            "type": "message_start",
+            "message": {
+                "id": "msg_cache",
+                "model": "claude-test",
+                "usage": {
+                    "input_tokens": 3,
+                    "cache_creation_input_tokens": 10,
+                    "cache_read_input_tokens": 20,
+                    "output_tokens": 1
+                }
+            }
+        }))
+        .unwrap();
+    resolver
+        .ingest(json!({
+            "type": "content_block_start",
+            "index": 0,
+            "content_block": {"type": "text"}
+        }))
+        .unwrap();
+    resolver
+        .ingest(json!({
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "text_delta", "text": "cached"}
+        }))
+        .unwrap();
+    resolver
+        .ingest(json!({
+            "type": "message_delta",
+            "delta": {"stop_reason": "end_turn"},
+            "usage": {"output_tokens": 5}
+        }))
+        .unwrap();
+    let events = resolver.ingest(json!({"type": "message_stop"})).unwrap();
+    let usage = &events.last().unwrap()["response"]["usage"];
+
+    assert_eq!(usage["input_tokens"], 33);
+    assert_eq!(usage["output_tokens"], 5);
+    assert_eq!(usage["total_tokens"], 38);
+    assert_eq!(usage["input_tokens_details"]["cached_tokens"], 20);
+    assert_eq!(usage["input_tokens_details"]["cache_creation_tokens"], 10);
+}
+
+#[test]
 fn aigateway_buffers_and_encodes_anthropic_encrypted_tool_streams() {
     let mut resolver = APIResolver::new(
         APIResolverKind::AnthropicMessages,
@@ -3038,7 +3176,8 @@ fn gemini_generate_content_accumulates_text_tool_and_usage() {
             "usageMetadata": {
                 "promptTokenCount": 4,
                 "candidatesTokenCount": 6,
-                "totalTokenCount": 10
+                "totalTokenCount": 10,
+                "cachedContentTokenCount": 3
             }
         }))
         .unwrap();
@@ -3053,6 +3192,10 @@ fn gemini_generate_content_accumulates_text_tool_and_usage() {
             .any(|item| item["type"] == "function_call" && item["name"] == "lookup")
     );
     assert_eq!(terminal["response"]["usage"]["total_tokens"], 10);
+    assert_eq!(
+        terminal["response"]["usage"]["input_tokens_details"]["cached_tokens"],
+        3
+    );
 }
 
 #[test]

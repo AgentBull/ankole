@@ -7,6 +7,7 @@ defmodule Ankole.AIGateway.Providers.AzureOpenAI do
 
   alias Ankole.AIGateway.OpenAIRequestOptions
   alias Ankole.AIGateway.ProviderConnectionCheck
+  alias Ankole.AIGateway.Providers
   alias Ankole.AIGateway.ReasoningEffort
   alias Ankole.AIGateway.UniversalAIRequest
 
@@ -56,6 +57,7 @@ defmodule Ankole.AIGateway.Providers.AzureOpenAI do
       upstream(:sse)
       api_resolver(:openai_chat_completions)
       prepare(:prepare_language_model)
+      prepare_compaction(:prepare_compaction)
       supports_parallel_tool_calls()
     end
   end
@@ -68,17 +70,32 @@ defmodule Ankole.AIGateway.Providers.AzureOpenAI do
   OpenAI API resolver because the request and response bodies are OpenAI-shaped.
   """
   def prepare_language_model(ctx) do
-    endpoint_mode = endpoint_kind(ctx)
+    responses? = Providers.responses_endpoint?(ctx)
     options = Map.new(ctx.settings, fn {key, value} -> {Atom.to_string(key), value} end)
 
-    with {:ok, path, include_model?} <- azure_response_path(ctx.runtime, endpoint_mode, options) do
+    with {:ok, path, include_model?} <- azure_response_path(ctx.runtime, responses?, options) do
       ctx
-      |> UniversalAIRequest.new(path, resolver_for_endpoint(endpoint_mode),
+      |> UniversalAIRequest.new(path, Providers.openai_family_api_resolver(responses?),
         include_model: include_model?
       )
       |> put_auth(ctx)
-      |> ReasoningEffort.put_provider_options(ctx, target: target_for_endpoint(endpoint_mode))
-      |> OpenAIRequestOptions.put_provider_options(endpoint_target(endpoint_mode))
+      |> ReasoningEffort.put_provider_options(ctx,
+        target: if(responses?, do: :reasoning, else: :reasoning_effort)
+      )
+      |> OpenAIRequestOptions.put_provider_options(
+        if(responses?, do: :responses, else: :chat_completions)
+      )
+    end
+  end
+
+  @doc "Builds the standalone compact request for an Azure Responses endpoint."
+  def prepare_compaction(ctx) do
+    if Providers.responses_endpoint?(ctx) do
+      with %UniversalAIRequest{} = request <- prepare_language_model(%{ctx | stream?: false}) do
+        UniversalAIRequest.put_operation(request, :responses_compact)
+      end
+    else
+      {:error, :responses_compaction_not_applicable}
     end
   end
 
@@ -96,25 +113,6 @@ defmodule Ankole.AIGateway.Providers.AzureOpenAI do
       ProviderConnectionCheck.get(ctx, path, headers: headers)
     end
   end
-
-  # Azure can front either the Responses API or Chat Completions. The resolver
-  # follows the selected endpoint because the native Rust side normalizes those
-  # two OpenAI stream formats differently.
-  defp endpoint_kind(ctx) do
-    case ctx.settings[:endpoint_kind] do
-      "responses" -> "responses"
-      _kind -> "chat_completions"
-    end
-  end
-
-  defp resolver_for_endpoint("responses"), do: :openai_responses
-  defp resolver_for_endpoint(_mode), do: :openai_chat_completions
-
-  defp target_for_endpoint("responses"), do: :reasoning
-  defp target_for_endpoint(_mode), do: :reasoning_effort
-
-  defp endpoint_target("responses"), do: :responses
-  defp endpoint_target(_mode), do: :chat_completions
 
   # Azure deployments may use either bearer tokens or the legacy `api-key`
   # header. A credential already prefixed with `Bearer ` is treated as bearer
@@ -139,7 +137,7 @@ defmodule Ankole.AIGateway.Providers.AzureOpenAI do
   # `/openai/v1/*`, traditional `/openai/deployments/*`, and Foundry endpoints.
   # Foundry is rejected here because it is not the same OpenAI-compatible wire
   # contract and should not be silently sent to an OpenAI resolver.
-  defp azure_response_path(runtime, endpoint_mode, options) do
+  defp azure_response_path(runtime, responses?, options) do
     base_url = options |> Map.get("base_url", "") |> to_string()
     api_version = Map.get(options, "api_version") || "2025-04-01-preview"
     deployment = Map.get(options, "deployment") || runtime["model"]
@@ -148,13 +146,13 @@ defmodule Ankole.AIGateway.Providers.AzureOpenAI do
       azure_foundry_base_url?(base_url) ->
         {:error, :unsupported_azure_foundry_endpoint}
 
-      azure_v1_base_url?(base_url) and endpoint_mode == "responses" ->
+      azure_v1_base_url?(base_url) and responses? ->
         {:ok, "responses", true}
 
-      azure_v1_base_url?(base_url) and endpoint_mode == "chat_completions" ->
+      azure_v1_base_url?(base_url) ->
         {:ok, "chat/completions", true}
 
-      endpoint_mode == "responses" ->
+      responses? ->
         {:ok,
          azure_traditional_path(
            base_url,

@@ -13,6 +13,18 @@ defmodule Ankole.AIGateway.RequestContextTest do
     assert context["headers"] == %{"x-session-id" => "openrouter-session"}
   end
 
+  test "forwards W3C traceparent without forwarding authorization" do
+    traceparent = "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01"
+
+    context =
+      RequestContext.from_headers(
+        [{"traceparent", traceparent}, {"authorization", "secret"}],
+        "http"
+      )
+
+    assert context["headers"] == %{"traceparent" => traceparent}
+  end
+
   test "all stable cache identifiers also become credential affinity keys" do
     cases = [
       {%{}, %{"prompt_cache_key" => "prompt-cache"}, "prompt-cache"},
@@ -41,5 +53,19 @@ defmodule Ankole.AIGateway.RequestContextTest do
 
     websocket = RequestContext.prepare(%{"downstream_transport" => "websocket"}, %{})
     assert websocket["affinity_key"] == websocket["cache_key"]
+  end
+
+  test "prompt cache routing stays separate from the trace session" do
+    request = %{
+      "prompt_cache_key" => "shared-prefix",
+      "session_id" => "conversation-1"
+    }
+
+    prepared = RequestContext.prepare(%{}, request)
+
+    assert prepared["cache_key"] == "shared-prefix"
+    assert prepared["affinity_key"] == "shared-prefix"
+    assert RequestContext.session_key(%{}, request) == "conversation-1"
+    assert RequestContext.session_key(%{}, %{"prompt_cache_key" => "shared-prefix"}) == nil
   end
 end

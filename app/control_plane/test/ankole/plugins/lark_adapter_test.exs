@@ -619,6 +619,41 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       assert observed.uid == "ou_alice"
     end
 
+    test "message receive preserves and projects a synced name when the webhook omits it" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "lark", :ignore)
+      consumer = Inbound.chat_consumer(adapter_context(agent.uid), chat_config())
+
+      assert {:ok, _observed} =
+               Principals.upsert_platform_subject_human(%{
+                 provider: "feishu",
+                 external_id: "directory-user",
+                 uid: "directory-user",
+                 display_name: "Directory User"
+               })
+
+      event =
+        receive_event()
+        |> update_sender(fn sender ->
+          sender
+          |> Map.delete("sender_name")
+          |> put_in(["sender_id", "user_id"], "directory-user")
+        end)
+
+      assert {:ok, [%{status: :accepted, actor_event: actor_event}]} =
+               Inbound.handle_message_receive("im.message.receive_v1", event, [consumer])
+
+      assert Repo.get!(Principal, "directory-user").display_name == "Directory User"
+
+      assert get_in(actor_event.payload, ["data", "entry", "author", "display_name"]) ==
+               "Directory User"
+
+      assert Repo.get_by!(Entry,
+               signal_channel_id: "lark:oc_group",
+               source_entry_id: "om_1"
+             ).author["display_name"] == "Directory User"
+    end
+
     test "only provider-marked replies carry the containing thread id" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "lark", :ignore)

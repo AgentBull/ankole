@@ -22,6 +22,7 @@ import { statefulTruncationFromActorEventPayload } from './actor_event_text'
 import { actorEventUserContent } from './actor_event_content'
 import { channelContextModelMessages } from './channel_context'
 import { acquireTurnAIGatewayAccess } from './turn_ai_gateway_access'
+import { workerTurnTrace } from '../../observability/turn-tracing'
 import {
   actorEventEnvironmentInfoLines,
   prependEnvironmentInfoLinesToUserMessage,
@@ -205,6 +206,7 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
 
     const latest = await runAgentLoop({
       model,
+      turnTrace: workerTurnTrace(turnStart),
       systemPrompt,
       messages: [
         ...channelContextModelMessages(actorEvent.payload_json, { timezone: conversationTimezone }),

@@ -381,11 +381,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
   def terminate(_reason, _state), do: :ok
 
   defp open_active_stream(state, request) do
-    case safe_open_websocket_stream(
-           state.subject_uid,
-           request,
-           Map.get(state, :request_context, %{})
-         ) do
+    case safe_open_websocket_stream(state, request) do
       {:ok, stream, _meta} ->
         case AIGateway.read_response_stream(stream, 1) do
           :ok ->
@@ -409,8 +405,11 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
     end
   end
 
-  defp safe_open_websocket_stream(subject_uid, request, request_context) do
-    AIGateway.open_websocket_stream(subject_uid, request, request_context: request_context)
+  defp safe_open_websocket_stream(state, request) do
+    AIGateway.open_websocket_stream(state.subject_uid, request,
+      request_context: Map.get(state, :request_context, %{}),
+      subject_type: Map.get(state, :subject_type)
+    )
   rescue
     error ->
       {:error, {:exception, error.__struct__, Exception.message(error)}}

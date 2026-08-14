@@ -11,8 +11,10 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.BackgroundAgentJobs.Schemas.TrajectoryGroup
   alias Ankole.BackgroundAgentJobs.Schemas.Turn
+  alias Ankole.BackgroundAgentJobs.Schemas.TurnItem
   alias Ankole.BackgroundAgentJobs.Text
   alias Ankole.BackgroundAgentJobs.Trajectory
+  alias Ankole.BackgroundAgentJobs.TurnItemProjection
   alias Ankole.BackgroundAgentJobs.TurnWatchdog
 
   @worker_fields ~w(
@@ -23,7 +25,7 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
     status
     revision
     trajectory
-    trajectory_groups
+    turn_items
     progress
     usage
     error
@@ -44,7 +46,7 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
     error
     started_at
     completed_at
-  )
+  )a
   @active_statuses ~w(in_progress)
   @terminal_turn_statuses ~w(completed failed interrupted)
   @message_ready_statuses ~w(waiting_on_user succeeded failed stopped)
@@ -63,9 +65,9 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
           {:ok, Turn.t()} | {:error, term()}
   def upsert_from_worker_in_tx(repo, %Job{} = job, attrs) when is_map(attrs) do
     with {:ok, attrs} <- normalize_worker_attrs(attrs, job),
-         {trajectory_groups, attrs} <- Map.pop(attrs, "trajectory_groups", []),
+         {turn_items, attrs} <- Map.pop(attrs, "turn_items", []),
          :ok <- validate_attempt(job, attrs),
-         {:ok, turn} <- upsert_in_tx(repo, job, attrs, trajectory_groups),
+         {:ok, turn} <- upsert_in_tx(repo, job, attrs, turn_items),
          :ok <- TurnWatchdog.notify_deadline_in_tx(repo, job.id) do
       {:ok, turn}
     end
@@ -82,6 +84,143 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
     |> Repo.all()
     |> Enum.reverse()
   end
+
+  @replay_page_limit 200
+
+  @doc """
+  Pages the lead-thread turn items of one Job's workspace lineage in
+  chronological order.
+
+  The Worker replays these items into a replacement Codex thread when the
+  Worker-local native thread state is gone. Child-agent threads stay out of
+  the page: their context never survives their own turns.
+  """
+  @spec replay_items_page(Job.t(), String.t() | nil) ::
+          {:ok, %{items: [map()], next_cursor: String.t() | nil}} | {:error, term()}
+  def replay_items_page(%Job{} = job, cursor) do
+    with {:ok, cursor} <- decode_replay_cursor(cursor) do
+      turns = lineage_lead_turns(job)
+      turn_ids = Enum.map(turns, & &1.id)
+
+      case cursor_turn_index(turn_ids, cursor) do
+        :error ->
+          {:error, :invalid_background_agent_job_replay_cursor}
+
+        {:ok, start_index, after_position} ->
+          {items, next_cursor} =
+            collect_replay_items(
+              Enum.drop(turns, start_index),
+              after_position,
+              @replay_page_limit
+            )
+
+          {:ok, %{items: items, next_cursor: next_cursor}}
+      end
+    end
+  end
+
+  defp lineage_lead_turns(%Job{} = job) do
+    lineage_job_ids =
+      Job
+      |> where([row], row.workspace_owner_job_id == ^job.workspace_owner_job_id)
+      |> where([row], row.agent_uid == ^job.agent_uid)
+      |> select([row], row.id)
+      |> Repo.all()
+
+    Turn
+    |> where([turn], turn.job_id in ^lineage_job_ids)
+    |> order_by([turn], asc: turn.started_at, asc: turn.id)
+    |> Repo.all()
+    |> Enum.group_by(&{&1.job_id, &1.attempt})
+    |> Enum.flat_map(fn {_key, attempt_turns} ->
+      ordered = Enum.sort_by(attempt_turns, &turn_start_key/1)
+      lead_thread_id = inferred_attempt_lead_thread_id(ordered)
+      Enum.filter(ordered, &lead_turn?(&1, lead_thread_id))
+    end)
+    |> Enum.sort_by(&turn_start_key/1)
+  end
+
+  defp cursor_turn_index(_turn_ids, nil), do: {:ok, 0, nil}
+
+  defp cursor_turn_index(turn_ids, %{turn_id: turn_id, position: position}) do
+    case Enum.find_index(turn_ids, &(&1 == turn_id)) do
+      nil -> :error
+      index -> {:ok, index, position}
+    end
+  end
+
+  defp collect_replay_items(turns, after_position, limit) do
+    turns
+    |> Enum.with_index()
+    |> Enum.reduce_while({[], nil}, fn {turn, index}, {collected, _next} ->
+      remaining = limit - length(collected)
+
+      rows =
+        TurnItem
+        |> where([row], row.turn_id == ^turn.id)
+        |> then(fn query ->
+          if index == 0 and is_integer(after_position),
+            do: where(query, [row], row.position > ^after_position),
+            else: query
+        end)
+        |> order_by([row], asc: row.position)
+        |> limit(^(remaining + 1))
+        |> Repo.all()
+
+      page_rows = Enum.take(rows, remaining)
+
+      collected =
+        collected ++
+          Enum.map(page_rows, fn row ->
+            %{
+              runtime_thread_id: turn.runtime_thread_id,
+              runtime_turn_id: turn.runtime_turn_id,
+              position: row.position,
+              item_key: row.item_key,
+              item: OpaqueContent.reveal(row.item)
+            }
+          end)
+
+      cond do
+        length(rows) > remaining ->
+          last = List.last(page_rows)
+          {:halt, {collected, encode_replay_cursor(turn.id, last.position)}}
+
+        length(collected) == limit ->
+          # The page is exactly full; a later Turn may still hold items. Point
+          # the cursor at the last delivered item so the next page proves it.
+          last = List.last(page_rows)
+          {:halt, {collected, encode_replay_cursor(turn.id, last.position)}}
+
+        true ->
+          {:cont, {collected, nil}}
+      end
+    end)
+  end
+
+  defp encode_replay_cursor(turn_id, position) do
+    %{"v" => @cursor_version, "turn_id" => turn_id, "position" => position}
+    |> Ankole.JSON.encode!()
+    |> Base.url_encode64(padding: false)
+  end
+
+  defp decode_replay_cursor(nil), do: {:ok, nil}
+  defp decode_replay_cursor(""), do: {:ok, nil}
+
+  defp decode_replay_cursor(cursor) when is_binary(cursor) do
+    with {:ok, decoded} <- Base.url_decode64(cursor, padding: false),
+         {:ok, %{"v" => @cursor_version, "turn_id" => turn_id, "position" => position}} <-
+           Ankole.JSON.decode(decoded),
+         {:ok, turn_id} <- Ecto.UUID.cast(turn_id),
+         true <- is_integer(position) and position >= 0 do
+      {:ok, %{turn_id: turn_id, position: position}}
+    else
+      _reason -> {:error, :invalid_background_agent_job_replay_cursor}
+    end
+  end
+
+  defp decode_replay_cursor(_cursor),
+    do: {:error, :invalid_background_agent_job_replay_cursor}
 
   @spec execution_projection(Job.t(), keyword()) :: {:ok, map()} | {:error, atom()}
   def execution_projection(%Job{} = job, opts \\ []) do
@@ -505,22 +644,22 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
     |> Repo.all()
   end
 
-  defp upsert_in_tx(repo, %Job{} = job, attrs, trajectory_groups) do
+  defp upsert_in_tx(repo, %Job{} = job, attrs, turn_items) do
     runtime_turn_id = Map.fetch!(attrs, "runtime_turn_id")
 
     case get_in_tx(repo, job.id, runtime_turn_id, lock: "FOR UPDATE") do
       nil ->
         with {:ok, turn} <- %Turn{} |> Turn.changeset(attrs) |> repo.insert(),
-             :ok <- append_trajectory_groups(repo, turn, trajectory_groups) do
+             {:ok, turn} <- append_turn_items(repo, turn, turn_items) do
           {:ok, turn}
         end
 
       %Turn{} = turn ->
-        update_existing(repo, turn, attrs, trajectory_groups)
+        update_existing(repo, turn, attrs, turn_items)
     end
   end
 
-  defp update_existing(repo, %Turn{} = turn, attrs, trajectory_groups) do
+  defp update_existing(repo, %Turn{} = turn, attrs, turn_items) do
     revision = Map.fetch!(attrs, "revision")
 
     if revision < turn.revision do
@@ -538,7 +677,7 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
             {:error, :background_agent_job_turn_runtime_thread_mismatch}
 
           revision == turn.revision and checkpoint_equal?(turn, candidate) ->
-            with :ok <- checkpoint_groups_equal?(repo, turn, revision, trajectory_groups),
+            with :ok <- checkpoint_items_equal?(repo, turn, revision, turn_items),
                  do: {:ok, turn}
 
           revision == turn.revision ->
@@ -549,7 +688,7 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
 
           true ->
             with {:ok, updated} <- turn |> Turn.changeset(attrs) |> repo.update(),
-                 :ok <- append_trajectory_groups(repo, updated, trajectory_groups) do
+                 {:ok, updated} <- append_turn_items(repo, updated, turn_items) do
               {:ok, updated}
             end
         end
@@ -595,13 +734,22 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
   defp validate_attempt(%Job{attempts: attempts}, %{"attempt" => attempts}), do: :ok
   defp validate_attempt(%Job{}, _attrs), do: {:error, :background_agent_job_turn_attempt_mismatch}
 
-  defp append_trajectory_groups(_repo, _turn, []), do: :ok
+  defp append_turn_items(_repo, %Turn{} = turn, []), do: {:ok, turn}
 
-  defp append_trajectory_groups(repo, %Turn{} = turn, groups) when is_list(groups) do
-    Enum.reduce_while(groups, :ok, fn group, :ok ->
-      with {:ok, candidate, changeset} <- trajectory_group_candidate(turn, group) do
+  defp append_turn_items(repo, %Turn{} = turn, items) when is_list(items) do
+    with {:ok, truncated} <- insert_turn_items(repo, turn, items) do
+      if truncated, do: mark_turn_content_truncated(repo, turn), else: {:ok, turn}
+    end
+  end
+
+  defp append_turn_items(_repo, _turn, _items),
+    do: {:error, :invalid_background_agent_job_turn_items}
+
+  defp insert_turn_items(repo, %Turn{} = turn, items) do
+    Enum.reduce_while(items, {:ok, false}, fn entry, {:ok, truncated} ->
+      with {:ok, candidate, changeset} <- turn_item_candidate(turn, entry) do
         existing =
-          TrajectoryGroup
+          TurnItem
           |> where([row], row.turn_id == ^turn.id)
           |> where(
             [row],
@@ -612,16 +760,18 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
 
         cond do
           existing == [] ->
-            case repo.insert(changeset) do
-              {:ok, _group} -> {:cont, :ok}
+            with {:ok, _item} <- repo.insert(changeset),
+                 {:ok, group_truncated} <- append_derived_group(repo, turn, candidate) do
+              {:cont, {:ok, truncated or group_truncated}}
+            else
               {:error, reason} -> {:halt, {:error, reason}}
             end
 
-          Enum.any?(existing, &trajectory_group_equal?(&1, candidate)) and length(existing) == 1 ->
-            {:cont, :ok}
+          Enum.any?(existing, &turn_item_equal?(&1, candidate)) and length(existing) == 1 ->
+            {:cont, {:ok, truncated}}
 
           true ->
-            {:halt, {:error, :background_agent_job_trajectory_group_conflict}}
+            {:halt, {:error, :background_agent_job_turn_item_conflict}}
         end
       else
         {:error, reason} -> {:halt, {:error, reason}}
@@ -629,19 +779,16 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
     end)
   end
 
-  defp append_trajectory_groups(_repo, _turn, _groups),
-    do: {:error, :invalid_background_agent_job_trajectory_groups}
-
-  defp trajectory_group_candidate(%Turn{} = turn, %{} = group) do
-    attrs = Attrs.normalize(group)
+  defp turn_item_candidate(%Turn{} = turn, %{} = entry) do
+    attrs = Attrs.normalize(entry)
 
     changeset =
-      TrajectoryGroup.changeset(%TrajectoryGroup{}, %{
+      TurnItem.changeset(%TurnItem{}, %{
         turn_id: turn.id,
         position: attrs["position"],
         revision: turn.revision,
         item_key: attrs["item_key"],
-        content: %{"messages" => attrs["messages"]}
+        item: attrs["item"]
       })
 
     case Ecto.Changeset.apply_action(changeset, :insert) do
@@ -650,12 +797,41 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
     end
   end
 
-  defp trajectory_group_candidate(_turn, _group),
-    do: {:error, :invalid_background_agent_job_trajectory_groups}
+  defp turn_item_candidate(_turn, _entry),
+    do: {:error, :invalid_background_agent_job_turn_items}
 
-  defp checkpoint_groups_equal?(repo, turn, revision, groups) do
+  # Derives the stored trajectory-group projection for one accepted item. An
+  # item that projects no messages stays replay-only.
+  defp append_derived_group(repo, %Turn{} = turn, %TurnItem{} = item) do
+    case TurnItemProjection.project(item.item) do
+      {[], truncated} ->
+        {:ok, truncated}
+
+      {messages, truncated} ->
+        changeset =
+          TrajectoryGroup.changeset(%TrajectoryGroup{}, %{
+            turn_id: turn.id,
+            position: item.position,
+            revision: turn.revision,
+            item_key: item.item_key,
+            content: %{"messages" => messages}
+          })
+
+        case repo.insert(changeset) do
+          {:ok, _group} -> {:ok, truncated}
+          {:error, reason} -> {:error, reason}
+        end
+    end
+  end
+
+  defp turn_item_equal?(stored, candidate) do
+    stored.position == candidate.position and stored.item_key == candidate.item_key and
+      stored.item == candidate.item
+  end
+
+  defp checkpoint_items_equal?(repo, turn, revision, items) do
     stored =
-      TrajectoryGroup
+      TurnItem
       |> where([row], row.turn_id == ^turn.id)
       |> order_by([row], asc: row.position)
       |> repo.all()
@@ -663,31 +839,41 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
     current = Enum.filter(stored, &(&1.revision == revision))
 
     candidates =
-      Enum.map(groups, fn group ->
-        attrs = Attrs.normalize(group)
+      Enum.map(items, fn entry ->
+        attrs = Attrs.normalize(entry)
 
         %{
           position: attrs["position"],
           item_key: attrs["item_key"],
-          content: %{"messages" => attrs["messages"]}
+          item: attrs["item"]
         }
       end)
 
-    if trajectory_group_lists_equal?(current, candidates) or
-         trajectory_group_lists_equal?(stored, candidates),
+    if turn_item_lists_equal?(current, candidates) or
+         turn_item_lists_equal?(stored, candidates),
        do: :ok,
        else: {:error, :background_agent_job_turn_revision_conflict}
   end
 
-  defp trajectory_group_lists_equal?(stored, candidates) do
+  defp turn_item_lists_equal?(stored, candidates) do
     length(stored) == length(candidates) and
       Enum.zip(stored, candidates)
-      |> Enum.all?(fn {row, value} -> trajectory_group_equal?(row, value) end)
+      |> Enum.all?(fn {row, value} -> turn_item_equal?(row, value) end)
   end
 
-  defp trajectory_group_equal?(group, value) do
-    group.position == value.position and group.item_key == value.item_key and
-      group.content == value.content
+  defp mark_turn_content_truncated(repo, %Turn{} = turn) do
+    header = turn.trajectory || empty_trajectory()
+    metadata = if is_map(header["metadata"]), do: header["metadata"], else: %{}
+
+    if metadata["content_truncated"] == true do
+      {:ok, turn}
+    else
+      header = Map.put(header, "metadata", Map.put(metadata, "content_truncated", true))
+
+      turn
+      |> Ecto.Changeset.change(trajectory: header)
+      |> repo.update()
+    end
   end
 
   defp lead_turn?(%Turn{} = turn, lead_thread_id),

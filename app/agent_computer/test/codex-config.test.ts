@@ -36,7 +36,8 @@ function aigatewayRuntime(): CodexRuntimeConfig {
         inputModalities: ['text', 'image']
       },
       modelReasoningEffort: 'xhigh'
-    }
+    },
+    remoteCompactionV2: false
   }
 }
 
@@ -99,6 +100,7 @@ describe('@ankole/agent-computer Codex config', () => {
       codexHome: '/agents/agent.v1/.codex',
       env: {},
       runtime,
+      traceparent: '00-11111111111111111111111111111111-1111111111111111-01',
       projectConfig: {
         features: { plugins: false, code_mode: { enabled: true } },
         mcp_servers: { native: { command: 'native-server' } },
@@ -115,8 +117,24 @@ describe('@ankole/agent-computer Codex config', () => {
       'cli_auth_credentials_store="file"'
     ])
     expect(threadConfig.projects).toEqual({ [projectRoot]: { trust_level: 'trusted' } })
-    expect(threadConfig.features).toEqual({ plugins: true, remote_plugin: false, code_mode: { enabled: true } })
+    expect(threadConfig.features).toEqual({
+      plugins: true,
+      remote_plugin: false,
+      remote_compaction_v2: false,
+      code_mode: { enabled: true }
+    })
     expect(threadConfig.mcp_servers).toEqual({ native: { command: 'native-server' } })
+    expect((threadConfig as any).model_providers.ankole_aigateway.http_headers.traceparent).toBe(
+      '00-11111111111111111111111111111111-1111111111111111-01'
+    )
+
+    const subscriptionThreadConfig = codexJobThreadConfig({
+      cwd: projectRoot,
+      codexHome: '/agents/agent.v1/.codex',
+      env: {},
+      runtime: { ...runtime, remoteCompactionV2: true }
+    }) as any
+    expect(subscriptionThreadConfig.features.remote_compaction_v2).toBe(true)
   })
 
   it('keeps shared config model-free and sends each frozen binding through thread config', () => {
@@ -148,6 +166,7 @@ describe('@ankole/agent-computer Codex config', () => {
       expect(config.model_reasoning_effort).toBeUndefined()
       expect(config.model_auto_compact_token_limit).toBe(100000)
       expect(config.features.code_mode.enabled).toBe(true)
+      expect(config.model_providers.ankole_aigateway.name).toBe('OpenAI')
       expect(config.model_providers.ankole_aigateway.env_http_headers).toBeUndefined()
       expect(materialized.env.ANKOLE_AIGATEWAY_MODEL_BINDING).toBeUndefined()
       // Command auth (not env_key) makes Codex refresh the AIGateway models
@@ -159,6 +178,7 @@ describe('@ankole/agent-computer Codex config', () => {
         refresh_interval_ms: 300000
       })
       expect(threadConfig.model_providers.ankole_aigateway.auth).toEqual(config.model_providers.ankole_aigateway.auth)
+      expect(threadConfig.model_providers.ankole_aigateway.name).toBe('OpenAI')
       expect(binding).toEqual({
         selector: 'openrouter/openai/gpt-5.6-sol',
         provider_options: {

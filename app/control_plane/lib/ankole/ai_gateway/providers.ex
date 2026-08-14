@@ -268,8 +268,11 @@ defmodule Ankole.AIGateway.Providers do
 
   A provider whose wire protocol always carries the capability declares it. A
   generic OpenAI-compatible row cannot be known statically, because its endpoint
-  is whatever the operator pointed it at, so that row declares the capability
-  through its `hosted_web_search` connection option instead.
+  is whatever the operator pointed it at, so it counts when that row is configured
+  for the Responses wire, which is the protocol hosted web search belongs to.
+  An endpoint that claims the Responses wire and cannot serve hosted tools has
+  an incomplete protocol; that is an upstream error, not a case for an extra
+  connection switch.
 
   This answers only what the provider can do. Whether an Agent uses it is the
   Agent's `provider_hosted` setting.
@@ -284,7 +287,7 @@ defmodule Ankole.AIGateway.Providers do
         _error -> false
       end
 
-    declared? or ProviderConfigs.hosted_web_search_endpoint?(model_ref)
+    declared? or ProviderConfigs.responses_endpoint?(model_ref)
   end
 
   def supports_native_web_search?(_runtime), do: false
@@ -325,6 +328,105 @@ defmodule Ankole.AIGateway.Providers do
   @spec build_response_request(map(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   def build_response_request(runtime, request, opts \\ []),
     do: build_prepared_request(runtime, :language_model, request, opts)
+
+  @doc """
+  Builds a provider-owned standalone Responses compact request.
+
+  The callback is a request constructor. A successful construction does not
+  mean that the configured upstream implements the endpoint.
+  """
+  @spec build_compaction_request(map(), map(), keyword()) :: {:ok, map()} | {:error, term()}
+  def build_compaction_request(runtime, request, opts \\ []) do
+    with {:ok, provider} <- fetch(Map.get(runtime, "provider_kind")),
+         {:ok, capability} <- ProviderDefinition.capability(provider, :language_model),
+         function_name when is_atom(function_name) <- capability.prepare_compaction,
+         {:ok, ctx} <- PrepareContext.build(provider, :language_model, runtime, request, opts),
+         {:ok, prepared} <- call_prepare_function(provider.module, function_name, ctx) do
+      rebuild = fn next_runtime, request_override ->
+        build_compaction_request(next_runtime, request_override || request, opts)
+      end
+
+      {:ok, CredentialAttempts.attach(prepared, runtime, rebuild, request)}
+    else
+      nil -> {:error, :provider_compaction_constructor_unavailable}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  @doc """
+  Returns the effective language-model resolver for one resolved runtime.
+
+  OpenAI-family providers select the resolver from their effective endpoint.
+  Other providers use their declared resolver.
+  """
+  @spec effective_language_model_api_resolver(map()) :: {:ok, atom()} | {:error, term()}
+  def effective_language_model_api_resolver(%{"provider_kind" => provider_kind} = runtime) do
+    with {:ok, provider} <- fetch(provider_kind),
+         {:ok, capability} <- ProviderDefinition.capability(provider, :language_model) do
+      resolver =
+        if provider_kind in ~w(openai openai_compatible azure_openai chatgpt_subscription) do
+          openai_family_api_resolver(responses_endpoint?(runtime))
+        else
+          capability.api_resolver
+        end
+
+      {:ok, resolver}
+    end
+  end
+
+  def effective_language_model_api_resolver(_runtime),
+    do: {:error, :unknown_ai_gateway_provider}
+
+  @doc """
+  Maps the Responses-wire judgment to the native API resolver shared by the
+  OpenAI protocol family. The native side normalizes the two OpenAI stream
+  formats differently, so the resolver must follow the effective endpoint.
+  """
+  @spec openai_family_api_resolver(boolean()) :: :openai_responses | :openai_chat_completions
+  def openai_family_api_resolver(true), do: :openai_responses
+  def openai_family_api_resolver(false), do: :openai_chat_completions
+
+  @doc """
+  Returns whether one provider connection speaks the OpenAI Responses wire.
+
+  This is the only owner of the per-kind endpoint defaults: `openai` defaults
+  to Responses, `azure_openai` and `openai_compatible` default to Chat
+  Completions because that is the most common generic shape, and
+  `chatgpt_subscription` always speaks Responses. A missing or unknown
+  `endpoint_kind` connection option falls back to the kind's default.
+  """
+  @spec responses_endpoint?(String.t(), map()) :: boolean()
+  def responses_endpoint?("chatgpt_subscription", _connection_options), do: true
+
+  def responses_endpoint?("openai", connection_options) do
+    Map.get(connection_options, "endpoint_kind") != "chat_completions"
+  end
+
+  def responses_endpoint?(provider_kind, connection_options)
+      when provider_kind in ["openai_compatible", "azure_openai"] do
+    Map.get(connection_options, "endpoint_kind") == "responses"
+  end
+
+  def responses_endpoint?(_provider_kind, _connection_options), do: false
+
+  @doc """
+  Returns whether one prepare context or one resolved runtime uses the
+  Responses endpoint. Both shapes read the `endpoint_kind` connection setting
+  and delegate to `responses_endpoint?/2`.
+  """
+  @spec responses_endpoint?(PrepareContext.t() | map()) :: boolean()
+  def responses_endpoint?(%PrepareContext{} = ctx) do
+    responses_endpoint?(
+      ctx.provider.provider_kind,
+      %{"endpoint_kind" => ctx.settings[:endpoint_kind]}
+    )
+  end
+
+  def responses_endpoint?(%{"provider_kind" => provider_kind} = runtime) do
+    responses_endpoint?(provider_kind, Map.get(runtime, "connection_options", %{}))
+  end
+
+  def responses_endpoint?(_runtime), do: false
 
   @doc """
   Builds a prepared embedding request for UniversalAIClient.
@@ -452,7 +554,7 @@ defmodule Ankole.AIGateway.Providers do
        )
        when provider_kind in ["openai", "azure_openai"] and
               is_map(request) do
-    if openai_responses_endpoint?(provider_kind, ctx) do
+    if responses_endpoint?(ctx) do
       %{ctx | request: Map.put(request, "store", false)}
     else
       ctx
@@ -461,26 +563,14 @@ defmodule Ankole.AIGateway.Providers do
 
   defp maybe_disable_openai_response_storage(ctx), do: ctx
 
-  defp openai_responses_endpoint?("openai", %PrepareContext{settings: settings})
-       when is_map(settings) do
-    case Map.get(settings, :endpoint_kind) do
-      "chat_completions" -> false
-      _endpoint_kind -> true
-    end
-  end
-
-  defp openai_responses_endpoint?("azure_openai", %PrepareContext{settings: settings})
-       when is_map(settings),
-       do: Map.get(settings, :endpoint_kind) == "responses"
-
-  defp openai_responses_endpoint?("chatgpt_subscription", _ctx), do: true
-
-  defp openai_responses_endpoint?(_provider_kind, _ctx), do: false
-
   # Provider code can return the builder or the final map, tagged or bare. That
   # keeps simple providers terse while preserving a single UniversalAIClient spec
   # shape after this boundary.
   defp call_prepare(module, %Capability{prepare: function_name}, ctx) do
+    call_prepare_function(module, function_name, ctx)
+  end
+
+  defp call_prepare_function(module, function_name, ctx) do
     case apply(module, function_name, [ctx]) do
       %UniversalAIRequest{} = request -> UniversalAIRequest.to_spec(request)
       request when is_map(request) -> {:ok, request}
@@ -591,15 +681,27 @@ defmodule Ankole.AIGateway.Providers do
   defp validate_plugin_capabilities(%ProviderDefinition{capabilities: capabilities}),
     do: {:error, {:invalid_ai_gateway_capabilities, capabilities}}
 
-  defp valid_plugin_capability?(%Capability{kind: kind, prepare: prepare})
-       when kind in @capability_kinds and is_atom(prepare),
+  defp valid_plugin_capability?(%Capability{
+         kind: kind,
+         prepare: prepare,
+         prepare_compaction: prepare_compaction
+       })
+       when kind in @capability_kinds and is_atom(prepare) and
+              (is_nil(prepare_compaction) or is_atom(prepare_compaction)),
        do: true
 
   defp valid_plugin_capability?(_capability), do: false
 
   defp validate_plugin_prepare_callbacks(module, %ProviderDefinition{capabilities: capabilities}) do
     Enum.reduce_while(capabilities, :ok, fn capability, :ok ->
-      case validate_module_callback(module, capability.prepare, 1) do
+      callbacks = [capability.prepare, capability.prepare_compaction] |> Enum.reject(&is_nil/1)
+
+      case Enum.find_value(callbacks, :ok, fn callback ->
+             case validate_module_callback(module, callback, 1) do
+               :ok -> false
+               {:error, reason} -> {:error, reason}
+             end
+           end) do
         :ok -> {:cont, :ok}
         {:error, reason} -> {:halt, {:error, reason}}
       end

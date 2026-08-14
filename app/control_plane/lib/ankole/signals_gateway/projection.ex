@@ -77,13 +77,15 @@ defmodule Ankole.SignalsGateway.Projection do
   # text field, or an empty map all keep the previously stored value.
   # `first_seen_at` is always preserved since it records the first observation.
   defp merge_channel_attrs(%Channel{} = channel, attrs) do
+    kind = preserve_enum(attrs.kind, :unknown, channel.kind)
+
     %{
       attrs
-      | kind: preserve_enum(attrs.kind, :unknown, channel.kind),
+      | kind: kind,
         reply_mode: preserve_enum(attrs.reply_mode, :none, channel.reply_mode),
         name: attrs.name || channel.name,
         visibility: attrs.visibility || channel.visibility,
-        principal_group_id: attrs.principal_group_id || channel.principal_group_id,
+        principal_group_id: merged_principal_group_id(kind, attrs, channel),
         metadata: merge_metadata(channel.metadata, attrs.metadata),
         raw_payload: preserve_empty_map(attrs.raw_payload, channel.raw_payload),
         first_seen_at: channel.first_seen_at
@@ -94,6 +96,15 @@ defmodule Ankole.SignalsGateway.Projection do
   # means the event carried no channel kind / reply mode, so keep what we had.
   defp preserve_enum(incoming, sparse_value, existing) when incoming == sparse_value, do: existing
   defp preserve_enum(incoming, _sparse_value, _existing), do: incoming
+
+  # A principal group belongs to a group channel. "Don't overwrite with nothing"
+  # cannot apply to this field on its own: when an observation reclassifies the
+  # channel away from `im_group`, keeping the stored group produces a row the
+  # storage rejects, and every later message on that channel then fails.
+  defp merged_principal_group_id(:im_group, attrs, %Channel{} = channel),
+    do: attrs.principal_group_id || channel.principal_group_id
+
+  defp merged_principal_group_id(_kind, _attrs, %Channel{}), do: nil
 
   defp preserve_empty_map(map, existing) when map == %{}, do: existing || %{}
   defp preserve_empty_map(map, _existing), do: map

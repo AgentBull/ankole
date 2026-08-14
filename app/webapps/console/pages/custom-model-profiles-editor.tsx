@@ -260,14 +260,22 @@ function StoredCustomModelProfileEditor({
     save.mutate({ body: built.body, path: { agent_uid: agentUID, profile: name } })
   }
 
-  const draft = model.snapshot()
+  const signals = model.profile
+  const draft: ProfileDraft = {
+    description: signals.description.value,
+    providerID: signals.providerID.value,
+    model: signals.model.value,
+    contextLength: signals.contextLength.value,
+    providerOptions: signals.providerOptions.value,
+    error: signals.error.value
+  }
 
   return (
     <ModelProfileEditorCard
       profile={name}
       label={name}
       draft={draft}
-      dirty={model.profile.dirty.value}
+      dirty={signals.dirty.value}
       showDescription
       persistencePending={save.isPending || remove.isPending}
       deleteConfirm={{

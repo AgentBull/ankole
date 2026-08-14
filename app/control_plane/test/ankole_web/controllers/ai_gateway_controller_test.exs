@@ -9,6 +9,8 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
   import AnkoleWeb.AIGatewayControllerTestHelpers
   import ExUnit.CaptureLog
 
+  alias Ankole.AIGateway.Compaction
+  alias Ankole.AIGateway.CompactionArtifacts
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.ResponseStream.State, as: ResponseStreamState
   alias Ankole.AIGateway.StatefulResponses
@@ -2313,6 +2315,50 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     assert inspect(continuation_request.body) =~ "## Active Task\\nhello from compliance"
   end
 
+  test "compact endpoint rejects opaque history when local fallback is the only path", %{
+    conn: conn
+  } do
+    %{principal: agent} = agent_fixture()
+
+    assert {:ok, _config} = Compaction.put_config(%{"prefer_upstream" => false})
+    on_exit(fn -> Compaction.delete_config() end)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "opaque-compact-fallback",
+               provider_kind: "openai",
+               base_url: "http://127.0.0.1:1/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "opaque-compact-fallback",
+               model: "gpt-test"
+             })
+
+    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+
+    conn =
+      conn
+      |> put_req_header("authorization", "Bearer #{api_key.api_key}")
+      |> put_req_header("content-type", "application/json")
+      |> post("/api/v1/ai-gateway/responses/compact", %{
+        "model" => "primary",
+        "input" => [
+          %{"type" => "compaction", "encrypted_content" => "provider-opaque-state"}
+        ]
+      })
+
+    assert %{
+             "error" => %{
+               "code" => "opaque_compaction_fallback_unavailable"
+             }
+           } = json_response(conn, 502)
+  end
+
   test "compact endpoint compacts only items after the previous compaction item", %{conn: conn} do
     %{principal: agent} = agent_fixture()
 
@@ -2411,93 +2457,29 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
              %{"text" => "## Active Task\nsecond summary"}
   end
 
-  test "compact endpoint discards unreadable foreign compaction state", %{conn: conn} do
-    %{principal: agent} = agent_fixture()
-
-    base_url =
-      start_recording_upstream(self(), fn request ->
-        if request.path == "models" do
-          {:json, 200, openrouter_models_fixture()}
-        else
-          {:sse, 200,
-           chat_completion_stream_events(request, "## Active Task\nhello from compliance")}
-        end
-      end)
-
-    assert {:ok, _provider} =
-             ProviderConfigs.create_provider(%{
-               provider_id: "openrouter-compact-foreign-state",
-               provider_kind: "openrouter",
-               base_url: base_url,
-               credential_pool: %{
-                 "entries" => [%{"label" => "Default", "api_key" => "sk-openrouter"}]
-               }
-             })
-
-    assert {:ok, _profile} =
-             ModelProfiles.put_model_profile(agent.uid, "primary", %{
-               provider_id: "openrouter-compact-foreign-state",
-               model: "openai/gpt-5.5",
-               context_length: 131_072
-             })
-
-    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
-
-    foreign_state = String.duplicate("A", 40_000)
-
-    conn =
-      conn
-      |> put_req_header("authorization", "Bearer #{api_key.api_key}")
-      |> put_req_header("content-type", "application/json")
-      |> post("/api/v1/ai-gateway/responses/compact", %{
-        "model" => "primary",
-        "input" => [
-          %{"type" => "compaction", "encrypted_content" => foreign_state},
-          %{"type" => "message", "role" => "user", "content" => "message after foreign state"},
-          %{
-            "type" => "message",
-            "role" => "assistant",
-            "content" => "answer after foreign state"
-          }
-        ]
-      })
-
-    body = json_response(conn, 200)
-
-    assert [
-             %{
-               "type" => "message",
-               "role" => "user",
-               "content" => "message after foreign state"
-             },
-             %{"type" => "compaction", "id" => "cmp_" <> artifact_id}
-           ] = body["output"]
-
-    summarizer = receive_summarizer_request()
-    prompt = summarizer_user_prompt(summarizer.body)
-
-    assert prompt =~ "message after foreign state"
-    refute prompt =~ "AAAA"
-    refute prompt =~ "<previous_chat_history>"
-
-    retention = Repo.get!(CompactionArtifact, artifact_id).content["retention"]
-    assert retention["previous_summary_discarded"] == true
-    assert retention["strategy"] == "standalone_user_messages"
-  end
-
   test "compact endpoint rejects input with no items after the last compaction item", %{
     conn: conn
   } do
     %{principal: agent} = agent_fixture()
     assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
 
+    assert {:ok, artifact} =
+             CompactionArtifacts.insert_artifact(%{
+               subject_uid: agent.uid,
+               summary_text: "Prior work is complete.",
+               retained_items: [],
+               retained_user_originals: [],
+               retention: %{},
+               usage: %{}
+             })
+
     conn =
       conn
       |> put_req_header("authorization", "Bearer #{api_key.api_key}")
       |> put_req_header("content-type", "application/json")
       |> post("/api/v1/ai-gateway/responses/compact", %{
         "model" => "primary",
-        "input" => [%{"type" => "compaction", "encrypted_content" => "opaque prior state"}]
+        "input" => [CompactionArtifacts.compaction_item(artifact.id)]
       })
 
     assert %{"error" => %{"code" => "no_compaction_candidate"}} = json_response(conn, 400)

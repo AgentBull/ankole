@@ -42,6 +42,8 @@ function removeThreadRuntimeConfig(config: TomlTable): void {
   delete config.model_reasoning_effort
   delete config.model_provider
   delete config.service_tier
+
+  if (isTable(config.features)) delete config.features.remote_compaction_v2
 }
 
 function applyRunnerSafety(config: TomlTable, hostedWebSearch: boolean): void {
@@ -53,7 +55,6 @@ function applyRunnerSafety(config: TomlTable, hostedWebSearch: boolean): void {
 
   const features = tableAt(config, 'features')
   features.memories = false
-  features.remote_compaction_v2 = false
   features.multi_agent = false
   features.apps = false
   features.enable_mcp_apps = false

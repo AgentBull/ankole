@@ -37,6 +37,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
   alias Ankole.SignalsGateway.ActorRuntime.AIGatewayAPIKeyBroker
   alias Ankole.SignalsGateway.ActorRuntime.AppConfigureBroker
   alias Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker
+  alias Ankole.SignalsGateway.ActorRuntime.ObservabilityBroker
   alias Ankole.SignalsGateway.ActorRuntime.RPCWire
   alias Ankole.SignalsGateway.ActorRuntime.SignalChannelBroker
   alias Ankole.SignalsGateway.ActorRuntime.SkillOverlayBroker
@@ -106,6 +107,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
     "background_agent_job.turn.upsert" =>
       {BackgroundAgentJobBroker, :handle_upsert_turn, :turn_write,
        FabricProto.BackgroundAgentJobTurnUpsertRequest},
+    "background_agent_job.turn_items.list" =>
+      {BackgroundAgentJobBroker, :handle_turn_items_list, :turn_read,
+       FabricProto.BackgroundAgentJobTurnItemsListRequest},
     "background_agent_job.status.update" =>
       {BackgroundAgentJobBroker, :handle_update_status, :turn_write,
        FabricProto.BackgroundAgentJobStatusUpdateRequest},
@@ -118,6 +122,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
       {BrainRPCBroker, :handle_browse, :turn_read, FabricProto.MemoryBrowseRequest},
     "memory_health_check" =>
       {BrainRPCBroker, :handle_health_check, :turn_read, FabricProto.MemoryHealthCheckRequest},
+    "observability.spans.export" =>
+      {ObservabilityBroker, :handle_export, :worker_agent,
+       FabricProto.ObservabilitySpansExportRequest},
     "schedule.check_back_later.create" =>
       {ScheduleRPCBroker, :handle_check_back_later_create, :turn_write,
        FabricProto.ScheduleCheckBackLaterCreateRequest},

@@ -16,9 +16,13 @@ import { modelConfigFromAIGatewayAPIKey } from '../../src/core/ai_gateway_transp
 import { acquireTurnAIGatewayAccess } from '../../src/core/turns/turn_ai_gateway_access'
 import { textTurnResultFromAssistantReply } from '../../src/core/turns/text_turn'
 import { steeringMessages, steeringMessagesWithAcknowledgement } from '../../src/core/turns/turn_control'
+import { buildAgentSystemPrompt } from '../../src/prompts/system_prompt'
 import type { TurnStart } from '../../src/lanes/actor_lane'
 import { create } from '@bufbuild/protobuf'
-import { AIGatewayAPIKeyResponseSchema } from '../../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
+import {
+  AgentConversationContextResponseSchema,
+  AIGatewayAPIKeyResponseSchema
+} from '../../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import type { AIGatewayAPIKeyResponse } from '../../src/lanes/rpc_lane'
 import {
   FakeResponseSocket,
@@ -40,6 +44,32 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
     expect(access.model.selector).toBe('openrouter/z-ai/glm-5.2')
     expect(access.aiGateway.baseURL).toBe('https://control.test/api/v1/ai-gateway')
     await expect(access.model.responseWebSocket?.authorization()).resolves.toBe('Bearer agent-key')
+  })
+
+  it('adds the turn traceparent to AIGateway HTTP requests and WebSocket handshakes', async () => {
+    const originalFetch = globalThis.fetch
+    const traceparent = '00-11111111111111111111111111111111-1111111111111111-01'
+    const turnStart = turnStartForTest() as TurnStart
+    turnStart.request_context = { ...turnStart.request_context, traceparent }
+    let seenTraceparent = ''
+
+    globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined))
+      seenTraceparent = headers.get('traceparent') ?? ''
+      return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } })
+    }) as unknown as typeof fetch
+
+    try {
+      const access = await acquireTurnAIGatewayAccess(turnStart, {
+        requestAIGatewayAPIKey: async agentUid => aiGatewayKeyForTest(agentUid, 'agent-key')
+      })
+
+      await access.aiGateway.fetch('https://control.test/api/v1/ai-gateway/models')
+      expect(seenTraceparent).toBe(traceparent)
+      expect(access.model.responseWebSocket?.headers?.traceparent).toBe(traceparent)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
   })
 
   it('rejects AIGateway access acquisition when the key belongs to another agent', async () => {
@@ -559,9 +589,11 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
           channel: { kind: 'im_group', id: 'lark:chat-1', name: 'Ops' },
           entry: {
             text: 'Deploy status?',
+            signal_channel_id: 'lark:chat-1',
             provider_time: '2026-07-04T02:03:04.000Z',
             author: {
               display_name: 'Alice',
+              principal_uid: 'alice-user-id',
               metadata: { sender_type: 'user' }
             }
           }
@@ -578,7 +610,8 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
         text: [
           '<agent_environment_info>',
           'send_at: 2026-07-04 10:03',
-          'speaker: Alice',
+          'signal_channel_id: lark:chat-1',
+          'speaker: Alice(alice-user-id)',
           '</agent_environment_info>'
         ].join('\n')
       },
@@ -586,14 +619,16 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
     ])
   })
 
-  it('omits DM speaker metadata and appends only a non-user group role', () => {
+  it('keeps the uid in group speaker labels and omits a DM speaker', () => {
     const dm = actorEventEnvironmentInfoLines({
       time: '2026-07-04T02:03:04.000Z',
       data: {
         channel: { kind: 'im_dm', id: 'lark:dm-1' },
         entry: {
+          signal_channel_id: 'lark:dm-1',
           author: {
             display_name: 'Mike',
+            principal_uid: 'mike-user-id',
             metadata: { sender_type: 'user' }
           }
         }
@@ -604,6 +639,7 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
         channel: { kind: 'im_group', id: 'lark:chat-1', name: 'Ops' },
         entry: {
           author: {
+            principal_uid: 'chatbot-user-id',
             display_name: 'Alice',
             metadata: { sender_type: 'chatbot' }
           }
@@ -616,15 +652,45 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
         entry: {
           author: {
             id: '019f0000-0000-7000-8000-000000000043',
+            platform_subject: 'user_123',
+            principal_uid: 'user_123',
+            metadata: { sender_type: 'user' }
+          }
+        }
+      }
+    })
+    const legacyAuthorGroup = actorEventEnvironmentInfoLines({
+      data: {
+        channel: { kind: 'im_group', id: 'lark:chat-1', name: 'Ops' },
+        entry: {
+          author: {
+            principal_uid: 'legacy-user',
             metadata: { sender_type: 'user' }
           }
         }
       }
     })
 
-    expect(dm).toEqual(['send_at: 2026-07-04 02:03'])
-    expect(chatbotGroup).toEqual(['speaker: Alice (chatbot)'])
-    expect(opaqueAuthorGroup).toEqual([])
+    expect(dm).toEqual(['send_at: 2026-07-04 02:03', 'signal_channel_id: lark:dm-1'])
+    expect(chatbotGroup).toEqual(['signal_channel_id: lark:chat-1', 'speaker: Alice(chatbot-user-id) (chatbot)'])
+    expect(opaqueAuthorGroup).toEqual(['signal_channel_id: lark:chat-1', 'speaker: user_123(user_123)'])
+    expect(legacyAuthorGroup).toEqual(['signal_channel_id: lark:chat-1', 'speaker: legacy-user(legacy-user)'])
+  })
+
+  it('defines the group speaker uid format in the system prompt', () => {
+    const systemPrompt = buildAgentSystemPrompt({
+      userFilesRoot: '/workspace/user-files',
+      workspaceRoot: '/workspace',
+      turnStart: turnStartForTest() as TurnStart,
+      agentConversationContext: create(AgentConversationContextResponseSchema, {
+        agent: { displayName: 'Test Agent' },
+        conversation: { timezone: 'UTC' }
+      }),
+      availableToolNames: []
+    })
+
+    expect(systemPrompt).toContain('name(uid)')
+    expect(systemPrompt).toContain('user_123(user_123)')
   })
 
   it('keeps schedule values in the current event block', () => {
