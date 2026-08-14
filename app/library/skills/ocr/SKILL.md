@@ -37,6 +37,12 @@ instant; recognition is approximate and costs seconds per page:
 An image is the plain case: no exact text source exists, so recognize
 directly.
 
+`ocr.py` selects the input type from the file-name suffix. Before the first
+OCR call, make sure each image has a supported suffix. If an image has no
+suffix, run `file --brief --mime-type -- INPUT`, copy it to a temporary path
+with the suffix that matches the reported type (for example, `.jpg` for
+`image/jpeg`), and pass the copy to `ocr.py`. Keep the original file unchanged.
+
 ```bash
 python scripts/ocr.py photo.jpg receipt.png       # plain text per input
 python scripts/ocr.py screenshot.png --json       # per-line text, score, quad box

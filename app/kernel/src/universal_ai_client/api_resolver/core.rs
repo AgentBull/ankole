@@ -62,6 +62,15 @@ pub(super) trait APIProtocol: std::fmt::Debug + Send + Sync {
         ))
     }
 
+    fn classify_provider_rejection(
+        &self,
+        _context: &ResponseContext,
+        _status: u16,
+        _body: &[u8],
+    ) -> Option<StreamError> {
+        None
+    }
+
     fn is_terminal(&self) -> bool {
         false
     }
@@ -132,6 +141,11 @@ impl APIResolver {
             .protocol
             .on_provider_body(&self.context, status, body)?;
         self.opaque_tool_fields.lift_response(response)
+    }
+
+    pub fn classify_provider_rejection(&self, status: u16, body: &[u8]) -> Option<StreamError> {
+        self.protocol
+            .classify_provider_rejection(&self.context, status, body)
     }
 
     fn check_prepared(&self) -> Result<(), StreamError> {

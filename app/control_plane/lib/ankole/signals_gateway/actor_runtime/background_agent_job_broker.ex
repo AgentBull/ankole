@@ -2,7 +2,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
   @moduledoc """
   Turn-fenced RuntimeFabric RPC broker for durable BackgroundAgentJob work.
 
-  Parent turns may create and operate work visible from their current channel.
+  Parent turns may create and operate work owned by their Agent.
   Job turns may only mutate the work item encoded in their own
   `job:<id>` actor session. The worker route is therefore never an
   authorization boundary by itself.
@@ -61,7 +61,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
          {:ok, source_job_id} <- request_job_id(request.source_job_id),
          %Job{} = source_job <-
            BackgroundAgentJobs.get_job_for_agent(source_job_id, turn_ref.agent_uid),
-         :ok <- authorize_visible_job(turn_ref, source_job),
+         :ok <- authorize_job_target(turn_ref, source_job),
          {:ok, actor_event} <- fetch_actor_event_for_turn(turn_ref),
          {:ok, conversation} <- fetch_owner_conversation(turn_ref),
          attrs <-
@@ -103,7 +103,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
            output_window: output_window,
            total_bytes: total_bytes
          } <- BackgroundAgentJobs.get_result_window_for_agent(job_id, turn_ref.agent_uid, offset),
-         :ok <- authorize_visible_job(turn_ref, job),
+         :ok <- authorize_job_target(turn_ref, job),
          {:ok, response} <- result_output_response(job, offset, output_window, total_bytes) do
       {:ok, response}
     else
@@ -129,7 +129,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
              turn_ref.agent_uid,
              trajectory_options(request)
            ),
-         :ok <- authorize_visible_job(turn_ref, job) do
+         :ok <- authorize_job_target(turn_ref, job) do
       response = job_response(job)
 
       {:ok,
@@ -152,12 +152,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
         ctx
       ) do
     with :ok <- require_owner_turn(turn_ref),
-         %ActorEvent{} = actor_event <- actor_event_for_turn(turn_ref),
          {:ok, %{jobs: jobs, next_cursor: next_cursor}} <-
-           BackgroundAgentJobs.list_for_channel(
+           BackgroundAgentJobs.list_for_agent(
              turn_ref.agent_uid,
-             turn_ref.session_id,
-             actor_event.signal_channel_id,
              status: presence(request.status),
              cursor: presence(request.cursor)
            ) do
@@ -167,7 +164,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
          next_cursor: next_cursor || ""
        }}
     else
-      nil -> error(ctx.request_id, turn_ref.agent_uid, :actor_event_not_found)
       {:error, reason} -> error(ctx.request_id, turn_ref.agent_uid, reason)
     end
   end
@@ -293,7 +289,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
     with {:ok, job_id} <- request_job_id(request.job_id),
          %Job{} = job <-
            BackgroundAgentJobs.get_job_for_agent(job_id, turn_ref.agent_uid),
-         :ok <- authorize_visible_job(turn_ref, job),
+         :ok <- authorize_job_target(turn_ref, job),
          {:ok, %{job: %Job{} = job}} <-
            BackgroundAgentJobs.request_stop(job_id, %{
              "agent_uid" => turn_ref.agent_uid,
@@ -324,7 +320,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
     with {:ok, job_id} <- request_job_id(request.job_id),
          %Job{} = job <-
            BackgroundAgentJobs.get_job_for_agent(job_id, turn_ref.agent_uid),
-         :ok <- authorize_visible_job(turn_ref, job),
+         :ok <- authorize_job_target(turn_ref, job),
          {:ok, %{job: %Job{} = job, command_event: %ActorEvent{} = command_event}} <-
            BackgroundAgentJobs.send_message(job_id, %{
              "agent_uid" => turn_ref.agent_uid,
@@ -356,7 +352,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
     with {:ok, job_id} <- request_job_id(request.job_id),
          %Job{} = job <-
            BackgroundAgentJobs.get_job_for_agent(job_id, turn_ref.agent_uid),
-         :ok <- authorize_visible_job(turn_ref, job),
+         :ok <- authorize_job_target(turn_ref, job),
          {:ok, result} <-
            BackgroundAgentJobs.message_result(job, request.command_event_id, turn_ref.session_id) do
       {:ok,
@@ -384,7 +380,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
     |> put_present("workspace_template_id", request.workspace_template_id)
   end
 
-  defp authorize_visible_job(%TurnRef{} = turn_ref, %Job{} = job) do
+  defp authorize_job_target(%TurnRef{} = turn_ref, %Job{} = job) do
     cond do
       turn_ref.session_id == BackgroundAgentJobs.job_session_id(job.id) ->
         :ok
@@ -392,22 +388,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
       BackgroundAgentJobs.is_job_session_id(turn_ref.session_id) ->
         {:error, :background_agent_job_scope_mismatch}
 
-      job.owner_session_id == turn_ref.session_id ->
-        :ok
-
       true ->
-        authorize_same_channel(turn_ref, job)
-    end
-  end
-
-  defp authorize_same_channel(turn_ref, job) do
-    with %ActorEvent{signal_channel_id: channel_id} when is_binary(channel_id) <-
-           actor_event_for_turn(turn_ref),
-         ^channel_id when is_binary(channel_id) <-
-           Map.get(job.reply_route || %{}, "signal_channel_id") do
-      :ok
-    else
-      _value -> {:error, :background_agent_job_scope_mismatch}
+        :ok
     end
   end
 

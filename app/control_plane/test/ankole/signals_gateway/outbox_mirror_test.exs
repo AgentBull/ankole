@@ -149,6 +149,8 @@ defmodule Ankole.SignalsGatewayOutboxMirrorTest do
                  fallback_visible_text: "visible"
                })
 
+      materialized_text = "This file is too large. Open it in cloud space."
+
       materialized_payload = %{
         "attachments" => [
           %{
@@ -167,7 +169,8 @@ defmodule Ankole.SignalsGatewayOutboxMirrorTest do
                    {:ok,
                     %{
                       created_source_entry_id: "bot-file-msg-1",
-                      payload: materialized_payload
+                      payload: materialized_payload,
+                      fallback_visible_text: materialized_text
                     }}
                  end),
                  now: @base_time
@@ -175,13 +178,17 @@ defmodule Ankole.SignalsGatewayOutboxMirrorTest do
 
       assert succeeded.status == :succeeded
       assert succeeded.payload == materialized_payload
+      assert succeeded.fallback_visible_text == materialized_text
 
-      assert [%{"attachment_id" => attachment_id} = mirrored_attachment] =
-               Repo.get_by!(
-                 Entry,
-                 signal_channel_id: "lark:chat:group-a",
-                 source_entry_id: "bot-file-msg-1"
-               ).attachments
+      mirrored =
+        Repo.get_by!(
+          Entry,
+          signal_channel_id: "lark:chat:group-a",
+          source_entry_id: "bot-file-msg-1"
+        )
+
+      assert mirrored.text == materialized_text
+      assert [%{"attachment_id" => attachment_id} = mirrored_attachment] = mirrored.attachments
 
       assert attachment_id >= 10_000
 

@@ -185,6 +185,56 @@ defmodule Ankole.AIGateway.StatefulResponses do
   def merge_generating_response_metadata(%Message{}, _metadata),
     do: {:error, :response_not_generating}
 
+  @doc false
+  @spec install_replay_recovery_checkpoint(Message.t(), map()) ::
+          {:ok, %{checkpoint: Message.t(), message: Message.t()}}
+          | {:error, :response_not_generating | :invalid_compaction_plan | term()}
+  def install_replay_recovery_checkpoint(
+        %Message{} = message,
+        %{
+          artifact_attrs: artifact_attrs,
+          checkpoint_metadata: checkpoint_metadata
+        }
+      )
+      when is_map(artifact_attrs) and is_map(checkpoint_metadata) do
+    Repo.transact(fn repo ->
+      with %Message{} = current <- lock_generating_message_by_id(repo, message.id),
+           true <-
+             current.subject_uid == message.subject_uid and
+               current.conversation_id == message.conversation_id,
+           artifact_attrs =
+             Map.merge(artifact_attrs, %{
+               subject_uid: current.subject_uid,
+               conversation_id: current.conversation_id
+             }),
+           {:ok, artifact} <- CompactionArtifacts.insert_artifact_in_tx(repo, artifact_attrs),
+           {:ok, checkpoint} <-
+             insert_checkpoint_row(
+               repo,
+               current.subject_uid,
+               current.conversation_id,
+               current.previous_message_id,
+               artifact.id,
+               checkpoint_metadata
+             ),
+           {:ok, updated} <-
+             current
+             |> Ecto.Changeset.change(previous_message_id: checkpoint.id)
+             |> repo.update(),
+           :ok <- notify_ai_message_deadline(repo, updated) do
+        {:ok, %{checkpoint: checkpoint, message: updated}}
+      else
+        nil -> {:error, :response_not_generating}
+        false -> {:error, :response_not_generating}
+        {:error, _reason} = error -> error
+        _invalid -> {:error, :invalid_compaction_plan}
+      end
+    end)
+  end
+
+  def install_replay_recovery_checkpoint(%Message{}, _invalid_plan),
+    do: {:error, :invalid_compaction_plan}
+
   @doc """
   Records valid tool results as a completed message-log row without opening a
   provider run. Results that cannot be paired safely are retained in an error

@@ -66,8 +66,12 @@
       },
       "ProviderHostedWriteRequest": {
         "additionalProperties": false,
-        "description": "Sets one or both capability switches. Omitted keys stay unchanged.",
-        "properties": { "image_generate": { "type": "boolean" }, "web_search": { "type": "boolean" } },
+        "description": "Sets any of the capability switches. Omitted keys stay unchanged.",
+        "properties": {
+          "compaction": { "type": "boolean" },
+          "image_generate": { "type": "boolean" },
+          "web_search": { "type": "boolean" }
+        },
         "title": "ProviderHostedWriteRequest",
         "type": "object"
       },
@@ -1154,9 +1158,13 @@
       },
       "ProviderHostedCapabilities": {
         "additionalProperties": false,
-        "description": "Capabilities the Agent leaves to its language-model Provider. A capability set to true declares no Ankole tool or capability profile, and the Agent has no such capability when its Provider cannot run it.",
-        "properties": { "image_generate": { "type": "boolean" }, "web_search": { "type": "boolean" } },
-        "required": ["web_search", "image_generate"],
+        "description": "Capabilities the Agent leaves to its language-model Provider. A capability set to true declares no Ankole tool or capability profile, and the Agent has no such capability when its Provider cannot run it. `compaction` is the exception: the primary model's Provider compacts history with its native operation when it has one, and the light profile writes the summary when it does not.",
+        "properties": {
+          "compaction": { "type": "boolean" },
+          "image_generate": { "type": "boolean" },
+          "web_search": { "type": "boolean" }
+        },
+        "required": ["web_search", "image_generate", "compaction"],
         "title": "ProviderHostedCapabilities",
         "type": "object"
       },

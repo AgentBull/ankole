@@ -142,11 +142,10 @@ defmodule Ankole.AIGateway.UpstreamCompaction do
 
   defp classify_error(reason), do: {:fallback, reason}
 
-  # `prefer_upstream` is a rollout guard, so a real compact request that ends in
-  # local compaction is the fact an operator needs. Silent degradation looks the
-  # same as a working switch while every compaction still pays the round trip.
-  # A disabled switch, a non-Responses wire, and a cached unsupported result
-  # send no request and stay silent.
+  # A real compact request that ends in local compaction is the fact an operator
+  # needs. Silent degradation looks the same as a working switch while every
+  # compaction still pays the round trip. A disabled switch, a non-Responses
+  # wire, and a cached unsupported result send no request and stay silent.
   defp log_degraded(binding, reason, cached?) do
     Logging.warning(
       "ai_gateway.upstream_compaction_degraded",

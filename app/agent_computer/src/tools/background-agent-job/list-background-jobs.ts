@@ -44,7 +44,7 @@ export function createListBackgroundJobsTool(
   return {
     name: 'list_background_jobs',
     description: [
-      'List background agent jobs visible from the current conversation or channel.',
+      'List background agent jobs owned by the current Agent.',
       'status defaults to live. live includes queued, running, and waiting_on_user. stop includes succeeded, failed, and stopped.',
       'Each page contains at most 32 background agent jobs, with the most recently updated background agent job first. Use next_page to continue.'
     ].join(' '),

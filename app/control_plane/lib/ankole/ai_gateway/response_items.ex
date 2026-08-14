@@ -84,6 +84,22 @@ defmodule Ankole.AIGateway.ResponseItems do
     shell_call
     web_search_call
   )
+  @provider_replay_id_required_types ~w(
+    code_interpreter_call
+    computer_call
+    file_search_call
+    image_generation_call
+    item_reference
+    local_shell_call
+    local_shell_call_output
+    mcp_approval_request
+    mcp_call
+    mcp_list_tools
+    program
+    program_output
+    reasoning
+    web_search_call
+  )
   @budgeted_tool_declaration_types ~w(
     apply_patch
     code_interpreter
@@ -173,6 +189,22 @@ defmodule Ankole.AIGateway.ResponseItems do
   @spec output_item?(term()) :: boolean()
   def output_item?(%{"type" => type}) when type in @output_types, do: true
   def output_item?(_item), do: false
+
+  @doc "Returns whether Responses replay requires this item's provider identity."
+  @spec provider_replay_id_required?(term()) :: boolean()
+  def provider_replay_id_required?(%{
+        "type" => "message",
+        "role" => "assistant",
+        "status" => status
+      })
+      when status in ["in_progress", "completed", "incomplete"],
+      do: true
+
+  def provider_replay_id_required?(%{"type" => type})
+      when type in @provider_replay_id_required_types,
+      do: true
+
+  def provider_replay_id_required?(_item), do: false
 
   @spec client_call_item?(term()) :: boolean()
   def client_call_item?(%{"type" => type}) when is_map_key(@client_call_output_types, type),

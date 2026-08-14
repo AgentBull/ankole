@@ -147,12 +147,52 @@ The adapter uploads WorkerFiles before it sends image or file messages. Text
 messages use provider UUIDs derived from outbox idempotency keys. Reconciliation
 checks the recorded provider message ID.
 
-If a referenced WorkerFiles attachment is missing, not a regular file, too
-large, or outside the supported attachment contract, the adapter marks the
-durable reply as requiring operator action. SignalsGateway blocks that row
+A non-image file of at most 30 MiB uses the native IM file endpoint. A larger
+file within the 100 MiB WorkerFiles contract uses the application cloud-space
+root. Provider error `234006` also starts this fallback when the local size
+check did not. The adapter prepares one multipart transaction, uploads the
+provider plan in sequence without concurrent parts, and finishes the
+transaction. This sequence follows Feishu's
+[multipart upload protocol](https://open.feishu.cn/document/server-docs/docs/drive-v1/upload/multipart-upload-file-/introduction).
+It then grants `view` access to the whole chat with an `openchat` member for a
+group message, or to the sender with an `openid` member for a direct message.
+It reads the provider file URL and sends a localized text message that tells
+the user that the file was uploaded to cloud space because it was too large
+for an IM attachment. The outbox stores the cloud file token, URL, byte size,
+and block count after a confirmed message send.
+
+This path requires the application scopes
+`drive:drive.metadata:readonly`, `drive:file:upload`,
+`docs:permission.member:create`, and `space:document:delete`. They let the
+application read its cloud-space root and file metadata, upload files, add file
+collaborators, and delete an unusable upload. The application must also have
+enough cloud-space capacity. If access grant or URL lookup fails after upload
+completion, the adapter tries to delete the unusable file before it returns the
+error.
+
+If a referenced WorkerFiles attachment is missing, not a regular file, larger
+than 100 MiB, or outside the supported attachment contract, the adapter marks
+the durable reply as requiring operator action. SignalsGateway blocks that row
 instead of retrying the same invalid attachment forever. The Worker file
 protocol reports `file_not_found` and `not_regular_file`; the adapter never
-classifies these failures from their human-readable messages.
+classifies these failures from their human-readable messages. Documented cloud
+permission, quota, and root-capacity errors also require operator action.
+Invalid multipart plans and invalid provider responses are permanent errors.
+Other provider errors retain their normal outbox retry behavior.
+
+The cloud fallback emits
+`lark_adapter.outbox.large_file_upload_started`,
+`lark_adapter.outbox.large_file_upload_completed`, and
+`lark_adapter.outbox.large_file_upload_failed` structured logs. Failed cleanup
+emits `lark_adapter.outbox.large_file_cleanup_failed`. The
+`[:ankole, :lark_adapter, :large_file_upload]` telemetry event reports native
+duration, file size, and block count. Its metadata reports the outcome, failed
+stage, fallback reason, and recipient member type without file content or an
+access URL.
+
+Outbox rows that stopped on `234006` before this fallback was deployed need one
+manual retry after the application has the required cloud-space access. The
+retry uses the stored attachment and sends the cloud-space link.
 
 If a reply target no longer exists, the adapter can post to the chat instead.
 If Lark rejects a final edit because of its edit limit, the adapter can send a

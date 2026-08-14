@@ -55,9 +55,10 @@ export type AiGatewayProviderListResponse = {
 /**
  * ProviderHostedWriteRequest
  *
- * Sets one or both capability switches. Omitted keys stay unchanged.
+ * Sets any of the capability switches. Omitted keys stay unchanged.
  */
 export type ProviderHostedWriteRequest = {
+  compaction?: boolean
   image_generate?: boolean
   web_search?: boolean
 }
@@ -894,9 +895,10 @@ export type ModelProfilesResponse = {
 /**
  * ProviderHostedCapabilities
  *
- * Capabilities the Agent leaves to its language-model Provider. A capability set to true declares no Ankole tool or capability profile, and the Agent has no such capability when its Provider cannot run it.
+ * Capabilities the Agent leaves to its language-model Provider. A capability set to true declares no Ankole tool or capability profile, and the Agent has no such capability when its Provider cannot run it. `compaction` is the exception: the primary model's Provider compacts history with its native operation when it has one, and the light profile writes the summary when it does not.
  */
 export type ProviderHostedCapabilities = {
+  compaction: boolean
   image_generate: boolean
   web_search: boolean
 }

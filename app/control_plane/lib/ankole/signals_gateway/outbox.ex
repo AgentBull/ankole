@@ -1706,6 +1706,8 @@ defmodule Ankole.SignalsGateway.Outbox do
             created_source_entry_id: created_source_entry_id_after_success(outbox, result),
             provider_thread_id: provider_thread_id_after_success(outbox, result),
             payload: payload,
+            fallback_visible_text:
+              result_text(result, :fallback_visible_text) || outbox.fallback_visible_text,
             last_error: %{},
             next_attempt_at: nil,
             recovery_state: recovery_state

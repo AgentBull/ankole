@@ -5,13 +5,16 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
 
   @behaviour Ankole.SignalsGateway.OutboxAdapter
 
+  alias Ankole.I18n
   alias Ankole.Plugins.LarkAdapter.Card
   alias Ankole.Plugins.LarkAdapter.CardKit
   alias Ankole.Plugins.LarkAdapter.Config
+  alias Ankole.Plugins.LarkAdapter.DriveUpload
   alias Ankole.Plugins.LarkAdapter.Emoji
   alias Ankole.Plugins.MapHelpers
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.ActorEvent
+  alias Ankole.SignalsGateway.Channel
   alias Ankole.SignalsGateway.OutboxEntry
   alias Ankole.SignalsGateway.ReplyPreviewAdapter.Request
   alias Ankole.Repo
@@ -28,8 +31,22 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
     ]
 
   @max_text_message_chars 4_000
+  @max_im_file_bytes 30 * 1024 * 1024
   @final_edit_fallback_codes [230_072, 230_075]
   @unavailable_worker_file_codes ~w(file_not_found not_regular_file)
+  @drive_operator_action_codes [
+    91_204,
+    99_991_672,
+    106_1004,
+    106_1044,
+    106_1061,
+    106_1073,
+    106_1101,
+    106_2507,
+    106_3002,
+    106_9701
+  ]
+  @drive_permanent_codes [106_1002, 106_1043, 106_1109, 106_3001]
   # Feishu caps the message `uuid` at 50 characters. Keep Ankole's full key in
   # the outbox and derive only the provider-facing value when it is too long.
   @max_message_uuid_chars 50
@@ -85,7 +102,7 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
            {:ok, requests} <- requests_for_outbox(outbox) do
         requests
         |> perform_requests(client, outbox)
-        |> with_materialized_payload(outbox.payload)
+        |> with_materialized_outbox(outbox)
       end
 
     normalize_delivery_error(result)
@@ -325,10 +342,22 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
   defp raw_payload(result) when is_map(result),
     do: Map.get(result, :raw_payload) || Map.get(result, "raw_payload") || result
 
-  defp with_materialized_payload({:ok, result}, payload) when is_map(result) and is_map(payload),
-    do: {:ok, Map.put(result, :payload, payload)}
+  defp with_materialized_outbox({:ok, result}, %OutboxEntry{} = outbox)
+       when is_map(result) do
+    {:ok,
+     result
+     |> Map.put(:payload, outbox.payload)
+     |> Map.put(:fallback_visible_text, outbox.fallback_visible_text)}
+  end
 
-  defp with_materialized_payload(result, _payload), do: result
+  defp with_materialized_outbox(result, _outbox), do: result
+
+  defp normalize_delivery_error({:error, %Error{code: 234_006} = error}) do
+    operator_attachment_error("attachment_exceeds_lark_im_limit", %{
+      "max_bytes" => @max_im_file_bytes,
+      "provider" => provider_error_detail(error)
+    })
+  end
 
   defp normalize_delivery_error({:error, %Error{} = error}) do
     {:error,
@@ -341,6 +370,43 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
       }
       |> compact_map()}}
   end
+
+  defp normalize_delivery_error(
+         {:error, {:large_file_upload_failed, stage, %Error{code: code} = error}}
+       )
+       when code in @drive_operator_action_codes do
+    operator_attachment_error("large_file_cloud_upload_requires_operator_action", %{
+      "stage" => Atom.to_string(stage),
+      "provider" => provider_error_detail(error)
+    })
+  end
+
+  defp normalize_delivery_error(
+         {:error, {:large_file_upload_failed, stage, %Error{code: code} = error}}
+       )
+       when code in @drive_permanent_codes do
+    permanent_attachment_error("large_file_cloud_upload_rejected", %{
+      "stage" => Atom.to_string(stage),
+      "provider" => provider_error_detail(error)
+    })
+  end
+
+  defp normalize_delivery_error({:error, {:large_file_upload_failed, stage, reason}})
+       when is_atom(reason) do
+    permanent_attachment_error("large_file_cloud_upload_invalid_response", %{
+      "stage" => Atom.to_string(stage),
+      "reason" => Atom.to_string(reason)
+    })
+  end
+
+  defp normalize_delivery_error({:error, {:large_file_recipient_missing, channel_kind}}) do
+    operator_attachment_error("large_file_recipient_missing", %{
+      "channel_kind" => to_string(channel_kind)
+    })
+  end
+
+  defp normalize_delivery_error({:error, :outbound_attachment_empty}),
+    do: permanent_attachment_error("attachment_empty")
 
   defp normalize_delivery_error({:error, :outbound_attachment_path_missing}),
     do: operator_attachment_error("attachment_path_missing")
@@ -367,6 +433,20 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
 
   defp operator_attachment_error(code, detail \\ %{}) do
     {:error, {:reply_delivery, :operator_action_required, Map.put(detail, "code", code)}}
+  end
+
+  defp permanent_attachment_error(code, detail \\ %{}) do
+    {:error, {:reply_delivery, :permanent, Map.put(detail, "code", code)}}
+  end
+
+  defp provider_error_detail(%Error{} = error) do
+    %{
+      "code" => error.code,
+      "msg" => error.msg,
+      "http_status" => error.http_status,
+      "log_id" => error.log_id
+    }
+    |> compact_map()
   end
 
   defp message_request(method, path, outbox, body, opts \\ []) do
@@ -538,6 +618,9 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
 
   defp attachment_body(%{} = attachment) do
     cond do
+      optional_text(attachment, "provider_drive_url") ->
+        {:ok, %{msg_type: "text", content: Card.text_content(large_file_message(attachment))}}
+
       image_key =
           optional_text(attachment, "provider_image_key") ||
             optional_text(attachment, "image_key") ->
@@ -559,8 +642,9 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
 
       [attachment] ->
         with {:ok, attachment} <-
-               ensure_provider_attachment_key(attachment, client, outbox.agent_uid) do
-          {:ok, %OutboxEntry{outbox | payload: Map.put(payload, "attachments", [attachment])}}
+               ensure_provider_attachment_key(attachment, client, outbox) do
+          outbox = %OutboxEntry{outbox | payload: Map.put(payload, "attachments", [attachment])}
+          {:ok, with_attachment_delivery_text(outbox, attachment)}
         end
 
       _attachments ->
@@ -568,7 +652,7 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
     end
   end
 
-  defp ensure_provider_attachment_key(%{} = attachment, client, agent_uid) do
+  defp ensure_provider_attachment_key(%{} = attachment, client, %OutboxEntry{} = outbox) do
     if image_attachment?(attachment) do
       case optional_text(attachment, "provider_image_key") ||
              optional_text(attachment, "image_key") do
@@ -576,15 +660,20 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
           {:ok, Map.put(attachment, "provider_image_key", image_key)}
 
         _missing ->
-          upload_worker_image_attachment(attachment, client, agent_uid)
+          upload_worker_image_attachment(attachment, client, outbox.agent_uid)
       end
     else
-      case optional_text(attachment, "provider_file_key") || optional_text(attachment, "file_key") do
-        file_key when is_binary(file_key) ->
+      cond do
+        optional_text(attachment, "provider_drive_url") ->
+          {:ok, attachment}
+
+        file_key =
+            optional_text(attachment, "provider_file_key") ||
+              optional_text(attachment, "file_key") ->
           {:ok, Map.put(attachment, "provider_file_key", file_key)}
 
-        _missing ->
-          upload_worker_file_attachment(attachment, client, agent_uid)
+        true ->
+          upload_worker_file_attachment(attachment, client, outbox)
       end
     end
   end
@@ -612,27 +701,156 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
     end
   end
 
-  defp upload_worker_file_attachment(attachment, client, agent_uid) do
+  defp upload_worker_file_attachment(attachment, client, %OutboxEntry{} = outbox) do
     with relative_path when is_binary(relative_path) <-
-           attachment_relative_path(attachment, agent_uid),
+           attachment_relative_path(attachment, outbox.agent_uid),
          {:ok, %{"content" => content}} <-
            WorkerFiles.get("user_files", relative_path),
-         name <- attachment_name(attachment, relative_path),
-         {:ok, %{"data" => data}} <-
-           FeishuOpenAPI.upload(client, "im/v1/files",
-             fields: [file_type: "stream", file_name: name],
-             file: {:iodata, content, name}
-           ),
-         file_key when is_binary(file_key) <- data["file_key"] do
-      {:ok,
-       attachment
-       |> Map.put("provider_file_key", file_key)
-       |> Map.put_new("name", name)}
+         true <- byte_size(content) > 0 || {:error, :outbound_attachment_empty},
+         name <- attachment_name(attachment, relative_path) do
+      if large_im_file?(byte_size(content)) do
+        upload_worker_file_to_drive(
+          attachment,
+          client,
+          outbox,
+          content,
+          name,
+          :preflight_size
+        )
+      else
+        upload_worker_file_to_im(attachment, client, outbox, content, name)
+      end
     else
       nil -> {:error, :outbound_attachment_path_missing}
+      false -> {:error, :outbound_attachment_empty}
       {:error, _reason} = error -> error
-      _value -> {:error, :outbound_attachment_upload_failed}
     end
+  end
+
+  defp upload_worker_file_to_im(attachment, client, outbox, content, name) do
+    case FeishuOpenAPI.upload(client, "im/v1/files",
+           fields: [file_type: "stream", file_name: name],
+           file: {:iodata, content, name}
+         ) do
+      {:ok, %{"data" => %{"file_key" => file_key}}} when is_binary(file_key) ->
+        {:ok,
+         attachment
+         |> Map.put("provider_file_key", file_key)
+         |> Map.put_new("name", name)}
+
+      {:error, %Error{code: 234_006}} ->
+        upload_worker_file_to_drive(
+          attachment,
+          client,
+          outbox,
+          content,
+          name,
+          :provider_234006
+        )
+
+      {:error, _reason} = error ->
+        error
+
+      _value ->
+        {:error, :outbound_attachment_upload_failed}
+    end
+  end
+
+  defp upload_worker_file_to_drive(
+         attachment,
+         client,
+         %OutboxEntry{} = outbox,
+         content,
+         name,
+         fallback_reason
+       ) do
+    with {:ok, recipient} <- drive_recipient(outbox),
+         {:ok, upload} <-
+           DriveUpload.upload(client, content, name, recipient, %{
+             agent_uid: outbox.agent_uid,
+             binding_name: outbox.binding_name,
+             outbound_key: outbox.outbound_key,
+             operation: outbox.operation,
+             fallback_reason: fallback_reason
+           }) do
+      {:ok,
+       attachment
+       |> Map.put("provider_drive_file_token", upload.file_token)
+       |> Map.put("provider_drive_url", upload.url)
+       |> Map.put("provider_drive_block_num", upload.block_num)
+       |> Map.put("size_bytes", byte_size(content))
+       |> Map.put_new("name", name)}
+    end
+  end
+
+  @doc false
+  @spec large_im_file?(non_neg_integer()) :: boolean()
+  def large_im_file?(size) when is_integer(size) and size >= 0,
+    do: size > @max_im_file_bytes
+
+  defp drive_recipient(%OutboxEntry{} = outbox) do
+    case Repo.get(Channel, outbox.signal_channel_id) do
+      %Channel{kind: :im_group} ->
+        {:ok,
+         %{
+           member_type: "openchat",
+           member_id: chat_id_from_channel(outbox.signal_channel_id)
+         }}
+
+      %Channel{kind: kind, metadata: metadata} when kind in [:im_dm, :unknown] ->
+        direct_drive_recipient(outbox, metadata, kind)
+
+      %Channel{kind: kind} ->
+        {:error, {:large_file_recipient_missing, kind}}
+
+      nil ->
+        direct_drive_recipient(outbox, %{}, :missing)
+    end
+  end
+
+  defp direct_drive_recipient(outbox, metadata, channel_kind) do
+    case optional_text(metadata, "peer_open_id") || actor_event_open_id(outbox) do
+      open_id when is_binary(open_id) ->
+        {:ok, %{member_type: "openid", member_id: open_id}}
+
+      nil ->
+        {:error, {:large_file_recipient_missing, channel_kind}}
+    end
+  end
+
+  defp actor_event_open_id(%OutboxEntry{source_actor_event_id: actor_event_id})
+       when is_binary(actor_event_id) do
+    case Repo.get(ActorEvent, actor_event_id) do
+      %ActorEvent{payload: payload} when is_map(payload) ->
+        get_in(payload, ["data", "entry", "author", "metadata", "open_id"]) ||
+          payload
+          |> get_in(["data", "entries"])
+          |> List.wrap()
+          |> Enum.reverse()
+          |> Enum.find_value(&get_in(&1, ["author", "metadata", "open_id"]))
+
+      _missing ->
+        nil
+    end
+  end
+
+  defp actor_event_open_id(_outbox), do: nil
+
+  defp with_attachment_delivery_text(%OutboxEntry{} = outbox, attachment) do
+    case optional_text(attachment, "provider_drive_url") do
+      url when is_binary(url) ->
+        %OutboxEntry{outbox | fallback_visible_text: large_file_message(attachment)}
+
+      nil ->
+        outbox
+    end
+  end
+
+  defp large_file_message(attachment) do
+    I18n.t("signals_gateway.reply.large_file_drive_link", %{
+      "name" => optional_text(attachment, "name") || "file",
+      "url" => optional_text(attachment, "provider_drive_url") || ""
+    })
   end
 
   defp attachment_relative_path(attachment, agent_uid) do

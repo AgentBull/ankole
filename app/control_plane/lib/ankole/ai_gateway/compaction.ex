@@ -8,6 +8,7 @@ defmodule Ankole.AIGateway.Compaction do
   counts from content.
   """
 
+  alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Definition
   alias Ankole.AppConfigure.Schema
@@ -63,9 +64,13 @@ defmodule Ankole.AIGateway.Compaction do
     "threshold" => @default_threshold_percent,
     "max_threshold_tokens" => @default_max_threshold_tokens,
     "tail_rows" => @default_tail_rows,
-    "user_message_budget_tokens" => 20_000,
-    "prefer_upstream" => false
+    "user_message_budget_tokens" => 20_000
   }
+
+  # Compaction summaries always use the `light` profile. The summarizer is
+  # internal work with its own cost and latency profile, so it must not follow
+  # whichever model the compacted conversation happened to use.
+  @summarizer_profile "light"
 
   @type threshold_spec :: %{
           tokens: pos_integer(),
@@ -120,7 +125,7 @@ defmodule Ankole.AIGateway.Compaction do
       schema: config_schema(),
       default_value: @default_config,
       description:
-        "AIGateway history compaction settings. `threshold` is a ratio of the model input context; `max_threshold_tokens` caps that computed trigger; `prefer_upstream` tries a Responses Provider's standalone compact operation before local compaction and enables Codex v2 only for new ChatGPT Subscription Jobs."
+        "AIGateway automatic history compaction settings. `threshold` is a ratio of the model input context; `max_threshold_tokens` caps that computed trigger. Whether a Provider's native compact operation runs before Ankole's local summary is each Agent's own compaction setting."
     )
   end
 
@@ -147,18 +152,17 @@ defmodule Ankole.AIGateway.Compaction do
     end
   end
 
-  @doc "Returns whether new compaction attempts prefer the provider operation."
-  @spec prefer_upstream?() :: boolean()
-  def prefer_upstream?, do: Map.get(config(), "prefer_upstream", false)
+  @doc """
+  Returns whether this Agent leaves compaction to its primary model's Provider.
 
-  @doc false
-  @spec prefer_upstream_in_tx?(module()) :: boolean()
-  def prefer_upstream_in_tx?(repo) when is_atom(repo) do
-    with :ok <- ensure_registered(),
-         {:ok, config} <- AppConfigure.get_in_tx(repo, config_definition()) do
-      Map.get(config, "prefer_upstream", false)
-    else
-      _reason -> false
+  A subject without an Agent row, such as a bare API principal, has no such
+  setting and uses Ankole's local summary.
+  """
+  @spec prefer_upstream?(String.t()) :: boolean()
+  def prefer_upstream?(subject_uid) when is_binary(subject_uid) do
+    case ModelProfiles.provider_hosted_capabilities(subject_uid) do
+      {:ok, capabilities} -> ModelProfiles.provider_hosted?(capabilities, "compaction")
+      {:error, _reason} -> false
     end
   end
 
@@ -236,7 +240,7 @@ defmodule Ankole.AIGateway.Compaction do
       when is_list(history) and is_list(current_input) and is_map(request) do
     total_tokens = history_usage_tokens(history)
     threshold = threshold_spec(runtime, request)
-    prefer_upstream? = prefer_upstream?()
+    prefer_upstream? = prefer_upstream?(subject_uid)
 
     with {:ok, native_state} <- native_checkpoint_state(subject_uid, history, runtime) do
       context = %PlanContext{
@@ -270,6 +274,62 @@ defmodule Ankole.AIGateway.Compaction do
         true ->
           plan_compact_history(context)
       end
+    end
+  end
+
+  @doc false
+  @spec plan_replay_recovery(String.t(), binary(), binary(), [map()], map(), map()) ::
+          {:ok,
+           %{
+             artifact_attrs: map(),
+             checkpoint_metadata: map(),
+             run_metadata: map()
+           }}
+          | {:error, term()}
+  def plan_replay_recovery(
+        subject_uid,
+        conversation_id,
+        previous_response_id,
+        current_input,
+        request,
+        runtime
+      )
+      when is_binary(previous_response_id) and is_list(current_input) and is_map(request) and
+             is_map(runtime) do
+    history =
+      conversation_id
+      |> StatefulResponses.expand_history(
+        previous_response_id: previous_response_id,
+        stop_at_checkpoint: false
+      )
+      |> Enum.reject(&(&1.type == "checkpoint"))
+
+    threshold = threshold_spec(runtime, request)
+    recovery_tail_rows = min(tail_rows(), max(length(history) - 1, 0))
+
+    with {:ok, candidate} <-
+           compaction_candidate(
+             subject_uid,
+             history,
+             current_input,
+             retained_tail_budget_tokens(threshold),
+             recovery_tail_rows
+           ),
+         {:ok, summary} <- summarize_candidate(subject_uid, candidate),
+         :ok <- checkpoint_within_budget(candidate, summary, current_input, threshold) do
+      {:ok,
+       %{
+         artifact_attrs:
+           artifact_attrs_for_candidate(subject_uid, conversation_id, candidate, summary),
+         checkpoint_metadata:
+           checkpoint_metadata(
+             request,
+             compaction_metadata(summary, candidate, history_usage_tokens(history), %{
+               "auto" => true
+             })
+           ),
+         run_metadata: %{}
+       }}
     end
   end
 
@@ -315,7 +375,7 @@ defmodule Ankole.AIGateway.Compaction do
     history = StatefulResponses.expand_history(conversation_id)
     total_tokens = history_usage_tokens(history)
     visible_previous_response_id = previous_response_id_for(history, request)
-    prefer_upstream? = prefer_upstream?()
+    prefer_upstream? = prefer_upstream?(subject_uid)
 
     with {:ok, runtime} <-
            ResponsesPreparation.resolve_runtime(subject_uid, %{"model" => "primary"}),
@@ -348,7 +408,7 @@ defmodule Ankole.AIGateway.Compaction do
   @spec compact_response(String.t(), map()) :: {:ok, map()} | {:error, term()}
   def compact_response(subject_uid, request) when is_map(request) do
     request = MapUtils.normalize_request_keys(request)
-    prefer_upstream? = prefer_upstream?()
+    prefer_upstream? = prefer_upstream?(subject_uid)
 
     with {:ok, _model} <- standalone_model(request),
          {:ok, input} <- standalone_input(request),
@@ -428,7 +488,7 @@ defmodule Ankole.AIGateway.Compaction do
              current_input,
              retained_tail_budget_tokens(threshold)
            ),
-         {:ok, summary} <- summarize_candidate(subject_uid, candidate, request),
+         {:ok, summary} <- summarize_candidate(subject_uid, candidate),
          :ok <- checkpoint_within_budget(candidate, summary, current_input, threshold) do
       previous_response_id = "resp_#{candidate.anchor.id}"
 
@@ -554,7 +614,7 @@ defmodule Ankole.AIGateway.Compaction do
     } = context
 
     with {:ok, candidate} <- compaction_candidate(subject_uid, history, []),
-         {:ok, summary} <- summarize_candidate(subject_uid, candidate, request),
+         {:ok, summary} <- summarize_candidate(subject_uid, candidate),
          {:ok, artifact} <-
            create_artifact_for_candidate(subject_uid, conversation_id, candidate, summary),
          {:ok, checkpoint} <-
@@ -669,7 +729,7 @@ defmodule Ankole.AIGateway.Compaction do
        ) do
     with {:ok, candidate} <-
            standalone_compaction_candidate(subject_uid, original_input, resolved_input),
-         {:ok, summary} <- summarize_standalone(subject_uid, candidate, request),
+         {:ok, summary} <- summarize_standalone(subject_uid, candidate),
          {:ok, artifact} <-
            create_standalone_artifact(subject_uid, store_context, candidate, summary),
          {:ok, ankole_extension} <-
@@ -801,7 +861,7 @@ defmodule Ankole.AIGateway.Compaction do
       subject_uid: subject_uid,
       conversation_id: conversation_id,
       summary_text: summary.text,
-      retained_items: messages_to_items(candidate.retained_tail),
+      retained_items: provider_neutral_tail_items(candidate.retained_tail),
       # The replayed originals may end with a still-unanswered clarify
       # call/output pair; "user_message_count" counts only user messages.
       retained_user_originals:
@@ -1294,12 +1354,15 @@ defmodule Ankole.AIGateway.Compaction do
          subject_uid,
          history,
          current_input,
-         retained_tail_budget_tokens \\ nil
+         retained_tail_budget_tokens \\ nil,
+         tail_rows_requested \\ nil
        ) do
+    tail_rows_requested = tail_rows_requested || tail_rows()
+
     with %Message{} = anchor <- List.last(history),
          rows_after_compaction = rows_after_last_compaction(history),
          preferred_prefix_count when preferred_prefix_count > 0 <-
-           length(rows_after_compaction) - tail_rows(),
+           length(rows_after_compaction) - tail_rows_requested,
          compactable_count =
            rows_after_compaction
            |> Enum.take_while(&text_compactable_message?/1)
@@ -1330,9 +1393,9 @@ defmodule Ankole.AIGateway.Compaction do
          retained_tail: retained_tail,
          retained_user_originals: retained_user_originals,
          retained_pending_clarify: CompactionRetention.collect_pending_clarify(prefix_items),
-         recent_items: messages_to_items(retained_tail) ++ input_items(current_input),
+         recent_items: provider_neutral_tail_items(retained_tail) ++ input_items(current_input),
          previous_chat_history: previous_compaction_summary(subject_uid, history),
-         tail_rows_requested: tail_rows()
+         tail_rows_requested: tail_rows_requested
        }}
     else
       _value -> {:error, :no_compaction_candidate}
@@ -1476,53 +1539,31 @@ defmodule Ankole.AIGateway.Compaction do
     end)
   end
 
-  defp summarize_candidate(subject_uid, candidate, request) do
-    request_model = Map.get(request, "model")
-    items = messages_to_items(candidate.prefix)
-    recent_items = Map.get(candidate, :recent_items, [])
-
-    summarizer_selectors(request_model, request)
-    |> Enum.reduce_while({:error, :summarizer_model_unavailable}, fn selector, _last_error ->
-      with {:ok, runtime} <- resolve_summarizer_runtime(subject_uid, selector),
-           {:ok, summary} <-
-             summarize_rendered(
-               subject_uid,
-               runtime,
-               selector,
-               items,
-               candidate.previous_chat_history,
-               recent_items: recent_items
-             ) do
-        {:halt, {:ok, summary}}
-      else
-        {:error, _reason} = error -> {:cont, error}
-      end
-    end)
+  defp summarize_candidate(subject_uid, candidate) do
+    with {:ok, runtime} <- resolve_summarizer_runtime(subject_uid) do
+      summarize_rendered(
+        subject_uid,
+        runtime,
+        messages_to_items(candidate.prefix),
+        candidate.previous_chat_history,
+        recent_items: Map.get(candidate, :recent_items, [])
+      )
+    end
   end
 
-  defp summarize_standalone(subject_uid, candidate, request) do
-    request
-    |> Map.fetch!("model")
-    |> summarizer_selectors(request)
-    |> Enum.reduce_while({:error, :summarizer_model_unavailable}, fn selector, _last_error ->
-      with {:ok, runtime} <- resolve_summarizer_runtime(subject_uid, selector),
-           {:ok, summary} <-
-             summarize_rendered(
-               subject_uid,
-               runtime,
-               selector,
-               candidate.prefix_items,
-               candidate.previous_chat_history,
-               recent_items: []
-             ) do
-        {:halt, {:ok, summary}}
-      else
-        {:error, _reason} = error -> {:cont, error}
-      end
-    end)
+  defp summarize_standalone(subject_uid, candidate) do
+    with {:ok, runtime} <- resolve_summarizer_runtime(subject_uid) do
+      summarize_rendered(
+        subject_uid,
+        runtime,
+        candidate.prefix_items,
+        candidate.previous_chat_history,
+        recent_items: []
+      )
+    end
   end
 
-  defp summarize_rendered(subject_uid, runtime, selector, items, previous_chat_history, opts) do
+  defp summarize_rendered(subject_uid, runtime, items, previous_chat_history, opts) do
     recent_context_verbatim = render_recent_context(Keyword.get(opts, :recent_items, []))
     budget = render_budget(runtime, previous_chat_history, recent_context_verbatim)
     caps = CompactionRender.default_caps()
@@ -1530,7 +1571,7 @@ defmodule Ankole.AIGateway.Compaction do
     prompt =
       build_summarizer_prompt(items, previous_chat_history, recent_context_verbatim, budget, caps)
 
-    case call_summarizer(subject_uid, runtime, selector, prompt) do
+    case call_summarizer(subject_uid, runtime, prompt) do
       {:ok, summary} ->
         {:ok, summary}
 
@@ -1548,7 +1589,7 @@ defmodule Ankole.AIGateway.Compaction do
               tight_caps
             )
 
-          call_summarizer(subject_uid, runtime, selector, tight_prompt)
+          call_summarizer(subject_uid, runtime, tight_prompt)
         else
           error
         end
@@ -1593,15 +1634,14 @@ defmodule Ankole.AIGateway.Compaction do
     max(budget, CompactionRender.min_render_budget_tokens())
   end
 
-  defp resolve_summarizer_runtime(subject_uid, selector) do
-    ResponsesPreparation.resolve_runtime(subject_uid, %{"model" => selector})
+  defp resolve_summarizer_runtime(subject_uid) do
+    ResponsesPreparation.resolve_runtime(subject_uid, %{"model" => @summarizer_profile})
   end
 
-  defp call_summarizer(subject_uid, runtime, selector, prompt) do
+  defp call_summarizer(subject_uid, runtime, prompt) do
     case request_summary(
            subject_uid,
            runtime,
-           selector,
            prompt,
            summarizer_output_cap(runtime)
          ) do
@@ -1609,7 +1649,6 @@ defmodule Ankole.AIGateway.Compaction do
         case request_summary(
                subject_uid,
                runtime,
-               selector,
                prompt,
                summarizer_retry_output_cap(runtime)
              ) do
@@ -1632,12 +1671,12 @@ defmodule Ankole.AIGateway.Compaction do
     min(@summarizer_retry_max_output_tokens, floor(summarizer_context_length(runtime) * 0.4))
   end
 
-  defp request_summary(subject_uid, runtime, selector, prompt, max_output_tokens) do
+  defp request_summary(subject_uid, runtime, prompt, max_output_tokens) do
     cache_key = get_in(runtime, ["request_context", "cache_key"])
 
     request =
       %{
-        "model" => selector,
+        "model" => @summarizer_profile,
         "instructions" => CompactionPrompt.system_prompt(),
         "input" => prompt,
         "reasoning" => %{"effort" => "low"},
@@ -1656,8 +1695,7 @@ defmodule Ankole.AIGateway.Compaction do
       {:ok,
        %{
          text: text,
-         model: Map.get(runtime, "model", selector),
-         selector: selector,
+         model: Map.get(runtime, "model", @summarizer_profile),
          usage: Map.get(body, "usage", %{}),
          truncated: summary_truncated?(body)
        }}
@@ -1686,19 +1724,6 @@ defmodule Ankole.AIGateway.Compaction do
   end
 
   defp summary_truncated?(_body), do: false
-
-  defp summarizer_selectors(request_model, request) do
-    selectors =
-      if get_in(request, ["reasoning", "effort"]) in ["high", "xhigh"] do
-        ["primary", request_model]
-      else
-        ["light", "primary", request_model]
-      end
-
-    selectors
-    |> Enum.filter(&(is_binary(&1) and String.trim(&1) != ""))
-    |> Enum.uniq()
-  end
 
   defp standalone_model(%{"model" => model}) when is_binary(model) do
     case String.trim(model) do
@@ -1885,7 +1910,7 @@ defmodule Ankole.AIGateway.Compaction do
     %{
       "summarizer" => %{
         "model" => summary.model,
-        "selector" => summary.selector,
+        "selector" => @summarizer_profile,
         "usage" => summary.usage,
         "truncated" => summary.truncated
       },
@@ -1956,7 +1981,7 @@ defmodule Ankole.AIGateway.Compaction do
             "encrypted_content" => summary.text,
             "created_by" => "ankole-aigateway"
           }
-        ] ++ messages_to_items(candidate.retained_tail) ++ input_items(current_input)
+        ] ++ provider_neutral_tail_items(candidate.retained_tail) ++ input_items(current_input)
 
     if items_token_estimate(checkpoint_items) <= checkpoint_budget_tokens(threshold) do
       :ok
@@ -2029,6 +2054,79 @@ defmodule Ankole.AIGateway.Compaction do
     Enum.flat_map(messages, &message_items/1)
   end
 
+  defp provider_neutral_tail_items(messages) do
+    messages
+    |> messages_to_items()
+    |> Enum.flat_map(&provider_neutral_item/1)
+  end
+
+  defp provider_neutral_item(%{"type" => "reasoning"} = item) do
+    item
+    |> Map.delete("id")
+    |> strip_provider_ciphertext()
+    |> CompactionRender.item_text()
+    |> provider_neutral_text_item()
+  end
+
+  defp provider_neutral_item(%{"type" => "encrypted_content"}), do: []
+
+  defp provider_neutral_item(%{} = item) do
+    cond do
+      ResponseItems.provider_replay_id_required?(item) and
+          Map.get(item, "type") == "message" ->
+        item
+        |> Map.delete("id")
+        |> strip_provider_ciphertext()
+        |> list_if_nonempty_map()
+
+      ResponseItems.provider_replay_id_required?(item) ->
+        item
+        |> Map.delete("id")
+        |> strip_provider_ciphertext()
+        |> CompactionRender.item_text()
+        |> provider_neutral_text_item()
+
+      true ->
+        item
+        |> Map.delete("id")
+        |> strip_provider_ciphertext()
+        |> list_if_nonempty_map()
+    end
+  end
+
+  defp provider_neutral_item(_item), do: []
+
+  defp provider_neutral_text_item(""), do: []
+
+  defp provider_neutral_text_item(text) when is_binary(text) do
+    [
+      %{
+        "type" => "message",
+        "role" => "assistant",
+        "content" => [%{"type" => "output_text", "text" => text}]
+      }
+    ]
+  end
+
+  defp strip_provider_ciphertext(%{"type" => "encrypted_content"}), do: nil
+
+  defp strip_provider_ciphertext(%{} = value) do
+    value
+    |> Map.drop(["encrypted_content", "encrypted_function_args"])
+    |> Map.new(fn {key, nested} -> {key, strip_provider_ciphertext(nested)} end)
+  end
+
+  defp strip_provider_ciphertext(value) when is_list(value) do
+    value
+    |> Enum.map(&strip_provider_ciphertext/1)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp strip_provider_ciphertext(value), do: value
+
+  defp list_if_nonempty_map(%{} = item) when map_size(item) > 0, do: [item]
+  defp list_if_nonempty_map(_item), do: []
+
   defp message_items(%Message{content: content}) when is_list(content), do: content
   defp message_items(_message), do: []
 
@@ -2061,15 +2159,13 @@ defmodule Ankole.AIGateway.Compaction do
            {:ok, threshold} <- optional_threshold(value),
            {:ok, max_threshold_tokens} <- optional_max_threshold_tokens(value),
            {:ok, tail_rows} <- optional_tail_rows(value),
-           {:ok, user_message_budget_tokens} <- optional_user_message_budget_tokens(value),
-           {:ok, prefer_upstream} <- optional_prefer_upstream(value) do
+           {:ok, user_message_budget_tokens} <- optional_user_message_budget_tokens(value) do
         {:ok,
          %{
            "threshold" => threshold,
            "max_threshold_tokens" => max_threshold_tokens,
            "tail_rows" => tail_rows,
-           "user_message_budget_tokens" => user_message_budget_tokens,
-           "prefer_upstream" => prefer_upstream
+           "user_message_budget_tokens" => user_message_budget_tokens
          }}
       end
     end)
@@ -2091,8 +2187,7 @@ defmodule Ankole.AIGateway.Compaction do
         "threshold",
         "max_threshold_tokens",
         "tail_rows",
-        "user_message_budget_tokens",
-        "prefer_upstream"
+        "user_message_budget_tokens"
       ])
 
     value
@@ -2132,13 +2227,6 @@ defmodule Ankole.AIGateway.Compaction do
     case Map.get(value, "user_message_budget_tokens", 20_000) do
       tokens when is_integer(tokens) and tokens > 0 -> {:ok, tokens}
       _value -> {:error, :invalid_compaction_user_message_budget_tokens}
-    end
-  end
-
-  defp optional_prefer_upstream(value) do
-    case Map.get(value, "prefer_upstream", false) do
-      prefer_upstream when is_boolean(prefer_upstream) -> {:ok, prefer_upstream}
-      _value -> {:error, :invalid_compaction_prefer_upstream}
     end
   end
 

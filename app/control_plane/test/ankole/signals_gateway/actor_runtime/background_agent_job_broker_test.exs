@@ -96,7 +96,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBrokerTest do
     assert job.reply_route["delivery"] == delivery
   end
 
-  test "parent turn respawns one terminal job into one linear successor" do
+  test "parent turn respawns a same-Agent terminal job from another session and channel" do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "bot", :ignore)
     route = unique_route()
@@ -144,6 +144,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBrokerTest do
       |> Ecto.Changeset.change(%{
         status: "failed",
         runtime_thread_id: "thread-for-respawn",
+        owner_session_id: "historical-session",
+        reply_route: %{
+          "binding_name" => "bot",
+          "signal_channel_id" => "historical-channel"
+        },
         completed_at: DateTime.utc_now(:microsecond)
       })
       |> Repo.update!()
@@ -836,7 +841,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBrokerTest do
           %{
             "position" => 0,
             "item_key" => "assistant:researching",
-            "item" => %{"type" => "agentMessage", "id" => "assistant:researching", "text" => "Researching."}
+            "item" => %{
+              "type" => "agentMessage",
+              "id" => "assistant:researching",
+              "text" => "Researching."
+            }
           }
         ]),
       progress_json:

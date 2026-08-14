@@ -9,7 +9,6 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
   import AnkoleWeb.AIGatewayControllerTestHelpers
   import ExUnit.CaptureLog
 
-  alias Ankole.AIGateway.Compaction
   alias Ankole.AIGateway.CompactionArtifacts
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.ResponseStream.State, as: ResponseStreamState
@@ -2319,9 +2318,6 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     conn: conn
   } do
     %{principal: agent} = agent_fixture()
-
-    assert {:ok, _config} = Compaction.put_config(%{"prefer_upstream" => false})
-    on_exit(fn -> Compaction.delete_config() end)
 
     assert {:ok, _provider} =
              ProviderConfigs.create_provider(%{

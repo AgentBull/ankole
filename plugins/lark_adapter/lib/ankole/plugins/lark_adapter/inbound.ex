@@ -166,12 +166,18 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
                kind: channel_kind,
                reply_mode: :entry,
                name: optional_text(message, "chat_name"),
-               metadata: %{
-                 "chat_id" => chat_id,
-                 "chat_type" => optional_text(message, "chat_type"),
-                 "domain" => Map.fetch!(config, "domain"),
-                 "app_id" => event.app_id || Map.fetch!(config, "appID")
-               },
+               metadata:
+                 %{
+                   "chat_id" => chat_id,
+                   "chat_type" => optional_text(message, "chat_type"),
+                   "domain" => Map.fetch!(config, "domain"),
+                   "app_id" => event.app_id || Map.fetch!(config, "appID"),
+                   "peer_open_id" =>
+                     if(channel_kind == :im_dm,
+                       do: get_in(author, ["metadata", "open_id"])
+                     )
+                 }
+                 |> compact_map(),
                raw_payload: compact_map(message)
              },
              text: text,

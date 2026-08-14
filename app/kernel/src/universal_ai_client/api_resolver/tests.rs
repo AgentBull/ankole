@@ -52,6 +52,51 @@ fn openai_responses_passthrough_adds_zero_based_sequence() {
 }
 
 #[test]
+fn openai_responses_classifies_only_structured_stateful_replay_rejections() {
+    let context = ResponseContext {
+        model: "gpt-test".to_string(),
+        request: json!({
+            "__ankole_stateful_provider_replay": true,
+            "input": [{"id": "rs_provider", "type": "reasoning"}]
+        }),
+        provider_options: json!({}),
+        stream: Some(true),
+        include_model: true,
+    };
+
+    let resolver = APIResolver::new(APIResolverKind::OpenAIResponses, context.clone());
+    let body =
+        br#"{"error":{"message":"arbitrary","param":"input","type":"invalid_request_error"}}"#;
+    let error = resolver.classify_provider_rejection(400, body).unwrap();
+
+    assert_eq!(error.code, "stateful_replay_input_rejected");
+    assert_eq!(error.stage, "socket_open");
+
+    for (status, body) in [
+        (401, body.as_slice()),
+        (429, body.as_slice()),
+        (500, body.as_slice()),
+        (
+            400,
+            br#"{"error":{"param":"model","type":"invalid_request_error"}}"#,
+        ),
+        (400, br#"{"error":{"param":"input","type":"server_error"}}"#),
+    ] {
+        assert!(resolver.classify_provider_rejection(status, body).is_none());
+    }
+
+    let resolver = APIResolver::new(
+        APIResolverKind::OpenAIResponses,
+        ResponseContext {
+            request: json!({"input": [{"id": "rs_provider", "type": "reasoning"}]}),
+            ..context
+        },
+    );
+
+    assert!(resolver.classify_provider_rejection(400, body).is_none());
+}
+
+#[test]
 fn openai_responses_preserves_provider_native_compaction_input() {
     let input = json!([
         {"type": "compaction", "encrypted_content": "opaque"},

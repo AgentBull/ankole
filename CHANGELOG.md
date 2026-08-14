@@ -1,5 +1,14 @@
 # Changelog
 
+## Version 0.72.0 (2026-08-14)
+
+- Always write compaction summaries with the Agent's light model profile. A conversation that asked for high or extra-high reasoning effort skipped that profile and summarized with the primary model instead, so an Agent whose primary Provider was unreachable could not compact at all and lost the turn. An Agent that configures no light profile now resolves it to its primary profile, the way the coding profile already resolves to heavy.
+- Let each Agent decide whether its Provider compacts history, with the new "Use the primary model's native capability, where applicable" switch on the light model profile. This replaces the former instance-wide `ai_gateway.compaction.prefer_upstream` setting. The switch is off by default, and a Provider that has no native compact operation falls back to the light profile, which stays editable because it still writes those summaries. Operator action: an instance that had turned the former global setting on enables the switch for each Agent that needs it; the stored global value is removed on upgrade.
+- Recover a stateful conversation when an OpenAI Responses Provider rejects replayed provider-native history before any output. Ankole writes a provider-neutral local checkpoint and retries the current input once. If that retry fails, the next turn still starts from the repaired checkpoint, and dead-letter notices point to `/compress` as the manual recovery path.
+- Let the bundled OCR Skill handle an image with no file-name suffix on its first attempt by detecting its media type and passing a temporary copy with the matching supported suffix to the recognizer.
+- Let an Agent list, inspect, stop, message, and respawn its Background Jobs from any of its sessions or channels. The Agent owns the Job; its original session and reply route continue to control notification and delivery only.
+- Deliver Lark files above the 30 MiB IM limit as cloud-space links instead of exhausting the durable outbox retry budget. Ankole uploads each file in sequential parts, tells the user that the file was uploaded because it is too large, grants the whole chat read access for a group reply or the sender read access for a direct reply, and records structured upload logs and telemetry. Missing cloud-space scope now blocks the first failed delivery instead of uploading the file again. Operator action: grant the Lark application `drive:drive.metadata:readonly`, `drive:file:upload`, `docs:permission.member:create`, and `space:document:delete`, ensure enough cloud-space capacity, then retry any stopped `234006` delivery.
+
 ## Version 0.71.2 (2026-08-14)
 
 - Let Skill-backed HTTP MCP declarations pin protocol negotiation, so modern

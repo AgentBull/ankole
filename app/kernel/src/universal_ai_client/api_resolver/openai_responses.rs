@@ -138,8 +138,48 @@ impl APIProtocol for OpenAIResponsesState {
         ))
     }
 
+    fn classify_provider_rejection(
+        &self,
+        context: &ResponseContext,
+        status: u16,
+        body: &[u8],
+    ) -> Option<StreamError> {
+        classify_stateful_replay_rejection(context, status, body)
+    }
+
     fn is_terminal(&self) -> bool {
         self.terminal
+    }
+}
+
+fn classify_stateful_replay_rejection(
+    context: &ResponseContext,
+    status: u16,
+    body: &[u8],
+) -> Option<StreamError> {
+    if status != 400
+        || context
+            .request
+            .get("__ankole_stateful_provider_replay")
+            .and_then(Value::as_bool)
+            != Some(true)
+    {
+        return None;
+    }
+
+    let body = sonic_rs::from_slice::<Value>(body).ok()?;
+    let error = body.get("error")?.as_object()?;
+
+    if error.get("type").and_then(Value::as_str) == Some("invalid_request_error")
+        && error.get("param").and_then(Value::as_str) == Some("input")
+    {
+        Some(StreamError::new(
+            "stateful_replay_input_rejected",
+            "socket_open",
+            "upstream rejected provider-native stateful replay input",
+        ))
+    } else {
+        None
     }
 }
 

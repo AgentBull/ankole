@@ -18,6 +18,7 @@ defmodule Ankole.AIGateway.ResponseStream do
   alias Ankole.AIGateway.ProgramExecution
   alias Ankole.AIGateway.ResponseStream.State
   alias Ankole.AIGateway.ResponseStream.Supervisor
+  alias Ankole.AIGateway.StatefulLifecycle
   alias Ankole.AIGateway.StatefulResponses
   alias Ankole.AIGateway.ToolSearch.StreamLoop, as: ToolSearchStreamLoop
   alias Ankole.AIGateway.UniversalAIRequest
@@ -232,6 +233,7 @@ defmodule Ankole.AIGateway.ResponseStream do
       attempt_spec: attempt_spec,
       credential_success_recorded?: false,
       provider_output?: false,
+      stateful_replay_recovery_attempted?: false,
       outstanding_credit: 0,
       pending_flush: nil,
       program_task: nil,
@@ -466,6 +468,14 @@ defmodule Ankole.AIGateway.ResponseStream do
   end
 
   defp finish_open_failure(state, reason) do
+    if recoverable_stateful_replay_failure?(state, reason) do
+      begin_stateful_replay_recovery(state, reason)
+    else
+      do_finish_open_failure(state, reason)
+    end
+  end
+
+  defp do_finish_open_failure(state, reason) do
     state = state |> cancel_open_candidate_if_present() |> clear_opening()
 
     if state.public_open? do
@@ -494,6 +504,108 @@ defmodule Ankole.AIGateway.ResponseStream do
     end
   end
 
+  defp recoverable_stateful_replay_failure?(state, reason) do
+    classification = FailureDiagnostics.classify(reason)
+
+    not state.stateful_replay_recovery_attempted? and
+      not state.public_open? and
+      not state.provider_output? and
+      is_nil(state.program_task) and
+      match?(%{replay_recovery: %{}}, state.stateful) and
+      Map.get(classification, :error_code) == "stateful_replay_input_rejected" and
+      Map.get(classification, :error_stage) == "socket_open" and
+      Map.get(classification, :provider_status) == 400
+  end
+
+  defp begin_stateful_replay_recovery(state, original_reason) do
+    state =
+      state
+      |> cancel_open_candidate_if_present()
+      |> clear_opening()
+      |> fail_observed_round(original_reason)
+      |> Map.put(:stateful_replay_recovery_attempted?, true)
+
+    token = make_ref()
+    owner = self()
+    stateful = state.stateful
+
+    case start_recovery_task(fn ->
+           result = safe_stateful_replay_recovery(stateful)
+           send(owner, {:response_stream_stateful_replay_recovered, token, result})
+         end) do
+      {:ok, pid} ->
+        opening = %{
+          token: token,
+          kind: :stateful_replay_recovery,
+          context: nil,
+          spec: nil,
+          native_stream: nil,
+          deadline_ms: nil,
+          deadline_timer: nil,
+          retry_timer: nil,
+          recovery_reason: original_reason,
+          worker: %{
+            pid: pid,
+            monitor: Process.monitor(pid),
+            kind: :stateful_replay_recovery
+          }
+        }
+
+        {:noreply, %{state | phase: :opening, opening: opening, native_stream: nil}}
+
+      {:error, reason} ->
+        do_finish_open_failure(state, {:stateful_replay_recovery_task_unavailable, reason})
+    end
+  end
+
+  defp safe_stateful_replay_recovery(stateful) do
+    StatefulLifecycle.recover_provider_replay(stateful)
+  rescue
+    error -> {:error, {:exception, error.__struct__, Exception.message(error)}}
+  catch
+    :exit, reason -> {:error, {:exit, reason}}
+  end
+
+  defp resume_stateful_replay_recovery(
+         state,
+         prepared_request,
+         stateful,
+         original_reason
+       ) do
+    state = clear_opening(state)
+    {tool_loop, prepared_request} = pop_tool_loop(prepared_request)
+
+    {hosted_credential_attempt, prepared_request} =
+      ImageGeneration.pop_credential_attempt(prepared_request)
+
+    {attempt_context, attempt_spec} = CredentialAttempts.prepare_stream(prepared_request)
+    loop = ToolSearchStreamLoop.new(tool_loop)
+    meta = resolver_meta(prepared_request)
+
+    state =
+      Map.merge(state, %{
+        stateful: stateful,
+        prepared_request: prepared_request,
+        round_open: round_open_fun(tool_loop),
+        hosted_credential_attempt: hosted_credential_attempt,
+        telemetry_spec: telemetry_spec(prepared_request),
+        meta: meta,
+        attempt_context: attempt_context,
+        attempt_spec: attempt_spec,
+        credential_success_recorded?: false,
+        provider_output?: false,
+        native_done?: false,
+        native_stream: nil
+      })
+
+    state = %{state | semantic: new_semantic(state, meta, loop)}
+    begin_open_episode(state, :initial, attempt_context, attempt_spec)
+  rescue
+    _error -> do_finish_open_failure(state, original_reason)
+  catch
+    :exit, _reason -> do_finish_open_failure(state, original_reason)
+  end
+
   defp clear_opening(%{opening: nil} = state), do: state
 
   defp clear_opening(%{opening: opening} = state) do
@@ -515,9 +627,10 @@ defmodule Ankole.AIGateway.ResponseStream do
 
   defp cancel_open_worker(nil), do: :ok
 
-  defp cancel_open_worker(%{kind: :custom_open, pid: pid, monitor: monitor}) do
-    # A custom-open worker is owned entirely by this opening episode. Once that
-    # episode loses its owner or deadline, it has no independent work to finish.
+  defp cancel_open_worker(%{kind: kind, pid: pid, monitor: monitor})
+       when kind in [:custom_open, :stateful_replay_recovery] do
+    # This worker is owned entirely by its opening episode. Once that episode
+    # loses its owner, it has no independent work to finish.
     _ = terminate_recovery_task(pid)
     Process.demonitor(monitor, [:flush])
     :ok
@@ -657,6 +770,37 @@ defmodule Ankole.AIGateway.ResponseStream do
         %{opening: %{token: token}} = state
       ) do
     finish_open_failure(state, {:invalid_stream_open_result, invalid})
+  end
+
+  def handle_info(
+        {:response_stream_stateful_replay_recovered, token, {:ok, prepared_request, stateful}},
+        %{
+          opening: %{
+            token: token,
+            kind: :stateful_replay_recovery,
+            recovery_reason: original_reason
+          }
+        } = state
+      ) do
+    resume_stateful_replay_recovery(
+      state,
+      prepared_request,
+      stateful,
+      original_reason
+    )
+  end
+
+  def handle_info(
+        {:response_stream_stateful_replay_recovered, token, _failure},
+        %{
+          opening: %{
+            token: token,
+            kind: :stateful_replay_recovery,
+            recovery_reason: original_reason
+          }
+        } = state
+      ) do
+    finish_open_failure(state, original_reason)
   end
 
   def handle_info(

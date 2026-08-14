@@ -83,7 +83,11 @@ defmodule Ankole.BackgroundAgentJobs.TurnItemsTest do
 
     test "keeps replay-only items out of the projection" do
       assert {[], false} =
-               TurnItemProjection.project(%{"type" => "reasoning", "id" => "r-1", "summary" => []})
+               TurnItemProjection.project(%{
+                 "type" => "reasoning",
+                 "id" => "r-1",
+                 "summary" => []
+               })
     end
 
     test "bounds oversized tool arguments and reports the truncation" do
@@ -140,13 +144,16 @@ defmodule Ankole.BackgroundAgentJobs.TurnItemsTest do
         )
         |> Repo.update!()
 
-      respawn_turn = insert_turn!(respawn, 1, "thread-lead-3", "turn-lead-3", DateTime.add(base, -20))
+      respawn_turn =
+        insert_turn!(respawn, 1, "thread-lead-3", "turn-lead-3", DateTime.add(base, -20))
+
       insert_items!(respawn_turn, [{0, "a-3", assistant_item("续接补充")}])
 
       assert {:ok, %{items: items, next_cursor: nil}} =
                BackgroundAgentJobs.replay_items_page(respawn, nil)
 
       assert Enum.map(items, & &1.item_key) == ["u-1", "a-1", "a-2", "a-3"]
+
       assert Enum.map(items, & &1.runtime_thread_id) ==
                ["thread-lead-1", "thread-lead-1", "thread-lead-2", "thread-lead-3"]
 
@@ -259,7 +266,11 @@ defmodule Ankole.BackgroundAgentJobs.TurnItemsTest do
   end
 
   defp user_item(text) do
-    %{"type" => "userMessage", "id" => "user-#{text}", "content" => [%{"type" => "text", "text" => text}]}
+    %{
+      "type" => "userMessage",
+      "id" => "user-#{text}",
+      "content" => [%{"type" => "text", "text" => text}]
+    }
   end
 
   defp assistant_item(text) do

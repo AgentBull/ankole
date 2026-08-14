@@ -73,15 +73,19 @@ export function ModelProfileEditorCard({
   persistencePending: boolean
   /**
    * When set, this capability can be left to the Agent's language-model
-   * Provider. While that is on, the Provider owns the capability and this
-   * profile is not used, so the form is disabled rather than hidden: the
-   * operator can still see the configuration they would return to.
+   * Provider. `replacesProfile` states whether the Provider then owns the
+   * capability outright. In that case the profile is not used, so the form is
+   * disabled rather than hidden: the operator can still see the configuration
+   * they would return to. A switch that only prefers the Provider keeps the
+   * profile editable, because the profile still runs whenever the Provider
+   * cannot.
    */
   providerHosted?: {
     checked: boolean
     pending: boolean
     label: string
     description: string
+    replacesProfile: boolean
     onChange: (checked: boolean) => void
   }
   /** When set, the delete action asks for confirmation before it fires. */
@@ -117,7 +121,7 @@ export function ModelProfileEditorCard({
   const changedDraftIncomplete = Boolean(dirty && (!configured || (showDescription && !draft.description.trim())))
   const incomplete = Boolean(saveIncomplete || requiredConfigurationMissing || changedDraftIncomplete)
   const disableSave = persistencePending || (!dirty && !requiredConfigurationMissing)
-  const hostedActive = providerHosted?.checked === true
+  const hostedActive = providerHosted?.checked === true && providerHosted.replacesProfile
   const [open, setOpen] = useState(needsAttention)
   const manuallyToggled = useRef(false)
   const providerError = draft.error && !providerID.trim() ? draft.error : undefined

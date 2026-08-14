@@ -1235,14 +1235,20 @@ async fn provider_status_error(
         }
     }
 
-    StreamError::new(
-        "provider_status_rejected",
-        "connect",
-        format!("upstream returned HTTP status {status}"),
-    )
-    .provider_status(status)
-    .provider_body_excerpt(excerpt)
-    .provider_headers(headers)
+    let resolver = api_resolver::APIResolver::new(spec.api_resolver, spec.response_context.clone());
+
+    resolver
+        .classify_provider_rejection(status, &excerpt)
+        .unwrap_or_else(|| {
+            StreamError::new(
+                "provider_status_rejected",
+                "connect",
+                format!("upstream returned HTTP status {status}"),
+            )
+        })
+        .provider_status(status)
+        .provider_body_excerpt(excerpt)
+        .provider_headers(headers)
 }
 
 #[cfg(test)]

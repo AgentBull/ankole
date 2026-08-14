@@ -2836,6 +2836,304 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     end)
   end
 
+  test "stateful replay rejection writes one neutral checkpoint and recovers the next turn" do
+    %{principal: agent} = agent_fixture()
+    with_compaction_config(threshold: 0.50, max_threshold_tokens: 100_000, tail_rows: 2)
+
+    {:ok, provider_state} =
+      Agent.start_link(fn -> %{light_requests: [], primary_requests: []} end)
+
+    base_url =
+      start_recording_upstream(self(), fn request ->
+        case request.body["model"] do
+          "gpt-compact-light" ->
+            Agent.update(provider_state, fn state ->
+              %{state | light_requests: state.light_requests ++ [request]}
+            end)
+
+            {:sse, 200,
+             openai_response_stream_events(
+               "resp_replay_recovery_summary",
+               "gpt-compact-light",
+               "## Active Task\nThe earlier conversation was recovered locally."
+             )}
+
+          "gpt-main" ->
+            attempt =
+              Agent.get_and_update(provider_state, fn state ->
+                requests = state.primary_requests ++ [request]
+                {length(requests), %{state | primary_requests: requests}}
+              end)
+
+            if attempt <= 2 do
+              {:json, 400,
+               %{
+                 "error" => %{
+                   "message" => "arbitrary provider detail",
+                   "param" => "input",
+                   "type" => "invalid_request_error"
+                 }
+               }}
+            else
+              {:sse, 200,
+               openai_response_stream_events(
+                 "resp_replay_recovery_next",
+                 "gpt-main",
+                 "Recovered on the next turn."
+               )}
+            end
+        end
+      end)
+
+    create_openai_compaction_provider!(
+      agent,
+      "openai-stateful-replay-recovery",
+      base_url
+    )
+
+    {:ok, conversation} =
+      StatefulResponses.ensure_conversation(agent.uid, "dispatch-stateful-replay-recovery")
+
+    {:ok, m1} =
+      start_stateful_message(agent.uid, conversation, "replay-recovery-a", [
+        text_message("user", "first user request")
+      ])
+
+    {:ok, m1} =
+      StatefulResponses.commit_complete(m1, [
+        text_message("assistant", "first assistant response")
+      ])
+
+    {:ok, m2} =
+      start_linked_stateful_message(agent.uid, conversation, m1, "replay-recovery-b", [
+        text_message("user", "second user request")
+      ])
+
+    {:ok, m2} =
+      StatefulResponses.commit_complete(m2, [
+        %{
+          "id" => "rs_poisoned_replay",
+          "type" => "reasoning",
+          "summary" => [
+            %{
+              "type" => "summary_text",
+              "text" => "visible provider reasoning summary"
+            }
+          ],
+          "encrypted_content" => "POISONED_REASONING_CIPHERTEXT"
+        },
+        %{
+          "id" => "msg_poisoned_replay",
+          "type" => "message",
+          "role" => "assistant",
+          "status" => "completed",
+          "content" => [
+            %{
+              "type" => "output_text",
+              "text" => "second assistant response",
+              "annotations" => []
+            }
+          ]
+        }
+      ])
+
+    {:ok, m3} =
+      start_linked_stateful_message(agent.uid, conversation, m2, "replay-recovery-tail", [
+        text_message("user", "tail user request")
+      ])
+
+    {:ok, m3} =
+      StatefulResponses.commit_complete(m3, [
+        %{
+          "id" => "mcp_poisoned_replay",
+          "type" => "mcp_call",
+          "call_id" => "mcp_call_poisoned_replay",
+          "name" => "lookup",
+          "server_label" => "inventory",
+          "status" => "completed",
+          "output" => "tail provider result",
+          "encrypted_function_args" => "POISONED_FUNCTION_CIPHERTEXT"
+        },
+        %{
+          "id" => "msg_tail_poisoned_replay",
+          "type" => "message",
+          "role" => "assistant",
+          "status" => "completed",
+          "content" => [
+            %{
+              "type" => "output_text",
+              "text" => "tail assistant response",
+              "annotations" => []
+            }
+          ]
+        }
+      ])
+
+    failed_event =
+      actor_event_fixture(agent.uid, conversation.conversation_key, "replay-recovery-failed")
+
+    failed_input = [text_message("user", "current request that retries once")]
+
+    assert {:error, _reason} =
+             AIGateway.open_websocket_stream(agent.uid, %{
+               "model" => "primary",
+               "input" => failed_input,
+               "store" => true,
+               "conversation" => "conv_#{conversation.id}",
+               "metadata" => %{"actor_event_id" => failed_event.id}
+             })
+
+    %{light_requests: [summary_request], primary_requests: [first_request, retry_request]} =
+      Agent.get(provider_state, & &1)
+
+    first_request_json = Ankole.JSON.encode!(first_request.body)
+    assert first_request_json =~ "rs_poisoned_replay"
+    assert first_request_json =~ "msg_poisoned_replay"
+    refute first_request_json =~ "__ankole_stateful_provider_replay"
+
+    summary_request_json = Ankole.JSON.encode!(summary_request.body)
+    refute summary_request_json =~ "POISONED_REASONING_CIPHERTEXT"
+    refute summary_request_json =~ "POISONED_FUNCTION_CIPHERTEXT"
+
+    retry_request_json = Ankole.JSON.encode!(retry_request.body)
+    refute retry_request_json =~ "rs_poisoned_replay"
+    refute retry_request_json =~ "msg_poisoned_replay"
+    refute retry_request_json =~ "mcp_poisoned_replay"
+    refute retry_request_json =~ "POISONED_REASONING_CIPHERTEXT"
+    refute retry_request_json =~ "POISONED_FUNCTION_CIPHERTEXT"
+    assert Enum.count(retry_request.body["input"], &(&1 == hd(failed_input))) == 1
+
+    failed_run =
+      Repo.get_by!(Message,
+        subject_uid: agent.uid,
+        conversation_id: conversation.id,
+        status: "error"
+      )
+
+    checkpoint = Repo.get!(Message, failed_run.previous_message_id)
+    assert checkpoint.type == "checkpoint"
+    assert checkpoint.status == "complete"
+    assert checkpoint.previous_message_id == m3.id
+
+    artifact = Repo.get!(CompactionArtifact, checkpoint.id)
+    assert artifact.content["version"] == 2
+
+    artifact_json = Ankole.JSON.encode!(artifact.content["output"])
+    refute artifact_json =~ "rs_poisoned_replay"
+    refute artifact_json =~ "msg_poisoned_replay"
+    refute artifact_json =~ "mcp_poisoned_replay"
+    refute artifact_json =~ "POISONED_REASONING_CIPHERTEXT"
+    refute artifact_json =~ "POISONED_FUNCTION_CIPHERTEXT"
+    assert artifact_json =~ "visible provider reasoning summary"
+    assert artifact_json =~ "second assistant response"
+    assert artifact_json =~ "tail assistant response"
+
+    next_event =
+      actor_event_fixture(agent.uid, conversation.conversation_key, "replay-recovery-next")
+
+    next_input = [text_message("user", "continue from the repaired checkpoint")]
+
+    assert {:ok, stream, _meta} =
+             AIGateway.open_websocket_stream(agent.uid, %{
+               "model" => "primary",
+               "input" => next_input,
+               "store" => true,
+               "conversation" => "conv_#{conversation.id}",
+               "metadata" => %{"actor_event_id" => next_event.id}
+             })
+
+    assert {:ok, events} = collect_sse_chunks(stream, [])
+    assert terminal_response_body!(events)["status"] == "completed"
+
+    %{light_requests: [_summary_request], primary_requests: primary_requests} =
+      Agent.get(provider_state, & &1)
+
+    assert length(primary_requests) == 3
+    next_request = List.last(primary_requests)
+    next_request_json = Ankole.JSON.encode!(next_request.body)
+    refute next_request_json =~ "rs_poisoned_replay"
+    refute next_request_json =~ "msg_poisoned_replay"
+    refute next_request_json =~ "POISONED_REASONING_CIPHERTEXT"
+
+    assert Enum.any?(next_request.body["input"], fn item ->
+             local_checkpoint_summary(item) ==
+               "## Active Task\nThe earlier conversation was recovered locally."
+           end)
+  end
+
+  test "stateful replay rejection after a provider event does not rebuild history" do
+    %{principal: agent} = agent_fixture()
+    {:ok, request_counts} = Agent.start_link(fn -> %{light: 0, primary: 0} end)
+
+    base_url =
+      start_recording_upstream(self(), fn request ->
+        case request.body["model"] do
+          "gpt-compact-light" ->
+            Agent.update(request_counts, &Map.update!(&1, :light, fn count -> count + 1 end))
+
+            {:sse, 200,
+             openai_response_stream_events(
+               "resp_late_rejection_summary",
+               "gpt-compact-light",
+               "## Active Task\nUnexpected summary."
+             )}
+
+          "gpt-main" ->
+            Agent.update(request_counts, &Map.update!(&1, :primary, fn count -> count + 1 end))
+
+            [created | _events] =
+              openai_response_stream_events(
+                "resp_late_rejection",
+                "gpt-main",
+                "partial response"
+              )
+
+            {:sse, 200, [created]}
+        end
+      end)
+
+    create_openai_compaction_provider!(
+      agent,
+      "openai-stateful-late-replay-rejection",
+      base_url
+    )
+
+    {:ok, conversation} =
+      StatefulResponses.ensure_conversation(agent.uid, "dispatch-stateful-late-rejection")
+
+    {:ok, prior} =
+      start_stateful_message(agent.uid, conversation, "late-rejection-prior", [
+        text_message("user", "prior request")
+      ])
+
+    {:ok, prior} =
+      StatefulResponses.commit_complete(prior, [
+        %{
+          "id" => "rs_late_rejection",
+          "type" => "reasoning",
+          "summary" => [],
+          "encrypted_content" => "LATE_REJECTION_CIPHERTEXT"
+        }
+      ])
+
+    event = actor_event_fixture(agent.uid, conversation.conversation_key, "late-rejection-run")
+
+    assert {:ok, stream, _meta} =
+             AIGateway.open_websocket_stream(agent.uid, %{
+               "model" => "primary",
+               "input" => [text_message("user", "current request")],
+               "store" => true,
+               "previous_response_id" => "resp_#{prior.id}",
+               "metadata" => %{"actor_event_id" => event.id}
+             })
+
+    assert {:ok, events} = collect_sse_chunks(stream, [])
+    assert terminal_response_body!(events)["status"] == "failed"
+    assert Agent.get(request_counts, & &1) == %{light: 0, primary: 1}
+
+    refute Repo.exists?(from(message in Message, where: message.type == "checkpoint"))
+  end
+
   test "automatic stateful continuation closes client tool calls interrupted before durable output" do
     %{principal: agent} = agent_fixture()
 
@@ -3465,7 +3763,6 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
   test "compaction threshold follows model context ratio with a configurable cap" do
     _result = Compaction.delete_config()
-    refute Compaction.prefer_upstream?()
 
     assert %{
              tokens: 100_000,
@@ -3484,7 +3781,6 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              })
 
     with_compaction_config(threshold: 0.25, max_threshold_tokens: 200_000, tail_rows: 2)
-    refute Compaction.prefer_upstream?()
 
     assert %{
              tokens: 100_000,
@@ -3493,8 +3789,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              max_threshold_tokens: 200_000
            } = Compaction.threshold_spec(%{"context_length" => 400_000}, %{})
 
-    assert {:error, :invalid_compaction_prefer_upstream} =
-             Compaction.put_config(%{"prefer_upstream" => "true"})
+    assert {:error, {:unknown_compaction_config_keys, ["prefer_upstream"]}} =
+             Compaction.put_config(%{"prefer_upstream" => true})
   end
 
   test "websocket stateful memory pre-compaction nudge enters an empty continuation" do
@@ -6311,7 +6607,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
   test "standalone compact preserves provider-native output in one version 3 artifact" do
     %{principal: agent} = agent_fixture()
-    with_compaction_config(prefer_upstream: true)
+    prefer_provider_compaction!(agent.uid)
 
     native_output = [
       %{"type" => "message", "role" => "user", "content" => "retained"},
@@ -6362,7 +6658,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
   test "stateful compaction replays native output and replaces it locally after a binding change" do
     %{principal: agent} = agent_fixture()
-    with_compaction_config(prefer_upstream: true, threshold: 0.50, max_threshold_tokens: 10)
+    prefer_provider_compaction!(agent.uid)
+    with_compaction_config(threshold: 0.50, max_threshold_tokens: 10)
 
     native_output = [
       %{"type" => "message", "role" => "user", "content" => "provider-retained"},
@@ -6448,7 +6745,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
   test "manual conversation compaction uses the same upstream selector" do
     %{principal: agent} = agent_fixture()
-    with_compaction_config(prefer_upstream: true)
+    prefer_provider_compaction!(agent.uid)
 
     native_output = [
       %{"type" => "compaction", "encrypted_content" => "manual-provider-state"}
@@ -6479,7 +6776,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
   test "standalone compact caches only a stable unsupported response" do
     %{principal: agent} = agent_fixture()
-    with_compaction_config(prefer_upstream: true)
+    prefer_provider_compaction!(agent.uid)
     :ok = Cache.clear_for_test()
     {:ok, compact_attempts} = Agent.start_link(fn -> 0 end)
 
@@ -6522,7 +6819,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
   test "standalone compact does not cache a transient provider failure" do
     %{principal: agent} = agent_fixture()
-    with_compaction_config(prefer_upstream: true)
+    prefer_provider_compaction!(agent.uid)
     :ok = Cache.clear_for_test()
     {:ok, compact_attempts} = Agent.start_link(fn -> 0 end)
 
@@ -6559,7 +6856,6 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
   test "standalone opaque history rejects an unavailable local fallback" do
     %{principal: agent} = agent_fixture()
-    with_compaction_config(prefer_upstream: false)
 
     configure_openai_responses_provider!(
       agent.uid,
@@ -6891,6 +7187,11 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
   end
 
   defp provider_input_has_output?(_input, _call_id), do: false
+
+  defp prefer_provider_compaction!(agent_uid) do
+    assert {:ok, _capabilities} =
+             ModelProfiles.put_provider_hosted_capabilities(agent_uid, %{"compaction" => true})
+  end
 
   defp with_compaction_config(config) do
     assert {:ok, _config} = Compaction.put_config(Map.new(config))

@@ -24,6 +24,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   alias Ankole.AIGateway.UniversalAIRequest
 
   @websocket_continuation_fields ~w(previous_response_id conversation)
+  @stateful_provider_replay_marker "__ankole_stateful_provider_replay"
   @input_message_roles ~w(system developer user)
   @stateful_request_metadata_fields ~w(
     instructions tools tool_choice truncation parallel_tool_calls text top_p
@@ -33,23 +34,6 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   )
 
   @tool_result_record_db_retry_delays_ms [50, 100, 200, 400, 800, 1_600]
-  @provider_replay_id_required_types ~w(
-    code_interpreter_call
-    computer_call
-    file_search_call
-    image_generation_call
-    item_reference
-    local_shell_call
-    local_shell_call_output
-    mcp_approval_request
-    mcp_call
-    mcp_list_tools
-    program
-    program_output
-    reasoning
-    web_search_call
-  )
-
   # Stateful history replays as Responses items. Only these wires translate
   # bare client tool calls and outputs faithfully. Other wires cannot preserve
   # those pairs in provider history. Stateless requests do not pass this gate.
@@ -181,6 +165,84 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
     :ok
   end
 
+  @doc false
+  @spec recover_provider_replay(map()) ::
+          {:ok, UniversalAIRequest.t() | map(), map()} | {:error, term()}
+  def recover_provider_replay(%{
+        message_id: message_id,
+        subject_uid: subject_uid,
+        conversation_id: conversation_id,
+        replay_recovery: %{
+          request: request,
+          runtime: runtime,
+          request_context: request_context
+        }
+      }) do
+    with %Message{status: "generating"} = message <- StatefulResponses.get_message(message_id),
+         true <-
+           message.subject_uid == subject_uid and message.conversation_id == conversation_id,
+         previous_response_id when is_binary(previous_response_id) <-
+           response_id(message.previous_message_id),
+         {:ok, plan} <-
+           Compaction.plan_replay_recovery(
+             subject_uid,
+             conversation_id,
+             previous_response_id,
+             message.content,
+             request,
+             runtime
+           ),
+         {:ok, %{checkpoint: checkpoint, message: message}} <-
+           StatefulResponses.install_replay_recovery_checkpoint(message, plan),
+         {:ok, conversation} <-
+           StatefulResponses.get_conversation_for_subject(subject_uid, conversation_id),
+         checkpoint_response_id = response_id(checkpoint.id),
+         history =
+           StatefulResponses.expand_history(conversation_id,
+             previous_response_id: checkpoint_response_id,
+             protected_tail_items: message.content
+           ),
+         context = %{
+           subject_uid: subject_uid,
+           conversation: conversation,
+           request: request,
+           current_input: message.content,
+           recovered_call_ids: [],
+           compaction: %{
+             history: history,
+             previous_response_id: checkpoint_response_id,
+             run_metadata:
+               Compaction.put_checkpoint_response_id(
+                 plan.run_metadata,
+                 checkpoint_response_id
+               )
+           }
+         },
+         {:ok, request_for_provider, run_attrs} <-
+           provider_request_from_stateful_context(context, runtime),
+         {:ok, message} <-
+           StatefulResponses.merge_generating_response_metadata(message, run_attrs.metadata),
+         {:ok, %{spec: prepared_request}} <-
+           ResponsesPreparation.prepare_with_runtime(
+             subject_uid,
+             runtime,
+             request_for_provider,
+             stream?: true,
+             request_context: request_context
+           ) do
+      recovery = %{request: request, runtime: runtime, request_context: request_context}
+      {:ok, prepared_request, response_stream_context(message, recovery)}
+    else
+      false -> {:error, :stateful_replay_recovery_unavailable}
+      nil -> {:error, :stateful_replay_recovery_unavailable}
+      {:error, _reason} = error -> error
+      _invalid -> {:error, :stateful_replay_recovery_unavailable}
+    end
+  end
+
+  def recover_provider_replay(_stateful_context),
+    do: {:error, :stateful_replay_recovery_unavailable}
+
   # Step 1: Expands the message chain for a stateful run and injects the
   # expanded history into the provider-facing request input.
   #
@@ -252,7 +314,13 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
                  stream?: true,
                  request_context: request_context
                ) do
-          {:ok, prepared_request, response_stream_context(message)}
+          recovery = %{
+            request: context.request,
+            runtime: runtime,
+            request_context: request_context
+          }
+
+          {:ok, prepared_request, response_stream_context(message, recovery)}
         end
 
       case result do
@@ -369,16 +437,25 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
              context.compaction.history,
              runtime_input_modalities(runtime)
            ),
+         {:ok, resolved_history_items} <-
+           CompactionArtifacts.resolve_input_handles(
+             context.subject_uid,
+             history_items
+           ),
          {provider_input, tool_result_quarantine} <-
-           canonical_tool_result_projection(history_items ++ context.current_input),
+           canonical_tool_result_projection(resolved_history_items ++ context.current_input),
          {:ok, expanded_input} <-
            CompactionArtifacts.resolve_input_handles(
              context.subject_uid,
              provider_input
            ) do
+      provider_native_replay? =
+        Enum.any?(resolved_history_items, &provider_native_replay_item?/1)
+
       provider_request =
         context.request
         |> Map.put("input", expanded_input)
+        |> maybe_mark_stateful_provider_replay(provider_native_replay?)
         |> strip_stateful_provider_fields()
 
       {:ok, provider_request,
@@ -467,13 +544,15 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
     %{context | compaction: compaction}
   end
 
-  defp response_stream_context(%Message{} = message) do
-    %{
+  defp response_stream_context(%Message{} = message, recovery \\ nil) do
+    context = %{
       message_id: message.id,
       message: message,
       subject_uid: message.subject_uid,
       conversation_id: message.conversation_id
     }
+
+    if is_map(recovery), do: Map.put(context, :replay_recovery, recovery), else: context
   end
 
   defp stateful_run_metadata(request, compaction_metadata) do
@@ -835,8 +914,11 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
       end
     end)
     |> case do
-      {:ok, chunks} -> {:ok, chunks |> Enum.reverse() |> List.flatten()}
-      {:error, _reason} = error -> error
+      {:ok, chunks} ->
+        {:ok, chunks |> Enum.reverse() |> List.flatten()}
+
+      {:error, _reason} = error ->
+        error
     end
   end
 
@@ -874,9 +956,14 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
        when status in ["in_progress", "completed", "incomplete"] and is_binary(id) and id != "",
        do: item
 
-  defp provider_replay_item(%{"type" => type} = item, _supports_image?)
-       when type in @provider_replay_id_required_types,
-       do: item
+  defp provider_replay_item(%{} = item, supports_image?)
+       when is_map_key(item, "id") do
+    cond do
+      ResponseItems.provider_replay_id_required?(item) -> item
+      supports_image? -> Map.delete(item, "id")
+      true -> item |> Map.delete("id") |> replace_image_parts_for_text_model()
+    end
+  end
 
   defp provider_replay_item(%{} = item, true), do: Map.delete(item, "id")
 
@@ -887,6 +974,37 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   end
 
   defp provider_replay_item(item, _supports_image?), do: item
+
+  defp provider_native_replay_item?(%{"id" => id} = item)
+       when is_binary(id) and id != "",
+       do: ResponseItems.provider_replay_id_required?(item)
+
+  defp provider_native_replay_item?(%{} = item), do: provider_ciphertext?(item)
+  defp provider_native_replay_item?(_item), do: false
+
+  defp provider_ciphertext?(%{"type" => "reasoning", "encrypted_content" => content})
+       when is_binary(content) and content != "",
+       do: true
+
+  defp provider_ciphertext?(%{"type" => "encrypted_content"}), do: true
+
+  defp provider_ciphertext?(%{} = value) do
+    Map.has_key?(value, "encrypted_function_args") or
+      Enum.any?(value, fn {_key, nested} -> provider_ciphertext?(nested) end)
+  end
+
+  defp provider_ciphertext?(value) when is_list(value),
+    do: Enum.any?(value, &provider_ciphertext?/1)
+
+  defp provider_ciphertext?(_value), do: false
+
+  defp maybe_mark_stateful_provider_replay(request, true),
+    do: Map.put(request, @stateful_provider_replay_marker, true)
+
+  defp maybe_mark_stateful_provider_replay(request, false), do: request
+
+  defp response_id(id) when is_binary(id), do: "resp_#{id}"
+  defp response_id(_id), do: nil
 
   defp replace_image_parts_for_text_model(%{"type" => type})
        when type in ["input_image", "image_url", "image"] do

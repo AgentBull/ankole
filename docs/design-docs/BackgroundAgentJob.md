@@ -21,6 +21,10 @@ fields:
 `live` includes `queued`, `running`, and `waiting_on_user`. `stop` includes
 `succeeded`, `failed`, and `stopped`.
 
+The current Agent owns the list. `owner_session_id` and `reply_route` select
+notification and delivery targets. They do not limit Job access to the session
+or channel that created it.
+
 The tool returns at most 32 Jobs. It orders them by `updated_at` descending and
 then by `id` descending. Each item contains only `job_id`, `title`, the concrete
 Job `status`. The page also contains `next_page`. Its value is `null` when no
@@ -462,8 +466,8 @@ Responses sends the native `web_search` declaration.
 For AIGateway, the Agent Codex Home selects the `ankole_aigateway` provider.
 Its configured name is `OpenAI`, which tells Codex 0.147 that this hop can carry
 remote compaction. The provider ID does not change. The Job's frozen runtime
-projection then sets `remote_compaction_v2=true` only when
-`ai_gateway.compaction.prefer_upstream=true` and the resolved Provider kind is
+projection then sets `remote_compaction_v2=true` only when the owning Agent
+leaves compaction to its Provider and the resolved Provider kind is
 `chatgpt_subscription`. Manual and automatic compaction for that case remain on
 the normal Responses transport: Codex appends `compaction_trigger`, AIGateway
 forwards it, and the ChatGPT Subscription Provider returns its `compaction`
@@ -473,9 +477,9 @@ item. AIGateway does not intercept this v2 exchange or probe it through
 Every other Job sets `remote_compaction_v2=false`. Codex sends those compact
 requests to AIGateway `POST /responses/compact`, including Jobs backed by
 OpenAI, OpenAI-compatible, or Azure OpenAI Providers. A Job that predates this
-projection field also stays on that v1 path. Changing `prefer_upstream` affects
-new Job projections and respawns, not an admitted Job. In both modes,
-`model_auto_compact_token_limit` stays at `100000`.
+projection field also stays on that v1 path. Changing the Agent's compaction
+switch affects new Job projections and respawns, not an admitted Job. In both
+modes, `model_auto_compact_token_limit` stays at `100000`.
 
 The Job configuration contains the real Codex model name and its supported
 reasoning effort. The runner never sends a logical profile name to Codex. It
@@ -496,7 +500,7 @@ the same provider type and model ID, then persists that completed binding. If
 that identity cannot be proved, the legacy Job remains text-only; it never
 borrows visual capability from a different model.
 
-For the v1 path, `ai_gateway.compaction.prefer_upstream=true` makes AIGateway
+For the v1 path, an Agent that leaves compaction to its Provider makes AIGateway
 try the Job's frozen Responses Provider and model before it uses local
 compaction. Unsupported and transient failures use local compaction while the
 input remains readable. A provider-native compact output is opaque. If a later
@@ -846,8 +850,8 @@ A retry reads the same journal and verifies the completed event IDs.
 The tool does not attach a lifecycle event ID when it does not wait, returns an
 error, is canceled, observes a continuing Job, or runs from another session.
 The open lifecycle event then follows the normal wakeup path. Another session
-in the same channel can send a message and wait for its Turn, but it cannot
-consume the notification owned by the originating session.
+of the same Agent can send a message and wait for its Turn, but it cannot consume
+the notification owned by the originating session.
 
 ## Return Results and Files
 
@@ -891,7 +895,7 @@ available:
   collaboration call projection, and child Turn completion before Job success.
 - Atomic tool-result journaling and lifecycle-event completion, rollback, and
   retry behavior.
-- Same-channel cross-session waiting without notification consumption.
+- Same-Agent cross-session waiting without notification consumption.
 - Limits on reported file paths and `user-files` attachment checks.
 - Worker placement, capacity, recovery, and account reuse.
 - Turn stall detection, its retryable abort, its exhausted Job failure, and

@@ -1165,30 +1165,24 @@ defmodule Ankole.BackgroundAgentJobsTest do
            )
   end
 
-  test "message send journals text once and list visibility is bounded by parent session or channel" do
+  test "message send journals text once and list returns every Job owned by one Agent" do
     %{principal: agent} = background_agent_fixture()
-    same_session = create_job!(agent.uid, "same-session")
-    same_channel = create_job!(agent.uid, "same-channel")
-    other_channel = create_job!(agent.uid, "other-channel")
+    %{principal: other_agent} = background_agent_fixture()
+    first = create_job!(agent.uid, "first")
+    second = create_job!(agent.uid, "second")
+    third = create_job!(agent.uid, "third")
+    other_agent_job = create_job!(other_agent.uid, "other-agent")
 
-    from(row in Job, where: row.id == ^same_channel.id)
-    |> Repo.update_all(
-      set: [
-        owner_session_id: "historical-session",
-        reply_route: %{"binding_name" => "lark", "signal_channel_id" => "chat-same-session"}
-      ]
-    )
-
-    same_session =
-      same_session
-      |> Job.changeset(%{status: "running", runtime_thread_id: "thread-same-session"})
+    first =
+      first
+      |> Job.changeset(%{status: "running", runtime_thread_id: "thread-first"})
       |> Repo.update!()
 
-    assert {:ok, %{job: %Job{id: same_session_id}, command_event: %ActorEvent{} = message_event}} =
-             BackgroundAgentJobs.send_message(same_session.id, %{
+    assert {:ok, %{job: %Job{id: first_id}, command_event: %ActorEvent{} = message_event}} =
+             BackgroundAgentJobs.send_message(first.id, %{
                "agent_uid" => agent.uid,
                "message" => "Use the operator audience.",
-               "request_id" => "steer-same-session"
+               "request_id" => "steer-first"
              })
 
     assert message_event.source_entry_id == nil
@@ -1201,45 +1195,39 @@ defmodule Ankole.BackgroundAgentJobsTest do
     refute Map.has_key?(get_in(message_event.payload, ["data", "command"]), "answers")
 
     assert {:ok, %{command_event: %ActorEvent{id: repeated_id}}} =
-             BackgroundAgentJobs.send_message(same_session.id, %{
+             BackgroundAgentJobs.send_message(first.id, %{
                "agent_uid" => agent.uid,
                "message" => "Use the operator audience.",
-               "request_id" => "steer-same-session"
+               "request_id" => "steer-first"
              })
 
     assert repeated_id == message_event.id
 
-    assert same_session_id == same_session.id
+    assert first_id == first.id
 
     assert {:ok, %{jobs: listed, next_cursor: nil}} =
-             BackgroundAgentJobs.list_for_channel(
-               agent.uid,
-               same_session.owner_session_id,
-               "chat-same-session"
-             )
+             BackgroundAgentJobs.list_for_agent(agent.uid)
 
     assert Enum.map(listed, & &1.job_id) |> MapSet.new() ==
-             MapSet.new([same_session.id, same_channel.id])
+             MapSet.new([first.id, second.id, third.id])
 
-    assert Enum.find(listed, &(&1.job_id == same_session.id)) == %{
-             job_id: same_session.id,
-             title: same_session.title,
+    assert Enum.find(listed, &(&1.job_id == first.id)) == %{
+             job_id: first.id,
+             title: first.title,
              status: "running"
            }
 
-    assert Enum.find(listed, &(&1.job_id == same_channel.id)) == %{
-             job_id: same_channel.id,
-             title: same_channel.title,
+    assert Enum.find(listed, &(&1.job_id == second.id)) == %{
+             job_id: second.id,
+             title: second.title,
              status: "queued"
            }
 
-    refute Enum.any?(listed, &(&1.job_id == other_channel.id))
+    refute Enum.any?(listed, &(&1.job_id == other_agent_job.id))
   end
 
   test "list uses fixed 32-item pages ordered by the latest update and grouped status" do
     %{principal: agent} = background_agent_fixture()
-    owner_session_id = "list-owner-session"
-    signal_channel_id = "chat-list-page"
     base = ~U[2026-07-21 00:00:00.000000Z]
 
     live_jobs =
@@ -1249,8 +1237,6 @@ defmodule Ankole.BackgroundAgentJobsTest do
         from(row in Job, where: row.id == ^job.id)
         |> Repo.update_all(
           set: [
-            owner_session_id: owner_session_id,
-            reply_route: %{"binding_name" => "lark", "signal_channel_id" => signal_channel_id},
             updated_at: DateTime.add(base, index, :second)
           ]
         )
@@ -1266,8 +1252,6 @@ defmodule Ankole.BackgroundAgentJobsTest do
         from(row in Job, where: row.id == ^job.id)
         |> Repo.update_all(
           set: [
-            owner_session_id: owner_session_id,
-            reply_route: %{"binding_name" => "lark", "signal_channel_id" => signal_channel_id},
             status: status,
             completed_at: completed_at,
             updated_at: completed_at
@@ -1278,11 +1262,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
       end
 
     assert {:ok, %{jobs: first_page, next_cursor: cursor}} =
-             BackgroundAgentJobs.list_for_channel(
-               agent.uid,
-               owner_session_id,
-               signal_channel_id
-             )
+             BackgroundAgentJobs.list_for_agent(agent.uid)
 
     assert length(first_page) == 32
     assert is_binary(cursor)
@@ -1291,22 +1271,12 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert Enum.map(first_page, & &1.job_id) == Enum.take(expected_live_ids, 32)
 
     assert {:ok, %{jobs: second_page, next_cursor: nil}} =
-             BackgroundAgentJobs.list_for_channel(
-               agent.uid,
-               owner_session_id,
-               signal_channel_id,
-               cursor: cursor
-             )
+             BackgroundAgentJobs.list_for_agent(agent.uid, cursor: cursor)
 
     assert Enum.map(second_page, & &1.job_id) == Enum.drop(expected_live_ids, 32)
 
     assert {:ok, %{jobs: stopped, next_cursor: nil}} =
-             BackgroundAgentJobs.list_for_channel(
-               agent.uid,
-               owner_session_id,
-               signal_channel_id,
-               status: "stop"
-             )
+             BackgroundAgentJobs.list_for_agent(agent.uid, status: "stop")
 
     expected_stop_jobs = Enum.reverse(stop_jobs)
 
@@ -1314,21 +1284,13 @@ defmodule Ankole.BackgroundAgentJobsTest do
              Enum.map(expected_stop_jobs, &{elem(&1, 0).id, elem(&1, 1)})
 
     assert {:error, :invalid_background_agent_job_cursor} =
-             BackgroundAgentJobs.list_for_channel(
-               agent.uid,
-               owner_session_id,
-               signal_channel_id,
+             BackgroundAgentJobs.list_for_agent(agent.uid,
                status: "stop",
                cursor: cursor
              )
 
     assert {:error, :invalid_background_agent_job_list_status} =
-             BackgroundAgentJobs.list_for_channel(
-               agent.uid,
-               owner_session_id,
-               signal_channel_id,
-               status: "failed"
-             )
+             BackgroundAgentJobs.list_for_agent(agent.uid, status: "failed")
   end
 
   test "message send rejects a settled job and does not create a command" do
@@ -1451,7 +1413,8 @@ defmodule Ankole.BackgroundAgentJobsTest do
     refute disabled_attempt.runtime_projection["codex"]["remote_compaction_v2"]
     stop_claimed_job!(disabled_attempt)
 
-    assert {:ok, _config} = Compaction.put_config(%{"prefer_upstream" => true})
+    assert {:ok, _capabilities} =
+             ModelProfiles.put_provider_hosted_capabilities(agent.uid, %{"compaction" => true})
 
     enabled_job = create_job!(agent.uid, "subscription-v2-enabled")
 
@@ -1486,7 +1449,8 @@ defmodule Ankole.BackgroundAgentJobsTest do
       stop_claimed_job!(attempt)
     end
 
-    assert {:ok, _config} = Compaction.put_config(%{"prefer_upstream" => false})
+    assert {:ok, _capabilities} =
+             ModelProfiles.put_provider_hosted_capabilities(agent.uid, %{"compaction" => false})
 
     assert {:ok, frozen_overrides} =
              RuntimeProjection.turn_start_overrides(enabled_attempt.runtime_projection)

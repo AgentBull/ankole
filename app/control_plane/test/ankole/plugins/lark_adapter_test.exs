@@ -10,6 +10,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
   alias Ankole.AuthZ.Group
   alias Ankole.AuthZ.Membership
   alias Ankole.AuthZ.Store, as: AuthZStore
+  alias Ankole.I18n
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.Plugins.LarkAdapter
   alias Ankole.Plugins.LarkAdapter.Config
@@ -263,6 +264,345 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       assert String.starts_with?(provider_uuid, "ankole-")
       assert provider_uuid == Outbox.provider_message_uuid(long_key)
       refute provider_uuid == Outbox.provider_message_uuid(long_key <> ":different")
+    end
+
+    test "uses cloud space above the native IM file limit" do
+      refute Outbox.large_im_file?(30 * 1024 * 1024)
+      assert Outbox.large_im_file?(30 * 1024 * 1024 + 1)
+    end
+
+    test "falls back from Feishu 234006 to multipart cloud upload and grants the group access" do
+      parent = self()
+      content = "abcdefghij"
+      {:ok, uploaded_parts} = Agent.start_link(fn -> [] end)
+
+      handler_id = {__MODULE__, :large_file_upload, make_ref()}
+
+      :ok =
+        :telemetry.attach(
+          handler_id,
+          [:ankole, :lark_adapter, :large_file_upload],
+          fn event, measurements, metadata, _config ->
+            send(parent, {:large_file_upload_telemetry, event, measurements, metadata})
+          end,
+          nil
+        )
+
+      on_exit(fn -> :telemetry.detach(handler_id) end)
+
+      Req.Test.stub(__MODULE__, fn conn ->
+        case {conn.method, conn.request_path} do
+          {"POST", "/open-apis/auth/v3/tenant_access_token/internal"} ->
+            Req.Test.json(conn, %{
+              "code" => 0,
+              "tenant_access_token" => "tenant-token",
+              "expire" => 7_200
+            })
+
+          {"POST", "/open-apis/im/v1/files"} ->
+            assert conn.body_params["file_type"] == "stream"
+
+            assert %Plug.Upload{filename: "report.html", path: upload_path} =
+                     conn.body_params["file"]
+
+            assert File.read!(upload_path) == content
+
+            conn
+            |> Plug.Conn.put_status(400)
+            |> Req.Test.json(%{"code" => 234_006, "msg" => "file too large"})
+
+          {"GET", "/open-apis/drive/explorer/v2/root_folder/meta"} ->
+            Req.Test.json(conn, %{"code" => 0, "data" => %{"token" => "root_folder"}})
+
+          {"POST", "/open-apis/drive/v1/files/upload_prepare"} ->
+            assert conn.body_params == %{
+                     "file_name" => "report.html",
+                     "parent_node" => "root_folder",
+                     "parent_type" => "explorer",
+                     "size" => 10
+                   }
+
+            Req.Test.json(conn, %{
+              "code" => 0,
+              "data" => %{
+                "upload_id" => "upload_1",
+                "block_size" => 4,
+                "block_num" => 3
+              }
+            })
+
+          {"POST", "/open-apis/drive/v1/files/upload_part"} ->
+            assert conn.body_params["upload_id"] == "upload_1"
+            sequence = String.to_integer(conn.body_params["seq"])
+            size = String.to_integer(conn.body_params["size"])
+
+            assert %Plug.Upload{filename: "report.html", path: upload_path} =
+                     conn.body_params["file"]
+
+            part = File.read!(upload_path)
+            assert byte_size(part) == size
+            Agent.update(uploaded_parts, &[{sequence, part} | &1])
+            Req.Test.json(conn, %{"code" => 0, "data" => %{}})
+
+          {"POST", "/open-apis/drive/v1/files/upload_finish"} ->
+            assert conn.body_params == %{"upload_id" => "upload_1", "block_num" => 3}
+
+            Req.Test.json(conn, %{
+              "code" => 0,
+              "data" => %{"file_token" => "file_cloud"}
+            })
+
+          {"POST", "/open-apis/drive/v1/permissions/file_cloud/members"} ->
+            assert conn.query_params == %{"need_notification" => "false", "type" => "file"}
+
+            assert conn.body_params == %{
+                     "member_type" => "openchat",
+                     "member_id" => "oc_group",
+                     "perm" => "view",
+                     "type" => "chat"
+                   }
+
+            send(parent, :group_cloud_access_granted)
+            Req.Test.json(conn, %{"code" => 0, "data" => %{}})
+
+          {"POST", "/open-apis/drive/v1/metas/batch_query"} ->
+            assert conn.body_params == %{
+                     "request_docs" => [
+                       %{"doc_token" => "file_cloud", "doc_type" => "file"}
+                     ],
+                     "with_url" => true
+                   }
+
+            Req.Test.json(conn, %{
+              "code" => 0,
+              "data" => %{
+                "metas" => [%{"url" => "https://tenant.feishu.cn/file/file_cloud"}]
+              }
+            })
+
+          {"POST", "/open-apis/im/v1/messages"} ->
+            assert conn.query_params == %{"receive_id_type" => "chat_id"}
+            assert conn.body_params["receive_id"] == "oc_group"
+            assert conn.body_params["msg_type"] == "text"
+
+            %{"text" => text} = Ankole.JSON.decode!(conn.body_params["content"])
+            send(parent, {:large_file_message, text})
+
+            Req.Test.json(conn, %{
+              "code" => 0,
+              "data" => %{"message_id" => "om_cloud", "root_id" => "om_cloud"}
+            })
+
+          request ->
+            flunk("unexpected Lark request: #{inspect(request)}")
+        end
+      end)
+
+      %{principal: agent} = agent_fixture()
+      binding_name = "lark-large-file"
+      config = chat_config(%{"appID" => "cli_large_file"})
+
+      assert {:ok, _config} =
+               AppConfigure.put_global_by_key(Config.chat_config_key(binding_name), config)
+
+      binding_fixture(agent.uid, binding_name, :ignore)
+      put_tenant_token(config)
+      on_exit(fn -> delete_tenant_token(config) end)
+
+      %Channel{}
+      |> Channel.changeset(%{
+        id: "lark:oc_group",
+        kind: :im_group,
+        reply_mode: :entry,
+        metadata: %{"chat_id" => "oc_group"},
+        raw_payload: %{},
+        first_seen_at: @base_time,
+        last_seen_at: @base_time
+      })
+      |> Repo.insert!()
+
+      register_worker_file!(content)
+
+      outbox = %OutboxEntry{
+        agent_uid: agent.uid,
+        binding_name: binding_name,
+        outbound_key: "large-worker-attachment",
+        delivery_class: :durable_ai_reply,
+        operation: :post,
+        signal_channel_id: "lark:oc_group",
+        payload: %{
+          "attachments" => [
+            %{
+              "name" => "report.html",
+              "mime_type" => "text/html",
+              "user_files_relative_path" => "exports/report.html"
+            }
+          ]
+        },
+        fallback_visible_text: "report.html",
+        idempotency_key: "large-worker-attachment"
+      }
+
+      expected_message =
+        I18n.t("signals_gateway.reply.large_file_drive_link", %{
+          "name" => "report.html",
+          "url" => "https://tenant.feishu.cn/file/file_cloud"
+        })
+
+      assert {:ok,
+              %{
+                created_source_entry_id: "om_cloud",
+                fallback_visible_text: ^expected_message,
+                payload: %{
+                  "attachments" => [
+                    %{
+                      "provider_drive_file_token" => "file_cloud",
+                      "provider_drive_url" => "https://tenant.feishu.cn/file/file_cloud",
+                      "provider_drive_block_num" => 3,
+                      "size_bytes" => 10
+                    }
+                  ]
+                }
+              }} = Outbox.send(outbox)
+
+      assert_receive :group_cloud_access_granted
+      assert_receive {:large_file_message, ^expected_message}
+
+      assert Agent.get(uploaded_parts, &Enum.sort/1) == [
+               {0, "abcd"},
+               {1, "efgh"},
+               {2, "ij"}
+             ]
+
+      assert_receive {:large_file_upload_telemetry, [:ankole, :lark_adapter, :large_file_upload],
+                      %{duration: duration, size_bytes: 10, block_count: 3},
+                      %{
+                        adapter: "lark",
+                        outcome: :success,
+                        stage: :completed,
+                        fallback_reason: :provider_234006,
+                        member_type: "openchat"
+                      }}
+
+      assert is_integer(duration) and duration >= 0
+    end
+
+    test "blocks a cloud upload when the application lacks collaborator scope" do
+      parent = self()
+      content = "abcdefghij"
+
+      Req.Test.stub(__MODULE__, fn conn ->
+        case {conn.method, conn.request_path} do
+          {"POST", "/open-apis/auth/v3/tenant_access_token/internal"} ->
+            Req.Test.json(conn, %{
+              "code" => 0,
+              "tenant_access_token" => "tenant-token",
+              "expire" => 7_200
+            })
+
+          {"POST", "/open-apis/im/v1/files"} ->
+            conn
+            |> Plug.Conn.put_status(400)
+            |> Req.Test.json(%{"code" => 234_006, "msg" => "file too large"})
+
+          {"GET", "/open-apis/drive/explorer/v2/root_folder/meta"} ->
+            Req.Test.json(conn, %{"code" => 0, "data" => %{"token" => "root_folder"}})
+
+          {"POST", "/open-apis/drive/v1/files/upload_prepare"} ->
+            Req.Test.json(conn, %{
+              "code" => 0,
+              "data" => %{
+                "upload_id" => "upload_scope",
+                "block_size" => 10,
+                "block_num" => 1
+              }
+            })
+
+          {"POST", "/open-apis/drive/v1/files/upload_part"} ->
+            Req.Test.json(conn, %{"code" => 0, "data" => %{}})
+
+          {"POST", "/open-apis/drive/v1/files/upload_finish"} ->
+            Req.Test.json(conn, %{
+              "code" => 0,
+              "data" => %{"file_token" => "file_scope"}
+            })
+
+          {"POST", "/open-apis/drive/v1/permissions/file_scope/members"} ->
+            assert conn.body_params["type"] == "chat"
+
+            conn
+            |> Plug.Conn.put_status(400)
+            |> Req.Test.json(%{
+              "code" => 99_991_672,
+              "msg" => "Access denied. The application needs collaborator scope."
+            })
+
+          {"DELETE", "/open-apis/drive/v1/files/file_scope"} ->
+            send(parent, :undeliverable_cloud_file_deleted)
+            Req.Test.json(conn, %{"code" => 0, "data" => %{}})
+
+          request ->
+            flunk("unexpected Lark request: #{inspect(request)}")
+        end
+      end)
+
+      %{principal: agent} = agent_fixture()
+      binding_name = "lark-large-file-scope"
+      config = chat_config(%{"appID" => "cli_large_file_scope"})
+
+      assert {:ok, _config} =
+               AppConfigure.put_global_by_key(Config.chat_config_key(binding_name), config)
+
+      binding_fixture(agent.uid, binding_name, :ignore)
+      put_tenant_token(config)
+      on_exit(fn -> delete_tenant_token(config) end)
+
+      %Channel{}
+      |> Channel.changeset(%{
+        id: "lark:oc_group_scope",
+        kind: :im_group,
+        reply_mode: :entry,
+        metadata: %{},
+        raw_payload: %{},
+        first_seen_at: @base_time,
+        last_seen_at: @base_time
+      })
+      |> Repo.insert!()
+
+      register_worker_file!(content)
+
+      outbox = %OutboxEntry{
+        agent_uid: agent.uid,
+        binding_name: binding_name,
+        outbound_key: "large-worker-attachment-scope",
+        delivery_class: :durable_ai_reply,
+        operation: :post,
+        signal_channel_id: "lark:oc_group_scope",
+        payload: %{
+          "attachments" => [
+            %{
+              "name" => "report.html",
+              "mime_type" => "text/html",
+              "user_files_relative_path" => "exports/report.html"
+            }
+          ]
+        },
+        idempotency_key: "large-worker-attachment-scope"
+      }
+
+      assert {:error,
+              {:reply_delivery, :operator_action_required,
+               %{
+                 "code" => "large_file_cloud_upload_requires_operator_action",
+                 "stage" => "grant",
+                 "provider" => %{
+                   "code" => 99_991_672,
+                   "http_status" => 400,
+                   "msg" => "Access denied. The application needs collaborator scope."
+                 }
+               }}} = Outbox.send(outbox)
+
+      assert_receive :undeliverable_cloud_file_deleted
     end
 
     test "deletes a retracted Agent reply through the Feishu message endpoint" do
@@ -617,6 +957,29 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                Ankole.Principals.resolve_platform_subject("lark-main", "ou_alice")
 
       assert observed.uid == "ou_alice"
+    end
+
+    test "direct-message channels retain the sender open ID for cloud-file access" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "lark", :ignore)
+      consumer = Inbound.chat_consumer(adapter_context(agent.uid), chat_config())
+
+      event =
+        receive_event()
+        |> update_message(fn message ->
+          message
+          |> Map.put("chat_id", "oc_dm")
+          |> Map.put("chat_type", "p2p")
+          |> Map.put("mentions", [])
+        end)
+
+      assert {:ok, [%{status: :accepted}]} =
+               Inbound.handle_message_receive("im.message.receive_v1", event, [consumer])
+
+      assert %Channel{
+               kind: :im_dm,
+               metadata: %{"peer_open_id" => "ou_open_alice"}
+             } = Repo.get!(Channel, "lark:oc_dm")
     end
 
     test "message receive preserves and projects a synced name when the webhook omits it" do
@@ -2595,6 +2958,48 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       started_at: now,
       metadata: %{"runtime" => "test"}
     })
+  end
+
+  defp register_worker_file!(content) do
+    route = "lark-worker-file-#{System.unique_integer([:positive])}"
+    route_auth = %{route: route, worker_id: "lark-worker-file"}
+    compressed = Ankole.Kernel.zstd_compress_block(content, 3)
+    true = is_binary(compressed)
+    insert_ready_worker!(route)
+
+    :ok =
+      Broker.register_local_worker(route, fn
+        {:file_transfer_lane, [protocol, "READ_OPEN", transfer_id, path, _fingerprint]} ->
+          FileTransferLane.handle_worker_frame(route_auth, [
+            protocol,
+            "READ_READY",
+            transfer_id,
+            path,
+            u64(byte_size(content)),
+            ""
+          ])
+
+        {:file_transfer_lane, [protocol, "CREDIT", transfer_id, _credit]} ->
+          FileTransferLane.handle_worker_frame(route_auth, [
+            protocol,
+            "DATA",
+            transfer_id,
+            u64(0),
+            u64(0),
+            <<1>>,
+            compressed
+          ])
+
+          FileTransferLane.handle_worker_frame(route_auth, [
+            protocol,
+            "READ_DONE",
+            transfer_id,
+            u64(1),
+            u64(byte_size(compressed))
+          ])
+      end)
+
+    on_exit(fn -> Broker.unregister_local_worker(route) end)
   end
 
   defp u64(value), do: <<value::unsigned-big-integer-size(64)>>

@@ -218,7 +218,8 @@ defmodule AnkoleWeb.AgentController do
   defp normalized_provider_hosted(capabilities) do
     %{
       web_search: ModelProfiles.provider_hosted?(capabilities, "web_search"),
-      image_generate: ModelProfiles.provider_hosted?(capabilities, "image_generate")
+      image_generate: ModelProfiles.provider_hosted?(capabilities, "image_generate"),
+      compaction: ModelProfiles.provider_hosted?(capabilities, "compaction")
     }
   end
 

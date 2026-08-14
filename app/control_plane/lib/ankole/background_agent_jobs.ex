@@ -385,9 +385,8 @@ defmodule Ankole.BackgroundAgentJobs do
   @doc false
   defdelegate pending_steer_events(job_id, agent_uid, excluded_event_id), to: Dispatch
 
-  @doc "Lists a page of work visible from the parent session and channel."
-  def list_for_channel(agent_uid, owner_session_id, signal_channel_id, opts \\ []),
-    do: Queries.list_for_channel(agent_uid, owner_session_id, signal_channel_id, opts)
+  @doc "Lists a page of work owned by one Agent."
+  def list_for_agent(agent_uid, opts \\ []), do: Queries.list_for_agent(agent_uid, opts)
 
   @doc "Lists installation-wide Console work with a stable keyset cursor."
   def list_for_console(opts \\ []), do: Queries.list_for_console(opts)

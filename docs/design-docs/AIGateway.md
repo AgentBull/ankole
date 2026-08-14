@@ -486,6 +486,21 @@ AIGateway plans compaction before it tries to start the run. One transaction
 then inserts both the checkpoint and the generating Response. If another run
 wins the race, compaction does not change history.
 
+AIGateway does not promise lossless history replay after a Provider changes how
+it accepts provider-native Responses items. It does keep the conversation
+usable. When an OpenAI Responses Provider returns HTTP 400 with
+`error.type=invalid_request_error` and `error.param=input` before the first
+Provider event, AIGateway rebuilds the durable history as one local version 2
+checkpoint and retries the current input once. The retained tail contains no
+Provider item IDs, encrypted reasoning, or encrypted function arguments.
+
+The checkpoint transaction also changes the generating Response to point to
+the checkpoint before the retry starts. If the retry fails, the failed Response
+becomes terminal but the checkpoint remains the visible continuation anchor.
+The next turn starts from that checkpoint. AIGateway does not run this recovery
+after a Provider event or local tool effect. Authentication errors, rate
+limits, 5xx responses, and transport failures do not start it.
+
 ## What AIGateway Stores
 
 `ai_gateway_conversations` stores the Principal, conversation key, end time, and metadata.
@@ -703,6 +718,9 @@ deletion removes only the rows that AIGateway validated.
 
 Manual compaction uses `POST /responses/compact`.
 Stateful compaction requires `store=true` when it uses a conversation or Response anchor.
+The Main Agent `/compress` command uses the same local checkpoint rebuild path.
+It is the manual recovery path when automatic replay recovery does not match a
+Provider failure.
 
 The `ai_gateway.compaction` AppConfigure value has these fields:
 
@@ -711,11 +729,17 @@ The `ai_gateway.compaction` AppConfigure value has these fields:
 - `tail_rows` defaults to `2` and controls only local retention.
 - `user_message_budget_tokens` defaults to `20000` and controls only local
   user-message retention.
-- `prefer_upstream` defaults to `false`. When it is `true`, Main Agent automatic
-  compaction, Main Agent `/compress`, and standalone `/responses/compact` first
-  try the current Provider's standalone compact operation. It also enables
-  Codex v2 compaction for a newly admitted Background Job only when that Job's
-  frozen Provider kind is `chatgpt_subscription`.
+
+Whether a Provider's own compact operation runs first is the Agent's
+`compaction` provider-hosted capability, stored with its `web_search` and
+`image_generate` switches and set on the light profile card. It defaults to
+`false`, because Ankole can always compact locally, and a Provider without the
+native operation would make every compaction pay a failed round trip before the
+same local summary runs. When it is `true`, Main Agent automatic compaction,
+Main Agent `/compress`, and standalone `/responses/compact` first try the
+current Provider's standalone compact operation. It also enables Codex v2
+compaction for a newly admitted Background Job only when that Job's frozen
+Provider kind is `chatgpt_subscription`.
 
 The standalone upstream path applies only to an effective Responses wire for
 `openai`, `openai_compatible`, `azure_openai`, or `chatgpt_subscription`. A Chat
@@ -745,11 +769,10 @@ a new probe. Concurrent cold probes can each receive an unsupported response.
 The cache does not apply to v2: ChatGPT Subscription support is a static Provider
 contract, and a v2 failure remains a normal turn failure after Codex retries it.
 
-`prefer_upstream` is a rollout guard. It can be removed and upstream-first can
-become fixed after the AIGateway and Codex paths are deployed, the real OpenAI
-compact-and-replay test passes, all four provider families have protocol tests,
-and no open incident requires a global return to local compaction. Local
-fallback and its opaque-history limit remain after that removal.
+The local summary always uses the Agent's `light` profile, whatever model the
+compacted conversation itself used. The summarizer is internal work with its
+own cost and latency profile, so it does not follow the request model. An Agent
+that configures no `light` profile resolves it to `primary`.
 
 `ai_gateway_compaction_artifacts` stores each compaction result. Version 2 is a
 local artifact. It contains one summary object and a list of output items. Its
@@ -772,6 +795,10 @@ the durable predecessor chain, create a local version 2 checkpoint, and send no
 foreign provider state. The same raw-history fallback runs when a later
 upstream compaction attempt fails. The predecessor messages remain stored, so
 this recovery does not require a second history store.
+
+Version 3 keeps this binding check because its provider-native output is one
+opaque value that AIGateway cannot project item by item. Reactive replay
+recovery does not replace this check.
 
 The standalone endpoint returns version 3 output without an Ankole handle. The
 caller must continue with a compatible Responses provider. If standalone input

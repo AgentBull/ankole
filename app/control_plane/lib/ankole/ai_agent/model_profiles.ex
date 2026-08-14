@@ -26,7 +26,18 @@ defmodule Ankole.AIAgent.ModelProfiles do
 
   # Capabilities a language-model Provider can run inside its own turn, so an
   # Agent can choose between its Provider and an Ankole capability profile.
-  @provider_hosted_capabilities ~w(web_search image_generate)
+  @provider_hosted_capabilities ~w(web_search image_generate compaction)
+
+  # Search and image generation default to the Provider: an Agent that never
+  # chose a capability Provider should keep whatever its model already does.
+  # Compaction defaults to Ankole because the local summarizer always works,
+  # while a Provider without the native operation makes every compaction pay a
+  # failed round trip before the same local summary runs.
+  @provider_hosted_defaults %{
+    "web_search" => true,
+    "image_generate" => true,
+    "compaction" => false
+  }
   @required_profiles ~w(primary light heavy)
   @custom_profile_name ~r/\A[a-z][a-z0-9_-]{0,63}\z/
   @custom_profile_description_max_length 200
@@ -74,8 +85,10 @@ defmodule Ankole.AIAgent.ModelProfiles do
   turn, and the Agent declares no Ankole tool or profile for it. A capability set
   to `false` uses the Agent's configured profile for that capability.
 
-  Both default to `true`: an Agent that never chose a search or image Provider
-  should use whatever its model already does, not silently have no capability.
+  Search and image generation default to `true`, so an Agent that never chose a
+  search or image Provider uses whatever its model already does instead of
+  silently having no capability. Compaction defaults to `false`, because Ankole
+  can always compact locally.
   """
   @spec provider_hosted_capabilities(String.t()) :: {:ok, map()} | {:error, term()}
   def provider_hosted_capabilities(agent_uid) do
@@ -90,7 +103,10 @@ defmodule Ankole.AIAgent.ModelProfiles do
   @spec provider_hosted?(map(), String.t()) :: boolean()
   def provider_hosted?(capabilities, capability)
       when is_map(capabilities) and is_binary(capability),
-      do: Map.get(capabilities, capability, true) == true
+      do: Map.get(capabilities, capability, provider_hosted_default(capability)) == true
+
+  defp provider_hosted_default(capability),
+    do: Map.get(@provider_hosted_defaults, capability, true)
 
   @doc """
   Lists the configured custom LLM profile names and descriptions for an Agent.
@@ -166,7 +182,7 @@ defmodule Ankole.AIAgent.ModelProfiles do
   Sets which capabilities this Agent leaves to its language-model Provider.
 
   Only the named capabilities change, so one switch can be saved without
-  restating the other.
+  restating the others.
   """
   @spec put_provider_hosted_capabilities(String.t(), map()) :: {:ok, map()} | {:error, term()}
   def put_provider_hosted_capabilities(agent_uid, attrs) when is_map(attrs) do
@@ -444,6 +460,13 @@ defmodule Ankole.AIAgent.ModelProfiles do
     case Map.get(profiles, "coding") do
       %{} = profile -> profile
       _value -> profiles |> Map.get("heavy") |> maybe_mark_fallback("heavy")
+    end
+  end
+
+  defp profile_with_fallback(profiles, "light") do
+    case Map.get(profiles, "light") do
+      %{} = profile -> profile
+      _value -> profiles |> Map.get("primary") |> maybe_mark_fallback("primary")
     end
   end
 

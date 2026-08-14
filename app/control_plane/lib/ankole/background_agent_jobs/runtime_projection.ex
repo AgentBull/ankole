@@ -30,7 +30,7 @@ defmodule Ankole.BackgroundAgentJobs.RuntimeProjection do
           "model_ref" => model_ref,
           "runtime_policy" => Map.get(request_context, "ai_agent", %{}),
           "codex" => %{
-            "remote_compaction_v2" => remote_compaction_v2?(repo, model_ref)
+            "remote_compaction_v2" => remote_compaction_v2?(agent_uid, model_ref)
           },
           "skills" => Enum.map(skills, &skill_selection/1),
           "agent_plugins" => Enum.map(agent_plugins, &agent_plugin_selection/1),
@@ -168,9 +168,9 @@ defmodule Ankole.BackgroundAgentJobs.RuntimeProjection do
 
   defp same_model?(_frozen_ref, _current_ref), do: false
 
-  defp remote_compaction_v2?(repo, model_ref) do
+  defp remote_compaction_v2?(agent_uid, model_ref) do
     Map.get(model_ref, "provider_kind") == "chatgpt_subscription" and
-      Compaction.prefer_upstream_in_tx?(repo)
+      Compaction.prefer_upstream?(agent_uid)
   end
 
   defp codex_projection(%{

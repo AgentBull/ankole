@@ -2725,13 +2725,16 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           "Capabilities the Agent leaves to its language-model Provider. " <>
             "A capability set to true declares no Ankole tool or capability " <>
             "profile, and the Agent has no such capability when its Provider " <>
-            "cannot run it.",
+            "cannot run it. `compaction` is the exception: the primary model's " <>
+            "Provider compacts history with its native operation when it has " <>
+            "one, and the light profile writes the summary when it does not.",
         type: :object,
         properties: %{
           web_search: %Schema{type: :boolean},
-          image_generate: %Schema{type: :boolean}
+          image_generate: %Schema{type: :boolean},
+          compaction: %Schema{type: :boolean}
         },
-        required: [:web_search, :image_generate],
+        required: [:web_search, :image_generate, :compaction],
         additionalProperties: false
       },
       struct?: false
@@ -2746,11 +2749,12 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
     OpenAPISpex.schema(
       %{
         title: "ProviderHostedWriteRequest",
-        description: "Sets one or both capability switches. Omitted keys stay unchanged.",
+        description: "Sets any of the capability switches. Omitted keys stay unchanged.",
         type: :object,
         properties: %{
           web_search: %Schema{type: :boolean},
-          image_generate: %Schema{type: :boolean}
+          image_generate: %Schema{type: :boolean},
+          compaction: %Schema{type: :boolean}
         },
         additionalProperties: false
       },

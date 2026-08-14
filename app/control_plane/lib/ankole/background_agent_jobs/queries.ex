@@ -25,11 +25,10 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
           status: String.t()
         }
 
-  @spec list_for_channel(String.t(), String.t(), String.t() | nil, keyword()) ::
+  @spec list_for_agent(String.t(), keyword()) ::
           {:ok, %{jobs: [list_item()], next_cursor: String.t() | nil}}
           | {:error, term()}
-  def list_for_channel(agent_uid, owner_session_id, signal_channel_id, opts \\ [])
-      when is_binary(agent_uid) and is_binary(owner_session_id) and is_list(opts) do
+  def list_for_agent(agent_uid, opts \\ []) when is_binary(agent_uid) and is_list(opts) do
     with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
          {:ok, status} <- list_status(Keyword.get(opts, :status)),
          {:ok, cursor} <- decode_list_cursor(Keyword.get(opts, :cursor), status) do
@@ -38,7 +37,6 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
       rows =
         Job
         |> where([job], job.agent_uid == ^agent_uid)
-        |> visible_from_owner(owner_session_id, signal_channel_id)
         |> where([job], job.status in ^statuses)
         |> maybe_before_list_cursor(cursor)
         |> order_by([job], desc: job.updated_at, desc: job.id)
@@ -235,20 +233,6 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
       started_at: iso8601(job.started_at),
       completed_at: iso8601(job.completed_at)
     }
-  end
-
-  defp visible_from_owner(query, owner_session_id, signal_channel_id)
-       when is_binary(signal_channel_id) and signal_channel_id != "" do
-    where(
-      query,
-      [job],
-      job.owner_session_id == ^owner_session_id or
-        fragment("?->>'signal_channel_id' = ?", job.reply_route, ^signal_channel_id)
-    )
-  end
-
-  defp visible_from_owner(query, owner_session_id, _signal_channel_id) do
-    where(query, [job], job.owner_session_id == ^owner_session_id)
   end
 
   defp list_status(nil), do: {:ok, "live"}
