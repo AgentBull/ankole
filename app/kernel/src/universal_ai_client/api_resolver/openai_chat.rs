@@ -378,6 +378,7 @@ impl ChatState {
                 call_id: delta
                     .get("id")
                     .and_then(Value::as_str)
+                    .filter(|call_id| !call_id.is_empty())
                     .map(ToOwned::to_owned)
                     .unwrap_or_else(|| generated_id("call")),
                 name: "unknown".to_string(),
@@ -385,10 +386,18 @@ impl ChatState {
                 output_index,
             });
 
-        if let Some(call_id) = delta.get("id").and_then(Value::as_str) {
+        if let Some(call_id) = delta
+            .get("id")
+            .and_then(Value::as_str)
+            .filter(|call_id| !call_id.is_empty())
+        {
             call.call_id = call_id.to_string();
         }
-        if let Some(name) = function.get("name").and_then(Value::as_str) {
+        if let Some(name) = function
+            .get("name")
+            .and_then(Value::as_str)
+            .filter(|name| !name.is_empty())
+        {
             call.name = name.to_string();
         }
 
