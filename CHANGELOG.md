@@ -1,5 +1,9 @@
 # Changelog
 
+## Version 0.71.1 (2026-08-14)
+
+- Keep the Background Agent Job board within the desktop viewport with independently scrolling columns. Its five health cards now keep their space while loading, show request failures, and use one wide-screen row. Assistive technology can identify each Job column and the health loading state.
+
 ## Version 0.71.0 (2026-08-14)
 
 - Re-enable a disabled model provider without rebuilding its credential pool. Re-enabling validates the stored configuration and retries credentials that failed before disablement, while enabling an active provider preserves current health. Credential replacement and disabled-provider re-enable use new internal health revisions, so a late response from an earlier secret cannot mark the current credential dead or rate-limited. Metadata changes and automatic OAuth token refresh preserve current health. Encrypted settings are limited to credential scope, and the endpoint uses the existing provider update permission.

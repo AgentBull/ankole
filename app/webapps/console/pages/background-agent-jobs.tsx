@@ -173,7 +173,10 @@ function BackgroundAgentJobsForScope({ scope }: { scope: AgentScope }) {
         <AgentFilter scope={{ ...scope, selectAgent }} />
       </ScopeBar>
 
-      {health.data ? <JobHealthStrip health={health.data} /> : null}
+      <div className="grid gap-3">
+        {health.data ? <JobHealthStrip health={health.data} /> : health.error ? null : <JobHealthStripSkeleton />}
+        {health.error ? <ErrorBlock error={health.error} /> : null}
+      </div>
 
       {list.error ? (
         <ErrorBlock error={list.error} />
@@ -203,12 +206,19 @@ function BackgroundAgentJobsForScope({ scope }: { scope: AgentScope }) {
       ) : (
         <div className="grid grid-cols-1 min-w-0 gap-4 xl:grid-cols-3">
           {columns.map(column => (
-            <section key={column.key} className="min-h-72 border border-border bg-muted/25">
+            <section
+              key={column.key}
+              className="min-h-72 border border-border bg-muted/25 xl:grid xl:max-h-[65dvh] xl:grid-rows-[auto_minmax(0,1fr)]">
               <header className="flex items-center justify-between border-b border-border bg-card px-4 py-3">
-                <h3 className="font-medium">{t(`console.background_agent_jobs.column_${column.key}`)}</h3>
+                <h3 id={`background-agent-jobs-column-${column.key}`} className="font-medium">
+                  {t(`console.background_agent_jobs.column_${column.key}`)}
+                </h3>
                 <Badge variant="secondary">{grouped[column.key].length}</Badge>
               </header>
-              <div className="grid gap-3 p-3">
+              <div
+                className="grid min-h-0 content-start gap-3 p-3 xl:overflow-y-auto"
+                role="region"
+                aria-labelledby={`background-agent-jobs-column-${column.key}`}>
                 {list.isLoading ? (
                   <>
                     <Skeleton className="h-36 w-full" />
@@ -381,12 +391,6 @@ export function backgroundAgentJobScopeParams(current: URLSearchParams, agentUID
   return next
 }
 
-/**
- * The four reliability signals from the 2026-08-12 incident review: queue
- * starvation, infrastructure churn against charged failures, terminal-steer
- * conversion, and delivery degradation. Ratios render beside their raw counts
- * so an empty denominator reads as "no data" instead of a fake 0%.
- */
 function JobHealthStrip({ health }: { health: BackgroundAgentJobHealthResponse }) {
   const { t } = useTranslation()
   const ratio = (numerator: number, denominator: number) =>
@@ -446,7 +450,7 @@ function JobHealthStrip({ health }: { health: BackgroundAgentJobHealthResponse }
   ]
 
   return (
-    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
       {cells.map(cell => (
         <div key={cell.key} className="border border-border bg-card px-4 py-3">
           <p className="text-xs text-muted-foreground">{t(`console.background_agent_jobs.health_${cell.key}`)}</p>
@@ -454,6 +458,25 @@ function JobHealthStrip({ health }: { health: BackgroundAgentJobHealthResponse }
           <p className="mt-1 text-xs text-muted-foreground">{cell.hint}</p>
         </div>
       ))}
+    </div>
+  )
+}
+
+function JobHealthStripSkeleton() {
+  const { t } = useTranslation()
+
+  return (
+    <div role="status">
+      <span className="sr-only">{t('common.loading')}</span>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5" aria-hidden>
+        {Array.from({ length: 5 }, (_, index) => (
+          <div key={index} className="border border-border bg-card px-4 py-3">
+            <Skeleton className="h-3 w-24" />
+            <Skeleton className="mt-2 h-7 w-16" />
+            <Skeleton className="mt-2 h-3 w-36 max-w-full" />
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
