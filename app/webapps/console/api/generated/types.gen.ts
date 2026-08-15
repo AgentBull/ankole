@@ -3946,6 +3946,10 @@ export type AnkoleWebBackgroundAgentJobControllerIndexData = {
   query?: {
     status?: 'queued' | 'running' | 'waiting_on_user' | 'succeeded' | 'failed' | 'stopped'
     agent?: string
+    /**
+     * Matches an exact Job ID or a case-insensitive title fragment.
+     */
+    q?: string
     cursor?: string
     limit?: number
   }

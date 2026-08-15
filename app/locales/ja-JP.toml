@@ -748,6 +748,7 @@ complete_confirm = "ランタイム外で成果を確認済みです。ジョブ
 complete_summary_placeholder = "結果の要約（必須）：確認した成果物とその場所"
 completed = "バックグラウンドジョブを完了にしました。"
 execution_failures = "実行失敗"
+search = "ジョブ ID または名前で検索"
 health_oldest_queued = "最長キュー待ち"
 health_oldest_queued_hint = "キュー {$queued} · 実行中 {$running}"
 health_agent_cap = "同時実行上限に達した Agent"

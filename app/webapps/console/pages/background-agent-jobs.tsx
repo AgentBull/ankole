@@ -43,7 +43,7 @@ import {
 } from '@remixicon/react'
 import { match } from '@agentbull/active-support'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { type ReactNode, useMemo, useState } from 'react'
+import { type ReactNode, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router'
 import { requestErrorMessage } from '../../common/request-errors'
@@ -67,8 +67,9 @@ import { formatConsoleDate, formatJSON } from '../console-primitives'
 import { resourceID } from '../console-route-loaders'
 import { MarkdownBody } from '../markdown-body'
 import { StatusIndicator } from '../console-form'
-import { ScopeBar } from '../console-list-page'
+import { ResourceSearch, ResultCount } from '../console-list-page'
 import { PageHeader, PageStack, RefreshButton } from '../console-page'
+import { scheduleResourceSearchCommit } from '../state/resource-search'
 
 type JobStatus = BackgroundAgentJobItem['status']
 
@@ -96,6 +97,9 @@ function BackgroundAgentJobsForScope({ scope }: { scope: AgentScope }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
+  const searchParam = searchParams.get('q') ?? ''
+  const searchFilter = searchParam.trim()
+  const [searchDraft, setSearchDraft] = useState(searchFilter)
   const selectedID = resourceID(searchParams.get('job'), 1000)
   const [cancelTargetID, setCancelTargetID] = useState<number>()
   const [completeTargetID, setCompleteTargetID] = useState<number>()
@@ -104,8 +108,24 @@ function BackgroundAgentJobsForScope({ scope }: { scope: AgentScope }) {
     ...ankoleWebBackgroundAgentJobControllerHealthOptions(),
     refetchInterval: 15_000
   })
+
+  useEffect(() => setSearchDraft(searchFilter), [searchFilter])
+
+  useEffect(() => {
+    if (searchParam === searchFilter) return
+    setSearchParams(current => backgroundAgentJobSearchParams(current, searchFilter), { replace: true })
+  }, [searchFilter, searchParam, setSearchParams])
+
+  useEffect(() => {
+    if (searchDraft === searchFilter) return
+
+    return scheduleResourceSearchCommit(() => {
+      setSearchParams(current => backgroundAgentJobSearchParams(current, searchDraft), { replace: true })
+    })
+  }, [searchDraft, searchFilter, setSearchParams])
+
   // This list endpoint spans agents on its own; the scope only narrows it.
-  const list = useQuery(backgroundAgentJobListOptions(scope.agentUID))
+  const list = useQuery(backgroundAgentJobListOptions(scope.agentUID, searchFilter))
   const detail = useQuery({
     ...ankoleWebBackgroundAgentJobControllerShowOptions({
       path: { job_id: selectedID ?? 1000 }
@@ -154,6 +174,15 @@ function BackgroundAgentJobsForScope({ scope }: { scope: AgentScope }) {
     setSearchParams(current => backgroundAgentJobScopeParams(current, agentUID))
   }
 
+  const isFiltered = Boolean(scope.agentUID || searchFilter.trim())
+  const clearFilters = () => {
+    setSearchDraft('')
+    setSearchParams(current => {
+      const next = backgroundAgentJobSearchParams(current, '')
+      return scope.agentUID ? backgroundAgentJobScopeParams(next, '') : next
+    })
+  }
+
   const grouped = useMemo(
     () =>
       Object.fromEntries(
@@ -169,9 +198,15 @@ function BackgroundAgentJobsForScope({ scope }: { scope: AgentScope }) {
         description={t('console.background_agent_jobs.description')}
         actions={<RefreshButton />}
       />
-      <ScopeBar>
-        <AgentFilter scope={{ ...scope, selectAgent }} />
-      </ScopeBar>
+      <ResourceSearch
+        label={t('console.background_agent_jobs.search')}
+        maxLength={200}
+        placeholder={t('console.background_agent_jobs.search')}
+        value={searchDraft}
+        onChange={setSearchDraft}
+        filters={<AgentFilter scope={{ ...scope, selectAgent }} />}
+      />
+      {!list.isLoading ? <ResultCount count={jobs.length} /> : null}
 
       <div className="grid gap-3">
         {health.data ? <JobHealthStrip health={health.data} /> : health.error ? null : <JobHealthStripSkeleton />}
@@ -187,17 +222,17 @@ function BackgroundAgentJobsForScope({ scope }: { scope: AgentScope }) {
               <RiTimeLine aria-hidden />
             </EmptyMedia>
             <EmptyTitle>
-              {scope.agentUID ? t('console.empty.no_results_title') : t('console.background_agent_jobs.empty_title')}
+              {isFiltered ? t('console.empty.no_results_title') : t('console.background_agent_jobs.empty_title')}
             </EmptyTitle>
             <EmptyDescription>
-              {scope.agentUID
+              {isFiltered
                 ? t('console.empty.no_results_description')
                 : t('console.background_agent_jobs.empty_description')}
             </EmptyDescription>
           </EmptyHeader>
-          {scope.agentUID ? (
+          {isFiltered ? (
             <EmptyContent className="items-start">
-              <Button type="button" size="sm" variant="outline" onClick={() => selectAgent('')}>
+              <Button type="button" size="sm" variant="outline" onClick={clearFilters}>
                 {t('console.empty.clear_filters')}
               </Button>
             </EmptyContent>
@@ -374,13 +409,21 @@ function BackgroundAgentJobsForScope({ scope }: { scope: AgentScope }) {
   )
 }
 
-export function backgroundAgentJobListOptions(agentUID: string) {
+export function backgroundAgentJobListOptions(agentUID: string, search = '') {
   return {
     ...ankoleWebBackgroundAgentJobControllerIndexOptions({
-      query: { agent: agentUID || undefined, limit: 100 }
+      query: { agent: agentUID || undefined, q: search.trim() || undefined, limit: 100 }
     }),
     refetchInterval: 5_000
   }
+}
+
+export function backgroundAgentJobSearchParams(current: URLSearchParams, search: string): URLSearchParams {
+  const next = new URLSearchParams(current)
+  const normalized = search.trim()
+  if (normalized) next.set('q', normalized)
+  else next.delete('q')
+  return next
 }
 
 export function backgroundAgentJobScopeParams(current: URLSearchParams, agentUID: string): URLSearchParams {

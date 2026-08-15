@@ -1,5 +1,8 @@
 import { describe, expect, test } from 'bun:test'
-import { resourceID } from './console-route-loaders'
+import type { QueryClient } from '@tanstack/react-query'
+import type { LoaderFunctionArgs } from 'react-router'
+import { ankoleWebBackgroundAgentJobControllerIndexOptions } from './api/generated/@tanstack/react-query.gen'
+import { createConsoleRouteLoaders, resourceID } from './console-route-loaders'
 
 describe('console route identifiers', () => {
   test('uses the lower bound from the owning API', () => {
@@ -13,5 +16,25 @@ describe('console route identifiers', () => {
     expect(resourceID('-1', 1)).toBeUndefined()
     expect(resourceID('1e3', 1)).toBeUndefined()
     expect(resourceID('9007199254740992', 1)).toBeUndefined()
+  })
+
+  test('prefetches the URL-backed Background Agent Job search', async () => {
+    const requests: unknown[] = []
+    const queryClient = {
+      ensureQueryData: (options: unknown) => {
+        requests.push(options)
+        return Promise.resolve({})
+      }
+    } as unknown as QueryClient
+    const request = new Request('http://localhost/console/background-agent-jobs?agent=agent-a&q=quarterly+report')
+
+    await createConsoleRouteLoaders(queryClient).backgroundAgentJobs({ request } as LoaderFunctionArgs)
+
+    expect(requests).toHaveLength(1)
+    expect(requests[0]).toMatchObject({
+      queryKey: ankoleWebBackgroundAgentJobControllerIndexOptions({
+        query: { agent: 'agent-a', q: 'quarterly report', limit: 100 }
+      }).queryKey
+    })
   })
 })

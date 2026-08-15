@@ -748,6 +748,7 @@ complete_confirm = "런타임 외부에서 결과를 확인했습니다. 작업�
 complete_summary_placeholder = "결과 요약(필수): 확인한 산출물과 위치"
 completed = "백그라운드 작업을 완료로 표시했습니다."
 execution_failures = "실행 실패"
+search = "작업 ID 또는 이름으로 검색"
 health_oldest_queued = "최장 대기 시간"
 health_oldest_queued_hint = "대기 {$queued} · 실행 {$running}"
 health_agent_cap = "동시 실행 상한에 도달한 Agent"

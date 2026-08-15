@@ -7,6 +7,13 @@ CodexRunner executes every Job.
 Agent Plugins and standalone Skills give a Job more tools or instructions. They
 do not create different kinds of Job.
 
+## What the Operator Console Can Do
+
+The Console Job board lists the newest matching Jobs across the deployment
+instance. Its optional Agent filter and search combine. Search matches an exact
+Job ID or a case-insensitive title fragment before the 100-row page limit is
+applied, so an older matching Job is not hidden by newer unrelated work.
+
 ## What the Main Agent Can Do
 
 Each model tool performs one BackgroundAgentJob operation. A tool does not use

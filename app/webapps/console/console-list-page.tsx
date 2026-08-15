@@ -332,12 +332,14 @@ export function ResultCount({ count }: { count: number }) {
 export function ResourceSearch({
   filters,
   label,
+  maxLength,
   onChange,
   placeholder,
   value
 }: {
   filters?: ReactNode
   label: string
+  maxLength?: number
   onChange: (value: string) => void
   placeholder?: string
   value: string
@@ -350,6 +352,7 @@ export function ResourceSearch({
         className="flex-1 basis-72"
         clearLabel={t('console.empty.clear_search')}
         label={label}
+        maxLength={maxLength}
         onChange={onChange}
         placeholder={placeholder}
         value={value}
@@ -366,6 +369,7 @@ export function SearchField({
   clearLabel,
   id,
   label,
+  maxLength,
   onChange,
   placeholder,
   value
@@ -375,6 +379,7 @@ export function SearchField({
   clearLabel?: string
   id?: string
   label: string
+  maxLength?: number
   onChange: (value: string) => void
   placeholder?: string
   value: string
@@ -392,6 +397,7 @@ export function SearchField({
         aria-label={label}
         className="pr-10 pl-10"
         id={id}
+        maxLength={maxLength}
         type="search"
         value={value}
         onChange={event => onChange(event.target.value)}
