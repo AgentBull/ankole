@@ -906,7 +906,7 @@ defmodule Ankole.AIGateway.ResponseStream.State do
 
     %{
       "type" => "response.failed",
-      "code" => Map.get(classification, :error_code, "provider_response_failed"),
+      "code" => public_error_code(classification),
       "message" => FailureDiagnostics.public_message(classification),
       "retryable" => Map.get(classification, :retryable, false)
     }
@@ -1601,7 +1601,9 @@ defmodule Ankole.AIGateway.ResponseStream.State do
       |> Map.take([
         :provider_error_code,
         :provider_error_type,
-        :provider_message
+        :provider_message,
+        :provider_status,
+        :retryable
       ])
 
     if map_size(diagnostic) == 0,
@@ -1615,11 +1617,25 @@ defmodule Ankole.AIGateway.ResponseStream.State do
        ) do
     case FailureDiagnostics.classify(error) do
       %{failure_kind: :transport} ->
-        error
-        |> Map.put("failure_kind", "transport")
-        |> maybe_put_metadata("message", Map.get(diagnostic, :provider_message))
-        |> maybe_put_metadata("provider_error_code", Map.get(diagnostic, :provider_error_code))
-        |> maybe_put_metadata("provider_error_type", Map.get(diagnostic, :provider_error_type))
+        if FailureDiagnostics.provider_validation_failure?(diagnostic) do
+          error
+          |> Map.drop([
+            "http_status",
+            "provider_error_code",
+            "provider_error_type",
+            "provider_status"
+          ])
+          |> Map.put("code", public_error_code(diagnostic))
+          |> Map.put("failure_kind", "provider_response")
+          |> Map.put("retryable", false)
+          |> maybe_put_metadata("message", Map.get(diagnostic, :provider_message))
+          |> put_provider_diagnostic(diagnostic)
+        else
+          error
+          |> Map.put("failure_kind", "transport")
+          |> maybe_put_metadata("message", Map.get(diagnostic, :provider_message))
+          |> put_provider_diagnostic(diagnostic)
+        end
 
       _non_transport ->
         error
@@ -1627,6 +1643,16 @@ defmodule Ankole.AIGateway.ResponseStream.State do
   end
 
   defp correlate_provider_error(error, _state), do: error
+
+  defp put_provider_diagnostic(error, diagnostic) do
+    error
+    |> maybe_put_metadata("provider_error_code", Map.get(diagnostic, :provider_error_code))
+    |> maybe_put_metadata("provider_error_type", Map.get(diagnostic, :provider_error_type))
+    |> maybe_put_metadata("provider_status", Map.get(diagnostic, :provider_status))
+  end
+
+  defp public_error_code(classification),
+    do: FailureDiagnostics.public_error_code(classification, "provider_response_failed")
 
   defp put_safe_failure_fields(details, classification) do
     classification

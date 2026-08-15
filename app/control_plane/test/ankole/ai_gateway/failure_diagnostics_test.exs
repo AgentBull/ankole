@@ -361,6 +361,38 @@ defmodule Ankole.AIGateway.FailureDiagnosticsTest do
     end
   end
 
+  test "classifies a canonical invalid prompt as a terminal provider failure" do
+    assert %{
+             error_code: "invalid_prompt",
+             failure_kind: :provider_response,
+             retryable: false
+           } =
+             FailureDiagnostics.classify(%{
+               "code" => "invalid_prompt",
+               "retryable" => false
+             })
+  end
+
+  test "public error code keeps a Responses code and canonicalizes a permanent rejection" do
+    assert FailureDiagnostics.public_error_code(
+             %{provider_error_code: "context_length_exceeded", provider_status: 400},
+             "provider_stream_error"
+           ) == "context_length_exceeded"
+
+    assert FailureDiagnostics.public_error_code(
+             %{error_code: "upstream_response_failed", provider_status: 400},
+             "provider_stream_error"
+           ) == "invalid_prompt"
+
+    assert FailureDiagnostics.public_error_code(
+             %{error_code: "upstream_response_failed", provider_status: 429, retryable: true},
+             "provider_stream_error"
+           ) == "upstream_response_failed"
+
+    assert FailureDiagnostics.public_error_code(%{}, "provider_stream_error") ==
+             "provider_stream_error"
+  end
+
   test "logs a provider rate-limit code as warning without logging its message" do
     log =
       capture_log(

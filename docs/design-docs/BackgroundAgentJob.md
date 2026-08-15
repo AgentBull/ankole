@@ -632,6 +632,13 @@ Infrastructure interruptions retry within minutes, while provider-class failures
 use a ladder that spans hours so a Job survives an upstream outage. Other actor
 events keep a short exponential backoff, because a user waits on them.
 
+A Provider status that rejects the request itself is terminal for the Job.
+Agent Computer reads that status before Codex stream-disconnect wording, so a
+permanent rejection does not consume local Turn retries or return the Job to
+`queued`. Transport, authorization, rate-limit, and server-capacity failures
+keep their bounded recovery, because AIGateway rotates its credential pool and
+a later attempt can reach a healthy credential or a recovered upstream.
+
 A retry keeps the Job's Worker assignment. The Job's Codex thread lives in that
 worker's local runtime shard, and releasing the assignment would return no turn
 capacity while discarding the one fact the retry needs. Placement revalidates

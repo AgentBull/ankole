@@ -1086,11 +1086,16 @@ The public stream accepts `response.completed`, `response.failed`, and
 `response.incomplete` as terminal types. Provider `error` events are diagnostic
 events and do not enter the public Response lifecycle. `ResponseStream`
 consumes them and waits for one canonical terminal event. It keeps the first
-bounded Provider error code, type, and message for that Provider round. A
-later transport failure keeps its canonical code and retry decision, and adds
-those Provider fields for the authenticated caller and durable error. Logs
-include the Provider code and type but omit the Provider message. If a stream
-closes without a terminal event, AIGateway produces one `response.failed` event.
+bounded Provider error code, type, status, and message for that Provider round.
+A later transport failure keeps its canonical code and retry decision, and adds
+those Provider fields for the authenticated caller and durable error. A
+structured, non-retryable Provider validation error is authoritative:
+AIGateway reports one `invalid_prompt` terminal instead of a retryable
+disconnect. One owner selects this public code for every failure path, so the
+same Provider rejection reads the same whether it arrives while the request
+opens or mid-stream. Logs include the Provider code and type but omit the
+Provider message. If a stream closes without a terminal event, AIGateway produces one
+`response.failed` event.
 Request-validation errors and socket command errors stay outside this Provider
 stream rule. For retry decisions, a boolean
 `response.failed.error.retryable` value is authoritative. When this field is
@@ -1163,24 +1168,32 @@ schema unchanged and leaves those arguments to the provider, because emulating a
 capability the provider already has would replace the real contract with a
 different one.
 
-No other provider has the marker, so their adapters remove it and use an
-AIGateway opaque value in the public contract instead. They decode that value in
-replayed function calls and Agent messages, so the provider receives its normal
-schema and plain parameter values. The AIGateway value is self-describing through
-its versioned prefix and does not need the tool definitions during replay.
+A Codex request through any Responses endpoint keeps the marker for the same
+reason. Codex declares the marker in its official tool schema, and a
+Responses-compatible upstream validates a Codex request against that schema, so
+removing the marker would send a schema the provider rejects. This rule decides
+only who owns the marker and the arguments; it does not move tool execution,
+which stays where the provider-and-client decision above puts it.
+
+Every other request uses an adapter that removes the marker and puts an
+AIGateway opaque value in the public contract instead. The adapter decodes that
+value in replayed function calls and Agent messages, so the provider receives
+its normal schema and plain parameter values. The AIGateway value is
+self-describing through its versioned prefix and does not need the tool
+definitions during replay.
 
 The marker's shape is a Worker-facing contract on every route, so validation is
 independent of removal. A marker that is not a boolean, or that sits anywhere
 other than a direct string property of an object schema, is rejected before
-dispatch even on the native route that keeps it.
+dispatch even on a route that keeps it.
 
-Native OpenAI Responses input can also carry provider-owned
+A marker-keeping route's input can also carry provider-owned
 `encrypted_content` parts, for example in a Codex Agent message or a function
 call output. The versioned prefix is the ownership boundary: AIGateway keeps a
-non-AIGateway-prefixed part unchanged on the native route. Other provider
-adapters reject it because they cannot replay the provider state. An
-AIGateway-prefixed part always uses the tool-field decode rule and fails
-closed when its payload is corrupt.
+non-AIGateway-prefixed part unchanged there. An adapter route rejects it
+because its provider cannot replay the provider state. An AIGateway-prefixed
+part always uses the tool-field decode rule and fails closed when its payload
+is corrupt.
 
 Readers of stored trajectory outside the provider path, such as the Console
 Turn projection and the Job trajectory message, reveal stored opaque values

@@ -69,6 +69,67 @@ describe('@ankole/agent-computer Codex app-server protocol contract', () => {
     expect(`${stdout}${stderr}`.trim()).toBe('codex-cli 0.147.0')
   })
 
+  it('does not retry a canonical Provider validation failure', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ankole-codex-invalid-prompt-'))
+    const workspace = join(root, 'workspace')
+    const codexHome = join(root, 'codex-home')
+    const requests: JSONObject[] = []
+    const notifications: JSONRPCMessage[] = []
+    const provider = createInvalidPromptResponsesProvider(requests)
+    if (typeof provider.port !== 'number') throw new Error('Invalid prompt provider did not bind a TCP port')
+    let client: CodexAppServerClient | undefined
+
+    try {
+      mkdirSync(workspace, { recursive: true })
+      mkdirSync(codexHome, { recursive: true })
+      const baseURL = `http://127.0.0.1:${provider.port}/v1`
+      resetCodexAgentRuntimeConfig(codexHome, baseURL)
+      refreshCodexAgentRuntimeCredential(codexHome, 'contract-key')
+
+      const runtime = pluginTestRuntime(baseURL, 'gpt-5.6-sol')
+      const config = codexJobThreadConfig({ cwd: workspace, codexHome, env: {}, runtime }) as Record<string, any>
+      config.model_providers.ankole_aigateway.supports_websockets = false
+      client = new CodexAppServerClient({
+        cwd: workspace,
+        env: {
+          PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin',
+          HOME: workspace,
+          CODEX_HOME: codexHome,
+          CODEX_UNSAFE_ALLOW_NO_SANDBOX: '1',
+          LANG: 'C.UTF-8'
+        },
+        onNotification: notification => notifications.push(notification)
+      })
+
+      await client.initialize()
+      const thread = (await client.request('thread/start', {
+        cwd: workspace,
+        model: runtime.modelProfile.model,
+        modelProvider: 'ankole_aigateway',
+        approvalPolicy: 'never',
+        sandbox: 'danger-full-access',
+        config
+      })) as ThreadStartResponse
+      const turn = (await client.request('turn/start', {
+        threadId: thread.thread.id,
+        input: [{ type: 'text', text: 'Trigger one permanent Provider failure.', text_elements: [] }],
+        cwd: workspace,
+        approvalPolicy: 'never',
+        sandboxPolicy: { type: 'dangerFullAccess' }
+      })) as { turn: { id: string } }
+
+      const completed = await waitForTerminalTurn(notifications, turn.turn.id)
+      const completedTurn = isObject(completed.params) && isObject(completed.params.turn) ? completed.params.turn : {}
+
+      expect(completedTurn.status).toBe('failed')
+      expect(requests).toHaveLength(1)
+    } finally {
+      await client?.close()
+      provider.stop(true)
+      rmSync(root, { recursive: true, force: true })
+    }
+  }, 60_000)
+
   it('uses the standalone compact endpoint when the frozen projection disables v2', async () => {
     const root = mkdtempSync(join(tmpdir(), 'ankole-codex-standalone-compaction-'))
     const workspace = join(root, 'workspace')
@@ -1322,6 +1383,37 @@ function createRemoteCompactionResponsesProvider(requestPaths: string[], request
   })
 }
 
+function createInvalidPromptResponsesProvider(requests: JSONObject[]) {
+  return Bun.serve({
+    hostname: '127.0.0.1',
+    port: 0,
+    async fetch(request) {
+      const url = new URL(request.url)
+      if (request.method === 'GET' && url.pathname === '/v1/models') {
+        return Response.json({ models: [execOutputModelCard('gpt-5.6-sol')] })
+      }
+      if (request.method !== 'POST' || url.pathname !== '/v1/responses') {
+        return Response.json({ error: { message: 'not found' } }, { status: 404 })
+      }
+
+      requests.push((await request.json()) as JSONObject)
+      const event = {
+        type: 'response.failed',
+        response: {
+          id: 'invalid-prompt-contract',
+          error: {
+            code: 'invalid_prompt',
+            message: "Invalid Value: 'tools'. The function must match the configured schema."
+          }
+        }
+      }
+      return new Response(`event: response.failed\ndata: ${JSON.stringify(event)}\n\n`, {
+        headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' }
+      })
+    }
+  })
+}
+
 async function waitForContextCompaction(notifications: JSONRPCMessage[], threadID: string): Promise<void> {
   const deadline = Date.now() + 20_000
   while (true) {
@@ -1699,6 +1791,20 @@ async function waitForPluginTurn(notifications: JSONRPCMessage[], turnID: string
   const deadline = Date.now() + 20_000
   while (!pluginTurnCompleted(notifications, turnID)) {
     if (Date.now() >= deadline) throw new Error(`timed out waiting for Plugin turn ${turnID}`)
+    await Bun.sleep(10)
+  }
+}
+
+async function waitForTerminalTurn(notifications: JSONRPCMessage[], turnID: string): Promise<JSONRPCMessage> {
+  const deadline = Date.now() + 20_000
+  while (true) {
+    const completed = notifications.find(notification => {
+      if (notification.method !== 'turn/completed' || !isObject(notification.params)) return false
+      const turn = notification.params.turn
+      return isObject(turn) && turn.id === turnID
+    })
+    if (completed) return completed
+    if (Date.now() >= deadline) throw new Error(`timed out waiting for terminal Turn ${turnID}`)
     await Bun.sleep(10)
   }
 }

@@ -184,6 +184,14 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
 
   defp native_openai_tools?(_runtime), do: false
 
+  defp native_encrypted_tool_fields?(runtime) do
+    Providers.responses_endpoint?(runtime) and
+      (native_openai_tools?(runtime) or
+         runtime
+         |> Map.get("request_context", %{})
+         |> ChatGPTProtocol.codex_client?())
+  end
+
   defp build_attempt_spec(
          runtime,
          provider_request,
@@ -196,7 +204,7 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
            build_main_spec(runtime, provider_request, image_generation, upstream_stream?) do
       spec =
         main_spec
-        |> put_native_encrypted_tool_fields(native_openai_tools?(runtime))
+        |> put_native_encrypted_tool_fields(native_encrypted_tool_fields?(runtime))
         |> composite_spec(public_request, image_generation)
         |> put_tool_loop(tool_plan, provider_request)
 
@@ -244,9 +252,8 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
     ChatGPTProtocol.normalize_non_subscription(request, Map.get(runtime, "request_context", %{}))
   end
 
-  # Native OpenAI Responses owns the `encrypted` tool-parameter marker and the
-  # encrypted function arguments it returns, so the resolver keeps the declared
-  # schema instead of substituting the AIGateway opaque value.
+  # OpenAI Responses and Codex-compatible Responses proxies own the `encrypted`
+  # tool-parameter marker and the encrypted function arguments they return.
   defp put_native_encrypted_tool_fields(spec, true) do
     update_in(spec, [:response_context, :request], fn request ->
       Map.put(request || %{}, "__ankole_native_encrypted_tool_fields", true)

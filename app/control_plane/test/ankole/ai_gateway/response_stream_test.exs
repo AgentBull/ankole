@@ -466,6 +466,39 @@ defmodule Ankole.AIGateway.ResponseStreamTest do
     assert public_event["response"]["error"] == terminal_error
   end
 
+  test "a provider validation frame becomes the canonical permanent terminal" do
+    raw_error = %{
+      "type" => "error",
+      "error" => %{
+        "type" => "invalid_request_error",
+        "status" => 400,
+        "message" =>
+          "Invalid Value: 'tools'. Function 'collaboration.followup_task' must match the configured schema."
+      }
+    }
+
+    assert {:ok, state, [], :continue} =
+             State.observe(State.new("agent-test", %{}, %{}), raw_error, 0)
+
+    terminal =
+      failed_event(%{
+        "code" => "upstream_stream_closed_before_terminal_event",
+        "message" => "upstream stream closed before a terminal event"
+      })
+
+    assert {:ok, _state, [public_event],
+            {:terminal, %{terminal_error: terminal_error}, :keep_upstream}} =
+             State.observe(state, terminal, 1)
+
+    assert terminal_error["code"] == "invalid_prompt"
+    assert terminal_error["failure_kind"] == "provider_response"
+    assert terminal_error["provider_error_type"] == "invalid_request_error"
+    assert terminal_error["provider_status"] == 400
+    assert terminal_error["retryable"] == false
+    assert terminal_error["message"] =~ "must match the configured schema"
+    assert get_in(public_event, ["response", "error"]) == Map.delete(terminal_error, "type")
+  end
+
   test "a local failure always emits boolean retryability" do
     assert {_state, [public_event], %{terminal_error: terminal_error}} =
              State.fail(State.new("agent-test", %{}, %{}), "local failure", retryable: nil)
@@ -512,10 +545,24 @@ defmodule Ankole.AIGateway.ResponseStreamTest do
              State.observe(State.new("agent-test", %{}, %{}), non_retryable_event, 0)
 
     assert terminal_error["retryable"] == false
-    assert terminal_error["code"] == "invalid_request"
+    assert terminal_error["code"] == "invalid_prompt"
     assert terminal_error["message"] == "rate limit 429 too many requests"
     assert get_in(public_event, ["response", "error", "retryable"]) == false
     assert Ankole.JSON.encode!(public_event) =~ "rate limit 429 too many requests"
+
+    context_event =
+      failed_event(%{
+        "code" => "context_length_exceeded",
+        "type" => "invalid_request_error",
+        "status" => 400,
+        "message" => "The input exceeds the context window."
+      })
+
+    assert {:ok, _state, [_public_event],
+            {:terminal, %{terminal_error: context_error}, :keep_upstream}} =
+             State.observe(State.new("agent-test", %{}, %{}), context_event, 0)
+
+    assert context_error["code"] == "context_length_exceeded"
   end
 
   test "completed with an unfinished tool call is one public and durable failure fact" do

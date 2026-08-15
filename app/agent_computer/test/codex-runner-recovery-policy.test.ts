@@ -103,6 +103,62 @@ describe('@ankole/agent-computer Codex recovery policy', () => {
     expect(classifyCodexRecoveryFailure({ message: 'permission denied' })).toBe('terminal')
   })
 
+  it('uses structured HTTP status before transient stream variants', () => {
+    expect(
+      classifyCodexRecoveryFailure({
+        codexErrorInfo: { responseStreamDisconnected: { httpStatusCode: 400 } },
+        message: 'stream disconnected before completion'
+      })
+    ).toBe('terminal')
+    expect(
+      classifyCodexRecoveryFailure({
+        codexErrorInfo: { responseTooManyFailedAttempts: { httpStatusCode: 422 } },
+        message: 'exceeded retry limit'
+      })
+    ).toBe('terminal')
+    expect(
+      classifyCodexRecoveryFailure({
+        codexErrorInfo: { responseStreamDisconnected: { httpStatusCode: 429 } }
+      })
+    ).toBe('transient')
+    expect(
+      classifyCodexRecoveryFailure({
+        codexErrorInfo: { responseStreamDisconnected: { httpStatusCode: 503 } }
+      })
+    ).toBe('transient')
+  })
+
+  it('keeps an authorization status recoverable so a rotated credential can serve the retry', () => {
+    expect(
+      classifyCodexRecoveryFailure({
+        codexErrorInfo: { responseStreamConnectionFailed: { httpStatusCode: 401 } }
+      })
+    ).toBe('transient')
+    expect(
+      classifyCodexRecoveryFailure({
+        codexErrorInfo: { httpConnectionFailed: { httpStatusCode: 403 } }
+      })
+    ).toBe('transient')
+    expect(
+      classifyCodexRecoveryFailure({
+        codexErrorInfo: { responseStreamDisconnected: { httpStatusCode: 404 } }
+      })
+    ).toBe('terminal')
+  })
+
+  it('does not retry a provider validation error wrapped as a disconnected stream', () => {
+    expect(
+      classifyCodexRecoveryFailure({
+        codexErrorInfo: 'other',
+        message:
+          "stream disconnected before completion: Invalid Value: 'tools'. Function 'collaboration.followup_task' must match the configured schema."
+      })
+    ).toBe('terminal')
+    expect(
+      classifyCodexRecoveryFailure({ codexErrorInfo: 'other', message: 'stream disconnected before completion' })
+    ).toBe('transient')
+  })
+
   it('classifies OpenRouter payment-required failures without making other authorization failures retryable', () => {
     expect(
       classifyCodexRecoveryFailure({

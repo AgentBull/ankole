@@ -653,10 +653,10 @@ impl ToolFieldPlan {
     }
 }
 
-// Marker validation and marker removal are separate decisions. Native OpenAI
-// Responses owns the declared marker and keeps it, but every route still has to
-// reject a marker the Worker-facing contract does not allow, so validation runs
-// even when removal does not.
+// Marker validation and marker removal are separate decisions. A Responses
+// route whose provider owns the declared marker keeps it, but every route still
+// has to reject a marker the Worker-facing contract does not allow, so
+// validation runs even when removal does not.
 fn normalize_context_tool_markers(
     context: &mut ResponseContext,
     remove_markers: bool,
@@ -811,8 +811,8 @@ fn contains_encrypted_annotation(value: &Value) -> bool {
 // gateway's own versioned prefix, so replayed history decodes correctly even
 // when the request resends no tool definitions (for example a Codex local
 // compaction request). The plan only selects which output fields to encode.
-// The prefix is also the ownership boundary: on the native OpenAI Responses
-// route, an `encrypted_content` part without the gateway prefix is
+// The prefix is also the ownership boundary: on a route whose provider owns the
+// encrypted fields, an `encrypted_content` part without the gateway prefix is
 // provider-owned state and passes through unchanged, while adapter routes fail
 // closed because their providers cannot replay it.
 fn lower_context(

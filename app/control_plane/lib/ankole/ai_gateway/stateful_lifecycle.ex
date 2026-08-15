@@ -853,10 +853,9 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
 
   defp socket_open_error_details(reason) do
     classification = FailureDiagnostics.classify(reason)
-    code = Map.get(classification, :error_code, "provider_call_failed")
 
     %{
-      "code" => code,
+      "code" => FailureDiagnostics.public_error_code(classification, "provider_call_failed"),
       "message" => FailureDiagnostics.public_message(classification),
       "stage" => "socket_open",
       "retryable" => Map.get(classification, :retryable, false)

@@ -1,5 +1,9 @@
 # Changelog
 
+## Version 0.72.3 (2026-08-15)
+
+- Preserve the official Codex tool schema, including encrypted collaboration parameters, through Responses-compatible Provider proxies. A permanent Provider request rejection now stops the Background Job instead of consuming Codex retries and returning it to the queue, and reaches every caller under one error code, while transport, authorization, rate-limit, and server failures keep bounded recovery.
+
 ## Version 0.72.2 (2026-08-15)
 
 - Preserve `namespace` and tool `name` as separate, validated identities across Provider requests, Tool Search, program execution, trajectories, progress, Background Job history, and deployment recovery. Keep valid Chat Completions and Anthropic wire names unchanged, reject alias collisions, and use only structured V2 fingerprints.

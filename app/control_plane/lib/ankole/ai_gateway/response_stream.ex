@@ -1351,7 +1351,7 @@ defmodule Ankole.AIGateway.ResponseStream do
           classification = FailureDiagnostics.classify(reason)
 
           [
-            code: Map.get(classification, :error_code, "provider_stream_error"),
+            code: FailureDiagnostics.public_error_code(classification, "provider_stream_error"),
             retryable: Map.get(classification, :retryable, true),
             message: FailureDiagnostics.public_message(classification),
             provider_status: Map.get(classification, :provider_status),

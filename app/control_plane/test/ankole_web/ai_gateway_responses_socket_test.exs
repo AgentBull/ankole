@@ -2252,7 +2252,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
              "type" => "response.failed",
              "response" => %{
                "error" => %{
-                 "code" => "invalid_request",
+                 "code" => "invalid_prompt",
                  "failure_kind" => "provider_response",
                  "message" => "private provider message",
                  "retryable" => false
@@ -2270,7 +2270,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
              AIGateway.retrieve_response(agent.uid, "resp_#{message.id}")
 
     assert retrieved_error == %{
-             "code" => "invalid_request",
+             "code" => "invalid_prompt",
              "failure_kind" => "provider_response",
              "message" => "private provider message",
              "provider_error_code" => "invalid_request",

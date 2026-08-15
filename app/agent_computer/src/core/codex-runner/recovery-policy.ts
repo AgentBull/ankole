@@ -86,16 +86,24 @@ export function classifyCodexRecoveryFailure(error: JSONObject): CodexRecoveryFa
       : info && typeof info === 'object' && !Array.isArray(info)
         ? Object.keys(info)[0]
         : undefined
+  const httpStatus = codexErrorHTTPStatus(info)
   const message = `${stringValue(error.message) ?? ''} ${stringValue(error.additionalDetails) ?? ''}`.toLowerCase()
   if (infoName === 'contextWindowExceeded') return 'context_overflow'
   if (
-    codexErrorHTTPStatus(info) === 402 ||
+    httpStatus === 402 ||
     infoName === 'paymentRequired' ||
     infoName === 'payment_required' ||
     /\bpayment[_ -]?required\b|(?:unexpected|http(?: response)?) status[\s:]+402\b/.test(message)
   ) {
     return 'payment_required'
   }
+  // An authorization failure stays recoverable: AIGateway rotates the provider
+  // credential pool, so a later attempt can reach a healthy credential. Only a
+  // status that rejects the request itself is terminal.
+  if (httpStatus && ([401, 403, 408, 409, 425, 429].includes(httpStatus) || httpStatus >= 500)) {
+    return 'transient'
+  }
+  if (httpStatus && httpStatus >= 400) return 'terminal'
   if (
     [
       'serverOverloaded',
@@ -120,6 +128,7 @@ export function classifyCodexRecoveryFailure(error: JSONObject): CodexRecoveryFa
     return 'unknown_session'
   }
   if (/context window|context length|too many tokens/.test(message)) return 'context_overflow'
+  if (/\binvalid (?:request|value)\b|\bmust match the configured schema\b/.test(message)) return 'terminal'
   if (
     /stream (?:disconnected|closed)(?: before completion)?|response stream .*?(?:disconnected|closed)|http(?: status)?[\s:]+(?:502|503|504)\b|model at capacity|systemerror|server overloaded|temporarily unavailable|agent loop died/.test(
       message

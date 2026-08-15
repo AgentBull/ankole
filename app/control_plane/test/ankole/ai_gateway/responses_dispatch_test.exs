@@ -332,6 +332,83 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     refute Map.has_key?(request.body, "__ankole_native_encrypted_tool_fields")
   end
 
+  test "Codex preserves encrypted tool fields through openai-compatible Responses" do
+    %{principal: agent} = agent_fixture()
+
+    base_url =
+      start_recording_upstream(self(), fn _request ->
+        {:json, 200,
+         %{
+           "id" => "resp_compatible_codex_schema",
+           "object" => "response",
+           "status" => "completed",
+           "output" => [],
+           "usage" => %{}
+         }}
+      end)
+
+    configure_openai_compatible_responses_provider!(
+      agent.uid,
+      base_url,
+      "compatible-codex-schema"
+    )
+
+    tools = [
+      %{
+        "type" => "namespace",
+        "name" => "collaboration",
+        "description" => "Tools for spawning and managing sub-agents.",
+        "tools" => [
+          %{
+            "type" => "function",
+            "name" => "followup_task",
+            "description" => "Send a follow-up task to an existing agent.",
+            "strict" => false,
+            "parameters" => %{
+              "type" => "object",
+              "properties" => %{
+                "message" => %{"type" => "string", "encrypted" => true},
+                "target" => %{"type" => "string"}
+              },
+              "required" => ["target", "message"],
+              "additionalProperties" => false
+            }
+          }
+        ]
+      }
+    ]
+
+    assert {:ok, %{body: %{"id" => "resp_compatible_codex_schema"}}} =
+             AIGateway.create_response(
+               agent.uid,
+               %{"model" => "primary", "input" => "Delegate.", "tools" => tools},
+               request_context: %{"headers" => %{"originator" => "codex_cli_rs"}}
+             )
+
+    assert_receive {:gateway_request, codex_request}
+    assert codex_request.body["tools"] == tools
+    refute Map.has_key?(codex_request.body, "__ankole_native_encrypted_tool_fields")
+
+    assert {:ok, %{body: %{"id" => "resp_compatible_codex_schema"}}} =
+             AIGateway.create_response(agent.uid, %{
+               "model" => "primary",
+               "input" => "Delegate.",
+               "tools" => tools
+             })
+
+    assert_receive {:gateway_request, main_agent_request}
+
+    refute get_in(main_agent_request.body, [
+             "tools",
+             Access.at(0),
+             "tools",
+             Access.at(0),
+             "parameters",
+             "properties",
+             "message"
+           ])["encrypted"]
+  end
+
   test "ChatGPT Subscription keeps Codex tools native and runs Main Agent PTC locally" do
     %{principal: agent} = agent_fixture()
 

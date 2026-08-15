@@ -24,6 +24,15 @@ defmodule Ankole.AIGateway.FailureDiagnostics do
   @retryable_provider_codes ~w(
     rate_limit rate_limited rate_limit_exceeded server_is_overloaded slow_down too_many_requests
   )
+  # Codex reads only the error code on a terminal Responses failure and treats
+  # every code outside this vocabulary as retryable, so a permanent rejection
+  # must arrive as one of these codes.
+  @responses_semantic_error_codes ~w(
+    bio_policy context_length_exceeded cyber_policy insufficient_quota invalid_prompt
+    rate_limit_exceeded server_is_overloaded slow_down usage_not_included
+  )
+  @generic_provider_validation_codes ~w(bad_request invalid_request invalid_request_error)
+  @provider_validation_types ~w(invalid_request invalid_request_error)
   @warning_codes ~w(response_stream_cancelled stream_consumer_terminated)
   @identifier_limit 256
   @provider_message_limit 2_000
@@ -107,6 +116,60 @@ defmodule Ankole.AIGateway.FailureDiagnostics do
 
   def public_message(_classification), do: "The AIGateway request failed."
 
+  @doc """
+  Returns the public error code for one classification.
+
+  A Provider code that the Responses vocabulary already defines stays
+  unchanged, because it carries a decision the client cannot rebuild from the
+  message. A permanent Provider request rejection becomes `invalid_prompt`,
+  the one code in that vocabulary that means the request cannot succeed
+  unchanged. Every other classification keeps its own code.
+  """
+  @spec public_error_code(map(), String.t()) :: String.t()
+  def public_error_code(classification, fallback) when is_binary(fallback) do
+    cond do
+      Map.get(classification, :error_code) in @responses_semantic_error_codes ->
+        Map.fetch!(classification, :error_code)
+
+      Map.get(classification, :provider_error_code) in @responses_semantic_error_codes ->
+        Map.fetch!(classification, :provider_error_code)
+
+      provider_validation_failure?(classification) ->
+        "invalid_prompt"
+
+      true ->
+        Map.get(classification, :error_code) ||
+          Map.get(classification, :provider_error_code) ||
+          fallback
+    end
+  end
+
+  @doc """
+  Returns whether one classification is a permanent Provider request rejection.
+
+  A rejection is authoritative over a later transport symptom: the Provider
+  already refused the request, so no retry of the same request can succeed.
+  """
+  @spec provider_validation_failure?(map()) :: boolean()
+  def provider_validation_failure?(%{retryable: true}), do: false
+
+  def provider_validation_failure?(%{provider_error_type: type})
+      when type in @provider_validation_types,
+      do: true
+
+  def provider_validation_failure?(%{provider_error_code: code})
+      when code in @generic_provider_validation_codes,
+      do: true
+
+  def provider_validation_failure?(%{error_code: code})
+      when code in @generic_provider_validation_codes,
+      do: true
+
+  def provider_validation_failure?(%{provider_status: status}) when status in [400, 422],
+    do: true
+
+  def provider_validation_failure?(_classification), do: false
+
   @spec log(String.t() | atom(), String.t(), map(), term()) :: :ok
   def log(event, message, context, reason)
       when (is_binary(event) or is_atom(event)) and is_binary(message) and is_map(context) do
@@ -131,6 +194,8 @@ defmodule Ankole.AIGateway.FailureDiagnostics do
 
   defp failure_kind(%{error_code: code}) when code in @retryable_provider_codes,
     do: :provider_response
+
+  defp failure_kind(%{error_code: "invalid_prompt"}), do: :provider_response
 
   defp failure_kind(%{provider_status: status}) when is_integer(status), do: :provider_response
   defp failure_kind(%{http_status: status}) when is_integer(status), do: :public_response
