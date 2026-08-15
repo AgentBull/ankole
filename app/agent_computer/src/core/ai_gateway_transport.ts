@@ -76,6 +76,12 @@ export function httpClientFromAIGatewayAPIKey(
   }
 }
 
+/**
+ * Builds the trusted trace headers for one AIGateway request.
+ *
+ * The user value uses an ASCII-safe base64url carrier. AIGateway decodes it
+ * before it records `user.id`, and the carrier never reaches a model Provider.
+ */
 export function aiGatewayTurnTraceHeaders(turnTracePropagation?: TurnTracePropagation): Record<string, string> {
   if (!turnTracePropagation) return {}
 

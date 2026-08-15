@@ -5,12 +5,30 @@ defmodule Ankole.Observability.UserID do
   @no_user "none"
   @prefixes ["principal:", "channel:"]
 
+  @doc """
+  Builds the observability identity for a triggering Principal.
+
+  Returns the prefixed identity when the complete value satisfies the shared
+  observability contract. Returns `nil` for an invalid value.
+  """
   @spec principal(String.t()) :: String.t() | nil
   def principal(value), do: prefixed("principal:", value)
 
+  @doc """
+  Builds the observability identity for a triggering channel.
+
+  Returns the prefixed identity when the complete value satisfies the shared
+  observability contract. Returns `nil` for an invalid value.
+  """
   @spec channel(String.t()) :: String.t() | nil
   def channel(value), do: prefixed("channel:", value)
 
+  @doc """
+  Validates one complete observability user identity.
+
+  Returns `{:ok, user_id}` for a valid `principal:` or `channel:` identity.
+  Returns `:error` for an invalid value.
+  """
   @spec normalize(term()) :: {:ok, String.t()} | :error
   def normalize(value) when is_binary(value) do
     if String.valid?(value) and value == String.trim(value) and
@@ -24,6 +42,12 @@ defmodule Ankole.Observability.UserID do
 
   def normalize(_value), do: :error
 
+  @doc """
+  Decodes the ASCII-safe user carrier from Agent Computer.
+
+  Returns `{:ok, user_id}` for a valid base64url carrier, `{:ok, nil}` for the
+  explicit no-user marker, and `:error` for an invalid carrier.
+  """
   @spec decode_carrier(term()) :: {:ok, String.t() | nil} | :error
   def decode_carrier(@no_user), do: {:ok, nil}
 

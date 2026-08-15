@@ -71,6 +71,12 @@ export function workerTurnTrace(turnStart: TurnStart): WorkerTurnTrace | undefin
   }
 }
 
+/**
+ * Reads the canonical trace propagation facts from a persisted TurnStart.
+ *
+ * Returns `undefined` when the traceparent is invalid. A missing or invalid user
+ * identity becomes `null`, so a valid trace can still propagate.
+ */
 export function turnTracePropagationFromTurnStart(turnStart: TurnStart): TurnTracePropagation | undefined {
   const traceparent = traceparentFromTurnStart(turnStart)
   if (!traceparent) return undefined
