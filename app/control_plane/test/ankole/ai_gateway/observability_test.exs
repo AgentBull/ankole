@@ -138,11 +138,13 @@ defmodule Ankole.AIGateway.ObservabilityTest do
 
     assert response.trace_id == generation.trace_id
     assert generation.parent_span_id == response.span_id
-    assert response.attributes["user.id"] == "principal-1"
+    assert response.attributes["user.id"] == "principal:principal-1"
+    assert response.attributes["ankole.principal.uid"] == "principal-1"
     assert response.attributes["session.id"] == "conversation-1"
     assert response.attributes["langfuse.observation.type"] == "span"
     refute Map.has_key?(response.attributes, "langsmith.trace.name")
-    assert generation.attributes["user.id"] == "principal-1"
+    assert generation.attributes["user.id"] == "principal:principal-1"
+    assert generation.attributes["ankole.principal.uid"] == "principal-1"
     assert generation.attributes["session.id"] == "conversation-1"
     assert generation.attributes["langfuse.observation.type"] == "generation"
     refute Map.has_key?(generation.attributes, "langsmith.span.kind")
@@ -177,35 +179,62 @@ defmodule Ankole.AIGateway.ObservabilityTest do
       payload: %{"data" => %{"task" => "investigate", "api_key" => "must-not-leave"}}
     }
 
-    traceparent =
+    %{traceparent: traceparent, user_id: nil} =
       Observability.start_turn(actor_event, %{
         request_context: %{"job_id" => 1000, "attempts" => 2}
       })
-
-    assert is_binary(traceparent)
 
     observation =
       AIGatewayObservability.start_response(
         actor_event.agent_uid,
         %{"input" => "hello"},
-        request_context: %{"headers" => %{"traceparent" => traceparent}},
+        request_context: %{
+          "headers" => %{"traceparent" => traceparent},
+          "observability_user_id" => nil
+        },
+        stateful: %{conversation_id: actor_event.session_id},
         subject_type: "agent"
       )
 
-    _observation =
-      AIGatewayObservability.finish_response(observation, %{"status" => "completed"})
+    observation =
+      AIGatewayObservability.start_round(
+        observation,
+        %{runtime: %{"provider_kind" => "openai"}},
+        %{response_context: %{model: "gpt-no-user", request: %{"input" => "hello"}}}
+      )
+
+    provider_response = %{
+      body: %{
+        "model" => "gpt-no-user",
+        "status" => "completed",
+        "output" => [%{"type" => "message", "content" => "done"}],
+        "usage" => %{"input_tokens" => 1, "output_tokens" => 1}
+      }
+    }
+
+    observation = AIGatewayObservability.finish_round(observation, provider_response)
+    _observation = AIGatewayObservability.finish_response(observation, provider_response)
 
     assert :ok = Observability.finish_turn(actor_event.id, output: "final reply")
 
     spans = exported_spans()
     root = span!(spans, "turn background_agent_job.dispatch")
     response = span!(spans, "ai_gateway.response")
+    generation = span!(spans, "chat gpt-no-user")
 
     assert response.trace_id == root.trace_id
+    assert generation.trace_id == root.trace_id
     assert response.parent_span_id == root.span_id
+    assert generation.parent_span_id == response.span_id
     assert root.attributes["langfuse.observation.type"] == "agent"
-    assert root.attributes["user.id"] == "agent-turn"
-    assert root.attributes["session.id"] == "job:1000"
+
+    Enum.each([root, response, generation], fn span ->
+      refute Map.has_key?(span.attributes, "user.id")
+      assert span.attributes["session.id"] == actor_event.session_id
+      assert span.attributes["ankole.principal.uid"] == actor_event.agent_uid
+      assert span.attributes["ankole.principal.type"] == "agent"
+    end)
+
     assert root.attributes["ankole.background_agent_job.id"] == 1000
     assert root.attributes["ankole.background_agent_job.attempts"] == 2
     assert root.attributes["langfuse.observation.input"] =~ "investigate"
@@ -221,7 +250,11 @@ defmodule Ankole.AIGateway.ObservabilityTest do
       AIGatewayObservability.start_response(
         "agent-invalid-parent",
         %{"input" => "hello"},
-        request_context: %{"headers" => %{"traceparent" => "invalid"}}
+        request_context: %{
+          "headers" => %{"traceparent" => "invalid"},
+          "observability_user_id" => "channel:forged"
+        },
+        subject_type: "agent"
       )
 
     _observation =
@@ -229,6 +262,141 @@ defmodule Ankole.AIGateway.ObservabilityTest do
 
     response = exported_spans() |> span!("ai_gateway.response")
     assert response.parent_span_id == <<>>
+    assert response.attributes["user.id"] == "principal:agent-invalid-parent"
+    assert response.attributes["ankole.principal.uid"] == "agent-invalid-parent"
+  end
+
+  test "a malformed carrier with a valid parent uses the authenticated subject fallback" do
+    enable_export(self(), "opentelemetry")
+
+    traceparent = "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01"
+
+    observation =
+      AIGatewayObservability.start_response(
+        "agent-malformed-carrier",
+        %{"input" => "hello"},
+        request_context: %{
+          "headers" => %{"traceparent" => traceparent},
+          "observability_user_id" => "agent-malformed-carrier"
+        },
+        subject_type: "agent"
+      )
+
+    _observation =
+      AIGatewayObservability.finish_response(observation, %{"status" => "completed"})
+
+    response = exported_spans() |> span!("ai_gateway.response")
+    refute response.parent_span_id == <<>>
+    assert response.attributes["user.id"] == "principal:agent-malformed-carrier"
+    assert response.attributes["ankole.principal.uid"] == "agent-malformed-carrier"
+  end
+
+  test "a non-Agent subject cannot replace its authenticated user with a carried identity" do
+    enable_export(self(), "opentelemetry")
+
+    traceparent = "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01"
+
+    observation =
+      AIGatewayObservability.start_response(
+        "admin-1",
+        %{"input" => "hello"},
+        request_context: %{
+          "headers" => %{"traceparent" => traceparent},
+          "observability_user_id" => "channel:forged"
+        },
+        stateful: %{conversation_id: "conversation-admin"},
+        subject_type: "admin_human"
+      )
+      |> AIGatewayObservability.start_round(
+        %{runtime: %{"provider_kind" => "openai"}},
+        %{response_context: %{model: "gpt-admin", request: %{"input" => "hello"}}}
+      )
+
+    provider_response = %{
+      body: %{
+        "model" => "gpt-admin",
+        "status" => "completed",
+        "output" => [%{"type" => "message", "content" => "done"}],
+        "usage" => %{"input_tokens" => 1, "output_tokens" => 1}
+      }
+    }
+
+    observation = AIGatewayObservability.finish_round(observation, provider_response)
+    _observation = AIGatewayObservability.finish_response(observation, provider_response)
+
+    spans = exported_spans()
+
+    Enum.each([span!(spans, "ai_gateway.response"), span!(spans, "chat gpt-admin")], fn span ->
+      assert span.attributes["user.id"] == "principal:admin-1"
+      assert span.attributes["ankole.principal.uid"] == "admin-1"
+      assert span.attributes["ankole.principal.type"] == "admin_human"
+      assert span.attributes["session.id"] == "conversation-admin"
+    end)
+  end
+
+  test "turn identity maps direct messages to humans and group or event triggers to channels" do
+    enable_export(self(), "langfuse")
+
+    cases = [
+      {%ActorEvent{
+         id: "01915f9d-5f00-7000-8000-000000000011",
+         agent_uid: "agent-dm",
+         session_id: "session-dm",
+         type: "im.message.addressed",
+         source_event_id: "source-dm",
+         signal_channel_id: "mock:chat:dm",
+         payload: %{"data" => %{"channel" => %{"kind" => "im_dm"}}}
+       }, "human-dm", "principal:human-dm"},
+      {%ActorEvent{
+         id: "01915f9d-5f00-7000-8000-000000000012",
+         agent_uid: "agent-group",
+         session_id: "session-group",
+         type: "im.message.addressed",
+         source_event_id: "source-group",
+         signal_channel_id: "mock:chat:group",
+         payload: %{"data" => %{"channel" => %{"kind" => "im_group"}}}
+       }, "human-group", "channel:mock:chat:group"},
+      {%ActorEvent{
+         id: "01915f9d-5f00-7000-8000-000000000013",
+         agent_uid: "agent-action",
+         session_id: "session-action",
+         type: "signal.action.invoked",
+         source_event_id: "source-action",
+         signal_channel_id: "mock:chat:action",
+         payload: %{"data" => %{"channel" => %{"kind" => "im_dm"}}}
+       }, "human-action", "channel:mock:chat:action"},
+      {%ActorEvent{
+         id: "01915f9d-5f00-7000-8000-000000000014",
+         agent_uid: "agent-retry",
+         session_id: "session-retry",
+         type: "im.message.addressed",
+         source_event_id: "retry:source-group",
+         signal_channel_id: "mock:chat:retry",
+         payload: %{"data" => %{"channel" => %{"kind" => "im_dm"}, "entry" => %{}}}
+       }, "human-retry", "channel:mock:chat:retry"},
+      {%ActorEvent{
+         id: "01915f9d-5f00-7000-8000-000000000015",
+         agent_uid: "agent-no-channel",
+         session_id: "session-no-channel",
+         type: "command.new",
+         source_event_id: "source-no-channel",
+         signal_channel_id: nil,
+         payload: %{"data" => %{}}
+       }, "human-no-channel", "principal:human-no-channel"},
+      {%ActorEvent{
+         id: "01915f9d-5f00-7000-8000-000000000016",
+         agent_uid: "agent-scheduled",
+         session_id: "session-scheduled",
+         type: "cron.fire",
+         source_event_id: "source-scheduled",
+         signal_channel_id: "mock:chat:scheduled",
+         payload: %{"data" => %{}}
+       }, nil, "channel:mock:chat:scheduled"}
+    ]
+
+    Enum.each(cases, fn {actor_event, human_uid, expected_user_id} ->
+      assert_turn_identity(actor_event, human_uid, expected_user_id)
+    end)
   end
 
   test "LangSmith provider owns its compatibility attributes" do
@@ -262,7 +430,7 @@ defmodule Ankole.AIGateway.ObservabilityTest do
     generation = span!(spans, "chat gpt-test")
 
     assert root.attributes["langsmith.span.kind"] == "chain"
-    assert root.attributes["langsmith.metadata.user_id"] == "principal-langsmith"
+    assert root.attributes["langsmith.metadata.user_id"] == "principal:principal-langsmith"
     assert root.attributes["langsmith.trace.session_id"] == "conversation-langsmith"
     assert generation.attributes["langsmith.span.kind"] == "llm"
     assert generation.attributes["langsmith.trace.session_id"] == "conversation-langsmith"
@@ -378,6 +546,8 @@ defmodule Ankole.AIGateway.ObservabilityTest do
     assert response.attributes["session.id"] == "codex-thread-1"
     assert response.attributes["gen_ai.conversation.id"] == "codex-thread-1"
     assert response.attributes["ankole.principal.type"] == "agent"
+    assert response.attributes["ankole.principal.uid"] == "agent-principal"
+    assert response.attributes["user.id"] == "principal:agent-principal"
     assert response.attributes["ankole.ai_gateway.originator"] == "codex_cli_rs"
     assert response.attributes["user_agent.original"] == "codex_cli_rs/0.55.0"
     assert response.attributes["ankole.ai_gateway.client_version"] == "0.55.0"
@@ -475,7 +645,7 @@ defmodule Ankole.AIGateway.ObservabilityTest do
 
     assert compact.attributes["langfuse.observation.type"] == "generation"
     assert compact.attributes["gen_ai.request.model"] == "gpt-compact"
-    assert compact.attributes["user.id"] == "principal-compact"
+    assert compact.attributes["user.id"] == "principal:principal-compact"
     assert compact.attributes["ankole.ai_gateway.caller"] == "compaction.upstream"
     assert compact.attributes["gen_ai.usage.input_tokens"] == 9
     assert compact.status == :ok
@@ -674,6 +844,79 @@ defmodule Ankole.AIGateway.ObservabilityTest do
     refute Enum.any?(Map.keys(attributes), fn key ->
              String.starts_with?(key, "langfuse.") or String.starts_with?(key, "langsmith.")
            end)
+  end
+
+  defp assert_turn_identity(actor_event, human_uid, expected_user_id) do
+    on_exit(fn ->
+      Observability.finish_turn(actor_event.id, error_type: "test_cleanup")
+    end)
+
+    runtime_env =
+      if is_binary(human_uid) do
+        %{"ANKOLE_RUNTIME_CURRENT_ACTOR_SENDER_PRINCIPAL" => human_uid}
+      else
+        %{}
+      end
+
+    %{traceparent: traceparent, user_id: ^expected_user_id} =
+      Observability.start_turn(actor_event, %{
+        request_context: %{},
+        runtime_env: runtime_env
+      })
+
+    observation =
+      AIGatewayObservability.start_response(
+        actor_event.agent_uid,
+        %{"input" => "hello"},
+        request_context: %{
+          "headers" => %{"traceparent" => traceparent},
+          "observability_user_id" => expected_user_id
+        },
+        stateful: %{conversation_id: actor_event.session_id},
+        subject_type: "agent"
+      )
+
+    observation =
+      AIGatewayObservability.start_round(
+        observation,
+        %{runtime: %{"provider_kind" => "openai"}},
+        %{
+          response_context: %{
+            model: "gpt-trigger-identity",
+            request: %{"input" => "hello"}
+          }
+        }
+      )
+
+    provider_response = %{
+      body: %{
+        "model" => "gpt-trigger-identity",
+        "status" => "completed",
+        "output" => [%{"type" => "message", "content" => "done"}],
+        "usage" => %{"input_tokens" => 1, "output_tokens" => 1}
+      }
+    }
+
+    observation = AIGatewayObservability.finish_round(observation, provider_response)
+    _observation = AIGatewayObservability.finish_response(observation, provider_response)
+    assert :ok = Observability.finish_turn(actor_event.id)
+
+    spans = exported_spans()
+    root = span!(spans, "turn #{actor_event.type}")
+    response = span!(spans, "ai_gateway.response")
+    generation = span!(spans, "chat gpt-trigger-identity")
+
+    assert response.trace_id == root.trace_id
+    assert generation.trace_id == root.trace_id
+    assert response.parent_span_id == root.span_id
+    assert generation.parent_span_id == response.span_id
+
+    Enum.each([root, response, generation], fn span ->
+      assert span.attributes["user.id"] == expected_user_id
+      assert span.attributes["session.id"] == actor_event.session_id
+      assert span.attributes["ankole.principal.uid"] == actor_event.agent_uid
+      assert span.attributes["ankole.principal.type"] == "agent"
+    end)
   end
 
   defp enable_export(test_pid, provider_name) do

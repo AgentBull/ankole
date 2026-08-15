@@ -1,4 +1,6 @@
 import { AIGATEWAY_PROVIDER_NAME, codexAIGatewayAuthConfig, encodeAIGatewayModelBinding } from './agent-home-config'
+import { AIGATEWAY_OBSERVABILITY_USER_ID_HEADER, aiGatewayTurnTraceHeaders } from '../ai_gateway_transport'
+import type { TurnTracePropagation } from '../../observability/turn-tracing'
 import type { CodexRuntimeConfig } from './runtime-config'
 
 export function codexJobThreadConfig(input: {
@@ -6,7 +8,7 @@ export function codexJobThreadConfig(input: {
   codexHome: string
   env: Record<string, string>
   runtime: CodexRuntimeConfig
-  traceparent?: string
+  turnTracePropagation?: TurnTracePropagation
   projectConfig?: Record<string, unknown>
 }): Record<string, unknown> {
   const baseURL = input.runtime.aiGatewayKey.baseUrl.replace(/\/+$/, '')
@@ -22,8 +24,7 @@ export function codexJobThreadConfig(input: {
         wire_api: 'responses',
         supports_websockets: true,
         http_headers: {
-          'x-ankole-aigateway-model-binding': encodeAIGatewayModelBinding(input.runtime),
-          ...(input.traceparent ? { traceparent: input.traceparent } : {})
+          'x-ankole-aigateway-model-binding': encodeAIGatewayModelBinding(input.runtime)
         },
         auth: codexAIGatewayAuthConfig(input.codexHome)
       }
@@ -45,8 +46,34 @@ export function codexJobThreadConfig(input: {
       set: input.env
     }
   })
+  replaceTurnTraceHeaders(config, input.turnTracePropagation)
   config.projects = { [input.cwd]: { trust_level: 'trusted' } }
   return config
+}
+
+function replaceTurnTraceHeaders(config: Record<string, unknown>, propagation?: TurnTracePropagation): void {
+  const modelProviders = config.model_providers
+  if (!isTable(modelProviders)) return
+  const provider = modelProviders.ankole_aigateway
+  if (!isTable(provider)) return
+
+  const httpHeaders = withoutTurnTraceHeaders(provider.http_headers)
+  provider.http_headers = { ...httpHeaders, ...aiGatewayTurnTraceHeaders(propagation) }
+
+  if (isTable(provider.env_http_headers)) {
+    provider.env_http_headers = withoutTurnTraceHeaders(provider.env_http_headers)
+  }
+}
+
+function withoutTurnTraceHeaders(value: unknown): Record<string, unknown> {
+  const headers = isTable(value) ? { ...value } : {}
+  for (const name of Object.keys(headers)) {
+    const normalizedName = name.toLowerCase()
+    if (normalizedName === 'traceparent' || normalizedName === AIGATEWAY_OBSERVABILITY_USER_ID_HEADER) {
+      delete headers[name]
+    }
+  }
+  return headers
 }
 
 function mergeConfig(base: Record<string, unknown>, overrides: Record<string, unknown>): Record<string, unknown> {

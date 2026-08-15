@@ -28,7 +28,9 @@ defmodule Ankole.Observability do
   alias Ankole.AppConfigure.Schema
   alias Ankole.Logging
   alias Ankole.Observability.Provider
+  alias Ankole.Observability.UserID
   alias Ankole.SignalsGateway.ActorEvent
+  alias Ankole.SignalsGateway.ActorRuntime.TurnRuntimeEnv
   alias OpenTelemetry.Ctx
   alias OpenTelemetry.Span
 
@@ -44,6 +46,7 @@ defmodule Ankole.Observability do
   # entry means the terminal was lost, so the sweep can close it visibly.
   @turn_span_timeout_ms :timer.hours(24)
   @worker_export_timeout_ms 10_000
+  @direct_message_types ~w(im.message.addressed im.message.may_intervene)
   @otlp_environment_variables ~w(
     OTEL_EXPORTER_OTLP_COMPRESSION
     OTEL_EXPORTER_OTLP_ENDPOINT
@@ -88,11 +91,12 @@ defmodule Ankole.Observability do
   def put_runtime_config_for_test(config), do: set_runtime_config(config)
 
   @doc """
-  Starts the root span for one persisted TurnStart and returns its W3C traceparent.
+  Starts the root span for one persisted TurnStart and returns its trace context.
 
   A tracing failure returns `nil` and does not change turn delivery.
   """
-  @spec start_turn(ActorEvent.t(), map()) :: String.t() | nil
+  @spec start_turn(ActorEvent.t(), map()) ::
+          %{traceparent: String.t(), user_id: String.t() | nil} | nil
   def start_turn(%ActorEvent{} = actor_event, %{} = turn_start_spec) do
     if provider() && :ets.whereis(@turn_table) != :undefined do
       safe(nil, fn ->
@@ -238,11 +242,13 @@ defmodule Ankole.Observability do
   defp start_turn_span(%ActorEvent{} = actor_event, turn_start_spec) do
     provider = provider()
     request_context = map_value(turn_start_spec, "request_context") || %{}
+    user_id = turn_user_id(actor_event, turn_start_spec)
     {input, truncated?} = encode_content(actor_event.payload)
 
     context = %{
       principal_uid: actor_event.agent_uid,
       principal_type: "agent",
+      user_id: user_id,
       actor_event_id: actor_event.id,
       session_id: actor_event.session_id,
       originator: nil,
@@ -280,7 +286,7 @@ defmodule Ankole.Observability do
                }}
             )
 
-          traceparent
+          %{traceparent: traceparent, user_id: user_id}
 
         nil ->
           mark_error(span, "trace_context_injection_failed")
@@ -358,6 +364,41 @@ defmodule Ankole.Observability do
       _header -> nil
     end)
   end
+
+  defp turn_user_id(%ActorEvent{} = actor_event, turn_start_spec) do
+    runtime_env = map_value(turn_start_spec, "runtime_env") || %{}
+    principal_uid = TurnRuntimeEnv.current_sender_principal_uid(runtime_env)
+    channel_id = text(actor_event.signal_channel_id)
+
+    cond do
+      direct_human_message?(actor_event) and is_binary(principal_uid) ->
+        UserID.principal(principal_uid)
+
+      is_binary(channel_id) ->
+        UserID.channel(channel_id)
+
+      is_binary(principal_uid) ->
+        UserID.principal(principal_uid)
+
+      true ->
+        nil
+    end
+  end
+
+  defp direct_human_message?(%ActorEvent{
+         type: type,
+         source_event_id: source_event_id,
+         payload: payload
+       })
+       when type in @direct_message_types and is_map(payload) do
+    get_in(payload, ["data", "channel", "kind"]) == "im_dm" and
+      not retry_source_event?(source_event_id)
+  end
+
+  defp direct_human_message?(%ActorEvent{}), do: false
+
+  defp retry_source_event?("retry:" <> _rest), do: true
+  defp retry_source_event?(_source_event_id), do: false
 
   defp turn_trace_attributes(context) do
     context

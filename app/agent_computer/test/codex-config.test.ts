@@ -1,6 +1,7 @@
 import { create } from '@bufbuild/protobuf'
 import { TOML } from 'bun'
 import { describe, expect, it } from 'bun:test'
+import { Buffer } from 'node:buffer'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -95,15 +96,32 @@ describe('@ankole/agent-computer Codex config', () => {
   it('keeps CLI overrides process-scoped and trusts the project through thread config', () => {
     const projectRoot = '/agents/agent.v1/jobs/1000'
     const runtime = aigatewayRuntime()
+    const traceparent = '00-11111111111111111111111111111111-1111111111111111-01'
+    const observabilityUserHeader = 'x-ankole-observability-user-id'
+    const observabilityUserID = 'channel:lark:群聊一'
     const threadConfig = codexJobThreadConfig({
       cwd: projectRoot,
       codexHome: '/agents/agent.v1/.codex',
       env: {},
       runtime,
-      traceparent: '00-11111111111111111111111111111111-1111111111111111-01',
+      turnTracePropagation: { traceparent, observabilityUserID },
       projectConfig: {
         features: { plugins: false, code_mode: { enabled: true } },
         mcp_servers: { native: { command: 'native-server' } },
+        model_providers: {
+          ankole_aigateway: {
+            http_headers: {
+              TraceParent: '00-99999999999999999999999999999999-9999999999999999-01',
+              'X-Ankole-Observability-User-Id': 'principal:spoofed',
+              'x-project-header': 'preserved'
+            },
+            env_http_headers: {
+              TRACEPARENT: 'FORGED_TRACEPARENT_ENV',
+              'X-ANKOLE-OBSERVABILITY-USER-ID': 'FORGED_USER_ENV',
+              'x-env-project-header': 'PRESERVED_HEADER_ENV'
+            }
+          }
+        },
         projects: { '/stale': { trust_level: 'untrusted' } }
       }
     })
@@ -124,17 +142,59 @@ describe('@ankole/agent-computer Codex config', () => {
       code_mode: { enabled: true }
     })
     expect(threadConfig.mcp_servers).toEqual({ native: { command: 'native-server' } })
-    expect((threadConfig as any).model_providers.ankole_aigateway.http_headers.traceparent).toBe(
-      '00-11111111111111111111111111111111-1111111111111111-01'
-    )
+    const traceHeaders = (threadConfig as any).model_providers.ankole_aigateway.http_headers
+    expect(traceHeaders.traceparent).toBe(traceparent)
+    expect(traceHeaders[observabilityUserHeader]).toBe(Buffer.from(observabilityUserID).toString('base64url'))
+    expect(traceHeaders.TraceParent).toBeUndefined()
+    expect(traceHeaders['X-Ankole-Observability-User-Id']).toBeUndefined()
+    expect(traceHeaders['x-project-header']).toBe('preserved')
+    const envTraceHeaders = (threadConfig as any).model_providers.ankole_aigateway.env_http_headers
+    expect(envTraceHeaders.TRACEPARENT).toBeUndefined()
+    expect(envTraceHeaders['X-ANKOLE-OBSERVABILITY-USER-ID']).toBeUndefined()
+    expect(envTraceHeaders['x-env-project-header']).toBe('PRESERVED_HEADER_ENV')
 
     const subscriptionThreadConfig = codexJobThreadConfig({
       cwd: projectRoot,
       codexHome: '/agents/agent.v1/.codex',
       env: {},
-      runtime: { ...runtime, remoteCompactionV2: true }
+      runtime: { ...runtime, remoteCompactionV2: true },
+      projectConfig: {
+        model_providers: {
+          ankole_aigateway: {
+            http_headers: {
+              TraceParent: traceparent,
+              'X-Ankole-Observability-User-Id': 'principal:stale'
+            },
+            env_http_headers: {
+              TraceParent: 'STALE_TRACEPARENT_ENV',
+              'X-Ankole-Observability-User-Id': 'STALE_USER_ENV'
+            }
+          }
+        }
+      }
     }) as any
     expect(subscriptionThreadConfig.features.remote_compaction_v2).toBe(true)
+    expect(subscriptionThreadConfig.model_providers.ankole_aigateway.http_headers.traceparent).toBeUndefined()
+    expect(
+      subscriptionThreadConfig.model_providers.ankole_aigateway.http_headers[observabilityUserHeader]
+    ).toBeUndefined()
+    expect(subscriptionThreadConfig.model_providers.ankole_aigateway.http_headers.TraceParent).toBeUndefined()
+    expect(
+      subscriptionThreadConfig.model_providers.ankole_aigateway.http_headers['X-Ankole-Observability-User-Id']
+    ).toBeUndefined()
+    expect(subscriptionThreadConfig.model_providers.ankole_aigateway.env_http_headers).toEqual({})
+
+    const unattributedThreadConfig = codexJobThreadConfig({
+      cwd: projectRoot,
+      codexHome: '/agents/agent.v1/.codex',
+      env: {},
+      runtime,
+      turnTracePropagation: { traceparent, observabilityUserID: null }
+    }) as any
+    expect(unattributedThreadConfig.model_providers.ankole_aigateway.http_headers).toMatchObject({
+      traceparent,
+      [observabilityUserHeader]: 'none'
+    })
   })
 
   it('keeps shared config model-free and sends each frozen binding through thread config', () => {

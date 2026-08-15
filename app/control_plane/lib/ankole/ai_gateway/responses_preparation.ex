@@ -59,7 +59,13 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
     runtime = Map.put(runtime, "request_context", request_context)
 
     with {:ok, request} <- CompactionArtifacts.resolve_request_input_handles(subject_uid, request),
-         {:ok, request} <- CodexVision.adapt(subject_uid, request) do
+         {:ok, request} <-
+           CodexVision.adapt(
+             subject_uid,
+             request,
+             request_context: request_context,
+             subject_type: Keyword.get(opts, :subject_type)
+           ) do
       build(subject_uid, runtime, request, opts)
     end
   end
@@ -79,7 +85,13 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
              "llm",
              Map.put(request, "__ankole_request_context", request_context)
            ),
-         {:ok, request} <- CodexVision.adapt(subject_uid, request) do
+         {:ok, request} <-
+           CodexVision.adapt(
+             subject_uid,
+             request,
+             request_context: request_context,
+             subject_type: Keyword.get(opts, :subject_type)
+           ) do
       {:ok, request, runtime}
     end
   end

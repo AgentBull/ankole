@@ -2,6 +2,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
   use Ankole.SignalsGateway.ActorRuntimeCase
 
   alias Ankole.AIGateway.StatefulResponses
+  alias Ankole.Observability
+  alias Ankole.Observability.Providers.OpenTelemetry
   alias Ankole.PluginFixtures.MockSignalProviderPlugin
   alias Ankole.Plugins.Spec
   alias Ankole.SignalsGateway.Entry
@@ -9,6 +11,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
   setup :use_mock_signal_provider_plugin
 
   test "IM actor event stays live through Responses rounds and completes only after turn_completed" do
+    previous_provider = Observability.provider()
+    :ok = Observability.put_provider_for_test(OpenTelemetry)
+    on_exit(fn -> Observability.put_provider_for_test(previous_provider) end)
+
     %{principal: agent} = agent_fixture()
 
     Ankole.SignalsGatewayFixtures.binding_fixture(agent.uid, "mock", :ignore,
@@ -53,6 +59,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
     assert turn_ref.actor.session_id == actor_event.session_id
     assert turn_ref.actor_event_id == actor_event.id
     assert turn_start.actor_event.actor_event_id == actor_event.id
+
+    request_context = decoded_request_context(turn_start)
+    assert request_context["observability_user_id"] == "channel:mock:chat:main-chain"
+    assert is_binary(request_context["traceparent"])
 
     assert {:ok, [%ActorEventDelivery{state: "accepted"}]} =
              ActorRuntime.handle_turn_accepted(turn_accepted_payload(turn_ref))

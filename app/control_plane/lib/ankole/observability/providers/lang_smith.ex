@@ -8,7 +8,7 @@ defmodule Ankole.Observability.Providers.LangSmith do
   @impl true
   def trace_attributes(context) do
     %{}
-    |> maybe_put("langsmith.metadata.user_id", context.principal_uid)
+    |> maybe_put("langsmith.metadata.user_id", context.user_id)
     |> maybe_put("langsmith.trace.session_id", context.session_id)
   end
 

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'bun:test'
+import { Buffer } from 'node:buffer'
 import {
   chmodSync,
   existsSync,
@@ -91,9 +92,17 @@ describe('@ankole/agent-computer Codex job runner', () => {
     const fixture = prepareFixture('done', { artifactPath: 'handoff.txt' })
     const statusUpdates: RecordedStatusUpdate[] = []
     const turnUpserts: RecordedTurnUpsert[] = []
+    const traceparent = '00-11111111111111111111111111111111-1111111111111111-01'
+    const observabilityUserID = 'channel:mock:群聊一'
+    const tracedTurnStart = turnStart()
+    tracedTurnStart.request_context = {
+      ...tracedTurnStart.request_context,
+      traceparent,
+      observability_user_id: observabilityUserID
+    }
 
     try {
-      const result = await runCodexJob(turnStart(), options(fixture.root, statusUpdates, turnUpserts))
+      const result = await runCodexJob(tracedTurnStart, options(fixture.root, statusUpdates, turnUpserts))
 
       expect(result).toEqual({ kind: 'noop_completed', reason: 'background_agent_job_committed' })
       expect(statusUpdates.map(update => update.status)).toEqual(['running', 'succeeded'])
@@ -138,6 +147,12 @@ describe('@ankole/agent-computer Codex job runner', () => {
       expect(turnUpserts.some(update => update.status === 'completed')).toBe(true)
       expect(readFileSync(join(jobProjectFor(fixture.root), 'handoff.txt'), 'utf8')).toBe('artifact')
       expect(readFileSync(join(codexHomeFor(fixture.root), 'turn-input.txt'), 'utf8')).toBe(response().task)
+
+      const threadStart = JSON.parse(readFileSync(join(codexHomeFor(fixture.root), 'thread-start.json'), 'utf8'))
+      expect(threadStart.config.model_providers.ankole_aigateway.http_headers).toMatchObject({
+        traceparent,
+        'x-ankole-observability-user-id': Buffer.from(observabilityUserID).toString('base64url')
+      })
       const browserEnv = JSON.parse(
         readFileSync(join(jobProjectFor(fixture.root), 'browser-env.json'), 'utf8')
       ) as Record<string, string>

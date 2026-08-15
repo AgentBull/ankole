@@ -1,5 +1,5 @@
 defmodule Ankole.AIGateway.CodexVisionTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   import ExUnit.CaptureLog
 
@@ -60,6 +60,58 @@ defmodule Ankole.AIGateway.CodexVisionTest do
     assert text =~ "untrusted image content"
     assert text =~ "A chart and its legend."
     assert text =~ "additional image covered"
+  end
+
+  test "keeps the turn context on the nested fallback request" do
+    {:module, Ankole.AIGateway} = Code.ensure_loaded(Ankole.AIGateway)
+
+    assert 1 =
+             :erlang.trace_pattern(
+               {Ankole.AIGateway, :create_response, 3},
+               true,
+               []
+             )
+
+    request_context = %{
+      "headers" => %{"traceparent" => "test-parent"},
+      "observability_user_id" => "principal:user-1"
+    }
+
+    pid =
+      spawn(fn ->
+        receive do
+          :adapt ->
+            CodexVision.adapt(
+              "agent-1",
+              request_with_images(["text"], fallback_binding()),
+              request_context: request_context,
+              subject_type: "agent",
+              caller: "outer_caller",
+              unrelated: "not_forwarded"
+            )
+        end
+      end)
+
+    assert 1 = :erlang.trace(pid, true, [:call])
+
+    try do
+      send(pid, :adapt)
+
+      assert_receive {:trace, ^pid, :call,
+                      {Ankole.AIGateway, :create_response,
+                       ["agent-1", _fallback_request, fallback_opts]}}
+
+      assert length(fallback_opts) == 3
+
+      assert Map.new(fallback_opts) == %{
+               caller: "codex_vision",
+               request_context: request_context,
+               subject_type: "agent"
+             }
+    after
+      if Process.alive?(pid), do: Process.exit(pid, :kill)
+      :erlang.trace_pattern({Ankole.AIGateway, :create_response, 3}, false, [])
+    end
   end
 
   test "never leaks images to a text model when fallback is absent or fails" do

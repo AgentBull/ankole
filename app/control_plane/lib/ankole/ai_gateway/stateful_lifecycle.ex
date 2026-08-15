@@ -106,7 +106,13 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
              "llm",
              Map.put(normalized_request, "__ankole_request_context", request_context)
            ),
-         {:ok, normalized_request} <- CodexVision.adapt(subject_uid, normalized_request),
+         {:ok, normalized_request} <-
+           CodexVision.adapt(
+             subject_uid,
+             normalized_request,
+             request_context: request_context,
+             subject_type: Keyword.get(opts, :subject_type)
+           ),
          {:ok, request_for_provider, run_attrs} <-
            provider_websocket_request(subject_uid, normalized_request, runtime),
          {:ok, %{spec: prepared_request}} <-
@@ -131,7 +137,13 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
 
     with :ok <- validate_websocket_stateful_shape(request),
          {:ok, runtime} <- Resolver.resolve_request_model(subject_uid, "llm", resolver_request),
-         {:ok, request} <- CodexVision.adapt(subject_uid, request) do
+         {:ok, request} <-
+           CodexVision.adapt(
+             subject_uid,
+             request,
+             request_context: request_context,
+             subject_type: Keyword.get(opts, :subject_type)
+           ) do
       if request["store"] == true do
         prepare_and_start_stateful_provider_request(
           subject_uid,

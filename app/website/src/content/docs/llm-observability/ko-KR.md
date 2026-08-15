@@ -30,7 +30,16 @@ dispatch된 각 Agent Turn은 하나의 trace가 됩니다. `turn <event-type>` 
 
 endpoint에 `/v1/traces`를 넣지 마십시오. Ankole이 `/v1/traces`를 추가하고 `application/x-protobuf`를 전송합니다. Langfuse의 이 endpoint는 OTLP/gRPC를 받지 않습니다. `x-langfuse-ingestion-version: 4`는 v4 real-time ingestion을 선택합니다. headers는 PostgreSQL에 암호화되어 저장됩니다.
 
-Agent Principal은 Langfuse user가 되고, 대화(Main Agent 대화 또는 Background Job의 Codex session)는 Langfuse session이 됩니다. trace metadata에는 Principal type, 내부 caller, client originator가 필터 가능한 키로 들어갑니다. control plane에 선택 사항인 `ANKOLE_ENV`와 `ANKOLE_VERSION`을 설정하면 각 trace에 Langfuse environment(소문자 영숫자와 `-`, `_`, 최대 40자)와 release가 붙습니다.
+Langfuse는 Console setting을 추가하지 않아도 새 trace를 trigger identity로 group화합니다. Ankole은 다음 규칙으로 `user.id`를 설정합니다.
+
+- trusted human이 보낸 direct message Turn은 `principal:<principal_uid>`를 사용합니다.
+- group Turn 또는 source channel이 있는 event Turn은 `channel:<signal_channel_id>`를 사용합니다.
+- source channel이 없어도 trusted human trigger가 있는 Turn은 `principal:<principal_uid>`를 사용합니다.
+- trusted human과 source channel이 모두 없는 Turn은 `user.id`를 생략합니다.
+
+Turn에 속하지 않는 direct AIGateway request는 `principal:<authenticated_subject_uid>`를 사용합니다. Agent identity는 `ankole.principal.uid`, `ankole.principal.type`, filter 가능한 trace metadata에 별도로 유지됩니다. Main Agent conversation 또는 Background Job Codex session인 기존 Langfuse session은 바뀌지 않습니다.
+
+이 identity mapping은 다섯 번째 AppConfigure value를 추가하지 않습니다. 위의 네 values는 계속 export와 OTLP receiver만 제어합니다. 업데이트한 control plane과 Agent Computer를 다시 시작한 후 생성한 span만 새 mapping을 사용합니다. 기존 Langfuse 데이터는 바뀌지 않습니다. control plane에 선택 사항인 `ANKOLE_ENV`와 `ANKOLE_VERSION`을 설정하면 각 trace에 Langfuse environment(소문자 영숫자와 `-`, `_`, 최대 40자)와 release가 붙습니다.
 
 ## LangSmith 구성
 

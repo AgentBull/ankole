@@ -1,11 +1,16 @@
 import { match } from '@agentbull/active-support'
+import { Buffer } from 'node:buffer'
 import type { TurnModelRef } from '../lanes/actor_lane'
 import type { AIGatewayAPIKeyResponse } from '../lanes/rpc_lane'
+import type { TurnTracePropagation } from '../observability/turn-tracing'
 import { createModel, type ModelConfig } from './llm'
 
 const aiGatewayAPIKeyRefreshSkewMs = 60_000
 const aiGatewayHTTPMaxAttempts = 3
 const aiGatewayHTTPRefreshedKeyBackoffMs = 5_000
+const noObservabilityUserID = 'none'
+
+export const AIGATEWAY_OBSERVABILITY_USER_ID_HEADER = 'x-ankole-observability-user-id'
 
 export type AIGatewayAPIKeyRefreshOptions = {
   forceRefresh?: boolean
@@ -33,11 +38,12 @@ export function modelConfigFromAIGatewayAPIKey(
   modelRef: TurnModelRef,
   apiKey: AIGatewayAPIKeyResponse,
   refreshAPIKey?: AIGatewayAPIKeyRefresher,
-  traceparent?: string
+  turnTracePropagation?: TurnTracePropagation
 ): ModelConfig {
   const selector = aiGatewayModelSelector(modelRef)
-  const { baseURL, fetch: gatewayFetch } = httpClientFromAIGatewayAPIKey(apiKey, refreshAPIKey, traceparent)
+  const { baseURL, fetch: gatewayFetch } = httpClientFromAIGatewayAPIKey(apiKey, refreshAPIKey, turnTracePropagation)
   const authorization = aiGatewayAuthorization(apiKey, refreshAPIKey)
+  const traceHeaders = aiGatewayTurnTraceHeaders(turnTracePropagation)
 
   return createModel({
     apiKey: apiKey.apiKey,
@@ -51,7 +57,7 @@ export function modelConfigFromAIGatewayAPIKey(
       kind: 'aigateway-websocket',
       url: aiGatewayWebSocketURL(baseURL),
       authorization,
-      ...(traceparent ? { headers: { traceparent } } : {})
+      ...(Object.keys(traceHeaders).length > 0 ? { headers: traceHeaders } : {})
     }
   })
 }
@@ -62,11 +68,29 @@ export function modelConfigFromAIGatewayAPIKey(
 export function httpClientFromAIGatewayAPIKey(
   apiKey: AIGatewayAPIKeyResponse,
   refreshAPIKey?: AIGatewayAPIKeyRefresher,
-  traceparent?: string
+  turnTracePropagation?: TurnTracePropagation
 ): AIGatewayHTTPClient {
   return {
     baseURL: apiKey.baseUrl.replace(/\/+$/, ''),
-    fetch: aiGatewayFetch(apiKey, refreshAPIKey, traceparent)
+    fetch: aiGatewayFetch(apiKey, refreshAPIKey, turnTracePropagation)
+  }
+}
+
+/**
+ * Builds the trusted trace headers for one AIGateway request.
+ *
+ * The user value uses an ASCII-safe base64url carrier. AIGateway decodes it
+ * before it records `user.id`, and the carrier never reaches a model Provider.
+ */
+export function aiGatewayTurnTraceHeaders(turnTracePropagation?: TurnTracePropagation): Record<string, string> {
+  if (!turnTracePropagation) return {}
+
+  return {
+    traceparent: turnTracePropagation.traceparent,
+    [AIGATEWAY_OBSERVABILITY_USER_ID_HEADER]:
+      turnTracePropagation.observabilityUserID === null
+        ? noObservabilityUserID
+        : Buffer.from(turnTracePropagation.observabilityUserID, 'utf8').toString('base64url')
   }
 }
 
@@ -88,14 +112,17 @@ export function aiGatewayModelSelector(modelRef: TurnModelRef): string {
 function aiGatewayFetch(
   initialAPIKey: AIGatewayAPIKeyResponse,
   refreshAPIKey?: AIGatewayAPIKeyRefresher,
-  traceparent?: string
+  turnTracePropagation?: TurnTracePropagation
 ): AIGatewayFetch {
   let currentAPIKey = initialAPIKey
+  const traceHeaders = aiGatewayTurnTraceHeaders(turnTracePropagation)
 
   function sendWithKey(input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) {
     const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined))
     headers.set('authorization', `Bearer ${currentAPIKey.apiKey}`)
-    if (traceparent) headers.set('traceparent', traceparent)
+    headers.delete('traceparent')
+    headers.delete(AIGATEWAY_OBSERVABILITY_USER_ID_HEADER)
+    for (const [name, value] of Object.entries(traceHeaders)) headers.set(name, value)
     return fetch(input instanceof Request ? input.clone() : input, { ...init, headers })
   }
 

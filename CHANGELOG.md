@@ -2,6 +2,8 @@
 
 ## Version 0.73.0 (2026-08-15)
 
+- Group new observability traces by the trusted human for direct-message Turns and by the source channel for group or event Turns instead of by the Agent. Keep the Agent as separate Principal metadata, preserve session identities, and omit the user when no trusted trigger exists. Existing Observability settings remain valid, and historical traces do not change.
+- Preserve the same user attribution across Worker tools, AIGateway HTTP and WebSocket generations, Codex Jobs, and image-input fallback calls. The internal cross-runtime carrier now preserves Unicode platform identifiers without breaking model transports, while Worker export authorization continues to use the Agent Principal.
 - Keep the Signal Routing list in its original Agent scope after an operator saves or leaves an editor. Opening a routing rule from All Agents no longer adds the rule's owner as a filter and changes the list layout.
 - Search the Background Agent Jobs board by an exact Job ID or a name fragment across stored Jobs. The search shares one toolbar with the Agent filter, keeps its value through refresh and browser history, waits for typing to pause before it requests results, and announces the matching count.
 

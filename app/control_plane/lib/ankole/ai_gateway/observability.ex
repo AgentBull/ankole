@@ -19,6 +19,7 @@ defmodule Ankole.AIGateway.Observability do
   alias Ankole.AIGateway.RequestContext
   alias Ankole.Observability, as: RuntimeObservability
   alias Ankole.Observability.Provider
+  alias Ankole.Observability.UserID
   alias OpenTelemetry.Ctx
   alias OpenTelemetry.Span
 
@@ -142,11 +143,20 @@ defmodule Ankole.AIGateway.Observability do
 
   defp do_start_response(subject_uid, request, opts) do
     if provider = RuntimeObservability.provider() do
+      request_context = Keyword.get(opts, :request_context) || %{}
       headers = context_headers(opts)
+      parent_context = response_parent_context(headers)
 
       context = %{
         principal_uid: subject_uid,
         principal_type: string_value(Keyword.get(opts, :subject_type)),
+        user_id:
+          response_user_id(
+            subject_uid,
+            Keyword.get(opts, :subject_type),
+            request_context,
+            parent_context
+          ),
         actor_event_id: get_in(request, ["metadata", "actor_event_id"]),
         session_id: session_id(request, opts),
         originator: text(Map.get(headers, "originator")),
@@ -174,7 +184,7 @@ defmodule Ankole.AIGateway.Observability do
       tracer = tracer()
 
       response_span =
-        :otel_tracer.start_span(response_parent_context(headers), tracer, @response_span_name, %{
+        :otel_tracer.start_span(parent_context, tracer, @response_span_name, %{
           attributes: attributes,
           kind: :internal
         })
@@ -336,6 +346,7 @@ defmodule Ankole.AIGateway.Observability do
       context = %{
         principal_uid: subject_uid,
         principal_type: nil,
+        user_id: UserID.principal(subject_uid),
         actor_event_id: nil,
         session_id: nil,
         originator: nil,
@@ -437,6 +448,20 @@ defmodule Ankole.AIGateway.Observability do
           end
         end)
     end
+  end
+
+  defp response_user_id(subject_uid, subject_type, request_context, parent_context) do
+    case {string_value(subject_type), valid_parent_context?(parent_context),
+          RequestContext.observability_user_id(request_context)} do
+      {"agent", true, {:ok, user_id}} -> user_id
+      _direct_or_untrusted -> UserID.principal(subject_uid)
+    end
+  end
+
+  defp valid_parent_context?(context) do
+    context
+    |> :otel_tracer.current_span_ctx()
+    |> Span.is_valid()
   end
 
   defp finish_replaced_round(%__MODULE__{round_span: round_span} = observation) do

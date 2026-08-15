@@ -119,6 +119,73 @@ defmodule Ankole.AIGateway.ResponseStreamTest do
     assert_receive {:DOWN, ^slow_monitor, :process, ^slow_pid, :normal}, 2_000
   end
 
+  test "keeps response observation context out of provider options" do
+    {:module, Ankole.AIGateway.Observability} =
+      Code.ensure_loaded(Ankole.AIGateway.Observability)
+
+    response_supervisor = Process.whereis(Supervisor)
+    assert is_pid(response_supervisor)
+
+    assert 1 =
+             :erlang.trace_pattern(
+               {Ankole.AIGateway.Observability, :start_response, 3},
+               true,
+               []
+             )
+
+    assert 1 = :erlang.trace(response_supervisor, true, [:call, :set_on_spawn])
+
+    try do
+      task_supervisor = start_supervised!({Task.Supervisor, max_children: 2})
+      request_context = %{"headers" => %{"traceparent" => "test-parent"}}
+
+      runner = fn _code, _bindings, _memo ->
+        receive do
+          :finish -> {:ok, %{status: :completed, output: [], pending_calls: []}}
+        end
+      end
+
+      round_open = fn _request, _opts -> flunk("provider round must not open") end
+
+      assert {:ok, stream, _meta} =
+               ResponseStream.open(
+                 "agent-test",
+                 %{},
+                 %{
+                   api_resolver: :openai_chat_completions,
+                   tool_loop: resume_tool_loop(round_open)
+                 },
+                 request_context: request_context,
+                 subject_type: "agent",
+                 caller: "codex_vision",
+                 provider_sentinel: "preserved",
+                 program_runner: runner,
+                 program_task_supervisor: task_supervisor
+               )
+
+      assert_receive {:trace, traced_pid, :call,
+                      {Ankole.AIGateway.Observability, :start_response,
+                       ["agent-test", %{}, observation_opts]}}
+
+      assert traced_pid == stream.pid
+      assert observation_opts[:stateful] == nil
+      assert observation_opts[:request_context] == request_context
+      assert observation_opts[:subject_type] == "agent"
+      assert observation_opts[:caller] == "codex_vision"
+
+      assert :sys.get_state(stream.pid).upstream_opts == [provider_sentinel: "preserved"]
+      assert :ok = ResponseStream.cancel(stream, "test_cleanup")
+    after
+      :erlang.trace(response_supervisor, false, [:call, :set_on_spawn])
+
+      :erlang.trace_pattern(
+        {Ankole.AIGateway.Observability, :start_response, 3},
+        false,
+        []
+      )
+    end
+  end
+
   test "owner DOWN terminates the opening worker instead of orphaning recovery" do
     test_pid = self()
 
