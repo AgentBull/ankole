@@ -776,6 +776,7 @@ complete_confirm = "You verified the outcome outside the runtime. The job become
 complete_summary_placeholder = "Result summary (required): what was verified and where it is"
 completed = "Background Agent Job marked completed."
 execution_failures = "Execution failures"
+search = "Search by Job ID or name"
 health_oldest_queued = "Oldest queued wait"
 health_oldest_queued_hint = "{$queued} queued · {$running} running"
 health_agent_cap = "Agents at concurrency cap"

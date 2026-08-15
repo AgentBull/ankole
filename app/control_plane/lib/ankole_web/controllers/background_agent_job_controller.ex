@@ -32,6 +32,12 @@ defmodule AnkoleWeb.BackgroundAgentJobController do
     parameters: [
       status: [in: :query, schema: %Schema{type: :string, enum: @statuses}, required: false],
       agent: [in: :query, type: :string, required: false],
+      q: [
+        in: :query,
+        schema: %Schema{type: :string, maxLength: 200},
+        required: false,
+        description: "Matches an exact Job ID or a case-insensitive title fragment."
+      ],
       cursor: [in: :query, type: :string, required: false],
       limit: [
         in: :query,
@@ -123,6 +129,7 @@ defmodule AnkoleWeb.BackgroundAgentJobController do
            BackgroundAgentJobs.list_for_console(
              status: param(params, "status"),
              agent_uid: ConsoleParams.agent_filter_param(params),
+             search: param(params, "q"),
              cursor: param(params, "cursor"),
              limit: integer_param(params, "limit", 50)
            ) do
@@ -213,6 +220,7 @@ defmodule AnkoleWeb.BackgroundAgentJobController do
   defp param(params, key), do: Map.get(params, key) || Map.get(params, param_atom(key))
 
   defp param_atom("status"), do: :status
+  defp param_atom("q"), do: :q
   defp param_atom("cursor"), do: :cursor
   defp param_atom("limit"), do: :limit
   defp param_atom("job_id"), do: :job_id

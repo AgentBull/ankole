@@ -4412,6 +4412,13 @@
             }
           },
           { "description": "", "in": "query", "name": "agent", "required": false, "schema": { "type": "string" } },
+          {
+            "description": "Matches an exact Job ID or a case-insensitive title fragment.",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": { "maxLength": 200, "type": "string" }
+          },
           { "description": "", "in": "query", "name": "cursor", "required": false, "schema": { "type": "string" } },
           {
             "description": "",

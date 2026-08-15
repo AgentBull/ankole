@@ -1,5 +1,10 @@
 # Changelog
 
+## Version 0.73.0 (2026-08-15)
+
+- Keep the Signal Routing list in its original Agent scope after an operator saves or leaves an editor. Opening a routing rule from All Agents no longer adds the rule's owner as a filter and changes the list layout.
+- Search the Background Agent Jobs board by an exact Job ID or a name fragment across stored Jobs. The search shares one toolbar with the Agent filter, keeps its value through refresh and browser history, waits for typing to pause before it requests results, and announces the matching count.
+
 ## Version 0.72.3 (2026-08-15)
 
 - Preserve the official Codex tool schema, including encrypted collaboration parameters, through Responses-compatible Provider proxies. A permanent Provider request rejection now stops the Background Job instead of consuming Codex retries and returning it to the queue, and reaches every caller under one error code, while transport, authorization, rate-limit, and server failures keep bounded recovery.

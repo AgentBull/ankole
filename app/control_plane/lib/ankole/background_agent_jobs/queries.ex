@@ -79,6 +79,7 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
   def list_for_console(opts \\ []) when is_list(opts) do
     with {:ok, agent_uid} <- console_agent_uid(Keyword.get(opts, :agent_uid)),
          {:ok, status} <- console_status(Keyword.get(opts, :status)),
+         {:ok, search} <- console_search(Keyword.get(opts, :search)),
          {:ok, cursor} <- decode_console_cursor(Keyword.get(opts, :cursor)) do
       limit = opts |> Keyword.get(:limit, 50) |> max(1) |> min(100)
 
@@ -86,6 +87,7 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
         Job
         |> maybe_filter_console_agent(agent_uid)
         |> maybe_filter_console_status(status)
+        |> maybe_filter_console_search(search)
         |> maybe_before_console_cursor(cursor)
         |> order_by([job], desc: job.queued_at, desc: job.id)
         |> limit(^(limit + 1))
@@ -292,6 +294,23 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
   defp console_status(status) when status in @statuses, do: {:ok, status}
   defp console_status(_status), do: {:error, :invalid_background_agent_job_status}
 
+  defp console_search(nil), do: {:ok, nil}
+
+  defp console_search(search) when is_binary(search) do
+    case String.trim(search) do
+      "" ->
+        {:ok, nil}
+
+      text ->
+        if(String.length(text) <= 200,
+          do: {:ok, text},
+          else: {:error, :invalid_background_agent_job_search}
+        )
+    end
+  end
+
+  defp console_search(_search), do: {:error, :invalid_background_agent_job_search}
+
   defp maybe_filter_console_agent(query, nil), do: query
 
   defp maybe_filter_console_agent(query, agent_uid),
@@ -301,6 +320,27 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
 
   defp maybe_filter_console_status(query, status),
     do: where(query, [job], job.status == ^status)
+
+  defp maybe_filter_console_search(query, nil), do: query
+
+  defp maybe_filter_console_search(query, search) do
+    pattern = "%#{escape_like(search)}%"
+
+    case Integer.parse(search) do
+      {id, ""} when id in 1000..9_007_199_254_740_991 ->
+        where(query, [job], job.id == ^id or ilike(job.title, ^pattern))
+
+      _not_an_id ->
+        where(query, [job], ilike(job.title, ^pattern))
+    end
+  end
+
+  defp escape_like(text) do
+    text
+    |> String.replace("\\", "\\\\")
+    |> String.replace("%", "\\%")
+    |> String.replace("_", "\\_")
+  end
 
   defp maybe_before_console_cursor(query, nil), do: query
 

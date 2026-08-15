@@ -35,6 +35,7 @@ import {
   previousCursorParams,
   resetCursorParams
 } from '../state/cursor-pagination'
+import { scheduleResourceSearchCommit } from '../state/resource-search'
 import {
   ankoleWebAiGatewayConversationControllerIndexOptions as ankoleWebAIGatewayConversationControllerIndexOptions,
   ankoleWebAiGatewayConversationControllerMessagesOptions as ankoleWebAIGatewayConversationControllerMessagesOptions,
@@ -71,7 +72,7 @@ export function ConversationsListPage() {
   useEffect(() => {
     if (searchDraft === searchFilter) return
 
-    const timeout = window.setTimeout(() => {
+    return scheduleResourceSearchCommit(() => {
       setSearchParams(
         current => {
           const next = new URLSearchParams(current)
@@ -81,9 +82,7 @@ export function ConversationsListPage() {
         },
         { replace: true }
       )
-    }, 300)
-
-    return () => window.clearTimeout(timeout)
+    })
   }, [searchDraft, searchFilter, setSearchParams])
 
   const list = useQuery({
