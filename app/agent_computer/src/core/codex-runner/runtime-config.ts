@@ -36,7 +36,6 @@ export type CodexAIGatewayModelTarget = {
 export type CodexRuntimeConfig = {
   aiGatewayKey: AIGatewayAPIKeyResponse
   modelProfile: CodexAIGatewayModelProfile
-  remoteCompactionV2: boolean
 }
 
 export async function resolveCodexRuntimeConfig(input: {
@@ -44,12 +43,9 @@ export async function resolveCodexRuntimeConfig(input: {
   agentUID: string
   requestAIGatewayAPIKey: AIGatewayAPIKeyRequester
 }): Promise<CodexRuntimeConfig> {
-  const codexPolicy = input.turnStart.request_context?.codex
-
   return {
     aiGatewayKey: await input.requestAIGatewayAPIKey(input.agentUID),
-    modelProfile: modelProfile(input.turnStart),
-    remoteCompactionV2: isRecord(codexPolicy) && codexPolicy.remote_compaction_v2 === true
+    modelProfile: modelProfile(input.turnStart)
   }
 }
 

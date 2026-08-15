@@ -182,6 +182,37 @@ One WebSocket generates one Response at a time. AIGateway rejects
 iteration limit controls model calls during one worker turn. The two limits
 serve different purposes.
 
+## Compaction Trusts Two Declarations It Cannot Verify
+
+Compaction has one protocol: a request whose input carries a
+`compaction_trigger` item. AIGateway answers it on every transport and never
+forwards the item alone, so the capability does not depend on a Provider
+understanding it. Two decisions under that protocol rest on a declaration
+rather than on a fact AIGateway can check.
+
+The first is Provider-native compaction. The `upstream` field of the
+`ai_gateway.compaction` settings sends the compaction request to the Provider
+instead of writing the summary locally. AIGateway checks the reply before any
+of it reaches the caller and falls back to its own summary when the Provider
+answers with something else, but that fallback is only possible while the
+history holds no Provider-owned compaction state. Once it holds one, only that
+same Provider can compact that history: the state is opaque here, and a later
+local summary cannot read it. The switch is off by default and is an instance
+decision, because the binding it creates outlives the turn that made it.
+
+The second is the `encrypted` tool-parameter marker. A caller declares it, and
+every Responses wire forwards it unchanged. Nothing in the marker or its value
+says whether the upstream understands it — a client declares it once for a
+whole tool set, and the first request is built before any value exists — so
+AIGateway does not guess. A Provider that validates against a tool schema it
+already knows rejects the request when the marker is removed, which is the
+failure that has been observed. A Responses Provider that instead rejects the
+marker as unknown would fail rather than fall back; no such Provider has been
+seen, and the recovery would be the same shape as the compaction capability
+probe. A protocol that cannot express the marker still has it emulated with
+AIGateway opaque values, which are encoded, not encrypted, and provide no
+secrecy.
+
 ## Brain Can Still Store a Wrong Conclusion
 
 Brain stores its records in PostgreSQL. The Markdown from `memory_open` is only

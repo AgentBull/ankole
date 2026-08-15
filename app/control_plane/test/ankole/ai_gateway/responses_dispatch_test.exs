@@ -389,6 +389,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert codex_request.body["tools"] == tools
     refute Map.has_key?(codex_request.body, "__ankole_native_encrypted_tool_fields")
 
+    # The declaration survives for any caller on this wire, because the wire can
+    # carry it. Who called is not the question; what the wire can express is.
     assert {:ok, %{body: %{"id" => "resp_compatible_codex_schema"}}} =
              AIGateway.create_response(agent.uid, %{
                "model" => "primary",
@@ -397,12 +399,72 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              })
 
     assert_receive {:gateway_request, main_agent_request}
+    assert main_agent_request.body["tools"] == tools
+  end
 
-    refute get_in(main_agent_request.body, [
+  test "a wire that cannot carry the encrypted marker strips it and emulates" do
+    %{principal: agent} = agent_fixture()
+
+    base_url =
+      start_recording_upstream(self(), fn _request ->
+        {:json, 200,
+         %{
+           "id" => "chatcmpl_strip",
+           "object" => "chat.completion",
+           "choices" => [
+             %{
+               "index" => 0,
+               "finish_reason" => "stop",
+               "message" => %{"role" => "assistant", "content" => "done"}
+             }
+           ],
+           "usage" => %{}
+         }}
+      end)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "compatible-chat-completions-marker",
+               provider_kind: "openai_compatible",
+               base_url: "#{base_url}/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-compatible"}]
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "compatible-chat-completions-marker",
+               model: "gpt-compatible"
+             })
+
+    tools = [
+      %{
+        "type" => "function",
+        "name" => "followup_task",
+        "description" => "Send a follow-up task.",
+        "parameters" => %{
+          "type" => "object",
+          "properties" => %{"message" => %{"type" => "string", "encrypted" => true}},
+          "required" => ["message"],
+          "additionalProperties" => false
+        }
+      }
+    ]
+
+    assert {:ok, _response} =
+             AIGateway.create_response(agent.uid, %{
+               "model" => "primary",
+               "input" => "Delegate.",
+               "tools" => tools
+             })
+
+    assert_receive {:gateway_request, request}
+
+    refute get_in(request.body, [
              "tools",
              Access.at(0),
-             "tools",
-             Access.at(0),
+             "function",
              "parameters",
              "properties",
              "message"
@@ -514,48 +576,28 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
   test "ChatGPT Subscription forwards Codex v2 compaction through normal Responses" do
     %{principal: agent} = agent_fixture()
 
+    with_compaction_config(upstream: true)
+
     base_url =
       start_recording_upstream(self(), fn request ->
-        assert List.last(request.body["input"]) == %{"type" => "compaction_trigger"}
+        # Provider-native compaction is one non-streaming request that must
+        # carry the trigger; nothing else may reach this Provider.
+        assert compaction_trigger_request?(request)
 
-        item = %{
-          "id" => "cmp_chatgpt_v2",
-          "type" => "compaction",
-          "encrypted_content" => "provider-opaque-state"
-        }
-
-        response = %{
-          "id" => "resp_chatgpt_v2",
-          "object" => "response",
-          "created_at" => 1_764_967_971,
-          "completed_at" => nil,
-          "status" => "in_progress",
-          "model" => "gpt-5.6-sol",
-          "previous_response_id" => nil,
-          "output" => [],
-          "usage" => nil
-        }
-
-        {:sse, 200,
-         [
-           %{"type" => "response.created", "sequence_number" => 0, "response" => response},
-           %{
-             "type" => "response.output_item.done",
-             "sequence_number" => 1,
-             "output_index" => 0,
-             "item" => item
-           },
-           %{
-             "type" => "response.completed",
-             "sequence_number" => 2,
-             "response" => %{
-               response
-               | "completed_at" => 1_764_967_972,
-                 "status" => "completed",
-                 "output" => [item]
+        {:json, 200,
+         %{
+           "id" => "resp_chatgpt_v2",
+           "object" => "response",
+           "status" => "completed",
+           "output" => [
+             %{
+               "id" => "cmp_chatgpt_v2",
+               "type" => "compaction",
+               "encrypted_content" => "provider-opaque-state"
              }
-           }
-         ]}
+           ],
+           "usage" => %{"total_tokens" => 41}
+         }}
       end)
 
     assert {:ok, _provider} =
@@ -583,18 +625,28 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                model: "gpt-5.6-sol"
              })
 
-    assert {:ok, %{body: body}} =
-             AIGateway.create_response(
-               agent.uid,
-               %{
-                 "model" => "primary",
-                 "input" => [
-                   text_message("user", "compact this history"),
-                   %{"type" => "compaction_trigger"}
-                 ]
-               },
+    request =
+      Ankole.JSON.encode!(%{
+        "type" => "response.create",
+        "model" => "primary",
+        "input" => [
+          text_message("user", "compact this history"),
+          %{"type" => "compaction_trigger"}
+        ]
+      })
+
+    assert {:push, pushed, _state} =
+             AnkoleWeb.AIGatewayResponsesSocket.handle_in({request, [opcode: :text]}, %{
+               subject_uid: agent.uid,
+               subject_type: "agent",
                request_context: %{"headers" => %{"originator" => "codex_cli_rs"}}
-             )
+             })
+
+    body =
+      pushed
+      |> socket_frames()
+      |> Enum.find(&(&1["type"] == "response.completed"))
+      |> Map.fetch!("response")
 
     assert_receive {:gateway_request, request}
     assert request.path == "responses"
@@ -5836,6 +5888,379 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert %CompactionArtifact{} = Repo.get!(CompactionArtifact, checkpoint.id)
   end
 
+  test "websocket stateful truncation retries an unusable summary with the larger output cap" do
+    %{principal: agent} = agent_fixture()
+
+    with_compaction_config(threshold: 0.50, max_threshold_tokens: 160, tail_rows: 1)
+
+    caps = start_supervised!({Agent, fn -> [] end})
+
+    base_url =
+      start_recording_upstream(self(), fn request ->
+        assert request.path == "v1/responses"
+        Agent.update(caps, &(&1 ++ [request.body["max_output_tokens"]]))
+
+        summary =
+          case Agent.get(caps, &length/1) do
+            1 -> ""
+            _retry -> "## Active Task\nRetried summary."
+          end
+
+        {:sse, 200,
+         openai_response_stream_events(
+           "resp_retried_summary",
+           "gpt-main",
+           summary,
+           %{"input_tokens" => 9, "output_tokens" => 4, "total_tokens" => 13}
+         )}
+      end)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openai-unusable-summary-retry",
+               provider_kind: "openai",
+               base_url: "#{base_url}/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               },
+               connection_options: %{
+                 "transport" => %{"http_versions" => ["h1"], "compression" => ["gzip"]}
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openai-unusable-summary-retry",
+               model: "gpt-main"
+             })
+
+    {:ok, conversation} =
+      StatefulResponses.ensure_conversation(agent.uid, "dispatch-unusable-summary-retry")
+
+    {:ok, m1} =
+      start_stateful_message(agent.uid, conversation, "retry-summary-a", [
+        text_message("user", String.duplicate("first ", 20))
+      ])
+
+    {:ok, m1} = StatefulResponses.commit_complete(m1, [], usage(120))
+
+    {:ok, m2} =
+      start_linked_stateful_message(agent.uid, conversation, m1, "retry-summary-b", [
+        text_message("assistant", String.duplicate("second ", 20))
+      ])
+
+    {:ok, m2} = StatefulResponses.commit_complete(m2, [], usage(120))
+
+    {:ok, m3} =
+      start_linked_stateful_message(agent.uid, conversation, m2, "retry-summary-c", [
+        text_message("user", "latest tail #{brain_pre_compaction_nudge_marker()}")
+      ])
+
+    {:ok, m3} = StatefulResponses.commit_complete(m3, [], usage(260))
+
+    assert {:ok, _request} =
+             AIGateway.prepare_websocket_request(agent.uid, %{
+               "model" => "primary",
+               "input" => [text_message("user", "new request")],
+               "store" => true,
+               "conversation" => "conv_#{conversation.id}",
+               "truncation" => "auto",
+               "metadata" => %{"actor_event_id" => "retry-summary-event"}
+             })
+
+    assert [first_cap, retry_cap] = Agent.get(caps, & &1)
+    assert retry_cap > first_cap
+
+    [checkpoint] = Enum.filter(Repo.all(Message), &(&1.type == "checkpoint"))
+    refute checkpoint.metadata["strategy"] == "stable_tail"
+    assert %CompactionArtifact{content: content} = Repo.get!(CompactionArtifact, checkpoint.id)
+    assert content["summary"]["text"] =~ "Retried summary."
+  end
+
+  test "a stateful compaction trigger compacts the stored conversation" do
+    %{principal: agent} = agent_fixture()
+
+    with_compaction_config(threshold: 0.50, max_threshold_tokens: 160, tail_rows: 1)
+
+    base_url =
+      start_recording_upstream(self(), fn _request ->
+        {:sse, 200,
+         openai_response_stream_events(
+           "resp_stateful_trigger",
+           "gpt-main",
+           "## Active Task\nstateful trigger summary",
+           %{"input_tokens" => 5, "output_tokens" => 7, "total_tokens" => 12}
+         )}
+      end)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openai-stateful-trigger",
+               provider_kind: "openai",
+               base_url: "#{base_url}/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               },
+               connection_options: %{
+                 "transport" => %{"http_versions" => ["h1"], "compression" => ["gzip"]}
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openai-stateful-trigger",
+               model: "gpt-main"
+             })
+
+    {:ok, conversation} =
+      StatefulResponses.ensure_conversation(agent.uid, "dispatch-stateful-trigger")
+
+    conversation_id = conversation.id
+
+    {:ok, m1} =
+      start_stateful_message(agent.uid, conversation, "stateful-trigger-a", [
+        text_message("user", String.duplicate("first ", 20))
+      ])
+
+    {:ok, m1} = StatefulResponses.commit_complete(m1, [], usage(120))
+
+    {:ok, m2} =
+      start_linked_stateful_message(agent.uid, conversation, m1, "stateful-trigger-b", [
+        text_message("assistant", String.duplicate("second ", 20))
+      ])
+
+    {:ok, m2} = StatefulResponses.commit_complete(m2, [], usage(120))
+
+    {:ok, m3} =
+      start_linked_stateful_message(agent.uid, conversation, m2, "stateful-trigger-c", [
+        text_message("user", "latest tail")
+      ])
+
+    {:ok, m3} = StatefulResponses.commit_complete(m3, [], usage(260))
+
+    # The Main Agent asks for compaction through the same protocol Codex uses.
+    request =
+      Ankole.JSON.encode!(%{
+        "type" => "response.create",
+        "model" => "primary",
+        "conversation" => "conv_#{conversation.id}",
+        "input" => [%{"type" => "compaction_trigger"}]
+      })
+
+    assert {:push, pushed, _state} =
+             AnkoleWeb.AIGatewayResponsesSocket.handle_in({request, [opcode: :text]}, %{
+               subject_uid: agent.uid,
+               subject_type: "agent"
+             })
+
+    body =
+      pushed
+      |> socket_frames()
+      |> Enum.find(&(&1["type"] == "response.completed"))
+      |> Map.fetch!("response")
+
+    assert body["object"] == "response"
+    assert body["status"] == "completed"
+    assert [%{"type" => "compaction", "id" => "cmp_" <> artifact_id}] = body["output"]
+
+    # A stored compaction answers with its checkpoint id so the next turn
+    # continues from it.
+    assert body["id"] == "resp_#{artifact_id}"
+
+    assert %Message{type: "checkpoint", conversation_id: ^conversation_id} =
+             Repo.get!(Message, artifact_id)
+
+    assert Repo.get!(CompactionArtifact, artifact_id).content["summary"] ==
+             %{"text" => "## Active Task\nstateful trigger summary"}
+
+    # Compaction adds a checkpoint; it never deletes what it summarized. The
+    # pre-compaction rows stay readable, which is what lets a later binding
+    # change rebuild the history from raw predecessors.
+    for original <- [m1, m2, m3] do
+      assert %Message{status: "complete"} = Repo.get!(Message, original.id)
+    end
+
+    visible = StatefulResponses.expand_history(conversation_id)
+    assert Enum.map(visible, & &1.type) == ["checkpoint"]
+
+    raw =
+      StatefulResponses.expand_history(conversation_id,
+        previous_response_id: "resp_#{m3.id}",
+        stop_at_checkpoint: false
+      )
+
+    assert Enum.map(raw, & &1.id) == [m1.id, m2.id, m3.id]
+  end
+
+  test "the WebSocket transport answers a compaction trigger without a Provider stream" do
+    %{principal: agent} = agent_fixture()
+
+    with_compaction_config(threshold: 0.50, max_threshold_tokens: 160, tail_rows: 1)
+
+    base_url =
+      start_recording_upstream(self(), fn _request ->
+        {:sse, 200,
+         openai_response_stream_events(
+           "resp_socket_trigger",
+           "gpt-main",
+           "## Active Task\nsocket trigger summary",
+           %{"input_tokens" => 5, "output_tokens" => 7, "total_tokens" => 12}
+         )}
+      end)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openai-socket-trigger",
+               provider_kind: "openai",
+               base_url: "#{base_url}/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               },
+               connection_options: %{
+                 "transport" => %{"http_versions" => ["h1"], "compression" => ["gzip"]}
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openai-socket-trigger",
+               model: "gpt-main"
+             })
+
+    {:ok, conversation} =
+      StatefulResponses.ensure_conversation(agent.uid, "socket-compaction-trigger")
+
+    {:ok, m1} =
+      start_stateful_message(agent.uid, conversation, "socket-trigger-a", [
+        text_message("user", String.duplicate("first ", 20))
+      ])
+
+    {:ok, m1} = StatefulResponses.commit_complete(m1, [], usage(120))
+
+    {:ok, m2} =
+      start_linked_stateful_message(agent.uid, conversation, m1, "socket-trigger-b", [
+        text_message("assistant", String.duplicate("second ", 20))
+      ])
+
+    {:ok, m2} = StatefulResponses.commit_complete(m2, [], usage(120))
+
+    {:ok, m3} =
+      start_linked_stateful_message(agent.uid, conversation, m2, "socket-trigger-c", [
+        text_message("user", "latest tail")
+      ])
+
+    {:ok, _m3} = StatefulResponses.commit_complete(m3, [], usage(260))
+
+    request =
+      Ankole.JSON.encode!(%{
+        "type" => "response.create",
+        "model" => "primary",
+        "conversation" => "conv_#{conversation.id}",
+        "input" => [%{"type" => "compaction_trigger"}]
+      })
+
+    assert {:push, pushed, state} =
+             AnkoleWeb.AIGatewayResponsesSocket.handle_in({request, [opcode: :text]}, %{
+               subject_uid: agent.uid,
+               subject_type: "agent"
+             })
+
+    # The trigger never opens a Provider stream, so no active stream survives it.
+    refute Map.has_key?(state, :active_stream)
+
+    events = Enum.map(pushed, fn {:text, chunk} -> Ankole.JSON.decode!(chunk) end)
+
+    assert [
+             "response.created",
+             "response.output_item.added",
+             "response.output_item.done",
+             "response.completed"
+           ] = Enum.map(events, & &1["type"])
+
+    assert Enum.map(events, & &1["sequence_number"]) == [0, 1, 2, 3]
+
+    assert [%{"item" => %{"type" => "compaction", "id" => "cmp_" <> artifact_id}} | _] =
+             Enum.filter(events, &(&1["type"] == "response.output_item.done"))
+
+    assert List.last(events)["response"]["id"] == "resp_#{artifact_id}"
+    assert %Message{type: "checkpoint"} = Repo.get!(Message, artifact_id)
+  end
+
+  test "an OpenAI-compatible Provider receives the caller's identity headers" do
+    %{principal: agent} = agent_fixture()
+
+    base_url =
+      start_recording_upstream(self(), fn _request ->
+        {:json, 200,
+         %{
+           "id" => "resp_identity",
+           "object" => "response",
+           "status" => "completed",
+           "output" => [],
+           "usage" => %{}
+         }}
+      end)
+
+    configure_openai_compatible_responses_provider!(agent.uid, base_url, "compatible-identity")
+
+    codex_headers = %{
+      "originator" => "codex_cli_rs",
+      "user-agent" => "codex_cli_rs/0.147.0 (Linux Unknown; aarch64)",
+      "session_id" => "01a00000-0000-7000-8000-000000000001",
+      "thread-id" => "01a00000-0000-7000-8000-000000000002",
+      "x-client-request-id" => "01a00000-0000-7000-8000-000000000003",
+      "x-codex-window-id" => "01a00000-0000-7000-8000-000000000004:0",
+      "version" => "0.147.0"
+    }
+
+    assert {:ok, _response} =
+             AIGateway.create_response(
+               agent.uid,
+               %{"model" => "primary", "input" => "hello"},
+               request_context: %{"headers" => codex_headers}
+             )
+
+    assert_receive {:gateway_request, request}
+    headers = Map.new(request.headers, fn {name, value} -> {String.downcase(name), value} end)
+
+    # The Provider decides what to do with the caller's identity; AIGateway only
+    # stops it from being dropped at this boundary.
+    assert headers["originator"] == "codex_cli_rs"
+    assert headers["user-agent"] =~ "codex_cli_rs/0.147.0"
+    assert headers["session_id"] == codex_headers["session_id"]
+    assert headers["thread-id"] == codex_headers["thread-id"]
+    assert headers["x-client-request-id"] == codex_headers["x-client-request-id"]
+    assert headers["x-codex-window-id"] == codex_headers["x-codex-window-id"]
+    assert headers["version"] == "0.147.0"
+  end
+
+  test "a Provider request carries no identity headers the caller did not send" do
+    %{principal: agent} = agent_fixture()
+
+    base_url =
+      start_recording_upstream(self(), fn _request ->
+        {:json, 200,
+         %{
+           "id" => "resp_no_identity",
+           "object" => "response",
+           "status" => "completed",
+           "output" => [],
+           "usage" => %{}
+         }}
+      end)
+
+    configure_openai_compatible_responses_provider!(agent.uid, base_url, "compatible-no-identity")
+
+    assert {:ok, _response} =
+             AIGateway.create_response(agent.uid, %{"model" => "primary", "input" => "hello"})
+
+    assert_receive {:gateway_request, request}
+    headers = Map.new(request.headers, fn {name, value} -> {String.downcase(name), value} end)
+
+    refute Map.has_key?(headers, "originator")
+    refute Map.has_key?(headers, "x-codex-window-id")
+  end
+
   test "explicit provider selectors can carry request-scoped provider options" do
     %{principal: agent} = agent_fixture()
 
@@ -7178,7 +7603,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     base_url =
       start_recording_upstream(self(), fn request ->
-        assert request.path == "v1/responses/compact"
+        assert request.path == "v1/responses"
+        assert List.last(request.body["input"]) == %{"type" => "compaction_trigger"}
         assert request.body["model"] == "gpt-5.6"
         assert request.body["stream"] == false
 
@@ -7200,15 +7626,19 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                "store" => false
              })
 
-    assert body["output"] == native_output
-    assert_receive {:gateway_request, %{path: "v1/responses/compact"}}
+    # The Provider answers on the normal Responses wire now, so its retained
+    # items arrive normalized. The compaction item stays verbatim, including the
+    # Provider extension AIGateway does not understand.
+    assert [%{"type" => "message", "role" => "user"}, compaction_item] = body["output"]
+    assert compaction_item == List.last(native_output)
+    assert_receive {:gateway_request, %{path: "v1/responses"}}
 
     artifact =
       Repo.all(CompactionArtifact)
       |> Enum.find(&(Map.get(&1.content, "version") == 3))
 
     assert artifact.content["source"] == "upstream"
-    assert artifact.content["output"] == native_output
+    assert [%{"type" => "message"}, ^compaction_item] = artifact.content["output"]
     assert artifact.content["binding"]["model"] == "gpt-5.6"
     assert is_binary(artifact.content["binding"]["provider_row_id"])
     refute inspect(artifact.content["output"]) =~ "ankole:compact:v1:"
@@ -7257,7 +7687,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              })
 
     assert_receive {:gateway_request, %{path: "v1/responses"}}
-    refute_receive {:gateway_request, %{path: "v1/responses/compact"}}, 100
+    refute_receive {:gateway_request, %{path: "v1/responses"}}, 100
     assert Repo.all(CompactionArtifact) == []
   end
 
@@ -7277,17 +7707,15 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     base_url =
       start_recording_upstream(self(), fn request ->
-        case request.path do
-          "v1/responses/compact" ->
-            {:json, 200, %{"output" => native_output, "usage" => %{"total_tokens" => 41}}}
-
-          "v1/responses" ->
-            {:sse, 200,
-             openai_response_stream_events(
-               "resp_binding_fallback_summary",
-               request.body["model"],
-               "## Active Task\nRebuilt from the raw predecessor chain."
-             )}
+        if compaction_trigger_request?(request) do
+          {:json, 200, %{"output" => native_output, "usage" => %{"total_tokens" => 41}}}
+        else
+          {:sse, 200,
+           openai_response_stream_events(
+             "resp_binding_fallback_summary",
+             request.body["model"],
+             "## Active Task\nRebuilt from the raw predecessor chain."
+           )}
         end
       end)
 
@@ -7304,8 +7732,10 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                "metadata" => %{"actor_event_id" => "native-stateful-first"}
              })
 
-    assert_receive {:gateway_request, %{path: "v1/responses/compact"}}
-    assert first_request.response_context.request["input"] == native_output ++ first_input
+    assert_receive {:gateway_request, %{path: "v1/responses"}}
+    replayed_input = first_request.response_context.request["input"]
+    assert Enum.any?(replayed_input, &(Map.get(&1, "type") == "compaction"))
+    assert Enum.take(replayed_input, -length(first_input)) == first_input
 
     assert {:ok, _completed} =
              StatefulResponses.commit_complete(
@@ -7332,7 +7762,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              })
 
     assert_receive {:gateway_request, %{path: "v1/responses"}}
-    refute_receive {:gateway_request, %{path: "v1/responses/compact"}}, 100
+    refute_receive {:gateway_request, %{path: "v1/responses"}}, 100
 
     second_provider_input = second_request.response_context.request["input"]
     refute Ankole.JSON.encode!(second_provider_input) =~ "provider-opaque-state"
@@ -7358,7 +7788,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     base_url =
       start_recording_upstream(self(), fn request ->
-        assert request.path == "v1/responses/compact"
+        assert request.path == "v1/responses"
+        assert List.last(request.body["input"]) == %{"type" => "compaction_trigger"}
         {:json, 200, %{"output" => native_output}}
       end)
 
@@ -7371,7 +7802,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert {:ok, %{compaction: checkpoint}} =
              Compaction.compact_conversation(agent.uid, conversation.id)
 
-    assert_receive {:gateway_request, %{path: "v1/responses/compact"}}
+    assert_receive {:gateway_request, %{path: "v1/responses"}}
     assert checkpoint.previous_message_id == tail.id
 
     artifact = Repo.get!(CompactionArtifact, checkpoint.id)
@@ -7387,7 +7818,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     base_url =
       start_recording_upstream(self(), fn request ->
-        if request.path == "v1/responses/compact" do
+        if compaction_trigger_request?(request) do
           Agent.update(compact_attempts, &(&1 + 1))
           {:json, 404, %{"error" => %{"code" => "not_found"}}}
         else
@@ -7430,7 +7861,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     base_url =
       start_recording_upstream(self(), fn request ->
-        if request.path == "v1/responses/compact" do
+        if compaction_trigger_request?(request) do
           Agent.update(compact_attempts, &(&1 + 1))
           {:json, 503, %{"error" => %{"code" => "provider_unavailable"}}}
         else
@@ -7820,13 +8251,34 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
   defp provider_input_has_output?(_input, _call_id), do: false
 
-  defp prefer_provider_compaction!(agent_uid) do
-    assert {:ok, _capabilities} =
-             ModelProfiles.put_provider_hosted_capabilities(agent_uid, %{"compaction" => true})
+  # Provider-native compaction is one instance setting, so a test opts in the
+  # same way an operator does.
+  defp prefer_provider_compaction!(_agent_uid) do
+    with_compaction_config(upstream: true)
   end
 
+  # The compaction trigger and a normal turn share one path, so a Provider tells
+  # them apart by the trigger item, not by the endpoint.
+  defp socket_frames({:text, chunk}), do: [Ankole.JSON.decode!(chunk)]
+
+  defp socket_frames(chunks),
+    do: Enum.map(chunks, fn {:text, chunk} -> Ankole.JSON.decode!(chunk) end)
+
+  defp compaction_trigger_request?(request) do
+    case request.body["input"] do
+      input when is_list(input) -> List.last(input) == %{"type" => "compaction_trigger"}
+      _other -> false
+    end
+  end
+
+  # Compaction settings are one config key now, so the helpers must compose
+  # instead of overwriting each other.
   defp with_compaction_config(config) do
-    assert {:ok, _config} = Compaction.put_config(Map.new(config))
+    merged =
+      Compaction.config()
+      |> Map.merge(Map.new(config, fn {key, value} -> {to_string(key), value} end))
+
+    assert {:ok, _config} = Compaction.put_config(merged)
 
     on_exit(fn ->
       _result = Compaction.delete_config()

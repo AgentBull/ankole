@@ -47,7 +47,7 @@ order: 321
 - 每次提交恰好加一个根 `CHANGELOG.md` 版本。
 - 该版本描述该提交中每一项保留的源码、测试、文档、配置、schema、migration、manifest、lockfile 和必需生成文件改动。
 - 一个版本不跨多次提交；一次提交不含多个版本。
-- 版本使用无前导零的 `MAJOR.MINOR.PATCH`。功能层面的变动增加 `MINOR`，并将 `PATCH` 重置为 `0`。依赖升级、bug 修复、文档变动和其他不新增或改变产品能力的维护变动增加 `PATCH`。一次提交同时包含两类变动时，增加 `MINOR`。只有维护者明确决定时才改变 `MAJOR`。
+- 版本使用无前导零的 `MAJOR.MINOR.PATCH`。默认增加 `PATCH`。只有当这次提交让用户或运维人员能做到产品此前做不到的事，或者破坏了既有行为、必须有人改配置、改已存数据或改外部调用方时，才增加 `MINOR` 并将 `PATCH` 重置为 `0`。其他变动一律增加 `PATCH`，即使用户立刻能察觉：无论多显眼的 bug 修复、既有能力内的速度或可靠性改进、内部重写、依赖升级、工具链和文档。一次提交同时包含两类变动时增加 `MINOR`，但前提是其中某一项变动自身就够 `MINOR`。只有维护者明确决定时才改变 `MAJOR`。
 - 提交前立即从确切的暂存 diff 准备条目。
 
 changelog 是*唯一*的 changelog 和版本单元——没有单独的 release notes 文件。`main` 的运行时镜像构建通过镜像对验证后，工作流会用最新版本标记 control-plane 和 Worker 镜像，并用该版本的 changelog 段落创建不可变的 GitHub Release。把 changelog 当作改动的一部分，不是事后的文书。

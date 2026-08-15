@@ -100,7 +100,7 @@ project_doc_max_bytes = 131072
 
 [features]
 memories = false
-remote_compaction_v2 = false
+remote_compaction_v2 = true
 multi_agent = false
 apps = false
 enable_mcp_apps = false

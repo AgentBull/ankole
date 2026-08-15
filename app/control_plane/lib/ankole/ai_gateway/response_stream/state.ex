@@ -820,6 +820,7 @@ defmodule Ankole.AIGateway.ResponseStream.State do
     {terminal_type, response, terminal_error} = canonical_terminal(event["type"], response)
     terminal_error = correlate_provider_error(terminal_error, state)
     terminal_metadata = terminal_response_metadata(state, terminal_type, response)
+
     public_response = public_terminal_response(terminal_type, response, terminal_error)
 
     state = %{

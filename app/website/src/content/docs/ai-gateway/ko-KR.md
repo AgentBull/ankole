@@ -41,7 +41,6 @@ curl https://ankole.example.com/api/v1/ai-gateway/responses \
 | `POST` | `/responses` | HTTP 또는 SSE | 응답 생성. `"stream": true`이면 스트리밍 |
 | `GET` | `/responses` | WebSocket | stateful 스트리밍 응답 |
 | `GET` | `/responses/:response_id` | HTTP | 저장된 stateful 응답(`resp_{uuid}`) 조회 |
-| `POST` | `/responses/compact` | HTTP | 저장된 대화의 compaction artifact 생성 |
 | `POST` | `/embeddings` | HTTP | embedding 생성 |
 | `POST` | `/rerank` | HTTP | 문서 rerank |
 | `POST` | `/web_search` | HTTP | 웹 검색 |
@@ -76,7 +75,7 @@ curl https://ankole.example.com/api/v1/ai-gateway/responses/resp_4f3c... \
   -H "Authorization: Bearer $AIGATEWAY_TOKEN"
 ```
 
-compaction은 흐름을 잃지 않고 긴 저장 기록을 짧은 기록으로 교환하는 유일한 도구입니다. `POST /responses/compact`는 input이 정확히 하나의 compaction 항목인 요청을 받아 `previous_response_id` 또는 `conversation`에 고정(anchor)하고 compaction artifact를 반환합니다. `store: true`가 필요하며, 이를 생략한 요청에는 `code: "compact_store_required"`와 함께 `400`이 반환됩니다.
+compaction은 흐름을 잃지 않고 긴 저장 기록을 짧은 기록으로 교환하는 유일한 도구입니다. 전용 endpoint가 없습니다. input에 `{"type": "compaction_trigger"}` 항목을 넣은 요청을 보내면 AIGateway가 `compaction` output 항목 하나를 돌려줍니다. 모든 transport에서 동작합니다. `POST /responses`는 body를 반환하고, 같은 호출에 `"stream": true`를 더하면 SSE event로, WebSocket도 같은 event로 반환합니다. trigger만 보내면 `previous_response_id` 또는 `conversation`이 가리키는 저장된 대화를 compaction하고, 응답에는 이어서 사용할 checkpoint id가 담깁니다. 기록을 함께 보내면 보낸 내용을 compaction합니다.
 
 ## Provider 라우팅
 

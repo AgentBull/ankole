@@ -151,7 +151,6 @@ describe('@ankole/agent-computer Codex app-server protocol contract', () => {
       const runtime = pluginTestRuntime(baseURL, 'gpt-5.6-sol')
       const config = codexJobThreadConfig({ cwd: workspace, codexHome, env: {}, runtime }) as Record<string, any>
       config.model_providers.ankole_aigateway.supports_websockets = false
-      expect(config.features.remote_compaction_v2).toBe(false)
 
       client = new CodexAppServerClient({
         cwd: workspace,
@@ -214,11 +213,10 @@ describe('@ankole/agent-computer Codex app-server protocol contract', () => {
       resetCodexAgentRuntimeConfig(codexHome, baseURL)
       refreshCodexAgentRuntimeCredential(codexHome, 'contract-key')
 
-      const runtime = pluginTestRuntime(baseURL, 'gpt-5.6-sol', undefined, true)
+      const runtime = pluginTestRuntime(baseURL, 'gpt-5.6-sol')
       const config = codexJobThreadConfig({ cwd: workspace, codexHome, env: {}, runtime }) as Record<string, any>
       config.model_providers.ankole_aigateway.supports_websockets = false
       expect(config.model_providers.ankole_aigateway.name).toBe('OpenAI')
-      expect(config.features.remote_compaction_v2).toBe(true)
 
       client = new CodexAppServerClient({
         cwd: workspace,
@@ -1047,8 +1045,7 @@ test ! -e ./AGENTS.override.md
         expiresIn: 3_600n,
         scope: 'ai_gateway',
         baseUrl: 'http://control.test/api/v1/ai-gateway'
-      }),
-      remoteCompactionV2: false
+      })
     }
     const materialized = materializeCodexConfig({
       agentsRoot: root,
@@ -1237,12 +1234,7 @@ function createAgentPluginSkillFixture(
   )
 }
 
-function pluginTestRuntime(
-  baseURL: string,
-  model = 'gpt-5.4',
-  reasoningEffort?: 'low' | 'high',
-  remoteCompactionV2 = false
-): CodexRuntimeConfig {
+function pluginTestRuntime(baseURL: string, model = 'gpt-5.4', reasoningEffort?: 'low' | 'high'): CodexRuntimeConfig {
   return {
     aiGatewayKey: create(AIGatewayAPIKeyResponseSchema, {
       apiKey: 'contract-key',
@@ -1258,8 +1250,7 @@ function pluginTestRuntime(
       supportsParallelToolCalls: false,
       inputModalities: ['text'],
       ...(reasoningEffort ? { modelReasoningEffort: reasoningEffort } : {})
-    },
-    remoteCompactionV2
+    }
   }
 }
 

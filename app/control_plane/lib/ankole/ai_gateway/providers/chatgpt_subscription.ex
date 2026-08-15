@@ -11,15 +11,6 @@ defmodule Ankole.AIGateway.Providers.ChatGPTSubscription do
   alias Ankole.AIGateway.UniversalAIRequest
 
   @codex_version "0.147.0"
-  @forwarded_headers %{
-    "x-codex-beta-features" => "X-Codex-Beta-Features",
-    "x-codex-turn-metadata" => "X-Codex-Turn-Metadata",
-    "x-codex-turn-state" => "X-Codex-Turn-State",
-    "x-client-request-id" => "X-Client-Request-Id",
-    "x-responsesapi-include-timing-metrics" => "X-Responsesapi-Include-Timing-Metrics",
-    "version" => "Version"
-  }
-
   provider :chatgpt_subscription do
     label(%{
       "default" => "ChatGPT Subscription",
@@ -63,7 +54,6 @@ defmodule Ankole.AIGateway.Providers.ChatGPTSubscription do
       upstream(:sse)
       api_resolver(:openai_responses)
       prepare(:prepare_language_model)
-      prepare_compaction(:prepare_compaction)
       supports_parallel_tool_calls()
       supports_native_image_generation()
       supports_native_web_search()
@@ -96,13 +86,6 @@ defmodule Ankole.AIGateway.Providers.ChatGPTSubscription do
       |> UniversalAIRequest.put_provider_options(normalize_provider_options(provider_options))
       |> put_protocol_headers(ctx, protocol, websocket?)
       |> UniversalAIRequest.bearer_auth(ctx.settings[:access_token])
-    end
-  end
-
-  @doc "Builds the standalone compact request for the Codex Responses endpoint."
-  def prepare_compaction(ctx) do
-    with %UniversalAIRequest{} = request <- prepare_language_model(%{ctx | stream?: false}) do
-      UniversalAIRequest.put_operation(request, :responses_compact)
     end
   end
 
@@ -162,6 +145,9 @@ defmodule Ankole.AIGateway.Providers.ChatGPTSubscription do
     inbound = Map.get(ctx.request_context, "headers", %{})
 
     request
+    # The caller's own identity goes first; every header this provider owns
+    # overwrites it below.
+    |> UniversalAIRequest.put_client_identity_headers(ctx)
     |> UniversalAIRequest.put_header("Content-Type", "application/json")
     |> UniversalAIRequest.put_header("Accept", accept_header(ctx.stream?))
     |> maybe_put_keep_alive(websocket?)
@@ -174,18 +160,11 @@ defmodule Ankole.AIGateway.Providers.ChatGPTSubscription do
     )
     |> UniversalAIRequest.put_header("Session_id", protocol.cache_key)
     |> maybe_put_conversation_id(protocol.cache_key, websocket?)
-    |> put_forwarded_headers(inbound)
     |> put_main_identity_headers(inbound, protocol.cache_key)
     |> maybe_put_account_header(ctx.settings)
     |> maybe_put_identity_headers(ctx.settings, inbound)
     |> maybe_put_lite_header(protocol.lite?)
     |> maybe_put_fedramp(ctx.settings)
-  end
-
-  defp put_forwarded_headers(request, inbound) do
-    Enum.reduce(@forwarded_headers, request, fn {source, target}, request ->
-      UniversalAIRequest.put_header(request, target, Map.get(inbound, source))
-    end)
   end
 
   # A main-agent request has no Codex client headers. Derive the three related

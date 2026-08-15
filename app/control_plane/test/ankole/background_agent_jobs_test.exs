@@ -1389,84 +1389,28 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert second_attempt.runtime_projection["model_ref"]["model"] == "openai/gpt-5.6-sol"
   end
 
-  test "the runtime projection enables Codex compaction v2 only for ChatGPT Subscription" do
+  test "a runtime projection discards the retired Codex compaction key" do
     %{principal: agent} = background_agent_fixture()
-    _result = Compaction.delete_config()
+    job = create_job!(agent.uid, "retired-compaction-key")
 
-    on_exit(fn ->
-      _result = Compaction.delete_config()
-      :ok
-    end)
-
-    disabled_job = create_job!(agent.uid, "subscription-v2-disabled")
-    subscription_spec = runtime_turn_start_spec_for_provider("chatgpt_subscription")
-
-    assert {:ok, disabled_attempt} =
+    assert {:ok, attempt} =
              BackgroundAgentJobs.claim_attempt_in_tx(
                Repo,
-               disabled_job.id,
+               job.id,
                agent.uid,
                1,
-               subscription_spec
+               runtime_turn_start_spec_for_provider("chatgpt_subscription")
              )
 
-    refute disabled_attempt.runtime_projection["codex"]["remote_compaction_v2"]
-    stop_claimed_job!(disabled_attempt)
+    refute Map.has_key?(attempt.runtime_projection, "codex")
+    stop_claimed_job!(attempt)
 
-    assert {:ok, _capabilities} =
-             ModelProfiles.put_provider_hosted_capabilities(agent.uid, %{"compaction" => true})
+    # AIGateway serves the compaction protocol for every Provider, so a Job
+    # frozen while the retired key still existed keeps working without it.
+    frozen = Map.put(attempt.runtime_projection, "codex", %{"remote_compaction_v2" => true})
 
-    enabled_job = create_job!(agent.uid, "subscription-v2-enabled")
-
-    assert {:ok, enabled_attempt} =
-             BackgroundAgentJobs.claim_attempt_in_tx(
-               Repo,
-               enabled_job.id,
-               agent.uid,
-               1,
-               subscription_spec
-             )
-
-    assert enabled_attempt.runtime_projection["codex"]["remote_compaction_v2"]
-
-    assert {:ok, enabled_overrides} =
-             RuntimeProjection.turn_start_overrides(enabled_attempt.runtime_projection)
-
-    assert enabled_overrides.request_context["codex"] == %{
-             "remote_compaction_v2" => true
-           }
-
-    stop_claimed_job!(enabled_attempt)
-
-    for provider_kind <- ["openai", "openai_compatible", "azure_openai", "openrouter"] do
-      job = create_job!(agent.uid, "#{provider_kind}-v2-disabled")
-      spec = runtime_turn_start_spec_for_provider(provider_kind)
-
-      assert {:ok, attempt} =
-               BackgroundAgentJobs.claim_attempt_in_tx(Repo, job.id, agent.uid, 1, spec)
-
-      refute attempt.runtime_projection["codex"]["remote_compaction_v2"]
-      stop_claimed_job!(attempt)
-    end
-
-    assert {:ok, _capabilities} =
-             ModelProfiles.put_provider_hosted_capabilities(agent.uid, %{"compaction" => false})
-
-    assert {:ok, frozen_overrides} =
-             RuntimeProjection.turn_start_overrides(enabled_attempt.runtime_projection)
-
-    assert frozen_overrides.request_context["codex"]["remote_compaction_v2"]
-  end
-
-  test "a legacy runtime projection keeps Codex compaction v2 disabled" do
-    projection = %{
-      "version" => 1,
-      "model_ref" => runtime_turn_start_spec().model_ref,
-      "runtime_policy" => %{}
-    }
-
-    assert {:ok, overrides} = RuntimeProjection.turn_start_overrides(projection)
-    refute overrides.request_context["codex"]["remote_compaction_v2"]
+    assert {:ok, overrides} = RuntimeProjection.turn_start_overrides(frozen)
+    refute Map.has_key?(overrides.request_context, "codex")
   end
 
   test "runtime projections carry the frozen hosted tool declarations" do

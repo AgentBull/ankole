@@ -577,7 +577,9 @@ git diff -- CHANGELOG.md
 git diff --cached -- CHANGELOG.md
 ```
 
-If `CHANGELOG.md` is already modified, append the new summary to the latest pending version. If it is clean relative to `HEAD`, add the next `MAJOR.MINOR.PATCH` version. Increment `MINOR` and reset `PATCH` to `0` for a feature-level change. Increment `PATCH` for a dependency upgrade, bug fix, documentation change, or other maintenance change that does not add or change a product capability. Use the minor increment when one commit contains both types. Change `MAJOR` only after an explicit maintainer decision.
+If `CHANGELOG.md` is already modified, append the new summary to the latest pending version. If it is clean relative to `HEAD`, add the next `MAJOR.MINOR.PATCH` version.
+
+`PATCH` is the default increment. Increment `MINOR`, and reset `PATCH` to `0`, only when the commit lets a user or an operator do something the product could not do before, or when it breaks existing behavior so that a person must change configuration, stored data, or an external caller. Every other change increments `PATCH`, even when users see the difference at once: a bug fix however visible, better speed or reliability inside an existing capability, an internal rewrite, a dependency upgrade, tooling, and documentation. Use the minor increment when one commit contains both types, but only when one change qualifies for `MINOR` on its own. Change `MAJOR` only after an explicit maintainer decision.
 
 Write one outcome-focused bullet. Describe user-visible behavior or the preserved system guarantee rather than listing files.
 

@@ -10,7 +10,6 @@ defmodule Ankole.BackgroundAgentJobs.RuntimeProjection do
   alias Ankole.AIAgent.Library
   alias Ankole.AIAgent.Library.AgentPlugins
   alias Ankole.AIAgent.ModelProfiles
-  alias Ankole.AIGateway.Compaction
   alias Ankole.SignalsGateway.ActorRuntime.WorkerEnv
 
   @version 1
@@ -29,9 +28,6 @@ defmodule Ankole.BackgroundAgentJobs.RuntimeProjection do
           "version" => @version,
           "model_ref" => model_ref,
           "runtime_policy" => Map.get(request_context, "ai_agent", %{}),
-          "codex" => %{
-            "remote_compaction_v2" => remote_compaction_v2?(agent_uid, model_ref)
-          },
           "skills" => Enum.map(skills, &skill_selection/1),
           "agent_plugins" => Enum.map(agent_plugins, &agent_plugin_selection/1),
           "native_mcp_servers" => [],
@@ -65,7 +61,7 @@ defmodule Ankole.BackgroundAgentJobs.RuntimeProjection do
         model_ref
       end
 
-    with {:ok, codex} <- codex_projection(projection),
+    with :ok <- validate_retired_codex_projection(projection),
          {:ok, hosted_tool_overrides} <- hosted_tool_overrides(projection) do
       {:ok,
        Map.merge(
@@ -73,8 +69,7 @@ defmodule Ankole.BackgroundAgentJobs.RuntimeProjection do
            model_ref: model_ref,
            request_context: %{
              "model_ref" => model_ref,
-             "ai_agent" => runtime_policy,
-             "codex" => codex
+             "ai_agent" => runtime_policy
            }
          },
          hosted_tool_overrides
@@ -168,24 +163,15 @@ defmodule Ankole.BackgroundAgentJobs.RuntimeProjection do
 
   defp same_model?(_frozen_ref, _current_ref), do: false
 
-  defp remote_compaction_v2?(agent_uid, model_ref) do
-    Map.get(model_ref, "provider_kind") == "chatgpt_subscription" and
-      Compaction.prefer_upstream?(agent_uid)
-  end
+  # AIGateway serves the compaction protocol for every Provider, so a Job no
+  # longer chooses between two compaction protocols. A projection frozen before
+  # that change still carries the retired block; it is read and discarded.
+  defp validate_retired_codex_projection(%{"codex" => %{}}), do: :ok
 
-  defp codex_projection(%{
-         "codex" => %{"remote_compaction_v2" => remote_compaction_v2}
-       })
-       when is_boolean(remote_compaction_v2),
-       do: {:ok, %{"remote_compaction_v2" => remote_compaction_v2}}
+  defp validate_retired_codex_projection(%{"codex" => _invalid}),
+    do: {:error, :background_agent_job_runtime_projection_invalid}
 
-  defp codex_projection(projection) do
-    if Map.has_key?(projection, "codex") do
-      {:error, :background_agent_job_runtime_projection_invalid}
-    else
-      {:ok, %{"remote_compaction_v2" => false}}
-    end
-  end
+  defp validate_retired_codex_projection(_projection), do: :ok
 
   defp maybe_put_hosted_tools(projection, turn_start_spec) do
     case Map.fetch(turn_start_spec, :hosted_tools) do

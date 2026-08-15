@@ -11,6 +11,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
 
   alias Ankole.AIGateway
   alias Ankole.AIGateway.CodexModelBinding
+  alias Ankole.AIGateway.Compaction
   alias Ankole.AIGateway.FailureDiagnostics
   alias Ankole.AIGateway.OpenAIError
   alias Ankole.Ecto.UUIDv7
@@ -254,6 +255,59 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
         event = openai_error_event(error)
         {:push, {:text, Ankole.JSON.encode!(event)}, state}
 
+      # Compaction is a WebSocket capability, so its refusals are named here.
+      # A generic gateway failure would hide which request the caller must fix.
+      {:error, reason} when reason in [:missing_model, :missing_input] ->
+        event =
+          error_event(
+            400,
+            Atom.to_string(reason),
+            "compaction_trigger requires #{String.replace(Atom.to_string(reason), "missing_", "")}."
+          )
+
+        {:push, {:text, Ankole.JSON.encode!(event)}, state}
+
+      {:error, :no_compaction_candidate} ->
+        event =
+          error_event(
+            400,
+            "no_compaction_candidate",
+            "input has no compactable items after the last compaction item."
+          )
+
+        {:push, {:text, Ankole.JSON.encode!(event)}, state}
+
+      {:error, :compact_store_required} ->
+        event =
+          error_event(
+            400,
+            "compact_store_required",
+            "previous_response_id or conversation on a compaction trigger requires store=true."
+          )
+
+        {:push, {:text, Ankole.JSON.encode!(event)}, state}
+
+      {:error, :opaque_compaction_fallback_unavailable} ->
+        event =
+          error_event(
+            502,
+            "opaque_compaction_fallback_unavailable",
+            "provider-native compaction history cannot use the local fallback."
+          )
+
+        {:push, {:text, Ankole.JSON.encode!(event)}, state}
+
+      {:error, reason}
+      when reason in [:empty_compaction_summary, :invalid_summary_shape] ->
+        event =
+          error_event(
+            502,
+            Atom.to_string(reason),
+            "upstream provider returned no usable compaction summary."
+          )
+
+        {:push, {:text, Ankole.JSON.encode!(event)}, state}
+
       {:error, _reason} ->
         event = error_event(502, "ai_gateway_request_failed", "AIGateway request failed.")
         {:push, {:text, Ankole.JSON.encode!(event)}, state}
@@ -289,10 +343,10 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
       |> prepare_request()
       |> CodexModelBinding.apply(Map.get(state, :codex_model_binding))
 
-    with {:ok, request, socket_context} <- prepare_response_create_request(state, request),
-         {:ok, active_stream} <- open_active_stream(state, request) do
-      active_stream = Map.merge(active_stream, socket_context)
-      {:ok, Map.put(state, :active_stream, active_stream)}
+    if Compaction.compaction_trigger?(request) do
+      serve_compaction_trigger(state, request)
+    else
+      open_response_create_stream(state, request)
     end
   end
 
@@ -544,6 +598,30 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
     events
     |> Enum.map(&Ankole.JSON.encode!/1)
     |> push_text_chunks(state)
+  end
+
+  defp open_response_create_stream(state, request) do
+    with {:ok, request, socket_context} <- prepare_response_create_request(state, request),
+         {:ok, active_stream} <- open_active_stream(state, request) do
+      active_stream = Map.merge(active_stream, socket_context)
+      {:ok, Map.put(state, :active_stream, active_stream)}
+    end
+  end
+
+  # AIGateway serves the compaction protocol itself, so the trigger never opens
+  # a Provider stream here. The reply is the same shape every consumer already
+  # reads: one compaction output item and one terminal.
+  defp serve_compaction_trigger(state, request) do
+    case Compaction.compact_from_trigger(state.subject_uid, request) do
+      {:ok, response} ->
+        response
+        |> Compaction.trigger_events()
+        |> Enum.map(&Ankole.JSON.encode!/1)
+        |> push_text_chunks(state)
+
+      {:error, _reason} = error ->
+        error
+    end
   end
 
   defp zero_usage do

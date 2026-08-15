@@ -7,6 +7,7 @@ defmodule Ankole.AIGateway do
   depending on caller workflow lifecycle semantics.
   """
 
+  alias Ankole.AIGateway.Compaction
   alias Ankole.AIGateway.Conversations
   alias Ankole.AIGateway.CredentialAttempts
   alias Ankole.AIGateway.Events
@@ -48,6 +49,20 @@ defmodule Ankole.AIGateway do
   def create_response(subject_uid, request, opts) when is_map(request) do
     request = normalize_request_keys(request)
 
+    # The trigger is a request item, not a transport event, so every transport
+    # answers it the same way. AIGateway owns it on all of them, which is also
+    # why it never reaches a Provider adapter by itself.
+    if Compaction.compaction_trigger?(request) do
+      with {:ok, body} <- Compaction.compact_from_trigger(subject_uid, request),
+           do: {:ok, %{body: body}}
+    else
+      create_model_response(subject_uid, request, opts)
+    end
+  end
+
+  def create_response(_subject_uid, _request, _opts), do: {:error, :invalid_request_body}
+
+  defp create_model_response(subject_uid, request, opts) do
     with :ok <- reject_http_stateful_fields(request),
          {:ok, %{runtime: runtime, spec: prepared_request, driver: driver}} <-
            ResponsesPreparation.prepare(
@@ -67,8 +82,6 @@ defmodule Ankole.AIGateway do
       {:ok, response}
     end
   end
-
-  def create_response(_subject_uid, _request, _opts), do: {:error, :invalid_request_body}
 
   @doc """
   Returns the full output text of a completed response body, or an error.
@@ -254,16 +267,6 @@ defmodule Ankole.AIGateway do
   def retrieve_response(subject_uid, response_id) do
     StatefulLifecycle.retrieve_response(subject_uid, response_id)
   end
-
-  @doc """
-  Creates one manual stateful compaction response.
-  """
-  @spec compact_response(String.t(), map()) :: {:ok, %{body: map()}} | {:error, term()}
-  def compact_response(subject_uid, request) when is_map(request) do
-    StatefulLifecycle.compact_response(subject_uid, request)
-  end
-
-  def compact_response(_subject_uid, _request), do: {:error, :invalid_request_body}
 
   @doc false
   @spec record_tool_results(String.t(), map()) :: {:ok, %{body: map()}} | {:error, term()}

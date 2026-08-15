@@ -1,5 +1,15 @@
 # Changelog
 
+## Version 0.74.0 (2026-08-16)
+
+- Compaction now has one protocol and one owner. AIGateway answers the `compaction_trigger` item for every caller, so a Background Agent Job and a stored conversation compact the same way. The separate `/responses/compact` endpoint is gone, together with the per-Job switch that chose between the two protocols and the per-Provider request constructors that only that endpoint used; a Job frozen under the old switch keeps running.
+- Provider-native compaction moved from a per-Agent capability to the `upstream` field of the gateway compaction settings, next to the other compaction fields. An instance that had turned it on for an Agent enables it once there; the retired per-Agent switch is removed from stored Agent settings and from the Console.
+- An Agent that leaves compaction to its Provider now has that request forwarded through the same protocol instead of a retired endpoint. AIGateway reads the whole reply and checks it before the caller sees anything, and falls back to its own summary when the Provider answers with something else, unless that history already holds Provider-owned compaction state that only the Provider can read.
+- Keep a caller's `encrypted` tool-parameter declaration on any Responses provider instead of only on providers Ankole recognizes. The declaration is the caller's, the wire can carry it, and a provider that validates against a known tool schema rejects the request when it is removed. A protocol that cannot express the marker still has it emulated.
+- Forward the calling client's identity headers to every OpenAI-family provider, the way ChatGPT Subscription requests already did. A Background Agent Job reaching an upstream through an OpenAI, OpenAI-compatible, or Azure OpenAI provider now presents its real Codex originator, user agent, session, thread, and turn headers instead of arriving anonymous, which is what some upstreams read to decide service level. Headers the caller did not send are still not invented.
+- Retry a compaction summary that comes back empty or without the required headings, using the same larger output budget that a truncated summary already gets. One barren summarizer round no longer ends a Background Job at the compaction step. A summary that is still unusable after the retry reports an upstream failure instead of an invalid-request failure, and records the summarizer's response status, stop reason, and token usage so the cause is visible.
+- Decide the changelog version increment with two explicit tests in the contributor and agent guidelines: `MINOR` needs a capability that nobody had before, or a break that a person must act on; every other change is a `PATCH`, including a bug fix that users see at once.
+
 ## Version 0.73.0 (2026-08-15)
 
 - Group new observability traces by the trusted human for direct-message Turns and by the source channel for group or event Turns instead of by the Agent. Keep the Agent as separate Principal metadata, preserve session identities, and omit the user when no trusted trigger exists. Existing Observability settings remain valid, and historical traces do not change.

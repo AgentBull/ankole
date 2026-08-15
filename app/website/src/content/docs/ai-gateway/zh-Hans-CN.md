@@ -41,7 +41,6 @@ curl https://ankole.example.com/api/v1/ai-gateway/responses \
 | `POST` | `/responses` | HTTP 或 SSE | 创建响应；`"stream": true` 时走流式 |
 | `GET` | `/responses` | WebSocket | 有状态的流式响应 |
 | `GET` | `/responses/:response_id` | HTTP | 取回一个已存储的有状态响应（`resp_{uuid}`） |
-| `POST` | `/responses/compact` | HTTP | 为一段已存储会话产出压缩产物 |
 | `POST` | `/embeddings` | HTTP | 生成 embedding |
 | `POST` | `/rerank` | HTTP | 对文档重排 |
 | `POST` | `/web_search` | HTTP | 搜索网页 |
@@ -76,7 +75,7 @@ curl https://ankole.example.com/api/v1/ai-gateway/responses/resp_4f3c... \
   -H "Authorization: Bearer $AIGATEWAY_TOKEN"
 ```
 
-压缩是把一段很长的已存储历史换成较短的一段、又不丢线索的唯一工具。`POST /responses/compact` 接收的请求，输入恰好是一项压缩条目，锚定在某个 `previous_response_id` 或 `conversation` 上，返回一个压缩产物。它要求 `store: true`；省略它的请求会得到 `400`，`code: "compact_store_required"`。
+压缩是把一段很长的已存储历史换成较短的一段、又不丢线索的唯一工具。它没有自己的端点：发送输入中带 `{"type": "compaction_trigger"}` 条目的请求，AIGateway 会回一个 `compaction` 输出条目。三种传输都支持——`POST /responses` 直接返回响应体，同一个调用加 `"stream": true` 以 SSE 事件返回，WebSocket 返回同样的事件。只发触发条目时，它压缩 `previous_response_id` 或 `conversation` 指定的已存储会话，回包带着可以继续的检查点 id；连同历史一起发送时，它压缩你发来的内容。
 
 ## provider 路由
 

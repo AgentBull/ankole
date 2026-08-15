@@ -57,7 +57,6 @@ defmodule Ankole.AIGateway.Providers.AzureOpenAI do
       upstream(:sse)
       api_resolver(:openai_chat_completions)
       prepare(:prepare_language_model)
-      prepare_compaction(:prepare_compaction)
       supports_parallel_tool_calls()
     end
   end
@@ -78,6 +77,9 @@ defmodule Ankole.AIGateway.Providers.AzureOpenAI do
       |> UniversalAIRequest.new(path, Providers.openai_family_api_resolver(responses?),
         include_model: include_model?
       )
+      # The caller's own identity goes first; every header this provider owns
+      # overwrites it below.
+      |> UniversalAIRequest.put_client_identity_headers(ctx)
       |> put_auth(ctx)
       |> ReasoningEffort.put_provider_options(ctx,
         target: if(responses?, do: :reasoning, else: :reasoning_effort)
@@ -85,17 +87,6 @@ defmodule Ankole.AIGateway.Providers.AzureOpenAI do
       |> OpenAIRequestOptions.put_provider_options(
         if(responses?, do: :responses, else: :chat_completions)
       )
-    end
-  end
-
-  @doc "Builds the standalone compact request for an Azure Responses endpoint."
-  def prepare_compaction(ctx) do
-    if Providers.responses_endpoint?(ctx) do
-      with %UniversalAIRequest{} = request <- prepare_language_model(%{ctx | stream?: false}) do
-        UniversalAIRequest.put_operation(request, :responses_compact)
-      end
-    else
-      {:error, :responses_compaction_not_applicable}
     end
   end
 

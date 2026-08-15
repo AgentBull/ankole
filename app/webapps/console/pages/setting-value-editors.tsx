@@ -29,18 +29,22 @@ import { ResourceSearch } from '../console-list-page'
 import { localizedJSONText } from '../state/agent-library-capabilities'
 import { matchesResourceSearch } from '../state/resource-search'
 import {
+  AI_GATEWAY_COMPACTION_FIELDS,
+  aiGatewayCompactionDraft,
   BRAIN_DREAMING_FIELDS,
   brainDreamingDraft,
   brainEmbeddingAgentOptions,
   brainEmbeddingDraft,
   pluginIDsFromDraft,
   pluginRestartRequired,
+  serializeAIGatewayCompactionDraft,
   serializeBrainDreamingDraft,
   serializeBrainEmbeddingDraft,
   settingEditorKind,
   settingStringDraft,
   togglePluginID,
   unknownPluginIDs,
+  type AIGatewayCompactionDraft,
   type BrainDreamingDraft,
   type BrainDreamingEnabled,
   type BrainDreamingField,
@@ -62,6 +66,7 @@ export type SettingValueEditorProps = {
 }
 
 const SPECIFIC_SETTING_EDITORS: Partial<Record<SettingEditorKind, ComponentType<SettingValueEditorProps>>> = {
+  aiGatewayCompaction: AIGatewayCompactionEditor,
   brainDreaming: BrainDreamingEditor,
   brainEmbedding: BrainEmbeddingEditor,
   plugins: PluginsEnabledIDsEditor,
@@ -159,6 +164,42 @@ function ObjectSettingEditor({ error, item, onChange, value }: SettingValueEdito
       value={value}
       onChange={onChange}
     />
+  )
+}
+
+function AIGatewayCompactionEditor({ onChange, value }: SettingValueEditorProps) {
+  const { t } = useTranslation()
+  const draft = aiGatewayCompactionDraft(value)
+  const update = (patch: Partial<AIGatewayCompactionDraft>) =>
+    onChange(serializeAIGatewayCompactionDraft({ ...draft, ...patch }))
+
+  return (
+    <div className="grid gap-6">
+      {AI_GATEWAY_COMPACTION_FIELDS.map(field => (
+        <LabeledField
+          key={field.key}
+          label={t(`console.settings.compaction_field_${field.key}`)}
+          description={t(`console.settings.compaction_field_${field.key}_hint`, {
+            max: field.max.toLocaleString(),
+            min: field.min.toLocaleString()
+          })}>
+          <Input
+            max={field.max}
+            min={field.min}
+            step={field.step ?? 1}
+            type="number"
+            value={draft.numbers[field.key] ?? ''}
+            onChange={event => update({ numbers: { ...draft.numbers, [field.key]: event.target.value } })}
+          />
+        </LabeledField>
+      ))}
+
+      <LabeledField
+        label={t('console.settings.compaction_upstream')}
+        description={t('console.settings.compaction_upstream_hint')}>
+        <Switch checked={draft.upstream} onCheckedChange={checked => update({ upstream: checked === true })} />
+      </LabeledField>
+    </div>
   )
 }
 

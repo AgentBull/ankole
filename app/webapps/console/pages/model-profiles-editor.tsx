@@ -169,11 +169,8 @@ export function ModelProfilesEditor({
     onError: () => onChanged()
   })
 
-  // The compaction switch lives on the light profile card because that profile
-  // writes the summary whenever the primary model's provider does not compact.
   const providerHostedCapability = (profile: ProfileName) => {
     if (profile === 'web_search' || profile === 'image_generate') return profile
-    if (profile === 'light') return 'compaction' as const
     return undefined
   }
 
@@ -186,9 +183,7 @@ export function ModelProfilesEditor({
       pending: saveProviderHosted.isPending,
       label: t(`console.models.provider_hosted_${capability}_label`),
       description: t(`console.models.provider_hosted_${capability}_description`),
-      // The light profile still writes the summary whenever the primary
-      // model's provider has no native compact operation, so it stays editable.
-      replacesProfile: capability !== 'compaction',
+      replacesProfile: true,
       onChange: (next: boolean) =>
         saveProviderHosted.mutate({
           path: { agent_uid: agent.uid },

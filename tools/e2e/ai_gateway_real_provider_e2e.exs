@@ -670,7 +670,7 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
   end
 
   defp case_openai_compaction_round_trip(agent) do
-    {:ok, _config} = Ankole.AIGateway.Compaction.put_config(%{"prefer_upstream" => true})
+    {:ok, _config} = Ankole.AIGateway.Compaction.put_config(%{"upstream" => true})
 
     try do
       token = mint_agent_token!(agent.uid)
@@ -678,7 +678,7 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
       compact =
         token
         |> authed_conn()
-        |> post("/api/v1/ai-gateway/responses/compact", %{
+        |> post("/api/v1/ai-gateway/responses", %{
           "model" => "primary",
           "store" => false,
           "input" => [
@@ -691,7 +691,8 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
               "type" => "message",
               "role" => "assistant",
               "content" => "I will remember the verification code."
-            }
+            },
+            %{"type" => "compaction_trigger"}
           ]
         })
         |> json_response!(200)

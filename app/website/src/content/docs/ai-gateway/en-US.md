@@ -41,7 +41,6 @@ All routes live under `/api/v1/ai-gateway`. The transport an endpoint uses is pa
 | `POST` | `/responses` | HTTP or SSE | Create a response; stream when `"stream": true` |
 | `GET` | `/responses` | WebSocket | Stateful streaming responses |
 | `GET` | `/responses/:response_id` | HTTP | Retrieve a stored stateful response (`resp_{uuid}`) |
-| `POST` | `/responses/compact` | HTTP | Produce a compaction artifact for a stored conversation |
 | `POST` | `/embeddings` | HTTP | Create embeddings |
 | `POST` | `/rerank` | HTTP | Rerank documents |
 | `POST` | `/web_search` | HTTP | Search the web |
@@ -76,7 +75,7 @@ curl https://ankole.example.com/api/v1/ai-gateway/responses/resp_4f3c... \
   -H "Authorization: Bearer $AIGATEWAY_TOKEN"
 ```
 
-Compaction is the one tool that trades a long stored history for a shorter one without losing the thread. `POST /responses/compact` takes a request whose input is exactly one compaction item, anchored on a `previous_response_id` or `conversation`, and returns a compaction artifact. It requires `store: true`; a request that omits it gets `400` with `code: "compact_store_required"`.
+Compaction is the one tool that trades a long stored history for a shorter one without losing the thread. It has no endpoint of its own: send a request whose input carries a `{"type": "compaction_trigger"}` item, and AIGateway answers with one `compaction` output item. Every transport works — `POST /responses` returns the body, the same call with `"stream": true` returns the reply as SSE events, and the WebSocket returns the same events. Send only the trigger and it compacts the stored conversation named by `previous_response_id` or `conversation`, and the reply carries the checkpoint id to continue from. Send history alongside the trigger and it compacts what you sent.
 
 ## Provider routing
 

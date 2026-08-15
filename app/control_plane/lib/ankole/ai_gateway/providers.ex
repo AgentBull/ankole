@@ -330,30 +330,6 @@ defmodule Ankole.AIGateway.Providers do
     do: build_prepared_request(runtime, :language_model, request, opts)
 
   @doc """
-  Builds a provider-owned standalone Responses compact request.
-
-  The callback is a request constructor. A successful construction does not
-  mean that the configured upstream implements the endpoint.
-  """
-  @spec build_compaction_request(map(), map(), keyword()) :: {:ok, map()} | {:error, term()}
-  def build_compaction_request(runtime, request, opts \\ []) do
-    with {:ok, provider} <- fetch(Map.get(runtime, "provider_kind")),
-         {:ok, capability} <- ProviderDefinition.capability(provider, :language_model),
-         function_name when is_atom(function_name) <- capability.prepare_compaction,
-         {:ok, ctx} <- PrepareContext.build(provider, :language_model, runtime, request, opts),
-         {:ok, prepared} <- call_prepare_function(provider.module, function_name, ctx) do
-      rebuild = fn next_runtime, request_override ->
-        build_compaction_request(next_runtime, request_override || request, opts)
-      end
-
-      {:ok, CredentialAttempts.attach(prepared, runtime, rebuild, request)}
-    else
-      nil -> {:error, :provider_compaction_constructor_unavailable}
-      {:error, _reason} = error -> error
-    end
-  end
-
-  @doc """
   Returns the effective language-model resolver for one resolved runtime.
 
   OpenAI-family providers select the resolver from their effective endpoint.
@@ -681,20 +657,15 @@ defmodule Ankole.AIGateway.Providers do
   defp validate_plugin_capabilities(%ProviderDefinition{capabilities: capabilities}),
     do: {:error, {:invalid_ai_gateway_capabilities, capabilities}}
 
-  defp valid_plugin_capability?(%Capability{
-         kind: kind,
-         prepare: prepare,
-         prepare_compaction: prepare_compaction
-       })
-       when kind in @capability_kinds and is_atom(prepare) and
-              (is_nil(prepare_compaction) or is_atom(prepare_compaction)),
+  defp valid_plugin_capability?(%Capability{kind: kind, prepare: prepare})
+       when kind in @capability_kinds and is_atom(prepare),
        do: true
 
   defp valid_plugin_capability?(_capability), do: false
 
   defp validate_plugin_prepare_callbacks(module, %ProviderDefinition{capabilities: capabilities}) do
     Enum.reduce_while(capabilities, :ok, fn capability, :ok ->
-      callbacks = [capability.prepare, capability.prepare_compaction] |> Enum.reject(&is_nil/1)
+      callbacks = [capability.prepare] |> Enum.reject(&is_nil/1)
 
       case Enum.find_value(callbacks, :ok, fn callback ->
              case validate_module_callback(module, callback, 1) do

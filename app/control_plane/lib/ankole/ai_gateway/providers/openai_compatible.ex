@@ -49,7 +49,6 @@ defmodule Ankole.AIGateway.Providers.OpenAICompatible do
       upstream(:sse)
       api_resolver(:openai_chat_completions)
       prepare(:prepare_language_model)
-      prepare_compaction(:prepare_compaction)
     end
   end
 
@@ -70,6 +69,7 @@ defmodule Ankole.AIGateway.Providers.OpenAICompatible do
           method: "GET",
           upstream: :websocket_text
         )
+        |> UniversalAIRequest.put_client_identity_headers(ctx)
         |> UniversalAIRequest.bearer_auth()
         |> ReasoningEffort.put_provider_options(ctx, target: :reasoning)
         |> OpenAIRequestOptions.put_provider_options(:responses)
@@ -77,6 +77,7 @@ defmodule Ankole.AIGateway.Providers.OpenAICompatible do
       {true, _stream?, _transport} ->
         ctx
         |> UniversalAIRequest.new("responses", :openai_responses)
+        |> UniversalAIRequest.put_client_identity_headers(ctx)
         |> UniversalAIRequest.bearer_auth()
         |> ReasoningEffort.put_provider_options(ctx, target: :reasoning)
         |> OpenAIRequestOptions.put_provider_options(:responses)
@@ -84,21 +85,10 @@ defmodule Ankole.AIGateway.Providers.OpenAICompatible do
       {false, _stream?, _transport} ->
         ctx
         |> UniversalAIRequest.new("chat/completions", :openai_chat_completions)
+        |> UniversalAIRequest.put_client_identity_headers(ctx)
         |> UniversalAIRequest.bearer_auth()
         |> ReasoningEffort.put_provider_options(ctx, target: :reasoning_effort)
         |> OpenAIRequestOptions.put_provider_options(:chat_completions)
-    end
-  end
-
-  @doc "Builds the standalone compact request for a compatible Responses endpoint."
-  def prepare_compaction(ctx) do
-    if Providers.responses_endpoint?(ctx) do
-      ctx
-      |> Map.put(:stream?, false)
-      |> prepare_language_model()
-      |> UniversalAIRequest.put_operation(:responses_compact)
-    else
-      {:error, :responses_compaction_not_applicable}
     end
   end
 

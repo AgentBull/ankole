@@ -4,7 +4,7 @@ import { AIGatewayAPIKeyResponseSchema } from '../src/fabric/generated/ankole/ru
 import type { TurnStart } from '../src/lanes/actor_lane'
 import { resolveCodexRuntimeConfig } from '../src/core/codex-runner/runtime-config'
 
-function turnStart(modelRef: TurnStart['model_ref'], remoteCompactionV2 = false): TurnStart {
+function turnStart(modelRef: TurnStart['model_ref']): TurnStart {
   return {
     workspace_id: 10_000,
     turn: {
@@ -21,8 +21,7 @@ function turnStart(modelRef: TurnStart['model_ref'], remoteCompactionV2 = false)
       source_event_id: 'background-agent-job-1000',
       payload_json: {}
     },
-    model_ref: modelRef,
-    request_context: { codex: { remote_compaction_v2: remoteCompactionV2 } }
+    model_ref: modelRef
   }
 }
 
@@ -82,28 +81,8 @@ describe('@ankole/agent-computer Codex runtime config', () => {
         },
         modelReasoningEffort: 'xhigh',
         contextLength: 120_000
-      },
-      remoteCompactionV2: false
+      }
     })
-  })
-
-  it('uses the control plane frozen Codex compaction decision', async () => {
-    const runtime = await resolveCodexRuntimeConfig({
-      turnStart: turnStart(
-        {
-          profile: 'coding',
-          provider_id: 'chatgpt-subscription',
-          provider_kind: 'chatgpt_subscription',
-          model: 'gpt-5.6-sol',
-          input_modalities: ['text']
-        },
-        true
-      ),
-      agentUID: 'agent-1',
-      requestAIGatewayAPIKey: async () => create(AIGatewayAPIKeyResponseSchema, {})
-    })
-
-    expect(runtime.remoteCompactionV2).toBe(true)
   })
 
   it('keeps a no-reasoning Job binding visible to Codex', async () => {

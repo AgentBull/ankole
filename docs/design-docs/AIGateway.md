@@ -92,7 +92,7 @@ path can accept an image.
 
 Agent Computer puts the real model in the Job project configuration and selects
 the `ankole_aigateway` Codex provider. The provider name is `OpenAI` because
-Codex 0.147 uses that name to enable its standalone remote-compaction path. The
+Codex 0.147 uses that name to enable its remote-compaction protocol. The
 provider ID remains `ankole_aigateway`. Agent Computer sends the frozen binding
 in the `x-ankole-aigateway-model-binding` header. AIGateway applies this binding
 before provider resolution. The binding replaces a conflicting Codex model,
@@ -321,8 +321,8 @@ The upstream ChatGPT transport always uses `store=false` and requests
 main Agent's public lifecycle: a main Agent Response still uses AIGateway
 `store=true` state and local tool-result journals. AIGateway stores and replays
 the encrypted reasoning content and does not use upstream response storage.
-When upstream compaction is enabled, a separate compact operation can use the
-account-scoped Codex `/responses/compact` endpoint.
+When upstream compaction is enabled, the compaction trigger is forwarded to the
+account-scoped Codex Responses endpoint.
 
 The provider prepares the Codex protocol as follows:
 
@@ -359,6 +359,15 @@ Job process. Thus, Codex creates the Job identity with the Codex CLI prefix,
 while the app-server client name stays `ankole_agent_computer`. Enterprise
 access-token requests omit the subscription account and Codex identity headers.
 
+AIGateway forwards the caller's own identity headers to the Provider whenever
+the caller sent them: originator, user agent, session, thread, request, window,
+and Codex turn headers. A caller that sends none needs no rule, and a caller
+that sends them is asking for its identity to reach the model, which some
+upstreams use to decide service level. This is a pass-through on every
+OpenAI-family provider and every transport, because a WebSocket upgrade carries
+these as ordinary headers too. Provider-owned values, such as the ChatGPT
+Subscription session and account identity, still overwrite them.
+
 Responses Lite keeps its compact request and response shapes for ChatGPT. For
 other providers, AIGateway restores the normal Responses shape before provider
 preparation. A real Codex client keeps Tool Search and programmatic tool calls
@@ -380,7 +389,6 @@ The current routes are:
 - `GET /responses`
 - `GET /responses/:response_id`
 - `POST /responses`
-- `POST /responses/compact`
 - `POST /embeddings`
 - `POST /rerank`
 - `POST /web_search`
@@ -737,11 +745,37 @@ deletion removes only the rows that AIGateway validated.
 
 ## Shorten Long History
 
-Manual compaction uses `POST /responses/compact`.
-Stateful compaction requires `store=true` when it uses a conversation or Response anchor.
-The Main Agent `/compress` command uses the same local checkpoint rebuild path.
-It is the manual recovery path when automatic replay recovery does not match a
-Provider failure.
+Compaction has one protocol and one owner. Every caller asks for it the same
+way: a Responses request whose input carries a `compaction_trigger` item.
+AIGateway answers that request itself and never forwards the item alone, so no
+caller depends on a Provider understanding it. The reply is a completed
+Response carrying exactly one `compaction` output item.
+
+The trigger is a request item, not a transport event, so every transport
+answers it: HTTP returns the Response body, SSE and the WebSocket render the
+same reply as events. It is an OpenAI-family extension rather than part of the
+base OpenResponses request, and AIGateway implements it rather than passing it
+on, so a caller does not have to know which Provider is behind the selector.
+
+Compaction adds; it does not delete. A stateful compaction writes an artifact
+and a checkpoint row, and the summarized rows stay in the conversation. Normal
+reads stop at the checkpoint, while recovery walks past it to rebuild from raw
+predecessors, which is what makes a Provider binding change survivable. Both
+backends write the same two records: the local backend stores its summary, and
+the pass-through backend stores the Provider output with its binding.
+
+A stateful caller compacts the stored conversation, because AIGateway holds
+that history and the caller sends only its current turn; its reply carries the
+checkpoint id, so the next turn continues from it. A stateless caller compacts
+the input it sent, because only that caller holds its history. Stateful
+compaction requires `store=true` when it uses a conversation or Response
+anchor. The Main Agent `/compress` command uses the same local checkpoint
+rebuild path. It is the manual recovery path when automatic replay recovery
+does not match a Provider failure.
+
+When a caller sends no trigger, the history's token total decides. AIGateway
+owns that total and compacts on its own threshold, so no caller has to watch
+its own context to stay inside it.
 
 The `ai_gateway.compaction` AppConfigure value has these fields:
 
@@ -750,35 +784,39 @@ The `ai_gateway.compaction` AppConfigure value has these fields:
 - `tail_rows` defaults to `2` and controls only local retention.
 - `user_message_budget_tokens` defaults to `20000` and controls only local
   user-message retention.
+- `upstream` defaults to `false` and selects the pass-through backend.
 
-Whether a Provider's own compact operation runs first is the Agent's
-`compaction` provider-hosted capability, stored with its `web_search` and
-`image_generate` switches and set on the light profile card. It defaults to
-`false`, because Ankole can always compact locally, and a Provider without the
-native operation would make every compaction pay a failed round trip before the
-same local summary runs. When it is `true`, Main Agent automatic compaction,
-Main Agent `/compress`, and standalone `/responses/compact` first try the
-current Provider's standalone compact operation. It also enables Codex v2
-compaction for a newly admitted Background Job only when that Job's frozen
-Provider kind is `chatgpt_subscription`.
+Under that one protocol there are two backends. The local backend writes the
+summary with the Agent's light profile. The pass-through backend forwards the
+trigger to the Provider and returns the Provider's own compaction item. The `upstream` field of the
+`ai_gateway.compaction` settings selects between them, next to every other
+compaction field. It defaults to `false`, because Ankole can always compact
+locally, and because a Provider-owned compaction item binds the rest of that
+history to the same upstream. It is an instance decision, not a per-Agent
+capability: one Ankole instance serves one enterprise, and the binding it
+creates outlives the Agent that triggered it.
 
-The standalone upstream path applies only to an effective Responses wire for
-`openai`, `openai_compatible`, `azure_openai`, or `chatgpt_subscription`. A Chat
-Completions wire uses local compaction without a probe. AIGateway sends a real
-`POST /responses/compact` request, so that request is both the capability probe
-and the requested operation. Main Agent compaction always uses this standalone
-path. Background Jobs also use it unless their frozen configuration enables the
-ChatGPT Subscription v2 path.
+Pass-through needs one structural precondition: an effective Responses wire,
+because no other protocol carries this item. AIGateway does not judge whether
+that upstream implements the item. It sends the request and reads the reply; an
+upstream that cannot answer falls back to the local summary below, and a stable
+unsupported result is cached. This decision is made per request, not frozen with
+the Job, so a Provider failover cannot leave it pointing at a Provider that
+never made it.
 
-The v2 path is a normal Responses request whose last input item is
-`compaction_trigger`. AIGateway forwards the request and its provider-native
-`compaction` output without converting it to a standalone request. It enables
-this Codex mode only for `chatgpt_subscription`, whose protocol contract is
-known. OpenAI, OpenAI-compatible, and Azure OpenAI Jobs keep
-`remote_compaction_v2=false` even if a concrete endpoint might accept the
-trigger; their support is not inferred from an OpenAI-compatible surface.
+A wrong-shaped Provider reply never reaches the caller. AIGateway collects the
+whole response and requires exactly one `compaction` output item before any of
+it enters the public stream. When that check fails, AIGateway serves the same
+request with its own summary instead. It can only do that while the history
+holds no Provider-owned compaction item, because this summarizer cannot read
+one; a history that already holds one reports the failure rather than inventing
+a summary.
 
-AIGateway keeps one negative, node-local ETS cache for the standalone path. Its
+Only a stateless caller can be forwarded, because it sends the history the
+Provider must compact. A stateful caller's history lives here, so its
+Provider-native path stays inside conversation compaction.
+
+AIGateway keeps one negative, node-local ETS cache for upstream compaction. Its
 key contains the Provider row UUID, Provider row update time, and resolved
 model. An HTTP 404 or 405 result stores `unsupported` for one hour. A Provider
 can also map a stable, structured unsupported error to the same result. A cache
@@ -787,8 +825,8 @@ limits, timeouts, conflicts, 5xx responses, transport failures, malformed
 responses, and empty output use local compaction for that attempt but do not
 populate the cache. A process restart, Provider update, or model change causes
 a new probe. Concurrent cold probes can each receive an unsupported response.
-The cache does not apply to v2: ChatGPT Subscription support is a static Provider
-contract, and a v2 failure remains a normal turn failure after Codex retries it.
+The cache holds one entry per Provider row and model, so it applies to every
+Provider kind that reaches this path.
 
 The local summary always uses the Agent's `light` profile, whatever model the
 compacted conversation itself used. The summarizer is internal work with its
@@ -822,10 +860,10 @@ Version 3 keeps this binding check because its provider-native output is one
 opaque value that AIGateway cannot project item by item. Reactive replay
 recovery does not replace this check.
 
-The standalone endpoint returns version 3 output without an Ankole handle. The
-caller must continue with a compatible Responses provider. If standalone input
-already contains provider-native compaction state and upstream compaction is
-disabled or fails, AIGateway returns HTTP 502 with
+A stateless trigger returns version 3 output without an Ankole handle. The
+caller must continue with a compatible Responses provider. If its input already
+contains provider-native compaction state and upstream compaction is disabled or
+fails, AIGateway returns HTTP 502 with
 `opaque_compaction_fallback_unavailable`. It cannot create a correct local
 summary from provider ciphertext.
 
@@ -1199,15 +1237,21 @@ schema unchanged and leaves those arguments to the provider, because emulating a
 capability the provider already has would replace the real contract with a
 different one.
 
-A Codex request through any Responses endpoint keeps the marker for the same
-reason. Codex declares the marker in its official tool schema, and a
-Responses-compatible upstream validates a Codex request against that schema, so
-removing the marker would send a schema the provider rejects. This rule decides
-only who owns the marker and the arguments; it does not move tool execution,
-which stays where the provider-and-client decision above puts it.
+Every Responses wire keeps the marker, whoever calls. The marker is the
+caller's own declaration that a Provider owns those fields, and this wire can
+carry that declaration unchanged, so AIGateway does not decide for the caller.
+Nothing in the marker or its value says whether the upstream understands it: a
+client declares it once for a whole tool set, and the first request must be
+built before any value exists. What is known is the failure that was observed:
+a Codex-native upstream validates the declaration against the tool schema it
+already knows, and removing the marker makes that comparison fail. This rule
+decides only who owns the marker and the arguments; it does not move tool
+execution, which stays where the provider-and-client decision above puts it.
 
-Every other request uses an adapter that removes the marker and puts an
-AIGateway opaque value in the public contract instead. The adapter decodes that
+A wire that cannot express the marker uses an adapter that removes it and puts
+an AIGateway opaque value in the public contract instead. That is what the
+emulation is for: a caller's declaration keeps working against a Provider whose
+protocol has no such field. The adapter decodes that
 value in replayed function calls and Agent messages, so the provider receives
 its normal schema and plain parameter values. The AIGateway value is
 self-describing through its versioned prefix and does not need the tool

@@ -11,6 +11,7 @@ defmodule AnkoleWeb.AIGatewayController do
   alias Ankole.AIGateway
   alias Ankole.AIGateway.CodexModelBinding
   alias Ankole.AIGateway.CodexModels
+  alias Ankole.AIGateway.Compaction
   alias Ankole.AIGateway.FailureDiagnostics
   alias Ankole.AIGateway.OpenAIError
   alias Ankole.AIGateway.RequestContext
@@ -37,11 +38,21 @@ defmodule AnkoleWeb.AIGatewayController do
     request_context = RequestContext.from_headers(conn.req_headers, "http")
 
     with {:ok, request} <- bind_codex_request(conn, request) do
-      case AIGateway.stream_requested?(request) do
-        true ->
+      cond do
+        # The trigger is a request item, so it must not reach the provider path
+        # on any transport. Streaming renders the same reply as events.
+        Compaction.compaction_trigger?(request) ->
+          compaction_trigger_response(
+            conn,
+            subject_uid,
+            request,
+            AIGateway.stream_requested?(request)
+          )
+
+        AIGateway.stream_requested?(request) ->
           stream_response(conn, subject_uid, request, request_context)
 
-        false ->
+        true ->
           case AIGateway.create_response(subject_uid, request,
                  request_context: request_context,
                  subject_type: subject_type
@@ -77,32 +88,6 @@ defmodule AnkoleWeb.AIGatewayController do
 
     case AIGateway.retrieve_response(subject_uid, response_id) do
       {:ok, %{body: body}} -> json(conn, body)
-      {:error, reason} -> error(conn, reason)
-    end
-  end
-
-  operation(:compact_response,
-    summary: "Create a stateful compaction response",
-    request_body:
-      {"OpenResponses compact request", "application/json", @json_object, required: true},
-    responses: [
-      ok: {"OpenResponses response", "application/json", @json_object},
-      bad_request: {"Invalid compact request", "application/json", @json_object},
-      bad_gateway: {"Compaction fallback unavailable", "application/json", @json_object},
-      unauthorized: {"Unauthorized", "application/json", @json_object}
-    ]
-  )
-
-  def compact_response(conn, _params) do
-    request = conn.body_params || %{}
-    subject_uid = conn.assigns.current_ai_gateway_subject_uid
-
-    with {:ok, request} <- bind_codex_request(conn, request) do
-      case AIGateway.compact_response(subject_uid, request) do
-        {:ok, %{body: body}} -> json(conn, body)
-        {:error, reason} -> error(conn, reason)
-      end
-    else
       {:error, reason} -> error(conn, reason)
     end
   end
@@ -257,6 +242,31 @@ defmodule AnkoleWeb.AIGatewayController do
     json(conn, body)
   end
 
+  defp compaction_trigger_response(conn, subject_uid, request, streaming?) do
+    case Compaction.compact_from_trigger(subject_uid, request) do
+      {:ok, body} when not streaming? ->
+        json(conn, body)
+
+      {:ok, body} ->
+        conn =
+          conn
+          |> put_resp_header("content-type", "text/event-stream")
+          |> put_resp_header("cache-control", "no-cache")
+          |> send_chunked(200)
+
+        chunks =
+          Enum.map(Compaction.trigger_events(body), &encode_sse_event/1) ++ [done_sse_chunk()]
+
+        case chunk_all(conn, chunks) do
+          {:ok, conn} -> conn
+          {:error, conn} -> conn
+        end
+
+      {:error, reason} ->
+        error(conn, reason)
+    end
+  end
+
   defp stream_response(conn, subject_uid, request, request_context) do
     case AIGateway.open_sse_stream(subject_uid, request,
            request_context: request_context,
@@ -407,6 +417,12 @@ defmodule AnkoleWeb.AIGatewayController do
       {502, "opaque_compaction_fallback_unavailable",
        "provider-native compaction history cannot use the local fallback"}
 
+  # The caller's request is well formed: the summarizer produced nothing usable
+  # after its retry. That is an upstream fault, so it must not read as a client
+  # error that the caller could fix by changing the request.
+  defp error_tuple(reason) when reason in [:empty_compaction_summary, :invalid_summary_shape],
+    do: {502, Atom.to_string(reason), "upstream provider returned no usable compaction summary"}
+
   defp error_tuple(:no_compaction_candidate),
     do:
       {400, "no_compaction_candidate",
@@ -415,7 +431,7 @@ defmodule AnkoleWeb.AIGatewayController do
   defp error_tuple(:compact_store_required),
     do:
       {400, "compact_store_required",
-       "previous_response_id or conversation on /responses/compact requires store=true"}
+       "previous_response_id or conversation on a compaction trigger requires store=true"}
 
   defp error_tuple(:invalid_anchor),
     do:

@@ -475,21 +475,16 @@ Responses sends the native `web_search` declaration.
 
 For AIGateway, the Agent Codex Home selects the `ankole_aigateway` provider.
 Its configured name is `OpenAI`, which tells Codex 0.147 that this hop can carry
-remote compaction. The provider ID does not change. The Job's frozen runtime
-projection then sets `remote_compaction_v2=true` only when the owning Agent
-leaves compaction to its Provider and the resolved Provider kind is
-`chatgpt_subscription`. Manual and automatic compaction for that case remain on
-the normal Responses transport: Codex appends `compaction_trigger`, AIGateway
-forwards it, and the ChatGPT Subscription Provider returns its `compaction`
-item. AIGateway does not intercept this v2 exchange or probe it through
-`/responses/compact`.
+remote compaction. The provider ID does not change. Every Job uses that one
+protocol: Codex appends `compaction_trigger` to a normal Responses request and
+AIGateway answers it. A Job no longer carries a switch between two compaction
+protocols, and a projection frozen while that switch existed keeps running
+because the retired value is read and discarded.
 
-Every other Job sets `remote_compaction_v2=false`. Codex sends those compact
-requests to AIGateway `POST /responses/compact`, including Jobs backed by
-OpenAI, OpenAI-compatible, or Azure OpenAI Providers. A Job that predates this
-projection field also stays on that v1 path. Changing the Agent's compaction
-switch affects new Job projections and respawns, not an admitted Job. In both
-modes, `model_auto_compact_token_limit` stays at `100000`.
+Whether AIGateway answers with its own summary or forwards the trigger to the
+Provider is the `upstream` field of the instance `ai_gateway.compaction`
+settings, not a Job setting, and it is read per request.
+`model_auto_compact_token_limit` stays at `100000`.
 
 The Job configuration contains the real Codex model name and its supported
 reasoning effort. The runner never sends a logical profile name to Codex. It
@@ -510,19 +505,14 @@ the same provider type and model ID, then persists that completed binding. If
 that identity cannot be proved, the legacy Job remains text-only; it never
 borrows visual capability from a different model.
 
-For the v1 path, an Agent that leaves compaction to its Provider makes AIGateway
-try the Job's frozen Responses Provider and model before it uses local
-compaction. Unsupported and transient failures use local compaction while the
-input remains readable. A provider-native compact output is opaque. If a later
-v1 compact request cannot use the same upstream path, AIGateway cannot summarize
-that ciphertext and returns HTTP 502
-`opaque_compaction_fallback_unavailable`. The Job must continue with a
-compatible Provider, or a caller must start a new Job from readable context.
-
-The ChatGPT Subscription v2 path has no AIGateway local fallback because it is
-a normal Responses turn, not a standalone compact operation. Codex applies its
-normal stream retry policy, and a remaining upstream failure fails that compact
-turn. AIGateway does not cache a v2 failure as an unsupported capability.
+When the instance leaves compaction to the Provider, AIGateway tries the Job's
+frozen Responses Provider and model before it uses local compaction.
+Unsupported and transient failures use local compaction while the input remains
+readable. A provider-native compact output is opaque. If a later compact
+request cannot use the same upstream path, AIGateway cannot summarize that
+ciphertext and returns HTTP 502 `opaque_compaction_fallback_unavailable`. The
+Job must continue with a compatible Provider, or a caller must start a new Job
+from readable context.
 
 Worker placement selects the normal owner. The per-Agent `flock` on each
 Worker-local Codex Home is the final same-Worker exclusion boundary. An

@@ -898,10 +898,9 @@ export type ModelProfilesResponse = {
 /**
  * ProviderHostedCapabilities
  *
- * Capabilities the Agent leaves to its language-model Provider. A capability set to true declares no Ankole tool or capability profile, and the Agent has no such capability when its Provider cannot run it. `compaction` is the exception: the primary model's Provider compacts history with its native operation when it has one, and the light profile writes the summary when it does not.
+ * Capabilities the Agent leaves to its language-model Provider. A capability set to true declares no Ankole tool or capability profile, and the Agent has no such capability when its Provider cannot run it.
  */
 export type ProviderHostedCapabilities = {
-  compaction: boolean
   image_generate: boolean
   web_search: boolean
 }
@@ -4697,54 +4696,6 @@ export type AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginRespo
 
 export type AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginResponse =
   AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginResponses[keyof AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginResponses]
-
-export type AnkoleWebAiGatewayControllerCompactResponseData = {
-  /**
-   * OpenResponses compact request
-   */
-  body: {
-    [key: string]: unknown
-  }
-  path?: never
-  query?: never
-  url: '/api/v1/ai-gateway/responses/compact'
-}
-
-export type AnkoleWebAiGatewayControllerCompactResponseErrors = {
-  /**
-   * Invalid compact request
-   */
-  400: {
-    [key: string]: unknown
-  }
-  /**
-   * Unauthorized
-   */
-  401: {
-    [key: string]: unknown
-  }
-  /**
-   * Compaction fallback unavailable
-   */
-  502: {
-    [key: string]: unknown
-  }
-}
-
-export type AnkoleWebAiGatewayControllerCompactResponseError =
-  AnkoleWebAiGatewayControllerCompactResponseErrors[keyof AnkoleWebAiGatewayControllerCompactResponseErrors]
-
-export type AnkoleWebAiGatewayControllerCompactResponseResponses = {
-  /**
-   * OpenResponses response
-   */
-  200: {
-    [key: string]: unknown
-  }
-}
-
-export type AnkoleWebAiGatewayControllerCompactResponseResponse =
-  AnkoleWebAiGatewayControllerCompactResponseResponses[keyof AnkoleWebAiGatewayControllerCompactResponseResponses]
 
 export type AnkoleWebWorkerEnvControllerDecryptForAgentData = {
   body?: never

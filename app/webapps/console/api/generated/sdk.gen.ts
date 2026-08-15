@@ -76,9 +76,6 @@ import type {
   AnkoleWebAgentSessionControllerIndexData,
   AnkoleWebAgentSessionControllerIndexErrors,
   AnkoleWebAgentSessionControllerIndexResponses,
-  AnkoleWebAiGatewayControllerCompactResponseData,
-  AnkoleWebAiGatewayControllerCompactResponseErrors,
-  AnkoleWebAiGatewayControllerCompactResponseResponses,
   AnkoleWebAiGatewayControllerEmbeddingsData,
   AnkoleWebAiGatewayControllerEmbeddingsErrors,
   AnkoleWebAiGatewayControllerEmbeddingsResponses,
@@ -2208,41 +2205,6 @@ export const ankoleWebAiGatewayProviderControllerCompleteChatgptBrowserLogin = <
       }
     ],
     url: '/api/v1/ai-gateway/providers/{provider_id}/chatgpt-login/browser-callback',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * Create a stateful compaction response
- */
-export const ankoleWebAiGatewayControllerCompactResponse = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAiGatewayControllerCompactResponseData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayControllerCompactResponseResponses,
-  AnkoleWebAiGatewayControllerCompactResponseErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebAiGatewayControllerCompactResponseResponses,
-    AnkoleWebAiGatewayControllerCompactResponseErrors,
-    ThrowOnError
-  >({
-    security: [
-      {
-        key: 'aiGatewayBearer',
-        scheme: 'bearer',
-        type: 'http'
-      },
-      {
-        key: 'consoleBearer',
-        scheme: 'bearer',
-        type: 'http'
-      }
-    ],
-    url: '/api/v1/ai-gateway/responses/compact',
     ...options,
     headers: {
       'Content-Type': 'application/json',

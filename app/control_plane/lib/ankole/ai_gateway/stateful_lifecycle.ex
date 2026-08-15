@@ -54,18 +54,6 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   end
 
   @doc false
-  @spec compact_response(String.t(), map()) :: {:ok, %{body: map()}} | {:error, term()}
-  def compact_response(subject_uid, request) when is_map(request) do
-    request = normalize_request_keys(request)
-
-    with {:ok, body} <- Compaction.compact_response(subject_uid, request) do
-      {:ok, %{body: body}}
-    end
-  end
-
-  def compact_response(_subject_uid, _request), do: {:error, :invalid_request_body}
-
-  @doc false
   @spec record_tool_results(String.t(), map()) :: {:ok, %{body: map()}} | {:error, term()}
   def record_tool_results(subject_uid, request) when is_map(request) do
     with {:ok, attrs} <- tool_result_record_attrs(subject_uid, request, %{}),

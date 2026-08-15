@@ -32,7 +32,6 @@ import {
   ankoleWebAgentLibrarySkillOverlayControllerIndex,
   ankoleWebAgentLibrarySkillOverlayControllerUpdate,
   ankoleWebAgentSessionControllerIndex,
-  ankoleWebAiGatewayControllerCompactResponse,
   ankoleWebAiGatewayControllerEmbeddings,
   ankoleWebAiGatewayControllerModels,
   ankoleWebAiGatewayControllerRerank,
@@ -221,9 +220,6 @@ import type {
   AnkoleWebAgentSessionControllerIndexData,
   AnkoleWebAgentSessionControllerIndexError,
   AnkoleWebAgentSessionControllerIndexResponse,
-  AnkoleWebAiGatewayControllerCompactResponseData,
-  AnkoleWebAiGatewayControllerCompactResponseError,
-  AnkoleWebAiGatewayControllerCompactResponseResponse,
   AnkoleWebAiGatewayControllerEmbeddingsData,
   AnkoleWebAiGatewayControllerEmbeddingsError,
   AnkoleWebAiGatewayControllerEmbeddingsResponse,
@@ -2539,33 +2535,6 @@ export const ankoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginMuta
   > = {
     mutationFn: async fnOptions => {
       const { data } = await ankoleWebAiGatewayProviderControllerCompleteChatgptBrowserLogin({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-/**
- * Create a stateful compaction response
- */
-export const ankoleWebAiGatewayControllerCompactResponseMutation = (
-  options?: Partial<Options<AnkoleWebAiGatewayControllerCompactResponseData>>
-): UseMutationOptions<
-  AnkoleWebAiGatewayControllerCompactResponseResponse,
-  AnkoleWebAiGatewayControllerCompactResponseError,
-  Options<AnkoleWebAiGatewayControllerCompactResponseData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebAiGatewayControllerCompactResponseResponse,
-    AnkoleWebAiGatewayControllerCompactResponseError,
-    Options<AnkoleWebAiGatewayControllerCompactResponseData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebAiGatewayControllerCompactResponse({
         ...options,
         ...fnOptions,
         throwOnError: true

@@ -71,7 +71,6 @@ defmodule Ankole.AIGateway.Providers.OpenAI do
       upstream(:sse)
       api_resolver(:openai_responses)
       prepare(:prepare_language_model)
-      prepare_compaction(:prepare_compaction)
       supports_parallel_tool_calls()
       supports_native_image_generation()
       supports_native_web_search()
@@ -93,6 +92,7 @@ defmodule Ankole.AIGateway.Providers.OpenAI do
         upstream: :websocket_text
       )
       |> openai_headers()
+      |> UniversalAIRequest.put_client_identity_headers(ctx)
       |> UniversalAIRequest.bearer_auth()
       |> ReasoningEffort.put_provider_options(ctx, target: :reasoning)
       |> OpenAIRequestOptions.put_provider_options(:responses)
@@ -102,18 +102,6 @@ defmodule Ankole.AIGateway.Providers.OpenAI do
   end
 
   def prepare_language_model(ctx), do: prepare_sse_language_model(ctx)
-
-  @doc "Builds the standalone compact request for an OpenAI Responses endpoint."
-  def prepare_compaction(ctx) do
-    if Providers.responses_endpoint?(ctx) do
-      ctx
-      |> Map.put(:stream?, false)
-      |> prepare_language_model()
-      |> UniversalAIRequest.put_operation(:responses_compact)
-    else
-      {:error, :responses_compaction_not_applicable}
-    end
-  end
 
   @doc """
   Prepares an OpenAI connection check through the native model catalog path.
@@ -141,6 +129,7 @@ defmodule Ankole.AIGateway.Providers.OpenAI do
       ctx
       |> UniversalAIRequest.new("responses", :openai_responses)
       |> openai_headers()
+      |> UniversalAIRequest.put_client_identity_headers(ctx)
       |> UniversalAIRequest.bearer_auth()
       |> ReasoningEffort.put_provider_options(ctx, target: :reasoning)
       |> OpenAIRequestOptions.put_provider_options(:responses)
@@ -148,6 +137,7 @@ defmodule Ankole.AIGateway.Providers.OpenAI do
       ctx
       |> UniversalAIRequest.new("chat/completions", :openai_chat_completions)
       |> openai_headers()
+      |> UniversalAIRequest.put_client_identity_headers(ctx)
       |> UniversalAIRequest.bearer_auth()
       |> ReasoningEffort.put_provider_options(ctx, target: :reasoning_effort)
       |> OpenAIRequestOptions.put_provider_options(:chat_completions)

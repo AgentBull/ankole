@@ -41,7 +41,6 @@ curl https://ankole.example.com/api/v1/ai-gateway/responses \
 | `POST` | `/responses` | HTTP または SSE | response を作成。`"stream": true` のときは stream |
 | `GET` | `/responses` | WebSocket | stateful な streaming response |
 | `GET` | `/responses/:response_id` | HTTP | 保存された stateful response（`resp_{uuid}`）を取得 |
-| `POST` | `/responses/compact` | HTTP | 保存された会話の compaction artifact を作成 |
 | `POST` | `/embeddings` | HTTP | embedding を作成 |
 | `POST` | `/rerank` | HTTP | document を rerank |
 | `POST` | `/web_search` | HTTP | web を検索 |
@@ -76,7 +75,7 @@ curl https://ankole.example.com/api/v1/ai-gateway/responses/resp_4f3c... \
   -H "Authorization: Bearer $AIGATEWAY_TOKEN"
 ```
 
-compaction は、長く保存された履歴を、流れを失わずに短いものへ交換する唯一の手段です。`POST /responses/compact` は、input がちょうど 1 つの compaction item である request を受け取り、`previous_response_id` または `conversation` にアンカーし、compaction artifact を返します。`store: true` が必要で、省略した request には `code: "compact_store_required"` とともに `400` が返ります。
+compaction は、長く保存された履歴を、流れを失わずに短いものへ交換する唯一の手段です。専用の endpoint はありません。input に `{"type": "compaction_trigger"}` item を含めた request を送ると、AIGateway が `compaction` output item を 1 つ返します。どの transport でも動作します。`POST /responses` は body を返し、同じ呼び出しに `"stream": true` を付けると SSE event として返り、WebSocket も同じ event を返します。trigger だけを送ると `previous_response_id` または `conversation` が指す保存済み会話を compaction し、応答には続きに使う checkpoint id が入ります。履歴を一緒に送ると、送った内容を compaction します。
 
 ## Provider routing
 

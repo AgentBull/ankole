@@ -31,8 +31,7 @@ export function codexJobThreadConfig(input: {
     },
     features: {
       plugins: true,
-      remote_plugin: false,
-      remote_compaction_v2: input.runtime.remoteCompactionV2
+      remote_plugin: false
     },
     skills: {
       config: [

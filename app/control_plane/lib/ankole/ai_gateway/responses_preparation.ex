@@ -196,13 +196,11 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
 
   defp native_openai_tools?(_runtime), do: false
 
-  defp native_encrypted_tool_fields?(runtime) do
-    Providers.responses_endpoint?(runtime) and
-      (native_openai_tools?(runtime) or
-         runtime
-         |> Map.get("request_context", %{})
-         |> ChatGPTProtocol.codex_client?())
-  end
+  # The `encrypted` marker is the caller's own declaration that a Provider owns
+  # those fields. A Responses wire can carry that declaration, so it is sent
+  # unchanged. Only a wire that cannot express the marker leaves AIGateway to
+  # emulate the capability with its opaque values.
+  defp native_encrypted_tool_fields?(runtime), do: Providers.responses_endpoint?(runtime)
 
   defp build_attempt_spec(
          runtime,

@@ -13,12 +13,51 @@ defmodule Ankole.AIGateway.RequestContext do
     x-codex-beta-features
     x-codex-turn-metadata
     x-codex-turn-state
+    x-codex-window-id
     x-client-request-id
     x-openai-internal-codex-responses-lite
     x-responsesapi-include-timing-metrics
     x-session-id
     version
   )
+
+  # Headers that identify the calling client to the upstream Provider. They are
+  # forwarded whenever the caller sent them: a caller that sends none needs no
+  # rule, and a caller that sends them is asking for its own identity to reach
+  # the model. `traceparent` stays out; it is this instance's trace, not the
+  # caller's identity.
+  @client_identity_headers [
+    {"originator", "Originator"},
+    {"user-agent", "User-Agent"},
+    {"session_id", "Session_id"},
+    {"session-id", "Session-Id"},
+    {"x-session-id", "X-Session-Id"},
+    {"thread-id", "Thread-Id"},
+    {"x-client-request-id", "X-Client-Request-Id"},
+    {"x-codex-beta-features", "X-Codex-Beta-Features"},
+    {"x-codex-turn-metadata", "X-Codex-Turn-Metadata"},
+    {"x-codex-turn-state", "X-Codex-Turn-State"},
+    {"x-codex-window-id", "X-Codex-Window-Id"},
+    {"x-openai-internal-codex-responses-lite", "X-Openai-Internal-Codex-Responses-Lite"},
+    {"x-responsesapi-include-timing-metrics", "X-Responsesapi-Include-Timing-Metrics"},
+    {"version", "Version"}
+  ]
+
+  @doc """
+  Returns the caller's identity headers in Provider wire form.
+  """
+  @spec client_identity_headers(map()) :: [{String.t(), String.t()}]
+  def client_identity_headers(request_context) when is_map(request_context) do
+    inbound = Map.get(request_context, "headers", %{})
+
+    for {source, target} <- @client_identity_headers,
+        value = Map.get(inbound, source),
+        is_binary(value) and value != "" do
+      {target, value}
+    end
+  end
+
+  def client_identity_headers(_request_context), do: []
 
   @session_headers ~w(x-session-id session_id session-id thread-id)
   @observability_user_header "x-ankole-observability-user-id"

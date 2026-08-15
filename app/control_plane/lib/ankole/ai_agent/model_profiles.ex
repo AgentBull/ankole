@@ -26,17 +26,13 @@ defmodule Ankole.AIAgent.ModelProfiles do
 
   # Capabilities a language-model Provider can run inside its own turn, so an
   # Agent can choose between its Provider and an Ankole capability profile.
-  @provider_hosted_capabilities ~w(web_search image_generate compaction)
+  @provider_hosted_capabilities ~w(web_search image_generate)
 
   # Search and image generation default to the Provider: an Agent that never
   # chose a capability Provider should keep whatever its model already does.
-  # Compaction defaults to Ankole because the local summarizer always works,
-  # while a Provider without the native operation makes every compaction pay a
-  # failed round trip before the same local summary runs.
   @provider_hosted_defaults %{
     "web_search" => true,
-    "image_generate" => true,
-    "compaction" => false
+    "image_generate" => true
   }
   @required_profiles ~w(primary light heavy)
   @custom_profile_name ~r/\A[a-z][a-z0-9_-]{0,63}\z/

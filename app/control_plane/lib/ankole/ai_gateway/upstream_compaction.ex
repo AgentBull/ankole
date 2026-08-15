@@ -108,9 +108,14 @@ defmodule Ankole.AIGateway.UpstreamCompaction do
     end
   end
 
+  # The compaction trigger is the Provider-native request. The dedicated compact
+  # endpoint is being retired upstream, so this asks for compaction the way the
+  # surviving protocol does: a normal Responses request whose input ends with
+  # the trigger. It stays non-streaming, because the whole reply must be checked
+  # before any of it can reach a caller.
   defp execute(runtime, request, subject_uid) do
     with {:ok, prepared_request} <-
-           Providers.build_compaction_request(runtime, request, stream?: false),
+           Providers.build_response_request(runtime, request, stream?: false),
          {:ok, response} <-
            Observability.record_compact(subject_uid, runtime, request, fn ->
              CredentialAttempts.request(prepared_request)
@@ -121,13 +126,25 @@ defmodule Ankole.AIGateway.UpstreamCompaction do
     end
   end
 
-  defp compact_response(%{body: %{"output" => output} = body})
-       when is_list(output) and output != [] do
-    usage = Map.get(body, "usage", %{})
-    {:ok, %{output: output, usage: if(is_map(usage), do: usage, else: %{})}}
+  # Exactly one compaction item is the whole contract. Anything else means the
+  # Provider answered a normal turn instead of compacting, and using that output
+  # would silently replace the history with a model reply. The rest of the output
+  # is kept, because the Provider decided what its compacted history retains.
+  defp compact_response(%{body: %{"output" => output} = body}) when is_list(output) do
+    case Enum.count(output, &compaction_item?/1) do
+      1 ->
+        usage = Map.get(body, "usage", %{})
+        {:ok, %{output: output, usage: if(is_map(usage), do: usage, else: %{})}}
+
+      count ->
+        {:fallback, {:invalid_upstream_compaction_output, count}}
+    end
   end
 
   defp compact_response(_response), do: {:fallback, :invalid_upstream_compaction_output}
+
+  defp compaction_item?(%{"type" => "compaction"}), do: true
+  defp compaction_item?(_item), do: false
 
   defp classify_error({:upstream_response_failed, status, _body} = reason)
        when status in [404, 405],
@@ -136,9 +153,6 @@ defmodule Ankole.AIGateway.UpstreamCompaction do
   defp classify_error({:upstream_response_failed, status, _body, _headers} = reason)
        when status in [404, 405],
        do: {:unsupported, reason}
-
-  defp classify_error(:native_compaction_unsupported),
-    do: {:unsupported, :native_compaction_unsupported}
 
   defp classify_error(reason), do: {:fallback, reason}
 
@@ -163,7 +177,7 @@ defmodule Ankole.AIGateway.UpstreamCompaction do
     request
     |> Map.take(@compact_request_fields)
     |> Map.put("model", Map.fetch!(runtime, "model"))
-    |> Map.put("input", input)
+    |> Map.put("input", input ++ [%{"type" => "compaction_trigger"}])
   end
 
   defp cache_key(binding) do

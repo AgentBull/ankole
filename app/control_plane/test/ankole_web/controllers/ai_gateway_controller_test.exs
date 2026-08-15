@@ -2233,10 +2233,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
 
     conn =
-      conn
-      |> put_req_header("authorization", "Bearer #{api_key.api_key}")
-      |> put_req_header("content-type", "application/json")
-      |> post("/api/v1/ai-gateway/responses/compact", %{
+      compaction_trigger(agent.uid, %{
         "model" => "primary",
         "prompt_cache_key" => "openresponses-compact-test",
         "input" => [
@@ -2253,18 +2250,14 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
         ]
       })
 
-    body = json_response(conn, 200)
+    assert {:ok, body, _events} = conn
 
+    # The trigger's reply carries the compaction item and nothing else: the
+    # caller rebuilds its own retained history around it.
     assert %{
-             "id" => "compact_" <> _,
-             "object" => "response.compaction",
-             "created_at" => created_at,
+             "object" => "response",
+             "status" => "completed",
              "output" => [
-               %{
-                 "type" => "message",
-                 "role" => "user",
-                 "content" => "We agreed to launch on Tuesday and notify support first."
-               },
                %{
                  "id" => "cmp_" <> artifact_id,
                  "type" => "compaction",
@@ -2281,7 +2274,6 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
              }
            } = body
 
-    assert is_integer(created_at)
     assert encrypted_content == "ankole:compact:v1:cmp_#{artifact_id}"
 
     assert %CompactionArtifact{content: artifact_content} =
@@ -2349,21 +2341,14 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
 
     conn =
-      conn
-      |> put_req_header("authorization", "Bearer #{api_key.api_key}")
-      |> put_req_header("content-type", "application/json")
-      |> post("/api/v1/ai-gateway/responses/compact", %{
+      compaction_trigger(agent.uid, %{
         "model" => "primary",
         "input" => [
           %{"type" => "compaction", "encrypted_content" => "provider-opaque-state"}
         ]
       })
 
-    assert %{
-             "error" => %{
-               "code" => "opaque_compaction_fallback_unavailable"
-             }
-           } = json_response(conn, 502)
+    assert {:error, 502, "opaque_compaction_fallback_unavailable"} = conn
   end
 
   test "compact endpoint compacts only items after the previous compaction item", %{conn: conn} do
@@ -2403,10 +2388,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
 
     first_conn =
-      conn
-      |> put_req_header("authorization", "Bearer #{api_key.api_key}")
-      |> put_req_header("content-type", "application/json")
-      |> post("/api/v1/ai-gateway/responses/compact", %{
+      compaction_trigger(agent.uid, %{
         "model" => "primary",
         "input" => [
           %{"type" => "message", "role" => "user", "content" => "original kickoff request"},
@@ -2418,15 +2400,12 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
         ]
       })
 
-    first_body = json_response(first_conn, 200)
+    assert {:ok, first_body, _first_events} = first_conn
     first_summarizer = receive_summarizer_request()
     assert summarizer_user_prompt(first_summarizer.body) =~ "original kickoff request"
 
     second_conn =
-      build_conn()
-      |> put_req_header("authorization", "Bearer #{api_key.api_key}")
-      |> put_req_header("content-type", "application/json")
-      |> post("/api/v1/ai-gateway/responses/compact", %{
+      compaction_trigger(agent.uid, %{
         "model" => "primary",
         "input" =>
           first_body["output"] ++
@@ -2441,7 +2420,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
             ]
       })
 
-    second_body = json_response(second_conn, 200)
+    assert {:ok, second_body, _second_events} = second_conn
     second_summarizer = receive_summarizer_request()
     second_prompt = summarizer_user_prompt(second_summarizer.body)
 
@@ -2454,11 +2433,8 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     assert second_prompt =~
              "<previous_chat_history>\n## Active Task\nfirst summary\n</previous_chat_history>"
 
-    assert [
-             %{"type" => "message", "role" => "user", "content" => "second round follow-up"},
-             %{"type" => "message", "role" => "user", "content" => "latest user question"},
-             %{"type" => "compaction", "id" => "cmp_" <> second_artifact_id}
-           ] = second_body["output"]
+    assert [%{"type" => "compaction", "id" => "cmp_" <> second_artifact_id}] =
+             second_body["output"]
 
     assert Repo.get!(CompactionArtifact, second_artifact_id).content["summary"] ==
              %{"text" => "## Active Task\nsecond summary"}
@@ -2481,15 +2457,12 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
              })
 
     conn =
-      conn
-      |> put_req_header("authorization", "Bearer #{api_key.api_key}")
-      |> put_req_header("content-type", "application/json")
-      |> post("/api/v1/ai-gateway/responses/compact", %{
+      compaction_trigger(agent.uid, %{
         "model" => "primary",
         "input" => [CompactionArtifacts.compaction_item(artifact.id)]
       })
 
-    assert %{"error" => %{"code" => "no_compaction_candidate"}} = json_response(conn, 400)
+    assert {:error, 400, "no_compaction_candidate"} = conn
   end
 
   test "compact endpoint rejects standalone compact without model", %{conn: conn} do
@@ -2497,10 +2470,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
 
     conn =
-      conn
-      |> put_req_header("authorization", "Bearer #{api_key.api_key}")
-      |> put_req_header("content-type", "application/json")
-      |> post("/api/v1/ai-gateway/responses/compact", %{
+      compaction_trigger(agent.uid, %{
         "input" => [
           %{
             "type" => "message",
@@ -2510,7 +2480,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
         ]
       })
 
-    assert %{"error" => %{"code" => "missing_model"}} = json_response(conn, 400)
+    assert {:error, 400, "missing_model"} = conn
   end
 
   test "compact endpoint stores artifact and checkpoint when store is true", %{conn: conn} do
@@ -2581,10 +2551,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
              )
 
     raw_anchor_conn =
-      build_conn()
-      |> put_req_header("authorization", "Bearer #{api_key.api_key}")
-      |> put_req_header("content-type", "application/json")
-      |> post("/api/v1/ai-gateway/responses/compact", %{
+      compaction_trigger(agent.uid, %{
         "model" => "primary",
         "previous_response_id" => anchor.id,
         "input" => [
@@ -2592,14 +2559,10 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
         ]
       })
 
-    assert %{"error" => %{"code" => "invalid_previous_response_id"}} =
-             json_response(raw_anchor_conn, 400)
+    assert {:error, 400, "invalid_previous_response_id"} = raw_anchor_conn
 
     conn =
-      conn
-      |> put_req_header("authorization", "Bearer #{api_key.api_key}")
-      |> put_req_header("content-type", "application/json")
-      |> post("/api/v1/ai-gateway/responses/compact", %{
+      compaction_trigger(agent.uid, %{
         "model" => "primary",
         "store" => true,
         "previous_response_id" => "resp_#{anchor.id}",
@@ -2613,17 +2576,18 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
         "metadata" => %{"visible" => "compact"}
       })
 
-    body = json_response(conn, 200)
-    assert body["object"] == "response.compaction"
-    assert body["ankole"]["stored"] == true
-    assert body["ankole"]["conversation"] == "conv_#{conversation.id}"
+    assert {:ok, body, _events} = conn
+    assert body["object"] == "response"
+    assert body["status"] == "completed"
 
-    [user_original, compaction_item] = body["output"]
-    assert user_original["role"] == "user"
+    [compaction_item] = body["output"]
     assert compaction_item["type"] == "compaction"
     assert "cmp_" <> artifact_id = compaction_item["id"]
     assert compaction_item["encrypted_content"] == "ankole:compact:v1:cmp_#{artifact_id}"
-    assert body["ankole"]["response_id"] == "resp_#{artifact_id}"
+
+    # A stored compaction answers with the checkpoint id, so the caller's next
+    # turn continues from it without a second lookup.
+    assert body["id"] == "resp_#{artifact_id}"
 
     assert %CompactionArtifact{} = artifact = Repo.get!(CompactionArtifact, artifact_id)
     assert artifact.id == artifact_id
@@ -2638,7 +2602,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     assert row.metadata == %{"request_metadata" => %{"visible" => "compact"}}
 
     assert StatefulResponses.expand_history(conversation.id,
-             previous_response_id: body["ankole"]["response_id"]
+             previous_response_id: body["id"]
            ) ==
              [
                row
@@ -2694,5 +2658,137 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
       _message ->
         nil
     end)
+  end
+
+  test "every transport answers the same compaction trigger" do
+    %{principal: agent} = agent_fixture()
+
+    base_url =
+      start_recording_upstream(self(), fn request ->
+        # The trigger is answered here, so it must never reach a Provider.
+        input = request.body["input"]
+
+        if is_list(input) do
+          refute Enum.any?(input, &(is_map(&1) and Map.get(&1, "type") == "compaction_trigger"))
+        end
+
+        {:sse, 200,
+         response_sse_events(
+           "resp_transport_summary",
+           "gpt-main",
+           "## Active Task\nTransport summary"
+         )}
+      end)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openai-transport-trigger",
+               provider_kind: "openai",
+               base_url: "#{base_url}/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               },
+               connection_options: %{
+                 "transport" => %{"http_versions" => ["h1"], "compression" => ["gzip"]}
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openai-transport-trigger",
+               model: "gpt-main"
+             })
+
+    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+
+    trigger_input = [
+      %{"type" => "message", "role" => "user", "content" => "first"},
+      %{"type" => "message", "role" => "assistant", "content" => "second"},
+      %{"type" => "compaction_trigger"}
+    ]
+
+    json_conn =
+      build_conn()
+      |> put_req_header("authorization", "Bearer #{api_key.api_key}")
+      |> put_req_header("content-type", "application/json")
+      |> post("/api/v1/ai-gateway/responses", %{"model" => "primary", "input" => trigger_input})
+
+    assert %{"object" => "response", "output" => [%{"type" => "compaction"}]} =
+             json_response(json_conn, 200)
+
+    sse_conn =
+      build_conn()
+      |> put_req_header("authorization", "Bearer #{api_key.api_key}")
+      |> put_req_header("content-type", "application/json")
+      |> post("/api/v1/ai-gateway/responses", %{
+        "model" => "primary",
+        "stream" => true,
+        "input" => trigger_input
+      })
+
+    assert get_resp_header(sse_conn, "content-type") == ["text/event-stream"]
+    body = response(sse_conn, 200)
+
+    assert body =~ "event: response.created"
+    assert body =~ "event: response.output_item.done"
+    assert body =~ "event: response.completed"
+    assert body =~ "\"type\":\"compaction\""
+    assert body =~ "data: [DONE]"
+
+    # The socket renders the same reply as frames; this is the third transport.
+    assert {:ok, socket_body, _events} =
+             compaction_trigger(agent.uid, %{
+               "model" => "primary",
+               "input" => Enum.drop(trigger_input, -1)
+             })
+
+    assert [%{"type" => "compaction"}] = socket_body["output"]
+  end
+
+  # These cases drive the Responses socket, because that is what the Main Agent
+  # and Codex use. One case above proves every transport answers the same way.
+  defp compaction_trigger(agent_uid, body) do
+    input =
+      case Map.get(body, "input", []) do
+        input when is_list(input) ->
+          input
+
+        input when is_binary(input) ->
+          [%{"type" => "message", "role" => "user", "content" => input}]
+      end
+
+    request =
+      body
+      |> Map.merge(%{
+        "type" => "response.create",
+        "input" => input ++ [%{"type" => "compaction_trigger"}]
+      })
+      |> Ankole.JSON.encode!()
+
+    result =
+      AnkoleWeb.AIGatewayResponsesSocket.handle_in({request, [opcode: :text]}, %{
+        subject_uid: agent_uid,
+        subject_type: "agent"
+      })
+
+    case result do
+      {:push, {:text, chunk}, _state} ->
+        compaction_trigger_result([Ankole.JSON.decode!(chunk)])
+
+      {:push, chunks, _state} ->
+        compaction_trigger_result(
+          Enum.map(chunks, fn {:text, chunk} -> Ankole.JSON.decode!(chunk) end)
+        )
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp compaction_trigger_result(events) do
+    case Enum.find(events, &(&1["type"] == "error")) do
+      nil -> {:ok, Enum.find(events, &(&1["type"] == "response.completed"))["response"], events}
+      error -> {:error, error["status"], error["error"]["code"]}
+    end
   end
 end

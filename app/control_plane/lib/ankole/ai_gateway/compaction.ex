@@ -8,7 +8,6 @@ defmodule Ankole.AIGateway.Compaction do
   counts from content.
   """
 
-  alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Definition
   alias Ankole.AppConfigure.Schema
@@ -25,6 +24,7 @@ defmodule Ankole.AIGateway.Compaction do
   alias Ankole.AIGateway.StatefulResponses
   alias Ankole.AIGateway.UpstreamCompaction
   alias Ankole.AIGateway.Schemas.Message
+  alias Ankole.Logging
 
   @config_key "ai_gateway.compaction"
   @default_threshold_percent 0.50
@@ -35,6 +35,7 @@ defmodule Ankole.AIGateway.Compaction do
   @default_tail_rows 2
   @summarizer_max_output_tokens 8_192
   @summarizer_retry_max_output_tokens 16_384
+  @unusable_summary_reasons [:empty_compaction_summary, :invalid_summary_shape]
   @checkpoint_overhead_tokens 1_000
   @brain_pre_compaction_nudge_marker "ankole.brain.pre_compaction_nudge.v1"
   @stable_tail_summary "Earlier conversation history was omitted because it exceeded the active context budget."
@@ -60,11 +61,13 @@ defmodule Ankole.AIGateway.Compaction do
           run_metadata: map()
         }
 
+  @default_upstream false
   @default_config %{
     "threshold" => @default_threshold_percent,
     "max_threshold_tokens" => @default_max_threshold_tokens,
     "tail_rows" => @default_tail_rows,
-    "user_message_budget_tokens" => 20_000
+    "user_message_budget_tokens" => 20_000,
+    "upstream" => @default_upstream
   }
 
   # Compaction summaries always use the `light` profile. The summarizer is
@@ -96,7 +99,7 @@ defmodule Ankole.AIGateway.Compaction do
       :threshold,
       :runtime,
       :native_state,
-      :prefer_upstream?
+      :upstream_compaction?
     ]
     defstruct @enforce_keys
   end
@@ -112,7 +115,7 @@ defmodule Ankole.AIGateway.Compaction do
       :runtime,
       :native_state,
       :visible_previous_response_id,
-      :prefer_upstream?
+      :upstream_compaction?
     ]
     defstruct @enforce_keys
   end
@@ -125,7 +128,7 @@ defmodule Ankole.AIGateway.Compaction do
       schema: config_schema(),
       default_value: @default_config,
       description:
-        "AIGateway automatic history compaction settings. `threshold` is a ratio of the model input context; `max_threshold_tokens` caps that computed trigger. Whether a Provider's native compact operation runs before Ankole's local summary is each Agent's own compaction setting."
+        "AIGateway history compaction settings. `threshold` is a ratio of the model input context; `max_threshold_tokens` caps that computed trigger. `upstream` forwards the compaction request to the Provider instead of writing the summary locally; it is off by default because a Provider-owned compaction item binds the rest of that history to the same upstream."
     )
   end
 
@@ -153,17 +156,16 @@ defmodule Ankole.AIGateway.Compaction do
   end
 
   @doc """
-  Returns whether this Agent leaves compaction to its primary model's Provider.
+  Returns whether this instance leaves compaction to the Provider.
 
-  A subject without an Agent row, such as a bare API principal, has no such
-  setting and uses Ankole's local summary.
+  This is the only opt-in for Provider-native compaction. It is off by default
+  because the local summarizer always works, and because a Provider-owned
+  compaction item binds the rest of that history to the same upstream: no later
+  local summary can read it.
   """
-  @spec prefer_upstream?(String.t()) :: boolean()
-  def prefer_upstream?(subject_uid) when is_binary(subject_uid) do
-    case ModelProfiles.provider_hosted_capabilities(subject_uid) do
-      {:ok, capabilities} -> ModelProfiles.provider_hosted?(capabilities, "compaction")
-      {:error, _reason} -> false
-    end
+  @spec upstream_compaction?() :: boolean()
+  def upstream_compaction? do
+    Map.get(config(), "upstream", @default_upstream) == true
   end
 
   @spec threshold_spec(map(), map()) :: threshold_spec()
@@ -240,7 +242,7 @@ defmodule Ankole.AIGateway.Compaction do
       when is_list(history) and is_list(current_input) and is_map(request) do
     total_tokens = history_usage_tokens(history)
     threshold = threshold_spec(runtime, request)
-    prefer_upstream? = prefer_upstream?(subject_uid)
+    upstream_compaction? = upstream_compaction?()
 
     with {:ok, native_state} <- native_checkpoint_state(subject_uid, history, runtime) do
       context = %PlanContext{
@@ -253,11 +255,11 @@ defmodule Ankole.AIGateway.Compaction do
         threshold: threshold,
         runtime: runtime,
         native_state: native_state,
-        prefer_upstream?: prefer_upstream?
+        upstream_compaction?: upstream_compaction?
       }
 
       cond do
-        force_local_checkpoint?(native_state, prefer_upstream?) ->
+        force_local_checkpoint?(native_state, upstream_compaction?) ->
           visible_previous_response_id = previous_response_id_for(history, request)
           context = %{context | history: raw_history(conversation_id, history, request)}
 
@@ -361,6 +363,161 @@ defmodule Ankole.AIGateway.Compaction do
   def put_checkpoint_response_id(run_metadata, _id), do: run_metadata
 
   @doc """
+  Returns whether one Responses request carries the client's compaction trigger.
+  """
+  @spec compaction_trigger?(map()) :: boolean()
+  def compaction_trigger?(%{"input" => input}) when is_list(input),
+    do: Enum.any?(input, &compaction_trigger_item?/1)
+
+  def compaction_trigger?(_request), do: false
+
+  @doc """
+  Serves one `compaction_trigger` request and returns its Response body.
+
+  AIGateway owns this protocol for every consumer, so the trigger never
+  reaches a Provider adapter by itself. A stateful caller compacts the stored
+  conversation, because AIGateway holds that history and the caller sends only
+  the current turn. A stateless caller compacts the input it sent, because only
+  that caller holds its history. Both return one `compaction` output item, and
+  a stateful response carries the checkpoint id so the caller's next turn
+  continues from it.
+  """
+  @spec compact_from_trigger(String.t(), map()) :: {:ok, map()} | {:error, term()}
+  def compact_from_trigger(subject_uid, request) when is_map(request) do
+    request = MapUtils.normalize_request_keys(request)
+
+    # What the caller sent decides which history is compacted. A caller that
+    # sends only the trigger keeps its history here; a caller that sends history
+    # with the trigger holds its own, and AIGateway must not compact a stored
+    # conversation instead of what it was given.
+    if trigger_only_input?(request) do
+      case trigger_conversation_id(subject_uid, request) do
+        {:ok, nil} -> stateless_trigger_response(subject_uid, drop_compaction_trigger(request))
+        {:ok, conversation_id} -> stateful_trigger_response(subject_uid, conversation_id, request)
+        {:error, _reason} = error -> error
+      end
+    else
+      stateless_trigger_response(subject_uid, drop_compaction_trigger(request))
+    end
+  end
+
+  def compact_from_trigger(_subject_uid, _request), do: {:error, :invalid_request_body}
+
+  @doc """
+  Renders one compaction reply as the public event sequence.
+
+  Every streaming transport shows the same frames, so the caller cannot tell
+  which one it used.
+  """
+  @spec trigger_events(map()) :: [map()]
+  def trigger_events(%{} = response) do
+    created = response |> Map.put("status", "in_progress") |> Map.put("output", [])
+
+    item_events =
+      response
+      |> Map.get("output", [])
+      |> Enum.with_index()
+      |> Enum.flat_map(fn {item, index} ->
+        [
+          %{"type" => "response.output_item.added", "output_index" => index, "item" => item},
+          %{"type" => "response.output_item.done", "output_index" => index, "item" => item}
+        ]
+      end)
+
+    ([%{"type" => "response.created", "response" => created}] ++
+       item_events ++ [%{"type" => "response.completed", "response" => response}])
+    |> Enum.with_index()
+    |> Enum.map(fn {event, sequence} -> Map.put(event, "sequence_number", sequence) end)
+  end
+
+  defp compaction_trigger_item?(%{"type" => "compaction_trigger"}), do: true
+  defp compaction_trigger_item?(_item), do: false
+
+  defp drop_compaction_trigger(%{"input" => input} = request) when is_list(input),
+    do: Map.put(request, "input", Enum.reject(input, &compaction_trigger_item?/1))
+
+  defp drop_compaction_trigger(request), do: request
+
+  defp trigger_only_input?(%{"input" => input}) when is_list(input),
+    do: Enum.all?(input, &compaction_trigger_item?/1)
+
+  defp trigger_only_input?(_request), do: false
+
+  # A stateful caller names its history with either anchor. Both resolve to the
+  # conversation AIGateway stores, because that history is what it compacts.
+  defp trigger_conversation_id(subject_uid, %{"conversation" => value} = request)
+       when is_binary(value) and value != "" do
+    with :ok <- validate_compact_conversation_id(value),
+         {:ok, conversation} <-
+           StatefulResponses.get_conversation_for_subject(
+             subject_uid,
+             decode_compact_conversation_id(value)
+           ) do
+      {:ok, conversation.id}
+    else
+      {:error, _reason} ->
+        trigger_conversation_id(subject_uid, Map.delete(request, "conversation"))
+    end
+  end
+
+  defp trigger_conversation_id(
+         subject_uid,
+         %{"previous_response_id" => value, "store" => true}
+       )
+       when is_binary(value) and value != "" do
+    with :ok <- validate_compact_previous_response_id(value),
+         {:ok, %Message{conversation_id: conversation_id}} <-
+           StatefulResponses.get_response_for_subject(subject_uid, value) do
+      {:ok, conversation_id}
+    else
+      _invalid_anchor -> {:error, :invalid_anchor}
+    end
+  end
+
+  defp trigger_conversation_id(_subject_uid, _request), do: {:ok, nil}
+
+  defp compaction_output_item?(%{"type" => "compaction"}), do: true
+  defp compaction_output_item?(_item), do: false
+
+  defp stateless_trigger_response(subject_uid, request) do
+    with {:ok, body} <- compact_response(subject_uid, request) do
+      # A stored compaction answers with its checkpoint id, so the caller's next
+      # turn continues from it without a second lookup.
+      id = get_in(body, ["ankole", "response_id"]) || Map.get(body, "id")
+      {:ok, trigger_response(id, body)}
+    end
+  end
+
+  defp stateful_trigger_response(subject_uid, conversation_id, request) do
+    with {:ok, %{compaction: checkpoint}} <-
+           compact_conversation(subject_uid, conversation_id, request),
+         {:ok, content} <- CompactionArtifacts.content_for_checkpoint(subject_uid, checkpoint) do
+      {:ok, trigger_response(CompactionArtifacts.response_id(checkpoint.id), content)}
+    end
+  end
+
+  # The trigger's reply is a normal completed Response: its consumers read one
+  # `compaction` output item and one terminal, not a compaction-specific body.
+  #
+  # Both sources carry the artifact's normalized usage, so the reply reports what
+  # the compaction cost. An empty usage object is not a valid Response usage, so
+  # a source without one omits the field instead of sending a shape a caller
+  # cannot read.
+  defp trigger_response(id, source) do
+    response = %{
+      "id" => id,
+      "object" => "response",
+      "status" => "completed",
+      "output" => source |> Map.get("output", []) |> Enum.filter(&compaction_output_item?/1)
+    }
+
+    case Map.get(source, "usage") do
+      usage when is_map(usage) and map_size(usage) > 0 -> Map.put(response, "usage", usage)
+      _absent -> response
+    end
+  end
+
+  @doc """
   Forces one manual compaction for a conversation's current visible chain.
 
   This is the control-plane `/compress` path. It reuses the same candidate and
@@ -375,13 +532,13 @@ defmodule Ankole.AIGateway.Compaction do
     history = StatefulResponses.expand_history(conversation_id)
     total_tokens = history_usage_tokens(history)
     visible_previous_response_id = previous_response_id_for(history, request)
-    prefer_upstream? = prefer_upstream?(subject_uid)
+    upstream_compaction? = upstream_compaction?()
 
     with {:ok, runtime} <-
            ResponsesPreparation.resolve_runtime(subject_uid, %{"model" => "primary"}),
          {:ok, native_state} <- native_checkpoint_state(subject_uid, history, runtime) do
       history =
-        if force_local_checkpoint?(native_state, prefer_upstream?),
+        if force_local_checkpoint?(native_state, upstream_compaction?),
           do: raw_history(conversation_id, history, request),
           else: history
 
@@ -394,7 +551,7 @@ defmodule Ankole.AIGateway.Compaction do
         runtime: runtime,
         native_state: native_state,
         visible_previous_response_id: visible_previous_response_id,
-        prefer_upstream?: prefer_upstream?
+        upstream_compaction?: upstream_compaction?
       })
     end
   end
@@ -408,7 +565,7 @@ defmodule Ankole.AIGateway.Compaction do
   @spec compact_response(String.t(), map()) :: {:ok, map()} | {:error, term()}
   def compact_response(subject_uid, request) when is_map(request) do
     request = MapUtils.normalize_request_keys(request)
-    prefer_upstream? = prefer_upstream?(subject_uid)
+    upstream_compaction? = upstream_compaction?()
 
     with {:ok, _model} <- standalone_model(request),
          {:ok, input} <- standalone_input(request),
@@ -420,7 +577,7 @@ defmodule Ankole.AIGateway.Compaction do
         input,
         resolved_input,
         store_context,
-        prefer_upstream?
+        upstream_compaction?
       )
     end
   end
@@ -435,13 +592,13 @@ defmodule Ankole.AIGateway.Compaction do
       request: request,
       runtime: runtime,
       native_state: native_state,
-      prefer_upstream?: prefer_upstream?
+      upstream_compaction?: upstream_compaction?
     } = context
 
     with {:ok, input} <- history_items_for_artifact(subject_uid, history),
          {:ok, input} <- CompactionArtifacts.resolve_input_handles(subject_uid, input) do
       case UpstreamCompaction.compact(runtime, input, request,
-             enabled?: prefer_upstream?,
+             enabled?: upstream_compaction?,
              subject_uid: subject_uid
            ) do
         {:ok, upstream} ->
@@ -573,16 +730,16 @@ defmodule Ankole.AIGateway.Compaction do
       request: request,
       runtime: runtime,
       native_state: native_state,
-      prefer_upstream?: prefer_upstream?
+      upstream_compaction?: upstream_compaction?
     } = context
 
-    if force_local_checkpoint?(native_state, prefer_upstream?) do
+    if force_local_checkpoint?(native_state, upstream_compaction?) do
       compact_conversation_locally(context)
     else
       with {:ok, input} <- history_items_for_artifact(subject_uid, history),
            {:ok, input} <- CompactionArtifacts.resolve_input_handles(subject_uid, input) do
         case UpstreamCompaction.compact(runtime, input, request,
-               enabled?: prefer_upstream?,
+               enabled?: upstream_compaction?,
                subject_uid: subject_uid
              ) do
           {:ok, upstream} ->
@@ -819,9 +976,12 @@ defmodule Ankole.AIGateway.Compaction do
   defp native_checkpoint?({:native, _state}), do: true
   defp native_checkpoint?(_state), do: false
 
-  defp force_local_checkpoint?({:native, :mismatch}, _prefer_upstream?), do: true
-  defp force_local_checkpoint?({:native, :matching}, prefer_upstream?), do: not prefer_upstream?
-  defp force_local_checkpoint?(_state, _prefer_upstream?), do: false
+  defp force_local_checkpoint?({:native, :mismatch}, _upstream_compaction?), do: true
+
+  defp force_local_checkpoint?({:native, :matching}, upstream_compaction?),
+    do: not upstream_compaction?
+
+  defp force_local_checkpoint?(_state, _upstream_compaction?), do: false
 
   defp raw_history(conversation_id, history, request) do
     case previous_response_id_for(history, request) do
@@ -1839,6 +1999,10 @@ defmodule Ankole.AIGateway.Compaction do
     ResponsesPreparation.resolve_runtime(subject_uid, %{"model" => @summarizer_profile})
   end
 
+  # A truncated summary and an unusable one have the same cause: the summarizer
+  # ran out of output room, or returned nothing this round. Both retry once with
+  # the larger output cap. Only the truncated case can fall back to its first
+  # result, because an unusable result carries no summary to keep.
   defp call_summarizer(subject_uid, runtime, prompt) do
     case request_summary(
            subject_uid,
@@ -1847,19 +2011,21 @@ defmodule Ankole.AIGateway.Compaction do
            summarizer_output_cap(runtime)
          ) do
       {:ok, %{truncated: true} = truncated_summary} ->
-        case request_summary(
-               subject_uid,
-               runtime,
-               prompt,
-               summarizer_retry_output_cap(runtime)
-             ) do
+        case retry_summary(subject_uid, runtime, prompt) do
           {:ok, retried_summary} -> {:ok, retried_summary}
           {:error, _retry_failed} -> {:ok, truncated_summary}
         end
 
+      {:error, reason} when reason in @unusable_summary_reasons ->
+        retry_summary(subject_uid, runtime, prompt)
+
       other ->
         other
     end
+  end
+
+  defp retry_summary(subject_uid, runtime, prompt) do
+    request_summary(subject_uid, runtime, prompt, summarizer_retry_output_cap(runtime))
   end
 
   # Scale the output reservation with the summarizer's window so a small-context
@@ -1892,7 +2058,7 @@ defmodule Ankole.AIGateway.Compaction do
              caller: "compaction.summary"
            ),
          {:ok, body} <- compaction_summary_body(outcome),
-         {:ok, text} <- extract_summary_text(body) do
+         {:ok, text} <- extract_summary(body, max_output_tokens) do
       {:ok,
        %{
          text: text,
@@ -1902,6 +2068,41 @@ defmodule Ankole.AIGateway.Compaction do
        }}
     end
   end
+
+  # An unusable summary leaves no trace in the response the caller receives, so
+  # record the summarizer's terminal facts here. Without them an empty summary
+  # cannot be told apart from an exhausted output budget or a refused response.
+  defp extract_summary(body, max_output_tokens) do
+    case extract_summary_text(body) do
+      {:ok, text} ->
+        {:ok, text}
+
+      {:error, reason} ->
+        Logging.warning(
+          "ai_gateway.compaction_summary_unusable",
+          "compaction summarizer returned no usable summary",
+          %{
+            error_code: Atom.to_string(reason),
+            max_output_tokens: max_output_tokens,
+            response_status: Map.get(body, "status"),
+            incomplete_reason: get_in(body, ["incomplete_details", "reason"]),
+            output_item_types: output_item_types(body),
+            usage: Map.get(body, "usage", %{})
+          }
+        )
+
+        {:error, reason}
+    end
+  end
+
+  defp output_item_types(%{"output" => output}) when is_list(output) do
+    output
+    |> Enum.map(&Map.get(&1, "type"))
+    |> Enum.filter(&is_binary/1)
+    |> Enum.uniq()
+  end
+
+  defp output_item_types(_body), do: []
 
   defp compaction_summary_body(%{terminal_error: nil, terminal_response: %{} = response}),
     do: {:ok, response}
@@ -2348,7 +2549,9 @@ defmodule Ankole.AIGateway.Compaction do
     |> Map.get("user_message_budget_tokens", 20_000)
   end
 
-  defp config do
+  @doc false
+  @spec config() :: map()
+  def config do
     with :ok <- ensure_registered(),
          {:ok, config} <- AppConfigure.get(config_definition()) do
       config
@@ -2364,13 +2567,15 @@ defmodule Ankole.AIGateway.Compaction do
            {:ok, threshold} <- optional_threshold(value),
            {:ok, max_threshold_tokens} <- optional_max_threshold_tokens(value),
            {:ok, tail_rows} <- optional_tail_rows(value),
-           {:ok, user_message_budget_tokens} <- optional_user_message_budget_tokens(value) do
+           {:ok, user_message_budget_tokens} <- optional_user_message_budget_tokens(value),
+           {:ok, upstream} <- optional_upstream(value) do
         {:ok,
          %{
            "threshold" => threshold,
            "max_threshold_tokens" => max_threshold_tokens,
            "tail_rows" => tail_rows,
-           "user_message_budget_tokens" => user_message_budget_tokens
+           "user_message_budget_tokens" => user_message_budget_tokens,
+           "upstream" => upstream
          }}
       end
     end)
@@ -2392,7 +2597,8 @@ defmodule Ankole.AIGateway.Compaction do
         "threshold",
         "max_threshold_tokens",
         "tail_rows",
-        "user_message_budget_tokens"
+        "user_message_budget_tokens",
+        "upstream"
       ])
 
     value
@@ -2432,6 +2638,13 @@ defmodule Ankole.AIGateway.Compaction do
     case Map.get(value, "user_message_budget_tokens", 20_000) do
       tokens when is_integer(tokens) and tokens > 0 -> {:ok, tokens}
       _value -> {:error, :invalid_compaction_user_message_budget_tokens}
+    end
+  end
+
+  defp optional_upstream(value) do
+    case Map.get(value, "upstream", @default_upstream) do
+      upstream when is_boolean(upstream) -> {:ok, upstream}
+      _value -> {:error, :invalid_compaction_upstream}
     end
   end
 

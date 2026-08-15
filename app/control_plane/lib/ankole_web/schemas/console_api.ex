@@ -2725,16 +2725,13 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           "Capabilities the Agent leaves to its language-model Provider. " <>
             "A capability set to true declares no Ankole tool or capability " <>
             "profile, and the Agent has no such capability when its Provider " <>
-            "cannot run it. `compaction` is the exception: the primary model's " <>
-            "Provider compacts history with its native operation when it has " <>
-            "one, and the light profile writes the summary when it does not.",
+            "cannot run it.",
         type: :object,
         properties: %{
           web_search: %Schema{type: :boolean},
-          image_generate: %Schema{type: :boolean},
-          compaction: %Schema{type: :boolean}
+          image_generate: %Schema{type: :boolean}
         },
-        required: [:web_search, :image_generate, :compaction],
+        required: [:web_search, :image_generate],
         additionalProperties: false
       },
       struct?: false

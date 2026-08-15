@@ -383,7 +383,6 @@ defmodule AnkoleWeb.Router do
     delete "/files/:file_id", AIGatewayFilesController, :delete
     get "/responses", AIGatewayWebSocketController, :responses
     get "/responses/:response_id", AIGatewayController, :retrieve_response
-    post "/responses/compact", AIGatewayController, :compact_response
     post "/responses", AIGatewayController, :responses
     post "/embeddings", AIGatewayController, :embeddings
     post "/rerank", AIGatewayController, :rerank

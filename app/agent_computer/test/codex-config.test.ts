@@ -37,8 +37,7 @@ function aigatewayRuntime(): CodexRuntimeConfig {
         inputModalities: ['text', 'image']
       },
       modelReasoningEffort: 'xhigh'
-    },
-    remoteCompactionV2: false
+    }
   }
 }
 
@@ -138,7 +137,6 @@ describe('@ankole/agent-computer Codex config', () => {
     expect(threadConfig.features).toEqual({
       plugins: true,
       remote_plugin: false,
-      remote_compaction_v2: false,
       code_mode: { enabled: true }
     })
     expect(threadConfig.mcp_servers).toEqual({ native: { command: 'native-server' } })
@@ -153,11 +151,11 @@ describe('@ankole/agent-computer Codex config', () => {
     expect(envTraceHeaders['X-ANKOLE-OBSERVABILITY-USER-ID']).toBeUndefined()
     expect(envTraceHeaders['x-env-project-header']).toBe('PRESERVED_HEADER_ENV')
 
-    const subscriptionThreadConfig = codexJobThreadConfig({
+    const staleHeaderThreadConfig = codexJobThreadConfig({
       cwd: projectRoot,
       codexHome: '/agents/agent.v1/.codex',
       env: {},
-      runtime: { ...runtime, remoteCompactionV2: true },
+      runtime,
       projectConfig: {
         model_providers: {
           ankole_aigateway: {
@@ -173,16 +171,15 @@ describe('@ankole/agent-computer Codex config', () => {
         }
       }
     }) as any
-    expect(subscriptionThreadConfig.features.remote_compaction_v2).toBe(true)
-    expect(subscriptionThreadConfig.model_providers.ankole_aigateway.http_headers.traceparent).toBeUndefined()
+    expect(staleHeaderThreadConfig.model_providers.ankole_aigateway.http_headers.traceparent).toBeUndefined()
     expect(
-      subscriptionThreadConfig.model_providers.ankole_aigateway.http_headers[observabilityUserHeader]
+      staleHeaderThreadConfig.model_providers.ankole_aigateway.http_headers[observabilityUserHeader]
     ).toBeUndefined()
-    expect(subscriptionThreadConfig.model_providers.ankole_aigateway.http_headers.TraceParent).toBeUndefined()
+    expect(staleHeaderThreadConfig.model_providers.ankole_aigateway.http_headers.TraceParent).toBeUndefined()
     expect(
-      subscriptionThreadConfig.model_providers.ankole_aigateway.http_headers['X-Ankole-Observability-User-Id']
+      staleHeaderThreadConfig.model_providers.ankole_aigateway.http_headers['X-Ankole-Observability-User-Id']
     ).toBeUndefined()
-    expect(subscriptionThreadConfig.model_providers.ankole_aigateway.env_http_headers).toEqual({})
+    expect(staleHeaderThreadConfig.model_providers.ankole_aigateway.env_http_headers).toEqual({})
 
     const unattributedThreadConfig = codexJobThreadConfig({
       cwd: projectRoot,
