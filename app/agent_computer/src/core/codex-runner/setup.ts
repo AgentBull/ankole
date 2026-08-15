@@ -49,7 +49,7 @@ import {
   selectProjectedStandaloneSkills
 } from './runtime-projection'
 import { codexJobThreadConfig } from './thread-config'
-import { traceparentFromTurnStart } from '../../observability/turn-tracing'
+import { turnTracePropagationFromTurnStart } from '../../observability/turn-tracing'
 
 export type CodexJobSetupInput = {
   turnStart: TurnStart
@@ -134,12 +134,12 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput) {
     hostedWebSearch
   })
   const projectionAPIKey = runtimeConfig.aiGatewayKey
-  const traceparent = traceparentFromTurnStart(turnStart)
+  const turnTracePropagation = turnTracePropagationFromTurnStart(turnStart)
   opts.abortSignal?.throwIfAborted()
   const projectionAIGateway = httpClientFromAIGatewayAPIKey(
     projectionAPIKey,
     options => requestProjectionAIGatewayKey(turnStart, opts, options),
-    traceparent
+    turnTracePropagation
   )
   const renderedFetchRuntimeConfig = await resolveRenderedFetchRuntimeConfig(turnStart, opts.rpc)
   opts.abortSignal?.throwIfAborted()
@@ -299,7 +299,7 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput) {
       codexHome: materialized.codexHome,
       env: threadEnv,
       runtime: runtimeConfig,
-      traceparent,
+      turnTracePropagation,
       projectConfig: readCodexJobProjectConfig(jobProject.root)
     }),
     preparedAgentPlugins,

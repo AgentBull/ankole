@@ -1,5 +1,10 @@
 # Changelog
 
+## Version 0.73.0 (2026-08-15)
+
+- Group new observability traces by the trusted human for direct-message Turns and by the source channel for group or event Turns instead of by the Agent. Keep the Agent as separate Principal metadata, preserve session identities, and omit the user when no trusted trigger exists. Existing Observability settings remain valid, and historical traces do not change.
+- Preserve the same user attribution across Worker tools, AIGateway HTTP and WebSocket generations, Codex Jobs, and image-input fallback calls. The internal cross-runtime carrier now preserves Unicode platform identifiers without breaking model transports, while Worker export authorization continues to use the Agent Principal.
+
 ## Version 0.72.3 (2026-08-15)
 
 - Preserve the official Codex tool schema, including encrypted collaboration parameters, through Responses-compatible Provider proxies. A permanent Provider request rejection now stops the Background Job instead of consuming Codex retries and returning it to the queue, and reaches every caller under one error code, while transport, authorization, rate-limit, and server failures keep bounded recovery.

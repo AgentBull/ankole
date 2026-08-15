@@ -35,7 +35,7 @@ defmodule Ankole.Observability.Trace do
   def trace_attributes(context) do
     %{}
     |> maybe_put("ankole.principal.uid", context.principal_uid)
-    |> maybe_put("user.id", context.principal_uid)
+    |> maybe_put("user.id", context.user_id)
     |> maybe_put("ankole.principal.type", context.principal_type)
     |> maybe_put("session.id", context.session_id)
     |> maybe_put("gen_ai.conversation.id", context.session_id)

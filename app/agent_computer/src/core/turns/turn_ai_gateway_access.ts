@@ -8,7 +8,7 @@ import {
 } from '../ai_gateway_transport'
 import type { ModelConfig } from '../llm'
 import type { AIGatewayAPIKeyRequester } from './turn_options'
-import { traceparentFromTurnStart } from '../../observability/turn-tracing'
+import { turnTracePropagationFromTurnStart } from '../../observability/turn-tracing'
 
 export type TurnAIGatewayAccess = {
   model: ModelConfig
@@ -46,18 +46,18 @@ export async function acquireTurnAIGatewayAccess(
   const apiKey = await requestVerifiedAPIKey(turnStart, requestAPIKey(), 'AIGateway API key', opts.runStep)
   const refreshAIGatewayAPIKey = (refreshOptions?: AIGatewayAPIKeyRefreshOptions) =>
     requestVerifiedAPIKey(turnStart, requestAPIKey(refreshOptions), 'AIGateway API key refresh', opts.runStep)
-  const traceparent = traceparentFromTurnStart(turnStart)
+  const turnTracePropagation = turnTracePropagationFromTurnStart(turnStart)
 
   return {
-    model: modelConfigFromAIGatewayAPIKey(modelRef, apiKey, refreshAIGatewayAPIKey, traceparent),
-    aiGateway: httpClientFromAIGatewayAPIKey(apiKey, refreshAIGatewayAPIKey, traceparent),
+    model: modelConfigFromAIGatewayAPIKey(modelRef, apiKey, refreshAIGatewayAPIKey, turnTracePropagation),
+    aiGateway: httpClientFromAIGatewayAPIKey(apiKey, refreshAIGatewayAPIKey, turnTracePropagation),
     ...(modelRef.vision_fallback_model_ref
       ? {
           visionFallbackModel: modelConfigFromAIGatewayAPIKey(
             modelRef.vision_fallback_model_ref,
             apiKey,
             refreshAIGatewayAPIKey,
-            traceparent
+            turnTracePropagation
           )
         }
       : {})

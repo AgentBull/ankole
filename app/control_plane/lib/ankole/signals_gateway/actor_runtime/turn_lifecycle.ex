@@ -585,8 +585,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
   end
 
   # Builds and sends the turn-start envelope after the transaction has
-  # committed. The turn span starts here, outside the transaction, so a
-  # traceparent can join the request context before the one envelope build.
+  # committed. The turn span starts here, outside the transaction, so the
+  # canonical trace facts can join the request context before the one envelope
+  # build.
   # A failed send invalidates the route and leaves delivery rows as retryable
   # runtime projections instead of rolling back the durable turn.
   defp send_turn_start(
@@ -602,17 +603,23 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
           } =
             result}
        ) do
+    request_context =
+      turn_start_spec
+      |> Map.get(:request_context, %{})
+      |> Map.drop(["traceparent", "observability_user_id"])
+
     turn_start_spec =
       case Observability.start_turn(actor_event, turn_start_spec) do
-        traceparent when is_binary(traceparent) ->
+        %{traceparent: traceparent, user_id: user_id} ->
           request_context =
-            (Map.get(turn_start_spec, :request_context) || %{})
+            request_context
             |> Map.put("traceparent", traceparent)
+            |> maybe_put_observability_user_id(user_id)
 
           Map.put(turn_start_spec, :request_context, request_context)
 
         nil ->
-          turn_start_spec
+          Map.put(turn_start_spec, :request_context, request_context)
       end
 
     envelope =
@@ -641,6 +648,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
   end
 
   defp send_turn_start({:error, _reason} = error), do: error
+
+  defp maybe_put_observability_user_id(request_context, user_id) when is_binary(user_id),
+    do: Map.put(request_context, "observability_user_id", user_id)
+
+  defp maybe_put_observability_user_id(request_context, _user_id), do: request_context
 
   defp maybe_start_preview(%ActorEvent{} = actor_event, %{id: conversation_id}) do
     _ = AIReplyPreview.maybe_start_for(actor_event, actor_event.agent_uid, conversation_id)

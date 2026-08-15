@@ -1,6 +1,8 @@
 defmodule Ankole.AIGateway.RequestContext do
   @moduledoc false
 
+  alias Ankole.Observability.UserID
+
   @forwarded_headers ~w(
     originator
     user-agent
@@ -19,6 +21,7 @@ defmodule Ankole.AIGateway.RequestContext do
   )
 
   @session_headers ~w(x-session-id session_id session-id thread-id)
+  @observability_user_header "x-ankole-observability-user-id"
 
   @doc "Returns the client session headers in precedence order."
   @spec session_header_names() :: [String.t()]
@@ -42,7 +45,32 @@ defmodule Ankole.AIGateway.RequestContext do
       "headers" => safe_headers,
       "downstream_transport" => downstream_transport
     }
+    |> put_observability_user_id(headers)
   end
+
+  @doc false
+  @spec observability_user_id(map()) :: {:ok, String.t() | nil} | :missing
+  def observability_user_id(%{} = context) do
+    if Map.has_key?(context, "observability_user_id") do
+      case Map.get(context, "observability_user_id") do
+        nil ->
+          {:ok, nil}
+
+        value when is_binary(value) ->
+          case UserID.normalize(value) do
+            {:ok, user_id} -> {:ok, user_id}
+            :error -> :missing
+          end
+
+        _invalid ->
+          :missing
+      end
+    else
+      :missing
+    end
+  end
+
+  def observability_user_id(_context), do: :missing
 
   @spec prepare(map(), map()) :: map()
   def prepare(context, request) when is_map(context) and is_map(request) do
@@ -87,6 +115,20 @@ defmodule Ankole.AIGateway.RequestContext do
        do: Map.put(context, "affinity_key", natural_cache_key)
 
   defp maybe_put_affinity(context, _natural_cache_key, _cache_key), do: context
+
+  defp put_observability_user_id(context, headers) do
+    case Enum.find_value(headers, fn
+           {name, value} when is_binary(name) and is_binary(value) ->
+             if String.downcase(name) == @observability_user_header,
+               do: {:found, UserID.decode_carrier(value)}
+
+           _header ->
+             nil
+         end) do
+      {:found, {:ok, user_id}} -> Map.put(context, "observability_user_id", user_id)
+      _missing_or_invalid -> context
+    end
+  end
 
   defp header(context, name), do: get_in(context, ["headers", name]) |> text()
 

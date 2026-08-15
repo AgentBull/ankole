@@ -79,4 +79,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRuntimeEnvTest do
     assert TurnRuntimeEnv.resolve(%ActorEvent{sender_key: disabled.uid, payload: %{}}) == %{}
     assert TurnRuntimeEnv.resolve(%ActorEvent{payload: %{}}) == %{}
   end
+
+  test "reads only the canonical current sender runtime value" do
+    assert TurnRuntimeEnv.current_sender_principal_uid(%{@runtime_name => "principal-1"}) ==
+             "principal-1"
+
+    assert TurnRuntimeEnv.current_sender_principal_uid(%{@runtime_name => ""}) == nil
+    assert TurnRuntimeEnv.current_sender_principal_uid(%{"other" => "principal-1"}) == nil
+    assert TurnRuntimeEnv.current_sender_principal_uid(nil) == nil
+  end
 end

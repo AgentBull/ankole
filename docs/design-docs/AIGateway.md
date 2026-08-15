@@ -970,6 +970,10 @@ AppConfigure owns four installation-wide values:
 - `observability.traces.otlp_headers` is one encrypted string map for receiver
   authentication and protocol headers.
 
+User attribution is not an AppConfigure value. The control plane derives it
+from each Turn. The Console does not expose another observability field for
+this rule.
+
 The three Providers use the process-wide OpenTelemetry SDK and OTLP exporter.
 `langfuse` adds the Langfuse v4 observation projection. `langsmith` adds the
 LangSmith run-type and legacy GenAI content projection that its current OTLP
@@ -993,17 +997,40 @@ an agent observation. A Background Job root also records its Job identifier and
 attempt count. A node-local ETS table holds open roots; its cleanup ends a root
 that has no terminal outcome with `error.type=turn_outcome_lost`.
 
-The control plane writes the root's W3C `traceparent` into the existing
-`request_context_json`. Agent Computer uses it as the explicit remote parent
-for Main Agent tools, `codex.turn`, and Codex tool spans. It also sends the same
-header on each AIGateway HTTP or WebSocket request. Worker spans use a lazy
-OpenTelemetry tracer provider and return protobuf OTLP batches through the
-authenticated Runtime Fabric RPC lane. The control plane forwards those bytes
-to its configured receiver, so receiver credentials never leave the control
-plane. Export and forwarding are best effort and cannot change a Turn result.
+The control plane derives one `user.id` for the complete Turn trace:
+
+- A direct message from a trusted human uses `principal:<principal_uid>`.
+- A group Turn, or an event Turn with a source channel, uses
+  `channel:<signal_channel_id>`.
+- A Turn without a source channel uses `principal:<principal_uid>` when it has
+  a trusted human trigger.
+- A Turn without a trusted human or a source channel omits `user.id`.
+
+These prefixes keep Principal and channel identifiers in separate namespaces.
+The complete value has a limit of 200 Unicode code points. The value is an
+attribution fact. It does not change the accountable Agent, authorization,
+routing, or session identity.
+
+The control plane writes the root's W3C `traceparent` and derived user
+attribution into the existing `request_context_json`. Agent Computer uses the
+traceparent as the explicit remote parent for Main Agent tools, `codex.turn`,
+and Codex tool spans. It applies the same `user.id`, or the same omission, to
+each Worker span. It sends the traceparent and an unpadded base64url carrier for
+the user value on each AIGateway HTTP or WebSocket request. This encoding only
+keeps the internal header ASCII-safe. The control plane decodes the original
+`user.id`, and the carrier does not reach a model Provider. Worker spans use a
+lazy OpenTelemetry tracer provider and return protobuf OTLP batches through the
+authenticated Runtime Fabric RPC lane.
+The Worker RPC route continues to use the Agent Principal, not `user.id`. The
+control plane forwards those bytes to its configured receiver, so receiver
+credentials never leave the control plane. Export and forwarding are best
+effort and cannot change a Turn result.
 
 Within a traced Turn, one `ai_gateway.response` child span covers each public
-AIGateway Response. A direct AIGateway request with no valid `traceparent`
+AIGateway Response. AIGateway accepts the carried Turn user only from an
+authenticated Agent request with a valid `traceparent`. A direct request, or
+another request that cannot use the carried value, uses
+`principal:<authenticated_subject_uid>`. A request with no valid `traceparent`
 keeps `ai_gateway.response` as its root. Each provider round is one
 `chat {model}` child span. A provider retry before any output stays inside the
 same generation, and each credential-pool retry adds one
@@ -1018,8 +1045,9 @@ Response completion or ActorEvent delivery.
 An enabled trace contains the public request, the prepared request for each
 provider round, normalized provider output, model and Provider labels, token
 usage with cache-read, cache-write, and reasoning detail buckets, Principal,
-and available conversation and ActorEvent identifiers. The session identity is
-the stateful conversation when one exists; otherwise it is
+and available conversation and ActorEvent identifiers. User attribution does
+not change the session identity. The session identity is the stateful
+conversation when one exists; otherwise it is
 `RequestContext.session_key/2`, which accepts explicit client session, thread,
 and conversation identifiers. `prompt_cache_key` stays a cache routing and
 credential-affinity input and never becomes a trace session. Spans also carry
@@ -1041,10 +1069,13 @@ a trusted system.
 For Langfuse v4, use a base endpoint such as
 `https://cloud.langfuse.com/api/public/otel`. Put a Basic `Authorization` value
 and `x-langfuse-ingestion-version: 4` in the encrypted header map. The
-`langfuse` Provider writes the Principal as the Langfuse user, the session key
-as the Langfuse session, `ANKOLE_VERSION` as `langfuse.release`, and the
-Principal, caller, and originator facts as filterable trace metadata. Langfuse
-reads the environment from the exported resource.
+`langfuse` Provider writes the derived `user.id` as the Langfuse user and keeps
+the existing session key as the Langfuse session. It writes
+`ANKOLE_VERSION` as `langfuse.release`, and writes the Agent Principal, caller,
+and originator facts as filterable trace metadata. Langfuse reads the
+environment from the exported resource. This mapping applies only to spans
+that the updated processes create. It does not update historical Langfuse
+records.
 
 For LangSmith, use the regional base endpoint ending in `/otel`, an `x-api-key`
 header, and an optional `Langsmith-Project` header. When a Response belongs to

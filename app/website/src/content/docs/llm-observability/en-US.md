@@ -63,7 +63,16 @@ Open **Console → System configuration → LLM observability** and complete the
 
 The `x-langfuse-ingestion-version: 4` header selects Langfuse's real-time v4 ingestion path. Without it, directly ingested data can be delayed. The headers value is encrypted in PostgreSQL and masked in Console after it is saved.
 
-Langfuse groups the traces without more configuration. The Agent Principal is the Langfuse user, and the conversation — a Main Agent conversation or a Background Job Codex session — is the Langfuse session. Trace metadata carries the Principal type, the internal caller, and the client originator as filterable keys. Set the optional `ANKOLE_ENV` and `ANKOLE_VERSION` process environment variables on the control plane to label every trace with a Langfuse environment (lowercase letters, digits, `-` and `_`, at most 40 characters) and release.
+Langfuse groups new traces by their trigger without another Console setting. Ankole sets `user.id` with these rules:
+
+- A direct message from a trusted human uses `principal:<principal_uid>`.
+- A group Turn, or an event Turn with a source channel, uses `channel:<signal_channel_id>`.
+- A Turn without a source channel uses `principal:<principal_uid>` when it has a trusted human trigger.
+- A Turn without a trusted human or a source channel omits `user.id`.
+
+A direct AIGateway request that is not part of a Turn uses `principal:<authenticated_subject_uid>`. The Agent stays separate in `ankole.principal.uid`, `ankole.principal.type`, and filterable trace metadata. The conversation — a Main Agent conversation or a Background Job Codex session — stays the Langfuse session.
+
+These identity rules do not add a fifth AppConfigure value. The four values above still control only export and the OTLP receiver. Only spans from the updated control plane and Agent Computer use the new mapping after those processes restart. Existing Langfuse data does not change. Set the optional `ANKOLE_ENV` and `ANKOLE_VERSION` process environment variables on the control plane to label every trace with a Langfuse environment (lowercase letters, digits, `-` and `_`, at most 40 characters) and release.
 
 To disable export, set `observability.traces.enabled` to `false` and restart the control plane. Export failures never change a Turn or AIGateway model result, but traces are best effort and Ankole does not retain a delivery outbox for them.
 

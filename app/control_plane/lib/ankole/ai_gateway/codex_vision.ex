@@ -48,9 +48,14 @@ defmodule Ankole.AIGateway.CodexVision do
   end
 
   defp fallback_summary(subject_uid, fallback, images, opts) do
+    fallback_opts =
+      opts
+      |> Keyword.take([:request_context, :subject_type])
+      |> Keyword.put(:caller, "codex_vision")
+
     requester =
       Keyword.get(opts, :request_fallback, fn subject_uid, request ->
-        Ankole.AIGateway.create_response(subject_uid, request, caller: "codex_vision")
+        Ankole.AIGateway.create_response(subject_uid, request, fallback_opts)
       end)
 
     request = %{

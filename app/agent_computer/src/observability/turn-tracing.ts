@@ -21,9 +21,16 @@ import type { TurnStart } from '../lanes/actor_lane'
 
 const tracerName = 'ankole-worker'
 const traceparentPattern = /^([0-9a-f]{2})-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})$/
+const observabilityUserIDPrefixes = ['principal:', 'channel:'] as const
+const observabilityUserIDMaxCodepoints = 200
+const turnIdentityAttributeNames = new Set(['ankole.principal.uid', 'ankole.principal.type', 'user.id', 'session.id'])
 
-export type WorkerTurnTrace = {
+export type TurnTracePropagation = {
   traceparent: string
+  observabilityUserID: string | null
+}
+
+export type WorkerTurnTrace = TurnTracePropagation & {
   parentContext: Context
   attributes: Attributes
 }
@@ -38,18 +45,17 @@ export function configureWorkerTracing(exporter: ExportOTLP): void {
 }
 
 export function workerTurnTrace(turnStart: TurnStart): WorkerTurnTrace | undefined {
-  const traceparent = traceparentFromTurnStart(turnStart)
-  if (!traceparent || !exportOTLP) return undefined
+  const propagation = turnTracePropagationFromTurnStart(turnStart)
+  if (!propagation || !exportOTLP) return undefined
 
-  const match = traceparent.match(traceparentPattern)
+  const match = propagation.traceparent.match(traceparentPattern)
   if (!match) return undefined
-  const [, version, traceId, spanId, flags] = match
-  if (version === 'ff' || /^0+$/.test(traceId!) || /^0+$/.test(spanId!)) return undefined
+  const [, , traceId, spanId, flags] = match
 
   ensureProvider()
 
   return {
-    traceparent,
+    ...propagation,
     parentContext: trace.setSpanContext(ROOT_CONTEXT, {
       traceId: traceId!,
       spanId: spanId!,
@@ -57,15 +63,43 @@ export function workerTurnTrace(turnStart: TurnStart): WorkerTurnTrace | undefin
       traceFlags: Number.parseInt(flags!, 16) & TraceFlags.SAMPLED
     }),
     attributes: {
-      'user.id': turnStart.turn.actor.agent_uid,
+      'ankole.principal.uid': turnStart.turn.actor.agent_uid,
+      'ankole.principal.type': 'agent',
+      ...(propagation.observabilityUserID ? { 'user.id': propagation.observabilityUserID } : {}),
       'session.id': turnStart.turn.actor.session_id
     }
   }
 }
 
+export function turnTracePropagationFromTurnStart(turnStart: TurnStart): TurnTracePropagation | undefined {
+  const traceparent = traceparentFromTurnStart(turnStart)
+  if (!traceparent) return undefined
+
+  return {
+    traceparent,
+    observabilityUserID: observabilityUserIDFromTurnStart(turnStart)
+  }
+}
+
 export function traceparentFromTurnStart(turnStart: TurnStart): string | undefined {
   const value = turnStart.request_context?.traceparent
-  return typeof value === 'string' && traceparentPattern.test(value) ? value : undefined
+  if (typeof value !== 'string') return undefined
+
+  const match = value.match(traceparentPattern)
+  if (!match) return undefined
+  const [, version, traceID, spanID] = match
+  if (version === 'ff' || /^0+$/.test(traceID!) || /^0+$/.test(spanID!)) return undefined
+  return value
+}
+
+function observabilityUserIDFromTurnStart(turnStart: TurnStart): string | null {
+  const value = turnStart.request_context?.observability_user_id
+  if (typeof value !== 'string' || value !== value.trim() || /[\r\n]/.test(value)) return null
+  if ([...value].length > observabilityUserIDMaxCodepoints) return null
+
+  return observabilityUserIDPrefixes.some(prefix => value.startsWith(prefix) && value.length > prefix.length)
+    ? value
+    : null
 }
 
 export function startWorkerSpan(
@@ -82,7 +116,7 @@ export function startWorkerSpan(
   return provider.getTracer(tracerName).startSpan(
     name,
     {
-      attributes: { ...turnTrace.attributes, ...attributes },
+      attributes: { ...attributes, ...turnTrace.attributes },
       kind: options.kind ?? SpanKind.INTERNAL,
       ...(options.startTime === undefined ? {} : { startTime: options.startTime })
     },
@@ -95,7 +129,11 @@ export function finishWorkerSpan(
   options: { errorType?: string; attributes?: Attributes; endTime?: TimeInput } = {}
 ): void {
   if (!span) return
-  if (options.attributes) span.setAttributes(options.attributes)
+  if (options.attributes) {
+    span.setAttributes(
+      Object.fromEntries(Object.entries(options.attributes).filter(([name]) => !turnIdentityAttributeNames.has(name)))
+    )
+  }
 
   if (options.errorType) {
     span.setAttribute('error.type', options.errorType)
@@ -142,9 +180,9 @@ class RuntimeFabricSpanExporter implements SpanExporter {
 
     const groups = new Map<string, ReadableSpan[]>()
     for (const span of spans) {
-      const agentUID = span.attributes['user.id']
+      const agentUID = span.attributes['ankole.principal.uid']
       if (typeof agentUID !== 'string' || agentUID.length === 0) {
-        callback({ code: 1, error: new Error('worker span has no user.id') })
+        callback({ code: 1, error: new Error('worker span has no ankole.principal.uid') })
         return
       }
       groups.set(agentUID, [...(groups.get(agentUID) ?? []), span])

@@ -63,7 +63,16 @@ printf '%s' 'pk-lf-...:sk-lf-...' | base64 | tr -d '\n'
 
 `x-langfuse-ingestion-version: 4` 会选择 Langfuse v4 实时摄取路径。缺少此请求头时，直接摄取的数据可能延迟显示。headers 值会加密保存到 PostgreSQL，保存后在 Console 中显示为掩码。
 
-Langfuse 的分组无需额外配置。Agent Principal 就是 Langfuse user；会话——主 Agent 对话或后台 Job 的 Codex 会话——就是 Langfuse session。trace metadata 以可筛选键携带 Principal 类型、内部调用方与客户端 originator。在控制面设置可选的 `ANKOLE_ENV` 与 `ANKOLE_VERSION` 进程环境变量，可为每条 trace 标注 Langfuse environment（小写字母、数字、`-` 与 `_`，最长 40 字符）与 release。
+Langfuse 无需新增 Console 设置即可按触发身份对新 trace 分组。Ankole 按以下规则写入 `user.id`：
+
+- 可信人工直接发送的私聊 Turn 使用 `principal:<principal_uid>`。
+- 群聊 Turn，或带来源 channel 的事件 Turn，使用 `channel:<signal_channel_id>`。
+- 没有来源 channel、但有可信人工触发者的 Turn 使用 `principal:<principal_uid>`。
+- 既没有可信人工、也没有来源 channel 的 Turn 省略 `user.id`。
+
+不属于 Turn 的 AIGateway 直接请求使用 `principal:<authenticated_subject_uid>`。Agent 身份继续单独保存在 `ankole.principal.uid`、`ankole.principal.type` 与可筛选的 trace metadata 中。会话——主 Agent 对话或后台 Job 的 Codex 会话——仍是 Langfuse session。
+
+这些身份规则不会增加第五个 AppConfigure 值；上面的四个值仍只控制导出与 OTLP 接收端。控制面和 Agent Computer 更新并重启后，新 span 才使用这套映射；Langfuse 中已有的数据不会改变。在控制面设置可选的 `ANKOLE_ENV` 与 `ANKOLE_VERSION` 进程环境变量，可为每条 trace 标注 Langfuse environment（小写字母、数字、`-` 与 `_`，最长 40 字符）与 release。
 
 如需关闭导出，把 `observability.traces.enabled` 设为 `false`，然后重启控制面。导出失败不会改变 Turn 或 AIGateway 模型请求的结果，但 trace 是尽力传输，Ankole 不为它维护投递 outbox。
 

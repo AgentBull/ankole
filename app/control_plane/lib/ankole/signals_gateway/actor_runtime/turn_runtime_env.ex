@@ -31,6 +31,17 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRuntimeEnv do
     end
   end
 
+  @doc false
+  @spec current_sender_principal_uid(map()) :: String.t() | nil
+  def current_sender_principal_uid(%{} = runtime_env) do
+    case Map.get(runtime_env, @current_sender_principal) do
+      uid when is_binary(uid) and uid != "" -> uid
+      _missing -> nil
+    end
+  end
+
+  def current_sender_principal_uid(_runtime_env), do: nil
+
   defp principal_candidate(principal_uid) do
     case Principals.get_principal(principal_uid) do
       {:ok, %Principal{type: :human, status: :active, uid: uid}} ->

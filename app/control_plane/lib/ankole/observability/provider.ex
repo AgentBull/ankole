@@ -17,6 +17,7 @@ defmodule Ankole.Observability.Provider do
   @type trace_context :: %{
           principal_uid: String.t() | nil,
           principal_type: String.t() | nil,
+          user_id: String.t() | nil,
           actor_event_id: String.t() | nil,
           session_id: String.t() | nil,
           originator: String.t() | nil,

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
+import { Buffer } from 'node:buffer'
 import { tmpdir } from 'node:os'
 import { z } from 'zod'
 import { runAgentLoop } from '../../src/core/agent-loop'
@@ -12,7 +13,10 @@ import {
   prependEnvironmentInfoLinesToUserMessage,
   turnRequestEnvironmentInfoLines
 } from '../../src/core/turns/message_context'
-import { modelConfigFromAIGatewayAPIKey } from '../../src/core/ai_gateway_transport'
+import {
+  AIGATEWAY_OBSERVABILITY_USER_ID_HEADER,
+  modelConfigFromAIGatewayAPIKey
+} from '../../src/core/ai_gateway_transport'
 import { acquireTurnAIGatewayAccess } from '../../src/core/turns/turn_ai_gateway_access'
 import { textTurnResultFromAssistantReply } from '../../src/core/turns/text_turn'
 import { steeringMessages, steeringMessagesWithAcknowledgement } from '../../src/core/turns/turn_control'
@@ -46,16 +50,26 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
     await expect(access.model.responseWebSocket?.authorization()).resolves.toBe('Bearer agent-key')
   })
 
-  it('adds the turn traceparent to AIGateway HTTP requests and WebSocket handshakes', async () => {
+  it('adds canonical turn trace identity to AIGateway HTTP, WebSocket, and vision transports', async () => {
     const originalFetch = globalThis.fetch
     const traceparent = '00-11111111111111111111111111111111-1111111111111111-01'
+    const userID = 'channel:lark:群聊一'
+    const userCarrier = Buffer.from(userID).toString('base64url')
     const turnStart = turnStartForTest() as TurnStart
-    turnStart.request_context = { ...turnStart.request_context, traceparent }
-    let seenTraceparent = ''
+    turnStart.request_context = { ...turnStart.request_context, traceparent, observability_user_id: userID }
+    turnStart.model_ref!.vision_fallback_model_ref = {
+      profile: 'vision_fallback',
+      provider_id: 'openrouter-vision',
+      model: 'vision-model'
+    }
+    const seenTraceHeaders: Array<{ traceparent: string | null; userID: string | null }> = []
 
     globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
       const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined))
-      seenTraceparent = headers.get('traceparent') ?? ''
+      seenTraceHeaders.push({
+        traceparent: headers.get('traceparent'),
+        userID: headers.get(AIGATEWAY_OBSERVABILITY_USER_ID_HEADER)
+      })
       return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } })
     }) as unknown as typeof fetch
 
@@ -64,9 +78,75 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
         requestAIGatewayAPIKey: async agentUid => aiGatewayKeyForTest(agentUid, 'agent-key')
       })
 
-      await access.aiGateway.fetch('https://control.test/api/v1/ai-gateway/models')
-      expect(seenTraceparent).toBe(traceparent)
+      await access.aiGateway.fetch('https://control.test/api/v1/ai-gateway/models', {
+        headers: {
+          traceparent: '00-99999999999999999999999999999999-9999999999999999-01',
+          [AIGATEWAY_OBSERVABILITY_USER_ID_HEADER]: 'principal:spoofed'
+        }
+      })
+      await access.visionFallbackModel!.client.responses.create({
+        model: access.visionFallbackModel!.selector,
+        input: 'inspect image'
+      })
+
+      expect(seenTraceHeaders).toEqual([
+        { traceparent, userID: userCarrier },
+        { traceparent, userID: userCarrier }
+      ])
       expect(access.model.responseWebSocket?.headers?.traceparent).toBe(traceparent)
+      expect(access.model.responseWebSocket?.headers?.[AIGATEWAY_OBSERVABILITY_USER_ID_HEADER]).toBe(userCarrier)
+      expect(access.visionFallbackModel?.responseWebSocket?.headers).toEqual({
+        traceparent,
+        [AIGATEWAY_OBSERVABILITY_USER_ID_HEADER]: userCarrier
+      })
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  it('sends explicit no-user attribution and removes caller trace headers when the turn has no trace', async () => {
+    const originalFetch = globalThis.fetch
+    const traceparent = '00-11111111111111111111111111111111-1111111111111111-01'
+    const seenTraceHeaders: Array<{ traceparent: string | null; userID: string | null }> = []
+
+    globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined))
+      seenTraceHeaders.push({
+        traceparent: headers.get('traceparent'),
+        userID: headers.get(AIGATEWAY_OBSERVABILITY_USER_ID_HEADER)
+      })
+      return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } })
+    }) as unknown as typeof fetch
+
+    try {
+      const unattributedTurn = turnStartForTest() as TurnStart
+      unattributedTurn.request_context = { ...unattributedTurn.request_context, traceparent }
+      const unattributedAccess = await acquireTurnAIGatewayAccess(unattributedTurn, {
+        requestAIGatewayAPIKey: async agentUid => aiGatewayKeyForTest(agentUid, 'agent-key')
+      })
+      await unattributedAccess.aiGateway.fetch('https://control.test/api/v1/ai-gateway/models', {
+        headers: { [AIGATEWAY_OBSERVABILITY_USER_ID_HEADER]: 'principal:spoofed' }
+      })
+
+      const untracedAccess = await acquireTurnAIGatewayAccess(turnStartForTest(), {
+        requestAIGatewayAPIKey: async agentUid => aiGatewayKeyForTest(agentUid, 'agent-key')
+      })
+      await untracedAccess.aiGateway.fetch('https://control.test/api/v1/ai-gateway/models', {
+        headers: {
+          traceparent,
+          [AIGATEWAY_OBSERVABILITY_USER_ID_HEADER]: 'principal:spoofed'
+        }
+      })
+
+      expect(seenTraceHeaders).toEqual([
+        { traceparent, userID: 'none' },
+        { traceparent: null, userID: null }
+      ])
+      expect(unattributedAccess.model.responseWebSocket?.headers).toEqual({
+        traceparent,
+        [AIGATEWAY_OBSERVABILITY_USER_ID_HEADER]: 'none'
+      })
+      expect(untracedAccess.model.responseWebSocket?.headers).toBeUndefined()
     } finally {
       globalThis.fetch = originalFetch
     }
@@ -128,13 +208,21 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
 
   it('forces AIGateway key refresh after an HTTP 401 before retrying', async () => {
     const originalFetch = globalThis.fetch
+    const traceparent = '00-11111111111111111111111111111111-1111111111111111-01'
+    const userID = 'channel:lark:oc_retry'
+    const userCarrier = Buffer.from(userID).toString('base64url')
     const seenAuthorization: string[] = []
+    const seenTraceIdentity: Array<{ traceparent: string | null; userID: string | null }> = []
     const refreshOptions: Array<{ forceRefresh?: boolean } | undefined> = []
     let calls = 0
 
     globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
       const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined))
       seenAuthorization.push(headers.get('authorization') ?? '')
+      seenTraceIdentity.push({
+        traceparent: headers.get('traceparent'),
+        userID: headers.get(AIGATEWAY_OBSERVABILITY_USER_ID_HEADER)
+      })
       calls += 1
 
       if (calls === 1) {
@@ -172,7 +260,8 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
         async options => {
           refreshOptions.push(options)
           return aiGatewayKeyForTest('agent-1', 'new-key')
-        }
+        },
+        { traceparent, observabilityUserID: userID }
       )
 
       const response = await model.client.responses.create({
@@ -182,6 +271,10 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
 
       expect(response.id).toBe('resp_after_refresh')
       expect(seenAuthorization).toEqual(['Bearer old-key', 'Bearer new-key'])
+      expect(seenTraceIdentity).toEqual([
+        { traceparent, userID: userCarrier },
+        { traceparent, userID: userCarrier }
+      ])
       expect(refreshOptions).toEqual([{ forceRefresh: true }])
     } finally {
       globalThis.fetch = originalFetch
@@ -260,7 +353,11 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
   })
 
   it('forces AIGateway key refresh after a WebSocket open failure before retrying', async () => {
+    const traceparent = '00-11111111111111111111111111111111-1111111111111111-01'
+    const userID = 'channel:lark:oc_ws_retry'
+    const userCarrier = Buffer.from(userID).toString('base64url')
     const seenAuthorization: string[] = []
+    const seenTraceIdentity: Array<{ traceparent?: string; userID?: string }> = []
     const refreshOptions: Array<{ forceRefresh?: boolean } | undefined> = []
     const sentPayloads: JSONObject[] = []
     let attempts = 0
@@ -275,12 +372,17 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
       async options => {
         refreshOptions.push(options)
         return aiGatewayKeyForTest('agent-1', 'new-key')
-      }
+      },
+      { traceparent, observabilityUserID: userID }
     )
 
     model.responseWebSocket!.createWebSocket = (_url, init) => {
       attempts += 1
       seenAuthorization.push(init.headers.authorization ?? init.headers.Authorization ?? '')
+      seenTraceIdentity.push({
+        traceparent: init.headers.traceparent,
+        userID: init.headers[AIGATEWAY_OBSERVABILITY_USER_ID_HEADER]
+      })
 
       if (attempts === 1) {
         const socket = new FakeResponseSocket(init, () => {
@@ -325,6 +427,10 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
     expect(attempts).toBe(2)
     expect(sentPayloads).toHaveLength(1)
     expect(seenAuthorization).toEqual(['Bearer old-key', 'Bearer new-key'])
+    expect(seenTraceIdentity).toEqual([
+      { traceparent, userID: userCarrier },
+      { traceparent, userID: userCarrier }
+    ])
     expect(refreshOptions).toEqual([{ forceRefresh: true }])
   })
 
