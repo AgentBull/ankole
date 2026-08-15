@@ -90,6 +90,22 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
 
     assert Enum.map(filtered["jobs"], & &1["id"]) == [middle.id, oldest.id]
 
+    name_search =
+      conn
+      |> recycle_bearer()
+      |> get(~p"/api/v1/background-agent-jobs?agent=#{agent.uid}&q=MIDDLE&limit=1")
+      |> json_response(200)
+
+    assert Enum.map(name_search["jobs"], & &1["id"]) == [middle.id]
+
+    id_search =
+      conn
+      |> recycle_bearer()
+      |> get(~p"/api/v1/background-agent-jobs?q=#{oldest.id}&limit=1")
+      |> json_response(200)
+
+    assert Enum.map(id_search["jobs"], & &1["id"]) == [oldest.id]
+
     detail_response =
       conn
       |> recycle_bearer()
@@ -153,6 +169,20 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
 
     assert completed["status"] == "succeeded"
     assert completed["result"]["summary"] == "EXTERNALLY-VERIFIED"
+  end
+
+  test "title search treats LIKE control characters as ordinary text", %{conn: conn} do
+    agent = background_agent_fixture().principal
+    percent = create_job!(agent.uid, "literal-percent", "Console percent%marker")
+    _percent_wildcard = create_job!(agent.uid, "percent-wildcard", "Console percent-any-marker")
+    underscore = create_job!(agent.uid, "literal-underscore", "Console under_marker")
+    _underscore_wildcard = create_job!(agent.uid, "underscore-wildcard", "Console underXmarker")
+    backslash = create_job!(agent.uid, "literal-backslash", "Console slash\\marker")
+    conn = bearer_conn(conn)
+
+    assert search_job_ids(conn, "percent%marker") == [percent.id]
+    assert search_job_ids(conn, "under_marker") == [underscore.id]
+    assert search_job_ids(conn, "slash\\marker") == [backslash.id]
   end
 
   test "cursor pagination neither skips nor repeats jobs with the same queued timestamp", %{
@@ -235,13 +265,13 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
     refute inspect(detail) =~ "json_rpc"
   end
 
-  defp create_job!(agent_uid, suffix) do
+  defp create_job!(agent_uid, suffix, title \\ nil) do
     assert {:ok, %{job: job}} =
              BackgroundAgentJobs.create_with_dispatch(%{
                "agent_uid" => agent_uid,
                "owner_session_id" => "console-parent-#{suffix}",
                "source_tool_call_id" => "console-tool-#{suffix}",
-               "title" => "Console job #{suffix}",
+               "title" => title || "Console job #{suffix}",
                "task" => "Complete console job #{suffix}. Keep the result concise.",
                "reply_route" => %{
                  "binding_name" => "bot",
@@ -250,6 +280,17 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
              })
 
     job
+  end
+
+  defp search_job_ids(conn, search) do
+    query = URI.encode_query(%{"q" => search, "limit" => 100})
+
+    conn
+    |> recycle_bearer()
+    |> get("/api/v1/background-agent-jobs?#{query}")
+    |> json_response(200)
+    |> Map.fetch!("jobs")
+    |> Enum.map(& &1["id"])
   end
 
   defp insert_turn!(job, runtime_thread_id, runtime_turn_id) do

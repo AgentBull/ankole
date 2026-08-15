@@ -21,7 +21,7 @@ import {
 import { RiBroadcastLine, RiPauseCircleLine, RiPlayCircleLine } from '@remixicon/react'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { useDeferredValue, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useSearchParams } from 'react-router'
@@ -116,7 +116,7 @@ export function SignalsListPage() {
       createTo={
         scope.agents.length > 0
           ? scope.agentUID
-            ? `new?agent=${encodeURIComponent(scope.agentUID)}`
+            ? `new?${new URLSearchParams({ agent: scope.agentUID, return_agent: scope.agentUID })}`
             : 'new'
           : undefined
       }
@@ -178,7 +178,7 @@ export function SignalsListPage() {
           <TableCell className="font-mono text-xs">
             <Link
               className="text-foreground hover:text-link hover:underline"
-              to={editTo(binding.agent_uid, binding.adapter, binding.name)}>
+              to={editTo(binding.agent_uid, binding.adapter, binding.name, scope.agentUID)}>
               {binding.name}
             </Link>
           </TableCell>
@@ -222,7 +222,7 @@ export function SignalsListPage() {
                       })
                   }
             ]}
-            editTo={editTo(binding.agent_uid, binding.adapter, binding.name)}
+            editTo={editTo(binding.agent_uid, binding.adapter, binding.name, scope.agentUID)}
             editLabel={t('common.edit')}
           />
         </TableRow>
@@ -316,9 +316,11 @@ export function SignalBindingEditorPage() {
   const locale = i18n.language
 
   const sourceAgentUID = searchParams.get('agent') ?? ''
+  const returnAgentUID = searchParams.get('return_agent') ?? ''
   const lockedAdapter = searchParams.get('adapter') ?? undefined
   const lockedName = searchParams.get('name') ?? undefined
   const editing = Boolean(lockedName)
+  const returnPath = signalBindingReturnPath(returnAgentUID)
 
   const agents = useQuery(ankoleWebAgentControllerIndexOptions())
   const agentList = agents.data?.agents ?? []
@@ -367,17 +369,23 @@ export function SignalBindingEditorPage() {
   const createBinding = useMutation({
     ...ankoleWebSignalBindingControllerPutBindingMutation(),
     onSuccess: (_data, variables) => {
-      toast.success(t('console.signals.saved', { name: variables.path.binding_name }))
-      void queryClient.invalidateQueries()
-      navigate(`/signals?agent=${encodeURIComponent(variables.path.agent_uid)}`)
+      finishSignalBindingSave(
+        t('console.signals.saved', { name: variables.path.binding_name }),
+        returnPath,
+        queryClient,
+        navigate
+      )
     }
   })
   const updateBinding = useMutation({
     ...ankoleWebSignalBindingControllerUpdateBindingMutation(),
     onSuccess: (_data, variables) => {
-      toast.success(t('console.signals.saved', { name: variables.path.binding_name }))
-      void queryClient.invalidateQueries()
-      navigate(`/signals?agent=${encodeURIComponent(variables.body.target_agent_uid)}`)
+      finishSignalBindingSave(
+        t('console.signals.saved', { name: variables.path.binding_name }),
+        returnPath,
+        queryClient,
+        navigate
+      )
     }
   })
 
@@ -425,7 +433,7 @@ export function SignalBindingEditorPage() {
     <ResourceEditorPage
       title={editing ? t('common.edit') : t('console.signals.new')}
       description={editing ? t('console.signals.edit_hint') : t('console.signals.editor_description')}
-      backTo={`/signals?agent=${encodeURIComponent(targetAgentUID)}`}
+      backTo={returnPath}
       error={
         model.validationError.value ??
         agents.error ??
@@ -548,9 +556,36 @@ export function SignalBindingEditorPage() {
   )
 }
 
-function editTo(agentUID: string, adapter: string, name: string): string {
-  const query = new URLSearchParams({ agent: agentUID, adapter, name })
+function editTo(agentUID: string, adapter: string, name: string, returnAgentUID: string): string {
+  const query = signalBindingEditParams(agentUID, adapter, name, returnAgentUID)
   return `new?${query.toString()}`
+}
+
+function signalBindingEditParams(
+  agentUID: string,
+  adapter: string,
+  name: string,
+  returnAgentUID: string
+): URLSearchParams {
+  const query = new URLSearchParams({ agent: agentUID, adapter, name })
+  if (returnAgentUID) query.set('return_agent', returnAgentUID)
+  return query
+}
+
+function signalBindingReturnPath(agentUID: string): string {
+  if (!agentUID) return '/signals'
+  return `/signals?${new URLSearchParams({ agent: agentUID })}`
+}
+
+export function finishSignalBindingSave(
+  message: string,
+  returnPath: string,
+  queryClient: Pick<QueryClient, 'invalidateQueries'>,
+  navigate: (path: string) => unknown
+): void {
+  toast.success(message)
+  void queryClient.invalidateQueries()
+  navigate(returnPath)
 }
 
 function emptyForm(): SignalBindingAdapterDraft {

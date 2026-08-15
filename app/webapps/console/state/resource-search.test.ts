@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'bun:test'
-import { effectiveResourceSearchQuery, matchesResourceSearch } from './resource-search'
+import {
+  effectiveResourceSearchQuery,
+  matchesResourceSearch,
+  RESOURCE_SEARCH_COMMIT_DELAY_MS,
+  scheduleResourceSearchCommit
+} from './resource-search'
 
 describe('effectiveResourceSearchQuery', () => {
   test('uses the current empty query instead of one stale deferred filter', () => {
@@ -20,5 +25,27 @@ describe('matchesResourceSearch', () => {
 
   test('treats a blank query as no filter', () => {
     expect(matchesResourceSearch('  ', undefined)).toBe(true)
+  })
+})
+
+describe('scheduleResourceSearchCommit', () => {
+  test('commits after 300 ms and cancels an obsolete draft', async () => {
+    let commits = 0
+
+    expect(RESOURCE_SEARCH_COMMIT_DELAY_MS).toBe(300)
+
+    const cancel = scheduleResourceSearchCommit(() => {
+      commits += 1
+    })
+    expect(commits).toBe(0)
+    cancel()
+    await Bun.sleep(RESOURCE_SEARCH_COMMIT_DELAY_MS + 20)
+    expect(commits).toBe(0)
+
+    scheduleResourceSearchCommit(() => {
+      commits += 1
+    })
+    await Bun.sleep(RESOURCE_SEARCH_COMMIT_DELAY_MS + 20)
+    expect(commits).toBe(1)
   })
 })

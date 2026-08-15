@@ -106,7 +106,11 @@ export function createConsoleRouteLoaders(queryClient: QueryClient) {
       const selectedID = resourceID(searchParams.get('job'), 1000)
       const list = ensure(
         ankoleWebBackgroundAgentJobControllerIndexOptions({
-          query: { agent: searchParams.get('agent')?.trim() || undefined, limit: 100 }
+          query: {
+            agent: searchParams.get('agent')?.trim() || undefined,
+            q: searchParams.get('q')?.trim() || undefined,
+            limit: 100
+          }
         })
       )
 

@@ -749,6 +749,7 @@ complete_confirm = "你已在运行时之外核实工作结果。任务将转为
 complete_summary_placeholder = "结果摘要（必填）：说明已核实的交付物与位置"
 completed = "后台 Agent 任务已标记完成。"
 execution_failures = "执行失败"
+search = "按任务 ID 或名称搜索"
 health_oldest_queued = "最长排队等待"
 health_oldest_queued_hint = "排队 {$queued} · 运行 {$running}"
 health_agent_cap = "达到并发上限的 Agent"
