@@ -2,9 +2,9 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
   @moduledoc """
   Canonical storage and replay seam for AIGateway compaction artifacts.
 
-  `/responses/compact`, `/compress`, and automatic compaction all create an
-  artifact first. A checkpoint message row is only a response-chain continuation
-  pointer to one artifact.
+  The `compaction_trigger` protocol, `/compress`, and automatic compaction all
+  create an artifact first. A checkpoint message row is only a response-chain
+  continuation pointer to one artifact.
   """
 
   import Ecto.Query, warn: false
@@ -27,6 +27,7 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
           optional(:output) => [term()],
           optional(:retained_items) => [map()],
           optional(:retained_user_originals) => [map()],
+          optional(:opaque_prefix) => [map()],
           optional(:retention) => map(),
           optional(:usage) => map()
         }
@@ -127,6 +128,13 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
 
   def upstream_binding(_artifact), do: nil
 
+  @spec opaque_prefix(CompactionArtifact.t()) :: [map()]
+  def opaque_prefix(%CompactionArtifact{content: %{"opaque_prefix" => opaque_prefix}})
+      when is_list(opaque_prefix),
+      do: opaque_prefix
+
+  def opaque_prefix(_artifact), do: []
+
   @spec response_body(CompactionArtifact.t(), keyword()) :: map()
   def response_body(%CompactionArtifact{} = artifact, opts \\ []) do
     body = %{
@@ -145,6 +153,8 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
 
   @doc """
   Materializes a checkpoint row into the artifact output it references.
+
+  A preserved opaque prefix replays ahead of the artifact output.
   """
   @spec output_for_checkpoint(String.t(), Message.t()) ::
           {:ok, [term()]} | {:error, :invalid_compaction_handle}
@@ -152,7 +162,7 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
     case ref do
       %{"type" => "compaction_artifact", "id" => public_id} ->
         with {:ok, artifact} <- get_for_subject(subject_uid, public_id) do
-          {:ok, output(artifact)}
+          {:ok, opaque_prefix(artifact) ++ output(artifact)}
         end
 
       _invalid ->
@@ -196,8 +206,10 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
   def summary_for_checkpoint(_subject_uid, _message), do: {:ok, nil}
 
   @doc """
-  Replaces Ankole compaction handles in Response input items with a user message.
+  Replaces Ankole compaction handles in Response input items.
 
+  A handle resolves to its stored opaque prefix, when the artifact preserved
+  Provider-owned compaction state, followed by one checkpoint user message.
   The checkpoint prompt is AIGateway policy. Provider-native compaction items
   remain unchanged for a Responses resolver.
   """
@@ -206,6 +218,7 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
   def resolve_input_handles(subject_uid, items) when is_list(items) do
     Enum.reduce_while(items, {:ok, []}, fn item, {:ok, acc} ->
       case resolve_input_item_handle(subject_uid, item) do
+        {:ok, resolved} when is_list(resolved) -> {:cont, {:ok, Enum.reverse(resolved, acc)}}
         {:ok, resolved} -> {:cont, {:ok, [resolved | acc]}}
         {:error, _reason} = error -> {:halt, error}
       end
@@ -235,7 +248,7 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
       @handle_prefix <> _rest = handle ->
         with {:ok, artifact} <- get_for_subject(subject_uid, handle),
              summary when is_binary(summary) <- summary_text(artifact) do
-          {:ok, checkpoint_message(summary)}
+          {:ok, opaque_prefix(artifact) ++ [checkpoint_message(summary)]}
         else
           _missing_or_invalid -> {:error, :invalid_compaction_handle}
         end
@@ -291,6 +304,7 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
     summary_text = Map.fetch!(attrs, :summary_text)
     retained_items = Map.get(attrs, :retained_items, [])
     retained_user_originals = Map.get(attrs, :retained_user_originals, [])
+    opaque_prefix = Map.get(attrs, :opaque_prefix, [])
 
     cond do
       not is_binary(summary_text) or String.trim(summary_text) == "" ->
@@ -302,15 +316,27 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
       not is_list(retained_user_originals) ->
         {:error, :invalid_compaction_artifact}
 
+      not is_list(opaque_prefix) ->
+        {:error, :invalid_compaction_artifact}
+
       true ->
-        {:ok,
-         %{
-           "version" => 2,
-           "summary" => %{"text" => String.trim(summary_text)},
-           "output" => retained_user_originals ++ [compaction_item(id)] ++ retained_items,
-           "retention" => artifact_retention(attrs, retained_items, retained_user_originals),
-           "usage" => response_usage(Map.get(attrs, :usage, %{}))
-         }}
+        content = %{
+          "version" => 2,
+          "summary" => %{"text" => String.trim(summary_text)},
+          "output" => retained_user_originals ++ [compaction_item(id)] ++ retained_items,
+          "retention" => artifact_retention(attrs, retained_items, retained_user_originals),
+          "usage" => response_usage(Map.get(attrs, :usage, %{}))
+        }
+
+        # Provider-owned compaction items the local summary could not read.
+        # They stay outside `output`, so the reply keeps exactly one compaction
+        # item; both replay surfaces emit them ahead of the local checkpoint.
+        content =
+          if opaque_prefix == [],
+            do: content,
+            else: Map.put(content, "opaque_prefix", opaque_prefix)
+
+        {:ok, content}
     end
   end
 
@@ -331,6 +357,7 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
           "previous_summary_discarded",
           Map.get(retention, "previous_summary_discarded")
         )
+        |> maybe_put("opaque_prefix_items", Map.get(retention, "opaque_prefix_items"))
 
       _other ->
         %{

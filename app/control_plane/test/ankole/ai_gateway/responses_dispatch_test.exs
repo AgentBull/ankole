@@ -580,24 +580,23 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     base_url =
       start_recording_upstream(self(), fn request ->
-        # Provider-native compaction is one non-streaming request that must
-        # carry the trigger; nothing else may reach this Provider.
+        # Provider-native compaction is one streaming request that must carry
+        # the trigger; the ChatGPT backend accepts nothing but streams.
         assert compaction_trigger_request?(request)
+        assert request.body["stream"] == true
 
-        {:json, 200,
-         %{
-           "id" => "resp_chatgpt_v2",
-           "object" => "response",
-           "status" => "completed",
-           "output" => [
+        {:sse, 200,
+         openai_compaction_stream_events(
+           "resp_chatgpt_v2",
+           [
              %{
                "id" => "cmp_chatgpt_v2",
                "type" => "compaction",
                "encrypted_content" => "provider-opaque-state"
              }
            ],
-           "usage" => %{"total_tokens" => 41}
-         }}
+           %{"total_tokens" => 41}
+         )}
       end)
 
     assert {:ok, _provider} =
@@ -7606,9 +7605,12 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         assert request.path == "v1/responses"
         assert List.last(request.body["input"]) == %{"type" => "compaction_trigger"}
         assert request.body["model"] == "gpt-5.6"
-        assert request.body["stream"] == false
+        assert request.body["stream"] == true
 
-        {:json, 200, %{"output" => native_output, "usage" => %{"total_tokens" => 42}}}
+        {:sse, 200,
+         openai_compaction_stream_events("resp_native_success", native_output, %{
+           "total_tokens" => 42
+         })}
       end)
 
     configure_openai_responses_provider!(
@@ -7708,7 +7710,10 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     base_url =
       start_recording_upstream(self(), fn request ->
         if compaction_trigger_request?(request) do
-          {:json, 200, %{"output" => native_output, "usage" => %{"total_tokens" => 41}}}
+          {:sse, 200,
+           openai_compaction_stream_events("resp_native_stateful", native_output, %{
+             "total_tokens" => 41
+           })}
         else
           {:sse, 200,
            openai_response_stream_events(
@@ -7790,7 +7795,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
       start_recording_upstream(self(), fn request ->
         assert request.path == "v1/responses"
         assert List.last(request.body["input"]) == %{"type" => "compaction_trigger"}
-        {:json, 200, %{"output" => native_output}}
+        {:sse, 200, openai_compaction_stream_events("resp_native_manual", native_output)}
       end)
 
     create_openai_compaction_provider!(agent, "openai-native-manual", base_url,
@@ -7890,7 +7895,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert Agent.get(compact_attempts, & &1) > attempts_after_first_request
   end
 
-  test "standalone opaque history rejects an unavailable local fallback" do
+  test "standalone compact with only opaque provider state reports no candidate" do
     %{principal: agent} = agent_fixture()
 
     configure_openai_responses_provider!(
@@ -7899,13 +7904,75 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
       "openai-native-compact-opaque"
     )
 
-    assert {:error, :opaque_compaction_fallback_unavailable} =
+    assert {:error, :no_compaction_candidate} =
              Compaction.compact_response(agent.uid, %{
                "model" => "primary",
                "input" => [
                  %{"type" => "compaction", "encrypted_content" => "provider-opaque-state"}
                ]
              })
+  end
+
+  test "standalone compact preserves opaque provider state through the local fallback" do
+    %{principal: agent} = agent_fixture()
+
+    base_url =
+      start_recording_upstream(self(), fn _request ->
+        {:sse, 200,
+         openai_response_stream_events(
+           "resp_opaque_summary",
+           "gpt-5.6",
+           "## Active Task\nSummary of the work after the provider state"
+         )}
+      end)
+
+    configure_openai_responses_provider!(agent.uid, base_url, "openai-opaque-preserved")
+
+    retained_message = %{
+      "type" => "message",
+      "role" => "user",
+      "content" => "provider-retained"
+    }
+
+    opaque_item = %{"type" => "compaction", "encrypted_content" => "provider-opaque-state"}
+
+    assert {:ok, body} =
+             Compaction.compact_response(agent.uid, %{
+               "model" => "primary",
+               "input" => [
+                 retained_message,
+                 opaque_item,
+                 text_message("user", "post-compaction work to summarize")
+               ]
+             })
+
+    # The reply keeps exactly one compaction item, and the opaque provider
+    # state never leaks into the reply output.
+    assert [%{"type" => "compaction", "encrypted_content" => "ankole:compact:v1:" <> _}] =
+             Enum.filter(body["output"], &(&1["type"] == "compaction"))
+
+    refute Ankole.JSON.encode!(body["output"]) =~ "provider-opaque-state"
+
+    assert [artifact] = Repo.all(CompactionArtifact)
+    assert artifact.content["version"] == 2
+    assert artifact.content["opaque_prefix"] == [retained_message, opaque_item]
+    assert artifact.content["retention"]["opaque_prefix_items"] == 2
+
+    # Handle resolution replays the preserved provider state ahead of the
+    # local checkpoint text.
+    handle = CompactionArtifacts.handle(artifact.id)
+
+    assert {:ok, resolved} =
+             CompactionArtifacts.resolve_input_handles(agent.uid, [
+               %{"type" => "compaction", "encrypted_content" => handle}
+             ])
+
+    assert [^retained_message, ^opaque_item, checkpoint_message] = resolved
+    assert checkpoint_message["type"] == "message"
+    assert checkpoint_message["role"] == "user"
+
+    assert [%{"text" => checkpoint_text}] = checkpoint_message["content"]
+    assert checkpoint_text =~ "Summary of the work after the provider state"
   end
 
   defp start_recording_upstream(test_pid, response_fun) do

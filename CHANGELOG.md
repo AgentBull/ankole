@@ -1,5 +1,14 @@
 # Changelog
 
+## Version 0.74.2 (2026-08-16)
+
+- Provider-forwarded compaction now streams its request like every other Responses request and collects the whole reply before the caller sees any of it. Upstreams that accept only streaming requests, such as the ChatGPT subscription backend, can now answer native compaction instead of always forcing the local fallback.
+- Compaction over history that already holds Provider-owned compaction state no longer fails when the Provider path is off or unavailable. The local checkpoint preserves the Provider items verbatim, summarizes only the items after them, replays the preserved state on later turns, and logs a warning. The reply still carries exactly one compaction item, and the retired `opaque_compaction_fallback_unavailable` error is removed.
+
+## Version 0.74.1 (2026-08-16)
+
+- Remove the retired standalone-compaction wire from the kernel and the last documentation references to the removed `/responses/compact` endpoint. No behavior changes; the unified `compaction_trigger` protocol already serves every caller.
+
 ## Version 0.74.0 (2026-08-16)
 
 - Compaction now has one protocol and one owner. AIGateway answers the `compaction_trigger` item for every caller, so a Background Agent Job and a stored conversation compact the same way. The separate `/responses/compact` endpoint is gone, together with the per-Job switch that chose between the two protocols and the per-Provider request constructors that only that endpoint used; a Job frozen under the old switch keeps running.
