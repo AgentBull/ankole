@@ -1,5 +1,11 @@
 # Changelog
 
+## Version 0.74.4 (2026-08-17)
+
+- Deep Research no longer spends a Job checking the material you supplied as settled. The task now names what the research must establish and what your own specification, rules, or parameters contribute as given, and the Job builds on anything marked given instead of collecting evidence against it, saying so in the report when it looks wrong. It still checks the outside facts your design depends on: whether what it assumes to exist, to cost that much, or to be large enough really is so.
+- Before it starts a Deep Research Job, the Agent shows you the requirements it is about to send and what the Job will treat as given, and it asks the costly question — what the research must establish — before the cheap ones such as the output format. A requirement that first occurred to the Agent while writing the task now reaches you as a choice it leaves to the Job, not as an obligation you never saw.
+- A Deep Research Job drops a question from its collection plan when neither answer would change the deliverable.
+
 ## Version 0.74.3 (2026-08-16)
 
 - A Background Agent Job no longer fails at its first compaction. AIGateway now resolves a WebSocket caller's `previous_response_id` into the history it names before it decides what kind of request this is, so a compaction trigger summarizes the whole conversation instead of the few items the caller sent with it. The same request previously ended the Job with `invalid_previous_response_id`.

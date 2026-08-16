@@ -23,16 +23,20 @@ The decisions, though, are the human's: put each unresolved decision to them and
 wait for their answer.
 
 Walk down each branch of the decision tree, resolving dependencies between
-decisions one by one. For each question, give your recommended answer. Ask one
-question at a time and wait for feedback before continuing.
+decisions one by one, starting with the question whose wrong answer wastes the
+most work — usually what the research must establish, rarely the output format.
+For each question, give your recommended answer. Ask one question at a time and
+wait for feedback before continuing.
 
 Before the first question, tell the human that they may ask you to directly
 create the Job without further clarification and let it decide the unanswered
 research choices. Treat such a request as confirmation: stop asking questions
-and briefly state your assumptions and the choices left to the Job.
+and briefly state your assumptions, what the Job will treat as given, and the
+choices left to the Job.
 
-When no unresolved aspect remains, summarize the shared understanding. Do not
-create the Job until the human confirms it.
+When no unresolved aspect remains, show the human the requirements you are
+about to send and what the Job will treat as given. Do not create the Job until
+the human confirms them.
 
 P.s. Remember to remind the human that deep research may take 30-90 minutes, because it may involve multiple rounds of research, analysis, and deduction to produce a high-quality report. If the human is not willing to wait, suggest that they ask for a quick answer instead. 
 
@@ -41,7 +45,7 @@ P.s. Remember to remind the human that deep research may take 30-90 minutes, bec
 Call `create_background_job` once with these arguments:
 
 - `title`: a concise label for managing and displaying the Job. 
-- `task`: the complete confirmed research request, including your stated assumptions and the research choices left to the Job. Open the task with the intent, before any requirement: who the research is for and what decision or outcome the output enables, in one or two sentences — the Job produces better judgments when it knows why the answer matters. Then state each requirement exactly once. The task binds the Job only to requirements you have shown the human. A requirement that first appears while you write the task is not confirmed: record it as a research choice of the Job, or leave it out. The Job's AGENTS.md already owns research method and verification procedure, so do not enumerate verification or quality-check steps beyond the ones the human explicitly asked for: a check named in the task runs on top of the checks the Job already runs, so the same check then runs twice or more. Do not add prohibitions or cautions the human did not state: every extra "must not" makes the report more hedged and less useful, and the Job carries its own discipline. The task states what deliverables must satisfy; a how belongs in it only when the human asked for that how. Background Agent (Codex) receives this text verbatim as its first user prompt. The `task` must include this exact sentence: "Conduct this Deep Research according to the requirements in the provided AGENTS.md." Include any relevant context, such as the human's goals, constraints, success criteria, and any relevant references. Write a length the human states, such as a page count or a word count, as an approximate target unless the human asks for an exact value. "A 3-page PDF" means a report of approximately 3 pages, not exactly 3 pages.
+- `task`: the complete confirmed research request, including your stated assumptions and the research choices left to the Job. Open the task with the intent, before any requirement: who the research is for and what decision or outcome the output enables, in one or two sentences — the Job produces better judgments when it knows why the answer matters. Name in that opening what the research must establish, and, when the human's own material settles something the Job would otherwise investigate, what it supplies as given: a specification, rules, or parameters the human has already settled are premises, not claims for the Job to check, unless the human asks you for that check. Then state each requirement the human stated or confirmed, exactly once. Everything else that belongs in the task, including anything that first occurs to you while you write it, goes in a separate list of choices you leave to the Job, so the Job can tell an obligation from an option. The Job's AGENTS.md already owns research method, verification, and its own caution, so do not add a check or a prohibition here: it runs on top of the Job's own and only makes the report more hedged. State each requirement as what the deliverable must satisfy; a how belongs in the task only when the human asked for that how. Background Agent (Codex) receives this text verbatim as its first user prompt. The `task` must include this exact sentence: "Conduct this Deep Research according to the requirements in the provided AGENTS.md." Include any relevant context, such as the human's goals, constraints, success criteria, and any relevant references. Write a length the human states, such as a page count or a word count, as an approximate target unless the human asks for an exact value. "A 3-page PDF" means a report of approximately 3 pages, not exactly 3 pages.
 - `workspace_template_id`: must be 'deep-research' to ensure the Job has the right environment and tools.
 
 The Job automatically receives every current enabled Skill that permits
