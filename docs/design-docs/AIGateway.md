@@ -867,8 +867,8 @@ fails, AIGateway returns HTTP 502 with
 `opaque_compaction_fallback_unavailable`. It cannot create a correct local
 summary from provider ciphertext.
 
-The kernel preserves provider-native compaction items on the Responses and
-Responses Compact wires. It rejects those items on other wires with
+The kernel preserves provider-native compaction items on the Responses wire.
+It rejects those items on other wires with
 `unsupported_compaction_replay_wire`.
 
 The compaction summarizer uses the shared Responses pair registry for every

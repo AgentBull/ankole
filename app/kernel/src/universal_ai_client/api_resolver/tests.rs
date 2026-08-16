@@ -140,42 +140,6 @@ fn non_responses_wire_rejects_provider_native_compaction_input() {
 }
 
 #[test]
-fn responses_compact_preserves_request_and_response_output() {
-    let input = json!([
-        {"type": "compaction", "encrypted_content": "opaque"},
-        {"type": "message", "role": "user", "content": "continue"}
-    ]);
-    let mut resolver = APIResolver::new(
-        APIResolverKind::OpenAIResponsesCompact,
-        ResponseContext {
-            model: "gpt-test".to_string(),
-            request: json!({"input": input.clone(), "stream": true}),
-            provider_options: json!({}),
-            stream: Some(false),
-            include_model: true,
-        },
-    );
-
-    let request = Value::Object(resolver.build_body().unwrap());
-    assert_eq!(request["input"], input);
-    assert_eq!(request["stream"], false);
-
-    let output = json!([
-        {"type": "message", "role": "user", "content": "retained"},
-        {"type": "compaction", "encrypted_content": "new-opaque", "unknown": true}
-    ]);
-    let response = resolver
-        .normalize_body(
-            200,
-            json!({"object": "response.compaction", "output": output.clone(), "extra": 1}),
-        )
-        .unwrap();
-
-    assert_eq!(response["output"], output);
-    assert_eq!(response["extra"], 1);
-}
-
-#[test]
 fn openai_responses_requires_terminal_event_on_finish() {
     let mut resolver =
         APIResolver::new(APIResolverKind::OpenAIResponses, ResponseContext::default());

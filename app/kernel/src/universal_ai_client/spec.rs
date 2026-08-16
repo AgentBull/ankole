@@ -10,8 +10,6 @@ use crate::common::{KernelError, KernelResult};
 pub enum APIResolverKind {
     #[serde(rename = "openai_responses")]
     OpenAIResponses,
-    #[serde(rename = "openai_responses_compact")]
-    OpenAIResponsesCompact,
     #[serde(rename = "openai_chat_completions")]
     OpenAIChatCompletions,
     AnthropicMessages,
@@ -37,7 +35,6 @@ impl APIResolverKind {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::OpenAIResponses => "openai_responses",
-            Self::OpenAIResponsesCompact => "openai_responses_compact",
             Self::OpenAIChatCompletions => "openai_chat_completions",
             Self::AnthropicMessages => "anthropic_messages",
             Self::GeminiGenerateContent => "gemini_generate_content",

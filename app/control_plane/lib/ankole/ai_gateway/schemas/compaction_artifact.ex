@@ -1,6 +1,6 @@
 defmodule Ankole.AIGateway.Schemas.CompactionArtifact do
   @moduledoc """
-  Stored compaction artifact for OpenResponses `/responses/compact`.
+  Stored compaction artifact for AIGateway history compaction.
 
   This table is the only durable source of compaction output. Message rows may
   point at an artifact through a checkpoint, but the summary and retained tail

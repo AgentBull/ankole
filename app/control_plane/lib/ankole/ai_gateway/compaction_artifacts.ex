@@ -2,9 +2,9 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
   @moduledoc """
   Canonical storage and replay seam for AIGateway compaction artifacts.
 
-  `/responses/compact`, `/compress`, and automatic compaction all create an
-  artifact first. A checkpoint message row is only a response-chain continuation
-  pointer to one artifact.
+  The `compaction_trigger` protocol, `/compress`, and automatic compaction all
+  create an artifact first. A checkpoint message row is only a response-chain
+  continuation pointer to one artifact.
   """
 
   import Ecto.Query, warn: false

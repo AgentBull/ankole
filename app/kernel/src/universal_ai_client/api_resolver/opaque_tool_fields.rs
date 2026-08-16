@@ -513,10 +513,7 @@ impl OpaqueToolFields {
 }
 
 fn openai_responses_wire(kind: APIResolverKind) -> bool {
-    matches!(
-        kind,
-        APIResolverKind::OpenAIResponses | APIResolverKind::OpenAIResponsesCompact
-    )
+    kind == APIResolverKind::OpenAIResponses
 }
 
 impl ToolFieldPlan {

@@ -1,5 +1,9 @@
 # Changelog
 
+## Version 0.74.1 (2026-08-16)
+
+- Remove the retired standalone-compaction wire from the kernel and the last documentation references to the removed `/responses/compact` endpoint. No behavior changes; the unified `compaction_trigger` protocol already serves every caller.
+
 ## Version 0.74.0 (2026-08-16)
 
 - Compaction now has one protocol and one owner. AIGateway answers the `compaction_trigger` item for every caller, so a Background Agent Job and a stored conversation compact the same way. The separate `/responses/compact` endpoint is gone, together with the per-Job switch that chose between the two protocols and the per-Provider request constructors that only that endpoint used; a Job frozen under the old switch keeps running.
