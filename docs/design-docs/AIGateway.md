@@ -876,9 +876,9 @@ its own context to stay inside it.
 
 The `ai_gateway.compaction` AppConfigure value has these fields:
 
-- `threshold` defaults to `0.50` and controls the Main Agent automatic trigger.
-- `max_threshold_tokens` defaults to `100000` and caps that trigger.
-- `tail_rows` defaults to `2` and controls only local retention.
+- `threshold` defaults to `0.90` and controls the Main Agent automatic trigger.
+- `max_threshold_tokens` defaults to `400000` and caps that trigger.
+- `tail_rows` defaults to `4` and controls only local retention.
 - `user_message_budget_tokens` defaults to `20000` and controls only local
   user-message retention.
 - `upstream` defaults to `false` and selects the pass-through backend.

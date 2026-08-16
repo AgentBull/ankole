@@ -33,6 +33,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ConversationCommandTest do
 
     test "/compress writes an AIGateway compaction artifact and feedback outbox" do
       %{principal: agent} = agent_fixture()
+      compact_below(1)
       binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
       test_pid = self()
 
@@ -150,6 +151,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ConversationCommandTest do
 
     test "/compress compacts real Responses role/content text items from live turns" do
       %{principal: agent} = agent_fixture()
+      compact_below(1)
       binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
       test_pid = self()
 
@@ -277,6 +279,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ConversationCommandTest do
 
     test "/compress waits for an active generation before compacting history" do
       %{principal: agent} = agent_fixture()
+      compact_below(1)
       binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
       route = unique_route()
       test_pid = self()
@@ -875,5 +878,18 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ConversationCommandTest do
              ActorRuntime.handle_turn_completed(
                turn_completed_payload(turn_ref, "resp_#{message.id}", "loop_finished")
              )
+  end
+
+  # These conversations are a few turns long, so the retained tail must stay
+  # below them for a prefix to exist. What is under test is the command path,
+  # not the row floor.
+  defp compact_below(tail_rows) do
+    merged = Map.put(Ankole.AIGateway.Compaction.config(), "tail_rows", tail_rows)
+    assert {:ok, _config} = Ankole.AIGateway.Compaction.put_config(merged)
+
+    on_exit(fn ->
+      _result = Ankole.AIGateway.Compaction.delete_config()
+      :ok
+    end)
   end
 end

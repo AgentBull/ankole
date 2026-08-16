@@ -1,5 +1,11 @@
 # Changelog
 
+## Version 0.74.5 (2026-08-17)
+
+- A Deep Research collector now takes what it needs out of a source in the call that fetches it, takes everything it still needs in one pass when it goes back, and spends a call on a fact it has not written down rather than on one it has. A long collection run stops paging the same downloaded page or data file through the model again and again, which is where most of a Job's tokens went.
+- Compaction now runs late instead of early. The trigger defaults to 0.90 of the model input context with a 400000-token cap, in place of 0.5 capped at 100000, and a Background Agent Job no longer tells Codex to compact at 100000 either, so Codex applies its own nine tenths of the window. Compaction also hands back twice as many recent rows. A long conversation or Job loses its working memory less than half as often, and stops repeating the work that each loss caused. An instance that stored `ai_gateway.compaction` explicitly keeps its old values: raise `threshold`, `max_threshold_tokens`, and `tail_rows` there to get the new behavior.
+- Record why Provider-owned compaction stays off by default, so the reason survives the next person who reads the setting. Users do not see this.
+
 ## Version 0.74.4 (2026-08-17)
 
 - Deep Research no longer spends a Job checking the material you supplied as settled. The task now names what the research must establish and what your own specification, rules, or parameters contribute as given, and the Job builds on anything marked given instead of collecting evidence against it, saying so in the report when it looks wrong. It still checks the outside facts your design depends on: whether what it assumes to exist, to cost that much, or to be large enough really is so.

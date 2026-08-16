@@ -28,12 +28,23 @@ defmodule Ankole.AIGateway.Compaction do
   alias Ankole.Logging
 
   @config_key "ai_gateway.compaction"
-  @default_threshold_percent 0.50
-  @default_max_threshold_tokens 100_000
+  # Compact late. Every token below the trigger is replayed on each model call,
+  # so a low trigger buys nothing and costs a summary, while each summary is a
+  # memory loss the conversation pays for again by re-reading its own work.
+  # This compaction runs on the request path, and the harnesses that compact on
+  # their request path use nine tenths of the budget; the lower fractions
+  # elsewhere belong to background passes that block nobody. The cap only
+  # guards a window large enough to make one summary request absurd.
+  @default_threshold_percent 0.90
+  @default_max_threshold_tokens 400_000
   @default_context_length 256_000
   @minimum_context_length 64_000
   @small_context_trigger_ratio 0.85
-  @default_tail_rows 2
+  # A later trigger leaves room to hand the conversation back more of its own
+  # recent work, which is what it otherwise reconstructs by re-reading files.
+  # This is a row floor, not the budget fraction other harnesses retain, so it
+  # moves one step rather than to their share.
+  @default_tail_rows 4
   @summarizer_max_output_tokens 8_192
   @summarizer_retry_max_output_tokens 16_384
   @unusable_summary_reasons [:empty_compaction_summary, :invalid_summary_shape]
@@ -62,6 +73,12 @@ defmodule Ankole.AIGateway.Compaction do
           run_metadata: map()
         }
 
+  # Upstream compaction stays off by default for two reasons. A Provider-owned
+  # compaction item binds the rest of that history to the same upstream, and the
+  # item is ciphertext only its Provider can read, so every compacted stretch
+  # leaves the stored trajectory. Long Jobs are improved by reading their own
+  # history back — which calls repeated work, where the tokens went, what a
+  # thread forgot — and that reading stops at the first opaque capsule.
   @default_upstream false
   @default_config %{
     "threshold" => @default_threshold_percent,

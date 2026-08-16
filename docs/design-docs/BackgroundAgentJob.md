@@ -484,7 +484,8 @@ because the retired value is read and discarded.
 Whether AIGateway answers with its own summary or forwards the trigger to the
 Provider is the `upstream` field of the instance `ai_gateway.compaction`
 settings, not a Job setting, and it is read per request.
-`model_auto_compact_token_limit` stays at `100000`.
+The Job config sets no `model_auto_compact_token_limit`, so Codex applies its
+own nine tenths of the model window and the AIGateway ratio triggers first.
 
 The Job configuration contains the real Codex model name and its supported
 reasoning effort. The runner never sends a logical profile name to Codex. It

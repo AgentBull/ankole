@@ -3966,11 +3966,11 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     _result = Compaction.delete_config()
 
     assert %{
-             tokens: 100_000,
+             tokens: 360_000,
              context_length: 400_000,
              effective_context_length: 400_000,
-             threshold: 0.50,
-             max_threshold_tokens: 100_000
+             threshold: 0.90,
+             max_threshold_tokens: 400_000
            } = Compaction.threshold_spec(%{"context_length" => 400_000}, %{})
 
     assert %{
@@ -7696,7 +7696,9 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
   test "stateful compaction replays native output and replaces it locally after a binding change" do
     %{principal: agent} = agent_fixture()
     prefer_provider_compaction!(agent.uid)
-    with_compaction_config(threshold: 0.50, max_threshold_tokens: 10)
+    # The history here is a few items, so the retained tail must be pinned below
+    # it; this test is about replacing native output, not about the row floor.
+    with_compaction_config(threshold: 0.50, max_threshold_tokens: 10, tail_rows: 1)
 
     native_output = [
       %{"type" => "message", "role" => "user", "content" => "provider-retained"},

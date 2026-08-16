@@ -129,8 +129,10 @@ name = "skill-installer"
 enabled = false
 `
   const normalizedBaseURL = baseURL.replace(/\/+$/, '')
+  // No auto-compact override: Codex computes nine tenths of the model window,
+  // which follows the real window instead of a number that goes stale, and
+  // AIGateway's own ratio triggers first anyway.
   return `model_provider = "ankole_aigateway"
-model_auto_compact_token_limit = 100000
 ${common}
 
 [model_providers.ankole_aigateway]

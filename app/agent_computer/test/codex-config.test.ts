@@ -221,7 +221,7 @@ describe('@ankole/agent-computer Codex config', () => {
       expect(config.model).toBeUndefined()
       expect(config.model_provider).toBe('ankole_aigateway')
       expect(config.model_reasoning_effort).toBeUndefined()
-      expect(config.model_auto_compact_token_limit).toBe(100000)
+      expect(config.model_auto_compact_token_limit).toBeUndefined()
       expect(config.features.code_mode.enabled).toBe(true)
       expect(config.model_providers.ankole_aigateway.name).toBe('OpenAI')
       expect(config.model_providers.ankole_aigateway.env_http_headers).toBeUndefined()
