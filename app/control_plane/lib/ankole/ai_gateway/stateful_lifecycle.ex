@@ -18,6 +18,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   alias Ankole.AIGateway.Resolver
   alias Ankole.AIGateway.ResponsesPreparation
   alias Ankole.AIGateway.RequestContext
+  alias Ankole.AIGateway.ProviderSealedContent
   alias Ankole.AIGateway.ResponseItems
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.AIGateway.StatefulResponses
@@ -435,7 +436,8 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
            messages_to_response_items(
              context.subject_uid,
              context.compaction.history,
-             runtime_input_modalities(runtime)
+             runtime_input_modalities(runtime),
+             Map.get(runtime, "provider_id")
            ),
          {:ok, resolved_history_items} <-
            CompactionArtifacts.resolve_input_handles(
@@ -895,17 +897,21 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   # optional opaque item ids because this gateway uses store=false upstream and
   # owns continuation through its local `resp_*` chain. Responses input items
   # whose wire contract requires an id must keep it.
-  defp messages_to_response_items(subject_uid, messages, input_modalities) do
+  defp messages_to_response_items(subject_uid, messages, input_modalities, issuer) do
     supports_image? = "image" in input_modalities
 
     messages
     |> Enum.reduce_while({:ok, []}, fn message, {:ok, chunks} ->
       case message_response_items(subject_uid, message) do
         {:ok, items, :provider_native} ->
-          {:cont, {:ok, [items | chunks]}}
+          {:cont, {:ok, [strip_foreign_sealed_content(items, issuer, message) | chunks]}}
 
         {:ok, items, :standard} ->
-          replay_items = Enum.map(items, &provider_replay_item(&1, supports_image?))
+          replay_items =
+            items
+            |> strip_foreign_sealed_content(issuer, message)
+            |> Enum.map(&provider_replay_item(&1, supports_image?))
+
           {:cont, {:ok, [replay_items | chunks]}}
 
         {:error, _reason} = error ->
@@ -920,6 +926,14 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
         error
     end
   end
+
+  # A message stored before AIGateway recorded its issuer replays unchanged. Its
+  # sealed state either still belongs to the current Provider, or the Provider
+  # rejects the request and the recovery above rebuilds the history without it.
+  defp strip_foreign_sealed_content(items, issuer, %Message{metadata: %{"issuer" => item_issuer}}),
+       do: ProviderSealedContent.strip_foreign(items, issuer, item_issuer)
+
+  defp strip_foreign_sealed_content(items, _issuer, _message), do: items
 
   defp message_response_items(subject_uid, %Message{type: "checkpoint"} = message) do
     with {:ok, content} <- CompactionArtifacts.content_for_checkpoint(subject_uid, message),

@@ -2551,16 +2551,18 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                %{"usage" => response_usage_fixture()}
              )
 
-    raw_anchor_conn =
+    # Without store=true the anchor names this connection's own history, and
+    # this connection never issued that ID.
+    unknown_anchor_conn =
       compaction_trigger(agent.uid, %{
         "model" => "primary",
         "previous_response_id" => anchor.id,
         "input" => [
-          %{"type" => "message", "role" => "user", "content" => "raw id should fail"}
+          %{"type" => "message", "role" => "user", "content" => "unknown anchor should fail"}
         ]
       })
 
-    assert {:error, 400, "invalid_previous_response_id"} = raw_anchor_conn
+    assert {:error, 400, "previous_response_not_found"} = unknown_anchor_conn
 
     conn =
       compaction_trigger(agent.uid, %{
@@ -2600,7 +2602,13 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     assert row.status == "complete"
     assert row.previous_message_id == anchor.id
     assert row.content == [%{"id" => "cmp_#{artifact_id}", "type" => "compaction_artifact"}]
-    assert row.metadata == %{"request_metadata" => %{"visible" => "compact"}}
+    # A checkpoint keeps Provider items verbatim, so it records its issuer like
+    # every other stored message. Without it a later Turn on another Provider
+    # would replay state that Provider cannot read.
+    assert row.metadata == %{
+             "request_metadata" => %{"visible" => "compact"},
+             "issuer" => "openrouter-stateful-compact"
+           }
 
     assert StatefulResponses.expand_history(conversation.id,
              previous_response_id: body["id"]

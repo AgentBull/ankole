@@ -509,6 +509,103 @@ The next turn starts from that checkpoint. AIGateway does not run this recovery
 after a Provider event or local tool effect. Authentication errors, rate
 limits, 5xx responses, and transport failures do not start it.
 
+## Own the Identifiers on Each Link
+
+AIGateway has two links. The upstream link connects AIGateway to a Provider.
+The downstream link connects AIGateway to a consumer, such as a Codex Job or
+the main Agent. Each link carries its own identifiers, and each set of
+identifiers has one owner.
+
+The Provider owns the identifiers on the upstream link. When AIGateway replays
+an item to a Provider, that item must carry the identifier that this Provider
+gave it. AIGateway does not invent that identifier and does not replace it. An
+item that the Provider never identified goes back with no identifier. A
+Provider validates some of these identifiers against state that only it can
+read, such as encrypted reasoning, so a substituted identifier makes the
+request fail.
+
+AIGateway owns the identifiers on the downstream link. What a consumer holds is
+AIGateway's to decide, not the Provider's, because Provider substitution is why
+AIGateway exists and a contract built on Provider identifiers could not survive
+it.
+
+These two rules make AIGateway the owner of the map between the two sets. The
+map must stay available for as long as the identifier can come back. A stateful
+conversation keeps the Provider identifier with the stored item. A stateless
+WebSocket keeps the map in the connection, and the map ends with the
+connection. A map that lives for one Provider stream is too short, because a
+consumer replays its history after that stream ends.
+
+`previous_response_id` is opaque to the consumer that holds it. AIGateway
+resolves it with a lookup and never from its characters. The request mode
+selects where AIGateway looks: `store=true` selects the stored conversation,
+and a stateless WebSocket request selects the connection history. The shape of
+the string says nothing about where the history is. Code that parses this token
+to make a decision is wrong even when its parsing rules are correct, because
+the token can be a value that a Provider chose.
+
+One downstream Response has one authoritative Provider call. AIGateway can make
+more Provider calls for its own machinery, such as a tool loop, a program call,
+or compaction. Those calls are internal, and the consumer does not see them as
+Provider calls. A retry replaces its failed attempt completely, and the failed
+attempt contributes nothing. Every item that reaches the consumer comes from
+the authoritative call or from AIGateway itself.
+
+The downstream identifiers reuse the Provider value when there is one. That is
+an implementation choice, not the rule: a consumer that keeps a stateless
+history holds it for longer than any connection, and AIGateway stores nothing
+for that history, so it could never keep a map that lives long enough. Reuse
+removes the need for one.
+
+AIGateway mints an identifier when it cannot reuse the Provider value, which
+today means one response already uses that value for a different item. Every
+minted identifier carries the `ankole_` prefix, so the Provider request
+boundary recognizes it without a stored map and removes it. Two minted
+identifiers stay: one that a family carries in `id` as its pair identity, and
+an `item_reference`, which is nothing but its `id`. Both match items inside the
+same request and address nothing on the Provider.
+
+## Keep a Conversation after Its Provider Changes
+
+A Provider seals part of what it returns. Reasoning `encrypted_content` and the
+parameters a tool declared `encrypted` are readable only by the Provider that
+issued them, and a different Provider rejects the whole request instead of
+ignoring the parts it cannot read. A stateful conversation meets this when an
+operator repoints a model profile, or when a vision fallback sends one Turn to
+another Provider.
+
+The goal is a conversation that still runs, not one that keeps every byte. So
+AIGateway separates structure from content. Messages, calls, outputs, and the
+pairing between them are structure, and all of it survives. Sealed values are
+content, and they do not. Nothing is removed that another item pairs with,
+because an orphaned call would break the history for every later Turn.
+
+Each stored message records its issuing Provider. When a Turn resolves to a
+different Provider, AIGateway removes each reasoning item that carries
+ciphertext, because nothing refers to those items. It keeps every call that
+declared encrypted parameters, replaces those parameters with a plain value,
+and removes the marker, because the call pairs with an output. The Agent loses
+hidden reasoning that it derives again, and the wording of a call that already
+ran; the result of that call stays in plain text.
+
+The Agent cannot avoid this loss. Those parameters are written by the model and
+sealed by the Provider, so AIGateway never holds the plain values.
+
+The recorded issuer is the Provider row. A row that puts more than one vendor
+behind one selector can still change the real upstream without changing the
+issuer, and AIGateway does not detect that. The Provider 400 recovery above is
+what answers it.
+
+A message stored before AIGateway recorded issuers has no issuer and replays
+unchanged. Its sealed state either still belongs to the current Provider, or
+the Provider rejects the request and the recovery above rebuilds the history
+without it.
+
+A stateless caller keeps its own history, so AIGateway cannot mark those items
+and cannot remove sealed state on its behalf. A Background Agent Job freezes
+its Provider for the life of the Job, so its Provider does not change between
+Turns.
+
 ## What AIGateway Stores
 
 `ai_gateway_conversations` stores the Principal, conversation key, end time, and metadata.
@@ -1296,6 +1393,12 @@ and does not use this rule.
 ## Rules
 
 - External provider credentials never enter Agent Computer memory.
+- The Provider owns the upstream identifiers, and AIGateway owns the downstream ones.
+- A Provider item returns to that Provider with the identifier that Provider gave it.
+- AIGateway keeps the identifier map for as long as the identifier can come back.
+- AIGateway resolves a continuation token by lookup, never from its shape.
+- A stored message records the Provider that issued it.
+- A Provider change removes sealed content and keeps every structure that pairs.
 - A stateful Response belongs to one Principal and one conversation.
 - An implicit continuation starts only from the expected last visible Response.
 - Only an explicit continuation can select an earlier Response and create a branch.

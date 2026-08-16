@@ -119,15 +119,6 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
 
   def summary_text(_artifact), do: nil
 
-  @spec upstream_binding(CompactionArtifact.t()) :: map() | nil
-  def upstream_binding(%CompactionArtifact{
-        content: %{"version" => 3, "source" => "upstream", "binding" => binding}
-      })
-      when is_map(binding),
-      do: binding
-
-  def upstream_binding(_artifact), do: nil
-
   @spec opaque_prefix(CompactionArtifact.t()) :: [map()]
   def opaque_prefix(%CompactionArtifact{content: %{"opaque_prefix" => opaque_prefix}})
       when is_list(opaque_prefix),

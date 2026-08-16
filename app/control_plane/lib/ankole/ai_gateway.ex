@@ -53,7 +53,8 @@ defmodule Ankole.AIGateway do
     # answers it the same way. AIGateway owns it on all of them, which is also
     # why it never reaches a Provider adapter by itself.
     if Compaction.compaction_trigger?(request) do
-      with {:ok, body} <- Compaction.compact_from_trigger(subject_uid, request),
+      with :ok <- ensure_stateless_request(request),
+           {:ok, body} <- Compaction.compact_from_trigger(subject_uid, request),
            do: {:ok, %{body: body}}
     else
       create_model_response(subject_uid, request, opts)
@@ -683,6 +684,18 @@ defmodule Ankole.AIGateway do
   def stream_requested?(%{"stream" => true}), do: true
   def stream_requested?(%{stream: true}), do: true
   def stream_requested?(_request), do: false
+
+  @doc """
+  Rejects the stateful selectors on a stateless entrypoint.
+
+  Every HTTP Responses entrypoint is stateless, including the compaction
+  trigger. A caller that names stored history there would otherwise have that
+  history silently dropped, because only the WebSocket resolves an anchor.
+  """
+  @spec ensure_stateless_request(map()) ::
+          :ok | {:error, {:stateful_http_field_forbidden, String.t()}}
+  def ensure_stateless_request(request) when is_map(request),
+    do: reject_http_stateful_fields(request)
 
   defp reject_http_stateful_fields(request) do
     request = normalize_request_keys(request)

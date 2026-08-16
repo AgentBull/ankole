@@ -1815,9 +1815,15 @@ defmodule Ankole.AIGateway.ResponseStream do
   end
 
   defp resolver_meta(spec) when is_map(spec) do
-    case Map.get(spec, :api_resolver) || Map.get(spec, "api_resolver") do
-      nil -> %{}
-      resolver -> %{"api_resolver" => resolver}
+    meta =
+      case Map.get(spec, :api_resolver) || Map.get(spec, "api_resolver") do
+        nil -> %{}
+        resolver -> %{"api_resolver" => resolver}
+      end
+
+    case Map.get(spec, :issuer) || Map.get(spec, "issuer") do
+      issuer when is_binary(issuer) -> Map.put(meta, "issuer", issuer)
+      _absent -> meta
     end
   end
 

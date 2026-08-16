@@ -11,6 +11,12 @@ defmodule Ankole.AIGateway.ResponseItems do
   semantics; they must not grow their own item-type registries.
   """
 
+  # AIGateway is a client of its Provider, so it never sends the Provider an
+  # identity the Provider did not issue. AIGateway mints an identity only when
+  # it has no Provider value to reuse, and that identity carries this prefix so
+  # the Provider boundary can recognize and remove it without any stored map.
+  @ankole_identity_prefix "ankole_"
+
   # Every Responses call/output family is declared once here. `call_key` and
   # `output_key` name the wire fields that carry the same logical identity;
   # local-shell is the one current family whose output uses `id` instead of
@@ -189,6 +195,41 @@ defmodule Ankole.AIGateway.ResponseItems do
   @spec output_item?(term()) :: boolean()
   def output_item?(%{"type" => type}) when type in @output_types, do: true
   def output_item?(_item), do: false
+
+  @doc "Names one identity that AIGateway minted because no Provider value existed."
+  @spec ankole_identity(String.t(), String.t()) :: String.t()
+  def ankole_identity(kind, suffix) when is_binary(kind) and is_binary(suffix),
+    do: @ankole_identity_prefix <> kind <> "_" <> suffix
+
+  @doc "Returns whether AIGateway minted this identity rather than a Provider."
+  @spec ankole_identity?(term()) :: boolean()
+  def ankole_identity?(value) when is_binary(value),
+    do: String.starts_with?(value, @ankole_identity_prefix)
+
+  def ankole_identity?(_value), do: false
+
+  @doc """
+  Removes an AIGateway-minted item identity before a Provider request.
+
+  An item ID names an object on the Provider side, so a minted one names
+  nothing there. Two kinds of `id` stay. Some families carry their pair
+  identity in `id`, and that identity matches a call to its output inside the
+  request itself. An `item_reference` is nothing but its `id`, so removing it
+  would leave an item that points at nothing.
+  """
+  @spec drop_ankole_item_id([term()]) :: [term()]
+  def drop_ankole_item_id(input) when is_list(input),
+    do: Enum.map(input, &drop_ankole_item_id/1)
+
+  def drop_ankole_item_id(%{"type" => "item_reference"} = item), do: item
+
+  def drop_ankole_item_id(%{"id" => id} = item) when is_binary(id) do
+    if ankole_identity?(id) and pair_identity_field(item) != "id",
+      do: Map.delete(item, "id"),
+      else: item
+  end
+
+  def drop_ankole_item_id(item), do: item
 
   @doc "Returns whether Responses replay requires this item's provider identity."
   @spec provider_replay_id_required?(term()) :: boolean()

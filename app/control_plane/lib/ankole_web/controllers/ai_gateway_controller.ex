@@ -243,7 +243,10 @@ defmodule AnkoleWeb.AIGatewayController do
   end
 
   defp compaction_trigger_response(conn, subject_uid, request, streaming?) do
-    case Compaction.compact_from_trigger(subject_uid, request) do
+    case with(
+           :ok <- AIGateway.ensure_stateless_request(request),
+           do: Compaction.compact_from_trigger(subject_uid, request)
+         ) do
       {:ok, body} when not streaming? ->
         json(conn, body)
 
@@ -422,11 +425,6 @@ defmodule AnkoleWeb.AIGatewayController do
     do:
       {400, "no_compaction_candidate",
        "input has no compactable items after the last compaction item"}
-
-  defp error_tuple(:compact_store_required),
-    do:
-      {400, "compact_store_required",
-       "previous_response_id or conversation on a compaction trigger requires store=true"}
 
   defp error_tuple(:invalid_anchor),
     do:

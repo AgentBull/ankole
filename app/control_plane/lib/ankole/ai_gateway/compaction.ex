@@ -18,6 +18,7 @@ defmodule Ankole.AIGateway.Compaction do
   alias Ankole.AIGateway.MapUtils
   alias Ankole.AIGateway.ModelMetadata
   alias Ankole.AIGateway.ProviderConfigs.Provider
+  alias Ankole.AIGateway.ProviderSealedContent
   alias Ankole.AIGateway.ResponsesPreparation
   alias Ankole.AIGateway.ResponseItems
   alias Ankole.AIGateway.ResponseStream
@@ -465,12 +466,9 @@ defmodule Ankole.AIGateway.Compaction do
          %{"previous_response_id" => value, "store" => true}
        )
        when is_binary(value) and value != "" do
-    with :ok <- validate_compact_previous_response_id(value),
-         {:ok, %Message{conversation_id: conversation_id}} <-
-           StatefulResponses.get_response_for_subject(subject_uid, value) do
-      {:ok, conversation_id}
-    else
-      _invalid_anchor -> {:error, :invalid_anchor}
+    case StatefulResponses.get_response_for_subject(subject_uid, value) do
+      {:ok, %Message{conversation_id: conversation_id}} -> {:ok, conversation_id}
+      _not_found_or_invalid -> {:error, :invalid_anchor}
     end
   end
 
@@ -662,7 +660,8 @@ defmodule Ankole.AIGateway.Compaction do
            checkpoint_metadata:
              checkpoint_metadata(
                request,
-               compaction_metadata(summary, candidate, total_tokens, %{"auto" => true})
+               compaction_metadata(summary, candidate, total_tokens, %{"auto" => true}),
+               issuer_of(context)
              )
          },
          run_metadata: %{
@@ -702,11 +701,15 @@ defmodule Ankole.AIGateway.Compaction do
        compaction: %{
          artifact_attrs: upstream_artifact_attrs(subject_uid, conversation_id, upstream),
          checkpoint_metadata:
-           checkpoint_metadata(request, %{
-             "auto" => true,
-             "source" => "upstream",
-             "history_usage_tokens_before" => total_tokens
-           })
+           checkpoint_metadata(
+             request,
+             %{
+               "auto" => true,
+               "source" => "upstream",
+               "history_usage_tokens_before" => total_tokens
+             },
+             issuer_of(context)
+           )
        },
        run_metadata: %{
          "auto_compaction" => %{
@@ -792,7 +795,8 @@ defmodule Ankole.AIGateway.Compaction do
                  compaction_metadata(summary, candidate, total_tokens, %{
                    "auto" => false,
                    "manual" => true
-                 })
+                 }),
+                 issuer_of(context)
                )
            }) do
       manual_checkpoint_result(conversation_id, checkpoint)
@@ -817,11 +821,11 @@ defmodule Ankole.AIGateway.Compaction do
              previous_response_id: previous_response_id,
              artifact: artifact,
              metadata:
-               checkpoint_metadata(request, %{
-                 "auto" => false,
-                 "manual" => true,
-                 "source" => "upstream"
-               })
+               checkpoint_metadata(
+                 request,
+                 %{"auto" => false, "manual" => true, "source" => "upstream"},
+                 issuer_of(context)
+               )
            }) do
       manual_checkpoint_result(conversation_id, checkpoint)
     end
@@ -882,7 +886,8 @@ defmodule Ankole.AIGateway.Compaction do
                    subject_uid,
                    request,
                    store_context,
-                   artifact
+                   artifact,
+                   Map.get(runtime, "provider_id")
                  ) do
             {:ok, CompactionArtifacts.response_body(artifact, ankole: ankole_extension)}
           end
@@ -918,7 +923,13 @@ defmodule Ankole.AIGateway.Compaction do
          {:ok, artifact} <-
            create_standalone_artifact(subject_uid, store_context, candidate, summary),
          {:ok, ankole_extension} <-
-           maybe_store_compaction_checkpoint(subject_uid, request, store_context, artifact) do
+           maybe_store_compaction_checkpoint(
+             subject_uid,
+             request,
+             store_context,
+             artifact,
+             Map.get(runtime, "provider_id")
+           ) do
       {:ok, CompactionArtifacts.response_body(artifact, ankole: ankole_extension)}
     end
   end
@@ -1120,7 +1131,8 @@ defmodule Ankole.AIGateway.Compaction do
          subject_uid,
          _request,
          %{store?: true} = store_context,
-         artifact
+         artifact,
+         issuer
        ) do
     with {:ok, checkpoint} <-
            StatefulResponses.create_compaction_checkpoint(%{
@@ -1128,7 +1140,7 @@ defmodule Ankole.AIGateway.Compaction do
              conversation_id: store_context.conversation_id,
              previous_response_id: store_context.previous_response_id,
              artifact: artifact,
-             metadata: %{"request_metadata" => store_context.metadata}
+             metadata: put_issuer(%{"request_metadata" => store_context.metadata}, issuer)
            }) do
       {:ok,
        %{
@@ -1139,15 +1151,20 @@ defmodule Ankole.AIGateway.Compaction do
     end
   end
 
-  defp maybe_store_compaction_checkpoint(_subject_uid, _request, _store_context, _artifact),
-    do: {:ok, nil}
+  defp maybe_store_compaction_checkpoint(
+         _subject_uid,
+         _request,
+         _store_context,
+         _artifact,
+         _issuer
+       ),
+       do: {:ok, nil}
 
   defp compact_store_context(subject_uid, %{"store" => true} = request) do
     previous_response_id = Map.get(request, "previous_response_id")
     conversation_id = Map.get(request, "conversation")
 
-    with :ok <- validate_compact_previous_response_id(previous_response_id),
-         :ok <- validate_compact_conversation_id(conversation_id) do
+    with :ok <- validate_compact_conversation_id(conversation_id) do
       cond do
         nonempty_binary?(previous_response_id) ->
           case StatefulResponses.get_response_for_subject(subject_uid, previous_response_id) do
@@ -1200,27 +1217,11 @@ defmodule Ankole.AIGateway.Compaction do
     end
   end
 
-  defp compact_store_context(_subject_uid, request) do
-    previous_response_id = Map.get(request, "previous_response_id")
-    conversation_id = Map.get(request, "conversation")
-
-    with :ok <- validate_compact_previous_response_id(previous_response_id),
-         :ok <- validate_compact_conversation_id(conversation_id) do
-      case {previous_response_id, conversation_id} do
-        {nil, nil} ->
-          {:ok, %{store?: false, conversation_id: nil, previous_response_id: nil, metadata: %{}}}
-
-        {"", nil} ->
-          {:ok, %{store?: false, conversation_id: nil, previous_response_id: nil, metadata: %{}}}
-
-        {nil, ""} ->
-          {:ok, %{store?: false, conversation_id: nil, previous_response_id: nil, metadata: %{}}}
-
-        _anchor_without_store ->
-          {:error, :compact_store_required}
-      end
-    end
-  end
+  # A caller without `store=true` compacts the input it sent. It cannot also
+  # name stored history: HTTP rejects both selectors before dispatch, and the
+  # WebSocket resolves its connection-local anchor into `input` first.
+  defp compact_store_context(_subject_uid, _request),
+    do: {:ok, %{store?: false, conversation_id: nil, previous_response_id: nil, metadata: %{}}}
 
   defp unchanged(history, request) do
     previous_response_id = previous_response_id_for(history, request)
@@ -1350,11 +1351,15 @@ defmodule Ankole.AIGateway.Compaction do
              usage: %{}
            },
            checkpoint_metadata:
-             checkpoint_metadata(request, %{
-               "auto" => true,
-               "strategy" => "stable_tail",
-               "auto_truncation" => auto_truncation
-             })
+             checkpoint_metadata(
+               request,
+               %{
+                 "auto" => true,
+                 "strategy" => "stable_tail",
+                 "auto_truncation" => auto_truncation
+               },
+               issuer_of(context)
+             )
          },
          run_metadata: %{
            "truncation" => "auto",
@@ -2149,18 +2154,6 @@ defmodule Ankole.AIGateway.Compaction do
 
   defp standalone_model(_request), do: {:error, :missing_model}
 
-  defp validate_compact_previous_response_id(nil), do: :ok
-  defp validate_compact_previous_response_id(""), do: :ok
-
-  defp validate_compact_previous_response_id("resp_" <> uuid) do
-    case Ecto.UUID.cast(uuid) do
-      {:ok, _uuid} -> :ok
-      :error -> {:error, :invalid_anchor}
-    end
-  end
-
-  defp validate_compact_previous_response_id(_value), do: {:error, :invalid_anchor}
-
   defp validate_compact_conversation_id(nil), do: :ok
   defp validate_compact_conversation_id(""), do: :ok
 
@@ -2394,9 +2387,22 @@ defmodule Ankole.AIGateway.Compaction do
   defp request_metadata(%{"metadata" => metadata}) when is_map(metadata), do: metadata
   defp request_metadata(_request), do: %{}
 
-  defp checkpoint_metadata(request, internal_metadata) do
-    Map.put(internal_metadata, "request_metadata", request_metadata(request))
+  # A checkpoint replays Provider items it kept verbatim, so it records its
+  # issuer like any other stored message. The replay recovery is the one
+  # checkpoint without an issuer, because it keeps no Provider state at all.
+  defp checkpoint_metadata(request, internal_metadata, issuer \\ nil) do
+    internal_metadata
+    |> Map.put("request_metadata", request_metadata(request))
+    |> put_issuer(issuer)
   end
+
+  defp put_issuer(metadata, issuer) when is_binary(issuer),
+    do: Map.put(metadata, "issuer", issuer)
+
+  defp put_issuer(metadata, _issuer), do: metadata
+
+  defp issuer_of(%{runtime: runtime}) when is_map(runtime), do: Map.get(runtime, "provider_id")
+  defp issuer_of(_context), do: nil
 
   defp checkpoint_within_budget(candidate, summary, current_input, threshold) do
     checkpoint_items =
@@ -2499,7 +2505,7 @@ defmodule Ankole.AIGateway.Compaction do
   defp provider_neutral_item(%{"type" => "reasoning"} = item) do
     item
     |> Map.delete("id")
-    |> strip_provider_ciphertext()
+    |> ProviderSealedContent.strip()
     |> CompactionRender.item_text()
     |> provider_neutral_text_item()
   end
@@ -2512,20 +2518,20 @@ defmodule Ankole.AIGateway.Compaction do
           Map.get(item, "type") == "message" ->
         item
         |> Map.delete("id")
-        |> strip_provider_ciphertext()
+        |> ProviderSealedContent.strip()
         |> list_if_nonempty_map()
 
       ResponseItems.provider_replay_id_required?(item) ->
         item
         |> Map.delete("id")
-        |> strip_provider_ciphertext()
+        |> ProviderSealedContent.strip()
         |> CompactionRender.item_text()
         |> provider_neutral_text_item()
 
       true ->
         item
         |> Map.delete("id")
-        |> strip_provider_ciphertext()
+        |> ProviderSealedContent.strip()
         |> list_if_nonempty_map()
     end
   end
@@ -2543,22 +2549,6 @@ defmodule Ankole.AIGateway.Compaction do
       }
     ]
   end
-
-  defp strip_provider_ciphertext(%{"type" => "encrypted_content"}), do: nil
-
-  defp strip_provider_ciphertext(%{} = value) do
-    value
-    |> Map.drop(["encrypted_content", "encrypted_function_args"])
-    |> Map.new(fn {key, nested} -> {key, strip_provider_ciphertext(nested)} end)
-  end
-
-  defp strip_provider_ciphertext(value) when is_list(value) do
-    value
-    |> Enum.map(&strip_provider_ciphertext/1)
-    |> Enum.reject(&is_nil/1)
-  end
-
-  defp strip_provider_ciphertext(value), do: value
 
   defp list_if_nonempty_map(%{} = item) when map_size(item) > 0, do: [item]
   defp list_if_nonempty_map(_item), do: []

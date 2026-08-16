@@ -2,7 +2,10 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
   use Ankole.DataCase, async: false
 
   import ExUnit.CaptureLog
-  import Ankole.AIGatewayCase, only: [start_upstream_server: 1]
+
+  import Ankole.AIGatewayCase,
+    only: [start_upstream_server: 1, chat_completion_stream_events: 2]
+
   import Ankole.PrincipalsFixtures
 
   alias Ankole.AIAgent.ModelProfiles
@@ -122,6 +125,12 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
         {:text, Ankole.JSON.encode!(response_rate_limited())}
       ]
     end
+
+    defp response_frames(%{scenario: :completed}),
+      do: [
+        {:text, Ankole.JSON.encode!(response_created())},
+        {:text, Ankole.JSON.encode!(response_completed())}
+      ]
 
     defp response_frames(_state), do: [{:text, Ankole.JSON.encode!(response_created())}]
 
@@ -1059,6 +1068,88 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     assert active.ref == state.active_stream.ref
   end
 
+  # The production frame shape: Codex names the connection anchor and sends only
+  # the delta plus the trigger. Compaction must see the whole named history.
+  test "compaction_trigger expands WebSocket previous_response_id from connection history" do
+    %{principal: agent} = agent_fixture()
+    test_pid = self()
+
+    base_url =
+      start_upstream_server(fn request ->
+        send(test_pid, {:summarizer_request, request})
+
+        if request.path == "models" do
+          {:json, 200, AnkoleWeb.AIGatewayControllerTestHelpers.openrouter_models_fixture()}
+        else
+          {:sse, 200,
+           chat_completion_stream_events(request, "## Active Task\nsummary of the whole history")}
+        end
+      end)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openrouter-socket-compaction",
+               provider_kind: "openrouter",
+               base_url: base_url,
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openrouter"}]
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openrouter-socket-compaction",
+               model: "openai/gpt-5.5",
+               context_length: 131_072
+             })
+
+    request =
+      Ankole.JSON.encode!(%{
+        "type" => "response.create",
+        "model" => "primary",
+        "previous_response_id" => "resp_socket_compact",
+        "store" => false,
+        "input" => [
+          text_message("user", "the delta turn"),
+          %{"type" => "compaction_trigger"}
+        ]
+      })
+
+    assert {:push, chunks, _state} =
+             AIGatewayResponsesSocket.handle_in(
+               {request, [opcode: :text]},
+               %{
+                 subject_uid: agent.uid,
+                 subject_type: "agent",
+                 response_history: %{
+                   "resp_socket_compact" => %{
+                     items: [
+                       text_message("user", "the first named turn"),
+                       text_message("assistant", "the first named answer")
+                     ]
+                   }
+                 },
+                 response_history_order: ["resp_socket_compact"]
+               }
+             )
+
+    events = Enum.map(chunks, fn {:text, chunk} -> Ankole.JSON.decode!(chunk) end)
+
+    refute Enum.any?(events, &(&1["type"] == "error"))
+
+    assert %{"output" => output} =
+             Enum.find(events, &(&1["type"] == "response.completed"))["response"]
+
+    assert [%{"type" => "compaction"}] = output
+
+    assert_receive {:summarizer_request, %{body: %{"messages" => messages}}}
+    summarized = messages |> Enum.map(& &1["content"]) |> Enum.join("\n")
+
+    assert summarized =~ "the first named turn"
+    assert summarized =~ "the first named answer"
+    assert summarized =~ "the delta turn"
+  end
+
   test "response.create expands WebSocket previous_response_id from connection history" do
     %{principal: agent} = agent_fixture()
 
@@ -1399,6 +1490,135 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     assert response_id == "resp_#{message.id}"
 
     _ = AIGateway.cancel_response_stream(next_state.active_stream.stream)
+  end
+
+  # Drives the real chain: the resolved runtime decides the issuer, the stored
+  # message records it, and the next Turn on another Provider reads it back.
+  test "a Provider change drops the previous Provider's sealed state and records the new issuer" do
+    %{principal: agent} = agent_fixture()
+
+    server =
+      start_supervised!(
+        {Bandit,
+         plug: {NativeResponsesWebSocketUpstreamPlug, test_pid: self(), scenario: :completed},
+         scheme: :http,
+         ip: {127, 0, 0, 1},
+         port: 0}
+      )
+
+    {:ok, {_ip, port}} = ThousandIsland.listener_info(server)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openai-issuer-next",
+               provider_kind: "openai",
+               base_url: "http://127.0.0.1:#{port}/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               },
+               connection_options: %{"upstream_transport" => "websocket"}
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openai-issuer-next",
+               model: "gpt-main"
+             })
+
+    {:ok, conversation} =
+      StatefulResponses.ensure_conversation(agent.uid, "socket-issuer-change")
+
+    {:ok, root} =
+      StatefulResponses.start_response_run(%{
+        subject_uid: agent.uid,
+        conversation_id: conversation.id
+      })
+
+    {:ok, root} =
+      StatefulResponses.commit_complete(root, [
+        %{
+          "id" => "rs_prev",
+          "type" => "reasoning",
+          "encrypted_content" => "sealed-by-the-previous-provider",
+          "summary" => []
+        },
+        text_message("assistant", "the readable answer")
+      ])
+
+    # The stored history belongs to a Provider this Turn will not call.
+    {:ok, _root} =
+      root
+      |> Ecto.Changeset.change(
+        metadata: Map.put(root.metadata, "issuer", "openai-issuer-previous")
+      )
+      |> Repo.update()
+
+    request =
+      Ankole.JSON.encode!(%{
+        "type" => "response.create",
+        "model" => "primary",
+        "input" => [text_message("user", "continue")],
+        "store" => true,
+        "conversation" => "conv_#{conversation.id}"
+      })
+
+    assert {:ok, %{active_stream: active} = state} =
+             AIGatewayResponsesSocket.handle_in({request, [opcode: :text]}, %{
+               subject_uid: agent.uid,
+               subject_type: "agent"
+             })
+
+    assert_receive {:native_socket_upstream_request, upstream_request}
+
+    # Sealed state the new Provider cannot read is gone; the plain answer stays.
+    refute Enum.any?(upstream_request["input"], &(&1["type"] == "reasoning"))
+    assert Enum.any?(upstream_request["input"], &(&1["role"] == "assistant"))
+
+    # Drain the terminal so the run commits, then read the recorded issuer. This
+    # is the only assertion that proves the whole chain, because the value comes
+    # from the resolved runtime rather than from a hand-built meta map.
+    state = drain_response_stream(state)
+    refute Map.has_key?(state, :active_stream)
+
+    assert [committed] =
+             Message
+             |> Ecto.Query.where(conversation_id: ^conversation.id, status: "complete")
+             |> Repo.all()
+             |> Enum.reject(&(&1.id == root.id))
+
+    assert committed.metadata["issuer"] == "openai-issuer-next"
+    assert active.ref
+  end
+
+  # Only the issuing Provider reads the state it sealed inside these items, so
+  # a later turn on another Provider has to know who sealed them.
+  test "a committed stateful message records the Provider that issued it" do
+    {_agent, _conversation, actor_event, message} = stateful_message("socket-issuer")
+    ref = make_ref()
+    active = active_stream(ref, message, actor_event, issuer: "openai-main")
+
+    chunk = %{
+      "type" => "response.completed",
+      "sequence_number" => 1,
+      "response" => %{
+        "id" => "provider_resp_issuer",
+        "object" => "response",
+        "status" => "completed",
+        "output" => [
+          %{
+            "type" => "message",
+            "status" => "completed",
+            "role" => "assistant",
+            "content" => [%{"type" => "output_text", "text" => "done", "annotations" => []}]
+          }
+        ]
+      }
+    }
+
+    assert {:push, {:text, _pushed}, _state} =
+             handle_test_event(%{active_stream: active}, ref, chunk, 1)
+
+    assert Repo.get!(Message, message.id).metadata["issuer"] == "openai-main"
   end
 
   test "stateful completed terminal frame is committed with provider telemetry before forwarding" do
@@ -2927,6 +3147,20 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     assert is_nil(Repo.get!(ActorEvent, actor_event.id).completed_at)
   end
 
+  # Feeds every stream batch back to the socket until the run reaches its
+  # terminal, so the test observes the committed row rather than a partial one.
+  defp drain_response_stream(state) do
+    receive do
+      {:ai_gateway_response_stream, _ref, :events, _events, _status} = message ->
+        case AIGatewayResponsesSocket.handle_info(message, state) do
+          {:push, _frames, next} -> drain_response_stream(next)
+          {:ok, next} -> drain_response_stream(next)
+        end
+    after
+      2_000 -> state
+    end
+  end
+
   defp stateful_message(session_suffix, request_items \\ []) do
     %{principal: agent} = agent_fixture()
 
@@ -3015,9 +3249,15 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     stateful = %{message_id: message.id, message: message}
     items = Keyword.get(opts, :accumulated_items, [])
 
+    meta =
+      case Keyword.get(opts, :issuer) do
+        issuer when is_binary(issuer) -> %{"issuer" => issuer}
+        _absent -> %{}
+      end
+
     semantic =
       message.subject_uid
-      |> ResponseStreamState.new(%{}, %{}, stateful: stateful)
+      |> ResponseStreamState.new(%{}, meta, stateful: stateful)
       |> Map.put(:public_items, items)
       |> Map.put(:durable_items, items)
       |> Map.put(:max_tool_calls, Keyword.get(opts, :max_tool_calls))

@@ -1,5 +1,13 @@
 # Changelog
 
+## Version 0.74.3 (2026-08-16)
+
+- A Background Agent Job no longer fails at its first compaction. AIGateway now resolves a WebSocket caller's `previous_response_id` into the history it names before it decides what kind of request this is, so a compaction trigger summarizes the whole conversation instead of the few items the caller sent with it. The same request previously ended the Job with `invalid_previous_response_id`.
+- A continuation anchor is now answered by looking it up rather than by reading its characters, because the characters can be a value the Provider chose. Two error codes change: a WebSocket anchor this connection never issued reports `previous_response_not_found`, and an HTTP compaction request that names stored history reports `stateful_responses_require_websocket`, which is what every other HTTP Responses request already reported. The retired `compact_store_required` code is gone.
+- AIGateway does not send a Provider an identifier that AIGateway made. Users do not see this.
+- A stored conversation keeps working after its Provider changes. An operator who repoints a model profile, or a vision fallback that sends one Turn elsewhere, no longer replays state that only the previous Provider can read and that the new one rejects. AIGateway drops the hidden reasoning and turns the sealed parameters of an earlier tool call into plain text, while every message, call, and result stays. The Agent derives that reasoning again, so the Turn can cost more.
+- Record which side owns the identifiers on each AIGateway link, so a later change does not send an Ankole identifier to a Provider or replay one Provider's sealed state to another.
+
 ## Version 0.74.2 (2026-08-16)
 
 - Provider-forwarded compaction now streams its request like every other Responses request and collects the whole reply before the caller sees any of it. Upstreams that accept only streaming requests, such as the ChatGPT subscription backend, can now answer native compaction instead of always forcing the local fallback.

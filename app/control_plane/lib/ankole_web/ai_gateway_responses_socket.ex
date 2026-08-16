@@ -277,16 +277,6 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
 
         {:push, {:text, Ankole.JSON.encode!(event)}, state}
 
-      {:error, :compact_store_required} ->
-        event =
-          error_event(
-            400,
-            "compact_store_required",
-            "previous_response_id or conversation on a compaction trigger requires store=true."
-          )
-
-        {:push, {:text, Ankole.JSON.encode!(event)}, state}
-
       {:error, reason}
       when reason in [:empty_compaction_summary, :invalid_summary_shape] ->
         event =
@@ -327,16 +317,21 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
     |> complete_socket_prewarm(state)
   end
 
+  # Connection-local continuation is a transport fact, so it resolves before the
+  # request kind is known. Every later owner then reads the history the caller
+  # named, and none of them interprets `previous_response_id` again.
   defp handle_socket_event(%{"type" => "response.create"} = event, state) do
     request =
       event
       |> prepare_request()
       |> CodexModelBinding.apply(Map.get(state, :codex_model_binding))
 
-    if Compaction.compaction_trigger?(request) do
-      serve_compaction_trigger(state, request)
-    else
-      open_response_create_stream(state, request)
+    with {:ok, request, socket_context} <- prepare_response_create_request(state, request) do
+      if Compaction.compaction_trigger?(request) do
+        serve_compaction_trigger(state, request)
+      else
+        open_response_create_stream(state, request, socket_context)
+      end
     end
   end
 
@@ -590,9 +585,8 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
     |> push_text_chunks(state)
   end
 
-  defp open_response_create_stream(state, request) do
-    with {:ok, request, socket_context} <- prepare_response_create_request(state, request),
-         {:ok, active_stream} <- open_active_stream(state, request) do
+  defp open_response_create_stream(state, request, socket_context) do
+    with {:ok, active_stream} <- open_active_stream(state, request) do
       active_stream = Map.merge(active_stream, socket_context)
       {:ok, Map.put(state, :active_stream, active_stream)}
     end
@@ -601,6 +595,11 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
   # AIGateway serves the compaction protocol itself, so the trigger never opens
   # a Provider stream here. The reply is the same shape every consumer already
   # reads: one compaction output item and one terminal.
+  #
+  # The reply ID stays out of the connection history on purpose. What a caller
+  # keeps after compaction is the caller's own decision, so AIGateway cannot
+  # name that history. A caller that continues from the reply sends its whole
+  # input instead.
   defp serve_compaction_trigger(state, request) do
     case Compaction.compact_from_trigger(state.subject_uid, request) do
       {:ok, response} ->

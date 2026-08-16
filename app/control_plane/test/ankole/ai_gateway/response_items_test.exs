@@ -582,6 +582,30 @@ defmodule Ankole.AIGateway.ResponseItemsTest do
     refute ResponseItems.budgeted_tool_choice?(%{"type" => "function"})
   end
 
+  test "an AIGateway-minted item identity never reaches a Provider" do
+    minted = ResponseItems.ankole_identity("item", "0f4a2c")
+
+    assert ResponseItems.ankole_identity?(minted)
+    refute ResponseItems.ankole_identity?("rs_68a7f0c1")
+    refute ResponseItems.ankole_identity?("msg_0f4a")
+
+    input = [
+      %{"id" => minted, "type" => "reasoning", "encrypted_content" => "sealed"},
+      %{"id" => "rs_68a7f0c1", "type" => "reasoning", "encrypted_content" => "sealed"},
+      function_call("call_1", "write_file")
+    ]
+
+    assert [minted_item, provider_item, call_item] = ResponseItems.drop_ankole_item_id(input)
+
+    # A minted ID names no Provider object, so it goes; the Provider's own ID
+    # stays, and the pair identity is untouched because it addresses nothing
+    # outside this request.
+    refute Map.has_key?(minted_item, "id")
+    assert minted_item["encrypted_content"] == "sealed"
+    assert provider_item["id"] == "rs_68a7f0c1"
+    assert call_item["call_id"] == "call_1"
+  end
+
   defp function_call(call_id, name, caller \\ nil) do
     %{
       "type" => "function_call",

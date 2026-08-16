@@ -34,6 +34,7 @@ defmodule Ankole.AIGateway.ResponseStream.State do
             provider_pair_ids: %{},
             public_item_ids: MapSet.new(),
             public_pair_ids: MapSet.new(),
+            issuer: nil,
             next_output_index: 0
 
   @type t :: %__MODULE__{}
@@ -57,6 +58,7 @@ defmodule Ankole.AIGateway.ResponseStream.State do
     %__MODULE__{
       subject_uid: subject_uid,
       stateful: stateful,
+      issuer: Map.get(meta, "issuer") || Map.get(meta, :issuer),
       local_response_id: "resp_#{UUIDv7.autogenerate()}",
       image_persistence:
         ImageStreamPersistence.new(subject_uid, message_id: stateful_message_id(stateful)),
@@ -1298,7 +1300,7 @@ defmodule Ankole.AIGateway.ResponseStream.State do
       |> Base.encode16(case: :lower)
       |> binary_part(0, 24)
 
-    candidate = "item_#{digest}"
+    candidate = ResponseItems.ankole_identity("item", digest)
 
     if public_identity_taken?(state, candidate),
       do: unique_public_item_id(state, item_id, source, attempt + 1),
@@ -1324,7 +1326,7 @@ defmodule Ankole.AIGateway.ResponseStream.State do
       |> Base.encode16(case: :lower)
       |> binary_part(0, 24)
 
-    candidate = "call_#{digest}"
+    candidate = ResponseItems.ankole_identity("call", digest)
 
     if public_identity_taken?(state, candidate),
       do: unique_public_pair_id(state, pair_id, attempt + 1),
@@ -1350,8 +1352,12 @@ defmodule Ankole.AIGateway.ResponseStream.State do
 
   defp chronological(reversed_items), do: Enum.reverse(reversed_items)
 
-  defp terminal_response_metadata(_state, _event_type, %{} = response) do
+  # The issuer is stored with the message because only it can read the state it
+  # sealed inside these items. A later turn on another Provider needs to know
+  # that before it replays them.
+  defp terminal_response_metadata(state, _event_type, %{} = response) do
     %{}
+    |> maybe_put_metadata("issuer", state.issuer)
     |> maybe_put_metadata("usage", response["usage"])
     |> maybe_put_metadata("tool_usage", response["tool_usage"])
     |> maybe_put_metadata("provider_model", response["model"])

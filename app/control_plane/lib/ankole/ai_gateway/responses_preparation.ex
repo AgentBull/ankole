@@ -16,6 +16,7 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
   alias Ankole.AIGateway.Providers
   alias Ankole.AIGateway.RequestContext
   alias Ankole.AIGateway.Resolver
+  alias Ankole.AIGateway.ResponseItems
   alias Ankole.AIGateway.ToolContract
   alias Ankole.AIGateway.ToolSearch
   alias Ankole.AIGateway.ToolSearch.StreamLoop
@@ -217,6 +218,7 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
         |> put_native_encrypted_tool_fields(native_encrypted_tool_fields?(runtime))
         |> composite_spec(public_request, image_generation)
         |> put_tool_loop(tool_plan, provider_request)
+        |> Map.put(:issuer, Map.get(runtime, "provider_id"))
 
       rebuild = fn next_runtime, request_override ->
         build_attempt_spec(
@@ -255,12 +257,20 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
   end
 
   defp provider_request(%{"provider_kind" => "chatgpt_subscription"}, request),
-    do: {:ok, Map.delete(request, "service_tier")}
+    do: {:ok, request |> Map.delete("service_tier") |> drop_ankole_item_ids()}
 
   defp provider_request(runtime, request) do
-    request = Map.delete(request, "service_tier")
+    request = request |> Map.delete("service_tier") |> drop_ankole_item_ids()
     ChatGPTProtocol.normalize_non_subscription(request, Map.get(runtime, "request_context", %{}))
   end
+
+  # Every route to a Provider passes here, so this is where AIGateway stops
+  # being a server and becomes a client. A client sends back only identities
+  # its server issued.
+  defp drop_ankole_item_ids(%{"input" => input} = request) when is_list(input),
+    do: Map.put(request, "input", ResponseItems.drop_ankole_item_id(input))
+
+  defp drop_ankole_item_ids(request), do: request
 
   # OpenAI Responses and Codex-compatible Responses proxies own the `encrypted`
   # tool-parameter marker and the encrypted function arguments they return.
