@@ -221,6 +221,34 @@ defmodule Ankole.AIGatewayCase do
   end
 
   @doc false
+  def openai_compaction_stream_events(response_id, output, usage \\ %{}) do
+    response = %{
+      "id" => response_id,
+      "object" => "response",
+      "created_at" => 1_764_967_971,
+      "completed_at" => nil,
+      "status" => "in_progress",
+      "output" => [],
+      "usage" => %{}
+    }
+
+    [
+      %{"type" => "response.created", "sequence_number" => 0, "response" => response},
+      %{
+        "type" => "response.completed",
+        "sequence_number" => 1,
+        "response" => %{
+          response
+          | "completed_at" => 1_764_967_972,
+            "status" => "completed",
+            "output" => output,
+            "usage" => usage
+        }
+      }
+    ]
+  end
+
+  @doc false
   def openai_response_stream_events(response_id, model, text, usage \\ %{}) do
     response =
       %{

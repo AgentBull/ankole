@@ -849,18 +849,14 @@ defmodule Ankole.AIGateway.Compaction do
          store_context,
          false
        ) do
-    if UpstreamCompaction.opaque_input?(resolved_input) do
-      {:error, :opaque_compaction_fallback_unavailable}
-    else
-      compact_standalone_locally(
-        subject_uid,
-        request,
-        original_input,
-        resolved_input,
-        store_context,
-        nil
-      )
-    end
+    compact_standalone_locally(
+      subject_uid,
+      request,
+      original_input,
+      resolved_input,
+      store_context,
+      nil
+    )
   end
 
   defp compact_standalone(
@@ -892,18 +888,14 @@ defmodule Ankole.AIGateway.Compaction do
           end
 
         {:fallback, _reason} ->
-          if UpstreamCompaction.opaque_input?(resolved_input) do
-            {:error, :opaque_compaction_fallback_unavailable}
-          else
-            compact_standalone_locally(
-              subject_uid,
-              request,
-              original_input,
-              resolved_input,
-              store_context,
-              runtime
-            )
-          end
+          compact_standalone_locally(
+            subject_uid,
+            request,
+            original_input,
+            resolved_input,
+            store_context,
+            runtime
+          )
       end
     end
   end
@@ -918,6 +910,7 @@ defmodule Ankole.AIGateway.Compaction do
        ) do
     with {:ok, candidate} <-
            standalone_compaction_candidate(subject_uid, original_input, resolved_input),
+         :ok <- warn_opaque_preserved(candidate),
          {:ok, runtime} <- standalone_local_runtime(runtime, subject_uid, request),
          threshold = threshold_spec(runtime, request),
          {:ok, summary} <- summarize_standalone(subject_uid, candidate),
@@ -934,6 +927,21 @@ defmodule Ankole.AIGateway.Compaction do
 
   defp standalone_local_runtime(nil, subject_uid, request),
     do: ResponsesPreparation.resolve_runtime(subject_uid, request)
+
+  # The local summary cannot read Provider ciphertext, so the checkpoint keeps
+  # it verbatim instead of failing the compaction. The warning is the operator
+  # fact: the summary covers only the items after the preserved Provider state.
+  defp warn_opaque_preserved(%{opaque_prefix: []}), do: :ok
+
+  defp warn_opaque_preserved(%{opaque_prefix: opaque_prefix}) do
+    Logging.warning(
+      "ai_gateway.compaction_opaque_prefix_preserved",
+      "local compaction preserved provider-owned compaction state verbatim",
+      %{opaque_prefix_items: length(opaque_prefix)}
+    )
+
+    :ok
+  end
 
   defp upstream_artifact_attrs(subject_uid, conversation_id, upstream) do
     %{
@@ -1087,6 +1095,7 @@ defmodule Ankole.AIGateway.Compaction do
       retained_items: candidate.retained_client_tool_search ++ candidate.retained_tail,
       retained_user_originals:
         candidate.retained_user_originals ++ candidate.retained_pending_clarify,
+      opaque_prefix: candidate.opaque_prefix,
       retention:
         %{
           "strategy" => "standalone_user_messages",
@@ -1098,6 +1107,10 @@ defmodule Ankole.AIGateway.Compaction do
         |> maybe_put(
           "previous_summary_discarded",
           if(candidate.previous_summary_discarded, do: true, else: nil)
+        )
+        |> maybe_put(
+          "opaque_prefix_items",
+          if(candidate.opaque_prefix != [], do: length(candidate.opaque_prefix), else: nil)
         ),
       usage: summary.usage
     })
@@ -2175,15 +2188,30 @@ defmodule Ankole.AIGateway.Compaction do
   defp standalone_input(_request), do: {:error, :missing_input}
 
   defp standalone_compaction_candidate(subject_uid, original_input, resolved_input) do
-    {region_start_index, previous_compaction_item} = items_after_last_compaction(original_input)
-    prefix_items = Enum.drop(resolved_input, region_start_index)
-    original_region = Enum.drop(original_input, region_start_index)
+    {original_start, previous_compaction_item} = items_after_last_compaction(original_input)
+    original_region = Enum.drop(original_input, original_start)
+
+    # The region after the last original compaction item holds no compaction
+    # items, so handle resolution leaves it unchanged: the resolved region is
+    # the resolved input's tail of the same length, and everything before it is
+    # the resolved form of the already-compacted head.
+    region_length = length(original_region)
+    prefix_items = Enum.take(resolved_input, -region_length)
+    resolved_head = Enum.drop(resolved_input, -region_length)
 
     if prefix_items == [] do
       {:error, :no_compaction_candidate}
     else
       {previous_chat_history, previous_summary_discarded} =
         previous_compaction_content(subject_uid, previous_compaction_item)
+
+      # A compaction item that survives resolution is Provider-owned ciphertext
+      # this summarizer cannot read. Keep the resolved head through its last
+      # such item verbatim, so the caller's next turn replays the Provider
+      # state instead of losing it. Readable head items after that point ride
+      # `previous_chat_history` instead.
+      {head_opaque_end, _head_compaction_item} = items_after_last_compaction(resolved_head)
+      opaque_prefix = Enum.take(resolved_head, head_opaque_end)
 
       {retained_user_originals, _used_tokens} =
         CompactionRetention.collect_user_originals(original_region, user_message_budget_tokens())
@@ -2198,7 +2226,8 @@ defmodule Ankole.AIGateway.Compaction do
            retained_pending_clarify: CompactionRetention.collect_pending_clarify(original_region),
            retained_client_tool_search: retained_client_tool_search,
            previous_chat_history: previous_chat_history,
-           previous_summary_discarded: previous_summary_discarded,
+           previous_summary_discarded: previous_summary_discarded and opaque_prefix == [],
+           opaque_prefix: opaque_prefix,
            tail_rows_requested: 0
          }}
       end
@@ -2371,7 +2400,8 @@ defmodule Ankole.AIGateway.Compaction do
 
   defp checkpoint_within_budget(candidate, summary, current_input, threshold) do
     checkpoint_items =
-      candidate.retained_user_originals ++
+      Map.get(candidate, :opaque_prefix, []) ++
+        candidate.retained_user_originals ++
         candidate.retained_pending_clarify ++
         [compaction_summary_item(summary.text)] ++
         candidate.retained_client_tool_search ++

@@ -287,16 +287,6 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
 
         {:push, {:text, Ankole.JSON.encode!(event)}, state}
 
-      {:error, :opaque_compaction_fallback_unavailable} ->
-        event =
-          error_event(
-            502,
-            "opaque_compaction_fallback_unavailable",
-            "provider-native compaction history cannot use the local fallback."
-          )
-
-        {:push, {:text, Ankole.JSON.encode!(event)}, state}
-
       {:error, reason}
       when reason in [:empty_compaction_summary, :invalid_summary_shape] ->
         event =

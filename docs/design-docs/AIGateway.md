@@ -804,13 +804,15 @@ unsupported result is cached. This decision is made per request, not frozen with
 the Job, so a Provider failover cannot leave it pointing at a Provider that
 never made it.
 
-A wrong-shaped Provider reply never reaches the caller. AIGateway collects the
-whole response and requires exactly one `compaction` output item before any of
-it enters the public stream. When that check fails, AIGateway serves the same
-request with its own summary instead. It can only do that while the history
-holds no Provider-owned compaction item, because this summarizer cannot read
-one; a history that already holds one reports the failure rather than inventing
-a summary.
+The pass-through request uses the standard streaming Responses preparation and
+stream owner, because some upstreams accept only streaming requests. A
+wrong-shaped Provider reply never reaches the caller. AIGateway collects the
+stream to its terminal Response and requires exactly one `compaction` output
+item before any of it enters the public stream. When that check fails,
+AIGateway serves the same request with its own summary instead. A history that
+already holds a Provider-owned compaction item keeps that item: the summary
+covers only the items after it, and the checkpoint preserves the Provider item
+verbatim, as described under the stateless trigger below.
 
 Only a stateless caller can be forwarded, because it sends the history the
 Provider must compact. A stateful caller's history lives here, so its
@@ -861,11 +863,17 @@ opaque value that AIGateway cannot project item by item. Reactive replay
 recovery does not replace this check.
 
 A stateless trigger returns version 3 output without an Ankole handle. The
-caller must continue with a compatible Responses provider. If its input already
-contains provider-native compaction state and upstream compaction is disabled or
-fails, AIGateway returns HTTP 502 with
-`opaque_compaction_fallback_unavailable`. It cannot create a correct local
-summary from provider ciphertext.
+caller must continue with a compatible Responses provider. When its input
+already contains provider-native compaction state and upstream compaction is
+disabled or fails, AIGateway cannot read that ciphertext, so it does not fail
+the compaction and does not invent a summary over it. The local summary covers
+only the items after the last Provider compaction item. The artifact stores the
+Provider items through that item verbatim as an opaque prefix, and both replay
+surfaces emit that prefix ahead of the local checkpoint: handle resolution for
+a stateless continuation, and checkpoint materialization for a stored one. The
+reply still carries exactly one compaction item. AIGateway logs a warning when
+it preserves a prefix. Replayed Provider state still reads only on a
+compatible upstream; a Provider change keeps the existing stateless contract.
 
 The kernel preserves provider-native compaction items on the Responses wire.
 It rejects those items on other wires with

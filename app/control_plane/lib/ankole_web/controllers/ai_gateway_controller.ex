@@ -412,11 +412,6 @@ defmodule AnkoleWeb.AIGatewayController do
   defp error_tuple(:invalid_compaction_handle),
     do: {400, "invalid_compaction_handle", "compaction encrypted_content handle is invalid"}
 
-  defp error_tuple(:opaque_compaction_fallback_unavailable),
-    do:
-      {502, "opaque_compaction_fallback_unavailable",
-       "provider-native compaction history cannot use the local fallback"}
-
   # The caller's request is well formed: the summarizer produced nothing usable
   # after its retry. That is an upstream fault, so it must not read as a client
   # error that the caller could fix by changing the request.

@@ -507,12 +507,12 @@ borrows visual capability from a different model.
 
 When the instance leaves compaction to the Provider, AIGateway tries the Job's
 frozen Responses Provider and model before it uses local compaction.
-Unsupported and transient failures use local compaction while the input remains
-readable. A provider-native compact output is opaque. If a later compact
-request cannot use the same upstream path, AIGateway cannot summarize that
-ciphertext and returns HTTP 502 `opaque_compaction_fallback_unavailable`. The
-Job must continue with a compatible Provider, or a caller must start a new Job
-from readable context.
+Unsupported and transient failures use local compaction. A provider-native
+compact output is opaque. If a later compact request cannot use the same
+upstream path, AIGateway keeps the opaque items verbatim, summarizes only the
+readable items after them, and logs a warning, so the Job's compaction
+completes instead of failing. The preserved Provider state still reads only on
+a compatible Provider on later turns.
 
 Worker placement selects the normal owner. The per-Agent `flock` on each
 Worker-local Codex Home is the final same-Worker exclusion boundary. An

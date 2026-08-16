@@ -2317,9 +2317,10 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     assert inspect(continuation_request.body) =~ "## Active Task\\nhello from compliance"
   end
 
-  test "compact endpoint rejects opaque history when local fallback is the only path", %{
-    conn: conn
-  } do
+  test "compact endpoint reports no candidate for history that is only opaque provider state",
+       %{
+         conn: conn
+       } do
     %{principal: agent} = agent_fixture()
 
     assert {:ok, _provider} =
@@ -2348,7 +2349,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
         ]
       })
 
-    assert {:error, 502, "opaque_compaction_fallback_unavailable"} = conn
+    assert {:error, 400, "no_compaction_candidate"} = conn
   end
 
   test "compact endpoint compacts only items after the previous compaction item", %{conn: conn} do
@@ -2779,9 +2780,6 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
         compaction_trigger_result(
           Enum.map(chunks, fn {:text, chunk} -> Ankole.JSON.decode!(chunk) end)
         )
-
-      {:error, reason} ->
-        {:error, reason}
     end
   end
 

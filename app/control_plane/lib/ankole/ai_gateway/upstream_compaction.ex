@@ -8,10 +8,11 @@ defmodule Ankole.AIGateway.UpstreamCompaction do
   """
 
   alias Ankole.AIGateway.ModelMetadata.Cache
-  alias Ankole.AIGateway.CredentialAttempts
   alias Ankole.AIGateway.Observability
   alias Ankole.AIGateway.ProviderConfigs.Provider
   alias Ankole.AIGateway.Providers
+  alias Ankole.AIGateway.ResponsesPreparation
+  alias Ankole.AIGateway.ResponseStream
   alias Ankole.Logging
 
   @negative_ttl_ms :timer.hours(1)
@@ -70,14 +71,6 @@ defmodule Ankole.AIGateway.UpstreamCompaction do
 
   def binding_matches?(_stored_binding, _runtime), do: false
 
-  @spec opaque_input?([term()]) :: boolean()
-  def opaque_input?(input) when is_list(input) do
-    Enum.any?(input, fn
-      %{"type" => "compaction"} -> true
-      _item -> false
-    end)
-  end
-
   defp compact_responses(runtime, input, request, subject_uid) do
     with {:ok, binding} <- runtime_binding(runtime) do
       cache_key = cache_key(binding)
@@ -108,29 +101,45 @@ defmodule Ankole.AIGateway.UpstreamCompaction do
     end
   end
 
-  # The compaction trigger is the Provider-native request. The dedicated compact
-  # endpoint is being retired upstream, so this asks for compaction the way the
-  # surviving protocol does: a normal Responses request whose input ends with
-  # the trigger. It stays non-streaming, because the whole reply must be checked
-  # before any of it can reach a caller.
+  # The compaction trigger is the Provider-native request: a normal Responses
+  # request whose input ends with the trigger. Codex moved off the dedicated
+  # compact endpoint, and the trigger is the protocol both client generations
+  # share. The request uses the standard streaming preparation and stream
+  # owner, because some upstreams (the ChatGPT backend) accept nothing else;
+  # the stream is collected to its terminal Response and checked before any of
+  # it can reach a caller.
   defp execute(runtime, request, subject_uid) do
-    with {:ok, prepared_request} <-
-           Providers.build_response_request(runtime, request, stream?: false),
-         {:ok, response} <-
+    with {:ok, %{request: request, spec: prepared_request}} <-
+           ResponsesPreparation.prepare_with_runtime(subject_uid, runtime, request, stream?: true),
+         {:ok, %{body: body}} <-
            Observability.record_compact(subject_uid, runtime, request, fn ->
-             CredentialAttempts.request(prepared_request)
+             with {:ok, outcome, _meta} <-
+                    ResponseStream.collect(subject_uid, request, prepared_request,
+                      caller: "compaction.upstream"
+                    ),
+                  {:ok, body} <- terminal_body(outcome) do
+               {:ok, %{body: body}}
+             end
            end) do
-      compact_response(response)
+      compact_response(body)
     else
       {:error, reason} -> classify_error(reason)
     end
   end
 
+  defp terminal_body(%{terminal_error: nil, terminal_response: %{} = response}),
+    do: {:ok, response}
+
+  defp terminal_body(%{terminal_error: error}), do: {:error, error}
+
+  defp terminal_body(_outcome),
+    do: {:error, :upstream_compaction_missing_terminal_response}
+
   # Exactly one compaction item is the whole contract. Anything else means the
   # Provider answered a normal turn instead of compacting, and using that output
   # would silently replace the history with a model reply. The rest of the output
   # is kept, because the Provider decided what its compacted history retains.
-  defp compact_response(%{body: %{"output" => output} = body}) when is_list(output) do
+  defp compact_response(%{"output" => output} = body) when is_list(output) do
     case Enum.count(output, &compaction_item?/1) do
       1 ->
         usage = Map.get(body, "usage", %{})
