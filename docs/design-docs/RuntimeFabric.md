@@ -388,7 +388,10 @@ uses.
 The Lark adapter resolves the current tenant access token through the control
 plane token manager. It requires at least ten minutes of shortened safe
 validity. The `worker_env.resolve` response carries that token only on the
-trusted RPC path.
+trusted RPC path. Its request carries the current signal binding name. The
+control plane uses that name to select the Lark application for this route. A
+sole Lark binding stays implicit, but an Agent with several Lark bindings gets
+no Lark credential variables when no binding matches the request.
 
 Agent Computer removes the raw token before it builds a shell or Codex thread
 environment. For each active main Turn, Background Agent Job attempt, or

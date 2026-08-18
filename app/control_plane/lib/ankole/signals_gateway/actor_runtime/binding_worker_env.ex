@@ -2,11 +2,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BindingWorkerEnv do
   @moduledoc """
   Resolves provider-derived shell variables from an Agent's signal bindings.
 
-  Available bindings owned by active adapters are runtime contracts. If an
-  active adapter cannot resolve its environment, resolution fails instead of
-  exposing a skill with missing identity. Residual bindings from disabled
-  plugins are ignored. Conflicting variables remain a hard error because
-  choosing one provider by iteration order would make identity unstable.
+  Available bindings owned by active adapters are runtime contracts. A route
+  binding selects its adapter identity. A disabled or unavailable route closes
+  its adapter instead of selecting a different identity. An adapter with one
+  available binding remains implicit for executions with no known Signal route.
+  Residual bindings from disabled plugins are ignored.
   """
 
   alias Ankole.SignalsGateway.Adapters
@@ -19,10 +19,49 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BindingWorkerEnv do
   def resolve(agent_uid, opts \\ []) when is_binary(agent_uid) do
     adapter_server = Keyword.get(opts, :adapter_server)
 
-    with {:ok, bindings} <- Bindings.list_available_agent_bindings(agent_uid, opts) do
+    with {:ok, bindings} <- Bindings.list_agent_bindings(agent_uid, opts) do
       bindings
+      |> select_bindings(Keyword.get(opts, :binding_name))
       |> Enum.reduce_while({:ok, %{}}, &merge_binding(&1, &2, adapter_server))
     end
+  end
+
+  defp select_bindings(bindings, binding_name) do
+    case Enum.find(bindings, &(&1.name == binding_name)) do
+      %Binding{} = selected ->
+        bindings
+        |> Enum.filter(&available?/1)
+        |> Enum.group_by(& &1.adapter)
+        |> Enum.flat_map(fn
+          {adapter, _adapter_bindings} when adapter == selected.adapter ->
+            if available?(selected), do: [selected], else: []
+
+          {_adapter, [binding]} ->
+            [binding]
+
+          {_adapter, _ambiguous} ->
+            []
+        end)
+        |> Enum.sort_by(&{&1.adapter, &1.name})
+
+      nil ->
+        bindings
+        |> Enum.filter(&available?/1)
+        |> select_implicit_bindings()
+    end
+  end
+
+  defp available?(%Binding{enabled: true, unavailable_reason: nil}), do: true
+  defp available?(%Binding{}), do: false
+
+  defp select_implicit_bindings(bindings) do
+    bindings
+    |> Enum.group_by(& &1.adapter)
+    |> Enum.flat_map(fn
+      {_adapter, [binding]} -> [binding]
+      {_adapter, _ambiguous} -> []
+    end)
+    |> Enum.sort_by(&{&1.adapter, &1.name})
   end
 
   defp merge_binding(%Binding{} = binding, {:ok, acc}, adapter_server) do

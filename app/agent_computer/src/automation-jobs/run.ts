@@ -48,12 +48,13 @@ export async function runAutomationJob(
     return failedResult(errorMessage(error))
   }
 
-  const resolvedWorkerEnv = await resolveAgentWorkerEnvParts(request.agentUid, opts.rpc)
+  const resolvedWorkerEnv = await resolveAgentWorkerEnvParts(request.agentUid, opts.rpc, request.bindingName)
   const larkCredential = materializeLarkCredential({
     agentUID: request.agentUid,
     agentHome: execution.agentHome,
     rpc: opts.rpc,
-    workerEnv: resolvedWorkerEnv
+    workerEnv: resolvedWorkerEnv,
+    bindingName: request.bindingName
   })
   const workerEnv = larkCredential.workerEnv.vars
   const contextPath = join(WORKER_SHARE_ROOT, `ankole-aj-context-${randomUUID()}.json`)

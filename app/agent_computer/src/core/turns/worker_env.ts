@@ -6,8 +6,12 @@ export type ResolvedAgentWorkerEnv = {
   bindingVars: Record<string, string>
 }
 
-export async function resolveAgentWorkerEnvParts(agentUID: string, rpc: RPCRequester): Promise<ResolvedAgentWorkerEnv> {
-  const response = await rpc(rpcMethods.workerEnvResolve, {}, { agentUid: agentUID })
+export async function resolveAgentWorkerEnvParts(
+  agentUID: string,
+  rpc: RPCRequester,
+  bindingName?: string
+): Promise<ResolvedAgentWorkerEnv> {
+  const response = await rpc(rpcMethods.workerEnvResolve, { bindingName: bindingName ?? '' }, { agentUid: agentUID })
   return {
     vars: stringMap(response.vars),
     operatorVars: stringMap(response.operatorVars),

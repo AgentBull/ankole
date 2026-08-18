@@ -17,13 +17,15 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnvBroker do
   """
   @spec handle_request(String.t() | nil, FabricProto.WorkerEnvResolveRequest.t(), map()) ::
           {:ok, FabricProto.WorkerEnvResolveResponse.t()} | {:error, map()}
-  def handle_request(agent_uid, %FabricProto.WorkerEnvResolveRequest{}, ctx) do
+  def handle_request(agent_uid, %FabricProto.WorkerEnvResolveRequest{} = request, ctx) do
     result =
       with {:ok, agent_uid} <- frame_agent_uid(agent_uid),
            {:ok, %{principal: principal}} <- Principals.get_agent(agent_uid),
            :active <- principal.status,
            {:ok, %{operator: operator, binding: binding}} <-
-             WorkerEnv.effective_env_parts(principal.uid) do
+             WorkerEnv.effective_env_parts(principal.uid,
+               binding_name: optional_text(request.binding_name)
+             ) do
         {:ok,
          %FabricProto.WorkerEnvResolveResponse{
            vars: Map.merge(operator, binding),
@@ -41,6 +43,15 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnvBroker do
 
   defp frame_agent_uid(nil), do: {:error, :missing_agent_uid}
   defp frame_agent_uid(agent_uid), do: Principals.normalize_uid(agent_uid)
+
+  defp optional_text(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      text -> text
+    end
+  end
+
+  defp optional_text(_value), do: nil
 
   defp error_payload(request_id, agent_uid, reason) do
     RPCWire.error_payload(request_id, reason,

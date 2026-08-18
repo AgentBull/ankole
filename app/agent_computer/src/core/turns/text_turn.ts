@@ -106,14 +106,15 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
         'rendered fetch runtime config'
       )
       const currentWorkerEnv = await turnActivity.runStep(
-        resolveAgentWorkerEnvParts(turnStart.turn.actor.agent_uid, opts.rpc),
+        resolveAgentWorkerEnvParts(turnStart.turn.actor.agent_uid, opts.rpc, turnStart.actor_event.binding_name),
         'worker env'
       )
       larkCredential = materializeLarkCredential({
         agentUID: turnStart.turn.actor.agent_uid,
         agentHome: opts.agentHome,
         rpc: opts.rpc,
-        workerEnv: currentWorkerEnv
+        workerEnv: currentWorkerEnv,
+        bindingName: turnStart.actor_event.binding_name
       })
       const workerEnv = larkCredential.workerEnv.vars
       const runtimeEnv = { ...opts.runtimeEnv, ...larkCredential.runtimeEnv }

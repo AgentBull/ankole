@@ -120,10 +120,16 @@ console.log(JSON.stringify({
 `)
     root = fixture.root
 
-    const result = await runAutomationJob(request(fixture.directory, {}), {
-      config: fixture.config,
-      rpc: rpcStub([], { larkToken: 'tenant-token' })
-    })
+    const result = await runAutomationJob(
+      create(AutomationJobRunRequestSchema, {
+        ...request(fixture.directory, {}),
+        bindingName: 'lark-secondary'
+      }),
+      {
+        config: fixture.config,
+        rpc: rpcStub([], { larkToken: 'tenant-token', bindingName: 'lark-secondary' })
+      }
+    )
 
     expect(result.status).toBe('succeeded')
     const output = JSON.parse(result.stdout)
@@ -238,9 +244,10 @@ function request(directoryPath: string, data: Record<string, unknown>) {
   })
 }
 
-function rpcStub(emitted: unknown[], opts: { larkToken?: string } = {}): RPCRequester {
+function rpcStub(emitted: unknown[], opts: { larkToken?: string; bindingName?: string } = {}): RPCRequester {
   const requester = async (method: string, payload: unknown) => {
     if (method === rpcMethods.workerEnvResolve) {
+      expect(payload).toMatchObject({ bindingName: opts.bindingName ?? '' })
       const operatorVars = { AUTOMATION_TEST_VALUE: 'available' }
       const bindingVars = opts.larkToken
         ? {

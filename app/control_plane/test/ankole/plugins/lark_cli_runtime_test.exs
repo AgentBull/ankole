@@ -72,25 +72,178 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
     :ok
   end
 
-  test "Lark binding credentials are scoped by agent and one app cannot back two agents" do
+  test "one Agent can bind several Lark apps and each app has one enabled binding" do
     %{principal: first_agent} = agent_fixture()
     %{principal: second_agent} = agent_fixture()
-    config = lark_config("cli_shared")
+    first_config = lark_config("cli_first")
+    second_config = lark_config("cli_second")
 
-    assert {:ok, %{binding: binding, config_key: config_key}} =
-             Bindings.put_binding(first_agent.uid, "lark", "lark-main", binding_attrs(config))
+    assert {:ok, %{binding: first_binding, config_key: first_config_key}} =
+             Bindings.put_binding(
+               first_agent.uid,
+               "lark",
+               "lark-main",
+               binding_attrs(first_config)
+             )
 
-    assert config_key == Config.chat_config_key(first_agent.uid)
-    assert binding.config_ref == "app-config://#{config_key}"
-    assert {:ok, %{"appID" => "cli_shared"}} = Config.load_chat_config_ref(binding.config_ref)
+    assert first_config_key == Config.binding_config_key(first_agent.uid, "lark-main")
+    assert first_binding.config_ref == "app-config://#{first_config_key}"
 
-    assert {:error, :lark_binding_already_exists} =
-             Bindings.put_binding(first_agent.uid, "lark", "lark-other", binding_attrs(config))
+    assert {:ok, %{binding: second_binding, config_key: second_config_key}} =
+             Bindings.put_binding(
+               first_agent.uid,
+               "lark",
+               "lark-other",
+               binding_attrs(second_config)
+             )
 
-    assert {:error, {:lark_app_already_bound, "cli_shared", first_agent_uid}} =
-             Bindings.put_binding(second_agent.uid, "lark", "lark-main", binding_attrs(config))
+    assert second_config_key == Config.binding_config_key(first_agent.uid, "lark-other")
+    refute second_config_key == first_config_key
+    assert second_binding.config_ref == "app-config://#{second_config_key}"
+
+    assert {:ok, %{"appID" => "cli_first"}} =
+             Config.load_chat_config_ref(first_binding.config_ref)
+
+    assert {:ok, %{"appID" => "cli_second"}} =
+             Config.load_chat_config_ref(second_binding.config_ref)
+
+    assert {:error,
+            {:lark_app_already_bound, "feishu", "cli_first", first_agent_uid, "lark-main"}} =
+             Bindings.put_binding(
+               first_agent.uid,
+               "lark",
+               "lark-duplicate",
+               binding_attrs(first_config)
+             )
 
     assert first_agent_uid == first_agent.uid
+
+    assert {:error,
+            {:lark_app_already_bound, "feishu", "cli_first", first_agent_uid, "lark-main"}} =
+             Bindings.put_binding(
+               second_agent.uid,
+               "lark",
+               "lark-main",
+               binding_attrs(first_config)
+             )
+
+    assert first_agent_uid == first_agent.uid
+
+    assert {:ok, _disabled} = Bindings.disable_binding(first_agent.uid, "lark-main")
+
+    assert {:ok, %{binding: %Binding{agent_uid: second_agent_uid}}} =
+             Bindings.put_binding(
+               second_agent.uid,
+               "lark",
+               "lark-main",
+               binding_attrs(first_config)
+             )
+
+    assert second_agent_uid == second_agent.uid
+  end
+
+  test "the same app ID can identify separate Feishu and Lark applications" do
+    %{principal: agent} = agent_fixture()
+    feishu_config = lark_config("cli_shared_domain_id")
+    lark_config = Map.put(feishu_config, "domain", "lark")
+
+    assert {:ok, %{binding: %Binding{name: "feishu-main"}}} =
+             Bindings.put_binding(
+               agent.uid,
+               "lark",
+               "feishu-main",
+               binding_attrs(feishu_config)
+             )
+
+    assert {:ok, %{binding: %Binding{name: "lark-main"}}} =
+             Bindings.put_binding(
+               agent.uid,
+               "lark",
+               "lark-main",
+               binding_attrs(lark_config)
+             )
+  end
+
+  test "saving a legacy binding preserves its config and assigns a binding-owned key" do
+    %{principal: agent} = agent_fixture()
+    legacy_config = lark_config("cli_legacy")
+    legacy_config_key = Config.chat_config_key(agent.uid)
+    binding_config_key = Config.binding_config_key(agent.uid, "lark-main")
+
+    assert {:ok, _stored} = AppConfigure.put_global_by_key(legacy_config_key, legacy_config)
+
+    assert {:ok, %Binding{}} =
+             SignalsGateway.upsert_binding(%{
+               agent_uid: agent.uid,
+               name: "lark-main",
+               adapter: "lark",
+               config_ref: "app-config://#{legacy_config_key}",
+               filters: %{},
+               unaddressed_group_message_policy: :ignore,
+               enabled: true
+             })
+
+    assert {:ok, %{binding: %Binding{} = binding, config_key: ^binding_config_key}} =
+             Bindings.update_binding(agent.uid, agent.uid, "lark-main", %{
+               "config" => %{"userName" => "Renamed Lark Bot"},
+               "group_message_mode" => "addressed_only"
+             })
+
+    assert binding.config_ref == "app-config://#{binding_config_key}"
+
+    assert {:ok, stored_config} = Config.load_chat_config_ref(binding.config_ref)
+    assert stored_config["appID"] == legacy_config["appID"]
+    assert stored_config["appSecret"] == legacy_config["appSecret"]
+    assert stored_config["userName"] == "Renamed Lark Bot"
+  end
+
+  test "a binding-owned key cannot overlap a legacy Agent-owned key" do
+    %{principal: target_agent} = agent_fixture()
+    binding_config_key = Config.binding_config_key(target_agent.uid, "lark-main")
+
+    digest =
+      [target_agent.uid, "lark-main"]
+      |> Ankole.JSON.encode!()
+      |> then(&:crypto.hash(:sha256, &1))
+      |> Base.encode16(case: :lower)
+
+    legacy_agent_uid = "binding:#{digest}"
+    insert_legacy_agent!(legacy_agent_uid)
+    legacy_config_key = Config.chat_config_key(legacy_agent_uid)
+    legacy_config = lark_config("cli_legacy_collision")
+    target_config = lark_config("cli_target_collision")
+
+    assert legacy_config_key == "signals_gateway.lark.bindings.binding:#{digest}"
+    assert binding_config_key == "signals_gateway.lark.binding_configs.#{digest}"
+    refute binding_config_key == legacy_config_key
+    assert {:ok, _stored} = AppConfigure.put_global_by_key(legacy_config_key, legacy_config)
+
+    assert {:ok, %Binding{}} =
+             SignalsGateway.upsert_binding(%{
+               agent_uid: legacy_agent_uid,
+               name: "lark-main",
+               adapter: "lark",
+               config_ref: "app-config://#{legacy_config_key}",
+               filters: %{},
+               unaddressed_group_message_policy: :ignore,
+               enabled: true
+             })
+
+    assert {:ok, %{binding: target_binding, config_key: ^binding_config_key}} =
+             Bindings.put_binding(
+               target_agent.uid,
+               "lark",
+               "lark-main",
+               binding_attrs(target_config)
+             )
+
+    assert target_binding.config_ref == "app-config://#{binding_config_key}"
+
+    assert {:ok, %{"appID" => "cli_legacy_collision"}} =
+             Config.load_chat_config_ref("app-config://#{legacy_config_key}")
+
+    assert {:ok, %{"appID" => "cli_target_collision"}} =
+             Config.load_chat_config_ref(target_binding.config_ref)
   end
 
   test "Lark binding assignment holds the adapter lock across validation and persistence" do
@@ -127,7 +280,7 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
     %{principal: first_agent} = agent_fixture()
     %{principal: second_agent} = agent_fixture()
     shared_config = lark_config("cli_concurrent_shared")
-    first_config_key = Config.chat_config_key(first_agent.uid)
+    first_config_key = Config.binding_config_key(first_agent.uid, "lark-main")
     cache_pid = Process.whereis(AppConfigureCache)
     parent = self()
 
@@ -189,7 +342,10 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
 
     second_result = second_result || {:ok, Task.await(second_save, 1_000)}
 
-    assert {:ok, {:error, {:lark_app_already_bound, "cli_concurrent_shared", rejected_owner_uid}}} =
+    assert {:ok,
+            {:error,
+             {:lark_app_already_bound, "feishu", "cli_concurrent_shared", rejected_owner_uid,
+              "lark-main"}}} =
              second_result
 
     assert rejected_owner_uid == first_agent.uid
@@ -213,7 +369,7 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
                enabled: true
              })
 
-    assert {:error, {:lark_binding_config_unavailable, owner_uid, :missing}} =
+    assert {:error, {:lark_binding_config_unavailable, owner_uid, "lark-main", :missing}} =
              Bindings.put_binding(
                claimant.uid,
                "lark",
@@ -226,7 +382,7 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
     put_raw_global_config(owner_config_key, %{"type" => "cipher", "value" => "invalid"})
 
     assert {:error,
-            {:lark_binding_config_unavailable, owner_uid,
+            {:lark_binding_config_unavailable, owner_uid, "lark-main",
              {:storage_error, "global", ^owner_config_key, _decrypt_reason}}} =
              Bindings.put_binding(
                claimant.uid,
@@ -246,7 +402,7 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
     })
 
     assert {:error,
-            {:lark_binding_config_unavailable, owner_uid,
+            {:lark_binding_config_unavailable, owner_uid, "lark-main",
              {:storage_error, "global", ^owner_config_key, {:missing, "appSecret"}}}} =
              Bindings.put_binding(
                claimant.uid,
@@ -261,7 +417,7 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
 
   test "a rolled-back binding config write is never published to the AppConfigure cache" do
     %{principal: agent} = agent_fixture()
-    config_key = Config.chat_config_key(agent.uid)
+    config_key = Config.binding_config_key(agent.uid, "lark-main")
 
     assert {:error, :forced_rollback} =
              Repo.transact(fn repo ->
@@ -281,7 +437,7 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
 
   test "a cache refresh fault cannot turn a committed binding into failure or skip follow-up work" do
     %{principal: agent} = agent_fixture()
-    config_key = Config.chat_config_key(agent.uid)
+    config_key = Config.binding_config_key(agent.uid, "lark-main")
 
     assert :ok = AppConfigureCache.fail_next_load_for_test(:injected_binding_refresh_failure)
 
@@ -308,6 +464,125 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
         "source" => "signal_binding"
       }
     )
+  end
+
+  test "WorkerEnv selects Lark credentials from the current signal binding" do
+    %{principal: agent} = agent_fixture()
+    primary_config = lark_config("cli_primary")
+    secondary_config = lark_config("cli_secondary")
+    seed_tenant_token(primary_config, "primary-token")
+    seed_tenant_token(secondary_config, "secondary-token")
+
+    assert {:ok, _override} = AgentPlugins.set_agent_override(agent.uid, "lark", true)
+
+    assert {:ok, %{binding: %Binding{}}} =
+             Bindings.put_binding(
+               agent.uid,
+               "lark",
+               "lark-primary",
+               binding_attrs(primary_config)
+             )
+
+    assert {:ok, %{binding: %Binding{}}} =
+             Bindings.put_binding(
+               agent.uid,
+               "lark",
+               "lark-secondary",
+               binding_attrs(secondary_config)
+             )
+
+    assert {:ok, primary_env} =
+             WorkerEnv.effective_env(agent.uid, binding_name: "lark-primary")
+
+    assert primary_env["LARKSUITE_CLI_APP_ID"] == "cli_primary"
+    assert primary_env["LARKSUITE_CLI_TENANT_ACCESS_TOKEN"] == "primary-token"
+
+    assert {:ok, secondary_env} =
+             WorkerEnv.effective_env(agent.uid, binding_name: "lark-secondary")
+
+    assert secondary_env["LARKSUITE_CLI_APP_ID"] == "cli_secondary"
+    assert secondary_env["LARKSUITE_CLI_TENANT_ACCESS_TOKEN"] == "secondary-token"
+
+    for opts <- [[], [binding_name: "unrelated-route"]] do
+      assert {:ok, ambiguous_env} = WorkerEnv.effective_env(agent.uid, opts)
+      refute Map.has_key?(ambiguous_env, "LARKSUITE_CLI_APP_ID")
+      refute Map.has_key?(ambiguous_env, "LARKSUITE_CLI_TENANT_ACCESS_TOKEN")
+    end
+
+    assert {:ok, envelope} =
+             RPCLane.handle_request(
+               rpc_request(
+                 "lark-worker-env-secondary",
+                 "worker_env.resolve",
+                 %Ankole.RuntimeFabric.V1.WorkerEnvResolveRequest{
+                   binding_name: "lark-secondary"
+                 },
+                 agent_uid: agent.uid
+               ),
+               "trusted-worker-route"
+             )
+
+    rpc_vars =
+      rpc_response_payload!(envelope, Ankole.RuntimeFabric.V1.WorkerEnvResolveResponse).vars
+
+    assert rpc_vars["LARKSUITE_CLI_APP_ID"] == "cli_secondary"
+    assert rpc_vars["LARKSUITE_CLI_TENANT_ACCESS_TOKEN"] == "secondary-token"
+
+    assert {:ok, _disabled} = Bindings.disable_binding(agent.uid, "lark-primary")
+
+    assert {:ok, disabled_route_env} =
+             WorkerEnv.effective_env(agent.uid, binding_name: "lark-primary")
+
+    refute Map.has_key?(disabled_route_env, "LARKSUITE_CLI_APP_ID")
+    refute Map.has_key?(disabled_route_env, "LARKSUITE_CLI_TENANT_ACCESS_TOKEN")
+
+    assert {:ok, disabled_route_envelope} =
+             RPCLane.handle_request(
+               rpc_request(
+                 "lark-worker-env-disabled-route",
+                 "worker_env.resolve",
+                 %Ankole.RuntimeFabric.V1.WorkerEnvResolveRequest{
+                   binding_name: "lark-primary"
+                 },
+                 agent_uid: agent.uid
+               ),
+               "trusted-worker-route"
+             )
+
+    disabled_route_vars =
+      rpc_response_payload!(
+        disabled_route_envelope,
+        Ankole.RuntimeFabric.V1.WorkerEnvResolveResponse
+      ).vars
+
+    refute Map.has_key?(disabled_route_vars, "LARKSUITE_CLI_APP_ID")
+    refute Map.has_key?(disabled_route_vars, "LARKSUITE_CLI_TENANT_ACCESS_TOKEN")
+
+    assert {:ok, implicit_env} = WorkerEnv.effective_env(agent.uid)
+    assert implicit_env["LARKSUITE_CLI_APP_ID"] == "cli_secondary"
+    assert implicit_env["LARKSUITE_CLI_TENANT_ACCESS_TOKEN"] == "secondary-token"
+
+    assert {:ok, unknown_route_env} =
+             WorkerEnv.effective_env(agent.uid, binding_name: "control-plane-route")
+
+    assert unknown_route_env["LARKSUITE_CLI_APP_ID"] == "cli_secondary"
+    assert unknown_route_env["LARKSUITE_CLI_TENANT_ACCESS_TOKEN"] == "secondary-token"
+
+    disabled_primary = Repo.get_by!(Binding, agent_uid: agent.uid, name: "lark-primary")
+
+    assert {:ok, _unavailable} =
+             disabled_primary
+             |> Binding.changeset(%{
+               enabled: true,
+               unavailable_reason: "credentials revoked"
+             })
+             |> Repo.update()
+
+    assert {:ok, unavailable_route_env} =
+             WorkerEnv.effective_env(agent.uid, binding_name: "lark-primary")
+
+    refute Map.has_key?(unavailable_route_env, "LARKSUITE_CLI_APP_ID")
+    refute Map.has_key?(unavailable_route_env, "LARKSUITE_CLI_TENANT_ACCESS_TOKEN")
   end
 
   test "Lark Agent Plugin enablement gates the binding identity and tenant token" do
@@ -473,6 +748,34 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
     %AppConfig{}
     |> AppConfig.changeset(%{scope: "global", key: key, value: envelope})
     |> Repo.insert!()
+  end
+
+  defp insert_legacy_agent!(uid) do
+    SQL.query!(
+      Repo,
+      """
+      INSERT INTO principals (uid, type, status, inserted_at, updated_at)
+      VALUES ($1, 'agent', 'active', NOW(), NOW())
+      """,
+      [uid]
+    )
+
+    SQL.query!(Repo, "ALTER TABLE agents DROP CONSTRAINT agents_uid_agent_home_safe")
+
+    SQL.query!(
+      Repo,
+      """
+      INSERT INTO agents (uid, type, role, options, inserted_at, updated_at)
+      VALUES ($1, 'ai_colleague', 'Legacy Agent', '{}'::jsonb, NOW(), NOW())
+      """,
+      [uid]
+    )
+
+    SQL.query!(Repo, """
+    ALTER TABLE agents
+      ADD CONSTRAINT agents_uid_agent_home_safe
+      CHECK (uid ~ '^[a-z0-9][a-z0-9._-]{0,95}$') NOT VALID
+    """)
   end
 
   defp seed_tenant_token(config, token) do

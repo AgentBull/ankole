@@ -27,6 +27,7 @@ export function materializeLarkCredential(input: {
   agentHome: string
   rpc: RPCRequester
   workerEnv: ResolvedAgentWorkerEnv
+  bindingName?: string
   refreshIntervalMs?: number
 }): MaterializedLarkCredential {
   const workerEnv = withoutLarkTenantToken(input.workerEnv)
@@ -56,7 +57,7 @@ export function materializeLarkCredential(input: {
 
   const refresh = async (): Promise<void> => {
     try {
-      const current = await resolveAgentWorkerEnvParts(input.agentUID, input.rpc)
+      const current = await resolveAgentWorkerEnvParts(input.agentUID, input.rpc, input.bindingName)
       if (stopped) return
       const token = current.bindingVars[LARK_TENANT_TOKEN_ENV]
       if (token && larkBindingIdentity(current.bindingVars) === bindingIdentity) atomicWriteToken(path, token)

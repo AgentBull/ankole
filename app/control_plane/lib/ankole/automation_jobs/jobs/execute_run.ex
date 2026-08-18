@@ -106,7 +106,8 @@ defmodule Ankole.AutomationJobs.Jobs.ExecuteRun do
       label: job.label,
       event_json: Torque.encode!(run.event),
       timeout_ms: @run_timeout_ms,
-      skills: Enum.map(skills, &RPCWire.runtime_skill_summary/1)
+      skills: Enum.map(skills, &RPCWire.runtime_skill_summary/1),
+      binding_name: reply_route_text(job.reply_route, "binding_name")
     }
   end
 
@@ -140,6 +141,15 @@ defmodule Ankole.AutomationJobs.Jobs.ExecuteRun do
 
   defp blank_to_nil(""), do: nil
   defp blank_to_nil(value), do: value
+
+  defp reply_route_text(route, key) when is_map(route) do
+    case Map.get(route, key) do
+      value when is_binary(value) -> value
+      _value -> ""
+    end
+  end
+
+  defp reply_route_text(_route, _key), do: ""
 
   defp result_status(:ok), do: :ok
   defp result_status({:cancel, _reason}), do: :cancel

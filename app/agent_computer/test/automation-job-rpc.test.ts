@@ -28,6 +28,7 @@ describe('automation job worker RPC', () => {
       label: 'Test consumer',
       eventJson: new TextEncoder().encode('{}'),
       timeoutMs: 600_000,
+      bindingName: 'lark-secondary',
       skills: [
         create(RuntimeSkillSummarySchema, {
           skillName: 'bullx-financial-data',
@@ -52,6 +53,7 @@ describe('automation job worker RPC', () => {
             automationJobRunId: '1000',
             automationJobId: '1001',
             agentUid: 'agent-1',
+            bindingName: 'lark-secondary',
             skills: [expect.objectContaining({ skillName: 'bullx-financial-data' })]
           })
           return {

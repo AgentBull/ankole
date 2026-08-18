@@ -57,23 +57,24 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnv do
   that resolves to a non-string, non-nil value is a declaration bug and fails
   loudly instead of exporting garbage into shells.
   """
-  @spec effective_env(String.t()) :: {:ok, %{String.t() => String.t()}} | {:error, term()}
-  def effective_env(agent_uid) do
-    with {:ok, %{operator: operator, binding: binding}} <- effective_env_parts(agent_uid) do
+  @spec effective_env(String.t(), keyword()) ::
+          {:ok, %{String.t() => String.t()}} | {:error, term()}
+  def effective_env(agent_uid, opts \\ []) do
+    with {:ok, %{operator: operator, binding: binding}} <- effective_env_parts(agent_uid, opts) do
       {:ok, Map.merge(operator, binding)}
     end
   end
 
   @doc "Returns operator and binding variables without losing their ownership boundary."
-  @spec effective_env_parts(String.t()) ::
+  @spec effective_env_parts(String.t(), keyword()) ::
           {:ok, %{operator: %{String.t() => String.t()}, binding: %{String.t() => String.t()}}}
           | {:error, term()}
-  def effective_env_parts(agent_uid) do
+  def effective_env_parts(agent_uid, opts \\ []) do
     with {:ok, scope} <- agent_scope(agent_uid),
          {:ok, declared} <- declared_env(agent_uid),
          {:ok, global_custom} <- custom_env(@global_scope),
          {:ok, agent_custom} <- custom_env(scope),
-         {:ok, binding_derived} <- BindingWorkerEnv.resolve(agent_uid) do
+         {:ok, binding_derived} <- BindingWorkerEnv.resolve(agent_uid, opts) do
       {:ok,
        %{
          operator: declared |> Map.merge(global_custom) |> Map.merge(agent_custom),

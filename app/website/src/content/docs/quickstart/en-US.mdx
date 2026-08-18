@@ -1628,12 +1628,12 @@ export const channelTabs = [
           ]
         },
         {
-          title: 'Respect the Lark app ownership rules',
+          title: 'Use one Lark app for each enabled binding',
           bullets: [
-            'One Agent can have at most one enabled Lark binding.',
-            'One appID can be bound to only one Agent.'
+            'One Agent can enable several Lark bindings.',
+            'Each enabled binding must use a different domain and appID pair.'
           ],
-          body: ['Create a separate Lark or Feishu app for each additional Agent.']
+          body: ['Create a separate Lark or Feishu app for each binding. A disabled binding releases its app.']
         }
       ]
     }

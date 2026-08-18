@@ -44,16 +44,21 @@ describe('Lark execution credential', () => {
     const agentHome = fixtureAgentHome()
     let refreshToken = 'tenant-token-2'
     let requests = 0
-    const rpc = workerEnvRPC(() => {
-      requests += 1
-      return refreshToken
-    })
+    const rpc = workerEnvRPC(
+      () => {
+        requests += 1
+        return refreshToken
+      },
+      () => 'app-1',
+      'lark-secondary'
+    )
 
     const materialized = materializeLarkCredential({
       agentUID: 'agent-a',
       agentHome,
       rpc,
       workerEnv: workerEnv('tenant-token-1'),
+      bindingName: 'lark-secondary',
       refreshIntervalMs: 5
     })
     const path = materialized.runtimeEnv[LARK_TENANT_TOKEN_FILE_ENV]!
@@ -155,9 +160,14 @@ function workerEnv(token: string | undefined): ResolvedAgentWorkerEnv {
   }
 }
 
-function workerEnvRPC(token: () => string | undefined, appID: () => string = () => 'app-1'): RPCRequester {
-  return (async (method: unknown, _payload: unknown, frame: unknown) => {
+function workerEnvRPC(
+  token: () => string | undefined,
+  appID: () => string = () => 'app-1',
+  bindingName = ''
+): RPCRequester {
+  return (async (method: unknown, payload: unknown, frame: unknown) => {
     expect(method).toBe(rpcMethods.workerEnvResolve)
+    expect(payload).toMatchObject({ bindingName })
     expect((frame as { agentUid: string }).agentUid).toBe('agent-a')
     const current = token()
     const bindingVars: Record<string, string> = {}
