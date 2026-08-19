@@ -420,11 +420,62 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
     assert_receive {:api_call, "POST", "/v1.0/card/instances/createAndDeliver", body}
     assert body["outTrackId"] == "ankole:outbox:card-idem-1"
     assert body["cardTemplateId"] == "tpl-1"
+    refute Map.has_key?(get_in(body, ["cardData", "cardParamMap"]), "flowStatus")
 
     actions = body |> get_in(["cardData", "cardParamMap", "actions"]) |> Torque.decode!()
 
     assert [%{"value" => %{"interactionId" => "int-9", "sourceActorEventId" => "evt-9"}}] =
              actions
+
+    assert_receive {:api_call, "PUT", "/v1.0/card/streaming", stream_body}
+    assert stream_body["outTrackId"] == "ankole:outbox:card-idem-1"
+    assert stream_body["key"] == "answer"
+    assert stream_body["content"] == "Pick one"
+    assert stream_body["isFull"] == true
+    assert stream_body["isFinalize"] == true
+    assert stream_body["isError"] == false
+  end
+
+  test "a card operation retries a failed completion with the same provider keys" do
+    binding = setup_chat_binding(%{"cardTemplateId" => "tpl-1"})
+
+    entry =
+      outbox_entry(binding, %{
+        operation: :card,
+        idempotency_key: "card-idem-retry",
+        fallback_visible_text: "Pick one",
+        payload: %{"interactive_output" => %{"body" => "Pick one"}}
+      })
+
+    responder = fn conn ->
+      if conn.request_path == "/v1.0/card/streaming" do
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(
+          500,
+          Torque.encode!(%{"code" => "internal.error", "message" => "retry"})
+        )
+      else
+        ok_send_responder(conn)
+      end
+    end
+
+    stub_outbox_requests(self(), responder)
+
+    assert {:error, {:provider_error, %{reason: "internal.error"}}} = Outbox.send(entry)
+
+    assert_receive {:api_call, "POST", "/v1.0/card/instances/createAndDeliver", first_create}
+    assert_receive {:api_call, "PUT", "/v1.0/card/streaming", first_stream}
+
+    stub_outbox_requests(self(), &ok_send_responder/1)
+    assert {:ok, _result} = Outbox.send(entry)
+
+    assert_receive {:api_call, "POST", "/v1.0/card/instances/createAndDeliver", retry_create}
+    assert_receive {:api_call, "PUT", "/v1.0/card/streaming", retry_stream}
+
+    assert retry_create["outTrackId"] == first_create["outTrackId"]
+    assert retry_stream["outTrackId"] == first_stream["outTrackId"]
+    assert retry_stream["guid"] == first_stream["guid"]
   end
 
   test "a card operation without a template posts the fallback text instead" do

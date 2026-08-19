@@ -1,5 +1,9 @@
 # Changelog
 
+## Version 0.75.1 (2026-08-19)
+
+- Fix DingTalk AI cards to use the platform's native `isFinalize` and `isError` state transitions instead of the unsupported `flowStatus` template variable. A completed interactive card now finishes through the same native protocol. Operators who followed the earlier setup guide must remove `flowStatus` and `flowStatusVar`, bind the `answer` Markdown component in each active state layout, and republish the template.
+
 ## Version 0.75.0 (2026-08-19)
 
 - One Agent can now keep several Lark or Feishu signal bindings enabled, each with its own application. Each enabled binding still owns one distinct `domain` and `appID` pair across the instance, and disabling it releases that application.

@@ -9,13 +9,11 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
   `PUT /v1.0/card/streaming` (`isFull: true`, mandatory for Markdown variables),
   and commits card structure through `PUT /v1.0/card/instances`.
 
-  The state the card displays is the `flowStatus` variable its AI card container
-  reads. `isFinalize` and `isError` only close the stream, so Ankole owns
-  `flowStatus` on every instance write: `2` while a page still streams, `3` once
-  it seals, `5` when it seals as an error. Instance writes merge by key
-  (`cardUpdateOptions.updateCardDataByKey`), because a full `cardData`
-  replacement clears every variable the write omits — dropping `flowStatus`
-  leaves the container with no state to render and the card looks blank.
+  DingTalk owns the AI card state. A streaming update keeps the card in its
+  input state, `isFinalize: true` moves it to the completed state, and
+  `isError: true` moves it to the failed state. Instance writes merge by key
+  (`cardUpdateOptions.updateCardDataByKey`) so a structural repaint does not
+  clear template variables that it omits.
 
   One reply is a chain of cards. PostgreSQL owns the durable page ledger: each
   page's `outTrackId`, byte-exact source slice, and sealed flag. Sealed pages
@@ -269,16 +267,11 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
       unchanged? = unchanged_page?(prior, page.source, seal?)
       thought = thought_write(checkpoint, presentation, tail?, created?, final?)
 
-      card = %{
-        flow_status: flow_status(seal?, error?),
-        tail?: tail?,
-        page_index: page.index,
-        page_count: page_count
-      }
+      card = %{tail?: tail?, page_index: page.index, page_count: page_count}
 
-      # A page that seals must commit `flowStatus`, so a card the chain rolled
-      # past leaves the writing state instead of spinning forever. Sealing is a
-      # one-way transition, so an already-sealed page never writes again.
+      # A page that seals receives one structural repaint for its continuation
+      # label and cleared transient fields. The streaming update drives the
+      # native state transition. An already-sealed page never writes again.
       commit? = (tail? and (final? or repaint?)) or (seal? and not sealed_page?(prior))
 
       write =
@@ -388,12 +381,6 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
   defp sealed_page?(%{"sealed" => true}), do: true
   defp sealed_page?(_prior), do: false
 
-  # Values fixed by the card platform: 1 pending, 2 writing, 3 done, 4 doing,
-  # 5 failed. Ankole drives only the three a reply can be in.
-  defp flow_status(_seal?, true), do: "5"
-  defp flow_status(true, _error?), do: "3"
-  defp flow_status(false, _error?), do: "2"
-
   defp next_fence_state(open_before?, source) do
     Markdown.fence_open?(if(open_before?, do: "```\n", else: "") <> source)
   end
@@ -484,7 +471,6 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
 
   defp card_param_map(presentation, display_answer, card) do
     %{
-      "flowStatus" => card.flow_status,
       "state" => state_text(presentation, card),
       "answer" => display_answer,
       "thought" => text_or_empty(presentation["thought"]),

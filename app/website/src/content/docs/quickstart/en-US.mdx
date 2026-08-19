@@ -1703,7 +1703,6 @@ export const channelTabs = [
             'Open the DingTalk developer console → Card Platform → New template and choose the AI card category. Only this category has the AI card container, which draws the writing indicator and the finished and failed states. Add each variable below with exactly this name; a name that does not match leaves its area empty on every reply.'
           ],
           fields: [
-            { name: 'flowStatus', description: 'Text. The card state: 2 while writing, 3 when done, 5 when failed.' },
             { name: 'state', description: 'Text. One status line, such as the running tool label.' },
             { name: 'answer', description: 'Markdown (streaming). The reply body, rewritten in full on every frame.' },
             { name: 'thought', description: 'Markdown. The transient thinking draft, blanked when the reply ends.' },
@@ -1716,13 +1715,13 @@ export const channelTabs = [
           ]
         },
         {
-          title: 'Lay out the components and bind the card state',
+          title: 'Lay out the components for each card state',
           body: [
-            'Put the components in this order inside the AI card container: meta and state as small text at the top; plan as text; thought and activity each in a folded area; answer as the main Markdown block with its content variable type set to Markdown and streaming enabled — it is the only block Ankole updates at streaming speed; results and receipts as text; actions bound to the action area, passing each button value through unchanged.',
-            'Select the AI card container and bind its flow-status variable (flowStatusVar) to flowStatus. Keep the writing and failed states enabled.'
+            'Configure the input, completed, and failed layouts in the AI card component. Put a Markdown component bound to answer in each layout that must show the reply, and enable streaming in the input layout. Put meta and state at the top, plan in a text component, thought and activity in folded areas, and results and receipts in text components. Put an action area bound to actions in both the input and completed layouts when decision buttons must remain visible, and pass each button value through unchanged.',
+            'DingTalk selects the layout from its native AI card lifecycle. Ankole sends isFinalize to enter the completed state and isError to enter the failed state. Do not create or bind flowStatus or flowStatusVar.'
           ],
           caution:
-            'This binding is what makes the card display anything at all: the container reads flowStatus to choose which state to draw. A container whose status variable is unbound stays in its initial state forever and often renders an empty body.'
+            'A card state is blank when its layout has no Markdown component bound to answer. Publish the template again after each layout change.'
         },
         {
           title: 'Publish the template, enter the id, and verify',
@@ -1731,9 +1730,10 @@ export const channelTabs = [
             'To verify, send a message that produces several sentences: a card must appear and grow while the Agent writes, and when the reply ends the indicator stops and the thinking and activity areas are blanked. Then ask something that needs a decision — a button must appear, and pressing it continues the turn; a stale button that no longer answers a pending question is ignored. A long reply seals a card at about 2.5 KB and continues on a new one, each card is a new message in the conversation, and rich structures such as tables render as text. All of this is expected under the platform limits.'
           ],
           bullets: [
-            'The card is blank, or keeps a writing indicator after the reply ends: the container status variable is not bound to flowStatus. Bind it and publish again.',
+            'The card is blank: the current input, completed, or failed layout has no component bound to answer, or the changed template was not published.',
             'One area is always empty: that variable name does not match the table, or the component is not bound to it.',
             'The answer appears only at the end or not at all: the answer block is not a Markdown streaming block.',
+            'The writing indicator remains after the reply ends: check the control-plane logs and confirm that DingTalk accepted the streaming update with isFinalize or isError.',
             'Replies are plain Markdown messages: the template id is empty, the template is not published to this app, or DingTalk rejected the card content — check the control-plane logs for param.contentUnsafe or param.cardNotExist. When the card path fails permanently, the reply degrades to plain Markdown once and is still delivered.',
             'Buttons appear but pressing one does nothing: the action area does not pass each button value through unchanged.'
           ]

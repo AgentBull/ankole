@@ -6,7 +6,7 @@ defmodule DingTalkOpenAPI.Card do
   platform) as an instance keyed by a caller-generated `outTrackId`, which makes
   create/deliver idempotent and replay-safe. Streaming markdown updates go
   through `streaming_update/2` with `isFull: true` (the platform requires full
-  overwrite for markdown variables); the terminal large structure goes through
+  overwrite for markdown variables); structural data goes through
   `update_instance/2`.
 
   Each function takes the fully-shaped params map and posts/puts it verbatim, so
@@ -38,7 +38,7 @@ defmodule DingTalkOpenAPI.Card do
     DingTalkOpenAPI.post(client, @create_and_deliver_path, body: params)
   end
 
-  @doc "Full-overwrite update of a card instance's `cardData`. `params` carries `outTrackId` and `cardData`."
+  @doc "Update a card instance's `cardData`. `params` can include `cardUpdateOptions` to select merge-by-key behavior."
   @spec update_instance(Client.t(), map()) :: {:ok, map()} | {:error, Error.t()}
   def update_instance(%Client{} = client, params) when is_map(params) do
     DingTalkOpenAPI.put(client, @instances_path, body: params)

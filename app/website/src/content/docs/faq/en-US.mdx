@@ -477,7 +477,7 @@ export const channelTabs = [
         cause: 'DingTalk cards are template-hosted. Replies stay plain Markdown when cardTemplateId on the routing rule is empty, the template is not published to the app that owns the robot, or DingTalk rejected the card content.',
         resolution: [
           'Build the AI card template as shown in the advanced section of the DingTalk tab in Quick start, and paste its id into cardTemplateId on the routing rule.',
-          'When a card is blank or keeps its writing indicator after the reply ends, bind the card container status variable to flowStatus and publish the template again.',
+          'When a card is blank, make sure the current input, completed, or failed layout has a Markdown component bound to answer, and publish the template again. Do not create flowStatus or flowStatusVar.',
           'A reply that arrives once as a card and later as plain text is the intended fallback after a permanent rejection. The reply is still delivered; check the control-plane logs for param.contentUnsafe or param.cardNotExist.'
         ],
         links: [
