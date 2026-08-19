@@ -114,7 +114,7 @@ defmodule Ankole.E2E.ScheduleE2ETest do
     assert %Channel{} = channel = Repo.get(Channel, secondary_channel_id)
     assert {:ok, _deleted} = Repo.delete(channel)
 
-    fire_input = fire_cron_schedule!(ctx, schedule)
+    fire_input = fire_cron_schedule!(schedule)
 
     assert {:ok, message} =
              wait_for_completed_actor_event_message(
@@ -157,7 +157,7 @@ defmodule Ankole.E2E.ScheduleE2ETest do
       assert {:ok, _deleted} = Repo.delete(channel)
     end
 
-    fire_input = fire_cron_schedule!(ctx, schedule)
+    fire_input = fire_cron_schedule!(schedule)
 
     # Nobody can receive the answer, but the run still ends and every route says
     # why, instead of leaving the Turn stuck.
@@ -179,7 +179,7 @@ defmodule Ankole.E2E.ScheduleE2ETest do
     assert Enum.all?(rows, &(&1.status == :unsupported))
   end
 
-  defp fire_cron_schedule!(ctx, schedule) do
+  defp fire_cron_schedule!(schedule) do
     cron_event = cron_event_for_schedule!(schedule.id)
 
     assert {:ok, %{status: :fired, actor_event: fire_input}} =

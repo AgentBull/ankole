@@ -1,5 +1,9 @@
 # Changelog
 
+## Version 0.76.1 (2026-08-19)
+
+- No product behavior changes. Agent Computer integration no longer expects the retired standalone compaction endpoint, and Schedule end-to-end coverage no longer declares an unused context, so the current compaction and scheduling contracts run without false failures or warnings.
+
 ## Version 0.76.0 (2026-08-19)
 
 - Background Agent Jobs and conversations now run on OpenAI-compatible Responses endpoints that accept only plain function tools, such as DeepSeek. AIGateway sends the Codex custom tools to such an endpoint as function tools and restores the answers to their official shape, so the first request no longer fails with an unsupported-tool error.
