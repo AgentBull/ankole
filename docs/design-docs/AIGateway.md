@@ -162,6 +162,16 @@ endpoint kind and adds `web_search` to the turn's hosted tools, so Main Turns
 and Background Jobs project one consistent capability. The supported turn hosted-tool types are `image_generation` and
 `web_search`; every boundary rejects other types.
 
+An `openai_compatible` row also declares `supports_openai_tools`. It defaults
+to `false`: AIGateway treats the endpoint as a plain function-calling
+implementation, emulates custom tools on the Responses wire, and never sends
+it a Provider-native compaction request. An operator sets it to `true` only
+for an endpoint that faithfully implements the official OpenAI Responses tool
+surface, which passes custom tools through verbatim and lets compaction
+pass-through reach the endpoint. Official OpenAI kinds always answer `true`;
+every other kind answers `false` because it does not speak the Responses wire
+natively.
+
 Trusted Plugins can add providers through `ai_gateway.provider`. A Plugin
 cannot replace AIGateway storage, authorization, profiles, credential
 selection, or secret handling.
@@ -893,13 +903,16 @@ history to the same upstream. It is an instance decision, not a per-Agent
 capability: one Ankole instance serves one enterprise, and the binding it
 creates outlives the Agent that triggered it.
 
-Pass-through needs one structural precondition: an effective Responses wire,
-because no other protocol carries this item. AIGateway does not judge whether
-that upstream implements the item. It sends the request and reads the reply; an
-upstream that cannot answer falls back to the local summary below, and a stable
-unsupported result is cached. This decision is made per request, not frozen with
-the Job, so a Provider failover cannot leave it pointing at a Provider that
-never made it.
+Pass-through needs two structural preconditions: an effective Responses wire,
+because no other protocol carries this item, and a connection that declares
+official OpenAI tool support, which an `openai_compatible` row states with
+`supports_openai_tools`. A connection that declares neither falls back to the
+local summary without a request. Past those gates AIGateway does not judge
+whether the upstream implements the item. It sends the request and reads the
+reply; an upstream that cannot answer falls back to the local summary below,
+and a stable unsupported result is cached. This decision is made per request,
+not frozen with the Job, so a Provider failover cannot leave it pointing at a
+Provider that never made it.
 
 The pass-through request uses the standard streaming Responses preparation and
 stream owner, because some upstreams accept only streaming requests. A
@@ -1301,6 +1314,17 @@ required `input` string. It restores the provider function call as a
 `custom_tool_call` before the event enters the public Response contract. It
 also translates stored custom calls and outputs back to Chat messages during
 replay.
+
+The OpenAI Responses adapter applies the same emulation when the connection
+does not declare `supports_openai_tools`. The upstream space then carries only
+function tools: custom tool declarations, replayed custom calls and outputs,
+and a custom `tool_choice` all go out in the lowered function form, and a
+grammar definition survives as prose in the `input` description. The provider's
+function call comes back as a `custom_tool_call`, and its input arrives at
+`done` because a streamed JSON-escaped argument string cannot be unescaped
+incrementally. The caller keeps the official Responses contract on both
+directions; the marker that selects the emulation never reaches the upstream
+body.
 
 For Chat providers that return `reasoning_details`, the adapter concatenates
 the streamed detail objects in order and emits one Responses `reasoning` item.

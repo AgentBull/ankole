@@ -46,6 +46,11 @@ export function providerSettingPresentation(t: TFunction, key: string): { label:
         label: t('console.providers.service_tier'),
         description: t('console.providers.service_tier_hint')
       }
+    case 'supports_openai_tools':
+      return {
+        label: t('console.providers.supports_openai_tools'),
+        description: t('console.providers.supports_openai_tools_hint')
+      }
     case 'textVerbosity':
       return {
         label: t('console.providers.text_verbosity'),

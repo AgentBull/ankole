@@ -40,6 +40,9 @@ defmodule Ankole.AIGateway.UpstreamCompaction do
       not Providers.responses_endpoint?(runtime) ->
         {:fallback, :responses_compaction_not_applicable}
 
+      not Providers.supports_openai_tools?(runtime) ->
+        {:fallback, :upstream_compaction_unsupported_connection}
+
       true ->
         compact_responses(runtime, input, request, Keyword.get(opts, :subject_uid))
     end
@@ -168,7 +171,8 @@ defmodule Ankole.AIGateway.UpstreamCompaction do
   # A real compact request that ends in local compaction is the fact an operator
   # needs. Silent degradation looks the same as a working switch while every
   # compaction still pays the round trip. A disabled switch, a non-Responses
-  # wire, and a cached unsupported result send no request and stay silent.
+  # wire, a connection that does not declare official OpenAI tool support, and
+  # a cached unsupported result send no request and stay silent.
   defp log_degraded(binding, reason, cached?) do
     Logging.warning(
       "ai_gateway.upstream_compaction_degraded",

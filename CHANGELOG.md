@@ -1,5 +1,11 @@
 # Changelog
 
+## Version 0.76.0 (2026-08-19)
+
+- Background Agent Jobs and conversations now run on OpenAI-compatible Responses endpoints that accept only plain function tools, such as DeepSeek. AIGateway sends the Codex custom tools to such an endpoint as function tools and restores the answers to their official shape, so the first request no longer fails with an unsupported-tool error.
+- An OpenAI-compatible Provider connection gains one visible switch, "Supports official OpenAI tools", off by default. Existing OpenAI-compatible Responses connections move to the emulated function-tool wire on upgrade; turn the switch on for an endpoint that faithfully implements the official OpenAI Responses tool surface to keep verbatim custom tools and Provider-native compaction.
+- Provider-native compaction no longer sends probe requests to an OpenAI-compatible endpoint that does not declare official OpenAI tool support; those connections compact locally without the wasted round trip.
+
 ## Version 0.75.1 (2026-08-19)
 
 - Fix DingTalk AI cards to use the platform's native `isFinalize` and `isError` state transitions instead of the unsupported `flowStatus` template variable. A completed interactive card now finishes through the same native protocol. Operators who followed the earlier setup guide must remove `flowStatus` and `flowStatusVar`, bind the `answer` Markdown component in each active state layout, and republish the template.
