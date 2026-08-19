@@ -1,10 +1,13 @@
 use super::*;
+use std::collections::BTreeSet;
+
 #[derive(Debug, Default)]
 pub(super) struct OpenAIResponsesState {
     sequence: u64,
     terminal: bool,
     response: Option<Value>,
     saw_error: bool,
+    emulated_item_ids: BTreeSet<String>,
 }
 
 impl OpenAIResponsesState {
@@ -25,7 +28,16 @@ impl OpenAIResponsesState {
             })?
             .to_string();
 
-        self.ensure_sequence(&mut event);
+        // An emulated stream drops the upstream argument deltas, so the
+        // resolver renumbers what it forwards to keep the sequence contiguous.
+        if custom_tool_emulation_requested(context) {
+            if !self.lift_emulated_event(context, &mut event) {
+                return Ok(Vec::new());
+            }
+            event["sequence_number"] = json!(self.next_sequence());
+        } else {
+            self.ensure_sequence(&mut event);
+        }
 
         if let Some(response) = event.get("response").filter(|value| value.is_object()) {
             let normalized = complete_response_resource(context, response.clone());
@@ -42,6 +54,50 @@ impl OpenAIResponsesState {
         }
 
         Ok(vec![event])
+    }
+
+    /// Restores one upstream event into the official custom-tool space.
+    /// Returns `false` when the event must not reach the caller: argument
+    /// deltas stream a JSON-escaped string that cannot be unescaped
+    /// incrementally, so emulated calls deliver their input only at `done`,
+    /// exactly like the chat-completions resolver.
+    fn lift_emulated_event(&mut self, context: &ResponseContext, event: &mut Value) -> bool {
+        if let Some(item) = event.get_mut("item")
+            && let Some(item_id) = lift_custom_tool_item(context, item)
+        {
+            self.emulated_item_ids.insert(item_id);
+        }
+
+        if let Some(response) = event.get_mut("response") {
+            lift_custom_tool_response(context, response);
+        }
+
+        let item_id = event.get("item_id").and_then(Value::as_str);
+        let emulated_item = item_id.is_some_and(|id| self.emulated_item_ids.contains(id));
+        if !emulated_item {
+            return true;
+        }
+
+        match event.get("type").and_then(Value::as_str) {
+            Some("response.function_call_arguments.delta") => false,
+            Some("response.function_call_arguments.done") => {
+                let input = event
+                    .get("arguments")
+                    .and_then(Value::as_str)
+                    .map(custom_tool_input)
+                    .unwrap_or_default();
+                if let Some(map) = event.as_object_mut() {
+                    map.insert(
+                        "type".to_string(),
+                        json!("response.custom_tool_call_input.done"),
+                    );
+                    map.insert("input".to_string(), json!(input));
+                    map.remove("arguments");
+                }
+                true
+            }
+            _type => true,
+        }
     }
 
     fn finish(&mut self) -> Result<Vec<Value>, StreamError> {
@@ -96,6 +152,14 @@ impl OpenAIResponsesState {
 }
 
 impl APIProtocol for OpenAIResponsesState {
+    fn build_body(&self, context: &ResponseContext) -> Result<Map<String, Value>, StreamError> {
+        let mut body = context.resolved_provider_request_object();
+        if custom_tool_emulation_requested(context) {
+            lower_custom_tools(&mut body)?;
+        }
+        Ok(body)
+    }
+
     fn websocket_initial_messages(
         &self,
         context: &ResponseContext,
@@ -132,10 +196,14 @@ impl APIProtocol for OpenAIResponsesState {
             return Err(provider_body_error(status, body));
         }
         reject_provider_body_error(status, &body)?;
-        Ok(complete_response_resource(
+        let mut response = complete_response_resource(
             context,
             provider_object_body(status, body, "OpenAI Responses")?,
-        ))
+        );
+        if custom_tool_emulation_requested(context) {
+            lift_custom_tool_response(context, &mut response);
+        }
+        Ok(response)
     }
 
     fn classify_provider_rejection(

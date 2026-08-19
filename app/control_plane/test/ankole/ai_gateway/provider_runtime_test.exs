@@ -100,6 +100,12 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
       assert settings["upstream_transport"]["default"] == "sse"
     end
 
+    compatible_settings = Map.new(openai_compatible["settings"], &{&1["key"], &1})
+    assert compatible_settings["supports_openai_tools"]["type"] == "boolean"
+    assert compatible_settings["supports_openai_tools"]["scope"] == "connection"
+    assert compatible_settings["supports_openai_tools"]["default"] == false
+    refute compatible_settings["supports_openai_tools"]["advanced"]
+
     for provider <- [chatgpt_subscription, azure_openai, openai, openai_compatible] do
       service_tier = Map.new(provider["settings"], &{&1["key"], &1})["serviceTier"]
 

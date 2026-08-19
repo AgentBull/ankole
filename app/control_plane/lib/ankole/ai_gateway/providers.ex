@@ -405,6 +405,33 @@ defmodule Ankole.AIGateway.Providers do
   def responses_endpoint?(_runtime), do: false
 
   @doc """
+  Returns whether one provider connection implements the official OpenAI
+  Responses tool surface: custom tools and Provider-native compaction.
+
+  The official OpenAI kinds always do. An `openai_compatible` connection
+  declares it with the `supports_openai_tools` option and defaults to `false`,
+  which makes AIGateway emulate custom tools as function tools on that wire
+  and skip Provider-native compaction. Every other kind answers `false`
+  because it does not speak the Responses wire natively.
+  """
+  @spec supports_openai_tools?(String.t(), map()) :: boolean()
+  def supports_openai_tools?(provider_kind, _connection_options)
+      when provider_kind in ["openai", "azure_openai", "chatgpt_subscription"],
+      do: true
+
+  def supports_openai_tools?("openai_compatible", connection_options),
+    do: Map.get(connection_options, "supports_openai_tools") == true
+
+  def supports_openai_tools?(_provider_kind, _connection_options), do: false
+
+  @spec supports_openai_tools?(map()) :: boolean()
+  def supports_openai_tools?(%{"provider_kind" => provider_kind} = runtime) do
+    supports_openai_tools?(provider_kind, Map.get(runtime, "connection_options", %{}))
+  end
+
+  def supports_openai_tools?(_runtime), do: false
+
+  @doc """
   Builds a prepared embedding request for UniversalAIClient.
   """
   @spec build_embeddings_request(map(), map()) :: {:ok, map()} | {:error, term()}

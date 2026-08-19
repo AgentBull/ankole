@@ -1252,9 +1252,7 @@ fn chat_custom_tool_call(map: &Map<String, Value>) -> Result<Value, StreamError>
         None => flattened_namespace_tool_name("", &name),
     };
     let input = map.get("input").map(value_to_text).unwrap_or_default();
-    let arguments = serde_json::to_string(&json!({ "input": input })).map_err(|error| {
-        StreamError::new("custom_tool_encode_failed", "request", error.to_string())
-    })?;
+    let arguments = encode_custom_tool_arguments(&input)?;
 
     Ok(json!({
         "id": call_id,
@@ -1522,13 +1520,7 @@ pub(super) fn reject_duplicate_emulated_tool_names<'a>(
 }
 
 fn chat_custom_function_tool(tool: &Map<String, Value>) -> Value {
-    let format = tool.get("format").and_then(Value::as_object);
-    let input_description = format
-        .and_then(|format| format.get("definition"))
-        .and_then(Value::as_str)
-        .map(|definition| format!("Raw tool input. It must match this grammar:\n{definition}"))
-        .unwrap_or_else(|| "Raw tool input.".to_string());
-
+    let (description, parameters) = custom_tool_function_fields(tool);
     let name = tool
         .get("name")
         .and_then(Value::as_str)
@@ -1537,18 +1529,8 @@ fn chat_custom_function_tool(tool: &Map<String, Value>) -> Value {
 
     json!({
         "name": name,
-        "description": tool.get("description").cloned().unwrap_or(Value::Null),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "input": {
-                    "type": "string",
-                    "description": input_description
-                }
-            },
-            "required": ["input"],
-            "additionalProperties": false
-        },
+        "description": description,
+        "parameters": parameters,
         "strict": false
     })
 }
@@ -1618,7 +1600,7 @@ fn restore_custom_tool(context: &ResponseContext, item: &mut Value) {
     item.remove("arguments");
 }
 
-fn custom_tool_input(arguments: &str) -> String {
+pub(super) fn custom_tool_input(arguments: &str) -> String {
     serde_json::from_str::<Value>(arguments)
         .ok()
         .and_then(|value| {

@@ -164,10 +164,14 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert_receive {:gateway_request, request}
     assert request.body["tools"] == []
 
+    # The default connection does not declare official OpenAI tool support, so
+    # the replay survives in the emulated function space instead of verbatim.
     [provider_call, provider_output] = request.body["input"]
-    assert provider_call["type"] == "custom_tool_call"
+    assert provider_call["type"] == "function_call"
     assert provider_call["namespace"] == "functions"
     assert provider_call["name"] == "apply_patch"
+    assert provider_call["arguments"] == Ankole.JSON.encode!(%{"input" => "*** Begin Patch"})
+    assert provider_output["type"] == "function_call_output"
     assert provider_output["call_id"] == provider_call["call_id"]
   end
 
@@ -7977,6 +7981,238 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert checkpoint_text =~ "Summary of the work after the provider state"
   end
 
+  test "custom tools are emulated as function tools for a connection without official OpenAI tool support" do
+    %{principal: agent} = agent_fixture()
+    input_source = "console.log(1)"
+
+    base_url =
+      start_recording_upstream(self(), fn request ->
+        {:json, 200,
+         %{
+           "id" => "resp_emulated_custom",
+           "object" => "response",
+           "status" => "completed",
+           "model" => request.body["model"],
+           "usage" => %{},
+           "output" => [
+             %{
+               "type" => "function_call",
+               "id" => "fc_call_exec_next",
+               "call_id" => "call_exec_next",
+               "name" => "exec",
+               "status" => "completed",
+               "arguments" => Ankole.JSON.encode!(%{"input" => "pwd"})
+             }
+           ]
+         }}
+      end)
+
+    configure_openai_compatible_responses_provider!(
+      agent.uid,
+      base_url,
+      "compatible-emulated-custom"
+    )
+
+    assert {:ok, %{body: body}} =
+             AIGateway.create_response(agent.uid, %{
+               "model" => "primary",
+               "input" => [
+                 text_message("user", "Run the code."),
+                 %{
+                   "type" => "custom_tool_call",
+                   "call_id" => "call_exec_prev",
+                   "name" => "exec",
+                   "input" => input_source
+                 },
+                 %{
+                   "type" => "custom_tool_call_output",
+                   "call_id" => "call_exec_prev",
+                   "output" => "1"
+                 }
+               ],
+               "tools" => [
+                 %{
+                   "type" => "custom",
+                   "name" => "exec",
+                   "description" => "Run source code.",
+                   "format" => %{
+                     "type" => "grammar",
+                     "syntax" => "lark",
+                     "definition" => "start: SOURCE"
+                   }
+                 }
+               ]
+             })
+
+    assert_receive {:gateway_request, request}
+    refute Map.has_key?(request.body, "__ankole_emulate_custom_tools")
+
+    assert [tool] = request.body["tools"]
+    assert tool["type"] == "function"
+    assert tool["name"] == "exec"
+    assert tool["parameters"]["required"] == ["input"]
+
+    assert tool["parameters"]["properties"]["input"]["description"] ==
+             "Raw tool input. It must match this grammar:\nstart: SOURCE"
+
+    call_types = Enum.map(request.body["input"], & &1["type"])
+    assert "function_call" in call_types
+    assert "function_call_output" in call_types
+    refute "custom_tool_call" in call_types
+    refute "custom_tool_call_output" in call_types
+
+    lowered_call = Enum.find(request.body["input"], &(&1["type"] == "function_call"))
+    assert lowered_call["arguments"] == Ankole.JSON.encode!(%{"input" => input_source})
+
+    assert [restored_call] = body["output"]
+    assert restored_call["type"] == "custom_tool_call"
+    assert restored_call["call_id"] == "call_exec_next"
+    assert restored_call["input"] == "pwd"
+    refute Map.has_key?(restored_call, "arguments")
+  end
+
+  test "custom tools pass through for a connection that declares official OpenAI tool support" do
+    %{principal: agent} = agent_fixture()
+
+    base_url =
+      start_recording_upstream(self(), fn request ->
+        {:json, 200,
+         %{
+           "id" => "resp_official_custom",
+           "object" => "response",
+           "status" => "completed",
+           "model" => request.body["model"],
+           "usage" => %{},
+           "output" => [
+             %{
+               "type" => "message",
+               "id" => "msg_official",
+               "role" => "assistant",
+               "status" => "completed",
+               "content" => [%{"type" => "output_text", "text" => "Done.", "annotations" => []}]
+             }
+           ]
+         }}
+      end)
+
+    configure_openai_compatible_responses_provider!(
+      agent.uid,
+      base_url,
+      "compatible-official-custom",
+      %{"supports_openai_tools" => true}
+    )
+
+    assert {:ok, %{body: _body}} =
+             AIGateway.create_response(agent.uid, %{
+               "model" => "primary",
+               "input" => [
+                 %{
+                   "type" => "custom_tool_call",
+                   "call_id" => "call_exec_prev",
+                   "name" => "exec",
+                   "input" => "console.log(1)"
+                 },
+                 %{
+                   "type" => "custom_tool_call_output",
+                   "call_id" => "call_exec_prev",
+                   "output" => "1"
+                 }
+               ],
+               "tools" => [
+                 %{
+                   "type" => "custom",
+                   "name" => "exec",
+                   "description" => "Run source code.",
+                   "format" => %{
+                     "type" => "grammar",
+                     "syntax" => "lark",
+                     "definition" => "start: SOURCE"
+                   }
+                 }
+               ]
+             })
+
+    assert_receive {:gateway_request, request}
+    refute Map.has_key?(request.body, "__ankole_emulate_custom_tools")
+    assert [%{"type" => "custom"}] = request.body["tools"]
+
+    assert Enum.map(request.body["input"], & &1["type"]) == [
+             "custom_tool_call",
+             "custom_tool_call_output"
+           ]
+  end
+
+  test "provider compaction falls back locally for a connection without official OpenAI tool support" do
+    %{principal: agent} = agent_fixture()
+    prefer_provider_compaction!(agent.uid)
+
+    base_url =
+      start_recording_upstream(self(), fn request ->
+        refute compaction_trigger_request?(request)
+
+        {:sse, 200,
+         openai_response_stream_events(
+           "resp_local_summary",
+           request.body["model"],
+           "## Active Task\nSummarized locally."
+         )}
+      end)
+
+    configure_openai_compatible_responses_provider!(
+      agent.uid,
+      base_url,
+      "compatible-compact-gate-off"
+    )
+
+    assert {:ok, body} =
+             Compaction.compact_response(agent.uid, %{
+               "model" => "primary",
+               "input" => [text_message("user", "compact this history")],
+               "store" => false
+             })
+
+    assert_receive {:gateway_request, request}
+    refute compaction_trigger_request?(request)
+    assert Enum.any?(body["output"], &(&1["type"] == "compaction"))
+  end
+
+  test "provider compaction reaches a connection that declares official OpenAI tool support" do
+    %{principal: agent} = agent_fixture()
+    prefer_provider_compaction!(agent.uid)
+
+    native_output = [
+      %{"type" => "compaction", "encrypted_content" => "provider-opaque-state"}
+    ]
+
+    base_url =
+      start_recording_upstream(self(), fn request ->
+        assert compaction_trigger_request?(request)
+
+        {:sse, 200,
+         openai_compaction_stream_events("resp_native_compat", native_output, %{
+           "total_tokens" => 7
+         })}
+      end)
+
+    configure_openai_compatible_responses_provider!(
+      agent.uid,
+      base_url,
+      "compatible-compact-gate-on",
+      %{"supports_openai_tools" => true}
+    )
+
+    assert {:ok, body} =
+             Compaction.compact_response(agent.uid, %{
+               "model" => "primary",
+               "input" => [text_message("user", "compact this history")],
+               "store" => false
+             })
+
+    assert_receive {:gateway_request, request}
+    assert compaction_trigger_request?(request)
+    assert body["output"] == native_output
+  end
+
   defp start_recording_upstream(test_pid, response_fun) do
     start_upstream_server(fn request ->
       send(test_pid, {:gateway_request, request})
@@ -8238,7 +8474,12 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     :ok
   end
 
-  defp configure_openai_compatible_responses_provider!(agent_uid, base_url, provider_id) do
+  defp configure_openai_compatible_responses_provider!(
+         agent_uid,
+         base_url,
+         provider_id,
+         extra_connection \\ %{}
+       ) do
     assert {:ok, _provider} =
              ProviderConfigs.create_provider(%{
                provider_id: provider_id,
@@ -8247,10 +8488,14 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                credential_pool: %{
                  "entries" => [%{"label" => "Default", "api_key" => "sk-compatible"}]
                },
-               connection_options: %{
-                 "endpoint_kind" => "responses",
-                 "transport" => %{"http_versions" => ["h1"], "compression" => []}
-               }
+               connection_options:
+                 Map.merge(
+                   %{
+                     "endpoint_kind" => "responses",
+                     "transport" => %{"http_versions" => ["h1"], "compression" => []}
+                   },
+                   extra_connection
+                 )
              })
 
     assert {:ok, _profile} =

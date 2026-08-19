@@ -4079,3 +4079,309 @@ fn native_error_events_use_openresponses_error_then_failed() {
         r#"{"error":"upstream unavailable"}"#
     );
 }
+
+fn emulated_responses_context(mut request: Value) -> ResponseContext {
+    request
+        .as_object_mut()
+        .unwrap()
+        .insert("__ankole_emulate_custom_tools".to_string(), json!(true));
+
+    ResponseContext {
+        model: "deepseek-test".to_string(),
+        request,
+        provider_options: json!({}),
+        stream: Some(true),
+        include_model: true,
+    }
+}
+
+fn exec_custom_tool() -> Value {
+    json!({
+        "type": "custom",
+        "name": "exec",
+        "description": "Run source code.",
+        "format": {
+            "type": "grammar",
+            "syntax": "lark",
+            "definition": "start: SOURCE"
+        }
+    })
+}
+
+#[test]
+fn openai_responses_emulation_lowers_custom_tools_history_and_tool_choice() {
+    let resolver = APIResolver::new(
+        APIResolverKind::OpenAIResponses,
+        emulated_responses_context(json!({
+            "tools": [
+                exec_custom_tool(),
+                {
+                    "type": "function",
+                    "name": "lookup",
+                    "description": "Look something up.",
+                    "parameters": {"type": "object", "properties": {}}
+                },
+                {"type": "web_search"}
+            ],
+            "tool_choice": {"type": "custom", "name": "exec"},
+            "input": [
+                {
+                    "type": "custom_tool_call",
+                    "id": "fc_prev",
+                    "call_id": "call_prev",
+                    "name": "exec",
+                    "input": "console.log(1)"
+                },
+                {
+                    "type": "custom_tool_call_output",
+                    "call_id": "call_prev",
+                    "output": "1"
+                }
+            ]
+        })),
+    );
+
+    let body = Value::Object(resolver.build_body().unwrap());
+
+    assert_eq!(
+        body["tools"][0],
+        json!({
+            "type": "function",
+            "name": "exec",
+            "description": "Run source code.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "input": {
+                        "type": "string",
+                        "description": "Raw tool input. It must match this grammar:\nstart: SOURCE"
+                    }
+                },
+                "required": ["input"],
+                "additionalProperties": false
+            },
+            "strict": false
+        })
+    );
+    assert_eq!(body["tools"][1]["type"], "function");
+    assert_eq!(body["tools"][1]["name"], "lookup");
+    assert_eq!(body["tools"][2], json!({"type": "web_search"}));
+    assert_eq!(
+        body["tool_choice"],
+        json!({"type": "function", "name": "exec"})
+    );
+    assert_eq!(
+        body["input"][0],
+        json!({
+            "type": "function_call",
+            "id": "fc_prev",
+            "call_id": "call_prev",
+            "name": "exec",
+            "arguments": serde_json::to_string(&json!({"input": "console.log(1)"})).unwrap()
+        })
+    );
+    assert_eq!(body["input"][1]["type"], "function_call_output");
+    assert_eq!(body["input"][1]["output"], "1");
+    assert!(body.get("__ankole_emulate_custom_tools").is_none());
+}
+
+#[test]
+fn openai_responses_without_marker_passes_custom_tools_through() {
+    let resolver = APIResolver::new(
+        APIResolverKind::OpenAIResponses,
+        ResponseContext {
+            model: "gpt-test".to_string(),
+            request: json!({
+                "tools": [exec_custom_tool()],
+                "input": [{
+                    "type": "custom_tool_call",
+                    "call_id": "call_prev",
+                    "name": "exec",
+                    "input": "console.log(1)"
+                }]
+            }),
+            provider_options: json!({}),
+            stream: Some(true),
+            include_model: true,
+        },
+    );
+
+    let body = Value::Object(resolver.build_body().unwrap());
+
+    assert_eq!(body["tools"][0]["type"], "custom");
+    assert_eq!(body["input"][0]["type"], "custom_tool_call");
+}
+
+#[test]
+fn openai_responses_emulation_rejects_duplicate_tool_names() {
+    let resolver = APIResolver::new(
+        APIResolverKind::OpenAIResponses,
+        emulated_responses_context(json!({
+            "tools": [
+                exec_custom_tool(),
+                {
+                    "type": "function",
+                    "name": "exec",
+                    "description": "Conflicting function.",
+                    "parameters": {"type": "object", "properties": {}}
+                }
+            ]
+        })),
+    );
+
+    let error = resolver.build_body().unwrap_err();
+    assert_eq!(error.code, "tool_namespace_alias_collision");
+}
+
+#[test]
+fn openai_responses_emulation_restores_streamed_function_calls() {
+    let mut resolver = APIResolver::new(
+        APIResolverKind::OpenAIResponses,
+        emulated_responses_context(json!({
+            "tools": [
+                exec_custom_tool(),
+                {
+                    "type": "function",
+                    "name": "lookup",
+                    "description": "Look something up.",
+                    "parameters": {"type": "object", "properties": {}}
+                }
+            ]
+        })),
+    );
+
+    let events = resolver
+        .ingest(json!({
+            "type": "response.output_item.added",
+            "sequence_number": 7,
+            "output_index": 0,
+            "item": {
+                "type": "function_call",
+                "id": "fc_1",
+                "call_id": "call_1",
+                "name": "exec",
+                "arguments": "",
+                "status": "in_progress"
+            }
+        }))
+        .unwrap();
+    assert_eq!(events[0]["item"]["type"], "custom_tool_call");
+    assert_eq!(events[0]["item"]["input"], "");
+    assert!(events[0]["item"].get("arguments").is_none());
+    assert_eq!(events[0]["sequence_number"], 0);
+
+    let suppressed = resolver
+        .ingest(json!({
+            "type": "response.function_call_arguments.delta",
+            "item_id": "fc_1",
+            "output_index": 0,
+            "delta": "{\"input\":\"con"
+        }))
+        .unwrap();
+    assert!(suppressed.is_empty());
+
+    let events = resolver
+        .ingest(json!({
+            "type": "response.function_call_arguments.done",
+            "item_id": "fc_1",
+            "output_index": 0,
+            "arguments": serde_json::to_string(&json!({"input": "console.log(1)"})).unwrap()
+        }))
+        .unwrap();
+    assert_eq!(events[0]["type"], "response.custom_tool_call_input.done");
+    assert_eq!(events[0]["input"], "console.log(1)");
+    assert!(events[0].get("arguments").is_none());
+    assert_eq!(events[0]["sequence_number"], 1);
+
+    // A plain function tool keeps its official streaming shape.
+    let events = resolver
+        .ingest(json!({
+            "type": "response.output_item.added",
+            "output_index": 1,
+            "item": {
+                "type": "function_call",
+                "id": "fc_2",
+                "call_id": "call_2",
+                "name": "lookup",
+                "arguments": "",
+                "status": "in_progress"
+            }
+        }))
+        .unwrap();
+    assert_eq!(events[0]["item"]["type"], "function_call");
+
+    let events = resolver
+        .ingest(json!({
+            "type": "response.function_call_arguments.delta",
+            "item_id": "fc_2",
+            "output_index": 1,
+            "delta": "{}"
+        }))
+        .unwrap();
+    assert_eq!(events[0]["type"], "response.function_call_arguments.delta");
+
+    let events = resolver
+        .ingest(json!({
+            "type": "response.completed",
+            "response": {
+                "id": "resp_1",
+                "status": "completed",
+                "output": [
+                    {
+                        "type": "function_call",
+                        "id": "fc_1",
+                        "call_id": "call_1",
+                        "name": "exec",
+                        "arguments": serde_json::to_string(&json!({"input": "console.log(1)"}))
+                            .unwrap(),
+                        "status": "completed"
+                    },
+                    {
+                        "type": "function_call",
+                        "id": "fc_2",
+                        "call_id": "call_2",
+                        "name": "lookup",
+                        "arguments": "{}",
+                        "status": "completed"
+                    }
+                ]
+            }
+        }))
+        .unwrap();
+    let output = events[0]["response"]["output"].as_array().unwrap();
+    assert_eq!(output[0]["type"], "custom_tool_call");
+    assert_eq!(output[0]["call_id"], "call_1");
+    assert_eq!(output[0]["input"], "console.log(1)");
+    assert!(output[0].get("arguments").is_none());
+    assert_eq!(output[1]["type"], "function_call");
+    assert!(resolver.is_terminal());
+}
+
+#[test]
+fn openai_responses_emulation_restores_non_streaming_body() {
+    let mut resolver = APIResolver::new(
+        APIResolverKind::OpenAIResponses,
+        emulated_responses_context(json!({"tools": [exec_custom_tool()]})),
+    );
+
+    let response = resolver
+        .normalize_body(
+            200,
+            json!({
+                "id": "resp_1",
+                "status": "completed",
+                "output": [{
+                    "type": "function_call",
+                    "id": "fc_1",
+                    "call_id": "call_1",
+                    "name": "exec",
+                    "arguments": serde_json::to_string(&json!({"input": "pwd"})).unwrap(),
+                    "status": "completed"
+                }]
+            }),
+        )
+        .unwrap();
+
+    assert_eq!(response["output"][0]["type"], "custom_tool_call");
+    assert_eq!(response["output"][0]["input"], "pwd");
+}
