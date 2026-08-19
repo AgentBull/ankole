@@ -18,7 +18,9 @@ defmodule Ankole.AIGateway.CodexModels do
   """
 
   alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.CodexModelToolConfig
   alias Ankole.AIGateway.Models
+  alias Ankole.AIGateway.ProviderConfigs
 
   @tool_output_limit_tokens 10_000
 
@@ -49,26 +51,30 @@ defmodule Ankole.AIGateway.CodexModels do
     {:ok, %{"data" => entries}} = Models.list_models(subject_uid, subject_type)
 
     fallback_ref = vision_fallback_ref(subject_uid, subject_type)
+    providers_by_id = Map.new(ProviderConfigs.list_active_providers(), &{&1.provider_id, &1})
 
     candidates =
-      entry_model_candidates(entries, fallback_ref) ++
-        runtime_model_candidates(subject_uid, subject_type)
+      entry_model_candidates(entries, fallback_ref, providers_by_id) ++
+        runtime_model_candidates(subject_uid, subject_type, providers_by_id)
 
     {:ok,
      %{
        "models" =>
          candidates
-         |> intersect_duplicate_modalities()
-         |> Enum.map(fn {slug, modalities} -> card(slug, modalities) end)
+         |> merge_duplicate_candidates()
+         |> Enum.map(fn {slug, modalities, tool_config} ->
+           card(slug, modalities, tool_config)
+         end)
      }}
   end
 
   @doc """
   Builds one full model card for a selector slug.
   """
-  @spec card(String.t(), [String.t()]) :: map()
-  def card(slug, input_modalities) when is_binary(slug) and is_list(input_modalities) do
-    %{
+  @spec card(String.t(), [String.t()], map()) :: map()
+  def card(slug, input_modalities, model_tool_config \\ %{})
+      when is_binary(slug) and is_list(input_modalities) do
+    card = %{
       "slug" => slug,
       "display_name" => slug,
       "description" => nil,
@@ -105,14 +111,20 @@ defmodule Ankole.AIGateway.CodexModels do
       "supports_search_tool" => true,
       "use_responses_lite" => false
     }
+
+    Map.merge(card, CodexModelToolConfig.safe_config(model_tool_config))
   end
 
-  defp entry_model_candidates(entries, fallback_ref) do
+  defp entry_model_candidates(entries, fallback_ref, providers_by_id) do
     Enum.flat_map(entries, fn entry ->
       case Map.get(entry, "id") do
         slug when is_binary(slug) and slug != "" ->
           direct = get_in(entry, ["architecture", "input_modalities"]) || ["text"]
-          [{slug, effective_input_modalities(direct, fallback_ref)}]
+
+          [
+            {slug, effective_input_modalities(direct, fallback_ref),
+             selector_tool_config(Map.get(entry, "canonical_slug", slug), providers_by_id)}
+          ]
 
         _slug ->
           []
@@ -120,7 +132,7 @@ defmodule Ankole.AIGateway.CodexModels do
     end)
   end
 
-  defp runtime_model_candidates(agent_uid, "agent") do
+  defp runtime_model_candidates(agent_uid, "agent", providers_by_id) do
     case ModelProfiles.get_model_profiles(agent_uid) do
       {:ok, profiles} ->
         Enum.flat_map(profiles, fn {profile, attrs} ->
@@ -131,7 +143,8 @@ defmodule Ankole.AIGateway.CodexModels do
                provider_kind when is_binary(provider_kind) <- model_ref["provider_kind"] do
             [
               {codex_model_slug(provider_kind, model),
-               ModelProfiles.effective_input_modalities(model_ref)}
+               ModelProfiles.effective_input_modalities(model_ref),
+               model_ref_tool_config(model_ref, providers_by_id)}
             ]
           else
             _reason -> []
@@ -143,7 +156,7 @@ defmodule Ankole.AIGateway.CodexModels do
     end
   end
 
-  defp runtime_model_candidates(_subject_uid, _subject_type), do: []
+  defp runtime_model_candidates(_subject_uid, _subject_type, _providers_by_id), do: []
 
   defp vision_fallback_ref(agent_uid, "agent") do
     case ModelProfiles.resolve_runtime_model_ref(agent_uid, "vision_fallback") do
@@ -170,23 +183,70 @@ defmodule Ankole.AIGateway.CodexModels do
   defp maybe_put_fallback(model_ref, fallback_ref),
     do: Map.put(model_ref, "vision_fallback_model_ref", fallback_ref)
 
-  defp intersect_duplicate_modalities(candidates) do
-    {order, modalities_by_slug} =
-      Enum.reduce(candidates, {[], %{}}, fn {slug, modalities}, {order, by_slug} ->
-        modalities = MapSet.new(codex_input_modalities(modalities))
+  defp merge_duplicate_candidates(candidates) do
+    candidates
+    |> Enum.map(&elem(&1, 0))
+    |> Enum.uniq()
+    |> Enum.map(fn slug ->
+      duplicates = Enum.filter(candidates, &(elem(&1, 0) == slug))
 
-        case Map.fetch(by_slug, slug) do
-          {:ok, current} ->
-            {order, Map.put(by_slug, slug, MapSet.intersection(current, modalities))}
+      modalities =
+        duplicates
+        |> Enum.map(fn {_slug, modalities, _tool_config} ->
+          MapSet.new(codex_input_modalities(modalities))
+        end)
+        |> Enum.reduce(&MapSet.intersection/2)
+        |> MapSet.to_list()
 
-          :error ->
-            {order ++ [slug], Map.put(by_slug, slug, modalities)}
-        end
-      end)
-
-    Enum.map(order, fn slug ->
-      {slug, Map.fetch!(modalities_by_slug, slug) |> MapSet.to_list()}
+      {slug, modalities, common_tool_config(duplicates)}
     end)
+  end
+
+  defp common_tool_config(candidates) do
+    candidates
+    |> Enum.flat_map(fn {_slug, _modalities, tool_config} -> Map.keys(tool_config) end)
+    |> Enum.uniq()
+    |> Enum.reduce(%{}, fn field, common ->
+      values =
+        candidates
+        |> Enum.flat_map(fn {_slug, _modalities, tool_config} ->
+          if Map.has_key?(tool_config, field), do: [Map.fetch!(tool_config, field)], else: []
+        end)
+        |> Enum.uniq()
+
+      case values do
+        [value] -> Map.put(common, field, value)
+        _conflict -> common
+      end
+    end)
+  end
+
+  defp selector_tool_config(selector, providers_by_id) when is_binary(selector) do
+    case String.split(selector, "/", parts: 2) do
+      [provider_id, model] when provider_id != "" and model != "" ->
+        provider_tool_config(providers_by_id, provider_id, model)
+
+      _selector ->
+        %{}
+    end
+  end
+
+  defp selector_tool_config(_selector, _providers_by_id), do: %{}
+
+  defp model_ref_tool_config(
+         %{"provider_id" => provider_id, "model" => model},
+         providers_by_id
+       )
+       when is_binary(provider_id) and is_binary(model),
+       do: provider_tool_config(providers_by_id, provider_id, model)
+
+  defp model_ref_tool_config(_model_ref, _providers_by_id), do: %{}
+
+  defp provider_tool_config(providers_by_id, provider_id, model) do
+    case Map.fetch(providers_by_id, provider_id) do
+      {:ok, provider} -> CodexModelToolConfig.for_model(provider, model)
+      :error -> %{}
+    end
   end
 
   defp codex_input_modalities(modalities) do

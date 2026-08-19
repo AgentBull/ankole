@@ -57,6 +57,24 @@ defmodule Ankole.AIGateway.CodexModelsTest do
              "Model-visible tool output is limited to 10000 tokens."
   end
 
+  test "card applies validated model tool config without replacing AIGateway-owned fields" do
+    card =
+      CodexModels.card("deepseek-v4-flash", ["text"], %{
+        "shell_type" => "shell_command",
+        "apply_patch_tool_type" => "freeform",
+        "web_search_tool_type" => "text",
+        "tool_mode" => "direct"
+      })
+
+    assert card["shell_type"] == "shell_command"
+    assert card["apply_patch_tool_type"] == "freeform"
+    assert card["web_search_tool_type"] == "text"
+    assert Map.has_key?(card, "tool_mode")
+    assert card["tool_mode"] == "direct"
+    assert card["truncation_policy"] == %{"mode" => "tokens", "limit" => 10_000}
+    assert card["model_messages"]["instructions_template"] == card["base_instructions"]
+  end
+
   test "cards keep the configured search tool on standard Responses" do
     for slug <- ~w(gpt-5.6-sol gpt-5.6-terra gpt-5.6-luna) do
       refute CodexModels.card(slug, ["text"])["use_responses_lite"]

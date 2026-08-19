@@ -113,6 +113,20 @@ the output, but a larger value does not raise the model-visible limit. The card
 instructions state the same limit. Codex processes larger output in code before
 it returns the result, or it writes that output to a Job Workspace file.
 
+The card keeps Provider-declared Codex model tool configuration for the
+selected model. For example, a model that declares
+`shell_type = shell_command` receives the pinned Codex function shell instead
+of the default custom exec grammar. The tool still executes in Agent Computer;
+the field changes only the model-visible declaration. Duplicate selectors keep
+a tool configuration field only when every Provider that declares that field
+agrees on its value.
+
+Agent Computer enables Codex Code Mode by default. A Provider whose endpoint
+does not accept the Code Mode custom `exec` tool also declares
+`tool_mode = direct`; this keeps the function shell model-visible without the
+Code Mode wrapper. Both fields belong to the pinned Codex model tool
+configuration.
+
 The binding also carries the direct modalities and the optional frozen vision
 fallback. AIGateway sends an image directly only when the selected model
 accepts it. For a text-only model, AIGateway makes one stateless request to the
@@ -181,6 +195,16 @@ contains:
 `provider_id` uses a lowercase slug. `provider_kind` uses lowercase snake case.
 The application checks each kind against built-in and active Plugin
 definitions.
+
+An OpenAI-compatible Provider can store `codex_model_tool_configs` in its
+connection options. The value is keyed by the upstream model slug. Each entry
+can declare `shell_type`, `apply_patch_tool_type`, `web_search_tool_type`, and
+`tool_mode` using values accepted by the pinned Codex client. AIGateway applies
+these fields to every matching Codex model card. It continues to own the card's
+instructions, context and output limits, modalities, search capability, and
+parallel-call capability. Unknown fields and invalid pinned values make the
+Provider configuration invalid. This is Codex model tool configuration, not a
+Provider request option, and it never reaches the upstream model endpoint.
 
 The pool has one row-level strategy and an ordered list of entries. Each stored
 entry contains `id`, `label`, `source`, `priority`, optional `disabled_at`, an

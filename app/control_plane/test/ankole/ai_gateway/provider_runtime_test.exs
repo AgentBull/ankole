@@ -15,6 +15,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
 
   alias Ankole.AIAgent.Library
   alias Ankole.AIGateway.CodexModels
+  alias Ankole.AIGateway.CodexModelToolConfig
   alias Ankole.AIGateway.CredentialPool
   alias Ankole.AIGateway.ModelMetadata.Cache, as: ModelMetadataCache
   alias Ankole.AIGateway.ProviderConfigs
@@ -100,6 +101,10 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
       assert settings["upstream_transport"]["default"] == "sse"
     end
 
+    compatible_settings = Map.new(openai_compatible["settings"], &{&1["key"], &1})
+    assert compatible_settings["codex_model_tool_configs"]["type"] == "map"
+    assert compatible_settings["codex_model_tool_configs"]["scope"] == "connection"
+
     for provider <- [chatgpt_subscription, azure_openai, openai, openai_compatible] do
       service_tier = Map.new(provider["settings"], &{&1["key"], &1})["serviceTier"]
 
@@ -133,6 +138,82 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
              Map.has_key?(label, "default") and Map.has_key?(label, "zh-Hans-CN") and
                not Map.has_key?(label, "en") and not Map.has_key?(label, "zh")
            end)
+  end
+
+  test "OpenAI-compatible provider Codex model tool config reaches the manifest by model slug" do
+    %{principal: agent} = agent_fixture()
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "deepseek-responses",
+               provider_kind: "openai_compatible",
+               base_url: "https://api.deepseek.com/v1",
+               connection_options: %{
+                 "endpoint_kind" => "responses",
+                 "codex_model_tool_configs" => %{
+                   "deepseek-v4-flash" => %{
+                     "shell_type" => "shell_command",
+                     "apply_patch_tool_type" => "freeform",
+                     "web_search_tool_type" => "text",
+                     "tool_mode" => "direct"
+                   }
+                 }
+               },
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-test"}]
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "coding", %{
+               provider_id: "deepseek-responses",
+               model: "deepseek-v4-flash"
+             })
+
+    assert {:ok, %{"models" => models}} = CodexModels.manifest(agent.uid, "agent")
+    card = Enum.find(models, &(&1["slug"] == "deepseek-v4-flash"))
+
+    assert card["shell_type"] == "shell_command"
+    assert card["apply_patch_tool_type"] == "freeform"
+    assert card["web_search_tool_type"] == "text"
+    assert Map.has_key?(card, "tool_mode")
+    assert card["tool_mode"] == "direct"
+  end
+
+  test "OpenAI-compatible provider rejects unknown Codex model tool config fields" do
+    assert {:error,
+            {:invalid_codex_model_tool_config,
+             {"deepseek-v4-flash", {:unknown_fields, ["base_instructions"]}}}} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "invalid-codex-tool-config",
+               provider_kind: "openai_compatible",
+               connection_options: %{
+                 "codex_model_tool_configs" => %{
+                   "deepseek-v4-flash" => %{"base_instructions" => "replace owner"}
+                 }
+               },
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-test"}]
+               }
+             })
+  end
+
+  test "Codex model tool config rejects a non-string model key without raising" do
+    model_key = {:deepseek, "v4-flash"}
+
+    assert {:error, {:invalid_codex_model_tool_config, {^model_key, :invalid_model_slug}}} =
+             CodexModelToolConfig.validate_provider_configs(%{model_key => %{}})
+  end
+
+  test "Codex model tool config rejects a non-string field key without raising" do
+    field_key = {:shell_type, :unexpected}
+
+    assert {:error,
+            {:invalid_codex_model_tool_config,
+             {"deepseek-v4-flash", {:unknown_fields, ["{:shell_type, :unexpected}"]}}}} =
+             CodexModelToolConfig.validate_provider_configs(%{
+               "deepseek-v4-flash" => %{field_key => "shell_command"}
+             })
   end
 
   test "provider kind rejects kebab-case ids" do

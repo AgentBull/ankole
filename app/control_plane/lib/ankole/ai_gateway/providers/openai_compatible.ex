@@ -5,6 +5,7 @@ defmodule Ankole.AIGateway.Providers.OpenAICompatible do
 
   use Ankole.AIGateway.ProviderDSL
 
+  alias Ankole.AIGateway.CodexModelToolConfig
   alias Ankole.AIGateway.OpenAIRequestOptions
   alias Ankole.AIGateway.ProviderConnectionCheck
   alias Ankole.AIGateway.Providers
@@ -29,6 +30,8 @@ defmodule Ankole.AIGateway.Providers.OpenAICompatible do
       advanced: true
     )
 
+    setting(:codex_model_tool_configs, type: :map, advanced: true)
+
     setting(:headers, type: :map, advanced: true)
     setting(:query_params, type: :map, advanced: true)
 
@@ -50,6 +53,14 @@ defmodule Ankole.AIGateway.Providers.OpenAICompatible do
       api_resolver(:openai_chat_completions)
       prepare(:prepare_language_model)
     end
+  end
+
+  @doc false
+  @impl true
+  def validate_connection_options(options) when is_map(options) do
+    options
+    |> Map.get("codex_model_tool_configs", %{})
+    |> CodexModelToolConfig.validate_provider_configs()
   end
 
   @doc """

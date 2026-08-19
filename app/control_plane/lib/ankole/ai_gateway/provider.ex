@@ -18,5 +18,10 @@ defmodule Ankole.AIGateway.Provider do
   @callback prepare_connection_check(map()) ::
               {:ok, Ankole.AIGateway.ProviderConnectionCheck.t()} | {:error, term()}
 
-  @optional_callbacks models_metadata_source: 1, prepare_connection_check: 1
+  @doc "Validates semantic constraints across connection settings."
+  @callback validate_connection_options(map()) :: :ok | {:error, term()}
+
+  @optional_callbacks models_metadata_source: 1,
+                      prepare_connection_check: 1,
+                      validate_connection_options: 1
 end

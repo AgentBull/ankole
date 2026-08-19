@@ -1,5 +1,10 @@
 # Changelog
 
+## Version 0.75.2 (2026-08-19)
+
+- Let an OpenAI-compatible Provider declare pinned Codex model tool configuration by model slug. Background Agent Jobs can now preserve a model's required shell, apply-patch, web-search, and tool-mode declarations instead of forcing every model to the same shell contract. This lets Responses models that require a function shell start normally while AIGateway keeps ownership of instructions, context, capabilities, and output limits.
+- Invalid tool fields or values reject the Provider configuration. When duplicate selectors disagree on one field, AIGateway omits that field from the model card.
+
 ## Version 0.75.1 (2026-08-19)
 
 - Fix DingTalk AI cards to use the platform's native `isFinalize` and `isError` state transitions instead of the unsupported `flowStatus` template variable. A completed interactive card now finishes through the same native protocol. Operators who followed the earlier setup guide must remove `flowStatus` and `flowStatusVar`, bind the `answer` Markdown component in each active state layout, and republish the template.
