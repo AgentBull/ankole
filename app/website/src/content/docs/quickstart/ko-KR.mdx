@@ -1628,12 +1628,12 @@ export const channelTabs = [
           ]
         },
         {
-          title: 'Lark 앱 소유권 규칙 준수',
+          title: '활성 binding마다 하나의 Lark 앱 사용',
           bullets: [
-            '하나의 Agent는 활성화된 Lark binding을 최대 하나만 가질 수 있습니다.',
-            '하나의 appID는 하나의 Agent에만 바인딩할 수 있습니다.'
+            '하나의 Agent에서 여러 Lark binding을 활성화할 수 있습니다.',
+            '활성 binding마다 서로 다른 domain과 appID 조합을 사용해야 합니다.'
           ],
-          body: ['추가 Agent마다 별도의 Lark 또는 Feishu 앱을 만드세요.']
+          body: ['binding마다 별도의 Lark 또는 Feishu 앱을 만드세요. 비활성화된 binding은 해당 앱을 해제합니다.']
         }
       ]
     }

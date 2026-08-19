@@ -14,7 +14,7 @@ Read [SignalsGateway](../SignalsGateway.md), [Principal](../Principal.md), and
 | Plugin ID | `lark-adapter` |
 | API version | `1` |
 | Signal adapter ID | `lark` |
-| Signal configuration | `signals_gateway.lark.bindings.<agent_uid>` |
+| Signal configuration | `signals_gateway.lark.binding_configs.<binding-digest>` |
 | Identity adapter ID | `lark` |
 | Identity configuration | `principals.identity_providers.lark.<id>` |
 | Provider library | `libs/feishu_openapi` |
@@ -55,8 +55,17 @@ closed until a later connection can resolve the identity.
 Identity settings use `appID`, `appSecret`, and `domain`. `oidc.*` controls
 login, while `sync.*` controls user and department import.
 
-One Agent can have at most one enabled Lark binding. One `appID` cannot belong
-to two Agents. The binding save transaction validates both rules.
+One Agent can have several enabled Lark bindings. Each enabled binding must own
+a different `domain` and `appID` pair across the deployment instance. A
+disabled binding releases its pair. The binding save transaction validates
+this ownership before it writes the binding and its encrypted configuration.
+
+Each new or saved binding gets a configuration key derived from its normalized
+Agent UID and binding name. Existing `config_ref` values remain readable. A
+save moves an old binding to its binding-owned key, so this change needs no
+encrypted-data migration. New writes use the separate `binding_configs` root,
+so no historical Agent UID can overlap the new key. The old `bindings` root
+remains registered for existing `config_ref` values.
 
 ## Connect to Feishu or Lark
 
@@ -269,7 +278,12 @@ SignalsGateway records that reply only after the provider confirms it.
 ## Let a Job Use Lark Tools
 
 An enabled `lark` Agent Plugin can use a compatible Lark binding. WorkerEnv
-resolves one tenant token when the turn starts. It projects these variables:
+selects the current signal route's binding and resolves one tenant token when
+the execution starts. A sole available Lark binding remains implicit. If an
+Agent has several available Lark bindings and the execution has no matching
+route, WorkerEnv supplies no Lark credential variables. It never selects a
+binding by list order. A route that names a disabled or unavailable binding
+does not fall back to another Lark binding. WorkerEnv projects these variables:
 
 - `LARKSUITE_CLI_APP_ID`
 - `LARKSUITE_CLI_TENANT_ACCESS_TOKEN`

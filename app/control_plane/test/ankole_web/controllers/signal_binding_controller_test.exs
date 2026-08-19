@@ -39,7 +39,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
 
   test "admin creates a Lark signal binding with the record-only default", %{conn: conn} do
     %{principal: agent} = agent_fixture()
-    config_key = "signals_gateway.lark.bindings.#{agent.uid}"
+    config_key = LarkConfig.binding_config_key(agent.uid, "lark-main")
     config_ref = "app-config://#{config_key}"
 
     conn =
@@ -261,7 +261,9 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
            } = json_response(conn, 200)
 
     assert {:ok, stored_config} =
-             LarkConfig.load_chat_config_ref(LarkConfig.chat_config_key(agent.uid))
+             LarkConfig.load_chat_config_ref(
+               LarkConfig.binding_config_key(agent.uid, "lark-main")
+             )
 
     assert stored_config["appSecret"] == original_config["appSecret"]
     assert stored_config["domain"] == "lark"
@@ -308,7 +310,9 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     assert agent_uid == agent.uid
 
     assert {:ok, %{"appID" => "cli_same-agent-updated"}} =
-             LarkConfig.load_chat_config_ref(LarkConfig.chat_config_key(agent.uid))
+             LarkConfig.load_chat_config_ref(
+               LarkConfig.binding_config_key(agent.uid, "lark-main")
+             )
   end
 
   test "admin changes binding behavior without replacing stored provider config", %{conn: conn} do
@@ -350,7 +354,9 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     assert agent_uid == agent.uid
 
     assert {:ok, stored_config} =
-             LarkConfig.load_chat_config_ref(LarkConfig.chat_config_key(agent.uid))
+             LarkConfig.load_chat_config_ref(
+               LarkConfig.binding_config_key(agent.uid, "lark-main")
+             )
 
     assert stored_config["appID"] == original_config["appID"]
     assert stored_config["appSecret"] == original_config["appSecret"]
@@ -558,7 +564,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
       })
 
     assert response(conn, 200)
-    config_key = LarkConfig.chat_config_key(second_agent.uid)
+    config_key = LarkConfig.binding_config_key(second_agent.uid, "lark-main")
 
     conn =
       conn
@@ -678,7 +684,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
   test "concurrent generic writes cannot race owner-managed Lark and DingTalk configs" do
     %{principal: lark_agent} = agent_fixture()
     %{principal: dingtalk_agent} = agent_fixture()
-    lark_key = LarkConfig.chat_config_key(lark_agent.uid)
+    lark_key = LarkConfig.binding_config_key(lark_agent.uid, "lark-main")
     dingtalk_key = DingTalkConfig.chat_config_key(dingtalk_agent.uid)
 
     assert {:ok, _result} =

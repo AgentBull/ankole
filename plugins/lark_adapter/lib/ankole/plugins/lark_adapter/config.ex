@@ -15,7 +15,8 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
   import Ankole.Plugins.MapHelpers,
     only: [required_string: 2, optional_string: 3, optional_boolean: 3, integer_between: 5]
 
-  @chat_key_pattern ~r/\Asignals_gateway\.lark\.bindings\.[A-Za-z0-9_.:-]+\z/
+  @binding_config_key_pattern ~r/\Asignals_gateway\.lark\.binding_configs\.[a-f0-9]{64}\z/
+  @legacy_chat_key_pattern ~r/\Asignals_gateway\.lark\.bindings\.[A-Za-z0-9_.:-]+\z/
   @identity_key_pattern ~r/\Aprincipals\.identity_providers\.lark\.[A-Za-z0-9_.:-]+\z/
   @domains ["feishu", "lark"]
   @default_oidc_scopes ["contact:user.employee_id:readonly"]
@@ -36,13 +37,22 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
   def app_config_patterns do
     [
       AppConfigure.define_pattern(
-        id: "signals_gateway.lark.bindings.*",
-        key_pattern: @chat_key_pattern,
+        id: "signals_gateway.lark.binding_configs.*",
+        key_pattern: @binding_config_key_pattern,
         encrypted: true,
         console_writable: false,
         scope: :global,
         schema: Schema.new(&validate_chat_config/1),
-        description: "Encrypted Lark / Feishu chat binding configuration."
+        description: "Encrypted binding-owned Lark / Feishu chat configuration."
+      ),
+      AppConfigure.define_pattern(
+        id: "signals_gateway.lark.bindings.*",
+        key_pattern: @legacy_chat_key_pattern,
+        encrypted: true,
+        console_writable: false,
+        scope: :global,
+        schema: Schema.new(&validate_chat_config/1),
+        description: "Encrypted legacy Lark / Feishu chat binding configuration."
       ),
       AppConfigure.define_pattern(
         id: "principals.identity_providers.lark.*",
@@ -56,9 +66,28 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
 
   @spec chat_config_key(String.t()) :: String.t()
   @doc """
-  Builds the AppConfigure key for one chat binding.
+  Builds a legacy-compatible AppConfigure key for one chat binding.
   """
   def chat_config_key(id), do: "signals_gateway.lark.bindings.#{id}"
+
+  @doc """
+  Builds the stable AppConfigure key owned by one Agent binding.
+
+  The digest keeps arbitrary Agent and binding names outside the AppConfigure
+  key grammar while the binding row remains the authoritative reverse mapping.
+  The separate `binding_configs` root cannot overlap a legacy Agent UID key.
+  """
+  @spec binding_config_key(String.t(), String.t()) :: String.t()
+  def binding_config_key(agent_uid, binding_name)
+      when is_binary(agent_uid) and is_binary(binding_name) do
+    id =
+      [agent_uid, binding_name]
+      |> Ankole.JSON.encode!()
+      |> then(&:crypto.hash(:sha256, &1))
+      |> Base.encode16(case: :lower)
+
+    "signals_gateway.lark.binding_configs.#{id}"
+  end
 
   @spec identity_config_key(String.t()) :: String.t()
   @doc """
@@ -101,24 +130,16 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
   def validate_binding_config(value), do: validate_chat_config(value)
 
   @doc """
-  Enforces the one-Agent/one-Lark-app assignment used by the Bot-only integration.
+  Ensures that one enabled SignalsGateway binding owns each Lark application.
 
-  Updating the current binding is allowed. Disabled bindings do not reserve an
-  app, so assigning one again is decided by the next enabled save.
+  An Agent can own several applications. Updating the current binding is
+  allowed. Disabled bindings do not reserve an application.
   """
   @spec validate_binding_assignment(module(), String.t(), String.t(), chat_config()) ::
           :ok | {:error, term()}
   def validate_binding_assignment(repo, agent_uid, binding_name, config)
       when is_atom(repo) and is_binary(agent_uid) and is_binary(binding_name) and is_map(config) do
-    with :ok <- ensure_single_enabled_binding(repo, agent_uid, binding_name),
-         :ok <-
-           ensure_app_not_bound_to_another_agent(
-             repo,
-             agent_uid,
-             Map.fetch!(config, "appID")
-           ) do
-      :ok
-    end
+    ensure_app_not_bound_to_another_binding(repo, agent_uid, binding_name, config)
   end
 
   @doc """
@@ -299,39 +320,40 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
     end
   end
 
-  defp ensure_single_enabled_binding(repo, agent_uid, binding_name) do
-    existing? =
-      Binding
-      |> where(
-        [binding],
-        binding.agent_uid == ^agent_uid and binding.adapter == "lark" and
-          binding.enabled == true and binding.name != ^binding_name
-      )
-      |> repo.exists?()
+  defp ensure_app_not_bound_to_another_binding(
+         repo,
+         agent_uid,
+         binding_name,
+         config
+       ) do
+    connection_key = connection_key(config)
 
-    if existing?, do: {:error, :lark_binding_already_exists}, else: :ok
-  end
-
-  defp ensure_app_not_bound_to_another_agent(repo, agent_uid, app_id) do
     Binding
     |> where(
       [binding],
-      binding.adapter == "lark" and binding.enabled == true and binding.agent_uid != ^agent_uid
+      binding.adapter == "lark" and binding.enabled == true and
+        not (binding.agent_uid == ^agent_uid and binding.name == ^binding_name)
     )
     |> repo.all()
     |> Enum.reduce_while(:ok, fn binding, :ok ->
       case load_chat_config_ref_in_tx(repo, binding.config_ref) do
-        {:ok, %{"appID" => ^app_id}} ->
-          {:halt, {:error, {:lark_app_already_bound, app_id, binding.agent_uid}}}
+        {:ok, existing_config} ->
+          if connection_key(existing_config) == connection_key do
+            {domain, app_id} = connection_key
 
-        {:ok, %{"appID" => _other_app_id}} ->
-          {:cont, :ok}
+            {:halt,
+             {:error, {:lark_app_already_bound, domain, app_id, binding.agent_uid, binding.name}}}
+          else
+            {:cont, :ok}
+          end
 
         :error ->
-          {:halt, {:error, {:lark_binding_config_unavailable, binding.agent_uid, :missing}}}
+          {:halt,
+           {:error, {:lark_binding_config_unavailable, binding.agent_uid, binding.name, :missing}}}
 
         {:error, reason} ->
-          {:halt, {:error, {:lark_binding_config_unavailable, binding.agent_uid, reason}}}
+          {:halt,
+           {:error, {:lark_binding_config_unavailable, binding.agent_uid, binding.name, reason}}}
       end
     end)
   end

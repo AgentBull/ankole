@@ -143,7 +143,8 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput) {
   )
   const renderedFetchRuntimeConfig = await resolveRenderedFetchRuntimeConfig(turnStart, opts.rpc)
   opts.abortSignal?.throwIfAborted()
-  const resolvedWorkerEnv = await resolveAgentWorkerEnvParts(job.agentUid, opts.rpc)
+  const bindingName = turnStart.actor_event.binding_name
+  const resolvedWorkerEnv = await resolveAgentWorkerEnvParts(job.agentUid, opts.rpc, bindingName)
   const currentWorkerEnv = withoutLarkTenantToken(resolvedWorkerEnv)
   const workerEnv = withoutLarkTenantTokenValue(projectWorkerEnv(runtimeProjection, currentWorkerEnv))
   opts.abortSignal?.throwIfAborted()
@@ -207,12 +208,13 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput) {
     // compared with the first resolve, not with the frozen projection. When
     // the operator rebound the Lark app between the two resolves, the token is
     // dropped and the file refresh fetches one for the current binding.
-    const currentLarkWorkerEnv = await resolveAgentWorkerEnvParts(job.agentUid, opts.rpc)
+    const currentLarkWorkerEnv = await resolveAgentWorkerEnvParts(job.agentUid, opts.rpc, bindingName)
     opts.abortSignal?.throwIfAborted()
     larkCredential = materializeLarkCredential({
       agentUID: job.agentUid,
       agentHome: opts.agentHome,
       rpc: opts.rpc,
+      bindingName,
       workerEnv: sameLarkBindingIdentity(resolvedWorkerEnv, currentLarkWorkerEnv)
         ? currentLarkWorkerEnv
         : withoutLarkTenantToken(currentLarkWorkerEnv)

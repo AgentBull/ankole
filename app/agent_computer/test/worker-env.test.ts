@@ -99,19 +99,22 @@ describe('commandEnv worker env layering', () => {
 describe('resolveAgentWorkerEnvParts', () => {
   it('resolves the owned maps for one agent and drops non-string values', async () => {
     const requests: unknown[] = []
-    const rpc = (async (method: unknown, _payload: unknown, frame: unknown) => {
+    const payloads: unknown[] = []
+    const rpc = (async (method: unknown, payload: unknown, frame: unknown) => {
       expect(method).toBe(rpcMethods.workerEnvResolve)
+      payloads.push(payload)
       requests.push(frame)
       return create(WorkerEnvResolveResponseSchema, {
         vars: { NPM_TOKEN: 'token', BROKEN: 42 as unknown as string }
       })
     }) as RPCRequester
 
-    expect(await resolveAgentWorkerEnvParts(turnStart.turn.actor.agent_uid, rpc)).toEqual({
+    expect(await resolveAgentWorkerEnvParts(turnStart.turn.actor.agent_uid, rpc, 'lark-secondary')).toEqual({
       vars: { NPM_TOKEN: 'token' },
       operatorVars: {},
       bindingVars: {}
     })
+    expect(payloads).toEqual([{ bindingName: 'lark-secondary' }])
     expect(requests).toHaveLength(1)
     expect((requests[0] as { agentUid: string }).agentUid).toBe('agent-a')
   })

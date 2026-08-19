@@ -63,8 +63,10 @@ projection with the request. The request does not copy `SKILL.md` or MCP
 connection declarations.
 
 The Worker checks the directory and `main.ts` through `realpath` again. Both
-must stay inside the current Agent Home. It resolves the latest Agent WorkerEnv
-and resolves the request's Skill summaries through the current builtin,
+must stay inside the current Agent Home. The request carries the binding name
+from the job's reply route, so the Worker resolves the latest Agent WorkerEnv
+for the same signal route. It resolves the request's Skill summaries through
+the current builtin,
 internal, and Agent-installed roots. It combines those Skill MCP dependencies
 and writes one `0600` mcporter config with `imports: []`. It injects the path as
 `MCPORTER_CONFIG` and removes it when the attempt ends. Config generation does

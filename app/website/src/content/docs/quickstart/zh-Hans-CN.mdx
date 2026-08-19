@@ -1609,12 +1609,12 @@ export const channelTabs = [
           ]
         },
         {
-          title: '为每个 Agent 使用独立应用',
+          title: '每个启用的 binding 使用独立应用',
           bullets: [
-            '一个 Agent 同时只能启用一个飞书 / Lark binding。',
-            '同一个 appID 不能绑定给多个 Agent。'
+            '一个 Agent 可以同时启用多个飞书 / Lark binding。',
+            '每个启用的 binding 必须使用不同的 domain 与 appID 组合。'
           ],
-          body: ['每多接入一个 Agent，都要创建一套独立的飞书或 Lark 应用。']
+          body: ['为每个 binding 创建独立的飞书或 Lark 应用；binding 被禁用后会释放该应用。']
         }
       ]
     }

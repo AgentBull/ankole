@@ -20,7 +20,6 @@ defmodule Ankole.E2E.Harness do
   alias Ankole.SignalsGateway.ActorRuntime.ReadyEventProcessor
   alias Ankole.SignalsGateway.ActorRuntime.Transport.Broker
   alias Ankole.AIGateway.ProviderConfigs
-  alias Ankole.AppConfigure
   alias Ankole.E2E.FakeOpenAIPlug
   alias Ankole.E2E.WaitHelpers
   alias Ankole.JSON
@@ -31,6 +30,7 @@ defmodule Ankole.E2E.Harness do
   alias Ankole.Repo
   alias Ankole.RuntimeEvents
   alias Ankole.SignalsGateway
+  alias Ankole.SignalsGateway.Bindings
   alias Ankole.SignalsGateway.OutboxEntry
   alias Ankole.SignalsGateway.Entry
 
@@ -494,28 +494,21 @@ defmodule Ankole.E2E.Harness do
   def upsert_lark_binding!(agent_uid, name, policy, _fake_feishu, opts) do
     app_id = Keyword.fetch!(opts, :app_id)
 
-    config =
-      %{
-        "appID" => app_id,
-        "appSecret" => @app_secret,
-        "domain" => "feishu",
-        "platformSubjectNamespace" => "lark-chaos",
-        "userName" => Keyword.get(opts, :user_name, "Lark Chaos Bot"),
-        "group_message_mode" => Keyword.fetch!(opts, :group_message_mode)
-      }
+    config = %{
+      "appID" => app_id,
+      "appSecret" => @app_secret,
+      "domain" => "feishu",
+      "platformSubjectNamespace" => "lark-chaos",
+      "userName" => Keyword.get(opts, :user_name, "Lark Chaos Bot")
+    }
 
-    assert {:ok, _stored} =
-             AppConfigure.put_global_by_key(LarkConfig.chat_config_key(name), config)
-
-    assert {:ok, binding} =
-             SignalsGateway.upsert_binding(%{
-               agent_uid: agent_uid,
-               name: name,
-               adapter: "lark",
-               config_ref: "app-config://#{LarkConfig.chat_config_key(name)}",
-               filters: %{},
-               unaddressed_group_message_policy: policy
+    assert {:ok, %{binding: binding}} =
+             Bindings.put_binding(agent_uid, "lark", name, %{
+               "config" => config,
+               "group_message_mode" => Keyword.fetch!(opts, :group_message_mode)
              })
+
+    assert binding.unaddressed_group_message_policy == policy
 
     binding
   end

@@ -70,7 +70,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                %{
                  contract_id: "signals_gateway.adapter",
                  id: "lark",
-                 config_key_pattern: "signals_gateway.lark.bindings.<agent_uid>",
+                 config_key_pattern: "signals_gateway.lark.binding_configs.<id>",
                  worker_env_module: Ankole.Plugins.LarkAdapter.RuntimeEnv,
                  fields: chat_fields,
                  supported_group_message_modes: [
@@ -137,6 +137,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       patterns = LarkAdapter.app_config_patterns()
 
       assert Enum.map(patterns, & &1.id) == [
+               "signals_gateway.lark.binding_configs.*",
                "signals_gateway.lark.bindings.*",
                "principals.identity_providers.lark.*"
              ]

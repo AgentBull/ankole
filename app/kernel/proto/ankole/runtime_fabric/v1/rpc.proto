@@ -94,7 +94,9 @@ message AppConfigureResolveResponse {
   map<string, AppConfigureResolution> values = 1;
 }
 
-message WorkerEnvResolveRequest {}
+message WorkerEnvResolveRequest {
+  string binding_name = 1;
+}
 
 message WorkerEnvResolveResponse {
   map<string, string> vars = 1;
@@ -667,6 +669,7 @@ message AutomationJobRunRequest {
   uint32 timeout_ms = 7;
   string automation_job_id = 8;
   repeated RuntimeSkillSummary skills = 9;
+  string binding_name = 10;
 }
 
 message AutomationJobRunResponse {

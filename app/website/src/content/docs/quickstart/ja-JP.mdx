@@ -1627,12 +1627,12 @@ export const channelTabs = [
           ]
         },
         {
-          title: 'Lark のアプリ所有権ルールを尊重する',
+          title: '有効な binding ごとに 1 つの Lark アプリを使う',
           bullets: [
-            '1 つの Agent は、有効な Lark binding を最大 1 つ持てます。',
-            '1 つの appID は 1 つの Agent にのみバインドできます。'
+            '1 つの Agent で複数の Lark binding を有効にできます。',
+            '有効な binding ごとに異なる domain と appID の組み合わせが必要です。'
           ],
-          body: ['追加の Agent ごとに、別の Lark または Feishu アプリを作成してください。']
+          body: ['binding ごとに別の Lark または Feishu アプリを作成してください。無効な binding はそのアプリを解放します。']
         }
       ]
     }

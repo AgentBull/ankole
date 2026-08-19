@@ -49,7 +49,7 @@ defmodule Ankole.Plugins.LarkAdapter do
         id: "lark",
         plugin_id: plugin_id(),
         display_name: adapter_display_name(),
-        config_key_pattern: "signals_gateway.lark.bindings.<agent_uid>",
+        config_key_pattern: "signals_gateway.lark.binding_configs.<id>",
         config_module: Config,
         worker_env_module: RuntimeEnv,
         fields: chat_fields(),

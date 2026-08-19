@@ -46,7 +46,8 @@ defmodule Ankole.SignalsGateway.Bindings do
           {:ok, %{binding: Binding.t(), config_key: String.t()}} | {:error, term()}
   def put_binding(agent_uid, adapter_id, binding_name, attrs)
       when is_binary(adapter_id) and is_binary(binding_name) and is_map(attrs) do
-    with {:ok, %{principal: principal}} <- Principals.get_agent(agent_uid),
+    with {:ok, binding_name} <- normalize_binding_name(binding_name),
+         {:ok, %{principal: principal}} <- Principals.get_agent(agent_uid),
          {:ok, definition} <- Adapters.fetch(adapter_id),
          {:ok, config} <- binding_config(attrs),
          {:ok, normalized_config} <- validate_binding_config(definition, config),
@@ -83,7 +84,8 @@ defmodule Ankole.SignalsGateway.Bindings do
   def update_binding(source_agent_uid, target_agent_uid, binding_name, attrs)
       when is_binary(source_agent_uid) and is_binary(target_agent_uid) and
              is_binary(binding_name) and is_map(attrs) do
-    with {:ok, %{principal: source_principal}} <- Principals.get_agent(source_agent_uid),
+    with {:ok, binding_name} <- normalize_binding_name(binding_name),
+         {:ok, %{principal: source_principal}} <- Principals.get_agent(source_agent_uid),
          {:ok, %{principal: target_principal}} <- Principals.get_agent(target_agent_uid),
          %Binding{} = source_binding <-
            Repo.get_by(Binding, agent_uid: source_principal.uid, name: binding_name),
@@ -186,16 +188,16 @@ defmodule Ankole.SignalsGateway.Bindings do
   defp maybe_where_agent(query, agent_uid) when is_binary(agent_uid),
     do: where(query, [binding], binding.agent_uid == ^String.downcase(agent_uid))
 
-  @spec list_available_agent_bindings(String.t(), keyword()) ::
+  @spec list_agent_bindings(String.t(), keyword()) ::
           {:ok, [Binding.t()]} | {:error, term()}
-  def list_available_agent_bindings(agent_uid, opts \\ [])
+  def list_agent_bindings(agent_uid, opts \\ [])
 
-  def list_available_agent_bindings(agent_uid, opts) when is_binary(agent_uid) do
+  def list_agent_bindings(agent_uid, opts) when is_binary(agent_uid) do
     repo = Keyword.get(opts, :repo, Repo)
 
     with {:ok, %{principal: principal}} <- Principals.get_agent(agent_uid) do
       bindings =
-        available_bindings_query()
+        Binding
         |> where([binding], binding.agent_uid == ^principal.uid)
         |> order_by([binding], asc: binding.adapter, asc: binding.name)
         |> repo.all()
@@ -207,7 +209,7 @@ defmodule Ankole.SignalsGateway.Bindings do
     end
   end
 
-  def list_available_agent_bindings(_agent_uid, _opts), do: {:error, :agent_not_found}
+  def list_agent_bindings(_agent_uid, _opts), do: {:error, :agent_not_found}
 
   @spec disable_binding(String.t(), String.t()) :: {:ok, Binding.t()} | {:error, term()}
   def disable_binding(agent_uid, binding_name)
@@ -511,6 +513,23 @@ defmodule Ankole.SignalsGateway.Bindings do
   end
 
   defp binding_config_key(%Definition{} = definition, agent_uid, binding_name) do
+    case definition.config_module do
+      module when is_atom(module) and not is_nil(module) ->
+        if function_exported?(module, :binding_config_key, 2) do
+          case module.binding_config_key(agent_uid, binding_name) do
+            key when is_binary(key) and key != "" -> {:ok, key}
+            key -> {:error, {:invalid_adapter_config_key, definition.id, key}}
+          end
+        else
+          binding_config_key_from_pattern(definition, agent_uid, binding_name)
+        end
+
+      nil ->
+        binding_config_key_from_pattern(definition, agent_uid, binding_name)
+    end
+  end
+
+  defp binding_config_key_from_pattern(definition, agent_uid, binding_name) do
     case definition.config_key_pattern do
       pattern when is_binary(pattern) ->
         key =
@@ -522,6 +541,13 @@ defmodule Ankole.SignalsGateway.Bindings do
 
       _pattern ->
         {:error, {:missing_adapter_config_key_pattern, definition.id}}
+    end
+  end
+
+  defp normalize_binding_name(binding_name) do
+    case String.trim(binding_name) do
+      "" -> {:error, :invalid_signal_binding}
+      normalized -> {:ok, normalized}
     end
   end
 

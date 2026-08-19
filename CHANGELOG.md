@@ -1,5 +1,10 @@
 # Changelog
 
+## Version 0.75.0 (2026-08-19)
+
+- One Agent can now keep several Lark or Feishu signal bindings enabled, each with its own application. Each enabled binding still owns one distinct `domain` and `appID` pair across the instance, and disabling it releases that application.
+- A Turn or Automation Job now gets Lark CLI credentials from its current signal route. A disabled or unavailable explicit route does not fall back to another Lark application, and an execution with several Lark bindings and no matching route gets no arbitrary credentials. Existing bindings need no migration and move to an independently namespaced, binding-owned encrypted configuration when they are next saved.
+
 ## Version 0.74.5 (2026-08-17)
 
 - A Deep Research collector now takes what it needs out of a source in the call that fetches it, takes everything it still needs in one pass when it goes back, and spends a call on a fact it has not written down rather than on one it has. A long collection run stops paging the same downloaded page or data file through the model again and again, which is where most of a Job's tokens went.
