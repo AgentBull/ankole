@@ -10,26 +10,30 @@ card streaming — AI replies degrade to plain Markdown messages.
 Build steps (DingTalk developer console):
 
 1. Open 卡片平台 (Card Platform) → 新建模板 → choose the **AI 卡片** category —
-   the AI card kind carries the native 输入中 / 已完成 / 出错 states, and its AI
-   card container selects which one to show from the `flowStatus` variable.
+   this card kind carries DingTalk's native 处理中 / 输入中 / 完成 / 出错
+   lifecycle.
 2. Add the variables below with exactly these names (变量名). The card fails
    closed if a variable is missing: Ankole writes it on every instance.
-3. Bind the AI card container's status variable (流程状态 / `flowStatusVar`) to
-   `flowStatus`, and keep the 输入中 and 出错 states enabled. A container whose
-   status variable is unbound cannot leave the writing state.
+3. Configure the 输入中, 完成, and 出错 layouts in the AI card component. Bind a
+   Markdown component to `answer` in every layout that must show the reply, and
+   enable streaming for the 输入中 component. Put the `actions` area in both
+   输入中 and 完成 if decision buttons must stay visible.
 4. Associate the template with the enterprise-internal app that owns the robot,
    publish it, and copy the template id into the binding's `cardTemplateId`.
 
-Whether the card platform can import a template as JSON (and the exact control
-palette per platform version) is a smoke-test item — see
-`internals/docs/DingTalkAdapter.zh.md` §13 items 7–10. Until it is verified,
-build the template manually from the table below.
+DingTalk selects the active layout from its native AI card lifecycle. Do not
+create or bind a `flowStatus` or `flowStatusVar` template variable. See the
+[AI card template guide](https://open.dingtalk.com/document/development/ai-card-template)
+and the
+[streaming update API](https://developers.dingtalk.com/document/development/api-streamingupdate).
+
+Build the template manually from the table below. Card Platform control labels
+can differ between DingTalk releases.
 
 ## Variable schema
 
 | Variable (变量名) | Type | Content Ankole writes |
 |---|---|---|
-| `flowStatus` | text, bound to the AI card container | `2` while the card streams, `3` once it is sealed, `5` when it is sealed as an error |
 | `state` | text | Status line: the live tool label or `输入中` while working, then `已完成` / `出错` / `已停止` / `等待输入`. A card the chain rolled past says `回答继续于下一张卡片`. |
 | `answer` | **streaming Markdown** | The reply body. Written with `PUT /v1.0/card/streaming`, `isFull: true`. This is the only variable updated at streaming cadence. |
 | `thought` | Markdown, collapsed section | Transient reasoning draft while the turn is working. Streamed on its own key; always blanked at terminal/refresh. Place it in a folded area. |
@@ -47,18 +51,16 @@ single-card source budget Ankole seals the current card (`isFinalize`) and
 continues on a freshly delivered continuation card. Sealed cards are never
 written again.
 
-## Card state (`flowStatus`)
+## Native card state
 
-The AI card container decides which state to render from `flowStatus`. Closing
-the stream with `isFinalize` or `isError` does not move it, so Ankole writes the
-value itself on every `PUT /v1.0/card/instances` call, and every such call sets
-`cardUpdateOptions.updateCardDataByKey` so the write merges instead of replacing
-the whole variable map. A full replacement would clear `flowStatus`, leaving the
-container with no state to render and the card visibly blank.
+Ankole does not write a custom state selector. A streaming update without a
+terminal flag keeps the card in DingTalk's input lifecycle. `isFinalize: true`
+moves it to 完成, and `isError: true` moves it to 出错. A completed interactive
+card also sends one full `answer` update with `isFinalize: true` after creation.
 
-The platform's values are `1` pending, `2` writing, `3` done, `4` doing, and `5`
-failed. Ankole uses only `2`, `3`, and `5`; the template does not need to render
-the other two.
+Structural updates use `cardUpdateOptions.updateCardDataByKey` to merge fields
+such as `state`, `plan`, and `actions`. This option preserves other template
+data, but it does not select the AI card state.
 
 ## Action area (`actions` variable)
 

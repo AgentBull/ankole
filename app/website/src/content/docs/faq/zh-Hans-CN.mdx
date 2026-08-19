@@ -465,7 +465,7 @@ export const channelTabs = [
         cause: '钉钉卡片是模板托管的。路由规则的 cardTemplateId 为空、模板未发布到机器人所属应用，或钉钉拒绝了卡片内容时，回复保持普通 Markdown。',
         resolution: [
           '按快速开始钉钉标签页的高级设置搭建 AI 卡片模板，并把模板 id 填进路由规则的 cardTemplateId。',
-          '卡片空白或回复结束后仍显示输入指示时，把 AI 卡片容器的状态变量绑定到 flowStatus，重新发布模板。',
+          '卡片空白时，确认当前输入中、完成或出错布局包含绑定 answer 的 Markdown 组件，并重新发布模板；不要创建 flowStatus 或 flowStatusVar。',
           '同一次回复先卡片后纯文本，是卡片被永久拒绝后的预期降级；回复仍会送达，从控制面日志查 param.contentUnsafe 或 param.cardNotExist。'
         ],
         links: [

@@ -1,5 +1,9 @@
 # Changelog
 
+## Version 0.74.6 (2026-08-19)
+
+- Fix DingTalk AI cards to use the platform's native `isFinalize` and `isError` state transitions instead of the unsupported `flowStatus` template variable. A completed interactive card now finishes through the same native protocol. Operators who followed the earlier setup guide must remove `flowStatus` and `flowStatusVar`, bind the `answer` Markdown component in each active state layout, and republish the template.
+
 ## Version 0.74.5 (2026-08-17)
 
 - A Deep Research collector now takes what it needs out of a source in the call that fetches it, takes everything it still needs in one pass when it goes back, and spends a call on a fact it has not written down rather than on one it has. A long collection run stops paging the same downloaded page or data file through the model again and again, which is where most of a Job's tokens went.

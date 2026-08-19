@@ -1682,7 +1682,6 @@ export const channelTabs = [
             '打开钉钉开发者后台 → 卡片平台 → 新建模板，选择“AI 卡片”类别；只有这个类别带 AI 卡片容器，由它绘制输入指示、完成态和出错态。按下表逐个添加模板变量，名称必须完全一致；名称不一致时，对应区域在每次回复里都是空的。'
           ],
           fields: [
-            { name: 'flowStatus', description: '文本。卡片状态：书写中 2、完成 3、失败 5。' },
             { name: 'state', description: '文本。一行状态，例如正在运行的工具名。' },
             { name: 'answer', description: 'Markdown（流式）。回复正文，每一帧全量重写。' },
             { name: 'thought', description: 'Markdown。临时思考草稿，回复结束时清空。' },
@@ -1695,13 +1694,13 @@ export const channelTabs = [
           ]
         },
         {
-          title: '排布组件，并绑定卡片状态',
+          title: '排布组件，并配置状态布局',
           body: [
-            '在 AI 卡片容器内按顺序放组件：meta 与 state 用小号文本放顶部；plan 用文本组件；thought 和 activity 各放进一个折叠区；answer 作为主 Markdown 组件，把内容变量类型设为 markdown 并开启流式，它是唯一按流式频率更新的组件；results 与 receipts 用文本组件；actions 绑定到操作区，并原样透传每个按钮的 value。',
-            '选中 AI 卡片容器，把它的流程状态变量（flowStatusVar）绑定到 flowStatus，保持书写态与失败态启用。'
+            '在 AI 卡片组件中配置输入中、完成和出错布局。需要显示回复的每个布局都放置绑定 answer 的 Markdown 组件，并在输入中布局开启流式；meta 与 state 可用小号文本放顶部，plan 用文本组件，thought 和 activity 可放进折叠区，results 与 receipts 用文本组件。需要保留决策按钮时，输入中和完成布局都要放置绑定 actions 的操作区，并原样透传每个按钮的 value。',
+            '钉钉根据 AI 卡片原生生命周期切换布局：Ankole 在流式更新中发送 isFinalize 后进入完成态，发送 isError 后进入出错态。不要创建或绑定 flowStatus 或 flowStatusVar。'
           ],
           caution:
-            '这条绑定决定卡片是否显示得出内容：容器靠读取 flowStatus 选择绘制哪个状态。状态变量未绑定的容器会永远停在初始状态，而且经常渲染出空白正文。'
+            '如果当前状态布局没有绑定 answer 的 Markdown 组件，该状态会显示空白卡片。每次修改状态布局后都要重新发布模板。'
         },
         {
           title: '发布模板，填入 id 并验证',
@@ -1710,9 +1709,10 @@ export const channelTabs = [
             '验证：发一条能产出好几句话的消息，应出现边写边显示的卡片；回复结束后输入指示停止，思考区与活动区清空。再问一个需要你做决定的问题，此时必须出现按钮，点击后本轮继续；不再对应待答问题的旧按钮会被忽略。长回复约每 2.5 KB 封口一张卡片、在新卡片上继续，卡片始终是会话中的一条新消息，表格等富结构以文本呈现，这些都是平台限制下的预期行为。'
           ],
           bullets: [
-            '卡片空白，或回复结束后仍显示输入指示：容器状态变量没有绑定 flowStatus，重新绑定并发布。',
+            '卡片空白：当前输入中、完成或出错布局没有绑定 answer，或模板没有重新发布。',
             '某个区域始终为空：变量名与上表不一致，或组件没有绑定到它。',
             '答案只在最后出现或完全不出现：answer 组件不是 markdown 流式组件。',
+            '回复结束后仍显示输入指示：查看控制面日志，确认钉钉接受了带 isFinalize 或 isError 的流式更新。',
             '回复是普通 Markdown 消息：模板 id 为空、模板未发布到本应用，或钉钉拒绝了卡片内容，查控制面日志中的 param.contentUnsafe 或 param.cardNotExist。卡片路径永久失败时，本次回复一次性降级为普通 Markdown，回复仍会送达。',
             '按钮出现但点击无反应：操作区没有原样透传按钮的 value。'
           ]

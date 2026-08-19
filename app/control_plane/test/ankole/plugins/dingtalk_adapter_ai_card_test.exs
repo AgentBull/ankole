@@ -123,7 +123,7 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
     assert create_body["callbackType"] == "STREAM"
     assert create_body["outTrackId"] == "ankole:#{event.id}:0"
     assert create_body["openSpaceId"] =~ "dtv1.card//IM_GROUP."
-    assert get_in(create_body, ["cardData", "cardParamMap", "flowStatus"]) == "2"
+    refute Map.has_key?(get_in(create_body, ["cardData", "cardParamMap"]), "flowStatus")
 
     assert_receive {:card_call, "PUT", "/v1.0/card/streaming", stream_body}
     assert stream_body["key"] == "answer"
@@ -177,9 +177,9 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
     assert get_in(terminal_body, ["cardData", "cardParamMap", "answer"]) == "short"
     assert get_in(terminal_body, ["cardData", "cardParamMap", "thought"]) == ""
 
-    # The container renders whichever state `flowStatus` names, and the write
-    # must merge by key so it cannot clear the variables it omits.
-    assert get_in(terminal_body, ["cardData", "cardParamMap", "flowStatus"]) == "3"
+    # The streaming call drives the native completed state. The structural
+    # write stays a merge so it cannot clear variables that it omits.
+    refute Map.has_key?(get_in(terminal_body, ["cardData", "cardParamMap"]), "flowStatus")
     assert terminal_body["cardUpdateOptions"] == %{"updateCardDataByKey" => true}
 
     refute_received {:card_call, "POST", "/v1.0/card/instances/createAndDeliver", _}
@@ -223,12 +223,12 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
     assert_receive {:card_call, "PUT", "/v1.0/card/streaming",
                     %{"outTrackId" => ^otid0, "isFinalize" => true}}
 
-    # Sealing the page commits its state: closing the stream does not move the
-    # container out of the writing state, and the rolled-past card must say so.
+    # Sealing the page moves it to DingTalk's native completed state. The
+    # structural repaint gives the rolled-past card its continuation label.
     assert_receive {:card_call, "PUT", "/v1.0/card/instances",
                     %{"outTrackId" => ^otid0} = sealed_body}
 
-    assert get_in(sealed_body, ["cardData", "cardParamMap", "flowStatus"]) == "3"
+    refute Map.has_key?(get_in(sealed_body, ["cardData", "cardParamMap"]), "flowStatus")
     assert get_in(sealed_body, ["cardData", "cardParamMap", "state"]) == "回答继续于下一张卡片"
     assert get_in(sealed_body, ["cardData", "cardParamMap", "meta"]) == "第 1/2 张"
 
@@ -290,7 +290,7 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
 
     assert_receive {:card_call, "PUT", "/v1.0/card/instances", terminal_body}
     assert get_in(terminal_body, ["cardData", "cardParamMap", "state"]) == "出错"
-    assert get_in(terminal_body, ["cardData", "cardParamMap", "flowStatus"]) == "5"
+    refute Map.has_key?(get_in(terminal_body, ["cardData", "cardParamMap"]), "flowStatus")
   end
 
   test "a continued turn seals the old card without erasing its activity" do
@@ -326,7 +326,7 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
     assert params["answer"] == "旧卡片答案"
     assert params["activity"] =~ "查询资料"
     assert params["thought"] == ""
-    assert params["flowStatus"] == "3"
+    refute Map.has_key?(params, "flowStatus")
   end
 
   test "awaiting_input finalizes without sealing and renders protocol-carrying actions" do
@@ -373,8 +373,9 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
 
     assert_receive {:card_call, "PUT", "/v1.0/card/instances", terminal_body}
 
-    # The card stays in the writing state so its buttons remain live.
-    assert get_in(terminal_body, ["cardData", "cardParamMap", "flowStatus"]) == "2"
+    # No finalization flag was sent, so DingTalk keeps the native input state
+    # while the buttons remain live.
+    refute Map.has_key?(get_in(terminal_body, ["cardData", "cardParamMap"]), "flowStatus")
 
     actions_json = get_in(terminal_body, ["cardData", "cardParamMap", "actions"])
     assert [action] = Torque.decode!(actions_json)

@@ -477,7 +477,7 @@ export const channelTabs = [
         cause: 'DingTalk のカードはテンプレートでホストされます。ルーティングルールの cardTemplateId が空、テンプレートがロボットを所有するアプリに公開されていない、または DingTalk がカードコンテンツを拒否した場合、返信はプレーンな Markdown のままになります。',
         resolution: [
           'Quick start の DingTalk タブの高度なセクションのとおりに AI カードテンプレートを作成し、その id をルーティングルールの cardTemplateId に貼り付けてください。',
-          'カードが空白だったり、返信の終了後も書き込みインジケーターが残ったりする場合は、カードコンテナの状態変数を flowStatus にバインドし、テンプレートを再度公開してください。',
+          'カードが空白の場合は、現在の入力中、完了、または失敗レイアウトに answer にバインドした Markdown コンポーネントがあることを確認し、テンプレートを再公開してください。flowStatus や flowStatusVar は作成しないでください。',
           '一度カードとして届き、その後プレーンテキストになる返信は、恒久的な拒否後の意図したフォールバックです。返信は依然として配信されます。param.contentUnsafe や param.cardNotExist を control plane のログで確認してください。'
         ],
         links: [

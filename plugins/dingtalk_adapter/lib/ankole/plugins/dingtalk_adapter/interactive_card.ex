@@ -7,7 +7,8 @@ defmodule Ankole.Plugins.DingTalkAdapter.InteractiveCard do
   `priv/card_template/README.md`) and every instance only injects that fixed
   variable set. This module owns the `cardParamMap` rendering shared by the
   streaming `AICard` lifecycle and the non-streaming `card` outbox operation,
-  plus the open-space/deliver models derived from a `{:dm, userid}` or
+  finalizes a non-streaming card through DingTalk's native AI card lifecycle,
+  and owns the open-space/deliver models derived from a `{:dm, userid}` or
   `{:group, conversation_id}` target.
 
   Action buttons are rendered as a structured JSON list bound to the template's
@@ -41,18 +42,20 @@ defmodule Ankole.Plugins.DingTalkAdapter.InteractiveCard do
           {:ok, map()} | {:error, Error.t() | term()}
   def deliver(%Client{} = client, template_id, robot_code, space, %OutboxEntry{} = outbox) do
     out_track_id = "ankole:outbox:#{outbox.idempotency_key || outbox.outbound_key}"
+    card_param_map = outbox_param_map(outbox)
 
     params =
       %{
         "cardTemplateId" => template_id,
         "outTrackId" => out_track_id,
         "callbackType" => "STREAM",
-        "cardData" => %{"cardParamMap" => outbox_param_map(outbox)}
+        "cardData" => %{"cardParamMap" => card_param_map}
       }
       |> Map.merge(create_model(space))
       |> Map.merge(deliver_model(space, robot_code))
 
-    with {:ok, body} <- Card.create_and_deliver(client, params) do
+    with {:ok, body} <- Card.create_and_deliver(client, params),
+         {:ok, _stream_body} <- finalize(client, out_track_id, card_param_map["answer"]) do
       {:ok, %{created_source_entry_id: out_track_id, raw_payload: body}}
     end
   end
@@ -65,10 +68,6 @@ defmodule Ankole.Plugins.DingTalkAdapter.InteractiveCard do
         fallback || ""
 
     %{
-      # A `card` outbox row carries a finished payload and never streams, so the
-      # instance is born in the container's done state (see `AICard` for why the
-      # caller owns `flowStatus`).
-      "flowStatus" => "3",
       "state" => optional_text(output, "state") || "",
       "answer" => Markdown.display_chunk(body),
       "thought" => "",
@@ -79,6 +78,28 @@ defmodule Ankole.Plugins.DingTalkAdapter.InteractiveCard do
       "actions" => render_output_actions(output),
       "meta" => ""
     }
+  end
+
+  # A card outbox row carries a finished payload. Creating an AI card starts its
+  # native lifecycle, so one full streaming update displays the answer and moves
+  # the instance to its completed state. The content-derived guid makes retries
+  # idempotent without adding another durable ledger.
+  defp finalize(client, out_track_id, answer) do
+    Card.streaming_update(client, %{
+      "outTrackId" => out_track_id,
+      "guid" => stream_guid(out_track_id, answer),
+      "key" => "answer",
+      "content" => answer,
+      "isFull" => true,
+      "isFinalize" => true,
+      "isError" => false
+    })
+  end
+
+  defp stream_guid(out_track_id, answer) do
+    :crypto.hash(:sha256, "#{out_track_id}:completed:#{answer}")
+    |> Base.encode16(case: :lower)
+    |> String.slice(0, 32)
   end
 
   # A `card` outbox payload carries the portable interaction output shape

@@ -477,7 +477,7 @@ export const channelTabs = [
         cause: 'DingTalk 카드는 템플릿 호스팅 방식입니다. routing 규칙의 cardTemplateId가 비어 있거나, 템플릿이 로봇을 소유한 앱에 게시되지 않았거나, DingTalk가 카드 내용을 거부하면 답변이 일반 Markdown으로 남습니다.',
         resolution: [
           'Quick start의 DingTalk 탭 고급 섹션에 나온 대로 AI 카드 템플릿을 만들고 그 id를 routing 규칙의 cardTemplateId에 붙여 넣으세요.',
-          '카드가 비어 있거나 답변이 끝난 뒤에도 작성 표시기를 유지하면 카드 컨테이너 상태 변수를 flowStatus에 바인딩하고 템플릿을 다시 게시하세요.',
+          '카드가 비어 있으면 현재 입력 중, 완료 또는 실패 레이아웃에 answer에 바인딩된 Markdown 컴포넌트가 있는지 확인하고 템플릿을 다시 게시하세요. flowStatus 또는 flowStatusVar를 만들지 마세요.',
           '한 번은 카드로, 나중에는 일반 텍스트로 도착하는 답변은 영구 거부 후의 의도된 폴백입니다. 답변은 여전히 전달됩니다. control-plane 로그에서 param.contentUnsafe 또는 param.cardNotExist를 확인하세요.'
         ],
         links: [

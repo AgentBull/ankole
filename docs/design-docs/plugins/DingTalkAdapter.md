@@ -102,6 +102,10 @@ send.
 `AICard` shows the reply preview. It uses the configured `cardTemplateId` and a
 deterministic `outTrackId` for each page.
 
+DingTalk owns the card state transition. A stream stays open until the adapter
+sends `isFinalize`, and `isError` selects the failed state. The template does
+not use a custom flow-status variable.
+
 The ActorEvent checkpoint is the durable page ledger. It stores the source
 text, `outTrackId`, and sealed state for each page. It also stores the last
 presentation that recovery can render and any thought cleanup deadline. Sealed
