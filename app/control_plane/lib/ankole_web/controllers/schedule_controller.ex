@@ -109,7 +109,7 @@ defmodule AnkoleWeb.ScheduleController do
           cron_schedule_id: [in: :path, type: :string, required: true],
           idempotency_key: [
             in: :header,
-            name: "Idempotency-Key",
+            name: :"Idempotency-Key",
             type: :string,
             required: true
           ]

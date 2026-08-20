@@ -1,5 +1,9 @@
 # Changelog
 
+## Version 0.76.2 (2026-08-20)
+
+- The Console can run a recurring schedule immediately again. A valid `Idempotency-Key` no longer crashes request validation, and a repeated request still returns the same scheduled event.
+
 ## Version 0.76.1 (2026-08-19)
 
 - No product behavior changes. Agent Computer integration no longer expects the retired standalone compaction endpoint, and Schedule end-to-end coverage no longer declares an unused context, so the current compaction and scheduling contracts run without false failures or warnings.
