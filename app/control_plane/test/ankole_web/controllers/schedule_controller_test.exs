@@ -149,6 +149,31 @@ defmodule AnkoleWeb.ScheduleControllerTest do
            |> json_response(422)
   end
 
+  test "admin manually runs a cron schedule idempotently", %{conn: conn} do
+    %{principal: agent} = agent_fixture()
+    schedule = cron_schedule!(agent.uid, "session-a", "manual-digest")
+    api_spec = AnkoleWeb.APISpec.spec()
+    conn = bearer_conn(conn)
+
+    first =
+      conn
+      |> put_req_header("idempotency-key", "console-manual-digest")
+      |> post(~p"/api/v1/agents/#{agent.uid}/cron-schedules/#{schedule.id}/runs")
+      |> json_response(200)
+
+    assert_schema(first, "ScheduleEventResponse", api_spec)
+
+    repeated =
+      conn
+      |> recycle_bearer()
+      |> put_req_header("idempotency-key", "console-manual-digest")
+      |> post(~p"/api/v1/agents/#{agent.uid}/cron-schedules/#{schedule.id}/runs")
+      |> json_response(200)
+
+    assert get_in(repeated, ["schedule_event", "id"]) ==
+             get_in(first, ["schedule_event", "id"])
+  end
+
   test "admin lists and cancels checkbacks across every session of one agent", %{conn: conn} do
     %{principal: agent} = agent_fixture()
     %{principal: other_agent} = agent_fixture()
