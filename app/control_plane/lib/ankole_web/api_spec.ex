@@ -107,10 +107,6 @@ defmodule AnkoleWeb.APISpec do
         %Tag{
           name: "Background Agent Jobs",
           description: "Durable background Agent work executed by CodexRunner"
-        },
-        %Tag{
-          name: "Brain",
-          description: "Human supervision of current knowledge, provenance, and audit recovery"
         }
       ]
     }

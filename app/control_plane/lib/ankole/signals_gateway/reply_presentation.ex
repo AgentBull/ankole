@@ -125,8 +125,6 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
       "reasoning.delta" -> apply_reasoning_delta(presentation, payload)
       "plan.snapshot" -> apply_plan_snapshot(presentation, payload)
       "tool.activity" -> apply_activity(presentation, payload)
-      "memory.lookup" -> apply_memory_lookup(presentation, payload)
-      "memory.mutation_receipt" -> apply_receipt(presentation, payload, "memory")
       "effect.receipt" -> apply_receipt(presentation, payload, "effect")
       "result.table" -> apply_result(presentation, payload, "table")
       "result.chart" -> apply_result(presentation, payload, "chart")
@@ -363,28 +361,6 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
       |> Map.put("state", working_state(presentation["state"]))
       |> Map.put("activities", activities)
       |> put_revision(payload)
-    end
-  end
-
-  defp apply_memory_lookup(presentation, payload) do
-    operation_id = operation_id(payload) || "memory_lookup"
-    phase = normalize_in(value(payload, "phase"), @activity_phases, "running")
-
-    presentation =
-      apply_activity(presentation, %{
-        "operation_id" => operation_id,
-        "revision" => revision(payload),
-        "phase" => phase,
-        "label" => value(payload, "label"),
-        "label_key" =>
-          value(payload, "label_key") || "signals_gateway.reply.activity.memory_search",
-        "label_bindings" => value(payload, "label_bindings"),
-        "consequential" => false
-      })
-
-    case non_negative_integer(value(payload, "source_count")) do
-      0 -> presentation
-      count -> maybe_put_meta(presentation, "memory_source_count", count)
     end
   end
 

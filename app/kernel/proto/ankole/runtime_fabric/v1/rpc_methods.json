@@ -163,41 +163,6 @@
     "response_type": "ankole.runtime_fabric.v1.CodexLogs2DailyMaintenanceResponse"
   },
   {
-    "method": "memory_browse",
-    "scope": "turn",
-    "effect": "read",
-    "request_type": "ankole.runtime_fabric.v1.MemoryBrowseRequest",
-    "response_type": "ankole.runtime_fabric.v1.JSONPassthroughResponse"
-  },
-  {
-    "method": "memory_health_check",
-    "scope": "turn",
-    "effect": "read",
-    "request_type": "ankole.runtime_fabric.v1.MemoryHealthCheckRequest",
-    "response_type": "ankole.runtime_fabric.v1.JSONPassthroughResponse"
-  },
-  {
-    "method": "memory_open",
-    "scope": "turn",
-    "effect": "read",
-    "request_type": "ankole.runtime_fabric.v1.MemoryOpenRequest",
-    "response_type": "ankole.runtime_fabric.v1.JSONPassthroughResponse"
-  },
-  {
-    "method": "memory_search",
-    "scope": "turn",
-    "effect": "read",
-    "request_type": "ankole.runtime_fabric.v1.MemorySearchRequest",
-    "response_type": "ankole.runtime_fabric.v1.JSONPassthroughResponse"
-  },
-  {
-    "method": "memory_update",
-    "scope": "turn",
-    "effect": "write",
-    "request_type": "ankole.runtime_fabric.v1.MemoryUpdateRequest",
-    "response_type": "ankole.runtime_fabric.v1.JSONPassthroughResponse"
-  },
-  {
     "method": "observability.spans.export",
     "scope": "worker_agent",
     "request_type": "ankole.runtime_fabric.v1.ObservabilitySpansExportRequest",

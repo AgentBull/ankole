@@ -2,7 +2,7 @@ import { normalize, resolve } from 'node:path'
 import { readFile, realpath } from 'node:fs/promises'
 import { z } from 'zod'
 import type { ActorTurnRef } from '../../lanes/actor_lane'
-import type { AgentTool, AgentToolResult } from '../../core'
+import { defineWorkerTool, type AgentToolResult, type WorkerAgentTool } from '../../core'
 import { jsonToolResult } from '../../core/tool-result'
 import { jsonBytes } from '../../fabric/envelope_proto'
 import { rpcMethods, type RPCRequester, type RuntimeSkillSummary } from '../../lanes/rpc_lane'
@@ -58,7 +58,7 @@ export interface CreateSkillToolsOptions {
  * `skill_append` appends to that DB overlay over RuntimeFabric and does not write
  * any workspace file. Assignment remains a control-plane concern.
  */
-export function createSkillTools(_workspaceRoot: string, opts: CreateSkillToolsOptions): AgentTool<any>[] {
+export function createSkillTools(_workspaceRoot: string, opts: CreateSkillToolsOptions): WorkerAgentTool<any>[] {
   return [createSkillViewTool(opts), createSkillAppendTool(opts), createSkillReplaceTool(opts)]
 }
 
@@ -71,8 +71,8 @@ export function createSkillTools(_workspaceRoot: string, opts: CreateSkillToolsO
  * thrown read error, since enabling/assigning skills is a control-plane decision,
  * not something the model does.
  */
-function createSkillViewTool(opts: CreateSkillToolsOptions): AgentTool<typeof SkillViewParams, SkillToolDetails> {
-  return {
+function createSkillViewTool(opts: CreateSkillToolsOptions): WorkerAgentTool<typeof SkillViewParams, SkillToolDetails> {
+  return defineWorkerTool({
     name: 'skill_view',
     description:
       'Read an enabled inline skill file. For a Skill with ankole-runtime: background_job, this returns only background agent job routing guidance and rejects referenced resources. For inline Skills, read referenced files only when needed, resolve relative paths from the returned skill directory, and use absolute paths for tool calls. This tool cannot enable disabled skills.',
@@ -114,7 +114,7 @@ function createSkillViewTool(opts: CreateSkillToolsOptions): AgentTool<typeof Sk
         details: { name: params.name, path: filePath }
       }
     }
-  }
+  })
 }
 
 /**
@@ -122,8 +122,10 @@ function createSkillViewTool(opts: CreateSkillToolsOptions): AgentTool<typeof Sk
  * control plane owns the read-modify-write transaction so concurrent turns do
  * not lose each other's additions.
  */
-function createSkillAppendTool(opts: CreateSkillToolsOptions): AgentTool<typeof SkillAppendParams, SkillToolDetails> {
-  return {
+function createSkillAppendTool(
+  opts: CreateSkillToolsOptions
+): WorkerAgentTool<typeof SkillAppendParams, SkillToolDetails> {
+  return defineWorkerTool({
     name: 'skill_append',
     description:
       "Append durable notes to this agent's DB-backed overlay for an enabled skill. Use only after reading the skill and only for agent-specific additions learned while using it.",
@@ -146,7 +148,7 @@ function createSkillAppendTool(opts: CreateSkillToolsOptions): AgentTool<typeof 
       const details: SkillToolDetails = { name: params.name, changed: true }
       return jsonToolResult(details)
     }
-  }
+  })
 }
 
 /**
@@ -154,8 +156,10 @@ function createSkillAppendTool(opts: CreateSkillToolsOptions): AgentTool<typeof 
  * optimistic compare-and-swap fence. A concurrent writer causes the control
  * plane to reject the replacement instead of silently losing an update.
  */
-function createSkillReplaceTool(opts: CreateSkillToolsOptions): AgentTool<typeof SkillReplaceParams, SkillToolDetails> {
-  return {
+function createSkillReplaceTool(
+  opts: CreateSkillToolsOptions
+): WorkerAgentTool<typeof SkillReplaceParams, SkillToolDetails> {
+  return defineWorkerTool({
     name: 'skill_replace',
     description:
       "Replace all durable notes in this agent's DB-backed overlay for an enabled skill. Read the skill first, then use this for revisions, deduplication, or budget-preserving compaction; a concurrent change is rejected.",
@@ -183,7 +187,7 @@ function createSkillReplaceTool(opts: CreateSkillToolsOptions): AgentTool<typeof
 
       return jsonToolResult({ name: params.name, changed: true })
     }
-  }
+  })
 }
 
 /**

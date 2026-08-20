@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { AgentTool, AgentToolResult } from '../../core'
+import { defineWorkerTool, type AgentToolResult, type WorkerAgentTool } from '../../core'
 import { jsonToolResult } from '../../core/tool-result'
 
 const RawChoice = z.union([
@@ -59,8 +59,8 @@ const DESCRIPTION = [
   'On success it returns the normalized question and choices, records them durably, and ends the current turn. Do not emit another answer or call more tools; the user reply arrives as the next user message.'
 ].join('\n')
 
-export function createClarifyTool(): AgentTool<typeof ClarifyParams, ClarifyDetails> {
-  return {
+export function createClarifyTool(): WorkerAgentTool<typeof ClarifyParams, ClarifyDetails> {
+  return defineWorkerTool({
     name: 'clarify',
     description: DESCRIPTION,
     schema: ClarifyParams,
@@ -78,7 +78,7 @@ export function createClarifyTool(): AgentTool<typeof ClarifyParams, ClarifyDeta
 
       return jsonToolResult(details, { terminate: true })
     }
-  }
+  })
 }
 
 function normalizeChoice(value: ClarifyChoiceInput): NormalizedChoice {

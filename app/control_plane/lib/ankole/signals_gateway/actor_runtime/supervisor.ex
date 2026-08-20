@@ -33,7 +33,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Supervisor do
     :ok = BackgroundAgentJobWorkerConfig.ensure_registered()
     :ok = DeadLetterNoticeConfig.ensure_registered()
     :ok = Ankole.Security.SSRFFilter.ensure_registered()
-    :ok = Ankole.Brain.ensure_registered()
     :ok = Ankole.IdentityProviders.Config.ensure_registered()
 
     # Start every inbound consumer before the socket-owning broker. Domain work

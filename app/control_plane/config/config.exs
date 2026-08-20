@@ -70,11 +70,6 @@ config :ankole, Oban,
      crontab: [
        {"* * * * *", Ankole.SignalsGateway.ActorRuntime.Jobs.EnqueueDailySessionResets},
        {"0 * * * *", Ankole.IdentityProviders.Jobs.EnqueueDirectorySyncs},
-       {"*/5 * * * *", Ankole.Brain.Jobs.EnqueueEpisodeSummaries},
-       {"*/5 * * * *", Ankole.Brain.Jobs.EmbedPendingEpisodes},
-       {"*/5 * * * *", Ankole.Brain.Jobs.EmbedPendingBlocks},
-       {"* * * * *", Ankole.Brain.Jobs.EnqueuePrincipalDreaming},
-       {"* * * * *", Ankole.Brain.Jobs.EnqueueSourceSyncs},
        {"*/15 * * * *", Ankole.SignalsGateway.Jobs.CleanupExpiredState},
        {"41 * * * *", Ankole.AIGateway.Jobs.CleanupExpiredArtifacts}
      ]}

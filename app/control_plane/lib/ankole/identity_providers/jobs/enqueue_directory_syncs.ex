@@ -5,7 +5,7 @@ defmodule Ankole.IdentityProviders.Jobs.EnqueueDirectorySyncs do
 
   use Oban.Worker, queue: :default, max_attempts: 3
 
-  alias Ankole.IdentityProviders
+  alias Ankole.IdentityProviders.DirectorySync
 
   @impl Oban.Worker
   @spec perform(Oban.Job.t()) :: {:ok, map()} | {:error, term()}
@@ -13,7 +13,7 @@ defmodule Ankole.IdentityProviders.Jobs.EnqueueDirectorySyncs do
     metadata = job_metadata(job)
 
     :telemetry.span([:ankole, :oban, :job], metadata, fn ->
-      result = IdentityProviders.enqueue_directory_syncs(reason: "periodic", source: "cron")
+      result = DirectorySync.enqueue_directory_syncs(reason: "periodic", source: "cron")
       {result, Map.put(metadata, :result, result_status(result))}
     end)
   end

@@ -526,8 +526,8 @@ different Workers run Jobs for the same Agent without sharing SQLite state.
 
 Project initialization writes one `AGENTS.md` at the Job Workspace root. The
 optional workspace template supplies the first part. The runner appends the
-rendered Job context after it: the Agent SOUL and MISSION documents, the
-durable Brain context, and the execution-context facts.
+rendered Job context after it: the Agent SOUL and MISSION documents, and the
+execution-context facts.
 
 The rendered Job context can end with a `Job Guidance` section. Its body is the
 shared template `app/library/templates/AGENT_JOB.md`, read from the builtin

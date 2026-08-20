@@ -5,10 +5,7 @@ import type { AppConfigurationItem } from '../api/generated/types.gen'
  * row and edits every member on one page. Add a prefix here when a subsystem grows enough keys that
  * the flat list stops explaining them; nothing else in the console needs to change.
  */
-const SETTING_GROUPS = [
-  { id: 'brain', prefix: 'brain.' },
-  { id: 'observability', prefix: 'observability.traces.' }
-] as const
+const SETTING_GROUPS = [{ id: 'observability', prefix: 'observability.traces.' }] as const
 
 /** Keys whose value another console surface writes. The list sends the operator there. */
 const SETTING_OWNER_ROUTES: Record<string, string> = {

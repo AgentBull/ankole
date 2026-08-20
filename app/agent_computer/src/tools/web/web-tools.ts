@@ -7,7 +7,7 @@ import {
   safeJsonStringify as safeJSONStringify
 } from '@agentbull/active-support'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
-import type { ActivityDescription, AgentTool, AgentToolResult } from '../../core'
+import { defineWorkerTool, type ActivityDescription, type AgentToolResult, type WorkerAgentTool } from '../../core'
 import type { AIGatewayHTTPClient } from '../../core/ai_gateway_transport'
 import { errorMessage } from '../../common/errors'
 import { WEB_FETCH_BUDGET_CHARS, fetchedPageHost, renderFetchedPages, stringField } from './fetched-page-text'
@@ -58,7 +58,7 @@ const WebFetchParams = z.object({
  * web_fetch can fall back to an internal rendered-page extractor, while
  * web_search remains provider-backed because the worker does not own a search index.
  */
-export async function createWebTools(opts: CreateWebToolsOptions): Promise<AgentTool<any>[]> {
+export async function createWebTools(opts: CreateWebToolsOptions): Promise<WorkerAgentTool<any>[]> {
   return [
     createWebSearchTool(opts.aiGateway),
     createWebFetchTool(opts.aiGateway, {
@@ -71,8 +71,8 @@ export async function createWebTools(opts: CreateWebToolsOptions): Promise<Agent
 /**
  * Builds the provider-backed web_search tool.
  */
-function createWebSearchTool(aiGateway: AIGatewayHTTPClient): AgentTool<typeof WebSearchParams, WebToolDetails> {
-  return {
+function createWebSearchTool(aiGateway: AIGatewayHTTPClient): WorkerAgentTool<typeof WebSearchParams, WebToolDetails> {
+  return defineWorkerTool({
     name: 'web_search',
     description: 'Search the public web through the configured AIGateway web search provider.',
     schema: WebSearchParams,
@@ -100,7 +100,7 @@ function createWebSearchTool(aiGateway: AIGatewayHTTPClient): AgentTool<typeof W
         details: detailsObject(body)
       }
     }
-  }
+  })
 }
 
 /**
@@ -116,8 +116,8 @@ function createWebFetchTool(
     workspaceRoot: string
     renderedFallback?: RenderedWebFetchOptions
   }
-): AgentTool<typeof WebFetchParams, WebToolDetails> {
-  return {
+): WorkerAgentTool<typeof WebFetchParams, WebToolDetails> {
+  return defineWorkerTool({
     name: 'web_fetch',
     description: `Extract and return readable text from HTTPS web pages through AIGateway, with an internal rendered-page fallback when the provider is unavailable. This tool returns text only, never binary file content. Do not use web_fetch for PDFs, archives, images, audio/video, executables, or other binary files; use the command shell tool to run aria2c for those downloads. Pass all needed text-page URLs in one call. One call returns at most about ${WEB_FETCH_BUDGET_CHARS} characters of page text; a longer page shows its start and its end, its full text is saved in the workspace, and the result gives the file path and the read_file call that shows the omitted middle.`,
     schema: WebFetchParams,
@@ -143,7 +143,7 @@ function createWebFetchTool(
         details: rendered.details
       }
     }
-  }
+  })
 }
 
 /**

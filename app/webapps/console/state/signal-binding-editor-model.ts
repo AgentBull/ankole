@@ -5,11 +5,14 @@ import type { SignalBindingItem, SignalBindingWriteRequest } from '../api/genera
 
 export type GroupMessageMode = NonNullable<SignalBindingWriteRequest['group_message_mode']>
 
+export type UnmatchedSenderPolicy = NonNullable<SignalBindingWriteRequest['unmatched_sender_policy']>
+
 export type SignalBindingEditorDraft = {
   agentUID: string
   adapterID: string
   name: string
   groupMessageMode: GroupMessageMode | ''
+  unmatchedSenderPolicy: UnmatchedSenderPolicy | ''
   confidentialMemory: boolean
   config: JSONObject
 }
@@ -30,6 +33,7 @@ export const SignalBindingEditorModel = createModel(() => {
   const adapterID = signal('')
   const name = signal('')
   const groupMessageMode = signal<GroupMessageMode | ''>('')
+  const unmatchedSenderPolicy = signal<UnmatchedSenderPolicy | ''>('')
   const confidentialMemory = signal(false)
   const config = signal<JSONObject>({})
   const configPatch = signal<JSONObject>({})
@@ -43,6 +47,7 @@ export const SignalBindingEditorModel = createModel(() => {
         adapterID.value !== source.adapterID ||
         name.value !== source.name ||
         groupMessageMode.value !== source.groupMessageMode ||
+        unmatchedSenderPolicy.value !== source.unmatchedSenderPolicy ||
         confidentialMemory.value !== source.confidentialMemory ||
         JSON.stringify(config.value) !== JSON.stringify(source.config))
     )
@@ -54,6 +59,7 @@ export const SignalBindingEditorModel = createModel(() => {
       adapterID.value = draft.adapterID
       name.value = draft.name
       groupMessageMode.value = draft.groupMessageMode
+      unmatchedSenderPolicy.value = draft.unmatchedSenderPolicy
       confidentialMemory.value = draft.confidentialMemory
       config.value = draft.config
       configPatch.value = {}
@@ -68,6 +74,7 @@ export const SignalBindingEditorModel = createModel(() => {
     adapterID,
     name,
     groupMessageMode,
+    unmatchedSenderPolicy,
     confidentialMemory,
     config,
     configPatch,

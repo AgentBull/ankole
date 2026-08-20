@@ -69,7 +69,7 @@ AIGateway 配额耗尽且池有已知的未来恢复时间时，生命周期会�
 
 一个任务保留一个可选的工作空间模板，但每一次执行用的是 agent *当前* 启用的 Agent Plugins 和兼容 Skills——不是 spawn 时冻结的快照。派发路径（`BackgroundAgentJobDispatch.process`）从 actor 事件解析出任务，交给回合运行时，并把 steer 事件单独处理，以免一次发往 session 的实时交付被误当成对任务的 steer。每个模型回合都通过 AIGateway，并使用任务创建时保存的 Provider 绑定。若该 Provider 有多个凭据，选择、亲和、刷新和重试都由 AIGateway 管理；任务没有账号字段或账号并发槽。
 
-任务第一次初始化工作空间时，runner 组装项目 `AGENTS.md`：可选的工作空间模板在最前，随后追加渲染出的任务上下文——agent 的 SOUL 与 MISSION、持久 Brain 上下文和执行事实。共享模板 `app/library/templates/AGENT_JOB.md` 仍作为扩展点，但随产品交付的文件为空，因此 runner 不生成 Job Guidance 一节。Codex 项目配置把原生子 agent 等待的最小值设为 1 分钟，默认值设为 2 分钟；不设置最大值，因此沿用 Codex 默认值。这样可以减少空等待超时后模型重复进入，相关问题见 [openai/codex#35259](https://github.com/openai/codex/issues/35259)。续接既有线程的任务保留原有 `AGENTS.md`。
+任务第一次初始化工作空间时，runner 组装项目 `AGENTS.md`：可选的工作空间模板在最前，随后追加渲染出的任务上下文——agent 的 SOUL 与 MISSION 和执行事实。共享模板 `app/library/templates/AGENT_JOB.md` 仍作为扩展点，但随产品交付的文件为空，因此 runner 不生成 Job Guidance 一节。Codex 项目配置把原生子 agent 等待的最小值设为 1 分钟，默认值设为 2 分钟；不设置最大值，因此沿用 Codex 默认值。这样可以减少空等待超时后模型重复进入，相关问题见 [openai/codex#35259](https://github.com/openai/codex/issues/35259)。续接既有线程的任务保留原有 `AGENTS.md`。
 
 ## 运维界面
 

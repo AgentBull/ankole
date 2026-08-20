@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { AgentTool, AgentToolResult } from '../../core'
+import { defineWorkerTool, type AgentToolResult, type WorkerAgentTool } from '../../core'
 import { ModelIntegerID, modelIntegerIDFromWire, modelIntegerIDToWire } from '../../core/model-integer-id'
 import { jsonObjectFromBytes } from '../../fabric/envelope_proto'
 import type { TurnStart } from '../../lanes/actor_lane'
@@ -64,8 +64,8 @@ export type SendMessageToBackgroundJobToolOptions = {
 
 export function createSendMessageToBackgroundJobTool(
   opts: SendMessageToBackgroundJobToolOptions
-): AgentTool<typeof SendMessageToBackgroundJobParamsSchema, SendMessageToBackgroundJobResult> {
-  return {
+): WorkerAgentTool<typeof SendMessageToBackgroundJobParamsSchema, SendMessageToBackgroundJobResult> {
+  return defineWorkerTool({
     name: 'send_message_to_background_job',
     description: [
       'Send a message to any live job: queued, running, or waiting_on_user.',
@@ -190,7 +190,7 @@ export function createSendMessageToBackgroundJobTool(
         gate.close()
       }
     }
-  }
+  })
 }
 
 type ObservationOutcome =

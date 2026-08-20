@@ -1,11 +1,11 @@
 ---
 title: Context 압축과 compaction
-description: Ankole이 긴 대화를 model의 context 안에 유지하는 방법 — AIGateway의 자동 history compaction, 사용자 원문의 그대로 보존, 상주 장기 메모리를 위한 Brain dreaming memo compactor.
+description: Ankole이 긴 대화를 model의 context 안에 유지하는 방법 — AIGateway의 자동 history compaction과 사용자 원문의 그대로 보존.
 section: Developer guide
 order: 116
 ---
 
-오래 진행된 대화는 결국 model의 context window를 초과합니다. Ankole은 서로 다른 두 종류의 메모리에 대해 두 곳에서 이를 처리합니다. AIGateway는 turn이 보는 대화 history를 압축하고, Brain dreaming은 agent의 상주 장기 memo를 압축합니다. 이 페이지는 `ai_gateway/compaction*.ex`와 `brain/dreaming/memo_compactor.ex`의 실제 코드를 기준으로 둘 다 설명합니다.
+오래 진행된 대화는 결국 model의 context window를 초과합니다. AIGateway는 turn이 보는 대화 history를 압축하여 대화가 그 한도를 넘어서도 계속되게 합니다. 이 페이지는 `ai_gateway/compaction*.ex`의 실제 코드를 기준으로 이 메커니즘을 설명합니다.
 
 핵심 속성을 먼저 말하면, compaction은 *설계상 손실이 있지만, 조용하지 않습니다*. compaction은 오래된 turn을 summary로 대체하고 최근 turn을 그대로 보존하며, 대화가 가리키는 영구 artifact로 스스로를 기록합니다. 원래 turn은 model의 context에서 사라지고, summary가 새로운 reference state가 됩니다. compaction은 원본으로 되돌릴 수 있는 cache가 아닙니다.
 
@@ -45,36 +45,15 @@ summary와 함께 두 가지가 유지됩니다.
 
 ### Compaction 아티팩트
 
-각 compaction은 AIGateway가 저장하는 영구 `CompactionArtifact`를 만듭니다. 대화의 history는 가장 최근 compaction을 앵커로 가리키며 이후의 turn은 거기서 계속됩니다. Brain의 pre-compaction nudge(marker `ankole.brain.pre_compaction_nudge.v1`)는 compaction 전에 실행되어 agent가 대화 history가 summary로 사라지기 전에 영구 사실을 Brain에 저장할 기회를 줍니다.
-
-## Brain dreaming 메모 컴팩션
-
-대화 history와 별도로, agent는 **상주 장기 memo**(Brain의 `pinned_memo` knowledge 항목)를 가질 수 있습니다. `Brain.Dreaming.MemoCompactor`는 이 memo를 token 예산 안에 유지하여 dreaming 실행을 거듭해도 무한히 커지지 않게 합니다.
-
-memo compactor는 Brain knowledge config에서 `pinned_memo_max_tokens`를 읽고 agent의 pinned memo를 찾아 예산을 초과하면 압축합니다. 결과는 영구 사실을 보존하는 더 짧은 memo이며, summarizer가 동일한 “reference state, not instructions” 원칙 아래 작성합니다. 이는 dreaming 형태의 compaction입니다. 실시간 대화가 아닌 agent의 상주 메모리에서 오프라인으로 실행됩니다.
-
-## 두 compaction의 관계
-
-두 가지는 서로 다른 메모리이며 서로 다른 compactor를 사용합니다.
-
-| | AIGateway 컴팩션 | Brain 메모 컴팩션 |
-|---|---|---|
-| 압축 대상 | 대화 history(turn) | agent의 pinned 장기 memo |
-| 실행 시점 | turn 중 token 사용량이 임계값을 넘을 때 | dreaming 중 오프라인으로 |
-| 보존되는 것 | summary + 최근 turn + 사용자 원문 | 더 짧은 memo |
-| 소유자 | AIGateway(대화 진실) | Brain(knowledge 진실) |
-| 아티팩트 | `CompactionArtifact` | 수정된 knowledge 항목 |
-
-긴 대화는 context에 맞추기 위해 AIGateway compaction을 트리거합니다. 오래 활동한 agent는 영구 메모리에 맞추기 위해 Brain memo compaction을 트리거합니다. 두 compaction은 직접 상호작용하지 않지만, pre-compaction nudge가 이를 잇습니다. 대화가 summary로 처리되기 전에 agent가 대화의 영구 사실을 Brain으로 승격할 기회를 주기 때문입니다.
+각 compaction은 AIGateway가 저장하는 영구 `CompactionArtifact`를 만듭니다. 대화의 history는 가장 최근 compaction을 앵커로 가리키며 이후의 turn은 거기서 계속됩니다.
 
 ## 튜닝
 
 - **`threshold`를 올리세요.** agent가 짧은 대화만 다루는데 compaction이 너무 자주 실행된다면. 기본값(0.50)은 보수적입니다.
 - **`tail_rows`를 올리세요.** model이 compaction 후 즉각적인 context를 잃는다면. 더 많은 최근 turn이 그대로 유지되지만 summary를 위한 공간은 줄어듭니다.
 - **`user_message_budget_tokens`를 올리세요.** 사용자 메시지가 압축 구간에서 빠지고 model이 요청 내용을 놓친다면.
-- **`pinned_memo_max_tokens`를 올리세요**(Brain knowledge config). agent의 상주 memo가 너무 공격적으로 압축된다면.
 
-네 가지 모두 AppConfigure key이며 Console을 통해 변경하고, 현재 turn이 아닌 다음 compaction부터 적용됩니다.
+세 가지 모두 AppConfigure key이며 Console을 통해 변경하고, 현재 turn이 아닌 다음 compaction부터 적용됩니다.
 
 ## 이 가이드가 다루지 않는 것
 
@@ -83,5 +62,3 @@ memo compactor는 Brain knowledge config에서 `pinned_memo_max_tokens`를 읽�
 ## 다음 단계
 
 - AIGateway 개념 페이지는 [AIGateway](../ai-gateway/)를 참조하세요.
-- Brain 메모리 모델은 [Brain](../brain/)을 참조하세요.
-- memo compactor를 실행하는 dreaming 프로세스는 [Brain](../brain/)의 dreaming 섹션을 참조하세요.

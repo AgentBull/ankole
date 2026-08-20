@@ -5,7 +5,7 @@ section: Developer guide
 order: 106
 ---
 
-Ankole의 모든 작업 — 사람의 로그인, agent의 turn 실행, job이 소유자를 깨우는 것, Brain 쓰기 — 은 Principal이 수행하며, 그 Principal이 무엇을 할 수 있는지는 작업이 일어나는 순간 AuthZ가 결정합니다. 이 페이지는 그 경계를 `Ankole.Principals`와 `Ankole.AuthZ`의 실제 코드에 대응시켜 설명합니다.
+Ankole의 모든 작업 — 사람의 로그인, agent의 turn 실행, job이 소유자를 깨우는 것 — 은 Principal이 수행하며, 그 Principal이 무엇을 할 수 있는지는 작업이 일어나는 순간 AuthZ가 결정합니다. 이 페이지는 그 경계를 `Ankole.Principals`와 `Ankole.AuthZ`의 실제 코드에 대응시켜 설명합니다.
 
 중요한 속성을 먼저 밝히자면, 인가(authorization)는 model에게 요청되는 관례가 아니라 경계에서 강제되는 런타임 사실입니다. Principal은 지속 가능한(durable) 책임 주체이며, 그 부여(grants)는 PostgreSQL에 저장되고, 검사되는 모든 작업은 kernel이 명시적 스냅샷을 기준으로 평가하며, 호출자는 그 결정을 반드시 따라야 합니다.
 
@@ -60,7 +60,6 @@ AuthZ는 agent가 우회할 수 있는 계층이 아닙니다. 런타임이 중�
 
 - AIGateway는 검증된 token에서 모든 호출의 주체(subject)를 해석하며, 주체의 grant가 도달할 수 있는 model selector와 provider를 결정합니다.
 - Actor Runtime은 agent Principal이 소유한 activation으로 모든 turn을 펜싱합니다. 다른 주체의 응답은 펜스를 통과하지 못합니다.
-- Brain은 conversation 선언과 소유자 Principal을 통해 모든 읽기와 쓰기의 범위를 정합니다. 쓰기의 authority mode는 payload가 아니라 actor에서 파생됩니다.
 - Console 작업은 검증된 admin token을 통해 수행되며, admin Principal의 그룹 멤버십이 무엇을 변경할 수 있는지 결정합니다.
 
 model은 “나는 허용되어 있다”고 주장할 수 없습니다. 경계는 Principal과 grant를 확인하고 결정에 따라 행동합니다.
@@ -91,4 +90,3 @@ AuthZ는 프롬프트 지시도 희망도 아닙니다. model에게 책임을 �
 
 - AIGateway 가장자리에서 검증된 token이 Principal로 해석되는 방식에 대해서는 [AIGateway API](../ai-gateway/) 문서를 읽으세요.
 - agent Principal의 activation이 turn을 펜싱하는 방식에 대해서는 [Actor Runtime](../actor-runtime/) 문서를 읽으세요.
-- Brain이 actor에서 쓰기 권한을 파생하는 방식에 대해서는 [Brain](../brain/) 문서를 읽으세요.

@@ -14,8 +14,7 @@ import {
 } from 'node:fs'
 import { join } from 'node:path'
 import type { ActorTurnRef } from '../../lanes/actor_lane'
-import type { RPCRequester, BrainSnapshot, RuntimeSkillSummary } from '../../lanes/rpc_lane'
-import { formatAgentDurableContext } from '../../prompts/durable_context'
+import type { RPCRequester, RuntimeSkillSummary } from '../../lanes/rpc_lane'
 import { labeledZonedDateTime } from '../../prompts/zoned_time'
 import {
   assertValidSkillName,
@@ -91,7 +90,6 @@ export function renderCodexJobAgents(input: {
   soul: string
   mission: string
   jobGuidance?: string
-  brainSnapshot?: BrainSnapshot
   timezone?: string | null
   now?: Date
 }): { content: string } {
@@ -101,7 +99,6 @@ export function renderCodexJobAgents(input: {
       soul: input.soul,
       mission: input.mission,
       jobGuidance: input.jobGuidance,
-      brainSnapshot: input.brainSnapshot,
       timezone: input.timezone,
       now: input.now ?? new Date()
     })
@@ -246,7 +243,6 @@ function renderTaskAgents(input: {
   soul: string
   mission: string
   jobGuidance?: string
-  brainSnapshot?: BrainSnapshot
   background?: string
   notes?: string
   timezone?: string | null
@@ -263,8 +259,7 @@ function renderTaskAgents(input: {
     `Job workspace (the process cwd): ${input.jobRoot}.`,
     'All absolute paths shown to you are the real paths inside this Worker. Relative paths resolve from the Job workspace.',
     'Your final message is the Job result and the caller accepts it as the verification record: verify the work against what the task says the deliverable must satisfy, and state the outcome with evidence, relevant paths, and remaining risks.',
-    'The long-term memory system (codename Brain) preserves chat messages, curated current knowledge entries, and external materials that people ask it to learn so future work can retrieve the few most relevant items.',
-    'The caller owns user-visible replies, attachments, scheduling, and durable Skill writes. Projected long-term memory tools operate only inside the server-validated caller conversation scope.',
+    'The caller owns user-visible replies, attachments, scheduling, and durable Skill writes.',
     'If genuinely required information is missing, the lead agent must call request_parent_input; child agents must report the question to the lead.',
     'Complete foreground work before ending the turn; do not leave required shell jobs running in the background.'
   ]
@@ -275,7 +270,6 @@ function renderTaskAgents(input: {
     '# Ankole Background Agent Job Context',
     section('SOUL', input.soul),
     section('MISSION', input.mission),
-    section('Durable Context', formatAgentDurableContext(input.brainSnapshot)),
     section('Background', input.background),
     section('Notes', input.notes),
     section('Execution Context', executionContext),

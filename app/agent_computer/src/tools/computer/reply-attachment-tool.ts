@@ -1,6 +1,6 @@
 import { basename, relative, resolve } from 'node:path'
 import { z } from 'zod'
-import type { AgentTool, AgentToolResult } from '../../core'
+import { defineWorkerTool, type AgentToolResult, type WorkerAgentTool } from '../../core'
 import { jsonToolResult } from '../../core/tool-result'
 import { insideAgentHome, resolveAgentHomePath } from '../../core/agent-home-paths'
 import { compactActivityPath } from '../activity-summary'
@@ -34,8 +34,8 @@ interface ReplyAttachmentDetails {
  */
 export function createReplyAttachmentTool(
   context: ComputerToolContext
-): AgentTool<typeof ReplyAttachmentParams, ReplyAttachmentDetails> {
-  return {
+): WorkerAgentTool<typeof ReplyAttachmentParams, ReplyAttachmentDetails> {
+  return defineWorkerTool({
     name: 'reply_attachment',
     description: `Queue a file for native delivery with the final reply: place the deliverable under ${context.userFilesRoot} and call reply_attachment with that real path. Success confirms that Ankole recorded the file, not that the chat provider accepted it. In the final answer, say the file is prepared for delivery; do not claim that the provider already received it.`,
     schema: ReplyAttachmentParams,
@@ -77,7 +77,7 @@ export function createReplyAttachmentTool(
 
       return jsonToolResult(details)
     }
-  }
+  })
 }
 
 /**

@@ -1414,9 +1414,15 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           plugin_id: %Schema{type: :string, nullable: true},
           display_name: LocalizedText,
           fields: %Schema{type: :array, items: SignalAdapterField},
-          group_message_mode_field: SignalAdapterField
+          group_message_mode_field: SignalAdapterField,
+          unmatched_sender_policy_field: SignalAdapterField
         },
-        required: [:adapter_id, :fields, :group_message_mode_field],
+        required: [
+          :adapter_id,
+          :fields,
+          :group_message_mode_field,
+          :unmatched_sender_policy_field
+        ],
         additionalProperties: false
       },
       struct?: false
@@ -1617,6 +1623,132 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
     )
   end
 
+  defmodule IdentityMappingRequestItem do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "IdentityMappingRequestItem",
+        type: :object,
+        properties: %{
+          id: %Schema{type: :string},
+          provider: %Schema{type: :string},
+          external_id: %Schema{type: :string},
+          display_name: %Schema{type: :string, nullable: true},
+          email: %Schema{type: :string, nullable: true},
+          mobile: %Schema{type: :string, nullable: true},
+          metadata: JSONValue,
+          first_seen_at: %Schema{type: :string, format: :"date-time"},
+          last_seen_at: %Schema{type: :string, format: :"date-time"}
+        },
+        required: [:id, :provider, :external_id, :first_seen_at, :last_seen_at],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule IdentityMappingRequestListResponse do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "IdentityMappingRequestListResponse",
+        type: :object,
+        properties: %{
+          identity_mapping_requests: %Schema{type: :array, items: IdentityMappingRequestItem}
+        },
+        required: [:identity_mapping_requests],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule IdentityMappingBindRequest do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "IdentityMappingBindRequest",
+        type: :object,
+        properties: %{
+          principal_uid: %Schema{type: :string}
+        },
+        required: [:principal_uid],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule IdentityMappingWriteRequest do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "IdentityMappingWriteRequest",
+        type: :object,
+        properties: %{
+          principal_uid: %Schema{type: :string},
+          provider: %Schema{type: :string},
+          external_id: %Schema{type: :string}
+        },
+        required: [:principal_uid, :provider, :external_id],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule IdentityMappingItem do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "IdentityMappingItem",
+        type: :object,
+        properties: %{
+          principal_uid: %Schema{type: :string},
+          provider: %Schema{type: :string},
+          external_id: %Schema{type: :string}
+        },
+        required: [:principal_uid, :provider, :external_id],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule IdentityMappingResponse do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "IdentityMappingResponse",
+        type: :object,
+        properties: %{
+          identity_mapping: IdentityMappingItem
+        },
+        required: [:identity_mapping],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
   defmodule SignalBindingWriteRequest do
     @moduledoc false
 
@@ -1631,6 +1763,11 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           group_message_mode: %Schema{
             type: :string,
             enum: ["addressed_only", "observe_all", "may_intervene"],
+            nullable: true
+          },
+          unmatched_sender_policy: %Schema{
+            type: :string,
+            enum: ["manual_review", "create_standalone"],
             nullable: true
           },
           confidential_memory: %Schema{type: :boolean, default: false}
@@ -1657,6 +1794,11 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           group_message_mode: %Schema{
             type: :string,
             enum: ["addressed_only", "observe_all", "may_intervene"],
+            nullable: true
+          },
+          unmatched_sender_policy: %Schema{
+            type: :string,
+            enum: ["manual_review", "create_standalone"],
             nullable: true
           },
           confidential_memory: %Schema{type: :boolean, nullable: true}
@@ -1766,6 +1908,10 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
             type: :string,
             enum: ["ignore", "record_only", "may_intervene"]
           },
+          unmatched_sender_policy: %Schema{
+            type: :string,
+            enum: ["manual_review", "create_standalone"]
+          },
           confidential_memory: %Schema{type: :boolean},
           enabled: %Schema{type: :boolean},
           unavailable_reason: %Schema{type: :string, nullable: true}
@@ -1777,6 +1923,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           :config_ref,
           :config_key,
           :unaddressed_group_message_policy,
+          :unmatched_sender_policy,
           :confidential_memory,
           :enabled
         ],

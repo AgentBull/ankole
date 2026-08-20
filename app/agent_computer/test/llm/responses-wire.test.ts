@@ -12,6 +12,7 @@ import {
   responseFrameRefreshesStaleDeadline
 } from '../../src/core/llm/session'
 import { buildResponseCreateParams, statefulToolResultsRecordParams, toResponseInput } from '../../src/core/llm/wire'
+import { defineWorkerTool } from '../../src/core'
 
 import { fakeResponseSocket } from '../support/llm'
 
@@ -1068,7 +1069,7 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
         conversationID: '18181818-1818-1818-1818-181818181818'
       },
       tools: [
-        {
+        defineWorkerTool({
           name: 'lookup',
           description: 'Read one value.',
           schema: z.object({ key: z.string() }),
@@ -1079,8 +1080,8 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
             content: [{ type: 'text', text: 'value' }],
             details: {}
           })
-        },
-        {
+        }),
+        defineWorkerTool({
           name: 'write',
           description: 'Write one value.',
           schema: z.object({ key: z.string() }),
@@ -1091,7 +1092,7 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
             content: [{ type: 'text', text: 'ok' }],
             details: {}
           })
-        }
+        })
       ]
     })
 

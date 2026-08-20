@@ -195,12 +195,12 @@ defmodule Ankole.Principals do
   @doc """
   Upserts a human Principal from a provider-scoped subject.
 
-  A first-seen subject that carries an email already held by an existing human
-  Principal binds to that Principal instead of creating a new one, so subjects
-  from different providers converge on one human. An email or mobile value
-  owned by a different Principal than the one the subject resolves to is
-  dropped from the profile update with a warning; subjects are never re-pointed
-  automatically.
+  A first-seen subject that carries an email or mobile number already held by
+  an existing human Principal binds to that Principal instead of creating a
+  new one, so subjects from different providers converge on one human. An
+  email or mobile value owned by a different Principal than the one the
+  subject resolves to is dropped from the profile update with a warning;
+  subjects are never re-pointed automatically.
   """
   @spec upsert_platform_subject_human(map()) ::
           {:ok,
@@ -209,15 +209,24 @@ defmodule Ankole.Principals do
   def upsert_platform_subject_human(attrs) when is_map(attrs) do
     Repo.transact(fn repo ->
       email = normalized_email_attr(attrs)
+      mobile = normalized_mobile_attr(attrs)
 
       with {:ok, provider} <- required_provider(attrs, :provider),
            {:ok, external_id} <- required_text(attrs, :external_id),
            {:ok, metadata} <- metadata_attrs(attrs),
            :ok <- lock_platform_subject(repo, provider, external_id),
-           :ok <- maybe_lock_human_email(repo, email),
+           :ok <- maybe_lock_human_contact(repo, "principal_human_email", email),
+           :ok <- maybe_lock_human_contact(repo, "principal_human_mobile", mobile),
            existing_identity <- fetch_platform_subject(repo, provider, external_id),
            {:ok, principal_uid} <-
-             platform_subject_principal_uid(repo, existing_identity, attrs, external_id, email),
+             platform_subject_principal_uid(
+               repo,
+               existing_identity,
+               attrs,
+               external_id,
+               email,
+               mobile
+             ),
            {:ok, principal} <- upsert_human_principal(repo, principal_uid, attrs),
            profile_attrs <-
              drop_conflicting_contacts(
@@ -249,7 +258,32 @@ defmodule Ankole.Principals do
     with {:ok, provider} <- normalize_provider(provider),
          {:ok, external_id} <- normalize_required_text(external_id) do
       provider_subject_principal(provider, external_id)
-      |> active_human_result(false)
+      |> active_human_result()
+    end
+  end
+
+  @doc """
+  Matches provider-scoped subject candidates to an existing human Principal.
+
+  This is the read side of `upsert_platform_subject_human/1` with the same
+  ladder: an existing identity binding for any candidate id wins, then the
+  owner of the email, then the owner of the mobile number. It never creates
+  or re-points anything; a miss returns `{:error, :not_found}` so the caller
+  decides what an unmatched subject means.
+  """
+  @spec match_platform_subject_human(map()) :: principal_result()
+  def match_platform_subject_human(attrs) when is_map(attrs) do
+    with {:ok, provider} <- required_provider(attrs, :provider),
+         {:ok, external_ids} <- candidate_external_ids(attrs) do
+      email = normalized_email_attr(attrs)
+      mobile = normalized_mobile_attr(attrs)
+
+      match =
+        provider_subject_principal_by_ids(provider, external_ids) ||
+          contact_owner_principal(:email, email) ||
+          contact_owner_principal(:mobile, mobile)
+
+      active_human_result(match)
     end
   end
 
@@ -270,26 +304,6 @@ defmodule Ankole.Principals do
       end
     end
   end
-
-  @doc """
-  Resolves a verified channel actor to an active human Principal.
-  """
-  @spec resolve_channel_actor(String.t(), String.t(), String.t()) :: principal_result()
-  def resolve_channel_actor(adapter, channel_id, external_id) do
-    with {:ok, adapter} <- normalize_required_text(adapter),
-         {:ok, channel_id} <- normalize_required_text(channel_id),
-         {:ok, external_id} <- normalize_required_text(external_id) do
-      channel_actor_principal(adapter, channel_id, external_id)
-      |> active_human_result(true)
-    end
-  end
-
-  @doc """
-  Returns true when a channel actor binding has been verified.
-  """
-  @spec channel_identity_verified?(ExternalIdentity.t() | nil) :: boolean()
-  def channel_identity_verified?(%ExternalIdentity{verified_at: %DateTime{}}), do: true
-  def channel_identity_verified?(_identity), do: false
 
   defp insert_principal(repo, attrs) do
     %Principal{}
@@ -373,34 +387,13 @@ defmodule Ankole.Principals do
   defp upsert_external_identity(repo, attrs) do
     changeset = ExternalIdentity.changeset(%ExternalIdentity{}, attrs)
 
-    with {:ok, normalized} <- Changeset.apply_action(changeset, :validate) do
+    with {:ok, _normalized} <- Changeset.apply_action(changeset, :validate) do
       repo.insert(changeset,
-        conflict_target: external_identity_conflict_target(normalized),
-        on_conflict: {:replace, external_identity_conflict_fields()},
+        conflict_target: [:provider, :external_id],
+        on_conflict: {:replace, [:principal_uid, :metadata, :updated_at]},
         returning: true
       )
     end
-  end
-
-  defp external_identity_conflict_target(%ExternalIdentity{kind: :channel_actor}) do
-    {:unsafe_fragment, "(adapter, channel_id, external_id) WHERE kind = 'channel_actor'"}
-  end
-
-  defp external_identity_conflict_target(%ExternalIdentity{}) do
-    {:unsafe_fragment, "(kind, provider, external_id) WHERE kind <> 'channel_actor'"}
-  end
-
-  defp external_identity_conflict_fields do
-    [
-      :principal_uid,
-      :provider,
-      :adapter,
-      :channel_id,
-      :external_id,
-      :verified_at,
-      :metadata,
-      :updated_at
-    ]
   end
 
   defp fetch_principal_for_update(repo, uid) do
@@ -442,9 +435,7 @@ defmodule Ankole.Principals do
   defp fetch_platform_subject(repo, provider, external_id) do
     repo.one(
       from identity in ExternalIdentity,
-        where:
-          identity.kind == :platform_subject and identity.provider == ^provider and
-            identity.external_id == ^external_id
+        where: identity.provider == ^provider and identity.external_id == ^external_id
     )
   end
 
@@ -455,12 +446,12 @@ defmodule Ankole.Principals do
     )
   end
 
-  # The email join runs on subject creation, so concurrent first-sightings of
-  # the same email must serialize or both would create a principal.
-  defp maybe_lock_human_email(_repo, nil), do: :ok
+  # The contact join runs on subject creation, so concurrent first-sightings of
+  # the same email or mobile must serialize or both would create a principal.
+  defp maybe_lock_human_contact(_repo, _prefix, nil), do: :ok
 
-  defp maybe_lock_human_email(repo, email) do
-    advisory_xact_lock(repo, "principal_human_email:#{email}")
+  defp maybe_lock_human_contact(repo, prefix, value) do
+    advisory_xact_lock(repo, "#{prefix}:#{value}")
   end
 
   defp advisory_xact_lock(repo, lock_key) do
@@ -475,13 +466,15 @@ defmodule Ankole.Principals do
          %ExternalIdentity{principal_uid: principal_uid},
          _attrs,
          _external_id,
-         _email
+         _email,
+         _mobile
        ) do
     {:ok, principal_uid}
   end
 
-  defp platform_subject_principal_uid(repo, nil, attrs, external_id, email) do
-    case human_email_owner_uid(repo, email) do
+  defp platform_subject_principal_uid(repo, nil, attrs, external_id, email, mobile) do
+    case human_contact_owner_uid(repo, :email, email) ||
+           human_contact_owner_uid(repo, :mobile, mobile) do
       nil ->
         case fetch_attr(attrs, :uid) do
           {:ok, uid} -> normalize_uid(uid)
@@ -490,8 +483,8 @@ defmodule Ankole.Principals do
 
       owner_uid ->
         Logging.info(
-          "principals.platform_subject.email_join",
-          "Platform subject joined an existing principal by email",
+          "principals.platform_subject.contact_join",
+          "Platform subject joined an existing principal by email or mobile",
           %{principal_uid: owner_uid, external_id: external_id}
         )
 
@@ -499,14 +492,10 @@ defmodule Ankole.Principals do
     end
   end
 
-  defp human_email_owner_uid(_repo, nil), do: nil
+  defp human_contact_owner_uid(_repo, _field, nil), do: nil
 
-  defp human_email_owner_uid(repo, email) do
-    repo.one(
-      from human_user in HumanUser,
-        where: human_user.email == ^email,
-        select: human_user.principal_uid
-    )
+  defp human_contact_owner_uid(repo, field, value) do
+    contact_owner_uid(repo, field, value)
   end
 
   defp normalized_email_attr(attrs) do
@@ -514,6 +503,60 @@ defmodule Ankole.Principals do
       {:ok, value} -> normalized_contact_email(value)
       :error -> nil
     end
+  end
+
+  defp normalized_mobile_attr(attrs) do
+    case fetch_attr(attrs, :mobile) do
+      {:ok, value} -> normalized_contact_mobile(value)
+      :error -> nil
+    end
+  end
+
+  defp candidate_external_ids(attrs) do
+    listed =
+      case fetch_attr(attrs, :external_ids) do
+        {:ok, ids} when is_list(ids) -> ids
+        _other -> []
+      end
+
+    single =
+      case fetch_attr(attrs, :external_id) do
+        {:ok, id} -> [id]
+        :error -> []
+      end
+
+    normalized =
+      (single ++ listed)
+      |> Enum.flat_map(fn value ->
+        case normalize_required_text(value) do
+          {:ok, id} -> [id]
+          {:error, _reason} -> []
+        end
+      end)
+      |> Enum.uniq()
+
+    case normalized do
+      [] -> {:error, {:missing, :external_id}}
+      ids -> {:ok, ids}
+    end
+  end
+
+  defp provider_subject_principal_by_ids(provider, external_ids) do
+    Enum.find_value(external_ids, fn external_id ->
+      provider_subject_principal(provider, external_id)
+    end)
+  end
+
+  defp contact_owner_principal(_field, nil), do: nil
+
+  defp contact_owner_principal(field, value) do
+    Repo.one(
+      from human_user in HumanUser,
+        join: principal in Principal,
+        on: principal.uid == human_user.principal_uid,
+        where: field(human_user, ^field) == ^value,
+        select: %{principal: principal}
+    )
   end
 
   # Unique-owned contact fields are dropped rather than failed on: a unique
@@ -605,10 +648,8 @@ defmodule Ankole.Principals do
 
     %{
       principal_uid: principal.uid,
-      kind: :platform_subject,
       provider: provider,
       external_id: external_id,
-      verified_at: DateTime.utc_now(:microsecond),
       metadata:
         existing_metadata
         |> Map.merge(metadata)
@@ -621,45 +662,22 @@ defmodule Ankole.Principals do
     Repo.one(
       from identity in ExternalIdentity,
         join: principal in assoc(identity, :principal),
-        where:
-          identity.kind == :platform_subject and identity.provider == ^provider and
-            identity.external_id == ^external_id,
+        where: identity.provider == ^provider and identity.external_id == ^external_id,
         select: %{identity: identity, principal: principal}
     )
   end
 
-  defp channel_actor_principal(adapter, channel_id, external_id) do
-    Repo.one(
-      from identity in ExternalIdentity,
-        join: principal in assoc(identity, :principal),
-        where:
-          identity.kind == :channel_actor and identity.adapter == ^adapter and
-            identity.channel_id == ^channel_id and identity.external_id == ^external_id,
-        select: %{identity: identity, principal: principal}
-    )
-  end
+  defp active_human_result(nil), do: {:error, :not_found}
 
-  defp active_human_result(nil, _require_verified?), do: {:error, :not_found}
-
-  defp active_human_result(%{principal: %Principal{status: :disabled}}, _require_verified?) do
+  defp active_human_result(%{principal: %Principal{status: :disabled}}) do
     {:error, :principal_disabled}
   end
 
-  defp active_human_result(%{principal: %Principal{type: :agent}}, _require_verified?) do
+  defp active_human_result(%{principal: %Principal{type: :agent}}) do
     {:error, :not_human}
   end
 
-  defp active_human_result(%{identity: identity, principal: principal}, true) do
-    case channel_identity_verified?(identity) do
-      true -> {:ok, principal}
-      false -> {:error, :identity_unverified}
-    end
-  end
-
-  defp active_human_result(
-         %{principal: %Principal{type: :human, status: :active} = principal},
-         false
-       ) do
+  defp active_human_result(%{principal: %Principal{type: :human, status: :active} = principal}) do
     {:ok, principal}
   end
 

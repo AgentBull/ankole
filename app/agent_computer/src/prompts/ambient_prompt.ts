@@ -5,8 +5,6 @@
  * so this module stays focused on policy text.
  */
 
-import type { BrainSnapshot } from '../lanes/rpc_lane'
-import { formatAmbientDurableContext } from './durable_context'
 import { signalAdapterDisplayName } from './signal_adapter'
 
 export type AmbientRecognizerSystemPromptInput = {
@@ -16,7 +14,6 @@ export type AmbientRecognizerSystemPromptInput = {
 }
 
 export type AmbientRecognizerUserPromptInput = {
-  brainSnapshot?: BrainSnapshot
   standingOrders?: string
   backdrop: string[]
   newMessages: string[]
@@ -45,7 +42,6 @@ export function buildAmbientRecognizerSystemPrompt(input: AmbientRecognizerSyste
 export function buildAmbientRecognizerUserPrompt(input: AmbientRecognizerUserPromptInput): string {
   return [
     runtimeContextSection(input),
-    formatAmbientDurableContext(input.brainSnapshot),
     standingOrdersSection(input.standingOrders),
     backdropSection(input.backdrop),
     newMessagesSection(input.newMessages),

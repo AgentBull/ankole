@@ -1,4 +1,3 @@
-import { recordValue } from '@agentbull/active-support'
 import type { AiGatewayConversationItem as AIGatewayConversationItem } from './api/generated/types.gen'
 import i18n from '../common/i18n'
 
@@ -9,13 +8,7 @@ export function conversationDisplayName(conversation: ConversationNameSource): s
   const explicitName = conversation.display_name?.trim()
   if (explicitName) return explicitName
 
-  if (conversation.kind === 'dreaming') {
-    const brain = recordValue(conversation.metadata.brain)
-    if (brain?.visibility === 'shared') return i18n.t('console.brain.store_shared')
-    if (brain?.visibility === 'self') return i18n.t('console.brain.store_self')
-  }
-
-  if (conversation.kind === 'dreaming' || conversation.kind === 'job' || conversation.kind === 'responses_api') {
+  if (conversation.kind === 'job' || conversation.kind === 'responses_api') {
     return i18n.t(`console.conversations.kind.${conversation.kind}`)
   }
 

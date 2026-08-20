@@ -46,6 +46,8 @@ group の source ごとに、メンバーシップの所有者が異なります
 | --- | --- | --- |
 | **Directory group** | 部門やユーザー group が既に企業ディレクトリにある | Identity Provider の sync |
 | **IM group** | アクセスが chat group のメンバーシップに従う必要がある | Chat channel の sync |
+| **Signal source group** | 「このルーティングルール経由で話したことのある全員」を対象にする | SignalsGateway の受け入れ |
+| **Provider members group** | ある Identity Provider が取り込んだ全員を対象にする（`<provider>:members:all`） | Identity Provider の sync |
 | **Static group** | チームが Ankole にしか存在しない、または少数のメンバーシップがめったに変わらない | 管理者 |
 | **Computed group** | Principal の属性でメンバーを確実に識別できる | Ankole が評価する CEL expression |
 

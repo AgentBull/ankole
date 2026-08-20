@@ -197,7 +197,8 @@ defmodule Ankole.Plugins.WeComAdapterTest do
         adapter: "wecom",
         config_ref: "app-config://#{Config.chat_config_key(config_id)}",
         filters: %{},
-        unaddressed_group_message_policy: :ignore
+        unaddressed_group_message_policy: :ignore,
+        unmatched_sender_policy: :create_standalone
       })
 
     {binding, config}
@@ -420,7 +421,7 @@ defmodule Ankole.Plugins.WeComAdapterTest do
     )
   end
 
-  test "authorization_url builds the WWLogin page and fails closed when disabled" do
+  test "authorization_url builds the WWLogin page" do
     config = identity_config()
 
     assert {:ok, url} =
@@ -431,11 +432,6 @@ defmodule Ankole.Plugins.WeComAdapterTest do
 
     assert url =~ "login_type=CorpApp"
     assert url =~ "agentid=1000002"
-
-    disabled = identity_config(%{"oidc" => %{"enabled" => false}})
-
-    assert {:error, :oidc_disabled} =
-             IdentityProvider.authorization_url(disabled, redirect_uri: "https://x", state: "s")
   end
 
   test "the login chain resolves the code to a userid hydrated from the contacts secret" do

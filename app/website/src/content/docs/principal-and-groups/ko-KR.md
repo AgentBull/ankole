@@ -46,6 +46,8 @@ Principal 이름 또는 행 끝의 **상세 보기**를 선택하면 해당 grou
 | --- | --- | --- |
 | **Directory group** | 부서나 사용자 group이 이미 회사 디렉터리에 있음 | Identity Provider 동기화 |
 | **IM group** | 액세스가 chat group 멤버십을 따라야 함 | Chat channel 동기화 |
+| **Signal source group** | “이 라우팅 규칙을 통해 대화한 모든 사람”을 대상으로 함 | SignalsGateway 수용 |
+| **Provider members group** | 한 Identity Provider가 가져온 모든 사람을 대상으로 함(`<provider>:members:all`) | Identity Provider 동기화 |
 | **Static group** | 팀이 Ankole에만 존재하거나 멤버 수가 적고 자주 바뀌지 않음 | 관리자 |
 | **Computed group** | Principal 속성으로 멤버를 안정적으로 식별할 수 있음 | Ankole이 평가하는 CEL expression |
 

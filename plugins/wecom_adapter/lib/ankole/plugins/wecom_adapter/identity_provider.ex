@@ -73,8 +73,7 @@ defmodule Ankole.Plugins.WeComAdapter.IdentityProvider do
   @doc "Builds the WWLogin page URL for login."
   @spec authorization_url(map(), keyword()) :: {:ok, String.t()} | {:error, term()}
   def authorization_url(config, opts) when is_map(config) and is_list(opts) do
-    with true <- get_in(config, ["oidc", "enabled"]) != false || {:error, :oidc_disabled},
-         {:ok, redirect_uri} <- required_opt(opts, :redirect_uri),
+    with {:ok, redirect_uri} <- required_opt(opts, :redirect_uri),
          {:ok, state} <- required_opt(opts, :state) do
       {:ok,
        OAuth.authorize_url(
@@ -90,8 +89,7 @@ defmodule Ankole.Plugins.WeComAdapter.IdentityProvider do
   @spec exchange_code(map(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def exchange_code(config, code, _opts \\ [])
       when is_map(config) and is_binary(code) do
-    with true <- get_in(config, ["oidc", "enabled"]) != false || {:error, :oidc_disabled},
-         {:ok, %{userid: userid}} <- OAuth.get_user_info(Config.app_client(config), code) do
+    with {:ok, %{userid: userid}} <- OAuth.get_user_info(Config.app_client(config), code) do
       {:ok, %{user: hydrate_user(config, userid)}}
     end
   end

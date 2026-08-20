@@ -563,7 +563,7 @@ defmodule Ankole.AIGateway.ObservabilityTest do
       AIGatewayObservability.start_response(
         "agent-1",
         %{"input" => "hi"},
-        caller: "brain.dreaming.stage_a"
+        caller: "compaction.summary"
       )
 
     _observation = AIGatewayObservability.finish_response(observation, %{"status" => "completed"})
@@ -571,8 +571,8 @@ defmodule Ankole.AIGateway.ObservabilityTest do
     spans = exported_spans()
     response = span!(spans, "ai_gateway.response")
 
-    assert response.attributes["ankole.ai_gateway.caller"] == "brain.dreaming.stage_a"
-    assert response.attributes["langfuse.trace.metadata.caller"] == "brain.dreaming.stage_a"
+    assert response.attributes["ankole.ai_gateway.caller"] == "compaction.summary"
+    assert response.attributes["langfuse.trace.metadata.caller"] == "compaction.summary"
   end
 
   test "usage attributes keep cache read, cache write, and reasoning buckets" do

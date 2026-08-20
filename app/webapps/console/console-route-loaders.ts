@@ -11,8 +11,8 @@ import {
   ankoleWebAutomationJobControllerIndexOptions,
   ankoleWebBackgroundAgentJobControllerIndexOptions,
   ankoleWebBackgroundAgentJobControllerShowOptions,
-  ankoleWebBrainControllerIndexOptions,
   ankoleWebControlPlanePluginControllerIndexOptions,
+  ankoleWebIdentityMappingRequestControllerIndexOptions,
   ankoleWebIdentityProviderControllerIndexOptions,
   ankoleWebPrincipalControllerIndexOptions,
   ankoleWebScheduleControllerIndexCheckbacksOptions,
@@ -23,9 +23,7 @@ import {
   ankoleWebWebhookEndpointControllerIndexOptions,
   ankoleWebWorkerEnvControllerIndexOptions
 } from './api/generated/@tanstack/react-query.gen'
-import { localDateStartISO } from './pages/brain-shared'
 import { GLOBAL_LIBRARY_SCOPE } from './state/agent-library-capabilities'
-import { defaultBrainOwnerUID } from './state/brain-editor-model'
 
 /**
  * Critical route reads complete before React Router commits the destination.
@@ -67,6 +65,11 @@ export function createConsoleRouteLoaders(queryClient: QueryClient) {
     },
     providers: () => ensure(ankoleWebAIGatewayProviderControllerIndexOptions()).then(() => null),
     identity: () => ensure(ankoleWebIdentityProviderControllerIndexOptions()).then(() => null),
+    identityMappings: () =>
+      all(
+        ensure(ankoleWebIdentityMappingRequestControllerIndexOptions()),
+        ensure(ankoleWebPrincipalControllerIndexOptions())
+      ),
     principalGroups: () => ensure(ankoleWebAuthZGroupControllerIndexOptions()).then(() => null),
     principals: () => ensure(ankoleWebPrincipalControllerIndexOptions()).then(() => null),
     signals: ({ request }: LoaderFunctionArgs) =>
@@ -135,34 +138,6 @@ export function createConsoleRouteLoaders(queryClient: QueryClient) {
           }
         })
       ).then(() => null)
-    },
-    brain: async ({ request }: LoaderFunctionArgs) => {
-      const searchParams = new URL(request.url).searchParams
-      const principals = await ensure(ankoleWebPrincipalControllerIndexOptions())
-      const ownerUID = searchParams.get('owner') || defaultBrainOwnerUID(principals.principals)
-      if (!ownerUID) return null
-
-      return all(
-        ensure(
-          ankoleWebBrainControllerIndexOptions({
-            query: {
-              owner_uid: ownerUID,
-              query: searchParams.get('q') || undefined,
-              type: searchParams.get('type') || undefined,
-              store: searchParams.get('store') || undefined,
-              author: searchParams.get('author') || undefined,
-              updated: localDateStartISO(searchParams.get('updated') || ''),
-              cursor: searchParams.get('cursor') || undefined,
-              limit: 50
-            }
-          })
-        ),
-        ensure(
-          ankoleWebBrainControllerIndexOptions({
-            query: { owner_uid: ownerUID, store: 'self', type: 'brain_curation_guide', limit: 1 }
-          })
-        )
-      )
     }
   }
 }

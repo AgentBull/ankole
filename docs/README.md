@@ -37,7 +37,6 @@ SignalsGateway ---- PostgreSQL ---- AIGateway ---- model providers
 | --- | --- | --- |
 | SignalsGateway | Receives provider events, starts Agent turns, and sends replies | [SignalsGateway](design-docs/SignalsGateway.md) |
 | AIGateway | Selects model providers and stores Responses for each Principal | [AIGateway](design-docs/AIGateway.md) |
-| Brain | Stores useful knowledge and finds it when an Agent needs it | [Brain](design-docs/Brain.md) |
 | RuntimeFabric | Carries live messages, RPC calls, and files between processes | [RuntimeFabric](design-docs/RuntimeFabric.md) |
 | Agent Computer | Runs the model loop, Codex, and tools | `app/agent_computer/` |
 | PostgreSQL | Stores facts that must survive a restart | Migrations in `app/control_plane/priv/repo/migrations/` |
@@ -104,7 +103,7 @@ providers.
 
 `Ankole.Application` starts children in this order:
 
-1. Telemetry, Repo, and the Brain task supervisor
+1. Telemetry and Repo
 2. AppConfigure registry and cache
 3. I18n catalog and setup bootstrap
 4. Oban
@@ -127,7 +126,6 @@ PostgreSQL keeps the following data because Ankole needs it after a restart:
 - Signal routing rules (`SignalBinding` records), channels, entries, tombstones, ActorEvent rows, and outbox rows
 - Schedules and scheduled events
 - AIGateway conversations, messages, compaction artifacts, and provider rows
-- Brain entries, blocks, relations, sources, citations, episodes, cursors, and audit rows
 - BackgroundAgentJob rows and their turn records
 
 Ankole can rebuild deliveries, activations, worker assignments, and
@@ -214,18 +212,16 @@ bun run e2e
 tools/e2e/run --chaos
 tools/e2e/run --real-provider --providers=available
 tools/e2e/run --real-llm
-tools/e2e/run --brain-real-llm
 ```
 
 The default E2E mode covers the gate suites. Real-provider modes need operator
-credentials. The dedicated Brain real-model suite is not part of `--all`.
+credentials.
 
 ## Reading Order
 
 1. Read this page to learn what each module does and how data moves.
 2. Read [Tradeoffs and Known Limits](TradeoffsAndKnownLimits.md).
 3. Read the design document for the subsystem that you will change.
-4. Read [Brain operations](operations/Brain.md) before Brain deployment work.
 
 ## Document Index
 
@@ -233,8 +229,6 @@ credentials. The dedicated Brain real-model suite is not part of `--all`.
 | --- | --- |
 | [AIGateway](design-docs/AIGateway.md) | Model providers, Response history, compaction, and generated files |
 | [SignalsGateway](design-docs/SignalsGateway.md) | Provider input, Agent work, previews, and replies |
-| [Brain](design-docs/Brain.md) | Knowledge, recall, retained sources, and Dreaming |
-| [Brain operations](operations/Brain.md) | PostgreSQL requirements and operational recovery |
 | [RuntimeFabric](design-docs/RuntimeFabric.md) | ZeroMQ messages, RPC calls, and file transfer |
 | [Schedule](design-docs/Schedule.md) | Checkbacks, cron schedules, and wake events |
 | [BackgroundAgentJob](design-docs/BackgroundAgentJob.md) | Durable background work and Codex execution |

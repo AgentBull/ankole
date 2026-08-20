@@ -68,11 +68,6 @@ import {
   InstalledSkillReplaceRequestSchema,
   InstalledSkillReplaceResponseSchema,
   JSONPassthroughResponseSchema,
-  MemoryBrowseRequestSchema,
-  MemoryHealthCheckRequestSchema,
-  MemoryOpenRequestSchema,
-  MemorySearchRequestSchema,
-  MemoryUpdateRequestSchema,
   ObservabilitySpansExportRequestSchema,
   ObservabilitySpansExportResponseSchema,
   ScheduleCheckBackLaterCreateRequestSchema,
@@ -136,11 +131,6 @@ export const rpcMethods = {
   backgroundAgentJobTurnUpsert: 'background_agent_job.turn.upsert',
   backgroundAgentJobTurnItemsList: 'background_agent_job.turn_items.list',
   backgroundAgentJobStatusUpdate: 'background_agent_job.status.update',
-  memorySearch: 'memory_search',
-  memoryBrowse: 'memory_browse',
-  memoryOpen: 'memory_open',
-  memoryUpdate: 'memory_update',
-  memoryHealthCheck: 'memory_health_check',
   observabilitySpansExport: 'observability.spans.export',
   scheduleCheckBackLaterCreate: 'schedule.check_back_later.create',
   scheduleCheckBackLaterList: 'schedule.check_back_later.list',
@@ -209,11 +199,6 @@ export const rpcOperationMeta = {
   [rpcMethods.backgroundAgentJobTurnUpsert]: { scope: 'turn', effect: 'write' },
   [rpcMethods.backgroundAgentJobTurnItemsList]: { scope: 'turn', effect: 'read' },
   [rpcMethods.backgroundAgentJobStatusUpdate]: { scope: 'turn', effect: 'write' },
-  [rpcMethods.memorySearch]: { scope: 'turn', effect: 'read' },
-  [rpcMethods.memoryBrowse]: { scope: 'turn', effect: 'read' },
-  [rpcMethods.memoryOpen]: { scope: 'turn', effect: 'read' },
-  [rpcMethods.memoryUpdate]: { scope: 'turn', effect: 'write' },
-  [rpcMethods.memoryHealthCheck]: { scope: 'turn', effect: 'read' },
   [rpcMethods.observabilitySpansExport]: { scope: 'worker_agent' },
   [rpcMethods.scheduleCheckBackLaterCreate]: { scope: 'turn', effect: 'write' },
   [rpcMethods.scheduleCheckBackLaterList]: { scope: 'turn', effect: 'read' },
@@ -243,7 +228,7 @@ export const rpcOperationMeta = {
 
 /**
  * Request and response message schema bound to each operation. Model-facing
- * passthrough families (memory, schedule) share `JSONPassthroughResponse`.
+ * passthrough families (schedule) share `JSONPassthroughResponse`.
  */
 export const rpcSchemas = {
   [rpcMethods.aiGatewayAPIKeyForCreateOrFindByAgent]: {
@@ -341,14 +326,6 @@ export const rpcSchemas = {
   [rpcMethods.backgroundAgentJobStatusUpdate]: {
     request: BackgroundAgentJobStatusUpdateRequestSchema,
     response: BackgroundAgentJobResponseSchema
-  },
-  [rpcMethods.memorySearch]: { request: MemorySearchRequestSchema, response: JSONPassthroughResponseSchema },
-  [rpcMethods.memoryBrowse]: { request: MemoryBrowseRequestSchema, response: JSONPassthroughResponseSchema },
-  [rpcMethods.memoryOpen]: { request: MemoryOpenRequestSchema, response: JSONPassthroughResponseSchema },
-  [rpcMethods.memoryUpdate]: { request: MemoryUpdateRequestSchema, response: JSONPassthroughResponseSchema },
-  [rpcMethods.memoryHealthCheck]: {
-    request: MemoryHealthCheckRequestSchema,
-    response: JSONPassthroughResponseSchema
   },
   [rpcMethods.observabilitySpansExport]: {
     request: ObservabilitySpansExportRequestSchema,
@@ -460,7 +437,6 @@ export type RPCRequester = <M extends ControlPlaneOwnedRPCMethod>(
 ) => Promise<RPCResponseOf<M>>
 
 export type ScheduleRPCMethod = Extract<RPCMethod, `schedule.${string}`>
-export type MemoryRPCMethod = Extract<RPCMethod, `memory${string}`>
 export type WebhookRPCMethod = Extract<RPCMethod, `webhook.${string}`>
 export type SignalChannelRPCMethod = Extract<RPCMethod, `signal_channel.${string}`>
 export type AutomationJobManagementRPCMethod =
@@ -470,16 +446,11 @@ export type AutomationJobManagementRPCMethod =
   | typeof rpcMethods.automationJobCancel
 
 /**
- * Family-scoped requesters injected into schedule and memory tools. The turn
- * fence is bound at construction; responses in these families are
- * model-facing passthrough JSON.
+ * Family-scoped requesters injected into schedule tools. The turn fence is
+ * bound at construction; responses in these families are model-facing
+ * passthrough JSON.
  */
 export type ScheduleRPCRequester = <M extends ScheduleRPCMethod>(
-  method: M,
-  payload: RPCRequestInit<M>
-) => Promise<JSONObject>
-
-export type MemoryRPCRequester = <M extends MemoryRPCMethod>(
   method: M,
   payload: RPCRequestInit<M>
 ) => Promise<JSONObject>
@@ -502,12 +473,6 @@ export type AutomationJobRPCRequester = <M extends AutomationJobManagementRPCMet
 export function scheduleRPCRequester(rpc: RPCRequester, turn: ActorTurnRef): ScheduleRPCRequester {
   // Every schedule method is turn-scoped; the conditional frame type cannot
   // be discharged over a generic method union.
-  return async (method, payload) =>
-    passthroughJSON(await rpc(method, payload, { turn } as RPCFrame<typeof method>), method)
-}
-
-export function memoryRPCRequester(rpc: RPCRequester, turn: ActorTurnRef): MemoryRPCRequester {
-  // Every memory method is turn-scoped; same discharge limit as above.
   return async (method, payload) =>
     passthroughJSON(await rpc(method, payload, { turn } as RPCFrame<typeof method>), method)
 }
@@ -825,11 +790,8 @@ export type {
   BackgroundAgentJobTurnItemsListResponse,
   BackgroundAgentJobTurnUpsertRequest,
   BackgroundAgentJobTurnUpsertResponse,
-  BrainSnapshot,
-  BrainSnapshotEntry,
   InstalledSkillObservation,
   InstalledSkillReplaceResponse,
-  MemoryUpdateRequest,
   RuntimeSkillSummary,
   SkillOverlayResolveResponse,
   SkillOverlayResponse,

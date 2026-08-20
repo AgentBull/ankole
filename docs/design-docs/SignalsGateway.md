@@ -79,15 +79,6 @@ binding, its configuration, or the `(agent_uid, binding_name)` history key. The
 Console hides disabled bindings by default and lets an operator show, edit, or
 enable them again.
 
-When a binding update changes group memory between shared and confidential,
-the next turn in each affected group starts a new AIGateway conversation. This
-prevents the old transcript and Brain snapshot from crossing the new memory
-boundary.
-
-Each accepted message records its Brain store for every receiving Agent. A
-later binding update does not reclassify messages that are still waiting for
-Dreaming. It changes the route only for later ingress.
-
 An enabled binding can still have an `unavailable_reason`. SignalsGateway then
 rejects new input without deleting the configuration.
 
@@ -200,13 +191,49 @@ Entry receipt follows this sequence:
 1. Resolve the binding.
 2. Convert the input to `IngressFact`.
 3. Apply the binding filter.
-4. Update the local provider copy when the policy permits it.
-5. Update or finalize an inbound batch when the entry is IM traffic.
-6. Write an ActorEvent when the Agent must do work.
-7. Notify ActorRuntime after the transaction commits.
+4. Admit the author (see "Admit the Author" below).
+5. Update the local provider copy when the policy permits it.
+6. Update or finalize an inbound batch when the entry is IM traffic.
+7. Write an ActorEvent when the Agent must do work.
+8. Notify ActorRuntime after the transaction commits.
 
 A filtered event returns `filtered` successfully. SignalsGateway stores no
 provider copy or ActorEvent for it.
+
+## Admit the Author
+
+`IdentityAdmission` maps the entry author to a Principal before any durable
+write. Adapters supply candidate subject ids in stability order plus a display
+name; they do not resolve or create Principals themselves.
+
+Identification is automatic and best effort. An existing platform-subject
+binding for any candidate id wins, then the owner of the platform-reported
+email, then the owner of the mobile number. When the exact ids miss and the
+adapter declares an `author_hydrator`, the gateway fetches the sender's contact
+profile once to feed the contact match. An identity provider that cannot
+auto-map simply has no matching rows; that case needs no declaration.
+
+What an unmatched sender means is the binding's `unmatched_sender_policy`:
+
+- `manual_review` (default): the sender gets no processing at all — no
+  provider copy, no inbound batch. A message that
+  addresses the Agent records one row in `identity_mapping_requests` and
+  answers with one fixed localized notice that tells the sender to ask an
+  administrator to bind the account. Unaddressed group chatter from an
+  unmatched sender is ignored silently.
+- `create_standalone`: the gateway creates a standalone human Principal for
+  the sender and serves them at once.
+
+A sender whose Principal is disabled is ignored without a notice.
+
+Every admitted sender also joins the binding's `signal_source` AuthZ group
+(`signal_source:<agent_uid>:<binding_name>`), so permission policy can address
+"users of this signal source". Directory sync maintains the matching
+provider-wide group (`<provider_id>:members:all`); the difference between the
+two expresses "third-party users of a source".
+
+Reactions and provider actions do not pass identity admission. A card action
+resolves its operator through the reply-interaction flow instead.
 
 Every direct message gives the Agent explicit input.
 A structured Agent mention makes a group message explicit.

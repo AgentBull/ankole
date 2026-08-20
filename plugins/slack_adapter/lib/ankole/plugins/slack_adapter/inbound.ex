@@ -122,7 +122,6 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
       author = %{
         "id" => user_id,
         "platform_subject" => user_id,
-        "principal_uid" => String.downcase(user_id),
         "metadata" =>
           MapHelpers.compact_map(%{"team_id" => event.team_id, "provider" => namespace})
       }
@@ -155,7 +154,6 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
          explicit:
            channel_kind == :im_dm or Enum.any?(mentions, &(&1["targets_current_agent"] == true)),
          author: author,
-         sender_key: String.downcase(user_id),
          metadata:
            MapHelpers.compact_map(%{
              "provider" => "slack",
@@ -174,8 +172,7 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
       {:ok, input} ->
         observed_at = DateTime.utc_now(:microsecond)
 
-        with :ok <- observe_author(consumer, input),
-             {:ok, input} <- emit_pending_attachments(input, consumer, observed_at),
+        with {:ok, input} <- emit_pending_attachments(input, consumer, observed_at),
              {:ok, attachments} <-
                maybe_materialize_attachments(input.attachments, event.content || %{}, consumer) do
           input
@@ -352,22 +349,6 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
     |> Enum.filter(&match?(%{kind: :chat}, &1))
     |> Enum.map(fn _consumer -> {:ok, %{status: status}} end)
     |> MapHelpers.collect_results()
-  end
-
-  defp observe_author(consumer, %{author: author}) do
-    attrs =
-      %{
-        provider: Map.get(consumer.config, "platformSubjectNamespace", "slack-main"),
-        external_id: author["platform_subject"],
-        uid: author["id"],
-        metadata: author["metadata"] || %{}
-      }
-      |> MapHelpers.compact_map()
-
-    case AdapterContext.observe_platform_subject(consumer.context, attrs) do
-      {:ok, _observed} -> :ok
-      {:error, _reason} = error -> error
-    end
   end
 
   defp observe_action_operator(%{context: context, config: config}, operator_id) do

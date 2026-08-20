@@ -179,7 +179,6 @@ defmodule Ankole.PrincipalsTest do
                })
 
       assert first.principal.uid == "alice"
-      assert first.identity.kind == :platform_subject
       assert first.identity.provider == "lark-main"
       assert first.identity.external_id == "ou_user_1"
 
@@ -287,7 +286,7 @@ defmodule Ankole.PrincipalsTest do
       assert slack_second.human_user.job_title == "Support"
     end
 
-    test "upsert_platform_subject_human/1 drops a conflicting mobile and never joins by it" do
+    test "upsert_platform_subject_human/1 joins a first-seen subject by mobile" do
       assert {:ok, first} =
                Principals.upsert_platform_subject_human(%{
                  provider: "lark-main",
@@ -304,69 +303,83 @@ defmodule Ankole.PrincipalsTest do
                  mobile: "+1 415 555 9999"
                })
 
-      refute second.principal.uid == first.principal.uid
-      assert second.human_user.email == "mobile.other@example.com"
-      assert second.human_user.mobile == nil
+      assert second.principal.uid == first.principal.uid
     end
   end
 
-  describe "channel actors" do
-    test "resolve_channel_actor/3 fails closed until the binding is verified" do
-      %{principal: principal} = human_fixture()
+  describe "match_platform_subject_human/1" do
+    test "matches any candidate external id" do
+      %{principal: principal, identity: identity} =
+        platform_subject_fixture(%{provider: "lark-main"})
 
-      unverified =
-        channel_actor_identity_fixture(%{
-          human: %{principal: principal},
-          adapter: "lark",
-          channel_id: "chat_a",
-          external_id: "user_a"
-        })
-
-      refute Principals.channel_identity_verified?(unverified)
-
-      assert {:error, :identity_unverified} =
-               Principals.resolve_channel_actor("lark", "chat_a", "user_a")
-
-      verified =
-        channel_actor_identity_fixture(%{
-          human: %{principal: principal},
-          adapter: "lark",
-          channel_id: "chat_b",
-          external_id: "user_b",
-          verified_at: DateTime.utc_now(:microsecond)
-        })
-
-      assert Principals.channel_identity_verified?(verified)
-      assert {:ok, ^principal} = Principals.resolve_channel_actor("lark", "chat_b", "user_b")
+      assert {:ok, ^principal} =
+               Principals.match_platform_subject_human(%{
+                 provider: "lark-main",
+                 external_ids: ["unknown_primary", identity.external_id]
+               })
     end
 
-    test "external identity changeset enforces provider and channel shapes" do
+    test "matches by email and then mobile when no candidate id is bound" do
+      %{principal: principal} =
+        platform_subject_fixture(%{
+          provider: "lark-main",
+          email: "match.target@example.com",
+          mobile: "+14155550101"
+        })
+
+      assert {:ok, ^principal} =
+               Principals.match_platform_subject_human(%{
+                 provider: "slack-main",
+                 external_id: "U_UNSEEN",
+                 email: "Match.Target@example.com"
+               })
+
+      assert {:ok, ^principal} =
+               Principals.match_platform_subject_human(%{
+                 provider: "slack-main",
+                 external_id: "U_UNSEEN",
+                 mobile: "+1 415 555 0101"
+               })
+    end
+
+    test "never creates anything on a miss" do
+      assert {:error, :not_found} =
+               Principals.match_platform_subject_human(%{
+                 provider: "lark-main",
+                 external_id: "ou_total_stranger",
+                 email: "stranger@example.com"
+               })
+
+      assert {:error, :not_found} =
+               Principals.resolve_platform_subject("lark-main", "ou_total_stranger")
+    end
+
+    test "reports a disabled principal instead of falling through" do
+      %{principal: principal, identity: identity} =
+        platform_subject_fixture(%{provider: "lark-main"})
+
+      assert {:ok, _principal} = Principals.disable_principal(principal.uid)
+
+      assert {:error, :principal_disabled} =
+               Principals.match_platform_subject_human(%{
+                 provider: "lark-main",
+                 external_id: identity.external_id
+               })
+    end
+  end
+
+  describe "external identities" do
+    test "external identity changeset requires the provider subject shape" do
       %{principal: principal} = human_fixture()
 
-      assert {:error, provider_subject_changeset} =
+      assert {:error, changeset} =
                Principals.create_external_identity(%{
                  principal_uid: principal.uid,
-                 kind: :platform_subject,
-                 provider: "lark-main",
-                 adapter: "lark",
                  external_id: "ou_bad",
                  metadata: %{}
                })
 
-      assert %{adapter: [_]} = errors_on(provider_subject_changeset)
-
-      assert {:error, channel_actor_changeset} =
-               Principals.create_external_identity(%{
-                 principal_uid: principal.uid,
-                 kind: :channel_actor,
-                 provider: "lark-main",
-                 adapter: "lark",
-                 channel_id: "chat_bad",
-                 external_id: "open_bad",
-                 metadata: %{}
-               })
-
-      assert %{provider: [_]} = errors_on(channel_actor_changeset)
+      assert %{provider: [_]} = errors_on(changeset)
     end
 
     test "external identity writes normalize principal_uid" do
@@ -375,9 +388,7 @@ defmodule Ankole.PrincipalsTest do
       assert {:ok, identity} =
                Principals.create_external_identity(%{
                  principal_uid: String.upcase(principal.uid),
-                 kind: :channel_actor,
-                 adapter: "lark",
-                 channel_id: unique_uid("chat"),
+                 provider: "lark-main",
                  external_id: unique_uid("actor"),
                  metadata: %{}
                })
@@ -388,28 +399,21 @@ defmodule Ankole.PrincipalsTest do
     test "upsert_external_identity/1 converges on the natural identity key" do
       first = human_fixture(%{uid: unique_uid("first-owner")})
       second = human_fixture(%{uid: unique_uid("second-owner")})
-      channel_id = unique_uid("chat")
       external_id = unique_uid("actor")
 
       assert {:ok, inserted} =
                Principals.upsert_external_identity(%{
                  principal_uid: first.principal.uid,
-                 kind: :channel_actor,
-                 adapter: "lark",
-                 channel_id: channel_id,
+                 provider: "lark-main",
                  external_id: external_id,
-                 verified_at: DateTime.utc_now(:microsecond),
                  metadata: %{"source" => "first"}
                })
 
       assert {:ok, updated} =
                Principals.upsert_external_identity(%{
                  principal_uid: String.upcase(second.principal.uid),
-                 kind: :channel_actor,
-                 adapter: "lark",
-                 channel_id: channel_id,
+                 provider: "lark-main",
                  external_id: external_id,
-                 verified_at: DateTime.utc_now(:microsecond),
                  metadata: %{"source" => "second"}
                })
 
@@ -419,7 +423,7 @@ defmodule Ankole.PrincipalsTest do
     end
 
     test "create_external_identity/1 stores UUIDv7 ids for binding rows" do
-      identity = channel_actor_identity_fixture()
+      identity = external_identity_fixture()
 
       assert %ExternalIdentity{} = identity
 

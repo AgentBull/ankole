@@ -1,7 +1,7 @@
 import type { AIGatewayAPIKeyResponse } from '../../lanes/rpc_lane'
 import type { AIGatewayAPIKeyRequester } from '../turns/turn_options'
 import type { TurnStart } from '../../lanes/actor_lane'
-import { isRecord, type JsonObject as JSONObject } from '@agentbull/active-support'
+import { type JsonObject as JSONObject } from '@agentbull/active-support'
 
 export const CODEX_MODEL_REASONING_EFFORTS = [
   'none',

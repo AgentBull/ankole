@@ -59,7 +59,8 @@ defmodule Ankole.Plugins.WeComAdapterAIStreamTest do
         adapter: "wecom",
         config_ref: "app-config://#{Config.chat_config_key(config_id)}",
         filters: %{},
-        unaddressed_group_message_policy: :ignore
+        unaddressed_group_message_policy: :ignore,
+        unmatched_sender_policy: :create_standalone
       })
 
     %{actor_event: event} =

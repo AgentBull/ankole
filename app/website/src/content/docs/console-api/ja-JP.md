@@ -118,7 +118,7 @@ Agent Computer Worker は、API key や token などの環境変数を必要と�
 | `GET` | `/control-plane-plugins` | Control Plane Plugin とその状態を一覧表示 |
 | `PUT` | `/control-plane-plugins` | plugin を有効化または無効化 |
 
-Control Plane Plugin は、signals adapter や Brain の source connector のように、control plane 自身の動作を変えるファーストパーティ拡張です。
+Control Plane Plugin は、signals adapter のように、control plane 自身の動作を変えるファーストパーティ拡張です。
 
 ### Identity provider と AppConfiguration
 
@@ -142,7 +142,6 @@ configuration に加えて、Console はシステムの残りの部分に対す�
 - **Worker**: `/agent-computer-workers`。worker ごとの file のアップロード、移動、一覧表示。
 - **Job**: `/background-agent-jobs`（一覧表示、読み取り、cancel）。
 - **AI の活動**: `/ai-gateway/conversations`。conversation ごとの message。
-- **Memory**: `/brain/*` の全 surface。エントリ、source、audit log、dreaming の実行と fitness、restoration。
 - **Principal と AuthZ**: `/principals`、`/principal-groups`、`/permission-grants`。[Principal と AuthZ](../principal-authz/) ページの permission model に対応します。
 
 ## ここに含まれないものについて

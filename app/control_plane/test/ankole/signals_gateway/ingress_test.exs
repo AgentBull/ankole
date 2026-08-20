@@ -91,7 +91,6 @@ defmodule Ankole.SignalsGatewayIngressTest do
       assert entry.text == "hello"
       assert entry.rich_content == nil
       assert entry.provider_thread_id == "thread-1"
-      assert Projection.entry_brain_store_route(entry, agent.uid) == "shared"
       assert Repo.aggregate(ActorEvent, :count) == 0
       assert Repo.aggregate(InboundBatch, :count) == 1
     end
@@ -170,58 +169,6 @@ defmodule Ankole.SignalsGatewayIngressTest do
 
       assert [%{"attachment_id" => second_attachment_id}] = second_entry.attachments
       assert second_attachment_id > attachment_id
-    end
-
-    test "the entry mirror keeps each agent's Brain store from ingress time" do
-      %{principal: shared_agent} = agent_fixture()
-      %{principal: confidential_agent} = agent_fixture()
-      binding_fixture(shared_agent.uid, "lark-main", :record_only)
-
-      confidential_binding =
-        binding_fixture(confidential_agent.uid, "lark-main", :record_only)
-        |> Ecto.Changeset.change(confidential_memory: true)
-        |> Repo.update!()
-
-      assert confidential_binding.confidential_memory
-
-      assert {:ok, %{status: :recorded, signal_entry: shared_entry}} =
-               Ingress.emit_entry(
-                 shared_agent.uid,
-                 "lark-main",
-                 group_entry(%{metadata: %{"provider_state" => %{"obsolete" => true}}}),
-                 now: @base_time
-               )
-
-      assert {:ok, %{status: :recorded, signal_entry: confidential_entry}} =
-               Ingress.emit_entry(
-                 confidential_agent.uid,
-                 "lark-main",
-                 group_entry(%{metadata: %{"provider_state" => %{"obsolete" => true}}}),
-                 now: @base_time
-               )
-
-      assert shared_entry.content_hash == confidential_entry.content_hash
-      assert Projection.entry_brain_store_route(confidential_entry, shared_agent.uid) == "shared"
-
-      assert Projection.entry_brain_store_route(confidential_entry, confidential_agent.uid) ==
-               "channel:lark:chat:group-a"
-
-      assert {:ok, %{status: :recorded, signal_entry: refreshed_entry}} =
-               Ingress.emit_entry(
-                 confidential_agent.uid,
-                 "lark-main",
-                 group_entry(%{
-                   metadata: %{"provider_state" => %{"current" => true}},
-                   provider_time: DateTime.add(@base_time, 1, :second)
-                 }),
-                 now: DateTime.add(@base_time, 1, :second)
-               )
-
-      assert refreshed_entry.metadata["provider_state"] == %{"current" => true}
-      assert Projection.entry_brain_store_route(refreshed_entry, shared_agent.uid) == "shared"
-
-      assert Projection.entry_brain_store_route(refreshed_entry, confidential_agent.uid) ==
-               "channel:lark:chat:group-a"
     end
 
     test "record_only preserves structured content that adds information beyond text" do
@@ -862,7 +809,8 @@ defmodule Ankole.SignalsGatewayIngressTest do
                "alice"
 
       # A provider echo authored by the agent itself must not replace the
-      # durable "other participant" identity used by Brain DM routing.
+      # durable "other participant" identity used by conversation-origin DM
+      # routing.
       assert {:ok, %{status: :accepted}} =
                Ingress.emit_entry(
                  agent.uid,
@@ -1275,7 +1223,8 @@ defmodule Ankole.SignalsGatewayIngressTest do
                  adapter: "lark",
                  config_ref: "app-config://bad-shape",
                  filters: %{"eq" => %{"signal_channel_id" => "x"}},
-                 unaddressed_group_message_policy: :ignore
+                 unaddressed_group_message_policy: :ignore,
+                 unmatched_sender_policy: :create_standalone
                })
 
       assert %{filters: [_]} = errors_on(changeset)

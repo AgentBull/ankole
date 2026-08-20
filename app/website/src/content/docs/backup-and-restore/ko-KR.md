@@ -58,7 +58,7 @@ docker compose exec -T postgresql \
   < "ankole-YYYYMMDD.dump"
 ```
 
-그다음 마이그레이션을 실행하여(`bun run control-plane:setup`을 로컬에서, 또는 Helm init 컨테이너가 수행) 스키마를 이미지 수준으로 올리세요. 마이그레이션 전에 받은 백업은 마이그레이션 전 스키마로 복원되기 때문입니다. 복원이 성공했음을 선언하기 전에 데이터 — Principal, Agent, 알려진 Brain 항목 — 가 기대한 대로인지 확인하세요.
+그다음 마이그레이션을 실행하여(`bun run control-plane:setup`을 로컬에서, 또는 Helm init 컨테이너가 수행) 스키마를 이미지 수준으로 올리세요. 마이그레이션 전에 받은 백업은 마이그레이션 전 스키마로 복원되기 때문입니다. 복원이 성공했음을 선언하기 전에 데이터 — Principal, Agent, 알려진 session — 가 기대한 대로인지 확인하세요.
 
 ## Agent Home 복원
 

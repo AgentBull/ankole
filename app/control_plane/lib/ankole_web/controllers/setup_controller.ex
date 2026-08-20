@@ -15,6 +15,7 @@ defmodule AnkoleWeb.SetupController do
   alias Ankole.Setup.Config, as: SetupConfig
   alias AnkoleWeb.Session, as: WebSession
   alias Ankole.IdentityProviders
+  alias Ankole.IdentityProviders.Login
 
   @doc """
   Returns setup state needed before the SPA can decide which step to show.
@@ -178,9 +179,9 @@ defmodule AnkoleWeb.SetupController do
          {:ok, provider_id} <- IdentityProviders.normalize_provider_id(provider_id),
          {:ok, _checked} <- IdentityProviders.check_credentials(provider_id),
          state <- WebSession.opaque_token(),
-         redirect_uri <- IdentityProviders.oidc_redirect_uri(public_base_url(conn), provider_id),
+         redirect_uri <- Login.oidc_redirect_uri(public_base_url(conn), provider_id),
          {:ok, authorization_url} <-
-           IdentityProviders.authorization_url(provider_id,
+           Login.authorization_url(provider_id,
              redirect_uri: redirect_uri,
              state: state
            ) do

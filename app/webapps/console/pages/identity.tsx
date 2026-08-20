@@ -43,6 +43,7 @@ import { BackLink, PageStack } from '../console-page'
 import { ResourceListPage, ResourceSearch, RowActions } from '../console-list-page'
 import { IdentityEditorModel, type IdentityEditorDraft } from '../state/identity-editor-model'
 import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
+import { IdentitySubNav } from './identity-mappings'
 
 export function IdentityProvidersListPage() {
   const { t } = useTranslation()
@@ -83,6 +84,7 @@ export function IdentityProvidersListPage() {
       error={providers.error}
       isFiltered={Boolean(query.trim())}
       onClearFilters={() => setQuery('')}
+      subNav={<IdentitySubNav />}
       toolbar={
         <ResourceSearch
           label={t('console.identity.search')}

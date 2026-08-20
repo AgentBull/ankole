@@ -3,7 +3,6 @@ import { runAgentLoop } from '../agent-loop'
 import { buildAgentSystemPrompt } from '../../prompts/system_prompt'
 import { createComputerTools } from '../../tools/computer'
 import { createSkillTools, type SkillFileRoots } from '../../tools/library/skill-tools'
-import { createMemoryTools } from '../../tools/memory/memory-tools'
 import { createScheduleTools } from '../../tools/schedule/schedule-tools'
 import { createStandingOrdersTools } from '../../tools/channel/standing-orders-tool'
 import { createTodoTool, TodoStore } from '../../tools/todo/todo-tool'
@@ -14,9 +13,8 @@ import { createSendMessageToBackgroundJobTool } from '../../tools/background-age
 import { createShowBackgroundJobDetailsTool } from '../../tools/background-agent-job/show-background-job-details'
 import { createStopBackgroundJobTool } from '../../tools/background-agent-job/stop-background-job'
 import { createClarifyTool } from '../../tools/clarify/clarify-tool'
-import { createSourceLearningTurnTools } from '../../tools/brain/source-learning-turn'
 import { loadEnabledSkillMCPServers, materializeMCPorterConfig, type MaterializedMCPorterConfig } from '../../tools/mcp'
-import type { AgentTool } from '../types'
+import type { WorkerAgentTool } from '../types'
 import { assistantText, userMessage, type UserMessage } from '../llm'
 import { statefulTruncationFromActorEventPayload } from './actor_event_text'
 import { actorEventUserContent } from './actor_event_content'
@@ -36,7 +34,7 @@ import { createTurnWebTools, resolveRenderedFetchRuntimeConfig } from './rendere
 import { materializeLarkCredential, type MaterializedLarkCredential } from './lark-credential'
 import { resolveAgentWorkerEnvParts } from './worker_env'
 import type { TextTurnLoopOptions, TurnHandlerResult } from './turn_options'
-import { memoryRPCRequester, rpcMethods, scheduleRPCRequester, signalChannelRPCRequester } from '../../lanes/rpc_lane'
+import { rpcMethods, scheduleRPCRequester, signalChannelRPCRequester } from '../../lanes/rpc_lane'
 import { withoutBrowserMaterialSourceEnv } from '../../browser-runtime'
 
 const silentSuccessMarker = '<silent_success/>'
@@ -78,15 +76,6 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
     }
     const conversationTimezone = agentConversationContext.conversation?.timezone || 'UTC'
     const actorEvent = turnStart.actor_event
-    const learningTurn =
-      actorEvent.type === 'brain.source.learn'
-        ? createSourceLearningTurnTools({
-            turnStart,
-            agentHome: opts.agentHome,
-            workspaceRoot: opts.workspaceRoot,
-            requestMemoryRPC: memoryRPCRequester(opts.rpc, turnStart.turn)
-          })
-        : undefined
     const userPrompt = userMessage(
       await actorEventUserContent(actorEvent.payload_json, actorEvent.type, modelRef, {
         agentHome: opts.agentHome,
@@ -96,89 +85,79 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
       })
     )
 
-    let tools: AgentTool[]
-
-    if (learningTurn) {
-      tools = learningTurn.tools
-    } else {
-      const renderedFetchRuntimeConfig = await turnActivity.runStep(
-        resolveRenderedFetchRuntimeConfig(turnStart, opts.rpc),
-        'rendered fetch runtime config'
-      )
-      const currentWorkerEnv = await turnActivity.runStep(
-        resolveAgentWorkerEnvParts(turnStart.turn.actor.agent_uid, opts.rpc, turnStart.actor_event.binding_name),
-        'worker env'
-      )
-      larkCredential = materializeLarkCredential({
-        agentUID: turnStart.turn.actor.agent_uid,
-        agentHome: opts.agentHome,
-        rpc: opts.rpc,
-        workerEnv: currentWorkerEnv,
-        bindingName: turnStart.actor_event.binding_name
-      })
-      const workerEnv = larkCredential.workerEnv.vars
-      const runtimeEnv = { ...opts.runtimeEnv, ...larkCredential.runtimeEnv }
-      const skillRoots = skillRootsFromOptions(opts)
-      const mcpServers = await turnActivity.runStep(
-        loadEnabledSkillMCPServers({
-          enabledSkills: agentConversationContext.skills ?? [],
-          skillRoots,
-          runtime: 'main'
-        }),
-        'Skill MCP dependencies'
-      )
-      mcporterConfig = materializeMCPorterConfig(mcpServers)
-      const toolWorkerEnv = { ...withoutBrowserMaterialSourceEnv(workerEnv), ...mcporterConfig.env }
-      const webTools = await turnActivity.runStep(
-        createTurnWebTools({
-          aiGateway,
-          renderedFetchRuntimeConfig,
-          workerEnv,
-          workspaceRoot: opts.workspaceRoot,
-          browserRuntime: opts.browserRuntime
-        }),
-        'web tools'
-      )
-      const computerTools = createComputerTools({
-        agentUID: turnStart.turn.actor.agent_uid,
-        conversationID: turnStart.turn.actor.session_id,
-        agentHome: opts.agentHome,
+    const renderedFetchRuntimeConfig = await turnActivity.runStep(
+      resolveRenderedFetchRuntimeConfig(turnStart, opts.rpc),
+      'rendered fetch runtime config'
+    )
+    const currentWorkerEnv = await turnActivity.runStep(
+      resolveAgentWorkerEnvParts(turnStart.turn.actor.agent_uid, opts.rpc, turnStart.actor_event.binding_name),
+      'worker env'
+    )
+    larkCredential = materializeLarkCredential({
+      agentUID: turnStart.turn.actor.agent_uid,
+      agentHome: opts.agentHome,
+      rpc: opts.rpc,
+      workerEnv: currentWorkerEnv,
+      bindingName: turnStart.actor_event.binding_name
+    })
+    const workerEnv = larkCredential.workerEnv.vars
+    const runtimeEnv = { ...opts.runtimeEnv, ...larkCredential.runtimeEnv }
+    const skillRoots = skillRootsFromOptions(opts)
+    const mcpServers = await turnActivity.runStep(
+      loadEnabledSkillMCPServers({
+        enabledSkills: agentConversationContext.skills ?? [],
+        skillRoots,
+        runtime: 'main'
+      }),
+      'Skill MCP dependencies'
+    )
+    mcporterConfig = materializeMCPorterConfig(mcpServers)
+    const toolWorkerEnv = { ...withoutBrowserMaterialSourceEnv(workerEnv), ...mcporterConfig.env }
+    const webTools = await turnActivity.runStep(
+      createTurnWebTools({
+        aiGateway,
+        renderedFetchRuntimeConfig,
+        workerEnv,
         workspaceRoot: opts.workspaceRoot,
-        userFilesRoot: opts.userFilesRoot,
-        workerEnv: toolWorkerEnv,
-        runtimeEnv
-      })
-      const backgroundAgentJobTools = await turnActivity.runStep(
-        resolveBackgroundAgentJobTools(turnStart, opts),
-        'background agent job tool availability'
-      )
+        browserRuntime: opts.browserRuntime
+      }),
+      'web tools'
+    )
+    const computerTools = createComputerTools({
+      agentUID: turnStart.turn.actor.agent_uid,
+      conversationID: turnStart.turn.actor.session_id,
+      agentHome: opts.agentHome,
+      workspaceRoot: opts.workspaceRoot,
+      userFilesRoot: opts.userFilesRoot,
+      workerEnv: toolWorkerEnv,
+      runtimeEnv
+    })
+    const backgroundAgentJobTools = await turnActivity.runStep(
+      resolveBackgroundAgentJobTools(turnStart, opts),
+      'background agent job tool availability'
+    )
 
-      tools = [
-        createTodoTool(new TodoStore()),
-        ...computerTools,
-        ...createScheduleTools({
-          turnStart,
-          requestScheduleRPC: scheduleRPCRequester(opts.rpc, turnStart.turn)
-        }),
-        ...createStandingOrdersTools({
-          turnStart,
-          requestSignalChannelRPC: signalChannelRPCRequester(opts.rpc, turnStart.turn)
-        }),
-        ...createMemoryTools({
-          turnStart,
-          requestMemoryRPC: memoryRPCRequester(opts.rpc, turnStart.turn)
-        }),
-        ...webTools.filter(tool => !webSearchIsProviderHosted(turnStart) || tool.name !== 'web_search'),
-        createClarifyTool(),
-        ...backgroundAgentJobTools,
-        ...createSkillTools(opts.workspaceRoot, {
-          turn: turnStart.turn,
-          enabledSkills: agentConversationContext.skills ?? [],
-          skillRoots,
-          rpc: opts.rpc
-        })
-      ]
-    }
+    const tools: WorkerAgentTool[] = [
+      createTodoTool(new TodoStore()),
+      ...computerTools,
+      ...createScheduleTools({
+        turnStart,
+        requestScheduleRPC: scheduleRPCRequester(opts.rpc, turnStart.turn)
+      }),
+      ...createStandingOrdersTools({
+        turnStart,
+        requestSignalChannelRPC: signalChannelRPCRequester(opts.rpc, turnStart.turn)
+      }),
+      ...webTools.filter(tool => !webSearchIsProviderHosted(turnStart) || tool.name !== 'web_search'),
+      createClarifyTool(),
+      ...backgroundAgentJobTools,
+      ...createSkillTools(opts.workspaceRoot, {
+        turn: turnStart.turn,
+        enabledSkills: agentConversationContext.skills ?? [],
+        skillRoots,
+        rpc: opts.rpc
+      })
+    ]
 
     const hostedTools = turnStart.hosted_tools ?? []
 
@@ -241,7 +220,6 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
           (latest.message.stopReason === 'aborted' ? 'LLM provider call aborted' : 'LLM provider returned an error')
       )
     }
-    learningTurn?.assertCompleted()
     const replyText = assistantText(latest.message)
     return textTurnResultFromAssistantReply(turnStart, replyText, latest.responseID, latest.outcome)
   } finally {
@@ -285,7 +263,10 @@ function safeAIGatewayRoute(baseURL: string): Record<string, string> {
   }
 }
 
-async function resolveBackgroundAgentJobTools(turnStart: TurnStart, opts: TextTurnLoopOptions): Promise<AgentTool[]> {
+async function resolveBackgroundAgentJobTools(
+  turnStart: TurnStart,
+  opts: TextTurnLoopOptions
+): Promise<WorkerAgentTool[]> {
   const response = await opts.rpc(rpcMethods.agentPluginList, {}, { turn: turnStart.turn })
 
   return [

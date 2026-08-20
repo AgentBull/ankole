@@ -1,7 +1,6 @@
 defmodule Ankole.SignalsGateway.FactNormalizer do
   @moduledoc false
 
-  alias Ankole.Principals
   alias Ankole.Ecto.JSONPayload
   alias Ankole.SignalsGateway.Sanitizer
   alias Ankole.SignalsGateway.Binding
@@ -223,8 +222,8 @@ defmodule Ankole.SignalsGateway.FactNormalizer do
 
   # A DM's peer is a durable routing fact, not a provider-specific payload
   # detail. Persist the normalized Ankole principal on the channel mirror so a
-  # later system event in the same channel can declare the same Brain scope
-  # without reinterpreting an old message body.
+  # later system event in the same channel can declare the same conversation
+  # origin without reinterpreting an old message body.
   defp put_dm_peer_principal(metadata, :im_dm, author, agent_uid) do
     case json_text(author, "principal_uid") do
       principal_uid when is_binary(principal_uid) ->
@@ -257,36 +256,33 @@ defmodule Ankole.SignalsGateway.FactNormalizer do
       json_text(author, "id")
   end
 
-  defp normalize_author_principal(%Binding{} = binding, author) when is_map(author) do
+  # Author resolution belongs to IdentityAdmission; the normalizer only
+  # normalizes a principal uid a trusted internal caller already supplied.
+  defp normalize_author_principal(%Binding{}, author) when is_map(author) do
     case json_text(author, "principal_uid") do
       principal_uid when is_binary(principal_uid) ->
         Map.put(author, "principal_uid", normalize_uid(principal_uid))
 
       nil ->
-        enrich_author_principal(binding, author)
+        author
     end
   end
 
-  defp enrich_author_principal(%Binding{} = binding, author) do
-    provider =
-      json_text(author, "provider") ||
-        json_text(json_map(author, "metadata", %{}), "provider") ||
-        binding.name
+  @doc false
+  @spec put_author_principal(struct(), String.t()) :: struct()
+  def put_author_principal(fact, principal_uid) do
+    principal_uid = normalize_uid(principal_uid)
+    author = Map.put(fact.author || %{}, "principal_uid", principal_uid)
 
-    subject =
-      json_text(author, "platform_subject") ||
-        json_text(author, "external_id")
+    channel_metadata =
+      put_dm_peer_principal(
+        fact.channel_metadata || %{},
+        fact.channel_kind,
+        author,
+        fact.agent_uid
+      )
 
-    case {provider, subject} do
-      {provider, subject} when is_binary(provider) and is_binary(subject) ->
-        case Principals.resolve_platform_subject(provider, subject) do
-          {:ok, principal} -> Map.put(author, "principal_uid", principal.uid)
-          {:error, _reason} -> author
-        end
-
-      _missing ->
-        author
-    end
+    %{fact | author: author, channel_metadata: channel_metadata, sender_key: principal_uid}
   end
 
   defp normalize_attachments(input) do
@@ -356,15 +352,6 @@ defmodule Ankole.SignalsGateway.FactNormalizer do
   end
 
   defp attr_datetime(_map, _key), do: nil
-
-  defp json_map(map, key, default) when is_map(map) and is_binary(key) do
-    case Map.get(map, key) do
-      value when is_map(value) -> value
-      _value -> default
-    end
-  end
-
-  defp json_map(_map, _key, default), do: default
 
   defp json_text(map, key) when is_map(map) and is_binary(key), do: text(Map.get(map, key))
   defp json_text(_map, _key), do: nil

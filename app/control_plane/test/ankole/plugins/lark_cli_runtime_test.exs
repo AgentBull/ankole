@@ -180,6 +180,7 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
                config_ref: "app-config://#{legacy_config_key}",
                filters: %{},
                unaddressed_group_message_policy: :ignore,
+               unmatched_sender_policy: :create_standalone,
                enabled: true
              })
 
@@ -226,6 +227,7 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
                config_ref: "app-config://#{legacy_config_key}",
                filters: %{},
                unaddressed_group_message_policy: :ignore,
+               unmatched_sender_policy: :create_standalone,
                enabled: true
              })
 
@@ -366,6 +368,7 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
                config_ref: "app-config://#{owner_config_key}",
                filters: %{},
                unaddressed_group_message_policy: :ignore,
+               unmatched_sender_policy: :create_standalone,
                enabled: true
              })
 
@@ -688,6 +691,7 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
                config_ref: "app-config://failing-env",
                filters: %{},
                unaddressed_group_message_policy: :record_only,
+               unmatched_sender_policy: :create_standalone,
                enabled: true
              })
 
@@ -716,6 +720,7 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
                config_ref: "app-config://disabled-env",
                filters: %{},
                unaddressed_group_message_policy: :record_only,
+               unmatched_sender_policy: :create_standalone,
                enabled: true
              })
 

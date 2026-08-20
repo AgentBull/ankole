@@ -505,7 +505,8 @@ defmodule Ankole.E2E.Harness do
     assert {:ok, %{binding: binding}} =
              Bindings.put_binding(agent_uid, "lark", name, %{
                "config" => config,
-               "group_message_mode" => Keyword.fetch!(opts, :group_message_mode)
+               "group_message_mode" => Keyword.fetch!(opts, :group_message_mode),
+               "unmatched_sender_policy" => "create_standalone"
              })
 
     assert binding.unaddressed_group_message_policy == policy

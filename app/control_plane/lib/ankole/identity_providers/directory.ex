@@ -52,9 +52,32 @@ defmodule Ankole.IdentityProviders.Directory do
   def upsert_user(provider_id, attrs, opts \\ [])
       when is_binary(provider_id) and is_map(attrs) and is_list(opts) do
     with {:ok, observed} <- Principals.upsert_platform_subject_human(attrs),
+         :ok <- ensure_members_group_membership(provider_id, observed.principal.uid),
          {:ok, _sync} <- maybe_sync_memberships(provider_id, observed.principal.uid, opts) do
       {:ok, observed}
     end
+  end
+
+  @doc """
+  Returns the AuthZ group name that holds every member of one provider.
+  """
+  @spec members_group_name(String.t()) :: String.t()
+  def members_group_name(provider_id) when is_binary(provider_id) do
+    String.downcase("#{provider_id}:members:all")
+  end
+
+  # Every synced subject also joins the provider-wide members group, so
+  # permission policy can address "everyone from this identity provider".
+  defp ensure_members_group_membership(provider_id, principal_uid) do
+    AuthZ.ensure_synced_group_member(
+      %{
+        name: members_group_name(provider_id),
+        display_name: "#{provider_id} members",
+        domain: :directory,
+        metadata: %{"provider" => provider_id, "members" => "all"}
+      },
+      principal_uid
+    )
   end
 
   @doc """

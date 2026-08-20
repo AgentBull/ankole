@@ -5,7 +5,7 @@ section: User guide
 order: 43
 ---
 
-**Console → AppConfigure**에는 배포 인스턴스가 서비스 중일 때 관리자가 변경할 수 있는 설정이 있습니다. 예를 들어 영구 memory, Agent 한도, 디렉터리 동기화 간격, 플러그인 스위치가 있습니다.
+**Console → AppConfigure**에는 배포 인스턴스가 서비스 중일 때 관리자가 변경할 수 있는 설정이 있습니다. 예를 들어 대화 히스토리 압축, Agent 한도, 디렉터리 동기화 간격, 플러그인 스위치가 있습니다.
 
 LLM 제공자, Identity Provider, 채팅 채널, 환경 변수는 각자 전용 Console 페이지가 있습니다. 여기에서 다시 구성하지 마세요.
 
@@ -72,7 +72,7 @@ AppConfigure 목록에는 인스턴스 오버라이드 또는 버전 기본값�
 | `ai_agent.library.agent_plugin_defaults` | 인스턴스 | Agent Plugin의 기본 활성화 상태 |
 | `ai_agent.library.skill_defaults` | 인스턴스 | Skill의 기본 활성화 상태 |
 
-### AI Gateway 및 장기 memory
+### AI Gateway 및 observability
 
 | 키 | 범위 | 용도 |
 |---|---|---|
@@ -81,11 +81,6 @@ AppConfigure 목록에는 인스턴스 오버라이드 또는 버전 기본값�
 | `observability.traces.provider` | 인스턴스 | `langfuse`, `langsmith` 또는 범용 `opentelemetry` trace의 semantic projection |
 | `observability.traces.otlp_endpoint` | 인스턴스 | optional trace의 base OTLP/HTTP endpoint |
 | `observability.traces.otlp_headers` | 인스턴스 | optional trace의 암호화된 authentication header |
-| `brain.knowledge` | 인스턴스 | 장기 memory 투영 예산 및 결과 한도 |
-| `brain.dreaming` | 인스턴스 또는 Agent | Dreaming 및 지식 큐레이션 정책 |
-| `brain.embedding` | 인스턴스 | 임베딩 모델 및 벡터 차원 |
-| `brain.search` | 인스턴스 | 장기 memory 감쇠 및 재랭킹 정책 |
-| `brain.sources` | 인스턴스 | 외부 소스 동기화 및 보존 정책 |
 
 Langfuse, LangSmith, VictoriaTraces 및 다른 OTLP/HTTP receiver 구성은 [LLM observability](../llm-observability/)를 참조하십시오.
 

@@ -89,7 +89,7 @@ names.
 - A key with `console_writable: false` moves into one collapsed group. An
   operator can open the group and read the current value, and a key that another
   page writes also links to that page.
-- A declared key prefix, such as `brain.`, replaces its member rows with one row
+- A declared key prefix, such as `observability.traces.`, replaces its member rows with one row
   and edits every member on one page. The key stays the save unit: the page
   writes each changed key separately, and it checks every changed value before
   the first write, so one rejected value does not leave the group part written.

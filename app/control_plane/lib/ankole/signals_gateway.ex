@@ -24,7 +24,6 @@ defmodule Ankole.SignalsGateway do
   alias Ankole.SignalsGateway.StateCleanup
   alias Ankole.SignalsGateway.AIReplyPreview
   alias Ankole.SignalsGateway.Utils
-  alias Ankole.SignalsGateway.Visibility
   alias Ankole.Repo
 
   @doc """
@@ -143,14 +142,6 @@ defmodule Ankole.SignalsGateway do
   """
   @spec list_enabled_bindings(String.t(), keyword()) :: [Binding.t()]
   defdelegate list_enabled_bindings(adapter, opts \\ []), to: Bindings
-
-  @doc """
-  Returns the provider and AuthZ-backed channel mirrors visible to a principal.
-  """
-  @spec visible_channels(String.t(), keyword()) :: [Ankole.SignalsGateway.Channel.t()]
-  defdelegate visible_channels(principal_uid, opts \\ []), to: Visibility
-
-  defdelegate confidential_channel?(principal_uid, channel_id, opts \\ []), to: Visibility
 
   @doc """
   Resolves the globally unique, stable address of one mirrored source entry.

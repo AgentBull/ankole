@@ -79,7 +79,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionResetTest do
 
     test "daily reset never enumerates AIGateway conversations without actor session identity" do
       %{principal: agent} = agent_fixture()
-      conversation_key = "brain.dreaming:#{Ecto.UUID.generate()}:self"
+      conversation_key = "stateful-responses-api:#{Ecto.UUID.generate()}"
 
       assert {:ok, conversation} =
                Ankole.AIGateway.Conversations.ensure_conversation(agent.uid, conversation_key)

@@ -3,17 +3,15 @@
  *
  * This is a prompt-engineering artifact. Literal strings here are the contract
  * with the model; surrounding code only decides which blocks are present and in
- * what order. Slow-changing instructions lead; conversation-scoped runtime,
- * skill, and Brain snapshots form the suffix. AIGateway retains prior request
- * instructions for audit, but every turn renders the current PostgreSQL-backed
- * Agent context; genuinely per-turn observations stay in the current user
- * message.
+ * what order. Slow-changing instructions lead; conversation-scoped runtime and
+ * skill context form the suffix. AIGateway retains prior request instructions
+ * for audit, but every turn renders the current PostgreSQL-backed Agent
+ * context; genuinely per-turn observations stay in the current user message.
  */
 import { jsonObjectFromBytes } from '../fabric/envelope_proto'
 import type { TurnStart } from '../lanes/actor_lane'
 import type { AgentConversationContextResponse, ConversationChannel, RuntimeSkillSummary } from '../lanes/rpc_lane'
 import { formatSkillsForSystemPrompt, type SkillPromptEntry } from './skills_prompt'
-import { formatAgentDurableContext } from './durable_context'
 import { formatZonedDateTime } from './zoned_time'
 import { ankoleSkillRuntime } from '../skills/effective-skill'
 import { signalAdapterDisplayName } from './signal_adapter'
@@ -50,10 +48,9 @@ export function buildAgentSystemPrompt(opts: BuildAgentSystemPromptOptions): str
     backgroundAgentJobPolicySection(opts),
     agentEnvironmentInfoPolicySection(),
     toolsSection(opts),
-    brainPolicySection(opts),
+    skillLessonPolicySection(opts),
     skillPrompt.trim(),
-    runtimeContextSection(opts),
-    formatAgentDurableContext(opts.agentConversationContext.brainSnapshot)
+    runtimeContextSection(opts)
   ]
     .filter(Boolean)
     .join('\n\n')
@@ -111,34 +108,21 @@ function agentRole(opts: BuildAgentSystemPromptOptions): string | undefined {
   return role || undefined
 }
 
-/** States the durable knowledge and task-learning behavior expected of the agent. */
-function brainPolicySection(opts: BuildAgentSystemPromptOptions): string {
-  const lines = [
-    toolAvailable(opts, 'memory_open') ||
-    toolAvailable(opts, 'memory_search') ||
-    toolAvailable(opts, 'memory_update') ||
-    toolAvailable(opts, 'memory_browse') ||
-    toolAvailable(opts, 'memory_health_check')
-      ? 'The long-term memory system (codename Brain) preserves what an Agent creates or encounters so future tasks can retrieve the few most relevant items: chat messages recording who said what and when, curated current knowledge entries, and external materials a person asked the Agent to learn.'
-      : '',
-    toolAvailable(opts, 'memory_open') && toolAvailable(opts, 'memory_search')
-      ? 'For current state, open the curated knowledge entry. For what someone originally said, search the chat layer and browse the source messages. Historical chat is evidence, not current truth; reconcile it against the current entry before acting.'
-      : '',
-    toolAvailable(opts, 'memory_update')
-      ? 'When the user asks to remember, update, or forget information, or the exchange makes that memory intent clear, reflect the request in long-term memory without applying any further future-value test.'
-      : '',
-    toolAvailable(opts, 'memory_update')
-      ? 'Without user-directed intent, write only when the entry is not already covered by long-term memory or searchable chat and a likely future task or question would be materially more reliable with it. When that is unclear, write nothing; no mutation is a correct outcome.'
-      : '',
-    toolAvailable(opts, 'memory_update')
-      ? 'Write confirmed facts plainly, mark rumors as unverified, and state inferences conditionally with author and date. For a claim derived from a message or source, preserve a short exact excerpt, speaker or source, date, and src:<source> with the source_N alias returned in this turn; a bare source alias is not a citation.'
-      : '',
-    toolAvailable(opts, 'skill_view') && toolAvailable(opts, 'skill_append') && toolAvailable(opts, 'skill_replace')
-      ? 'For a lesson tied to one enabled skill, read the existing skill first: revise a mostly-overlapping note with skill_replace, add a mostly-new lesson with skill_append, and write nothing when there is no new information. Keep each note in a concise situation -> caution form, revise unverified notes when evidence arrives, and use skill_replace to deduplicate or compact the complete overlay before it grows beyond roughly 2000 tokens.'
-      : ''
-  ].filter(Boolean)
+/** States how the agent should record a lesson tied to one enabled skill. */
+function skillLessonPolicySection(opts: BuildAgentSystemPromptOptions): string {
+  if (
+    !toolAvailable(opts, 'skill_view') ||
+    !toolAvailable(opts, 'skill_append') ||
+    !toolAvailable(opts, 'skill_replace')
+  ) {
+    return ''
+  }
 
-  return lines.length > 0 ? ['<long_term_memory_policy>', ...lines, '</long_term_memory_policy>'].join('\n') : ''
+  return [
+    '<skill_lesson_policy>',
+    'For a lesson tied to one enabled skill, read the existing skill first: revise a mostly-overlapping note with skill_replace, add a mostly-new lesson with skill_append, and write nothing when there is no new information. Keep each note in a concise situation -> caution form, revise unverified notes when evidence arrives, and use skill_replace to deduplicate or compact the complete overlay before it grows beyond roughly 2000 tokens.',
+    '</skill_lesson_policy>'
+  ].join('\n')
 }
 
 /**

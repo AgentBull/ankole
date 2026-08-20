@@ -187,13 +187,12 @@ defmodule Ankole.AIGateway.ConsoleQueries do
   end
 
   # Display kind derived from the key constructors (signal ingress, background
-  # jobs, cron execution sessions, dreaming runs, managed Responses
-  # conversations). Custom adapter session ids for channel-backed chats still
-  # read as "signal" through the brain scope declaration.
+  # jobs, cron execution sessions, managed Responses conversations). Custom
+  # adapter session ids for channel-backed chats still read as "signal"
+  # through the recorded conversation origin.
   defp conversation_kind(%Conversation{} = conversation, decoration) do
     case conversation.conversation_key do
       "signal-channel:" <> _rest -> "signal"
-      "brain.dreaming:" <> _rest -> "dreaming"
       key when BackgroundAgentJobs.is_job_session_id(key) -> "job"
       key when Cron.is_execution_session_id(key) -> "cron"
       "stateful-responses-api:" <> _rest -> "responses_api"
@@ -234,7 +233,7 @@ defmodule Ankole.AIGateway.ConsoleQueries do
             (parent_as(:conversation).conversation_key ==
                fragment("'signal-channel:' || ?", channel.id) or
                fragment(
-                 "? -> 'brain' ->> 'channel_id' = ?",
+                 "? -> 'origin' ->> 'channel_id' = ?",
                  parent_as(:conversation).metadata,
                  channel.id
                ))
@@ -244,7 +243,7 @@ defmodule Ankole.AIGateway.ConsoleQueries do
         where:
           ilike(principal.display_name, ^pattern) and
             principal.uid ==
-              fragment("? -> 'brain' ->> 'peer_uid'", parent_as(:conversation).metadata)
+              fragment("? -> 'origin' ->> 'peer_uid'", parent_as(:conversation).metadata)
 
     where(
       query,

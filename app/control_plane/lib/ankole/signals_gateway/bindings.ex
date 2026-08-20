@@ -15,6 +15,7 @@ defmodule Ankole.SignalsGateway.Bindings do
   alias Ankole.SignalsGateway.Outbox
   alias Ankole.SignalsGateway.Binding
   alias Ankole.SignalsGateway.GroupMessageModes
+  alias Ankole.SignalsGateway.UnmatchedSenderPolicies
   alias Ankole.SignalsGateway.Utils
 
   @spec upsert_binding(map()) :: {:ok, Binding.t()} | {:error, term()}
@@ -55,6 +56,7 @@ defmodule Ankole.SignalsGateway.Bindings do
          {:ok, confidential_memory} <- confidential_memory(attrs, false),
          :ok <- validate_supported_group_message_mode(definition, mode),
          {:ok, policy} <- GroupMessageModes.policy(mode),
+         {:ok, unmatched_sender_policy} <- unmatched_sender_policy(attrs),
          {:ok, config_key} <- binding_config_key(definition, principal.uid, binding_name),
          {:ok, binding} <-
            persist_binding_assignment(
@@ -64,6 +66,7 @@ defmodule Ankole.SignalsGateway.Bindings do
              normalized_config,
              config_key,
              policy,
+             unmatched_sender_policy,
              confidential_memory
            ),
          :ok <- maybe_handle_binding_saved(definition, binding, normalized_config),
@@ -95,6 +98,7 @@ defmodule Ankole.SignalsGateway.Bindings do
          {:ok, confidential_memory} <- confidential_memory(attrs, nil),
          :ok <- validate_supported_group_message_mode(definition, mode),
          {:ok, policy} <- GroupMessageModes.policy(mode),
+         {:ok, unmatched_sender_policy} <- unmatched_sender_policy(attrs),
          {:ok, config_key} <-
            binding_config_key(definition, target_principal.uid, binding_name),
          {:ok, {binding, normalized_config}} <-
@@ -106,6 +110,7 @@ defmodule Ankole.SignalsGateway.Bindings do
              config_patch,
              config_key,
              policy,
+             unmatched_sender_policy,
              confidential_memory
            ),
          :ok <- maybe_handle_binding_saved(definition, binding, normalized_config),
@@ -236,7 +241,8 @@ defmodule Ankole.SignalsGateway.Bindings do
       plugin_id: definition.plugin_id,
       display_name: definition.display_name,
       fields: definition.fields,
-      group_message_mode_field: GroupMessageModes.field(definition.supported_group_message_modes)
+      group_message_mode_field: GroupMessageModes.field(definition.supported_group_message_modes),
+      unmatched_sender_policy_field: UnmatchedSenderPolicies.field()
     }
   end
 
@@ -265,6 +271,14 @@ defmodule Ankole.SignalsGateway.Bindings do
       mode when is_binary(mode) and mode != "" -> {:ok, mode}
       nil -> {:ok, GroupMessageModes.default_mode()}
       mode -> {:error, {:invalid_group_message_mode, mode}}
+    end
+  end
+
+  defp unmatched_sender_policy(attrs) do
+    case Map.get(attrs, :unmatched_sender_policy, Map.get(attrs, "unmatched_sender_policy")) do
+      value when is_binary(value) and value != "" -> UnmatchedSenderPolicies.policy(value)
+      nil -> UnmatchedSenderPolicies.policy(UnmatchedSenderPolicies.default_value())
+      value -> {:error, {:unknown_unmatched_sender_policy, value}}
     end
   end
 
@@ -328,6 +342,7 @@ defmodule Ankole.SignalsGateway.Bindings do
          normalized_config,
          config_key,
          policy,
+         unmatched_sender_policy,
          confidential_memory
        ) do
     case Repo.transact(fn repo ->
@@ -348,6 +363,7 @@ defmodule Ankole.SignalsGateway.Bindings do
                     config_ref: "app-config://#{config_key}",
                     filters: %{},
                     unaddressed_group_message_policy: policy,
+                    unmatched_sender_policy: unmatched_sender_policy,
                     confidential_memory: confidential_memory,
                     enabled: true
                   }),
@@ -373,6 +389,7 @@ defmodule Ankole.SignalsGateway.Bindings do
          config_patch,
          config_key,
          policy,
+         unmatched_sender_policy,
          confidential_memory
        ) do
     case Repo.transact(fn repo ->
@@ -414,6 +431,7 @@ defmodule Ankole.SignalsGateway.Bindings do
                     config_ref: "app-config://#{config_key}",
                     filters: source_binding.filters,
                     unaddressed_group_message_policy: policy,
+                    unmatched_sender_policy: unmatched_sender_policy,
                     confidential_memory:
                       if(is_boolean(confidential_memory),
                         do: confidential_memory,
@@ -450,7 +468,9 @@ defmodule Ankole.SignalsGateway.Bindings do
 
   defp binding_config_in_tx(_repo, %Binding{}), do: {:error, :binding_config_unavailable}
 
-  defp stored_binding_config(%Binding{config_ref: "app-config://" <> key}) do
+  @doc false
+  @spec stored_binding_config(Binding.t()) :: {:ok, map()} | {:error, term()}
+  def stored_binding_config(%Binding{config_ref: "app-config://" <> key}) do
     case AppConfigure.get_by_key(key) do
       {:ok, config} when is_map(config) -> {:ok, config}
       {:ok, _config} -> {:error, :binding_config_unavailable}
@@ -459,7 +479,7 @@ defmodule Ankole.SignalsGateway.Bindings do
     end
   end
 
-  defp stored_binding_config(%Binding{}), do: {:error, :binding_config_unavailable}
+  def stored_binding_config(%Binding{}), do: {:error, :binding_config_unavailable}
 
   defp merge_binding_config(current, patch) when is_map(current) and is_map(patch) do
     Map.merge(current, patch, fn _key, current_value, patch_value ->

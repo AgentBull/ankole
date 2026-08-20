@@ -5,7 +5,7 @@ section: User guide
 order: 43
 ---
 
-**Console → AppConfigure** contains settings that an administrator can change while the deployment instance is in service. Examples include durable memory, Agent limits, directory synchronization intervals, and plugin switches.
+**Console → AppConfigure** contains settings that an administrator can change while the deployment instance is in service. Examples include conversation-history compaction, Agent limits, directory synchronization intervals, and plugin switches.
 
 LLM Providers, Identity Providers, chat channels, and environment variables have their own Console pages. Do not configure them again here.
 
@@ -72,7 +72,7 @@ The following AppConfigure keys are built into Ankole. A Control Plane Plugin ca
 | `ai_agent.library.agent_plugin_defaults` | Instance | Default enablement for Agent Plugins |
 | `ai_agent.library.skill_defaults` | Instance | Default enablement for Skills |
 
-### AI Gateway and long-term memory
+### AI Gateway and observability
 
 | Key | Scope | Purpose |
 |---|---|---|
@@ -81,11 +81,6 @@ The following AppConfigure keys are built into Ankole. A Control Plane Plugin ca
 | `observability.traces.provider` | Instance | Semantic projection for `langfuse`, `langsmith`, or generic `opentelemetry` traces |
 | `observability.traces.otlp_endpoint` | Instance | Base OTLP/HTTP endpoint for optional traces |
 | `observability.traces.otlp_headers` | Instance | Encrypted authentication headers for optional traces |
-| `brain.knowledge` | Instance | Long-term memory projection budget and result limit |
-| `brain.dreaming` | Instance or Agent | Dreaming and knowledge-curation policy |
-| `brain.embedding` | Instance | Embedding model and vector dimensions |
-| `brain.search` | Instance | Long-term memory decay and reranking policy |
-| `brain.sources` | Instance | External-source synchronization and retention policy |
 
 See [LLM observability](../llm-observability/) for Langfuse, LangSmith, VictoriaTraces, and other OTLP/HTTP receivers.
 

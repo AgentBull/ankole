@@ -32,8 +32,7 @@ export { describeTruncatedToolCalls, readTruncatedToolCall, type TruncatedToolCa
 export {
   MAX_REPAIRABLE_TOOL_ARGUMENT_BYTES,
   MAX_TOOL_ARGUMENT_BYTES,
-  validateToolArguments,
-  validateToolArgumentsWithRepair,
+  repairToolArgumentsJSON,
   zodToJSONSchema
 } from './tool-schema'
 

@@ -118,7 +118,7 @@ Decryption is a separate, audited operation. Listing and reading return metadata
 | `GET` | `/control-plane-plugins` | List Control Plane Plugins and their state |
 | `PUT` | `/control-plane-plugins` | Enable or disable plugins |
 
-Control Plane Plugins are the first-party extensions that change what the control plane itself does, such as a signals adapter or a Brain source connector.
+Control Plane Plugins are the first-party extensions that change what the control plane itself does, such as a signals adapter.
 
 ### Identity providers and AppConfiguration
 
@@ -142,7 +142,6 @@ Alongside configuration, the Console is the observability path for the rest of t
 - **Workers**: `/agent-computer-workers`, with file upload, move, and listing per worker.
 - **Jobs**: `/background-agent-jobs` (list, read, cancel).
 - **AI activity**: `/ai-gateway/conversations`, with messages per conversation.
-- **Memory**: the full `/brain/*` surface — entries, sources, audit log, dreaming runs and fitness, restorations.
 - **Principals and AuthZ**: `/principals`, `/principal-groups`, `/permission-grants` — the permission model from the [Principal and AuthZ](../principal-authz/) page.
 
 ## A note on what is not here

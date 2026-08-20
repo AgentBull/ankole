@@ -195,7 +195,7 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapterTest do
   end
 
   describe "OIDC login" do
-    test "authorization_url respects the oidc gate and hints a single domain" do
+    test "authorization_url hints a single domain" do
       {:ok, config} = Config.validate_identity_config(identity_config())
 
       assert {:ok, url} =
@@ -207,17 +207,6 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapterTest do
       query = url |> URI.parse() |> Map.fetch!(:query) |> URI.decode_query()
       assert query["hd"] == "example.com"
       assert query["client_id"] == "client-1"
-
-      {:ok, disabled} =
-        Config.validate_identity_config(
-          identity_config(%{"oidc" => %{"enabled" => false, "allowedDomains" => []}})
-        )
-
-      assert {:error, :oidc_disabled} =
-               IdentityProvider.authorization_url(disabled,
-                 redirect_uri: "https://ankole.example.com/cb",
-                 state: "state-1"
-               )
     end
 
     test "verify_login_claims fails closed on every gate" do

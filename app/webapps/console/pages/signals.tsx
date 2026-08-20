@@ -54,7 +54,8 @@ import {
   groupMessageModeFromPolicy,
   SignalBindingEditorModel,
   type GroupMessageMode,
-  type SignalBindingAdapterDraft
+  type SignalBindingAdapterDraft,
+  type UnmatchedSenderPolicy
 } from '../state/signal-binding-editor-model'
 import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
 
@@ -217,6 +218,7 @@ export function SignalsListPage() {
                           target_agent_uid: binding.agent_uid,
                           config: {},
                           group_message_mode: groupMessageModeFromPolicy(binding.unaddressed_group_message_policy),
+                          unmatched_sender_policy: binding.unmatched_sender_policy,
                           confidential_memory: binding.confidential_memory
                         }
                       })
@@ -407,9 +409,17 @@ export function SignalBindingEditorPage() {
       model.validationError.value = t('console.signals.group_message_mode_invalid')
       return
     }
+    const unmatchedSenderPolicy = asUnmatchedSenderPolicy(
+      model.unmatchedSenderPolicy.value || defaultUnmatchedSenderPolicy(activeAdapter)
+    )
+    if (!unmatchedSenderPolicy) {
+      model.validationError.value = t('console.signals.unmatched_sender_policy_invalid')
+      return
+    }
     const body = {
       config: editing ? model.configPatch.value : model.config.value,
       group_message_mode: groupMessageMode,
+      unmatched_sender_policy: unmatchedSenderPolicy,
       confidential_memory: model.confidentialMemory.value
     }
     if (editing) {
@@ -519,6 +529,12 @@ export function SignalBindingEditorPage() {
                 value={model.groupMessageMode.value || defaultGroupMessageMode(activeAdapter)}
                 onChange={value => (model.groupMessageMode.value = String(value) as GroupMessageMode)}
               />
+              <ConfigField
+                field={asConfigField(activeAdapter.unmatched_sender_policy_field)}
+                locale={locale}
+                value={model.unmatchedSenderPolicy.value || defaultUnmatchedSenderPolicy(activeAdapter)}
+                onChange={value => (model.unmatchedSenderPolicy.value = String(value) as UnmatchedSenderPolicy)}
+              />
               <LabeledField
                 label={t('console.signals.confidential_memory')}
                 description={t('console.signals.confidential_memory_hint')}>
@@ -589,7 +605,14 @@ export function finishSignalBindingSave(
 }
 
 function emptyForm(): SignalBindingAdapterDraft {
-  return { adapterID: '', name: '', groupMessageMode: '', confidentialMemory: false, config: {} }
+  return {
+    adapterID: '',
+    name: '',
+    groupMessageMode: '',
+    unmatchedSenderPolicy: '',
+    confidentialMemory: false,
+    config: {}
+  }
 }
 
 function formFromAdapter(adapter: SignalAdapterItem | undefined): SignalBindingAdapterDraft {
@@ -598,6 +621,7 @@ function formFromAdapter(adapter: SignalAdapterItem | undefined): SignalBindingA
     adapterID: adapter.adapter_id,
     name: `${adapter.adapter_id}-main`,
     groupMessageMode: defaultGroupMessageMode(adapter),
+    unmatchedSenderPolicy: defaultUnmatchedSenderPolicy(adapter),
     confidentialMemory: false,
     config: defaultConfig(asConfigFields(adapter.fields))
   }
@@ -608,6 +632,7 @@ function formFromBinding(binding: SignalBindingItem, config: unknown): SignalBin
     adapterID: binding.adapter,
     name: binding.name,
     groupMessageMode: groupMessageModeFromPolicy(binding.unaddressed_group_message_policy),
+    unmatchedSenderPolicy: binding.unmatched_sender_policy,
     confidentialMemory: binding.confidential_memory,
     config: asJSONObject(config)
   }
@@ -632,6 +657,16 @@ function defaultGroupMessageMode(adapter: SignalAdapterItem): GroupMessageMode |
 
 function asGroupMessageMode(value: string | undefined): GroupMessageMode | undefined {
   if (value === 'addressed_only' || value === 'observe_all' || value === 'may_intervene') return value
+  return undefined
+}
+
+function defaultUnmatchedSenderPolicy(adapter: SignalAdapterItem): UnmatchedSenderPolicy | '' {
+  const field = asConfigField(adapter.unmatched_sender_policy_field)
+  return asUnmatchedSenderPolicy(typeof field.default === 'string' ? field.default : undefined) ?? ''
+}
+
+function asUnmatchedSenderPolicy(value: string | undefined): UnmatchedSenderPolicy | undefined {
+  if (value === 'manual_review' || value === 'create_standalone') return value
   return undefined
 }
 

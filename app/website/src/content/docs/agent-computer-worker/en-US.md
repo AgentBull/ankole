@@ -38,8 +38,7 @@ Tools are the local actions the model can drive during a loop. The worker ships 
 
 - **Computer** — shell commands (under bubblewrap confinement), file read and patch, apply-patch, and the v4a computer-use tool that drives a real browser desktop. This is where terminal state and file edits live.
 - **Web** — web search and web fetch, routed through the worker.
-- **Brain** — the recall and knowledge tools that reach back into long-term memory.
-- **Memory, schedule, todo, clarify** — the smaller structured tools an agent uses to plan, defer, and ask.
+- **Schedule, todo, clarify** — the smaller structured tools an agent uses to plan, defer, and ask.
 - **Codex** — the CodexRunner job tools, for work delegated to a Background Agent Job.
 - **Library and mcporter** — access to enabled Skills and invocation-scoped MCP dependency configs.
 - **Background Agent Job** — the handoff tools that create or continue durable jobs.

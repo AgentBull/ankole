@@ -122,8 +122,8 @@ This split gives these guarantees:
   conversation, history, and Workspace.
 - A long fire does not block user messages in the owner conversation, and
   different rules do not block each other.
-- The fire keeps the delivery `signal_channel_id`, so it has the same channel
-  Brain scope and replies to the configured channel.
+- The fire keeps the delivery `signal_channel_id`, so it replies to the
+  configured channel.
 
 A direct-Agent rule must store its complete standing instruction in
 `payload.task`. A fire never sees the owner conversation transcript. A user
@@ -135,8 +135,7 @@ AIGateway conversation, and the next fire starts a new one from the current
 rule. Time-only changes keep the conversation. Removal or completion also
 ends the conversation, so the daily session reset stops selecting the dead
 session. The reset applies immediately even while a fire runs; that fire
-completes into the ended conversation by id, and only a Brain call inside the
-same turn can fail once.
+completes into the ended conversation by id.
 
 ## Set the Time for One Checkback
 

@@ -40,6 +40,31 @@ Slack, Microsoft Teams, Lark, and Feishu support all three modes. DingTalk and W
 
 Use **Addressed messages only** for a group that needs question-and-answer behavior only.
 
+## Choose what happens to unknown senders
+
+Ankole maps each sender to a known account automatically: an account that
+directory sync or login already imported matches by its platform id, and a new
+platform account matches when the platform reports an email or mobile number
+that an existing account owns. This mapping is best effort — a sender from
+outside your directory, or a user of a local-login account who has never been
+linked, maps to nothing.
+
+**When account auto-mapping fails** selects what the rule does with such a
+sender:
+
+| Option | Behavior |
+|---|---|
+| **Manual review** (default) | The sender appears under **Identity → Pending mappings** in the Console. Until an administrator binds the account there, a message that addresses the Agent gets one fixed reply that asks the sender to contact an administrator, and nothing else happens — the message does not enter context or memory. |
+| **Create a standalone account** | Ankole creates a standalone account for the sender and serves them at once. Use this for open channels where anyone may talk to the Agent. |
+
+Unaddressed group chatter from an unmapped sender is always ignored.
+
+On Lark and Feishu this also covers external groups: members from another
+tenant have no employee id, so they always need manual binding or the
+standalone option. You can also map an account before the person ever writes,
+for example to link a local-login user to their chat account, from the same
+Console page.
+
 ## Select the memory scope
 
 **Shared** lets group messages enter the shared memory scope for this instance. Use it for work groups where the Agent must keep knowledge across conversations.

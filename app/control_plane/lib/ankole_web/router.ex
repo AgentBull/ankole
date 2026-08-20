@@ -215,22 +215,6 @@ defmodule AnkoleWeb.Router do
         AIGatewayConversationController,
         :messages
 
-    get "/brain/entries", BrainController, :index
-    get "/brain/entries/:id", BrainController, :show
-    post "/brain/entry-operations", BrainController, :apply_operations
-    get "/brain/audit-log", BrainController, :audit_index
-    get "/brain/entries/:id/audit-log", BrainController, :audit_log
-    get "/brain/sources", BrainController, :source_index
-    get "/brain/sources/:document_id", BrainController, :source
-    get "/brain/sources/:document_id/raw", BrainController, :source_raw
-    post "/brain/sources", BrainController, :create_source
-    post "/brain/sources/:document_id/learning-runs", BrainController, :learn_source
-    get "/brain/status", BrainController, :status
-    post "/brain/audit-log/restorations", BrainController, :restore_audits
-    post "/brain/audit-log/:audit_id/restorations", BrainController, :restore_audit
-    post "/brain/dreaming-runs", BrainController, :run_dreaming
-    get "/brain/dreaming-fitness", BrainController, :dreaming_fitness
-
     get "/agent-computer-workers/:worker_id/files", WorkerFileController, :index
 
     get "/agent-computer-workers/:worker_id/files/content",
@@ -292,6 +276,11 @@ defmodule AnkoleWeb.Router do
     get "/identity-providers", IdentityProviderController, :index
     put "/identity-providers/:provider_id", IdentityProviderController, :put_provider
     post "/identity-providers/:provider_id/sync-runs", IdentityProviderController, :run_sync
+
+    get "/identity-mapping-requests", IdentityMappingRequestController, :index
+    post "/identity-mapping-requests/:id/bind", IdentityMappingRequestController, :bind
+    delete "/identity-mapping-requests/:id", IdentityMappingRequestController, :delete
+    post "/identity-mappings", IdentityMappingRequestController, :create_mapping
 
     put "/agents/:agent_uid/provider-hosted", AgentController, :put_provider_hosted
 

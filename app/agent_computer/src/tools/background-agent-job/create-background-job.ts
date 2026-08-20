@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { sanitizeCatalogLine } from '../../common/text-sanitize'
-import type { AgentTool } from '../../core'
+import { defineWorkerTool, type WorkerAgentTool } from '../../core'
 import { modelIntegerIDFromWire } from '../../core/model-integer-id'
 import { jsonToolResult } from '../../core/tool-result'
 import type { TurnStart } from '../../lanes/actor_lane'
@@ -29,11 +29,11 @@ export type CreateBackgroundJobToolOptions = {
 
 export function createCreateBackgroundJobTool(
   opts: CreateBackgroundJobToolOptions
-): AgentTool<ReturnType<typeof createBackgroundJobParamsSchema>, CreateBackgroundJobResult> {
+): WorkerAgentTool<ReturnType<typeof createBackgroundJobParamsSchema>, CreateBackgroundJobResult> {
   const workspaceTemplates = availableWorkspaceTemplates(opts.agentPluginCatalog)
   const customModelProfiles = availableCustomModelProfiles(opts.turnStart)
 
-  return {
+  return defineWorkerTool({
     name: 'create_background_job',
     description: [
       'Delegate a durable job to a background agent.',
@@ -63,7 +63,7 @@ export function createCreateBackgroundJobTool(
         status: BackgroundAgentJobStatusSchema.parse(response.status)
       })
     }
-  }
+  })
 }
 
 type WorkspaceTemplate = {

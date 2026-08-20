@@ -12,7 +12,6 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.AdapterContext
   alias Ankole.SignalsGateway.AIGatewayLink
-  alias Ankole.SignalsGateway.Binding
   alias Ankole.SignalsGateway.BindingMembership
   alias Ankole.SignalsGateway.Channel
 
@@ -231,7 +230,7 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
     refute Repo.get(Message, second.id)
   end
 
-  test "declares and freezes a DM Brain scope from the mirrored channel" do
+  test "declares a DM conversation origin from the mirrored channel" do
     %{principal: agent} = agent_fixture()
     %{principal: peer} = human_fixture()
     now = DateTime.utc_now(:microsecond)
@@ -271,26 +270,19 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
                )
              end)
 
-    assert conversation.metadata["brain"] == %{
-             "visibility" => "dm",
+    assert conversation.metadata["origin"] == %{
              "peer_uid" => peer.uid,
              "channel_id" => channel_id,
              "channel_kind" => "im_dm"
            }
 
-    conversation = %{
-      conversation
-      | metadata: put_in(conversation.metadata, ["brain", "snapshot"], %{"pinned_memo" => "old"})
-    }
+    assert %{"origin" => successor_origin} =
+             AIGatewayLink.successor_origin_metadata(conversation)
 
-    assert %{"brain" => successor_scope} =
-             AIGatewayLink.successor_brain_metadata(conversation)
-
-    refute Map.has_key?(successor_scope, "snapshot")
-    assert successor_scope["peer_uid"] == peer.uid
+    assert successor_origin == conversation.metadata["origin"]
   end
 
-  test "starts a successor conversation when a group changes Brain visibility" do
+  test "conversation origin is recorded once and never re-verified against later channel changes" do
     %{principal: agent} = agent_fixture()
     binding_name = "scope-rollover"
     session_id = "group-scope-rollover"
@@ -303,6 +295,7 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
                adapter: "lark",
                config_ref: "app-config://scope-rollover",
                unaddressed_group_message_policy: :record_only,
+               unmatched_sender_policy: :create_standalone,
                confidential_memory: false
              })
 
@@ -345,7 +338,7 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
     first_event =
       append_group_actor_event!(agent.uid, binding_name, channel.id, session_id, "shared", now)
 
-    assert {:ok, shared_conversation} =
+    assert {:ok, conversation} =
              Repo.transact(fn repo ->
                AIGatewayLink.ensure_and_lock_conversation_in_tx(
                  repo,
@@ -355,43 +348,10 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
                )
              end)
 
-    assert shared_conversation.metadata["brain"]["visibility"] == "shared"
-
-    shared_conversation
-    |> Ecto.Changeset.change(
-      metadata:
-        shared_conversation.metadata
-        |> put_in(["brain", "visibility"], "public")
-        |> put_in(["brain", "snapshot"], %{
-          "pinned_memo" => %{"resident_text" => "legacy public snapshot"}
-        })
-    )
-    |> Repo.update!()
-
-    legacy_event =
-      append_group_actor_event!(
-        agent.uid,
-        binding_name,
-        channel.id,
-        session_id,
-        "legacy-public",
-        now
-      )
-
-    assert {:ok, migrated_shared_conversation} =
-             Repo.transact(fn repo ->
-               AIGatewayLink.ensure_and_lock_conversation_in_tx(
-                 repo,
-                 agent.uid,
-                 session_id,
-                 legacy_event
-               )
-             end)
-
-    refute migrated_shared_conversation.id == shared_conversation.id
-    assert %DateTime{} = Repo.get!(Conversation, shared_conversation.id).ended_at
-    assert migrated_shared_conversation.metadata["brain"]["visibility"] == "shared"
-    refute Map.has_key?(migrated_shared_conversation.metadata["brain"], "snapshot")
+    assert conversation.metadata["origin"] == %{
+             "channel_id" => channel.id,
+             "channel_kind" => "im_group"
+           }
 
     binding
     |> Ecto.Changeset.change(confidential_memory: true)
@@ -400,7 +360,7 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
     second_event =
       append_group_actor_event!(agent.uid, binding_name, channel.id, session_id, "channel", now)
 
-    assert {:ok, confidential_conversation} =
+    assert {:ok, same_conversation} =
              Repo.transact(fn repo ->
                AIGatewayLink.ensure_and_lock_conversation_in_tx(
                  repo,
@@ -410,41 +370,12 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
                )
              end)
 
-    refute confidential_conversation.id == migrated_shared_conversation.id
-    assert %DateTime{} = Repo.get!(Conversation, migrated_shared_conversation.id).ended_at
-    assert confidential_conversation.metadata["brain"]["visibility"] == "channel"
-    refute Map.has_key?(confidential_conversation.metadata["brain"], "snapshot")
-
-    Repo.get_by!(Binding, agent_uid: agent.uid, name: binding.name)
-    |> Ecto.Changeset.change(confidential_memory: false)
-    |> Repo.update!()
-
-    third_event =
-      append_group_actor_event!(
-        agent.uid,
-        binding_name,
-        channel.id,
-        session_id,
-        "shared-again",
-        now
-      )
-
-    assert {:ok, next_shared_conversation} =
-             Repo.transact(fn repo ->
-               AIGatewayLink.ensure_and_lock_conversation_in_tx(
-                 repo,
-                 agent.uid,
-                 session_id,
-                 third_event
-               )
-             end)
-
-    refute next_shared_conversation.id == confidential_conversation.id
-    assert %DateTime{} = Repo.get!(Conversation, confidential_conversation.id).ended_at
-    assert next_shared_conversation.metadata["brain"]["visibility"] == "shared"
+    assert same_conversation.id == conversation.id
+    assert same_conversation.metadata["origin"] == conversation.metadata["origin"]
+    refute Repo.get!(Conversation, conversation.id).ended_at
   end
 
-  test "missing schedule delivery channels use the principal self Brain scope" do
+  test "missing schedule delivery channels leave the conversation origin undeclared" do
     %{principal: agent} = agent_fixture()
     now = DateTime.utc_now(:microsecond)
 
@@ -473,11 +404,11 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
                  )
                end)
 
-      assert conversation.metadata["brain"] == %{"visibility" => "self"}
+      refute Map.has_key?(conversation.metadata, "origin")
     end
   end
 
-  test "missing ingress channels remain a hard Brain scope error" do
+  test "missing ingress channels remain a hard conversation-origin error" do
     %{principal: agent} = agent_fixture()
     now = DateTime.utc_now(:microsecond)
     channel_id = "missing:ingress:channel"
@@ -496,7 +427,7 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
         payload: %{}
       })
 
-    assert {:error, {:brain_scope_channel_not_found, ^channel_id}} =
+    assert {:error, {:conversation_origin_channel_not_found, ^channel_id}} =
              Repo.transact(fn repo ->
                AIGatewayLink.ensure_and_lock_conversation_in_tx(
                  repo,

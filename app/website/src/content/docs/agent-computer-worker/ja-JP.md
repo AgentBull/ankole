@@ -38,8 +38,7 @@ worker はループの終了とローカルの反復予算を所有します。�
 
 - **Computer** — シェルコマンド（bubblewrap の制約下）、ファイル読み取りとパッチ、apply-patch、実ブラウザのデスクトップを駆動する v4a computer-use ツール。ターミナル状態とファイル編集はここにあります。
 - **Web** — Web 検索と Web 取得。worker 経由でルーティングされます。
-- **Brain** — 長期記憶に遡る recall と知識ツール。
-- **Memory、schedule、todo、clarify** — Agent が計画、延期、質問に使う、より小さな構造化ツール。
+- **schedule、todo、clarify** — Agent が計画、延期、質問に使う、より小さな構造化ツール。
 - **Codex** — Background Agent Job に委任する作業のための CodexRunner Job ツール。
 - **Library と mcporter** — 有効な Skill と呼び出しスコープの MCP 依存関係設定へのアクセス。
 - **Background Agent Job** — 永続的な Job を作成または継続するハンドオフツール。

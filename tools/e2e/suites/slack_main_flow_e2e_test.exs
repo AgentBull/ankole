@@ -35,7 +35,8 @@ defmodule Ankole.E2E.SlackMainFlowTest do
                adapter: "slack",
                config_ref: "app-config://#{Config.chat_config_key(binding_name)}",
                filters: %{},
-               unaddressed_group_message_policy: :ignore
+               unaddressed_group_message_policy: :ignore,
+               unmatched_sender_policy: :create_standalone
              })
 
     base = %OutboxEntry{

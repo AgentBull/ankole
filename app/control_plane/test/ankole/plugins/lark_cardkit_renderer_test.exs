@@ -28,20 +28,6 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
         "columns" => [%{"key" => "x", "label" => "X"}],
         "rows" => [%{"x" => 1}]
       })
-      |> ReplyPresentation.apply_event("memory.lookup", %{
-        "operation_id" => "memory",
-        "revision" => 4,
-        "phase" => "completed",
-        "label" => "回忆相关上下文",
-        "source_count" => 2
-      })
-      |> ReplyPresentation.apply_event("memory.mutation_receipt", %{
-        "operation_id" => "memory-write",
-        "revision" => 5,
-        "phase" => "confirmed",
-        "summary" => "已更正项目偏好",
-        "scope" => "Brain 记忆"
-      })
       |> ReplyPresentation.apply_event("effect.receipt", %{
         "operation_id" => "checkback",
         "revision" => 6,
@@ -78,7 +64,6 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
 
     receipts = Enum.find(elements, &(&1["element_id"] == "receipts"))
     receipts_text = get_in(receipts, ["elements", Access.at(0), "content"])
-    assert receipts_text =~ "已更正项目偏好"
     assert receipts_text =~ "已安排后续检查"
     refute receipts["expanded"]
     assert get_in(receipts, ["header", "icon", "token"]) == "check_outlined"
@@ -216,12 +201,12 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
   test "completed metadata is collapsed above a divider and the final answer" do
     terminal =
       ReplyPresentation.new()
-      |> ReplyPresentation.apply_event("memory.mutation_receipt", %{
-        "operation_id" => "memory-write",
+      |> ReplyPresentation.apply_event("effect.receipt", %{
+        "operation_id" => "effect-1",
         "revision" => 1,
         "phase" => "confirmed",
-        "summary" => "已创建记忆条目",
-        "scope" => "Brain 记忆"
+        "summary" => "已确认变更",
+        "scope" => "当前任务"
       })
       |> ReplyPresentation.terminal("completed", "这是最终正文。")
 
@@ -232,7 +217,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
     receipts = Enum.at(elements, 0)
     refute receipts["expanded"]
     assert get_in(receipts, ["header", "icon", "token"]) == "check_outlined"
-    assert get_in(receipts, ["elements", Access.at(0), "content"]) =~ "已创建记忆条目"
+    assert get_in(receipts, ["elements", Access.at(0), "content"]) =~ "已确认变更"
     assert Enum.at(elements, 1)["tag"] == "hr"
     assert Enum.at(elements, 2)["content"] == "这是最终正文。"
   end

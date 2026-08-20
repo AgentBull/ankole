@@ -1778,7 +1778,35 @@ defmodule Ankole.Plugins.LarkAdapterTest do
              end)
     end
 
-    test "user senders without provider-scoped user_id are ignored with warning" do
+    test "an unmatched external sender is held for manual review with one fixed notice" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "lark", :ignore, unmatched_sender_policy: :manual_review)
+      consumer = Inbound.chat_consumer(adapter_context(agent.uid), chat_config())
+
+      event =
+        receive_event()
+        |> update_sender(fn sender ->
+          put_in(sender, ["sender_id"], Map.delete(sender["sender_id"], "user_id"))
+        end)
+
+      assert {:ok, [%{status: :held_unmapped_sender}]} =
+               Inbound.handle_message_receive("im.message.receive_v1", event, [consumer])
+
+      assert Repo.aggregate(ActorEvent, :count) == 0
+      assert Repo.aggregate(Entry, :count) == 0
+
+      request = Repo.get_by!(Ankole.Principals.MappingRequest, provider: "lark-main")
+      assert request.external_id == "onion_alice"
+      assert request.metadata["alternate_external_ids"] == ["ou_open_alice"]
+      assert request.display_name == "Alice"
+
+      notice = Repo.get_by!(Ankole.SignalsGateway.OutboxEntry, agent_uid: agent.uid)
+      assert notice.operation == :reply
+      assert notice.reply_to_source_entry_id == "om_1"
+      assert notice.fallback_visible_text =~ "Ankole Console"
+    end
+
+    test "an unmatched external sender gets a standalone account under create_standalone" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "lark", :ignore)
       consumer = Inbound.chat_consumer(adapter_context(agent.uid), chat_config())
@@ -1788,6 +1816,24 @@ defmodule Ankole.Plugins.LarkAdapterTest do
         |> update_sender(fn sender ->
           put_in(sender, ["sender_id"], Map.delete(sender["sender_id"], "user_id"))
         end)
+
+      assert {:ok, [%{status: :accepted}]} =
+               Inbound.handle_message_receive("im.message.receive_v1", event, [consumer])
+
+      assert {:ok, principal} =
+               Ankole.Principals.resolve_platform_subject("lark-main", "onion_alice")
+
+      assert principal.display_name == "Alice"
+    end
+
+    test "user senders without any sender id are ignored with warning" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "lark", :ignore)
+      consumer = Inbound.chat_consumer(adapter_context(agent.uid), chat_config())
+
+      event =
+        receive_event()
+        |> update_sender(fn sender -> Map.put(sender, "sender_id", %{}) end)
 
       log =
         capture_log([level: :warning], fn ->
@@ -1800,7 +1846,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                   ]} = Inbound.handle_message_receive("im.message.receive_v1", event, [consumer])
         end)
 
-      assert log =~ "lark adapter ignored message sender without user_id"
+      assert log =~ "lark adapter ignored message sender without any sender id"
 
       assert Repo.aggregate(ActorEvent, :count) == 0
       assert Repo.aggregate(Entry, :count) == 0
@@ -2710,7 +2756,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
     end
   end
 
-  defp binding_fixture(agent_uid, name, policy) do
+  defp binding_fixture(agent_uid, name, policy, opts \\ []) do
     {:ok, binding} =
       SignalsGateway.upsert_binding(%{
         agent_uid: agent_uid,
@@ -2718,7 +2764,8 @@ defmodule Ankole.Plugins.LarkAdapterTest do
         adapter: "lark",
         config_ref: "app-config://#{Config.chat_config_key(name)}",
         filters: %{},
-        unaddressed_group_message_policy: policy
+        unaddressed_group_message_policy: policy,
+        unmatched_sender_policy: Keyword.get(opts, :unmatched_sender_policy, :create_standalone)
       })
 
     binding

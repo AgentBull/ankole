@@ -59,6 +59,7 @@ defmodule Ankole.Plugins.LarkAdapter do
         reply_preview_module: CardKit,
         connection_supervisor: ConnectionSupervisor,
         binding_saved_module: IMGroups,
+        author_hydrator: IdentityProvider,
         inbound_capabilities: [
           "entry_receive",
           "entry_removed",

@@ -187,7 +187,6 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
              structured_mention_prefixes: mention_prefixes(mentions),
              explicit: explicit?(channel_kind, mentions, consumer),
              author: author,
-             sender_key: author["principal_uid"] || author["id"],
              metadata: %{
                "provider" => "lark",
                "event_type" => event.type,
@@ -225,8 +224,7 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
   end
 
   defp emit_prepared_messages({:ok, prepared}) do
-    with {:ok, prepared} <- observe_prepared_authors(prepared),
-         {:ok, prepared} <- emit_pending_attachments(prepared) do
+    with {:ok, prepared} <- emit_pending_attachments(prepared) do
       prepared
       |> Enum.map(&emit_prepared_message/1)
       |> collect_results()
@@ -234,30 +232,6 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
   end
 
   defp emit_prepared_messages({:error, _reason} = error), do: error
-
-  defp observe_prepared_authors(prepared) do
-    prepared
-    |> Enum.map(fn
-      %{consumer: consumer, input: input} = item ->
-        with {:ok, observed} <- observe_author(consumer, input) do
-          {:ok, put_observed_display_name(item, observed)}
-        end
-
-      %{result: _result} = item ->
-        {:ok, item}
-    end)
-    |> collect_results()
-  end
-
-  defp put_observed_display_name(
-         %{input: %{author: author}} = item,
-         %{principal: %{display_name: display_name}}
-       )
-       when is_binary(display_name) do
-    put_in(item, [:input, :author], Map.put(author, "display_name", display_name))
-  end
-
-  defp put_observed_display_name(item, _observed), do: item
 
   defp emit_pending_attachments(prepared) do
     prepared
@@ -459,26 +433,6 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
     |> collect_results()
   end
 
-  defp observe_author(%{context: context, config: config}, %{
-         author: %{"platform_subject" => user_id} = author
-       })
-       when is_binary(user_id) do
-    attrs =
-      %{
-        provider: Map.get(config, "platformSubjectNamespace", "lark-main"),
-        external_id: user_id,
-        uid: user_id,
-        metadata: Map.get(author, "metadata", %{})
-      }
-      |> maybe_put(:display_name, author["display_name"])
-
-    # Chat traffic can reveal humans before a full contact sync runs. Observing
-    # the platform subject here keeps future mentions and AuthZ checks convergent.
-    AdapterContext.observe_platform_subject(context, attrs)
-  end
-
-  defp observe_author(_consumer, _input), do: {:ok, nil}
-
   defp ignored_sender?(sender, event), do: sender_type(sender, event) in ["bot", "app"]
 
   defp sender_type(sender, event) do
@@ -489,6 +443,10 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
   defp ignored_status(:empty_or_unsupported_message), do: :ignored_empty_or_unsupported_message
   defp ignored_status(reason), do: :"ignored_#{reason}"
 
+  # Sender ids by stability: user_id is the tenant-stable employee id, union_id
+  # is stable across the tenant's own apps, open_id is app-local. External
+  # tenant members carry no user_id, so the strongest available id becomes the
+  # platform subject and the rest ride along as match candidates.
   defp author(sender, sender_ids, event, %{config: config}) do
     user_id = optional_text(sender_ids, "user_id")
     open_id = optional_text(sender_ids, "open_id")
@@ -496,16 +454,20 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
     sender_type = sender_type(sender, event)
     display_name = optional_text(sender, "sender_name") || optional_text(sender, "name")
 
-    cond do
-      is_binary(user_id) ->
+    case Enum.reject([user_id, union_id, open_id], &is_nil/1) do
+      [] ->
+        {:ignore, :missing_platform_subject}
+
+      [primary | alternates] ->
         {:ok,
          %{
-           "id" => user_id,
-           "platform_subject" => user_id,
-           "principal_uid" => String.downcase(user_id),
+           "id" => primary,
+           "platform_subject" => primary,
+           "platform_subject_alternates" => alternates,
            "display_name" => display_name,
            "metadata" =>
              compact_map(%{
+               "user_id" => user_id,
                "open_id" => open_id,
                "union_id" => union_id,
                "tenant_key" => event.tenant_key,
@@ -513,9 +475,6 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
                "provider" => Map.get(config, "platformSubjectNamespace", "lark-main")
              })
          }}
-
-      true ->
-        {:ignore, :missing_platform_subject}
     end
   end
 
@@ -528,7 +487,7 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
 
       Logging.warning(
         "lark_adapter.inbound.missing_platform_subject",
-        "lark adapter ignored message sender without user_id",
+        "lark adapter ignored message sender without any sender id",
         %{
           event_id: event.id,
           event_type: event.type,

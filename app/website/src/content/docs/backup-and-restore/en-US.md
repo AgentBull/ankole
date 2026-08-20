@@ -58,7 +58,7 @@ docker compose exec -T postgresql \
   < "ankole-YYYYMMDD.dump"
 ```
 
-Then run the migrations (`bun run control-plane:setup` locally, or let the Helm init container do it) to bring the schema to the image's level, since a backup taken before a migration restores to the pre-migration schema. Confirm the data — Principals, agents, a known Brain entry — is what you expect before declaring the restore good.
+Then run the migrations (`bun run control-plane:setup` locally, or let the Helm init container do it) to bring the schema to the image's level, since a backup taken before a migration restores to the pre-migration schema. Confirm the data — Principals, agents, a known session — is what you expect before declaring the restore good.
 
 ## Restore Agent Home
 

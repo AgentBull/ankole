@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import type { TurnStart } from '../../lanes/actor_lane'
-import type { AgentTool, AgentToolResult } from '../../core'
+import { defineWorkerTool, type AgentToolResult, type WorkerAgentTool } from '../../core'
 import { currentReplyRoute } from '../../core/turns/reply_route'
 import { jsonToolResult } from '../../core/tool-result'
 import { rpcMethods, type SignalChannelRPCRequester } from '../../lanes/rpc_lane'
@@ -30,10 +30,10 @@ const STANDING_ORDERS_DESCRIPTION = [
  * Builds the channel standing-orders tool for turns that carry a signal
  * channel. Turns without a provider channel get no tool.
  */
-export function createStandingOrdersTools(opts: CreateStandingOrdersToolsOptions): AgentTool<any>[] {
+export function createStandingOrdersTools(opts: CreateStandingOrdersToolsOptions): WorkerAgentTool<any>[] {
   if (!currentReplyRoute(opts.turnStart)?.signal_channel_id) return []
 
-  const tool: AgentTool<typeof StandingOrdersParams, JSONObject> = {
+  const tool: WorkerAgentTool<typeof StandingOrdersParams, JSONObject> = defineWorkerTool({
     name: 'set_channel_standing_orders',
     description: STANDING_ORDERS_DESCRIPTION,
     schema: StandingOrdersParams,
@@ -47,7 +47,7 @@ export function createStandingOrdersTools(opts: CreateStandingOrdersToolsOptions
       })
       return jsonToolResult(response)
     }
-  }
+  })
 
   return [tool]
 }

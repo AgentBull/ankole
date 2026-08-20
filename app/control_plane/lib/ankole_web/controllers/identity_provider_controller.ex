@@ -9,6 +9,7 @@ defmodule AnkoleWeb.IdentityProviderController do
   use OpenAPISpex.ControllerSpecs
 
   alias Ankole.IdentityProviders
+  alias Ankole.IdentityProviders.DirectorySync
   alias AnkoleWeb.ConsoleErrors
   alias AnkoleWeb.ConsolePolicy
   alias AnkoleWeb.Schemas.ConsoleAPI.ErrorEnvelope
@@ -110,7 +111,7 @@ defmodule AnkoleWeb.IdentityProviderController do
     with {:ok, provider_id} <- provider_id_param(params),
          :ok <- ConsolePolicy.authorize(conn, "identity_provider:#{provider_id}", "sync"),
          {:ok, job} <-
-           IdentityProviders.enqueue_sync(provider_id, reason: "manual", source: "console") do
+           DirectorySync.enqueue_sync(provider_id, reason: "manual", source: "console") do
       json(conn, %{
         sync_run: %{
           provider_id: provider_id,

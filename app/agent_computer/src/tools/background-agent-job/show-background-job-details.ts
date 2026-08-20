@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { AgentTool } from '../../core'
+import { defineWorkerTool, type AgentToolResult, type WorkerAgentTool } from '../../core'
 import { truncateUtf16Safe, utf8ByteLength } from '../../common/text-sanitize'
 import { ModelIntegerID, modelIntegerIDFromWire, modelIntegerIDToWire } from '../../core/model-integer-id'
 import { jsonToolResult } from '../../core/tool-result'
@@ -151,8 +151,8 @@ export type ShowBackgroundJobDetailsToolOptions = {
 
 export function createShowBackgroundJobDetailsTool(
   opts: ShowBackgroundJobDetailsToolOptions
-): AgentTool<typeof ShowBackgroundJobDetailsParamsSchema, ShowBackgroundJobDetailsResult> {
-  return {
+): WorkerAgentTool<typeof ShowBackgroundJobDetailsParamsSchema, ShowBackgroundJobDetailsResult> {
+  return defineWorkerTool({
     name: 'show_background_job_details',
     description: [
       'Show job status, progress, tool execution mechanisms, usage, attempt history, and the latest trajectory page.',
@@ -164,7 +164,7 @@ export function createShowBackgroundJobDetailsTool(
     isReadOnly: true,
     isDestructive: false,
     describeActivity: () => ({ key: 'signals_gateway.reply.activity.background_job_show' }),
-    async execute(_toolCallID, params) {
+    async execute(_toolCallID, params): Promise<AgentToolResult<ShowBackgroundJobDetailsResult>> {
       const request: RPCRequestInit<'background_agent_job.get'> =
         params.result_offset === undefined
           ? {
@@ -231,7 +231,7 @@ export function createShowBackgroundJobDetailsTool(
         recent_trajectory: modelVisibleTrajectory(execution.trajectory_page)
       })
     }
-  }
+  })
 }
 
 function terminalResultRef(resultRef: { type: string; jobId: string } | undefined, jobID: number): ResultRef {

@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { AgentTool } from '../../core'
+import { defineWorkerTool, type WorkerAgentTool } from '../../core'
 import { modelIntegerIDFromWire } from '../../core/model-integer-id'
 import { jsonToolResult } from '../../core/tool-result'
 import type { TurnStart } from '../../lanes/actor_lane'
@@ -38,10 +38,10 @@ export type ListBackgroundJobsToolOptions = {
 
 export function createListBackgroundJobsTool(
   opts: ListBackgroundJobsToolOptions
-): AgentTool<typeof ListBackgroundJobsParamsSchema, ListBackgroundJobsResult> {
+): WorkerAgentTool<typeof ListBackgroundJobsParamsSchema, ListBackgroundJobsResult> {
   const cursors = new Map<string, string>()
 
-  return {
+  return defineWorkerTool({
     name: 'list_background_jobs',
     description: [
       'List background agent jobs owned by the current Agent.',
@@ -68,7 +68,7 @@ export function createListBackgroundJobsTool(
         next_page: response.nextCursor ? registerPage(cursors, response.nextCursor) : null
       })
     }
-  }
+  })
 }
 
 function cursorForPage(cursors: Map<string, string>, page: string): string {

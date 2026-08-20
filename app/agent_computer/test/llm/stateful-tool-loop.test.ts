@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import { z } from 'zod'
+import { defineWorkerTool } from '../../src/core'
 import { runAgentLoop } from '../../src/core/agent-loop'
 import { createModel } from '../../src/core/llm'
 import { createClarifyTool } from '../../src/tools/clarify/clarify-tool'
@@ -79,7 +80,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
       },
       tools: [
         createClarifyTool(),
-        {
+        defineWorkerTool({
           name: 'side_effect',
           description: 'A side effect that must not run after a turn-ending result.',
           schema: z.object({}),
@@ -91,18 +92,25 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
             sideEffectCalls += 1
             return { content: [{ type: 'text' as const, text: 'changed' }], details: { ok: true } }
           }
-        }
+        })
       ]
     })
 
     expect(final.responseID).toBe('resp_clarify_result')
     expect(sideEffectCalls).toBe(0)
     expect(sentPayloads.map(payload => payload.type)).toEqual(['response.create', 'response.tool_results.record'])
+    // The model requested both calls in the same round; clarify's own result
+    // pairs with call_clarify, and call_after_clarify still gets a paired
+    // result (an immediate "turn already ended" one) rather than actually
+    // running side_effect or being left as a dangling tool call.
     expect(sentPayloads[1]).toMatchObject({
       previous_response_id: 'resp_clarify_call',
-      input: [{ type: 'function_call_output', call_id: 'call_clarify' }]
+      input: [
+        { type: 'function_call_output', call_id: 'call_clarify' },
+        { type: 'function_call_output', call_id: 'call_after_clarify' }
+      ]
     })
-    expect(sentPayloads[1]!.input).toHaveLength(1)
+    expect(sentPayloads[1]!.input).toHaveLength(2)
   })
 
   it('settles every sequential program call before it resumes the program to a final answer', async () => {
@@ -186,7 +194,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
         conversationID: '13131313-1313-1313-1313-131313131313'
       },
       tools: [
-        {
+        defineWorkerTool({
           name: 'stock_price',
           namespace: 'mcp__finance',
           namespaceDescription: 'Financial market data',
@@ -206,8 +214,8 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
               terminate: true
             }
           }
-        },
-        {
+        }),
+        defineWorkerTool({
           name: 'company_name',
           namespace: 'mcp__finance',
           namespaceDescription: 'Financial market data',
@@ -226,7 +234,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
               details: { ok: true }
             }
           }
-        }
+        })
       ]
     })
 
@@ -346,7 +354,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
         conversationID: '27272727-2727-2727-2727-272727272727'
       },
       tools: [
-        {
+        defineWorkerTool({
           name: 'write_record',
           description: 'Write one record.',
           schema: z.object({ value: z.string() }),
@@ -359,7 +367,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
             executions += 1
             return { content: [{ type: 'text', text: 'changed' }], details: {} }
           }
-        }
+        })
       ]
     })
 
@@ -438,7 +446,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
         conversationID: '22222222-2222-2222-2222-222222222222'
       },
       tools: [
-        {
+        defineWorkerTool({
           name: 'apply_patch',
           description: 'Apply one patch.',
           schema: z.string(),
@@ -459,7 +467,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
               terminate: true
             }
           }
-        }
+        })
       ]
     })
 
@@ -567,7 +575,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
         conversationID: '22222222-2222-2222-2222-222222222222'
       },
       tools: [
-        {
+        defineWorkerTool({
           name: 'lookup',
           description: 'Look up facts',
           schema: z.object({ q: z.string() }),
@@ -576,7 +584,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
             content: [{ type: 'text', text: 'sunny' }],
             details: { ok: true }
           })
-        }
+        })
       ]
     })
 
@@ -680,7 +688,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
         conversationID: '33333333-3333-3333-3333-333333333333'
       },
       tools: [
-        {
+        defineWorkerTool({
           name: 'handoff',
           description: 'Return a background job result.',
           schema: z.object({}),
@@ -690,7 +698,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
             details: { ok: true },
             completeActorEventIDs: [completedActorEventID, completedActorEventID]
           })
-        }
+        })
       ]
     })
 
@@ -774,7 +782,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
       },
       modelInputModalities: ['text', 'image'],
       tools: [
-        {
+        defineWorkerTool({
           name: 'screenshot',
           description: 'Capture a screenshot',
           schema: z.object({}),
@@ -786,7 +794,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
             ],
             details: { ok: true }
           })
-        }
+        })
       ]
     })
 
@@ -888,7 +896,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
       modelInputModalities: ['text'],
       visionFallbackModel: fallbackModel,
       tools: [
-        {
+        defineWorkerTool({
           name: 'screenshot',
           description: 'Capture a screenshot',
           schema: z.object({}),
@@ -900,7 +908,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
             ],
             details: { ok: true }
           })
-        }
+        })
       ]
     })
 
@@ -997,7 +1005,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
         conversationID: '66666666-6666-6666-6666-666666666666'
       },
       tools: [
-        {
+        defineWorkerTool({
           name: 'lookup',
           description: 'Look up facts',
           schema: z.object({ q: z.string() }),
@@ -1006,7 +1014,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
             content: [],
             details: 1n
           })
-        }
+        })
       ]
     })
 
@@ -1111,7 +1119,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
       },
       maxModelIterations: 3,
       tools: [
-        {
+        defineWorkerTool({
           name: 'loop',
           description: 'Loop forever',
           schema: z.object({}),
@@ -1120,7 +1128,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
             toolExecutions += 1
             return { content: [{ type: 'text', text: `again ${toolExecutions}` }], details: {} }
           }
-        }
+        })
       ]
     })
 
@@ -1211,7 +1219,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
       },
       maxModelIterations: 90,
       tools: [
-        {
+        defineWorkerTool({
           name: 'write_file',
           description: 'Write one file',
           schema: z.object({ path: z.string(), content: z.string() }),
@@ -1220,7 +1228,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
             toolExecutions += 1
             return { content: [{ type: 'text', text: 'written' }], details: {} }
           }
-        }
+        })
       ]
     })
 
@@ -1291,13 +1299,13 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
       },
       maxModelIterations: 90,
       tools: [
-        {
+        defineWorkerTool({
           name: 'write_file',
           description: 'Write one file',
           schema: z.object({ path: z.string(), content: z.string() }),
           describeActivity: () => '测试写文件',
           execute: async () => ({ content: [{ type: 'text', text: 'written' }], details: {} })
-        }
+        })
       ]
     })
 
@@ -1484,7 +1492,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
         conversationID: '88888888-8888-8888-8888-888888888888'
       },
       tools: [
-        {
+        defineWorkerTool({
           name: 'lookup',
           description: 'Look up facts',
           schema: z.object({ q: z.string() }),
@@ -1493,7 +1501,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
             content: [{ type: 'text', text: 'tool complete' }],
             details: { ok: true }
           })
-        }
+        })
       ],
       getSteeringMessages: async () => {
         if (steeringDrained) return []
@@ -1649,7 +1657,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
         conversationID: '30303030-3030-3030-3030-303030303030'
       },
       tools: [
-        {
+        defineWorkerTool({
           name: 'create_background_job',
           description: 'Create a background job',
           schema: z.object({ task: z.string() }),
@@ -1661,7 +1669,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
               details: { jobID: 'job-42' }
             }
           }
-        }
+        })
       ],
       getSteeringMessages: async () => {
         drainCalls += 1

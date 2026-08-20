@@ -2501,9 +2501,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
   test "stateful overflow sends structured context_overflow error frame" do
     {agent, conversation, _actor_event, message} =
       stateful_message("socket-overflow", [
-        media_message_with_memory_nudge(
-          "https://files.example.test/#{String.duplicate("large", 40)}.png"
-        )
+        media_message("https://files.example.test/#{String.duplicate("large", 40)}.png")
       ])
 
     with_compaction_config(threshold: 0.50, max_threshold_tokens: 10, tail_rows: 1)
@@ -3350,21 +3348,13 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     }
   end
 
-  defp media_message_with_memory_nudge(image_url) do
+  defp media_message(image_url) do
     %{
       "type" => "message",
       "role" => "user",
-      "content" => [
-        %{"type" => "input_image", "image_url" => image_url},
-        %{
-          "type" => "input_text",
-          "text" => "[#{brain_pre_compaction_nudge_marker()}]"
-        }
-      ]
+      "content" => [%{"type" => "input_image", "image_url" => image_url}]
     }
   end
-
-  defp brain_pre_compaction_nudge_marker, do: "ankole.brain.pre_compaction_nudge.v1"
 
   defp with_compaction_config(config) do
     assert {:ok, _config} = Compaction.put_config(Map.new(config))

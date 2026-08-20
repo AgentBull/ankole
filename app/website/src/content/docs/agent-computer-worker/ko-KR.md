@@ -38,8 +38,7 @@ tool은 loop 중에 model이 구동할 수 있는 로컬 작업입니다. worker
 
 - **Computer** — bubblewrap 제한 아래의 shell 명령, 파일 읽기와 patch, apply-patch, 그리고 실제 브라우저 데스크톱을 구동하는 v4a computer-use tool. 터미널 상태와 파일 편집이 여기에서 관리됩니다.
 - **Web** — worker를 통해 라우팅되는 web search와 web fetch.
-- **Brain** — 장기 메모리로 거슬러 올라가는 recall과 knowledge tool.
-- **Memory, schedule, todo, clarify** — agent가 계획하고, 연기하고, 질문하는 데 사용하는 더 작은 구조화된 tool.
+- **schedule, todo, clarify** — agent가 계획하고, 연기하고, 질문하는 데 사용하는 더 작은 구조화된 tool.
 - **Codex** — Background Agent Job에 위임된 작업을 위한 CodexRunner job tool.
 - **Library 및 mcporter** — 활성화된 Skill과 호출 범위의 MCP dependency config에 대한 액세스.
 - **Background Agent Job** — 영구 job을 만들거나 이어가는 handoff tool.

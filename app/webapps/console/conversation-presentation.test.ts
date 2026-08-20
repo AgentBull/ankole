@@ -7,9 +7,9 @@ type ConversationNameSource = Pick<AIGatewayConversationItem, 'conversation_key'
 
 function conversation(overrides: Partial<ConversationNameSource> = {}): ConversationNameSource {
   return {
-    conversation_key: 'brain.dreaming:run-id:shared',
+    conversation_key: 'signal-channel:channel-id',
     display_name: null,
-    kind: 'dreaming',
+    kind: 'signal',
     metadata: {},
     ...overrides
   }
@@ -18,15 +18,6 @@ function conversation(overrides: Partial<ConversationNameSource> = {}): Conversa
 describe('conversationDisplayName', () => {
   test('keeps a resolved channel or peer name', () => {
     expect(conversationDisplayName(conversation({ display_name: '季琛' }))).toBe('季琛')
-  })
-
-  test('names Dreaming stores instead of exposing their internal session key', () => {
-    expect(conversationDisplayName(conversation({ metadata: { brain: { visibility: 'shared' } } }))).toBe(
-      i18n.t('console.brain.store_shared')
-    )
-    expect(conversationDisplayName(conversation({ metadata: { brain: { visibility: 'self' } } }))).toBe(
-      i18n.t('console.brain.store_self')
-    )
   })
 
   test('uses a kind name for other managed conversations and preserves custom keys', () => {

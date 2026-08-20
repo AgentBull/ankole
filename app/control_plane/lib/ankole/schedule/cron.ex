@@ -368,14 +368,17 @@ defmodule Ankole.Schedule.Cron do
     do: end_execution_conversation_in_tx(repo, schedule, now)
 
   # The execution session's conversation carries the task history and the
-  # delivery channel's Brain scope. A changed payload makes that history a
-  # wrong prefix for the next fire, and a changed delivery channel would fail
-  # the next fire's conversation scope check. Ending the conversation here
-  # makes the next fire start a fresh one from the current schedule facts;
-  # timing-only changes keep history. A fire running right now is unaffected:
-  # turn completion resolves its conversation by id, not by active lookup.
-  # A terminal schedule also ends its conversation so the daily reset stops
-  # selecting the dead session.
+  # delivery channel's origin (channel id, channel kind, and DM peer id),
+  # set once when the conversation is created and never re-derived on
+  # reuse. A changed payload makes that history a wrong prefix for the next
+  # fire, and a changed delivery channel would leave the recorded origin
+  # naming the old channel: a stale console label, not a functional
+  # failure. Ending the conversation here makes the next fire start fresh,
+  # with history and origin both matching the current schedule facts;
+  # timing-only changes keep history. A fire running right now is
+  # unaffected: turn completion resolves its conversation by id, not by
+  # active lookup. A terminal schedule also ends its conversation so the
+  # daily reset stops selecting the dead session.
   defp end_execution_conversation_in_tx(repo, %CronSchedule{} = schedule, now) do
     with {:ok, _conversation} <-
            AIGateway.end_active_conversation_in_tx(

@@ -2777,7 +2777,8 @@ defmodule Ankole.ScheduleTest do
         adapter: adapter,
         config_ref: "app-config://#{name}",
         filters: %{},
-        unaddressed_group_message_policy: policy
+        unaddressed_group_message_policy: policy,
+        unmatched_sender_policy: :create_standalone
       })
 
     binding

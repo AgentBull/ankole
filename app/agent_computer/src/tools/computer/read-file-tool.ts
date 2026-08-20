@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { AgentTool, AgentToolResult } from '../../core'
+import { defineWorkerTool, type AgentToolResult, type WorkerAgentTool } from '../../core'
 import { compactActivityPath } from '../activity-summary'
 import type { ComputerToolContext } from './context'
 import { MAX_READ_CHARS, looksBinary, numberLines } from './format'
@@ -26,8 +26,10 @@ interface ReadFileDetails {
  * numbered, length-capped output is both easier for the model to cite and bounded so it
  * cannot flood the context window.
  */
-export function createReadFileTool(context: ComputerToolContext): AgentTool<typeof ReadFileParams, ReadFileDetails> {
-  return {
+export function createReadFileTool(
+  context: ComputerToolContext
+): WorkerAgentTool<typeof ReadFileParams, ReadFileDetails> {
+  return defineWorkerTool({
     name: 'read_file',
     description:
       "Read a text file from the computer with line numbers and pagination. Use this instead of cat/head/tail in command. Output format: 'LINE_NUM|CONTENT'. Relative paths resolve from cwd/workdir, defaulting to the current workspace. Use offset and limit for large files; reads over about 100K characters are rejected so you can narrow the range. Cannot read images or binary files.",
@@ -105,5 +107,5 @@ export function createReadFileTool(context: ComputerToolContext): AgentTool<type
         details: { path: params.path, found: true, totalLines, truncated }
       }
     }
-  }
+  })
 }

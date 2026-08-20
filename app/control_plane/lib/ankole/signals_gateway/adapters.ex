@@ -32,6 +32,7 @@ defmodule Ankole.SignalsGateway.Adapters do
       :config_module,
       :worker_env_module,
       :binding_saved_module,
+      :author_hydrator,
       :supported_group_message_modes,
       :outbox_adapter,
       :reply_preview_adapter,
@@ -47,6 +48,7 @@ defmodule Ankole.SignalsGateway.Adapters do
             config_module: module() | nil,
             worker_env_module: module() | nil,
             binding_saved_module: module() | nil,
+            author_hydrator: module() | nil,
             supported_group_message_modes: [String.t()] | nil,
             outbox_adapter: OutboxAdapter.t() | nil,
             reply_preview_adapter: ReplyPreviewAdapter.t() | nil
@@ -175,6 +177,13 @@ defmodule Ankole.SignalsGateway.Adapters do
              :handle_binding_saved,
              2
            ),
+         :ok <-
+           validate_optional_adapter_module(
+             declaration,
+             :author_hydrator,
+             :hydrate_author,
+             2
+           ),
          {:ok, reply_preview_adapter} <- resolve_reply_preview_adapter(declaration) do
       {:ok,
        %Definition{
@@ -186,6 +195,7 @@ defmodule Ankole.SignalsGateway.Adapters do
          config_module: value(declaration, :config_module),
          worker_env_module: value(declaration, :worker_env_module),
          binding_saved_module: value(declaration, :binding_saved_module),
+         author_hydrator: value(declaration, :author_hydrator),
          supported_group_message_modes:
            optional_list_value(declaration, :supported_group_message_modes),
          outbox_adapter: outbox_adapter,

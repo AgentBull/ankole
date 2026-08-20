@@ -107,7 +107,8 @@ defmodule Ankole.E2E.SlackLifecycleTest do
                adapter: "slack",
                config_ref: "app-config://#{Config.chat_config_key(binding_name)}",
                filters: %{},
-               unaddressed_group_message_policy: :ignore
+               unaddressed_group_message_policy: :ignore,
+               unmatched_sender_policy: :create_standalone
              })
 
     assert {:ok, %{synced_channels: 1, marked_left: 0}} =
@@ -116,7 +117,6 @@ defmodule Ankole.E2E.SlackLifecycleTest do
     assert %Channel{principal_group_id: group_id} = Repo.get(Channel, "slack:C1")
     assert {:ok, group} = AuthZ.get_principal_group(group_id)
     assert BindingMembership.joined?(group.metadata, agent.uid, binding_name)
-    assert "slack:C1" in Enum.map(SignalsGateway.visible_channels(agent.uid), & &1.id)
     assert {:ok, u1_uid} = Principals.resolve_platform_subject_uid("slack-main", "U1")
     assert Repo.get_by(Membership, principal_uid: u1_uid, group_id: group_id)
     assert {:error, :not_found} = Principals.resolve_platform_subject_uid("slack-main", "UBOT")
@@ -153,7 +153,6 @@ defmodule Ankole.E2E.SlackLifecycleTest do
 
     assert {:ok, group} = AuthZ.get_principal_group(group_id)
     refute BindingMembership.joined?(group.metadata, agent.uid, binding_name)
-    refute "slack:C1" in Enum.map(SignalsGateway.visible_channels(agent.uid), & &1.id)
     refute Repo.get_by(Membership, principal_uid: u1_uid, group_id: group_id)
     refute Repo.get_by(Membership, principal_uid: u2_uid, group_id: group_id)
   end

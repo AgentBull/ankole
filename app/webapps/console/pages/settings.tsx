@@ -55,7 +55,6 @@ import { ErrorBlock } from '../../common/error-block'
 import { formatJSON, parseJSON } from '../console-primitives'
 import { ENCRYPTED_VALUE_MASK, isEncryptedValueMask } from '../encrypted-value-input'
 import { ResourceListPage, ResourceSearch, RowActions } from '../console-list-page'
-import { brainDreamingValidationError, brainEmbeddingValidationError } from '../state/setting-value-editor'
 import {
   groupOverridden,
   settingGroupPrefix,
@@ -166,26 +165,8 @@ function SettingsList() {
   )
 }
 
-type Translate = (key: string, options?: Record<string, unknown>) => string
 
-/** Reports what a key-specific editor knows before the server sees the value. */
-function settingValidationMessage(t: Translate, key: string, value: JSONValue): string | undefined {
-  if (key === 'brain.embedding') {
-    const error = brainEmbeddingValidationError(value)
-    return error ? t(`console.settings.brain_embedding_error_${error}`) : undefined
-  }
 
-  if (key === 'brain.dreaming') {
-    const error = brainDreamingValidationError(value)
-    if (!error) return undefined
-    if (error === 'invalid') return t('console.settings.brain_dreaming_error_invalid')
-    return t('console.settings.brain_dreaming_error_field', {
-      field: t(`console.settings.brain_dreaming_field_${error}`)
-    })
-  }
-
-  return undefined
-}
 
 function SettingRow({ item }: { item: AppConfigurationItem }) {
   const { t } = useTranslation()
@@ -373,11 +354,6 @@ export function SettingEditorDrawer() {
     }
     if (item.encrypted) {
       const value = encryptedSettingValue(model.text.value)
-      const validationError = settingValidationMessage(t, item.key, value)
-      if (validationError) {
-        model.validationError.value = validationError
-        return
-      }
       update.mutate({ body: { value }, path: { key: item.key } })
       return
     }
@@ -388,11 +364,7 @@ export function SettingEditorDrawer() {
       return
     }
     const value = parsed.value
-    const validationError = settingValidationMessage(t, item.key, value)
-    if (validationError) {
-      model.validationError.value = validationError
-      return
-    }
+
     update.mutate({ body: { value }, path: { key: item.key } })
   }
 
@@ -679,11 +651,6 @@ export function SettingGroupDrawer() {
         return
       }
 
-      const invalid = settingValidationMessage(t, item.key, parsed.value)
-      if (invalid) {
-        setEditorError(`${item.key}: ${invalid}`)
-        return
-      }
 
       pending.push({ key: item.key, value: parsed.value })
     }

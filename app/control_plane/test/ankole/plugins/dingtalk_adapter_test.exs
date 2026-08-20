@@ -161,6 +161,7 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
                config_ref: "app-config://#{owner_config_key}",
                filters: %{},
                unaddressed_group_message_policy: :ignore,
+               unmatched_sender_policy: :create_standalone,
                enabled: true
              })
 
@@ -231,7 +232,8 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
         adapter: "dingtalk",
         config_ref: "app-config://#{Config.chat_config_key(config_id)}",
         filters: %{},
-        unaddressed_group_message_policy: :ignore
+        unaddressed_group_message_policy: :ignore,
+        unmatched_sender_policy: :create_standalone
       })
 
     binding
@@ -619,7 +621,7 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
              IdentityProvider.exchange_code(@identity_config, "outsider-code")
   end
 
-  test "authorization_url carries the configured scope and fails closed when disabled" do
+  test "authorization_url carries the configured scope" do
     assert {:ok, url} =
              IdentityProvider.authorization_url(@identity_config,
                redirect_uri: "https://ankole.example/auth/callback",
@@ -629,14 +631,6 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
     assert url =~ "https://login.dingtalk.com/oauth2/auth?"
     assert url =~ "scope=openid+corpid"
     assert url =~ "state=state-1"
-
-    disabled = put_in(@identity_config, ["oidc", "enabled"], false)
-
-    assert {:error, :oidc_disabled} =
-             IdentityProvider.authorization_url(disabled,
-               redirect_uri: "https://ankole.example/auth/callback",
-               state: "state-1"
-             )
   end
 
   test "credential check separates a rejected Client ID from an accepted one" do

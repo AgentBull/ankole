@@ -21,7 +21,6 @@ import {
   normalizedCollaborationToolName,
   normalizeCodexThreadUsage
 } from './protocol'
-import type { ThreadItem } from './generated/protocol/v2/ThreadItem'
 import { boundedBackgroundAgentJobPaths } from '../background-agent-job-handoff'
 import type { Span } from '@opentelemetry/api'
 import { finishWorkerSpan, startWorkerSpan, type WorkerTurnTrace } from '../../observability/turn-tracing'

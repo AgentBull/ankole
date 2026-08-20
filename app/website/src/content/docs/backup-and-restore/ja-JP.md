@@ -58,7 +58,7 @@ docker compose exec -T postgresql \
   < "ankole-YYYYMMDD.dump"
 ```
 
-次に migration を実行して（ローカルでは `bun run control-plane:setup`、Helm では init コンテナに任せる）、スキーマをイメージの水準に合わせます。migration の前に取得したバックアップは、migration 前のスキーマにリストアされるためです。Principal、agent、既知の Brain エントリなど、データが期待どおりであることを確認してから、リストアが成功したと宣言してください。
+次に migration を実行して（ローカルでは `bun run control-plane:setup`、Helm では init コンテナに任せる）、スキーマをイメージの水準に合わせます。migration の前に取得したバックアップは、migration 前のスキーマにリストアされるためです。Principal、agent、既知の session など、データが期待どおりであることを確認してから、リストアが成功したと宣言してください。
 
 ## Agent Home をリストアする
 

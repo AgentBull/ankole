@@ -8,8 +8,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentConversationContextBroker do
   """
 
   alias Ankole.AIAgent.Library
-  alias Ankole.Brain.RuntimeContext
-  alias Ankole.Brain.Snapshot
+  alias Ankole.AIGateway.Schemas.Conversation
+  alias Ankole.BackgroundAgentJobs
+  alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.Principals.Agent, as: PrincipalAgent
   alias Ankole.Principals.Principal
   alias Ankole.Repo
@@ -17,13 +18,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentConversationContextBroker do
   alias Ankole.SignalsGateway.ConversationChannel, as: ConversationChannelProjection
   alias Ankole.SignalsGateway.ActorRuntime.RPCWire
   alias Ankole.SignalsGateway.ActorRuntime.TurnRef
+  alias Ankole.SignalsGateway.AIGatewayLink
   alias Ankole.SystemConfig
 
   @spec handle_request(TurnRef.t(), FabricProto.AgentConversationContextRequest.t(), map()) ::
           {:ok, FabricProto.AgentConversationContextResponse.t()} | {:error, map()}
   def handle_request(%TurnRef{} = turn_ref, %FabricProto.AgentConversationContextRequest{}, ctx) do
-    with {:ok, context} <- RuntimeContext.resolve(turn_ref),
-         {:ok, brain_snapshot} <- Snapshot.get_or_create(context.conversation),
+    with {:ok, conversation} <- resolve_conversation(turn_ref),
          {:ok, agent} <- agent_profile(turn_ref.agent_uid),
          {:ok, documents} <- Library.list_agent_documents(turn_ref.agent_uid),
          {:ok, skills} <- Library.skills_for_system_prompt(turn_ref.agent_uid) do
@@ -35,18 +36,44 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentConversationContextBroker do
       {:ok,
        %FabricProto.AgentConversationContextResponse{
          agent: agent,
-         conversation: conversation_info(context.conversation, timezone),
+         conversation: conversation_info(conversation, timezone),
          soul: soul["content"],
          mission: mission["content"],
          design: design["content"],
          soul_content_hash: soul["content_hash"],
          mission_content_hash: mission["content_hash"],
          design_content_hash: design["content_hash"],
-         brain_snapshot: brain_snapshot_message(brain_snapshot),
          skills: Enum.map(skills, &RPCWire.runtime_skill_summary/1)
        }}
     else
       {:error, reason} -> error(ctx.request_id, reason)
+    end
+  end
+
+  defp resolve_conversation(%TurnRef{} = turn_ref) do
+    case BackgroundAgentJobs.parse_job_session_id(turn_ref.session_id) do
+      {:ok, job_id} -> resolve_job_conversation(turn_ref, job_id)
+      :error -> resolve_root_conversation(turn_ref)
+    end
+  end
+
+  defp resolve_job_conversation(%TurnRef{} = turn_ref, job_id) do
+    with %Job{} = job <- Repo.get_by(Job, id: job_id, agent_uid: turn_ref.agent_uid),
+         conversation_id when is_binary(conversation_id) <-
+           Map.get(job.metadata || %{}, "owner_conversation_id"),
+         %Conversation{} = conversation <-
+           Repo.get_by(Conversation, id: conversation_id, subject_uid: turn_ref.agent_uid) do
+      {:ok, conversation}
+    else
+      nil -> {:error, :owner_conversation_not_found}
+      _missing_id -> {:error, :owner_conversation_not_found}
+    end
+  end
+
+  defp resolve_root_conversation(%TurnRef{} = turn_ref) do
+    case AIGatewayLink.active_conversation(turn_ref.agent_uid, turn_ref.session_id) do
+      %Conversation{} = conversation -> {:ok, conversation}
+      nil -> {:error, :conversation_not_found}
     end
   end
 
@@ -88,24 +115,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentConversationContextBroker do
 
   defp agent_role(%PrincipalAgent{role: role}) when is_binary(role), do: role
   defp agent_role(_agent), do: ""
-
-  defp brain_snapshot_message(snapshot) when is_map(snapshot) do
-    %FabricProto.BrainSnapshot{
-      pinned_memo: snapshot_entry(RPCWire.map_value(snapshot, "pinned_memo")),
-      channel_entry: snapshot_entry(RPCWire.map_value(snapshot, "channel_entry"))
-    }
-  end
-
-  defp brain_snapshot_message(_snapshot), do: nil
-
-  defp snapshot_entry(%{} = entry) do
-    %FabricProto.BrainSnapshotEntry{
-      resident_text: RPCWire.text(entry, "resident_text", trim: false) || "",
-      truncated: RPCWire.value(entry, "truncated") == true
-    }
-  end
-
-  defp snapshot_entry(_entry), do: nil
 
   defp installation_timezone do
     case SystemConfig.timezone() do

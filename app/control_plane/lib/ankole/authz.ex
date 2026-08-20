@@ -278,7 +278,9 @@ defmodule Ankole.AuthZ do
   end
 
   @doc false
-  @spec replace_static_group_members(String.t(), :directory | :im_group, [String.t()]) ::
+  @spec replace_static_group_members(String.t(), :directory | :im_group | :signal_source, [
+          String.t()
+        ]) ::
           {:ok, %{synced_principal_uids: [String.t()], removed_memberships: non_neg_integer()}}
           | {:error, term()}
   def replace_static_group_members(group_id, expected_domain, principal_uids)
@@ -289,12 +291,54 @@ defmodule Ankole.AuthZ do
   end
 
   @doc false
-  @spec clear_static_group_members(String.t(), :directory | :im_group) ::
+  @spec clear_static_group_members(String.t(), :directory | :im_group | :signal_source) ::
           {:ok, %{removed_memberships: non_neg_integer()}} | {:error, term()}
   def clear_static_group_members(group_id, expected_domain) when is_binary(group_id) do
     Repo.transact(fn repo ->
       Store.clear_static_group_members(repo, group_id, expected_domain)
     end)
+  end
+
+  @doc """
+  Ensures a convention-named synced group exists and the principal is a member.
+
+  `group_attrs` must carry `:name`, `:display_name`, `:domain`, and optional
+  `:metadata`. Membership only accumulates here; removal stays with the flow
+  that owns the group's lifecycle.
+  """
+  @spec ensure_synced_group_member(map(), String.t()) :: :ok | {:error, term()}
+  def ensure_synced_group_member(group_attrs, principal_uid)
+      when is_map(group_attrs) and is_binary(principal_uid) do
+    with {:ok, uid} <- Principals.normalize_uid(principal_uid) do
+      case synced_member?(Map.fetch!(group_attrs, :name), uid) do
+        true ->
+          :ok
+
+        false ->
+          Repo.transact(fn repo ->
+            with {:ok, group} <- Store.ensure_synced_group(repo, group_attrs),
+                 {:ok, _membership} <-
+                   Store.add_synced_group_member(repo, group.id, group.domain, uid) do
+              {:ok, :added}
+            end
+          end)
+          |> case do
+            {:ok, :added} -> :ok
+            {:error, _reason} = error -> error
+          end
+      end
+    end
+  end
+
+  defp synced_member?(group_name, principal_uid) do
+    name = String.downcase(group_name)
+
+    Repo.exists?(
+      from membership in Membership,
+        join: group in Group,
+        on: group.id == membership.group_id,
+        where: group.name == ^name and membership.principal_uid == ^principal_uid
+    )
   end
 
   @doc """

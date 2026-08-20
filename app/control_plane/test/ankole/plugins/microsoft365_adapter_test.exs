@@ -307,7 +307,7 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
       assert normalized.explicit == true
       assert normalized.text == "review @Ada please"
       assert normalized.author["id"] == "oid-user"
-      assert normalized.sender_key == "oid-user"
+      assert normalized.author["platform_subject"] == "oid-user"
       assert normalized.channel.metadata["service_url"] == @service_url
       assert normalized.channel.metadata["conversation_type"] == "channel"
       assert normalized.channel.metadata["team_id"] == "team-1"
@@ -561,18 +561,6 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
       assert BindingMembership.joined?(group.metadata, first_agent.uid, first_binding_name)
       assert BindingMembership.joined?(group.metadata, second_agent.uid, second_binding_name)
 
-      signal_channel_id = Conversations.signal_channel_id(conversation_id)
-
-      assert signal_channel_id in Enum.map(
-               SignalsGateway.visible_channels(first_agent.uid),
-               & &1.id
-             )
-
-      assert signal_channel_id in Enum.map(
-               SignalsGateway.visible_channels(second_agent.uid),
-               & &1.id
-             )
-
       first_context =
         AdapterContext.new(
           agent_uid: first_agent.uid,
@@ -606,16 +594,6 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
       refute BindingMembership.joined?(group.metadata, first_agent.uid, first_binding_name)
       assert BindingMembership.joined?(group.metadata, second_agent.uid, second_binding_name)
 
-      refute signal_channel_id in Enum.map(
-               SignalsGateway.visible_channels(first_agent.uid),
-               & &1.id
-             )
-
-      assert signal_channel_id in Enum.map(
-               SignalsGateway.visible_channels(second_agent.uid),
-               & &1.id
-             )
-
       assert {:ok, %{status: :all_participants_left}} =
                TeamsChannels.handle_conversation_update(
                  Inbound.chat_consumer(second_context, validated_chat_config()),
@@ -624,11 +602,6 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
 
       group = Repo.get!(Group, group_id)
       refute BindingMembership.joined?(group.metadata, second_agent.uid, second_binding_name)
-
-      refute signal_channel_id in Enum.map(
-               SignalsGateway.visible_channels(second_agent.uid),
-               & &1.id
-             )
     end
   end
 
@@ -700,7 +673,7 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
   end
 
   describe "identity provider" do
-    test "authorization_url honors the oidc gate and fixed Entra endpoint" do
+    test "authorization_url uses the fixed Entra endpoint" do
       {:ok, config} = Config.validate_identity_config(identity_config())
 
       assert {:ok, url} =
@@ -713,14 +686,6 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
       assert uri.host == "login.microsoftonline.com"
       assert uri.path == "/#{@tenant_id}/oauth2/v2.0/authorize"
       assert URI.decode_query(uri.query)["scope"] == "openid profile email User.Read"
-
-      disabled = put_in(config, ["oidc", "enabled"], false)
-
-      assert {:error, :oidc_disabled} =
-               IdentityProvider.authorization_url(disabled,
-                 redirect_uri: "https://ankole.example.com/cb",
-                 state: "s"
-               )
     end
 
     test "exchange_code trades the code and reads authoritative claims from /me" do
@@ -1266,7 +1231,8 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
         name: name,
         adapter: "teams",
         config_ref: "app-config://" <> Config.chat_config_key(name),
-        unaddressed_group_message_policy: :ignore
+        unaddressed_group_message_policy: :ignore,
+        unmatched_sender_policy: :create_standalone
       })
 
     binding

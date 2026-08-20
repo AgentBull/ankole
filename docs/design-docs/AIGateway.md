@@ -489,11 +489,6 @@ External Response identifiers use the `resp_` prefix.
 Implicit continuation stays on one line of history. The start transaction locks
 the conversation and checks its last visible Response.
 
-When the pre-compaction Brain reminder is due, AIGateway adds it to the current
-input before the start transaction. This also applies to an empty continuation.
-The stored Response keeps the reminder marker, so later history detects it and
-does not add the reminder again.
-
 The same transaction rejects another Response that is still generating. The
 WebSocket returns `response_in_progress` with status 409.
 
@@ -1209,7 +1204,7 @@ and conversation identifiers. `prompt_cache_key` stays a cache routing and
 credential-affinity input and never becomes a trace session. Spans also carry
 the Principal type, the client `originator`,
 `user-agent`, and `version` headers, and an `ankole.ai_gateway.caller` label
-for internal callers such as Brain dreaming and compaction. The exported
+for internal callers such as compaction. The exported
 resource names `service.name`, and adds `service.version` from
 `ANKOLE_VERSION` and `deployment.environment.name` from `ANKOLE_ENV` when
 those variables are set — the same sources that label logs. The common layer

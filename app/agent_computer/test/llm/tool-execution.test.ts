@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { runAgentLoop } from '../../src/core/agent-loop'
 import type { ReplyPresentationEvent } from '../../src/core/types'
 import { createModel } from '../../src/core/llm'
+import { defineWorkerTool } from '../../src/core'
 import { fakeResponseSocket, parallelReadTool, sleep, toolResultsRecordedFrame } from '../support/llm'
 
 describe('@ankole/agent-computer llm helpers: tool execution scheduling and guards', () => {
@@ -50,7 +51,7 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
       },
       hostedTools: [{ type: 'image_generation' }],
       tools: [
-        {
+        defineWorkerTool({
           name: 'lookup',
           description: 'Look up facts',
           schema: z.object({ q: z.string() }),
@@ -64,7 +65,7 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
             content: [{ type: 'text', text: 'unused' }],
             details: {}
           })
-        }
+        })
       ]
     })
 
@@ -161,7 +162,7 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
         conversationID: '55555555-5555-5555-5555-555555555555'
       },
       tools: [
-        {
+        defineWorkerTool({
           name: 'lookup',
           description: 'Look up facts',
           schema: z.object({ q: z.string() }),
@@ -176,7 +177,7 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
               details: { ok: false }
             }
           }
-        }
+        })
       ],
       onPresentationEvent: event => {
         presentation.push(event)
@@ -280,7 +281,7 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
         conversationID: '22222222-2222-2222-2222-222222222223'
       },
       tools: [
-        {
+        defineWorkerTool({
           name: 'lookup',
           description: 'Look up facts.',
           schema: z.object({ q: z.string() }).strict(),
@@ -292,7 +293,7 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
               details: {}
             }
           }
-        }
+        })
       ],
       onActivity: description => {
         if (description) activities.push(description)
@@ -351,7 +352,7 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
         conversationID: '21212121-2121-2121-2121-212121212121'
       },
       tools: [
-        {
+        defineWorkerTool({
           name: 'lookup',
           description: 'Look up facts',
           schema: z.object({ q: z.string() }),
@@ -363,7 +364,7 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
               details: { ok: false }
             }
           }
-        }
+        })
       ]
     })
 
@@ -442,7 +443,7 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
         conversationID: '22222222-2222-2222-2222-222222222222'
       },
       tools: [
-        {
+        defineWorkerTool({
           name: 'slow_tool',
           description: 'Slow tool',
           schema: z.object({}),
@@ -454,7 +455,7 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
               details: {}
             }
           }
-        }
+        })
       ],
       onActivity: description => {
         if (description) events.push(description)
@@ -544,26 +545,28 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
         actorEventID: '00000000-0000-0000-0000-000000000017',
         conversationID: '17171717-1717-1717-1717-171717171717'
       },
-      tools: toolNames.map((name, index) => ({
-        name,
-        description: `Read ${name}`,
-        schema: z.object({}),
-        executionMode: 'parallel' as const,
-        isReadOnly: true,
-        isDestructive: false,
-        describeActivity: () => `测试工具：${name}`,
-        execute: async () => {
-          active += 1
-          maxActive = Math.max(maxActive, active)
-          try {
-            await sleep(index === 0 ? 20 : 1)
-            completionOrder.push(name)
-            return { content: [{ type: 'text' as const, text: `result-${index}` }], details: {} }
-          } finally {
-            active -= 1
+      tools: toolNames.map((name, index) =>
+        defineWorkerTool({
+          name,
+          description: `Read ${name}`,
+          schema: z.object({}),
+          executionMode: 'parallel' as const,
+          isReadOnly: true,
+          isDestructive: false,
+          describeActivity: () => `测试工具：${name}`,
+          execute: async () => {
+            active += 1
+            maxActive = Math.max(maxActive, active)
+            try {
+              await sleep(index === 0 ? 20 : 1)
+              completionOrder.push(name)
+              return { content: [{ type: 'text' as const, text: `result-${index}` }], details: {} }
+            } finally {
+              active -= 1
+            }
           }
-        }
-      }))
+        })
+      )
     })
 
     expect(final.message.content).toEqual([{ type: 'text', text: 'read results handled' }])
@@ -627,26 +630,28 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
         conversationID: '27272727-2727-2727-2727-272727272727'
       },
       abortSignal: controller.signal,
-      tools: toolNames.map(name => ({
-        name,
-        description: `Read ${name}`,
-        schema: z.object({}),
-        executionMode: 'parallel' as const,
-        isReadOnly: true,
-        isDestructive: false,
-        describeActivity: () => null,
-        execute: async (_toolCallID, _params, signal) => {
-          started.push(name)
-          receivedSignals.push(signal)
-          if (started.length === 4) controller.abort(abortReason)
-          if (!signal) throw new Error('missing abort signal')
-          signal.throwIfAborted()
-          await new Promise<void>((_resolve, reject) => {
-            signal.addEventListener('abort', () => reject(signal.reason), { once: true })
-          })
-          throw new Error('unreachable')
-        }
-      }))
+      tools: toolNames.map(name =>
+        defineWorkerTool({
+          name,
+          description: `Read ${name}`,
+          schema: z.object({}),
+          executionMode: 'parallel' as const,
+          isReadOnly: true,
+          isDestructive: false,
+          describeActivity: () => null,
+          execute: async (_toolCallID, _params, signal) => {
+            started.push(name)
+            receivedSignals.push(signal)
+            if (started.length === 4) controller.abort(abortReason)
+            if (!signal) throw new Error('missing abort signal')
+            signal.throwIfAborted()
+            await new Promise<void>((_resolve, reject) => {
+              signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+            })
+            throw new Error('unreachable')
+          }
+        })
+      )
     })
 
     await expect(run).rejects.toThrow('operator stopped the turn')
@@ -734,7 +739,7 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
       },
       tools: [
         parallelReadTool('read_first', events, 20, 'read'),
-        {
+        defineWorkerTool({
           name: 'write_second',
           description: 'Write something',
           schema: z.object({}),
@@ -747,7 +752,7 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
             events.push('write_second:end')
             return { content: [{ type: 'text', text: 'write' }], details: {} }
           }
-        }
+        })
       ]
     })
 
@@ -828,7 +833,7 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
         conversationID: '23232323-2323-2323-2323-232323232323'
       },
       tools: [
-        {
+        defineWorkerTool({
           name: 'secret_admin_shell',
           description: 'Internal test tool',
           schema: secretAdminSchema,
@@ -852,7 +857,7 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
               }
             ]
           })
-        }
+        })
       ],
       logger: {
         info: (event, _message, fields) => logs.push({ level: 'info', event, fields }),
@@ -1007,7 +1012,7 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
         conversationID: '24242424-2424-2424-2424-242424242424'
       },
       tools: [
-        {
+        defineWorkerTool({
           name: 'quiet_tool',
           description: 'Does not need user-facing progress',
           schema: z.object({}),
@@ -1016,8 +1021,8 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
             executed.push('quiet')
             return { content: [{ type: 'text', text: 'quiet' }], details: {} }
           }
-        },
-        {
+        }),
+        defineWorkerTool({
           name: 'fallback_tool',
           description: 'Falls back when its optional summary fails',
           schema: z.object({}),
@@ -1034,7 +1039,7 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
               details: {}
             }
           }
-        }
+        })
       ],
       onPresentationEvent: event => {
         presentation.push(event)
@@ -1074,7 +1079,7 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
           conversationID: '66666666-6666-6666-6666-666666666666'
         },
         tools: [
-          {
+          defineWorkerTool({
             name: 'duplicate',
             description: 'first',
             schema: z.object({}),
@@ -1083,8 +1088,8 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
               content: [{ type: 'text', text: 'first' }],
               details: {}
             })
-          },
-          {
+          }),
+          defineWorkerTool({
             name: 'duplicate',
             description: 'second',
             schema: z.object({}),
@@ -1093,7 +1098,7 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
               content: [{ type: 'text', text: 'second' }],
               details: {}
             })
-          }
+          })
         ]
       })
     ).rejects.toThrow('duplicate tool name: duplicate')
@@ -1116,21 +1121,21 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
           conversationID: '27272727-2727-2727-2727-272727272727'
         },
         tools: [
-          {
+          defineWorkerTool({
             name: 'lookup',
             description: 'Root lookup.',
             schema: z.object({}),
             describeActivity: () => null,
             execute: async () => ({ content: [{ type: 'text', text: 'root' }], details: {} })
-          },
-          {
+          }),
+          defineWorkerTool({
             namespace: 'functions',
             name: 'lookup',
             description: 'Default namespace lookup.',
             schema: z.object({}),
             describeActivity: () => null,
             execute: async () => ({ content: [{ type: 'text', text: 'default' }], details: {} })
-          }
+          })
         ]
       })
     ).rejects.toThrow('duplicate tool name: lookup')
@@ -1178,21 +1183,21 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
         conversationID: '26262626-2626-2626-2626-262626262626'
       },
       tools: [
-        {
+        defineWorkerTool({
           name: 'a__b',
           description: 'Root tool.',
           schema: z.object({}),
           describeActivity: () => null,
           execute: async () => ({ content: [{ type: 'text', text: 'root' }], details: {} })
-        },
-        {
+        }),
+        defineWorkerTool({
           namespace: 'a',
           name: 'b',
           description: 'Namespaced tool.',
           schema: z.object({}),
           describeActivity: () => null,
           execute: async () => ({ content: [{ type: 'text', text: 'child' }], details: {} })
-        }
+        })
       ]
     })
 

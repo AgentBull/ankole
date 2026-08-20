@@ -13,7 +13,7 @@ order: 320
 
 | 状态 | 可恢复？ | 从什么 |
 |---|---|---|
-| 主体、Agent、会话、任务、Brain 知识、审计和 AuthZ 授权 | 是 | PostgreSQL `pg_dump` 归档 |
+| 主体、Agent、会话、任务、审计和 AuthZ 授权 | 是 | PostgreSQL `pg_dump` 归档 |
 | 每个 Agent 的工作区、长期文档、已安装 Skill、会话与任务文件 | 是 | Agent Home 卷快照 |
 | Provider 凭证、聊天渠道凭证、加密环境变量 | 是 | 它们保存在 PostgreSQL 和 Agent Home 中，会随备份还原 |
 | 引导 secret（`ANKOLE_SECRET_BASE`、worker 认证 key） | **手工重输入** | 不在备份里；重新生成，或复用已记录的 |
@@ -39,7 +39,7 @@ docker compose exec -T postgresql \
   < "ankole-YYYYMMDD.dump"
 ```
 
-然后执行 Migration（本地运行 `bun run control-plane:setup`，或由 Helm Init Container 执行），把恢复后的 Schema 更新到镜像要求的版本。数据库中会保留备份时刻的主体、Agent、会话、任务、Brain 知识和 AuthZ 授权。
+然后执行 Migration（本地运行 `bun run control-plane:setup`，或由 Helm Init Container 执行），把恢复后的 Schema 更新到镜像要求的版本。数据库中会保留备份时刻的主体、Agent、会话、任务和 AuthZ 授权。
 
 ### 第 3 步：还原 Agent Home
 

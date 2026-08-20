@@ -27,7 +27,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
   """
 
   alias Ankole.AutomationJobs.RPCBroker, as: AutomationJobRPCBroker
-  alias Ankole.Brain.RPCBroker, as: BrainRPCBroker
   alias Ankole.Logging
   alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.Schedule.RPCBroker, as: ScheduleRPCBroker
@@ -113,15 +112,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
     "background_agent_job.status.update" =>
       {BackgroundAgentJobBroker, :handle_update_status, :turn_write,
        FabricProto.BackgroundAgentJobStatusUpdateRequest},
-    "memory_search" =>
-      {BrainRPCBroker, :handle_search, :turn_read, FabricProto.MemorySearchRequest},
-    "memory_open" => {BrainRPCBroker, :handle_open, :turn_read, FabricProto.MemoryOpenRequest},
-    "memory_update" =>
-      {BrainRPCBroker, :handle_update, :turn_write, FabricProto.MemoryUpdateRequest},
-    "memory_browse" =>
-      {BrainRPCBroker, :handle_browse, :turn_read, FabricProto.MemoryBrowseRequest},
-    "memory_health_check" =>
-      {BrainRPCBroker, :handle_health_check, :turn_read, FabricProto.MemoryHealthCheckRequest},
     "observability.spans.export" =>
       {ObservabilityBroker, :handle_export, :worker_agent,
        FabricProto.ObservabilitySpansExportRequest},

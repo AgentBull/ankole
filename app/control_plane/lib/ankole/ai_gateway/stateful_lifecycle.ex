@@ -388,12 +388,6 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
              request,
              runtime
            ) do
-      current_input =
-        Compaction.maybe_inject_brain_pre_compaction_nudge(
-          current_input,
-          compaction.run_metadata
-        )
-
       {:ok,
        %{
          subject_uid: subject_uid,

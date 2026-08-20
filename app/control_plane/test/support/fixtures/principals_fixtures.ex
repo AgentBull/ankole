@@ -63,7 +63,7 @@ defmodule Ankole.PrincipalsFixtures do
     result
   end
 
-  def channel_actor_identity_fixture(attrs \\ %{}) do
+  def external_identity_fixture(attrs \\ %{}) do
     %{principal: principal} = Map.get_lazy(attrs, :human, fn -> human_fixture() end)
 
     attrs =
@@ -71,9 +71,7 @@ defmodule Ankole.PrincipalsFixtures do
       |> Map.delete(:human)
       |> Enum.into(%{
         principal_uid: principal.uid,
-        kind: :channel_actor,
-        adapter: "lark",
-        channel_id: unique_uid("channel"),
+        provider: "lark-main",
         external_id: unique_uid("actor"),
         metadata: %{}
       })

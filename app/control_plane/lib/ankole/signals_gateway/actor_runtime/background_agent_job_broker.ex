@@ -41,7 +41,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
            |> Map.put("source_actor_event_id", turn_ref.actor_event_id)
            |> Map.put("reply_route", reply_route(actor_event))
            |> put_worker_route_metadata(ctx.route)
-           |> put_owner_brain_conversation(conversation.id),
+           |> put_owner_conversation(conversation.id),
          {:ok, %{job: %Job{} = job}} <-
            BackgroundAgentJobs.create_with_dispatch(attrs) do
       {:ok, job_response(job)}
@@ -74,7 +74,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
              "source_tool_call_id" => request.source_tool_call_id
            }
            |> put_worker_route_metadata(ctx.route)
-           |> put_owner_brain_conversation(conversation.id),
+           |> put_owner_conversation(conversation.id),
          {:ok, %{job: %Job{} = job}} <-
            BackgroundAgentJobs.respawn_with_dispatch(source_job.id, attrs) do
       {:ok,
@@ -669,8 +669,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
 
   defp put_worker_route_metadata(map, _route), do: map
 
-  defp put_owner_brain_conversation(map, conversation_id) do
+  defp put_owner_conversation(map, conversation_id) do
     metadata = RPCWire.map_value(map, "metadata", %{})
-    Map.put(map, "metadata", Map.put(metadata, "brain_owner_conversation_id", conversation_id))
+    Map.put(map, "metadata", Map.put(metadata, "owner_conversation_id", conversation_id))
   end
 end

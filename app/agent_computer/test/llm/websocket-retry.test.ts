@@ -5,6 +5,7 @@ import { runAgentLoop } from '../../src/core/agent-loop'
 import { callModel, createModel } from '../../src/core/llm'
 import { classifyLLMError, isLocallyRetryableLLMError } from '../../src/core/llm-error-classifier'
 import { statefulTruncationFromActorEventPayload } from '../../src/core/turns/actor_event_text'
+import { defineWorkerTool } from '../../src/core'
 import { FakeResponseSocket, fakeResponseSocket, testResponseSocket } from '../support/llm'
 
 describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and overflow', () => {
@@ -596,7 +597,7 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
         previousResponseID: 'resp_stable_anchor'
       },
       tools: [
-        {
+        defineWorkerTool({
           name: 'write_report',
           description: 'Writes the report.',
           schema: z.object({ path: z.string() }),
@@ -607,7 +608,7 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
             executions += 1
             return { content: [{ type: 'text' as const, text: 'written' }], details: {} }
           }
-        }
+        })
       ]
     })
 

@@ -28,6 +28,25 @@ describe('changelog release metadata', () => {
     })
   })
 
+  test('extracts a pre-release version and its suffix', () => {
+    const source = `# Changelog
+
+## Version 1.0.0-alpha.1 (2026-08-20)
+
+- Pending pre-release.
+
+## Version 0.76.0 (2026-08-19)
+
+- Previous release.
+`
+
+    expect(currentChangelogRelease(source)).toEqual({
+      version: '1.0.0-alpha.1',
+      date: '2026-08-20',
+      notes: '- Pending pre-release.\n'
+    })
+  })
+
   test('rejects a malformed newest heading, invalid date, or empty notes', () => {
     expect(() =>
       currentChangelogRelease(`# Changelog
@@ -35,6 +54,24 @@ describe('changelog release metadata', () => {
 ## Version 00.48.0 (2026-07-30)
 
 - Invalid version.
+`)
+    ).toThrow(/first level-two/)
+
+    expect(() =>
+      currentChangelogRelease(`# Changelog
+
+## Version 1.0.0-preview.1 (2026-08-20)
+
+- Unsupported pre-release label.
+`)
+    ).toThrow(/first level-two/)
+
+    expect(() =>
+      currentChangelogRelease(`# Changelog
+
+## Version 1.0.0-alpha.01 (2026-08-20)
+
+- Leading zero in the pre-release number.
 `)
     ).toThrow(/first level-two/)
 

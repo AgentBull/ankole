@@ -69,7 +69,7 @@ AIGateway 할당량 소진 시 미래 복구 시간이 알려져 있으면, Job�
 
 Job은 선택적 workspace 템플릿 하나를 유지하지만, 각 실행은 생성 시점에 동결된 스냅샷이 아니라 에이전트의 *현재* 활성화된 Agent Plugins와 호환되는 Skills를 사용합니다. 디스패치 경로(`BackgroundAgentJobDispatch.process`)는 액터 이벤트에서 Job을 해석하고 turn 런타임에 넘기며, steer 이벤트는 별도로 처리해서 세션에 대한 라이브 전달이 Job steer로 오인되지 않게 합니다. 모든 모델 turn은 생성 시 Job이 저장한 프로바이더 바인딩으로 AIGateway를 거칩니다. 해당 프로바이더에 자격 증명이 여러 개 있으면 선택, 친화성(affinity), 갱신, 재시도는 AIGateway가 소유합니다. Job에는 계정(account) 필드나 계정 동시성 슬롯이 없습니다.
 
-Job이 처음 workspace를 초기화할 때 러너는 프로젝트의 `AGENTS.md`를 구성합니다. 선택적 workspace 템플릿이 먼저 오고, 그다음 렌더링된 Job 컨텍스트 — 에이전트의 SOUL과 MISSION, durable Brain 컨텍스트, 실행 사실 — 가 옵니다. 공유된 `app/library/templates/AGENT_JOB.md`는 확장 지점으로 남지만, 배포되는 파일은 비어 있으므로 러너는 Job Guidance 섹션을 생략합니다. Codex 프로젝트 구성은 네이티브 서브에이전트 대기 최솟값을 1분, 기본값을 2분으로 설정합니다. 최댓값은 설정하지 않으므로 Codex가 기본값을 유지합니다. 이것은 [openai/codex#35259](https://github.com/openai/codex/issues/35259)에서 추적되는, 빈 대기 후 반복되는 모델 turn을 줄여 줍니다. 재개된 스레드는 기존 `AGENTS.md`를 유지합니다.
+Job이 처음 workspace를 초기화할 때 러너는 프로젝트의 `AGENTS.md`를 구성합니다. 선택적 workspace 템플릿이 먼저 오고, 그다음 렌더링된 Job 컨텍스트 — 에이전트의 SOUL과 MISSION, 실행 사실 — 가 옵니다. 공유된 `app/library/templates/AGENT_JOB.md`는 확장 지점으로 남지만, 배포되는 파일은 비어 있으므로 러너는 Job Guidance 섹션을 생략합니다. Codex 프로젝트 구성은 네이티브 서브에이전트 대기 최솟값을 1분, 기본값을 2분으로 설정합니다. 최댓값은 설정하지 않으므로 Codex가 기본값을 유지합니다. 이것은 [openai/codex#35259](https://github.com/openai/codex/issues/35259)에서 추적되는, 빈 대기 후 반복되는 모델 turn을 줄여 줍니다. 재개된 스레드는 기존 `AGENTS.md`를 유지합니다.
 
 ## 운영자 표면
 

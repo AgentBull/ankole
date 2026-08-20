@@ -133,16 +133,6 @@ message ConversationInfo {
   ConversationChannel origin_channel = 5;
 }
 
-message BrainSnapshotEntry {
-  string resident_text = 1;
-  bool truncated = 2;
-}
-
-message BrainSnapshot {
-  BrainSnapshotEntry pinned_memo = 1;
-  BrainSnapshotEntry channel_entry = 2;
-}
-
 message RuntimeSkillSummary {
   string skill_name = 1;
   string description = 2;
@@ -166,7 +156,8 @@ message AgentConversationContextResponse {
   string design = 5;
   reserved 6;
   reserved "system_prompt_snapshot";
-  BrainSnapshot brain_snapshot = 7;
+  reserved 7;
+  reserved "brain_snapshot";
   repeated RuntimeSkillSummary skills = 8;
   string soul_content_hash = 9;
   string mission_content_hash = 10;
@@ -399,136 +390,6 @@ message BackgroundAgentJobTurnUpsertResponse {
   string job_id = 1;
   BackgroundAgentJobTurn turn = 2;
 }
-
-// ===== memory (requests typed, responses model-facing passthrough) =====
-
-message MemorySearchRequest {
-  string query = 1;
-  string layer = 2;         // chat | knowledge | all
-  string channel_scope = 3; // current_channel | all_channels
-  string channel_id = 4;
-  string from = 5;
-  string to = 6;
-  string store = 7;         // current | shared
-  string entry_type = 8;
-  string author_kind = 9;   // human | agent | dreaming
-  optional uint32 limit = 10;
-}
-
-message MemoryBrowseRequest {
-  string document_id = 1;
-  string channel_id = 2;
-  string from = 3;
-  string to = 4;
-  string cursor = 5;
-  optional uint32 limit = 6;
-}
-
-message MemoryOpenRequest {
-  string entry_id = 1;
-  string name = 2;
-  string store = 3;
-  string block_cursor = 4;
-  optional uint32 block_limit = 5;
-}
-
-message MemoryCreateEntry {
-  string name = 1;
-  string type = 2;
-  string summary = 3;
-  repeated string aliases = 4;
-  bytes properties_json = 5;
-  string initial_body = 6;
-}
-
-message MemorySetName {
-  string entry_id = 1;
-  string name = 2;
-  uint32 expected_entry_lock_version = 3;
-}
-
-message MemorySetType {
-  string entry_id = 1;
-  string type = 2;
-  uint32 expected_entry_lock_version = 3;
-}
-
-message MemoryDeleteEntry {
-  string entry_id = 1;
-  uint32 expected_entry_lock_version = 2;
-}
-
-message MemoryAppendBlock {
-  string entry_id = 1;
-  string body = 2;
-  uint32 expected_entry_lock_version = 3;
-}
-
-message MemoryEditBlock {
-  string entry_id = 1;
-  string block_id = 2;
-  string body = 3;
-  uint32 expected_block_lock_version = 4;
-}
-
-message MemoryDeleteBlock {
-  string entry_id = 1;
-  string block_id = 2;
-  uint32 expected_block_lock_version = 3;
-}
-
-message MemorySetProperty {
-  string entry_id = 1;
-  string key = 2;
-  bytes value_json = 3;
-  uint32 expected_entry_lock_version = 4;
-}
-
-message MemoryAddRelation {
-  string entry_id = 1;
-  string target_entry_id = 2;
-  string predicate = 3;
-  uint32 expected_entry_lock_version = 4;
-}
-
-message MemoryRemoveRelation {
-  string entry_id = 1;
-  string relation_id = 2;
-  uint32 expected_entry_lock_version = 3;
-}
-
-message MemorySetSummary {
-  string entry_id = 1;
-  string summary = 2;
-  uint32 expected_entry_lock_version = 3;
-}
-
-message MemorySetAliases {
-  string entry_id = 1;
-  repeated string aliases = 2;
-  uint32 expected_entry_lock_version = 3;
-}
-
-message MemoryUpdateRequest {
-  string tool_call_id = 1;
-  string store = 2; // empty/current | self
-  oneof operation {
-    MemoryCreateEntry create_entry = 10;
-    MemoryDeleteEntry delete_entry = 11;
-    MemoryAppendBlock append_block = 12;
-    MemoryEditBlock edit_block = 13;
-    MemoryDeleteBlock delete_block = 14;
-    MemorySetProperty set_property = 15;
-    MemoryAddRelation add_relation = 16;
-    MemoryRemoveRelation remove_relation = 17;
-    MemorySetSummary set_summary = 18;
-    MemorySetAliases set_aliases = 19;
-    MemorySetName set_name = 20;
-    MemorySetType set_type = 21;
-  }
-}
-
-message MemoryHealthCheckRequest {}
 
 // ===== schedule (requests typed, responses model-facing passthrough) =====
 

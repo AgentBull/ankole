@@ -49,7 +49,6 @@ defmodule Ankole.AIGateway.Compaction do
   @summarizer_retry_max_output_tokens 16_384
   @unusable_summary_reasons [:empty_compaction_summary, :invalid_summary_shape]
   @checkpoint_overhead_tokens 1_000
-  @brain_pre_compaction_nudge_marker "ankole.brain.pre_compaction_nudge.v1"
   @stable_tail_summary "Earlier conversation history was omitted because it exceeded the active context budget."
   @opaque_ref_keys ~w(agent_computer_path blob_ref content_type file_id file_url filename id image_url media_type mime_type name path provider_file_id provider_ref provider_uri storage_ref uri url)
   @max_ref_chars 512
@@ -288,9 +287,6 @@ defmodule Ankole.AIGateway.Compaction do
         total_tokens <= threshold.tokens ->
           {:ok, unchanged(history, request)}
 
-        brain_pre_compaction_nudge_due?(history, total_tokens, threshold) ->
-          {:ok, brain_pre_compaction_nudge(history, request, total_tokens, threshold)}
-
         true ->
           plan_compact_history(context)
       end
@@ -352,21 +348,6 @@ defmodule Ankole.AIGateway.Compaction do
        }}
     end
   end
-
-  @doc """
-  Adds the one-time Brain pre-compaction nudge to normal model input when due.
-  """
-  @spec maybe_inject_brain_pre_compaction_nudge([map()], map()) :: [map()]
-  def maybe_inject_brain_pre_compaction_nudge(current_input, %{
-        "brain_pre_compaction_nudge" => %{"status" => "due"}
-      })
-      when is_list(current_input) do
-    [brain_pre_compaction_nudge_input() | current_input]
-  end
-
-  def maybe_inject_brain_pre_compaction_nudge(current_input, _run_metadata)
-      when is_list(current_input),
-      do: current_input
 
   @doc false
   @spec put_checkpoint_response_id(map(), binary() | nil) :: map()
@@ -1249,54 +1230,6 @@ defmodule Ankole.AIGateway.Compaction do
       expected_previous_response_id: previous_response_id,
       compaction: nil,
       run_metadata: %{}
-    }
-  end
-
-  defp brain_pre_compaction_nudge(history, request, total_tokens, threshold) do
-    previous_response_id = previous_response_id_for(history, request)
-
-    %{
-      history: history,
-      previous_response_id: previous_response_id,
-      expected_previous_response_id: previous_response_id,
-      compaction: nil,
-      run_metadata: %{
-        "brain_pre_compaction_nudge" => %{
-          "status" => "due",
-          "marker" => @brain_pre_compaction_nudge_marker,
-          "history_usage_tokens_before" => total_tokens,
-          "token_threshold" => threshold.tokens,
-          "context_length" => threshold.context_length,
-          "threshold" => threshold.threshold,
-          "max_threshold_tokens" => threshold.max_threshold_tokens
-        }
-      }
-    }
-  end
-
-  defp brain_pre_compaction_nudge_due?(history, total_tokens, threshold) do
-    total_tokens < threshold.effective_context_length and
-      not brain_pre_compaction_nudge_seen?(history)
-  end
-
-  defp brain_pre_compaction_nudge_seen?(history) do
-    Enum.any?(history, fn %Message{} = message ->
-      message
-      |> message_content_text()
-      |> String.contains?(@brain_pre_compaction_nudge_marker)
-    end)
-  end
-
-  defp brain_pre_compaction_nudge_input do
-    %{
-      "role" => "system",
-      "content" => [
-        %{
-          "type" => "input_text",
-          "text" =>
-            "[#{@brain_pre_compaction_nudge_marker}] Automatic compaction may run soon. Before continuing, use memory_update to merge durable preferences, corrections, decisions, identifiers, dates, and project facts into the current Brain knowledge entries. Replace stale contradictory content instead of appending another version. Skip this when there is nothing worth retaining."
-        }
-      ]
     }
   end
 
@@ -2467,13 +2400,6 @@ defmodule Ankole.AIGateway.Compaction do
     items
     |> Ankole.JSON.encode!()
     |> CompactionRender.approx_tokens()
-  end
-
-  defp message_content_text(%Message{content: content}) when is_list(content) do
-    content
-    |> Enum.map(&CompactionRender.item_text/1)
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.join("\n")
   end
 
   defp text_compactable_message?(%Message{type: "message", status: "complete", content: content})

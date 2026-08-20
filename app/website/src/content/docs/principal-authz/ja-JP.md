@@ -5,7 +5,7 @@ section: Developer guide
 order: 106
 ---
 
-Ankole のすべてのアクション（人のサインイン、agent による turn の実行、job による owner の wake、Brain への書き込み）は Principal が実行し、その Principal が何をできるかはアクションの時点で AuthZ が決定します。このページでは、その境界を `Ankole.Principals` と `Ankole.AuthZ` の実際のコードに照らして説明します。
+Ankole のすべてのアクション（人のサインイン、agent による turn の実行、job による owner の wake）は Principal が実行し、その Principal が何をできるかはアクションの時点で AuthZ が決定します。このページでは、その境界を `Ankole.Principals` と `Ankole.AuthZ` の実際のコードに照らして説明します。
 
 最初に決定的な性質を述べます。認可はランタイムの事実であり、境界で強制されるものであって、モデルに求める慣習ではありません。Principal は永続的で説明責任のある主体であり、その grant は PostgreSQL に保存され、チェックされるすべてのアクションは kernel が明示的な snapshot に対して評価し、呼び出し元はその決定に従わなければなりません。
 
@@ -60,7 +60,6 @@ AuthZ は agent が回避して話せるレイヤーではありません。ラ�
 
 - AIGateway は、検証済みの token からすべての呼び出しの subject を解決し、その subject の grant が到達できる model selector と provider を決定します。
 - Actor Runtime は、agent Principal が所有する activation で各 turn をフェンスします。他の subject からの返信はそのフェンスで失敗します。
-- Brain は、会話宣言と所有者 Principal を通じてすべての読み書きをスコープします。書き込みの権限モードは payload ではなく actor から導出されます。
 - Console の操作は検証済みの admin token を通じて実行され、admin Principal のグループメンバーシップが変更できる範囲を決定します。
 
 モデルが「私は許可されている」と主張することは決してできません。境界が Principal と grant をチェックし、決定に従って行動します。
@@ -91,4 +90,3 @@ AuthZ はプロンプトの指示でも、期待でもありません。モデ�
 
 - 検証済みの token が AIGateway エッジで Principal に解決される仕組みは、[AIGateway API](../ai-gateway/)を参照してください。
 - agent Principal の activation が turn をフェンスする仕組みは、[Actor Runtime](../actor-runtime/)を参照してください。
-- Brain が actor から書き込み権限を導出する仕組みは、[Brain](../brain/)ページを参照してください。

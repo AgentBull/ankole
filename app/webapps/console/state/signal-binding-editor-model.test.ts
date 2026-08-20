@@ -16,6 +16,7 @@ describe('SignalBindingEditorModel', () => {
       adapterID: 'lark',
       name: 'lark-main',
       groupMessageMode: 'addressed_only',
+      unmatchedSenderPolicy: 'manual_review',
       confidentialMemory: false,
       config: { domain: 'example' }
     })
@@ -27,6 +28,7 @@ describe('SignalBindingEditorModel', () => {
       adapterID: 'lark',
       name: 'lark-main',
       groupMessageMode: 'addressed_only',
+      unmatchedSenderPolicy: 'manual_review',
       confidentialMemory: false,
       config: { domain: 'example' }
     })
@@ -43,6 +45,7 @@ describe('SignalBindingEditorModel', () => {
       adapterID: 'lark',
       name: 'lark-main',
       groupMessageMode: 'addressed_only',
+      unmatchedSenderPolicy: 'manual_review',
       confidentialMemory: true,
       config: { domain: 'example' }
     })
@@ -50,6 +53,7 @@ describe('SignalBindingEditorModel', () => {
       adapterID: 'slack',
       name: 'slack-main',
       groupMessageMode: 'observe_all',
+      unmatchedSenderPolicy: 'create_standalone',
       confidentialMemory: false,
       config: { workspace: 'main' }
     })
@@ -58,6 +62,7 @@ describe('SignalBindingEditorModel', () => {
     expect(model.adapterID.value).toBe('slack')
     expect(model.name.value).toBe('slack-main')
     expect(model.groupMessageMode.value).toBe('observe_all')
+    expect(model.unmatchedSenderPolicy.value).toBe('create_standalone')
     expect(model.confidentialMemory.value).toBe(false)
     expect(model.config.value).toEqual({ workspace: 'main' })
     expect(model.configPatch.value).toEqual({})
@@ -72,6 +77,7 @@ describe('SignalBindingEditorModel', () => {
       adapterID: 'lark',
       name: 'lark-main',
       groupMessageMode: 'observe_all',
+      unmatchedSenderPolicy: 'manual_review',
       confidentialMemory: false,
       config: { appID: '', appSecret: '', domain: 'feishu' }
     })

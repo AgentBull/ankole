@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { z } from 'zod'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import { createModel } from '../../src/core/llm'
+import { defineWorkerTool } from '../../src/core/worker-tool'
 
 type CreateModelOptions = Parameters<typeof createModel>[0]
 type TestResponseWebSocket = ReturnType<
@@ -11,7 +12,7 @@ type TestResponseWebSocket = ReturnType<
 >
 
 export function parallelReadTool(name: string, events: string[], delayMs: number, text: string) {
-  return {
+  return defineWorkerTool({
     name,
     description: `Read ${name}`,
     schema: z.object({}),
@@ -25,7 +26,7 @@ export function parallelReadTool(name: string, events: string[], delayMs: number
       events.push(`${name}:end`)
       return { content: [{ type: 'text' as const, text }], details: {} }
     }
-  }
+  })
 }
 
 export function sleep(ms: number): Promise<void> {

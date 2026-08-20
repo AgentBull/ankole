@@ -2,10 +2,11 @@ defmodule Ankole.SignalsGateway.BindingMembership do
   @moduledoc """
   Host-owned projection of a signal binding's current IM-group membership.
 
-  Provider adapters observe whether their bot-backed binding is joined or left,
-  while this module owns the durable metadata shape consumed by
-  `Ankole.SignalsGateway.Visibility`. This is separate from human AuthZ group
-  membership and from provider online-presence APIs.
+  Provider adapters observe whether their bot-backed binding is joined or left
+  and project that observation into a group's metadata; the same adapters read
+  it back through `joined?/2` and `all_left?/1` to decide sync and cleanup
+  behavior. This is separate from human AuthZ group membership and from
+  provider online-presence APIs.
   """
 
   alias Ankole.SignalsGateway.AdapterContext

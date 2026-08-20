@@ -38,8 +38,7 @@ worker 拥有循环的终止和本地的迭代预算。它**不**拥有历史扩
 
 - **Computer**——shell 命令（在 bubblewrap 约束下）、文件读取与打补丁、apply-patch，以及驱动真实浏览器桌面的 v4a computer-use 工具。终端状态和文件编辑就在这里。
 - **Web**——web 搜索和 web 抓取，经 worker 路由。
-- **Brain**——回到长期记忆里的召回与知识工具。
-- **Memory、schedule、todo、clarify**——agent 用来规划、推迟、提问的那些较小的结构化工具。
+- **schedule、todo、clarify**——agent 用来规划、推迟、提问的那些较小的结构化工具。
 - **Codex**——CodexRunner 任务工具，用于把工作委派给一个后台 Agent 任务。
 - **Library 与 mcporter**——访问 enabled Skills，以及按次生成的 MCP dependency 配置。
 - **Background Agent Job**——创建或续接持久任务的交接工具。

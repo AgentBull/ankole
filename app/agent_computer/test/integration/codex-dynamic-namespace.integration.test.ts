@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { z } from 'zod'
 import { buildCodexJobProjection, type CodexJobProjection } from '../../src/core/codex-runner/projection'
-import type { AgentTool } from '../../src/core/types'
+import { defineWorkerTool, type WorkerAgentTool } from '../../src/core'
 import { CodexAppServerClient, type JSONRPCMessage } from '../../src/core/codex-runner/app-server-client'
 import type { DynamicToolCallParams } from '../../src/core/codex-runner/generated/protocol/v2/DynamicToolCallParams'
 import type { ThreadStartParams } from '../../src/core/codex-runner/generated/protocol/v2/ThreadStartParams'
@@ -232,8 +232,8 @@ describe('Codex dynamic namespace integration', () => {
   }, 90_000)
 })
 
-function analysisTool(): AgentTool<typeof AnalysisArguments> {
-  return {
+function analysisTool(): WorkerAgentTool<typeof AnalysisArguments> {
+  return defineWorkerTool({
     name: 'inspect_data',
     description: 'Inspect one named metric.',
     schema: AnalysisArguments,
@@ -250,7 +250,7 @@ function analysisTool(): AgentTool<typeof AnalysisArguments> {
         details: params
       }
     }
-  }
+  })
 }
 
 function createResponsesCapture(requests: JSONObject[], manifestRequests: string[]) {

@@ -48,14 +48,14 @@ defmodule Ankole.AIGateway.ConsoleQueriesTest do
       group =
         conversation_fixture(agent.uid, "signal-channel:lark:oc_market", %{
           metadata: %{
-            "brain" => %{"channel_id" => "lark:oc_market", "channel_kind" => "im_group"}
+            "origin" => %{"channel_id" => "lark:oc_market", "channel_kind" => "im_group"}
           }
         })
 
       dm =
         conversation_fixture(agent.uid, "signal-channel:lark:oc_dm", %{
           metadata: %{
-            "brain" => %{
+            "origin" => %{
               "channel_id" => "lark:oc_dm",
               "channel_kind" => "im_dm",
               "peer_uid" => peer.uid
@@ -118,10 +118,9 @@ defmodule Ankole.AIGateway.ConsoleQueriesTest do
       conversation =
         conversation_fixture(agent.uid, "signal-channel:lark:oc_named", %{
           metadata: %{
-            "brain" => %{
+            "origin" => %{
               "channel_id" => "lark:oc_named",
-              "channel_kind" => "im_group",
-              "visibility" => "public"
+              "channel_kind" => "im_group"
             }
           }
         })
@@ -142,11 +141,10 @@ defmodule Ankole.AIGateway.ConsoleQueriesTest do
       conversation =
         conversation_fixture(agent.uid, "signal-channel:lark:oc_dm", %{
           metadata: %{
-            "brain" => %{
+            "origin" => %{
               "channel_id" => "lark:oc_dm",
               "channel_kind" => "im_dm",
-              "peer_uid" => peer.uid,
-              "visibility" => "dm"
+              "peer_uid" => peer.uid
             }
           }
         })
@@ -165,11 +163,10 @@ defmodule Ankole.AIGateway.ConsoleQueriesTest do
       conversation =
         conversation_fixture(agent.uid, "signal-channel:lark:oc_ghost", %{
           metadata: %{
-            "brain" => %{
+            "origin" => %{
               "channel_id" => "lark:oc_ghost",
               "channel_kind" => "im_dm",
-              "peer_uid" => "ghost",
-              "visibility" => "dm"
+              "peer_uid" => "ghost"
             }
           }
         })
@@ -191,32 +188,6 @@ defmodule Ankole.AIGateway.ConsoleQueriesTest do
       assert projection.channel_kind == nil
       assert projection.signal_adapter == nil
     end
-
-    test "dreaming rooms resolve a peer label but carry no signal tags" do
-      %{principal: agent} = PrincipalsFixtures.agent_fixture()
-      %{principal: peer} = PrincipalsFixtures.human_fixture(%{display_name: "Boris"})
-      channel_fixture("lark:oc_dm", kind: :im_dm, name: nil)
-      run_id = Ecto.UUID.generate()
-
-      conversation =
-        conversation_fixture(agent.uid, "brain.dreaming:#{run_id}:dm:#{peer.uid}", %{
-          metadata: %{
-            "brain" => %{
-              "channel_id" => "lark:oc_dm",
-              "channel_kind" => "im_dm",
-              "peer_uid" => peer.uid,
-              "visibility" => "dm"
-            }
-          }
-        })
-
-      projection = conversation |> reload() |> ConsoleQueries.console_projection()
-
-      assert projection.kind == "dreaming"
-      assert projection.display_name == "Boris"
-      assert projection.channel_kind == nil
-      assert projection.signal_adapter == nil
-    end
   end
 
   describe "console_projections/1" do
@@ -227,15 +198,14 @@ defmodule Ankole.AIGateway.ConsoleQueriesTest do
       named =
         conversation_fixture(agent.uid, "signal-channel:lark:oc_batch", %{
           metadata: %{
-            "brain" => %{
+            "origin" => %{
               "channel_id" => "lark:oc_batch",
-              "channel_kind" => "im_group",
-              "visibility" => "public"
+              "channel_kind" => "im_group"
             }
           }
         })
 
-      plain = conversation_fixture(agent.uid, "brain.dreaming:#{Ecto.UUID.generate()}:public")
+      plain = conversation_fixture(agent.uid, "manual-session:plain-#{Ecto.UUID.generate()}")
       message_fixture(named)
 
       projections = ConsoleQueries.console_projections([reload(named), reload(plain)])

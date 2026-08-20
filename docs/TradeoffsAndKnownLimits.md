@@ -213,31 +213,6 @@ probe. A protocol that cannot express the marker still has it emulated with
 AIGateway opaque values, which are encoded, not encrypted, and provide no
 secrecy.
 
-## Brain Can Still Store a Wrong Conclusion
-
-Brain stores its records in PostgreSQL. The Markdown from `memory_open` is only
-a view of those records.
-
-The saved conversation tells the control plane which Principal and Brain stores
-to use. A model cannot expand its access by changing tool arguments. Shared
-channels read `shared` and `self`, direct messages also read their `dm:<uid>`
-store, and confidential channels can read their `channel:<id>` store. Each
-conversation writes only to its default store, except that the Agent can select
-its own `self` store.
-
-Brain keeps immutable bytes for a manual file. Pasted text and fetched URL text
-become editable entries. A connector-managed document is one read-only shared
-mirror of the current source revision, so its stored export can change when the
-source changes. Knowledge blocks cite evidence with strict `src:` references.
-
-Dreaming and connector synchronization are the automatic knowledge writers.
-The control plane checks access, citations, budgets, locks, mirror ownership,
-and requested changes before it commits them. These checks cannot prove that a
-conclusion is correct.
-
-The Console status view and `memory_health_check` use the same read-only health
-queries. They show observable faults but do not repair knowledge automatically.
-
 ## Provider Secrets Stay in the Control Plane
 
 The control plane stores provider details and encrypted secrets. It sends a
@@ -324,6 +299,7 @@ live worker, provider, database restart, or network failure.
 
 Ankole currently does not provide:
 
+- long-term memory (the prior Brain module is removed and awaiting a rewrite)
 - public admission for untrusted workers
 - a durable ZeroMQ queue
 - automatic discovery of business data from worker files

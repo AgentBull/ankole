@@ -14,12 +14,8 @@ import { RiRestartLine } from '@remixicon/react'
 import { useQuery } from '@tanstack/react-query'
 import { useDeferredValue, useMemo, useState, type ComponentType } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link } from 'react-router'
 import { availableLocaleIDs, nativeLocaleLabel } from '../../common/i18n'
-import {
-  ankoleWebAgentControllerIndexOptions,
-  ankoleWebControlPlanePluginControllerIndexOptions
-} from '../api/generated/@tanstack/react-query.gen'
+import { ankoleWebControlPlanePluginControllerIndexOptions } from '../api/generated/@tanstack/react-query.gen'
 import type { AppConfigurationItem, ControlPlanePluginItem } from '../api/generated/types.gen'
 import { ErrorBlock } from '../../common/error-block'
 import { EncryptedValueInput } from '../encrypted-value-input'
@@ -31,24 +27,14 @@ import { matchesResourceSearch } from '../state/resource-search'
 import {
   AI_GATEWAY_COMPACTION_FIELDS,
   aiGatewayCompactionDraft,
-  BRAIN_DREAMING_FIELDS,
-  brainDreamingDraft,
-  brainEmbeddingAgentOptions,
-  brainEmbeddingDraft,
   pluginIDsFromDraft,
   pluginRestartRequired,
   serializeAIGatewayCompactionDraft,
-  serializeBrainDreamingDraft,
-  serializeBrainEmbeddingDraft,
   settingEditorKind,
   settingStringDraft,
   togglePluginID,
   unknownPluginIDs,
   type AIGatewayCompactionDraft,
-  type BrainDreamingDraft,
-  type BrainDreamingEnabled,
-  type BrainDreamingField,
-  type BrainEmbeddingDraft,
   type SettingEditorKind
 } from '../state/setting-value-editor'
 import { timeZoneCurrentTime, timeZoneOptions } from '../state/timezone-editor'
@@ -67,8 +53,6 @@ export type SettingValueEditorProps = {
 
 const SPECIFIC_SETTING_EDITORS: Partial<Record<SettingEditorKind, ComponentType<SettingValueEditorProps>>> = {
   aiGatewayCompaction: AIGatewayCompactionEditor,
-  brainDreaming: BrainDreamingEditor,
-  brainEmbedding: BrainEmbeddingEditor,
   plugins: PluginsEnabledIDsEditor,
   timezone: SystemTimeZoneEditor,
   locale: SystemLocaleEditor
@@ -199,196 +183,6 @@ function AIGatewayCompactionEditor({ onChange, value }: SettingValueEditorProps)
         description={t('console.settings.compaction_upstream_hint')}>
         <Switch checked={draft.upstream} onCheckedChange={checked => update({ upstream: checked === true })} />
       </LabeledField>
-    </div>
-  )
-}
-
-function BrainDreamingEditor({ onChange, value }: SettingValueEditorProps) {
-  const { t } = useTranslation()
-  const draft = brainDreamingDraft(value)
-  const update = (patch: Partial<BrainDreamingDraft>) => onChange(serializeBrainDreamingDraft({ ...draft, ...patch }))
-
-  return (
-    <div className="grid gap-6">
-      <LabeledField
-        label={t('console.settings.brain_dreaming_enabled')}
-        description={t('console.settings.brain_dreaming_enabled_hint')}>
-        <Select value={draft.enabled} onValueChange={next => next && update({ enabled: next as BrainDreamingEnabled })}>
-          <SelectTrigger className="w-full">
-            <SelectValue>{current => t(`console.settings.brain_dreaming_enabled_${String(current)}`)}</SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            {(['default', 'on', 'off'] as const).map(option => (
-              <SelectItem key={option} value={option}>
-                {t(`console.settings.brain_dreaming_enabled_${option}`)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </LabeledField>
-
-      {(['stage_a', 'stage_b'] as const).map(section => (
-        <section key={section} className="grid gap-5">
-          <div className="grid gap-1 border-b border-border pb-2">
-            <h3 className="text-sm font-medium text-foreground">{t(`console.settings.brain_dreaming_${section}`)}</h3>
-            <p className="text-xs leading-5 text-muted-foreground">
-              {t(`console.settings.brain_dreaming_${section}_hint`)}
-            </p>
-          </div>
-
-          {BRAIN_DREAMING_FIELDS.filter(field => field.section === section).map(field => (
-            <BrainDreamingNumberField
-              key={field.key}
-              field={field}
-              value={draft.numbers[field.key] ?? ''}
-              onChange={next => update({ numbers: { ...draft.numbers, [field.key]: next } })}
-            />
-          ))}
-        </section>
-      ))}
-    </div>
-  )
-}
-
-function BrainDreamingNumberField({
-  field,
-  onChange,
-  value
-}: {
-  field: BrainDreamingField
-  onChange: (value: string) => void
-  value: string
-}) {
-  const { t } = useTranslation()
-  const unlimited = field.unlimited === 'zero' ? value === '0' : field.unlimited === 'null' && value === ''
-  const clearUnlimited = field.unlimited === 'zero' ? '' : String(field.fallback ?? field.min)
-
-  return (
-    <LabeledField
-      label={t(`console.settings.brain_dreaming_field_${field.key}`)}
-      description={t(`console.settings.brain_dreaming_field_${field.key}_hint`, {
-        max: field.max.toLocaleString(),
-        min: field.min.toLocaleString()
-      })}>
-      <div className="grid gap-2">
-        <Input
-          disabled={unlimited}
-          max={field.max}
-          min={field.min}
-          step={1}
-          type="number"
-          value={unlimited ? '' : value}
-          onChange={event => onChange(event.target.value)}
-        />
-        {field.unlimited ? (
-          <label className="flex w-fit items-center gap-2 text-xs text-muted-foreground">
-            <Checkbox
-              checked={unlimited}
-              onCheckedChange={checked => onChange(checked ? (field.unlimited === 'zero' ? '0' : '') : clearUnlimited)}
-            />
-            {t(`console.settings.brain_dreaming_unlimited_${String(field.unlimited)}`)}
-          </label>
-        ) : null}
-      </div>
-    </LabeledField>
-  )
-}
-
-function BrainEmbeddingEditor({ onChange, value }: SettingValueEditorProps) {
-  const { t } = useTranslation()
-  const agents = useQuery(ankoleWebAgentControllerIndexOptions())
-  const options = brainEmbeddingAgentOptions(agents.data?.agents ?? [])
-  const draft = brainEmbeddingDraft(value)
-  const selected = options.find(option => option.uid === draft.modelAgentUID)
-  const unavailableSelection = Boolean(agents.isSuccess && draft.modelAgentUID && !selected)
-  const editableDraft = unavailableSelection ? { ...draft, modelAgentUID: '' } : draft
-  const update = (patch: Partial<BrainEmbeddingDraft>) =>
-    onChange(serializeBrainEmbeddingDraft({ ...editableDraft, ...patch }))
-
-  return (
-    <div className="grid gap-5">
-      <LabeledField
-        label={t('console.settings.brain_embedding_enabled')}
-        description={t('console.settings.brain_embedding_enabled_hint')}>
-        <div className="flex min-h-12 items-center justify-between border border-border bg-muted/30 px-4 py-3">
-          <span className="text-sm text-foreground">
-            {draft.enabled ? t('console.status.enabled') : t('console.status.disabled')}
-          </span>
-          <Switch
-            aria-label={t('console.settings.brain_embedding_enabled')}
-            checked={draft.enabled}
-            onCheckedChange={enabled => update({ enabled })}
-          />
-        </div>
-      </LabeledField>
-
-      <LabeledField
-        label={t('console.settings.brain_embedding_agent')}
-        description={t('console.settings.brain_embedding_agent_hint')}
-        required={draft.enabled}>
-        <Select
-          disabled={!draft.enabled || agents.isLoading}
-          value={draft.modelAgentUID}
-          onValueChange={modelAgentUID => modelAgentUID && update({ modelAgentUID: String(modelAgentUID) })}>
-          <SelectTrigger className="w-full">
-            <SelectValue placeholder={t('console.settings.brain_embedding_agent_placeholder')}>
-              {modelAgentUID => {
-                const option = options.find(item => item.uid === modelAgentUID)
-                return option?.displayName ? `${option.displayName} · ${option.uid}` : (option?.uid ?? modelAgentUID)
-              }}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent emptyLabel={t('console.settings.brain_embedding_no_agents')}>
-            {options.map(option => (
-              <SelectItem key={option.uid} value={option.uid}>
-                <span className="grid min-w-0 gap-0.5">
-                  <span>{option.displayName ? `${option.displayName} · ${option.uid}` : option.uid}</span>
-                  <span className="font-mono text-xs text-muted-foreground">
-                    {option.providerID} · {option.model}
-                  </span>
-                </span>
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <ErrorBlock error={agents.error} />
-        {agents.isSuccess && options.length === 0 ? (
-          <p className="border border-warning/50 bg-warning/5 px-4 py-3 text-xs leading-5 text-muted-foreground">
-            {t('console.settings.brain_embedding_no_agents')}{' '}
-            <Link className="text-foreground underline underline-offset-4" to="/agents">
-              {t('console.settings.brain_embedding_open_agents')}
-            </Link>
-          </p>
-        ) : null}
-        {unavailableSelection ? (
-          <p className="border border-warning/50 bg-warning/5 px-4 py-3 text-xs leading-5 text-muted-foreground">
-            {t('console.settings.brain_embedding_unavailable_agent', { uid: draft.modelAgentUID })}
-          </p>
-        ) : null}
-      </LabeledField>
-
-      <LabeledField
-        label={t('console.settings.brain_embedding_dimensions')}
-        description={t('console.settings.brain_embedding_dimensions_hint')}
-        required={draft.enabled}>
-        <Input
-          disabled={!draft.enabled}
-          max={4_096}
-          min={1}
-          required={draft.enabled}
-          step={1}
-          type="number"
-          value={draft.dimensions}
-          onChange={event => update({ dimensions: event.target.value })}
-        />
-      </LabeledField>
-
-      {selected ? (
-        <div className="flex flex-wrap gap-2 border border-border bg-muted/20 px-4 py-3">
-          <Badge variant="secondary">{selected.providerID}</Badge>
-          <Badge variant="outline">{selected.model}</Badge>
-        </div>
-      ) : null}
     </div>
   )
 }

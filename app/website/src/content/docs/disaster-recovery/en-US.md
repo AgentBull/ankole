@@ -13,7 +13,7 @@ The decisive property, stated up front: recovery is a *restore onto a fresh depl
 
 | State | Recoverable? | From what |
 |---|---|---|
-| Principals, agents, sessions, jobs, Brain knowledge, audit, AuthZ grants | yes | PostgreSQL `pg_dump` archive |
+| Principals, agents, sessions, jobs, audit, AuthZ grants | yes | PostgreSQL `pg_dump` archive |
 | Per-Agent workspaces, durable documents, installed Skills, conversation and Job files | yes | Agent Home volume snapshot |
 | Provider credentials, chat-channel credentials, encrypted environment variables | yes | PostgreSQL and Agent Home store them, so the backup restores them |
 | Bootstrap secrets (`ANKOLE_SECRET_BASE`, worker auth key) | **re-enter by hand** | they are not in the backup; generate new ones or reuse the recorded ones |
@@ -39,7 +39,7 @@ docker compose exec -T postgresql \
   < "ankole-YYYYMMDD.dump"
 ```
 
-Then run the migrations (`bun run control-plane:setup` locally, or let the Helm init container do it) to bring the restored schema to the image's level. The restored database has the Principals, agents, sessions, jobs, Brain knowledge, and AuthZ grants from the moment the backup was taken.
+Then run the migrations (`bun run control-plane:setup` locally, or let the Helm init container do it) to bring the restored schema to the image's level. The restored database has the Principals, agents, sessions, jobs, and AuthZ grants from the moment the backup was taken.
 
 ### Step 3: restore Agent Home
 

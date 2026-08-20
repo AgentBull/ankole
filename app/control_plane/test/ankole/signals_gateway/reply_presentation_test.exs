@@ -115,12 +115,12 @@ defmodule Ankole.SignalsGateway.ReplyPresentationTest do
           },
           "raw_tool_name" => "internal_secret_tool"
         })
-        |> ReplyPresentation.apply_event("memory.mutation_receipt", %{
+        |> ReplyPresentation.apply_event("effect.receipt", %{
           "operation_id" => "call-2",
           "revision" => 2,
           "phase" => "confirmed",
-          "summary_key" => "signals_gateway.reply.activity.memory_updated",
-          "scope_key" => "signals_gateway.reply.activity.memory_scope"
+          "summary" => "已确认变更",
+          "scope" => "当前任务"
         })
       end)
 
@@ -130,7 +130,7 @@ defmodule Ankole.SignalsGateway.ReplyPresentationTest do
     refute get_in(presentation, ["activities", "call-1"]) |> Map.has_key?("arguments")
     refute get_in(presentation, ["activities", "call-1"]) |> Map.has_key?("raw_tool_name")
 
-    assert [%{"summary" => "已更新记忆", "scope" => "长期记忆（代号 Brain）"}] =
+    assert [%{"summary" => "已确认变更", "scope" => "当前任务"}] =
              presentation["receipts"]
 
     terminal = ReplyPresentation.terminal(presentation, "completed", "完成。")

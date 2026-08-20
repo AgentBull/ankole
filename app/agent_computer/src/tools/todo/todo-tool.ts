@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { isRecord } from '@agentbull/active-support'
-import type { AgentTool, AgentToolResult } from '../../core'
+import { defineWorkerTool, type AgentToolResult, type WorkerAgentTool } from '../../core'
 import { jsonToolResult } from '../../core/tool-result'
 
 const VALID_STATUSES = ['pending', 'in_progress', 'completed', 'cancelled'] as const
@@ -177,8 +177,8 @@ export class TodoStore {
  * is a pure read. Either way the full current list is returned, so the model
  * always sees the post-write state.
  */
-export function createTodoTool(store: TodoStore): AgentTool<typeof TodoParams, TodoToolDetails> {
-  return {
+export function createTodoTool(store: TodoStore): WorkerAgentTool<typeof TodoParams, TodoToolDetails> {
+  return defineWorkerTool({
     name: 'todo',
     description: DESCRIPTION,
     schema: TodoParams,
@@ -205,7 +205,7 @@ export function createTodoTool(store: TodoStore): AgentTool<typeof TodoParams, T
         ]
       })
     }
-  }
+  })
 }
 
 /**

@@ -14,7 +14,6 @@ import {
   cn
 } from '@ankole/uikit'
 import {
-  RiBrainLine,
   RiBroadcastLine,
   RiChat3Line,
   RiCloseLine,
@@ -84,7 +83,6 @@ const NAV_SECTIONS: NavSection[] = [
     label: 'console.nav.group_capabilities',
     items: [
       { to: '/agent-library', label: 'console.nav.agent_library', icon: RiPuzzle2Line },
-      { to: '/brain', label: 'console.nav.brain', icon: RiBrainLine },
       { to: '/worker-envs', label: 'console.nav.worker_envs', icon: RiTerminalBoxLine }
     ]
   },

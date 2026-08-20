@@ -6,3 +6,4 @@
 export { runAgentLoop } from './agent-loop'
 export { runTurnHandlers } from './turns'
 export * from './types'
+export { defineWorkerTool, type DefineWorkerToolSpec } from './worker-tool'

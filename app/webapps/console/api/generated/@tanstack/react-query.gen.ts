@@ -85,24 +85,13 @@ import {
   ankoleWebBackgroundAgentJobControllerHealth,
   ankoleWebBackgroundAgentJobControllerIndex,
   ankoleWebBackgroundAgentJobControllerShow,
-  ankoleWebBrainControllerApplyOperations,
-  ankoleWebBrainControllerAuditIndex,
-  ankoleWebBrainControllerAuditLog,
-  ankoleWebBrainControllerCreateSource,
-  ankoleWebBrainControllerDreamingFitness,
-  ankoleWebBrainControllerIndex,
-  ankoleWebBrainControllerLearnSource,
-  ankoleWebBrainControllerRestoreAudit,
-  ankoleWebBrainControllerRestoreAudits,
-  ankoleWebBrainControllerRunDreaming,
-  ankoleWebBrainControllerShow,
-  ankoleWebBrainControllerSource,
-  ankoleWebBrainControllerSourceIndex,
-  ankoleWebBrainControllerSourceRaw,
-  ankoleWebBrainControllerStatus,
   ankoleWebConsoleReadinessControllerShow,
   ankoleWebControlPlanePluginControllerIndex,
   ankoleWebControlPlanePluginControllerUpdate,
+  ankoleWebIdentityMappingRequestControllerBind,
+  ankoleWebIdentityMappingRequestControllerCreateMapping,
+  ankoleWebIdentityMappingRequestControllerDelete,
+  ankoleWebIdentityMappingRequestControllerIndex,
   ankoleWebIdentityProviderControllerAdapters,
   ankoleWebIdentityProviderControllerIndex,
   ankoleWebIdentityProviderControllerPutProvider,
@@ -378,51 +367,6 @@ import type {
   AnkoleWebBackgroundAgentJobControllerShowData,
   AnkoleWebBackgroundAgentJobControllerShowError,
   AnkoleWebBackgroundAgentJobControllerShowResponse,
-  AnkoleWebBrainControllerApplyOperationsData,
-  AnkoleWebBrainControllerApplyOperationsError,
-  AnkoleWebBrainControllerApplyOperationsResponse,
-  AnkoleWebBrainControllerAuditIndexData,
-  AnkoleWebBrainControllerAuditIndexError,
-  AnkoleWebBrainControllerAuditIndexResponse,
-  AnkoleWebBrainControllerAuditLogData,
-  AnkoleWebBrainControllerAuditLogError,
-  AnkoleWebBrainControllerAuditLogResponse,
-  AnkoleWebBrainControllerCreateSourceData,
-  AnkoleWebBrainControllerCreateSourceError,
-  AnkoleWebBrainControllerCreateSourceResponse,
-  AnkoleWebBrainControllerDreamingFitnessData,
-  AnkoleWebBrainControllerDreamingFitnessError,
-  AnkoleWebBrainControllerDreamingFitnessResponse,
-  AnkoleWebBrainControllerIndexData,
-  AnkoleWebBrainControllerIndexError,
-  AnkoleWebBrainControllerIndexResponse,
-  AnkoleWebBrainControllerLearnSourceData,
-  AnkoleWebBrainControllerLearnSourceError,
-  AnkoleWebBrainControllerLearnSourceResponse,
-  AnkoleWebBrainControllerRestoreAuditData,
-  AnkoleWebBrainControllerRestoreAuditError,
-  AnkoleWebBrainControllerRestoreAuditResponse,
-  AnkoleWebBrainControllerRestoreAuditsData,
-  AnkoleWebBrainControllerRestoreAuditsError,
-  AnkoleWebBrainControllerRestoreAuditsResponse,
-  AnkoleWebBrainControllerRunDreamingData,
-  AnkoleWebBrainControllerRunDreamingError,
-  AnkoleWebBrainControllerRunDreamingResponse,
-  AnkoleWebBrainControllerShowData,
-  AnkoleWebBrainControllerShowError,
-  AnkoleWebBrainControllerShowResponse,
-  AnkoleWebBrainControllerSourceData,
-  AnkoleWebBrainControllerSourceError,
-  AnkoleWebBrainControllerSourceIndexData,
-  AnkoleWebBrainControllerSourceIndexError,
-  AnkoleWebBrainControllerSourceIndexResponse,
-  AnkoleWebBrainControllerSourceRawData,
-  AnkoleWebBrainControllerSourceRawError,
-  AnkoleWebBrainControllerSourceRawResponse,
-  AnkoleWebBrainControllerSourceResponse,
-  AnkoleWebBrainControllerStatusData,
-  AnkoleWebBrainControllerStatusError,
-  AnkoleWebBrainControllerStatusResponse,
   AnkoleWebConsoleReadinessControllerShowData,
   AnkoleWebConsoleReadinessControllerShowError,
   AnkoleWebConsoleReadinessControllerShowResponse,
@@ -432,6 +376,18 @@ import type {
   AnkoleWebControlPlanePluginControllerUpdateData,
   AnkoleWebControlPlanePluginControllerUpdateError,
   AnkoleWebControlPlanePluginControllerUpdateResponse,
+  AnkoleWebIdentityMappingRequestControllerBindData,
+  AnkoleWebIdentityMappingRequestControllerBindError,
+  AnkoleWebIdentityMappingRequestControllerBindResponse,
+  AnkoleWebIdentityMappingRequestControllerCreateMappingData,
+  AnkoleWebIdentityMappingRequestControllerCreateMappingError,
+  AnkoleWebIdentityMappingRequestControllerCreateMappingResponse,
+  AnkoleWebIdentityMappingRequestControllerDeleteData,
+  AnkoleWebIdentityMappingRequestControllerDeleteError,
+  AnkoleWebIdentityMappingRequestControllerDeleteResponse,
+  AnkoleWebIdentityMappingRequestControllerIndexData,
+  AnkoleWebIdentityMappingRequestControllerIndexError,
+  AnkoleWebIdentityMappingRequestControllerIndexResponse,
   AnkoleWebIdentityProviderControllerAdaptersData,
   AnkoleWebIdentityProviderControllerAdaptersError,
   AnkoleWebIdentityProviderControllerAdaptersResponse,
@@ -748,36 +704,6 @@ export const ankoleWebScheduleControllerPauseCronMutation = (
   return mutationOptions
 }
 
-export const ankoleWebBrainControllerDreamingFitnessQueryKey = (
-  options: Options<AnkoleWebBrainControllerDreamingFitnessData>
-) => createQueryKey('ankoleWebBrainControllerDreamingFitness', options)
-
-/**
- * Read dreaming output survival as a selection-pressure signal
- *
- * Reads the audit log for the share of dreaming block writes that survived human review (no human edit or delete within the horizon), overall and per run. Writes younger than the horizon are reported as pending, not survivors.
- */
-export const ankoleWebBrainControllerDreamingFitnessOptions = (
-  options: Options<AnkoleWebBrainControllerDreamingFitnessData>
-) =>
-  queryOptions<
-    AnkoleWebBrainControllerDreamingFitnessResponse,
-    AnkoleWebBrainControllerDreamingFitnessError,
-    AnkoleWebBrainControllerDreamingFitnessResponse,
-    ReturnType<typeof ankoleWebBrainControllerDreamingFitnessQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebBrainControllerDreamingFitness({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebBrainControllerDreamingFitnessQueryKey(options)
-  })
-
 export const ankoleWebIdentityProviderControllerIndexQueryKey = (
   options?: Options<AnkoleWebIdentityProviderControllerIndexData>
 ) => createQueryKey('ankoleWebIdentityProviderControllerIndex', options)
@@ -967,136 +893,6 @@ export const ankoleWebAiGatewayFilesControllerShowOptions = (
     },
     queryKey: ankoleWebAiGatewayFilesControllerShowQueryKey(options)
   })
-
-export const ankoleWebBrainControllerStatusQueryKey = (options: Options<AnkoleWebBrainControllerStatusData>) =>
-  createQueryKey('ankoleWebBrainControllerStatus', options)
-
-/**
- * Read the single long-term memory health surface
- */
-export const ankoleWebBrainControllerStatusOptions = (options: Options<AnkoleWebBrainControllerStatusData>) =>
-  queryOptions<
-    AnkoleWebBrainControllerStatusResponse,
-    AnkoleWebBrainControllerStatusError,
-    AnkoleWebBrainControllerStatusResponse,
-    ReturnType<typeof ankoleWebBrainControllerStatusQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebBrainControllerStatus({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebBrainControllerStatusQueryKey(options)
-  })
-
-export const ankoleWebBrainControllerAuditLogQueryKey = (options: Options<AnkoleWebBrainControllerAuditLogData>) =>
-  createQueryKey('ankoleWebBrainControllerAuditLog', options)
-
-/**
- * List the audit trail for one Brain entry
- */
-export const ankoleWebBrainControllerAuditLogOptions = (options: Options<AnkoleWebBrainControllerAuditLogData>) =>
-  queryOptions<
-    AnkoleWebBrainControllerAuditLogResponse,
-    AnkoleWebBrainControllerAuditLogError,
-    AnkoleWebBrainControllerAuditLogResponse,
-    ReturnType<typeof ankoleWebBrainControllerAuditLogQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebBrainControllerAuditLog({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebBrainControllerAuditLogQueryKey(options)
-  })
-
-const createInfiniteParams = <K extends Pick<QueryKey<Options>[0], 'body' | 'headers' | 'path' | 'query'>>(
-  queryKey: QueryKey<Options>,
-  page: K
-) => {
-  const params = { ...queryKey[0] }
-  if (page.body) {
-    params.body = {
-      ...(queryKey[0].body as any),
-      ...(page.body as any)
-    }
-  }
-  if (page.headers) {
-    params.headers = {
-      ...queryKey[0].headers,
-      ...page.headers
-    }
-  }
-  if (page.path) {
-    params.path = {
-      ...(queryKey[0].path as any),
-      ...(page.path as any)
-    }
-  }
-  if (page.query) {
-    params.query = {
-      ...(queryKey[0].query as any),
-      ...(page.query as any)
-    }
-  }
-  return params as unknown as typeof page
-}
-
-export const ankoleWebBrainControllerAuditLogInfiniteQueryKey = (
-  options: Options<AnkoleWebBrainControllerAuditLogData>
-): QueryKey<Options<AnkoleWebBrainControllerAuditLogData>> =>
-  createQueryKey('ankoleWebBrainControllerAuditLog', options, true)
-
-/**
- * List the audit trail for one Brain entry
- */
-export const ankoleWebBrainControllerAuditLogInfiniteOptions = (
-  options: Options<AnkoleWebBrainControllerAuditLogData>
-) => {
-  const opts = infiniteQueryOptions<
-    AnkoleWebBrainControllerAuditLogResponse,
-    AnkoleWebBrainControllerAuditLogError,
-    InfiniteData<AnkoleWebBrainControllerAuditLogResponse>,
-    QueryKey<Options<AnkoleWebBrainControllerAuditLogData>>,
-    string | Pick<QueryKey<Options<AnkoleWebBrainControllerAuditLogData>>[0], 'body' | 'headers' | 'path' | 'query'>
-  >(
-    // @ts-ignore
-    {
-      queryFn: async ({ pageParam, queryKey, signal }) => {
-        // @ts-ignore
-        const page: Pick<
-          QueryKey<Options<AnkoleWebBrainControllerAuditLogData>>[0],
-          'body' | 'headers' | 'path' | 'query'
-        > =
-          typeof pageParam === 'object'
-            ? pageParam
-            : {
-                query: {
-                  cursor: pageParam
-                }
-              }
-        const params = createInfiniteParams(queryKey, page)
-        const { data } = await ankoleWebBrainControllerAuditLog({
-          ...options,
-          ...params,
-          signal,
-          throwOnError: true
-        })
-        return data
-      },
-      queryKey: ankoleWebBrainControllerAuditLogInfiniteQueryKey(options)
-    }
-  )
-  return opts as Omit<typeof opts, 'initialData'>
-}
 
 export const ankoleWebAppConfigurationControllerIndexQueryKey = (
   options?: Options<AnkoleWebAppConfigurationControllerIndexData>
@@ -1316,33 +1112,6 @@ export const ankoleWebSignalBindingControllerPutChannelStandingOrdersMutation = 
 }
 
 /**
- * Restore the state captured by one Brain audit record
- */
-export const ankoleWebBrainControllerRestoreAuditMutation = (
-  options?: Partial<Options<AnkoleWebBrainControllerRestoreAuditData>>
-): UseMutationOptions<
-  AnkoleWebBrainControllerRestoreAuditResponse,
-  AnkoleWebBrainControllerRestoreAuditError,
-  Options<AnkoleWebBrainControllerRestoreAuditData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebBrainControllerRestoreAuditResponse,
-    AnkoleWebBrainControllerRestoreAuditError,
-    Options<AnkoleWebBrainControllerRestoreAuditData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebBrainControllerRestoreAudit({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-/**
  * Add one credential-pool member
  */
 export const ankoleWebAiGatewayProviderControllerAddCredentialMutation = (
@@ -1395,56 +1164,6 @@ export const ankoleWebAgentLibraryCapabilityControllerPutAgentPluginOverrideMuta
   }
   return mutationOptions
 }
-
-export const ankoleWebBrainControllerShowQueryKey = (options: Options<AnkoleWebBrainControllerShowData>) =>
-  createQueryKey('ankoleWebBrainControllerShow', options)
-
-/**
- * Open one current Brain entry projection
- */
-export const ankoleWebBrainControllerShowOptions = (options: Options<AnkoleWebBrainControllerShowData>) =>
-  queryOptions<
-    AnkoleWebBrainControllerShowResponse,
-    AnkoleWebBrainControllerShowError,
-    AnkoleWebBrainControllerShowResponse,
-    ReturnType<typeof ankoleWebBrainControllerShowQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebBrainControllerShow({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebBrainControllerShowQueryKey(options)
-  })
-
-export const ankoleWebBrainControllerSourceRawQueryKey = (options: Options<AnkoleWebBrainControllerSourceRawData>) =>
-  createQueryKey('ankoleWebBrainControllerSourceRaw', options)
-
-/**
- * Download the immutable bytes of one explicitly retained Brain source
- */
-export const ankoleWebBrainControllerSourceRawOptions = (options: Options<AnkoleWebBrainControllerSourceRawData>) =>
-  queryOptions<
-    AnkoleWebBrainControllerSourceRawResponse,
-    AnkoleWebBrainControllerSourceRawError,
-    AnkoleWebBrainControllerSourceRawResponse,
-    ReturnType<typeof ankoleWebBrainControllerSourceRawQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebBrainControllerSourceRaw({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebBrainControllerSourceRawQueryKey(options)
-  })
 
 /**
  * Delete one file or directory from a worker filesystem root
@@ -1526,33 +1245,6 @@ export const ankoleWebWorkerFileControllerUploadMutation = (
 }
 
 /**
- * Start one Agent learning run for an already retained source
- */
-export const ankoleWebBrainControllerLearnSourceMutation = (
-  options?: Partial<Options<AnkoleWebBrainControllerLearnSourceData>>
-): UseMutationOptions<
-  AnkoleWebBrainControllerLearnSourceResponse,
-  AnkoleWebBrainControllerLearnSourceError,
-  Options<AnkoleWebBrainControllerLearnSourceData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebBrainControllerLearnSourceResponse,
-    AnkoleWebBrainControllerLearnSourceError,
-    Options<AnkoleWebBrainControllerLearnSourceData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebBrainControllerLearnSource({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-/**
  * Create a stateless OpenResponses response
  */
 export const ankoleWebAiGatewayControllerResponsesMutation = (
@@ -1569,35 +1261,6 @@ export const ankoleWebAiGatewayControllerResponsesMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await ankoleWebAiGatewayControllerResponses({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-/**
- * Atomically restore an explicit Brain audit selection
- *
- * The caller previews audit records first, submits their exact ids, and the server restores them newest-first in one transaction.
- */
-export const ankoleWebBrainControllerRestoreAuditsMutation = (
-  options?: Partial<Options<AnkoleWebBrainControllerRestoreAuditsData>>
-): UseMutationOptions<
-  AnkoleWebBrainControllerRestoreAuditsResponse,
-  AnkoleWebBrainControllerRestoreAuditsError,
-  Options<AnkoleWebBrainControllerRestoreAuditsData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebBrainControllerRestoreAuditsResponse,
-    AnkoleWebBrainControllerRestoreAuditsError,
-    Options<AnkoleWebBrainControllerRestoreAuditsData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebBrainControllerRestoreAudits({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -1774,6 +1437,38 @@ export const ankoleWebAiGatewayFilesControllerIndexOptions = (
     queryKey: ankoleWebAiGatewayFilesControllerIndexQueryKey(options)
   })
 
+const createInfiniteParams = <K extends Pick<QueryKey<Options>[0], 'body' | 'headers' | 'path' | 'query'>>(
+  queryKey: QueryKey<Options>,
+  page: K
+) => {
+  const params = { ...queryKey[0] }
+  if (page.body) {
+    params.body = {
+      ...(queryKey[0].body as any),
+      ...(page.body as any)
+    }
+  }
+  if (page.headers) {
+    params.headers = {
+      ...queryKey[0].headers,
+      ...page.headers
+    }
+  }
+  if (page.path) {
+    params.path = {
+      ...(queryKey[0].path as any),
+      ...(page.path as any)
+    }
+  }
+  if (page.query) {
+    params.query = {
+      ...(queryKey[0].query as any),
+      ...(page.query as any)
+    }
+  }
+  return params as unknown as typeof page
+}
+
 export const ankoleWebAiGatewayFilesControllerIndexInfiniteQueryKey = (
   options?: Options<AnkoleWebAiGatewayFilesControllerIndexData>
 ): QueryKey<Options<AnkoleWebAiGatewayFilesControllerIndexData>> =>
@@ -1867,6 +1562,33 @@ export const ankoleWebAiGatewayProviderControllerPutCredentialStrategyMutation =
   > = {
     mutationFn: async fnOptions => {
       const { data } = await ankoleWebAiGatewayProviderControllerPutCredentialStrategy({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * Map a provider subject to a principal proactively
+ */
+export const ankoleWebIdentityMappingRequestControllerCreateMappingMutation = (
+  options?: Partial<Options<AnkoleWebIdentityMappingRequestControllerCreateMappingData>>
+): UseMutationOptions<
+  AnkoleWebIdentityMappingRequestControllerCreateMappingResponse,
+  AnkoleWebIdentityMappingRequestControllerCreateMappingError,
+  Options<AnkoleWebIdentityMappingRequestControllerCreateMappingData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebIdentityMappingRequestControllerCreateMappingResponse,
+    AnkoleWebIdentityMappingRequestControllerCreateMappingError,
+    Options<AnkoleWebIdentityMappingRequestControllerCreateMappingData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebIdentityMappingRequestControllerCreateMapping({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -2089,6 +1811,33 @@ export const ankoleWebAgentLibraryCapabilityControllerPutGlobalSkillMutation = (
 }
 
 /**
+ * Bind one pending mapping request to a principal
+ */
+export const ankoleWebIdentityMappingRequestControllerBindMutation = (
+  options?: Partial<Options<AnkoleWebIdentityMappingRequestControllerBindData>>
+): UseMutationOptions<
+  AnkoleWebIdentityMappingRequestControllerBindResponse,
+  AnkoleWebIdentityMappingRequestControllerBindError,
+  Options<AnkoleWebIdentityMappingRequestControllerBindData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebIdentityMappingRequestControllerBindResponse,
+    AnkoleWebIdentityMappingRequestControllerBindError,
+    Options<AnkoleWebIdentityMappingRequestControllerBindData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebIdentityMappingRequestControllerBind({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
  * Fetch web pages through AIGateway
  */
 export const ankoleWebAiGatewayControllerWebFetchMutation = (
@@ -2141,6 +1890,34 @@ export const ankoleWebIdentityProviderControllerPutProviderMutation = (
   }
   return mutationOptions
 }
+
+export const ankoleWebIdentityMappingRequestControllerIndexQueryKey = (
+  options?: Options<AnkoleWebIdentityMappingRequestControllerIndexData>
+) => createQueryKey('ankoleWebIdentityMappingRequestControllerIndex', options)
+
+/**
+ * List pending identity mapping requests
+ */
+export const ankoleWebIdentityMappingRequestControllerIndexOptions = (
+  options?: Options<AnkoleWebIdentityMappingRequestControllerIndexData>
+) =>
+  queryOptions<
+    AnkoleWebIdentityMappingRequestControllerIndexResponse,
+    AnkoleWebIdentityMappingRequestControllerIndexError,
+    AnkoleWebIdentityMappingRequestControllerIndexResponse,
+    ReturnType<typeof ankoleWebIdentityMappingRequestControllerIndexQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebIdentityMappingRequestControllerIndex({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebIdentityMappingRequestControllerIndexQueryKey(options)
+  })
 
 /**
  * Delete one operator Principal group without grants
@@ -2329,59 +2106,6 @@ export const ankoleWebIdentityProviderControllerAdaptersOptions = (
     },
     queryKey: ankoleWebIdentityProviderControllerAdaptersQueryKey(options)
   })
-
-export const ankoleWebBrainControllerSourceIndexQueryKey = (
-  options: Options<AnkoleWebBrainControllerSourceIndexData>
-) => createQueryKey('ankoleWebBrainControllerSourceIndex', options)
-
-/**
- * List retained Brain sources for one owner
- */
-export const ankoleWebBrainControllerSourceIndexOptions = (options: Options<AnkoleWebBrainControllerSourceIndexData>) =>
-  queryOptions<
-    AnkoleWebBrainControllerSourceIndexResponse,
-    AnkoleWebBrainControllerSourceIndexError,
-    AnkoleWebBrainControllerSourceIndexResponse,
-    ReturnType<typeof ankoleWebBrainControllerSourceIndexQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebBrainControllerSourceIndex({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebBrainControllerSourceIndexQueryKey(options)
-  })
-
-/**
- * Save manual text as knowledge or retain binary source bytes
- */
-export const ankoleWebBrainControllerCreateSourceMutation = (
-  options?: Partial<Options<AnkoleWebBrainControllerCreateSourceData>>
-): UseMutationOptions<
-  AnkoleWebBrainControllerCreateSourceResponse,
-  AnkoleWebBrainControllerCreateSourceError,
-  Options<AnkoleWebBrainControllerCreateSourceData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebBrainControllerCreateSourceResponse,
-    AnkoleWebBrainControllerCreateSourceError,
-    Options<AnkoleWebBrainControllerCreateSourceData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebBrainControllerCreateSource({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
 
 export const ankoleWebAiGatewayControllerRetrieveResponseQueryKey = (
   options: Options<AnkoleWebAiGatewayControllerRetrieveResponseData>
@@ -3117,31 +2841,6 @@ export const ankoleWebAgentLibraryCapabilityControllerPutAgentSkillOverrideMutat
   return mutationOptions
 }
 
-export const ankoleWebBrainControllerSourceQueryKey = (options: Options<AnkoleWebBrainControllerSourceData>) =>
-  createQueryKey('ankoleWebBrainControllerSource', options)
-
-/**
- * Resolve a Brain source inside one owner's visible stores
- */
-export const ankoleWebBrainControllerSourceOptions = (options: Options<AnkoleWebBrainControllerSourceData>) =>
-  queryOptions<
-    AnkoleWebBrainControllerSourceResponse,
-    AnkoleWebBrainControllerSourceError,
-    AnkoleWebBrainControllerSourceResponse,
-    ReturnType<typeof ankoleWebBrainControllerSourceQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebBrainControllerSource({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebBrainControllerSourceQueryKey(options)
-  })
-
 /**
  * Search the web through AIGateway
  */
@@ -3196,6 +2895,33 @@ export const ankoleWebScheduleControllerIndexCronOptions = (
     },
     queryKey: ankoleWebScheduleControllerIndexCronQueryKey(options)
   })
+
+/**
+ * Dismiss one pending mapping request
+ */
+export const ankoleWebIdentityMappingRequestControllerDeleteMutation = (
+  options?: Partial<Options<AnkoleWebIdentityMappingRequestControllerDeleteData>>
+): UseMutationOptions<
+  AnkoleWebIdentityMappingRequestControllerDeleteResponse,
+  AnkoleWebIdentityMappingRequestControllerDeleteError,
+  Options<AnkoleWebIdentityMappingRequestControllerDeleteData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebIdentityMappingRequestControllerDeleteResponse,
+    AnkoleWebIdentityMappingRequestControllerDeleteError,
+    Options<AnkoleWebIdentityMappingRequestControllerDeleteData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebIdentityMappingRequestControllerDelete({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
 
 /**
  * Create or update one signal binding for an agent
@@ -3462,77 +3188,6 @@ export const ankoleWebWebhookEndpointControllerDeleteMutation = (
     }
   }
   return mutationOptions
-}
-
-export const ankoleWebBrainControllerIndexQueryKey = (options: Options<AnkoleWebBrainControllerIndexData>) =>
-  createQueryKey('ankoleWebBrainControllerIndex', options)
-
-/**
- * List Brain entries for one owner
- */
-export const ankoleWebBrainControllerIndexOptions = (options: Options<AnkoleWebBrainControllerIndexData>) =>
-  queryOptions<
-    AnkoleWebBrainControllerIndexResponse,
-    AnkoleWebBrainControllerIndexError,
-    AnkoleWebBrainControllerIndexResponse,
-    ReturnType<typeof ankoleWebBrainControllerIndexQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebBrainControllerIndex({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebBrainControllerIndexQueryKey(options)
-  })
-
-export const ankoleWebBrainControllerIndexInfiniteQueryKey = (
-  options: Options<AnkoleWebBrainControllerIndexData>
-): QueryKey<Options<AnkoleWebBrainControllerIndexData>> =>
-  createQueryKey('ankoleWebBrainControllerIndex', options, true)
-
-/**
- * List Brain entries for one owner
- */
-export const ankoleWebBrainControllerIndexInfiniteOptions = (options: Options<AnkoleWebBrainControllerIndexData>) => {
-  const opts = infiniteQueryOptions<
-    AnkoleWebBrainControllerIndexResponse,
-    AnkoleWebBrainControllerIndexError,
-    InfiniteData<AnkoleWebBrainControllerIndexResponse>,
-    QueryKey<Options<AnkoleWebBrainControllerIndexData>>,
-    string | Pick<QueryKey<Options<AnkoleWebBrainControllerIndexData>>[0], 'body' | 'headers' | 'path' | 'query'>
-  >(
-    // @ts-ignore
-    {
-      queryFn: async ({ pageParam, queryKey, signal }) => {
-        // @ts-ignore
-        const page: Pick<
-          QueryKey<Options<AnkoleWebBrainControllerIndexData>>[0],
-          'body' | 'headers' | 'path' | 'query'
-        > =
-          typeof pageParam === 'object'
-            ? pageParam
-            : {
-                query: {
-                  cursor: pageParam
-                }
-              }
-        const params = createInfiniteParams(queryKey, page)
-        const { data } = await ankoleWebBrainControllerIndex({
-          ...options,
-          ...params,
-          signal,
-          throwOnError: true
-        })
-        return data
-      },
-      queryKey: ankoleWebBrainControllerIndexInfiniteQueryKey(options)
-    }
-  )
-  return opts as Omit<typeof opts, 'initialData'>
 }
 
 /**
@@ -3911,35 +3566,6 @@ export const ankoleWebAgentComputerWorkerControllerIndexOptions = (
     queryKey: ankoleWebAgentComputerWorkerControllerIndexQueryKey(options)
   })
 
-/**
- * Run Agent-level Brain curation now
- *
- * Manually starts the same Agent-only Stage B path used by the scheduled Brain curation job.
- */
-export const ankoleWebBrainControllerRunDreamingMutation = (
-  options?: Partial<Options<AnkoleWebBrainControllerRunDreamingData>>
-): UseMutationOptions<
-  AnkoleWebBrainControllerRunDreamingResponse,
-  AnkoleWebBrainControllerRunDreamingError,
-  Options<AnkoleWebBrainControllerRunDreamingData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebBrainControllerRunDreamingResponse,
-    AnkoleWebBrainControllerRunDreamingError,
-    Options<AnkoleWebBrainControllerRunDreamingData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebBrainControllerRunDreaming({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
 export const ankoleWebAgentSessionControllerIndexQueryKey = (
   options: Options<AnkoleWebAgentSessionControllerIndexData>
 ) => createQueryKey('ankoleWebAgentSessionControllerIndex', options)
@@ -4294,79 +3920,6 @@ export const ankoleWebPermissionGrantControllerUpdateMutation = (
   return mutationOptions
 }
 
-export const ankoleWebBrainControllerAuditIndexQueryKey = (options: Options<AnkoleWebBrainControllerAuditIndexData>) =>
-  createQueryKey('ankoleWebBrainControllerAuditIndex', options)
-
-/**
- * Preview filtered Brain audit records for supervision or batch recovery
- */
-export const ankoleWebBrainControllerAuditIndexOptions = (options: Options<AnkoleWebBrainControllerAuditIndexData>) =>
-  queryOptions<
-    AnkoleWebBrainControllerAuditIndexResponse,
-    AnkoleWebBrainControllerAuditIndexError,
-    AnkoleWebBrainControllerAuditIndexResponse,
-    ReturnType<typeof ankoleWebBrainControllerAuditIndexQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebBrainControllerAuditIndex({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebBrainControllerAuditIndexQueryKey(options)
-  })
-
-export const ankoleWebBrainControllerAuditIndexInfiniteQueryKey = (
-  options: Options<AnkoleWebBrainControllerAuditIndexData>
-): QueryKey<Options<AnkoleWebBrainControllerAuditIndexData>> =>
-  createQueryKey('ankoleWebBrainControllerAuditIndex', options, true)
-
-/**
- * Preview filtered Brain audit records for supervision or batch recovery
- */
-export const ankoleWebBrainControllerAuditIndexInfiniteOptions = (
-  options: Options<AnkoleWebBrainControllerAuditIndexData>
-) => {
-  const opts = infiniteQueryOptions<
-    AnkoleWebBrainControllerAuditIndexResponse,
-    AnkoleWebBrainControllerAuditIndexError,
-    InfiniteData<AnkoleWebBrainControllerAuditIndexResponse>,
-    QueryKey<Options<AnkoleWebBrainControllerAuditIndexData>>,
-    string | Pick<QueryKey<Options<AnkoleWebBrainControllerAuditIndexData>>[0], 'body' | 'headers' | 'path' | 'query'>
-  >(
-    // @ts-ignore
-    {
-      queryFn: async ({ pageParam, queryKey, signal }) => {
-        // @ts-ignore
-        const page: Pick<
-          QueryKey<Options<AnkoleWebBrainControllerAuditIndexData>>[0],
-          'body' | 'headers' | 'path' | 'query'
-        > =
-          typeof pageParam === 'object'
-            ? pageParam
-            : {
-                query: {
-                  cursor: pageParam
-                }
-              }
-        const params = createInfiniteParams(queryKey, page)
-        const { data } = await ankoleWebBrainControllerAuditIndex({
-          ...options,
-          ...params,
-          signal,
-          throwOnError: true
-        })
-        return data
-      },
-      queryKey: ankoleWebBrainControllerAuditIndexInfiniteQueryKey(options)
-    }
-  )
-  return opts as Omit<typeof opts, 'initialData'>
-}
-
 /**
  * Delete one agent skill overlay
  */
@@ -4493,33 +4046,6 @@ export const ankoleWebAppConfigurationControllerUpdateMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await ankoleWebAppConfigurationControllerUpdate({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-/**
- * Apply structured human Brain entry operations
- */
-export const ankoleWebBrainControllerApplyOperationsMutation = (
-  options?: Partial<Options<AnkoleWebBrainControllerApplyOperationsData>>
-): UseMutationOptions<
-  AnkoleWebBrainControllerApplyOperationsResponse,
-  AnkoleWebBrainControllerApplyOperationsError,
-  Options<AnkoleWebBrainControllerApplyOperationsData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebBrainControllerApplyOperationsResponse,
-    AnkoleWebBrainControllerApplyOperationsError,
-    Options<AnkoleWebBrainControllerApplyOperationsData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebBrainControllerApplyOperations({
         ...options,
         ...fnOptions,
         throwOnError: true

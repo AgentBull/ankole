@@ -116,7 +116,6 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
          # nothing else), so every inbound message is explicit.
          explicit: true,
          author: author,
-         sender_key: author["principal_uid"] || author["id"],
          metadata:
            compact_map(%{
              "provider" => "wecom",
@@ -135,8 +134,7 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
   defp emit_message_receive(%{context: %AdapterContext{} = context} = consumer, %Event{} = event) do
     case normalize_message_receive(event, consumer) do
       {:ok, input} ->
-        with {:ok, input} <- materialize_attachments(input, consumer),
-             :ok <- observe_author(consumer, input) do
+        with {:ok, input} <- materialize_attachments(input, consumer) do
           Ingress.emit_entry(context.agent_uid, context.binding_name, input)
         end
 
@@ -341,7 +339,6 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
          %{
            "id" => userid,
            "platform_subject" => userid,
-           "principal_uid" => String.downcase(userid),
            "display_name" => nil,
            "metadata" =>
              compact_map(%{
@@ -354,26 +351,6 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
         {:ignore, :missing_platform_subject}
     end
   end
-
-  defp observe_author(%{context: context, config: config}, %{
-         author: %{"platform_subject" => userid} = author
-       })
-       when is_binary(userid) do
-    attrs = %{
-      provider: Map.get(config, "platformSubjectNamespace", "wecom-main"),
-      external_id: userid,
-      uid: userid,
-      display_name: author["display_name"],
-      metadata: Map.get(author, "metadata", %{})
-    }
-
-    case AdapterContext.observe_platform_subject(context, attrs) do
-      {:ok, _observed} -> :ok
-      {:error, _reason} = error -> error
-    end
-  end
-
-  defp observe_author(_consumer, _input), do: :ok
 
   defp observe_card_operator(_consumer, "sys"), do: {:error, :missing_operator_id}
 

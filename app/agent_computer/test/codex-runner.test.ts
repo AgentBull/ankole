@@ -110,16 +110,7 @@ describe('@ankole/agent-computer Codex job runner', () => {
         codex_user_agent: 'codex-cli 0.147.0',
         job_project_cwd: jobProjectFor(fixture.root),
         job_workspace: jobProjectFor(fixture.root),
-        projected_tool_names: [
-          'web_search',
-          'web_fetch',
-          'memory_search',
-          'memory_open',
-          'memory_update',
-          'memory_browse',
-          'memory_health_check',
-          'request_parent_input'
-        ],
+        projected_tool_names: ['web_search', 'web_fetch', 'request_parent_input'],
         mcp_server_names: []
       })
       expect(parsedJSON(statusUpdates[0]?.metadataJson)).not.toHaveProperty('agent_plugins')
@@ -200,11 +191,6 @@ describe('@ankole/agent-computer Codex job runner', () => {
       expect(result).toEqual({ kind: 'noop_completed', reason: 'background_agent_job_committed' })
       expect(parsedJSON(statusUpdates[0]?.metadataJson)?.projected_tool_names).toEqual([
         'web_fetch',
-        'memory_search',
-        'memory_open',
-        'memory_update',
-        'memory_browse',
-        'memory_health_check',
         'request_parent_input'
       ])
       expect(readFileSync(join(jobProjectFor(fixture.root), '.codex', 'config.toml'), 'utf8')).toContain(

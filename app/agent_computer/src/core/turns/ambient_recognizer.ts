@@ -69,7 +69,6 @@ export async function recognizeAmbientIntervention(
     messages: [
       userMessage(
         buildAmbientRecognizerUserPrompt({
-          brainSnapshot: context.brainSnapshot,
           standingOrders: standingOrdersFromPayload(turnStart),
           backdrop: window.backdrop.map(transcriptLine),
           newMessages: window.delta.map(deltaTranscriptLine),

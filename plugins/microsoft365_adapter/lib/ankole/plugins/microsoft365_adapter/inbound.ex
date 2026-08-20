@@ -89,7 +89,6 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
       author = %{
         "id" => external_id,
         "platform_subject" => external_id,
-        "principal_uid" => String.downcase(external_id),
         "display_name" => MapHelpers.optional_text(from, "name"),
         "metadata" =>
           MapHelpers.compact_map(%{
@@ -131,7 +130,6 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
            conversation_type == "personal" or
              Enum.any?(mentions, &(&1["targets_current_agent"] == true)),
          author: author,
-         sender_key: String.downcase(external_id),
          metadata:
            MapHelpers.compact_map(%{
              "provider" => "teams",
@@ -149,9 +147,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
   defp emit_message(consumer, activity) do
     case normalize_message_receive(activity, consumer) do
       {:ok, input} ->
-        with :ok <- observe_author(consumer, input) do
-          Ingress.emit_entry(consumer.context.agent_uid, consumer.context.binding_name, input)
-        end
+        Ingress.emit_entry(consumer.context.agent_uid, consumer.context.binding_name, input)
 
       {:ignore, reason} ->
         {:ok, %{status: :"ignored_#{reason}", reason: reason}}
@@ -302,23 +298,6 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
     |> Enum.filter(&match?(%{kind: :chat}, &1))
     |> Enum.map(fun)
     |> MapHelpers.collect_results()
-  end
-
-  defp observe_author(consumer, %{author: author}) do
-    attrs =
-      %{
-        provider: Config.namespace(consumer.config),
-        external_id: author["platform_subject"],
-        uid: author["id"],
-        display_name: author["display_name"],
-        metadata: author["metadata"] || %{}
-      }
-      |> MapHelpers.compact_map()
-
-    case AdapterContext.observe_platform_subject(consumer.context, attrs) do
-      {:ok, _observed} -> :ok
-      {:error, _reason} = error -> error
-    end
   end
 
   # `29:` ids are Teams-encrypted user ids, `28:` ids are bot/connector

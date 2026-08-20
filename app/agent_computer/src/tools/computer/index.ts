@@ -1,4 +1,4 @@
-import type { AgentTool } from '../../core'
+import type { WorkerAgentTool } from '../../core'
 import { createApplyPatchTool } from './apply-patch-tool'
 import { createCommandTool } from './command-tool'
 import { createContainerComputer } from './computer'
@@ -25,7 +25,7 @@ export interface ComputerToolsBinding {
  * loop already runs inside Agent Computer, so this factory keeps the migrated
  * tool contracts but binds them to the current Agent Home at its real path.
  */
-export function createComputerTools(binding: ComputerToolsBinding): AgentTool<any>[] {
+export function createComputerTools(binding: ComputerToolsBinding): WorkerAgentTool<any>[] {
   const context = createComputerToolContext(binding)
 
   return [

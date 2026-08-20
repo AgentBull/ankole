@@ -1,5 +1,23 @@
 # Changelog
 
+## Version 1.0.0-alpha.1 (2026-08-20)
+
+- Operators can now bind chat senders to accounts by hand. A sender that auto-mapping cannot identify appears under Identity → Pending mappings in the Console; binding the entry maps that platform account to the chosen user, and the same page can map an account before the person ever writes. Until then, an addressed message gets one fixed reply that asks the sender to contact an administrator, and the message is not processed.
+- Each signal routing rule gains one switch, "When account auto-mapping fails": hold the sender for manual review (default) or create a standalone account and serve them at once. Deployments that relied on automatic account creation for unknown senders must switch existing rules to "Create a standalone account" to keep that behavior.
+- Account auto-mapping now also matches by platform-reported email and mobile number, and Lark/Feishu senders without an employee id (external-group members) can now be identified by their open or union id instead of being dropped silently.
+- Two permission groups now maintain themselves: one per signal routing rule with everyone admitted through it, and one per identity provider with everyone it imported, so policy can address "users of this source" or "everyone outside this provider".
+- The login page lists only providers that can sign an admin in: the adapter must support OIDC login, and the provider's login toggle must be on. A provider configured only for directory sync no longer shows a login button that fails.
+- Internal: sender identity resolution moved from the five chat adapters into one SignalsGateway owner, identity-provider login and directory sync are separate modules over one shared provider connection, and the unused reserved identity shapes (channel actor, login subject, outbound actor) are removed.
+- A changelog version may now carry an `-alpha`, `-beta`, or `-rc` pre-release suffix. The runtime-image workflow publishes such a version as a GitHub pre-release and moves the `canary` image tag instead of `main-latest`, leaving the current stable release and `main-latest` tag untouched.
+- Long-term memory (Brain) is removed ahead of a rewrite: an Agent can no longer recall past conversations or curated knowledge, write or update memory, or automatically learn from an attached source. Upgrading to this version permanently deletes all stored memory data — knowledge entries, chat-recall indexes, retained sources, and audit history — with no migration path; export anything needed first.
+- The Console's Knowledge section (Brain) is gone: the nav item; the entry, audit, dreaming, skill-experience, source, and status pages; and the Dreaming and Embedding settings editors are all removed ahead of the Brain rewrite.
+- The developer and user documentation site drops its Brain and long-term-memory pages, and every other page's mention of them, ahead of the Brain rewrite.
+- Internal: the `tools/e2e` suite drops its dedicated Brain real-LLM mode and suite ahead of the Brain rewrite, and its skill-tool-call tests use the still-available `brainstorming` skill in place of the removed `brain-review` example skill.
+- Internal: SignalsGateway drops its channel-visibility and confidential-channel queries and their tests. Brain was their only caller, and Brain is gone ahead of its rewrite.
+- Internal: the control plane's `/api/v1/brain/*` API and its five daily background sync, embedding, and dreaming jobs are removed ahead of the Brain rewrite, along with the `pgvector` dependency and the underlying `brain_*` database tables, enum types, and search indexes.
+- Internal: an AIGateway conversation no longer carries a Brain memory-store scope. The channel or DM label the Console shows now comes from a simpler "origin" fact recorded once when the conversation starts; existing conversations migrate automatically, and a channel's confidentiality no longer starts a fresh conversation when it changes.
+- Internal: the Worker's main agent loop now runs on pi-agent-core's `Agent` class instead of a hand-rolled OpenAI Responses client. AIGateway stays the sole owner of durable conversation state and the wire protocol is unchanged; tool-call validation, activity reporting, structured logging, and parallel-tool concurrency bounds keep their existing behavior.
+
 ## Version 0.76.0 (2026-08-19)
 
 - Background Agent Jobs and conversations now run on OpenAI-compatible Responses endpoints that accept only plain function tools, such as DeepSeek. AIGateway sends the Codex custom tools to such an endpoint as function tools and restores the answers to their official shape, so the first request no longer fails with an unsupported-tool error.

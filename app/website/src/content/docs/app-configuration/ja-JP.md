@@ -5,7 +5,7 @@ section: User guide
 order: 43
 ---
 
-**Console → AppConfigure** には、デプロイメント インスタンスの稼働中に管理者が変更できる設定が表示されます。例としては、永続 memory、Agent の実行上限、企業 directory の同期間隔、plugin の有効/無効スイッチなどがあります。
+**Console → AppConfigure** には、デプロイメント インスタンスの稼働中に管理者が変更できる設定が表示されます。例としては、会話履歴の圧縮、Agent の実行上限、企業 directory の同期間隔、plugin の有効/無効スイッチなどがあります。
 
 LLM Provider、Identity Provider、chat channel、環境変数は、それぞれ専用の Console ページがあります。ここで再度設定する必要はありません。
 
@@ -72,7 +72,7 @@ AppConfigure の一覧には、インスタンスレベルの上書きまたは�
 | `ai_agent.library.agent_plugin_defaults` | インスタンス | Agent Plugin のデフォルトの有効状態 |
 | `ai_agent.library.skill_defaults` | インスタンス | Skill のデフォルトの有効状態 |
 
-### AI Gateway と長期 memory
+### AI Gateway と observability
 
 | キー | 適用範囲 | 用途 |
 |---|---|---|
@@ -81,11 +81,6 @@ AppConfigure の一覧には、インスタンスレベルの上書きまたは�
 | `observability.traces.provider` | インスタンス | `langfuse`、`langsmith`、または汎用 `opentelemetry` trace の semantic projection |
 | `observability.traces.otlp_endpoint` | インスタンス | optional trace の base OTLP/HTTP endpoint |
 | `observability.traces.otlp_headers` | インスタンス | optional trace の暗号化された authentication header |
-| `brain.knowledge` | インスタンス | 長期 memory の投影予算と結果数の上限 |
-| `brain.dreaming` | インスタンスまたは Agent | Dreaming と知識キュレーションのポリシー |
-| `brain.embedding` | インスタンス | Embedding モデルとベクトル次元数 |
-| `brain.search` | インスタンス | 長期 memory の減衰と再ランキングのポリシー |
-| `brain.sources` | インスタンス | 外部ソースの同期と保持のポリシー |
 
 Langfuse、LangSmith、VictoriaTraces と他の OTLP/HTTP receiver の構成については [LLM observability](../llm-observability/) を参照してください。
 

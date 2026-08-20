@@ -41,7 +41,7 @@ defmodule Ankole.AuthZ.Store do
   end
 
   def add_synced_group_member(repo, group_id, expected_domain, principal_uid)
-      when expected_domain in [:directory, :im_group] do
+      when expected_domain in [:directory, :im_group, :signal_source] do
     with {:ok, group} <- lock_group(repo, group_id),
          :ok <- ensure_static_group(group),
          :ok <- ensure_group_domain(group, expected_domain),
@@ -51,7 +51,7 @@ defmodule Ankole.AuthZ.Store do
   end
 
   def remove_synced_group_member(repo, group_id, expected_domain, principal_uid)
-      when expected_domain in [:directory, :im_group] do
+      when expected_domain in [:directory, :im_group, :signal_source] do
     with {:ok, group} <- lock_group(repo, group_id),
          :ok <- ensure_static_group(group),
          :ok <- ensure_group_domain(group, expected_domain),
@@ -93,7 +93,7 @@ defmodule Ankole.AuthZ.Store do
   end
 
   def replace_static_group_members(repo, group_id, expected_domain, principal_uids)
-      when expected_domain in [:directory, :im_group] and is_list(principal_uids) do
+      when expected_domain in [:directory, :im_group, :signal_source] and is_list(principal_uids) do
     with {:ok, group} <- lock_group(repo, group_id),
          :ok <- ensure_static_group(group),
          :ok <- ensure_group_domain(group, expected_domain),
@@ -119,7 +119,7 @@ defmodule Ankole.AuthZ.Store do
   end
 
   def clear_static_group_members(repo, group_id, expected_domain)
-      when expected_domain in [:directory, :im_group] do
+      when expected_domain in [:directory, :im_group, :signal_source] do
     with {:ok, group} <- lock_group(repo, group_id),
          :ok <- ensure_static_group(group),
          :ok <- ensure_group_domain(group, expected_domain) do
@@ -184,6 +184,32 @@ defmodule Ankole.AuthZ.Store do
     %Membership{}
     |> Membership.changeset(%{group_id: group_id, principal_uid: principal_uid})
     |> repo.insert(on_conflict: :nothing, conflict_target: [:principal_uid, :group_id])
+  end
+
+  # Fetch-or-create for convention-named synced groups. The re-read after an
+  # insert conflict is deliberate: the app-side UUIDv7 in the conflicting
+  # changeset never matches the winning row.
+  def ensure_synced_group(repo, attrs) when is_map(attrs) do
+    name = attrs |> Map.fetch!(:name) |> String.downcase()
+
+    case repo.get_by(Group, name: name) do
+      %Group{} = group ->
+        {:ok, group}
+
+      nil ->
+        changeset = Group.changeset(%Group{}, Map.put(attrs, :name, name))
+
+        case repo.insert(changeset, on_conflict: :nothing, conflict_target: [:name]) do
+          {:ok, _maybe_stale} ->
+            case repo.get_by(Group, name: name) do
+              %Group{} = group -> {:ok, group}
+              nil -> {:error, :group_not_found}
+            end
+
+          {:error, _reason} = error ->
+            error
+        end
+    end
   end
 
   def fetch_principal(repo, principal_uid) do

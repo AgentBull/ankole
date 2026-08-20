@@ -78,10 +78,7 @@ describe('ambient intervention recognizer', () => {
         originChannel: { adapter: 'lark', kind: 'im_group', label: 'Ops' }
       },
       soul: 'Be calm and exact.',
-      mission: 'Help the group make sound decisions.',
-      brainSnapshot: {
-        channelEntry: { residentText: 'The group prefers evidence before action.', truncated: false }
-      }
+      mission: 'Help the group make sound decisions.'
     })
 
     await recognizeAmbientIntervention(
@@ -99,7 +96,6 @@ describe('ambient intervention recognizer', () => {
     expect(modelInput).toContain('current_time: 2026-07-18 20:34')
     expect(modelInput).toContain('platform: Lark / Feishu')
     expect(modelInput).toContain('group_name: Ops')
-    expect(modelInput).toContain('The group prefers evidence before action.')
     expect(modelInput).toContain('20:00 [human] Unknown')
     expect(modelInput).not.toContain('019f0000-0000-7000-8000-000000000041')
   })

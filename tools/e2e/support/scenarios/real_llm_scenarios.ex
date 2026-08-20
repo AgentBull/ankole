@@ -98,7 +98,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
                chat_id: "oc_real_llm",
                text: """
                @_user_1 This is a two-step skill_append test.
-               Step 1: If you have not yet received a skill_append tool result in this conversation, call skill_append exactly once with name exactly "brain-review" and content exactly "Lark real overlay: ANKOLE_LARK_REAL_SKILL_OK".
+               Step 1: If you have not yet received a skill_append tool result in this conversation, call skill_append exactly once with name exactly "brainstorming" and content exactly "Lark real overlay: ANKOLE_LARK_REAL_SKILL_OK".
                Step 2: After the first successful skill_append tool result is visible, do not call any more tools. Reply exactly ANKOLE_LARK_REAL_SKILL_OK.
                """,
                mentions: [mention],
@@ -122,7 +122,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
     assert %AgentSkillOverlay{overlay_json: %{"text" => content}} =
              AgentSkillOverlay
              |> where([overlay], overlay.agent_uid == ^agent.uid)
-             |> where([overlay], overlay.skill_name == "brain-review")
+             |> where([overlay], overlay.skill_name == "brainstorming")
              |> where([overlay], is_nil(overlay.deleted_at))
              |> Repo.one()
 

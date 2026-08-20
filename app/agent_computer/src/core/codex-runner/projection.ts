@@ -2,7 +2,7 @@ import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import { Buffer } from 'node:buffer'
 import { errorMessage } from '../../common/errors'
 import { truncateUTF8Safe, utf8ByteLength } from '../../common/text-sanitize'
-import type { AgentTool } from '../index'
+import type { WorkerAgentTool } from '../index'
 import { zodToJSONSchema } from '../llm/tool-schema'
 import { defaultNamespaceDescription } from '../llm/wire'
 import type { DynamicToolCallParams } from './generated/protocol/v2/DynamicToolCallParams'
@@ -32,15 +32,7 @@ const codexReservedResponsesNamespaces = new Set([
   'tool_search',
   'web'
 ])
-export const codexJobToolPaths = new Set([
-  'web_search',
-  'web_fetch',
-  'memory_search',
-  'memory_browse',
-  'memory_open',
-  'memory_update',
-  'memory_health_check'
-])
+export const codexJobToolPaths = new Set(['web_search', 'web_fetch'])
 
 export type CodexJobProjection = {
   dynamicTools: DynamicToolSpec[]
@@ -49,11 +41,11 @@ export type CodexJobProjection = {
 }
 
 export function buildCodexJobProjection(input: {
-  tools: AgentTool[]
+  tools: WorkerAgentTool[]
   allowedToolPaths?: ReadonlySet<string>
   onAudit?: (eventType: string, payload: JSONObject) => void
 }): CodexJobProjection {
-  const tools = new Map<string, AgentTool>()
+  const tools = new Map<string, WorkerAgentTool>()
   const dynamicTools: DynamicToolSpec[] = []
   const namespaces = new Map<
     string,
@@ -166,7 +158,7 @@ function qualifiedToolName(namespace: string | null | undefined, tool: string): 
 }
 
 /** Matches the dynamic-tool identity boundary in the pinned Codex app-server. */
-function assertCodexDynamicToolIdentity(tool: AgentTool): void {
+function assertCodexDynamicToolIdentity(tool: WorkerAgentTool): void {
   assertCodexDynamicIdentifier(tool.name, 'tool name', codexDynamicToolNameMaxLength)
   if (reservedMCPIdentity(tool.name)) throw new Error(`Dynamic tool name is reserved: ${tool.name}`)
   if (tool.namespace === undefined) return

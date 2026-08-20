@@ -15,9 +15,9 @@
   },
   "dependencies": {
     "@agentbull/active-support": "^1.6.0",
-    "@angular-devkit/core": "^22.1.3",
-    "@angular-devkit/schematics": "^22.1.3",
-    "@angular-devkit/schematics-cli": "^22.1.3",
+    "@angular-devkit/core": "^22.1.4",
+    "@angular-devkit/schematics": "^22.1.4",
+    "@angular-devkit/schematics-cli": "^22.1.4",
     "@crustjs/core": "^0.0.19",
     "@crustjs/plugins": "^0.1.0",
     "@crustjs/style": "0.2.0",

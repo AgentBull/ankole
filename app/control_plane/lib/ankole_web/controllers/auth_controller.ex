@@ -15,6 +15,7 @@ defmodule AnkoleWeb.AuthController do
   alias Ankole.AdminAuth
   alias Ankole.AuthZ
   alias Ankole.IdentityProviders
+  alias Ankole.IdentityProviders.Login
   alias Ankole.Setup.Config, as: SetupConfig
   alias AnkoleWeb.ConsoleTokens
   alias AnkoleWeb.Schemas.ConsoleAPI.AuthSessionDeleteResponse
@@ -123,7 +124,7 @@ defmodule AnkoleWeb.AuthController do
   Lists configured login providers.
   """
   def identity_providers(conn, _params) do
-    with {:ok, providers} <- IdentityProviders.list_login_providers() do
+    with {:ok, providers} <- Login.list_login_providers() do
       json(conn, %{
         providers:
           Enum.map(providers, fn provider ->
@@ -152,9 +153,9 @@ defmodule AnkoleWeb.AuthController do
     with {:ok, true} <- SetupConfig.completed?(),
          {:ok, provider_id} <- IdentityProviders.normalize_provider_id(provider_id),
          state <- WebSession.opaque_token(),
-         redirect_uri <- IdentityProviders.oidc_redirect_uri(public_base_url(conn), provider_id),
+         redirect_uri <- Login.oidc_redirect_uri(public_base_url(conn), provider_id),
          {:ok, authorization_url} <-
-           IdentityProviders.authorization_url(provider_id,
+           Login.authorization_url(provider_id,
              redirect_uri: redirect_uri,
              state: state
            ) do
@@ -205,9 +206,7 @@ defmodule AnkoleWeb.AuthController do
 
     with {:ok, false} <- SetupConfig.completed?(),
          {:ok, login} <-
-           IdentityProviders.complete_oidc_login(provider_id, code,
-             redirect_uri: oidc_state["redirect_uri"]
-           ),
+           Login.complete_oidc_login(provider_id, code, redirect_uri: oidc_state["redirect_uri"]),
          # The first OIDC user becomes the root admin only inside the setup flow.
          # Normal admin login below must pass the already-created AuthZ check.
          {:ok, _root} <- AuthZ.root_init_admin(login.principal_uid),
@@ -234,9 +233,7 @@ defmodule AnkoleWeb.AuthController do
     oidc_state = WebSession.admin_oidc_state(conn)
 
     with {:ok, login} <-
-           IdentityProviders.complete_oidc_login(provider_id, code,
-             redirect_uri: oidc_state["redirect_uri"]
-           ),
+           Login.complete_oidc_login(provider_id, code, redirect_uri: oidc_state["redirect_uri"]),
          true <- AdminAuth.active_human_admin?(login.principal_uid) do
       conn
       |> WebSession.clear_admin_oidc_state()

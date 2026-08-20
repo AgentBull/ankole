@@ -14,8 +14,8 @@ defmodule Ankole.Plugins.DingTalkAdapter.IdentityProvider do
   """
 
   alias Ankole.AuthZ
-  alias Ankole.IdentityProviders
   alias Ankole.IdentityProviders.Directory
+  alias Ankole.IdentityProviders.DirectorySync
   alias Ankole.Kernel, as: NativeKernel
   alias Ankole.Logging
   alias Ankole.Plugins.DingTalkAdapter.Config
@@ -54,8 +54,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.IdentityProvider do
   @doc "Builds the DingTalk authorization page URL for login."
   @spec authorization_url(map(), keyword()) :: {:ok, String.t()} | {:error, term()}
   def authorization_url(config, opts) when is_map(config) and is_list(opts) do
-    with true <- get_in(config, ["oidc", "enabled"]) != false || {:error, :oidc_disabled},
-         {:ok, redirect_uri} <- required_opt(opts, :redirect_uri),
+    with {:ok, redirect_uri} <- required_opt(opts, :redirect_uri),
          {:ok, state} <- required_opt(opts, :state) do
       {:ok,
        OAuth.authorize_url(
@@ -381,7 +380,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.IdentityProvider do
   end
 
   defp enqueue_full_sync(provider_id, reason) do
-    case IdentityProviders.enqueue_sync(provider_id,
+    case DirectorySync.enqueue_sync(provider_id,
            reason: reason,
            source: "dingtalk_contact_event"
          ) do

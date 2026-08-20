@@ -1376,8 +1376,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     |> Repo.get_by!(subject_uid: agent.uid, conversation_key: "signal-channel:#{channel_id}")
     |> Conversation.changeset(%{
       metadata: %{
-        "brain" => %{
-          "visibility" => "shared",
+        "origin" => %{
           "channel_id" => channel_id,
           "channel_kind" => "im_group"
         }
@@ -1573,7 +1572,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
         id: Ecto.UUID.generate(),
         subject_uid: agent_uid,
         conversation_key: session_id,
-        metadata: %{"brain" => %{"visibility" => "self"}},
+        metadata: %{},
         inserted_at: now,
         updated_at: now
       })

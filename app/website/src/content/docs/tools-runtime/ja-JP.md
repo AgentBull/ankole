@@ -7,7 +7,7 @@ order: 120
 
 Turn の間、worker は model が呼び出せる tool 一式を組み立て、各 tool の schema を model が見る JSON Schema に変換し、model が発した各 function call を tool の `execute` 関数へ dispatch し直します。このページではそのランタイムを説明します。`AgentTool` 契約、Turn ごとの tool set の組み立て方、schema の収集方法、loop による call の dispatch 方法です。[Agent loop](../agent-loop/) と [Agent Computer Worker](../agent-computer-worker/) を前提とします。
 
-最初に決定的な性質を述べます。tool は**Turn ごとに組み立てられます**。各 Turn は、computer、web、brain、schedule、background job、その他の現在の source から最終的な tool set を構築します。Agent が所有するグローバルな tool set は存在しません。MCP-backed Skill は computer command tool と mcporter を使います。
+最初に決定的な性質を述べます。tool は**Turn ごとに組み立てられます**。各 Turn は、computer、web、schedule、background job、その他の現在の source から最終的な tool set を構築します。Agent が所有するグローバルな tool set は存在しません。MCP-backed Skill は computer command tool と mcporter を使います。
 
 ## AgentTool 契約
 
@@ -38,7 +38,6 @@ tools = [
   createTodoTool(...),
   ...createComputerTools({...}),
   ...webTools,
-  ...brainTools,
   ...scheduleTools,
   ...backgroundAgentJobTools,
   ...
@@ -86,7 +85,7 @@ loop が iteration を所有します。model を呼び、tool を実行し、�
 
 ## このガイドの対象外
 
-これは tool 作成のチュートリアルではありません。新しい tool はカテゴリ creator が返す `AgentTool` オブジェクトであり、既存のカテゴリ（`tools/computer/`、`tools/web/`、`tools/brain/`）がリファレンスです。model の振る舞いのガイドでもありません — model がどの tool を呼ぶかは persona の関心事であり、ランタイムの関心事ではありません。そして agent-loop ページの代わりでもありません。dispatch 経路は loop の一部であり、loop ページがその context です。
+これは tool 作成のチュートリアルではありません。新しい tool はカテゴリ creator が返す `AgentTool` オブジェクトであり、既存のカテゴリ（`tools/computer/`、`tools/web/`）がリファレンスです。model の振る舞いのガイドでもありません — model がどの tool を呼ぶかは persona の関心事であり、ランタイムの関心事ではありません。そして agent-loop ページの代わりでもありません。dispatch 経路は loop の一部であり、loop ページがその context です。
 
 ## 次のステップ
 

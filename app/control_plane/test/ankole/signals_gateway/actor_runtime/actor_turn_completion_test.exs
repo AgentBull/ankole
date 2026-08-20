@@ -739,7 +739,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorTurnCompletionTest do
 
       event =
         event
-        |> ActorEvent.changeset(%{type: "brain.source.learn", signal_channel_id: nil})
+        |> ActorEvent.changeset(%{type: "internal.no_channel", signal_channel_id: nil})
         |> Repo.update!()
 
       final = complete_response(agent.uid, event, "source learning completed")

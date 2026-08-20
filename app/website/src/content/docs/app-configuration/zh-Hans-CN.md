@@ -5,7 +5,7 @@ section: User guide
 order: 43
 ---
 
-**Console → 系统配置**集中管理可以在实例运行期间调整的设置，例如长期记忆、Agent 运行限制、目录同步周期和插件开关。
+**Console → 系统配置**集中管理可以在实例运行期间调整的设置，例如对话历史压缩、Agent 运行限制、目录同步周期和插件开关。
 
 模型提供商、身份源提供商、聊天渠道和环境变量都有各自的管理页面，不需要在这里重复配置。
 
@@ -72,7 +72,7 @@ Agent 的 Skill、命令行工具或 MCP 服务需要 API Key 等自定义值时
 | `ai_agent.library.agent_plugin_defaults` | 实例 | Agent Plugin 的默认启用状态 |
 | `ai_agent.library.skill_defaults` | 实例 | Skill 的默认启用状态 |
 
-### AI Gateway 与长期记忆
+### AI Gateway 与可观测性
 
 | 配置键 | 作用范围 | 用途 |
 |---|---|---|
@@ -81,11 +81,6 @@ Agent 的 Skill、命令行工具或 MCP 服务需要 API Key 等自定义值时
 | `observability.traces.provider` | 实例 | `langfuse`、`langsmith` 或通用 `opentelemetry` trace 的语义投影 |
 | `observability.traces.otlp_endpoint` | 实例 | 可选 trace 使用的基础 OTLP/HTTP endpoint |
 | `observability.traces.otlp_headers` | 实例 | 可选 trace 使用的加密认证请求头 |
-| `brain.knowledge` | 实例 | 长期记忆投影预算和召回结果数量 |
-| `brain.dreaming` | 实例或单个 Agent | Dreaming 与知识策展策略 |
-| `brain.embedding` | 实例 | Embedding 模型和向量维度 |
-| `brain.search` | 实例 | 长期记忆衰减和重排策略 |
-| `brain.sources` | 实例 | 外部知识源的同步与保留策略 |
 
 Langfuse、LangSmith、VictoriaTraces 和其他 OTLP/HTTP 接收端的配置方法见 [LLM 可观测性](../llm-observability/)。
 

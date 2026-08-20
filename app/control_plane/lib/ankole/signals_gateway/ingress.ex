@@ -24,6 +24,7 @@ defmodule Ankole.SignalsGateway.Ingress do
   alias Ankole.SignalsGateway.Commands
   alias Ankole.SignalsGateway.FactNormalizer
   alias Ankole.SignalsGateway.BindingFilters
+  alias Ankole.SignalsGateway.IdentityAdmission
   alias Ankole.SignalsGateway.InboundBatches
   alias Ankole.SignalsGateway.IngressFact
   alias Ankole.SignalsGateway.Projection
@@ -31,7 +32,6 @@ defmodule Ankole.SignalsGateway.Ingress do
   alias Ankole.SignalsGateway.ReplyInteractions
   alias Ankole.SignalsGateway.Binding
   alias Ankole.SignalsGateway.Entry
-  alias Ankole.Brain.SourceWithdrawal
 
   import Ankole.SignalsGateway.Utils,
     only: [
@@ -57,9 +57,15 @@ defmodule Ankole.SignalsGateway.Ingress do
          {:ok, attrs} <- FactNormalizer.entry(binding, input, now),
          {:ok, fact} <- IngressFact.entry(attrs),
          :match <- BindingFilters.match?(binding.filters, fact) do
-      binding
-      |> accept_entry(fact, now)
-      |> TurnRetry.dispatch_retry_controls()
+      case IdentityAdmission.admit_entry(binding, fact, now) do
+        {:ok, fact} ->
+          binding
+          |> accept_entry(fact, now)
+          |> TurnRetry.dispatch_retry_controls()
+
+        {:held, result} ->
+          {:ok, result}
+      end
     else
       :no_match -> {:ok, %{status: :filtered}}
       {:error, _reason} = error -> error
@@ -195,8 +201,6 @@ defmodule Ankole.SignalsGateway.Ingress do
   # check comes first: if the human already removed this entry, drop the
   # late receive before writing anything.
   defp accept_entry(binding, fact, now) do
-    fact = capture_entry_brain_store_route(binding, fact)
-
     Repo.transact(fn repo ->
       with :ok <- Projection.lock_entry(repo, fact) do
         case Projection.active_tombstone?(repo, fact, now) do
@@ -215,38 +219,6 @@ defmodule Ankole.SignalsGateway.Ingress do
     end)
   end
 
-  defp capture_entry_brain_store_route(%Binding{} = binding, fact) do
-    case observed_entry_brain_store(binding, fact) do
-      store_key when is_binary(store_key) ->
-        metadata =
-          fact
-          |> Map.get(:metadata, %{})
-          |> Projection.put_entry_brain_store_route(fact.agent_uid, store_key)
-
-        Map.put(fact, :metadata, metadata)
-
-      nil ->
-        fact
-    end
-  end
-
-  defp observed_entry_brain_store(
-         %Binding{confidential_memory: true},
-         %{channel_kind: :im_group, signal_channel_id: channel_id}
-       ),
-       do: "channel:#{channel_id}"
-
-  defp observed_entry_brain_store(%Binding{}, %{channel_kind: :im_group}), do: "shared"
-
-  defp observed_entry_brain_store(%Binding{}, %{channel_kind: :im_dm, author: author}) do
-    case Map.get(author || %{}, "principal_uid") do
-      peer_uid when is_binary(peer_uid) and peer_uid != "" -> "dm:#{String.downcase(peer_uid)}"
-      _missing -> nil
-    end
-  end
-
-  defp observed_entry_brain_store(%Binding{}, _fact), do: "shared"
-
   defp lifecycle_constructor(provider_lifecycle_kind) do
     fn binding, input, now ->
       FactNormalizer.lifecycle(binding, input, provider_lifecycle_kind, now)
@@ -256,12 +228,11 @@ defmodule Ankole.SignalsGateway.Ingress do
   # Removal is the inverse of accept and does several things atomically:
   # 1) drop a tombstone so a re-delivered receive can't resurrect the entry,
   # 2) remove the source from any open inbound batch, 3) remove the mirror row,
-  # 4) enqueue Brain withdrawal with exact completed-event causality, 5) cancel
-  # or retry any still-open actor event for that entry, and 6) for an event the
-  # agent already completed, append a lifecycle "removed" event that ActorRuntime
-  # consumes as a no-op while cancelling related checkbacks. Steps 2-5 cover
-  # committed and uncommitted internal work; step 6 records the provider
-  # lifecycle edge without deriving a retraction note.
+  # 4) cancel or retry any still-open actor event for that entry, and 5) for an
+  # event the agent already completed, append a lifecycle "removed" event that
+  # ActorRuntime consumes as a no-op while cancelling related checkbacks. Steps
+  # 2-4 cover committed and uncommitted internal work; step 5 records the
+  # provider lifecycle edge without deriving a retraction note.
   defp accept_lifecycle(binding, fact, now) do
     Repo.transact(fn repo ->
       with {:ok, channel} <- Projection.upsert_channel(repo, fact, now),
@@ -270,8 +241,6 @@ defmodule Ankole.SignalsGateway.Ingress do
            {:ok, tombstone} <- Projection.upsert_tombstone(repo, fact, now),
            {:ok, updated_batches} <- InboundBatches.remove_pending_inbound_entry(repo, fact, now),
            {deleted_count, _rows} <- Projection.delete_mirror_entry(repo, fact),
-           source_document_id <-
-             Projection.entry_document_id(fact.signal_channel_id, fact.source_entry_id),
            completed_events <-
              Actors.actor_events_for_entry_in_tx(
                repo,
@@ -280,12 +249,6 @@ defmodule Ankole.SignalsGateway.Ingress do
                fact.signal_channel_id,
                fact.source_entry_id
              ),
-           causal_actor_event_ids <-
-             completed_events
-             |> Enum.filter(&sole_current_source?(&1, fact.source_entry_id))
-             |> Enum.map(& &1.id),
-           {:ok, withdrawal_job} <-
-             SourceWithdrawal.enqueue(source_document_id, causal_actor_event_ids),
            {:ok, runtime_retractions} <-
              TurnRetry.retract_source_entry_in_tx(repo, fact, :removed, now),
            {:ok, lifecycle_events} <-
@@ -296,7 +259,6 @@ defmodule Ankole.SignalsGateway.Ingress do
            tombstone: tombstone,
            updated_inbound_batches: length(updated_batches),
            deleted_mirror_entries: deleted_count,
-           source_withdrawal_job_id: withdrawal_job.id,
            canceled_actor_events: runtime_retractions.canceled_actor_events,
            retried_actor_events: runtime_retractions.retried_actor_events,
            runtime_retractions: runtime_retractions,
@@ -317,7 +279,7 @@ defmodule Ankole.SignalsGateway.Ingress do
       fact.actor_event_type ->
         {:ok, {:actor_event, fact.actor_event_type, nil}}
 
-      explicit_im_entry?(fact) ->
+      IngressFact.addressed_im_entry?(fact) ->
         {:ok, {:actor_event, "im.message.addressed", nil}}
 
       fact.channel_kind == :im_group ->
@@ -332,19 +294,11 @@ defmodule Ankole.SignalsGateway.Ingress do
   defp group_policy(:record_only), do: {:ok, :record_only}
   defp group_policy(:may_intervene), do: {:ok, {:actor_event, "im.message.may_intervene", nil}}
 
-  # "Explicit" = the agent is unambiguously being talked to: every DM qualifies,
-  # and a group message qualifies when it has a structured mention or its reply
-  # target resolves to this agent. This gates both command parsing and the
-  # default addressed-message path.
-  defp explicit_im_entry?(%{channel_kind: :im_dm}), do: true
-  defp explicit_im_entry?(%{channel_kind: :im_group, explicit?: true}), do: true
-  defp explicit_im_entry?(_fact), do: false
-
   # Commands are only honored when the agent is explicitly addressed, so a "/stop"
   # overheard in an unaddressed group line is not treated as a command. The
   # leading @-mention is stripped before classification so "@agent /stop" parses.
   defp command_payload(fact) do
-    case explicit_im_entry?(fact) do
+    case IngressFact.addressed_im_entry?(fact) do
       true ->
         case Commands.classify(fact.text,
                strip_leading_structured_mention: fact.explicit?,
@@ -455,32 +409,6 @@ defmodule Ankole.SignalsGateway.Ingress do
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
     |> Map.new()
   end
-
-  defp sole_current_source?(%ActorEvent{} = event, source_entry_id) do
-    current_source_entry_ids(event) == [source_entry_id]
-  end
-
-  defp current_source_entry_ids(%ActorEvent{
-         source_entry_id: primary_source_entry_id,
-         payload: %{"data" => %{"entries" => entries}}
-       })
-       when is_list(entries) and entries != [] do
-    [
-      primary_source_entry_id
-      | Enum.map(entries, fn
-          %{"source_entry_id" => source_entry_id} -> source_entry_id
-          _entry -> nil
-        end)
-    ]
-    |> Enum.filter(&(is_binary(&1) and &1 != ""))
-    |> Enum.uniq()
-  end
-
-  defp current_source_entry_ids(%ActorEvent{source_entry_id: source_entry_id})
-       when is_binary(source_entry_id) and source_entry_id != "",
-       do: [source_entry_id]
-
-  defp current_source_entry_ids(%ActorEvent{}), do: []
 
   defp append_lifecycle_events(_repo, _binding, _fact, [], _channel, _now), do: {:ok, []}
 

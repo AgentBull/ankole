@@ -1,6 +1,6 @@
 ---
 title: 审计轨迹
-description: 如何阅读 Ankole 的审计面——Brain 审计日志、控制面结构化日志、各自记录了谁在何时改了什么。
+description: 如何阅读 Ankole 的审计面——AuthZ 授权记录、控制面结构化日志、各自记录了谁在何时改了什么。
 section: Developer guide
 order: 125
 ---
@@ -8,26 +8,6 @@ order: 125
 审计轨迹是"谁在何时改了什么"的持久记录。Ankole 没有单一审计日志；它有几个面，各自由不同子系统拥有，各自记录对自己要紧的决定。本页是这些面的运维者地图——各自记录什么、如何读取、如何配合使用。
 
 先说明最关键的一点：每个审计面都是**持久 PostgreSQL 状态或结构化日志**，不是临时指标。写了的记录熬得过写它的进程；没写的记录无法重建。
-
-## Brain 审计日志
-
-最结构化的审计面。每次 Brain 知识写入——新条目、块编辑、删除、还原——产生一行追加式审计行。通过以下方式读取：
-
-```bash
-curl https://ankole.example.com/api/v1/brain/audit-log \
-  -H "Authorization: Bearer $CONSOLE_TOKEN"
-```
-
-或收窄到一个条目：
-
-```bash
-curl https://ankole.example.com/api/v1/brain/entries/<id>/audit-log \
-  -H "Authorization: Bearer $CONSOLE_TOKEN"
-```
-
-每行记录谁做的改动（actor）、什么类型的 actor（human、agent、dreaming、source_learning、mechanical）、执行了什么操作、以及发生在何时。还原本身也被审计——还原到先前状态会新增一行审计，不擦除被还原改动原来的那一行。
-
-这是"agent 为什么这么想？"的界面——答案在审计轨迹里，不在模型当前输出里。
 
 ## AuthZ grant 记录
 
@@ -58,7 +38,6 @@ curl https://ankole.example.com/api/v1/brain/entries/<id>/audit-log \
 
 | 问题 | 去哪查 |
 |---|---|
-| "agent 为什么相信 X？" | Brain 审计日志 |
 | "谁给了这个 agent 做 Y 的权限？" | `permission_grants` + `/principals/:uid/grants` |
 | "这个回合 agent 做了什么？" | `/ai-gateway/conversations/:id/messages` |
 | "调度触发了吗？" | `/cron-schedules/:id/runs` |
@@ -71,7 +50,6 @@ curl https://ankole.example.com/api/v1/brain/entries/<id>/audit-log \
 
 ## 下一步
 
-- Brain 审计面，读 [Brain](../brain/)。
 - 权限模型见 [主体与 AuthZ](../principal-authz/)。
 - 日志配置与排查方法，读 [环境变量](../environment-variables/)和 [怎样阅读 Ankole 日志](../log-reading/)。
 - 保护轨迹的备份，读 [备份与还原](../backup-and-restore/)。

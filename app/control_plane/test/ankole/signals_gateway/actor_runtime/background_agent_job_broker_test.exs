@@ -37,7 +37,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBrokerTest do
     assert job.task == "Write and verify the launch brief."
     assert job.reply_route["binding_name"] == "bot"
     assert job.metadata["worker_route"] == route
-    assert is_binary(job.metadata["brain_owner_conversation_id"])
+    assert is_binary(job.metadata["owner_conversation_id"])
     assert job.workspace_owner_job_id == job.id
     assert job.model_profile == "coding"
     assert payload.model_profile == "coding"
@@ -510,60 +510,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBrokerTest do
              )
 
     assert rpc_error(status_rejected)["code"] == "background_agent_job_turn_mismatch"
-  end
-
-  test "job turn memory reads resolve their scope from the server-owned job session" do
-    %{principal: agent} = agent_fixture()
-    binding_fixture(agent.uid, "bot", :ignore)
-    route = unique_route()
-    parent_turn = start_parent_turn!(agent.uid, route)
-
-    assert {:ok, created} =
-             RPCLane.handle_request(
-               rpc_request(
-                 "background-agent-job-create-memory",
-                 "background_agent_job.create",
-                 %FabricProto.BackgroundAgentJobCreateRequest{
-                   source_tool_call_id: "tool-memory",
-                   title: "Research prior decisions",
-                   task: "Search memory for prior decisions."
-                 },
-                 turn: parent_turn
-               ),
-               route
-             )
-
-    job_id = job_payload(created).job_id
-    job = BackgroundAgentJobs.get_job_for_agent(domain_job_id!(job_id), agent.uid)
-    actor_key = %{agent_uid: agent.uid, session_id: BackgroundAgentJobs.job_session_id(job.id)}
-
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             ReadyEventProcessor.process_ready_event_for_actor(actor_key,
-               now: DateTime.add(job.queued_at, 1, :second),
-               lease_seconds: @long_lease_seconds
-             )
-
-    assert_receive {:actor_lane, dispatch_envelope}, 200
-    job_turn = turn_start_payload!(dispatch_envelope).turn
-
-    assert {:ok, searched} =
-             RPCLane.handle_request(
-               rpc_request(
-                 "memory-job-scope",
-                 "memory_search",
-                 %FabricProto.MemorySearchRequest{query: "prior decisions"},
-                 turn: job_turn
-               ),
-               route
-             )
-
-    search_payload = rpc_passthrough_payload!(searched)
-    assert search_payload["status"] in ["ok", "degraded"]
-
-    if search_payload["status"] == "degraded" do
-      assert search_payload["result_completeness"] == "incomplete"
-      assert search_payload["degraded_reasons"] != []
-    end
   end
 
   test "Deep Research turns use the shared Turn trajectory" do

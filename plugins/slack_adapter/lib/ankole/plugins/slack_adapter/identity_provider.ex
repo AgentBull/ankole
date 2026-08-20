@@ -15,8 +15,7 @@ defmodule Ankole.Plugins.SlackAdapter.IdentityProvider do
 
   @spec authorization_url(map(), keyword()) :: {:ok, String.t()} | {:error, term()}
   def authorization_url(config, opts) do
-    with true <- get_in(config, ["oidc", "enabled"]) != false || {:error, :oidc_disabled},
-         {:ok, redirect_uri} <- required_opt(opts, :redirect_uri),
+    with {:ok, redirect_uri} <- required_opt(opts, :redirect_uri),
          {:ok, state} <- required_opt(opts, :state) do
       {:ok,
        OIDC.authorize_url(

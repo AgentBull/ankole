@@ -21,7 +21,11 @@ defmodule Ankole.AuthZ.Group do
   schema "principal_groups" do
     field :name, :string
     field :display_name, :string
-    field :domain, Ecto.Enum, values: [:operator, :directory, :im_group], default: :operator
+
+    field :domain, Ecto.Enum,
+      values: [:operator, :directory, :im_group, :signal_source],
+      default: :operator
+
     field :kind, Ecto.Enum, values: [:static, :computed], default: :static
     field :built_in, :boolean, default: false
     field :computed_condition, :string

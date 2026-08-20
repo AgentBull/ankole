@@ -7,7 +7,7 @@ order: 120
 
 turn 중에 worker는 model이 호출할 수 있는 tool 집합을 조립하고, 각 tool의 schema를 model이 보는 JSON Schema로 변환하며, model이 만든 각 function call을 해당 tool의 `execute` 함수로 dispatch합니다. 이 페이지는 그 런타임을 설명합니다. `AgentTool` contract, turn별 tool 집합이 조립되는 방식, schema가 수집되는 방식, loop가 호출을 dispatch하는 방식이 그것입니다. 이 문서는 [Agent loop](../agent-loop/)와 [Agent Computer Worker](../agent-computer-worker/)를 기반으로 합니다.
 
-핵심 속성을 먼저 말하면, tool은 **turn마다 조립됩니다**. 각 turn은 computer, web, brain, schedule, background job 및 기타 현재 소스에서 최종 tool 집합을 구성합니다. Agent가 소유한 전역 tool 집합은 없습니다. MCP-backed Skill은 computer command tool과 mcporter를 사용합니다.
+핵심 속성을 먼저 말하면, tool은 **turn마다 조립됩니다**. 각 turn은 computer, web, schedule, background job 및 기타 현재 소스에서 최종 tool 집합을 구성합니다. Agent가 소유한 전역 tool 집합은 없습니다. MCP-backed Skill은 computer command tool과 mcporter를 사용합니다.
 
 ## AgentTool 계약
 
@@ -38,7 +38,6 @@ tools = [
   createTodoTool(...),
   ...createComputerTools({...}),
   ...webTools,
-  ...brainTools,
   ...scheduleTools,
   ...backgroundAgentJobTools,
   ...
@@ -86,7 +85,7 @@ loop가 반복을 소유합니다. model을 호출하고, tool을 실행하고, 
 
 ## 이 가이드가 다루지 않는 것
 
-이 가이드는 tool 작성 튜토리얼이 아닙니다. 새 tool은 category creator가 반환하는 `AgentTool` 객체이며, 기존 category(`tools/computer/`, `tools/web/`, `tools/brain/`)가 참조 예시입니다. model 행동 가이드도 아닙니다. model이 어떤 tool을 호출하는지는 런타임이 아니라 persona의 영역입니다. 그리고 agent loop 페이지를 대체하지도 않습니다. dispatch 경로는 loop의 일부이며, loop 페이지가 그 맥락입니다.
+이 가이드는 tool 작성 튜토리얼이 아닙니다. 새 tool은 category creator가 반환하는 `AgentTool` 객체이며, 기존 category(`tools/computer/`, `tools/web/`)가 참조 예시입니다. model 행동 가이드도 아닙니다. model이 어떤 tool을 호출하는지는 런타임이 아니라 persona의 영역입니다. 그리고 agent loop 페이지를 대체하지도 않습니다. dispatch 경로는 loop의 일부이며, loop 페이지가 그 맥락입니다.
 
 ## 다음 단계
 

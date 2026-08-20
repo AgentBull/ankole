@@ -118,7 +118,7 @@ Agent Computer Worker는 API 키나 토큰 같은 환경 변수가 필요할 수
 | `GET` | `/control-plane-plugins` | Control Plane Plugins와 그 상태 목록 |
 | `PUT` | `/control-plane-plugins` | 플러그인 활성화 또는 비활성화 |
 
-Control Plane Plugins는 컨트롤 플레인 자체가 하는 일을 바꾸는 퍼스트파티 확장입니다. 시그널 어댑터나 Brain 소스 커넥터가 그 예입니다.
+Control Plane Plugins는 컨트롤 플레인 자체가 하는 일을 바꾸는 퍼스트파티 확장입니다. 시그널 어댑터가 그 예입니다.
 
 ### Identity providers와 AppConfiguration
 
@@ -142,7 +142,6 @@ Control Plane Plugins는 컨트롤 플레인 자체가 하는 일을 바꾸는 �
 - **Workers**: `/agent-computer-workers`, Worker별 파일 업로드, 이동, 목록.
 - **Jobs**: `/background-agent-jobs`(목록, 읽기, 취소).
 - **AI 활동**: `/ai-gateway/conversations`, 대화별 메시지.
-- **Memory**: 전체 `/brain/*` 표면 — 항목, 소스, 감사 로그, dreaming 실행과 적합도(fitness), 복원(restoration).
 - **Principals 및 AuthZ**: `/principals`, `/principal-groups`, `/permission-grants` — [Principal 및 AuthZ](../principal-authz/) 페이지의 권한 모델.
 
 ## 여기에 없는 것에 대한 참고

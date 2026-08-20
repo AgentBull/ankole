@@ -16,14 +16,14 @@ defmodule Ankole.E2E.FakeOpenAISkillScenarios do
   def tool_call_for(:skill_view_all_tool, 2), do: skill_view_tool_call("pdf")
 
   def tool_call_for(:skill_append_tool, 1),
-    do: skill_view_tool_call("brain-review", "call_lark_chaos_skill_append_view")
+    do: skill_view_tool_call("brainstorming", "call_lark_chaos_skill_append_view")
 
   def tool_call_for(:skill_append_tool, 2) do
     %{
       id: "call_lark_chaos_skill_append",
       name: "skill_append",
       arguments: %{
-        "name" => "brain-review",
+        "name" => "brainstorming",
         "content" => "Lark fake overlay: CHAOS_SKILL_APPEND_OK"
       }
     }

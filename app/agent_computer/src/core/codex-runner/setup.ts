@@ -1,6 +1,5 @@
 import type { TurnStart } from '../../lanes/actor_lane'
 import {
-  memoryRPCRequester,
   rpcMethods,
   type AIGatewayAPIKeyResponse,
   type AgentPluginCatalogEntry,
@@ -10,7 +9,6 @@ import {
 import { materializeCodexConfig } from './agent-home-config'
 import { resolveCodexRuntimeConfig } from './runtime-config'
 import { codexAgentRuntimeSandboxSpec, codexJobThreadEnv } from './sandbox'
-import { createMemoryTools } from '../../tools/memory/memory-tools'
 import {
   browserSandboxRuntime,
   withoutBrowserMaterialSourceEnv,
@@ -95,7 +93,6 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput) {
         soul: agentContext.soul ?? '',
         mission: agentContext.mission ?? '',
         jobGuidance: readCodexJobGuidance(opts.builtinSkillsRoot),
-        brainSnapshot: agentContext.brainSnapshot,
         timezone: agentContext.conversation?.timezone
       }).content
     : undefined
@@ -157,15 +154,7 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput) {
     browserRuntime: opts.browserRuntime
   })
   opts.abortSignal?.throwIfAborted()
-  const projectedTools = [
-    ...baseWebTools.filter(tool => !providerHostedWebSearch || tool.name !== 'web_search'),
-    // Brain attributes job-issued memory operations to the job because the
-    // turn fence session is the job session; no extra scope payload is needed.
-    ...createMemoryTools({
-      turnStart,
-      requestMemoryRPC: memoryRPCRequester(opts.rpc, turnStart.turn)
-    })
-  ]
+  const projectedTools = baseWebTools.filter(tool => !providerHostedWebSearch || tool.name !== 'web_search')
   const projection = buildCodexJobProjection({ tools: projectedTools })
   projection.dynamicTools.push(parentInputToolSpec())
   const runtimeFiles = await materializeCodexJobRuntimeFiles({

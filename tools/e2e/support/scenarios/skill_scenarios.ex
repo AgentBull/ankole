@@ -125,7 +125,7 @@ defmodule Ankole.E2E.Scenarios.Skill do
                chat_id: "oc_chaos_skill",
                chat_type: "p2p",
                text:
-                 "@_user_1 Run CHAOS_SKILL_APPEND. Use skill_view for brain-review, then use skill_append for brain-review once, then reply exactly CHAOS_SKILL_APPEND_OK.",
+                 "@_user_1 Run CHAOS_SKILL_APPEND. Use skill_view for brainstorming, then use skill_append for brainstorming once, then reply exactly CHAOS_SKILL_APPEND_OK.",
                mentions: [mention],
                create_time_ms:
                  DateTime.to_unix(DateTime.add(@base_time, 5_075, :millisecond), :millisecond)
@@ -149,7 +149,7 @@ defmodule Ankole.E2E.Scenarios.Skill do
              Repo.one(
                from(overlay in AgentSkillOverlay,
                  where: overlay.agent_uid == ^agent.uid,
-                 where: overlay.skill_name == "brain-review",
+                 where: overlay.skill_name == "brainstorming",
                  where: is_nil(overlay.deleted_at)
                )
              )

@@ -46,6 +46,8 @@ Each group source has a different membership owner:
 | --- | --- | --- |
 | **Directory group** | The department or user group already exists in the company directory | Identity Provider sync |
 | **IM group** | Access must follow chat-group membership | Chat-channel sync |
+| **Signal source group** | Access must follow "everyone who ever talked through this routing rule" | SignalsGateway admission |
+| **Provider members group** | Access must cover everyone one Identity Provider imported (`<provider>:members:all`) | Identity Provider sync |
 | **Static group** | The team exists only in Ankole, or its small membership changes infrequently | An administrator |
 | **Computed group** | Principal attributes can identify the members reliably | A CEL expression that Ankole evaluates |
 

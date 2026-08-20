@@ -569,13 +569,12 @@ The registry currently contains these method families:
 - Automation job management, execution, and event emission.
 - Best-effort Codex diagnostic log maintenance.
 - Background Agent Job lifecycle and trajectory.
-- Brain memory operations.
 - Schedule operations.
 - Signal channel ambient judgments and standing orders.
 - Installed Skill observations.
 - Skill overlay resolve, append, and replace operations.
 
-Memory and schedule RPCs use `JSONPassthroughResponse`. The worker passes
+Schedule RPCs use `JSONPassthroughResponse`. The worker passes
 `body_json` to the model without changing its fields.
 
 The RPC lane does not carry conversation history or compaction commits.

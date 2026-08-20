@@ -7,7 +7,7 @@ order: 120
 
 During a turn, the worker assembles the set of tools the model can call, converts each tool's schema to JSON Schema the model sees, and dispatches each function call the model makes back to the tool's `execute` function. This page documents that runtime: the `AgentTool` contract, how the per-turn tool set is assembled, how schemas are collected, and how the loop dispatches a call. It builds on [The agent loop](../agent-loop/) and [Agent Computer Worker](../agent-computer-worker/).
 
-The decisive property, stated up front: tools are **assembled per turn**. Each turn builds its final tool set from computer, web, brain, schedule, background jobs, and other current sources. There is no Agent-owned global tool set. MCP-backed Skills use the computer command tool and mcporter.
+The decisive property, stated up front: tools are **assembled per turn**. Each turn builds its final tool set from computer, web, schedule, background jobs, and other current sources. There is no Agent-owned global tool set. MCP-backed Skills use the computer command tool and mcporter.
 
 ## The AgentTool contract
 
@@ -38,7 +38,6 @@ tools = [
   createTodoTool(...),
   ...createComputerTools({...}),
   ...webTools,
-  ...brainTools,
   ...scheduleTools,
   ...backgroundAgentJobTools,
   ...
@@ -86,7 +85,7 @@ The loop owns the iteration — it calls the model, executes the tools, records 
 
 ## What this guide is not
 
-It is not a tool-authoring tutorial — a new tool is an `AgentTool` object returned from a category creator, and the existing categories (`tools/computer/`, `tools/web/`, `tools/brain/`) are the reference. It is not a model-behavior guide — which tools the model calls is the persona's concern, not the runtime's. And it is not a substitute for the agent-loop page; the dispatch path is part of the loop, and the loop page is the context.
+It is not a tool-authoring tutorial — a new tool is an `AgentTool` object returned from a category creator, and the existing categories (`tools/computer/`, `tools/web/`) are the reference. It is not a model-behavior guide — which tools the model calls is the persona's concern, not the runtime's. And it is not a substitute for the agent-loop page; the dispatch path is part of the loop, and the loop page is the context.
 
 ## Next steps
 

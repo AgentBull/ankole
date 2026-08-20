@@ -5,6 +5,7 @@ import { createConsoleRouteLoaders } from './console-route-loaders'
 import { ConsoleLayout } from './console-shell-chrome'
 import { AgentEditorPage, AgentsListPage } from './pages/agents'
 import { IdentityProviderEditorPage, IdentityProvidersListPage } from './pages/identity'
+import { IdentityMappingCreatePage, IdentityMappingsPage } from './pages/identity-mappings'
 import { ProviderEditorPage, ProvidersListPage } from './pages/providers'
 import { SettingEditorDrawer, SettingGroupDrawer, SettingsPage } from './pages/settings'
 import { SignalBindingEditorPage, SignalsListPage } from './pages/signals'
@@ -15,11 +16,6 @@ import { WorkerEnvEditorPage, WorkerEnvsListPage } from './pages/worker-envs'
 import { WorkerFilesPage, WorkersListPage } from './pages/workers'
 import { BackgroundAgentJobsPage } from './pages/background-agent-jobs'
 import { ConversationDetailPage, ConversationsListPage } from './pages/conversations'
-import { BrainEntriesPage, BrainEntryCreatePage, BrainEntryEditorPage } from './pages/brain'
-import { BrainAuditPage, BrainDreamingPage, BrainEntryAuditPage } from './pages/brain-audit'
-import { BrainSkillExperiencePage } from './pages/brain-skill-experience'
-import { BrainStatusPage } from './pages/brain-status'
-import { BrainSourceLearnPage, BrainSourcePage, BrainSourcesPage } from './pages/brain-sources'
 import { AgentLibraryPage, AgentPluginDetailPage } from './pages/agent-library'
 import { PrincipalGroupEditorPage, PrincipalGroupsListPage } from './pages/principal-groups'
 import { PrincipalDetailPage, PrincipalsListPage } from './pages/principals'
@@ -71,6 +67,12 @@ export function createConsoleRouter(queryClient: QueryClient) {
               { path: 'providers/:providerID', element: <ProviderEditorPage /> },
               { path: 'identity', element: <IdentityProvidersListPage />, ...preloadRoute(loaders.identity) },
               { path: 'identity/new', element: <IdentityProviderEditorPage /> },
+              {
+                path: 'identity/mappings',
+                element: <IdentityMappingsPage />,
+                ...preloadRoute(loaders.identityMappings)
+              },
+              { path: 'identity/mappings/new', element: <IdentityMappingCreatePage /> },
               { path: 'identity/:providerID', element: <IdentityProviderEditorPage /> },
               { path: 'access', element: <Navigate to="/access/groups" replace /> },
               {
@@ -128,17 +130,6 @@ export function createConsoleRouter(queryClient: QueryClient) {
                 ...preloadRoute(loaders.conversations)
               },
               { path: 'conversations/:conversationID', element: <ConversationDetailPage /> },
-              { path: 'brain', element: <BrainEntriesPage />, ...preloadRoute(loaders.brain) },
-              { path: 'brain/new', element: <BrainEntryCreatePage /> },
-              { path: 'brain/sources', element: <BrainSourcesPage /> },
-              { path: 'brain/learn', element: <BrainSourceLearnPage /> },
-              { path: 'brain/sources/:documentID', element: <BrainSourcePage /> },
-              { path: 'brain/skill-experience', element: <BrainSkillExperiencePage /> },
-              { path: 'brain/status', element: <BrainStatusPage /> },
-              { path: 'brain/audit', element: <BrainAuditPage /> },
-              { path: 'brain/dreaming', element: <BrainDreamingPage /> },
-              { path: 'brain/audit/:id', element: <BrainEntryAuditPage /> },
-              { path: 'brain/:id', element: <BrainEntryEditorPage /> },
               { path: '*', element: <NotFoundPage /> }
             ]
           }

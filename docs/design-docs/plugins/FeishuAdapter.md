@@ -99,17 +99,22 @@ Direct messages give explicit input. A structured mention of the current bot
 makes a group message explicit. SignalsGateway applies the binding policy to
 other group messages.
 
-`user_id` identifies the sender. The adapter keeps `open_id` and `union_id` as
-provider details and ignores a sender without `user_id`.
+The adapter names the sender with its strongest available id — `user_id`, then
+`union_id`, then `open_id` — and passes the remaining ids as match candidates.
+An external-tenant member has no `user_id`, so their `union_id` or `open_id`
+becomes the platform subject and SignalsGateway identity admission decides
+whether they are served. Only a sender with no id at all is ignored. The
+adapter also declares an `author_hydrator`: on an identity miss the gateway
+fetches the sender's contact profile once for the email and mobile match.
 
 An inbound Turn exposes its canonical Signal channel ID in
 `<agent_environment_info>`. A display name remains a separate optional fact.
-The message webhook does not supply one, so chat observation preserves a name
-already synchronized from Contact and projects it into the current event. For a
-group message, the Worker renders `speaker` as `name(uid)` and repeats the `uid`
-when no name is known. The Lark Agent Plugin knows that a human `uid` is usually
-the Lark `user_id` and can read the contact to obtain the `open_id` required by
-its direct-message shortcut.
+The message webhook does not supply one, so identity admission projects a name
+already synchronized from Contact into the current event. For a group message,
+the Worker renders `speaker` as `name(uid)` and repeats the `uid` when no name
+is known. The Lark Agent Plugin knows that a human `uid` is usually the Lark
+`user_id` and can read the contact to obtain the `open_id` required by its
+direct-message shortcut.
 
 Reaction events use the operator `user_id` when it is present. They use the
 operator `open_id` as the stable reaction actor key when Feishu omits

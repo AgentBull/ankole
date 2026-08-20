@@ -19,21 +19,16 @@ copilot은 사람이 작업을 소유하므로 다음 프롬프트를 기다립�
 - **경계가 있는 권한.** Identity, AuthZ, 승인, 감사 기록, 에스컬레이션 경로가 Agent가 할 수 있는 일을 정의합니다.
 - **단일 요청이 아닌 장기 실행 작업.** 세션은 몇 시간 또는 며칠 동안 실행되고, 새 입력을 받고, 실패 후 복구되며, 운영 컨텍스트를 유지합니다.
 
-자율 작업은 최신 컨텍스트에 의존합니다. Ankole은 모든 오래된 메시지를 동등하게 진실로 취급하는 대신, 규칙, 결정, 수정, 결과를 시간과 출처와 함께 기록합니다.
-
-Brain은 오래된 규칙을 폐기하고, 충돌을 해결하며, 예측을 이후의 결과와 비교합니다. 각 실행은 더 정확한 운영 상황 인식에서 시작됩니다.
-
 ## 배포 인스턴스의 구성 요소
 
 이 용어들은 이후 문서 전체에서 반복되므로 여기서 한 번 정리합니다.
 
 | 구성 요소 | 설명 | 더 보기 |
 |---|---|---|
-| **Agent** | 고유한 미션, 접근 권한, 도구, memory, 대외 identity를 가진 작업 identity입니다. 미션과 전달 기준은 언제든 편집할 수 있는 파일이며, 하나의 배포 인스턴스에 여러 개를 둘 수 있습니다. | [Agents](../agents/) |
+| **Agent** | 고유한 미션, 접근 권한, 도구, 대외 identity를 가진 작업 identity입니다. 미션과 전달 기준은 언제든 편집할 수 있는 파일이며, 하나의 배포 인스턴스에 여러 개를 둘 수 있습니다. | [Agents](../agents/) |
 | **Session** | 장기 실행의 단위이자, 컨텍스트·워크스페이스 상태·steering·취소·복구가 만나는 지점입니다. | [Actor runtime](../actor-runtime/) |
 | **Signal routing rule** | Agent를 signal 소스에 연결하고, 그곳에서 할 수 있는 일의 경계를 설정합니다. | [Signal routing rules](../signal-bindings/) |
 | **Background job** | 세션 밖으로 보내져 몇 시간 동안 실행될 수 있고, 작업이 시작된 channel로 결과를 전달해 돌아오는 작업입니다. | [Background Agent Jobs](../background-agent-jobs/) |
-| **Memory** | channel 규칙과 장기 memory — 경험에서 예측하고 현실로 교정되는 world model입니다. | [Memory](../memory/), [Brain](../brain/) |
 | **Skill** | 한 종류의 작업을 수행하는 정착된 방식입니다. Agent가 개선을 제안할 수 있고, 사람이 다음 세션을 위해 승인합니다. | [Skills](../skills/) |
 | **Principal** | 사람과 Agent는 같은 종류의 주체이므로, 런타임은 둘 모두에게 권한과 감사를 적용합니다. | [Principal and AuthZ](../principal-authz/) |
 | **Agent Computer Worker** | 실행이 일어나는 장소: LLM 루프, 도구, 파일, 터미널 상태, 스트리밍 출력이 모두 여기서 실행됩니다. | [Agent Computer Worker](../agent-computer-worker/) |

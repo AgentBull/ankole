@@ -48,26 +48,13 @@ WHERE name IN ('pg_search', 'vector')
 ORDER BY name;
 ```
 
-The Brain migration creates the two extensions in the application database.
-After migration, both must be installed:
+Historical migrations create the two extensions in the application database;
+a later migration removes the deleted Brain module's schema and both
+extensions again, so a fully migrated database does not have them installed —
+that's expected. Both packages must still be available in this image for
+those historical migrations to run without error.
 
-```sql
-SELECT extname, extversion
-FROM pg_extension
-WHERE extname IN ('pg_search', 'vector')
-ORDER BY extname;
-```
-
-Ankole has no compatibility migration from the unreleased Memory schema to
-Brain. For a stale local database, rebuild it explicitly after starting this
-image:
-
-```sh
-bun run kit app-db rebuild --yes
-```
-
-For a fresh or already-Brain database, keep the data and apply only pending
-migrations:
+Apply pending migrations the usual way:
 
 ```sh
 bun run kit app-db migrate
