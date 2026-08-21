@@ -1,6 +1,8 @@
 defmodule Ankole.SignalsGateway.ActorRuntime.ChannelContextDeliveryDedupeTest do
   use Ankole.SignalsGateway.ActorRuntimeCase
 
+  alias Ankole.AIGateway.Conversations
+
   alias Ankole.AIGateway.StatefulResponses
   alias Ankole.PluginFixtures.MockSignalProviderPlugin
   alias Ankole.Plugins.Spec
@@ -137,7 +139,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ChannelContextDeliveryDedupeTest do
     assert "backdrop-2" in stored_ids
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(agent.uid, first_event.session_id)
+      Conversations.ensure_conversation(agent.uid, first_event.session_id)
 
     {:ok, round} =
       StatefulResponses.start_response_run(%{

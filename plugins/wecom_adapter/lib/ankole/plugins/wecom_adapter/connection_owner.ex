@@ -187,6 +187,8 @@ defmodule Ankole.Plugins.WeComAdapter.ConnectionOwner do
 
   def handle_info(:retry_connect, state), do: {:noreply, %{state | contended_timer: nil}}
 
+  def handle_info({:EXIT, _pid, reason}, state), do: {:stop, reason, state}
+
   def handle_info(_message, state), do: {:noreply, state}
 
   defp start_client(state) do

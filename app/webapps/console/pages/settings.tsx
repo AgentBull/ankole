@@ -165,9 +165,6 @@ function SettingsList() {
   )
 }
 
-
-
-
 function SettingRow({ item }: { item: AppConfigurationItem }) {
   const { t } = useTranslation()
   const description = settingDescription(t, item)
@@ -650,7 +647,6 @@ export function SettingGroupDrawer() {
         setEditorError(parsed.error)
         return
       }
-
 
       pending.push({ key: item.key, value: parsed.value })
     }

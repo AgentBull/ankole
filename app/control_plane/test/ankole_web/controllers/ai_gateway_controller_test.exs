@@ -9,6 +9,8 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
   import AnkoleWeb.AIGatewayControllerTestHelpers
   import ExUnit.CaptureLog
 
+  alias Ankole.AIGateway.Conversations
+
   alias Ankole.AIGateway.CompactionArtifacts
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.ResponseStream.State, as: ResponseStreamState
@@ -20,7 +22,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Cache, as: AppConfigureCache
   alias Ankole.Repo
-  alias AnkoleWeb.AIGatewayTokens
+  alias Ankole.AIGateway.Tokens
 
   defmodule NativeResponsesUpstreamPlug do
     @moduledoc false
@@ -148,7 +150,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
       |> Ankole.JSON.encode!()
       |> Base.url_encode64(padding: false)
 
-    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+    assert {:ok, api_key} = Tokens.mint_for_agent(agent.uid)
 
     conn =
       conn
@@ -174,7 +176,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
 
   test "responses retrieve returns an agent-scoped stored response resource", %{conn: conn} do
     %{principal: agent} = agent_fixture()
-    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+    assert {:ok, api_key} = Tokens.mint_for_agent(agent.uid)
 
     input_item = %{
       "id" => "msg_retrieve_input",
@@ -193,7 +195,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     }
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(agent.uid, "retrieve-response-controller")
+      Conversations.ensure_conversation(agent.uid, "retrieve-response-controller")
 
     {:ok, first} =
       StatefulResponses.start_response_run(%{
@@ -289,7 +291,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
 
   test "responses retrieve keeps role-only request input out of output", %{conn: conn} do
     %{principal: agent} = agent_fixture()
-    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+    assert {:ok, api_key} = Tokens.mint_for_agent(agent.uid)
 
     input_item = %{"role" => "user", "content" => "Hello"}
 
@@ -302,7 +304,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     }
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(agent.uid, "retrieve-role-only-input")
+      Conversations.ensure_conversation(agent.uid, "retrieve-role-only-input")
 
     {:ok, message} =
       StatefulResponses.start_response_run(%{
@@ -330,10 +332,10 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
   test "responses retrieve does not expose another agent's stored response", %{conn: conn} do
     %{principal: owner} = agent_fixture()
     %{principal: intruder} = agent_fixture()
-    assert {:ok, intruder_key} = AIGatewayTokens.mint_for_agent(intruder.uid)
+    assert {:ok, intruder_key} = Tokens.mint_for_agent(intruder.uid)
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(owner.uid, "retrieve-response-cross-agent")
+      Conversations.ensure_conversation(owner.uid, "retrieve-response-cross-agent")
 
     {:ok, message} =
       StatefulResponses.start_response_run(%{
@@ -380,10 +382,10 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     conn: conn
   } do
     %{principal: agent} = agent_fixture()
-    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+    assert {:ok, api_key} = Tokens.mint_for_agent(agent.uid)
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(agent.uid, "retrieve-response-not-terminal")
+      Conversations.ensure_conversation(agent.uid, "retrieve-response-not-terminal")
 
     {:ok, generating} =
       StatefulResponses.start_response_run(%{
@@ -452,7 +454,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
 
   test "responses delete and cancel endpoints are not implemented", %{conn: conn} do
     %{principal: agent} = agent_fixture()
-    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+    assert {:ok, api_key} = Tokens.mint_for_agent(agent.uid)
     response_id = "resp_#{Ecto.UUID.generate()}"
 
     delete_conn =
@@ -490,7 +492,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                model: "gpt-4o-mini"
              })
 
-    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+    assert {:ok, api_key} = Tokens.mint_for_agent(agent.uid)
 
     conn =
       conn
@@ -530,7 +532,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                model: "gpt-4o-mini"
              })
 
-    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+    assert {:ok, api_key} = Tokens.mint_for_agent(agent.uid)
 
     conn =
       conn
@@ -546,7 +548,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
              "canonical_slug" => "openai-custom-alias/gpt-4o-mini"
            } = Enum.find(agent_models, &(&1["id"] == "kimi"))
 
-    assert {:ok, other_api_key} = AIGatewayTokens.mint_for_agent(other_agent.uid)
+    assert {:ok, other_api_key} = Tokens.mint_for_agent(other_agent.uid)
 
     other_conn =
       build_conn()
@@ -592,7 +594,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                model: "gpt-5.6-sol"
              })
 
-    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+    assert {:ok, api_key} = Tokens.mint_for_agent(agent.uid)
 
     conn =
       conn
@@ -644,7 +646,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                model: "jina-reranker-v2-base-multilingual"
              })
 
-    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+    assert {:ok, api_key} = Tokens.mint_for_agent(agent.uid)
 
     conn =
       conn
@@ -712,7 +714,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                model: "default"
              })
 
-    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+    assert {:ok, api_key} = Tokens.mint_for_agent(agent.uid)
 
     conn =
       conn
@@ -777,14 +779,12 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                model: "default"
              })
 
-    assert :ok = SSRFFilter.ensure_registered()
-
     assert {:ok, _value} =
              AppConfigure.put_global(SSRFFilter.definition(), true)
 
     on_exit(fn -> AppConfigureCache.clear_for_test() end)
 
-    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+    assert {:ok, api_key} = Tokens.mint_for_agent(agent.uid)
 
     for url <- [
           "https://127.0.0.1/private",
@@ -841,7 +841,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                model: "default"
              })
 
-    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+    assert {:ok, api_key} = Tokens.mint_for_agent(agent.uid)
 
     conn =
       conn
@@ -880,7 +880,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                model: "default"
              })
 
-    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+    assert {:ok, api_key} = Tokens.mint_for_agent(agent.uid)
 
     for url <- [
           "https://metadata.google.internal/computeMetadata/v1/",
@@ -934,7 +934,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                provider_options: %{"gl" => "us", "hl" => "en"}
              })
 
-    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+    assert {:ok, api_key} = Tokens.mint_for_agent(agent.uid)
 
     conn =
       conn
@@ -1013,7 +1013,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                }
              })
 
-    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+    assert {:ok, api_key} = Tokens.mint_for_agent(agent.uid)
 
     conn =
       conn
@@ -1081,7 +1081,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                model: "default"
              })
 
-    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+    assert {:ok, api_key} = Tokens.mint_for_agent(agent.uid)
 
     log =
       capture_log(
@@ -1171,7 +1171,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                model: "openai/gpt-5.5"
              })
 
-    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+    assert {:ok, api_key} = Tokens.mint_for_agent(agent.uid)
 
     conn =
       conn
@@ -1212,7 +1212,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                model: "default"
              })
 
-    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+    assert {:ok, api_key} = Tokens.mint_for_agent(agent.uid)
 
     conn =
       conn
@@ -1245,7 +1245,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                model: "default"
              })
 
-    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+    assert {:ok, api_key} = Tokens.mint_for_agent(agent.uid)
 
     conn =
       conn
@@ -1292,7 +1292,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                model: "gpt-4o-mini"
              })
 
-    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+    assert {:ok, api_key} = Tokens.mint_for_agent(agent.uid)
 
     conn =
       conn
@@ -1392,7 +1392,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                model: "gpt-5.5"
              })
 
-    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+    assert {:ok, api_key} = Tokens.mint_for_agent(agent.uid)
 
     conn =
       conn
@@ -1468,7 +1468,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                model: "gpt-5.5"
              })
 
-    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+    assert {:ok, api_key} = Tokens.mint_for_agent(agent.uid)
 
     conn =
       conn
@@ -1526,7 +1526,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                model: "gpt-5.5"
              })
 
-    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+    assert {:ok, api_key} = Tokens.mint_for_agent(agent.uid)
 
     conn =
       api_key.api_key
@@ -1688,7 +1688,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
 
   test "responses endpoint rejects stateful fields on HTTP and SSE", %{conn: conn} do
     %{principal: agent} = agent_fixture()
-    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+    assert {:ok, api_key} = Tokens.mint_for_agent(agent.uid)
 
     for {field, request} <- [
           {"previous_response_id",
@@ -1759,7 +1759,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                model: "gpt-5.5"
              })
 
-    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+    assert {:ok, api_key} = Tokens.mint_for_agent(agent.uid)
 
     conn =
       conn
@@ -1824,7 +1824,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                model: "gpt-5.5"
              })
 
-    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+    assert {:ok, api_key} = Tokens.mint_for_agent(agent.uid)
 
     conn =
       conn
@@ -1899,7 +1899,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                model: "gpt-5.5"
              })
 
-    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+    assert {:ok, api_key} = Tokens.mint_for_agent(agent.uid)
 
     conn =
       conn
@@ -1961,7 +1961,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                model: "gpt-5.5"
              })
 
-    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+    assert {:ok, api_key} = Tokens.mint_for_agent(agent.uid)
 
     conn =
       conn
@@ -2015,7 +2015,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                model: "openai/gpt-5.5"
              })
 
-    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+    assert {:ok, api_key} = Tokens.mint_for_agent(agent.uid)
 
     for {id, request, validator} <- stateless_openresponses_templates() do
       conn =
@@ -2040,7 +2040,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
 
   test "responses path upgrades raw WebSocket requests with an agent token", %{conn: conn} do
     %{principal: agent} = agent_fixture()
-    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+    assert {:ok, api_key} = Tokens.mint_for_agent(agent.uid)
 
     conn =
       %{
@@ -2069,7 +2069,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
 
   test "responses WebSocket freezes the decoded Codex binding in connection state", %{conn: conn} do
     %{principal: agent} = agent_fixture()
-    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+    assert {:ok, api_key} = Tokens.mint_for_agent(agent.uid)
 
     encoded =
       %{
@@ -2230,7 +2230,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                context_length: 131_072
              })
 
-    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+    assert {:ok, api_key} = Tokens.mint_for_agent(agent.uid)
 
     conn =
       compaction_trigger(agent.uid, %{
@@ -2339,7 +2339,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                model: "gpt-test"
              })
 
-    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+    assert {:ok, api_key} = Tokens.mint_for_agent(agent.uid)
 
     conn =
       compaction_trigger(agent.uid, %{
@@ -2386,7 +2386,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                context_length: 131_072
              })
 
-    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+    assert {:ok, api_key} = Tokens.mint_for_agent(agent.uid)
 
     first_conn =
       compaction_trigger(agent.uid, %{
@@ -2445,7 +2445,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     conn: conn
   } do
     %{principal: agent} = agent_fixture()
-    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+    assert {:ok, api_key} = Tokens.mint_for_agent(agent.uid)
 
     assert {:ok, artifact} =
              CompactionArtifacts.insert_artifact(%{
@@ -2468,7 +2468,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
 
   test "compact endpoint rejects standalone compact without model", %{conn: conn} do
     %{principal: agent} = agent_fixture()
-    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+    assert {:ok, api_key} = Tokens.mint_for_agent(agent.uid)
 
     conn =
       compaction_trigger(agent.uid, %{
@@ -2486,7 +2486,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
 
   test "compact endpoint stores artifact and checkpoint when store is true", %{conn: conn} do
     %{principal: agent} = agent_fixture()
-    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+    assert {:ok, api_key} = Tokens.mint_for_agent(agent.uid)
 
     base_url =
       start_recording_upstream(self(), fn request ->
@@ -2516,7 +2516,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
              })
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(agent.uid, "compact-response-controller")
+      Conversations.ensure_conversation(agent.uid, "compact-response-controller")
 
     {:ok, anchor} =
       StatefulResponses.start_response_run(%{
@@ -2708,7 +2708,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                model: "gpt-main"
              })
 
-    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+    assert {:ok, api_key} = Tokens.mint_for_agent(agent.uid)
 
     trigger_input = [
       %{"type" => "message", "role" => "user", "content" => "first"},

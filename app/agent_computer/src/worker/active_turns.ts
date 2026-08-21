@@ -1,3 +1,4 @@
+import { ms } from '@agentbull/active-support'
 import { classifyLLMError } from '../core/llm-error-classifier'
 import { workerProgressEnvelope } from '../fabric/envelopes'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
@@ -5,8 +6,9 @@ import { isRuntimeFabricTransportError, type EnvelopeSender } from '../fabric/fa
 import type { ActorTurnRef, TurnStart, TurnSteerUpdate } from '../lanes/actor_lane'
 import type { WorkerConfig } from './config'
 import { workerLogger } from './logging'
+import { toError } from '../common/errors'
 
-const turnProgressIntervalMs = 60_000
+const turnProgressIntervalMs = ms('1m')
 
 export type ActiveTurn = {
   turnStart: TurnStart
@@ -138,7 +140,7 @@ async function sendTurnProgress(sendEnvelope: EnvelopeSender, active: ActiveTurn
     workerLogger.warning('worker.turn_progress_skipped', 'worker turn progress skipped', {
       actor_event_id: active.turnStart.turn.actor_event_id,
       reason: isRuntimeFabricTransportError(error, 'backpressure') ? 'backpressure' : 'send_error',
-      error: error instanceof Error ? error : new Error(String(error))
+      error: toError(error)
     })
   }
 }

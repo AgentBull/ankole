@@ -520,12 +520,12 @@ defmodule Ankole.Plugins.WeComAdapter.AIStream do
          conversation_id: conversation_id
        }) do
     checkpoint
-    |> maybe_put("subject_uid", subject_uid)
-    |> maybe_put("conversation_id", conversation_id)
+    |> put_text("subject_uid", subject_uid)
+    |> put_text("conversation_id", conversation_id)
   end
 
-  defp maybe_put(map, _key, value) when not is_binary(value), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
+  defp put_text(map, _key, value) when not is_binary(value), do: map
+  defp put_text(map, key, value), do: Map.put(map, key, value)
 
   defp put_thought_lease(checkpoint, presentation, false) do
     case presentation["thought"] do

@@ -23,6 +23,8 @@ import {
   ankoleWebWebhookEndpointControllerIndexOptions,
   ankoleWebWorkerEnvControllerIndexOptions
 } from './api/generated/@tanstack/react-query.gen'
+import { backgroundAgentJobListOptions } from './pages/background-agent-jobs'
+import { conversationListOptions } from './pages/conversations'
 import { GLOBAL_LIBRARY_SCOPE } from './state/agent-library-capabilities'
 
 /**
@@ -108,13 +110,7 @@ export function createConsoleRouteLoaders(queryClient: QueryClient) {
       const searchParams = new URL(request.url).searchParams
       const selectedID = resourceID(searchParams.get('job'), 1000)
       const list = ensure(
-        ankoleWebBackgroundAgentJobControllerIndexOptions({
-          query: {
-            agent: searchParams.get('agent')?.trim() || undefined,
-            q: searchParams.get('q')?.trim() || undefined,
-            limit: 100
-          }
-        })
+        backgroundAgentJobListOptions(searchParams.get('agent')?.trim() ?? '', searchParams.get('q') ?? '')
       )
 
       return selectedID
@@ -123,19 +119,14 @@ export function createConsoleRouteLoaders(queryClient: QueryClient) {
     },
     conversations: ({ request }: LoaderFunctionArgs) => {
       const searchParams = new URL(request.url).searchParams
-      const active = searchParams.get('active')
-      const showAll = searchParams.get('min_messages') === '0'
 
       return ensure(
-        ankoleWebAIGatewayConversationControllerIndexOptions({
-          query: {
-            q: searchParams.get('q')?.trim() || undefined,
-            subject: searchParams.get('agent')?.trim() || undefined,
-            active: active === 'true' ? true : active === 'false' ? false : undefined,
-            min_messages: showAll ? undefined : 2,
-            cursor: searchParams.get('cursor') || undefined,
-            limit: 50
-          }
+        conversationListOptions({
+          q: searchParams.get('q'),
+          subject: searchParams.get('agent'),
+          active: searchParams.get('active'),
+          showAll: searchParams.get('min_messages') === '0',
+          cursor: searchParams.get('cursor')
         })
       ).then(() => null)
     }

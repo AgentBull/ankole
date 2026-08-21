@@ -25,7 +25,6 @@ defmodule AnkoleWeb.SetupControllerTest do
     Registry.clear_for_test()
     Cache.clear_for_test()
 
-    :ok = SetupConfig.ensure_registered()
     {:ok, false} = SetupConfig.put_completed(false)
     :ok = SetupConfig.delete_bootstrap_activation_code()
 
@@ -89,9 +88,6 @@ defmodule AnkoleWeb.SetupControllerTest do
   end
 
   test "OIDC authorization uses the forwarded HTTPS origin for its callback", %{conn: conn} do
-    :ok = IdentityProviderConfig.ensure_registered()
-    :ok = AppConfigure.register_patterns(LarkAdapter.app_config_patterns())
-
     assert {:ok, _provider} =
              IdentityProviders.save_provider(
                "lark-main",
@@ -124,9 +120,6 @@ defmodule AnkoleWeb.SetupControllerTest do
   end
 
   test "OIDC authorization stops at the provider's own credential rejection", %{conn: conn} do
-    :ok = IdentityProviderConfig.ensure_registered()
-    :ok = AppConfigure.register_patterns(DingTalkAdapter.app_config_patterns())
-
     assert {:ok, _provider} =
              IdentityProviders.save_provider(
                "dingtalk-main",
@@ -187,8 +180,6 @@ defmodule AnkoleWeb.SetupControllerTest do
 
   test "GET /.internal-apis/setup/identity-provider-adapters uses adapter declaration fields",
        %{conn: conn} do
-    :ok = PluginsConfig.ensure_registered()
-
     conn =
       conn
       |> init_test_session(%{})

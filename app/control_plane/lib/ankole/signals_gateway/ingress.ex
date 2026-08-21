@@ -235,9 +235,10 @@ defmodule Ankole.SignalsGateway.Ingress do
   # provider lifecycle edge without deriving a retraction note.
   defp accept_lifecycle(binding, fact, now) do
     Repo.transact(fn repo ->
-      with {:ok, channel} <- Projection.upsert_channel(repo, fact, now),
-           :ok <- Projection.lock_entry(repo, fact),
+      # Match ordinary IM ingress: entry, then batch, then channel row.
+      with :ok <- Projection.lock_entry(repo, fact),
            :ok <- Projection.lock_inbound_batch(repo, fact),
+           {:ok, channel} <- Projection.upsert_channel(repo, fact, now),
            {:ok, tombstone} <- Projection.upsert_tombstone(repo, fact, now),
            {:ok, updated_batches} <- InboundBatches.remove_pending_inbound_entry(repo, fact, now),
            {deleted_count, _rows} <- Projection.delete_mirror_entry(repo, fact),

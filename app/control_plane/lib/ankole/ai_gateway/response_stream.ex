@@ -193,6 +193,35 @@ defmodule Ankole.AIGateway.ResponseStream do
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts)
 
   @impl true
+  def format_status(%{state: state} = status) when is_map(state) do
+    %{
+      status
+      | state: %{
+          phase: state.phase,
+          public_open?: state.public_open?,
+          ref: state.ref,
+          stateful?: not is_nil(state.stateful),
+          telemetry_emitted?: state.telemetry_emitted?,
+          failure_logged?: state.failure_logged?,
+          describe_waiter_count: length(state.describe_waiters),
+          opening?: not is_nil(state.opening),
+          native_stream?: not is_nil(state.native_stream),
+          credential_success_recorded?: state.credential_success_recorded?,
+          provider_output?: state.provider_output?,
+          stateful_replay_recovery_attempted?: state.stateful_replay_recovery_attempted?,
+          outstanding_credit: state.outstanding_credit,
+          pending_flush?: not is_nil(state.pending_flush),
+          program_task?: not is_nil(state.program_task),
+          native_done?: state.native_done?,
+          closing?: state.closing?,
+          heartbeat_timer?: not is_nil(state.heartbeat_timer)
+        }
+    }
+  end
+
+  def format_status(status), do: status
+
+  @impl true
   def init(opts) do
     receiver = Keyword.fetch!(opts, :receiver)
     owner_monitor = Process.monitor(receiver)

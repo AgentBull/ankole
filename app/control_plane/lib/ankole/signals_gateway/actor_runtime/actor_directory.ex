@@ -29,5 +29,5 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorDirectory do
     {normalize_uid(agent_uid), session_id}
   end
 
-  defp normalize_uid(value) when is_binary(value), do: String.downcase(value)
+  defp normalize_uid(value) when is_binary(value), do: Ankole.PrincipalKey.canonicalize(value)
 end

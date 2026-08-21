@@ -1,3 +1,4 @@
+import { ACTIVITY_REFRESH_MS } from '../refresh-intervals'
 import {
   Sheet,
   SheetContent,
@@ -38,7 +39,7 @@ export function AutomationJobsPage() {
     ...ankoleWebAutomationJobControllerIndexOptions({
       query: { agent: scope.agentUID || undefined, limit: 100 }
     }),
-    refetchInterval: 5_000
+    refetchInterval: ACTIVITY_REFRESH_MS
   })
   const allJobs = jobs.data?.automation_jobs ?? []
   const selectedAgentUID = automationJobAgentUID(allJobs, selectedID, scope.agentUID)
@@ -49,7 +50,7 @@ export function AutomationJobsPage() {
       query: { runs: 20 }
     }),
     enabled: Boolean(selectedAgentUID) && selectedID !== undefined,
-    refetchInterval: selectedID !== undefined ? 5_000 : false,
+    refetchInterval: selectedID !== undefined ? ACTIVITY_REFRESH_MS : false,
     retry: false
   })
   const detailNotFound = detail.error?.error?.code === 'not_found'

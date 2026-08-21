@@ -428,7 +428,7 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
     |> String.replace(~r/<(https?:\/\/[^>|]+)\|([^>]+)>/, "\\2 (\\1)")
     |> String.replace(~r/<(https?:\/\/[^>]+)>/, "\\1")
     |> String.trim_leading()
-    |> blank_to_nil()
+    |> MapHelpers.blank_to_nil()
   end
 
   defp strip_current_bot_mentions(text, mentions) do
@@ -554,8 +554,8 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
         Path.join(Ankole.AgentHomePaths.user_files(agent_uid), relative)
       )
       |> Map.put("user_files_relative_path", relative)
-      |> MapHelpers.maybe_put("xxh3_128", result["xxh3_128"])
-      |> MapHelpers.maybe_put("size", result["size"])
+      |> MapHelpers.put_present("xxh3_128", result["xxh3_128"])
+      |> MapHelpers.put_present("size", result["size"])
     else
       reason ->
         Logging.warning(
@@ -581,7 +581,7 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
     Path.join([
       "inbox",
       Integer.to_string(attachment_id),
-      sanitize(downloaded_name || attachment["name"] || "attachment")
+      WorkerFiles.sanitize_path_segment(downloaded_name || attachment["name"] || "attachment")
     ])
   end
 
@@ -591,18 +591,6 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
        do: attachment_id
 
   defp valid_attachment_id(_attachment), do: nil
-
-  defp sanitize(value) when is_binary(value) do
-    case value
-         |> Ankole.Kernel.any_ascii()
-         |> String.replace(~r/[^A-Za-z0-9._-]+/, "_")
-         |> String.trim("_") do
-      "" -> "unnamed"
-      segment -> String.slice(segment, 0, 160)
-    end
-  end
-
-  defp sanitize(_value), do: "unnamed"
 
   defp maybe_backfill_attachments(
          [],
@@ -696,8 +684,6 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
 
   defp material_message?(nil, []), do: {:ignore, :empty_or_unsupported_message}
   defp material_message?(_text, _attachments), do: :ok
-  defp blank_to_nil(""), do: nil
-  defp blank_to_nil(text), do: text
   defp ignored_status(:provider_self_sender), do: :ignored_provider_self_sender
   defp ignored_status(:empty_or_unsupported_message), do: :ignored_empty_or_unsupported_message
   defp ignored_status(reason), do: :"ignored_#{reason}"

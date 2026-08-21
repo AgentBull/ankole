@@ -1,3 +1,4 @@
+import { aiGatewayAPIKeyRefreshSkewMs } from '../core/ai_gateway_transport'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import {
   RPCRejectedError,
@@ -12,7 +13,6 @@ import {
   type RPCResponseOf
 } from '../lanes/rpc_lane'
 
-const aiGatewayAPIKeyRefreshSkewMs = 60_000
 const aiGatewayAPIKeyCache = new Map<string, AIGatewayAPIKeyResponse>()
 
 function isRejection(value: RPCResponseOf<ControlPlaneOwnedRPCMethod> | RPCRejection): value is RPCRejection {

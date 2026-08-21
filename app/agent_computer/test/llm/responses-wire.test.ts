@@ -14,7 +14,7 @@ import {
 import { buildResponseCreateParams, statefulToolResultsRecordParams, toResponseInput } from '../../src/core/llm/wire'
 import { defineWorkerTool } from '../../src/core'
 
-import { fakeResponseSocket } from '../support/llm'
+import { fakeResponseSocket, statefulTurnCall } from '../support/llm'
 
 describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire shape', () => {
   it('forwards frozen provider options on model calls and tool-result recording', () => {
@@ -969,7 +969,7 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
       }
     })
 
-    const result = await callModel(model, {
+    const result = await statefulTurnCall(model, {
       instructions: 'system prompt',
       messages: [{ role: 'user', content: 'hi' }],
       stateful: {
@@ -1014,7 +1014,7 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
     })
 
     await expect(
-      callModel(model, {
+      statefulTurnCall(model, {
         messages: [{ role: 'user', content: 'wait for explicit cancellation' }],
         stateful: {
           actorEventID: '00000000-0000-0000-0000-000000000031',
@@ -1138,7 +1138,7 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
       }
     })
 
-    await callModel(model, {
+    await statefulTurnCall(model, {
       messages: [
         {
           role: 'user',
@@ -1217,7 +1217,7 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
         }
       })
 
-      const result = await callModel(model, {
+      const result = await statefulTurnCall(model, {
         messages: [{ role: 'user', content: 'hi' }],
         stateful: {
           actorEventID: '00000000-0000-0000-0000-000000000012',
@@ -1268,7 +1268,7 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
       }
     })
 
-    const result = await callModel(model, {
+    const result = await statefulTurnCall(model, {
       messages: [{ role: 'user', content: 'hi' }],
       stateful: {
         actorEventID: '00000000-0000-0000-0000-000000000013',
@@ -1311,7 +1311,7 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
       }
     })
 
-    const result = await callModel(model, {
+    const result = await statefulTurnCall(model, {
       messages: [{ role: 'user', content: 'hi' }],
       stateful: {
         actorEventID: '00000000-0000-0000-0000-000000000014',
@@ -1358,7 +1358,7 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
       }
     })
 
-    const result = await callModel(model, {
+    const result = await statefulTurnCall(model, {
       messages: [{ role: 'user', content: 'write a report' }],
       stateful: {
         actorEventID: '00000000-0000-0000-0000-000000000020',
@@ -1412,7 +1412,7 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
       }
     })
 
-    const result = await callModel(model, {
+    const result = await statefulTurnCall(model, {
       messages: [{ role: 'user', content: 'write a report' }],
       stateful: {
         actorEventID: '00000000-0000-0000-0000-000000000021',
@@ -1458,7 +1458,7 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
       }
     })
 
-    const result = await callModel(model, {
+    const result = await statefulTurnCall(model, {
       messages: [{ role: 'user', content: 'look this up' }],
       stateful: {
         actorEventID: '00000000-0000-0000-0000-000000000022',
@@ -1502,7 +1502,7 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
       }
     })
 
-    const result = await callModel(model, {
+    const result = await statefulTurnCall(model, {
       messages: [{ role: 'user', content: 'hi' }],
       stateful: {
         actorEventID: '00000000-0000-0000-0000-000000000016',

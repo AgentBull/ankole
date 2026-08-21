@@ -1,3 +1,4 @@
+import { compareCodePointStrings } from '../../common/ordering'
 import { z } from 'zod'
 import { sanitizeCatalogLine } from '../../common/text-sanitize'
 import { defineWorkerTool, type WorkerAgentTool } from '../../core'
@@ -5,7 +6,10 @@ import { modelIntegerIDFromWire } from '../../core/model-integer-id'
 import { jsonToolResult } from '../../core/tool-result'
 import type { TurnStart } from '../../lanes/actor_lane'
 import { rpcMethods, type AgentPluginCatalogEntry, type RPCRequester, type RPCRequestInit } from '../../lanes/rpc_lane'
-import { BackgroundAgentJobStatusSchema, type BackgroundAgentJobStatus } from './status'
+import {
+  BackgroundAgentJobStatusSchema,
+  type BackgroundAgentJobStatus
+} from '../../core/background-agent-job-documents'
 
 const identifier = /^[a-z][a-z0-9_-]{0,63}$/
 const CATALOG_DESCRIPTION_MAX_CHARS = 400
@@ -111,7 +115,7 @@ function availableCustomModelProfiles(turnStart: TurnStart): CustomModelProfile[
   const parsed = z.array(CustomModelProfileSchema).safeParse(turnStart.request_context?.custom_model_profiles ?? [])
   if (!parsed.success) throw new Error('turn custom model profile catalog is invalid')
 
-  const profiles = [...parsed.data].sort((left, right) => compareCodePoints(left.name, right.name))
+  const profiles = [...parsed.data].sort((left, right) => compareCodePointStrings(left.name, right.name))
   if (new Set(profiles.map(profile => profile.name)).size !== profiles.length) {
     throw new Error('duplicate custom model profile name')
   }
@@ -128,7 +132,7 @@ function availableWorkspaceTemplates(catalog: AgentPluginCatalogEntry[]): Worksp
       id: entry.id,
       description: sanitizeCatalogLine(entry.description, CATALOG_DESCRIPTION_MAX_CHARS)
     }))
-    .sort((left, right) => compareCodePoints(left.id, right.id))
+    .sort((left, right) => compareCodePointStrings(left.id, right.id))
 
   for (const template of templates) {
     if (!identifier.test(template.id)) throw new Error(`invalid workspace template id: ${template.id}`)
@@ -167,8 +171,4 @@ function workspaceTemplateDescription(workspaceTemplates: WorkspaceTemplate[]): 
   return `Available workspace templates: ${workspaceTemplates
     .map(template => `${template.id} (${template.description})`)
     .join(', ')}. Omit workspace_template_id to use no template.`
-}
-
-function compareCodePoints(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0
 }

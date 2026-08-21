@@ -120,6 +120,24 @@ defmodule Ankole.WorkerFilesTest do
     assert {:error, :no_worker_available} = WorkerFiles.get("user_files", "inbox/a.txt")
   end
 
+  test "sanitize_path_segment bounds provider names to one safe segment" do
+    assert WorkerFiles.sanitize_path_segment("report (final).xlsx") == "report_final_.xlsx"
+
+    assert WorkerFiles.sanitize_path_segment(String.duplicate("a", 200)) ==
+             String.duplicate("a", 160)
+
+    # Transliterated output stays inside the safe alphabet and the bound.
+    sanitized = WorkerFiles.sanitize_path_segment("Q3 报表 (final).xlsx")
+    assert sanitized =~ ~r/^[A-Za-z0-9._-]+$/
+    assert String.length(sanitized) <= 160
+
+    # Values that reduce to a path-traversal or empty segment become the
+    # fixed fallback instead of reaching Path.join.
+    for degenerate <- ["", ".", "..", "///", nil, 42] do
+      assert WorkerFiles.sanitize_path_segment(degenerate) == "attachment"
+    end
+  end
+
   defp respond_to_list(route_auth, [protocol, "LIST", transfer_id, path, recursive, _max]) do
     FileTransferLane.handle_worker_frame(route_auth, [
       protocol,

@@ -1,3 +1,4 @@
+import { positiveInteger } from '../../common/numbers'
 import type { AIGatewayAPIKeyResponse } from '../../lanes/rpc_lane'
 import type { AIGatewayAPIKeyRequester } from '../turns/turn_options'
 import type { TurnStart } from '../../lanes/actor_lane'
@@ -106,10 +107,6 @@ function optionalModelReasoningEffort(value: unknown): CodexModelReasoningEffort
   return typeof value === 'string' && CODEX_MODEL_REASONING_EFFORTS.includes(value as CodexModelReasoningEffort)
     ? (value as CodexModelReasoningEffort)
     : undefined
-}
-
-function positiveInteger(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : undefined
 }
 
 function modelInputModalities(value: unknown): string[] {

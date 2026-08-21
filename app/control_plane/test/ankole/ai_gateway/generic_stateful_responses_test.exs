@@ -4,6 +4,8 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
   import Ecto.Query, warn: false
   import Ankole.PrincipalsFixtures
 
+  alias Ankole.AIGateway.Conversations
+
   alias Ankole.AIGateway
   alias Ankole.AIGateway.Events
   alias Ankole.AIGateway.Schemas.Message
@@ -15,7 +17,7 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
     caller_metadata = %{"usage" => "caller-value", "model" => "caller-model", "tag" => "kept"}
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(subject.uid, "generic-events")
+      Conversations.ensure_conversation(subject.uid, "generic-events")
 
     assert :ok = Events.subscribe(subject.uid, conversation.id)
 
@@ -57,7 +59,7 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
     %{principal: subject} = human_fixture()
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(subject.uid, "generic-tool-journal")
+      Conversations.ensure_conversation(subject.uid, "generic-tool-journal")
 
     {:ok, response} =
       StatefulResponses.start_response_run(%{
@@ -103,7 +105,7 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
 
   test "orphan reconciliation depends only on Response status and heartbeat time" do
     %{principal: subject} = human_fixture()
-    {:ok, conversation} = StatefulResponses.ensure_conversation(subject.uid, "generic-orphan")
+    {:ok, conversation} = Conversations.ensure_conversation(subject.uid, "generic-orphan")
 
     {:ok, live} =
       StatefulResponses.start_response_run(%{
@@ -138,9 +140,9 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
     %{principal: subject} = human_fixture()
     %{principal: other_subject} = human_fixture()
 
-    {:ok, selected} = StatefulResponses.ensure_conversation(subject.uid, "selected")
+    {:ok, selected} = Conversations.ensure_conversation(subject.uid, "selected")
 
-    {:ok, _other} = StatefulResponses.ensure_conversation(other_subject.uid, "selected")
+    {:ok, _other} = Conversations.ensure_conversation(other_subject.uid, "selected")
 
     assert [conversation] =
              AIGateway.list_active_conversations(Repo,
@@ -155,7 +157,7 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
 
   test "visible suffix deletion detaches non-complete descendants" do
     %{principal: subject} = human_fixture()
-    {:ok, conversation} = StatefulResponses.ensure_conversation(subject.uid, "suffix-detach")
+    {:ok, conversation} = Conversations.ensure_conversation(subject.uid, "suffix-detach")
 
     {:ok, anchor} =
       StatefulResponses.start_response_run(%{
@@ -192,7 +194,7 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
 
   test "visible suffix retraction preserves audit rows and resumes from the predecessor" do
     %{principal: subject} = human_fixture()
-    {:ok, conversation} = StatefulResponses.ensure_conversation(subject.uid, "suffix-retract")
+    {:ok, conversation} = Conversations.ensure_conversation(subject.uid, "suffix-retract")
 
     {:ok, predecessor} =
       StatefulResponses.start_response_run(%{
@@ -250,7 +252,7 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
 
   test "facade publishes a generic terminal event after an in-transaction failure" do
     %{principal: subject} = human_fixture()
-    {:ok, conversation} = StatefulResponses.ensure_conversation(subject.uid, "facade-publish")
+    {:ok, conversation} = Conversations.ensure_conversation(subject.uid, "facade-publish")
     assert :ok = AIGateway.subscribe(subject.uid, conversation.id)
 
     {:ok, response} =

@@ -1,6 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { spawn, type ChildProcess } from 'node:child_process'
-import { execFileSync } from 'node:child_process'
 import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
@@ -12,8 +11,6 @@ import { BrowserMaterialSchema } from '../../src/protocol'
 const enabled = process.env.ANKOLE_BROWSER_INTEGRATION === '1'
 const chromiumExecutable =
   process.env.ANKOLE_BROWSER_TEST_CHROMIUM ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
-const nodeExecutable =
-  process.env.ANKOLE_BROWSER_TEST_NODE ?? execFileSync('node', ['-p', 'process.execPath'], { encoding: 'utf8' }).trim()
 
 describe.skipIf(!enabled)('real daemon, Chromium, dialog, and code lease', () => {
   let root: string
@@ -161,9 +158,7 @@ describe.skipIf(!enabled)('real daemon, Chromium, dialog, and code lease', () =>
   test('browser.bind runner sees and changes the same persistent page', async () => {
     const packageRoot = resolve(import.meta.dir, '../..')
     const previousRunner = process.env.ANKOLE_BROWSER_RUNNER
-    const previousNode = process.env.ANKOLE_BROWSER_NODE
     process.env.ANKOLE_BROWSER_RUNNER = resolve(packageRoot, 'dist/runner/bootstrap.js')
-    process.env.ANKOLE_BROWSER_NODE = nodeExecutable
     try {
       const result = await runBrowserCode({
         context,
@@ -176,8 +171,6 @@ describe.skipIf(!enabled)('real daemon, Chromium, dialog, and code lease', () =>
     } finally {
       if (previousRunner === undefined) delete process.env.ANKOLE_BROWSER_RUNNER
       else process.env.ANKOLE_BROWSER_RUNNER = previousRunner
-      if (previousNode === undefined) delete process.env.ANKOLE_BROWSER_NODE
-      else process.env.ANKOLE_BROWSER_NODE = previousNode
     }
 
     const value = await sendBrowserCommand(context, { name: 'get', args: { property: 'value', selector: '#value' } })
@@ -372,7 +365,7 @@ describe.skipIf(!enabled)('real browser capacity pressure', () => {
 })
 
 async function startDaemon(socketPath: string, maxActiveBrowsers?: number): Promise<ChildProcess> {
-  const child = spawn(nodeExecutable, ['dist/daemon/main.js'], {
+  const child = spawn(process.execPath, ['dist/daemon/main.js'], {
     cwd: resolve(import.meta.dir, '../..'),
     env: {
       ...process.env,
@@ -391,16 +384,12 @@ async function runCode(
   timeoutMs = 10_000
 ): Promise<Record<string, unknown>> {
   const previousRunner = process.env.ANKOLE_BROWSER_RUNNER
-  const previousNode = process.env.ANKOLE_BROWSER_NODE
   process.env.ANKOLE_BROWSER_RUNNER = resolve(import.meta.dir, '../../dist/runner/bootstrap.js')
-  process.env.ANKOLE_BROWSER_NODE = nodeExecutable
   try {
     return await runBrowserCode({ context, scriptSource, scriptArgs: [], timeoutMs })
   } finally {
     if (previousRunner === undefined) delete process.env.ANKOLE_BROWSER_RUNNER
     else process.env.ANKOLE_BROWSER_RUNNER = previousRunner
-    if (previousNode === undefined) delete process.env.ANKOLE_BROWSER_NODE
-    else process.env.ANKOLE_BROWSER_NODE = previousNode
   }
 }
 
@@ -410,16 +399,12 @@ async function runCodePath(
   timeoutMs = 10_000
 ): Promise<Record<string, unknown>> {
   const previousRunner = process.env.ANKOLE_BROWSER_RUNNER
-  const previousNode = process.env.ANKOLE_BROWSER_NODE
   process.env.ANKOLE_BROWSER_RUNNER = resolve(import.meta.dir, '../../dist/runner/bootstrap.js')
-  process.env.ANKOLE_BROWSER_NODE = nodeExecutable
   try {
     return await runBrowserCode({ context, scriptPath, scriptArgs: [], timeoutMs })
   } finally {
     if (previousRunner === undefined) delete process.env.ANKOLE_BROWSER_RUNNER
     else process.env.ANKOLE_BROWSER_RUNNER = previousRunner
-    if (previousNode === undefined) delete process.env.ANKOLE_BROWSER_NODE
-    else process.env.ANKOLE_BROWSER_NODE = previousNode
   }
 }
 

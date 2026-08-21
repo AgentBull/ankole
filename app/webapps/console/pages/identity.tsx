@@ -336,7 +336,7 @@ function formFromProvider(provider: IdentityProviderItem): IdentityEditorDraft {
 }
 
 function asConfigFields(fields: readonly unknown[]): ConfigFieldDefinition[] {
-  return fields.map(field => field as unknown as ConfigFieldDefinition)
+  return fields as readonly unknown[] as ConfigFieldDefinition[]
 }
 
 function localizedUnknown(value: unknown, locale: string, fallback: string): string {

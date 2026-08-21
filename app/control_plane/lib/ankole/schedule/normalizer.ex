@@ -13,7 +13,7 @@ defmodule Ankole.Schedule.Normalizer do
 
   @spec checkback_attrs(map(), DateTime.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def checkback_attrs(attrs, now, opts) do
-    attrs = Attrs.normalize_external_attrs(attrs)
+    attrs = Ankole.Attrs.normalize_external_attrs(attrs)
 
     with {:ok, due_at, timezone, schedule} <- normalize_checkback_schedule(attrs, now, opts) do
       build_checkback_attrs(attrs, due_at, timezone, schedule, now)
@@ -23,7 +23,7 @@ defmodule Ankole.Schedule.Normalizer do
   @spec checkback_replacement_attrs(ScheduledEvent.t(), map(), DateTime.t(), keyword()) ::
           {:ok, map()} | {:error, term()}
   def checkback_replacement_attrs(%ScheduledEvent{} = existing, attrs, now, opts) do
-    attrs = Attrs.normalize_external_attrs(attrs)
+    attrs = Ankole.Attrs.normalize_external_attrs(attrs)
 
     source_provenance =
       case Attrs.map_value(attrs, "source_provenance") do
@@ -130,7 +130,7 @@ defmodule Ankole.Schedule.Normalizer do
 
   @spec cron_schedule_attrs(map(), DateTime.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def cron_schedule_attrs(attrs, now, opts) do
-    attrs = Attrs.normalize_external_attrs(attrs)
+    attrs = Ankole.Attrs.normalize_external_attrs(attrs)
 
     with {:ok, agent_uid} <- Attrs.required_text(attrs, "agent_uid"),
          {:ok, owner_session_id} <- Attrs.required_text(attrs, "owner_session_id"),
@@ -170,7 +170,7 @@ defmodule Ankole.Schedule.Normalizer do
   @spec cron_schedule_update_attrs(CronSchedule.t(), map(), DateTime.t(), keyword()) ::
           {:ok, map()} | {:error, term()}
   def cron_schedule_update_attrs(%CronSchedule{} = existing, attrs, _now, opts) do
-    attrs = Attrs.normalize_external_attrs(attrs)
+    attrs = Ankole.Attrs.normalize_external_attrs(attrs)
 
     with :ok <- validate_cron_update_fields(attrs),
          {:ok, name} <- normalize_updated_name(attrs),

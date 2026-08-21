@@ -285,8 +285,6 @@ defmodule Ankole.SignalsGateway.AdaptersTest do
     worker_env_secret = "custom-runtime-value-#{System.unique_integer([:positive])}"
     visible_env_value = "visible-runtime-value-#{System.unique_integer([:positive])}"
 
-    assert :ok = WorkerAuthKey.ensure_registered()
-
     assert {:ok, ^worker_auth_key} =
              AppConfigure.put_global(WorkerAuthKey.definition(), worker_auth_key)
 

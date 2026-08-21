@@ -34,35 +34,21 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAuthKey do
   end
 
   @doc """
-  Registers the AppConfigure key.
-  """
-  @spec ensure_registered() :: :ok | {:error, term()}
-  def ensure_registered do
-    case AppConfigure.register_definitions([definition()]) do
-      :ok -> :ok
-      {:error, {:duplicate_key, @key}} -> :ok
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  @doc """
   Returns the persisted key, creating a generated secret value when the row is missing.
   """
   @spec ensure() :: {:ok, String.t()} | {:error, term()}
   def ensure do
-    with :ok <- ensure_registered() do
-      case AppConfigure.get(definition()) do
-        {:ok, key} ->
-          {:ok, key}
+    case AppConfigure.get(definition()) do
+      {:ok, key} ->
+        {:ok, key}
 
-        :error ->
-          with {:ok, generated} <- AppConfigure.generate(definition()) do
-            AppConfigure.put_global(definition(), generated)
-          end
+      :error ->
+        with {:ok, generated} <- AppConfigure.generate(definition()) do
+          AppConfigure.put_global(definition(), generated)
+        end
 
-        {:error, _reason} = error ->
-          error
-      end
+      {:error, _reason} = error ->
+        error
     end
   end
 

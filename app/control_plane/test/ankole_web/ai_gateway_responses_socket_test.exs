@@ -8,6 +8,8 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
 
   import Ankole.PrincipalsFixtures
 
+  alias Ankole.AIGateway.Conversations
+
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIGateway.Compaction
   alias Ankole.AIGateway.Events
@@ -378,7 +380,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
              })
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(agent.uid, "socket-implicit-admission-conflict")
+      Conversations.ensure_conversation(agent.uid, "socket-implicit-admission-conflict")
 
     {:ok, root} =
       StatefulResponses.start_response_run(%{
@@ -1443,7 +1445,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
              })
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(agent.uid, "socket-native-read-credit")
+      Conversations.ensure_conversation(agent.uid, "socket-native-read-credit")
 
     actor_event =
       actor_event_fixture(agent.uid, conversation.conversation_key, "socket-native-read-credit")
@@ -1526,7 +1528,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
              })
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(agent.uid, "socket-issuer-change")
+      Conversations.ensure_conversation(agent.uid, "socket-issuer-change")
 
     {:ok, root} =
       StatefulResponses.start_response_run(%{
@@ -2593,7 +2595,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
              })
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(agent.uid, "socket-conversation-without-actor-event")
+      Conversations.ensure_conversation(agent.uid, "socket-conversation-without-actor-event")
 
     request =
       Ankole.JSON.encode!(%{
@@ -2625,7 +2627,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     %{principal: agent} = agent_fixture()
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(agent.uid, "socket-tool-results-record")
+      Conversations.ensure_conversation(agent.uid, "socket-tool-results-record")
 
     actor_event =
       actor_event_fixture(agent.uid, conversation.conversation_key, "socket-tool-results-record")
@@ -2715,7 +2717,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     %{principal: agent} = agent_fixture()
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(agent.uid, "socket-tool-results-quarantine")
+      Conversations.ensure_conversation(agent.uid, "socket-tool-results-quarantine")
 
     {:ok, anchor} =
       StatefulResponses.start_response_run(%{
@@ -2793,7 +2795,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
              })
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(agent.uid, "socket-duplicate-actor-event")
+      Conversations.ensure_conversation(agent.uid, "socket-duplicate-actor-event")
 
     actor_event =
       actor_event_fixture(agent.uid, conversation.conversation_key, "socket-duplicate-event")
@@ -2971,7 +2973,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
              })
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(agent.uid, "socket-upstream-429")
+      Conversations.ensure_conversation(agent.uid, "socket-upstream-429")
 
     actor_event =
       actor_event_fixture(agent.uid, conversation.conversation_key, "socket-event-upstream-429")
@@ -3080,7 +3082,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
              })
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(agent.uid, "socket-upstream-large-503")
+      Conversations.ensure_conversation(agent.uid, "socket-upstream-large-503")
 
     actor_event =
       actor_event_fixture(
@@ -3163,7 +3165,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     %{principal: agent} = agent_fixture()
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(agent.uid, "socket-test-#{session_suffix}")
+      Conversations.ensure_conversation(agent.uid, "socket-test-#{session_suffix}")
 
     actor_event =
       actor_event_fixture(

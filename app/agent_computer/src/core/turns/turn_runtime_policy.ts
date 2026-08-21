@@ -1,3 +1,4 @@
+import { positiveInteger } from '../../common/numbers'
 import type { TurnStart } from '../../lanes/actor_lane'
 import { isRecord, ms } from '@agentbull/active-support'
 
@@ -40,10 +41,6 @@ export function webSearchIsProviderHosted(turnStart: TurnStart): boolean {
   const policy = isRecord(rawPolicy) ? rawPolicy : {}
   const hosted = isRecord(policy.provider_hosted) ? policy.provider_hosted : {}
   return hosted.web_search === true
-}
-
-function positiveInteger(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : undefined
 }
 
 function requiredPositiveInteger(value: unknown, field: string): number {

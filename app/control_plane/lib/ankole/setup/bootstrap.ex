@@ -27,8 +27,7 @@ defmodule Ankole.Setup.Bootstrap do
   """
   @spec initialize() :: {:ok, result()} | {:error, term()}
   def initialize do
-    with :ok <- Config.ensure_registered(),
-         {:ok, completed?} <- Config.completed?() do
+    with {:ok, completed?} <- Config.completed?() do
       initialize_for_completion(completed?)
     end
   end
@@ -52,8 +51,7 @@ defmodule Ankole.Setup.Bootstrap do
   """
   @spec log_current_activation_code() :: :ok | :error | {:error, term()}
   def log_current_activation_code do
-    with :ok <- Config.ensure_registered(),
-         {:ok, false} <- Config.completed?(),
+    with {:ok, false} <- Config.completed?(),
          {:ok, code} <- Config.bootstrap_activation_code() do
       log_activation_code(
         "setup.bootstrap.activation_code_printed",

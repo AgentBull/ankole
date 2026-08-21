@@ -1,6 +1,8 @@
 defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
   use Ankole.SignalsGateway.ActorRuntimeCase
 
+  alias Ankole.AIGateway.Conversations
+
   alias Ankole.AIGateway.StatefulResponses
   alias Ankole.PluginFixtures.MockSignalProvider.Outbox, as: MockOutbox
   alias Ankole.PluginFixtures.MockSignalProviderPlugin
@@ -742,7 +744,7 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
              ActorRuntime.handle_turn_accepted(turn_accepted_payload(turn_ref))
 
     assert {:ok, conversation} =
-             StatefulResponses.ensure_conversation(agent.uid, event.session_id)
+             Conversations.ensure_conversation(agent.uid, event.session_id)
 
     assert {:ok, message} =
              StatefulResponses.start_response_run(%{

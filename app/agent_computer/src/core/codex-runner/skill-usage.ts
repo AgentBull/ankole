@@ -1,3 +1,4 @@
+import { compareCodePointStrings } from '../../common/ordering'
 import { relative, resolve } from 'node:path'
 import type { BackgroundAgentJobAttemptHistoryEntry } from '../../fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import type { MCPServerConfig } from '../../tools/mcp'
@@ -100,7 +101,7 @@ export class CodexSkillUsageTracker {
   pendingDisabledNotices(): string[] {
     return [...this.disabledSkillNames]
       .filter(name => this.usedSkillNames.has(name) && !this.notifiedDisabledSkillNames.has(name))
-      .sort(compareCodePoints)
+      .sort(compareCodePointStrings)
   }
 
   markNotified(name: string): void {
@@ -111,7 +112,7 @@ export class CodexSkillUsageTracker {
 
   private markUsed(skillNames: string[]): string[] {
     const added: string[] = []
-    for (const name of skillNames.sort(compareCodePoints)) {
+    for (const name of skillNames.sort(compareCodePointStrings)) {
       if (!this.availableSkillNames.has(name) || this.usedSkillNames.has(name)) continue
       this.usedSkillNames.add(name)
       added.push(name)
@@ -144,8 +145,4 @@ function pathReference(evidence: string, path: string): boolean {
   const index = evidence.indexOf(path)
   const after = evidence[index + path.length]
   return after === undefined || after === '/' || /[\s'"`:;,)]/.test(after)
-}
-
-function compareCodePoints(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0
 }

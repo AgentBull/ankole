@@ -8,10 +8,5 @@ defmodule Ankole.AIGateway.MapUtils do
   """
 
   @doc "Normalizes atom keys to string keys at an external JSON boundary."
-  def normalize_request_keys(map) when is_map(map) do
-    Map.new(map, fn
-      {key, value} when is_atom(key) -> {Atom.to_string(key), value}
-      {key, value} -> {key, value}
-    end)
-  end
+  defdelegate normalize_request_keys(map), to: Ankole.Attrs, as: :normalize_external_attrs
 end

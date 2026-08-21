@@ -20,7 +20,6 @@ defmodule AnkoleWeb.AutomationJobControllerTest do
     Registry.clear_for_test()
     Cache.clear_for_test()
 
-    :ok = SetupConfig.ensure_registered()
     {:ok, false} = SetupConfig.put_completed(false)
     :ok = SetupConfig.delete_bootstrap_activation_code()
 
@@ -229,29 +228,6 @@ defmodule AnkoleWeb.AutomationJobControllerTest do
     event
   end
 
-  defp bearer_conn(conn) do
-    {conn, _principal_uid} = bearer_conn_with_principal(conn)
-    conn
-  end
-
-  defp bearer_conn_with_principal(conn) do
-    {conn, principal_uid} = active_admin_conn(conn)
-
-    conn
-    |> post(~p"/.internal-apis/oauth/token", %{
-      "grant_type" => "urn:ankole:params:oauth:grant-type:browser-session"
-    })
-    |> json_response(200)
-    |> Map.fetch!("access_token")
-    |> then(fn access_token ->
-      conn
-      |> recycle()
-      |> put_req_header("authorization", "Bearer #{access_token}")
-      |> put_req_header("content-type", "application/json")
-    end)
-    |> then(&{&1, principal_uid})
-  end
-
   defp recycle_bearer(conn) do
     authorization = get_req_header(conn, "authorization") |> List.first()
 
@@ -259,22 +235,5 @@ defmodule AnkoleWeb.AutomationJobControllerTest do
     |> recycle()
     |> put_req_header("authorization", authorization)
     |> put_req_header("content-type", "application/json")
-  end
-
-  defp active_admin_conn(conn) do
-    {:ok, true} = SetupConfig.put_completed(true)
-    human = human_fixture(%{uid: unique_uid("automation-console-admin")})
-    assert {:ok, _root} = AuthZ.root_init_admin(human.principal.uid)
-
-    session_conn =
-      conn
-      |> init_test_session(%{})
-      |> WebSession.put_admin_session(%{
-        principal_uid: human.principal.uid,
-        provider_id: "lark-main",
-        external_id: "external-1"
-      })
-
-    {session_conn, human.principal.uid}
   end
 end

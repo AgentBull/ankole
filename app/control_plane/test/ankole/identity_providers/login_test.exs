@@ -14,8 +14,6 @@ defmodule Ankole.IdentityProviders.LoginTest do
   setup do
     AppConfigureRegistry.clear_for_test()
     Cache.clear_for_test()
-    :ok = AppConfigure.register_patterns(LarkAdapter.app_config_patterns())
-    :ok = IdentityProviderConfig.ensure_registered()
   end
 
   test "login list carries only enabled providers that can sign an admin in" do

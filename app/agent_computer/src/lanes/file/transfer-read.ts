@@ -16,6 +16,7 @@ import { FileTransferError, type FileTransferErrorCode } from './errors'
 import { fileFingerprint } from './fingerprint'
 import { assertExistingFileAddress, parseVirtualPathFrame, resolveFileAddress } from './path-security'
 import type { FileAddress, FileTransferContext, GetTransfer } from './types'
+import { errorMessage, nodeErrorCode } from '../../common/errors'
 
 export async function handleReadOpen(
   context: FileTransferContext,
@@ -102,11 +103,6 @@ function openReadSource(
   }
 }
 
-function nodeErrorCode(error: unknown): string | undefined {
-  if (typeof error !== 'object' || error === null || !('code' in error)) return undefined
-  return typeof error.code === 'string' ? error.code : undefined
-}
-
 export function sendReadData(context: FileTransferContext, transferID: string, frames: Buffer[]): void {
   const transfer = context.state.gets.get(transferID)
   if (!transfer) {
@@ -145,11 +141,7 @@ async function drainReadTransfer(context: FileTransferContext, transfer: GetTran
       try {
         compressed = await zstdCompressBlock(block, zstdLevel)
       } catch (error) {
-        await finishReadTransferWithError(
-          context,
-          transfer,
-          `zstd encode failed: ${error instanceof Error ? error.message : String(error)}`
-        )
+        await finishReadTransferWithError(context, transfer, `zstd encode failed: ${errorMessage(error)}`)
         return
       }
 
@@ -176,7 +168,7 @@ async function drainReadTransfer(context: FileTransferContext, transfer: GetTran
 
     await maybeFinishReadTransfer(context, transfer)
   } catch (error) {
-    await finishReadTransferWithError(context, transfer, error instanceof Error ? error.message : String(error))
+    await finishReadTransferWithError(context, transfer, errorMessage(error))
   } finally {
     transfer.draining = false
     // Credit may have arrived while this drain was in flight (sendReadData would

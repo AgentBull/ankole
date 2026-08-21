@@ -1,4 +1,5 @@
 defmodule AnkoleWeb.AuthZGroupController do
+  alias Ankole.Attrs
   alias OpenApiSpex, as: OpenAPISpex
 
   @moduledoc """
@@ -282,7 +283,7 @@ defmodule AnkoleWeb.AuthZGroupController do
   defp create_attrs(attrs) when is_map(attrs) do
     {:ok,
      attrs
-     |> normalize_external_attrs()
+     |> Attrs.normalize_external_attrs()
      |> Map.take(~w(name display_name kind computed_condition description))}
   end
 
@@ -290,18 +291,11 @@ defmodule AnkoleWeb.AuthZGroupController do
 
   defp update_attrs(attrs) when is_map(attrs) do
     attrs
-    |> normalize_external_attrs()
+    |> Attrs.normalize_external_attrs()
     |> Map.take(~w(display_name computed_condition description))
   end
 
   defp update_attrs(_attrs), do: %{}
-
-  defp normalize_external_attrs(attrs) do
-    Map.new(attrs, fn
-      {key, value} when is_atom(key) -> {Atom.to_string(key), value}
-      {key, value} -> {key, value}
-    end)
-  end
 
   defp name_param(params) do
     case Map.get(params, :name, Map.get(params, "name")) do
@@ -324,7 +318,7 @@ defmodule AnkoleWeb.AuthZGroupController do
   end
 
   defp condition_param(attrs) when is_map(attrs) do
-    attrs = normalize_external_attrs(attrs)
+    attrs = Attrs.normalize_external_attrs(attrs)
 
     case attrs do
       %{"condition" => condition} when is_binary(condition) -> {:ok, condition}

@@ -25,7 +25,6 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
   defp setup_binding(chat_config) do
     AppConfigureRegistry.clear_for_test()
     AppConfigureCache.clear_for_test()
-    :ok = AppConfigure.register_patterns(DingTalkAdapter.app_config_patterns())
 
     config_id = "dingtalk-aicard-#{System.unique_integer([:positive])}"
 

@@ -245,8 +245,8 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
 
         {:ok,
          execution
-         |> maybe_put(:current, current_projection(current))
-         |> maybe_put(:usage, latest_lead_usage(turns, job.runtime_thread_id))}
+         |> Ankole.Attrs.maybe_put(:current, current_projection(current))
+         |> Ankole.Attrs.maybe_put(:usage, latest_lead_usage(turns, job.runtime_thread_id))}
       end
     end
   end
@@ -600,11 +600,20 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
     |> Enum.reverse()
   end
 
-  @spec console_projection(Turn.t()) :: map()
-  def console_projection(%Turn{} = turn) do
+  @spec console_projections([Turn.t()]) :: [map()]
+  def console_projections([]), do: []
+
+  def console_projections(turns) when is_list(turns) do
+    messages_by_turn = trajectory_messages_by_turn(Enum.map(turns, & &1.id))
+
+    Enum.map(turns, fn turn ->
+      console_projection(turn, Map.get(messages_by_turn, turn.id, []))
+    end)
+  end
+
+  defp console_projection(%Turn{} = turn, messages) do
     trajectory =
-      turn
-      |> trajectory_messages()
+      messages
       |> OpaqueContent.reveal()
       |> then(&Map.put(turn.trajectory || empty_trajectory(), "messages", &1))
 
@@ -967,7 +976,7 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
           |> Enum.sort_by(fn {{namespace, name}, _calls} -> {namespace || "", name} end)
           |> Enum.map(fn {{namespace, name}, calls} ->
             %{name: name, calls: calls}
-            |> maybe_put(:namespace, namespace)
+            |> Ankole.Attrs.maybe_put(:namespace, namespace)
           end),
         tool_execution_mechanisms:
           totals.tool_execution_mechanisms
@@ -976,7 +985,7 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
           end)
           |> Enum.map(fn {{{namespace, name}, mechanism}, calls} ->
             %{name: name, execution_mechanism: mechanism, calls: calls}
-            |> maybe_put(:namespace, namespace)
+            |> Ankole.Attrs.maybe_put(:namespace, namespace)
           end),
         files_changed: totals.files |> MapSet.to_list() |> Enum.sort(),
         active_items: active_items(turns, job)
@@ -988,7 +997,7 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
         end
       end)
 
-    maybe_put(progress, :plan, latest_lead_plan(turns, job.runtime_thread_id))
+    Ankole.Attrs.maybe_put(progress, :plan, latest_lead_plan(turns, job.runtime_thread_id))
   end
 
   defp merge_tool_usage(acc, tools) when is_list(tools) do
@@ -1068,7 +1077,7 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
               scope: if(lead_turn?(turn, job.runtime_thread_id), do: "lead", else: "child"),
               name: name
             }
-            |> maybe_put(:namespace, Map.get(active_item, "namespace"))
+            |> Ankole.Attrs.maybe_put(:namespace, Map.get(active_item, "namespace"))
           ]
 
         _progress ->
@@ -1176,7 +1185,7 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
           version: 1,
           messages: selected |> Enum.flat_map(& &1.messages)
         }
-        |> maybe_put(:metadata, if(metadata == %{}, do: nil, else: metadata))
+        |> Ankole.Attrs.maybe_put(:metadata, if(metadata == %{}, do: nil, else: metadata))
 
       {:ok,
        if has_more and selected != [] do
@@ -1287,7 +1296,7 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
           "type" => "function",
           "function" =>
             %{"name" => name, "arguments" => "{}"}
-            |> maybe_put("namespace", namespace)
+            |> Ankole.Attrs.maybe_put("namespace", namespace)
         }
       ])
       |> Map.delete("metadata")
@@ -1473,11 +1482,16 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
   end
 
   defp trajectory_messages(%Turn{} = turn) do
+    [turn.id] |> trajectory_messages_by_turn() |> Map.get(turn.id, [])
+  end
+
+  defp trajectory_messages_by_turn(turn_ids) do
     TrajectoryGroup
-    |> where([group], group.turn_id == ^turn.id)
-    |> order_by([group], asc: group.position)
+    |> where([group], group.turn_id in ^turn_ids)
+    |> order_by([group], asc: group.turn_id, asc: group.position)
     |> Repo.all()
-    |> Enum.flat_map(&Map.get(&1.content, "messages", []))
+    |> Enum.group_by(& &1.turn_id, &Map.get(&1.content, "messages", []))
+    |> Map.new(fn {turn_id, message_groups} -> {turn_id, Enum.concat(message_groups)} end)
   end
 
   defp empty_progress do
@@ -1490,9 +1504,6 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
   end
 
   defp empty_trajectory, do: Trajectory.empty_header()
-
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp maybe_lock(query, nil), do: query
   defp maybe_lock(query, "FOR UPDATE"), do: lock(query, "FOR UPDATE")

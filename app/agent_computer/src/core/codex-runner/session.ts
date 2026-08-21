@@ -1,16 +1,13 @@
-import { jsonObject, type JsonObject as JSONObject } from '@agentbull/active-support'
+import { compareCodePointStrings } from '../../common/ordering'
+import { jsonObject, ms, type JsonObject as JSONObject } from '@agentbull/active-support'
 import { existsSync, realpathSync, statSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { errorMessage } from '../../common/errors'
+import { errorMessage, toError } from '../../common/errors'
 import { sanitizeBinaryOutput, truncateUTF8Safe, utf8ByteLength } from '../../common/text-sanitize'
 import { jsonBytes } from '../../fabric/envelope_proto'
 import type { TurnStart, TurnSteerUpdate } from '../../lanes/actor_lane'
-import {
-  rpcMethods,
-  type BackgroundAgentJobResponse,
-  type BackgroundAgentJobStatus,
-  type BackgroundAgentJobTurnUsage
-} from '../../lanes/rpc_lane'
+import { rpcMethods, type BackgroundAgentJobResponse } from '../../lanes/rpc_lane'
+import type { BackgroundAgentJobStatus, BackgroundAgentJobTurnUsage } from '../background-agent-job-documents'
 import {
   CodexAppServerClient,
   CodexAppServerExitError,
@@ -50,7 +47,7 @@ import { fetchReplayTurnItems, wireItemsFromTurnItems } from './thread-replay'
 
 const steerPollIntervalMs = 250
 const maxMCPStartupErrorBytes = 2_048
-const defaultFirstCodexProgressTimeoutMs = 60_000
+const defaultFirstCodexProgressTimeoutMs = ms('1m')
 
 export async function runCodexJobSession(input: PreparedCodexJobExecution): Promise<TurnHandlerResult> {
   return new CodexJobSession(input).run()
@@ -175,7 +172,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
         this.input.opts.logger?.warning(
           'worker.codex_job_post_commit_cleanup_failed',
           'Background Agent Job cleanup failed after its durable status commit',
-          { job_id: this.input.jobID, stage, error: error instanceof Error ? error : new Error(String(error)) }
+          { job_id: this.input.jobID, stage, error: toError(error) }
         )
         return
       }
@@ -326,7 +323,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
       this.input.opts.logger?.warning(
         'worker.codex_thread_replay_fetch_failed',
         'stored turn items were not readable for thread replay',
-        { job_id: this.input.jobID, error: error instanceof Error ? error : new Error(String(error)) }
+        { job_id: this.input.jobID, error: toError(error) }
       )
     }
 
@@ -344,7 +341,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
       this.input.opts.logger?.warning(
         'worker.codex_thread_replay_inject_failed',
         'stored turn items could not be injected into the replacement thread',
-        { job_id: this.input.jobID, error: error instanceof Error ? error : new Error(String(error)) }
+        { job_id: this.input.jobID, error: toError(error) }
       )
       return 'recreated'
     } finally {
@@ -381,7 +378,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
         {
           job_id: this.input.jobID,
           source_job_id: sourceJobID,
-          error: error instanceof Error ? error : new Error(String(error))
+          error: toError(error)
         }
       )
       return undefined
@@ -402,7 +399,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
           job_project_cwd: jobProject.codexCwd,
           job_workspace: jobProject.root,
           codex_app_server_pid: this.client?.processID,
-          mcp_server_names: mcpServers.map(server => server.name).sort(compareCodePoints),
+          mcp_server_names: mcpServers.map(server => server.name).sort(compareCodePointStrings),
           ...(this.recreatedThreadOnResume
             ? {
                 runtime_checkpoint_recreated: true,
@@ -475,7 +472,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
       this.durableJobStatusCommitted = true
       this.resolveDone()
     } catch (error) {
-      this.rejectDone(error instanceof Error ? error : new Error(String(error)))
+      this.rejectDone(toError(error))
     }
   }
 
@@ -729,7 +726,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
         }
       })
     } catch (recoveryError) {
-      this.rejectDone(recoveryError instanceof Error ? recoveryError : new Error(String(recoveryError)))
+      this.rejectDone(toError(recoveryError))
     } finally {
       this.recoveryInFlight = false
     }
@@ -875,7 +872,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
         this.scheduleClaimedCommit('waiting_on_user', { metadata: { pending_user_input: pending } })
       } catch (error) {
         this.waitingOnUserInput = false
-        this.rejectDone(error instanceof Error ? error : new Error(String(error)))
+        this.rejectDone(toError(error))
       }
       return
     }
@@ -959,7 +956,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
       } catch (error) {
         if (!this.finalizing) {
           this.finalizing = true
-          this.rejectDone(error instanceof Error ? error : new Error(String(error)))
+          this.rejectDone(toError(error))
         }
         return
       }
@@ -1023,7 +1020,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
         .catch(error => {
           if (this.finalizing) return
           this.finalizing = true
-          this.rejectDone(error instanceof Error ? error : new Error(String(error)))
+          this.rejectDone(toError(error))
         })
         .finally(() => {
           this.steerInFlight = false
@@ -1047,7 +1044,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
       } catch (error) {
         this.input.opts.logger?.warning('worker.codex_skill_refresh_failed', 'active Job Skill refresh failed', {
           skill_name: name,
-          error: error instanceof Error ? error : new Error(String(error))
+          error: toError(error)
         })
       }
     }
@@ -1060,7 +1057,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
         'active Agent Plugin Skill refresh failed',
         {
           skill_names: skillNames,
-          error: error instanceof Error ? error : new Error(String(error))
+          error: toError(error)
         }
       )
     }
@@ -1135,7 +1132,7 @@ function ownerVisibleArtifactPaths(project: PreparedCodexJobExecution['jobProjec
     const artifact = ownerVisibleArtifactPath(project, path)
     if (artifact) artifacts.add(artifact)
   }
-  return [...artifacts].sort(compareCodePoints)
+  return [...artifacts].sort(compareCodePointStrings)
 }
 
 function artifactDiscoveryRoots(project: PreparedCodexJobExecution['jobProject']): BackgroundAgentJobPathHandoff {
@@ -1247,7 +1244,7 @@ async function steerDisabledSkills(
 
 function expectedSkillNames(input: PreparedCodexJobExecution): string[] {
   return [...input.runtimeFiles.expectedSkillNames, ...input.agentPluginCapabilities.availableSkillNames].sort(
-    compareCodePoints
+    compareCodePointStrings
   )
 }
 
@@ -1338,8 +1335,4 @@ class BackgroundAgentJobMessageDeliveryError extends Error {
 function abortReason(signal?: AbortSignal): string {
   if (!signal?.aborted) return 'stopped'
   return signal.reason instanceof Error ? signal.reason.message : String(signal.reason ?? 'stopped')
-}
-
-function compareCodePoints(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0
 }

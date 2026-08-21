@@ -68,7 +68,7 @@ export function AuthApp() {
                   window.location.assign(oidcAuthorizationPath(provider.providerID))
                 }}>
                 <span>
-                  <strong>{t('auth.sign_in_with', { provider: loginProviderLabel(provider.adapterID) })}</strong>
+                  <strong>{t('auth.sign_in_with', { provider: humanizeTechnicalLabel(provider.adapterID) })}</strong>
                   <small>
                     {t('auth.provider_details', {
                       providerID: provider.providerID,
@@ -94,10 +94,6 @@ export function AuthApp() {
       </Card>
     </main>
   )
-}
-
-function loginProviderLabel(adapterID: string): string {
-  return humanizeTechnicalLabel(adapterID)
 }
 
 function oidcAuthorizationPath(providerID: string): string {

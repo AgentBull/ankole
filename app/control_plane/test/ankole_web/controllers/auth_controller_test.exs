@@ -19,7 +19,6 @@ defmodule AnkoleWeb.AuthControllerTest do
     Registry.clear_for_test()
     Cache.clear_for_test()
 
-    :ok = SetupConfig.ensure_registered()
     {:ok, false} = SetupConfig.put_completed(false)
     :ok = SetupConfig.delete_bootstrap_activation_code()
 
@@ -37,7 +36,7 @@ defmodule AnkoleWeb.AuthControllerTest do
   test "POST /.internal-apis/oauth/token exchanges an active admin session for bearer tokens", %{
     conn: conn
   } do
-    {conn, principal_uid} = active_admin_conn(conn)
+    {conn, principal_uid} = active_admin_conn_with_principal(conn)
 
     conn =
       post(conn, ~p"/.internal-apis/oauth/token", %{
@@ -65,7 +64,7 @@ defmodule AnkoleWeb.AuthControllerTest do
   test "POST /.internal-apis/oauth/token refreshes only against the current admin session", %{
     conn: conn
   } do
-    {conn, _principal_uid} = active_admin_conn(conn)
+    {conn, _principal_uid} = active_admin_conn_with_principal(conn)
 
     conn =
       post(conn, ~p"/.internal-apis/oauth/token", %{
@@ -102,7 +101,7 @@ defmodule AnkoleWeb.AuthControllerTest do
   test "refresh grant fails when the refresh token subject differs from the cookie session", %{
     conn: conn
   } do
-    {conn, _principal_uid} = active_admin_conn(conn)
+    {conn, _principal_uid} = active_admin_conn_with_principal(conn)
 
     conn =
       post(conn, ~p"/.internal-apis/oauth/token", %{
@@ -143,8 +142,6 @@ defmodule AnkoleWeb.AuthControllerTest do
 
   test "OIDC authorization stores state and redirects in one browser response", %{conn: conn} do
     assert {:ok, true} = SetupConfig.put_completed(true)
-    :ok = IdentityProviderConfig.ensure_registered()
-    :ok = AppConfigure.register_patterns(LarkAdapter.app_config_patterns())
 
     assert {:ok, _provider} =
              IdentityProviders.save_provider(
@@ -245,22 +242,5 @@ defmodule AnkoleWeb.AuthControllerTest do
     assert json_response(conn, 409)["error"] == "setup already completed"
     assert get_session(conn, :admin_session) == nil
     assert get_session(conn, :admin_oidc_state) == nil
-  end
-
-  defp active_admin_conn(conn) do
-    {:ok, true} = SetupConfig.put_completed(true)
-    human = human_fixture(%{uid: unique_uid("console-admin")})
-    assert {:ok, _root} = AuthZ.root_init_admin(human.principal.uid)
-
-    conn =
-      conn
-      |> init_test_session(%{})
-      |> WebSession.put_admin_session(%{
-        principal_uid: human.principal.uid,
-        provider_id: "lark-main",
-        external_id: "external-1"
-      })
-
-    {conn, human.principal.uid}
   end
 end

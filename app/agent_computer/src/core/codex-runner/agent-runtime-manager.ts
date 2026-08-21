@@ -1,5 +1,5 @@
-import { jsonObject } from '@agentbull/active-support'
-import { errorMessage } from '../../common/errors'
+import { jsonObject, ms } from '@agentbull/active-support'
+import { errorMessage, toError } from '../../common/errors'
 import type { AgentLoopLogger } from '../types'
 import { CodexAppServerClient, CodexAppServerExitError, type JSONRPCMessage } from './app-server-client'
 import type { CodexAppServerSandboxSpec } from './sandbox'
@@ -19,8 +19,8 @@ import {
 } from './agent-plugin-materializer'
 import { retireLegacySharedCodexConfig } from './retire-legacy-shared-codex-config'
 
-const INITIALIZE_SLOW_DIAGNOSTIC_MS = 60_000
-const CLEANUP_REQUEST_TIMEOUT_MS = 5_000
+const INITIALIZE_SLOW_DIAGNOSTIC_MS = ms('1m')
+const CLEANUP_REQUEST_TIMEOUT_MS = ms('5s')
 const MAX_PENDING_THREAD_NOTIFICATIONS = 256
 const MAX_RUNTIME_STDERR_DIAGNOSTIC_LENGTH = 2_048
 
@@ -554,7 +554,7 @@ export class AgentCodexRuntime {
             {
               agent_uid: this.agentUID,
               thread_id: threadID,
-              error: error instanceof Error ? error : new Error(String(error))
+              error: toError(error)
             }
           )
         } finally {

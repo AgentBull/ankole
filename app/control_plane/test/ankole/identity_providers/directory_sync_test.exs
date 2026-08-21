@@ -17,8 +17,6 @@ defmodule Ankole.IdentityProviders.DirectorySyncTest do
   setup do
     AppConfigureRegistry.clear_for_test()
     Cache.clear_for_test()
-    :ok = AppConfigure.register_patterns(LarkAdapter.app_config_patterns())
-    :ok = IdentityProviderConfig.ensure_registered()
   end
 
   test "directory full sync interval defaults to six hours and is operator configurable" do

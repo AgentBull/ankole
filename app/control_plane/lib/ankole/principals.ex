@@ -13,6 +13,7 @@ defmodule Ankole.Principals do
   alias Ankole.Principals.Agent
   alias Ankole.Principals.ExternalIdentity
   alias Ankole.Principals.HumanUser
+  alias Ankole.Principals.MappingRequest
   alias Ankole.Principals.Principal
   alias Ankole.AIAgent.Library
   alias Ankole.AgentHomePaths
@@ -244,7 +245,8 @@ defmodule Ankole.Principals do
                metadata,
                existing_identity
              ),
-           {:ok, identity} <- upsert_external_identity(repo, identity_attrs) do
+           {:ok, identity} <- upsert_external_identity(repo, identity_attrs),
+           :ok <- delete_pending_mapping_request(repo, provider, external_id) do
         {:ok, %{principal: principal, human_user: human_user, identity: identity}}
       end
     end)
@@ -439,11 +441,26 @@ defmodule Ankole.Principals do
     )
   end
 
-  defp lock_platform_subject(repo, provider, external_id) do
+  @doc false
+  @spec lock_platform_subject(module(), String.t(), String.t()) :: :ok | {:error, term()}
+  def lock_platform_subject(repo, provider, external_id)
+      when is_binary(provider) and is_binary(external_id) do
     advisory_xact_lock(
       repo,
       "principal_external_identity:platform_subject:#{provider}:#{external_id}"
     )
+  end
+
+  @doc false
+  @spec delete_pending_mapping_request(module(), String.t(), String.t()) :: :ok
+  def delete_pending_mapping_request(repo, provider, external_id)
+      when is_binary(provider) and is_binary(external_id) do
+    repo.delete_all(
+      from request in MappingRequest,
+        where: request.provider == ^provider and request.external_id == ^external_id
+    )
+
+    :ok
   end
 
   # The contact join runs on subject creation, so concurrent first-sightings of

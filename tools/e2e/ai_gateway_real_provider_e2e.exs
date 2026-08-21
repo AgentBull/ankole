@@ -66,8 +66,8 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
   alias Ankole.AIGateway
   alias Ankole.AIGateway.CredentialPool
   alias Ankole.AIGateway.ProviderConfigs
+  alias Ankole.AIGateway.Tokens
   alias Ankole.Principals
-  alias AnkoleWeb.AIGatewayTokens
 
   def run(argv \\ System.argv()) do
     argv = normalize_argv(argv)
@@ -1638,7 +1638,7 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
   end
 
   defp mint_agent_token!(agent_uid) do
-    case AIGatewayTokens.mint_for_agent(agent_uid) do
+    case Tokens.mint_for_agent(agent_uid) do
       {:ok, token} -> token.api_key
       {:error, reason} -> raise "mint token failed: #{inspect(reason)}"
     end

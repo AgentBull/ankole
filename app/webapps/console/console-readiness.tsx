@@ -1,3 +1,4 @@
+import { IDLE_REFRESH_MS, WAITING_REFRESH_MS } from './refresh-intervals'
 import {
   Button,
   Popover,
@@ -37,7 +38,7 @@ export function ConsoleReadiness() {
   const [open, setOpen] = useState(false)
   const query = useQuery({
     ...ankoleWebConsoleReadinessControllerShowOptions(),
-    refetchInterval: open ? 2_000 : 30_000,
+    refetchInterval: open ? WAITING_REFRESH_MS : IDLE_REFRESH_MS,
     refetchOnReconnect: 'always',
     refetchOnWindowFocus: 'always'
   })

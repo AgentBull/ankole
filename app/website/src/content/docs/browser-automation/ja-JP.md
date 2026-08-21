@@ -68,7 +68,7 @@ Agent はこれらを `ankole-browser` CLI を通じて使います。`app/agent
 
 ## オペレーターが触らないもの
 
-worker イメージがブラウザの環境変数を設定します。それには `ANKOLE_BROWSER_CHROMIUM_EXECUTABLE`、`ANKOLE_BROWSER_CHROMIUM_ARGS_JSON`、`ANKOLE_BROWSER_DAEMON_SOCKET`、`ANKOLE_BROWSER_DAEMON_ENTRY`、`ANKOLE_BROWSER_CLI`、`ANKOLE_BROWSER_NODE`、`ANKOLE_BROWSER_RUNNER` が含まれます。これらの名前を Console の **Environment variables** で上書きすることはできません。ブラウザの振る舞いを変える必要がある場合は Skill を変更してください。
+worker イメージがブラウザの環境変数を設定します。それには `ANKOLE_BROWSER_CHROMIUM_EXECUTABLE`、`ANKOLE_BROWSER_CHROMIUM_ARGS_JSON`、`ANKOLE_BROWSER_DAEMON_SOCKET`、`ANKOLE_BROWSER_DAEMON_ENTRY`、`ANKOLE_BROWSER_CLI`、`ANKOLE_BROWSER_RUNNER` が含まれます。これらの名前を Console の **Environment variables** で上書きすることはできません。ブラウザの振る舞いを変える必要がある場合は Skill を変更してください。
 
 ## 次のステップ
 

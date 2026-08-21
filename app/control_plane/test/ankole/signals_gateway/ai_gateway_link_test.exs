@@ -4,6 +4,8 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
   import Ecto.Query
   import Ankole.PrincipalsFixtures
 
+  alias Ankole.AIGateway.Conversations
+
   alias Ankole.AIGateway.Schemas.{Conversation, Message}
   alias Ankole.AIGateway.StatefulResponses
   alias Ankole.AuthZ.Group
@@ -69,7 +71,7 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
 
   test "selects and fails only the explicit actor-correlated generating Response" do
     %{principal: subject} = agent_fixture()
-    {:ok, conversation} = StatefulResponses.ensure_conversation(subject.uid, "link-cancel")
+    {:ok, conversation} = Conversations.ensure_conversation(subject.uid, "link-cancel")
 
     {:ok, selected} =
       start_response(subject.uid, conversation.id, %{
@@ -110,7 +112,7 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
 
   test "finds retry source from opaque request metadata and user input" do
     %{principal: subject} = agent_fixture()
-    {:ok, conversation} = StatefulResponses.ensure_conversation(subject.uid, "link-retry")
+    {:ok, conversation} = Conversations.ensure_conversation(subject.uid, "link-retry")
 
     {:ok, response} =
       StatefulResponses.start_response_run(%{
@@ -148,7 +150,7 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
 
   test "retracts only the current actor-correlated visible suffix" do
     %{principal: subject} = agent_fixture()
-    {:ok, conversation} = StatefulResponses.ensure_conversation(subject.uid, "link-retry-retract")
+    {:ok, conversation} = Conversations.ensure_conversation(subject.uid, "link-retry-retract")
 
     {:ok, predecessor} =
       start_response(subject.uid, conversation.id, %{"actor_event_id" => "event-before"})
@@ -192,7 +194,7 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
 
   test "selects an actor-correlated visible suffix before calling generic deletion" do
     %{principal: subject} = agent_fixture()
-    {:ok, conversation} = StatefulResponses.ensure_conversation(subject.uid, "link-retraction")
+    {:ok, conversation} = Conversations.ensure_conversation(subject.uid, "link-retraction")
 
     {:ok, first} =
       start_response(subject.uid, conversation.id, %{"actor_event_id" => "event-tail"})
@@ -511,7 +513,7 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
   end
 
   defp tool_result_anchor!(subject_uid, session_id, current_event_id) do
-    {:ok, conversation} = StatefulResponses.ensure_conversation(subject_uid, session_id)
+    {:ok, conversation} = Conversations.ensure_conversation(subject_uid, session_id)
 
     {:ok, anchor} =
       start_response(subject_uid, conversation.id, %{"actor_event_id" => current_event_id})

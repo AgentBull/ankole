@@ -1,4 +1,4 @@
-defmodule AnkoleWeb.AIGatewayTokens do
+defmodule Ankole.AIGateway.Tokens do
   @moduledoc """
   Agent-scoped JWT credentials for the AIGateway HTTP API.
 

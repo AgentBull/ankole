@@ -1,6 +1,8 @@
 defmodule Ankole.SignalsGateway.ActorRuntime.ConversationCommandTest do
   use Ankole.SignalsGateway.ActorRuntimeCase
 
+  alias Ankole.AIGateway.Conversations
+
   alias Ankole.AIGateway.CompactionArtifacts
   alias Ankole.AIGateway.Events
   alias Ankole.AIGateway.Schemas.CompactionArtifact
@@ -69,7 +71,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ConversationCommandTest do
                })
 
       {:ok, conversation} =
-        StatefulResponses.ensure_conversation(agent.uid, "signal-channel:lark:chat:group-a")
+        Conversations.ensure_conversation(agent.uid, "signal-channel:lark:chat:group-a")
 
       old =
         insert_complete_message!(
@@ -187,7 +189,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ConversationCommandTest do
                })
 
       {:ok, conversation} =
-        StatefulResponses.ensure_conversation(agent.uid, "signal-channel:lark:chat:group-a")
+        Conversations.ensure_conversation(agent.uid, "signal-channel:lark:chat:group-a")
 
       old =
         insert_complete_message!(
@@ -321,7 +323,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ConversationCommandTest do
                })
 
       {:ok, conversation} =
-        StatefulResponses.ensure_conversation(agent.uid, "signal-channel:lark:chat:group-a")
+        Conversations.ensure_conversation(agent.uid, "signal-channel:lark:chat:group-a")
 
       old =
         insert_complete_message!(
@@ -512,7 +514,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ConversationCommandTest do
       initial_message_count = Repo.aggregate(Message, :count)
 
       {:ok, _conversation} =
-        StatefulResponses.ensure_conversation(agent.uid, "signal-channel:lark:chat:group-a")
+        Conversations.ensure_conversation(agent.uid, "signal-channel:lark:chat:group-a")
 
       assert {:ok, %{actor_event: compress_event}} =
                emit_entry(

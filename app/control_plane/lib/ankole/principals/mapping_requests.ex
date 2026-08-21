@@ -12,6 +12,7 @@ defmodule Ankole.Principals.MappingRequests do
   import Ecto.Query, warn: false
 
   alias Ankole.Principals
+  alias Ankole.Principals.ExternalIdentity
   alias Ankole.Principals.MappingRequest
   alias Ankole.Repo
 
@@ -22,27 +23,13 @@ defmodule Ankole.Principals.MappingRequests do
   refresh the display and contact hints without erasing values a later, less
   hydrated observation does not carry.
   """
-  @spec record_observation(map()) :: {:ok, MappingRequest.t()} | {:error, term()}
+  @spec record_observation(map()) ::
+          {:ok, MappingRequest.t() | :already_mapped} | {:error, term()}
   def record_observation(attrs) when is_map(attrs) do
     changeset = MappingRequest.changeset(%MappingRequest{}, attrs)
 
     with {:ok, incoming} <- Ecto.Changeset.apply_action(changeset, :validate) do
-      merged =
-        case Repo.get_by(MappingRequest,
-               provider: incoming.provider,
-               external_id: incoming.external_id
-             ) do
-          %MappingRequest{} = existing -> merge_observation(existing, incoming)
-          nil -> incoming_attrs(incoming)
-        end
-
-      %MappingRequest{}
-      |> MappingRequest.changeset(merged)
-      |> Repo.insert(
-        conflict_target: [:provider, :external_id],
-        on_conflict: {:replace, [:display_name, :email, :mobile, :metadata, :updated_at]},
-        returning: true
-      )
+      Repo.transact(fn repo -> record_observation_in_repo(repo, incoming) end)
     end
   end
 
@@ -60,8 +47,10 @@ defmodule Ankole.Principals.MappingRequests do
   Fetches one pending mapping request.
   """
   @spec get_request(String.t()) :: {:ok, MappingRequest.t()} | {:error, :not_found}
-  def get_request(id) when is_binary(id) do
-    case Repo.get(MappingRequest, id) do
+  def get_request(id) when is_binary(id), do: get_request(Repo, id)
+
+  defp get_request(repo, id) do
+    case repo.get(MappingRequest, id) do
       %MappingRequest{} = request -> {:ok, request}
       nil -> {:error, :not_found}
     end
@@ -76,19 +65,31 @@ defmodule Ankole.Principals.MappingRequests do
   @spec bind_request(String.t(), String.t()) ::
           {:ok, %{request: MappingRequest.t(), identity: struct()}} | {:error, term()}
   def bind_request(id, principal_uid) when is_binary(id) and is_binary(principal_uid) do
-    Repo.transact(fn repo ->
-      with {:ok, request} <- get_request(id),
-           {:ok, identity} <-
-             bind_subject_in_repo(repo, principal_uid, %{
-               provider: request.provider,
-               external_id: request.external_id,
-               metadata: bound_metadata(request)
-             }),
-           {_count, nil} <-
-             repo.delete_all(from r in MappingRequest, where: r.id == ^request.id) do
-        {:ok, %{request: request, identity: identity}}
-      end
-    end)
+    with {:ok, known_request} <- get_request(id) do
+      Repo.transact(fn repo ->
+        with :ok <-
+               Principals.lock_platform_subject(
+                 repo,
+                 known_request.provider,
+                 known_request.external_id
+               ),
+             {:ok, request} <- get_request(repo, id),
+             {:ok, identity} <-
+               bind_subject_in_repo(repo, principal_uid, %{
+                 provider: request.provider,
+                 external_id: request.external_id,
+                 metadata: bound_metadata(request)
+               }),
+             :ok <-
+               Principals.delete_pending_mapping_request(
+                 repo,
+                 request.provider,
+                 request.external_id
+               ) do
+          {:ok, %{request: request, identity: identity}}
+        end
+      end)
+    end
   end
 
   @doc """
@@ -99,14 +100,17 @@ defmodule Ankole.Principals.MappingRequests do
   ever messages an Agent. Any pending request for the same subject is removed.
   """
   @spec bind_subject(String.t(), map()) :: {:ok, struct()} | {:error, term()}
-  def bind_subject(principal_uid, attrs) when is_binary(principal_uid) and is_map(attrs) do
+  def bind_subject(principal_uid, %{provider: provider, external_id: external_id} = attrs)
+      when is_binary(principal_uid) and is_binary(provider) and is_binary(external_id) do
     Repo.transact(fn repo ->
-      with {:ok, identity} <- bind_subject_in_repo(repo, principal_uid, attrs) do
-        repo.delete_all(
-          from r in MappingRequest,
-            where: r.provider == ^identity.provider and r.external_id == ^identity.external_id
-        )
-
+      with :ok <- Principals.lock_platform_subject(repo, provider, external_id),
+           {:ok, identity} <- bind_subject_in_repo(repo, principal_uid, attrs),
+           :ok <-
+             Principals.delete_pending_mapping_request(
+               repo,
+               identity.provider,
+               identity.external_id
+             ) do
         {:ok, identity}
       end
     end)
@@ -122,6 +126,43 @@ defmodule Ankole.Principals.MappingRequests do
     with {:ok, request} <- get_request(id),
          {:ok, deleted} <- Repo.delete(request) do
       {:ok, deleted}
+    end
+  end
+
+  defp record_observation_in_repo(repo, incoming) do
+    with :ok <- Principals.lock_platform_subject(repo, incoming.provider, incoming.external_id) do
+      case repo.get_by(ExternalIdentity,
+             provider: incoming.provider,
+             external_id: incoming.external_id
+           ) do
+        %ExternalIdentity{} ->
+          :ok =
+            Principals.delete_pending_mapping_request(
+              repo,
+              incoming.provider,
+              incoming.external_id
+            )
+
+          {:ok, :already_mapped}
+
+        nil ->
+          merged =
+            case repo.get_by(MappingRequest,
+                   provider: incoming.provider,
+                   external_id: incoming.external_id
+                 ) do
+              %MappingRequest{} = existing -> merge_observation(existing, incoming)
+              nil -> incoming_attrs(incoming)
+            end
+
+          %MappingRequest{}
+          |> MappingRequest.changeset(merged)
+          |> repo.insert(
+            conflict_target: [:provider, :external_id],
+            on_conflict: {:replace, [:display_name, :email, :mobile, :metadata, :updated_at]},
+            returning: true
+          )
+      end
     end
   end
 

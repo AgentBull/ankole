@@ -27,7 +27,7 @@ try {
   process.stdout.write(await readFile(process.argv[1]))
 } catch (error) {
   if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') process.exit(44)
-  console.error(error instanceof Error ? error.message : String(error))
+  console.error(errorMessage(error))
   process.exit(1)
 }
 `
@@ -35,6 +35,7 @@ try {
 const WriteFileScript = `
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
+import { errorMessage } from '../../common/errors'
 const target = process.argv[1]
 await mkdir(dirname(target), { recursive: true })
 await writeFile(target, await Bun.stdin.bytes())

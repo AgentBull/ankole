@@ -1,6 +1,8 @@
+import { isRecord, ms } from '@agentbull/active-support'
 import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { TOML } from 'bun'
+import { errorMessage } from '../../common/errors'
 
 type TomlTable = Record<string, unknown>
 
@@ -30,8 +32,9 @@ export function materializeCodexJobProjectConfig(input: {
   removeThreadRuntimeConfig(config)
   delete config.mcp_servers
   applyRunnerSafety(config, input.hostedWebSearch)
-  // The published Bun types lag the canary runtime's documented stringify API.
-  atomicWrite(path, (TOML as typeof TOML & { stringify(value: object): string }).stringify(config))
+  // The published Bun types drift around the documented stringify API, so the
+  // local declaration stays authoritative: a string comes back or this throws.
+  atomicWrite(path, (TOML as unknown as { stringify(value: object): string }).stringify(config))
 
   return { path }
 }
@@ -43,7 +46,7 @@ function removeThreadRuntimeConfig(config: TomlTable): void {
   delete config.model_provider
   delete config.service_tier
 
-  if (isTable(config.features)) delete config.features.remote_compaction_v2
+  if (isRecord(config.features)) delete config.features.remote_compaction_v2
 }
 
 function applyRunnerSafety(config: TomlTable, hostedWebSearch: boolean): void {
@@ -72,19 +75,19 @@ function applyRunnerSafety(config: TomlTable, hostedWebSearch: boolean): void {
   if (typeof multiAgent.enabled !== 'boolean') multiAgent.enabled = true
   multiAgent.hide_spawn_agent_metadata = true
   // Reduce model re-entry after empty waits. See https://github.com/openai/codex/issues/35259.
-  multiAgent.min_wait_timeout_ms = 60_000
-  multiAgent.default_wait_timeout_ms = 120_000
+  multiAgent.min_wait_timeout_ms = ms('1m')
+  multiAgent.default_wait_timeout_ms = ms('2m')
   delete multiAgent.max_wait_timeout_ms
 }
 
 function readToml(path: string): TomlTable {
   try {
     const parsed = TOML.parse(readFileSync(path, 'utf8'))
-    if (!isTable(parsed)) throw new Error('TOML root must be a table')
+    if (!isRecord(parsed)) throw new Error('TOML root must be a table')
     return parsed
   } catch (error) {
     if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return {}
-    throw new Error(`invalid Codex project config ${path}: ${error instanceof Error ? error.message : String(error)}`)
+    throw new Error(`invalid Codex project config ${path}: ${errorMessage(error)}`)
   }
 }
 
@@ -95,12 +98,8 @@ function tableAt(parent: TomlTable, key: string): TomlTable {
     parent[key] = next
     return next
   }
-  if (!isTable(current)) throw new Error(`Codex config ${key} must be a table`)
+  if (!isRecord(current)) throw new Error(`Codex config ${key} must be a table`)
   return current
-}
-
-function isTable(value: unknown): value is TomlTable {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value) && !(value instanceof Date))
 }
 
 function atomicWrite(path: string, content: string): void {

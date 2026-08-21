@@ -14,6 +14,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionController do
 
   alias Ankole.SignalsGateway.ActorRuntime
   alias Ankole.SignalsGateway.ActorRuntime.ActorLane
+  alias Ankole.SignalsGateway.ActorRuntime.Common
   alias Ankole.SignalsGateway.ActorRuntime.ActorDirectory
   alias Ankole.SignalsGateway.ActorRuntime.SessionSupervisor
 
@@ -27,7 +28,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionController do
   """
   @spec start_link(map()) :: GenServer.on_start()
   def start_link(actor_key) do
-    actor_key = normalize_actor_key(actor_key)
+    actor_key = Common.normalize_actor_key(actor_key)
     GenServer.start_link(__MODULE__, actor_key, name: ActorDirectory.via(actor_key))
   end
 
@@ -40,7 +41,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionController do
   """
   @spec process_ready(map(), keyword()) :: {:ok, map()} | {:error, term()}
   def process_ready(actor_key, opts \\ []) do
-    actor_key = normalize_actor_key(actor_key)
+    actor_key = Common.normalize_actor_key(actor_key)
 
     with {:ok, _pid} <- SessionSupervisor.ensure_session_controller(actor_key) do
       GenServer.call(ActorDirectory.via(actor_key), {:process_ready, opts}, @call_timeout)
@@ -57,7 +58,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionController do
   @spec dispatch_inbound(map(), String.t(), map()) :: :ok | {:error, term()}
   def dispatch_inbound(actor_key, route, envelope)
       when is_map(actor_key) and is_binary(route) and is_map(envelope) do
-    actor_key = normalize_actor_key(actor_key)
+    actor_key = Common.normalize_actor_key(actor_key)
 
     with {:ok, _pid} <- SessionSupervisor.ensure_session_controller(actor_key) do
       GenServer.cast(ActorDirectory.via(actor_key), {:dispatch_inbound, route, envelope})
@@ -82,13 +83,4 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionController do
   # and downcase the agent uid so a single actor always maps to one Registry name
   # and one controller — case differences in the uid must not fork the actor into
   # two serial processes. Must match ActorDirectory.key/1's normalization exactly.
-  defp normalize_actor_key(%{agent_uid: agent_uid, session_id: session_id}) do
-    %{agent_uid: normalize_uid(agent_uid), session_id: session_id}
-  end
-
-  defp normalize_actor_key(%{"agent_uid" => agent_uid, "session_id" => session_id}) do
-    %{agent_uid: normalize_uid(agent_uid), session_id: session_id}
-  end
-
-  defp normalize_uid(value) when is_binary(value), do: String.downcase(value)
 end

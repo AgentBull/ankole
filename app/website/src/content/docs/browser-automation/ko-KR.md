@@ -68,7 +68,7 @@ Agent는 이 값들을 `ankole-browser` CLI를 통해 사용합니다. `app/agen
 
 ## 운영자가 건드리지 않는 것
 
-워커 이미지가 브라우저 환경 변수를 설정합니다. 여기에는 `ANKOLE_BROWSER_CHROMIUM_EXECUTABLE`, `ANKOLE_BROWSER_CHROMIUM_ARGS_JSON`, `ANKOLE_BROWSER_DAEMON_SOCKET`, `ANKOLE_BROWSER_DAEMON_ENTRY`, `ANKOLE_BROWSER_CLI`, `ANKOLE_BROWSER_NODE`, `ANKOLE_BROWSER_RUNNER`가 포함됩니다. Console의 **Environment variables**에서 이 이름들을 재정의할 수 없다. 다른 브라우저 동작이 필요하면 Skill을 변경하세요.
+워커 이미지가 브라우저 환경 변수를 설정합니다. 여기에는 `ANKOLE_BROWSER_CHROMIUM_EXECUTABLE`, `ANKOLE_BROWSER_CHROMIUM_ARGS_JSON`, `ANKOLE_BROWSER_DAEMON_SOCKET`, `ANKOLE_BROWSER_DAEMON_ENTRY`, `ANKOLE_BROWSER_CLI`, `ANKOLE_BROWSER_RUNNER`가 포함됩니다. Console의 **Environment variables**에서 이 이름들을 재정의할 수 없다. 다른 브라우저 동작이 필요하면 Skill을 변경하세요.
 
 ## 다음 단계
 

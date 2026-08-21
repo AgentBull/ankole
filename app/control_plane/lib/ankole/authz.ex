@@ -291,6 +291,33 @@ defmodule Ankole.AuthZ do
   end
 
   @doc false
+  @spec apply_static_group_member_delta(
+          String.t(),
+          :directory | :im_group | :signal_source,
+          [String.t()],
+          [String.t()]
+        ) ::
+          {:ok,
+           %{
+             added_principal_uids: [String.t()],
+             removed_principal_uids: [String.t()],
+             removed_memberships: non_neg_integer()
+           }}
+          | {:error, term()}
+  def apply_static_group_member_delta(group_id, expected_domain, added_uids, removed_uids)
+      when is_binary(group_id) and is_list(added_uids) and is_list(removed_uids) do
+    Repo.transact(fn repo ->
+      Store.apply_static_group_member_delta(
+        repo,
+        group_id,
+        expected_domain,
+        added_uids,
+        removed_uids
+      )
+    end)
+  end
+
+  @doc false
   @spec clear_static_group_members(String.t(), :directory | :im_group | :signal_source) ::
           {:ok, %{removed_memberships: non_neg_integer()}} | {:error, term()}
   def clear_static_group_members(group_id, expected_domain) when is_binary(group_id) do

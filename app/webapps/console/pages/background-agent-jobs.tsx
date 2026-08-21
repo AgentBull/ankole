@@ -1,3 +1,4 @@
+import { ACTIVITY_REFRESH_MS, LIST_REFRESH_MS } from '../refresh-intervals'
 import {
   Accordion,
   AccordionContent,
@@ -63,7 +64,7 @@ import type {
 } from '../api/generated/types.gen'
 import { AgentFilter, type AgentScope, useAgentScope } from '../console-agent-scope'
 import { ErrorBlock } from '../../common/error-block'
-import { formatConsoleDate, formatJSON } from '../console-primitives'
+import { formatConsoleDate, formatJSON, truncate } from '../console-primitives'
 import { resourceID } from '../console-route-loaders'
 import { MarkdownBody } from '../markdown-body'
 import { StatusIndicator } from '../console-form'
@@ -106,7 +107,7 @@ function BackgroundAgentJobsForScope({ scope }: { scope: AgentScope }) {
   const [completeSummary, setCompleteSummary] = useState('')
   const health = useQuery({
     ...ankoleWebBackgroundAgentJobControllerHealthOptions(),
-    refetchInterval: 15_000
+    refetchInterval: LIST_REFRESH_MS
   })
 
   useEffect(() => setSearchDraft(searchFilter), [searchFilter])
@@ -131,7 +132,7 @@ function BackgroundAgentJobsForScope({ scope }: { scope: AgentScope }) {
       path: { job_id: selectedID ?? 1000 }
     }),
     enabled: selectedID !== undefined,
-    refetchInterval: selectedID !== undefined ? 5_000 : false,
+    refetchInterval: selectedID !== undefined ? ACTIVITY_REFRESH_MS : false,
     retry: false
   })
   const cancel = useMutation({
@@ -414,7 +415,7 @@ export function backgroundAgentJobListOptions(agentUID: string, search = '') {
     ...ankoleWebBackgroundAgentJobControllerIndexOptions({
       query: { agent: agentUID || undefined, q: search.trim() || undefined, limit: 100 }
     }),
-    refetchInterval: 5_000
+    refetchInterval: ACTIVITY_REFRESH_MS
   }
 }
 
@@ -1115,8 +1116,4 @@ function prettyJSON(text: string): string {
   } catch {
     return text
   }
-}
-
-function truncate(value: string, limit: number): string {
-  return value.length <= limit ? value : `${value.slice(0, limit)}…`
 }

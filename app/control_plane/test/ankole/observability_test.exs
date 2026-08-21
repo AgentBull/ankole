@@ -35,7 +35,6 @@ defmodule Ankole.ObservabilityTest do
   end
 
   test "trace export is disabled by default" do
-    assert :ok = Observability.ensure_registered()
     assert {:ok, :disabled} = Observability.runtime_config()
 
     definitions = Map.new(Observability.definitions(), &{&1.key, &1})
@@ -53,7 +52,6 @@ defmodule Ankole.ObservabilityTest do
     endpoint = definitions["observability.traces.otlp_endpoint"]
     headers = definitions["observability.traces.otlp_headers"]
 
-    assert :ok = Observability.ensure_registered()
     assert {:ok, true} = AppConfigure.put_global(enabled, true)
     assert {:error, :missing_trace_provider} = Observability.runtime_config()
 

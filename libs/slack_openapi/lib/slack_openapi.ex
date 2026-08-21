@@ -48,9 +48,9 @@ defmodule SlackOpenAPI do
          {:ok, _response} <- upload_bytes(upload_url, content, client.req_options),
          body <-
            %{"files" => [%{"id" => file_id, "title" => filename}]}
-           |> maybe_put("channel_id", Keyword.get(opts, :channel_id))
-           |> maybe_put("thread_ts", Keyword.get(opts, :thread_ts))
-           |> maybe_put("initial_comment", Keyword.get(opts, :initial_comment)),
+           |> put_present("channel_id", Keyword.get(opts, :channel_id))
+           |> put_present("thread_ts", Keyword.get(opts, :thread_ts))
+           |> put_present("initial_comment", Keyword.get(opts, :initial_comment)),
          {:ok, result} <- post(client, "files.completeUploadExternal", body: body) do
       {:ok, result}
     end
@@ -223,9 +223,9 @@ defmodule SlackOpenAPI do
     end)
   end
 
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, _key, ""), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
+  defp put_present(map, _key, nil), do: map
+  defp put_present(map, _key, ""), do: map
+  defp put_present(map, key, value), do: Map.put(map, key, value)
   defp maybe_put_req(opts, _key, nil), do: opts
   defp maybe_put_req(opts, key, value), do: Keyword.put(opts, key, value)
 end

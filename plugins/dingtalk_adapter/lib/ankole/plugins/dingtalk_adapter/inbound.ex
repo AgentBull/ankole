@@ -303,7 +303,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
     |> Enum.map(&segment_text/1)
     |> Enum.reject(&is_nil/1)
     |> Enum.join("")
-    |> blank_to_nil()
+    |> MapHelpers.blank_to_nil()
   end
 
   defp segment_text(segment) do
@@ -323,10 +323,10 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
   defp visible_text(text, true) when is_binary(text) do
     text
     |> String.replace(~r/\A\s*@\S+\s+/u, "")
-    |> blank_to_nil()
+    |> MapHelpers.blank_to_nil()
   end
 
-  defp visible_text(text, _strip), do: blank_to_nil(text)
+  defp visible_text(text, _strip), do: MapHelpers.blank_to_nil(text)
 
   defp strip_leading_mention?(:im_dm, _payload), do: false
 
@@ -439,8 +439,8 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
               Path.join(Ankole.AgentHomePaths.user_files(agent_uid), relative_path)
             )
             |> Map.put("user_files_relative_path", relative_path)
-            |> MapHelpers.maybe_put("xxh3_128", result["xxh3_128"])
-            |> MapHelpers.maybe_put("size", result["size"])
+            |> MapHelpers.put_present("xxh3_128", result["xxh3_128"])
+            |> MapHelpers.put_present("size", result["size"])
 
           {:error, reason} ->
             log_materialization_skip(attachment, reason)
@@ -471,23 +471,10 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
     Path.join([
       "inbox",
       "dingtalk",
-      sanitize_segment(attachment["provider_ref"]),
-      sanitize_segment(name)
+      WorkerFiles.sanitize_path_segment(attachment["provider_ref"]),
+      WorkerFiles.sanitize_path_segment(name)
     ])
   end
-
-  defp sanitize_segment(value) when is_binary(value) do
-    value
-    |> Ankole.Kernel.any_ascii()
-    |> String.replace(~r/[^A-Za-z0-9._-]+/, "_")
-    |> String.trim("_")
-    |> case do
-      "" -> "unnamed"
-      segment -> String.slice(segment, 0, 160)
-    end
-  end
-
-  defp sanitize_segment(_value), do: "unnamed"
 
   # --- channel / helpers ---------------------------------------------------
 
@@ -607,7 +594,4 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
       nil -> {:error, {:missing, key}}
     end
   end
-
-  defp blank_to_nil(""), do: nil
-  defp blank_to_nil(value), do: value
 end

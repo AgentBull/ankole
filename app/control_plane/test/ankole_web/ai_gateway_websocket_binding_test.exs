@@ -7,7 +7,7 @@ defmodule AnkoleWeb.AIGatewayWebSocketBindingTest do
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.RequestContext
   alias AnkoleWeb.AIGatewayResponsesSocket
-  alias AnkoleWeb.AIGatewayTokens
+  alias Ankole.AIGateway.Tokens
 
   defmodule UpstreamPlug do
     @moduledoc false
@@ -66,7 +66,7 @@ defmodule AnkoleWeb.AIGatewayWebSocketBindingTest do
 
   test "the controller binding and request context survive socket initialization", %{conn: conn} do
     %{principal: agent} = agent_fixture()
-    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+    assert {:ok, api_key} = Tokens.mint_for_agent(agent.uid)
 
     encoded =
       %{

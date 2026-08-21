@@ -1,6 +1,8 @@
 defmodule Ankole.ScheduleTest do
   use Ankole.DataCase, async: false
 
+  alias Ankole.AIGateway.Conversations
+
   alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.StatefulResponses
@@ -1584,7 +1586,7 @@ defmodule Ankole.ScheduleTest do
       turn_ref = turn_start_payload!(envelope).turn
 
       assert {:ok, conversation} =
-               StatefulResponses.ensure_conversation(agent.uid, source_event.session_id)
+               Conversations.ensure_conversation(agent.uid, source_event.session_id)
 
       assert {:ok, generating_message} =
                StatefulResponses.start_response_run(%{
@@ -2622,7 +2624,7 @@ defmodule Ankole.ScheduleTest do
     session_id = proto_ref.actor.session_id
     actor_event_id = proto_ref.actor_event_id
 
-    {:ok, conversation} = StatefulResponses.ensure_conversation(agent_uid, session_id)
+    {:ok, conversation} = Conversations.ensure_conversation(agent_uid, session_id)
 
     {:ok, run} =
       StatefulResponses.start_response_run(%{
@@ -2754,7 +2756,7 @@ defmodule Ankole.ScheduleTest do
   end
 
   defp ai_message_fixture(agent_uid, session_id \\ "mock:chat:schedule") do
-    {:ok, conversation} = StatefulResponses.ensure_conversation(agent_uid, session_id)
+    {:ok, conversation} = Conversations.ensure_conversation(agent_uid, session_id)
 
     Repo.insert!(%Message{
       subject_uid: agent_uid,

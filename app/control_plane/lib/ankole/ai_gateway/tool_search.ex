@@ -854,7 +854,7 @@ defmodule Ankole.AIGateway.ToolSearch do
             Enum.map(children, fn child ->
               child
               |> Map.put("namespace", namespace)
-              |> maybe_put("namespace_description", description)
+              |> put_nonempty_text("namespace_description", description)
             end)
 
           {:cont, {:ok, Enum.reverse(expanded, reversed)}}
@@ -1231,7 +1231,7 @@ defmodule Ankole.AIGateway.ToolSearch do
       "tools" =>
         Enum.map(loaded_tools, fn tool ->
           %{"name" => public_tool_path(tool)}
-          |> maybe_put("description", tool["description"])
+          |> put_nonempty_text("description", tool["description"])
         end)
     })
   end
@@ -1341,12 +1341,12 @@ defmodule Ankole.AIGateway.ToolSearch do
 
   defp root_tool_named?(_tool, _expected), do: false
 
-  defp maybe_put(map, _key, nil), do: map
+  defp put_nonempty_text(map, _key, nil), do: map
 
-  defp maybe_put(map, key, value) when is_binary(value) and value != "",
+  defp put_nonempty_text(map, key, value) when is_binary(value) and value != "",
     do: Map.put(map, key, value)
 
-  defp maybe_put(map, _key, _value), do: map
+  defp put_nonempty_text(map, _key, _value), do: map
 
   defp put_input(request, input) when is_list(input), do: Map.put(request, "input", input)
   defp put_input(request, _input), do: request

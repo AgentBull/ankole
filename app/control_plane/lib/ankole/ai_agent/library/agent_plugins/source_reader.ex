@@ -179,7 +179,7 @@ defmodule Ankole.AIAgent.Library.AgentPlugins.SourceReader do
           library_relative_path
         )
       end)
-      |> collect_results()
+      |> Ankole.Attrs.collect_results()
       |> case do
         {:ok, []} ->
           {:error, :agent_plugin_has_no_skills}
@@ -283,15 +283,4 @@ defmodule Ankole.AIAgent.Library.AgentPlugins.SourceReader do
   end
 
   defp trim_manifest_path("./" <> relative), do: String.trim(relative, "/")
-
-  defp collect_results(results) do
-    Enum.reduce_while(results, {:ok, []}, fn
-      {:ok, value}, {:ok, acc} -> {:cont, {:ok, [value | acc]}}
-      {:error, _reason} = error, _acc -> {:halt, error}
-    end)
-    |> case do
-      {:ok, values} -> {:ok, Enum.reverse(values)}
-      {:error, _reason} = error -> error
-    end
-  end
 end

@@ -69,16 +69,16 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
     base
     |> Map.put("revision", non_negative_integer(value(presentation, "revision")))
     |> Map.put("answer", answer_text(value(presentation, "answer")))
-    |> maybe_put(
+    |> Ankole.Attrs.maybe_put(
       "thought",
       bounded_optional_text(value(presentation, "thought"), @max_thought_chars)
     )
-    |> maybe_put("plan", normalize_plan(value(presentation, "plan")))
+    |> Ankole.Attrs.maybe_put("plan", normalize_plan(value(presentation, "plan")))
     |> Map.put("activities", normalize_activities(value(presentation, "activities")))
     |> Map.put("results", normalize_results(value(presentation, "results")))
     |> Map.put("receipts", normalize_receipts(value(presentation, "receipts")))
     |> Map.put("actions", normalize_actions(value(presentation, "actions")))
-    |> maybe_put(
+    |> Ankole.Attrs.maybe_put(
       "trigger_context",
       normalize_trigger_context(value(presentation, "trigger_context"))
     )
@@ -155,7 +155,7 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
         "summary" => value(data, "result_summary")
       })
 
-    maybe_put(presentation, "trigger_context", trigger_context)
+    Ankole.Attrs.maybe_put(presentation, "trigger_context", trigger_context)
   end
 
   def project_trigger(presentation, "cron.fire", payload) when is_map(payload) do
@@ -384,9 +384,9 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
               500
             )
         }
-        |> maybe_put("scope", localized_optional_text(payload, "scope", 160))
-        |> maybe_put("target", bounded_optional_text(value(payload, "target"), 240))
-        |> maybe_put("follow_up", localized_optional_text(payload, "follow_up", 240))
+        |> Ankole.Attrs.maybe_put("scope", localized_optional_text(payload, "scope", 160))
+        |> Ankole.Attrs.maybe_put("target", bounded_optional_text(value(payload, "target"), 240))
+        |> Ankole.Attrs.maybe_put("follow_up", localized_optional_text(payload, "follow_up", 240))
 
       receipts = upsert_by_id(presentation["receipts"], receipt, "operation_id", @max_receipts)
 
@@ -466,7 +466,7 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
         "items" => items,
         "summary" => plan_summary(items)
       }
-      |> maybe_put("folded", optional_boolean(value(plan, "folded")))
+      |> Ankole.Attrs.maybe_put("folded", optional_boolean(value(plan, "folded")))
     end
   end
 
@@ -627,8 +627,8 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
     else
       base_result("chart", result, operation_id)
       |> Map.put("series", series)
-      |> maybe_put("unit", bounded_optional_text(value(result, "unit"), 40))
-      |> maybe_put("takeaway", bounded_optional_text(value(result, "takeaway"), 500))
+      |> Ankole.Attrs.maybe_put("unit", bounded_optional_text(value(result, "unit"), 40))
+      |> Ankole.Attrs.maybe_put("takeaway", bounded_optional_text(value(result, "takeaway"), 500))
     end
   end
 
@@ -640,7 +640,7 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
       base_result("image", result, operation_id)
       |> Map.put("image_key", image_key)
       |> Map.put("alt", alt)
-      |> maybe_put("caption", bounded_optional_text(value(result, "caption"), 300))
+      |> Ankole.Attrs.maybe_put("caption", bounded_optional_text(value(result, "caption"), 300))
     end
   end
 
@@ -652,7 +652,10 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
       base_result("artifact", result, operation_id)
       |> Map.put("name", name)
       |> Map.put("url", url)
-      |> maybe_put("description", bounded_optional_text(value(result, "description"), 500))
+      |> Ankole.Attrs.maybe_put(
+        "description",
+        bounded_optional_text(value(result, "description"), 500)
+      )
     end
   end
 
@@ -683,7 +686,7 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
       "operation_id" => operation_id || "#{kind}-#{revision(result)}",
       "revision" => revision(result)
     }
-    |> maybe_put("title", bounded_optional_text(value(result, "title"), 160))
+    |> Ankole.Attrs.maybe_put("title", bounded_optional_text(value(result, "title"), 160))
   end
 
   defp normalize_receipts(receipts) do
@@ -702,9 +705,18 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
               "revision" => revision(receipt),
               "summary" => summary
             }
-            |> maybe_put("scope", bounded_optional_text(value(receipt, "scope"), 160))
-            |> maybe_put("target", bounded_optional_text(value(receipt, "target"), 240))
-            |> maybe_put("follow_up", bounded_optional_text(value(receipt, "follow_up"), 240))
+            |> Ankole.Attrs.maybe_put(
+              "scope",
+              bounded_optional_text(value(receipt, "scope"), 160)
+            )
+            |> Ankole.Attrs.maybe_put(
+              "target",
+              bounded_optional_text(value(receipt, "target"), 240)
+            )
+            |> Ankole.Attrs.maybe_put(
+              "follow_up",
+              bounded_optional_text(value(receipt, "follow_up"), 240)
+            )
           ]
         else
           []
@@ -735,34 +747,37 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
               "style" =>
                 normalize_in(value(action, "style"), ["primary", "default", "danger"], "default")
             }
-            |> maybe_put(
+            |> Ankole.Attrs.maybe_put(
               "interaction_id",
               bounded_optional_text(value(action, "interaction_id"), 120)
             )
-            |> maybe_put(
+            |> Ankole.Attrs.maybe_put(
               "source_actor_event_id",
               bounded_optional_text(value(action, "source_actor_event_id"), 80)
             )
-            |> maybe_put(
+            |> Ankole.Attrs.maybe_put(
               "control_id",
               bounded_optional_text(value(action, "control_id"), 80)
             )
-            |> maybe_put(
+            |> Ankole.Attrs.maybe_put(
               "selected_option_id",
               bounded_optional_text(value(action, "selected_option_id"), 80)
             )
-            |> maybe_put(
+            |> Ankole.Attrs.maybe_put(
               "option_value",
               bounded_optional_text(value(action, "option_value"), 500)
             )
-            |> maybe_put(
+            |> Ankole.Attrs.maybe_put(
               "description",
               bounded_optional_text(value(action, "description"), 500)
             )
-            |> maybe_put("revision", optional_non_negative_integer(value(action, "revision")))
-            |> maybe_put("disabled", optional_boolean(value(action, "disabled")))
-            |> maybe_put("selected", optional_boolean(value(action, "selected")))
-            |> maybe_put("fields", fields)
+            |> Ankole.Attrs.maybe_put(
+              "revision",
+              optional_non_negative_integer(value(action, "revision"))
+            )
+            |> Ankole.Attrs.maybe_put("disabled", optional_boolean(value(action, "disabled")))
+            |> Ankole.Attrs.maybe_put("selected", optional_boolean(value(action, "selected")))
+            |> Ankole.Attrs.maybe_put("fields", fields)
           ]
         else
           []
@@ -792,12 +807,12 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
               "type" => type,
               "required" => value(field, "required") == true
             }
-            |> maybe_put(
+            |> Ankole.Attrs.maybe_put(
               "placeholder",
               bounded_optional_text(value(field, "placeholder"), 240)
             )
-            |> maybe_put("multiline", optional_boolean(value(field, "multiline")))
-            |> maybe_put(
+            |> Ankole.Attrs.maybe_put("multiline", optional_boolean(value(field, "multiline")))
+            |> Ankole.Attrs.maybe_put(
               "max_length",
               bounded_positive_integer(value(field, "max_length"), 1_000)
             )
@@ -817,14 +832,20 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
 
   defp normalize_meta(meta) when is_map(meta) do
     %{}
-    |> maybe_put("status", bounded_optional_text(value(meta, "status"), 160))
-    |> maybe_put("source_count", optional_non_negative_integer(value(meta, "source_count")))
-    |> maybe_put(
+    |> Ankole.Attrs.maybe_put("status", bounded_optional_text(value(meta, "status"), 160))
+    |> Ankole.Attrs.maybe_put(
+      "source_count",
+      optional_non_negative_integer(value(meta, "source_count"))
+    )
+    |> Ankole.Attrs.maybe_put(
       "memory_source_count",
       optional_non_negative_integer(value(meta, "memory_source_count"))
     )
-    |> maybe_put("elapsed_ms", optional_non_negative_integer(value(meta, "elapsed_ms")))
-    |> maybe_put(
+    |> Ankole.Attrs.maybe_put(
+      "elapsed_ms",
+      optional_non_negative_integer(value(meta, "elapsed_ms"))
+    )
+    |> Ankole.Attrs.maybe_put(
       "attachment_count",
       optional_non_negative_integer(value(meta, "attachment_count"))
     )
@@ -847,7 +868,7 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
             "kind" => kind,
             "title" => title
           }
-          |> maybe_put(
+          |> Ankole.Attrs.maybe_put(
             "summary",
             bounded_single_line_text(value(context, "summary"), @max_trigger_summary_chars)
           )
@@ -973,7 +994,7 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
     in_progress = Enum.find(items, &(&1["status"] == "in_progress"))
 
     %{"total" => total, "completed" => completed}
-    |> maybe_put("current_item_id", if(in_progress, do: in_progress["id"]))
+    |> Ankole.Attrs.maybe_put("current_item_id", if(in_progress, do: in_progress["id"]))
   end
 
   defp upsert_by_id(items, item, key, limit) do
@@ -1108,9 +1129,6 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
   defp answer_text(value) when is_binary(value), do: value
   defp answer_text(nil), do: ""
   defp answer_text(value), do: to_safe_string(value)
-
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp put_or_delete(map, key, nil), do: Map.delete(map, key)
   defp put_or_delete(map, key, value), do: Map.put(map, key, value)

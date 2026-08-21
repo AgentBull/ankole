@@ -8,14 +8,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Common do
   def decode_json_bytes(bytes) when is_binary(bytes), do: Torque.decode!(bytes)
 
   def normalize_actor_key(%{agent_uid: agent_uid, session_id: session_id}) do
-    %{agent_uid: normalize_uid(agent_uid), session_id: session_id}
+    %{agent_uid: Ankole.PrincipalKey.canonicalize(agent_uid), session_id: session_id}
   end
 
   def normalize_actor_key(%{"agent_uid" => agent_uid, "session_id" => session_id}) do
-    %{agent_uid: normalize_uid(agent_uid), session_id: session_id}
+    %{agent_uid: Ankole.PrincipalKey.canonicalize(agent_uid), session_id: session_id}
   end
-
-  def normalize_uid(value) when is_binary(value), do: String.downcase(value)
 
   def blank?(nil), do: true
   def blank?(""), do: true
@@ -93,14 +91,5 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Common do
   def reason_text(reason) when is_binary(reason), do: reason
   def reason_text(reason), do: inspect(reason)
 
-  def collect_results(results) do
-    Enum.reduce_while(results, {:ok, []}, fn
-      {:ok, value}, {:ok, acc} -> {:cont, {:ok, [value | acc]}}
-      {:error, _reason} = error, _acc -> {:halt, error}
-    end)
-    |> case do
-      {:ok, values} -> {:ok, Enum.reverse(values)}
-      {:error, _reason} = error -> error
-    end
-  end
+  defdelegate collect_results(results), to: Ankole.Attrs
 end

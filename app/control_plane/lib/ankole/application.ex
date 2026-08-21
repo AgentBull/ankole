@@ -26,9 +26,8 @@ defmodule Ankole.Application do
     #   - Setup.Bootstrap before Plugins.Registry: the registry reads the durable
     #     setup state to decide whether the installation still needs every
     #     compiled plugin during first-run configuration.
-    #   - Plugins.Registry before Plugins.Supervisor: the registry discovers and
-    #     activates plugins, then the supervisor reads that active set to know
-    #     which plugin-contributed children to start (snapshot taken once at boot).
+    #   - Plugins.Cohort after setup: it resolves one immutable activation snapshot,
+    #     starts Plugins.Registry, then starts every child that consumes that snapshot.
     #   - IdentityProviders.StartupSync after Oban + Plugins: full-sync enqueue
     #     needs the queue, active provider config, and adapter declarations.
     #   - PubSub + AIGateway credential and response-stream processes before
@@ -50,8 +49,7 @@ defmodule Ankole.Application do
         Ankole.I18n.Catalog,
         Ankole.Setup.Bootstrap,
         {Oban, Application.fetch_env!(:ankole, Oban)},
-        {Ankole.Plugins.Registry, name: Ankole.Plugins.Registry},
-        {Ankole.Plugins.Supervisor, registry: Ankole.Plugins.Registry},
+        Ankole.Plugins.Cohort,
         {Phoenix.PubSub, name: Ankole.PubSub},
         Ankole.AIGateway.CredentialPool,
         {Task.Supervisor, name: Ankole.AIGateway.ProgramTaskSupervisor, max_children: 4},

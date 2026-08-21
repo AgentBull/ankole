@@ -3,7 +3,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { z } from 'zod'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
-import { createModel } from '../../src/core/llm'
+import { createModel, createModelTurn } from '../../src/core/llm'
+import type { ModelCallResult, ModelConfig, ModelTurnCallOptions, StatefulResponseContext } from '../../src/core/llm'
 import { defineWorkerTool } from '../../src/core/worker-tool'
 
 type CreateModelOptions = Parameters<typeof createModel>[0]
@@ -147,6 +148,20 @@ export function toolResultsRecordedFrame(id: string): JSONObject {
       status: 'completed',
       output: []
     }
+  }
+}
+
+/** Runs one stateful Responses call through a short-lived model turn at the live createModelTurn boundary. */
+export async function statefulTurnCall(
+  model: ModelConfig,
+  options: ModelTurnCallOptions & { stateful: StatefulResponseContext; abortSignal?: AbortSignal }
+): Promise<ModelCallResult> {
+  const { stateful, abortSignal, ...call } = options
+  const turn = createModelTurn(model, { stateful, abortSignal })
+  try {
+    return await turn.call(call)
+  } finally {
+    turn.close()
   }
 }
 

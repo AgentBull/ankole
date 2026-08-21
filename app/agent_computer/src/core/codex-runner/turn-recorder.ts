@@ -1,4 +1,6 @@
-import { jsonObject, type JsonObject as JSONObject } from '@agentbull/active-support'
+import { compareCodePointStrings } from '../../common/ordering'
+import { stringValue } from '../llm/parse'
+import { jsonObject, ms, type JsonObject as JSONObject } from '@agentbull/active-support'
 import { sanitizeBinaryOutput, truncateUTF8Safe, utf8ByteLength } from '../../common/text-sanitize'
 import type { ActorTurnRef } from '../../lanes/actor_lane'
 import { jsonBytes } from '../../fabric/envelope_proto'
@@ -6,15 +8,17 @@ import {
   RPCRejectedError,
   rpcRejectedMessage,
   type BackgroundAgentJobTurnUpsertResponse,
-  type BackgroundAgentJobTurnPlan,
-  type BackgroundAgentJobTurnProgress,
-  type BackgroundAgentJobTurnKind,
-  type BackgroundAgentJobTurnStatus,
-  type BackgroundAgentJobTurnTrajectoryHeader,
-  type BackgroundAgentJobTurnItemEntry,
-  type BackgroundAgentJobTurnUsage,
   type RPCRequestInit
 } from '../../lanes/rpc_lane'
+import type {
+  BackgroundAgentJobTurnPlan,
+  BackgroundAgentJobTurnProgress,
+  BackgroundAgentJobTurnKind,
+  BackgroundAgentJobTurnStatus,
+  BackgroundAgentJobTurnTrajectoryHeader,
+  BackgroundAgentJobTurnItemEntry,
+  BackgroundAgentJobTurnUsage
+} from '../background-agent-job-documents'
 import type { JSONRPCMessage } from './app-server-client'
 import {
   boundedFilesChangedFromCodexDiff,
@@ -24,8 +28,9 @@ import {
 import { boundedBackgroundAgentJobPaths } from '../background-agent-job-handoff'
 import type { Span } from '@opentelemetry/api'
 import { finishWorkerSpan, startWorkerSpan, type WorkerTurnTrace } from '../../observability/turn-tracing'
+import { errorMessage } from '../../common/errors'
 
-const checkpointDelayMs = 5_000
+const checkpointDelayMs = ms('5s')
 const maxStringBytes = 16 * 1_024
 const maxCollectionItems = 64
 const maxMapKeyBytes = 256
@@ -848,9 +853,7 @@ function sameToolIdentity(left: ToolIdentity, right: ToolIdentity): boolean {
 }
 
 function compareToolIdentity(left: ToolIdentity, right: ToolIdentity): number {
-  const leftKey = toolIdentityKey(left)
-  const rightKey = toolIdentityKey(right)
-  return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0
+  return compareCodePointStrings(toolIdentityKey(left), toolIdentityKey(right))
 }
 
 function toolDisplayName(identity: ToolIdentity): string {
@@ -1124,10 +1127,6 @@ function timestampDate(value: unknown): Date | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? new Date(value * 1_000) : undefined
 }
 
-function stringValue(value: unknown): string | undefined {
-  return typeof value === 'string' ? value : undefined
-}
-
 function arrayValue(value: unknown): unknown[] {
   return Array.isArray(value) ? value : []
 }
@@ -1154,7 +1153,7 @@ export class BackgroundAgentJobTurnPersistenceError extends Error {
   readonly details: JSONObject
 
   constructor(cause: unknown) {
-    super(`BackgroundAgentJob Turn persistence failed: ${cause instanceof Error ? cause.message : String(cause)}`, {
+    super(`BackgroundAgentJob Turn persistence failed: ${errorMessage(cause)}`, {
       cause: cause instanceof Error ? cause : undefined
     })
     this.name = 'BackgroundAgentJobTurnPersistenceError'

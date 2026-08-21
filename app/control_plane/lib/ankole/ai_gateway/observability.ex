@@ -6,7 +6,7 @@ defmodule Ankole.AIGateway.Observability do
       encode_content: 1,
       map_value: 2,
       mark_error: 2,
-      maybe_put: 3,
+      put_present: 3,
       maybe_put_true: 3,
       release: 0,
       safe: 2,
@@ -119,7 +119,7 @@ defmodule Ankole.AIGateway.Observability do
       if recording?(round_span) do
         attributes =
           %{"error.type" => error_type(reason)}
-          |> maybe_put("ankole.ai_gateway.retry_delay_ms", delay_ms)
+          |> put_present("ankole.ai_gateway.retry_delay_ms", delay_ms)
 
         Span.add_event(round_span, "ankole.ai_gateway.credential_retry", attributes)
       end
@@ -177,8 +177,8 @@ defmodule Ankole.AIGateway.Observability do
         trace_attributes
         |> Map.merge(provider.response_start_attributes(input))
         |> Map.put("ankole.ai_gateway.input", input)
-        |> maybe_put("user_agent.original", text(Map.get(headers, "user-agent")))
-        |> maybe_put("ankole.ai_gateway.client_version", text(Map.get(headers, "version")))
+        |> put_present("user_agent.original", text(Map.get(headers, "user-agent")))
+        |> put_present("ankole.ai_gateway.client_version", text(Map.get(headers, "version")))
         |> maybe_put_true("ankole.observability.input_truncated", truncated?)
 
       tracer = tracer()
@@ -225,16 +225,16 @@ defmodule Ankole.AIGateway.Observability do
           provider_name(runtime)
         )
       )
-      |> maybe_put("gen_ai.provider.name", provider_name(runtime))
-      |> maybe_put("gen_ai.request.model", model)
-      |> maybe_put("gen_ai.request.max_tokens", map_value(request, "max_output_tokens"))
-      |> maybe_put("gen_ai.request.stream", response_context_value(spec, "stream"))
-      |> maybe_put("gen_ai.request.temperature", map_value(request, "temperature"))
-      |> maybe_put("gen_ai.request.top_p", map_value(request, "top_p"))
-      |> maybe_put("server.address", upstream_host(spec))
-      |> maybe_put("server.port", upstream_port(spec))
-      |> maybe_put("ankole.ai_gateway.provider_kind", map_value(runtime, "provider_kind"))
-      |> maybe_put(
+      |> put_present("gen_ai.provider.name", provider_name(runtime))
+      |> put_present("gen_ai.request.model", model)
+      |> put_present("gen_ai.request.max_tokens", map_value(request, "max_output_tokens"))
+      |> put_present("gen_ai.request.stream", response_context_value(spec, "stream"))
+      |> put_present("gen_ai.request.temperature", map_value(request, "temperature"))
+      |> put_present("gen_ai.request.top_p", map_value(request, "top_p"))
+      |> put_present("server.address", upstream_host(spec))
+      |> put_present("server.port", upstream_port(spec))
+      |> put_present("ankole.ai_gateway.provider_kind", map_value(runtime, "provider_kind"))
+      |> put_present(
         "ankole.ai_gateway.api_resolver",
         string_value(map_value(spec, "api_resolver"))
       )
@@ -293,8 +293,8 @@ defmodule Ankole.AIGateway.Observability do
         }
         |> Map.merge(observation.provider.output_attributes(output))
         |> Map.merge(usage_attributes(map_value(body, "usage")))
-        |> maybe_put("gen_ai.response.id", map_value(body, "id"))
-        |> maybe_put("gen_ai.response.model", map_value(body, "model"))
+        |> put_present("gen_ai.response.id", map_value(body, "id"))
+        |> put_present("gen_ai.response.model", map_value(body, "model"))
         |> maybe_put_true("ankole.observability.output_truncated", truncated?)
 
       Span.set_attributes(round_span, attributes)
@@ -316,7 +316,7 @@ defmodule Ankole.AIGateway.Observability do
         }
         |> Map.merge(observation.provider.output_attributes(output))
         |> Map.merge(usage_attributes(map_value(body, "usage")))
-        |> maybe_put("ankole.ai_gateway.response_id", map_value(body, "id"))
+        |> put_present("ankole.ai_gateway.response_id", map_value(body, "id"))
         |> maybe_put_true("ankole.observability.output_truncated", truncated?)
 
       Span.set_attributes(observation.response_span, attributes)
@@ -364,9 +364,9 @@ defmodule Ankole.AIGateway.Observability do
           provider.generation_start_attributes(input, model, nil, provider_name(runtime))
         )
         |> Map.put("ankole.ai_gateway.input", input)
-        |> maybe_put("gen_ai.provider.name", provider_name(runtime))
-        |> maybe_put("gen_ai.request.model", model)
-        |> maybe_put("ankole.ai_gateway.provider_kind", map_value(runtime, "provider_kind"))
+        |> put_present("gen_ai.provider.name", provider_name(runtime))
+        |> put_present("gen_ai.request.model", model)
+        |> put_present("ankole.ai_gateway.provider_kind", map_value(runtime, "provider_kind"))
         |> maybe_put_true("ankole.observability.input_truncated", truncated?)
 
       span =
@@ -392,8 +392,8 @@ defmodule Ankole.AIGateway.Observability do
         %{"ankole.ai_gateway.output" => output}
         |> Map.merge(provider.output_attributes(output))
         |> Map.merge(usage_attributes(map_value(body, "usage")))
-        |> maybe_put("gen_ai.response.id", map_value(body, "id"))
-        |> maybe_put("gen_ai.response.model", map_value(body, "model"))
+        |> put_present("gen_ai.response.id", map_value(body, "id"))
+        |> put_present("gen_ai.response.model", map_value(body, "model"))
         |> maybe_put_true("ankole.observability.output_truncated", truncated?)
 
       Span.set_attributes(span, attributes)
@@ -409,8 +409,8 @@ defmodule Ankole.AIGateway.Observability do
   defp gateway_trace_attributes(context) do
     context
     |> trace_attributes()
-    |> maybe_put("ankole.ai_gateway.originator", context.originator)
-    |> maybe_put("ankole.ai_gateway.caller", context.caller)
+    |> put_present("ankole.ai_gateway.originator", context.originator)
+    |> put_present("ankole.ai_gateway.caller", context.caller)
   end
 
   defp session_id(request, opts) do
@@ -511,12 +511,12 @@ defmodule Ankole.AIGateway.Observability do
       usage |> map_value("output_tokens_details") |> map_value("reasoning_tokens")
 
     %{}
-    |> maybe_put("gen_ai.usage.input_tokens", input_tokens)
-    |> maybe_put("gen_ai.usage.output_tokens", output_tokens)
-    |> maybe_put("gen_ai.usage.total_tokens", total_tokens)
-    |> maybe_put("gen_ai.usage.cache_read.input_tokens", cached_tokens)
-    |> maybe_put("gen_ai.usage.cache_creation.input_tokens", cache_creation_tokens)
-    |> maybe_put("gen_ai.usage.reasoning.output_tokens", reasoning_tokens)
+    |> put_present("gen_ai.usage.input_tokens", input_tokens)
+    |> put_present("gen_ai.usage.output_tokens", output_tokens)
+    |> put_present("gen_ai.usage.total_tokens", total_tokens)
+    |> put_present("gen_ai.usage.cache_read.input_tokens", cached_tokens)
+    |> put_present("gen_ai.usage.cache_creation.input_tokens", cache_creation_tokens)
+    |> put_present("gen_ai.usage.reasoning.output_tokens", reasoning_tokens)
   end
 
   defp usage_attributes(_usage), do: %{}

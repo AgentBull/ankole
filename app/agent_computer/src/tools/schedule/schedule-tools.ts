@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { compactRecord, match } from '@agentbull/active-support'
+import { compactRecord, match, ms } from '@agentbull/active-support'
 import { z } from 'zod'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import type { TurnStart } from '../../lanes/actor_lane'
@@ -511,11 +511,11 @@ function cronScheduleScope(
 
 function humanInterval(milliseconds: number): LocalizedPresentationText {
   const units = [
-    { milliseconds: 7 * 24 * 60 * 60 * 1000, unit: 'week' },
-    { milliseconds: 24 * 60 * 60 * 1000, unit: 'day' },
-    { milliseconds: 60 * 60 * 1000, unit: 'hour' },
-    { milliseconds: 60 * 1000, unit: 'minute' },
-    { milliseconds: 1000, unit: 'second' }
+    { milliseconds: ms('7d'), unit: 'week' },
+    { milliseconds: ms('1d'), unit: 'day' },
+    { milliseconds: ms('1h'), unit: 'hour' },
+    { milliseconds: ms('1m'), unit: 'minute' },
+    { milliseconds: ms('1s'), unit: 'second' }
   ]
 
   const exact = units.find(unit => milliseconds >= unit.milliseconds && milliseconds % unit.milliseconds === 0)

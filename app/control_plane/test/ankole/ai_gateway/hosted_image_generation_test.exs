@@ -295,7 +295,7 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
       end)
 
     _provider_id = configure_openrouter_profiles(agent.uid, upstream_url, "official-sdk")
-    assert {:ok, token} = AIGatewayTokens.mint_for_agent(agent.uid)
+    assert {:ok, token} = Tokens.mint_for_agent(agent.uid)
 
     server_spec =
       Supervisor.child_spec(

@@ -1,4 +1,4 @@
-import type { AgentLoopLogger, AgentMessage, ReplyPresentationEvent } from '../types'
+import type { AgentLoopLogger, Message, ReplyPresentationEvent } from '../types'
 import type { AgentConversationContextResponse, AIGatewayAPIKeyResponse, RPCRequester } from '../../lanes/rpc_lane'
 import type { TurnSteerUpdate } from '../../lanes/actor_lane'
 import type { BrowserRuntime } from '../../browser-runtime'
@@ -55,7 +55,7 @@ type SharedTurnOptions = {
 
 export type TextTurnLoopOptions = SharedTurnOptions & {
   onPresentationEvent?: (event: ReplyPresentationEvent) => void | Promise<void>
-  extraMessages?: AgentMessage[]
+  extraMessages?: Message[]
 }
 
 export type CodexJobOptions = SharedTurnOptions & {

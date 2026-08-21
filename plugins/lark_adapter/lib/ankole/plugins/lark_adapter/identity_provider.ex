@@ -36,8 +36,8 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
   """
   @spec authorization_url(map(), keyword()) :: {:ok, String.t()} | {:error, term()}
   def authorization_url(config, opts) when is_map(config) and is_list(opts) do
-    with {:ok, redirect_uri} <- required_opt(opts, :redirect_uri),
-         {:ok, state} <- required_opt(opts, :state) do
+    with {:ok, redirect_uri} <- MapHelpers.required_opt(opts, :redirect_uri),
+         {:ok, state} <- MapHelpers.required_opt(opts, :state) do
       query =
         [
           app_id: Map.fetch!(config, "appID"),
@@ -396,13 +396,6 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
 
       nil ->
         {:ok, user_info}
-    end
-  end
-
-  defp required_opt(opts, key) do
-    case Keyword.get(opts, key) do
-      value when is_binary(value) and value != "" -> {:ok, value}
-      _value -> {:error, {:missing, key}}
     end
   end
 

@@ -75,7 +75,7 @@ defmodule Ankole.SignalsGateway.ClarifyPrompt do
     choices
     |> Enum.with_index(1)
     |> Enum.map(fn {choice, index} -> normalize_choice(choice, index) end)
-    |> collect_results()
+    |> Ankole.Attrs.collect_results()
   end
 
   defp normalize_choices(_choices), do: {:error, :choices_invalid}
@@ -89,7 +89,7 @@ defmodule Ankole.SignalsGateway.ClarifyPrompt do
          "label" => label,
          "value" => label
        }
-       |> maybe_put("description", optional_text(choice, "description"))}
+       |> Ankole.Attrs.maybe_put("description", optional_text(choice, "description"))}
     end
   end
 
@@ -133,20 +133,6 @@ defmodule Ankole.SignalsGateway.ClarifyPrompt do
 
       _value ->
         nil
-    end
-  end
-
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
-
-  defp collect_results(results) do
-    Enum.reduce_while(results, {:ok, []}, fn
-      {:ok, value}, {:ok, acc} -> {:cont, {:ok, [value | acc]}}
-      {:error, reason}, _acc -> {:halt, {:error, reason}}
-    end)
-    |> case do
-      {:ok, values} -> {:ok, Enum.reverse(values)}
-      {:error, reason} -> {:error, reason}
     end
   end
 end

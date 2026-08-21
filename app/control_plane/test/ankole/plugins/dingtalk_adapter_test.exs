@@ -242,7 +242,6 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
   defp setup_dingtalk_config_registry do
     AppConfigureRegistry.clear_for_test()
     AppConfigureCache.clear_for_test()
-    :ok = AppConfigure.register_patterns(DingTalkAdapter.app_config_patterns())
   end
 
   defp dingtalk_binding_attrs(config) do

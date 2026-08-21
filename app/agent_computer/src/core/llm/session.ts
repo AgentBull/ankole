@@ -1,6 +1,6 @@
 import OpenAI from 'openai'
 import { Buffer } from 'node:buffer'
-import { recordValue, type JsonObject as JSONObject } from '@agentbull/active-support'
+import { ms, recordValue, type JsonObject as JSONObject } from '@agentbull/active-support'
 import { ResponsesWS } from 'openai/resources/responses/ws'
 import { ResponsesWSBase } from 'openai/resources/responses/ws-base'
 import type { ResponseCreateParams, ResponseOutputItem } from 'openai/resources/responses/responses'
@@ -63,9 +63,9 @@ type AIGatewayToolResultsRecordedFrame = {
   response?: { id?: string }
 }
 
-const firstResponseEventDiagnosticMs = 300_000
-const standardResponseEventStaleMs = 180_000
-const largeResponseEventStaleMs = 300_000
+const firstResponseEventDiagnosticMs = ms('5m')
+const standardResponseEventStaleMs = ms('3m')
+const largeResponseEventStaleMs = ms('5m')
 const largeResponseRequestTokenThreshold = 100_000
 const responseAdmissionFrameTypes = new Set(['response.created', 'response.queued', 'response.in_progress'])
 

@@ -42,7 +42,6 @@ defmodule Ankole.Plugins.WeComAdapterAIStreamTest do
   defp setup_stream_binding(channel_metadata) do
     AppConfigureRegistry.clear_for_test()
     AppConfigureCache.clear_for_test()
-    :ok = AppConfigure.register_patterns(WeComAdapter.app_config_patterns())
 
     config_id = "wecom-stream-#{System.unique_integer([:positive])}"
     bot_id = "bot-#{System.unique_integer([:positive])}"

@@ -26,7 +26,7 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
       compact_map: 1,
       fetch_list: 2,
       fetch_value: 2,
-      maybe_put: 3,
+      put_present: 3,
       optional_text: 2
     ]
 
@@ -458,7 +458,7 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
       if is_binary(reply_to), do: Map.put(path_params, :message_id, reply_to), else: path_params
 
     idempotency_key = Keyword.get(opts, :idempotency_key, outbox.idempotency_key)
-    base_body = maybe_put(body, :uuid, provider_message_uuid(idempotency_key))
+    base_body = put_present(body, :uuid, provider_message_uuid(idempotency_key))
 
     # Replies and new messages use different Lark API shapes. Keeping the branch
     # here makes every outbox operation share one idempotency/body path.
@@ -478,7 +478,8 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
           path: path,
           path_params: path_params,
           query: [receive_id_type: "chat_id"],
-          body: maybe_put(base_body, :receive_id, chat_id_from_channel(outbox.signal_channel_id)),
+          body:
+            put_present(base_body, :receive_id, chat_id_from_channel(outbox.signal_channel_id)),
           reply_to: reply_to
         }
     end

@@ -3,6 +3,7 @@ import type { QueryClient } from '@tanstack/react-query'
 import type { LoaderFunctionArgs } from 'react-router'
 import { ankoleWebBackgroundAgentJobControllerIndexOptions } from './api/generated/@tanstack/react-query.gen'
 import { createConsoleRouteLoaders, resourceID } from './console-route-loaders'
+import { conversationListOptions } from './pages/conversations'
 
 describe('console route identifiers', () => {
   test('uses the lower bound from the owning API', () => {
@@ -34,6 +35,32 @@ describe('console route identifiers', () => {
     expect(requests[0]).toMatchObject({
       queryKey: ankoleWebBackgroundAgentJobControllerIndexOptions({
         query: { agent: 'agent-a', q: 'quarterly report', limit: 100 }
+      }).queryKey
+    })
+  })
+
+  test('prefetches the conversation search on the page query cache key', async () => {
+    const requests: unknown[] = []
+    const queryClient = {
+      ensureQueryData: (options: unknown) => {
+        requests.push(options)
+        return Promise.resolve({})
+      }
+    } as unknown as QueryClient
+    const request = new Request(
+      'http://localhost/console/conversations?agent=agent-a&q=hello&active=true&min_messages=0&cursor=abc'
+    )
+
+    await createConsoleRouteLoaders(queryClient).conversations({ request } as LoaderFunctionArgs)
+
+    expect(requests).toHaveLength(1)
+    expect(requests[0]).toMatchObject({
+      queryKey: conversationListOptions({
+        q: 'hello',
+        subject: 'agent-a',
+        active: 'true',
+        showAll: true,
+        cursor: 'abc'
       }).queryKey
     })
   })

@@ -1,11 +1,10 @@
 import type { TurnStart } from '../../lanes/actor_lane'
-import { rpcMethods, type BackgroundAgentJobStatus } from '../../lanes/rpc_lane'
+import { rpcMethods } from '../../lanes/rpc_lane'
+import { isTerminalBackgroundAgentJobStatus } from '../background-agent-job-documents'
 import { modelIntegerIDFromWire, modelIntegerIDToWire } from '../model-integer-id'
 import type { CodexJobOptions, TurnHandlerResult } from '../turns/turn_options'
 import { prepareCodexJobExecution } from './setup'
 import { runCodexJobSession } from './session'
-
-const terminalStatuses = new Set<BackgroundAgentJobStatus>(['succeeded', 'failed', 'stopped'])
 
 export { verifiedCodexSkills } from './session'
 
@@ -15,7 +14,7 @@ export async function runCodexJob(turnStart: TurnStart, opts: CodexJobOptions): 
   const job = await opts.rpc(rpcMethods.backgroundAgentJobGet, { jobId: jobID }, { turn: turnStart.turn })
   opts.abortSignal?.throwIfAborted()
 
-  if (terminalStatuses.has(job.status as BackgroundAgentJobStatus)) {
+  if (isTerminalBackgroundAgentJobStatus(job.status)) {
     return {
       kind: 'noop_completed',
       reason: `background_agent_job_${job.status}`

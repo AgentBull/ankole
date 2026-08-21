@@ -6,12 +6,13 @@ import { jsonToolResult } from '../../core/tool-result'
 import { jsonObjectFromBytes } from '../../fabric/envelope_proto'
 import type { TurnStart } from '../../lanes/actor_lane'
 import { rpcMethods, type RPCRequester, type RPCRequestInit } from '../../lanes/rpc_lane'
+import { modelVisibleTrajectory } from './model-trajectory'
 import {
+  BackgroundAgentJobStatusSchema,
   BackgroundAgentJobTrajectorySchema,
-  modelVisibleTrajectory,
+  type BackgroundAgentJobStatus,
   type BackgroundAgentJobTrajectory
-} from './model-trajectory'
-import { BackgroundAgentJobStatusSchema, type BackgroundAgentJobStatus } from './status'
+} from '../../core/background-agent-job-documents'
 
 const RESULT_TOOL_OUTPUT_MAX_BYTES = 8_000
 

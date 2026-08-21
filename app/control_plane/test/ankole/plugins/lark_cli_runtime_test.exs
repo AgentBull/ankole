@@ -61,8 +61,6 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
   setup do
     AppConfigureRegistry.clear_for_test()
     AppConfigureCache.clear_for_test()
-    :ok = AppConfigure.register_definitions(LarkAdapter.app_config_definitions())
-    :ok = AppConfigure.register_patterns(LarkAdapter.app_config_patterns())
 
     on_exit(fn ->
       AppConfigureRegistry.clear_for_test()

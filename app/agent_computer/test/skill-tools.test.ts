@@ -44,7 +44,7 @@ function overlayResolveRPC(text?: string): RPCRequester {
 
 describe('@ankole/agent-computer skill tools', () => {
   it('describes skill work by name without exposing file paths or update content', () => {
-    const tools = createSkillTools('/agents/agent-1/sessions/session-1', { turn: testTurn, rpc: unusedRPC })
+    const tools = createSkillTools({ turn: testTurn, rpc: unusedRPC })
     const view = tools.find(tool => tool.name === 'skill_view')!
     const append = tools.find(tool => tool.name === 'skill_append')!
     const replace = tools.find(tool => tool.name === 'skill_replace')!
@@ -80,7 +80,7 @@ describe('@ankole/agent-computer skill tools', () => {
         ['---', 'name: nano-pdf', 'description: Internal PDF skill.', '---', '', '# Internal nano-pdf', ''].join('\n')
       )
 
-      const tools = createSkillTools('/agents/agent-1/sessions/session-1', {
+      const tools = createSkillTools({
         turn: testTurn,
         rpc: overlayResolveRPC(),
         enabledSkills: [
@@ -125,7 +125,7 @@ describe('@ankole/agent-computer skill tools', () => {
         ['---', 'name: nano-pdf', 'description: Internal PDF skill.', '---', '', '# Internal nano-pdf', ''].join('\n')
       )
 
-      const tools = createSkillTools('/agents/agent-1/sessions/session-1', {
+      const tools = createSkillTools({
         turn: testTurn,
         rpc: overlayResolveRPC(),
         enabledSkills: [
@@ -168,7 +168,7 @@ describe('@ankole/agent-computer skill tools', () => {
       )
       writeFileSyncWithParents(join(builtinRoot, 'long-report', 'references', 'private.md'), 'private reference')
 
-      const tools = createSkillTools('/agents/agent-1/sessions/session-1', {
+      const tools = createSkillTools({
         turn: testTurn,
         enabledSkills: [
           create(RuntimeSkillSummarySchema, {
@@ -252,7 +252,7 @@ describe('@ankole/agent-computer skill tools', () => {
       writeFileSync(outsideFile, 'must not be readable')
       symlinkSync(outsideFile, join(skillRoot, 'escaped.txt'))
 
-      const tools = createSkillTools('/agents/agent-1/sessions/session-1', {
+      const tools = createSkillTools({
         turn,
         enabledSkills: [
           create(RuntimeSkillSummarySchema, {
@@ -297,7 +297,7 @@ describe('@ankole/agent-computer skill tools', () => {
     }
     const writes: unknown[] = []
 
-    const tools = createSkillTools('/agents/agent-1/sessions/session-1', {
+    const tools = createSkillTools({
       turn,
       enabledSkills: [
         create(RuntimeSkillSummarySchema, { skillName: 'nano-pdf', sourceKind: 'builtin', relativePath: 'nano-pdf' })
@@ -340,7 +340,7 @@ describe('@ankole/agent-computer skill tools', () => {
     }
     const writes: unknown[] = []
 
-    const tools = createSkillTools('/agents/agent-1/sessions/session-1', {
+    const tools = createSkillTools({
       turn,
       enabledSkills: [
         create(RuntimeSkillSummarySchema, { skillName: 'nano-pdf', sourceKind: 'builtin', relativePath: 'nano-pdf' })
@@ -382,7 +382,7 @@ describe('@ankole/agent-computer skill tools', () => {
       revision: 0
     }
     const writes: unknown[] = []
-    const tools = createSkillTools('/agents/agent-1/sessions/session-1', {
+    const tools = createSkillTools({
       turn,
       enabledSkills: [
         create(RuntimeSkillSummarySchema, { skillName: 'nano-pdf', sourceKind: 'builtin', relativePath: 'nano-pdf' })

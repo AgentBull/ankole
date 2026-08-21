@@ -49,7 +49,6 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapterTest do
     # registries, so config-key writes re-register this plugin's patterns.
     AppConfigureRegistry.clear_for_test()
     AppConfigureCache.clear_for_test()
-    :ok = AppConfigure.register_patterns(GoogleWorkspaceAdapter.app_config_patterns())
     previous = Req.default_options()
     on_exit(fn -> Req.default_options(previous) end)
   end

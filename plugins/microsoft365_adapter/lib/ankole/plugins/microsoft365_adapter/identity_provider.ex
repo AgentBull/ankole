@@ -21,8 +21,8 @@ defmodule Ankole.Plugins.Microsoft365Adapter.IdentityProvider do
 
   @spec authorization_url(map(), keyword()) :: {:ok, String.t()} | {:error, term()}
   def authorization_url(config, opts) do
-    with {:ok, redirect_uri} <- required_opt(opts, :redirect_uri),
-         {:ok, state} <- required_opt(opts, :state) do
+    with {:ok, redirect_uri} <- MapHelpers.required_opt(opts, :redirect_uri),
+         {:ok, state} <- MapHelpers.required_opt(opts, :state) do
       {:ok,
        EntraAuth.authorize_url(
          login_base_url: "https://login.microsoftonline.com",
@@ -359,11 +359,4 @@ defmodule Ankole.Plugins.Microsoft365Adapter.IdentityProvider do
   end
 
   defp encode_segment(value), do: URI.encode(value, &URI.char_unreserved?/1)
-
-  defp required_opt(opts, key) do
-    case Keyword.get(opts, key) do
-      value when is_binary(value) and value != "" -> {:ok, value}
-      _value -> {:error, {:missing, key}}
-    end
-  end
 end

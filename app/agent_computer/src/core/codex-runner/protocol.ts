@@ -1,7 +1,8 @@
+import { compareCodePointStrings } from '../../common/ordering'
 import { jsonObject, match } from '@agentbull/active-support'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import type { JSONRPCMessage } from './app-server-client'
-import type { BackgroundAgentJobStatus, BackgroundAgentJobTurnUsage } from '../../lanes/rpc_lane'
+import type { BackgroundAgentJobStatus, BackgroundAgentJobTurnUsage } from '../background-agent-job-documents'
 import { boundedBackgroundAgentJobPaths, type BackgroundAgentJobPathHandoff } from '../background-agent-job-handoff'
 
 export type CodexNotificationProjection =
@@ -68,20 +69,13 @@ export function stringValue(value: unknown): string | undefined {
 }
 
 export function normalizedCollaborationToolName(tool: string | undefined): string {
-  switch (tool) {
-    case 'spawnAgent':
-      return 'spawn_agent'
-    case 'sendInput':
-      return 'send_message'
-    case 'resumeAgent':
-      return 'followup_task'
-    case 'wait':
-      return 'wait_agent'
-    case 'closeAgent':
-      return 'interrupt_agent'
-    default:
-      return tool ?? 'agent_interaction'
-  }
+  return match(tool)
+    .with('spawnAgent', () => 'spawn_agent')
+    .with('sendInput', () => 'send_message')
+    .with('resumeAgent', () => 'followup_task')
+    .with('wait', () => 'wait_agent')
+    .with('closeAgent', () => 'interrupt_agent')
+    .otherwise(() => tool ?? 'agent_interaction')
 }
 
 export function normalizeCodexThreadUsage(value: unknown): BackgroundAgentJobTurnUsage | undefined {
@@ -99,7 +93,7 @@ export function normalizeCodexThreadUsage(value: unknown): BackgroundAgentJobTur
 
 export function boundedFilesChangedFromCodexDiff(diff: string): BackgroundAgentJobPathHandoff {
   const handoff = boundedBackgroundAgentJobPaths(codexChangedPaths(diff))
-  return { ...handoff, paths: [...handoff.paths].sort(compareCodePoints) }
+  return { ...handoff, paths: [...handoff.paths].sort(compareCodePointStrings) }
 }
 
 function* codexChangedPaths(diff: string): Generator<string> {
@@ -140,10 +134,6 @@ function usageBreakdown(value: unknown): BackgroundAgentJobTurnUsage['thread_tot
 
 function nonnegativeInteger(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : undefined
-}
-
-function compareCodePoints(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0
 }
 
 export function approvalRequestMethod(method: string): boolean {

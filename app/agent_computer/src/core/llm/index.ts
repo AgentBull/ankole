@@ -1,7 +1,6 @@
 import type { AssistantMessage, CallModelOptions, ContentPart, ModelConfig, UserMessage } from './types'
 import { buildResponseCreateParams } from './wire'
 import { parseResponse } from './parse'
-import { createModelTurn } from './session'
 
 export type {
   AssistantMessage,
@@ -36,29 +35,8 @@ export {
   zodToJSONSchema
 } from './tool-schema'
 
+/** Stateless one-shot Responses call over HTTP. Conversation-anchored turns go through createModelTurn. */
 export async function callModel(model: ModelConfig, options: CallModelOptions) {
-  if (options.stateful) {
-    const turn = createModelTurn(model, {
-      stateful: options.stateful,
-      abortSignal: options.abortSignal,
-      onActivity: options.onActivity,
-      onTextDelta: options.onTextDelta
-    })
-
-    try {
-      const {
-        stateful: _stateful,
-        abortSignal: _abortSignal,
-        onActivity: _onActivity,
-        onTextDelta: _onTextDelta,
-        ...callOptions
-      } = options
-      return await turn.call(callOptions)
-    } finally {
-      turn.close()
-    }
-  }
-
   const params = buildResponseCreateParams(model, options)
   await options.beforeCall?.(params)
   const requestOptions = options.abortSignal ? { signal: options.abortSignal } : undefined

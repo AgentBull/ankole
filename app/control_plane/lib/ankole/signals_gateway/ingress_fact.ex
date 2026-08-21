@@ -184,6 +184,6 @@ defmodule Ankole.SignalsGateway.IngressFact do
     end
   end
 
-  defp normalize_uid(uid) when is_binary(uid), do: uid |> String.trim() |> String.downcase()
+  defp normalize_uid(uid) when is_binary(uid), do: Ankole.PrincipalKey.canonicalize(uid)
   defp normalize_uid(uid), do: uid
 end

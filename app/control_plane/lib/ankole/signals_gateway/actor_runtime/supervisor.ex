@@ -11,10 +11,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Supervisor do
   use Supervisor
 
   alias Ankole.SignalsGateway.ActorRuntime.WorkerAuthKey
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerWebFetchConfig
-  alias Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobWorkerConfig
-  alias Ankole.SignalsGateway.ActorRuntime.DeadLetterNoticeConfig
-  alias Ankole.SignalsGateway.ActorRuntime.AgentConfig
 
   @doc """
   Starts actor-runtime services.
@@ -28,12 +24,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Supervisor do
   @spec init(keyword()) :: {:ok, tuple()} | :ignore
   def init(opts) do
     WorkerAuthKey.ensure!()
-    :ok = AgentConfig.ensure_registered()
-    :ok = WorkerWebFetchConfig.ensure_registered()
-    :ok = BackgroundAgentJobWorkerConfig.ensure_registered()
-    :ok = DeadLetterNoticeConfig.ensure_registered()
-    :ok = Ankole.Security.SSRFFilter.ensure_registered()
-    :ok = Ankole.IdentityProviders.Config.ensure_registered()
 
     # Start every inbound consumer before the socket-owning broker. Domain work
     # runs in the dispatcher, supervised RPC tasks, or per-actor controllers;

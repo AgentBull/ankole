@@ -201,7 +201,7 @@ defmodule FeishuOpenAPI.Event do
   defp verify_token(%{verification_token: nil}, _decoded), do: :ok
 
   defp verify_token(%{verification_token: vt}, decoded) do
-    if Envelope.token(decoded) == vt, do: :ok, else: {:error, :bad_verification_token}
+    Crypto.verify_token(Envelope.token(decoded), vt)
   end
 
   defp decoded_result(decoded) do

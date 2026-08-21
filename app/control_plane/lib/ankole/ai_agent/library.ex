@@ -1092,9 +1092,9 @@ defmodule Ankole.AIAgent.Library do
   defp installed_sources_from_observations(observations) do
     observations
     |> Enum.map(&installed_source_from_observation/1)
-    |> collect_results()
+    |> Ankole.Attrs.collect_results()
     |> case do
-      {:ok, sources} -> sources |> Enum.reverse() |> reject_duplicate_observations()
+      {:ok, sources} -> reject_duplicate_observations(sources)
       {:error, _reason} = error -> error
     end
   end
@@ -1288,13 +1288,6 @@ defmodule Ankole.AIAgent.Library do
 
   defp put_optional_metadata(metadata, _key, nil), do: metadata
   defp put_optional_metadata(metadata, key, value), do: Map.put(metadata, key, value)
-
-  defp collect_results(results) do
-    Enum.reduce_while(results, {:ok, []}, fn
-      {:ok, value}, {:ok, acc} -> {:cont, {:ok, [value | acc]}}
-      {:error, _reason} = error, _acc -> {:halt, error}
-    end)
-  end
 
   defp active_agent_entry(repo, agent_uid, path) do
     AgentLibraryContainerEntry

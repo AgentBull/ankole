@@ -10,6 +10,7 @@ defmodule Ankole.AIGateway.ProviderConfigs do
 
   import Ecto.Query, warn: false
 
+  alias Ankole.Attrs
   alias Ecto.Adapters.SQL
 
   alias Ankole.AIGateway.ChatGPTAuth
@@ -356,7 +357,7 @@ defmodule Ankole.AIGateway.ProviderConfigs do
   @spec update_credential(String.t(), String.t(), map()) :: provider_result()
   def update_credential(provider_id, credential_id, attrs)
       when is_binary(provider_id) and is_binary(credential_id) and is_map(attrs) do
-    attrs = normalize_external_attrs(attrs)
+    attrs = Attrs.normalize_external_attrs(attrs)
 
     Repo.transact(fn repo ->
       with %Provider{} = provider <- lock_provider(repo, provider_id),
@@ -507,7 +508,7 @@ defmodule Ankole.AIGateway.ProviderConfigs do
   # Write normalization happens before the changeset because credential sealing
   # depends on per-provider setting metadata.
   defp provider_attrs_for_write(attrs, %Provider{} = provider) do
-    attrs = normalize_external_attrs(attrs)
+    attrs = Attrs.normalize_external_attrs(attrs)
 
     with :ok <- reject_credential_field(attrs),
          {:ok, attrs} <- reject_provider_id_change(attrs, provider),
@@ -515,13 +516,6 @@ defmodule Ankole.AIGateway.ProviderConfigs do
          {:ok, attrs} <- apply_credential_pool(attrs, provider) do
       {:ok, attrs}
     end
-  end
-
-  defp normalize_external_attrs(attrs) do
-    Map.new(attrs, fn
-      {key, value} when is_atom(key) -> {Atom.to_string(key), value}
-      {key, value} -> {key, value}
-    end)
   end
 
   # A top-level singular credential would create a second execution path beside
@@ -617,7 +611,7 @@ defmodule Ankole.AIGateway.ProviderConfigs do
 
   defp normalize_and_seal_pool(pool, existing_pool, row_id, credential_keys, provider_kind)
        when is_map(pool) and is_list(credential_keys) do
-    pool = normalize_external_attrs(pool)
+    pool = Attrs.normalize_external_attrs(pool)
     strategy = Map.get(pool, "strategy", Map.get(existing_pool, "strategy", "fill_first"))
     entries = Map.get(pool, "entries", [])
 
@@ -650,7 +644,7 @@ defmodule Ankole.AIGateway.ProviderConfigs do
   defp append_credential(%Provider{} = provider, attrs) do
     pool = credential_pool(provider)
     entries = Map.get(pool, "entries", [])
-    attrs = normalize_external_attrs(attrs)
+    attrs = Attrs.normalize_external_attrs(attrs)
 
     with {:ok, credential_keys} <- credential_option_keys(provider.provider_kind),
          id <- normalized_credential_id(Map.get(attrs, "id")),
@@ -673,7 +667,7 @@ defmodule Ankole.AIGateway.ProviderConfigs do
   end
 
   defp replace_credential(%Provider{} = provider, credential_id, attrs) do
-    attrs = normalize_external_attrs(attrs)
+    attrs = Attrs.normalize_external_attrs(attrs)
     credential_replaced? = credential_replaced?(attrs)
 
     with false <-
@@ -780,7 +774,7 @@ defmodule Ankole.AIGateway.ProviderConfigs do
     entries
     |> Enum.reduce_while({:ok, [], MapSet.new()}, fn raw_entry, {:ok, acc, seen} ->
       with true <- is_map(raw_entry),
-           entry <- normalize_external_attrs(raw_entry),
+           entry <- Attrs.normalize_external_attrs(raw_entry),
            id <- normalized_credential_id(Map.get(entry, "id")),
            false <- MapSet.member?(seen, id),
            {:ok, stored_entry} <-

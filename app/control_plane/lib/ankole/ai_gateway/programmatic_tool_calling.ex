@@ -567,7 +567,7 @@ defmodule Ankole.AIGateway.ProgrammaticToolCalling do
       "status" => "completed",
       "caller" => %{"type" => "program", "caller_id" => program_call_id}
     }
-    |> maybe_put("namespace", binding.namespace)
+    |> put_nonempty_text("namespace", binding.namespace)
   end
 
   @doc false
@@ -1205,10 +1205,10 @@ defmodule Ankole.AIGateway.ProgrammaticToolCalling do
     |> Base.encode16(case: :lower)
   end
 
-  defp maybe_put(map, _key, nil), do: map
+  defp put_nonempty_text(map, _key, nil), do: map
 
-  defp maybe_put(map, key, value) when is_binary(value) and value != "",
+  defp put_nonempty_text(map, key, value) when is_binary(value) and value != "",
     do: Map.put(map, key, value)
 
-  defp maybe_put(map, _key, _value), do: map
+  defp put_nonempty_text(map, _key, _value), do: map
 end

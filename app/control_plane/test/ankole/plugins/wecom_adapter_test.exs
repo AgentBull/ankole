@@ -207,7 +207,6 @@ defmodule Ankole.Plugins.WeComAdapterTest do
   defp setup_wecom_config_registry do
     AppConfigureRegistry.clear_for_test()
     AppConfigureCache.clear_for_test()
-    :ok = AppConfigure.register_patterns(WeComAdapter.app_config_patterns())
   end
 
   defp start_fake_client(config, script \\ %{}) do

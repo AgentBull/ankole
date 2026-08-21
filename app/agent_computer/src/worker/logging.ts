@@ -1,5 +1,6 @@
 import pino, { type DestinationStream, type Logger as PinoLogger, type LoggerOptions } from 'pino'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
+import { toError } from '../common/errors'
 
 export type LogSeverity = 'DEBUG' | 'INFO' | 'NOTICE' | 'WARNING' | 'ERROR' | 'CRITICAL' | 'ALERT' | 'EMERGENCY'
 
@@ -88,7 +89,7 @@ export const workerLogger = createWorkerLogger()
  * status, and error code needed for operations.
  */
 export function turnFailureLogError(error: unknown): Error {
-  const normalized = error instanceof Error ? error : new Error(String(error))
+  const normalized = toError(error)
   if (normalized.name !== 'LLMProviderTerminalError') return normalized
 
   const safe = new Error('LLM provider returned an error')

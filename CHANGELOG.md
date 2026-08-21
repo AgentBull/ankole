@@ -1,5 +1,19 @@
 # Changelog
 
+## Version 1.0.0-alpha.2 (2026-08-21)
+
+- Concurrent identity observations, Slack directory deltas, and signal channel updates now keep all accepted facts. A mapped account no longer returns to Pending mappings, a failed directory delta leaves the group unchanged, and concurrent channel metadata keys no longer overwrite each other.
+- AppConfigure and Plugin process crashes now rebuild one consistent declaration and activation snapshot. Long-connection owners reconnect after their Registry fails, and Feishu, DingTalk, and WeCom token requests no longer wait until timeout when a fetch task dies.
+- Feishu webhook verification tokens now use constant-time comparison, and an AIGateway Response process crash report no longer contains request content or credentials.
+- The Background Agent Job detail page loads all Turn trajectories in one query. Internal AIGateway token ownership and fixed request-key handling are simpler, with no API or operator change.
+- Chat attachment filenames now pass one shared sanitizer on all five platforms. A name that reduces to empty, `.`, or `..` is stored as `attachment`; DingTalk, WeCom, Slack, and Teams no longer keep raw dot names or fall back to `unnamed`.
+- Internal: the Worker and the control plane remove dead scaffolding left over from the agent-loop replacement and this version's own refactors. Users do not see this.
+- Internal: the Worker gives its Background Agent Job document shapes, turn-local CLI socket bridges, and tool-authoring exports one owner each, and the Console route loaders reuse the pages' own query builders. Users do not see this.
+- Model-visible catalogs that sort names (skills, agent plugins, changed file paths) now order by Unicode code point on every runtime. A name with characters outside the Basic Multilingual Plane can change position once.
+- Internal: duplicated inline helpers move to single owners — shared attribute-map and result helpers on `Ankole.Attrs`, canonical Principal UID normalization on `PrincipalKey.canonicalize`, Worker error/ordering/number helpers under `common/`, and shared Console test auth helpers on `ConnCase`. Same-named map helpers with different semantics received distinct names. Users do not see this.
+- Internal: Worker duration constants use `ms('5m')`-style declarations, Console refresh cadences share one owner module with unchanged values, the kernel AI client uses one JSON codec (sonic-rs) throughout, closed-union dispatch uses exhaustive `match`, and audited pass-through layers (AIGateway request-key and stateful-conversation forwarders, dead execution-scope plumbing, identity casts) collapse onto their owners. Users do not see this.
+- The Worker now runs Playwright, its browser daemon, and browser scripts on Bun. The Worker image no longer carries a separate Node.js runtime for browser automation.
+
 ## Version 1.0.0-alpha.1 (2026-08-20)
 
 - Operators can now bind chat senders to accounts by hand. A sender that auto-mapping cannot identify appears under Identity → Pending mappings in the Console; binding the entry maps that platform account to the chosen user, and the same page can map an account before the person ever writes. Until then, an addressed message gets one fixed reply that asks the sender to contact an administrator, and the message is not processed.

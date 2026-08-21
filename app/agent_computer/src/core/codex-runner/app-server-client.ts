@@ -1,4 +1,4 @@
-import { isRecord, Result, type JsonObject as JSONObject } from '@agentbull/active-support'
+import { Result, isRecord, ms, type JsonObject as JSONObject } from '@agentbull/active-support'
 import { errorMessage, toError } from '../../common/errors'
 
 export type JSONRPCMessage = JSONObject & {
@@ -80,15 +80,15 @@ export class CodexAppServerRPCError extends Error {
   }
 }
 
-const DEFAULT_REQUEST_TIMEOUT_MS = 60_000
+const DEFAULT_REQUEST_TIMEOUT_MS = ms('1m')
 // Codex can maintain large shared state before initialize returns. Give this
 // operation its own budget instead of consuming the ordinary RPC budget.
-const INITIALIZE_REQUEST_TIMEOUT_MS = 300_000
-const THREAD_START_REQUEST_TIMEOUT_MS = 120_000
-const THREAD_RESUME_REQUEST_TIMEOUT_MS = 120_000
-const HEALTH_PROBE_TIMEOUT_MS = 5_000
+const INITIALIZE_REQUEST_TIMEOUT_MS = ms('5m')
+const THREAD_START_REQUEST_TIMEOUT_MS = ms('2m')
+const THREAD_RESUME_REQUEST_TIMEOUT_MS = ms('2m')
+const HEALTH_PROBE_TIMEOUT_MS = ms('5s')
 const STDOUT_EXIT_GRACE_MS = 50
-const PROCESS_GRACEFUL_CLOSE_MS = 1_000
+const PROCESS_GRACEFUL_CLOSE_MS = ms('1s')
 const parseJSONLine = (line: string): Result<unknown, unknown> =>
   Result.try({
     try: () => JSON.parse(line) as unknown,

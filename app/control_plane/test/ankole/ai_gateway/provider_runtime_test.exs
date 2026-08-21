@@ -1079,7 +1079,6 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
 
   test "turn start specs include scoped agent runtime policy without creating a default output cap" do
     %{principal: agent} = agent_fixture()
-    assert :ok = AgentConfig.ensure_registered()
     max_output_tokens_definition = AgentConfig.max_output_tokens_definition()
     inactivity_timeout_definition = AgentConfig.inactivity_timeout_ms_definition()
     max_iterations_definition = AgentConfig.max_iterations_definition()
@@ -1527,7 +1526,6 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
   test "worker auth key is global AppConfigure state" do
     definition = WorkerAuthKey.definition()
 
-    assert :ok = WorkerAuthKey.ensure_registered()
     assert :ok = AppConfigure.delete_global(definition)
 
     assert {:ok, first} = WorkerAuthKey.ensure()

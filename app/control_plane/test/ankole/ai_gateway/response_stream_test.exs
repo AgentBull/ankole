@@ -67,6 +67,46 @@ defmodule Ankole.AIGateway.ResponseStreamTest do
     end
   end
 
+  test "format_status exposes lifecycle state without request credentials or output" do
+    state = %{
+      phase: :opening,
+      public_open?: false,
+      ref: make_ref(),
+      stateful: %{credential: "stateful-secret"},
+      telemetry_emitted?: false,
+      failure_logged?: false,
+      describe_waiters: [self()],
+      opening: %{api_key: "opening-secret"},
+      native_stream: %{token: "native-secret"},
+      credential_success_recorded?: false,
+      provider_output?: true,
+      stateful_replay_recovery_attempted?: false,
+      outstanding_credit: 2,
+      pending_flush: %{output: "private-output"},
+      program_task: %{result: "private-result"},
+      native_done?: false,
+      closing?: false,
+      heartbeat_timer: make_ref(),
+      request: %{api_key: "request-secret"},
+      prepared_request: %{authorization: "prepared-secret"},
+      upstream_opts: [api_key: "upstream-secret"]
+    }
+
+    assert %{state: formatted} = ResponseStream.format_status(%{state: state})
+    assert formatted.phase == :opening
+    assert formatted.describe_waiter_count == 1
+    assert formatted.outstanding_credit == 2
+    assert formatted.stateful?
+    assert formatted.provider_output?
+
+    inspected = inspect(formatted)
+    refute inspected =~ "request-secret"
+    refute inspected =~ "prepared-secret"
+    refute inspected =~ "upstream-secret"
+    refute inspected =~ "private-output"
+    refute inspected =~ "private-result"
+  end
+
   test "a provider waiting for ready does not block other stream starts" do
     test_pid = self()
 

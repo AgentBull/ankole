@@ -33,7 +33,6 @@ export function verifyWorkerFilesystem(config: WorkerConfig): void {
   }
   assertExecutable('codex')
   assertExecutable('ankole-browser', ['--help'])
-  assertExecutable(process.env.ANKOLE_BROWSER_NODE ?? '/opt/ankole-browser/node/bin/node')
   assertFile(
     process.env.ANKOLE_BROWSER_DAEMON_ENTRY ?? '/opt/ankole-browser/dist/daemon/main.js',
     'ANKOLE_BROWSER_DAEMON_ENTRY',

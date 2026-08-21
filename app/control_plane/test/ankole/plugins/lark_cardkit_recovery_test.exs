@@ -114,7 +114,6 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     Req.Test.set_req_test_to_shared()
     AppConfigureRegistry.clear_for_test()
     AppConfigureCache.clear_for_test()
-    :ok = AppConfigure.register_patterns(LarkAdapter.app_config_patterns())
     previous = Req.default_options()
     on_exit(fn -> Req.default_options(previous) end)
 

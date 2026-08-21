@@ -1,6 +1,7 @@
-import { match, type JsonObject as JSONObject } from '@agentbull/active-support'
+import { match, ms, type JsonObject as JSONObject } from '@agentbull/active-support'
 import { mailboxUpdatedFromEnvelope, turnControlFromEnvelope, turnStartFromEnvelope } from './lanes/actor_lane'
-import { runTurnHandlers, type ReplyPresentationEvent } from './core'
+import { runTurnHandlers } from './core/turns'
+import type { ReplyPresentationEvent } from './core'
 import { controlShutdownEnvelope, turnAcceptedEnvelope, workerProgressEnvelope } from './fabric/envelopes'
 import {
   RuntimeRPCClient,
@@ -48,13 +49,14 @@ import {
 } from './worker/turn_completion'
 import { deleteCodexLogs2AtDailyReset } from './core/codex-runner/fix-codex-logs2-sqlite-bug'
 import { configureWorkerTracing, forceFlushWorkerTracing } from './observability/turn-tracing'
+import { errorMessage, toError } from './common/errors'
 
-const heartbeatIntervalMs = 15_000
+const heartbeatIntervalMs = ms('15s')
 
 try {
   await runWorker()
 } catch (error) {
-  workerLogger.critical('worker.error', 'worker failed', { error: errorValue(error) })
+  workerLogger.critical('worker.error', 'worker failed', { error: toError(error) })
   process.exit(1)
 }
 
@@ -79,7 +81,7 @@ async function runWorker(): Promise<void> {
       'observability.spans.export',
       { payload },
       { agentUid: agentUID },
-      { timeoutMs: 10_000 }
+      { timeoutMs: ms('10s') }
     )
     if ('code' in response) throw new Error(`worker span export rejected: ${response.code}`)
   })
@@ -89,7 +91,6 @@ async function runWorker(): Promise<void> {
   const browserRuntime = new BrowserRuntime({
     runtimeRoot: '/tmp/ankole-agent-computer',
     ...(process.env.ANKOLE_BROWSER_DAEMON_SOCKET ? { socketPath: process.env.ANKOLE_BROWSER_DAEMON_SOCKET } : {}),
-    ...(process.env.ANKOLE_BROWSER_NODE ? { nodePath: process.env.ANKOLE_BROWSER_NODE } : {}),
     ...(process.env.ANKOLE_BROWSER_DAEMON_ENTRY ? { daemonEntry: process.env.ANKOLE_BROWSER_DAEMON_ENTRY } : {}),
     ...(process.env.ANKOLE_BROWSER_RUNNER ? { runnerPath: process.env.ANKOLE_BROWSER_RUNNER } : {}),
     ...(process.env.ANKOLE_BROWSER_CHROMIUM_EXECUTABLE
@@ -139,7 +140,7 @@ async function runWorker(): Promise<void> {
         } catch (error) {
           workerLogger.warning('worker.drain_report_failed', 'worker drain report failed', {
             reason: drain.reason,
-            error: errorValue(error)
+            error: toError(error)
           })
         }
       }
@@ -275,7 +276,7 @@ async function handleEnvelope(
         }).catch(error => {
           workerLogger.error('worker.rpc_reply_failed', 'worker RPC reply failed', {
             method: value.method,
-            error: errorValue(error)
+            error: toError(error)
           })
         })
       )
@@ -365,7 +366,7 @@ async function startTurn(
     runActiveTurnTask(config, browserRuntime, sendEnvelope, rpcClient, active, activeTurns).catch(error => {
       workerLogger.error('worker.turn_completion_error', 'worker turn completion task failed', {
         actor_event_id: turnStart.turn.actor_event_id,
-        error: errorValue(error),
+        error: toError(error),
         operation: turnOperation(turnStart.turn.actor_event_id, { last: true })
       })
     })
@@ -424,13 +425,13 @@ async function runActiveTurnTask(
     if (error instanceof TurnCompletionRejectedError || error instanceof TurnTerminalRejectedError) {
       workerLogger.error('worker.turn_completion_rejected', 'worker turn completion was rejected', {
         actor_event_id: turnStart.turn.actor_event_id,
-        error: errorValue(error),
+        error: toError(error),
         operation: turnOperation(turnStart.turn.actor_event_id, { last: true })
       })
       throw error
     }
 
-    const message = error instanceof Error ? error.message : String(error)
+    const message = errorMessage(error)
 
     await abortTurnWithAck(
       rpcClient,
@@ -445,7 +446,7 @@ async function runActiveTurnTask(
           workerLogger.warning('worker.turn_abort_retry', 'worker turn abort acknowledgement missing', {
             actor_event_id: turnStart.turn.actor_event_id,
             attempt,
-            error: errorValue(retryError)
+            error: toError(retryError)
           })
         }
       }
@@ -540,7 +541,7 @@ async function runActiveTurn(
           workerLogger.warning('worker.turn_noop_retry', 'worker turn no-op acknowledgement missing', {
             actor_event_id: turnStart.turn.actor_event_id,
             attempt,
-            error: errorValue(error)
+            error: toError(error)
           })
         }
       })
@@ -552,7 +553,7 @@ async function runActiveTurn(
         workerLogger.warning('worker.turn_completion_retry', 'worker turn completion acknowledgement missing', {
           actor_event_id: turnStart.turn.actor_event_id,
           attempt,
-          error: errorValue(error)
+          error: toError(error)
         })
       }
     })
@@ -581,13 +582,9 @@ async function sendReplyPresentationProgress(
     workerLogger.warning('worker.reply_presentation_send_failed', 'worker reply presentation event failed', {
       actor_event_id: active.turnStart.turn.actor_event_id,
       event_kind: event.kind,
-      error: errorValue(error)
+      error: toError(error)
     })
   }
-}
-
-function errorValue(error: unknown): unknown {
-  return error instanceof Error ? error : new Error(String(error))
 }
 
 function turnOperation(actorEventID: string, flags: { first?: boolean; last?: boolean } = {}): JSONObject {

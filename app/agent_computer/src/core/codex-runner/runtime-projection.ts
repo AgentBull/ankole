@@ -1,3 +1,4 @@
+import { compareCodePointStrings } from '../../common/ordering'
 import { isRecord } from '@agentbull/active-support'
 import { jsonObjectFromBytes } from '../../fabric/envelope_proto'
 import type { AgentPluginCatalogEntry, BackgroundAgentJobResponse, RuntimeSkillSummary } from '../../lanes/rpc_lane'
@@ -123,7 +124,7 @@ function stringArray(value: unknown, label: string): string[] {
   if (!Array.isArray(value) || !value.every(item => typeof item === 'string' && item.length > 0)) {
     throw new Error(`${label} must be an array of non-empty strings`)
   }
-  return [...new Set(value)].sort(compareCodePoints)
+  return [...new Set(value)].sort(compareCodePointStrings)
 }
 
 function stringMap(value: unknown, label: string): Record<string, string> {
@@ -144,8 +145,4 @@ function requiredString(value: unknown, label: string): string {
 
 function optionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined
-}
-
-function compareCodePoints(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0
 }

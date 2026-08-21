@@ -125,7 +125,6 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
     )
     const computerTools = createComputerTools({
       agentUID: turnStart.turn.actor.agent_uid,
-      conversationID: turnStart.turn.actor.session_id,
       agentHome: opts.agentHome,
       workspaceRoot: opts.workspaceRoot,
       userFilesRoot: opts.userFilesRoot,
@@ -151,7 +150,7 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
       ...webTools.filter(tool => !webSearchIsProviderHosted(turnStart) || tool.name !== 'web_search'),
       createClarifyTool(),
       ...backgroundAgentJobTools,
-      ...createSkillTools(opts.workspaceRoot, {
+      ...createSkillTools({
         turn: turnStart.turn,
         enabledSkills: agentConversationContext.skills ?? [],
         skillRoots,

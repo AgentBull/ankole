@@ -88,7 +88,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRetry do
     fact
     |> candidate_events_for_source_entry(repo)
     |> Enum.map(&retract_source_entry_from_event(repo, &1, fact, kind, now))
-    |> collect_results()
+    |> Ankole.Attrs.collect_results()
     |> case do
       {:ok, results} ->
         results = Enum.reject(results, &is_nil/1)
@@ -485,7 +485,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRetry do
     |> lock("FOR UPDATE")
     |> repo.all()
     |> Enum.map(&mark_event_for_retry(repo, &1, actor_event_id, now, reason))
-    |> collect_results()
+    |> Ankole.Attrs.collect_results()
     |> case do
       {:ok, []} -> {:error, :retry_actor_event_not_found}
       result -> result
@@ -605,7 +605,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRetry do
       })
       |> then(&Outbox.commit_outbox_in_tx(repo, &1))
     end)
-    |> collect_results()
+    |> Ankole.Attrs.collect_results()
   end
 
   defp cancel_event_live_turn(repo, %ActorEvent{} = input, reason, now) do
@@ -844,17 +844,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRetry do
        do: actor_event_id
 
   defp current_actor_event_id(_deliveries), do: nil
-
-  defp collect_results(results) do
-    Enum.reduce_while(results, {:ok, []}, fn
-      {:ok, value}, {:ok, acc} -> {:cont, {:ok, [value | acc]}}
-      {:error, _reason} = error, _acc -> {:halt, error}
-    end)
-    |> case do
-      {:ok, values} -> {:ok, Enum.reverse(values)}
-      {:error, _reason} = error -> error
-    end
-  end
 
   defp reason_text(reason) when is_atom(reason), do: Atom.to_string(reason)
   defp reason_text(reason) when is_binary(reason), do: reason

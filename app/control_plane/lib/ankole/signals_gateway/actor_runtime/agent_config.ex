@@ -69,21 +69,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentConfig do
     ]
   end
 
-  @spec ensure_registered() :: :ok | {:error, term()}
-  def ensure_registered do
-    Enum.reduce_while(definitions(), :ok, fn definition, :ok ->
-      case AppConfigure.register_definitions([definition]) do
-        :ok -> {:cont, :ok}
-        {:error, {:duplicate_key, _key}} -> {:cont, :ok}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
-  end
-
   @spec runtime_policy(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def runtime_policy(agent_uid, opts \\ []) when is_binary(agent_uid) do
-    with :ok <- ensure_registered(),
-         {:ok, max_output_tokens} <- resolve_max_output_tokens(agent_uid, opts),
+    with {:ok, max_output_tokens} <- resolve_max_output_tokens(agent_uid, opts),
          {:ok, inactivity_timeout_ms} <- resolve(agent_uid, inactivity_timeout_ms_definition()),
          {:ok, max_iterations} <- resolve(agent_uid, max_iterations_definition()) do
       {:ok,

@@ -1,22 +1,17 @@
-import { chmodSync, existsSync, realpathSync, statSync, unlinkSync } from 'node:fs'
+import { realpathSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { WORKER_SHARE_ROOT } from '../../core/agent-home-paths'
 import { pathIsWithin } from '../../core/path-boundary'
+import {
+  startSocketLineBridge,
+  type SocketLineBridge,
+  type SocketLineBridgeResponse
+} from '../../core/socket-line-bridge'
 import { rpcMethods, type AutomationJobRPCRequester } from '../../lanes/rpc_lane'
-import { AutomationJobCLICommand, type AutomationJobCLIResponse } from './automation-job-cli-protocol'
+import { AutomationJobCLICommand } from './automation-job-cli-protocol'
 
 const maxCommandBytes = 16 * 1024
-
-type SocketState = {
-  buffer: string
-  handled: boolean
-}
-
-export type AutomationJobCLIBridge = {
-  socketPath: string
-  close: () => void
-}
 
 /**
  * Starts the turn-local bridge for automation job management CLIs.
@@ -25,52 +20,13 @@ export function startAutomationJobCLIBridge(opts: {
   agentHome: string
   requestAutomationJobRPC: AutomationJobRPCRequester
   socketRoot?: string
-}): AutomationJobCLIBridge {
-  const socketPath = join(opts.socketRoot ?? WORKER_SHARE_ROOT, `ankole-aj-${randomUUID()}.sock`)
-
-  const listener = Bun.listen<SocketState>({
-    unix: socketPath,
-    socket: {
-      open(socket) {
-        socket.data = { buffer: '', handled: false }
-      },
-      data(socket, data) {
-        if (socket.data.handled) return
-        socket.data.buffer += Buffer.from(data).toString('utf8')
-
-        if (Buffer.byteLength(socket.data.buffer, 'utf8') > maxCommandBytes) {
-          socket.data.handled = true
-          writeResponse(socket, { ok: false, error: 'automation job CLI request is too large' })
-          return
-        }
-
-        const newline = socket.data.buffer.indexOf('\n')
-        if (newline < 0) return
-
-        socket.data.handled = true
-        const line = socket.data.buffer.slice(0, newline)
-        void executeLine(line, opts)
-          .then(response => writeResponse(socket, response))
-          .catch(error => writeResponse(socket, { ok: false, error: errorMessage(error) }))
-      },
-      error() {
-        // A closed socket is the caller-visible failure.
-      }
-    }
+}): SocketLineBridge {
+  return startSocketLineBridge({
+    socketPath: join(opts.socketRoot ?? WORKER_SHARE_ROOT, `ankole-aj-${randomUUID()}.sock`),
+    maxRequestBytes: maxCommandBytes,
+    oversizeError: 'automation job CLI request is too large',
+    handleLine: line => executeLine(line, opts)
   })
-
-  chmodSync(socketPath, 0o600)
-  let closed = false
-
-  return {
-    socketPath,
-    close: () => {
-      if (closed) return
-      closed = true
-      listener.stop(true)
-      if (existsSync(socketPath)) unlinkSync(socketPath)
-    }
-  }
 }
 
 async function executeLine(
@@ -79,7 +35,7 @@ async function executeLine(
     agentHome: string
     requestAutomationJobRPC: AutomationJobRPCRequester
   }
-): Promise<AutomationJobCLIResponse> {
+): Promise<SocketLineBridgeResponse> {
   let raw: unknown
 
   try {
@@ -145,13 +101,4 @@ export function validatedJobDirectory(agentHome: string, cwd: string, requestedP
   }
 
   return candidate
-}
-
-function writeResponse(socket: Bun.Socket<SocketState>, response: AutomationJobCLIResponse): void {
-  socket.write(`${JSON.stringify(response)}\n`)
-  socket.end()
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }

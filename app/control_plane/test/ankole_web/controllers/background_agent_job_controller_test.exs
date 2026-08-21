@@ -24,7 +24,6 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
     Registry.clear_for_test()
     Cache.clear_for_test()
 
-    :ok = SetupConfig.ensure_registered()
     {:ok, false} = SetupConfig.put_completed(false)
     :ok = SetupConfig.delete_bootstrap_activation_code()
 
@@ -265,6 +264,43 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
     refute inspect(detail) =~ "json_rpc"
   end
 
+  test "Console Turn projection loads all trajectories in one query" do
+    agent = background_agent_fixture().principal
+    job = create_job!(agent.uid, "batched-turn-projection")
+    first = insert_turn!(job, "thread-batch", "turn-batch-1")
+    second = insert_turn!(job, "thread-batch", "turn-batch-2")
+    turns = BackgroundAgentJobs.list_turns(job.id)
+
+    handler_id = "background-agent-job-turn-query-#{System.unique_integer([:positive])}"
+    test_pid = self()
+    event = Ankole.Repo.config()[:telemetry_prefix] ++ [:query]
+
+    :ok =
+      :telemetry.attach(
+        handler_id,
+        event,
+        fn _event, _measurements, metadata, pid ->
+          if String.contains?(
+               metadata.query,
+               ~s(FROM "background_agent_job_turn_trajectory_groups")
+             ) do
+            send(pid, :trajectory_group_query)
+          end
+        end,
+        test_pid
+      )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    projections = BackgroundAgentJobs.console_turn_projections(turns)
+
+    assert Enum.map(projections, & &1.id) == Enum.map(turns, & &1.id)
+    assert Enum.find(projections, &(&1.id == first.id)).trajectory["messages"] != []
+    assert Enum.find(projections, &(&1.id == second.id)).trajectory["messages"] != []
+    assert_receive :trajectory_group_query
+    refute_receive :trajectory_group_query
+  end
+
   defp create_job!(agent_uid, suffix, title \\ nil) do
     assert {:ok, %{job: job}} =
              BackgroundAgentJobs.create_with_dispatch(%{
@@ -362,22 +398,6 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
     |> Repo.update_all(set: [queued_at: queued_at])
   end
 
-  defp bearer_conn(conn) do
-    conn
-    |> active_admin_conn()
-    |> post(~p"/.internal-apis/oauth/token", %{
-      "grant_type" => "urn:ankole:params:oauth:grant-type:browser-session"
-    })
-    |> json_response(200)
-    |> Map.fetch!("access_token")
-    |> then(fn access_token ->
-      conn
-      |> recycle()
-      |> put_req_header("authorization", "Bearer #{access_token}")
-      |> put_req_header("content-type", "application/json")
-    end)
-  end
-
   defp recycle_bearer(conn) do
     authorization = get_req_header(conn, "authorization") |> List.first()
 
@@ -385,19 +405,5 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
     |> recycle()
     |> put_req_header("authorization", authorization)
     |> put_req_header("content-type", "application/json")
-  end
-
-  defp active_admin_conn(conn) do
-    {:ok, true} = SetupConfig.put_completed(true)
-    human = human_fixture(%{uid: unique_uid("job-console-admin")})
-    assert {:ok, _root} = AuthZ.root_init_admin(human.principal.uid)
-
-    conn
-    |> init_test_session(%{})
-    |> WebSession.put_admin_session(%{
-      principal_uid: human.principal.uid,
-      provider_id: "lark-main",
-      external_id: "external-1"
-    })
   end
 end

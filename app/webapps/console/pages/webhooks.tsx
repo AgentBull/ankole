@@ -1,3 +1,4 @@
+import { LIST_REFRESH_MS } from '../refresh-intervals'
 import { TableCell, TableRow, toast } from '@ankole/uikit'
 import { RiCloseCircleLine, RiWebhookLine } from '@remixicon/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -29,7 +30,7 @@ export function WebhooksPage() {
 
   const endpoints = useQuery({
     ...ankoleWebWebhookEndpointControllerIndexOptions({ query: { agent: scope.agentUID || undefined } }),
-    refetchInterval: 15_000
+    refetchInterval: LIST_REFRESH_MS
   })
 
   const rows = (endpoints.data?.webhook_endpoints ?? [])

@@ -20,7 +20,6 @@ export class BrowserDaemonSupervisor {
   constructor(
     readonly options: {
       socketPath: string
-      nodePath?: string
       daemonEntry?: string
       onEvent?: (event: BrowserDaemonEvent) => void
     }
@@ -55,9 +54,8 @@ export class BrowserDaemonSupervisor {
   private async spawnAndWait(): Promise<void> {
     await mkdir(dirname(this.options.socketPath), { recursive: true })
     await rm(this.options.socketPath, { force: true })
-    const nodePath = this.options.nodePath ?? '/opt/ankole-browser/node/bin/node'
     const daemonEntry = this.options.daemonEntry ?? '/opt/ankole-browser/dist/daemon/main.js'
-    const child = spawn(nodePath, [daemonEntry], {
+    const child = spawn(process.execPath, [daemonEntry], {
       env: { ...process.env, ANKOLE_BROWSER_DAEMON_SOCKET: this.options.socketPath },
       stdio: ['ignore', 'inherit', 'inherit']
     })

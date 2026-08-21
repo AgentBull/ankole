@@ -352,7 +352,7 @@ fn aigateway_encodes_marked_outputs_after_anthropic_adapter() {
         .unwrap();
 
     let arguments: Value =
-        serde_json::from_str(anthropic_body["output"][0]["arguments"].as_str().unwrap()).unwrap();
+        sonic_rs::from_str(anthropic_body["output"][0]["arguments"].as_str().unwrap()).unwrap();
     assert_eq!(arguments["task_name"], "a");
     assert!(
         arguments["message"]
@@ -504,7 +504,7 @@ fn aigateway_buffers_and_encodes_gemini_encrypted_tool_streams() {
         .iter()
         .find(|item| item["type"] == "function_call")
         .unwrap();
-    let arguments: Value = serde_json::from_str(call["arguments"].as_str().unwrap()).unwrap();
+    let arguments: Value = sonic_rs::from_str(call["arguments"].as_str().unwrap()).unwrap();
     assert_eq!(arguments["task_name"], "gemini");
     assert!(
         arguments["message"]
@@ -558,7 +558,7 @@ fn aigateway_decodes_opaque_history_before_native_responses_provider() {
 
     let provider_body = Value::Object(resolver.build_body().unwrap());
     let arguments: Value =
-        serde_json::from_str(provider_body["input"][0]["arguments"].as_str().unwrap()).unwrap();
+        sonic_rs::from_str(provider_body["input"][0]["arguments"].as_str().unwrap()).unwrap();
 
     assert_eq!(arguments["message"], "history secret");
     assert_eq!(
@@ -724,7 +724,7 @@ fn aigateway_decodes_opaque_history_without_tool_definitions() {
 
     let provider_body = Value::Object(resolver.build_body().unwrap());
     let arguments: Value =
-        serde_json::from_str(provider_body["input"][0]["arguments"].as_str().unwrap()).unwrap();
+        sonic_rs::from_str(provider_body["input"][0]["arguments"].as_str().unwrap()).unwrap();
 
     assert_eq!(arguments["message"], "history secret");
     assert!(!provider_body.to_string().contains(opaque_message));
@@ -754,7 +754,7 @@ fn aigateway_keeps_prefix_substrings_inside_plain_argument_values_verbatim() {
 
     let provider_body = Value::Object(resolver.build_body().unwrap());
     let replayed: Value =
-        serde_json::from_str(provider_body["input"][0]["arguments"].as_str().unwrap()).unwrap();
+        sonic_rs::from_str(provider_body["input"][0]["arguments"].as_str().unwrap()).unwrap();
 
     assert_eq!(replayed["cmd"], quoted);
 }
@@ -1169,7 +1169,7 @@ fn openai_chat_stream_round_trips_reasoning_details_with_tool_calls() {
     let payload = encoded
         .strip_prefix("ankole-aigateway-chat-reasoning:")
         .unwrap();
-    let decoded: Value = serde_json::from_slice(&base64_url_safe_decode(payload).unwrap()).unwrap();
+    let decoded: Value = sonic_rs::from_slice(&base64_url_safe_decode(payload).unwrap()).unwrap();
     assert_eq!(decoded["provider_type"], "openrouter");
     assert_eq!(decoded["model_id"], "gemini-test");
     assert!(decoded.get("version").is_none());
@@ -1457,7 +1457,7 @@ fn openai_chat_stream_restores_custom_tool_calls() {
                     "id": "call_patch",
                     "function": {
                         "name": "apply_patch",
-                        "arguments": serde_json::to_string(&json!({"input": patch})).unwrap()
+                        "arguments": sonic_rs::to_string(&json!({"input": patch})).unwrap()
                     }
                 }]},
                 "finish_reason": "tool_calls"
@@ -1658,7 +1658,7 @@ fn openai_chat_build_body_maps_function_call_history_to_tool_messages() {
     assert_eq!(messages[3], json!({"role": "assistant", "content": "done"}));
 
     assert!(
-        !serde_json::to_string(&messages)
+        !sonic_rs::to_string(&messages)
             .unwrap()
             .contains("function_call_output")
     );
@@ -1721,7 +1721,7 @@ fn openai_chat_build_body_maps_custom_tool_and_history_to_chat_functions() {
     );
     assert_eq!(
         body["messages"][0]["tool_calls"][0]["function"]["arguments"],
-        serde_json::to_string(&json!({"input": patch})).unwrap()
+        sonic_rs::to_string(&json!({"input": patch})).unwrap()
     );
     assert_eq!(body["messages"][1]["role"], "tool");
     assert_eq!(body["messages"][1]["tool_call_id"], "call_patch");
@@ -1765,7 +1765,7 @@ fn openai_chat_non_streaming_restores_custom_tool_calls() {
                             "type": "function",
                             "function": {
                                 "name": "apply_patch",
-                                "arguments": serde_json::to_string(&json!({"input": patch})).unwrap()
+                                "arguments": sonic_rs::to_string(&json!({"input": patch})).unwrap()
                             }
                         }]
                     },
@@ -1854,7 +1854,7 @@ fn openai_chat_emulates_and_restores_namespaced_custom_tool_calls() {
                             "type": "function",
                             "function": {
                                 "name": "editing__apply_patch",
-                                "arguments": serde_json::to_string(&json!({"input": patch})).unwrap()
+                                "arguments": sonic_rs::to_string(&json!({"input": patch})).unwrap()
                             }
                         }]
                     },
@@ -1955,7 +1955,7 @@ fn openai_chat_build_body_keeps_tool_output_images_out_of_tool_text() {
             .contains(image_data_url)
     );
     assert_eq!(
-        serde_json::to_string(&body)
+        sonic_rs::to_string(&body)
             .unwrap()
             .matches(image_data_url)
             .count(),
@@ -2225,7 +2225,7 @@ fn openai_chat_round_trips_response_encrypted_tool_parameters() {
         )
         .unwrap();
     let call = &response["output"][0];
-    let arguments: Value = serde_json::from_str(call["arguments"].as_str().unwrap()).unwrap();
+    let arguments: Value = sonic_rs::from_str(call["arguments"].as_str().unwrap()).unwrap();
     let encoded_message = arguments["message"].as_str().unwrap();
 
     assert_eq!(call["namespace"], "collaboration");
@@ -2271,7 +2271,7 @@ fn openai_chat_round_trips_response_encrypted_tool_parameters() {
     );
     let replay_body = Value::Object(replay.build_body().unwrap());
     let replay_messages = replay_body["messages"].as_array().unwrap();
-    let replay_arguments: Value = serde_json::from_str(
+    let replay_arguments: Value = sonic_rs::from_str(
         replay_messages[0]["tool_calls"][0]["function"]["arguments"]
             .as_str()
             .unwrap(),
@@ -2376,7 +2376,7 @@ fn openai_chat_assembles_interleaved_encrypted_tool_call_streams() {
 
     assert_eq!(calls.len(), 2);
     for (call, task_name) in calls.into_iter().zip(["first", "second"]) {
-        let arguments: Value = serde_json::from_str(call["arguments"].as_str().unwrap()).unwrap();
+        let arguments: Value = sonic_rs::from_str(call["arguments"].as_str().unwrap()).unwrap();
         assert_eq!(arguments["task_name"], task_name);
         assert!(
             arguments["message"]
@@ -3373,7 +3373,7 @@ fn aigateway_buffers_and_encodes_anthropic_encrypted_tool_streams() {
         .iter()
         .find(|event| event["type"] == "response.function_call_arguments.done")
         .unwrap();
-    let arguments: Value = serde_json::from_str(done["arguments"].as_str().unwrap()).unwrap();
+    let arguments: Value = sonic_rs::from_str(done["arguments"].as_str().unwrap()).unwrap();
     assert_eq!(arguments["task_name"], "stream");
     assert!(
         arguments["message"]
@@ -3535,7 +3535,7 @@ fn anthropic_build_body_maps_openresponses_images_to_image_blocks() {
         json!({"type": "text", "text": "[image content omitted: unsupported image source]"})
     );
     assert!(
-        !serde_json::to_string(&body)
+        !sonic_rs::to_string(&body)
             .unwrap()
             .contains("SHOULD_NOT_APPEAR_IN_TEXT")
     );
@@ -4177,7 +4177,7 @@ fn openai_responses_emulation_lowers_custom_tools_history_and_tool_choice() {
             "id": "fc_prev",
             "call_id": "call_prev",
             "name": "exec",
-            "arguments": serde_json::to_string(&json!({"input": "console.log(1)"})).unwrap()
+            "arguments": sonic_rs::to_string(&json!({"input": "console.log(1)"})).unwrap()
         })
     );
     assert_eq!(body["input"][1]["type"], "function_call_output");
@@ -4285,7 +4285,7 @@ fn openai_responses_emulation_restores_streamed_function_calls() {
             "type": "response.function_call_arguments.done",
             "item_id": "fc_1",
             "output_index": 0,
-            "arguments": serde_json::to_string(&json!({"input": "console.log(1)"})).unwrap()
+            "arguments": sonic_rs::to_string(&json!({"input": "console.log(1)"})).unwrap()
         }))
         .unwrap();
     assert_eq!(events[0]["type"], "response.custom_tool_call_input.done");
@@ -4332,7 +4332,7 @@ fn openai_responses_emulation_restores_streamed_function_calls() {
                         "id": "fc_1",
                         "call_id": "call_1",
                         "name": "exec",
-                        "arguments": serde_json::to_string(&json!({"input": "console.log(1)"}))
+                        "arguments": sonic_rs::to_string(&json!({"input": "console.log(1)"}))
                             .unwrap(),
                         "status": "completed"
                     },
@@ -4375,7 +4375,7 @@ fn openai_responses_emulation_restores_non_streaming_body() {
                     "id": "fc_1",
                     "call_id": "call_1",
                     "name": "exec",
-                    "arguments": serde_json::to_string(&json!({"input": "pwd"})).unwrap(),
+                    "arguments": sonic_rs::to_string(&json!({"input": "pwd"})).unwrap(),
                     "status": "completed"
                 }]
             }),

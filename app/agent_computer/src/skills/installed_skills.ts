@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path'
 import { YAML } from 'bun'
 import type { AnkoleSkillRuntime } from './effective-skill'
 import type { InstalledSkillObservation } from './types'
+import { errorMessage } from '../common/errors'
 
 export type InstalledSkillDiagnostic = {
   code: string
@@ -174,11 +175,7 @@ function skillFrontmatter(
     if (typeof value === 'object' && !Array.isArray(value)) return value as SkillFrontmatter
   } catch (error) {
     diagnostics.push(
-      diagnostic(
-        'invalid_skill_frontmatter',
-        `SKILL.md frontmatter is invalid YAML: ${error instanceof Error ? error.message : String(error)}`,
-        skillPath
-      )
+      diagnostic('invalid_skill_frontmatter', `SKILL.md frontmatter is invalid YAML: ${errorMessage(error)}`, skillPath)
     )
     return null
   }

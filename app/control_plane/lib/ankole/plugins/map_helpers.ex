@@ -48,6 +48,24 @@ defmodule Ankole.Plugins.MapHelpers do
 
   def presence(_value), do: nil
 
+  @doc """
+  Returns `nil` for the empty string and keeps every other value unchanged.
+  """
+  @spec blank_to_nil(term()) :: term()
+  def blank_to_nil(""), do: nil
+  def blank_to_nil(value), do: value
+
+  @doc """
+  Fetches one required non-empty string option from a keyword list.
+  """
+  @spec required_opt(keyword(), atom()) :: {:ok, String.t()} | {:error, {:missing, atom()}}
+  def required_opt(opts, key) do
+    case Keyword.get(opts, key) do
+      value when is_binary(value) and value != "" -> {:ok, value}
+      _value -> {:error, {:missing, key}}
+    end
+  end
+
   @spec required_string(term(), String.t()) ::
           {:ok, String.t()} | {:error, {:missing, String.t()}}
   def required_string(map, key) do
@@ -95,10 +113,8 @@ defmodule Ankole.Plugins.MapHelpers do
     Map.reject(map, fn {_key, value} -> is_nil(value) or value == [] end)
   end
 
-  @spec maybe_put(map(), term(), term()) :: map()
-  def maybe_put(map, _key, nil), do: map
-  def maybe_put(map, _key, ""), do: map
-  def maybe_put(map, key, value), do: Map.put(map, key, value)
+  @spec put_present(map(), term(), term()) :: map()
+  defdelegate put_present(map, key, value), to: Ankole.Attrs
 
   @spec maybe_put_nonempty_map(map(), term(), term()) :: map()
   def maybe_put_nonempty_map(map, _key, nil), do: map
@@ -109,15 +125,5 @@ defmodule Ankole.Plugins.MapHelpers do
   def maybe_put_nonempty_map(map, key, value), do: Map.put(map, key, value)
 
   @spec collect_results([term()]) :: {:ok, [term()]} | {:error, term()}
-  def collect_results(results) do
-    results
-    |> Enum.reduce_while({:ok, []}, fn
-      {:ok, value}, {:ok, acc} -> {:cont, {:ok, [value | acc]}}
-      {:error, _reason} = error, _acc -> {:halt, error}
-    end)
-    |> case do
-      {:ok, values} -> {:ok, Enum.reverse(values)}
-      {:error, _reason} = error -> error
-    end
-  end
+  defdelegate collect_results(results), to: Ankole.Attrs
 end

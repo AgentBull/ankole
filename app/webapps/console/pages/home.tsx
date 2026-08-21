@@ -1,3 +1,4 @@
+import { IDLE_REFRESH_MS, LIST_REFRESH_MS } from '../refresh-intervals'
 import { Button, buttonVariants, Skeleton, cn } from '@ankole/uikit'
 import {
   RiAlertLine,
@@ -54,21 +55,27 @@ export function HomePage() {
 
   // Refresh each Attention source every 15 seconds so the page updates after
   // a condition changes.
-  const agents = useQuery({ ...ankoleWebAgentControllerIndexOptions(), refetchInterval: 15_000 })
-  const workers = useQuery({ ...ankoleWebAgentComputerWorkerControllerIndexOptions(), refetchInterval: 15_000 })
-  const providers = useQuery({ ...ankoleWebAIGatewayProviderControllerIndexOptions(), refetchInterval: 15_000 })
+  const agents = useQuery({ ...ankoleWebAgentControllerIndexOptions(), refetchInterval: LIST_REFRESH_MS })
+  const workers = useQuery({
+    ...ankoleWebAgentComputerWorkerControllerIndexOptions(),
+    refetchInterval: LIST_REFRESH_MS
+  })
+  const providers = useQuery({
+    ...ankoleWebAIGatewayProviderControllerIndexOptions(),
+    refetchInterval: LIST_REFRESH_MS
+  })
   const identityProviders = useQuery({
     ...ankoleWebIdentityProviderControllerIndexOptions(),
-    refetchInterval: 15_000
+    refetchInterval: LIST_REFRESH_MS
   })
   const jobs = useQuery({
     ...ankoleWebBackgroundAgentJobControllerIndexOptions({ query: { limit: 20 } }),
-    refetchInterval: 15_000
+    refetchInterval: LIST_REFRESH_MS
   })
   // Use the header readiness query key so both views share cached data.
   const readiness = useQuery({
     ...ankoleWebConsoleReadinessControllerShowOptions(),
-    refetchInterval: 30_000
+    refetchInterval: IDLE_REFRESH_MS
   })
   // `min_messages: 2` matches the conversation list's own default. Without it the
   // newest rows are empty placeholder conversations, which look identical to each

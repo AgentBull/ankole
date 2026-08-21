@@ -1,4 +1,5 @@
 defmodule AnkoleWeb.AIGatewayProviderController do
+  alias Ankole.Attrs
   alias OpenApiSpex, as: OpenAPISpex
 
   @moduledoc """
@@ -272,7 +273,10 @@ defmodule AnkoleWeb.AIGatewayProviderController do
     with {:ok, provider_id} <- provider_id_param(params),
          :ok <- ConsolePolicy.authorize(conn, "ai_gateway_provider:#{provider_id}", "update"),
          {:ok, provider} <-
-           ProviderConfigs.add_credential(provider_id, normalize_external_attrs(conn.body_params)) do
+           ProviderConfigs.add_credential(
+             provider_id,
+             Attrs.normalize_external_attrs(conn.body_params)
+           ) do
       render_provider(conn, provider)
     else
       {:error, reason} -> error(conn, reason)
@@ -287,7 +291,7 @@ defmodule AnkoleWeb.AIGatewayProviderController do
            ProviderConfigs.update_credential(
              provider_id,
              credential_id,
-             normalize_external_attrs(conn.body_params)
+             Attrs.normalize_external_attrs(conn.body_params)
            ) do
       render_provider(conn, provider)
     else
@@ -322,7 +326,7 @@ defmodule AnkoleWeb.AIGatewayProviderController do
     with {:ok, provider_id} <- provider_id_param(params),
          :ok <- ConsolePolicy.authorize(conn, "ai_gateway_provider:#{provider_id}", "update"),
          {:ok, login} <-
-           ChatGPTAuth.start_login(provider_id, normalize_external_attrs(conn.body_params)) do
+           ChatGPTAuth.start_login(provider_id, Attrs.normalize_external_attrs(conn.body_params)) do
       json(conn, login)
     else
       {:error, reason} -> error(conn, reason)
@@ -359,7 +363,7 @@ defmodule AnkoleWeb.AIGatewayProviderController do
          {:ok, provider} <-
            ChatGPTAuth.add_enterprise_credential(
              provider_id,
-             normalize_external_attrs(conn.body_params)
+             Attrs.normalize_external_attrs(conn.body_params)
            ) do
       render_provider(conn, provider)
     else
@@ -383,7 +387,7 @@ defmodule AnkoleWeb.AIGatewayProviderController do
   # that disagrees with the path is rejected, so a PUT can never silently target a
   # different provider than the one named in its URL.
   defp provider_attrs(provider_id, attrs) when is_map(attrs) do
-    attrs = normalize_external_attrs(attrs)
+    attrs = Attrs.normalize_external_attrs(attrs)
 
     case Map.get(attrs, "provider_id") do
       nil ->
@@ -456,13 +460,6 @@ defmodule AnkoleWeb.AIGatewayProviderController do
   end
 
   defp normalize_provider_id(_value), do: {:error, :blank_id}
-
-  defp normalize_external_attrs(attrs) do
-    Map.new(attrs, fn
-      {key, value} when is_atom(key) -> {Atom.to_string(key), value}
-      {key, value} -> {key, value}
-    end)
-  end
 
   defp render_provider(conn, provider) do
     json(conn, %{ai_gateway_provider: ProviderConfigs.projection(provider)})

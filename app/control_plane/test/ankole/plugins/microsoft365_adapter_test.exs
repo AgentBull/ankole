@@ -46,7 +46,6 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
     # registries, so config-key writes re-register this plugin's patterns.
     AppConfigureRegistry.clear_for_test()
     AppConfigureCache.clear_for_test()
-    :ok = AppConfigure.register_patterns(Microsoft365Adapter.app_config_patterns())
     previous = Req.default_options()
     Req.Test.stub(__MODULE__, &default_microsoft_request/1)
     Req.default_options(plug: {Req.Test, __MODULE__})

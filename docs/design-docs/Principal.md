@@ -131,7 +131,8 @@ binding uses the `manual_review` policy. One row exists per
 mobile when the platform reveals them, plus observation metadata such as
 alternate ids and the binding that saw the sender. The operator console lists
 these rows; binding one to a Principal writes the identity row and deletes the
-request.
+request. Any automatic or proactive identity write for the same provider
+subject also deletes the request, so a mapped subject cannot remain pending.
 
 ## Link First-Seen Provider Users to Existing Humans
 

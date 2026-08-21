@@ -26,7 +26,6 @@ describe.skipIf(!enabled)('browser runtime across the real bubblewrap boundary',
     browserRuntime = new BrowserRuntime({
       runtimeRoot: join('/tmp', `ankole-browser-bwrap-${process.pid}`),
       socketPath: join(root, 'socket', 'browser.sock'),
-      nodePath: requiredEnv('ANKOLE_BROWSER_NODE'),
       daemonEntry: requiredEnv('ANKOLE_BROWSER_DAEMON_ENTRY'),
       runnerPath: requiredEnv('ANKOLE_BROWSER_RUNNER'),
       localChromiumExecutable: requiredEnv('ANKOLE_BROWSER_CHROMIUM_EXECUTABLE')

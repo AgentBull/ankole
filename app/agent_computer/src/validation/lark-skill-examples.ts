@@ -1,3 +1,5 @@
+import { isRecord, match } from '@agentbull/active-support'
+import { nodeErrorCode } from '../common/errors'
 import { readdir, readFile } from 'node:fs/promises'
 import { join, relative } from 'node:path'
 
@@ -138,14 +140,11 @@ export function findUnscopedExecutableLarkCommands(source: string): LarkCommandL
 }
 
 export function validateLarkCommandExample(example: LarkCommandExample, run: CommandRunner): string[] {
-  switch (example.kind) {
-    case 'typed':
-      return validateTypedExample(example, run)
-    case 'shortcut':
-      return validateShortcutExample(example, run)
-    case 'raw-api':
-      return validateRawAPIExample(example, run)
-  }
+  return match(example)
+    .with({ kind: 'typed' }, typed => validateTypedExample(typed, run))
+    .with({ kind: 'shortcut' }, shortcut => validateShortcutExample(shortcut, run))
+    .with({ kind: 'raw-api' }, rawAPI => validateRawAPIExample(rawAPI, run))
+    .exhaustive()
 }
 
 export async function validateLarkSkillExamples(
@@ -347,10 +346,6 @@ function parseJSONObject(output: string): Record<string, unknown> | null {
   }
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
 function stripShellQuotes(value: string): string {
   return value.replace(/^["']|["']$/g, '')
 }
@@ -361,12 +356,6 @@ function oneLine(value: string): string {
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
-
-function nodeErrorCode(error: unknown): string | undefined {
-  return typeof error === 'object' && error !== null && 'code' in error && typeof error.code === 'string'
-    ? error.code
-    : undefined
 }
 
 if (import.meta.main) {

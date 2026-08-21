@@ -2,11 +2,11 @@ import { describe, expect, it } from 'bun:test'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import { z } from 'zod'
 import { runAgentLoop } from '../../src/core/agent-loop'
-import { callModel, createModel } from '../../src/core/llm'
+import { createModel } from '../../src/core/llm'
 import { classifyLLMError, isLocallyRetryableLLMError } from '../../src/core/llm-error-classifier'
 import { statefulTruncationFromActorEventPayload } from '../../src/core/turns/actor_event_text'
 import { defineWorkerTool } from '../../src/core'
-import { FakeResponseSocket, fakeResponseSocket, testResponseSocket } from '../support/llm'
+import { FakeResponseSocket, fakeResponseSocket, statefulTurnCall, testResponseSocket } from '../support/llm'
 
 describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and overflow', () => {
   it('retries AIGateway WebSocket close before open without sending a duplicate request', async () => {
@@ -695,14 +695,14 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
     })
 
     try {
-      await callModel(model, {
+      await statefulTurnCall(model, {
         messages: [{ role: 'user', content: 'hi' }],
         stateful: {
           actorEventID: '00000000-0000-0000-0000-000000000003',
           conversationID: '33333333-3333-3333-3333-333333333333'
         }
       })
-      throw new Error('expected callModel to reject')
+      throw new Error('expected the stateful call to reject')
     } catch (error) {
       expect(error).toMatchObject({
         code: 'context_overflow',
@@ -759,7 +759,7 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
       }
     })
 
-    await callModel(model, {
+    await statefulTurnCall(model, {
       messages: [{ role: 'user', content: 'retry me' }],
       stateful: {
         actorEventID: '00000000-0000-0000-0000-000000000004',

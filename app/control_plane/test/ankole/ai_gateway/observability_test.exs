@@ -921,7 +921,6 @@ defmodule Ankole.AIGateway.ObservabilityTest do
 
   defp enable_export(test_pid, provider_name) do
     definitions = Map.new(Observability.definitions(), &{&1.key, &1})
-    :ok = Observability.ensure_registered()
 
     assert {:ok, true} =
              AppConfigure.put_global(definitions["observability.traces.enabled"], true)
@@ -986,7 +985,6 @@ defmodule Ankole.AIGateway.ObservabilityTest do
   defp configure_real_exporter(provider_name, path, headers) do
     endpoint = start_otlp_receiver(path)
     definitions = Map.new(Observability.definitions(), &{&1.key, &1})
-    :ok = Observability.ensure_registered()
 
     assert {:ok, true} =
              AppConfigure.put_global(definitions["observability.traces.enabled"], true)

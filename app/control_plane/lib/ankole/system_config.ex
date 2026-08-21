@@ -38,26 +38,11 @@ defmodule Ankole.SystemConfig do
   end
 
   @doc """
-  Registers system-level AppConfigure keys.
-  """
-  @spec ensure_registered() :: :ok | {:error, term()}
-  def ensure_registered do
-    case AppConfigure.register_definitions([timezone_definition()]) do
-      :ok -> :ok
-      {:error, {:duplicate_key, @timezone_key}} -> :ok
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  @doc """
   Reads the effective installation timezone.
   """
   @spec timezone() :: {:ok, String.t()} | {:error, term()}
   def timezone do
-    with :ok <- ensure_registered(),
-         {:ok, timezone} <- AppConfigure.get(timezone_definition()) do
-      {:ok, timezone}
-    end
+    AppConfigure.get(timezone_definition())
   end
 
   @doc """
@@ -65,9 +50,7 @@ defmodule Ankole.SystemConfig do
   """
   @spec put_timezone(String.t()) :: {:ok, String.t()} | {:error, term()}
   def put_timezone(timezone) when is_binary(timezone) do
-    with :ok <- ensure_registered() do
-      AppConfigure.put_global(timezone_definition(), timezone)
-    end
+    AppConfigure.put_global(timezone_definition(), timezone)
   end
 
   defp timezone_schema do

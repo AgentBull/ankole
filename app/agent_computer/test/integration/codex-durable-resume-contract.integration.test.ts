@@ -1,3 +1,4 @@
+import { sleep } from '../support/llm'
 import { describe, expect, it } from 'bun:test'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -913,10 +914,6 @@ async function waitFor(
     if (Date.now() >= deadline) throw new Error(`timed out waiting for ${description}`)
     await sleep(10)
   }
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms))
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

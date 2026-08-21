@@ -4,6 +4,8 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
   import Ankole.PrincipalsFixtures
   import Ankole.SignalsGatewayFixtures
 
+  alias Ankole.AIGateway.Conversations
+
   alias Ankole.AIGateway.Events
   alias Ankole.AIGateway.StatefulResponses
   alias Ankole.PluginFixtures.MockSignalProvider.Outbox, as: MockSignalProviderOutbox
@@ -827,7 +829,7 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     %{subject: subject, actor_event: actor_event} = addressed_actor_event("dead-letter-recover")
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(subject.uid, actor_event.session_id)
+      Conversations.ensure_conversation(subject.uid, actor_event.session_id)
 
     checkpoint = %{
       "subject_uid" => subject.uid,
@@ -911,7 +913,7 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     %{subject: subject, actor_event: actor_event} = addressed_actor_event("terminal-recover")
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(subject.uid, actor_event.session_id)
+      Conversations.ensure_conversation(subject.uid, actor_event.session_id)
 
     working =
       ReplyPresentation.new(state: "working")
@@ -1008,7 +1010,7 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     %{subject: subject, actor_event: actor_event} = addressed_actor_event("blocked-recover")
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(subject.uid, actor_event.session_id)
+      Conversations.ensure_conversation(subject.uid, actor_event.session_id)
 
     terminal =
       ReplyPresentation.new(state: "working")
@@ -1148,7 +1150,7 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     %{subject: subject, actor_event: actor_event} = addressed_actor_event("fallback-recover")
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(subject.uid, actor_event.session_id)
+      Conversations.ensure_conversation(subject.uid, actor_event.session_id)
 
     terminal =
       ReplyPresentation.new(state: "working")
@@ -1236,7 +1238,7 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
       addressed_actor_event("fallback-open-recover")
 
     {:ok, open_conversation} =
-      StatefulResponses.ensure_conversation(open_subject.uid, open_event.session_id)
+      Conversations.ensure_conversation(open_subject.uid, open_event.session_id)
 
     working =
       ReplyPresentation.new(state: "working")
@@ -1416,7 +1418,7 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
 
   defp start_dispatched_preview(subject_uid, actor_event) do
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(subject_uid, actor_event.session_id)
+      Conversations.ensure_conversation(subject_uid, actor_event.session_id)
 
     assert :ok =
              AIReplyPreview.maybe_start_for(actor_event, subject_uid, conversation.id)

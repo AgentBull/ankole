@@ -1,3 +1,4 @@
+import { safeJsonStringify } from '@agentbull/active-support'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import { Buffer } from 'node:buffer'
 import { errorMessage } from '../../common/errors'
@@ -207,21 +208,13 @@ function dynamicToolContentItems(result: {
     .join('\n')
 
   const contentItems: DynamicToolCallResponse['contentItems'] = [
-    { type: 'inputText', text: boundedText(text || toolResultDetailsText(result.details)) }
+    { type: 'inputText', text: boundedText(text || safeJsonStringify(result.details)) }
   ]
   for (const part of result.content) {
     const imageURL = toolResultImageURL(part)
     if (imageURL) contentItems.push({ type: 'inputImage', imageUrl: imageURL })
   }
   return contentItems
-}
-
-function toolResultDetailsText(details: unknown): string {
-  try {
-    return JSON.stringify(details)
-  } catch {
-    return String(details)
-  }
 }
 
 function toolResultImageURL(part: unknown): string | undefined {

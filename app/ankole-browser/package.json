@@ -13,7 +13,7 @@
     "./protocol": "./src/protocol.ts"
   },
   "scripts": {
-    "build": "bun build src/cli/main.ts src/daemon/main.ts src/runner/bootstrap.ts --target=node --outdir dist --external playwright-core",
+    "build": "bun build src/cli/main.ts src/daemon/main.ts src/runner/bootstrap.ts --target=bun --outdir dist --external playwright-core",
     "type-check": "tsc -p tsconfig.json --noEmit",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",

@@ -24,17 +24,17 @@ defmodule Ankole.Plugins.SlackAdapter.ReplyPreview do
   @fallback_chars 3_000
 
   @impl true
-  def open(%Request{} = request), do: request |> reconcile() |> normalize_result()
+  def open(%Request{} = request), do: request |> reconcile() |> ErrorPolicy.normalize_delivery_result()
 
   @impl true
-  def update(%Request{} = request), do: request |> reconcile() |> normalize_result()
+  def update(%Request{} = request), do: request |> reconcile() |> ErrorPolicy.normalize_delivery_result()
 
   @impl true
   def finalize(%Request{} = request),
-    do: request |> Map.put(:mode, :terminal) |> reconcile() |> normalize_result()
+    do: request |> Map.put(:mode, :terminal) |> reconcile() |> ErrorPolicy.normalize_delivery_result()
 
   @impl true
-  def refresh(%Request{} = request), do: request |> reconcile() |> normalize_result()
+  def refresh(%Request{} = request), do: request |> reconcile() |> ErrorPolicy.normalize_delivery_result()
 
   defp reconcile(%Request{} = request) do
     with {:ok, event} <- fresh_event(request.actor_event),
@@ -329,7 +329,6 @@ defmodule Ankole.Plugins.SlackAdapter.ReplyPreview do
   defp channel_id("slack:" <> encoded), do: URI.decode(encoded)
   defp channel_id(channel), do: channel
 
-  defp truncate(text, size), do: text |> String.graphemes() |> Enum.take(size) |> Enum.join()
+  defp truncate(text, size), do: String.slice(text, 0, size)
 
-  defp normalize_result(result), do: ErrorPolicy.normalize_delivery_result(result)
 end

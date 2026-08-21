@@ -7,6 +7,8 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
   import Ecto.Query, warn: false
   import Ankole.SignalsGatewayFixtures, only: [outbox_adapter: 2]
 
+  alias Ankole.AIGateway.Conversations
+
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.ModelMetadata.Cache, as: ModelMetadataCache
   alias Ankole.AIGateway.StatefulResponses
@@ -682,7 +684,7 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
     actor_event_id = turn_ref.actor_event_id
     request_items = Keyword.get(opts, :request_items, [])
 
-    {:ok, conversation} = StatefulResponses.ensure_conversation(agent_uid, session_id)
+    {:ok, conversation} = Conversations.ensure_conversation(agent_uid, session_id)
 
     {:ok, run} =
       StatefulResponses.start_response_run(%{

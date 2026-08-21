@@ -138,12 +138,9 @@ export interface CallModelOptions {
   text?: ResponseCreateParams['text']
   abortSignal?: AbortSignal
   beforeCall?: (payload: ResponseCreateParams) => void | Promise<void>
-  onTextDelta?: (delta: string) => void
-  onActivity?: (description?: string) => void
-  stateful?: StatefulResponseContext
 }
 
-export type ModelTurnCallOptions = Omit<CallModelOptions, 'stateful' | 'abortSignal' | 'onActivity' | 'onTextDelta'>
+export type ModelTurnCallOptions = Omit<CallModelOptions, 'abortSignal'>
 
 export type StatefulResponseContext = {
   actorEventID: string

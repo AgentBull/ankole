@@ -12,6 +12,7 @@ import type { ThreadStartParams } from '../../src/core/codex-runner/generated/pr
 import type { ThreadStartResponse } from '../../src/core/codex-runner/generated/protocol/v2/ThreadStartResponse'
 import type { TurnStartParams } from '../../src/core/codex-runner/generated/protocol/v2/TurnStartParams'
 import type { TurnStartResponse } from '../../src/core/codex-runner/generated/protocol/v2/TurnStartResponse'
+import { errorMessage } from '../../src/common/errors'
 
 const searchCallID = 'analysis-search'
 const analysisCallID = 'analysis-inspect-call'
@@ -116,7 +117,7 @@ describe('Codex dynamic namespace integration', () => {
         .flatMap(notification => (isRecord(notification.params) ? [notification.params.text] : []))
         .filter((value): value is string => typeof value === 'string')
         .join('')
-      throw new Error(`${error instanceof Error ? error.message : String(error)}\n${stderr}`)
+      throw new Error(`${errorMessage(error)}\n${stderr}`)
     } finally {
       await client?.close()
       provider.stop(true)
@@ -223,7 +224,7 @@ describe('Codex dynamic namespace integration', () => {
         .flatMap(notification => (isRecord(notification.params) ? [notification.params.text] : []))
         .filter((value): value is string => typeof value === 'string')
         .join('')
-      throw new Error(`${error instanceof Error ? error.message : String(error)}\n${stderr}`)
+      throw new Error(`${errorMessage(error)}\n${stderr}`)
     } finally {
       await client?.close()
       provider.stop(true)

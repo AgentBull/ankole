@@ -3,19 +3,19 @@ defmodule Ankole.Observability.Providers.Langfuse do
 
   @behaviour Ankole.Observability.Provider
 
-  import Ankole.Observability.Trace, only: [maybe_put: 3]
+  import Ankole.Observability.Trace, only: [put_present: 3]
 
   @impl true
   def trace_attributes(context) do
     %{"langfuse.trace.tags" => ["ankole", "ai_gateway"]}
-    |> maybe_put("langfuse.trace.metadata.principal_uid", context.principal_uid)
-    |> maybe_put("langfuse.trace.metadata.principal_type", context.principal_type)
-    |> maybe_put("langfuse.trace.metadata.actor_event_id", context.actor_event_id)
-    |> maybe_put("langfuse.trace.metadata.originator", context.originator)
-    |> maybe_put("langfuse.trace.metadata.caller", context.caller)
-    |> maybe_put("langfuse.trace.metadata.job_id", context.job_id)
-    |> maybe_put("langfuse.trace.metadata.attempts", context.attempts)
-    |> maybe_put("langfuse.release", context.release)
+    |> put_present("langfuse.trace.metadata.principal_uid", context.principal_uid)
+    |> put_present("langfuse.trace.metadata.principal_type", context.principal_type)
+    |> put_present("langfuse.trace.metadata.actor_event_id", context.actor_event_id)
+    |> put_present("langfuse.trace.metadata.originator", context.originator)
+    |> put_present("langfuse.trace.metadata.caller", context.caller)
+    |> put_present("langfuse.trace.metadata.job_id", context.job_id)
+    |> put_present("langfuse.trace.metadata.attempts", context.attempts)
+    |> put_present("langfuse.release", context.release)
   end
 
   @impl true
@@ -40,8 +40,8 @@ defmodule Ankole.Observability.Providers.Langfuse do
       "langfuse.observation.type" => "generation",
       "langfuse.observation.input" => input
     }
-    |> maybe_put("langfuse.observation.model.name", model)
-    |> maybe_put("langfuse.observation.model.parameters", model_parameters)
+    |> put_present("langfuse.observation.model.name", model)
+    |> put_present("langfuse.observation.model.parameters", model_parameters)
   end
 
   @impl true

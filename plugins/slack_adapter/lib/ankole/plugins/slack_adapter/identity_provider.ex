@@ -1,8 +1,7 @@
 defmodule Ankole.Plugins.SlackAdapter.IdentityProvider do
   @moduledoc false
 
-  alias Ankole.{AuthZ, Logging, Repo}
-  alias Ankole.AuthZ.Store, as: AuthZStore
+  alias Ankole.{AuthZ, Logging}
   alias Ankole.IdentityProviders.Directory
   alias Ankole.Kernel, as: NativeKernel
   alias Ankole.Plugins.MapHelpers
@@ -15,8 +14,8 @@ defmodule Ankole.Plugins.SlackAdapter.IdentityProvider do
 
   @spec authorization_url(map(), keyword()) :: {:ok, String.t()} | {:error, term()}
   def authorization_url(config, opts) do
-    with {:ok, redirect_uri} <- required_opt(opts, :redirect_uri),
-         {:ok, state} <- required_opt(opts, :state) do
+    with {:ok, redirect_uri} <- MapHelpers.required_opt(opts, :redirect_uri),
+         {:ok, state} <- MapHelpers.required_opt(opts, :state) do
       {:ok,
        OIDC.authorize_url(
          client_id: Map.fetch!(config, "clientID"),
@@ -281,8 +280,13 @@ defmodule Ankole.Plugins.SlackAdapter.IdentityProvider do
     with {:ok, added_uids, skipped_added} <- Directory.resolve_known_members(provider_id, added),
          {:ok, removed_uids, skipped_removed} <-
            Directory.resolve_known_members(provider_id, removed),
-         :ok <- add_members(group_id, added_uids),
-         :ok <- remove_members(group_id, removed_uids) do
+         {:ok, _delta} <-
+           AuthZ.apply_static_group_member_delta(
+             group_id,
+             :directory,
+             added_uids,
+             removed_uids
+           ) do
       skipped = skipped_added + skipped_removed
 
       {:ok,
@@ -293,29 +297,6 @@ defmodule Ankole.Plugins.SlackAdapter.IdentityProvider do
          skipped_unknown_users: skipped
        }}
     end
-  end
-
-  defp add_members(group_id, uids) do
-    Enum.reduce_while(uids, :ok, fn uid, :ok ->
-      case Repo.transact(fn repo ->
-             AuthZStore.add_synced_group_member(repo, group_id, :directory, uid)
-           end) do
-        {:ok, _membership} -> {:cont, :ok}
-        {:error, _reason} = error -> {:halt, error}
-      end
-    end)
-  end
-
-  defp remove_members(group_id, uids) do
-    Enum.reduce_while(uids, :ok, fn uid, :ok ->
-      case Repo.transact(fn repo ->
-             AuthZStore.remove_synced_group_member(repo, group_id, :directory, uid)
-           end) do
-        {:ok, :deleted} -> {:cont, :ok}
-        {:error, :not_found} -> {:cont, :ok}
-        {:error, _reason} = error -> {:halt, error}
-      end
-    end)
   end
 
   defp hydrate_user(config, user) do
@@ -447,11 +428,4 @@ defmodule Ankole.Plugins.SlackAdapter.IdentityProvider do
 
   defp count_mismatch?(count, values) when is_integer(count), do: count != length(values)
   defp count_mismatch?(_count, _values), do: false
-
-  defp required_opt(opts, key) do
-    case Keyword.get(opts, key) do
-      value when is_binary(value) and value != "" -> {:ok, value}
-      _value -> {:error, {:missing, key}}
-    end
-  end
 end

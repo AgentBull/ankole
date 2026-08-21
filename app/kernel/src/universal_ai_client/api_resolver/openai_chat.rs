@@ -1601,7 +1601,7 @@ fn restore_custom_tool(context: &ResponseContext, item: &mut Value) {
 }
 
 pub(super) fn custom_tool_input(arguments: &str) -> String {
-    serde_json::from_str::<Value>(arguments)
+    sonic_rs::from_str::<Value>(arguments)
         .ok()
         .and_then(|value| {
             value

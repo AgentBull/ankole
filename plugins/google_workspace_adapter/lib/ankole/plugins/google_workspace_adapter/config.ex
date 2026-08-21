@@ -111,7 +111,7 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapter.Config do
       {:ok, account} ->
         header =
           %{"algorithm" => "RS256"}
-          |> MapHelpers.maybe_put("key_id", account.key_id)
+          |> MapHelpers.put_present("key_id", account.key_id)
 
         [
           service_account_email: account.email,

@@ -42,7 +42,6 @@ defmodule Ankole.Release do
 
     auth_key = System.fetch_env!("ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY")
 
-    :ok = WorkerAuthKey.ensure_registered()
     {:ok, ^auth_key} = AppConfigure.put_global(WorkerAuthKey.definition(), auth_key)
   end
 

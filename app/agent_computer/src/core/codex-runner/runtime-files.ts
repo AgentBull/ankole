@@ -1,3 +1,4 @@
+import { compareCodePointStrings } from '../../common/ordering'
 import {
   existsSync,
   lstatSync,
@@ -126,7 +127,7 @@ async function materializeSkills(
       if (!normalized) throw new Error(`enabled skill has invalid name: ${skill.skillName}`)
       return normalized
     })
-    .sort((left, right) => compareCodePoints(left.skillName, right.skillName))
+    .sort((left, right) => compareCodePointStrings(left.skillName, right.skillName))
 
   if (new Set(enabledSkills.map(skill => skill.skillName)).size !== enabledSkills.length) {
     throw new Error('enabled skill names must be unique')
@@ -284,8 +285,4 @@ function renderTaskAgents(input: {
 function section(title: string, content: string | undefined): string {
   const text = content?.trim()
   return text ? `## ${title}\n\n${text}` : ''
-}
-
-function compareCodePoints(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0
 }

@@ -3,7 +3,7 @@ import { chmodSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { WORKER_SHARE_ROOT } from '../../core/agent-home-paths'
 import type { MCPServerConfig } from './config'
-import { compareCodePointStrings } from './ordering'
+import { compareCodePointStrings } from '../../common/ordering'
 
 export const MCPORTER_CONFIG_ENV = 'MCPORTER_CONFIG'
 

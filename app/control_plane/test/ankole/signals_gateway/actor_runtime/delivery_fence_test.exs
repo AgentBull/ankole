@@ -655,7 +655,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.DeliveryFenceTest do
 
     test "dead-letter notice includes redacted turn error details when configured" do
       definition = DeadLetterNoticeConfig.definition()
-      :ok = DeadLetterNoticeConfig.ensure_registered()
       :ok = AppConfigure.delete_global(definition)
       on_exit(fn -> AppConfigure.delete_global(definition) end)
       assert {:ok, true} = AppConfigure.put_global(definition, true)

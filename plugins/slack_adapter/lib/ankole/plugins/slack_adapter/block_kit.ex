@@ -444,5 +444,5 @@ defmodule Ankole.Plugins.SlackAdapter.BlockKit do
     text |> String.graphemes() |> Enum.chunk_every(size) |> Enum.map(&Enum.join/1)
   end
 
-  defp truncate(text, size), do: text |> String.graphemes() |> Enum.take(size) |> Enum.join()
+  defp truncate(text, size), do: String.slice(text, 0, size)
 end

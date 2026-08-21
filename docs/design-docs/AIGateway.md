@@ -415,6 +415,9 @@ Agent tokens are HS256 JWT credentials.
 They have the audience `ankole.ai_gateway` and the scope `ai_gateway`.
 Their default lifetime is 30 days.
 
+`Ankole.AIGateway.Tokens` owns token minting and verification. The RuntimeFabric
+broker and the Phoenix authentication plug consume that domain service.
+
 The control plane derives the signing key from `SecretKeyBase`.
 The Worker requests an Agent token through an authenticated RuntimeFabric RPC.
 That response also supplies the AIGateway base URL.

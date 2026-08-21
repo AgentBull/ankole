@@ -1,4 +1,5 @@
 defmodule AnkoleWeb.AgentController do
+  alias Ankole.Attrs
   alias OpenApiSpex, as: OpenAPISpex
 
   @moduledoc """
@@ -249,7 +250,7 @@ defmodule AnkoleWeb.AgentController do
   end
 
   defp create_attrs(attrs, current_principal_uid) when is_map(attrs) do
-    attrs = normalize_external_attrs(attrs)
+    attrs = Attrs.normalize_external_attrs(attrs)
 
     with {:ok, display_name} <- required_text(attrs, "display_name") do
       {:ok,
@@ -264,7 +265,7 @@ defmodule AnkoleWeb.AgentController do
   defp update_attrs(attrs) when is_map(attrs) do
     attrs =
       attrs
-      |> normalize_external_attrs()
+      |> Attrs.normalize_external_attrs()
       |> Map.drop(["uid", "created_by_principal_uid"])
 
     normalize_optional_display_name(attrs)
@@ -319,7 +320,7 @@ defmodule AnkoleWeb.AgentController do
 
   defp model_profile_payload(profile, attrs) do
     attrs
-    |> normalize_external_attrs()
+    |> Attrs.normalize_external_attrs()
     |> Map.put("profile", profile)
     |> Map.put("configured", true)
   end
@@ -337,13 +338,6 @@ defmodule AnkoleWeb.AgentController do
       inserted_at: DateTime.to_iso8601(agent.inserted_at),
       updated_at: DateTime.to_iso8601(agent.updated_at)
     }
-  end
-
-  defp normalize_external_attrs(attrs) do
-    Map.new(attrs, fn
-      {key, value} when is_atom(key) -> {Atom.to_string(key), value}
-      {key, value} -> {key, value}
-    end)
   end
 
   defp error(conn, :forbidden), do: error(conn, 403, "forbidden", "access denied")

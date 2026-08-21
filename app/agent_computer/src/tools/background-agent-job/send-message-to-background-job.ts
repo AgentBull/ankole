@@ -1,20 +1,24 @@
+import { ms } from '@agentbull/active-support'
+import { toError } from '../../common/errors'
 import { z } from 'zod'
 import { defineWorkerTool, type AgentToolResult, type WorkerAgentTool } from '../../core'
 import { ModelIntegerID, modelIntegerIDFromWire, modelIntegerIDToWire } from '../../core/model-integer-id'
 import { jsonObjectFromBytes } from '../../fabric/envelope_proto'
 import type { TurnStart } from '../../lanes/actor_lane'
 import { rpcMethods, type RPCRequester, type RPCRequestInit } from '../../lanes/rpc_lane'
+import { modelVisibleTrajectory } from './model-trajectory'
 import {
+  BackgroundAgentJobStatusSchema,
   BackgroundAgentJobTrajectorySchema,
-  modelVisibleTrajectory,
+  isTerminalBackgroundAgentJobStatus,
+  type BackgroundAgentJobStatus,
   type BackgroundAgentJobTrajectory
-} from './model-trajectory'
-import { BackgroundAgentJobStatusSchema, type BackgroundAgentJobStatus } from './status'
+} from '../../core/background-agent-job-documents'
 
-const POLL_INTERVAL_MS = 1_000
-const DEFAULT_WAIT_TIMEOUT_MS = 30_000
-const MIN_WAIT_TIMEOUT_MS = 10_000
-const MAX_WAIT_TIMEOUT_MS = 150_000
+const POLL_INTERVAL_MS = ms('1s')
+const DEFAULT_WAIT_TIMEOUT_MS = ms('30s')
+const MIN_WAIT_TIMEOUT_MS = ms('10s')
+const MAX_WAIT_TIMEOUT_MS = ms('2.5m')
 
 const SendMessageToBackgroundJobParamsSchema = z
   .object({
@@ -244,7 +248,7 @@ function createObservationGate(
       () => settle({ kind: 'steered' }),
       error => {
         if (!steeringAbort.signal.aborted) {
-          settle({ kind: 'failed', error: error instanceof Error ? error : new Error(String(error)) })
+          settle({ kind: 'failed', error: toError(error) })
         }
       }
     )
@@ -283,7 +287,7 @@ function interruptedWaitResult(
   if (outcome.kind === 'closed') throw new Error('Background job observation closed before producing a result')
 
   const jobID = modelIntegerIDFromWire(jobIDWire, 'background agent job id')
-  const continuesRunning = !isTerminalStatus(status)
+  const continuesRunning = !isTerminalBackgroundAgentJobStatus(status)
   const waitOutcome = outcome.kind
   const reason =
     waitOutcome === 'steered' ? 'new user steering is pending' : 'the foreground observation window expired'
@@ -313,10 +317,6 @@ function interruptedWaitResult(
 
 function formatWaitSeconds(timeoutMs: number): number {
   return timeoutMs / 1_000
-}
-
-function isTerminalStatus(status: BackgroundAgentJobStatus): boolean {
-  return status === 'succeeded' || status === 'failed' || status === 'stopped'
 }
 
 function abortError(signal?: AbortSignal): Error {

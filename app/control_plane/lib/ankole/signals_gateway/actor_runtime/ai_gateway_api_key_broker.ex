@@ -9,7 +9,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayAPIKeyBroker do
   alias Ankole.Principals
   alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.SignalsGateway.ActorRuntime.RPCWire
-  alias AnkoleWeb.AIGatewayTokens
+  alias Ankole.AIGateway.Tokens
   alias AnkoleWeb.Endpoint
 
   @doc """
@@ -22,7 +22,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayAPIKeyBroker do
       with {:ok, agent_uid} <- frame_agent_uid(agent_uid),
            {:ok, %{principal: principal}} <- Principals.get_agent(agent_uid),
            :active <- principal.status,
-           {:ok, token} <- AIGatewayTokens.mint_for_agent(principal.uid) do
+           {:ok, token} <- Tokens.mint_for_agent(principal.uid) do
         {:ok, response(principal.uid, token)}
       end
 

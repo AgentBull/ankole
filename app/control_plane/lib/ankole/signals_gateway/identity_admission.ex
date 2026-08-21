@@ -157,10 +157,10 @@ defmodule Ankole.SignalsGateway.IdentityAdmission do
         external_id: primary_subject(author),
         metadata: subject_metadata(author)
       }
-      |> maybe_put(:display_name, author["display_name"])
-      |> maybe_put(:email, author["email"])
-      |> maybe_put(:mobile, author["mobile"])
-      |> maybe_put(:uid, principal_uid)
+      |> Ankole.Attrs.maybe_put(:display_name, author["display_name"])
+      |> Ankole.Attrs.maybe_put(:email, author["email"])
+      |> Ankole.Attrs.maybe_put(:mobile, author["mobile"])
+      |> Ankole.Attrs.maybe_put(:uid, principal_uid)
 
     case Principals.upsert_platform_subject_human(attrs) do
       {:ok, %{principal: principal}} -> {:ok, principal}
@@ -417,9 +417,6 @@ defmodule Ankole.SignalsGateway.IdentityAdmission do
       _present -> map
     end
   end
-
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp text(value) when is_binary(value) do
     case String.trim(value) do

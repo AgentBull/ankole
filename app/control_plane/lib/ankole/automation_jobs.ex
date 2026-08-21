@@ -341,7 +341,7 @@ defmodule Ankole.AutomationJobs do
       "wake_on_failure" => job.wake_on_failure,
       "created_at" => iso8601(job.inserted_at)
     }
-    |> maybe_put("expires_at", iso8601(job.expires_at))
+    |> Ankole.Attrs.maybe_put("expires_at", iso8601(job.expires_at))
   end
 
   @doc """
@@ -678,9 +678,6 @@ defmodule Ankole.AutomationJobs do
 
   defp maybe_where_owner_session(query, owner_session_id),
     do: where(query, [job], job.owner_session_id == ^owner_session_id)
-
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp iso8601(%DateTime{} = value), do: DateTime.to_iso8601(value)
   defp iso8601(_value), do: nil

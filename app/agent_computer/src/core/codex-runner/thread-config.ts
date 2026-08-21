@@ -1,3 +1,4 @@
+import { isRecord } from '@agentbull/active-support'
 import { AIGATEWAY_PROVIDER_NAME, codexAIGatewayAuthConfig, encodeAIGatewayModelBinding } from './agent-home-config'
 import { AIGATEWAY_OBSERVABILITY_USER_ID_HEADER, aiGatewayTurnTraceHeaders } from '../ai_gateway_transport'
 import type { TurnTracePropagation } from '../../observability/turn-tracing'
@@ -52,20 +53,20 @@ export function codexJobThreadConfig(input: {
 
 function replaceTurnTraceHeaders(config: Record<string, unknown>, propagation?: TurnTracePropagation): void {
   const modelProviders = config.model_providers
-  if (!isTable(modelProviders)) return
+  if (!isRecord(modelProviders)) return
   const provider = modelProviders.ankole_aigateway
-  if (!isTable(provider)) return
+  if (!isRecord(provider)) return
 
   const httpHeaders = withoutTurnTraceHeaders(provider.http_headers)
   provider.http_headers = { ...httpHeaders, ...aiGatewayTurnTraceHeaders(propagation) }
 
-  if (isTable(provider.env_http_headers)) {
+  if (isRecord(provider.env_http_headers)) {
     provider.env_http_headers = withoutTurnTraceHeaders(provider.env_http_headers)
   }
 }
 
 function withoutTurnTraceHeaders(value: unknown): Record<string, unknown> {
-  const headers = isTable(value) ? { ...value } : {}
+  const headers = isRecord(value) ? { ...value } : {}
   for (const name of Object.keys(headers)) {
     const normalizedName = name.toLowerCase()
     if (normalizedName === 'traceparent' || normalizedName === AIGATEWAY_OBSERVABILITY_USER_ID_HEADER) {
@@ -79,11 +80,7 @@ function mergeConfig(base: Record<string, unknown>, overrides: Record<string, un
   const result = { ...base }
   for (const [key, value] of Object.entries(overrides)) {
     const current = result[key]
-    result[key] = isTable(current) && isTable(value) ? mergeConfig(current, value) : value
+    result[key] = isRecord(current) && isRecord(value) ? mergeConfig(current, value) : value
   }
   return result
-}
-
-function isTable(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value) && !(value instanceof Date))
 }

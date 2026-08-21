@@ -93,7 +93,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
       |> Map.put_new(:metadata, %{})
       |> Map.put_new(:started_at, now)
       |> Map.put(:last_worker_heartbeat_at, now)
-      |> maybe_put(:transport_route, route)
+      |> Ankole.Attrs.maybe_put(:transport_route, route)
 
     result =
       Repo.transact(fn repo ->
@@ -269,7 +269,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
         |> lock("FOR UPDATE")
         |> repo.all()
         |> Enum.map(&stale_worker_transition(repo, &1, now, reason))
-        |> collect_results()
+        |> Ankole.Attrs.collect_results()
       end)
 
     case result do
@@ -789,9 +789,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
     end
   end
 
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
-
   defp normalize_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
   defp normalize_reason(reason) when is_binary(reason), do: reason
   defp normalize_reason(reason), do: inspect(reason)
@@ -800,17 +797,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
     do: Broker.fail_pending_rpcs(route, reason)
 
   defp fail_pending_rpcs(_route, _reason), do: :ok
-
-  defp collect_results(results) do
-    Enum.reduce_while(results, {:ok, []}, fn
-      {:ok, value}, {:ok, acc} -> {:cont, {:ok, [value | acc]}}
-      {:error, _reason} = error, _acc -> {:halt, error}
-    end)
-    |> case do
-      {:ok, values} -> {:ok, Enum.reverse(values)}
-      {:error, _reason} = error -> error
-    end
-  end
 
   defp collect_notification_results(results) do
     Enum.reduce_while(results, :ok, fn

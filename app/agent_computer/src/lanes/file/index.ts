@@ -22,6 +22,7 @@ import { deletePath, listPath, movePath, statPath } from './vfs'
 import type { FileTransferContext, FileTransferState } from './types'
 import type { FileFrameSender } from '../../fabric/fabric'
 import type { WorkerConfig } from '../../worker/config'
+import { errorMessage } from '../../common/errors'
 
 export type FileTransferLane = {
   handle(frames: Buffer[]): Promise<void>
@@ -104,7 +105,7 @@ async function dispatchFrame(context: FileTransferContext, frames: Buffer[]): Pr
       context.sender,
       transferID,
       error instanceof FileTransferError ? error.code : 'operation_failed',
-      error instanceof Error ? error.message : String(error)
+      errorMessage(error)
     )
   }
 }

@@ -68,7 +68,7 @@ agent 通过 `ankole-browser` CLI 来使用这些。`app/agent_computer/src/brow
 
 ## 运维不该碰的东西
 
-浏览器的环境变量由 worker 镜像设置，不是运维可调的。它们包括 `ANKOLE_BROWSER_CHROMIUM_EXECUTABLE`、`ANKOLE_BROWSER_CHROMIUM_ARGS_JSON`、`ANKOLE_BROWSER_DAEMON_SOCKET`、`ANKOLE_BROWSER_DAEMON_ENTRY`、`ANKOLE_BROWSER_CLI`、`ANKOLE_BROWSER_NODE`、`ANKOLE_BROWSER_RUNNER`。这些名称不能在 Console 的“环境变量”中覆盖。如果需要不同的浏览器行为，请修改 Skill。
+浏览器的环境变量由 worker 镜像设置，不是运维可调的。它们包括 `ANKOLE_BROWSER_CHROMIUM_EXECUTABLE`、`ANKOLE_BROWSER_CHROMIUM_ARGS_JSON`、`ANKOLE_BROWSER_DAEMON_SOCKET`、`ANKOLE_BROWSER_DAEMON_ENTRY`、`ANKOLE_BROWSER_CLI`、`ANKOLE_BROWSER_RUNNER`。这些名称不能在 Console 的“环境变量”中覆盖。如果需要不同的浏览器行为，请修改 Skill。
 
 ## 下一步
 

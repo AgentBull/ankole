@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 import { BrowserDaemonServer } from './server'
 
 const socketPath = process.env.ANKOLE_BROWSER_DAEMON_SOCKET?.trim()

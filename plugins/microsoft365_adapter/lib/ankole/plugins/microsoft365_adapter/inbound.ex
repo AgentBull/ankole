@@ -382,7 +382,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
     end)
     |> String.replace(@mention_regex, "@\\1")
     |> String.trim_leading()
-    |> blank_to_nil()
+    |> MapHelpers.blank_to_nil()
   end
 
   defp strip_current_bot_mentions(text, mentions) do
@@ -474,8 +474,8 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
         Path.join(Ankole.AgentHomePaths.user_files(agent_uid), relative)
       )
       |> Map.put("user_files_relative_path", relative)
-      |> MapHelpers.maybe_put("xxh3_128", result["xxh3_128"])
-      |> MapHelpers.maybe_put("size", result["size"])
+      |> MapHelpers.put_present("xxh3_128", result["xxh3_128"])
+      |> MapHelpers.put_present("size", result["size"])
     else
       reason ->
         Logging.warning(
@@ -518,23 +518,11 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
     Path.join([
       "inbox",
       "teams",
-      sanitize(attachment["source_message_id"]),
-      sanitize(attachment["file_id"] || "attachment"),
-      sanitize(downloaded_name || attachment["name"] || "attachment")
+      WorkerFiles.sanitize_path_segment(attachment["source_message_id"]),
+      WorkerFiles.sanitize_path_segment(attachment["file_id"] || "attachment"),
+      WorkerFiles.sanitize_path_segment(downloaded_name || attachment["name"] || "attachment")
     ])
   end
-
-  defp sanitize(value) when is_binary(value) do
-    case value
-         |> Ankole.Kernel.any_ascii()
-         |> String.replace(~r/[^A-Za-z0-9._-]+/, "_")
-         |> String.trim("_") do
-      "" -> "unnamed"
-      segment -> String.slice(segment, 0, 160)
-    end
-  end
-
-  defp sanitize(_value), do: "unnamed"
 
   defp reaction_target(activity) do
     case MapHelpers.optional_text(activity, "replyToId") ||
@@ -604,6 +592,4 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
 
   defp material_message?(nil, []), do: {:ignore, :empty_or_unsupported_message}
   defp material_message?(_text, _attachments), do: :ok
-  defp blank_to_nil(""), do: nil
-  defp blank_to_nil(text), do: text
 end

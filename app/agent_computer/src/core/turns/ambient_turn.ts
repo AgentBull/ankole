@@ -8,15 +8,16 @@
 
 import type { TurnStart } from '../../lanes/actor_lane'
 import { createCombinedAbortSignal } from '../../common/async'
-import { arrayPath } from '@agentbull/active-support'
+import { arrayPath, ms } from '@agentbull/active-support'
 import { recognizeAmbientIntervention, type AmbientRecognizerDecision } from './ambient_recognizer'
 import { acquireTurnAIGatewayAccess } from './turn_ai_gateway_access'
 import { runTextTurnLoop } from './text_turn'
 import { resolveAgentConversationContext } from './turn_context'
 import { rpcMethods } from '../../lanes/rpc_lane'
 import type { TextTurnLoopOptions, TurnHandlerResult } from './turn_options'
+import { errorMessage } from '../../common/errors'
 
-const AMBIENT_RECOGNIZER_TIMEOUT_MS = 30_000
+const AMBIENT_RECOGNIZER_TIMEOUT_MS = ms('30s')
 
 /**
  * Runs the ambient recognizer and, only when it chooses to intervene, delegates
@@ -97,7 +98,7 @@ async function recordAmbientJudgment(
   } catch (error) {
     opts.logger?.warning('worker.ambient_judgment_record_failed', 'ambient judgment record failed', {
       actor_event_id: turnStart.turn.actor_event_id,
-      error: error instanceof Error ? error.message : String(error)
+      error: errorMessage(error)
     })
   }
 }

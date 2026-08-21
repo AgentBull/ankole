@@ -1046,7 +1046,7 @@ defmodule Ankole.SignalsGateway.Actors do
   defp insert_outbox_intents(repo, actor_event, outbox_intents) when is_list(outbox_intents) do
     outbox_intents
     |> Enum.map(&insert_outbox_intent(repo, actor_event, &1))
-    |> collect_results()
+    |> Ankole.Attrs.collect_results()
   end
 
   defp insert_outbox_intents(_repo, _actor_event, _outbox_intents),
@@ -1068,15 +1068,4 @@ defmodule Ankole.SignalsGateway.Actors do
   end
 
   defp insert_outbox_intent(_repo, _actor_event, _attrs), do: {:error, :invalid_outbox_intent}
-
-  defp collect_results(results) do
-    Enum.reduce_while(results, {:ok, []}, fn
-      {:ok, value}, {:ok, acc} -> {:cont, {:ok, [value | acc]}}
-      {:error, _reason} = error, _acc -> {:halt, error}
-    end)
-    |> case do
-      {:ok, values} -> {:ok, Enum.reverse(values)}
-      {:error, _reason} = error -> error
-    end
-  end
 end

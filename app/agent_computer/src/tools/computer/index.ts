@@ -8,7 +8,6 @@ import { createReplyAttachmentTool } from './reply-attachment-tool'
 
 export interface ComputerToolsBinding {
   agentUID: string
-  conversationID?: string
   agentHome: string
   workspaceRoot: string
   userFilesRoot: string
@@ -38,7 +37,6 @@ export function createComputerTools(binding: ComputerToolsBinding): WorkerAgentT
 
 /** Builds the shared run-scoped context used by main-agent computer tools. */
 function createComputerToolContext(binding: ComputerToolsBinding): ComputerToolContext {
-  const executionScopeID = binding.conversationID ?? binding.agentUID
   const computer = createContainerComputer(binding.agentHome, binding.workspaceRoot, {
     workerEnv: binding.workerEnv,
     runtimeEnv: binding.runtimeEnv
@@ -47,7 +45,6 @@ function createComputerToolContext(binding: ComputerToolsBinding): ComputerToolC
     agentHome: binding.agentHome,
     workspaceRoot: binding.workspaceRoot,
     userFilesRoot: binding.userFilesRoot,
-    executionScopeID,
     getComputer: async () => computer
   }
 }

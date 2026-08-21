@@ -15,7 +15,6 @@ defmodule Ankole.I18nTest do
     allow_cache_database_access()
     Registry.clear_for_test()
     Cache.clear_for_test()
-    :ok = Config.ensure_registered()
     :ok = Ankole.I18n.Catalog.reload_locales!()
     put_test_catalogs()
 

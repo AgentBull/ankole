@@ -64,7 +64,7 @@ pub(super) fn decode(
     let current_source = ReasoningSource::from_context(context)?;
     let payload = encoded.strip_prefix(prefix)?;
     let decoded = base64_url_safe_decode(payload).ok()?;
-    let value: Value = serde_json::from_slice(&decoded).ok()?;
+    let value: Value = sonic_rs::from_slice(&decoded).ok()?;
     let object = value.as_object()?;
 
     let source = ReasoningSource {

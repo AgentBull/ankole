@@ -23,7 +23,6 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
     Cache.clear_for_test()
     ModelMetadataCache.clear_for_test()
 
-    :ok = SetupConfig.ensure_registered()
     {:ok, false} = SetupConfig.put_completed(false)
     :ok = SetupConfig.delete_bootstrap_activation_code()
 
@@ -872,43 +871,6 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
              "grant_type" => "authorization_code",
              "redirect_uri" => "#{issuer}/deviceauth/callback"
            }
-  end
-
-  defp bearer_conn(conn) do
-    conn
-    |> active_admin_conn()
-    |> post(~p"/.internal-apis/oauth/token", %{
-      "grant_type" => "urn:ankole:params:oauth:grant-type:browser-session"
-    })
-    |> json_response(200)
-    |> Map.fetch!("access_token")
-    |> then(fn access_token ->
-      conn
-      |> recycle()
-      |> put_req_header("authorization", "Bearer #{access_token}")
-      |> put_req_header("content-type", "application/json")
-    end)
-  end
-
-  defp recycle_api(conn) do
-    conn
-    |> recycle()
-    |> put_req_header("authorization", get_req_header(conn, "authorization") |> List.first())
-    |> put_req_header("content-type", "application/json")
-  end
-
-  defp active_admin_conn(conn) do
-    {:ok, true} = SetupConfig.put_completed(true)
-    human = human_fixture(%{uid: unique_uid("llm-console-admin")})
-    assert {:ok, _root} = AuthZ.root_init_admin(human.principal.uid)
-
-    conn
-    |> init_test_session(%{})
-    |> WebSession.put_admin_session(%{
-      principal_uid: human.principal.uid,
-      provider_id: "lark-main",
-      external_id: "external-1"
-    })
   end
 
   defp jwt(claims) do

@@ -1204,7 +1204,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
   test "worker placement applies the configurable job-only capacity" do
     %{principal: agent} = agent_fixture()
     definition = BackgroundAgentJobWorkerConfig.definition()
-    :ok = BackgroundAgentJobWorkerConfig.ensure_registered()
     :ok = AppConfigure.delete_global(definition)
     on_exit(fn -> AppConfigure.delete_global(definition) end)
     assert {:ok, 1} = AppConfigure.put_global(definition, 1)
@@ -1374,7 +1373,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
   test "worker job capacity deferral does not claim an execution attempt" do
     %{principal: agent} = agent_fixture()
     definition = BackgroundAgentJobWorkerConfig.definition()
-    :ok = BackgroundAgentJobWorkerConfig.ensure_registered()
     :ok = AppConfigure.delete_global(definition)
     on_exit(fn -> AppConfigure.delete_global(definition) end)
     assert {:ok, 1} = AppConfigure.put_global(definition, 1)

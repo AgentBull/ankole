@@ -1,6 +1,8 @@
 defmodule Ankole.SignalsGateway.ActorRuntime.ActorTurnCompletionTest do
   use Ankole.SignalsGateway.ActorRuntimeCase
 
+  alias Ankole.AIGateway.Conversations
+
   alias Ankole.SignalsGateway.Channel
   alias Ankole.SignalsGateway.InputTombstone
   alias Ankole.SignalsGateway.ReplyInteractionState
@@ -1179,7 +1181,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorTurnCompletionTest do
   defp start_response(subject_uid, event, opts \\ []) do
     conversation_key = Keyword.get(opts, :conversation_key, event.session_id)
     actor_event_id = Keyword.get(opts, :actor_event_id, event.id)
-    {:ok, conversation} = StatefulResponses.ensure_conversation(subject_uid, conversation_key)
+    {:ok, conversation} = Conversations.ensure_conversation(subject_uid, conversation_key)
 
     {:ok, run} =
       StatefulResponses.start_response_run(%{

@@ -158,16 +158,6 @@ export interface ReplyPresentationEvent {
 }
 
 /**
- * Extensible interface for custom app messages.
- */
-export interface CustomAgentMessages {}
-
-/**
- * AgentMessage: Union of LLM messages + custom messages.
- */
-export type AgentMessage = Message | CustomAgentMessages[keyof CustomAgentMessages]
-
-/**
  * Final or partial result produced by a tool.
  *
  * Extends pi-agent-core's own `AgentToolResult` (`content`/`details`/`usage`/
@@ -202,8 +192,6 @@ export interface AgentToolResult<T> extends Omit<PiAgentToolResult<T>, 'content'
  * used only by pi's own pre-`execute()` validation gate. Construct instances
  * with `defineWorkerTool` (`worker-tool.ts`), not this interface directly.
  */
-export type AgentToolExecutionMode = 'parallel' | 'sequential'
-
 export interface WorkerAgentTool<TZod extends z.ZodType = z.ZodType, TDetails = any> extends Omit<
   PiAgentTool<TSchema, TDetails>,
   'execute'

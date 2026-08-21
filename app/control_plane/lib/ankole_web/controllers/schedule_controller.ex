@@ -206,7 +206,10 @@ defmodule AnkoleWeb.ScheduleController do
          :ok <- ConsolePolicy.authorize(conn, schedule_resource(agent_uid), "update"),
          {:ok, schedule} <- cron_for_agent(params, agent_uid),
          {:ok, updated} <-
-           Schedule.update_cron_schedule(schedule.id, normalize_external_attrs(conn.body_params)) do
+           Schedule.update_cron_schedule(
+             schedule.id,
+             Ankole.Attrs.normalize_external_attrs(conn.body_params)
+           ) do
       json(conn, %{cron_schedule: Schedule.cron_projection(updated)})
     else
       {:error, reason} -> error(conn, reason)
@@ -290,7 +293,7 @@ defmodule AnkoleWeb.ScheduleController do
 
   defp cron_create_attrs(conn, agent_uid) do
     conn.body_params
-    |> normalize_external_attrs()
+    |> Ankole.Attrs.normalize_external_attrs()
     |> Map.put("agent_uid", agent_uid)
   end
 
@@ -382,15 +385,6 @@ defmodule AnkoleWeb.ScheduleController do
       _value -> nil
     end
   end
-
-  defp normalize_external_attrs(attrs) when is_map(attrs) do
-    Map.new(attrs, fn
-      {key, value} when is_atom(key) -> {Atom.to_string(key), value}
-      {key, value} -> {key, value}
-    end)
-  end
-
-  defp normalize_external_attrs(_attrs), do: %{}
 
   defp request_idempotency_key(conn) do
     case get_req_header(conn, "idempotency-key") do

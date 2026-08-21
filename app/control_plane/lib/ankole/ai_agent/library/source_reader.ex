@@ -303,7 +303,7 @@ defmodule Ankole.AIAgent.Library.SourceReader do
 
         do_read_skill_source(root, label, relative_path)
       end)
-      |> collect_results()
+      |> Ankole.Attrs.collect_results()
       |> case do
         {:ok, sources} -> {:ok, Enum.sort_by(sources, & &1.name)}
         {:error, _reason} = error -> error
@@ -364,8 +364,8 @@ defmodule Ankole.AIAgent.Library.SourceReader do
              "tags" => metadata.tags,
              "disable_model_invocation" => metadata.disable_model_invocation
            }
-           |> maybe_put("category", metadata.category)
-           |> maybe_put("ankole-runtime", metadata.ankole_runtime),
+           |> Ankole.Attrs.maybe_put("category", metadata.category)
+           |> Ankole.Attrs.maybe_put("ankole-runtime", metadata.ankole_runtime),
          source_hash: source_hash,
          relative_path: normalized_relative_path,
          files: files
@@ -532,9 +532,6 @@ defmodule Ankole.AIAgent.Library.SourceReader do
     end
   end
 
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
-
   defp stable_hash(parts) when is_list(parts), do: hash(Enum.join(parts, <<0>>))
 
   defp builtin_skill_roots do
@@ -591,12 +588,5 @@ defmodule Ankole.AIAgent.Library.SourceReader do
       ttl when is_integer(ttl) and ttl > 0 -> ttl
       _ttl -> 0
     end
-  end
-
-  defp collect_results(results) do
-    Enum.reduce_while(results, {:ok, []}, fn
-      {:ok, value}, {:ok, acc} -> {:cont, {:ok, [value | acc]}}
-      {:error, _reason} = error, _acc -> {:halt, error}
-    end)
   end
 end

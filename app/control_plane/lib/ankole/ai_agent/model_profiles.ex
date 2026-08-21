@@ -16,6 +16,7 @@ defmodule Ankole.AIAgent.ModelProfiles do
   alias Ankole.AIGateway.ProviderDefinition
   alias Ankole.AIGateway.Providers
   alias Ankole.AIGateway.Resolver
+  alias Ankole.Attrs
   alias Ankole.Principals
   alias Ankole.Principals.Agent
   alias Ankole.Repo
@@ -308,8 +309,8 @@ defmodule Ankole.AIAgent.ModelProfiles do
       "provider_options" => Map.get(runtime_profile, "provider_options", %{}),
       "supports_parallel_tool_calls" => supports_parallel_tool_calls?(runtime_profile)
     }
-    |> maybe_put("context_length", Map.get(runtime_profile, "context_length"))
-    |> maybe_put(
+    |> Attrs.maybe_put("context_length", Map.get(runtime_profile, "context_length"))
+    |> Attrs.maybe_put(
       "max_completion_tokens",
       max_completion_tokens_for_runtime_profile(runtime_profile)
     )
@@ -405,9 +406,6 @@ defmodule Ankole.AIAgent.ModelProfiles do
 
   defp supports_parallel_tool_calls?(_runtime_profile), do: false
 
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
-
   defp fetch_agent(agent_uid) do
     with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid) do
       case Repo.get(Agent, agent_uid) do
@@ -502,7 +500,7 @@ defmodule Ankole.AIAgent.ModelProfiles do
   defp normalize_profile_attrs(_profile, %{} = attrs) when map_size(attrs) == 0, do: {:ok, nil}
 
   defp normalize_profile_attrs(profile, attrs) when is_map(attrs) do
-    attrs = normalize_external_attrs(attrs)
+    attrs = Attrs.normalize_external_attrs(attrs)
 
     with {:ok, description} <- normalize_profile_description(profile, attrs),
          {:ok, normalized_profile} <- normalize_aigateway_profile(profile, attrs) do
@@ -625,13 +623,6 @@ defmodule Ankole.AIAgent.ModelProfiles do
       end
 
     Map.put(options, "ai_agent", Map.put(ai_agent, "models", fun.(models)))
-  end
-
-  defp normalize_external_attrs(attrs) do
-    Map.new(attrs, fn
-      {key, value} when is_atom(key) -> {Atom.to_string(key), value}
-      {key, value} -> {key, value}
-    end)
   end
 
   defp required_text(attrs, key) do

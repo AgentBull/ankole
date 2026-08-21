@@ -34,26 +34,11 @@ defmodule Ankole.Plugins.Config do
   end
 
   @doc """
-  Registers plugin subsystem AppConfigure keys.
-  """
-  @spec ensure_registered() :: :ok | {:error, term()}
-  def ensure_registered do
-    case AppConfigure.register_definitions([enabled_ids_definition()]) do
-      :ok -> :ok
-      {:error, {:duplicate_key, @enabled_ids_key}} -> :ok
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  @doc """
   Reads the global enabled plugin id list.
   """
   @spec enabled_ids() :: {:ok, [String.t()]} | {:error, term()}
   def enabled_ids do
-    with :ok <- ensure_registered(),
-         {:ok, enabled_ids} <- AppConfigure.get(enabled_ids_definition()) do
-      {:ok, enabled_ids}
-    end
+    AppConfigure.get(enabled_ids_definition())
   end
 
   @doc """
@@ -61,9 +46,7 @@ defmodule Ankole.Plugins.Config do
   """
   @spec put_enabled_ids([String.t()]) :: {:ok, [String.t()]} | {:error, term()}
   def put_enabled_ids(enabled_ids) do
-    with :ok <- ensure_registered() do
-      AppConfigure.put_global(enabled_ids_definition(), enabled_ids)
-    end
+    AppConfigure.put_global(enabled_ids_definition(), enabled_ids)
   end
 
   @doc """
@@ -73,11 +56,9 @@ defmodule Ankole.Plugins.Config do
           {:ok, [String.t()]} | {:error, term()}
   def put_configured_enabled(plugin_id, enabled)
       when is_binary(plugin_id) and is_boolean(enabled) do
-    with :ok <- ensure_registered() do
-      AppConfigure.update_global(enabled_ids_definition(), fn enabled_ids ->
-        {:ok, update_enabled_ids(enabled_ids, plugin_id, enabled)}
-      end)
-    end
+    AppConfigure.update_global(enabled_ids_definition(), fn enabled_ids ->
+      {:ok, update_enabled_ids(enabled_ids, plugin_id, enabled)}
+    end)
   end
 
   def put_configured_enabled(_plugin_id, _enabled),

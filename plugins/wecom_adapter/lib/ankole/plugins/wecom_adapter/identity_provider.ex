@@ -73,8 +73,8 @@ defmodule Ankole.Plugins.WeComAdapter.IdentityProvider do
   @doc "Builds the WWLogin page URL for login."
   @spec authorization_url(map(), keyword()) :: {:ok, String.t()} | {:error, term()}
   def authorization_url(config, opts) when is_map(config) and is_list(opts) do
-    with {:ok, redirect_uri} <- required_opt(opts, :redirect_uri),
-         {:ok, state} <- required_opt(opts, :state) do
+    with {:ok, redirect_uri} <- MapHelpers.required_opt(opts, :redirect_uri),
+         {:ok, state} <- MapHelpers.required_opt(opts, :state) do
       {:ok,
        OAuth.authorize_url(
          corp_id: Map.fetch!(config, "corpId"),
@@ -282,13 +282,6 @@ defmodule Ankole.Plugins.WeComAdapter.IdentityProvider do
   end
 
   # --- field helpers --------------------------------------------------------
-
-  defp required_opt(opts, key) do
-    case Keyword.get(opts, key) do
-      value when is_binary(value) and value != "" -> {:ok, value}
-      _value -> {:error, {:missing, key}}
-    end
-  end
 
   defp user_id(user) do
     case optional_text(user, "userid") do

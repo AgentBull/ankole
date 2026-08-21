@@ -53,6 +53,7 @@ import {
 } from '../../src/core/codex-runner/agent-runtime-manager'
 import { rpcMethods, type RPCRequester } from '../../src/lanes/rpc_lane'
 import type { CodexRuntimeConfig } from '../../src/core/codex-runner/runtime-config'
+import { errorMessage } from '../../src/common/errors'
 
 const checkedInProtocolRoot = join(import.meta.dir, '../../src/core/codex-runner/generated/protocol')
 
@@ -460,9 +461,7 @@ describe('@ankole/agent-computer Codex app-server protocol contract', () => {
             : []
         )
         .join('')
-      throw new Error(
-        `${error instanceof Error ? error.message : String(error)}\nrequests=${requestKinds.join(',')}\n${stderr}`
-      )
+      throw new Error(`${errorMessage(error)}\nrequests=${requestKinds.join(',')}\n${stderr}`)
     } finally {
       await client?.close()
       provider.stop(true)
@@ -544,7 +543,7 @@ describe('@ankole/agent-computer Codex app-server protocol contract', () => {
             : []
         )
         .join('')
-      throw new Error(`${error instanceof Error ? error.message : String(error)}\n${stderr}`)
+      throw new Error(`${errorMessage(error)}\n${stderr}`)
     } finally {
       await client?.close()
       provider.stop(true)
@@ -927,7 +926,7 @@ describe('@ankole/agent-computer Codex app-server protocol contract', () => {
             : []
         )
         .join('')
-      throw new Error(`${error instanceof Error ? error.message : String(error)}\n${stderr}`)
+      throw new Error(`${errorMessage(error)}\n${stderr}`)
     } finally {
       await client?.close()
       provider.stop(true)
@@ -1179,9 +1178,7 @@ test ! -e ./AGENTS.override.md
         expect(echo.isError).not.toBe(true)
         expect(echo.content).toEqual([{ type: 'text', text: 'stdio response' }])
       } catch (error) {
-        throw new Error(
-          `[${stage}] ${error instanceof Error ? error.message : String(error)}\n${stderrChunks.join('')}`
-        )
+        throw new Error(`[${stage}] ${errorMessage(error)}\n${stderrChunks.join('')}`)
       }
     } finally {
       await realClient?.close()

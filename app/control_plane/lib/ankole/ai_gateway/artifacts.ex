@@ -142,7 +142,7 @@ defmodule Ankole.AIGateway.Artifacts do
       "purpose" => artifact.purpose,
       "status" => "processed"
     }
-    |> maybe_put("expires_at", nullable_unix_timestamp(artifact.expires_at))
+    |> Ankole.Attrs.maybe_put("expires_at", nullable_unix_timestamp(artifact.expires_at))
   end
 
   @spec public_id(Artifact.t()) :: String.t()
@@ -454,7 +454,4 @@ defmodule Ankole.AIGateway.Artifacts do
 
   defp nullable_unix_timestamp(nil), do: nil
   defp nullable_unix_timestamp(datetime), do: unix_timestamp(datetime)
-
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 end

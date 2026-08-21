@@ -1,3 +1,4 @@
+import { compareCodePointStrings } from '../../common/ordering'
 import type { TurnStart } from '../../lanes/actor_lane'
 import {
   rpcMethods,
@@ -312,7 +313,7 @@ function selectCurrentStandaloneSkills(available: RuntimeSkillSummary[]): Runtim
     byName.set(skill.skillName, skill)
   }
   return [...byName.values()]
-    .sort((left, right) => compareCodePoints(left.skillName, right.skillName))
+    .sort((left, right) => compareCodePointStrings(left.skillName, right.skillName))
     .filter(skill => skillAvailableInRuntime(skill, 'background_job'))
 }
 
@@ -334,7 +335,7 @@ function selectCurrentAgentPluginSkills(
   return enabledAgentPlugins
     .flatMap(agentPlugin =>
       [...agentPlugin.skills]
-        .sort((left, right) => compareCodePoints(left.catalogName, right.catalogName))
+        .sort((left, right) => compareCodePointStrings(left.catalogName, right.catalogName))
         .map(member => {
           const skill = byOwnerAndName.get(`${agentPlugin.id}\0${member.catalogName}`)
           if (!skill) {
@@ -364,8 +365,4 @@ async function requestProjectionAIGatewayKey(
   options?: { forceRefresh?: boolean }
 ): Promise<AIGatewayAPIKeyResponse> {
   return await opts.requestAIGatewayAPIKey(turnStart.turn.actor.agent_uid, options)
-}
-
-function compareCodePoints(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0
 }

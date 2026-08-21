@@ -11,7 +11,8 @@ import {
   type SkillFileRoots
 } from '../../skills/effective-skill'
 import { utf8ByteLength } from '../../common/text-sanitize'
-import { compareCodePointStrings } from './ordering'
+import { compareCodePointStrings } from '../../common/ordering'
+import { errorMessage } from '../../common/errors'
 
 const MAX_METADATA_BYTES = 64 * 1024
 const MAX_ENABLED_SKILLS = 128
@@ -258,8 +259,4 @@ function normalizedToolFilter(tools: string[] | undefined): string[] | null {
 
 function isMissingFileError(error: unknown): boolean {
   return error instanceof Error && 'code' in error && error.code === 'ENOENT'
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }

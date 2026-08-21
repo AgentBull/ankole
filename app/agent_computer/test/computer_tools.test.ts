@@ -52,7 +52,6 @@ class FakeComputer implements ContainerComputer {
 
 function contextFor(computer: ContainerComputer, overrides: Partial<ComputerToolContext> = {}): ComputerToolContext {
   return {
-    executionScopeID: 'scope-1',
     agentHome: '/agents/agent-1',
     workspaceRoot: '/agents/agent-1/sessions/session-1',
     userFilesRoot: '/agents/agent-1/user-files',
@@ -71,7 +70,6 @@ describe('computer tools', () => {
   it('exposes only foreground, stateless computer tools to the main agent', () => {
     const tools = createComputerTools({
       agentUID: 'agent-1',
-      conversationID: 'conversation-1',
       agentHome: '/agents/agent-1',
       workspaceRoot: '/agents/agent-1/sessions/session-1',
       userFilesRoot: '/agents/agent-1/user-files'
@@ -334,7 +332,6 @@ describe('computer tools', () => {
     try {
       const computer = createContainerComputer(agentHome, workspaceRoot)
       const context = {
-        executionScopeID: 'scope-bubblewrap-paths',
         agentHome,
         workspaceRoot,
         userFilesRoot: join(agentHome, 'user-files'),

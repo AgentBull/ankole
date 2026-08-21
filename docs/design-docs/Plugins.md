@@ -213,8 +213,8 @@ The Registry keeps the active list in memory for the current process.
 The global AppConfigure key `plugins.enabled_ids` lists active Plugins. A
 missing or empty list enables none. An operator must enable each new Plugin.
 
-The Registry reads the list during startup. A later change takes effect only
-after a restart.
+The Plugin cohort reads the list during startup and resolves one immutable boot
+snapshot. A later change takes effect only after a restart.
 
 First-run setup is the only exception. While `setup.completed` is false, the
 Registry activates every discovered Control Plane Plugin. This keeps all
@@ -238,6 +238,20 @@ Each response row includes these fields:
 
 The Console can still list an inactive Plugin, and its old settings can remain
 in PostgreSQL. It adds no definitions, adapters, or processes until activation.
+
+### Recover the Boot Snapshot
+
+`Ankole.Plugins.Cohort` supervises the Registry before the Plugin runtime
+supervisor with `rest_for_one`. A Registry crash restarts both processes from
+the same immutable boot snapshot, so a later configuration edit cannot change
+the active set during fault recovery. A failure inside one Plugin child stays
+inside the runtime supervisor and does not restart the Registry.
+
+The AppConfigure Registry can read the active Plugin declarations from the
+live Plugin Registry when it recovers. If the Plugin Registry recovers, it
+replaces the complete Plugin declaration source before the runtime supervisor
+starts. These two paths keep the active snapshot, declarations, and supervised
+children consistent without restarting the rest of the control plane.
 
 ### Keep Plugin Code inside Control-Plane Contracts
 

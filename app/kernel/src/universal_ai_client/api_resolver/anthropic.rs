@@ -849,7 +849,7 @@ fn anthropic_tool_use(call: &Map<String, Value>) -> Value {
     let input = call
         .get("arguments")
         .and_then(Value::as_str)
-        .and_then(|arguments| serde_json::from_str::<Value>(arguments).ok())
+        .and_then(|arguments| sonic_rs::from_str::<Value>(arguments).ok())
         .unwrap_or_else(|| json!({}));
 
     let name = call

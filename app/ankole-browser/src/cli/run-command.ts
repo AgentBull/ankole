@@ -89,7 +89,7 @@ export async function runBrowserCode(input: RunInput): Promise<Record<string, un
     const result = await readRunResult(runDir)
     outcome = result.status === 'ok' ? 'ok' : result.status === 'cancelled' ? 'cancelled' : 'error'
     return {
-      run_dir: modelRunDir(input.context, runDir),
+      run_dir: runDir,
       status: result.status,
       value: result.value,
       error: result.error
@@ -131,7 +131,6 @@ function spawnRunner(input: {
 }): ChildProcess {
   const runnerPath =
     process.env.ANKOLE_BROWSER_RUNNER ?? fileURLToPath(new URL('../runner/bootstrap.js', import.meta.url))
-  const nodePath = process.env.ANKOLE_BROWSER_NODE ?? process.execPath
   const env = Object.fromEntries(
     Object.entries(process.env).filter(([key, value]) => value !== undefined && !key.startsWith('ANKOLE_BROWSER_'))
   ) as Record<string, string>
@@ -148,7 +147,6 @@ function spawnRunner(input: {
   const stdout = createWriteStream(resolve(input.runDir, 'runner.stdout.log'), { flags: 'a', mode: 0o600 })
   const stderr = createWriteStream(resolve(input.runDir, 'runner.stderr.log'), { flags: 'a', mode: 0o600 })
   const child = fork(runnerPath, [], {
-    execPath: nodePath,
     cwd: input.scriptCwd,
     env,
     stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
@@ -266,10 +264,6 @@ function resolveRunDir(context: BrowserClientContext, requested?: string): strin
     throw new BrowserDataError('invalid_command', 'run directory must stay inside browser artifact root')
   }
   return path
-}
-
-function modelRunDir(_context: BrowserClientContext, runDir: string): string {
-  return runDir
 }
 
 async function readRunResult(runDir: string): Promise<RunResult> {

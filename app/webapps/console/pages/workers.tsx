@@ -1,3 +1,4 @@
+import { SETTLED_WORKERS_REFRESH_MS, WAITING_REFRESH_MS } from '../refresh-intervals'
 import {
   Button,
   buttonVariants,
@@ -65,7 +66,8 @@ export function WorkersListPage() {
   const { t, i18n } = useTranslation()
   const workers = useQuery({
     ...ankoleWebAgentComputerWorkerControllerIndexOptions(),
-    refetchInterval: query => ((query.state.data?.workers.length ?? 0) === 0 ? 2_000 : 10_000)
+    refetchInterval: query =>
+      (query.state.data?.workers.length ?? 0) === 0 ? WAITING_REFRESH_MS : SETTLED_WORKERS_REFRESH_MS
   })
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)

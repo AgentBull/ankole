@@ -18,5 +18,10 @@
       "type": "string"
     }
   },
-  "required": ["title", "description", "section", "order"]
+  "required": [
+    "title",
+    "description",
+    "section",
+    "order"
+  ]
 }

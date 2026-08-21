@@ -1,3 +1,4 @@
+import { LIST_REFRESH_MS } from '../refresh-intervals'
 import {
   Button,
   Input,
@@ -111,23 +112,21 @@ export function SchedulesListPage() {
 
   const crons = useQuery({
     ...ankoleWebScheduleControllerIndexCronOptions({ query: { agent: scope.agentUID || undefined } }),
-    refetchInterval: 15_000
+    refetchInterval: LIST_REFRESH_MS
   })
 
-  const rows = (crons.data?.cron_schedules ?? [])
-    .map(row => row as CronScheduleRow)
-    .filter(row =>
-      matchesResourceSearch(
-        query,
-        row.name,
-        row.binding_name,
-        row.agent_uid,
-        row.owner_session_id,
-        row.status,
-        scheduleStatusLabel(t, row.status),
-        describeSchedule(t, row.schedule)
-      )
+  const rows = ((crons.data?.cron_schedules ?? []) as CronScheduleRow[]).filter(row =>
+    matchesResourceSearch(
+      query,
+      row.name,
+      row.binding_name,
+      row.agent_uid,
+      row.owner_session_id,
+      row.status,
+      scheduleStatusLabel(t, row.status),
+      describeSchedule(t, row.schedule)
     )
+  )
 
   const invalidate = () => void queryClient.invalidateQueries()
 
@@ -287,7 +286,7 @@ export function ScheduleCheckbacksPage() {
 
   const checkbacks = useQuery({
     ...ankoleWebScheduleControllerIndexCheckbacksOptions({ query: { agent: scope.agentUID || undefined } }),
-    refetchInterval: 15_000
+    refetchInterval: LIST_REFRESH_MS
   })
 
   const rows = (checkbacks.data?.schedule_events ?? [])

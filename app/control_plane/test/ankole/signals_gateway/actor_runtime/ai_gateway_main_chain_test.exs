@@ -1,6 +1,8 @@
 defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
   use Ankole.SignalsGateway.ActorRuntimeCase
 
+  alias Ankole.AIGateway.Conversations
+
   alias Ankole.AIGateway.StatefulResponses
   alias Ankole.Observability
   alias Ankole.Observability.Providers.OpenTelemetry
@@ -69,7 +71,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
 
     assert live_delivery_count(actor_event.id) == 1
 
-    {:ok, conversation} = StatefulResponses.ensure_conversation(agent.uid, actor_event.session_id)
+    {:ok, conversation} = Conversations.ensure_conversation(agent.uid, actor_event.session_id)
 
     first_request_items = [
       %{
@@ -175,7 +177,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
         text: "Attach the report."
       })
 
-    {:ok, conversation} = StatefulResponses.ensure_conversation(agent.uid, actor_event.session_id)
+    {:ok, conversation} = Conversations.ensure_conversation(agent.uid, actor_event.session_id)
 
     {:ok, first_round} =
       StatefulResponses.start_response_run(%{
@@ -291,7 +293,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
         text: "Create the chart and send it."
       })
 
-    {:ok, conversation} = StatefulResponses.ensure_conversation(agent.uid, actor_event.session_id)
+    {:ok, conversation} = Conversations.ensure_conversation(agent.uid, actor_event.session_id)
 
     {:ok, first_round} =
       StatefulResponses.start_response_run(%{
@@ -418,7 +420,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
         text: "Prepare the brief."
       })
 
-    {:ok, conversation} = StatefulResponses.ensure_conversation(agent.uid, actor_event.session_id)
+    {:ok, conversation} = Conversations.ensure_conversation(agent.uid, actor_event.session_id)
 
     {:ok, first_round} =
       StatefulResponses.start_response_run(%{

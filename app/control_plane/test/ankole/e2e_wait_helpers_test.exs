@@ -1,6 +1,8 @@
 defmodule Ankole.E2E.WaitHelpersTest do
   use Ankole.SignalsGateway.ActorRuntimeCase
 
+  alias Ankole.AIGateway.Conversations
+
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.AIGateway.StatefulResponses
   alias Ankole.E2E.WaitHelpers
@@ -14,7 +16,7 @@ defmodule Ankole.E2E.WaitHelpersTest do
     %{agent: agent, actor_event: actor_event, turn_ref: turn_ref} =
       start_accepted_turn("latest-final", "Need a final reply.")
 
-    {:ok, conversation} = StatefulResponses.ensure_conversation(agent.uid, actor_event.session_id)
+    {:ok, conversation} = Conversations.ensure_conversation(agent.uid, actor_event.session_id)
 
     old_message = complete_response!(agent.uid, conversation.id, actor_event.id, "old final")
 
@@ -52,7 +54,7 @@ defmodule Ankole.E2E.WaitHelpersTest do
     %{agent: agent, actor_event: actor_event, turn_ref: turn_ref} =
       start_accepted_turn("runtime-event-final", "Need a dispatched final reply.")
 
-    {:ok, conversation} = StatefulResponses.ensure_conversation(agent.uid, actor_event.session_id)
+    {:ok, conversation} = Conversations.ensure_conversation(agent.uid, actor_event.session_id)
 
     committed =
       complete_response!(agent.uid, conversation.id, actor_event.id, "runtime event final")
@@ -79,7 +81,7 @@ defmodule Ankole.E2E.WaitHelpersTest do
     %{agent: agent, actor_event: actor_event, turn_ref: turn_ref} =
       start_accepted_turn("multiple-side-effects", "Need multiple side effects.")
 
-    {:ok, conversation} = StatefulResponses.ensure_conversation(agent.uid, actor_event.session_id)
+    {:ok, conversation} = Conversations.ensure_conversation(agent.uid, actor_event.session_id)
     message = complete_response!(agent.uid, conversation.id, actor_event.id, "done")
 
     assert {:ok, %{status: :turn_completed}} = complete_turn(turn_ref, message)

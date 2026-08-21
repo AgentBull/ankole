@@ -33,7 +33,7 @@ defmodule Ankole.AIGateway.CodexModelBinding do
         "input_modalities" => input_modalities
       }
 
-      {:ok, maybe_put(decoded, "vision_fallback", vision_fallback)}
+      {:ok, Ankole.Attrs.maybe_put(decoded, "vision_fallback", vision_fallback)}
     else
       _value -> {:error, :invalid_codex_model_binding}
     end
@@ -117,9 +117,6 @@ defmodule Ankole.AIGateway.CodexModelBinding do
   end
 
   defp decode_modalities(_value), do: {:error, :invalid_codex_model_binding}
-
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp responses_lite_request?(request) do
     case Map.get(request, "client_metadata") do

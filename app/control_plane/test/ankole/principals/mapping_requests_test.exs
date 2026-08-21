@@ -1,8 +1,9 @@
 defmodule Ankole.Principals.MappingRequestsTest do
-  use Ankole.DataCase, async: true
+  use Ankole.DataCase, async: false
 
   import Ankole.PrincipalsFixtures
 
+  alias Ecto.Adapters.SQL.Sandbox
   alias Ankole.Principals
   alias Ankole.Principals.MappingRequest
   alias Ankole.Principals.MappingRequests
@@ -30,6 +31,98 @@ defmodule Ankole.Principals.MappingRequestsTest do
     assert second.metadata["binding_name"] == "lark"
     assert second.metadata["channel_name"] == "Ops"
     assert [_only] = MappingRequests.list_requests()
+  end
+
+  test "concurrent observations merge after the subject lock commits" do
+    provider = "lark-concurrent"
+    external_id = "ou_#{System.unique_integer([:positive])}"
+    parent = self()
+
+    on_exit(fn ->
+      Sandbox.unboxed_run(Repo, fn ->
+        case Repo.get_by(MappingRequest, provider: provider, external_id: external_id) do
+          nil -> :ok
+          request -> Repo.delete!(request)
+        end
+      end)
+    end)
+
+    first =
+      Task.async(fn ->
+        Sandbox.unboxed_run(Repo, fn ->
+          Repo.transact(fn _repo ->
+            result =
+              MappingRequests.record_observation(%{
+                provider: provider,
+                external_id: external_id,
+                email: "ada@example.com",
+                metadata: %{"binding" => "lark"}
+              })
+
+            send(parent, :first_observation_written)
+
+            receive do
+              :commit_first_observation -> result
+            end
+          end)
+        end)
+      end)
+
+    assert_receive :first_observation_written, 5_000
+
+    second =
+      Task.async(fn ->
+        Sandbox.unboxed_run(Repo, fn ->
+          MappingRequests.record_observation(%{
+            provider: provider,
+            external_id: external_id,
+            mobile: "+14155552671",
+            metadata: %{"channel" => "ops"}
+          })
+        end)
+      end)
+
+    refute Task.yield(second, 50)
+    send(first.pid, :commit_first_observation)
+
+    assert {:ok, %MappingRequest{}} = Task.await(first, 5_000)
+    assert {:ok, merged} = Task.await(second, 5_000)
+    assert merged.email == "ada@example.com"
+    assert merged.mobile == "+14155552671"
+    assert merged.metadata == %{"binding" => "lark", "channel" => "ops"}
+  end
+
+  test "an automatic identity write removes a pending request and blocks its recreation" do
+    %{principal: principal} = human_fixture()
+    provider = "lark-main"
+    external_id = "ou_automatic_mapping"
+
+    assert {:ok, %MappingRequest{}} =
+             MappingRequests.record_observation(%{
+               provider: provider,
+               external_id: external_id,
+               display_name: "Ada"
+             })
+
+    assert {:ok, %{identity: identity}} =
+             Principals.upsert_platform_subject_human(%{
+               uid: principal.uid,
+               provider: provider,
+               external_id: external_id,
+               display_name: principal.display_name
+             })
+
+    assert identity.principal_uid == principal.uid
+    assert MappingRequests.list_requests() == []
+
+    assert {:ok, :already_mapped} =
+             MappingRequests.record_observation(%{
+               provider: provider,
+               external_id: external_id,
+               metadata: %{"late" => true}
+             })
+
+    assert MappingRequests.list_requests() == []
   end
 
   test "bind_request writes the identity to the chosen principal and removes the row" do

@@ -344,11 +344,11 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
           "user_message_count" =>
             Map.get(retention, "user_message_count", length(retained_user_originals))
         }
-        |> maybe_put(
+        |> put_truthy(
           "previous_summary_discarded",
           Map.get(retention, "previous_summary_discarded")
         )
-        |> maybe_put("opaque_prefix_items", Map.get(retention, "opaque_prefix_items"))
+        |> put_truthy("opaque_prefix_items", Map.get(retention, "opaque_prefix_items"))
 
       _other ->
         %{
@@ -361,9 +361,9 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
     end
   end
 
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, _key, false), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
+  defp put_truthy(map, _key, nil), do: map
+  defp put_truthy(map, _key, false), do: map
+  defp put_truthy(map, key, value), do: Map.put(map, key, value)
 
   defp artifact_uuid(@handle_prefix <> public_id), do: artifact_uuid(public_id)
   defp artifact_uuid("cmp_" <> uuid), do: UUIDv7.cast(uuid)

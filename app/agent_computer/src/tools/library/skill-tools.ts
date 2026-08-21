@@ -58,7 +58,7 @@ export interface CreateSkillToolsOptions {
  * `skill_append` appends to that DB overlay over RuntimeFabric and does not write
  * any workspace file. Assignment remains a control-plane concern.
  */
-export function createSkillTools(_workspaceRoot: string, opts: CreateSkillToolsOptions): WorkerAgentTool<any>[] {
+export function createSkillTools(opts: CreateSkillToolsOptions): WorkerAgentTool<any>[] {
   return [createSkillViewTool(opts), createSkillAppendTool(opts), createSkillReplaceTool(opts)]
 }
 

@@ -406,6 +406,9 @@ defmodule Ankole.BackgroundAgentJobs do
   @doc false
   defdelegate worker_turn_projection(turn), to: Turns, as: :worker_projection
 
+  @doc "Projects complete runtime turns for Console."
+  defdelegate console_turn_projections(turns), to: Turns, as: :console_projections
+
   @doc "Durably requests cancellation without trusting worker-local state."
   defdelegate request_stop(job_id, attrs), to: Control
 
@@ -427,9 +430,6 @@ defmodule Ankole.BackgroundAgentJobs do
 
   @doc "Pages the lead-thread turn items of one job's workspace lineage for thread replay."
   defdelegate replay_items_page(job, cursor), to: Turns
-
-  @doc "Projects one complete runtime turn for Console."
-  defdelegate console_turn_projection(turn), to: Turns, as: :console_projection
 
   @doc "Fetches one job for an agent."
   defdelegate get_job_for_agent(job_id, agent_uid), to: Queries, as: :get_for_agent

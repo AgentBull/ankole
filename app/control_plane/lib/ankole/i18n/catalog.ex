@@ -66,8 +66,7 @@ defmodule Ankole.I18n.Catalog do
     locales_dir = Keyword.get(opts, :locales_dir, Config.locales_dir())
     state = %__MODULE__{locales_dir: locales_dir}
 
-    with :ok <- Config.ensure_registered(),
-         :ok <- load_catalog(locales_dir),
+    with :ok <- load_catalog(locales_dir),
          :ok <- apply_config_default_locale() do
       {:ok, state}
     else

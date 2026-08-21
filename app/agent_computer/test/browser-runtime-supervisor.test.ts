@@ -10,17 +10,16 @@ afterEach(async () => {
 })
 
 describe('browser daemon supervisor', () => {
-  test('reports spawn failure without waiting for readiness timeout', async () => {
+  test('reports an early daemon exit without waiting for readiness timeout', async () => {
     const root = await mkdtemp('/tmp/ankole-browser-supervisor-')
     roots.push(root)
     const supervisor = new BrowserDaemonSupervisor({
       socketPath: join(root, 'socket', 'browser.sock'),
-      nodePath: join(root, 'missing-node'),
       daemonEntry: join(root, 'missing-daemon.js')
     })
     const startedAt = Date.now()
 
-    await expect(supervisor.start()).rejects.toThrow('failed to spawn ankole-browserd')
+    await expect(supervisor.start()).rejects.toThrow('ankole-browserd exited before ready')
     expect(Date.now() - startedAt).toBeLessThan(2_000)
     await supervisor.stop()
   })

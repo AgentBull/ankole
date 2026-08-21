@@ -545,6 +545,62 @@ defmodule Ankole.AuthZTest do
     end
   end
 
+  describe "static group member deltas" do
+    test "applies one add and remove set atomically in stable uid order" do
+      %{principal: added_b} = human_fixture(%{uid: unique_uid("delta-b")})
+      %{principal: added_a} = human_fixture(%{uid: unique_uid("delta-a")})
+      %{principal: removed} = human_fixture(%{uid: unique_uid("delta-removed")})
+
+      assert {:ok, group} =
+               AuthZ.create_principal_group(%{
+                 name: "directory_delta_#{System.unique_integer([:positive])}",
+                 display_name: "Directory Delta",
+                 kind: :static,
+                 domain: :directory
+               })
+
+      assert {:ok, _result} =
+               AuthZ.replace_static_group_members(group.id, :directory, [removed.uid])
+
+      assert {:ok, delta} =
+               AuthZ.apply_static_group_member_delta(
+                 group.id,
+                 :directory,
+                 [added_b.uid, added_a.uid],
+                 [removed.uid]
+               )
+
+      assert delta.added_principal_uids == Enum.sort([added_a.uid, added_b.uid])
+      assert delta.removed_principal_uids == [removed.uid]
+      assert delta.removed_memberships == 1
+
+      assert {:ok, members} = AuthZ.list_group_members(group.id)
+      assert Enum.map(members, & &1.principal.uid) == Enum.sort([added_a.uid, added_b.uid])
+    end
+
+    test "rolls back the complete delta when one added principal is missing" do
+      %{principal: valid} = human_fixture(%{uid: unique_uid("delta-valid")})
+
+      assert {:ok, group} =
+               AuthZ.create_principal_group(%{
+                 name: "directory_delta_rollback_#{System.unique_integer([:positive])}",
+                 display_name: "Directory Delta Rollback",
+                 kind: :static,
+                 domain: :directory
+               })
+
+      assert {:error, :not_found} =
+               AuthZ.apply_static_group_member_delta(
+                 group.id,
+                 :directory,
+                 [valid.uid, "missing-principal"],
+                 []
+               )
+
+      assert {:ok, []} = AuthZ.list_group_members(group.id)
+    end
+  end
+
   describe "permission grants" do
     test "upsert is atomic by the natural owner resource action condition key" do
       %{principal: principal} = human_fixture(%{uid: unique_uid("upsert-grant-owner")})

@@ -23,7 +23,7 @@ import { Link, useParams, useSearchParams } from 'react-router'
 import { AgentFilter, useAgentScope } from '../console-agent-scope'
 import { BackLink, PageStack } from '../console-page'
 import { ErrorBlock } from '../../common/error-block'
-import { formatConsoleDate } from '../console-primitives'
+import { formatConsoleDate, truncate } from '../console-primitives'
 import { conversationDisplayName } from '../conversation-presentation'
 import { MarkdownBody } from '../markdown-body'
 import { StatusIndicator } from '../console-form'
@@ -85,18 +85,15 @@ export function ConversationsListPage() {
     })
   }, [searchDraft, searchFilter, setSearchParams])
 
-  const list = useQuery({
-    ...ankoleWebAIGatewayConversationControllerIndexOptions({
-      query: {
-        q: searchFilter.trim() || undefined,
-        subject: scope.agentUID || undefined,
-        active: activeFilter === 'true' ? true : activeFilter === 'false' ? false : undefined,
-        min_messages: showAll ? undefined : 2,
-        cursor,
-        limit: 50
-      }
+  const list = useQuery(
+    conversationListOptions({
+      q: searchFilter,
+      subject: scope.agentUID,
+      active: activeFilter,
+      showAll,
+      cursor
     })
-  })
+  )
 
   const conversations = list.data?.conversations ?? []
   const nextCursor = list.data?.next_cursor ?? undefined
@@ -660,10 +657,6 @@ function RawJSON({ value }: { value: unknown }) {
   return <CodeBlock>{truncate(text, 8_000)}</CodeBlock>
 }
 
-function truncate(value: string, limit: number): string {
-  return value.length <= limit ? value : `${value.slice(0, limit)}…`
-}
-
 /** Re-indents JSON payloads; passes non-JSON text through unchanged. */
 function prettyJSON(text: string): string {
   const trimmed = text.trim()
@@ -725,4 +718,27 @@ function toolItemText(item: ResponseItem): string {
     return typeof item.content === 'string' ? item.content : JSON.stringify(item.content, null, 2)
   }
   return JSON.stringify(item, null, 2)
+}
+
+/**
+ * URL-backed list query shared by the page and its route loader, so the
+ * prefetch and the rendered query agree on one cache key.
+ */
+export function conversationListOptions(params: {
+  q?: string | null
+  subject?: string | null
+  active?: string | null
+  showAll: boolean
+  cursor?: string | null
+}) {
+  return ankoleWebAIGatewayConversationControllerIndexOptions({
+    query: {
+      q: params.q?.trim() || undefined,
+      subject: params.subject?.trim() || undefined,
+      active: params.active === 'true' ? true : params.active === 'false' ? false : undefined,
+      min_messages: params.showAll ? undefined : 2,
+      cursor: params.cursor || undefined,
+      limit: 50
+    }
+  })
 }

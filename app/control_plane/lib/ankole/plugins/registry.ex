@@ -2,14 +2,17 @@ defmodule Ankole.Plugins.Registry do
   @moduledoc """
   GenServer holding the boot-time snapshot of discovered and active plugins.
 
-  The whole plugin set is resolved once in `init/1`. The Registry validates the
-  compiled module list, selects the runtime plugin set, and registers the active
-  plugins' AppConfigure keys. First-run setup activates every discovered plugin
-  so every bundled configuration path remains available across setup restarts.
-  After setup, the global enable list selects the runtime set. State is immutable
-  for the lifetime of the process. If module validation, a uniqueness invariant,
-  or config registration fails, `init/1` returns `:stop`. This result stops
-  application startup before it can use a partly registered plugin set.
+  `Ankole.Plugins.Cohort` resolves the whole plugin set once with
+  `prepare_snapshot/1` and starts this process with that snapshot, so a restart
+  serves the same set. A direct start without a snapshot, as in tests, resolves
+  the set in `init/1`. Snapshot preparation validates the compiled module list
+  and selects the runtime plugin set; `init/1` registers the active plugins'
+  AppConfigure keys on each start. First-run setup activates every discovered
+  plugin so every bundled configuration path remains available across setup
+  restarts. After setup, the global enable list selects the runtime set. State
+  is immutable for the lifetime of the process. If snapshot preparation or
+  config registration fails, startup stops before anything can use a partly
+  registered plugin set.
   """
 
   use GenServer
@@ -98,26 +101,36 @@ defmodule Ankole.Plugins.Registry do
     GenServer.call(server, :enabled_ids, @call_timeout)
   end
 
-  @impl true
-  def init(opts) do
+  @doc false
+  @spec app_config_declarations(GenServer.server()) ::
+          {[Ankole.AppConfigure.Definition.t()], [Ankole.AppConfigure.PatternDefinition.t()]}
+  def app_config_declarations(server \\ __MODULE__) do
+    GenServer.call(server, :app_config_declarations, @call_timeout)
+  end
+
+  @doc false
+  @spec prepare_snapshot(keyword()) :: {:ok, state()} | {:error, term()}
+  def prepare_snapshot(opts \\ []) do
     modules = Keyword.get(opts, :modules, @plugin_modules)
 
-    # Resolve everything up front. The durable enable list is the post-setup
-    # startup policy. Before setup completes, every compiled plugin stays active
-    # so an operator can move between provider choices after any setup restart.
-    # Adapter validation and config registration still run over the exact set
-    # that this process starts.
     with {:ok, specs} <- specs_from_modules(modules),
          :ok <- ensure_unique_ids(specs),
-         :ok <- Config.ensure_registered(),
          {:ok, enabled_ids} <- Config.enabled_ids(),
          {:ok, setup_completed?} <- SetupConfig.completed?(),
          active_specs <- active_specs(specs, enabled_ids, setup_completed?),
          :ok <- ensure_unique_adapter_declarations(active_specs),
-         :ok <- ensure_valid_adapter_contract_declarations(active_specs),
+         :ok <- ensure_valid_adapter_contract_declarations(active_specs) do
+      {:ok, build_state(specs, active_specs, enabled_ids)}
+    end
+  end
+
+  @impl true
+  def init(opts) do
+    with {:ok, state} <- snapshot(opts),
+         active_specs <- sorted_active_specs(state),
          :ok <- register_plugin_config(active_specs) do
       maybe_refresh_ai_gateway_provider_cache(opts, active_specs)
-      {:ok, build_state(specs, active_specs, enabled_ids)}
+      {:ok, state}
     else
       {:error, reason} ->
         maybe_log_startup_failure(reason)
@@ -169,6 +182,11 @@ defmodule Ankole.Plugins.Registry do
   @impl true
   def handle_call(:enabled_ids, _from, state) do
     {:reply, state.enabled_ids |> MapSet.to_list() |> Enum.sort(), state}
+  end
+
+  @impl true
+  def handle_call(:app_config_declarations, _from, state) do
+    {:reply, declarations(sorted_active_specs(state)), state}
   end
 
   defp ensure_unique_ids(specs) do
@@ -282,22 +300,28 @@ defmodule Ankole.Plugins.Registry do
   end
 
   defp register_plugin_config(specs) do
-    with :ok <- register_definitions(specs),
-         :ok <- register_patterns(specs) do
-      :ok
+    {definitions, patterns} = declarations(specs)
+    AppConfigure.replace_declarations(:plugins, definitions, patterns)
+  end
+
+  defp declarations(specs) do
+    {
+      Enum.flat_map(specs, & &1.app_config_definitions),
+      Enum.flat_map(specs, & &1.app_config_patterns)
+    }
+  end
+
+  defp sorted_active_specs(state) do
+    state.active
+    |> Map.values()
+    |> Enum.sort_by(& &1.id)
+  end
+
+  defp snapshot(opts) do
+    case Keyword.fetch(opts, :snapshot) do
+      {:ok, snapshot} -> {:ok, snapshot}
+      :error -> prepare_snapshot(opts)
     end
-  end
-
-  defp register_definitions(specs) do
-    specs
-    |> Enum.flat_map(& &1.app_config_definitions)
-    |> AppConfigure.register_definitions()
-  end
-
-  defp register_patterns(specs) do
-    specs
-    |> Enum.flat_map(& &1.app_config_patterns)
-    |> AppConfigure.register_patterns()
   end
 
   defp maybe_refresh_ai_gateway_provider_cache(opts, active_specs) do

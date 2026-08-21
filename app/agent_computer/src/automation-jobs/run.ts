@@ -1,9 +1,11 @@
-import { chmodSync, existsSync, realpathSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, realpathSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
+import { errorMessage } from '../common/errors'
 import { jsonBytes, jsonObjectFromBytes } from '../fabric/envelope_proto'
 import { agentHomePaths, WORKER_SHARE_ROOT } from '../core/agent-home-paths'
 import { pathIsWithin } from '../core/path-boundary'
+import { startSocketLineBridge, type SocketLineBridge } from '../core/socket-line-bridge'
 import { materializeLarkCredential } from '../core/turns/lark-credential'
 import { resolveAgentWorkerEnvParts } from '../core/turns/worker_env'
 import { bubblewrapArgv } from '../tools/computer/bubblewrap'
@@ -24,11 +26,6 @@ const contextFileEnv = 'ANKOLE_RUNTIME_AUTOMATION_JOB_CONTEXT_FILE'
 const emitSocketEnv = 'ANKOLE_RUNTIME_AUTOMATION_JOB_EMIT_SOCKET'
 
 type RunResult = Omit<AutomationJobRunResponse, '$typeName'>
-
-type EmitSocketState = {
-  buffer: string
-  handled: boolean
-}
 
 /**
  * Runs one control-plane-claimed automation attempt in the Agent sandbox.
@@ -223,56 +220,13 @@ async function runProcess(
   }
 }
 
-function startEmitBridge(
-  request: AutomationJobRunRequest,
-  rpc: RPCRequester
-): {
-  socketPath: string
-  close: () => void
-} {
-  const socketPath = join(WORKER_SHARE_ROOT, `ankole-aj-emit-${randomUUID()}.sock`)
-  const listener = Bun.listen<EmitSocketState>({
-    unix: socketPath,
-    socket: {
-      open(socket) {
-        socket.data = { buffer: '', handled: false }
-      },
-      data(socket, data) {
-        if (socket.data.handled) return
-        socket.data.buffer += Buffer.from(data).toString('utf8')
-
-        if (Buffer.byteLength(socket.data.buffer, 'utf8') > emitRequestMaxBytes) {
-          socket.data.handled = true
-          writeEmitResponse(socket, { ok: false, error: 'emitEvent payload is too large' })
-          return
-        }
-
-        const newline = socket.data.buffer.indexOf('\n')
-        if (newline < 0) return
-        socket.data.handled = true
-        const line = socket.data.buffer.slice(0, newline)
-
-        void emitLine(line, request, rpc)
-          .then(() => writeEmitResponse(socket, { ok: true }))
-          .catch(error => writeEmitResponse(socket, { ok: false, error: errorMessage(error) }))
-      },
-      error() {
-        // The SDK receives the closed connection as its error.
-      }
-    }
+function startEmitBridge(request: AutomationJobRunRequest, rpc: RPCRequester): SocketLineBridge {
+  return startSocketLineBridge({
+    socketPath: join(WORKER_SHARE_ROOT, `ankole-aj-emit-${randomUUID()}.sock`),
+    maxRequestBytes: emitRequestMaxBytes,
+    oversizeError: 'emitEvent payload is too large',
+    handleLine: line => emitLine(line, request, rpc).then(() => ({ ok: true }))
   })
-  chmodSync(socketPath, 0o600)
-  let closed = false
-
-  return {
-    socketPath,
-    close: () => {
-      if (closed) return
-      closed = true
-      listener.stop(true)
-      if (existsSync(socketPath)) unlinkSync(socketPath)
-    }
-  }
 }
 
 async function emitLine(line: string, request: AutomationJobRunRequest, rpc: RPCRequester): Promise<void> {
@@ -290,11 +244,6 @@ async function emitLine(line: string, request: AutomationJobRunRequest, rpc: RPC
     },
     { agentUid: request.agentUid }
   )
-}
-
-function writeEmitResponse(socket: Bun.Socket<EmitSocketState>, response: { ok: boolean; error?: string }): void {
-  socket.write(`${JSON.stringify(response)}\n`)
-  socket.end()
 }
 
 async function readBoundedTail(
@@ -352,10 +301,6 @@ function failureSummary(value: string): string | undefined {
     .filter(Boolean)
   const runtimeError = lines.find(line => /^error:\s*\S/i.test(line))
   return runtimeError || lines[0]
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i

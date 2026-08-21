@@ -8,7 +8,7 @@ defmodule AnkoleWeb.Plugs.RequireAIGatewayAccessToken do
 
   alias Ankole.AdminAuth
   alias Ankole.Principals
-  alias AnkoleWeb.AIGatewayTokens
+  alias Ankole.AIGateway.Tokens
   alias AnkoleWeb.ConsoleTokens
 
   @behaviour Plug
@@ -30,7 +30,7 @@ defmodule AnkoleWeb.Plugs.RequireAIGatewayAccessToken do
   end
 
   defp verify_agent_token(conn, token) do
-    with {:ok, %{"sub" => agent_uid} = claims} <- AIGatewayTokens.verify_api_key(token),
+    with {:ok, %{"sub" => agent_uid} = claims} <- Tokens.verify_api_key(token),
          {:ok, %{principal: principal}} <- Principals.get_agent(agent_uid),
          :active <- principal.status do
       {:ok,

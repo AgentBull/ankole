@@ -71,4 +71,44 @@ defmodule DingTalkOpenAPI.TokenManagerTest do
     assert {:error, %DingTalkOpenAPI.Error{reason: :transport}} =
              TokenManager.get_app_token(client)
   end
+
+  test "a killed fetch task releases waiters and permits a retry", %{client_id: client_id} do
+    parent = self()
+
+    Req.Test.stub(__MODULE__, fn conn ->
+      send(parent, {:token_fetch_started, self()})
+
+      receive do
+        :finish_token_fetch ->
+          Req.Test.json(conn, %{"accessToken" => "ding-after-retry", "expireIn" => 7200})
+      end
+    end)
+
+    client =
+      Client.new(
+        client_id: client_id,
+        client_secret: "secret",
+        req_options: [plug: {Req.Test, __MODULE__}]
+      )
+
+    {:ok, manager_pid} =
+      DynamicSupervisor.start_child(
+        DingTalkOpenAPI.TokenManager.Supervisor,
+        {TokenManager, client}
+      )
+
+    Req.Test.allow(__MODULE__, self(), manager_pid)
+    on_exit(fn -> :ets.delete(TokenStore.table(), {:app, Client.cache_namespace(client)}) end)
+
+    first = Task.async(fn -> TokenManager.get_app_token(client) end)
+    assert_receive {:token_fetch_started, fetch_pid}, 1_000
+    Process.exit(fetch_pid, :kill)
+
+    assert {:error, %DingTalkOpenAPI.Error{reason: :transport}} = Task.await(first, 1_000)
+
+    second = Task.async(fn -> TokenManager.get_app_token(client) end)
+    assert_receive {:token_fetch_started, retry_pid}, 1_000
+    send(retry_pid, :finish_token_fetch)
+    assert {:ok, "ding-after-retry"} = Task.await(second, 1_000)
+  end
 end

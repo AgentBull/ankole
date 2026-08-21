@@ -1,3 +1,4 @@
+import { ms } from '@agentbull/active-support'
 import { Buffer } from 'node:buffer'
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -12,7 +13,7 @@ export type MaterializedCodexConfig = {
 }
 
 const AIGATEWAY_TOKEN_FILE_NAME = 'ankole-aigateway.token'
-const AIGATEWAY_AUTH_REFRESH_INTERVAL_MS = 5 * 60 * 1_000
+const AIGATEWAY_AUTH_REFRESH_INTERVAL_MS = ms('5m')
 
 /**
  * Codex enables OpenAI-only features, such as remote compaction and hosted

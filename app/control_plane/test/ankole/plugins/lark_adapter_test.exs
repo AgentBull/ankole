@@ -49,8 +49,6 @@ defmodule Ankole.Plugins.LarkAdapterTest do
     Req.Test.set_req_test_to_shared()
     AppConfigureRegistry.clear_for_test()
     AppConfigureCache.clear_for_test()
-    :ok = AppConfigure.register_definitions(LarkAdapter.app_config_definitions())
-    :ok = AppConfigure.register_patterns(LarkAdapter.app_config_patterns())
     previous = Req.default_options()
     Req.Test.stub(__MODULE__, &default_lark_request/1)
     Req.default_options(plug: {Req.Test, __MODULE__})

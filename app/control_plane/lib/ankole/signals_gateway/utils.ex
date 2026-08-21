@@ -45,16 +45,7 @@ defmodule Ankole.SignalsGateway.Utils do
     |> Base.url_encode64(padding: false)
   end
 
-  def collect_results(results) do
-    Enum.reduce_while(results, {:ok, []}, fn
-      {:ok, value}, {:ok, acc} -> {:cont, {:ok, [value | acc]}}
-      {:error, _reason} = error, _acc -> {:halt, error}
-    end)
-    |> case do
-      {:ok, values} -> {:ok, Enum.reverse(values)}
-      {:error, _reason} = error -> error
-    end
-  end
+  defdelegate collect_results(results), to: Ankole.Attrs
 
   def validate_module_callback(module, function, arity) do
     case function_exported?(module, function, arity) do
@@ -111,7 +102,7 @@ defmodule Ankole.SignalsGateway.Utils do
   def truthy?(value) when value in [true, "true", 1, "1"], do: true
   def truthy?(_value), do: false
 
-  def normalize_uid(uid) when is_binary(uid), do: uid |> String.trim() |> String.downcase()
+  def normalize_uid(uid) when is_binary(uid), do: Ankole.PrincipalKey.canonicalize(uid)
   def normalize_uid(uid), do: uid
 
   def structured_mention?(mention, agent_uid) when is_map(mention) do

@@ -1,3 +1,5 @@
+import { isRecord, ms } from '@agentbull/active-support'
+import { errorMessage } from '../common/errors'
 import { spawn } from 'node:child_process'
 import { rm } from 'node:fs/promises'
 import {
@@ -96,10 +98,10 @@ export class BrowserWebFetchAdapter {
           session: runtime.session,
           material: runtime.material,
           artifactRoot: runtime.artifactRoot,
-          timeoutMs: 5_000
+          timeoutMs: ms('5s')
         },
         { name: 'lifecycle', args: { verb: 'purge' } },
-        { timeoutMs: 5_000 }
+        { timeoutMs: ms('5s') }
       )
       if (!response.ok) throw new BrowserDataError(response.error.code, response.error.message)
     }
@@ -121,7 +123,7 @@ async function invokeBrowserFetchCLI(
 ): Promise<unknown> {
   if (signal?.aborted) throw signal.reason
   const executable = process.env.ANKOLE_BROWSER_CLI ?? 'ankole-browser'
-  const timeoutMs = 300_000
+  const timeoutMs = ms('5m')
   const child = spawn(executable, ['--json', '--timeout', String(timeoutMs), 'fetch', ...urls], {
     env: {
       PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin',
@@ -132,7 +134,6 @@ async function invokeBrowserFetchCLI(
       ANKOLE_BROWSER_SESSION: runtime.session,
       ANKOLE_BROWSER_MATERIAL: runtime.materialPath,
       ANKOLE_BROWSER_ARTIFACT_ROOT: runtime.artifactRoot,
-      ANKOLE_BROWSER_NODE: runtime.nodePath,
       ANKOLE_BROWSER_RUNNER: runtime.runnerPath
     },
     stdio: ['ignore', 'pipe', 'pipe']
@@ -194,7 +195,7 @@ function observedFailure(
 ): Pick<BrowserWebFetchFailureEvent, 'errorCode' | 'errorMessage' | 'retryable'> {
   return {
     errorCode: error instanceof BrowserDataError ? error.code : 'internal',
-    errorMessage: redactedErrorMessage(error instanceof Error ? error.message : String(error)),
+    errorMessage: redactedErrorMessage(errorMessage(error)),
     retryable: error instanceof BrowserDataError && error.retryable
   }
 }
@@ -222,8 +223,4 @@ function safeURLLogFields(value: string | undefined): Pick<BrowserWebFetchFailur
   } catch {
     return {}
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
 }

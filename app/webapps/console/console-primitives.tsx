@@ -13,6 +13,11 @@ import { requestErrorMessage } from '../common/request-errors'
 
 // --- JSON / text helpers ---
 
+/** Bounds display text and marks the cut with an ellipsis. */
+export function truncate(value: string, limit: number): string {
+  return value.length <= limit ? value : `${value.slice(0, limit)}…`
+}
+
 export function blankToNull(value: string): string | null {
   const text = value.trim()
   return text ? text : null

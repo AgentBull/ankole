@@ -111,7 +111,7 @@ defmodule FeishuOpenAPI.UserTokenManager do
   @impl true
   def init(_) do
     :ets.new(@table, [:named_table, :public, :set, read_concurrency: true])
-    {:ok, %{fetches: %{}}}
+    {:ok, %{fetches: %{}, fetch_tasks: %{}}}
   end
 
   @impl true
@@ -133,14 +133,30 @@ defmodule FeishuOpenAPI.UserTokenManager do
 
   @impl true
   def handle_info({:refresh_done, key, result}, state) do
-    {waiters, fetches} = Map.pop(state.fetches, key, [])
-    Enum.each(waiters, &GenServer.reply(&1, result))
-    {:noreply, %{state | fetches: fetches}}
+    state = drop_fetch_task_monitor(state, key)
+    {:noreply, finish_refresh(state, key, result)}
+  end
+
+  def handle_info({:DOWN, ref, :process, _pid, reason}, state) do
+    case Map.pop(state.fetch_tasks, ref) do
+      {nil, _fetch_tasks} ->
+        {:noreply, state}
+
+      {{key, user_key}, fetch_tasks} ->
+        result = {:error, crash_error(user_key, :exit, reason, [])}
+        {:noreply, finish_refresh(%{state | fetch_tasks: fetch_tasks}, key, result)}
+    end
   end
 
   def handle_info(_other, state), do: {:noreply, state}
 
   # Internal
+
+  defp finish_refresh(state, key, result) do
+    {waiters, fetches} = Map.pop(state.fetches, key, [])
+    Enum.each(waiters, &GenServer.reply(&1, result))
+    %{state | fetches: fetches}
+  end
 
   defp enqueue_waiter(state, key, client, user_key, from) do
     case Map.fetch(state.fetches, key) do
@@ -157,8 +173,14 @@ defmodule FeishuOpenAPI.UserTokenManager do
     fetches = Map.put(state.fetches, key, waiters)
 
     case start_refresh_task(parent, key, client, user_key) do
-      :ok ->
-        %{state | fetches: fetches}
+      {:ok, pid} ->
+        ref = Process.monitor(pid)
+
+        %{
+          state
+          | fetches: fetches,
+            fetch_tasks: Map.put(state.fetch_tasks, ref, {key, user_key})
+        }
 
       {:error, reason} ->
         send(parent, {:refresh_done, key, {:error, refresh_start_failed_error(user_key, reason)}})
@@ -180,11 +202,22 @@ defmodule FeishuOpenAPI.UserTokenManager do
 
              send(parent, {:refresh_done, key, result})
            end) do
-        {:ok, _pid} -> :ok
+        {:ok, pid} -> {:ok, pid}
         {:error, reason} -> {:error, reason}
       end
     catch
       :exit, reason -> {:error, reason}
+    end
+  end
+
+  defp drop_fetch_task_monitor(state, key) do
+    case Enum.find(state.fetch_tasks, fn {_ref, {task_key, _user_key}} -> task_key == key end) do
+      nil ->
+        state
+
+      {ref, {^key, _user_key}} ->
+        Process.demonitor(ref, [:flush])
+        %{state | fetch_tasks: Map.delete(state.fetch_tasks, ref)}
     end
   end
 

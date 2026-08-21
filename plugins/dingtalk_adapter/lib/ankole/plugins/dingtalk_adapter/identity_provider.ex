@@ -54,8 +54,8 @@ defmodule Ankole.Plugins.DingTalkAdapter.IdentityProvider do
   @doc "Builds the DingTalk authorization page URL for login."
   @spec authorization_url(map(), keyword()) :: {:ok, String.t()} | {:error, term()}
   def authorization_url(config, opts) when is_map(config) and is_list(opts) do
-    with {:ok, redirect_uri} <- required_opt(opts, :redirect_uri),
-         {:ok, state} <- required_opt(opts, :state) do
+    with {:ok, redirect_uri} <- MapHelpers.required_opt(opts, :redirect_uri),
+         {:ok, state} <- MapHelpers.required_opt(opts, :state) do
       {:ok,
        OAuth.authorize_url(
          client_id: Map.fetch!(config, "clientId"),
@@ -180,7 +180,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.IdentityProvider do
     base =
       me
       |> Map.put("userid", userid)
-      |> MapHelpers.maybe_put("corp_id", token.corp_id)
+      |> MapHelpers.put_present("corp_id", token.corp_id)
 
     case Contact.get_user(client, userid) do
       {:ok, user} ->
@@ -390,13 +390,6 @@ defmodule Ankole.Plugins.DingTalkAdapter.IdentityProvider do
   end
 
   # --- field helpers -------------------------------------------------------
-
-  defp required_opt(opts, key) do
-    case Keyword.get(opts, key) do
-      value when is_binary(value) and value != "" -> {:ok, value}
-      _value -> {:error, {:missing, key}}
-    end
-  end
 
   defp user_id(user) do
     case optional_text(user, "userid") || optional_text(user, "userId") do

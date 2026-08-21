@@ -4,7 +4,10 @@ import { modelIntegerIDFromWire } from '../../core/model-integer-id'
 import { jsonToolResult } from '../../core/tool-result'
 import type { TurnStart } from '../../lanes/actor_lane'
 import { rpcMethods, type RPCRequester, type RPCRequestInit } from '../../lanes/rpc_lane'
-import { BackgroundAgentJobStatusSchema, type BackgroundAgentJobStatus } from './status'
+import {
+  BackgroundAgentJobStatusSchema,
+  type BackgroundAgentJobStatus
+} from '../../core/background-agent-job-documents'
 
 const ListBackgroundJobsParamsSchema = z
   .object({

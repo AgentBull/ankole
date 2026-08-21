@@ -1,3 +1,4 @@
+import { compareCodePointStrings } from '../../common/ordering'
 import {
   chmodSync,
   copyFileSync,
@@ -14,6 +15,7 @@ import { dirname, join, relative, resolve, sep } from 'node:path'
 import type { AgentPluginCatalogEntry } from '../../lanes/rpc_lane'
 import type { CodexAppServerClient } from './app-server-client'
 import { sanitizePathSegment } from '../agent-home-paths'
+import { errorMessage } from '../../common/errors'
 
 export const BUILTIN_AGENT_PLUGINS_ROOT = '/repo/app/library/agent-plugins'
 export const AGENT_PLUGIN_MARKETPLACE_NAME = 'ankole-agent-runtime'
@@ -60,7 +62,7 @@ export function prepareAgentPlugins(input: {
 }): PreparedAgentPlugins {
   const libraryRoot = input.libraryRoot ?? BUILTIN_AGENT_PLUGINS_ROOT
   const materializedRoot = join(input.agentHome, 'runtime-materials', 'agent-plugins')
-  const catalog = [...input.agentPlugins].sort((left, right) => compareCodePoints(left.id, right.id))
+  const catalog = [...input.agentPlugins].sort((left, right) => compareCodePointStrings(left.id, right.id))
   assertUniqueAgentPluginIDs(catalog)
   const catalogByID = new Map(catalog.map(agentPlugin => [agentPlugin.id, agentPlugin]))
   const packageIDs = agentPluginPackageIDs(libraryRoot)
@@ -117,7 +119,7 @@ export function materializeSelectedAgentPlugins(
   selected: AgentPluginCatalogEntry[],
   input: { materializedRoot: string; skillMaterialsRoot: string }
 ): PreparedAgentPlugins {
-  const selections = [...selected].sort((left, right) => compareCodePoints(left.id, right.id))
+  const selections = [...selected].sort((left, right) => compareCodePointStrings(left.id, right.id))
   assertUniqueAgentPluginIDs(selections)
   const preparedByID = new Map(prepared.agentPlugins.map(agentPlugin => [agentPlugin.id, agentPlugin]))
   const parent = dirname(input.materializedRoot)
@@ -131,7 +133,9 @@ export function materializeSelectedAgentPlugins(
     for (const selection of selections) {
       const source = preparedByID.get(selection.id)
       if (!source) throw new Error(`Selected Agent Plugin package is unavailable: ${selection.id}`)
-      const selectedSkillNames = [...new Set(selection.skills.map(skill => skill.catalogName))].sort(compareCodePoints)
+      const selectedSkillNames = [...new Set(selection.skills.map(skill => skill.catalogName))].sort(
+        compareCodePointStrings
+      )
       if (selectedSkillNames.length === 0) continue
       for (const name of selectedSkillNames) {
         if (!source.memberSkillNames.includes(name)) {
@@ -278,7 +282,7 @@ export function selectAgentPluginCapabilities(
   const selectedCapabilityRoots: SelectedAgentPluginCapabilities['selectedCapabilityRoots'] = []
 
   const projectedIDs = new Set<string>()
-  for (const projection of [...projected].sort((left, right) => compareCodePoints(left.id, right.id))) {
+  for (const projection of [...projected].sort((left, right) => compareCodePointStrings(left.id, right.id))) {
     if (projectedIDs.has(projection.id)) throw new Error(`Projected Agent Plugin is duplicated: ${projection.id}`)
     projectedIDs.add(projection.id)
     const agentPlugin = preparedByID.get(projection.id)
@@ -316,8 +320,8 @@ export function selectAgentPluginCapabilities(
   }
 
   return {
-    availableSkillNames: availableSkillNames.sort(compareCodePoints),
-    discoveredSkills: discoveredSkills.sort((left, right) => compareCodePoints(left.name, right.name)),
+    availableSkillNames: availableSkillNames.sort(compareCodePointStrings),
+    discoveredSkills: discoveredSkills.sort((left, right) => compareCodePointStrings(left.name, right.name)),
     selectedCapabilityRoots
   }
 }
@@ -335,9 +339,7 @@ function validateAgentPluginRef(
   try {
     manifest = asObject(JSON.parse(readFileSync(manifestPath, 'utf8')))
   } catch (error) {
-    throw new Error(
-      `invalid Agent Plugin manifest for ${agentPluginID}: ${error instanceof Error ? error.message : String(error)}`
-    )
+    throw new Error(`invalid Agent Plugin manifest for ${agentPluginID}: ${errorMessage(error)}`)
   }
 
   const manifestName = requiredString(manifest.name, `Agent Plugin ${agentPluginID} manifest name`)
@@ -353,7 +355,7 @@ function validateAgentPluginRef(
 
   const packageEntries = listTemplateEntries(sourceRoot)
   const memberSkillNames = memberSkillNamesFromEntries(packageEntries, skillsRelativePath)
-  const enabledSkillNames = (ref?.skills ?? []).map(skill => skill.catalogName).sort(compareCodePoints)
+  const enabledSkillNames = (ref?.skills ?? []).map(skill => skill.catalogName).sort(compareCodePointStrings)
   for (const name of enabledSkillNames) {
     if (!memberSkillNames.includes(name)) {
       throw new Error(`Enabled Agent Plugin Skill is unavailable in this Worker image: ${agentPluginID}/${name}`)
@@ -477,7 +479,7 @@ function memberSkillNamesFromEntries(
     .map(entry => entry.relativePath.slice(prefix.length).split('/'))
     .filter(segments => segments.length === 2 && segments[1] === 'SKILL.md')
     .map(segments => segments[0]!)
-    .sort(compareCodePoints)
+    .sort(compareCodePointStrings)
 }
 
 function manifestDirectoryPath(packageRoot: string, value: unknown, label: string): string {
@@ -500,7 +502,7 @@ function agentPluginPackageIDs(libraryRoot: string): string[] {
   return readdirSync(libraryRoot, { withFileTypes: true })
     .filter(entry => entry.isDirectory() && existsSync(join(libraryRoot, entry.name, '.codex-plugin', 'plugin.json')))
     .map(entry => entry.name)
-    .sort(compareCodePoints)
+    .sort(compareCodePointStrings)
 }
 
 function removeStaleMaterializedPlugins(pluginsRoot: string, agentPlugins: PreparedAgentPlugin[]): void {
@@ -670,8 +672,4 @@ function requiredString(value: unknown, label: string): string {
 
 function asObject(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {}
-}
-
-function compareCodePoints(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0
 }

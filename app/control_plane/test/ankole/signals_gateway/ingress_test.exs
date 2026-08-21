@@ -2,6 +2,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
   use Ankole.DataCase, async: false
 
   alias Ecto.Adapters.SQL
+  alias Ecto.Adapters.SQL.Sandbox
   alias Ankole.SignalsGateway.Actors
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.AIGateway.Conversations
@@ -56,6 +57,80 @@ defmodule Ankole.SignalsGatewayIngressTest do
       assert {:error,
               {:invalid_ingress_json, :author, {:duplicate_normalized_key, "display_name"}}} =
                Ingress.emit_entry(agent.uid, "lark-main", input, now: @base_time)
+    end
+  end
+
+  describe "channel projection concurrency" do
+    test "serializes metadata merges and keeps last_seen_at monotonic" do
+      channel_id = "test:channel:#{System.unique_integer([:positive])}"
+      first_seen_at = DateTime.add(@base_time, 2, :second)
+      older_seen_at = DateTime.add(@base_time, 1, :second)
+      parent = self()
+
+      on_exit(fn ->
+        Sandbox.unboxed_run(Repo, fn ->
+          case Repo.get(Channel, channel_id) do
+            nil -> :ok
+            channel -> Repo.delete!(channel)
+          end
+        end)
+      end)
+
+      Sandbox.unboxed_run(Repo, fn ->
+        assert {:ok, %Channel{}} =
+                 Repo.transact(fn repo ->
+                   Projection.upsert_channel(
+                     repo,
+                     channel_fact(channel_id, %{"base" => true}),
+                     @base_time
+                   )
+                 end)
+      end)
+
+      first =
+        Task.async(fn ->
+          Sandbox.unboxed_run(Repo, fn ->
+            Repo.transact(fn repo ->
+              result =
+                Projection.upsert_channel(
+                  repo,
+                  channel_fact(channel_id, %{"first" => true}),
+                  first_seen_at
+                )
+
+              send(parent, :first_channel_update_written)
+
+              receive do
+                :commit_first_channel_update -> result
+              end
+            end)
+          end)
+        end)
+
+      assert_receive :first_channel_update_written, 5_000
+
+      second =
+        Task.async(fn ->
+          Sandbox.unboxed_run(Repo, fn ->
+            Repo.transact(fn repo ->
+              Projection.upsert_channel(
+                repo,
+                channel_fact(channel_id, %{"second" => true}),
+                older_seen_at
+              )
+            end)
+          end)
+        end)
+
+      refute Task.yield(second, 50)
+      send(first.pid, :commit_first_channel_update)
+
+      assert {:ok, %Channel{}} = Task.await(first, 5_000)
+      assert {:ok, %Channel{}} = Task.await(second, 5_000)
+
+      channel = Repo.get!(Channel, channel_id)
+      assert channel.metadata == %{"base" => true, "first" => true, "second" => true}
+      assert channel.last_seen_at == first_seen_at
     end
   end
 
@@ -2133,6 +2208,18 @@ defmodule Ankole.SignalsGatewayIngressTest do
       inserted_at: provider_time,
       updated_at: provider_time
     })
+  end
+
+  defp channel_fact(channel_id, metadata) do
+    %{
+      signal_channel_id: channel_id,
+      channel_kind: :im_group,
+      reply_mode: :entry,
+      channel_name: "Ops",
+      channel_visibility: "private",
+      channel_metadata: metadata,
+      channel_raw_payload: %{}
+    }
   end
 
   defp complete_actor_response!(agent_uid, conversation_id, actor_event_id) do

@@ -35,7 +35,7 @@ defmodule Ankole.SignalsGateway.Projection do
       last_seen_at: now
     }
 
-    case repo.get(Channel, fact.signal_channel_id) do
+    case lock_channel(repo, fact.signal_channel_id) do
       %Channel{} = channel ->
         channel
         |> Channel.changeset(merge_channel_attrs(channel, attrs))
@@ -59,7 +59,7 @@ defmodule Ankole.SignalsGateway.Projection do
   end
 
   defp update_existing_channel(repo, signal_channel_id, attrs) do
-    case repo.get(Channel, signal_channel_id) do
+    case lock_channel(repo, signal_channel_id) do
       %Channel{} = channel ->
         channel
         |> Channel.changeset(merge_channel_attrs(channel, attrs))
@@ -87,7 +87,8 @@ defmodule Ankole.SignalsGateway.Projection do
         principal_group_id: merged_principal_group_id(kind, attrs, channel),
         metadata: merge_metadata(channel.metadata, attrs.metadata),
         raw_payload: preserve_empty_map(attrs.raw_payload, channel.raw_payload),
-        first_seen_at: channel.first_seen_at
+        first_seen_at: channel.first_seen_at,
+        last_seen_at: latest_seen_at(channel.last_seen_at, attrs.last_seen_at)
     }
   end
 
@@ -119,6 +120,23 @@ defmodule Ankole.SignalsGateway.Projection do
   end
 
   defp merge_metadata(_existing, incoming) when is_map(incoming), do: incoming
+
+  defp latest_seen_at(%DateTime{} = existing, %DateTime{} = incoming) do
+    case DateTime.compare(existing, incoming) do
+      :gt -> existing
+      _not_later -> incoming
+    end
+  end
+
+  defp latest_seen_at(_existing, incoming), do: incoming
+
+  defp lock_channel(repo, signal_channel_id) do
+    repo.one(
+      from channel in Channel,
+        where: channel.id == ^signal_channel_id,
+        lock: "FOR UPDATE"
+    )
+  end
 
   # Upsert the entry mirror, but never let an out-of-order (older) provider event
   # overwrite a newer stored state: if the incoming provider_time predates what's

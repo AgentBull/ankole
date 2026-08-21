@@ -1,3 +1,4 @@
+import { LIST_REFRESH_MS } from '../refresh-intervals'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import {
   Alert,
@@ -69,7 +70,7 @@ export function SignalsListPage() {
   const scope = useAgentScope()
   const signals = useQuery({
     ...ankoleWebSignalBindingControllerIndexOptions({ query: { agent: scope.agentUID || undefined } }),
-    refetchInterval: 15_000
+    refetchInterval: LIST_REFRESH_MS
   })
   const rows = (signals.data?.signal_bindings ?? [])
     .filter(binding => showDisabled || binding.enabled)
@@ -643,7 +644,7 @@ function asJSONObject(value: unknown): JSONObject {
 }
 
 function asConfigFields(fields: readonly unknown[]): ConfigFieldDefinition[] {
-  return fields.map(asConfigField)
+  return fields as readonly unknown[] as ConfigFieldDefinition[]
 }
 
 function asConfigField(field: unknown): ConfigFieldDefinition {

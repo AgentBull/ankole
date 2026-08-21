@@ -59,6 +59,14 @@ defmodule Ankole.AppConfigure do
   @spec register_patterns([PatternDefinition.t()]) :: :ok | {:error, term()}
   def register_patterns(patterns), do: Registry.register_patterns(patterns)
 
+  @doc false
+  @spec replace_declarations(atom(), [Definition.t()], [PatternDefinition.t()]) ::
+          :ok | {:error, term()}
+  def replace_declarations(source, definitions, patterns)
+      when is_atom(source) and is_list(definitions) and is_list(patterns) do
+    Registry.replace_declarations(source, definitions, patterns)
+  end
+
   @doc """
   Lists registered exact definitions in stable key order.
 

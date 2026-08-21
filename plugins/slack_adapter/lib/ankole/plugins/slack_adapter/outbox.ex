@@ -387,7 +387,7 @@ defmodule Ankole.Plugins.SlackAdapter.Outbox do
     end
   end
 
-  defp truncate(text, size), do: text |> String.graphemes() |> Enum.take(size) |> Enum.join()
+  defp truncate(text, size), do: String.slice(text, 0, size)
 
   defp config_for_outbox(outbox) do
     with {:ok, config_ref} <- SignalsGateway.outbox_binding_config_ref(outbox),

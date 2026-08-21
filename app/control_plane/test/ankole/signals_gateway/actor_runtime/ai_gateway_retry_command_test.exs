@@ -1,6 +1,8 @@
 defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayRetryCommandTest do
   use Ankole.SignalsGateway.ActorRuntimeCase
 
+  alias Ankole.AIGateway.Conversations
+
   alias Ankole.AIGateway.StatefulResponses
 
   test "retry command replays a request and deletes its pre-conversation failure notice" do
@@ -489,7 +491,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayRetryCommandTest do
     assert retry_actor_event.actor_event_id == retry_event.id
     assert decoded_json_bytes(retry_actor_event.payload_json)["data"]["entry"]["text"] == "PING"
 
-    {:ok, conversation} = StatefulResponses.ensure_conversation(agent.uid, input.session_id)
+    {:ok, conversation} = Conversations.ensure_conversation(agent.uid, input.session_id)
     assert is_nil(StatefulResponses.latest_visible_leaf(conversation.id))
   end
 
@@ -522,7 +524,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayRetryCommandTest do
     assert {:ok, [_delivery]} =
              ActorRuntime.handle_turn_accepted(turn_accepted_payload(turn_ref))
 
-    {:ok, conversation} = StatefulResponses.ensure_conversation(agent.uid, input.session_id)
+    {:ok, conversation} = Conversations.ensure_conversation(agent.uid, input.session_id)
 
     {:ok, generating} =
       StatefulResponses.start_response_run(%{
@@ -1004,7 +1006,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayRetryCommandTest do
     assert {:ok, [_delivery]} =
              ActorRuntime.handle_turn_accepted(turn_accepted_payload(turn_ref))
 
-    {:ok, conversation} = StatefulResponses.ensure_conversation(agent_uid, input.session_id)
+    {:ok, conversation} = Conversations.ensure_conversation(agent_uid, input.session_id)
 
     {:ok, generating} =
       StatefulResponses.start_response_run(%{

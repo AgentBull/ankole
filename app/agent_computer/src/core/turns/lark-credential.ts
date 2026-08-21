@@ -1,3 +1,4 @@
+import { ms } from '@agentbull/active-support'
 import { randomUUID } from 'node:crypto'
 import { chmodSync, existsSync, mkdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -9,7 +10,7 @@ export const LARK_TENANT_TOKEN_FILE_ENV = 'ANKOLE_RUNTIME_LARK_TENANT_ACCESS_TOK
 
 const larkAppIDEnv = 'LARKSUITE_CLI_APP_ID'
 const larkBrandEnv = 'LARKSUITE_CLI_BRAND'
-const defaultRefreshIntervalMs = 60_000
+const defaultRefreshIntervalMs = ms('1m')
 
 export type MaterializedLarkCredential = {
   workerEnv: ResolvedAgentWorkerEnv

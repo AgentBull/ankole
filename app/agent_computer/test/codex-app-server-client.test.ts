@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import { CodexAppServerClient } from '../src/core/codex-runner/app-server-client'
+import { toError } from '../src/common/errors'
 
 describe('Codex app-server client transport', () => {
   it('rejects pending requests immediately when stdin write fails', async () => {
@@ -217,6 +218,6 @@ async function rejectionOf(promise: Promise<unknown>): Promise<Error> {
     await promise
     throw new Error('expected promise to reject')
   } catch (error) {
-    return error instanceof Error ? error : new Error(String(error))
+    return toError(error)
   }
 }

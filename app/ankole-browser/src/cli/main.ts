@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 import { browserClientContextFromEnv, sendBrowserCommand } from '../client'
 import { BrowserDataError, browserError } from '../errors'
 import { failureResponse, successResponse, type BrowserCommand, type BrowserResponse } from '../protocol'

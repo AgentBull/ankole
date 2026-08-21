@@ -11,6 +11,7 @@ defmodule Ankole.AIGateway.Compaction do
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Definition
   alias Ankole.AppConfigure.Schema
+  alias Ankole.AIGateway.Conversations
   alias Ankole.AIGateway.CompactionArtifacts
   alias Ankole.AIGateway.CompactionPrompt
   alias Ankole.AIGateway.CompactionRender
@@ -149,27 +150,14 @@ defmodule Ankole.AIGateway.Compaction do
     )
   end
 
-  @spec ensure_registered() :: :ok | {:error, term()}
-  def ensure_registered do
-    case AppConfigure.register_definitions([config_definition()]) do
-      :ok -> :ok
-      {:error, {:duplicate_key, @config_key}} -> :ok
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
   @spec put_config(map()) :: {:ok, map()} | {:error, term()}
   def put_config(config) when is_map(config) do
-    with :ok <- ensure_registered() do
-      AppConfigure.put_global(config_definition(), config)
-    end
+    AppConfigure.put_global(config_definition(), config)
   end
 
   @spec delete_config() :: :ok | {:error, term()}
   def delete_config do
-    with :ok <- ensure_registered() do
-      AppConfigure.delete_global(config_definition())
-    end
+    AppConfigure.delete_global(config_definition())
   end
 
   @doc """
@@ -1113,11 +1101,11 @@ defmodule Ankole.AIGateway.Compaction do
           "user_budget_tokens" => user_message_budget_tokens(),
           "user_message_count" => length(candidate.retained_user_originals)
         }
-        |> maybe_put(
+        |> Ankole.Attrs.put_present(
           "previous_summary_discarded",
           if(candidate.previous_summary_discarded, do: true, else: nil)
         )
-        |> maybe_put(
+        |> Ankole.Attrs.put_present(
           "opaque_prefix_items",
           if(candidate.opaque_prefix != [], do: length(candidate.opaque_prefix), else: nil)
         ),
@@ -1198,7 +1186,7 @@ defmodule Ankole.AIGateway.Compaction do
 
         true ->
           with {:ok, conversation} <-
-                 StatefulResponses.create_managed_stateful_responses_conversation(subject_uid,
+                 Conversations.create_managed_stateful_responses_conversation(subject_uid,
                    metadata: request_metadata(request)
                  ) do
             {:ok,
@@ -1419,7 +1407,7 @@ defmodule Ankole.AIGateway.Compaction do
     |> Enum.reject(fn {part, _part_index} -> text_content_part?(part) end)
     |> Enum.map(fn {part, part_index} ->
       opaque_ref(part, item_index, part_index)
-      |> maybe_put("role", item["role"])
+      |> Ankole.Attrs.put_present("role", item["role"])
     end)
   end
 
@@ -1440,7 +1428,7 @@ defmodule Ankole.AIGateway.Compaction do
       "item_index" => item_index,
       "type" => Map.get(value, "type", "unknown")
     }
-    |> maybe_put("part_index", part_index)
+    |> Ankole.Attrs.put_present("part_index", part_index)
     |> put_nonempty("refs", refs)
     |> maybe_mark_missing_ref(refs)
   end
@@ -1470,10 +1458,6 @@ defmodule Ankole.AIGateway.Compaction do
 
   defp text_content_part?(%{"text" => text}) when is_binary(text), do: true
   defp text_content_part?(_part), do: false
-
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, _key, ""), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp put_nonempty(map, _key, []), do: map
   defp put_nonempty(map, _key, value) when is_map(value) and map_size(value) == 0, do: map
@@ -2515,10 +2499,8 @@ defmodule Ankole.AIGateway.Compaction do
   @doc false
   @spec config() :: map()
   def config do
-    with :ok <- ensure_registered(),
-         {:ok, config} <- AppConfigure.get(config_definition()) do
-      config
-    else
+    case AppConfigure.get(config_definition()) do
+      {:ok, config} -> config
       _reason -> @default_config
     end
   end

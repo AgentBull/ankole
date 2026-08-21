@@ -27,8 +27,6 @@ defmodule Ankole.IdentityProvidersTest do
   setup do
     AppConfigureRegistry.clear_for_test()
     Cache.clear_for_test()
-    :ok = AppConfigure.register_patterns(LarkAdapter.app_config_patterns())
-    :ok = IdentityProviderConfig.ensure_registered()
   end
 
   test "adapter catalog hides active plugins removed from the next-start enable list" do
@@ -38,7 +36,6 @@ defmodule Ankole.IdentityProvidersTest do
   end
 
   test "adapter catalog fails closed when the enable list cannot be decoded" do
-    :ok = PluginConfig.ensure_registered()
     :ok = AppConfigure.delete_global(PluginConfig.enabled_ids_definition())
     now = DateTime.utc_now(:second)
 

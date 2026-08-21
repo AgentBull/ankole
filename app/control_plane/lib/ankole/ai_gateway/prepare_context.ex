@@ -90,13 +90,13 @@ defmodule Ankole.AIGateway.PrepareContext do
   defp settings(%ProviderDefinition{} = provider, runtime) do
     defaults =
       Map.new(provider.settings, fn setting -> {setting.key, setting.default} end)
-      |> maybe_put(:base_url, provider.base_url)
+      |> Ankole.Attrs.put_present(:base_url, provider.base_url)
 
     runtime_settings =
       %{}
       |> Map.merge(atomize_keys(Map.get(runtime, "connection_options", %{})))
       |> Map.merge(atomize_keys(Map.get(runtime, "provider_options", %{})))
-      |> maybe_put(:base_url, get_in(runtime, ["connection_options", "base_url"]))
+      |> Ankole.Attrs.put_present(:base_url, get_in(runtime, ["connection_options", "base_url"]))
 
     Map.merge(defaults, runtime_settings)
   end
@@ -120,8 +120,4 @@ defmodule Ankole.AIGateway.PrepareContext do
   end
 
   defp atomize_keys(_value), do: %{}
-
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, _key, ""), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 end

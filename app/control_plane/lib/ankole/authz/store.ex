@@ -118,6 +118,33 @@ defmodule Ankole.AuthZ.Store do
     end
   end
 
+  def apply_static_group_member_delta(
+        repo,
+        group_id,
+        expected_domain,
+        added_uids,
+        removed_uids
+      )
+      when expected_domain in [:directory, :im_group, :signal_source] and is_list(added_uids) and
+             is_list(removed_uids) do
+    with {:ok, group} <- lock_group(repo, group_id),
+         :ok <- ensure_static_group(group),
+         :ok <- ensure_group_domain(group, expected_domain),
+         {:ok, added_uids} <- normalize_principal_uids(added_uids),
+         {:ok, removed_uids} <- normalize_principal_uids(removed_uids),
+         :ok <- lock_principals(repo, added_uids),
+         :ok <- insert_group_memberships(repo, group.id, added_uids) do
+      removed_memberships = delete_group_memberships(repo, group.id, removed_uids)
+
+      {:ok,
+       %{
+         added_principal_uids: added_uids,
+         removed_principal_uids: removed_uids,
+         removed_memberships: removed_memberships
+       }}
+    end
+  end
+
   def clear_static_group_members(repo, group_id, expected_domain)
       when expected_domain in [:directory, :im_group, :signal_source] do
     with {:ok, group} <- lock_group(repo, group_id),
@@ -476,6 +503,15 @@ defmodule Ankole.AuthZ.Store do
       {:ok, uids} -> {:ok, uids |> Enum.reverse() |> Enum.uniq() |> Enum.sort()}
       {:error, reason} -> {:error, reason}
     end
+  end
+
+  defp lock_principals(repo, principal_uids) do
+    Enum.reduce_while(principal_uids, :ok, fn principal_uid, :ok ->
+      case fetch_principal_for_update(repo, principal_uid) do
+        {:ok, _principal} -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
   end
 
   defp delete_group_memberships(_repo, _group_id, []), do: 0

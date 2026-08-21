@@ -24,7 +24,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnPolicy do
              |> Map.put("custom_model_profiles", custom_model_profiles)
            )
        }
-       |> maybe_put(:hosted_tools, turn_basis.hosted_tools)}
+       |> Ankole.Attrs.maybe_put(:hosted_tools, turn_basis.hosted_tools)}
     end
   end
 
@@ -135,7 +135,4 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnPolicy do
       []
     end
   end
-
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 end

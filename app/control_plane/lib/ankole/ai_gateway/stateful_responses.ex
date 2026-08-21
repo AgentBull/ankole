@@ -25,7 +25,6 @@ defmodule Ankole.AIGateway.StatefulResponses do
 
   alias Ecto.Adapters.SQL
   alias Ankole.AIGateway.CompactionArtifacts
-  alias Ankole.AIGateway.Conversations
   alias Ankole.AIGateway.Events
   alias Ankole.AIGateway.ResponseItems
   alias Ankole.AIGateway.Schemas.Conversation
@@ -1878,27 +1877,6 @@ defmodule Ankole.AIGateway.StatefulResponses do
     else
       {:error, _reason} -> {:error, :invalid_anchor}
     end
-  end
-
-  @doc """
-  Ensures a conversation exists for the given subject + key, creating one if needed.
-
-  This is the bootstrap entry for a stateful conversation.
-  """
-  @spec ensure_conversation(String.t(), String.t(), keyword()) ::
-          {:ok, Conversation.t()} | {:error, term()}
-  def ensure_conversation(subject_uid, conversation_key, opts \\ []) do
-    Conversations.ensure_conversation(subject_uid, conversation_key, opts)
-  end
-
-  @doc """
-  Creates a conversation implicitly for stateful Responses callers that start
-  with `store=true` and no explicit conversation or previous response anchor.
-  """
-  @spec create_managed_stateful_responses_conversation(String.t(), keyword()) ::
-          {:ok, Conversation.t()} | {:error, term()}
-  def create_managed_stateful_responses_conversation(subject_uid, opts \\ []) do
-    Conversations.create_managed_stateful_responses_conversation(subject_uid, opts)
   end
 
   # ───────────────────────────────────────────────────────────────
