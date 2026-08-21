@@ -16,6 +16,12 @@ defmodule Ankole.Principals.HumanUser do
 
   @email_format ~r/\A[^\s@]+@[^\s@]+\.[^\s@]+\z/
 
+  @doc """
+  Returns the email shape this schema's changeset validates against.
+  """
+  @spec email_format() :: Regex.t()
+  def email_format, do: @email_format
+
   schema "human_users" do
     belongs_to :principal, Principal,
       foreign_key: :principal_uid,

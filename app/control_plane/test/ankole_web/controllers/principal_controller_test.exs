@@ -89,4 +89,154 @@ defmodule AnkoleWeb.PrincipalControllerTest do
     conn = conn |> recycle_api() |> get(~p"/api/v1/principals/missing-principal")
     assert %{"error" => %{"code" => "not_found"}} = json_response(conn, 404)
   end
+
+  describe "local user management" do
+    test "every local-account write requires an enabled local provider", %{conn: conn} do
+      conn = bearer_conn(conn)
+      %{principal: human} = human_fixture()
+
+      create_conn =
+        conn
+        |> recycle_api()
+        |> post(~p"/api/v1/principals", %{"email" => "someone@example.com"})
+
+      assert %{"error" => %{"code" => "local_identity_provider_disabled"}} =
+               json_response(create_conn, 409)
+
+      reset_conn =
+        conn
+        |> recycle_api()
+        |> post(~p"/api/v1/principals/#{human.uid}/local-password-resets", %{})
+
+      assert %{"error" => %{"code" => "local_identity_provider_disabled"}} =
+               json_response(reset_conn, 409)
+
+      update_conn =
+        conn
+        |> recycle_api()
+        |> patch(~p"/api/v1/principals/#{human.uid}", %{"display_name" => "Renamed"})
+
+      assert %{"error" => %{"code" => "local_identity_provider_disabled"}} =
+               json_response(update_conn, 409)
+    end
+
+    test "creates a local user with a one-time initial password", %{conn: conn} do
+      conn = bearer_conn(conn)
+      enable_local_provider()
+
+      conn =
+        conn
+        |> recycle_api()
+        |> post(~p"/api/v1/principals", %{
+          "email" => "New.User@Example.com",
+          "display_name" => "New User",
+          "must_change_password" => true
+        })
+
+      assert %{"principal" => principal, "initial_password" => initial_password} =
+               json_response(conn, 200)
+
+      assert principal["uid"] == "new.user@example.com"
+      assert principal["email"] == "new.user@example.com"
+      assert principal["display_name"] == "New User"
+      assert principal["has_external_identity"] == false
+      assert principal["local_credential"] == %{"status" => "must_change"}
+      assert String.length(initial_password) == 16
+
+      duplicate_conn =
+        conn
+        |> recycle_api()
+        |> post(~p"/api/v1/principals", %{"email" => "new.user@example.com"})
+
+      assert %{"error" => %{"code" => "email_taken"}} = json_response(duplicate_conn, 422)
+    end
+
+    test "resets a local password for a human with an email", %{conn: conn} do
+      conn = bearer_conn(conn)
+      enable_local_provider()
+      %{principal: human, human_user: human_user} = human_fixture()
+
+      conn =
+        conn
+        |> recycle_api()
+        |> post(~p"/api/v1/principals/#{human.uid}/local-password-resets", %{
+          "must_change_password" => false
+        })
+
+      assert %{"initial_password" => initial_password} = json_response(conn, 200)
+
+      assert {:ok, %{must_change_password: false}} =
+               Ankole.IdentityProviders.LocalPassword.authenticate(
+                 human_user.email,
+                 initial_password
+               )
+
+      %{principal: agent} = agent_fixture()
+
+      agent_conn =
+        conn
+        |> recycle_api()
+        |> post(~p"/api/v1/principals/#{agent.uid}/local-password-resets", %{})
+
+      assert %{"error" => %{"code" => "not_human"}} = json_response(agent_conn, 422)
+    end
+
+    test "resetting a password for an unknown principal returns 404", %{conn: conn} do
+      conn = bearer_conn(conn)
+      enable_local_provider()
+
+      conn =
+        conn
+        |> recycle_api()
+        |> post(~p"/api/v1/principals/no-such-user/local-password-resets", %{})
+
+      assert %{"error" => %{"code" => "not_found"}} = json_response(conn, 404)
+    end
+
+    test "edits the display name and email of a locally managed user", %{conn: conn} do
+      conn = bearer_conn(conn)
+      enable_local_provider()
+      %{principal: human} = human_fixture()
+
+      conn =
+        conn
+        |> recycle_api()
+        |> patch(~p"/api/v1/principals/#{human.uid}", %{
+          "display_name" => "Renamed User",
+          "email" => "Renamed@Example.com"
+        })
+
+      assert %{"principal" => principal} = json_response(conn, 200)
+      assert principal["display_name"] == "Renamed User"
+      assert principal["email"] == "renamed@example.com"
+    end
+
+    test "allows an email change even when an external identity is attached", %{conn: conn} do
+      conn = bearer_conn(conn)
+      enable_local_provider()
+      %{principal: human} = human_fixture()
+
+      {:ok, _identity} =
+        Ankole.Principals.create_external_identity(%{
+          principal_uid: human.uid,
+          provider: "lark",
+          external_id: "ou-#{System.unique_integer([:positive])}"
+        })
+
+      conn =
+        conn
+        |> recycle_api()
+        |> patch(~p"/api/v1/principals/#{human.uid}", %{"email" => "updated@example.com"})
+
+      assert %{"principal" => principal} = json_response(conn, 200)
+      assert principal["email"] == "updated@example.com"
+    end
+  end
+
+  defp enable_local_provider do
+    {:ok, _provider} =
+      Ankole.IdentityProviders.save_provider("local-main", "local", %{}, true)
+
+    :ok
+  end
 end

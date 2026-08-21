@@ -19,6 +19,7 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
   alias Ankole.SignalsGateway.Binding
   alias Ankole.SignalsGateway.Bindings
   alias Ankole.SignalsGateway.OutboxEntry
+  alias DingTalkOpenAPI.Error
   alias DingTalkOpenAPI.Event
 
   setup do
@@ -730,5 +731,45 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
     # would have left the Principal active forever.
     assert {:error, _disabled} = Principals.resolve_platform_subject(provider_id, "staff-2")
     assert Repo.get!(Ankole.Principals.Principal, principal.uid).status == :disabled
+  end
+
+  describe "normalize_delivery_result/1" do
+    test "classifies a rate limit as retryable and keeps the retry hint" do
+      error = %Error{
+        reason: :rate_limited,
+        code: 90_018,
+        message: "too many requests",
+        retry_after: 5
+      }
+
+      assert {:error, {:reply_delivery, :retryable, detail}} =
+               Outbox.normalize_delivery_result({:error, error})
+
+      assert detail.reason == :rate_limited
+      assert detail.retry_after_seconds == 5
+    end
+
+    test "classifies an auth failure as operator_action_required, not retryable" do
+      error = %Error{reason: :auth, code: "token.notExisted", message: "invalid token"}
+
+      assert {:error, {:reply_delivery, :operator_action_required, detail}} =
+               Outbox.normalize_delivery_result({:error, error})
+
+      assert detail.reason == :auth
+    end
+
+    test "classifies a gone target as permanent, not retried forever" do
+      error = %Error{reason: :target_gone, code: "group.disbanded", message: "chat gone"}
+
+      assert {:error, {:reply_delivery, :permanent, detail}} =
+               Outbox.normalize_delivery_result({:error, error})
+
+      assert detail.reason == :target_gone
+    end
+
+    test "passes through a non-Error reason unchanged" do
+      assert {:error, :actor_event_not_found} =
+               Outbox.normalize_delivery_result({:error, :actor_event_not_found})
+    end
   end
 end

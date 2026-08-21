@@ -18,6 +18,8 @@ import { BackgroundAgentJobsPage } from './pages/background-agent-jobs'
 import { ConversationDetailPage, ConversationsListPage } from './pages/conversations'
 import { AgentLibraryPage, AgentPluginDetailPage } from './pages/agent-library'
 import { PrincipalGroupEditorPage, PrincipalGroupsListPage } from './pages/principal-groups'
+import { PrincipalCreatePage } from './pages/principal-create'
+import { PrincipalEditPage } from './pages/principal-edit'
 import { PrincipalDetailPage, PrincipalsListPage } from './pages/principals'
 import { PermissionGrantEditorPage } from './pages/permission-grant-editor'
 import { HomePage, NotFoundPage, RouteErrorPage } from './pages/home'
@@ -84,7 +86,9 @@ export function createConsoleRouter(queryClient: QueryClient) {
               { path: 'access/groups/:name', element: <PrincipalGroupEditorPage /> },
               { path: 'access/groups/:name/grants/new', element: <PermissionGrantEditorPage createFor="group" /> },
               { path: 'access/principals', element: <PrincipalsListPage />, ...preloadRoute(loaders.principals) },
+              { path: 'access/principals/new', element: <PrincipalCreatePage /> },
               { path: 'access/principals/:uid', element: <PrincipalDetailPage /> },
+              { path: 'access/principals/:uid/edit', element: <PrincipalEditPage /> },
               {
                 path: 'access/principals/:uid/grants/new',
                 element: <PermissionGrantEditorPage createFor="principal" />

@@ -47,6 +47,19 @@ defmodule Ankole.SignalsGateway.Utils do
 
   defdelegate collect_results(results), to: Ankole.Attrs
 
+  @doc """
+  Reads the `retry_after_seconds` hint from a `{:reply_delivery, _, detail}`
+  detail map, in whichever of the two provider key styles it arrived in.
+  """
+  def reply_delivery_retry_after_seconds(detail) when is_map(detail) do
+    case Map.get(detail, "retry_after_seconds") || Map.get(detail, :retry_after_seconds) do
+      seconds when is_integer(seconds) and seconds > 0 -> seconds
+      _missing_or_invalid -> 0
+    end
+  end
+
+  def reply_delivery_retry_after_seconds(_detail), do: 0
+
   def validate_module_callback(module, function, arity) do
     case function_exported?(module, function, arity) do
       true -> :ok

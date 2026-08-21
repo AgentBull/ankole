@@ -10,11 +10,15 @@ defmodule AnkoleWeb.SetupController do
   use AnkoleWeb, :controller
 
   alias Ankole.I18n
+  alias Ankole.Principals
+  alias Ankole.Principals.HumanUser
   alias Ankole.Setup.Bootstrap
   alias Ankole.Plugins
+  alias Ankole.Setup.Completion, as: SetupCompletion
   alias Ankole.Setup.Config, as: SetupConfig
   alias AnkoleWeb.Session, as: WebSession
   alias Ankole.IdentityProviders
+  alias Ankole.IdentityProviders.LocalPassword
   alias Ankole.IdentityProviders.Login
 
   @doc """
@@ -139,12 +143,12 @@ defmodule AnkoleWeb.SetupController do
   def update_plugins(conn, _params), do: error(conn, 422, "pluginIDs must be an array")
 
   @doc """
-  Lists identity-provider adapters that plugins expose to setup.
+  Lists built-in and plugin identity-provider adapters available to setup.
   """
   def identity_provider_adapters(conn, _params) do
     with :ok <- require_setup_session(conn) do
       json(conn, %{
-        adapters: Enum.map(IdentityProviders.list_active_plugin_adapters(), &adapter_json/1)
+        adapters: Enum.map(IdentityProviders.list_active_adapters(), &adapter_json/1)
       })
     else
       {:error, status, reason} -> error(conn, status, reason)
@@ -199,6 +203,35 @@ defmodule AnkoleWeb.SetupController do
     end
   end
 
+  @doc """
+  Creates the local administrator account and completes setup.
+
+  This is the local-password twin of the setup OIDC callback: it creates the
+  account, opens the one-time root-admin gate, marks setup complete, and signs
+  the browser in. The account upsert makes a retry after a partial failure
+  land on the same principal instead of a duplicate-email error.
+  """
+  def create_local_admin(conn, params) do
+    with :ok <- require_setup_session(conn),
+         {:ok, email} <- validate_local_admin_email(params["email"]),
+         :ok <- validate_local_admin_password(params["password"]),
+         {:ok, provider} <- require_local_provider(),
+         {:ok, principal_uid} <- ensure_local_admin_account(email, params["password"]),
+         {:ok, _root} <- SetupCompletion.complete_with_root_admin(principal_uid) do
+      conn
+      |> WebSession.clear_setup_session()
+      |> WebSession.put_admin_session(%{
+        principal_uid: principal_uid,
+        provider_id: provider["provider_id"],
+        external_id: email
+      })
+      |> json(%{returnTo: "/console"})
+    else
+      {:error, status, reason} -> error(conn, status, reason)
+      {:error, reason} -> error(conn, 400, reason)
+    end
+  end
+
   # Shared gate for every setup-mutating endpoint. Two conditions, both required:
   # setup must not already be complete (409 if it is — bootstrap can't run twice),
   # and the caller must hold an active setup session (401 otherwise). Returns a
@@ -212,6 +245,55 @@ defmodule AnkoleWeb.SetupController do
     else
       {:ok, true} -> {:error, 409, "setup already completed"}
       {:error, reason} -> {:error, 500, reason}
+    end
+  end
+
+  defp validate_local_admin_email(email) when is_binary(email) do
+    normalized = email |> String.trim() |> String.downcase()
+
+    case Regex.match?(HumanUser.email_format(), normalized) do
+      true -> {:ok, normalized}
+      false -> {:error, 422, "email is invalid"}
+    end
+  end
+
+  defp validate_local_admin_email(_email), do: {:error, 422, "email is invalid"}
+
+  defp validate_local_admin_password(password) when is_binary(password) do
+    case String.length(password) >= Principals.local_password_min_length() do
+      true -> :ok
+      false -> {:error, 422, "password must be at least 6 characters"}
+    end
+  end
+
+  defp validate_local_admin_password(_password),
+    do: {:error, 422, "password must be at least 6 characters"}
+
+  defp require_local_provider do
+    case LocalPassword.fetch_enabled_provider() do
+      {:ok, provider} -> {:ok, provider}
+      {:error, :no_local_provider} -> {:error, 409, "local identity provider is not configured"}
+    end
+  end
+
+  # The setup administrator picks their own password, so the credential never
+  # carries the must-change flag.
+  defp ensure_local_admin_account(email, password) do
+    case Principals.fetch_local_login(email) do
+      {:ok, %{principal: principal}} ->
+        put_local_admin_password(principal.uid, password)
+
+      {:error, :not_found} ->
+        with {:ok, %{principal: principal}} <-
+               Principals.create_human(%{uid: email, email: email}) do
+          put_local_admin_password(principal.uid, password)
+        end
+    end
+  end
+
+  defp put_local_admin_password(principal_uid, password) do
+    with {:ok, _credential} <- Principals.set_local_password(principal_uid, password, false) do
+      {:ok, principal_uid}
     end
   end
 

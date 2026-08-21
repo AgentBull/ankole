@@ -159,7 +159,8 @@ defmodule Ankole.AppConfigure.Registry do
   end
 
   defp boot_state do
-    with {:ok, state} <- put_definitions(empty_state(), Declarations.core_definitions(), :core) do
+    with {:ok, state} <- put_definitions(empty_state(), Declarations.core_definitions(), :core),
+         {:ok, state} <- put_patterns(state, Declarations.core_patterns(), :core) do
       restore_plugin_declarations(state)
     end
   end

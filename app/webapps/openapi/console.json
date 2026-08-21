@@ -272,6 +272,13 @@
         "title": "ConsoleApiErrorEnvelope",
         "type": "object"
       },
+      "LocalPasswordResetResponse": {
+        "additionalProperties": false,
+        "properties": { "initial_password": { "type": "string" } },
+        "required": ["initial_password"],
+        "title": "LocalPasswordResetResponse",
+        "type": "object"
+      },
       "AIGatewayConversationListResponse": {
         "additionalProperties": false,
         "properties": {
@@ -453,6 +460,16 @@
         "title": "BackgroundAgentJobTurnItem",
         "type": "object"
       },
+      "PrincipalCreateResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "initial_password": { "type": "string" },
+          "principal": { "$ref": "#/components/schemas/PrincipalItem" }
+        },
+        "required": ["principal", "initial_password"],
+        "title": "PrincipalCreateResponse",
+        "type": "object"
+      },
       "ModelProfileResponse": {
         "additionalProperties": false,
         "properties": { "model_profile": { "additionalProperties": true, "type": "object" } },
@@ -524,13 +541,16 @@
         "properties": {
           "avatar_url": { "nullable": true, "type": "string" },
           "display_name": { "nullable": true, "type": "string" },
+          "email": { "nullable": true, "type": "string" },
+          "has_external_identity": { "type": "boolean" },
           "inserted_at": { "type": "string" },
+          "local_credential": { "$ref": "#/components/schemas/PrincipalLocalCredential" },
           "status": { "enum": ["active", "disabled"], "type": "string" },
           "type": { "enum": ["human", "agent", "system"], "type": "string" },
           "uid": { "type": "string" },
           "updated_at": { "type": "string" }
         },
-        "required": ["uid", "type", "status", "inserted_at", "updated_at"],
+        "required": ["uid", "type", "status", "has_external_identity", "inserted_at", "updated_at"],
         "title": "PrincipalItem",
         "type": "object"
       },
@@ -539,6 +559,17 @@
         "properties": { "content": { "type": "string" }, "expected_content_hash": { "type": "string" } },
         "required": ["content", "expected_content_hash"],
         "title": "AgentLibraryDocumentWriteRequest",
+        "type": "object"
+      },
+      "PrincipalCreateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "display_name": { "nullable": true, "type": "string" },
+          "email": { "type": "string" },
+          "must_change_password": { "default": true, "type": "boolean" }
+        },
+        "required": ["email"],
+        "title": "PrincipalCreateRequest",
         "type": "object"
       },
       "AIGatewayMessageItem": {
@@ -663,6 +694,12 @@
         "properties": { "agent": { "$ref": "#/components/schemas/AgentItem" } },
         "required": ["agent"],
         "title": "AgentResponse",
+        "type": "object"
+      },
+      "PrincipalUpdateRequest": {
+        "additionalProperties": false,
+        "properties": { "display_name": { "nullable": true, "type": "string" }, "email": { "type": "string" } },
+        "title": "PrincipalUpdateRequest",
         "type": "object"
       },
       "AgentLibraryCapabilitiesResponse": {
@@ -1028,6 +1065,14 @@
         "title": "BackgroundAgentJobTurnProgress",
         "type": "object"
       },
+      "PrincipalLocalCredential": {
+        "additionalProperties": false,
+        "nullable": true,
+        "properties": { "status": { "enum": ["active", "must_change"], "type": "string" } },
+        "required": ["status"],
+        "title": "PrincipalLocalCredential",
+        "type": "object"
+      },
       "ScheduleCronUpdateRequest": {
         "additionalProperties": false,
         "minProperties": 1,
@@ -1062,6 +1107,7 @@
       "SignalAdapterItem": {
         "additionalProperties": false,
         "properties": {
+          "adapter_category": { "enum": ["enterprise_im", "consumer_im"], "type": "string" },
           "adapter_id": { "type": "string" },
           "display_name": { "$ref": "#/components/schemas/LocalizedText" },
           "fields": { "items": { "$ref": "#/components/schemas/SignalAdapterField" }, "type": "array" },
@@ -1069,7 +1115,13 @@
           "plugin_id": { "nullable": true, "type": "string" },
           "unmatched_sender_policy_field": { "$ref": "#/components/schemas/SignalAdapterField" }
         },
-        "required": ["adapter_id", "fields", "group_message_mode_field", "unmatched_sender_policy_field"],
+        "required": [
+          "adapter_id",
+          "adapter_category",
+          "fields",
+          "group_message_mode_field",
+          "unmatched_sender_policy_field"
+        ],
         "title": "SignalAdapterItem",
         "type": "object"
       },
@@ -1980,6 +2032,12 @@
         "title": "ConsoleTokenResponse",
         "type": "object"
       },
+      "LocalPasswordResetRequest": {
+        "additionalProperties": false,
+        "properties": { "must_change_password": { "default": true, "type": "boolean" } },
+        "title": "LocalPasswordResetRequest",
+        "type": "object"
+      },
       "PrincipalListResponse": {
         "additionalProperties": false,
         "properties": { "principals": { "items": { "$ref": "#/components/schemas/PrincipalItem" }, "type": "array" } },
@@ -2766,6 +2824,51 @@
         "security": [{ "consoleBearer": [] }],
         "summary": "Create one operator Principal group",
         "tags": ["AuthZ"]
+      }
+    },
+    "/api/v1/principals/{uid}/local-password-resets": {
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.PrincipalController.create_local_password_reset",
+        "parameters": [
+          { "description": "", "in": "path", "name": "uid", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LocalPasswordResetRequest" } } },
+          "description": "Reset options",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/LocalPasswordResetResponse" } }
+            },
+            "description": "New one-time password"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Not found"
+          },
+          "409": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Local sign-in disabled"
+          },
+          "422": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Invalid reset"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Replace one user's local password with a new one-time password",
+        "tags": ["Principals"]
       }
     },
     "/api/v1/principal-groups/computed-member-previews": {
@@ -4865,6 +4968,41 @@
         "security": [{ "consoleBearer": [] }],
         "summary": "List active principals",
         "tags": ["Principals"]
+      },
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.PrincipalController.create",
+        "parameters": [],
+        "requestBody": {
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PrincipalCreateRequest" } } },
+          "description": "User",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PrincipalCreateResponse" } } },
+            "description": "Created user"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Local sign-in disabled"
+          },
+          "422": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Invalid user"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Create a human user with a local sign-in password",
+        "tags": ["Principals"]
       }
     },
     "/api/v1/permission-grants": {
@@ -5460,6 +5598,47 @@
         },
         "security": [{ "consoleBearer": [] }],
         "summary": "Read one principal",
+        "tags": ["Principals"]
+      },
+      "patch": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.PrincipalController.update",
+        "parameters": [
+          { "description": "", "in": "path", "name": "uid", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PrincipalUpdateRequest" } } },
+          "description": "User changes",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PrincipalResponse" } } },
+            "description": "Principal"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Not found"
+          },
+          "409": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Local sign-in disabled"
+          },
+          "422": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Invalid change"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Update the display name or email of one human user",
         "tags": ["Principals"]
       }
     },

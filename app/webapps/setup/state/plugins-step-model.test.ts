@@ -1,5 +1,17 @@
 import { describe, expect, test } from 'bun:test'
-import { filterSelectedPluginItems, PluginsStepModel } from './plugins-step-model'
+import { filterSelectedPluginItems, PluginsStepModel, visibleIdentityAdapters } from './plugins-step-model'
+
+describe('visibleIdentityAdapters', () => {
+  test('keeps the local adapter first regardless of plugin selection', () => {
+    const local = { adapterID: 'local', pluginID: 'control-plane' }
+    const lark = { adapterID: 'lark', pluginID: 'lark-adapter' }
+    const slack = { adapterID: 'slack', pluginID: 'slack-adapter' }
+
+    expect(visibleIdentityAdapters([lark, local, slack], new Set(['slack-adapter']))).toEqual([local, slack])
+    expect(visibleIdentityAdapters([local, lark], new Set())).toEqual([local])
+    expect(visibleIdentityAdapters([lark], new Set())).toEqual([])
+  })
+})
 
 describe('PluginsStepModel', () => {
   test('initializes once and preserves local selection across a refetch', () => {

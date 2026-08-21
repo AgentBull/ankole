@@ -18,6 +18,7 @@ defmodule Ankole.PluginFixtures.MockSignalProviderPlugin do
       %{
         contract_id: "signals_gateway.adapter",
         id: "mock-provider",
+        adapter_category: "enterprise_im",
         plugin_id: plugin_id(),
         display_name: %{"default" => "Mock Signal Provider"},
         ingress_module: Inbound,

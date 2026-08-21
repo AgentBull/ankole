@@ -279,6 +279,12 @@ import type {
   AnkoleWebPermissionGrantControllerUpdateData,
   AnkoleWebPermissionGrantControllerUpdateErrors,
   AnkoleWebPermissionGrantControllerUpdateResponses,
+  AnkoleWebPrincipalControllerCreateData,
+  AnkoleWebPrincipalControllerCreateErrors,
+  AnkoleWebPrincipalControllerCreateLocalPasswordResetData,
+  AnkoleWebPrincipalControllerCreateLocalPasswordResetErrors,
+  AnkoleWebPrincipalControllerCreateLocalPasswordResetResponses,
+  AnkoleWebPrincipalControllerCreateResponses,
   AnkoleWebPrincipalControllerGrantsData,
   AnkoleWebPrincipalControllerGrantsErrors,
   AnkoleWebPrincipalControllerGrantsResponses,
@@ -291,6 +297,9 @@ import type {
   AnkoleWebPrincipalControllerShowData,
   AnkoleWebPrincipalControllerShowErrors,
   AnkoleWebPrincipalControllerShowResponses,
+  AnkoleWebPrincipalControllerUpdateData,
+  AnkoleWebPrincipalControllerUpdateErrors,
+  AnkoleWebPrincipalControllerUpdateResponses,
   AnkoleWebScheduleControllerCancelCheckbackData,
   AnkoleWebScheduleControllerCancelCheckbackResponses,
   AnkoleWebScheduleControllerCreateCronData,
@@ -829,6 +838,36 @@ export const ankoleWebAuthZGroupControllerCreate = <ThrowOnError extends boolean
       }
     ],
     url: '/api/v1/principal-groups',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
+ * Replace one user's local password with a new one-time password
+ */
+export const ankoleWebPrincipalControllerCreateLocalPasswordReset = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebPrincipalControllerCreateLocalPasswordResetData, ThrowOnError>
+): RequestResult<
+  AnkoleWebPrincipalControllerCreateLocalPasswordResetResponses,
+  AnkoleWebPrincipalControllerCreateLocalPasswordResetErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).post<
+    AnkoleWebPrincipalControllerCreateLocalPasswordResetResponses,
+    AnkoleWebPrincipalControllerCreateLocalPasswordResetErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/principals/{uid}/local-password-resets',
     ...options,
     headers: {
       'Content-Type': 'application/json',
@@ -2379,6 +2418,32 @@ export const ankoleWebPrincipalControllerIndex = <ThrowOnError extends boolean =
   })
 
 /**
+ * Create a human user with a local sign-in password
+ */
+export const ankoleWebPrincipalControllerCreate = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebPrincipalControllerCreateData, ThrowOnError>
+): RequestResult<AnkoleWebPrincipalControllerCreateResponses, AnkoleWebPrincipalControllerCreateErrors, ThrowOnError> =>
+  (options.client ?? client).post<
+    AnkoleWebPrincipalControllerCreateResponses,
+    AnkoleWebPrincipalControllerCreateErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/principals',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
  * Create one permission grant for a Principal or a group
  */
 export const ankoleWebPermissionGrantControllerCreate = <ThrowOnError extends boolean = false>(
@@ -2811,6 +2876,32 @@ export const ankoleWebPrincipalControllerShow = <ThrowOnError extends boolean = 
     ],
     url: '/api/v1/principals/{uid}',
     ...options
+  })
+
+/**
+ * Update the display name or email of one human user
+ */
+export const ankoleWebPrincipalControllerUpdate = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebPrincipalControllerUpdateData, ThrowOnError>
+): RequestResult<AnkoleWebPrincipalControllerUpdateResponses, AnkoleWebPrincipalControllerUpdateErrors, ThrowOnError> =>
+  (options.client ?? client).patch<
+    AnkoleWebPrincipalControllerUpdateResponses,
+    AnkoleWebPrincipalControllerUpdateErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/principals/{uid}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
   })
 
 /**

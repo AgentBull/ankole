@@ -1,5 +1,19 @@
 import { describe, expect, test } from 'bun:test'
-import { requestErrorMessage } from './request-errors'
+import { requestErrorCode, requestErrorMessage } from './request-errors'
+
+describe('requestErrorCode', () => {
+  test('reads the code from the console API error envelope', () => {
+    expect(requestErrorCode({ error: { code: 'email_taken', message: 'The email is already in use' } })).toBe(
+      'email_taken'
+    )
+  })
+
+  test('returns undefined for other error shapes', () => {
+    expect(requestErrorCode({ error: 'not_editable' })).toBeUndefined()
+    expect(requestErrorCode(new Error('network down'))).toBeUndefined()
+    expect(requestErrorCode(undefined)).toBeUndefined()
+  })
+})
 
 describe('requestErrorMessage', () => {
   test('drops server debug sections that may contain request headers or cookies', () => {

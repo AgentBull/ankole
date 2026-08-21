@@ -71,6 +71,7 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
         %{
           contract_id: "signals_gateway.adapter",
           id: "mock-provider",
+          adapter_category: "enterprise_im",
           plugin_id: plugin_id(),
           display_name: display_name(),
           ingress_module: Inbound,
@@ -103,6 +104,7 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
         %{
           contract_id: "signals_gateway.adapter",
           id: "mock-provider",
+          adapter_category: "enterprise_im",
           plugin_id: plugin_id(),
           display_name: display_name(),
           ingress_module: Inbound,

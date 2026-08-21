@@ -9,6 +9,7 @@ import { externalServicesCommand } from './commands/external-services'
 import { generateCommand, runGenerate } from './commands/generate'
 import { isCICommand } from './commands/is-ci'
 import { isDevCommand } from './commands/is-dev'
+import { localPasswordCommand } from './commands/local-password'
 import { logsCommand } from './commands/logs'
 import { showCommand } from './commands/show'
 import { exitCodeForError, styledError } from './utils'
@@ -34,6 +35,7 @@ app = app.command(envSetupCommand())
 app = app.command(appDBCommand())
 app = app.command(agentComputerTestCommand())
 app = app.command(devCommand())
+app = app.command(localPasswordCommand())
 app = app.command(logsCommand())
 app = app.command(showCommand())
 app = app.command(analyzeCommand())

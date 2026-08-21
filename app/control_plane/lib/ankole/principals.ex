@@ -13,6 +13,7 @@ defmodule Ankole.Principals do
   alias Ankole.Principals.Agent
   alias Ankole.Principals.ExternalIdentity
   alias Ankole.Principals.HumanUser
+  alias Ankole.Principals.LocalCredential
   alias Ankole.Principals.MappingRequest
   alias Ankole.Principals.Principal
   alias Ankole.AIAgent.Library
@@ -24,6 +25,7 @@ defmodule Ankole.Principals do
   @human_profile_fields [:email, :mobile, :job_title]
   @agent_fields [:type, :role, :options, :created_by_principal_uid]
   @provider_format ~r/\A[a-z][a-z0-9_-]*\z/
+  @local_password_min_length 6
 
   @type principal_result :: {:ok, Principal.t()} | {:error, term()}
 
@@ -32,6 +34,12 @@ defmodule Ankole.Principals do
   """
   @spec normalize_uid(term()) :: {:ok, String.t()} | {:error, :invalid_uid}
   def normalize_uid(uid), do: PrincipalKey.normalize(uid)
+
+  @doc """
+  Returns the minimum accepted length for a local password.
+  """
+  @spec local_password_min_length() :: pos_integer()
+  def local_password_min_length, do: @local_password_min_length
 
   @doc """
   Looks up a Principal by UID.
@@ -173,6 +181,148 @@ defmodule Ankole.Principals do
         |> repo.update()
       end
     end)
+  end
+
+  @doc """
+  Creates a human Principal with a generated local initial password.
+
+  The email attribute is required because it is the local sign-in key.
+  """
+  @spec create_local_user(map(), boolean()) ::
+          {:ok,
+           %{principal: Principal.t(), human_user: HumanUser.t(), initial_password: String.t()}}
+          | {:error, term()}
+  def create_local_user(attrs, must_change_password)
+      when is_map(attrs) and is_boolean(must_change_password) do
+    with {:ok, _email} <- required_text(attrs, :email) do
+      initial_password = LocalCredential.generate_initial_password()
+
+      Repo.transact(fn repo ->
+        with {:ok, principal} <- insert_principal(repo, human_principal_attrs(attrs)),
+             {:ok, human_user} <-
+               insert_human_user(repo, principal.uid, take_attrs(attrs, @human_profile_fields)),
+             {:ok, _credential} <-
+               put_local_credential(repo, principal.uid, initial_password, must_change_password) do
+          {:ok,
+           %{principal: principal, human_user: human_user, initial_password: initial_password}}
+        end
+      end)
+    end
+  end
+
+  @doc """
+  Hashes and stores a caller-chosen local password for one human user.
+  """
+  @spec set_local_password(String.t(), String.t(), boolean()) ::
+          {:ok, LocalCredential.t()} | {:error, term()}
+  def set_local_password(uid, password, must_change_password)
+      when is_boolean(must_change_password) do
+    with {:ok, uid} <- normalize_uid(uid),
+         :ok <- validate_local_password(password) do
+      Repo.transact(fn repo ->
+        with :ok <- ensure_local_login_human(repo, uid) do
+          put_local_credential(repo, uid, password, must_change_password)
+        end
+      end)
+    end
+  end
+
+  @doc """
+  Replaces one human user's local password with a generated initial password.
+  """
+  @spec reset_local_password(String.t(), boolean()) :: {:ok, String.t()} | {:error, term()}
+  def reset_local_password(uid, must_change_password \\ true)
+      when is_boolean(must_change_password) do
+    with {:ok, uid} <- normalize_uid(uid) do
+      initial_password = LocalCredential.generate_initial_password()
+
+      Repo.transact(fn repo ->
+        with :ok <- ensure_local_login_human(repo, uid),
+             {:ok, _credential} <-
+               put_local_credential(repo, uid, initial_password, must_change_password) do
+          {:ok, initial_password}
+        end
+      end)
+    end
+  end
+
+  @doc """
+  Replaces the local password for the human user that owns one email address.
+  """
+  @spec reset_local_password_by_email(String.t()) ::
+          {:ok, %{principal_uid: String.t(), initial_password: String.t()}} | {:error, term()}
+  def reset_local_password_by_email(email) do
+    with {:ok, %{principal: principal}} <- fetch_local_login(email),
+         {:ok, initial_password} <- reset_local_password(principal.uid, true) do
+      {:ok, %{principal_uid: principal.uid, initial_password: initial_password}}
+    end
+  end
+
+  @doc """
+  Loads the Principal, human profile, and local credential for one email.
+  """
+  @spec fetch_local_login(String.t()) ::
+          {:ok,
+           %{
+             principal: Principal.t(),
+             human_user: HumanUser.t(),
+             credential: LocalCredential.t() | nil
+           }}
+          | {:error, :not_found}
+  def fetch_local_login(email) do
+    case normalized_contact_email(email) do
+      nil ->
+        {:error, :not_found}
+
+      normalized ->
+        case Repo.one(local_login_query(normalized)) do
+          nil -> {:error, :not_found}
+          login -> {:ok, login}
+        end
+    end
+  end
+
+  @doc """
+  Tells whether a Principal has at least one external identity binding.
+  """
+  @spec has_external_identity?(String.t()) :: boolean()
+  def has_external_identity?(uid) do
+    case normalize_uid(uid) do
+      {:ok, normalized_uid} ->
+        Repo.exists?(
+          from identity in ExternalIdentity, where: identity.principal_uid == ^normalized_uid
+        )
+
+      {:error, _reason} ->
+        false
+    end
+  end
+
+  @doc """
+  Lists active Principals with their account facts for the operator console.
+  """
+  @spec list_active_principal_accounts() :: [map()]
+  def list_active_principal_accounts do
+    principal_account_query()
+    |> where([principal: principal], principal.status == :active)
+    |> Repo.all()
+    |> Enum.map(&finish_principal_account/1)
+  end
+
+  @doc """
+  Loads one Principal with its account facts for the operator console.
+  """
+  @spec get_principal_account(String.t()) :: {:ok, map()} | {:error, term()}
+  def get_principal_account(uid) do
+    with {:ok, normalized_uid} <- normalize_uid(uid) do
+      principal_account_query()
+      |> where([principal: principal], principal.uid == ^normalized_uid)
+      |> Repo.one()
+      |> case do
+        nil -> {:error, :not_found}
+        account -> {:ok, finish_principal_account(account)}
+      end
+    end
   end
 
   @doc """
@@ -384,6 +534,102 @@ defmodule Ankole.Principals do
       nil ->
         insert_human_user(repo, principal_uid, attrs)
     end
+  end
+
+  defp validate_local_password(password) when is_binary(password) do
+    case String.length(password) >= @local_password_min_length do
+      true -> :ok
+      false -> {:error, :password_too_short}
+    end
+  end
+
+  defp validate_local_password(_password), do: {:error, :password_too_short}
+
+  # The email is the local sign-in key, so a credential is only meaningful on
+  # a human user row that has one. A missing human row splits into "no such
+  # principal" (404 for callers) and "principal is not a human".
+  defp ensure_local_login_human(repo, principal_uid) do
+    case repo.get(HumanUser, principal_uid) do
+      %HumanUser{email: email} when is_binary(email) ->
+        :ok
+
+      %HumanUser{} ->
+        {:error, :email_missing}
+
+      nil ->
+        case repo.get(Principal, principal_uid) do
+          %Principal{} -> {:error, :not_human}
+          nil -> {:error, :not_found}
+        end
+    end
+  end
+
+  defp put_local_credential(repo, principal_uid, password, must_change_password) do
+    case NativeKernel.argon2id_hash(password) do
+      hash when is_binary(hash) ->
+        attrs = %{
+          principal_uid: principal_uid,
+          password_hash: hash,
+          must_change_password: must_change_password
+        }
+
+        case repo.get(LocalCredential, principal_uid) do
+          %LocalCredential{} = credential ->
+            credential
+            |> LocalCredential.changeset(attrs)
+            |> repo.update()
+
+          nil ->
+            %LocalCredential{}
+            |> LocalCredential.changeset(attrs)
+            |> repo.insert()
+        end
+
+      {:error, reason} ->
+        {:error, {:password_hash_failed, reason}}
+    end
+  end
+
+  defp local_login_query(email) do
+    from human_user in HumanUser,
+      join: principal in assoc(human_user, :principal),
+      left_join: credential in LocalCredential,
+      on: credential.principal_uid == human_user.principal_uid,
+      where: human_user.email == ^email,
+      select: %{principal: principal, human_user: human_user, credential: credential}
+  end
+
+  defp principal_account_query do
+    from principal in Principal,
+      as: :principal,
+      left_join: human_user in assoc(principal, :human_user),
+      left_join: credential in LocalCredential,
+      on: credential.principal_uid == principal.uid,
+      order_by: [asc: principal.uid],
+      select: %{
+        principal: principal,
+        email: human_user.email,
+        has_external_identity:
+          exists(
+            from identity in ExternalIdentity,
+              where: identity.principal_uid == parent_as(:principal).uid,
+              select: 1
+          ),
+        local_credential_must_change: credential.must_change_password
+      }
+  end
+
+  defp finish_principal_account(account) do
+    {must_change, account} = Map.pop(account, :local_credential_must_change)
+
+    local_credential_status =
+      case must_change do
+        nil -> nil
+        true -> :must_change
+        false -> :active
+      end
+
+    Map.put(account, :local_credential_status, local_credential_status)
   end
 
   defp upsert_external_identity(repo, attrs) do

@@ -234,6 +234,26 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
     )
   end
 
+  defmodule PrincipalLocalCredential do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "PrincipalLocalCredential",
+        type: :object,
+        nullable: true,
+        properties: %{
+          status: %Schema{type: :string, enum: ["active", "must_change"]}
+        },
+        required: [:status],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
   defmodule PrincipalItem do
     @moduledoc false
 
@@ -249,10 +269,117 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           status: %Schema{type: :string, enum: ["active", "disabled"]},
           display_name: %Schema{type: :string, nullable: true},
           avatar_url: %Schema{type: :string, nullable: true},
+          email: %Schema{type: :string, nullable: true},
+          has_external_identity: %Schema{type: :boolean},
+          local_credential: PrincipalLocalCredential,
           inserted_at: %Schema{type: :string},
           updated_at: %Schema{type: :string}
         },
-        required: [:uid, :type, :status, :inserted_at, :updated_at],
+        required: [
+          :uid,
+          :type,
+          :status,
+          :has_external_identity,
+          :inserted_at,
+          :updated_at
+        ],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule PrincipalCreateRequest do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "PrincipalCreateRequest",
+        type: :object,
+        properties: %{
+          email: %Schema{type: :string},
+          display_name: %Schema{type: :string, nullable: true},
+          must_change_password: %Schema{type: :boolean, default: true}
+        },
+        required: [:email],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule PrincipalCreateResponse do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "PrincipalCreateResponse",
+        type: :object,
+        properties: %{
+          principal: PrincipalItem,
+          initial_password: %Schema{type: :string}
+        },
+        required: [:principal, :initial_password],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule PrincipalUpdateRequest do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "PrincipalUpdateRequest",
+        type: :object,
+        properties: %{
+          display_name: %Schema{type: :string, nullable: true},
+          email: %Schema{type: :string}
+        },
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule LocalPasswordResetRequest do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "LocalPasswordResetRequest",
+        type: :object,
+        properties: %{
+          must_change_password: %Schema{type: :boolean, default: true}
+        },
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule LocalPasswordResetResponse do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "LocalPasswordResetResponse",
+        type: :object,
+        properties: %{
+          initial_password: %Schema{type: :string}
+        },
+        required: [:initial_password],
         additionalProperties: false
       },
       struct?: false
@@ -1411,6 +1538,10 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
         type: :object,
         properties: %{
           adapter_id: %Schema{type: :string},
+          adapter_category: %Schema{
+            type: :string,
+            enum: ["enterprise_im", "consumer_im"]
+          },
           plugin_id: %Schema{type: :string, nullable: true},
           display_name: LocalizedText,
           fields: %Schema{type: :array, items: SignalAdapterField},
@@ -1419,6 +1550,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
         },
         required: [
           :adapter_id,
+          :adapter_category,
           :fields,
           :group_message_mode_field,
           :unmatched_sender_policy_field

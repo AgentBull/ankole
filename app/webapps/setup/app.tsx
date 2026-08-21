@@ -19,6 +19,7 @@ import {
   FieldError as UiFieldError
 } from '@ankole/uikit/components/field'
 import { Input } from '@ankole/uikit/components/input'
+import { RadioGroup, RadioGroupItem } from '@ankole/uikit/components/radio-group'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@ankole/uikit/components/select'
 import { toast } from '@ankole/uikit/components/sonner'
 import { useModel } from '@preact/signals-react'
@@ -39,8 +40,9 @@ import {
 import { ErrorBlock } from '../common/error-block'
 import i18n, { nativeLocaleLabel } from '../common/i18n'
 import { SetupLayout } from './layout'
+import { LocalAdminForm } from './local-admin-form'
 import { IdentitySetupModel, type IdentitySetupDraft } from './state/identity-setup-model'
-import { filterSelectedPluginItems, PluginsStepModel } from './state/plugins-step-model'
+import { PluginsStepModel, visibleIdentityAdapters } from './state/plugins-step-model'
 import { setupStepState, type SetupStepID } from './state/setup-progress'
 
 type SetupState = {
@@ -59,7 +61,7 @@ type Plugin = {
 
 type SetupField = ConfigFieldDefinition
 
-type IdentityAdapter = {
+export type IdentityAdapter = {
   adapterID: string
   defaultProviderID: string
   displayName?: LocalizedText
@@ -382,16 +384,19 @@ function IdentityStep({
     queryKey: ['setup-identity-provider-adapters'],
     queryFn: () => internalAPIGet<{ adapters: IdentityAdapter[] }>('/.internal-apis/setup/identity-provider-adapters')
   })
-  const adapters = filterSelectedPluginItems(query.data?.adapters ?? [], pluginsModel.selectedPluginIDs.value)
+  const adapters = visibleIdentityAdapters(query.data?.adapters ?? [], pluginsModel.selectedPluginIDs.value)
 
   if (query.isLoading) return <Panel title={t('setup.identity_provider')}>{t('common.loading')}</Panel>
   if (adapters.length === 0) return <NoAdapters error={query.error} />
 
-  return <IdentityForm adapters={adapters} model={model} publicBaseURL={publicBaseURL} />
+  return <IdentityMethodStep adapters={adapters} model={model} publicBaseURL={publicBaseURL} />
 }
 
-/** Renders the selected identity adapter fields and starts setup-time OIDC. */
-function IdentityForm({
+/**
+ * Sign-in method chooser: the built-in local adapter first, then one card per
+ * plugin-provided SSO adapter. The chosen adapter's form renders below.
+ */
+function IdentityMethodStep({
   adapters,
   model,
   publicBaseURL
@@ -403,10 +408,6 @@ function IdentityForm({
   useSignals()
   const { i18n: i18next, t } = useTranslation()
   const firstAdapter = adapters[0]
-  const [callbackCopied, setCallbackCopied] = useState(false)
-  const providerIDControlID = useId()
-  const providerIDErrorID = `${providerIDControlID}-error`
-  const providerIDHintID = `${providerIDControlID}-hint`
 
   useEffect(() => {
     const initialDraft = {
@@ -422,6 +423,89 @@ function IdentityForm({
   }, [adapters, firstAdapter, model])
 
   const activeAdapter = adapters.find(adapter => adapter.adapterID === model.adapterID.value) ?? firstAdapter
+
+  function changeAdapter(nextAdapterID: string) {
+    if (nextAdapterID === activeAdapter.adapterID) return
+    const nextAdapter = adapters.find(adapter => adapter.adapterID === nextAdapterID) ?? firstAdapter
+    // Switching adapters resets generated config because field paths and default
+    // values are adapter-owned. Preserving old config would mix provider contracts.
+    model.changeAdapter({
+      adapterID: nextAdapter.adapterID,
+      providerID: nextAdapter.defaultProviderID,
+      config: defaultConfig(nextAdapter.fields)
+    })
+  }
+
+  return (
+    <Panel title={t('setup.identity_provider')}>
+      <p className="text-sm leading-6 text-muted-foreground">{t('setup.identity_intro')}</p>
+      <section className="grid gap-4">
+        <h2 className="text-sm font-semibold uppercase tracking-normal text-muted-foreground">
+          {t('setup.sign_in_method')}
+        </h2>
+        <RadioGroup
+          aria-label={t('setup.sign_in_method')}
+          className="grid grid-cols-1 gap-3 xl:grid-cols-2"
+          value={activeAdapter.adapterID}
+          onValueChange={value => {
+            if (typeof value === 'string') changeAdapter(value)
+          }}>
+          {adapters.map(adapter => {
+            const selected = adapter.adapterID === activeAdapter.adapterID
+            const label = identityAdapterLabel(adapter, i18next.language)
+            return (
+              <label
+                key={adapter.adapterID}
+                className={`flex cursor-pointer items-start gap-3 border px-4 py-4 transition-colors ${
+                  selected ? 'border-primary bg-primary/10' : 'border-border/70 bg-card/60'
+                }`}>
+                <RadioGroupItem className="mt-0.5" value={adapter.adapterID} />
+                <span className="grid min-w-0 flex-1 gap-1">
+                  <span className="break-words text-sm font-semibold leading-5">{label}</span>
+                  <span className="break-words text-xs leading-5 text-muted-foreground">
+                    {adapter.adapterID === 'local'
+                      ? t('setup.method_local_hint')
+                      : t('setup.method_sso_hint', { provider: label })}
+                  </span>
+                </span>
+              </label>
+            )
+          })}
+        </RadioGroup>
+      </section>
+      {activeAdapter.adapterID === 'local' ? (
+        <LocalAdminForm key="local" adapter={activeAdapter} />
+      ) : (
+        // The key remounts the form per adapter so request state from one
+        // provider never lingers under another.
+        <SSOIdentityForm
+          key={activeAdapter.adapterID}
+          adapter={activeAdapter}
+          model={model}
+          publicBaseURL={publicBaseURL}
+        />
+      )}
+    </Panel>
+  )
+}
+
+/** Renders the selected SSO adapter fields and starts setup-time OIDC. */
+function SSOIdentityForm({
+  adapter: activeAdapter,
+  model,
+  publicBaseURL
+}: {
+  adapter: IdentityAdapter
+  model: InstanceType<typeof IdentitySetupModel>
+  publicBaseURL: string
+}) {
+  useSignals()
+  const { i18n: i18next, t } = useTranslation()
+  const [callbackCopied, setCallbackCopied] = useState(false)
+  const providerIDControlID = useId()
+  const providerIDErrorID = `${providerIDControlID}-error`
+  const providerIDHintID = `${providerIDControlID}-hint`
+
   const mutation = useMutation({
     mutationFn: async (input: IdentitySetupDraft) => {
       await internalAPIPut(`/.internal-apis/setup/identity-providers/${encodeURIComponent(input.providerID)}`, {
@@ -435,18 +519,6 @@ function IdentityForm({
     },
     onSuccess: result => window.location.assign(result.authorizationURL)
   })
-
-  function changeAdapter(nextAdapterID: string) {
-    const nextAdapter = adapters.find(adapter => adapter.adapterID === nextAdapterID) ?? firstAdapter
-    // Switching adapters resets generated config because field paths and default
-    // values are adapter-owned. Preserving old config would mix provider contracts.
-    mutation.reset()
-    model.changeAdapter({
-      adapterID: nextAdapter.adapterID,
-      providerID: nextAdapter.defaultProviderID,
-      config: defaultConfig(nextAdapter.fields)
-    })
-  }
 
   function submitIdentity(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -473,34 +545,10 @@ function IdentityForm({
   }
 
   return (
-    <Panel title={t('setup.identity_provider')}>
+    <>
       <ErrorBlock error={mutation.error} />
       <form className="grid gap-6" onSubmit={submitIdentity}>
         <FieldGroup className="grid grid-cols-1 gap-5 md:grid-cols-2">
-          <Field>
-            <FieldLabel>{t('setup.adapter')}</FieldLabel>
-            <Select
-              value={model.adapterID.value || activeAdapter.adapterID}
-              onValueChange={value => {
-                if (value) changeAdapter(value)
-              }}>
-              <SelectTrigger className="w-full">
-                <SelectValue>
-                  {value =>
-                    identityAdapterLabel(adapterByID(adapters, value ?? activeAdapter.adapterID), i18next.language)
-                  }
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent emptyLabel={t('common.select_empty')}>
-                {adapters.map(adapter => (
-                  <SelectItem key={adapter.adapterID} value={adapter.adapterID}>
-                    {identityAdapterLabel(adapter, i18next.language)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </Field>
-
           <Field>
             <FieldLabel htmlFor={providerIDControlID}>
               {t('setup.provider_id')}
@@ -585,7 +633,7 @@ function IdentityForm({
           </Button>
         </div>
       </form>
-    </Panel>
+    </>
   )
 }
 
@@ -628,10 +676,6 @@ function oidcCallbackURLHintKey(adapterID: string): string {
     default:
       return 'setup.oidc_callback_url_hint'
   }
-}
-
-function adapterByID(adapters: IdentityAdapter[], adapterID: string): IdentityAdapter {
-  return adapters.find(adapter => adapter.adapterID === adapterID) ?? adapters[0]
 }
 
 function identityAdapterLabel(adapter: IdentityAdapter, locale: string): string {

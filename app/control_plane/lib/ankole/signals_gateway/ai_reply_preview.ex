@@ -38,6 +38,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   alias Ankole.SignalsGateway.OutboxAdapter
   alias Ankole.SignalsGateway.OutboxEntry
   alias Ankole.SignalsGateway.ReplyPresentation
+  alias Ankole.SignalsGateway.Utils
   alias Ankole.SignalsGateway.ReplyPreviewAdapter
   alias Ankole.SignalsGateway.ReplyPreviewAdapter.Request
   alias Ankole.Repo
@@ -1458,6 +1459,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
     )
 
     if retry? do
+      retry_delay_ms = max(state.rich_retry_ms, rich_retry_after_ms(reason))
       retry_ms = min(state.rich_retry_ms * 2, @rich_retry_max_ms)
 
       %{
@@ -1467,7 +1469,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
           rich_task_generation: nil,
           rich_task_presentation: nil,
           dirty: true,
-          rich_retry_at: System.monotonic_time(:millisecond) + state.rich_retry_ms,
+          rich_retry_at: System.monotonic_time(:millisecond) + retry_delay_ms,
           rich_retry_ms: retry_ms
       }
     else
@@ -1530,6 +1532,12 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   defp rich_retryable?({:reply_delivery, :permanent, _error}), do: false
   defp rich_retryable?({:cardkit_plain_text_fallback, _error}), do: false
   defp rich_retryable?(_reason), do: true
+
+  defp rich_retry_after_ms({:reply_delivery, :retryable, detail}) when is_map(detail) do
+    Utils.reply_delivery_retry_after_seconds(detail) * 1_000
+  end
+
+  defp rich_retry_after_ms(_reason), do: 0
 
   defp rich_retry_due?(nil), do: true
 

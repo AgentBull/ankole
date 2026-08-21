@@ -13,9 +13,11 @@ defmodule AnkoleWeb.AuthController do
   use OpenAPISpex.ControllerSpecs
 
   alias Ankole.AdminAuth
-  alias Ankole.AuthZ
   alias Ankole.IdentityProviders
+  alias Ankole.IdentityProviders.LocalPassword
   alias Ankole.IdentityProviders.Login
+  alias Ankole.Principals
+  alias Ankole.Setup.Completion, as: SetupCompletion
   alias Ankole.Setup.Config, as: SetupConfig
   alias AnkoleWeb.ConsoleTokens
   alias AnkoleWeb.Schemas.ConsoleAPI.AuthSessionDeleteResponse
@@ -30,6 +32,8 @@ defmodule AnkoleWeb.AuthController do
   operation(:identity_providers, false)
   operation(:oidc_authorization, false)
   operation(:oidc_callback, false)
+  operation(:local_password_login, false)
+  operation(:local_password_change, false)
 
   operation(:delete_session,
     summary: "Clear the current browser admin session",
@@ -131,13 +135,130 @@ defmodule AnkoleWeb.AuthController do
             %{
               providerID: provider["provider_id"],
               adapterID: provider["adapter_id"],
-              pluginID: provider["plugin_id"]
+              pluginID: provider["plugin_id"],
+              kind: provider["kind"]
             }
           end)
       })
     else
       {:error, reason} -> error(conn, 500, reason)
     end
+  end
+
+  @doc """
+  Verifies a local email and password and opens an admin session.
+
+  A verified account that must still change its password gets a short-lived
+  change ticket instead of a session; `local_password_change/2` completes it.
+  """
+  def local_password_login(conn, params) do
+    return_to = WebSession.safe_return_to(params["returnTo"])
+
+    with {:ok, true} <- SetupConfig.completed?(),
+         {:ok, email} <- required_param(params, "email"),
+         {:ok, password} <- required_param(params, "password"),
+         {:ok, login} <- LocalPassword.authenticate(email, password) do
+      complete_local_password_login(conn, login, return_to)
+    else
+      {:ok, false} ->
+        error(conn, 409, "setup is not complete")
+
+      {:error, {:missing, key}} ->
+        error(conn, 422, "#{key} is required")
+
+      {:error, :no_local_provider} ->
+        local_password_error(conn, 404, "no_local_provider")
+
+      {:error, :invalid_credentials} ->
+        local_password_error(conn, 401, "invalid_credentials")
+
+      {:error, :account_disabled} ->
+        local_password_error(conn, 403, "account_disabled")
+
+      {:error, {:retry_locked, retry_after_seconds}} ->
+        conn
+        |> put_status(429)
+        |> json(%{error: "retry_locked", retryAfterSeconds: retry_after_seconds})
+
+      {:error, reason} ->
+        error(conn, 400, reason)
+    end
+  end
+
+  @doc """
+  Completes a forced password change and opens the admin session.
+  """
+  def local_password_change(conn, params) do
+    with %{"principal_uid" => principal_uid} = ticket <- WebSession.local_password_change(conn),
+         {:ok, new_password} <- required_param(params, "newPassword"),
+         {:ok, _credential} <- Principals.set_local_password(principal_uid, new_password, false),
+         true <- AdminAuth.active_human_admin?(principal_uid) do
+      conn
+      |> WebSession.clear_local_password_change()
+      |> WebSession.put_admin_session(%{
+        principal_uid: principal_uid,
+        provider_id: ticket["provider_id"],
+        external_id: ticket["external_id"]
+      })
+      |> json(%{returnTo: WebSession.safe_return_to(ticket["return_to"])})
+    else
+      nil ->
+        local_password_error(conn, 401, "change_ticket_expired")
+
+      false ->
+        local_password_error(conn, 403, "not_an_admin")
+
+      {:error, {:missing, key}} ->
+        error(conn, 422, "#{key} is required")
+
+      {:error, :password_too_short} ->
+        local_password_error(conn, 422, "password_too_short")
+
+      {:error, reason} ->
+        error(conn, 400, reason)
+    end
+  end
+
+  # The admin check runs before the must-change branch so an account without
+  # console access is refused at once instead of after it sets a new password.
+  defp complete_local_password_login(conn, login, return_to) do
+    cond do
+      not AdminAuth.active_human_admin?(login.principal_uid) ->
+        local_password_error(conn, 403, "not_an_admin")
+
+      login.must_change_password ->
+        conn
+        |> WebSession.put_local_password_change(%{
+          principal_uid: login.principal_uid,
+          provider_id: login.provider_id,
+          external_id: login.email,
+          return_to: return_to
+        })
+        |> json(%{status: "password_change_required"})
+
+      true ->
+        conn
+        |> WebSession.clear_local_password_change()
+        |> WebSession.put_admin_session(%{
+          principal_uid: login.principal_uid,
+          provider_id: login.provider_id,
+          external_id: login.email
+        })
+        |> json(%{status: "ok", returnTo: return_to})
+    end
+  end
+
+  defp required_param(params, key) do
+    case params[key] do
+      value when is_binary(value) and value != "" -> {:ok, value}
+      _missing -> {:error, {:missing, key}}
+    end
+  end
+
+  defp local_password_error(conn, status, code) do
+    conn
+    |> put_status(status)
+    |> json(%{error: code})
   end
 
   @doc """
@@ -209,9 +330,7 @@ defmodule AnkoleWeb.AuthController do
            Login.complete_oidc_login(provider_id, code, redirect_uri: oidc_state["redirect_uri"]),
          # The first OIDC user becomes the root admin only inside the setup flow.
          # Normal admin login below must pass the already-created AuthZ check.
-         {:ok, _root} <- AuthZ.root_init_admin(login.principal_uid),
-         {:ok, true} <- SetupConfig.put_completed(true),
-         :ok <- SetupConfig.delete_bootstrap_activation_code() do
+         {:ok, _root} <- SetupCompletion.complete_with_root_admin(login.principal_uid) do
       conn
       |> WebSession.clear_setup_session()
       |> WebSession.put_admin_session(%{

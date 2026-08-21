@@ -51,6 +51,7 @@ defmodule Ankole.Application do
         {Oban, Application.fetch_env!(:ankole, Oban)},
         Ankole.Plugins.Cohort,
         {Phoenix.PubSub, name: Ankole.PubSub},
+        Ankole.IdentityProviders.LocalPassword.RetryGuard,
         Ankole.AIGateway.CredentialPool,
         {Task.Supervisor, name: Ankole.AIGateway.ProgramTaskSupervisor, max_children: 4},
         {Task.Supervisor,

@@ -25,6 +25,11 @@ function manualChunks(moduleID: string): string | undefined {
   }
   if (moduleID.includes('/react-router/')) return 'vendor-router'
 
+  // Only a dynamic import reaches the zxcvbn dictionaries, so a chunk of
+  // their own loads lazily. The catch-all would fold their hundreds of
+  // kilobytes into the eagerly loaded utilities bundle.
+  if (moduleID.includes('/@zxcvbn-ts/')) return 'vendor-zxcvbn'
+
   if (
     moduleID.includes('/@tanstack/query-core/') ||
     moduleID.includes('/@tanstack/react-query/') ||

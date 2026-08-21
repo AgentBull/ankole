@@ -106,6 +106,18 @@ defmodule Ankole.KernelTest do
     assert NativeKernel.aead_decrypt(@aead_ciphertext, @aead_key) == "secret"
   end
 
+  test "argon2id helpers hash and verify passwords" do
+    hash = NativeKernel.argon2id_hash("correct horse battery staple")
+
+    assert String.starts_with?(hash, "$argon2id$v=19$")
+    assert NativeKernel.argon2id_verify("correct horse battery staple", hash)
+    refute NativeKernel.argon2id_verify("wrong password", hash)
+    assert NativeKernel.argon2id_hash("correct horse battery staple") != hash
+
+    assert {:error, reason} = NativeKernel.argon2id_verify("password", "not a phc string")
+    assert reason =~ "invalid password hash"
+  end
+
   test "jwt helpers sign and verify claims" do
     token =
       NativeKernel.jwt_sign(

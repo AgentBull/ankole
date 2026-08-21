@@ -31,6 +31,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Outbox do
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.Channel
   alias Ankole.SignalsGateway.OutboxEntry
+  alias Ankole.SignalsGateway.ReplyPreviewAdapter
   alias Ankole.SignalsGateway.ReplyPreviewAdapter.Request
   alias Ankole.WorkerFiles
   alias DingTalkOpenAPI.Error
@@ -56,7 +57,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Outbox do
       %ActorEvent{} = event ->
         checkpoint = event.reply_preview_checkpoint || %{}
 
-        AICard.finalize(%Request{
+        ReplyPreviewAdapter.finalize_module(AICard, %Request{
           actor_event: event,
           presentation: presentation,
           checkpoint: checkpoint,
@@ -391,4 +392,27 @@ defmodule Ankole.Plugins.DingTalkAdapter.Outbox do
   end
 
   defp normalize_delivery_error(result), do: result
+
+  @doc false
+  @spec normalize_delivery_result(term()) :: term()
+  def normalize_delivery_result({:error, %Error{} = error}) do
+    action =
+      cond do
+        Error.retryable?(error) -> :retryable
+        error.reason in [:auth, :quota_exhausted] -> :operator_action_required
+        true -> :permanent
+      end
+
+    {:error,
+     {:reply_delivery, action,
+      MapHelpers.compact_map(%{
+        reason: error.reason,
+        code: error.code,
+        message: error.message,
+        http_status: error.http_status,
+        retry_after_seconds: error.retry_after
+      })}}
+  end
+
+  def normalize_delivery_result(result), do: result
 end

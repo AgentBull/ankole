@@ -1,7 +1,7 @@
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import { batch, computed, createModel, signal } from '@preact/signals-react'
 import { setPath } from '../../common/config-fields'
-import type { SignalBindingItem, SignalBindingWriteRequest } from '../api/generated/types.gen'
+import type { SignalAdapterItem, SignalBindingItem, SignalBindingWriteRequest } from '../api/generated/types.gen'
 
 export type GroupMessageMode = NonNullable<SignalBindingWriteRequest['group_message_mode']>
 
@@ -25,6 +25,24 @@ export function groupMessageModeFromPolicy(
   if (policy === 'ignore') return 'addressed_only'
   if (policy === 'record_only') return 'observe_all'
   return 'may_intervene'
+}
+
+const SIGNAL_ADAPTER_GROUPS = [
+  {
+    category: 'enterprise_im',
+    labelKey: 'console.signals.adapter_group_enterprise_im'
+  },
+  {
+    category: 'consumer_im',
+    labelKey: 'console.signals.adapter_group_consumer_im'
+  }
+] as const
+
+export function groupSignalAdapters(signalAdapters: readonly SignalAdapterItem[]) {
+  return SIGNAL_ADAPTER_GROUPS.map(group => ({
+    ...group,
+    adapters: signalAdapters.filter(adapter => adapter.adapter_category === group.category)
+  })).filter(group => group.adapters.length > 0)
 }
 
 export const SignalBindingEditorModel = createModel(() => {

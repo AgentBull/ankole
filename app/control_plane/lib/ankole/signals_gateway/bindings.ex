@@ -238,6 +238,7 @@ defmodule Ankole.SignalsGateway.Bindings do
   defp adapter_catalog(%Definition{} = definition) do
     %{
       adapter_id: definition.id,
+      adapter_category: definition.adapter_category,
       plugin_id: definition.plugin_id,
       display_name: definition.display_name,
       fields: definition.fields,

@@ -14,6 +14,7 @@ defmodule Ankole.SignalsGateway.Adapters do
   alias Ankole.SignalsGateway.Utils
 
   @contract_id "signals_gateway.adapter"
+  @adapter_categories ["enterprise_im", "consumer_im"]
 
   defmodule Definition do
     @moduledoc """
@@ -23,9 +24,10 @@ defmodule Ankole.SignalsGateway.Adapters do
     alias Ankole.SignalsGateway.OutboxAdapter
     alias Ankole.SignalsGateway.ReplyPreviewAdapter
 
-    @enforce_keys [:id, :display_name, :fields]
+    @enforce_keys [:id, :adapter_category, :display_name, :fields]
     defstruct [
       :id,
+      :adapter_category,
       :plugin_id,
       :display_name,
       :config_key_pattern,
@@ -41,6 +43,7 @@ defmodule Ankole.SignalsGateway.Adapters do
 
     @type t :: %__MODULE__{
             id: String.t(),
+            adapter_category: String.t(),
             plugin_id: String.t() | nil,
             display_name: %{String.t() => String.t()},
             fields: [map()],
@@ -147,6 +150,8 @@ defmodule Ankole.SignalsGateway.Adapters do
 
   defp resolve_declaration(declaration) do
     with adapter_id when is_binary(adapter_id) and adapter_id != "" <- value(declaration, :id),
+         {:ok, adapter_category} <-
+           validate_adapter_category(value(declaration, :adapter_category)),
          :ok <- validate_inbound_adapter(declaration),
          {:ok, outbox_adapter} <- resolve_outbox_adapter(declaration),
          :ok <-
@@ -188,6 +193,7 @@ defmodule Ankole.SignalsGateway.Adapters do
       {:ok,
        %Definition{
          id: adapter_id,
+         adapter_category: adapter_category,
          plugin_id: value(declaration, :plugin_id),
          display_name: value(declaration, :display_name) || %{"default" => adapter_id},
          fields: list_value(declaration, :fields),
@@ -206,6 +212,11 @@ defmodule Ankole.SignalsGateway.Adapters do
       _adapter_id -> {:error, {:invalid_signal_adapter_declaration, declaration}}
     end
   end
+
+  defp validate_adapter_category(category) when category in @adapter_categories,
+    do: {:ok, category}
+
+  defp validate_adapter_category(category), do: {:error, {:invalid_adapter_category, category}}
 
   defp validate_inbound_adapter(declaration) do
     capabilities = list_value(declaration, :inbound_capabilities)

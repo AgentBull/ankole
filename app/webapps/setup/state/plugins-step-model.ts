@@ -7,6 +7,22 @@ export function filterSelectedPluginItems<T extends { pluginID: string }>(
   return items.filter(item => selectedPluginIDs.has(item.pluginID))
 }
 
+/**
+ * Identity adapters the setup identity step offers: the built-in local
+ * adapter always comes first, and plugin adapters follow the plugin
+ * selection. The local adapter belongs to no selectable plugin, so the
+ * plugin filter alone would drop it.
+ */
+export function visibleIdentityAdapters<T extends { adapterID: string; pluginID: string }>(
+  adapters: readonly T[],
+  selectedPluginIDs: ReadonlySet<string>
+): T[] {
+  const local = adapters.filter(adapter => adapter.adapterID === 'local')
+  const pluginAdapters = adapters.filter(adapter => adapter.adapterID !== 'local')
+
+  return [...local, ...filterSelectedPluginItems(pluginAdapters, selectedPluginIDs)]
+}
+
 export const PluginsStepModel = createModel(() => {
   const sourceKey = signal<string>()
   const selectedPluginIDs = signal<ReadonlySet<string>>(new Set())

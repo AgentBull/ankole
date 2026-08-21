@@ -1,3 +1,20 @@
+/**
+ * Reads the machine-readable code from a console API error envelope
+ * (`{error: {code, message}}`), so pages can localize known failures instead
+ * of showing the server's English message.
+ */
+export function requestErrorCode(error: unknown): string | undefined {
+  if (error && typeof error === 'object' && 'error' in error) {
+    const value = (error as { error?: unknown }).error
+    if (value && typeof value === 'object' && 'code' in value) {
+      const code = (value as { code?: unknown }).code
+      if (typeof code === 'string') return code
+    }
+  }
+
+  return undefined
+}
+
 /** Converts caught request failures into UI-safe text. */
 export function requestErrorMessage(error: unknown): string {
   if (error && typeof error === 'object') {

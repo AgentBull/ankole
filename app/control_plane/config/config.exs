@@ -24,6 +24,7 @@ config :ankole, :control_plane_plugin_modules, [
   Ankole.Plugins.LarkAdapter,
   Ankole.Plugins.Microsoft365Adapter,
   Ankole.Plugins.SlackAdapter,
+  Ankole.Plugins.TelegramAdapter,
   Ankole.Plugins.WeComAdapter
 ]
 

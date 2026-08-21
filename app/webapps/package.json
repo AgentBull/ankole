@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "bun --bun vite --config vite.config.ts",
     "build": "bun run openapi:generate && bun run type-check && bun --bun vite build --config vite.config.ts",
-    "test": "bun test common console setup/state",
+    "test": "bun test common console setup/state auth/state",
     "type-check": "tsc -p tsconfig.json --noEmit",
     "lint": "tsc -p tsconfig.json --noEmit",
     "fmt": "oxfmt .",
@@ -20,6 +20,8 @@
     "@preact/signals-react": "3.12.0",
     "@remixicon/react": "4.9.0",
     "@tanstack/react-query": "5.101.4",
+    "@zxcvbn-ts/core": "^4.2.0",
+    "@zxcvbn-ts/language-common": "^4.1.3",
     "any-ascii": "0.3.3",
     "date-fns": "^4.4.0",
     "i18next": "26.3.6",

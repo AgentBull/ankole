@@ -3,7 +3,9 @@ defmodule Ankole.AppConfigure.Declarations do
 
   alias Ankole.AIAgent.Library.AgentPlugins.Config, as: AgentPluginConfig
   alias Ankole.AppConfigure.Definition
+  alias Ankole.AppConfigure.PatternDefinition
   alias Ankole.IdentityProviders.Config, as: IdentityProviderConfig
+  alias Ankole.IdentityProviders.LocalPassword
   alias Ankole.SignalsGateway.ActorRuntime.AgentConfig
   alias Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobWorkerConfig
   alias Ankole.SignalsGateway.ActorRuntime.DeadLetterNoticeConfig
@@ -30,5 +32,10 @@ defmodule Ankole.AppConfigure.Declarations do
       AgentPluginConfig.definitions() ++
       IdentityProviderConfig.definitions() ++
       AgentConfig.definitions()
+  end
+
+  @spec core_patterns() :: [PatternDefinition.t()]
+  def core_patterns do
+    [LocalPassword.app_config_pattern()]
   end
 end

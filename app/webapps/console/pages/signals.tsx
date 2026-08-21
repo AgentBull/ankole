@@ -7,7 +7,9 @@ import {
   Input,
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
   Switch,
@@ -53,6 +55,7 @@ import { FormSection, LabeledField, ReadOnlyValue, ResourceEditorPage, StatusInd
 import { AgentCell, FilterSwitch, ResourceListPage, ResourceSearch, RowActions } from '../console-list-page'
 import {
   groupMessageModeFromPolicy,
+  groupSignalAdapters,
   SignalBindingEditorModel,
   type GroupMessageMode,
   type SignalBindingAdapterDraft,
@@ -330,6 +333,7 @@ export function SignalBindingEditorPage() {
   const defaultAgentUID = resolveAgentUID(agentList, sourceAgentUID)
   const adapters = useQuery(ankoleWebSignalBindingControllerAdaptersOptions())
   const signalAdapters = adapters.data?.signal_adapters ?? []
+  const adapterGroups = groupSignalAdapters(signalAdapters)
   const bindingDetail = useQuery({
     ...ankoleWebSignalBindingControllerShowOptions({
       path: { agent_uid: sourceAgentUID, binding_name: lockedName ?? '' }
@@ -499,10 +503,15 @@ export function SignalBindingEditorPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent emptyLabel={adapters.isLoading ? t('common.loading') : t('common.select_empty')}>
-                  {signalAdapters.map(adapter => (
-                    <SelectItem key={adapter.adapter_id} value={adapter.adapter_id}>
-                      {localizedUnknown(adapter.display_name, locale, adapter.adapter_id)}
-                    </SelectItem>
+                  {adapterGroups.map(group => (
+                    <SelectGroup key={group.category}>
+                      <SelectLabel>{t(group.labelKey)}</SelectLabel>
+                      {group.adapters.map(adapter => (
+                        <SelectItem key={adapter.adapter_id} value={adapter.adapter_id}>
+                          {localizedUnknown(adapter.display_name, locale, adapter.adapter_id)}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
                   ))}
                 </SelectContent>
               </Select>

@@ -3,6 +3,8 @@ import {
   AvatarFallback,
   AvatarImage,
   Badge,
+  buttonVariants,
+  cn,
   Skeleton,
   Table,
   TableBody,
@@ -34,7 +36,9 @@ import { ErrorBlock } from '../../common/error-block'
 import { ConfirmDeleteButton, StatusIndicator } from '../console-form'
 import { ResourceListPage, ResourceSearch, RowViewAction, SubNav } from '../console-list-page'
 import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
+import { useLocalIdentityProvider } from '../use-local-identity-provider'
 import { PermissionGrantsSection } from './permission-grant-editor'
+import { LocalPasswordSection } from './principal-local-password'
 
 /**
  * Sibling views of the "Access" nav area.
@@ -59,6 +63,7 @@ export function AccessSubNav() {
 export function PrincipalsListPage() {
   const { t } = useTranslation()
   const principals = useQuery(ankoleWebPrincipalControllerIndexOptions())
+  const localIdentity = useLocalIdentityProvider()
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
   const searchQuery = effectiveResourceSearchQuery(query, deferredQuery)
@@ -70,6 +75,8 @@ export function PrincipalsListPage() {
     <ResourceListPage
       title={t('console.principals.title')}
       description={t('console.principals.description')}
+      createTo={localIdentity.enabled ? 'new' : undefined}
+      createLabel={localIdentity.enabled ? t('console.principals.new_user') : undefined}
       columns={[
         t('console.principals.principal'),
         t('console.principals.uid'),
@@ -128,6 +135,7 @@ export function PrincipalDetailPage() {
   const params = useParams()
   const uid = params.uid ?? ''
   const principal = useQuery(ankoleWebPrincipalControllerShowOptions({ path: { uid } }))
+  const localIdentity = useLocalIdentityProvider()
   const loadedPrincipal = principal.data?.principal
 
   return (
@@ -141,6 +149,9 @@ export function PrincipalDetailPage() {
               {loadedPrincipal?.display_name ?? uid}
             </h2>
             <p className="truncate font-mono text-xs text-muted-foreground">{uid}</p>
+            {loadedPrincipal?.email ? (
+              <p className="truncate text-sm text-muted-foreground">{loadedPrincipal.email}</p>
+            ) : null}
           </div>
           {loadedPrincipal ? (
             <div className="flex items-center gap-2">
@@ -150,11 +161,19 @@ export function PrincipalDetailPage() {
               </StatusIndicator>
             </div>
           ) : null}
+          {loadedPrincipal && localIdentity.enabled && loadedPrincipal.type === 'human' ? (
+            <Link className={cn(buttonVariants({ size: 'sm', variant: 'outline' }), 'ml-auto')} to="edit">
+              {t('console.principals.edit_profile')}
+            </Link>
+          ) : null}
         </div>
       </div>
       <ErrorBlock error={principal.error} />
       {loadedPrincipal ? (
         <div className="grid gap-10">
+          {localIdentity.enabled && loadedPrincipal.type === 'human' ? (
+            <LocalPasswordSection principal={loadedPrincipal} />
+          ) : null}
           <PrincipalGroupsSection principal={loadedPrincipal} />
           <PrincipalGrantsSection principal={loadedPrincipal} />
         </div>

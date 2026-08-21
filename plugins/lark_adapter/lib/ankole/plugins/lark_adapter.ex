@@ -47,6 +47,7 @@ defmodule Ankole.Plugins.LarkAdapter do
       %{
         contract_id: "signals_gateway.adapter",
         id: "lark",
+        adapter_category: "enterprise_im",
         plugin_id: plugin_id(),
         display_name: adapter_display_name(),
         config_key_pattern: "signals_gateway.lark.binding_configs.<id>",

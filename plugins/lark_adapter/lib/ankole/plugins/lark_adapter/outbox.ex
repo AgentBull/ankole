@@ -16,6 +16,7 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.Channel
   alias Ankole.SignalsGateway.OutboxEntry
+  alias Ankole.SignalsGateway.ReplyPreviewAdapter
   alias Ankole.SignalsGateway.ReplyPreviewAdapter.Request
   alias Ankole.Repo
   alias Ankole.WorkerFiles
@@ -78,7 +79,7 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
       %ActorEvent{} = event ->
         checkpoint = event.reply_preview_checkpoint || %{}
 
-        CardKit.finalize(%Request{
+        ReplyPreviewAdapter.finalize_module(CardKit, %Request{
           actor_event: event,
           presentation: presentation,
           previous_presentation: checkpoint["presentation"],

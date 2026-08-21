@@ -83,10 +83,14 @@ defmodule AnkoleWeb.Router do
          SetupController,
          :oidc_authorization
 
+    post "/setup/local-admin", SetupController, :create_local_admin
+
     get "/session", AuthController, :session
     delete "/session", AuthController, :delete_session
     post "/oauth/token", AuthController, :oauth_token
     get "/identity-providers", AuthController, :identity_providers
+    post "/sessions/local-password", AuthController, :local_password_login
+    post "/sessions/local-password/change", AuthController, :local_password_change
   end
 
   # The spec document is public (no bearer token) so tooling can read it without
@@ -121,9 +125,15 @@ defmodule AnkoleWeb.Router do
          :decrypt_for_agent
 
     get "/principals", PrincipalController, :index
+    post "/principals", PrincipalController, :create
     get "/principals/:uid", PrincipalController, :show
+    patch "/principals/:uid", PrincipalController, :update
     get "/principals/:uid/groups", PrincipalController, :groups
     get "/principals/:uid/grants", PrincipalController, :grants
+
+    post "/principals/:uid/local-password-resets",
+         PrincipalController,
+         :create_local_password_reset
 
     get "/principal-groups", AuthZGroupController, :index
     post "/principal-groups", AuthZGroupController, :create

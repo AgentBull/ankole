@@ -1,5 +1,19 @@
 # Changelog
 
+## Version 1.0.0-alpha.3 (2026-08-21)
+
+- Ankole now has built-in local accounts. The setup wizard step becomes "Configure user sign-in" and can create the administrator with an email and password, and the sign-in page accepts email and password next to SSO. No external SSO provider is needed to start.
+- Console principal management can add local users with generated one-time initial passwords, force a password change at first sign-in, reset passwords, and edit a user's display name and email. These controls appear when the local identity provider is enabled.
+- Password retry protection allows at most 5 failed sign-in attempts per account inside a 30-minute window; further attempts must wait, and a password reset ends the wait at once. It is on by default, and the local provider configuration can turn it off.
+- A new rescue command resets a local account password by email: `mix ankole.local_password.reset` in development, `bun kit local-password reset` from the devkit, or `Ankole.Release.reset_local_password/1` on a production release.
+- Telegram is now available as the first consumer IM Signal adapter. One encrypted Bot token connects one enabled binding through supervised long polling with durable ingress; the adapter receives direct, group, forum-topic, reaction, and card-action input and sends mutable replies, attachments, reactions, dividers, and cards. Telegram cloud downloads above 20 MB remain as explicit unavailable attachment records, and rate limits follow Telegram's requested delay.
+- The Signal Routing adapter selector now groups enterprise IM and consumer IM adapters. This category is display-only and does not change identity admission, routing, permissions, capabilities, or binding policy.
+- Telegram and Slack replies that reduce to no visible text now show the empty-reply placeholder in the installation's configured language instead of a fixed Chinese string.
+- DingTalk reply-delivery failures (for example an expired token or a deleted group) now stop or wait for an operator as appropriate, instead of retrying forever with the wrong failure reason recorded.
+- An administrator can now edit a local account's email from the console even when that account also has a linked external identity, such as a manually mapped Telegram handle.
+- A final AI reply on Slack, Telegram, Lark, DingTalk, or WeCom now goes through the same secret-redaction step as an in-progress reply before it reaches the provider.
+- Internal: consolidated the setup-completion sequence and duplicated local-account and reply-delivery validation logic into single implementations, with no change in behavior.
+
 ## Version 1.0.0-alpha.2 (2026-08-21)
 
 - Concurrent identity observations, Slack directory deltas, and signal channel updates now keep all accepted facts. A mapped account no longer returns to Pending mappings, a failed directory delta leaves the group unchanged, and concurrent channel metadata keys no longer overwrite each other.

@@ -68,6 +68,20 @@ A binding update treats `config` as a patch. It keeps fields that the request
 does not contain, so an operator can change routing without re-entering stored
 provider secrets.
 
+Each `signals_gateway.adapter` declaration must set `adapter_category` to one
+of these values:
+
+- `enterprise_im` identifies an enterprise messaging adapter. Lark, Slack,
+  Microsoft Teams, DingTalk, and WeCom use this category.
+- `consumer_im` identifies a consumer messaging adapter. Telegram is the first
+  adapter in this category.
+
+The category is catalog metadata. The adapter catalog, documentation, and
+Console use it to group adapters. It does not control identity admission,
+authorization, routing, capabilities, or default policies. A binding does not
+store the category; each catalog read gets it from the current adapter
+declaration. A missing or unknown category makes the declaration invalid.
+
 The Console edit read returns normal configuration values, omits every
 adapter-declared encrypted value, and lists only the paths that already contain
 a secret. A binding update keeps the stored encrypted value when its patch

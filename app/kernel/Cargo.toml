@@ -43,6 +43,7 @@ universal_ai_client_ring = [
 
 [dependencies]
 any_ascii = "0.3.3"
+argon2 = "0.5.3"
 base64-simd = "0.8.0"
 blake3 = "1.8.6"
 bytes = { version = "1.12.1", optional = true }

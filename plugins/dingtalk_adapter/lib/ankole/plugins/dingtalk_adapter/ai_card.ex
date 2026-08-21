@@ -40,6 +40,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
   alias Ankole.Plugins.DingTalkAdapter.Config
   alias Ankole.Plugins.DingTalkAdapter.InteractiveCard
   alias Ankole.Plugins.DingTalkAdapter.Markdown
+  alias Ankole.Plugins.DingTalkAdapter.Outbox
   alias Ankole.Repo
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.ActorEvent
@@ -935,6 +936,8 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
   # Provider errors surface with their classified reason for the gateway's retry
   # budget; deterministic degrades already returned the non-retryable
   # cardkit_plain_text_fallback shape from inside reconcile.
-  defp normalize_result({:error, %Error{} = error}), do: {:error, {:reply_delivery, error.reason}}
+  defp normalize_result({:error, %Error{} = error}),
+    do: Outbox.normalize_delivery_result({:error, error})
+
   defp normalize_result(result), do: result
 end

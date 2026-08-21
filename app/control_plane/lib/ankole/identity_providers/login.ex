@@ -1,27 +1,37 @@
 defmodule Ankole.IdentityProviders.Login do
   @moduledoc """
-  OIDC login boundary for configured identity providers.
+  Login boundary for configured identity providers.
 
-  Login availability is one host-owned decision: the adapter must declare the
-  OIDC capability, and the provider config must not turn `oidc.enabled` off.
-  The login list, the authorization redirect, and the code exchange all apply
-  this same decision, so a sync-only provider never appears as a login option
-  and adapters do not repeat the check.
+  Login availability is one host-owned decision. For OIDC the adapter must
+  declare the OIDC capability and the provider config must not turn
+  `oidc.enabled` off; for the built-in password adapter the capability alone
+  decides. The login list, the authorization redirect, and the code exchange
+  all apply this same decision, so a sync-only provider never appears as a
+  login option and adapters do not repeat the check. The password verify flow
+  itself lives in `Ankole.IdentityProviders.LocalPassword`.
   """
 
   alias Ankole.IdentityProviders
   alias Ankole.IdentityProviders.Config
+  alias Ankole.IdentityProviders.LocalPassword
 
   @authorization_capability "oidc_authorization"
   @code_exchange_capability "oidc_code_exchange"
 
   @doc """
   Lists configured providers available to the login page.
+
+  Each entry carries a `"kind"` of `"password"` or `"oidc"` so the login page
+  knows which interaction the provider needs.
   """
   @spec list_login_providers() :: {:ok, [map()]} | {:error, term()}
   def list_login_providers do
     with {:ok, providers} <- Config.active_providers() do
-      {:ok, Enum.filter(providers, &login_provider?/1)}
+      {:ok,
+       providers
+       |> Enum.map(fn provider -> {provider, login_kind(provider)} end)
+       |> Enum.reject(fn {_provider, kind} -> is_nil(kind) end)
+       |> Enum.map(fn {provider, kind} -> Map.put(provider, "kind", kind) end)}
     end
   end
 
@@ -81,13 +91,31 @@ defmodule Ankole.IdentityProviders.Login do
     end
   end
 
-  defp login_provider?(provider) do
+  defp login_kind(provider) do
     with true <- provider["enabled"] != false,
-         {:ok, adapter} <- IdentityProviders.fetch_adapter(provider["adapter_id"]),
-         {:ok, config} <- IdentityProviders.provider_config(provider) do
-      ensure_login(adapter, config, @authorization_capability) == :ok
+         {:ok, adapter} <- IdentityProviders.fetch_adapter(provider["adapter_id"]) do
+      capabilities = IdentityProviders.adapter_capabilities(adapter)
+
+      cond do
+        LocalPassword.capability() in capabilities -> "password"
+        @authorization_capability in capabilities -> oidc_login_kind(provider, adapter)
+        true -> nil
+      end
     else
-      _other -> false
+      _disabled_or_unknown -> nil
+    end
+  end
+
+  defp oidc_login_kind(provider, adapter) do
+    case IdentityProviders.provider_config(provider) do
+      {:ok, config} ->
+        case ensure_login(adapter, config, @authorization_capability) do
+          :ok -> "oidc"
+          {:error, _reason} -> nil
+        end
+
+      _missing_or_error ->
+        nil
     end
   end
 

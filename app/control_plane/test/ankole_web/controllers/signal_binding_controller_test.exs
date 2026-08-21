@@ -750,6 +750,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
 
     adapter = Enum.find(adapters, &(&1["adapter_id"] == "lark"))
     assert adapter["adapter_id"] == "lark"
+    assert adapter["adapter_category"] == "enterprise_im"
     assert adapter["display_name"]["default"] == "Lark"
 
     fields = Map.new(adapter["fields"], &{&1["path"], &1})
@@ -779,6 +780,16 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     assert slack_fields["userName"]["advanced"] == true
 
     assert slack["group_message_mode_field"] == adapter["group_message_mode_field"]
+
+    assert Enum.all?(
+             Enum.filter(adapters, &(&1["adapter_id"] in ~w(dingtalk lark slack teams wecom))),
+             &(&1["adapter_category"] == "enterprise_im")
+           )
+
+    telegram = Enum.find(adapters, &(&1["adapter_id"] == "telegram"))
+    assert telegram["adapter_category"] == "consumer_im"
+    assert telegram["display_name"]["default"] == "Telegram"
+    assert Enum.map(telegram["fields"], & &1["path"]) == ["botToken"]
   end
 
   test "signal adapter catalog returns 503 while the plugin registry is unavailable", %{

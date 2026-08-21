@@ -74,6 +74,10 @@ It validates mobile numbers as E.164 values through the native kernel.
 
 Unique indexes protect non-null email and mobile values.
 
+A human user can also hold a local sign-in password in
+`human_user_local_credentials`. See
+[Local Password Identity Provider](LocalPasswordIdentityProvider.md).
+
 ### `agents`
 
 The table extends an agent Principal with these fields:

@@ -64,6 +64,25 @@ defmodule Ankole.Kernel do
   def any_ascii(_input), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
+  Hashes a password with Argon2id and returns a PHC-format string.
+
+  Each call generates a new random salt, so equal passwords produce different
+  strings. The string embeds the algorithm, version, parameters, salt, and
+  digest, so `argon2id_verify/2` needs no other stored state.
+  """
+  @spec argon2id_hash(String.t()) :: result(String.t())
+  def argon2id_hash(_password), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Verifies a password against a PHC-format hash from `argon2id_hash/1`.
+
+  Returns `false` for a password that does not match. Returns an error for a
+  hash string that is not a valid PHC string.
+  """
+  @spec argon2id_verify(String.t(), String.t()) :: result(boolean())
+  def argon2id_verify(_password, _phc_hash), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
   Authorizes one exact action on one concrete resource.
 
   The snapshot must contain every Principal, group, grant, resource, action, and

@@ -526,6 +526,23 @@ pub fn jwt_verify_jwk_nif(
     common::jwt_verify_jwk(&token, &jwk, &validation).map_err(error)
 }
 
+/// Hashes a password with Argon2id and returns a PHC-format string.
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn argon2id_hash(password: Term<'_>) -> NIFResult<String> {
+    let password = decode_string(password, "password")?;
+
+    common::argon2id_hash(&password).map_err(error)
+}
+
+/// Verifies a password against a PHC-format Argon2id hash string.
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn argon2id_verify(password: Term<'_>, phc_hash: Term<'_>) -> NIFResult<bool> {
+    let password = decode_string(password, "password")?;
+    let phc_hash = decode_string(phc_hash, "phc_hash")?;
+
+    common::argon2id_verify(&password, &phc_hash).map_err(error)
+}
+
 /// Facts about one parsed web URL for the shared web tools URL policy.
 #[derive(rustler::NifMap)]
 struct WebURLFactsNIF {

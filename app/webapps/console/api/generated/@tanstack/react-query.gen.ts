@@ -100,10 +100,13 @@ import {
   ankoleWebPermissionGrantControllerDelete,
   ankoleWebPermissionGrantControllerShow,
   ankoleWebPermissionGrantControllerUpdate,
+  ankoleWebPrincipalControllerCreate,
+  ankoleWebPrincipalControllerCreateLocalPasswordReset,
   ankoleWebPrincipalControllerGrants,
   ankoleWebPrincipalControllerGroups,
   ankoleWebPrincipalControllerIndex,
   ankoleWebPrincipalControllerShow,
+  ankoleWebPrincipalControllerUpdate,
   ankoleWebScheduleControllerCancelCheckback,
   ankoleWebScheduleControllerCreateCron,
   ankoleWebScheduleControllerCronRuns,
@@ -412,6 +415,12 @@ import type {
   AnkoleWebPermissionGrantControllerUpdateData,
   AnkoleWebPermissionGrantControllerUpdateError,
   AnkoleWebPermissionGrantControllerUpdateResponse,
+  AnkoleWebPrincipalControllerCreateData,
+  AnkoleWebPrincipalControllerCreateError,
+  AnkoleWebPrincipalControllerCreateLocalPasswordResetData,
+  AnkoleWebPrincipalControllerCreateLocalPasswordResetError,
+  AnkoleWebPrincipalControllerCreateLocalPasswordResetResponse,
+  AnkoleWebPrincipalControllerCreateResponse,
   AnkoleWebPrincipalControllerGrantsData,
   AnkoleWebPrincipalControllerGrantsError,
   AnkoleWebPrincipalControllerGrantsResponse,
@@ -424,6 +433,9 @@ import type {
   AnkoleWebPrincipalControllerShowData,
   AnkoleWebPrincipalControllerShowError,
   AnkoleWebPrincipalControllerShowResponse,
+  AnkoleWebPrincipalControllerUpdateData,
+  AnkoleWebPrincipalControllerUpdateError,
+  AnkoleWebPrincipalControllerUpdateResponse,
   AnkoleWebScheduleControllerCancelCheckbackData,
   AnkoleWebScheduleControllerCancelCheckbackResponse,
   AnkoleWebScheduleControllerCreateCronData,
@@ -991,6 +1003,33 @@ export const ankoleWebAuthZGroupControllerCreateMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await ankoleWebAuthZGroupControllerCreate({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * Replace one user's local password with a new one-time password
+ */
+export const ankoleWebPrincipalControllerCreateLocalPasswordResetMutation = (
+  options?: Partial<Options<AnkoleWebPrincipalControllerCreateLocalPasswordResetData>>
+): UseMutationOptions<
+  AnkoleWebPrincipalControllerCreateLocalPasswordResetResponse,
+  AnkoleWebPrincipalControllerCreateLocalPasswordResetError,
+  Options<AnkoleWebPrincipalControllerCreateLocalPasswordResetData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebPrincipalControllerCreateLocalPasswordResetResponse,
+    AnkoleWebPrincipalControllerCreateLocalPasswordResetError,
+    Options<AnkoleWebPrincipalControllerCreateLocalPasswordResetData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebPrincipalControllerCreateLocalPasswordReset({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -2676,6 +2715,33 @@ export const ankoleWebPrincipalControllerIndexOptions = (options?: Options<Ankol
   })
 
 /**
+ * Create a human user with a local sign-in password
+ */
+export const ankoleWebPrincipalControllerCreateMutation = (
+  options?: Partial<Options<AnkoleWebPrincipalControllerCreateData>>
+): UseMutationOptions<
+  AnkoleWebPrincipalControllerCreateResponse,
+  AnkoleWebPrincipalControllerCreateError,
+  Options<AnkoleWebPrincipalControllerCreateData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebPrincipalControllerCreateResponse,
+    AnkoleWebPrincipalControllerCreateError,
+    Options<AnkoleWebPrincipalControllerCreateData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebPrincipalControllerCreate({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
  * Create one permission grant for a Principal or a group
  */
 export const ankoleWebPermissionGrantControllerCreateMutation = (
@@ -3162,6 +3228,33 @@ export const ankoleWebPrincipalControllerShowOptions = (options: Options<AnkoleW
     },
     queryKey: ankoleWebPrincipalControllerShowQueryKey(options)
   })
+
+/**
+ * Update the display name or email of one human user
+ */
+export const ankoleWebPrincipalControllerUpdateMutation = (
+  options?: Partial<Options<AnkoleWebPrincipalControllerUpdateData>>
+): UseMutationOptions<
+  AnkoleWebPrincipalControllerUpdateResponse,
+  AnkoleWebPrincipalControllerUpdateError,
+  Options<AnkoleWebPrincipalControllerUpdateData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebPrincipalControllerUpdateResponse,
+    AnkoleWebPrincipalControllerUpdateError,
+    Options<AnkoleWebPrincipalControllerUpdateData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebPrincipalControllerUpdate({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
 
 /**
  * Cancel one webhook endpoint

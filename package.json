@@ -54,5 +54,5 @@
     "oxlint": "^1.79.0",
     "typescript": "^7.0.2"
   },
-  "packageManager": "bun@1.4.0-canary.1"
+  "packageManager": "bun@1.4.0"
 }

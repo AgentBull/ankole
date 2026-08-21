@@ -13,6 +13,7 @@ defmodule Ankole.IdentityProviders do
   alias Ankole.AppConfigure
   alias Ankole.IdentityProviders.Config
   alias Ankole.IdentityProviders.DirectorySync
+  alias Ankole.IdentityProviders.LocalPassword
   alias Ankole.Plugins
   alias Ankole.Plugins.ConfigSecrets
 
@@ -40,22 +41,21 @@ defmodule Ankole.IdentityProviders do
     # The plugin registry applies the enabled list only when the process boots.
     # Configuration writes also honor the persisted next-start selection so
     # they cannot create a provider for a plugin that the next restart removes.
-    list_active_plugin_adapters()
-    |> Enum.filter(&MapSet.member?(enabled_ids, &1.plugin_id))
+    # Built-in adapters are part of the control plane and skip that filter.
+    builtin_adapters() ++
+      Enum.filter(active_plugin_adapters(), &MapSet.member?(enabled_ids, &1.plugin_id))
   end
 
   @doc """
-  Lists identity-provider adapters loaded by plugins active in this process.
+  Lists built-in adapters and adapters loaded by plugins active in this process.
 
   Setup uses this boot-time catalog and applies the current setup selection in
-  the browser. This keeps an adapter available when an operator clears and then
-  restores its selection before the process restarts.
+  the browser. This keeps a plugin adapter available when an operator clears
+  and then restores its selection before the process restarts.
   """
-  @spec list_active_plugin_adapters() :: [adapter()]
-  def list_active_plugin_adapters do
-    Plugins.list_active()
-    |> Enum.flat_map(&adapters_for_plugin/1)
-    |> Enum.sort_by(& &1.adapter_id)
+  @spec list_active_adapters() :: [adapter()]
+  def list_active_adapters do
+    builtin_adapters() ++ active_plugin_adapters()
   end
 
   @doc """
@@ -118,6 +118,7 @@ defmodule Ankole.IdentityProviders do
       when is_binary(adapter_id) and is_map(config) and is_boolean(enabled) and is_list(opts) do
     with {:ok, provider_id} <- Config.normalize_provider_id(provider_id),
          {:ok, adapter} <- fetch_catalog_adapter(adapter_id),
+         :ok <- ensure_single_local_provider(adapter, provider_id),
          {:ok, config_key} <- provider_config_key(adapter, provider_id),
          {:ok, config} <- provider_config_for_write(adapter, config_key, config),
          {:ok, persisted_config} <- AppConfigure.put_global_by_key(config_key, config),
@@ -182,7 +183,6 @@ defmodule Ankole.IdentityProviders do
   @spec validate_adapter_declaration(map()) :: :ok | {:error, term()}
   def validate_adapter_declaration(declaration) when is_map(declaration) do
     with {:ok, module} <- identity_adapter_module(declaration),
-         :ok <- ensure_exported(module, :upsert_user, 2),
          :ok <- validate_identity_capabilities(module, declaration),
          :ok <- validate_connection_reconciler(declaration) do
       :ok
@@ -250,18 +250,51 @@ defmodule Ankole.IdentityProviders do
     end
   end
 
+  # One credential table serves the whole installation, so a second local
+  # provider instance would only make the retry-protection config ambiguous.
+  # Saving the same instance again stays allowed.
+  defp ensure_single_local_provider(%{adapter_id: adapter_id}, provider_id) do
+    with true <- adapter_id == LocalPassword.adapter_id(),
+         {:ok, providers} <- Config.active_providers(),
+         %{"provider_id" => existing_id} <-
+           Enum.find(
+             providers,
+             &(&1["adapter_id"] == adapter_id and &1["provider_id"] != provider_id)
+           ) do
+      {:error, {:local_provider_exists, existing_id}}
+    else
+      _no_conflict -> :ok
+    end
+  end
+
+  defp active_plugin_adapters do
+    Plugins.list_active()
+    |> Enum.flat_map(&adapters_for_plugin/1)
+    |> Enum.sort_by(& &1.adapter_id)
+  end
+
+  defp builtin_adapters do
+    Enum.map(builtin_adapter_declarations(), fn declaration ->
+      adapter_projection(value(declaration, :plugin_id), declaration)
+    end)
+  end
+
+  defp builtin_adapter_declarations do
+    [LocalPassword.adapter_declaration()]
+  end
+
   defp adapters_for_plugin(plugin) do
     plugin.adapter_declarations
     |> Enum.filter(&contract?(&1, @adapter_contract_id))
-    |> Enum.map(&adapter(plugin, &1))
+    |> Enum.map(&adapter_projection(plugin.id, &1))
   end
 
-  defp adapter(plugin, declaration) do
+  defp adapter_projection(plugin_id, declaration) do
     adapter_id = value(declaration, :id)
 
     %{
       adapter_id: adapter_id,
-      plugin_id: plugin.id,
+      plugin_id: plugin_id,
       display_name: value(declaration, :display_name) || default_text(adapter_id),
       capabilities: adapter_capabilities(declaration),
       fields: value(declaration, :fields) || [],
@@ -282,7 +315,7 @@ defmodule Ankole.IdentityProviders do
   end
 
   defp adapter_declarations do
-    Plugins.adapter_declarations(@adapter_contract_id)
+    builtin_adapter_declarations() ++ Plugins.adapter_declarations(@adapter_contract_id)
   end
 
   defp fetch_configured_provider_entry(provider_id) do
@@ -376,20 +409,34 @@ defmodule Ankole.IdentityProviders do
   defp validate_identity_capability(module, "oidc_authorization"),
     do: ensure_exported(module, :authorization_url, 2)
 
+  # upsert_user is required exactly where the host calls it: the OIDC code
+  # exchange and the directory sync paths.
   defp validate_identity_capability(module, "oidc_code_exchange"),
-    do: ensure_exported(module, :exchange_code, 3)
+    do: ensure_exported_all(module, [{:exchange_code, 3}, {:upsert_user, 2}])
 
   defp validate_identity_capability(module, "directory_full_sync"),
-    do: ensure_exported(module, :sync_directory, 3)
+    do: ensure_exported_all(module, [{:sync_directory, 3}, {:upsert_user, 2}])
 
   defp validate_identity_capability(module, "directory_realtime_sync"),
-    do: ensure_exported(module, :handle_contact_event, 3)
+    do: ensure_exported_all(module, [{:handle_contact_event, 3}, {:upsert_user, 2}])
+
+  defp validate_identity_capability(module, "password_login"),
+    do: ensure_exported(module, :authenticate, 3)
 
   defp validate_identity_capability(module, @credential_check_capability),
     do: ensure_exported(module, :check_credentials, 1)
 
   defp validate_identity_capability(_module, capability),
     do: {:error, {:unknown_identity_capability, capability}}
+
+  defp ensure_exported_all(module, functions) do
+    Enum.reduce_while(functions, :ok, fn {function, arity}, :ok ->
+      case ensure_exported(module, function, arity) do
+        :ok -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
 
   defp validate_connection_reconciler(declaration) do
     case value(declaration, :connection_reconciler) do

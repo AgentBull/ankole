@@ -32,6 +32,7 @@ defmodule Ankole.Plugins.WeComAdapter.Outbox do
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.Channel
   alias Ankole.SignalsGateway.OutboxEntry
+  alias Ankole.SignalsGateway.ReplyPreviewAdapter
   alias Ankole.SignalsGateway.ReplyPreviewAdapter.Request
   alias Ankole.WorkerFiles
   alias WeComOpenAPI.Bot
@@ -62,7 +63,7 @@ defmodule Ankole.Plugins.WeComAdapter.Outbox do
       %ActorEvent{} = event ->
         checkpoint = event.reply_preview_checkpoint || %{}
 
-        AIStream.finalize(%Request{
+        ReplyPreviewAdapter.finalize_module(AIStream, %Request{
           actor_event: event,
           presentation: presentation,
           checkpoint: checkpoint,

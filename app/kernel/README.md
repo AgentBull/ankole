@@ -15,8 +15,9 @@ both runtimes, it belongs here as Rust first, with bindings second.
 
 The current shared surface is:
 
-- `common/` - AEAD tokens, key derivation, hashing, encodings, UUID helpers, JWT
-  helpers, phone normalization, and other host-neutral primitives.
+- `common/` - AEAD tokens, key derivation, hashing, password hashing,
+  encodings, UUID helpers, JWT helpers, phone normalization, and other
+  host-neutral primitives.
 - `authz/` - snapshot-only authorization evaluation, CEL condition validation,
   and resource-pattern validation and matching.
 - `runtime_fabric/` - RuntimeFabric v1 envelope protocol validation over

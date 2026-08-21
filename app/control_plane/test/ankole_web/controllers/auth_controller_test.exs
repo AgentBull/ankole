@@ -7,7 +7,9 @@ defmodule AnkoleWeb.AuthControllerTest do
   alias Ankole.AuthZ
   alias Ankole.IdentityProviders
   alias Ankole.IdentityProviders.Config, as: IdentityProviderConfig
+  alias Ankole.IdentityProviders.LocalPassword.RetryGuard
   alias Ankole.Plugins.LarkAdapter
+  alias Ankole.Principals
   alias Ankole.Setup.Config, as: SetupConfig
   alias AnkoleWeb.ConsoleTokens
   alias AnkoleWeb.Session, as: WebSession
@@ -242,5 +244,192 @@ defmodule AnkoleWeb.AuthControllerTest do
     assert json_response(conn, 409)["error"] == "setup already completed"
     assert get_session(conn, :admin_session) == nil
     assert get_session(conn, :admin_oidc_state) == nil
+  end
+
+  describe "local password sign-in" do
+    setup do
+      RetryGuard.reset_for_test()
+      on_exit(&RetryGuard.reset_for_test/0)
+
+      {:ok, true} = SetupConfig.put_completed(true)
+      {:ok, _provider} = IdentityProviders.save_provider("local-main", "local", %{}, true)
+      :ok
+    end
+
+    test "GET /.internal-apis/identity-providers reports the provider kind", %{conn: conn} do
+      conn = get(conn, ~p"/.internal-apis/identity-providers")
+
+      assert %{"providers" => [provider]} = json_response(conn, 200)
+      assert provider["providerID"] == "local-main"
+      assert provider["adapterID"] == "local"
+      assert provider["kind"] == "password"
+    end
+
+    test "an admin signs in with email and password", %{conn: conn} do
+      %{email: email} = local_admin_user("correct-horse")
+
+      conn =
+        conn
+        |> init_test_session(%{})
+        |> post(~p"/.internal-apis/sessions/local-password", %{
+          "email" => email,
+          "password" => "correct-horse",
+          "returnTo" => "https://evil.example/console"
+        })
+
+      assert %{"status" => "ok", "returnTo" => "/console"} = json_response(conn, 200)
+
+      conn = get(conn, ~p"/.internal-apis/session")
+      assert %{"authenticated" => true, "providerID" => "local-main"} = json_response(conn, 200)
+    end
+
+    test "a wrong password and an unknown email return the same error", %{conn: conn} do
+      %{email: email} = local_admin_user("correct-horse")
+
+      for {attempt_email, password} <- [{email, "wrong"}, {"nobody@example.com", "wrong"}] do
+        conn =
+          conn
+          |> init_test_session(%{})
+          |> post(~p"/.internal-apis/sessions/local-password", %{
+            "email" => attempt_email,
+            "password" => password
+          })
+
+        assert json_response(conn, 401)["error"] == "invalid_credentials"
+        assert get_session(conn, :admin_session) == nil
+      end
+    end
+
+    test "a verified non-admin is refused before any session opens", %{conn: conn} do
+      %{email: email} = local_user_with_password("correct-horse")
+
+      conn =
+        conn
+        |> init_test_session(%{})
+        |> post(~p"/.internal-apis/sessions/local-password", %{
+          "email" => email,
+          "password" => "correct-horse"
+        })
+
+      assert json_response(conn, 403)["error"] == "not_an_admin"
+      assert get_session(conn, :admin_session) == nil
+      assert get_session(conn, :local_password_change) == nil
+    end
+
+    test "a disabled account is refused with its own error", %{conn: conn} do
+      %{principal: principal, email: email} = local_user_with_password("correct-horse")
+      {:ok, _principal} = Principals.disable_principal(principal.uid)
+
+      conn =
+        conn
+        |> init_test_session(%{})
+        |> post(~p"/.internal-apis/sessions/local-password", %{
+          "email" => email,
+          "password" => "correct-horse"
+        })
+
+      assert json_response(conn, 403)["error"] == "account_disabled"
+    end
+
+    test "a must-change credential runs the forced change before any session", %{conn: conn} do
+      %{email: email} = local_admin_user("initial-pass", true)
+
+      conn =
+        conn
+        |> init_test_session(%{})
+        |> post(~p"/.internal-apis/sessions/local-password", %{
+          "email" => email,
+          "password" => "initial-pass",
+          "returnTo" => "/console/agents"
+        })
+
+      assert %{"status" => "password_change_required"} = json_response(conn, 200)
+      assert get_session(conn, :admin_session) == nil
+
+      conn =
+        post(conn, ~p"/.internal-apis/sessions/local-password/change", %{
+          "newPassword" => "short"
+        })
+
+      assert json_response(conn, 422)["error"] == "password_too_short"
+
+      conn =
+        post(conn, ~p"/.internal-apis/sessions/local-password/change", %{
+          "newPassword" => "my-own-password"
+        })
+
+      assert %{"returnTo" => "/console/agents"} = json_response(conn, 200)
+
+      conn = get(conn, ~p"/.internal-apis/session")
+      assert %{"authenticated" => true} = json_response(conn, 200)
+
+      assert {:error, :invalid_credentials} =
+               Ankole.IdentityProviders.LocalPassword.authenticate(email, "initial-pass")
+
+      assert {:ok, %{must_change_password: false}} =
+               Ankole.IdentityProviders.LocalPassword.authenticate(email, "my-own-password")
+    end
+
+    test "the change endpoint requires a live ticket", %{conn: conn} do
+      conn =
+        conn
+        |> init_test_session(%{})
+        |> post(~p"/.internal-apis/sessions/local-password/change", %{
+          "newPassword" => "my-own-password"
+        })
+
+      assert json_response(conn, 401)["error"] == "change_ticket_expired"
+    end
+
+    test "five failures lock the account with a retry delay", %{conn: conn} do
+      %{email: email} = local_admin_user("correct-horse")
+
+      for _attempt <- 1..5 do
+        conn
+        |> init_test_session(%{})
+        |> post(~p"/.internal-apis/sessions/local-password", %{
+          "email" => email,
+          "password" => "wrong"
+        })
+      end
+
+      conn =
+        conn
+        |> init_test_session(%{})
+        |> post(~p"/.internal-apis/sessions/local-password", %{
+          "email" => email,
+          "password" => "correct-horse"
+        })
+
+      response = json_response(conn, 429)
+      assert response["error"] == "retry_locked"
+      assert response["retryAfterSeconds"] in 1..(30 * 60)
+    end
+
+    test "sign-in is refused while setup is incomplete", %{conn: conn} do
+      {:ok, false} = SetupConfig.put_completed(false)
+
+      conn =
+        conn
+        |> init_test_session(%{})
+        |> post(~p"/.internal-apis/sessions/local-password", %{
+          "email" => "admin@example.com",
+          "password" => "correct-horse"
+        })
+
+      assert json_response(conn, 409)["error"] == "setup is not complete"
+    end
+  end
+
+  defp local_user_with_password(password, must_change \\ false) do
+    %{principal: principal, human_user: human_user} = human_fixture()
+    {:ok, _credential} = Principals.set_local_password(principal.uid, password, must_change)
+    %{principal: principal, email: human_user.email}
+  end
+
+  defp local_admin_user(password, must_change \\ false) do
+    %{principal: principal, email: email} = local_user_with_password(password, must_change)
+    {:ok, _root} = AuthZ.root_init_admin(principal.uid)
+    %{principal: principal, email: email}
   end
 end

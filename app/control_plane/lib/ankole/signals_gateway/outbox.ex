@@ -22,6 +22,7 @@ defmodule Ankole.SignalsGateway.Outbox do
   alias Ankole.SignalsGateway.Binding
   alias Ankole.SignalsGateway.Channel
   alias Ankole.SignalsGateway.Entry
+  alias Ankole.SignalsGateway.Utils
 
   import Ankole.SignalsGateway.Utils,
     only: [
@@ -1792,7 +1793,7 @@ defmodule Ankole.SignalsGateway.Outbox do
   end
 
   defp retry_failure_recovery(outbox, detail, now) do
-    next_attempt_at = next_outbox_attempt_at(outbox, now)
+    next_attempt_at = next_outbox_attempt_at(outbox, now, retry_after_seconds(detail))
 
     {
       %{"reason" => Sanitizer.transport(detail)},
@@ -2076,19 +2077,32 @@ defmodule Ankole.SignalsGateway.Outbox do
   # (so 5s, 10s, 20s, 40s, … capped at 300s). Returning nil once attempts are
   # exhausted is what makes the deadline handler no-op on the row — the retry
   # loop ends without a separate "give up" flag.
-  defp next_outbox_attempt_at(%OutboxEntry{attempt_count: attempts, max_attempts: max}, _now)
+  defp next_outbox_attempt_at(outbox, now), do: next_outbox_attempt_at(outbox, now, 0)
+
+  defp next_outbox_attempt_at(
+         %OutboxEntry{attempt_count: attempts, max_attempts: max},
+         _now,
+         _minimum_delay_seconds
+       )
        when attempts >= max,
        do: nil
 
-  defp next_outbox_attempt_at(%OutboxEntry{attempt_count: attempts}, now) do
-    delay_seconds =
+  defp next_outbox_attempt_at(
+         %OutboxEntry{attempt_count: attempts},
+         now,
+         minimum_delay_seconds
+       ) do
+    backoff_seconds =
       attempts
       |> max(1)
       |> then(&(@outbox_base_retry_seconds * Integer.pow(2, &1 - 1)))
       |> min(@outbox_max_retry_seconds)
 
+    delay_seconds = max(backoff_seconds, minimum_delay_seconds)
     DateTime.add(now, delay_seconds, :second)
   end
+
+  defp retry_after_seconds(detail), do: Utils.reply_delivery_retry_after_seconds(detail)
 
   defp notify_outbox_deadline(repo, %OutboxEntry{} = outbox) do
     RuntimeEvents.notify_outbox_due(repo, outbox, outbox_due_at(outbox))

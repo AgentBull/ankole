@@ -2,11 +2,13 @@ defmodule AnkoleWeb.Session do
   @moduledoc """
   Cookie-session helpers for setup, OIDC state, and admin login.
 
-  Four independent namespaces share the one sealed session cookie, kept apart on
+  Five independent namespaces share the one sealed session cookie, kept apart on
   purpose:
 
     * `setup_session` / `setup_oidc_state` — the one-time bootstrap flow.
     * `admin_session` / `admin_oidc_state` — normal admin login.
+    * `local_password_change` — the forced password change between a local
+      password verify and the admin session it earns.
 
   Keeping the bootstrap and admin OIDC states under different keys is a security
   boundary: a setup-time OIDC round-trip can never be replayed to satisfy a later
@@ -23,11 +25,14 @@ defmodule AnkoleWeb.Session do
   @setup_oidc_state_key :setup_oidc_state
   @admin_session_key :admin_session
   @admin_oidc_state_key :admin_oidc_state
+  @local_password_change_key :local_password_change
 
   @setup_ttl_seconds 24 * 60 * 60
   @admin_ttl_seconds 24 * 60 * 60
-  # OIDC state lives only long enough to complete one provider round-trip.
+  # OIDC state lives only long enough to complete one provider round-trip; the
+  # local password-change ticket gets the same short life.
   @oidc_state_ttl_seconds 10 * 60
+  @local_password_change_ttl_seconds 10 * 60
 
   @doc """
   Stores a setup session that expires after 24 hours.
@@ -89,6 +94,32 @@ defmodule AnkoleWeb.Session do
   """
   @spec clear_admin_oidc_state(Plug.Conn.t()) :: Plug.Conn.t()
   def clear_admin_oidc_state(conn), do: delete_session(conn, @admin_oidc_state_key)
+
+  @doc """
+  Stores the forced password-change ticket after a successful verify.
+  """
+  @spec put_local_password_change(Plug.Conn.t(), map()) :: Plug.Conn.t()
+  def put_local_password_change(conn, attrs) do
+    put_expiring_session(
+      conn,
+      @local_password_change_key,
+      attrs,
+      @local_password_change_ttl_seconds
+    )
+  end
+
+  @doc """
+  Reads the forced password-change ticket if it is still active.
+  """
+  @spec local_password_change(Plug.Conn.t()) :: map() | nil
+  def local_password_change(conn),
+    do: active_payload(get_session(conn, @local_password_change_key))
+
+  @doc """
+  Clears the forced password-change ticket.
+  """
+  @spec clear_local_password_change(Plug.Conn.t()) :: Plug.Conn.t()
+  def clear_local_password_change(conn), do: delete_session(conn, @local_password_change_key)
 
   @doc """
   Stores an admin session and renews the cookie session id.

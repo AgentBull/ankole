@@ -51,6 +51,7 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
         %{
           contract_id: "signals_gateway.adapter",
           id: "failing-env",
+          adapter_category: "enterprise_im",
           plugin_id: plugin_id(),
           worker_env_module: Ankole.Plugins.LarkCLIRuntimeTest.FailingWorkerEnv
         }

@@ -42,6 +42,7 @@ defmodule Ankole.SignalsGateway.AdaptersTest do
         %{
           "contract_id" => "signals_gateway.adapter",
           "id" => "string-key",
+          "adapter_category" => "enterprise_im",
           "plugin_id" => plugin_id(),
           "display_name" => %{"default" => "String Key Adapter"},
           "outbox_module" => StringKeyOutbox,
@@ -65,6 +66,7 @@ defmodule Ankole.SignalsGateway.AdaptersTest do
         %{
           contract_id: "signals_gateway.adapter",
           id: "inbound-only",
+          adapter_category: "enterprise_im",
           plugin_id: plugin_id()
         }
       ]
@@ -87,6 +89,7 @@ defmodule Ankole.SignalsGateway.AdaptersTest do
     assert {:ok,
             %Definition{
               id: "lark",
+              adapter_category: "enterprise_im",
               outbox_adapter: %OutboxAdapter{} = outbox_adapter
             }} = Adapters.fetch("lark")
 
@@ -105,6 +108,39 @@ defmodule Ankole.SignalsGateway.AdaptersTest do
 
     assert outbox_adapter.send_fun == (&LarkOutbox.send/1)
     assert outbox_adapter.reconcile_fun == (&LarkOutbox.reconcile/1)
+  end
+
+  test "requires one known display category on every signal adapter declaration" do
+    assert :ok =
+             Adapters.validate_declaration(%{
+               id: "consumer",
+               adapter_category: "consumer_im"
+             })
+
+    assert {:error, {:invalid_adapter_category, nil}} =
+             Adapters.validate_declaration(%{id: "missing-category"})
+
+    assert {:error, {:invalid_adapter_category, "social_media"}} =
+             Adapters.validate_declaration(%{
+               id: "unknown-category",
+               adapter_category: "social_media"
+             })
+  end
+
+  test "classifies existing enterprise adapters and Telegram without changing their contract" do
+    assert {:ok, definitions} = Adapters.list()
+
+    categories = Map.new(definitions, &{&1.id, &1.adapter_category})
+
+    assert Map.take(categories, ["dingtalk", "lark", "slack", "teams", "wecom"]) == %{
+             "dingtalk" => "enterprise_im",
+             "lark" => "enterprise_im",
+             "slack" => "enterprise_im",
+             "teams" => "enterprise_im",
+             "wecom" => "enterprise_im"
+           }
+
+    assert categories["telegram"] == "consumer_im"
   end
 
   test "resolves an atom-key declaration through the normalized interface" do

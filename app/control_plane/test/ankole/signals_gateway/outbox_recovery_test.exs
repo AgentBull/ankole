@@ -261,11 +261,16 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
                  agent.uid,
                  "bot",
                  "post-retry",
-                 outbox_adapter([:post_entry], fn _outbox -> {:error, :rate_limited} end),
+                 outbox_adapter([:post_entry], fn _outbox ->
+                   {:error,
+                    {:reply_delivery, :retryable,
+                     %{"code" => "rate_limited", "retry_after_seconds" => 30}}}
+                 end),
                  now: @base_time
                )
 
       assert failed.status == :failed
+      assert failed.next_attempt_at == DateTime.add(@base_time, 30, :second)
 
       assert {:error, :outbox_not_due} =
                SignalsGateway.dispatch_outbox(

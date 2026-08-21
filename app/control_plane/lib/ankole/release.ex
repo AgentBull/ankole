@@ -6,6 +6,9 @@ defmodule Ankole.Release do
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
+  alias Ankole.IdentityProviders.LocalPassword
+  alias Ankole.Principals
+  alias Ankole.Principals.LocalPasswordResetText
   alias Ankole.Repo
   alias Ankole.Schedule
   alias Ankole.SignalsGateway.ActorRuntime.WorkerAuthKey
@@ -43,6 +46,36 @@ defmodule Ankole.Release do
     auth_key = System.fetch_env!("ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY")
 
     {:ok, ^auth_key} = AppConfigure.put_global(WorkerAuthKey.definition(), auth_key)
+  end
+
+  @doc "Resets the local sign-in password for one email and prints the new one-time password."
+  @spec reset_local_password(String.t()) :: :ok
+  def reset_local_password(email) when is_binary(email) do
+    load_app()
+    {:ok, _apps} = Application.ensure_all_started(:ankole_kernel)
+
+    with_repo(fn _repo ->
+      start_child!(Registry)
+      start_child!(Cache)
+
+      case Principals.reset_local_password_by_email(email) do
+        {:ok, %{initial_password: initial_password}} ->
+          IO.puts(LocalPasswordResetText.success(initial_password))
+
+          case LocalPassword.enabled?() do
+            true -> :ok
+            false -> IO.puts(LocalPasswordResetText.provider_disabled_warning())
+          end
+
+        {:error, :not_found} ->
+          raise LocalPasswordResetText.no_account_message(email)
+
+        {:error, reason} ->
+          raise "failed to reset the local password: #{inspect(reason)}"
+      end
+    end)
+
+    :ok
   end
 
   defp reconcile_cron_schedules! do

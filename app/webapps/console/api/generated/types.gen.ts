@@ -238,6 +238,13 @@ export type ConsoleApiErrorEnvelope = {
 }
 
 /**
+ * LocalPasswordResetResponse
+ */
+export type LocalPasswordResetResponse = {
+  initial_password: string
+}
+
+/**
  * AIGatewayConversationListResponse
  */
 export type AiGatewayConversationListResponse = {
@@ -355,6 +362,14 @@ export type BackgroundAgentJobTurnItem = {
 }
 
 /**
+ * PrincipalCreateResponse
+ */
+export type PrincipalCreateResponse = {
+  initial_password: string
+  principal: PrincipalItem
+}
+
+/**
  * ModelProfileResponse
  */
 export type ModelProfileResponse = {
@@ -417,7 +432,10 @@ export type AiGatewayChatGptEnterpriseCredentialRequest = {
 export type PrincipalItem = {
   avatar_url?: string | null
   display_name?: string | null
+  email?: string | null
+  has_external_identity: boolean
   inserted_at: string
+  local_credential?: PrincipalLocalCredential
   status: 'active' | 'disabled'
   type: 'human' | 'agent' | 'system'
   uid: string
@@ -430,6 +448,15 @@ export type PrincipalItem = {
 export type AgentLibraryDocumentWriteRequest = {
   content: string
   expected_content_hash: string
+}
+
+/**
+ * PrincipalCreateRequest
+ */
+export type PrincipalCreateRequest = {
+  display_name?: string | null
+  email: string
+  must_change_password?: boolean
 }
 
 /**
@@ -515,6 +542,14 @@ export type ScheduleCronScheduleResponse = {
  */
 export type AgentResponse = {
   agent: AgentItem
+}
+
+/**
+ * PrincipalUpdateRequest
+ */
+export type PrincipalUpdateRequest = {
+  display_name?: string | null
+  email?: string
 }
 
 /**
@@ -774,6 +809,13 @@ export type BackgroundAgentJobTurnProgress = {
 }
 
 /**
+ * PrincipalLocalCredential
+ */
+export type PrincipalLocalCredential = {
+  status: 'active' | 'must_change'
+} | null
+
+/**
  * ScheduleCronUpdateRequest
  */
 export type ScheduleCronUpdateRequest = {
@@ -808,6 +850,7 @@ export type ProviderHostedCapabilities = {
  * SignalAdapterItem
  */
 export type SignalAdapterItem = {
+  adapter_category: 'enterprise_im' | 'consumer_im'
   adapter_id: string
   display_name?: LocalizedText
   fields: Array<SignalAdapterField>
@@ -1569,6 +1612,13 @@ export type ConsoleTokenResponse = {
   refresh_token_expires_in: number
   scope: string
   token_type: 'Bearer'
+}
+
+/**
+ * LocalPasswordResetRequest
+ */
+export type LocalPasswordResetRequest = {
+  must_change_password?: boolean
 }
 
 /**
@@ -2351,6 +2401,54 @@ export type AnkoleWebAuthZGroupControllerCreateResponses = {
 
 export type AnkoleWebAuthZGroupControllerCreateResponse =
   AnkoleWebAuthZGroupControllerCreateResponses[keyof AnkoleWebAuthZGroupControllerCreateResponses]
+
+export type AnkoleWebPrincipalControllerCreateLocalPasswordResetData = {
+  /**
+   * Reset options
+   */
+  body: LocalPasswordResetRequest
+  path: {
+    uid: string
+  }
+  query?: never
+  url: '/api/v1/principals/{uid}/local-password-resets'
+}
+
+export type AnkoleWebPrincipalControllerCreateLocalPasswordResetErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+  /**
+   * Local sign-in disabled
+   */
+  409: ConsoleApiErrorEnvelope
+  /**
+   * Invalid reset
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebPrincipalControllerCreateLocalPasswordResetError =
+  AnkoleWebPrincipalControllerCreateLocalPasswordResetErrors[keyof AnkoleWebPrincipalControllerCreateLocalPasswordResetErrors]
+
+export type AnkoleWebPrincipalControllerCreateLocalPasswordResetResponses = {
+  /**
+   * New one-time password
+   */
+  200: LocalPasswordResetResponse
+}
+
+export type AnkoleWebPrincipalControllerCreateLocalPasswordResetResponse =
+  AnkoleWebPrincipalControllerCreateLocalPasswordResetResponses[keyof AnkoleWebPrincipalControllerCreateLocalPasswordResetResponses]
 
 export type AnkoleWebAuthZGroupControllerPreviewComputedMembersData = {
   /**
@@ -4622,6 +4720,48 @@ export type AnkoleWebPrincipalControllerIndexResponses = {
 export type AnkoleWebPrincipalControllerIndexResponse =
   AnkoleWebPrincipalControllerIndexResponses[keyof AnkoleWebPrincipalControllerIndexResponses]
 
+export type AnkoleWebPrincipalControllerCreateData = {
+  /**
+   * User
+   */
+  body: PrincipalCreateRequest
+  path?: never
+  query?: never
+  url: '/api/v1/principals'
+}
+
+export type AnkoleWebPrincipalControllerCreateErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Local sign-in disabled
+   */
+  409: ConsoleApiErrorEnvelope
+  /**
+   * Invalid user
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebPrincipalControllerCreateError =
+  AnkoleWebPrincipalControllerCreateErrors[keyof AnkoleWebPrincipalControllerCreateErrors]
+
+export type AnkoleWebPrincipalControllerCreateResponses = {
+  /**
+   * Created user
+   */
+  200: PrincipalCreateResponse
+}
+
+export type AnkoleWebPrincipalControllerCreateResponse =
+  AnkoleWebPrincipalControllerCreateResponses[keyof AnkoleWebPrincipalControllerCreateResponses]
+
 export type AnkoleWebPermissionGrantControllerCreateData = {
   /**
    * Permission grant
@@ -5267,6 +5407,54 @@ export type AnkoleWebPrincipalControllerShowResponses = {
 
 export type AnkoleWebPrincipalControllerShowResponse =
   AnkoleWebPrincipalControllerShowResponses[keyof AnkoleWebPrincipalControllerShowResponses]
+
+export type AnkoleWebPrincipalControllerUpdateData = {
+  /**
+   * User changes
+   */
+  body: PrincipalUpdateRequest
+  path: {
+    uid: string
+  }
+  query?: never
+  url: '/api/v1/principals/{uid}'
+}
+
+export type AnkoleWebPrincipalControllerUpdateErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+  /**
+   * Local sign-in disabled
+   */
+  409: ConsoleApiErrorEnvelope
+  /**
+   * Invalid change
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebPrincipalControllerUpdateError =
+  AnkoleWebPrincipalControllerUpdateErrors[keyof AnkoleWebPrincipalControllerUpdateErrors]
+
+export type AnkoleWebPrincipalControllerUpdateResponses = {
+  /**
+   * Principal
+   */
+  200: PrincipalResponse
+}
+
+export type AnkoleWebPrincipalControllerUpdateResponse =
+  AnkoleWebPrincipalControllerUpdateResponses[keyof AnkoleWebPrincipalControllerUpdateResponses]
 
 export type AnkoleWebWebhookEndpointControllerDeleteData = {
   body?: never

@@ -10,6 +10,7 @@ defmodule Ankole.Plugins.SlackAdapter.ReplyPreview do
 
   @behaviour Ankole.SignalsGateway.ReplyPreviewAdapter
 
+  alias Ankole.I18n
   alias Ankole.Plugins.SlackAdapter.{BlockKit, Config, ErrorPolicy, Mrkdwn}
   alias Ankole.Repo
   alias Ankole.SignalsGateway
@@ -279,7 +280,10 @@ defmodule Ankole.Plugins.SlackAdapter.ReplyPreview do
 
   defp normalized_chunks(blocks) do
     case BlockKit.split_blocks(blocks) do
-      [] -> [[%{"type" => "section", "text" => %{"type" => "mrkdwn", "text" => "（无内容）"}}]]
+      [] ->
+        text = I18n.t("signals_gateway.reply.no_content")
+        [[%{"type" => "section", "text" => %{"type" => "mrkdwn", "text" => text}}]]
+
       chunks -> chunks
     end
   end

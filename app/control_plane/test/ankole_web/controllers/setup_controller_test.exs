@@ -253,4 +253,99 @@ defmodule AnkoleWeb.SetupControllerTest do
 
     assert json_response(conn, 400)["error"] =~ "unknown_plugin_ids"
   end
+
+  describe "POST /.internal-apis/setup/local-admin" do
+    test "creates the administrator, completes setup, and signs the browser in", %{conn: conn} do
+      setup_conn =
+        conn
+        |> init_test_session(%{})
+        |> WebSession.put_setup_session()
+
+      put_conn =
+        put(setup_conn, ~p"/.internal-apis/setup/identity-providers/local-main", %{
+          "adapterID" => "local",
+          "config" => %{"retry_protection" => %{"enabled" => true}},
+          "enabled" => true
+        })
+
+      assert json_response(put_conn, 200)["adapter_id"] == "local"
+
+      conn =
+        post(put_conn, ~p"/.internal-apis/setup/local-admin", %{
+          "email" => "Admin@Example.com",
+          "password" => "hunter2-long"
+        })
+
+      assert %{"returnTo" => "/console"} = json_response(conn, 200)
+      assert {:ok, true} = SetupConfig.completed?()
+      assert get_session(conn, :setup_session) == nil
+
+      conn = get(conn, ~p"/.internal-apis/session")
+
+      assert %{
+               "authenticated" => true,
+               "principalUID" => "admin@example.com",
+               "providerID" => "local-main"
+             } = json_response(conn, 200)
+
+      assert Ankole.AdminAuth.active_human_admin?("admin@example.com")
+
+      assert {:ok, %{must_change_password: false}} =
+               Ankole.IdentityProviders.LocalPassword.authenticate(
+                 "admin@example.com",
+                 "hunter2-long"
+               )
+    end
+
+    test "requires the local provider, a valid email, and a six-character password", %{
+      conn: conn
+    } do
+      setup_conn =
+        conn
+        |> init_test_session(%{})
+        |> WebSession.put_setup_session()
+
+      conn =
+        post(setup_conn, ~p"/.internal-apis/setup/local-admin", %{
+          "email" => "admin@example.com",
+          "password" => "hunter2-long"
+        })
+
+      assert json_response(conn, 409)["error"] == "local identity provider is not configured"
+
+      {:ok, _provider} = IdentityProviders.save_provider("local-main", "local", %{}, true)
+
+      conn =
+        post(setup_conn, ~p"/.internal-apis/setup/local-admin", %{
+          "email" => "not-an-email",
+          "password" => "hunter2-long"
+        })
+
+      assert json_response(conn, 422)["error"] == "email is invalid"
+
+      conn =
+        post(setup_conn, ~p"/.internal-apis/setup/local-admin", %{
+          "email" => "admin@example.com",
+          "password" => "short"
+        })
+
+      assert json_response(conn, 422)["error"] == "password must be at least 6 characters"
+    end
+
+    test "cannot run again after setup completes", %{conn: conn} do
+      {:ok, _provider} = IdentityProviders.save_provider("local-main", "local", %{}, true)
+      {:ok, true} = SetupConfig.put_completed(true)
+
+      conn =
+        conn
+        |> init_test_session(%{})
+        |> WebSession.put_setup_session()
+        |> post(~p"/.internal-apis/setup/local-admin", %{
+          "email" => "admin@example.com",
+          "password" => "hunter2-long"
+        })
+
+      assert json_response(conn, 409)["error"] == "setup already completed"
+    end
+  end
 end
