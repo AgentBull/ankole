@@ -336,7 +336,7 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
 
     stub_outbox_requests(self(), responder)
 
-    assert {:error, {:provider_error, %{reason: :rate_limited}}} = Outbox.send(entry)
+    assert {:error, {:reply_delivery, :retryable, %{reason: :rate_limited}}} = Outbox.send(entry)
   end
 
   test "a disbanded group classifies as target_gone" do
@@ -354,7 +354,8 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
 
     stub_outbox_requests(self(), responder)
 
-    assert {:error, {:provider_error, %{reason: :target_gone, code: "group.disbanded"}}} =
+    assert {:error,
+            {:reply_delivery, :permanent, %{reason: :target_gone, code: "group.disbanded"}}} =
              Outbox.send(entry)
   end
 
@@ -464,7 +465,8 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
 
     stub_outbox_requests(self(), responder)
 
-    assert {:error, {:provider_error, %{reason: "internal.error"}}} = Outbox.send(entry)
+    assert {:error, {:reply_delivery, :retryable, %{reason: "internal.error"}}} =
+             Outbox.send(entry)
 
     assert_receive {:api_call, "POST", "/v1.0/card/instances/createAndDeliver", first_create}
     assert_receive {:api_call, "PUT", "/v1.0/card/streaming", first_stream}

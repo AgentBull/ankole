@@ -748,11 +748,14 @@ function CredentialEditorDialog({
     if (!open) return
     setLabel(entry?.label ?? '')
     setPriority(String(entry?.priority ?? 0))
-    setValues(Object.fromEntries(settings.map(setting => [setting.key, ''])))
+    // Reset only when a new editing session opens. Rendering falls back to ''
+    // per key, so the cleared map needs no entries — and no `settings`
+    // dependency, whose query-driven identity must not wipe in-progress input.
+    setValues({})
     setValidationError(undefined)
     create.reset()
     update.reset()
-  }, [entry, open, settings])
+  }, [entry, open])
 
   const submit = () => {
     setValidationError(undefined)
@@ -934,7 +937,10 @@ function ChatGPTLoginDialog({
       })
     }, retryAfter * 1_000)
     return () => window.clearTimeout(timer)
-  }, [loginContext, mode, open, poll, provider.provider_id, retryAfter, status])
+    // `poll` itself is a fresh object every render; depending on it would clear
+    // and restart the countdown on every re-render. `mutate` and `isPending`
+    // are the stable parts this effect actually uses.
+  }, [loginContext, mode, open, poll.isPending, poll.mutate, provider.provider_id, retryAfter, status])
 
   const startLogin = () => {
     if (!label.trim()) {

@@ -68,9 +68,8 @@ import { formatConsoleDate, formatJSON, truncate } from '../console-primitives'
 import { resourceID } from '../console-route-loaders'
 import { MarkdownBody } from '../markdown-body'
 import { StatusIndicator } from '../console-form'
-import { ResourceSearch, ResultCount } from '../console-list-page'
+import { ResourceSearch, ResultCount, useResourceSearchDraft } from '../console-list-page'
 import { PageHeader, PageStack, RefreshButton } from '../console-page'
-import { scheduleResourceSearchCommit } from '../state/resource-search'
 
 type JobStatus = BackgroundAgentJobItem['status']
 
@@ -100,7 +99,9 @@ function BackgroundAgentJobsForScope({ scope }: { scope: AgentScope }) {
   const [searchParams, setSearchParams] = useSearchParams()
   const searchParam = searchParams.get('q') ?? ''
   const searchFilter = searchParam.trim()
-  const [searchDraft, setSearchDraft] = useState(searchFilter)
+  const [searchDraft, setSearchDraft] = useResourceSearchDraft(searchFilter, draft =>
+    setSearchParams(current => backgroundAgentJobSearchParams(current, draft), { replace: true })
+  )
   const selectedID = resourceID(searchParams.get('job'), 1000)
   const [cancelTargetID, setCancelTargetID] = useState<number>()
   const [completeTargetID, setCompleteTargetID] = useState<number>()
@@ -110,20 +111,11 @@ function BackgroundAgentJobsForScope({ scope }: { scope: AgentScope }) {
     refetchInterval: LIST_REFRESH_MS
   })
 
-  useEffect(() => setSearchDraft(searchFilter), [searchFilter])
-
+  // Canonicalize a hand-edited URL so `?q=` always carries the trimmed form.
   useEffect(() => {
     if (searchParam === searchFilter) return
     setSearchParams(current => backgroundAgentJobSearchParams(current, searchFilter), { replace: true })
   }, [searchFilter, searchParam, setSearchParams])
-
-  useEffect(() => {
-    if (searchDraft === searchFilter) return
-
-    return scheduleResourceSearchCommit(() => {
-      setSearchParams(current => backgroundAgentJobSearchParams(current, searchDraft), { replace: true })
-    })
-  }, [searchDraft, searchFilter, setSearchParams])
 
   // This list endpoint spans agents on its own; the scope only narrows it.
   const list = useQuery(backgroundAgentJobListOptions(scope.agentUID, searchFilter))
@@ -970,7 +962,7 @@ function TrajectoryMessageView({ message }: { message: TrajectoryMessage }) {
   if (message.role === 'tool') {
     return (
       <ToolTile icon={RiTerminalBoxLine} name={message.name} reference={message.tool_call_id}>
-        <CodeBlock>{prettyJSON(truncate(text, 16_000))}</CodeBlock>
+        <ToolPayload text={text} />
       </ToolTile>
     )
   }
@@ -987,7 +979,7 @@ function TrajectoryMessageView({ message }: { message: TrajectoryMessage }) {
         ) : null}
         {calls.map(call => (
           <ToolTile key={call.id} icon={RiCodeSSlashLine} name={call.function.name} reference={call.id}>
-            <CodeBlock>{prettyJSON(truncate(call.function.arguments, 16_000))}</CodeBlock>
+            <ToolPayload text={call.function.arguments} />
           </ToolTile>
         ))}
       </article>
@@ -1039,6 +1031,16 @@ function ToolTile({
       </AccordionItem>
     </Accordion>
   )
+}
+
+/**
+ * Renders inside the collapsed tile, so a payload pretty-prints only when the
+ * operator expands it. Parse only payloads within the display bound: a
+ * truncated JSON document can never parse, so oversized payloads skip the
+ * guaranteed-to-fail parse and go straight to the cut raw text.
+ */
+function ToolPayload({ text }: { text: string }) {
+  return <CodeBlock>{text.length <= 16_000 ? prettyJSON(text) : truncate(text, 16_000)}</CodeBlock>
 }
 
 /** Monospace payload surface matching the conversations detail page. */

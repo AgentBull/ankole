@@ -283,22 +283,6 @@ defmodule Ankole.Principals do
   end
 
   @doc """
-  Tells whether a Principal has at least one external identity binding.
-  """
-  @spec has_external_identity?(String.t()) :: boolean()
-  def has_external_identity?(uid) do
-    case normalize_uid(uid) do
-      {:ok, normalized_uid} ->
-        Repo.exists?(
-          from identity in ExternalIdentity, where: identity.principal_uid == ^normalized_uid
-        )
-
-      {:error, _reason} ->
-        false
-    end
-  end
-
-  @doc """
   Lists active Principals with their account facts for the operator console.
   """
   @spec list_active_principal_accounts() :: [map()]

@@ -1,5 +1,17 @@
 # Changelog
 
+## Version 1.0.0-alpha.4 (2026-08-22)
+
+- Plain-message delivery failures on DingTalk, Lark, and Microsoft 365 now retry, wait for an operator, or stop according to the provider error, and honor the provider's requested retry delay, instead of repeating until the attempt budget runs out.
+- A DingTalk or WeCom reply preview that hits a permanent or operator-level provider error now records its blocked state and stops repeating the failed recovery attempt.
+- The console email field now stays editable for accounts with a linked external identity, which completes the email-edit change from 1.0.0-alpha.3.
+- Empty, failed, stopped, and awaiting-input final replies now use the installation language instead of fixed Chinese text.
+- Console, sign-in, and setup pages load much less JavaScript up front: the name-transliteration table, the Markdown renderer, the JSON tree editor, and the language catalogs now load on demand, and the shell preloads the active language. The sign-in page ships roughly half its previous script weight.
+- Dark-theme operators no longer see a light flash on every full page load, and each Console page now names its own browser tab and history entry.
+- A batch of Console interaction fixes: fast typing in a list search box can no longer lose trailing keystrokes to the debounced URL commit, a background refresh no longer clears form validation or decryption errors, a revealed secret always re-masks when its reveal is revoked, oversized tool payloads no longer pay for a JSON parse that cannot succeed, and the ChatGPT device-login countdown no longer restarts on unrelated re-renders.
+- Large webhook lists stay responsive while searching, long conversation threads render faster, and the time-zone picker builds its option list in half the work.
+- Internal: shared Console components narrow their contracts — a read-only editor page cannot receive submit props, capability toggles split into explicit global and per-agent controls, and one unused prop is gone. Users do not see this.
+
 ## Version 1.0.0-alpha.3 (2026-08-21)
 
 - Ankole now has built-in local accounts. The setup wizard step becomes "Configure user sign-in" and can create the administrator with an email and password, and the sign-in page accepts email and password next to SSO. No external SSO provider is needed to start.

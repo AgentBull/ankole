@@ -252,8 +252,13 @@ export function WorkerEnvEditorPage() {
     }
   })
 
+  // The reveal belongs to the env the route edits, so it resets when the
+  // route's name changes — not when a background refetch hands the same row
+  // back under a new object identity, which would clear an unread
+  // `decrypt.error` from the page.
+  useEffect(() => decrypt.reset(), [decrypt.reset, name])
+
   useEffect(() => {
-    decrypt.reset()
     if (mode === 'new') {
       model.initialize('worker-env:new', { name: '', value: '', secret: true, description: '' })
       return

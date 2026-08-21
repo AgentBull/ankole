@@ -188,15 +188,34 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Outbox do
      |> MapHelpers.compact_map()}
   end
 
-  defp normalize_result({:error, %Error{reason: :rate_limited, retry_after: seconds}}, _request),
-    do: {:error, {:rate_limited, seconds}}
-
   defp normalize_result({:error, %Error{reason: reason} = error}, request) do
     if reason in Map.get(request, :idempotent_errors, []) do
       {:ok, %{raw_payload: %{"already_absent_or_applied" => true}}}
     else
-      {:error, error}
+      normalize_delivery_result({:error, error})
     end
+  end
+
+  # The library carries no reason taxonomy beyond rate limit and transport;
+  # Graph and Bot Connector auth failures arrive as raw code strings with a
+  # 401/403 status, so the status decides the operator class.
+  @doc false
+  @spec normalize_delivery_result({:error, Error.t()}) :: {:error, term()}
+  def normalize_delivery_result({:error, %Error{} = error}) do
+    action =
+      cond do
+        Error.retryable?(error) -> :retryable
+        error.status in [401, 403] -> :operator_action_required
+        true -> :permanent
+      end
+
+    {:error,
+     {:reply_delivery, action,
+      MapHelpers.compact_map(%{
+        reason: error.reason,
+        http_status: error.status,
+        retry_after_seconds: error.retry_after
+      })}}
   end
 
   defp message_activity(text) do

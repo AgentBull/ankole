@@ -770,7 +770,8 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       on_exit(fn -> delete_tenant_token(config) end)
 
       assert {:error,
-              {:provider_error, %{code: 230_071, http_status: 400, msg: "operator is not sender"}}} =
+              {:reply_delivery, :permanent,
+               %{code: 230_071, http_status: 400, msg: "operator is not sender"}}} =
                agent.uid
                |> final_edit_outbox(binding_name)
                |> Outbox.send()

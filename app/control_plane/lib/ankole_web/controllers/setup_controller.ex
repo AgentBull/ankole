@@ -262,12 +262,14 @@ defmodule AnkoleWeb.SetupController do
   defp validate_local_admin_password(password) when is_binary(password) do
     case String.length(password) >= Principals.local_password_min_length() do
       true -> :ok
-      false -> {:error, 422, "password must be at least 6 characters"}
+      false -> {:error, 422, password_too_short_message()}
     end
   end
 
-  defp validate_local_admin_password(_password),
-    do: {:error, 422, "password must be at least 6 characters"}
+  defp validate_local_admin_password(_password), do: {:error, 422, password_too_short_message()}
+
+  defp password_too_short_message,
+    do: "password must be at least #{Principals.local_password_min_length()} characters"
 
   defp require_local_provider do
     case LocalPassword.fetch_enabled_provider() do

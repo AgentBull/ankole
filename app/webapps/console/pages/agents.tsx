@@ -157,8 +157,14 @@ export function AgentEditorPage() {
   useEffect(() => {
     if (mode === 'new') model.initialize('new', emptyAgentForm())
     else if (selectedAgent) model.initialize(`agent:${selectedAgent.uid}`, formFromAgent(selectedAgent))
-    setTouched({ displayName: false, role: false, uid: false })
   }, [mode, model, selectedAgent])
+
+  // Touched flags belong to the route's agent, not to query identity: a
+  // background refetch must not clear blur-driven validation errors while the
+  // operator is still on the same editor.
+  useEffect(() => {
+    setTouched({ displayName: false, role: false, uid: false })
+  }, [uid])
 
   const createAgent = useMutation({
     ...ankoleWebAgentControllerCreateMutation(),
@@ -257,7 +263,9 @@ export function AgentEditorPage() {
       supplementary={
         mode === 'edit' && selectedAgent ? (
           <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-10 border-t border-border pt-8 [&>*]:min-w-0">
-            <AgentLibraryEditor agentUID={selectedAgent.uid} />
+            {/* The key remounts the editor per agent, so tab choice, draft
+                model, and in-flight submission bookkeeping reset structurally. */}
+            <AgentLibraryEditor key={selectedAgent.uid} agentUID={selectedAgent.uid} />
             <ModelProfilesEditor
               agent={selectedAgent}
               error={modelProfiles.error}

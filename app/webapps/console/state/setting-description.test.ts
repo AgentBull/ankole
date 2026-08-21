@@ -1,6 +1,10 @@
-import { describe, expect, test } from 'bun:test'
-import i18n from '../../common/i18n'
+import { beforeAll, describe, expect, test } from 'bun:test'
+import i18n, { loadLocale } from '../../common/i18n'
 import { settingDescription } from './setting-description'
+
+// Catalogs load on demand now; the fixed translator resolves keys lazily, so
+// loading before the first assertion is enough.
+beforeAll(() => loadLocale('zh-Hans-CN'))
 
 describe('settingDescription', () => {
   const t = i18n.getFixedT('zh-Hans-CN')

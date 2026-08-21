@@ -585,12 +585,15 @@ export function ScheduleCronEditorPage() {
         saveCron.error ??
         updateCron.error
       }
-      onSubmit={submit}
-      readOnly={terminalReadOnly}
-      submitting={saveCron.isPending || updateCron.isPending}
-      submitDisabled={unchanged}
-      submitDisabledReason={t('common.save_disabled')}
-      submitUnavailable={Boolean(editing && !existingRow)}
+      {...(terminalReadOnly
+        ? { readOnly: true as const }
+        : {
+            onSubmit: submit,
+            submitting: saveCron.isPending || updateCron.isPending,
+            submitDisabled: unchanged,
+            submitDisabledReason: t('common.save_disabled'),
+            submitUnavailable: Boolean(editing && !existingRow)
+          })}
       secondary={
         editing && existingRow ? (
           <div className="flex flex-wrap items-center gap-2">

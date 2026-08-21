@@ -22,13 +22,12 @@ import {
   type AgentLibraryDocumentsSnapshot
 } from '../state/agent-library-editor-model'
 
+/** Mounted with `key={agentUID}`, so every per-agent state resets structurally. */
 export function AgentLibraryEditor({ agentUID }: { agentUID: string }) {
   useSignals()
   const { t } = useTranslation()
   const model = useModel(AgentLibraryEditorModel)
   const queryClient = useQueryClient()
-  const currentAgentUID = useRef(agentUID)
-  currentAgentUID.current = agentUID
   const pendingSubmissions = useRef(new Map<string, AgentLibraryDocumentSubmission>())
   const [activeKind, setActiveKind] = useState<AgentLibraryDocumentKind>('mission')
   const documents = useQuery(ankoleWebAgentLibraryControllerIndexOptions({ path: { agent_uid: agentUID } }))
@@ -42,7 +41,7 @@ export function AgentLibraryEditor({ agentUID }: { agentUID: string }) {
       pendingSubmissions.current.delete(submissionKey)
       const document = response.library_document as AgentLibraryDocumentSnapshot
 
-      if (currentAgentUID.current === savedAgentUID && submission) {
+      if (submission) {
         const result = model.markSaved(document.kind, document, submission)
         const messageKey = result.hasUnsavedChanges ? 'saved_with_unsaved_changes' : 'saved'
         const message = t(`console.agent_library.${messageKey}`, { kind: document.kind.toUpperCase() })
@@ -58,7 +57,6 @@ export function AgentLibraryEditor({ agentUID }: { agentUID: string }) {
       const savedAgentUID = variables.path.agent_uid
       const kind = variables.path.document_kind as AgentLibraryDocumentKind
       pendingSubmissions.current.delete(documentSubmissionKey(savedAgentUID, kind))
-      if (currentAgentUID.current !== savedAgentUID) return
       const conflict = requestErrorCode(error) === 'agent_library_document_conflict'
       model.setError(kind, conflict ? t('console.agent_library.conflict') : requestErrorMessage(error), conflict)
     }
@@ -68,8 +66,6 @@ export function AgentLibraryEditor({ agentUID }: { agentUID: string }) {
     if (!documents.data) return
     model.initialize(agentUID, documents.data.library_documents as AgentLibraryDocumentsSnapshot)
   }, [agentUID, documents.data, model])
-
-  useEffect(() => setActiveKind('mission'), [agentUID])
 
   const save = (kind: AgentLibraryDocumentKind) => {
     const draft = model.snapshot(kind)
@@ -85,9 +81,7 @@ export function AgentLibraryEditor({ agentUID }: { agentUID: string }) {
   }
 
   const reloadLatest = async (kind: AgentLibraryDocumentKind) => {
-    const requestedAgentUID = agentUID
     const result = await documents.refetch()
-    if (currentAgentUID.current !== requestedAgentUID) return
     const latest = result.data?.library_documents[kind] as AgentLibraryDocumentSnapshot | undefined
     if (latest) {
       model.reload(kind, latest)

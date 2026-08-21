@@ -120,8 +120,6 @@ defmodule Ankole.Principals.LocalCredentialTest do
           external_id: "ou-#{System.unique_integer([:positive])}"
         })
 
-      assert Principals.has_external_identity?(principal.uid)
-
       assert {:ok, %{has_external_identity: true}} =
                Principals.get_principal_account(principal.uid)
 

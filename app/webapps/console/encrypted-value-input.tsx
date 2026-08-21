@@ -35,16 +35,22 @@ export function EncryptedValueInput({
 }: EncryptedValueInputProps) {
   const { t } = useTranslation()
   const masked = typeof value === 'string' && isEncryptedValueMask(value)
-  const [visible, setVisible] = useState(false)
-
-  useEffect(() => {
-    if (masked) setVisible(false)
-    else if (revealed) setVisible(true)
-  }, [masked, revealed])
+  // Visibility derives from the props: a masked value is never shown, a
+  // revealed value shows until the parent revokes it. `override` records the
+  // operator's eye-button choice inside the current mask/reveal state and is
+  // discarded whenever that state changes — so a revoked reveal always
+  // re-masks instead of surviving through a stale local flag.
+  const [override, setOverride] = useState<boolean>()
+  const [previous, setPrevious] = useState({ masked, revealed })
+  if (previous.masked !== masked || previous.revealed !== revealed) {
+    setPrevious({ masked, revealed })
+    setOverride(undefined)
+  }
+  const visible = !masked && (override ?? revealed)
 
   useEffect(() => {
     if (!visible) return
-    const remask = () => setVisible(false)
+    const remask = () => setOverride(false)
     const timeout = window.setTimeout(remask, 30_000)
     window.addEventListener('blur', remask)
     return () => {
@@ -82,7 +88,7 @@ export function EncryptedValueInput({
         type="button"
         onClick={() => {
           if (revealStoredValue) onReveal()
-          else setVisible(current => !current)
+          else setOverride(!visible)
         }}>
         {revealing ? (
           <Spinner className="size-4" />

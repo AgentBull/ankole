@@ -32,7 +32,7 @@ import {
 } from '@ankole/uikit'
 import { RiInformationLine, RiRestartLine } from '@remixicon/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useDeferredValue, useEffect, useState } from 'react'
+import { useDeferredValue, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useParams, useSearchParams } from 'react-router'
 import { requestErrorMessage } from '../../common/request-errors'
@@ -89,9 +89,10 @@ export function AgentLibraryPage() {
   const experience = useSkillExperience(scope)
   const controlPlaneMutation = useControlPlanePluginMutation()
 
-  useEffect(() => {
-    if (!availableAgentLibraryTabs(scope).includes(tab)) setTab('agent-plugins')
-  }, [scope, tab])
+  // Derived during render: an agent scope has no control-plane tab, so the
+  // stored choice falls back without an effect (and comes back when the
+  // operator returns to the global scope).
+  const activeTab = availableAgentLibraryTabs(scope).includes(tab) ? tab : 'agent-plugins'
 
   const plugins = filterAgentPlugins(data.capabilities?.agent_plugins ?? [], useDeferredValue(pluginQuery))
   const skills = filterSkills(data.capabilities?.skills ?? [], useDeferredValue(skillQuery))
@@ -120,7 +121,7 @@ export function AgentLibraryPage() {
 
       <ErrorBlock error={data.error ?? experience?.error} />
 
-      <Tabs value={tab} onValueChange={value => setTab(value as AgentLibraryTab)} className="min-w-0 gap-5">
+      <Tabs value={activeTab} onValueChange={value => setTab(value as AgentLibraryTab)} className="min-w-0 gap-5">
         <TabsList className="max-w-full overflow-x-auto">
           {/* The count used to be a bare number after the label, so "Agent Plugins 3"
               read as part of the name. A tag says it is a quantity. */}
@@ -261,15 +262,21 @@ export function AgentPluginDetailPage() {
                 {t('console.agent_library_capabilities.plugin_version', { version: plugin.version })}
               </CardDescription>
               <CardAction>
-                <CapabilityControl
-                  scope={scope}
-                  capabilityName={humanizeAgentPluginID(plugin.id)}
-                  globalDefault={plugin.global_default_enabled}
-                  override={plugin.override_enabled}
-                  effective={plugin.effective_enabled}
-                  disabled={mutations.pending}
-                  onChange={enabled => mutations.setAgentPlugin(plugin.id, enabled)}
-                />
+                {scope === GLOBAL_LIBRARY_SCOPE ? (
+                  <GlobalDefaultSwitch
+                    capabilityName={humanizeAgentPluginID(plugin.id)}
+                    checked={plugin.global_default_enabled}
+                    disabled={mutations.pending}
+                    onChange={enabled => mutations.setAgentPlugin(plugin.id, enabled)}
+                  />
+                ) : (
+                  <AgentOverrideControl
+                    override={plugin.override_enabled}
+                    effective={plugin.effective_enabled}
+                    disabled={mutations.pending}
+                    onChange={enabled => mutations.setAgentPlugin(plugin.id, enabled)}
+                  />
+                )}
               </CardAction>
             </CardHeader>
           </Card>
@@ -378,15 +385,21 @@ function AgentPluginCard({
         </CardTitle>
         <CardDescription>{plugin.description}</CardDescription>
         <CardAction>
-          <CapabilityControl
-            scope={scope}
-            capabilityName={name}
-            globalDefault={plugin.global_default_enabled}
-            override={plugin.override_enabled}
-            effective={plugin.effective_enabled}
-            disabled={pending}
-            onChange={onChange}
-          />
+          {scope === GLOBAL_LIBRARY_SCOPE ? (
+            <GlobalDefaultSwitch
+              capabilityName={name}
+              checked={plugin.global_default_enabled}
+              disabled={pending}
+              onChange={onChange}
+            />
+          ) : (
+            <AgentOverrideControl
+              override={plugin.override_enabled}
+              effective={plugin.effective_enabled}
+              disabled={pending}
+              onChange={onChange}
+            />
+          )}
         </CardAction>
       </CardHeader>
       <CardContent className="mt-auto flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
@@ -429,20 +442,26 @@ function SkillCard({
         <CardTitle className="normal-case">{skill.name}</CardTitle>
         <CardDescription>{skill.description}</CardDescription>
         <CardAction>
-          <CapabilityControl
-            scope={scope}
-            capabilityName={skill.name}
-            globalDefault={skill.global_default_enabled}
-            override={skill.override_enabled}
-            effective={skill.effective_enabled}
-            disabled={pending}
-            inheritLabel={
-              skill.source_kind === 'installed'
-                ? t('console.agent_library_capabilities.inherit_source_default')
-                : undefined
-            }
-            onChange={onChange}
-          />
+          {scope === GLOBAL_LIBRARY_SCOPE ? (
+            <GlobalDefaultSwitch
+              capabilityName={skill.name}
+              checked={skill.global_default_enabled}
+              disabled={pending}
+              onChange={onChange}
+            />
+          ) : (
+            <AgentOverrideControl
+              override={skill.override_enabled}
+              effective={skill.effective_enabled}
+              disabled={pending}
+              inheritLabel={
+                skill.source_kind === 'installed'
+                  ? t('console.agent_library_capabilities.inherit_source_default')
+                  : undefined
+              }
+              onChange={onChange}
+            />
+          )}
         </CardAction>
       </CardHeader>
       <CardContent className="mt-auto grid gap-4 border-t border-border pt-4">
@@ -626,38 +645,45 @@ function ControlPlanePluginCard({
   )
 }
 
-function CapabilityControl({
+/** Toggles the installation-wide default for one capability. */
+function GlobalDefaultSwitch({
   capabilityName,
+  checked,
   disabled,
-  effective,
-  globalDefault,
-  inheritLabel,
-  onChange,
-  override,
-  scope
+  onChange
 }: {
   /** Names the switch after the capability it toggles, not after what it does. */
   capabilityName: string
+  checked: boolean
+  disabled: boolean
+  onChange: (enabled: boolean) => void
+}) {
+  const { t } = useTranslation()
+  return (
+    <Switch
+      aria-label={t('console.agent_library_capabilities.set_global_default_for', { name: capabilityName })}
+      checked={checked}
+      disabled={disabled}
+      onCheckedChange={checked => onChange(checked)}
+    />
+  )
+}
+
+/** Sets one agent's override — inherit, enabled, or disabled — and shows the effective result. */
+function AgentOverrideControl({
+  disabled,
+  effective,
+  inheritLabel,
+  onChange,
+  override
+}: {
   disabled: boolean
   effective: boolean
-  globalDefault: boolean
   inheritLabel?: string
   onChange: (enabled: boolean | null) => void
   override: boolean | null
-  scope: string
 }) {
   const { t } = useTranslation()
-  if (scope === GLOBAL_LIBRARY_SCOPE) {
-    return (
-      <Switch
-        aria-label={t('console.agent_library_capabilities.set_global_default_for', { name: capabilityName })}
-        checked={globalDefault}
-        disabled={disabled}
-        onCheckedChange={checked => onChange(checked)}
-      />
-    )
-  }
-
   return (
     <div className="grid justify-items-end gap-1">
       <Select

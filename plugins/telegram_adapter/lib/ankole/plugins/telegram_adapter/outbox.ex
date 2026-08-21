@@ -51,9 +51,9 @@ defmodule Ankole.Plugins.TelegramAdapter.Outbox do
       end
 
     case result do
-      {:error, reason} when reason in [:telegram_partial_delivery, :telegram_send_uncertain] ->
-        :unknown
-
+      # ReplyPreview.finalize already normalized the partial-delivery and
+      # send-uncertain atoms into this shape; the durable outbox turns the
+      # uncertainty into a first-class unknown result.
       {:error,
        {:reply_delivery, :operator_action_required, %{"code" => "telegram_delivery_unknown"}}} ->
         :unknown

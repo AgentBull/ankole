@@ -1,5 +1,9 @@
-import { describe, expect, test } from 'bun:test'
-import { AgentEditorModel, agentUIDError, agentUIDFromDisplayName } from './agent-editor-model'
+import { beforeAll, describe, expect, test } from 'bun:test'
+import { AgentEditorModel, agentUIDError, agentUIDFromDisplayName, preloadTransliteration } from './agent-editor-model'
+
+// UID derivation upgrades from an ASCII-only fallback once the on-demand
+// transliteration table loads; the assertions cover the loaded behavior.
+beforeAll(() => preloadTransliteration())
 
 describe('AgentEditorModel', () => {
   test('keeps edits during refetch and resets when the route selects another agent', () => {

@@ -39,7 +39,7 @@ import {
   type ReactNode
 } from 'react'
 import { useTranslation } from 'react-i18next'
-import { BackLink, PageStack } from './console-page'
+import { BackLink, DocumentTitle, PageStack } from './console-page'
 import { ErrorBlock } from '../common/error-block'
 import { formatJSONDraft, inspectJSONDraft } from './state/json-editor'
 
@@ -49,6 +49,30 @@ import { formatJSONDraft, inspectJSONDraft } from './state/json-editor'
  * away from the editor.
  * Destructive and out-of-band actions (delete, sync) slot into `secondary`.
  */
+// Read-only mode drops the submit bar and disables every field, which makes
+// the submit cluster meaningless. The union keeps that combination
+// unrepresentable: a caller either provides the submit contract or declares
+// the page read-only, never both.
+type ResourceEditorModeProps =
+  | {
+      readOnly: true
+      onSubmit?: never
+      submitDisabled?: never
+      submitDisabledReason?: never
+      submitUnavailable?: never
+      submitLabel?: never
+      submitting?: never
+    }
+  | {
+      readOnly?: false
+      onSubmit: () => void
+      submitDisabled?: boolean
+      submitDisabledReason?: string
+      submitUnavailable?: boolean
+      submitLabel?: string
+      submitting?: boolean
+    }
+
 export function ResourceEditorPage({
   backTo,
   children,
@@ -71,17 +95,10 @@ export function ResourceEditorPage({
   contentWidth?: 'form' | 'wide'
   description?: string
   error?: unknown
-  onSubmit: () => void
-  readOnly?: boolean
   secondary?: ReactNode
   supplementary?: ReactNode
-  submitDisabled?: boolean
-  submitDisabledReason?: string
-  submitUnavailable?: boolean
-  submitLabel?: string
-  submitting?: boolean
   title: string
-}) {
+} & ResourceEditorModeProps) {
   const { t } = useTranslation()
   const disabledReasonID = useId()
   const formCompleteness = useFormCompleteness()
@@ -91,11 +108,12 @@ export function ResourceEditorPage({
 
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault()
-    onSubmit()
+    onSubmit?.()
   }
 
   return (
     <PageStack className={cn('mx-auto w-full', contentWidth === 'wide' ? 'max-w-6xl' : 'max-w-3xl')}>
+      <DocumentTitle title={title} />
       <div className="grid gap-3">
         <BackLink to={backTo} />
         <div className="flex flex-wrap items-start justify-between gap-3">

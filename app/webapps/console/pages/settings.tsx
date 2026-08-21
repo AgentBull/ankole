@@ -95,22 +95,27 @@ function SettingsList() {
   const deferredQuery = useDeferredValue(query)
   const searchQuery = effectiveResourceSearchQuery(query, deferredQuery)
   // Search every word the row renders and keep the internal tokens for
-  // operators who know the registry vocabulary.
-  const items = (list.data?.app_configurations ?? []).filter(item =>
-    matchesResourceSearch(
-      searchQuery,
-      item.key,
-      settingDescription(t, item),
-      item.kind,
-      t(`console.settings.kind_${item.kind}`),
-      item.source,
-      t(`console.settings.source_${item.source}`),
-      item.encrypted ? 'encrypted' : '',
-      item.encrypted ? t('console.status.encrypted') : '',
-      item.overridden ? 'overridden' : '',
-      item.overridden ? t('console.status.global') : ''
-    )
-  )
+  // operators who know the registry vocabulary. The guard matters: the
+  // haystack arguments run several translation lookups per row, so only an
+  // active search should pay for them.
+  const allItems = list.data?.app_configurations ?? []
+  const items = searchQuery
+    ? allItems.filter(item =>
+        matchesResourceSearch(
+          searchQuery,
+          item.key,
+          settingDescription(t, item),
+          item.kind,
+          t(`console.settings.kind_${item.kind}`),
+          item.source,
+          t(`console.settings.source_${item.source}`),
+          item.encrypted ? 'encrypted' : '',
+          item.encrypted ? t('console.status.encrypted') : '',
+          item.overridden ? 'overridden' : '',
+          item.overridden ? t('console.status.global') : ''
+        )
+      )
+    : allItems
   const rows = settingRows(items)
   const [managedOpen, setManagedOpen] = useState(false)
 
@@ -315,8 +320,12 @@ export function SettingEditorDrawer() {
     onError: error => toast.error(requestErrorMessage(error))
   })
 
+  // The reveal belongs to the setting the drawer edits, so it resets when the
+  // route's key changes — not when a background refetch hands the same setting
+  // back under a new object identity.
+  useEffect(() => decrypt.reset(), [decrypt.reset, key])
+
   useEffect(() => {
-    decrypt.reset()
     if (!item || detail.isLoading) return
     model.initialize(
       sourceKey,

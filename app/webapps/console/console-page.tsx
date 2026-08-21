@@ -2,8 +2,22 @@ import { Button, Tooltip, TooltipContent, TooltipTrigger, cn } from '@ankole/uik
 import { RiArrowLeftLine, RiRefreshLine } from '@remixicon/react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useState, type ComponentProps, type ReactNode } from 'react'
+import { Helmet } from 'react-helmet-async'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router'
+
+/**
+ * Names the browser tab and history entry after the page. The Phoenix shell
+ * serves a fixed "Ankole Console" title; each routed page appends its own name
+ * so tabs and history stay distinguishable.
+ */
+export function DocumentTitle({ title }: { title: string }) {
+  return (
+    <Helmet>
+      <title>{`${title} · Ankole Console`}</title>
+    </Helmet>
+  )
+}
 
 /** One page-level vertical rhythm for list, editor, detail, and dashboard routes. */
 export function PageStack({ className, ...props }: ComponentProps<'div'>) {
@@ -36,6 +50,7 @@ export function PageHeader({
 }) {
   return (
     <div className="flex min-w-0 flex-wrap items-end justify-between gap-4 border-b border-border pb-5">
+      <DocumentTitle title={title} />
       <div className="grid min-w-0 gap-1">
         <h2 className="text-2xl font-semibold tracking-normal text-foreground">{title}</h2>
         {description ? <p className="max-w-3xl text-sm leading-6 text-muted-foreground">{description}</p> : null}

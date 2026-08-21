@@ -502,6 +502,25 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
       with_attachment = %{outbox | payload: %{"attachments" => [%{"name" => "a.txt"}]}}
       assert {:error, :outbound_attachments_not_supported} = Outbox.send(with_attachment)
     end
+
+    test "delivery failures classify for the gateway retry policy" do
+      rate_limited = %MicrosoftOpenAPI.Error{reason: :rate_limited, status: 429, retry_after: 7}
+
+      assert {:error, {:reply_delivery, :retryable, detail}} =
+               Outbox.normalize_delivery_result({:error, rate_limited})
+
+      assert detail.retry_after_seconds == 7
+
+      auth = %MicrosoftOpenAPI.Error{reason: "InvalidAuthenticationToken", status: 401}
+
+      assert {:error, {:reply_delivery, :operator_action_required, %{http_status: 401}}} =
+               Outbox.normalize_delivery_result({:error, auth})
+
+      gone = %MicrosoftOpenAPI.Error{reason: "ConversationNotFound", status: 404}
+
+      assert {:error, {:reply_delivery, :permanent, %{reason: "ConversationNotFound"}}} =
+               Outbox.normalize_delivery_result({:error, gone})
+    end
   end
 
   describe "Teams channel membership projection" do

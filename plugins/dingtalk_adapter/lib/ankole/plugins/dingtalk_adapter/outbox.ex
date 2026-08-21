@@ -106,8 +106,8 @@ defmodule Ankole.Plugins.DingTalkAdapter.Outbox do
         |> Markdown.display_chunks()
 
       send_text_chunks(client, robot_code, target, chunks, outbox, config)
-      |> normalize_delivery_error()
     end
+    |> normalize_delivery_result()
   end
 
   # --- card ------------------------------------------------------------------
@@ -126,10 +126,9 @@ defmodule Ankole.Plugins.DingTalkAdapter.Outbox do
           robot_code = Config.effective_robot_code(config)
 
           with {:ok, target} <- resolve_target(outbox) do
-            client
-            |> InteractiveCard.deliver(template_id, robot_code, target, outbox)
-            |> normalize_delivery_error()
+            InteractiveCard.deliver(client, template_id, robot_code, target, outbox)
           end
+          |> normalize_delivery_result()
       end
     end
   end
@@ -200,8 +199,8 @@ defmodule Ankole.Plugins.DingTalkAdapter.Outbox do
         {:ok, result} -> {:ok, Map.put(result, :payload, outbox.payload)}
         {:error, _reason} = error -> error
       end
-      |> normalize_delivery_error()
     end
+    |> normalize_delivery_result()
   end
 
   defp read_attachment(attachment, agent_uid) do
@@ -277,9 +276,10 @@ defmodule Ankole.Plugins.DingTalkAdapter.Outbox do
 
       case result do
         {:ok, body} -> {:ok, %{raw_payload: body}}
-        {:error, _reason} = error -> normalize_delivery_error(error)
+        {:error, _reason} = error -> error
       end
     end
+    |> normalize_delivery_result()
   end
 
   # --- send primitive ------------------------------------------------------
@@ -379,19 +379,6 @@ defmodule Ankole.Plugins.DingTalkAdapter.Outbox do
   defp attachment_name(attachment, relative_path) do
     optional_text(attachment, "name") || Path.basename(relative_path)
   end
-
-  defp normalize_delivery_error({:error, %Error{} = error}) do
-    {:error,
-     {:provider_error,
-      MapHelpers.compact_map(%{
-        reason: error.reason,
-        code: error.code,
-        message: error.message,
-        http_status: error.http_status
-      })}}
-  end
-
-  defp normalize_delivery_error(result), do: result
 
   @doc false
   @spec normalize_delivery_result(term()) :: term()

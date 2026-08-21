@@ -17,7 +17,7 @@ import {
 import { RiChat3Line, RiFunctionLine, RiInboxLine } from '@remixicon/react'
 import { match } from '@agentbull/active-support'
 import { useQuery } from '@tanstack/react-query'
-import { useEffect, useState, type ReactNode } from 'react'
+import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useParams, useSearchParams } from 'react-router'
 import { AgentFilter, useAgentScope } from '../console-agent-scope'
@@ -27,7 +27,13 @@ import { formatConsoleDate, truncate } from '../console-primitives'
 import { conversationDisplayName } from '../conversation-presentation'
 import { MarkdownBody } from '../markdown-body'
 import { StatusIndicator } from '../console-form'
-import { CursorPagination, ResourceListPage, ResourceSearch, RowViewAction } from '../console-list-page'
+import {
+  CursorPagination,
+  ResourceListPage,
+  ResourceSearch,
+  RowViewAction,
+  useResourceSearchDraft
+} from '../console-list-page'
 import {
   cursorPageNumber,
   hasPreviousCursor,
@@ -35,7 +41,6 @@ import {
   previousCursorParams,
   resetCursorParams
 } from '../state/cursor-pagination'
-import { scheduleResourceSearchCommit } from '../state/resource-search'
 import {
   ankoleWebAiGatewayConversationControllerIndexOptions as ankoleWebAIGatewayConversationControllerIndexOptions,
   ankoleWebAiGatewayConversationControllerMessagesOptions as ankoleWebAIGatewayConversationControllerMessagesOptions,
@@ -63,27 +68,17 @@ export function ConversationsListPage() {
   // Stub conversations (fewer than two messages — no exchange recorded) are
   // hidden by default; `min_messages=0` opts back into the full list.
   const showAll = searchParams.get('min_messages') === '0'
-  // Typing stays local in the draft; the URL — and with it the server query
-  // and the route loader revalidation — commits after a 300 ms pause.
-  const [searchDraft, setSearchDraft] = useState(searchFilter)
-
-  useEffect(() => setSearchDraft(searchFilter), [searchFilter])
-
-  useEffect(() => {
-    if (searchDraft === searchFilter) return
-
-    return scheduleResourceSearchCommit(() => {
-      setSearchParams(
-        current => {
-          const next = new URLSearchParams(current)
-          if (searchDraft) next.set('q', searchDraft)
-          else next.delete('q')
-          return resetCursorParams(next)
-        },
-        { replace: true }
-      )
-    })
-  }, [searchDraft, searchFilter, setSearchParams])
+  const [searchDraft, setSearchDraft] = useResourceSearchDraft(searchFilter, draft =>
+    setSearchParams(
+      current => {
+        const next = new URLSearchParams(current)
+        if (draft) next.set('q', draft)
+        else next.delete('q')
+        return resetCursorParams(next)
+      },
+      { replace: true }
+    )
+  )
 
   const list = useQuery(
     conversationListOptions({
@@ -456,10 +451,16 @@ function DetailField({ label, value, mono = false }: { label: string; value: Rea
  * information is lost for unfamiliar ResponseItem variants.
  */
 function MessageThread({ messages }: { messages: AIGatewayMessageItem[] }) {
+  // The thread renders up to 200 rows of markdown and payload blocks;
+  // `content-visibility` lets the browser skip layout and paint for the
+  // off-screen ones, with an estimated placeholder height to keep the
+  // scrollbar stable.
   return (
     <div className="grid gap-5">
       {messages.map(message => (
-        <MessageRow key={message.id} message={message} />
+        <div key={message.id} className="[contain-intrinsic-size:auto_8rem] [content-visibility:auto]">
+          <MessageRow message={message} />
+        </div>
       ))}
     </div>
   )
@@ -625,7 +626,9 @@ function ToolItemView({ item }: { item: ResponseItem }) {
   return (
     <div className="grid gap-2 px-4 py-3">
       <ToolItemHeader item={item} type={type} nonce={envelope?.nonce} />
-      {body ? <CodeBlock>{prettyJSON(truncate(body, 16_000))}</CodeBlock> : null}
+      {/* A truncated JSON document can never parse, so oversized payloads
+          skip the guaranteed-to-fail parse and render the cut raw text. */}
+      {body ? <CodeBlock>{body.length <= 16_000 ? prettyJSON(body) : truncate(body, 16_000)}</CodeBlock> : null}
     </div>
   )
 }

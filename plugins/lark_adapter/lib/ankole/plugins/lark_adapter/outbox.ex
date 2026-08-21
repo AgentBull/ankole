@@ -360,9 +360,19 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
     })
   end
 
+  # App token and permission failures (the 999916xx family) need an operator
+  # and wake on a binding update; transport, throttle, and 5xx retry; any
+  # other provider rejection of a plain send is permanent.
   defp normalize_delivery_error({:error, %Error{} = error}) do
+    action =
+      cond do
+        retryable_provider_error?(error) -> :retryable
+        error.code in [999_916_63, 999_916_64, 999_916_68] -> :operator_action_required
+        true -> :permanent
+      end
+
     {:error,
-     {:provider_error,
+     {:reply_delivery, action,
       %{
         code: error.code,
         msg: error.msg,
@@ -431,6 +441,19 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
        do: operator_attachment_error("attachment_file_missing", %{"worker_file_code" => code})
 
   defp normalize_delivery_error(result), do: result
+
+  defp retryable_provider_error?(%Error{code: code}) when code in [:transport, :rate_limited],
+    do: true
+
+  defp retryable_provider_error?(%Error{http_status: status})
+       when status in [408, 409, 425, 429],
+       do: true
+
+  defp retryable_provider_error?(%Error{http_status: status})
+       when is_integer(status) and status >= 500,
+       do: true
+
+  defp retryable_provider_error?(%Error{}), do: false
 
   defp operator_attachment_error(code, detail \\ %{}) do
     {:error, {:reply_delivery, :operator_action_required, Map.put(detail, "code", code)}}

@@ -43,17 +43,6 @@ describe('PrincipalEditorModel', () => {
     model[Symbol.dispose]()
   })
 
-  test('locks an externally owned email out of validation and updates', () => {
-    const model = new PrincipalEditorModel()
-
-    model.initialize('principal:u2', { displayName: 'Grace', email: '' }, { emailLocked: true })
-    expect(model.draftError()).toBeUndefined()
-
-    model.email.value = 'grace@example.com'
-    expect(model.updateBody()).toEqual({})
-    model[Symbol.dispose]()
-  })
-
   test('keeps edits during refetch and resets for another principal', () => {
     const model = new PrincipalEditorModel()
 

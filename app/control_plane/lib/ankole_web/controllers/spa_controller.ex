@@ -122,7 +122,16 @@ defmodule AnkoleWeb.SpaController do
       "    <title>",
       title,
       "</title>\n",
+      # The theme class must be on <html> before the first paint. The React
+      # ThemeProvider applies it only after the bundle loads, so without this
+      # inline script every full page load flashes the light background at a
+      # dark-mode operator. The storage key and attribute mirror the uikit
+      # ThemeProvider configuration.
+      "    <script>try{var t=localStorage.getItem(\"ankole-theme\");" <>
+        "if(t===\"dark\"){var d=document.documentElement;" <>
+        "d.dataset.theme=\"dark\";d.style.colorScheme=\"dark\"}}catch(e){}</script>\n",
       Assets.entry_tags(conn, entry),
+      Assets.locale_preload_tags(locale),
       "  </head>\n",
       "  <body>\n",
       "    <div id=\"ankole-app\"></div>\n",

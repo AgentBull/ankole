@@ -283,15 +283,6 @@ defmodule AnkoleWeb.PrincipalController do
         "local account sign-in is not enabled"
       )
 
-  defp error(conn, :email_managed_externally),
-    do:
-      ConsoleErrors.render(
-        conn,
-        422,
-        "email_managed_externally",
-        "this email comes from an external sign-in identity and cannot be changed here"
-      )
-
   defp error(conn, :email_missing),
     do:
       ConsoleErrors.render(

@@ -1848,9 +1848,6 @@ defmodule Ankole.SignalsGateway.Outbox do
   defp delivery_failure_identity({:reply_delivery, :permanent, detail}),
     do: {"permanent", delivery_failure_code(detail)}
 
-  defp delivery_failure_identity({:provider_error, detail}),
-    do: {"provider_error", delivery_failure_code(detail)}
-
   defp delivery_failure_identity(reason) when is_atom(reason),
     do: {"adapter_error", Atom.to_string(reason)}
 

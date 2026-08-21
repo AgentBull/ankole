@@ -1,5 +1,19 @@
 import { batch, computed, createModel, signal } from '@preact/signals-react'
-import anyAscii from 'any-ascii'
+
+// The transliteration table is ~0.5 MB, so it loads on demand: the editor
+// preloads it on initialize, and UID derivation upgrades from the ASCII-only
+// fallback as soon as the table lands.
+type Transliterate = (value: string) => string
+
+let transliterate: Transliterate | undefined
+let transliterationLoading: Promise<void> | undefined
+
+export function preloadTransliteration(): Promise<void> {
+  transliterationLoading ??= import('any-ascii').then(module => {
+    transliterate = module.default
+  })
+  return transliterationLoading
+}
 
 export type AgentEditorDraft = {
   uid: string
@@ -20,7 +34,7 @@ export function agentUIDError(uid: string): Extract<AgentEditorDraftError, 'uid_
 }
 
 export function agentUIDFromDisplayName(displayName: string): string {
-  return anyAscii(displayName)
+  return (transliterate?.(displayName) ?? displayName)
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
@@ -57,6 +71,7 @@ export const AgentEditorModel = createModel(() => {
     dirty,
     validationError,
     initialize(nextSourceKey: string, draft: AgentEditorDraft) {
+      void preloadTransliteration()
       if (sourceKey.value === nextSourceKey) return
       batch(() => {
         sourceKey.value = nextSourceKey
@@ -80,7 +95,16 @@ export const AgentEditorModel = createModel(() => {
     setDisplayName(value: string, deriveUID: boolean) {
       batch(() => {
         displayName.value = value
-        if (deriveUID && !uidManuallyEdited) uid.value = agentUIDFromDisplayName(value)
+        if (deriveUID && !uidManuallyEdited) {
+          uid.value = agentUIDFromDisplayName(value)
+          // Before the table lands, non-Latin input derives an empty or
+          // partial UID; re-derive from the current name once it loads.
+          if (!transliterate) {
+            void preloadTransliteration().then(() => {
+              if (!uidManuallyEdited) uid.value = agentUIDFromDisplayName(displayName.value)
+            })
+          }
+        }
         if (
           validationError.value === 'display_name_required' ||
           validationError.value === 'uid_required' ||

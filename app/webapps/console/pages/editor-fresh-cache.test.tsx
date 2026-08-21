@@ -1,6 +1,7 @@
-import { describe, expect, test } from 'bun:test'
+import { beforeAll, describe, expect, test } from 'bun:test'
 import { QueryClient, QueryClientProvider, QueryObserver } from '@tanstack/react-query'
 import { renderToStaticMarkup } from 'react-dom/server'
+import { loadLocale } from '../../common/i18n'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import {
   ankoleWebAgentControllerIndexQueryKey,
@@ -10,6 +11,9 @@ import {
 import { agentEditorDetailOptions, AgentEditorPage } from './agents'
 import { IdentityProviderEditorPage } from './identity'
 import { permissionGrantDetailOptions } from './permission-grant-editor'
+
+// Catalogs load on demand; these assertions render translated en-US copy.
+beforeAll(() => loadLocale('en-US'))
 
 describe('resource editor lookup with fresh caches', () => {
   test('does not declare a newly created Agent missing before its show request answers', () => {

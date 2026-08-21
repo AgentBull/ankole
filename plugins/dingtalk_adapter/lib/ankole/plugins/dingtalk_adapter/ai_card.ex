@@ -933,9 +933,10 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
     end
   end
 
-  # Provider errors surface with their classified reason for the gateway's retry
-  # budget; deterministic degrades already returned the non-retryable
-  # cardkit_plain_text_fallback shape from inside reconcile.
+  # Provider errors surface classified (retryable / operator_action_required /
+  # permanent) so the gateway can retry, block, or stop; deterministic degrades
+  # already returned the non-retryable cardkit_plain_text_fallback shape from
+  # inside reconcile.
   defp normalize_result({:error, %Error{} = error}),
     do: Outbox.normalize_delivery_result({:error, error})
 

@@ -1,7 +1,11 @@
-import { describe, expect, test } from 'bun:test'
+import { beforeAll, describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
+import { loadLocale } from '../common/i18n'
 import { MemoryRouter } from 'react-router'
 import { RowActions, RowViewAction, SubNav } from './console-list-page'
+
+// Catalogs load on demand; these assertions render translated en-US copy.
+beforeAll(() => loadLocale('en-US'))
 
 describe('SubNav', () => {
   test('gives sibling resource links a named navigation landmark', () => {

@@ -38,6 +38,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   alias Ankole.SignalsGateway.OutboxAdapter
   alias Ankole.SignalsGateway.OutboxEntry
   alias Ankole.SignalsGateway.ReplyPresentation
+  alias Ankole.SignalsGateway.Sanitizer
   alias Ankole.SignalsGateway.Utils
   alias Ankole.SignalsGateway.ReplyPreviewAdapter
   alias Ankole.SignalsGateway.ReplyPreviewAdapter.Request
@@ -636,7 +637,9 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
             |> Map.put("recovery_state", %{
               "state" => "delegated",
               "reason" => "plain_text_fallback",
-              "detail" => detail,
+              # Sanitize before the JSONPayload checkpoint gate: adapter
+              # details may carry atom reasons, which JSONPayload rejects.
+              "detail" => Sanitizer.transport(detail),
               "delegated_at" => delegated_at
             })
 
@@ -724,7 +727,9 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
     %{
       "state" => state,
       "reason" => class,
-      "detail" => detail,
+      # Sanitize before the JSONPayload checkpoint gate: adapter details may
+      # carry atom reasons, which JSONPayload rejects.
+      "detail" => Sanitizer.transport(detail),
       "blocked_at" => DateTime.utc_now(:microsecond) |> DateTime.to_iso8601()
     }
   end

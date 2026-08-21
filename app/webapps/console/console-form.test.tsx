@@ -60,7 +60,7 @@ describe('console forms', () => {
   test('makes a terminal resource read-only without offering a save action', () => {
     const html = renderToStaticMarkup(
       <MemoryRouter>
-        <ResourceEditorPage backTo="/resources" onSubmit={() => {}} readOnly title="Completed resource">
+        <ResourceEditorPage backTo="/resources" readOnly title="Completed resource">
           <Input value="Final value" />
         </ResourceEditorPage>
       </MemoryRouter>

@@ -30,8 +30,6 @@ export function principalRequestError(error: unknown, t: Translate): unknown {
   switch (requestErrorCode(error)) {
     case 'email_taken':
       return t('console.principals.email_taken')
-    case 'email_managed_externally':
-      return t('console.principals.email_managed')
     default:
       return error ?? undefined
   }

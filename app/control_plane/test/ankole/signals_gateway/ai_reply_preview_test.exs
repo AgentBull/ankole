@@ -1119,6 +1119,103 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     assert Repo.get!(ActorEvent, actor_event.id).reply_preview_checkpoint == permanent
   end
 
+  test "an atom-valued adapter detail still persists the blocked recovery state" do
+    original_state = :sys.get_state(Ankole.Plugins.Registry)
+    {:ok, spec} = Spec.from_module(RecoverySignalProviderPlugin)
+
+    :sys.replace_state(Ankole.Plugins.Registry, fn _state ->
+      %{
+        discovered: %{spec.id => spec},
+        active: %{spec.id => spec},
+        enabled_ids: MapSet.new([spec.id])
+      }
+    end)
+
+    RecoveryReplyPreview.put_recipient(self())
+
+    # DingTalk and WeCom adapters emit atom-keyed details with atom reason
+    # values. The checkpoint JSONPayload gate rejects raw atoms, so the
+    # blocked state must be sanitized before it is stored.
+    RecoveryReplyPreview.put_refresh_result(
+      {:error,
+       {:reply_delivery, :operator_action_required,
+        %{reason: :auth, code: "token.notExisted", message: "invalid token"}}}
+    )
+
+    on_exit(fn ->
+      RecoveryReplyPreview.delete_recipient()
+      RecoveryReplyPreview.delete_refresh_result()
+      :sys.replace_state(Ankole.Plugins.Registry, fn _state -> original_state end)
+    end)
+
+    %{subject: subject, actor_event: actor_event} = addressed_actor_event("atom-blocked")
+
+    {:ok, conversation} =
+      Conversations.ensure_conversation(subject.uid, actor_event.session_id)
+
+    terminal =
+      ReplyPresentation.new(state: "working")
+      |> ReplyPresentation.terminal("completed", "final answer")
+      |> ReplyPresentation.checkpoint()
+
+    checkpoint = %{
+      "subject_uid" => subject.uid,
+      "conversation_id" => conversation.id,
+      "card_id" => "card-atom-blocked",
+      "message_id" => "message-atom-blocked",
+      "streaming_state" => "open",
+      "presentation" => terminal,
+      "cards" => [
+        %{
+          "index" => 0,
+          "card_id" => "card-atom-blocked",
+          "message_id" => "message-atom-blocked",
+          "streaming_state" => "open"
+        }
+      ],
+      "active_card_index" => 0
+    }
+
+    actor_event =
+      actor_event
+      |> ActorEvent.changeset(%{
+        completed_at: DateTime.utc_now(:microsecond),
+        reply_preview_checkpoint: checkpoint,
+        reply_preview_source_entry_id: "message-atom-blocked"
+      })
+      |> Repo.update!()
+
+    Repo.insert!(%OutboxEntry{
+      agent_uid: actor_event.agent_uid,
+      binding_name: actor_event.binding_name,
+      outbound_key: "atom-blocked:#{actor_event.id}",
+      delivery_class: :durable_ai_reply,
+      operation: :edit,
+      status: :failed,
+      signal_channel_id: actor_event.signal_channel_id,
+      target_source_entry_id: "message-atom-blocked",
+      source_actor_event_id: actor_event.id,
+      payload: %{"reply_presentation" => terminal},
+      fallback_visible_text: "final answer",
+      idempotency_key: "atom-blocked:#{actor_event.id}",
+      attempt_count: 1,
+      max_attempts: 10,
+      last_error: %{},
+      recovery_state: %{}
+    })
+
+    assert {:error, {:reply_delivery, :operator_action_required, _detail}} =
+             AIReplyPreview.recover(actor_event.id)
+
+    assert_receive {:recovery_refresh, _request}
+
+    blocked = Repo.get!(ActorEvent, actor_event.id).reply_preview_checkpoint
+    assert blocked["recovery_state"]["state"] == "blocked"
+    assert blocked["recovery_state"]["detail"]["reason"] == "auth"
+    assert blocked["recovery_state"]["detail"]["code"] == "token.notExisted"
+    refute Enum.any?(Actors.recoverable_reply_preview_events(), &(&1.id == actor_event.id))
+  end
+
   test "a plain-text fallback delegates preview recovery to durable outbox ownership" do
     original_state = :sys.get_state(Ankole.Plugins.Registry)
     {:ok, spec} = Spec.from_module(RecoverySignalProviderPlugin)

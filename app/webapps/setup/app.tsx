@@ -324,7 +324,13 @@ function PluginsStep({ model, onContinue }: { model: InstanceType<typeof Plugins
     if (query.data) model.initialize('setup-plugins', query.data.enabledPluginIDs)
   }, [model, query.data])
 
-  const selectedIDs = model.selectedPluginIDs.value
+  // The effect seeds the model after paint, so the frame that first carries
+  // `query.data` reads the server selection directly — otherwise every
+  // already-enabled plugin would flash unchecked once.
+  const seeded = model.sourceKey.value === 'setup-plugins'
+  const selectedIDs: ReadonlySet<string> = seeded
+    ? model.selectedPluginIDs.value
+    : new Set(query.data?.enabledPluginIDs ?? [])
   const mutation = useMutation({
     mutationFn: () =>
       internalAPIPut<{ enabledPluginIDs: string[] }>('/.internal-apis/setup/plugins/enabled', model.submission()),

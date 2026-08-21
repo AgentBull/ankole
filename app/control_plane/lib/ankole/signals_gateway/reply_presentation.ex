@@ -229,11 +229,20 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
     answer = String.trim(presentation["answer"] || "")
 
     cond do
-      answer != "" -> answer
-      presentation["state"] == "awaiting_input" -> text(presentation, "prompt") || "需要补充信息。"
-      presentation["state"] == "failed" -> "任务未能完成。"
-      presentation["state"] == "stopped" -> "任务已停止。"
-      true -> "（无内容）"
+      answer != "" ->
+        answer
+
+      presentation["state"] == "awaiting_input" ->
+        text(presentation, "prompt") || I18n.t("signals_gateway.reply.needs_input")
+
+      presentation["state"] == "failed" ->
+        I18n.t("signals_gateway.reply.task_failed")
+
+      presentation["state"] == "stopped" ->
+        I18n.t("signals_gateway.reply.task_stopped")
+
+      true ->
+        I18n.t("signals_gateway.reply.no_content")
     end
   end
 
@@ -1027,12 +1036,12 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
 
   defp terminal_answer(answer) when is_binary(answer) do
     case String.trim(answer) do
-      "" -> "（无内容）"
+      "" -> I18n.t("signals_gateway.reply.no_content")
       _text -> answer
     end
   end
 
-  defp terminal_answer(_answer), do: "（无内容）"
+  defp terminal_answer(_answer), do: I18n.t("signals_gateway.reply.no_content")
 
   defp working_state(state) when state in ["debouncing", "working"], do: "working"
   defp working_state(state), do: state

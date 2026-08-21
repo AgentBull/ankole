@@ -59,6 +59,43 @@ defmodule AnkoleWeb.Assets do
     end
   end
 
+  @doc """
+  Returns modulepreload tags for the locale catalog chunks the SPA fetches
+  before its first render.
+
+  The catalogs load through dynamic imports, so without a preload hint the
+  browser discovers them only after the entry executes — one extra serial
+  round trip on every full page load. The shell already knows the locale, so
+  it can start both fetches with the HTML.
+  """
+  @spec locale_preload_tags(String.t()) :: iodata()
+  def locale_preload_tags(locale) do
+    case dev_server() do
+      nil ->
+        manifest = read_manifest()
+
+        [locale, "en-US"]
+        |> Enum.uniq()
+        |> Enum.flat_map(fn id ->
+          case locale_chunk(manifest, id) do
+            %{"file" => file} -> [modulepreload_tag(asset_path(file))]
+            _missing -> []
+          end
+        end)
+
+      # The dev server resolves module URLs itself; hashed chunk names do not
+      # exist there.
+      _base_url ->
+        []
+    end
+  end
+
+  defp locale_chunk(manifest, locale) do
+    Enum.find_value(manifest, fn {key, chunk} ->
+      if String.ends_with?(key, "/locales/#{locale}.toml"), do: chunk
+    end)
+  end
+
   defp read_manifest do
     path = manifest_path()
 

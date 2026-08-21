@@ -28,13 +28,10 @@ export function PrincipalEditPage() {
 
   useEffect(() => {
     if (!loadedPrincipal) return
-    model.initialize(
-      `principal:${loadedPrincipal.uid}`,
-      { displayName: loadedPrincipal.display_name ?? '', email: loadedPrincipal.email ?? '' },
-      // An email owned by a directory-synced external identity is not
-      // editable here; the directory stays the source of truth.
-      { emailLocked: loadedPrincipal.has_external_identity }
-    )
+    model.initialize(`principal:${loadedPrincipal.uid}`, {
+      displayName: loadedPrincipal.display_name ?? '',
+      email: loadedPrincipal.email ?? ''
+    })
   }, [loadedPrincipal, model])
 
   const update = useMutation({
@@ -56,8 +53,6 @@ export function PrincipalEditPage() {
     if (loadedPrincipal) update.mutate({ body: model.updateBody(), path: { uid: loadedPrincipal.uid } })
   }
 
-  const emailLocked = model.emailLocked.value
-
   return (
     <ResourceEditorPage
       title={t('console.principals.edit_title')}
@@ -73,13 +68,9 @@ export function PrincipalEditPage() {
           onChange={event => (model.displayName.value = event.target.value)}
         />
       </LabeledField>
-      <LabeledField
-        label={t('console.principals.email')}
-        description={emailLocked ? t('console.principals.email_managed') : undefined}
-        required={!emailLocked}>
+      <LabeledField label={t('console.principals.email')} required>
         <Input
-          disabled={emailLocked}
-          required={!emailLocked}
+          required
           type="email"
           value={model.email.value}
           onChange={event => (model.email.value = event.target.value)}
