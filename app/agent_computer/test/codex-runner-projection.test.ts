@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import { z } from 'zod'
 import { defineWorkerTool, type WorkerAgentTool } from '../src/core'
-import { buildCodexJobProjection } from '../src/core/codex-runner/projection'
+import { buildCodexJobProjection } from '../src/core/codex-runner/job/projection'
 import { createWebTools } from '../src/tools/web/web-tools'
 
 describe('@ankole/agent-computer Codex job capability projection', () => {

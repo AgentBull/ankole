@@ -166,6 +166,178 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
       assert unknown.last_error["error"]["items"] |> hd() == "invalid_adapter_result"
     end
 
+    test "a late send error cannot overwrite a terminal state committed by recovery" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+
+      assert {:ok, %{status: :accepted}} =
+               Ingress.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+                 now: @base_time
+               )
+
+      assert {:ok, _created} =
+               SignalsGateway.commit_outbox(%{
+                 agent_uid: agent.uid,
+                 binding_name: "bot",
+                 outbound_key: "late-send-error",
+                 operation: :post,
+                 signal_channel_id: "lark:chat:group-a",
+                 fallback_visible_text: "delivered by takeover",
+                 created_source_entry_id: "takeover-provider-id"
+               })
+
+      takeover_adapter =
+        outbox_adapter(
+          [:post_entry, :outbound_reconciliation],
+          fn _outbox -> flunk("takeover must reconcile, not send") end,
+          fn _outbox -> {:ok, %{created_source_entry_id: "takeover-provider-id"}} end
+        )
+
+      late_error_adapter =
+        outbox_adapter([:post_entry], fn _outbox ->
+          assert {:ok, %OutboxEntry{status: :succeeded}} =
+                   SignalsGateway.dispatch_outbox(
+                     agent.uid,
+                     "bot",
+                     "late-send-error",
+                     takeover_adapter,
+                     now: DateTime.add(@base_time, 61, :second)
+                   )
+
+          {:error, {:reply_delivery, :retryable, %{"code" => "late_timeout"}}}
+        end)
+
+      log =
+        capture_log(fn ->
+          assert {:ok, %OutboxEntry{status: :succeeded, attempt_count: 1}} =
+                   SignalsGateway.dispatch_outbox(
+                     agent.uid,
+                     "bot",
+                     "late-send-error",
+                     late_error_adapter,
+                     now: @base_time
+                   )
+        end)
+
+      assert log =~ "signals gateway outbox ignored a stale attempt result"
+
+      committed =
+        Repo.get_by!(OutboxEntry,
+          agent_uid: agent.uid,
+          binding_name: "bot",
+          outbound_key: "late-send-error"
+        )
+
+      assert committed.status == :succeeded
+      assert committed.next_attempt_at == nil
+      assert committed.last_error == %{}
+
+      refute Enum.any?(
+               due_outbox_events(DateTime.add(@base_time, 1, :day)),
+               &(&1["outbound_key"] == "late-send-error")
+             )
+
+      assert Repo.get_by!(
+               Entry,
+               signal_channel_id: "lark:chat:group-a",
+               source_entry_id: "takeover-provider-id"
+             ).text == "delivered by takeover"
+    end
+
+    test "a late reconcile result cannot downgrade a succeeded durable reply" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+
+      assert {:ok, %{status: :accepted}} =
+               Ingress.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+                 now: @base_time
+               )
+
+      assert {:ok, seed} =
+               SignalsGateway.commit_outbox(%{
+                 agent_uid: agent.uid,
+                 binding_name: "bot",
+                 outbound_key: "late-reconcile-unknown",
+                 delivery_class: :durable_ai_reply,
+                 operation: :post,
+                 signal_channel_id: "lark:chat:group-a",
+                 payload: %{"text" => "reconciled reply"},
+                 fallback_visible_text: "reconciled reply",
+                 created_source_entry_id: "reconciled-provider-id"
+               })
+
+      {:ok, _sending} =
+        seed
+        |> OutboxEntry.changeset(%{
+          status: :sending,
+          platform_send_started_at: @base_time
+        })
+        |> Repo.update()
+
+      recovery_at = DateTime.add(@base_time, 61, :second)
+
+      winner_adapter =
+        outbox_adapter(
+          [:post_entry, :outbound_reconciliation],
+          fn _outbox -> flunk("winner must reconcile, not send") end,
+          fn _outbox -> {:ok, %{created_source_entry_id: "reconciled-provider-id"}} end
+        )
+
+      loser_adapter =
+        outbox_adapter(
+          [:post_entry, :outbound_reconciliation],
+          fn _outbox -> flunk("loser must reconcile, not send") end,
+          fn _outbox ->
+            assert {:ok, %OutboxEntry{status: :succeeded}} =
+                     SignalsGateway.dispatch_outbox(
+                       agent.uid,
+                       "bot",
+                       "late-reconcile-unknown",
+                       winner_adapter,
+                       now: recovery_at
+                     )
+
+            :unknown
+          end
+        )
+
+      log =
+        capture_log(fn ->
+          assert {:ok, %OutboxEntry{status: :succeeded}} =
+                   SignalsGateway.dispatch_outbox(
+                     agent.uid,
+                     "bot",
+                     "late-reconcile-unknown",
+                     loser_adapter,
+                     now: recovery_at
+                   )
+        end)
+
+      assert log =~ "signals gateway outbox ignored a stale attempt result"
+
+      committed =
+        Repo.get_by!(OutboxEntry,
+          agent_uid: agent.uid,
+          binding_name: "bot",
+          outbound_key: "late-reconcile-unknown"
+        )
+
+      assert committed.status == :succeeded
+      assert committed.next_attempt_at == nil
+      refute committed.recovery_state["possible_duplicate"]
+
+      refute Enum.any?(
+               due_outbox_events(DateTime.add(@base_time, 1, :day)),
+               &(&1["outbound_key"] == "late-reconcile-unknown")
+             )
+
+      assert Repo.get_by!(
+               Entry,
+               signal_channel_id: "lark:chat:group-a",
+               source_entry_id: "reconciled-provider-id"
+             ).text == "reconciled reply"
+    end
+
     test "outbox runtime event dispatch picks up stale in-flight sends for reconciliation" do
       use_mock_signal_provider_plugin()
       MockOutbox.put_reconcile_result({:ok, %{created_source_entry_id: "stale-provider-id"}})

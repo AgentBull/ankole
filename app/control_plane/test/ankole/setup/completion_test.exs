@@ -33,5 +33,28 @@ defmodule Ankole.Setup.CompletionTest do
       assert {:ok, false} = SetupConfig.completed?()
       assert {:ok, "ABCDEFGH"} = SetupConfig.bootstrap_activation_code()
     end
+
+    test "a retry by the same principal converges after both steps committed" do
+      %{principal: principal} = human_fixture()
+
+      assert {:ok, _root} = Completion.complete_with_root_admin(principal.uid)
+      assert {:ok, %{membership: membership}} = Completion.complete_with_root_admin(principal.uid)
+
+      assert membership.principal_uid == principal.uid
+      assert {:ok, true} = SetupConfig.completed?()
+      assert :error = SetupConfig.bootstrap_activation_code()
+    end
+
+    test "a different principal cannot reopen a completed setup" do
+      %{principal: first} = human_fixture()
+      %{principal: second} = human_fixture()
+
+      assert {:ok, _root} = Completion.complete_with_root_admin(first.uid)
+      assert {:error, :root_init_closed} = Completion.complete_with_root_admin(second.uid)
+
+      assert {:ok, true} = SetupConfig.completed?()
+      assert {:ok, groups} = AuthZ.list_principal_group_memberships(second.uid)
+      assert groups == []
+    end
   end
 end

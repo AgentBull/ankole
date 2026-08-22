@@ -1,22 +1,9 @@
 import type { TurnStart } from '../../lanes/actor_lane'
 import { runAgentLoop } from '../agent-loop'
 import { buildAgentSystemPrompt } from '../../prompts/system_prompt'
-import { createComputerTools } from '../../tools/computer'
-import { createSkillTools, type SkillFileRoots } from '../../tools/library/skill-tools'
-import { createScheduleTools } from '../../tools/schedule/schedule-tools'
-import { createStandingOrdersTools } from '../../tools/channel/standing-orders-tool'
-import { createTodoTool, TodoStore } from '../../tools/todo/todo-tool'
-import { createCreateBackgroundJobTool } from '../../tools/background-agent-job/create-background-job'
-import { createListBackgroundJobsTool } from '../../tools/background-agent-job/list-background-jobs'
-import { createRespawnBackgroundJobTool } from '../../tools/background-agent-job/respawn-background-job'
-import { createSendMessageToBackgroundJobTool } from '../../tools/background-agent-job/send-message-to-background-job'
-import { createShowBackgroundJobDetailsTool } from '../../tools/background-agent-job/show-background-job-details'
-import { createStopBackgroundJobTool } from '../../tools/background-agent-job/stop-background-job'
-import { createClarifyTool } from '../../tools/clarify/clarify-tool'
+import type { SkillFileRoots } from '../../tools/library/skill-tools'
 import { loadEnabledSkillMCPServers, materializeMCPorterConfig, type MaterializedMCPorterConfig } from '../../tools/mcp'
-import type { WorkerAgentTool } from '../types'
 import { assistantText, userMessage, type UserMessage } from '../llm'
-import { statefulTruncationFromActorEventPayload } from './actor_event_text'
 import { actorEventUserContent } from './actor_event_content'
 import { channelContextModelMessages } from './channel_context'
 import { acquireTurnAIGatewayAccess } from './turn_ai_gateway_access'
@@ -29,14 +16,17 @@ import {
 import { steeringMessagesWithAcknowledgement } from './turn_control'
 import { createTurnActivity } from './turn_activity'
 import { resolveAgentConversationContext } from './turn_context'
-import { agentRuntimePolicyFromTurnStart, webSearchIsProviderHosted } from './turn_runtime_policy'
-import { createTurnWebTools, resolveRenderedFetchRuntimeConfig } from './rendered_fetch_runtime_config'
-import { materializeLarkCredential, type MaterializedLarkCredential } from './lark-credential'
-import { resolveAgentWorkerEnvParts } from './worker_env'
+import { agentRuntimePolicyFromTurnStart, statefulTruncationFromActorEventPayload } from './turn_runtime_policy'
+import { resolveRenderedFetchRuntimeConfig } from './rendered_fetch_runtime_config'
+import { createTurnWebTools } from './turn_web_tools'
+import { createTextTurnTools } from './text_turn_tools'
+import { materializeLarkCredential, type MaterializedLarkCredential } from '../execution/lark-credential'
+import { resolveAgentWorkerEnvParts } from '../execution/worker_env'
 import type { TextTurnLoopOptions, TurnHandlerResult } from './turn_options'
-import { rpcMethods, scheduleRPCRequester, signalChannelRPCRequester } from '../../lanes/rpc_lane'
 import { withoutBrowserMaterialSourceEnv } from '../../browser-runtime'
 
+// The Worker converts this exact reply to a scheduled no-op only when the
+// request permits silent success.
 const silentSuccessMarker = '<silent_success/>'
 
 /**
@@ -123,40 +113,21 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
       }),
       'web tools'
     )
-    const computerTools = createComputerTools({
-      agentUID: turnStart.turn.actor.agent_uid,
+    const tools = await createTextTurnTools({
+      turnStart,
+      agentsRoot: opts.agentsRoot,
       agentHome: opts.agentHome,
       workspaceRoot: opts.workspaceRoot,
       userFilesRoot: opts.userFilesRoot,
+      enabledSkills: agentConversationContext.skills ?? [],
+      skillRoots,
+      rpc: opts.rpc,
+      waitForSteering: opts.waitForSteering,
       workerEnv: toolWorkerEnv,
-      runtimeEnv
+      runtimeEnv,
+      webTools,
+      runStep: turnActivity.runStep
     })
-    const backgroundAgentJobTools = await turnActivity.runStep(
-      resolveBackgroundAgentJobTools(turnStart, opts),
-      'background agent job tool availability'
-    )
-
-    const tools: WorkerAgentTool[] = [
-      createTodoTool(new TodoStore()),
-      ...computerTools,
-      ...createScheduleTools({
-        turnStart,
-        requestScheduleRPC: scheduleRPCRequester(opts.rpc, turnStart.turn)
-      }),
-      ...createStandingOrdersTools({
-        turnStart,
-        requestSignalChannelRPC: signalChannelRPCRequester(opts.rpc, turnStart.turn)
-      }),
-      ...webTools.filter(tool => !webSearchIsProviderHosted(turnStart) || tool.name !== 'web_search'),
-      createClarifyTool(),
-      ...backgroundAgentJobTools,
-      ...createSkillTools({
-        turn: turnStart.turn,
-        enabledSkills: agentConversationContext.skills ?? [],
-        skillRoots,
-        rpc: opts.rpc
-      })
-    ]
 
     const hostedTools = turnStart.hosted_tools ?? []
 
@@ -262,30 +233,8 @@ function safeAIGatewayRoute(baseURL: string): Record<string, string> {
   }
 }
 
-async function resolveBackgroundAgentJobTools(
-  turnStart: TurnStart,
-  opts: TextTurnLoopOptions
-): Promise<WorkerAgentTool[]> {
-  const response = await opts.rpc(rpcMethods.agentPluginList, {}, { turn: turnStart.turn })
-
-  return [
-    createCreateBackgroundJobTool({ turnStart, agentPluginCatalog: response.agentPlugins, rpc: opts.rpc }),
-    createListBackgroundJobsTool({ turnStart, rpc: opts.rpc }),
-    createShowBackgroundJobDetailsTool({ turnStart, rpc: opts.rpc }),
-    createSendMessageToBackgroundJobTool({
-      turnStart,
-      rpc: opts.rpc,
-      waitForSteering: opts.waitForSteering
-    }),
-    createRespawnBackgroundJobTool({ turnStart, agentsRoot: opts.agentsRoot, rpc: opts.rpc }),
-    createStopBackgroundJobTool({ turnStart, rpc: opts.rpc })
-  ]
-}
-
 /**
- * Converts final assistant text into the worker's turn result contract.
- *
- * The worker does not decide whether an adopted Response chain has a visible
+ * The Worker does not decide whether an adopted Response chain has a visible
  * projection. SignalsGateway may find clarify or attachment output even when
  * the final assistant text is empty, and rejects an actually empty chain at
  * the durable completion boundary.
@@ -303,16 +252,11 @@ export function textTurnResultFromAssistantReply(
   return { kind: 'turn_completed', finalResponseID, outcome }
 }
 
-/**
- * Reads the per-turn flag that permits a no-visible-text completion.
- */
 function silentSuccessAllowed(turnStart: TurnStart): boolean {
   return turnStart.request_context?.silent_success_allowed === true
 }
 
 /**
- * Names the turn's outstanding obligation after an empty final response.
- *
  * The control plane rejects a completion with no user-visible projection, and
  * that rejection surfaces only after the turn has ended, as a full turn retry.
  * This one bounded reminder settles the obligation inside the turn instead:
@@ -340,9 +284,6 @@ function skillRootsFromOptions(opts: TextTurnLoopOptions): SkillFileRoots {
   }
 }
 
-/**
- * Detects the explicit silent-success marker used by schedule wakeups.
- */
 function silentSuccessReply(replyText: string): boolean {
   return replyText.trim() === silentSuccessMarker
 }

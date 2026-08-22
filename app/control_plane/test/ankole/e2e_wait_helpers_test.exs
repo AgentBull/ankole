@@ -171,9 +171,7 @@ defmodule Ankole.E2E.WaitHelpersTest do
   end
 
   defp complete_turn(turn_ref, response) do
-    ActorRuntime.handle_turn_completed(
-      turn_completed_payload(turn_ref, "resp_#{response.id}", "loop_finished")
-    )
+    commit_turn_completion(turn_ref, "resp_#{response.id}", "loop_finished")
   end
 
   defp insert_mirror!(actor_event, message, source_entry_id, metadata \\ nil) do

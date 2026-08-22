@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { spawnSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { bubblewrapArgv } from '../../src/tools/computer/bubblewrap'
+import { bubblewrapArgv } from '../../src/sandbox/bubblewrap'
 
 const ocrScript = '/repo/app/library/skills/ocr/scripts/ocr.py'
 

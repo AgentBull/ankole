@@ -1,6 +1,11 @@
 defmodule Ankole.BackgroundAgentJobs.Schemas.TrajectoryGroup do
   @moduledoc """
   One append-only semantic item group in a BackgroundAgentJob Turn trajectory.
+
+  New Turns store no group rows: `Ankole.BackgroundAgentJobs.Schemas.TurnItem`
+  is the storage and read-path owner. Readers use these rows only for a Turn
+  recorded before the item stream existed, so the rows stay until that
+  history is retired.
   """
 
   use Ecto.Schema

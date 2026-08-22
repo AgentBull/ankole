@@ -96,9 +96,8 @@ defmodule Ankole.AIGateway.FailureDiagnostics do
       when code in ["provider_stream_error", "response_stream_cleanup_error"],
       do: "AIGateway provider stream failed before a terminal response."
 
-  def public_message(%{error_code: code})
-      when code in ["stateful_commit_failed", "stateful_terminal_commit_failed"],
-      do: "AIGateway failed to store the completed provider response."
+  def public_message(%{error_code: "stateful_terminal_commit_failed"}),
+    do: "AIGateway failed to store the completed provider response."
 
   def public_message(%{failure_kind: :timeout}), do: "The upstream provider timed out."
 

@@ -70,5 +70,5 @@ The operator surface is narrow:
 
 - For the Worker that runs these tools and owns the `/agents` filesystem, read [Agent Computer Worker](../agent-computer-worker/).
 - For the skill and enablement model behind the Jupyter skill, read [Agent Library](../agent-library/).
-- For the Background Agent Jobs profile, whose internal key remains `coding`, read [Background Agent Jobs](../background-jobs/#select-the-runtime).
+- For the Background Agent Jobs profile, whose internal key remains `coding`, read [Background Agent Jobs](../background-jobs/#select-the-model-provider).
 - For the confinement the Worker image requires, read [Quick start](../quickstart/#deployment).

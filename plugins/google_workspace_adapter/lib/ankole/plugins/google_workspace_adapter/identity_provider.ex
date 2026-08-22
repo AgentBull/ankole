@@ -48,7 +48,6 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapter.IdentityProvider do
         %{
           provider: provider_id,
           external_id: user_id,
-          uid: user_id,
           display_name: display_name(user) || user_id,
           email: MapHelpers.optional_text(user, "primaryEmail"),
           job_title: job_title(user),

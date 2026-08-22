@@ -1,6 +1,7 @@
 import { LIST_REFRESH_MS } from '../refresh-intervals'
 import {
   Button,
+  CreatableCombobox,
   Input,
   Select,
   SelectContent,
@@ -712,20 +713,20 @@ export function ScheduleCronEditorPage() {
             label={t('console.schedules.owner_session')}
             required
             description={t('console.schedules.session_hint')}>
-            <Select
+            <CreatableCombobox
+              ariaLabel={t('console.schedules.owner_session')}
+              clearLabel={t('common.clear')}
               value={model.ownerSessionId.value}
-              onValueChange={value => (model.ownerSessionId.value = String(value))}>
-              <SelectTrigger className="w-full font-mono text-xs">
-                <SelectValue placeholder={t('console.schedules.session_placeholder')} />
-              </SelectTrigger>
-              <SelectContent emptyLabel={sessions.isLoading ? t('common.loading') : t('common.select_empty')}>
-                {sessionList.map(session => (
-                  <SelectItem key={session.session_id} value={session.session_id}>
-                    {session.title ? `${session.title} — ${session.session_id}` : session.session_id}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              options={sessionList.map(session => ({
+                value: session.session_id,
+                label: session.title ? `${session.title} — ${session.session_id}` : session.session_id
+              }))}
+              placeholder={t('console.schedules.session_placeholder')}
+              emptyLabel={sessions.isLoading ? t('common.loading') : t('console.schedules.session_empty')}
+              createLabel={value => t('console.schedules.session_use', { session: value })}
+              triggerLabel={t('common.open')}
+              onValueChange={value => (model.ownerSessionId.value = value)}
+            />
           </LabeledField>
         )}
       </div>

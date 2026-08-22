@@ -26,7 +26,7 @@ Ankole은 Identity Provider를 저장한 후 첫 번째 full sync를 시작합�
 
 결과에 예상한 사람이나 부서가 없으면 외부 애플리케이션의 디렉터리 권한과 가용 범위를 확인하세요. API 액세스가 애플리케이션에 전체 조직에 대한 액세스를 항상 부여하는 것은 아닙니다.
 
-첫 번째 Identity Provider를 연결하는 방법은 [빠른 시작](../quickstart/#2-set-up-the-identity-provider-first)을 참조하세요.
+첫 번째 Identity Provider를 연결하는 방법은 [빠른 시작](../quickstart/#identity-providers)을 참조하세요.
 
 ## Principal 보기
 

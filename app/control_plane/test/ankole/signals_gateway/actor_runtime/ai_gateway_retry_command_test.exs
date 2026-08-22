@@ -116,8 +116,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayRetryCommandTest do
     dead_letter_at = DateTime.add(@base_time, 2, :second)
 
     assert {:ok, %{status: :turn_dead_lettered}} =
-             ActorRuntime.handle_turn_error(
-               turn_error_payload(turn_ref, "worker_loop_failed", "worker loop failed", %{}),
+             fail_turn(turn_ref, "worker_loop_failed", "worker loop failed", %{},
                now: dead_letter_at
              )
 
@@ -218,8 +217,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayRetryCommandTest do
     assert turn_start_payload!(envelope).turn.actor_event_id == turn_ref.actor_event_id
 
     assert {:ok, %{status: :turn_dead_lettered}} =
-             ActorRuntime.handle_turn_error(
-               turn_error_payload(turn_ref, "worker_loop_failed", "worker loop failed", %{}),
+             fail_turn(turn_ref, "worker_loop_failed", "worker loop failed", %{},
                now: DateTime.add(@base_time, 2, :second)
              )
 
@@ -931,6 +929,106 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayRetryCommandTest do
     refute_receive {:actor_lane, _retry_control}, 50
   end
 
+  test "a DM attachment with a reply edge queues the next turn instead of joining the live one" do
+    %{principal: agent} = agent_fixture()
+    binding_fixture(agent.uid, "bot", :ignore)
+
+    route = unique_route()
+    :ok = Broker.register_local_worker(route, self())
+    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    assert {:ok, _worker} = admit_worker(route)
+
+    dm_entry = fn overrides ->
+      group_entry(
+        Map.merge(
+          %{
+            signal_channel_id: "lark:dm:alice-agent",
+            channel: %{kind: :im_dm, reply_mode: :entry, name: "DM"}
+          },
+          overrides
+        )
+      )
+    end
+
+    assert {:ok, %{actor_event: input}} =
+             emit_entry(
+               agent.uid,
+               "bot",
+               dm_entry.(%{source_entry_id: "dm-request", text: "Inspect the report"}),
+               now: @base_time
+             )
+
+    assert {:ok, %{send_outcome: "sent_or_queued"}} =
+             process_ready_events_once(
+               now: DateTime.add(@base_time, 2, :second),
+               lease_seconds: @long_lease_seconds
+             )
+
+    assert_receive {:actor_lane, envelope}
+    turn_ref = turn_start_payload!(envelope).turn
+    assert turn_ref.actor_event_id == input.id
+
+    assert {:ok, [_delivery]} =
+             ActorRuntime.handle_turn_accepted(turn_accepted_payload(turn_ref))
+
+    generating = start_aigateway_run_for_turn!(turn_ref)
+
+    observed_at = DateTime.add(@base_time, 3, :second)
+
+    pending =
+      dm_entry.(%{
+        source_event_id: "dm-reply-edge-file",
+        source_entry_id: "dm-reply-edge-file",
+        reply_to_source_entry_id: "dm-request",
+        text: nil,
+        attachments: [
+          %{
+            provider_ref: "lark:file:dm-report",
+            source_message_id: "dm-reply-edge-file",
+            resource_type: "file",
+            name: "report.pdf"
+          }
+        ],
+        metadata: %{
+          "attachment_materialization" => %{
+            "state" => "pending",
+            "observed_at" => DateTime.to_iso8601(observed_at)
+          }
+        }
+      })
+
+    assert {:ok, %{status: :accepted, inbound_batch: pending_batch}} =
+             Ingress.emit_entry(agent.uid, "bot", pending, now: observed_at)
+
+    assert Repo.get!(Message, generating.id).status == "generating"
+    refute_receive {:actor_lane, _retry_control}, 50
+
+    materialized_at = DateTime.add(observed_at, 1, :second)
+
+    materialized =
+      pending
+      |> put_in([:metadata, "attachment_materialization", "state"], "complete")
+      |> put_in(
+        [:attachments, Access.at(0), :agent_computer_path],
+        "/agents/#{agent.uid}/user-files/inbox/report.pdf"
+      )
+
+    assert {:ok, %{status: :accepted, inbound_batch: ready_batch}} =
+             Ingress.emit_entry(agent.uid, "bot", materialized, now: materialized_at)
+
+    assert ready_batch.id == pending_batch.id
+    assert Repo.get!(Message, generating.id).status == "generating"
+
+    assert {:ok, [%{actor_event: next_input}]} =
+             Ankole.SignalsGatewayFixtures.finalize_due_inbound_batch_events(
+               now: ready_batch.available_at
+             )
+
+    assert next_input.id != input.id
+    assert next_input.type == "im.message.addressed"
+    assert next_input.source_entry_id == "dm-reply-edge-file"
+  end
+
   test "a completion that commits first makes the observed attachment the next turn" do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "bot", :ignore)
@@ -1041,9 +1139,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayRetryCommandTest do
     assert completed.status == "complete"
 
     assert {:ok, %{status: :turn_completed}} =
-             ActorRuntime.handle_turn_completed(
-               turn_completed_payload(turn_ref, "resp_#{completed.id}", "loop_finished")
-             )
+             commit_turn_completion(turn_ref, "resp_#{completed.id}", "loop_finished")
 
     completed
   end

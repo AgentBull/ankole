@@ -7,7 +7,7 @@ order: 124
 
 `todo` と `clarify` は、Agent の構造化された計画ツールです。1 つは計画を session 内に保持し、もう 1 つは、答えが実際に結果を変える場合にだけ、あなたに質問を 1 つあてます。どちらも Worker に同梱され、`app/agent_computer/src/tools/` にあります。これらは memory でも chat surface でもありません。Agent が自分の足場を保ち、1 つの判断を求めるための仕組みです。
 
-最初に決定的な性質を述べます。todo リストは一時的で session ごとのものであり、`clarify` の呼び出しはその Turn を終了させます。リストは session をまたいで残りません。また、Agent がいったん質問すると、次の message としてあなたの返信を待ちます。どちらのツールも永続的な truth ではありません。その役割は [Memory](../memory/) にあります。
+最初に決定的な性質を述べます。todo リストは一時的で session ごとのものであり、`clarify` の呼び出しはその Turn を終了させます。リストは session をまたいで残りません。また、Agent がいったん質問すると、次の message としてあなたの返信を待ちます。どちらのツールも永続的な truth ではありません。その役割は Memory にあります。
 
 ## 各ツールの役割
 
@@ -24,7 +24,7 @@ todo リストは session に限定された `TodoStore` に存在します。�
 2. **進行中は最大 1 つ。** Agent は最初の項目を完了またはキャンセルするまで、2 つ目を開始しません。
 3. **完了したらすぐにマーク。** 終わったステップは、現在の項目のままではなく、`completed` としてリストを離れます。失敗したステップは `cancelled` になり、修正した項目が追加されます。
 
-todo リストが何でないか。永続的な計画ではなく、次の session に仕事を引き継ぐ手段でもありません。新しい session は空のリストから始まります。計画を session を超えて残す必要があるなら、`todo` ではなく [Memory](../memory/) に入れます。
+todo リストが何でないか。永続的な計画ではなく、次の session に仕事を引き継ぐ手段でもありません。新しい session は空のリストから始まります。計画を session を超えて残す必要があるなら、`todo` ではなく Memory に入れます。
 
 ## Agent が clarify を使うとき
 
@@ -49,6 +49,6 @@ todo store、clarify の恒久記録、Turn 終了の挙動は Worker の内部�
 ## 次のステップ
 
 - Agent が計画するか問うかの背後の persona と能力については、[Agents](../agents/) を読んでください。
-- session を超えて残る恒久知識については、[Memory](../memory/) を読んでください。
+- session を超えて残る恒久知識は、Memory に属します。
 - `waiting_on_user` の Job 状態と、Job 内の clarify がどう Job を一時停止するかは、[Background Agent Jobs](../background-jobs/) を読んでください。
 - Turn 中にこれらのツールを実行する Worker については、[Agent Computer Worker](../agent-computer-worker/) の開発者ページを読んでください。

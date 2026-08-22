@@ -797,7 +797,6 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
       Principals.upsert_platform_subject_human(%{
         provider: namespace(config),
         external_id: user_id,
-        uid: user_id,
         display_name: member_display_name(member),
         metadata:
           compact_metadata_map(%{

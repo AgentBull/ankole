@@ -467,7 +467,7 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
 
     expect(result.message.stopReason).toBe('error')
     expect(result.message.toolCalls).toBeUndefined()
-    expect(result.hasToolCalls).toBe(false)
+    expect(result.toolCalls).toHaveLength(0)
     expect(result.message.errorMessage).toBe('AIGateway response ended with an incomplete tool call')
   })
 
@@ -495,7 +495,7 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
 
     expect(result.message.stopReason).toBe('error')
     expect(result.message.toolCalls).toBeUndefined()
-    expect(result.hasToolCalls).toBe(false)
+    expect(result.toolCalls).toHaveLength(0)
     expect(result.message.errorMessage).toBe('AIGateway response ended with an incomplete tool call')
   })
 
@@ -531,7 +531,7 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
 
     expect(invalid.message.stopReason).toBe('error')
     expect(invalid.message.toolCalls).toBeUndefined()
-    expect(invalid.hasToolCalls).toBe(false)
+    expect(invalid.toolCalls).toHaveLength(0)
   })
 
   it('round-trips custom calls and outputs without a JSON wrapper', () => {
@@ -1368,7 +1368,7 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
 
     expect(result.message.stopReason).toBe('length')
     expect(result.message.toolCalls).toBeUndefined()
-    expect(result.hasToolCalls).toBe(false)
+    expect(result.toolCalls).toHaveLength(0)
     expect(result.message.errorMessage).toBeUndefined()
     expect(result.message.truncatedToolCalls).toEqual([
       {
@@ -1422,7 +1422,7 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
 
     expect(result.message.stopReason).toBe('error')
     expect(result.message.toolCalls).toBeUndefined()
-    expect(result.hasToolCalls).toBe(false)
+    expect(result.toolCalls).toHaveLength(0)
     expect(result.message.errorMessage).toBe('AIGateway response ended with an incomplete tool call')
   })
 
@@ -1468,7 +1468,7 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
 
     expect(result.message.stopReason).toBe('error')
     expect(result.message.toolCalls).toBeUndefined()
-    expect(result.hasToolCalls).toBe(false)
+    expect(result.toolCalls).toHaveLength(0)
     expect(result.message.errorMessage).toBe('AIGateway response ended with an incomplete tool call')
   })
 

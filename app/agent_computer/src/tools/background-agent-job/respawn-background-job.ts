@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { defineWorkerTool, type WorkerAgentTool } from '../../core'
 import { ModelIntegerID, modelIntegerIDFromWire, modelIntegerIDToWire } from '../../core/model-integer-id'
 import { jsonToolResult } from '../../core/tool-result'
-import { assertCodexJobProjectResumeState, codexJobProjectLocation } from '../../core/codex-runner/job-project'
+import { assertCodexJobProjectResumeState, codexJobProjectLocation } from '../../core/codex-runner/job/job-project'
 import type { TurnStart } from '../../lanes/actor_lane'
 import { rpcMethods, type RPCRequester, type RPCRequestInit } from '../../lanes/rpc_lane'
 import {

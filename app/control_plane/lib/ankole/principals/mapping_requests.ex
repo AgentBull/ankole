@@ -50,9 +50,11 @@ defmodule Ankole.Principals.MappingRequests do
   def get_request(id) when is_binary(id), do: get_request(Repo, id)
 
   defp get_request(repo, id) do
-    case repo.get(MappingRequest, id) do
-      %MappingRequest{} = request -> {:ok, request}
-      nil -> {:error, :not_found}
+    with {:ok, id} <- Ecto.UUID.cast(id),
+         %MappingRequest{} = request <- repo.get(MappingRequest, id) do
+      {:ok, request}
+    else
+      _not_found -> {:error, :not_found}
     end
   end
 

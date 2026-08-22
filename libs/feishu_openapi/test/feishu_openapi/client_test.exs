@@ -32,7 +32,7 @@ defmodule FeishuOpenAPI.ClientTest do
     client = Client.new("cli_t", "secret")
 
     assert client.req_options[:receive_timeout] == :timer.seconds(15)
-    assert client.req_options[:pool_timeout] == :timer.seconds(5)
+    assert client.req_options[:finch][:pool_timeout] == :timer.seconds(5)
     assert client.req_options[:connect_options][:timeout] == :timer.seconds(5)
   end
 
@@ -44,7 +44,7 @@ defmodule FeishuOpenAPI.ClientTest do
 
     assert client.req_options[:receive_timeout] == :timer.seconds(99)
     assert client.req_options[:connect_options][:timeout] == 1_234
-    assert client.req_options[:pool_timeout] == :timer.seconds(5)
+    assert client.req_options[:finch][:pool_timeout] == :timer.seconds(5)
   end
 
   test "from_env/1 reads Application config" do

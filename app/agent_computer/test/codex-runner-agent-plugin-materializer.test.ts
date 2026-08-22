@@ -10,8 +10,8 @@ import {
   materializeSelectedAgentPlugins,
   prepareAgentPlugins,
   selectAgentPluginCapabilities
-} from '../src/core/codex-runner/agent-plugin-materializer'
-import { assertCodexJobProjectResumeState } from '../src/core/codex-runner/job-project'
+} from '../src/core/codex-runner/runtime/agent-plugin-materializer'
+import { assertCodexJobProjectResumeState } from '../src/core/codex-runner/job/job-project'
 import type { AgentPluginCatalogEntry } from '../src/lanes/rpc_lane'
 
 describe('@ankole/agent-computer Agent Plugin materializer', () => {

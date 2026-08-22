@@ -126,7 +126,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRetry do
             merge_into_open_event(repo, event, entry, now, true)
 
           nil ->
-            if eligible_new_attachment_supplement?(fact, entry) do
+            if eligible_new_attachment_supplement?(entry) do
               fact
               |> latest_attachment_supplement_event(repo)
               |> classify_attachment_supplement(repo, fact, entry, now)
@@ -457,9 +457,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRetry do
   defp attachment_materialization_state(entry),
     do: get_in(entry, ["metadata", "attachment_materialization", "state"])
 
-  defp eligible_new_attachment_supplement?(fact, entry) do
-    entry["non_bot_mention"] != true and
-      (is_nil(entry["reply_to_source_entry_id"]) or fact.channel_kind == :im_dm)
+  # A reply edge names another message as the request context, so the
+  # attachment must not join the live turn (SignalsGateway.md, "reply edge
+  # prevents this association"). DMs follow the same rule as groups.
+  defp eligible_new_attachment_supplement?(entry) do
+    entry["non_bot_mention"] != true and is_nil(entry["reply_to_source_entry_id"])
   end
 
   defp live_deliveries_for_actor(repo, actor_key) do
@@ -500,6 +502,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRetry do
     |> repo.update()
   end
 
+  # The membership predicate runs in SQL so only the events that mention the
+  # removed entry are locked, not every open event in the channel. The
+  # jsonb_typeof guard is required: this scans all event types and a non-array
+  # `entries` value would make jsonb_array_elements fail.
   defp candidate_events_for_source_entry(fact, repo) do
     ActorEvent
     |> where([input], input.agent_uid == ^fact.agent_uid)
@@ -508,20 +514,31 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRetry do
     |> where([input], input.input_state == "open")
     |> where([input], is_nil(input.completed_at))
     |> maybe_where_thread(fact.provider_thread_id)
+    |> where(
+      [input],
+      input.source_entry_id == ^fact.source_entry_id or
+        fragment(
+          """
+          jsonb_typeof(?->'data'->'entries') = 'array'
+          AND EXISTS (
+            SELECT 1
+            FROM jsonb_array_elements(?->'data'->'entries') AS entry
+            WHERE entry->>'source_entry_id' = ?
+          )
+          """,
+          input.payload,
+          input.payload,
+          ^fact.source_entry_id
+        )
+    )
     |> lock("FOR UPDATE")
     |> repo.all()
-    |> Enum.filter(&event_mentions_provider_entry?(&1, fact.source_entry_id))
   end
 
   defp maybe_where_thread(query, nil), do: query
 
   defp maybe_where_thread(query, provider_thread_id) do
     where(query, [input], input.provider_thread_id == ^provider_thread_id)
-  end
-
-  defp event_mentions_provider_entry?(%ActorEvent{} = input, source_entry_id) do
-    input.source_entry_id == source_entry_id or
-      Enum.any?(event_entries(input), &(&1["source_entry_id"] == source_entry_id))
   end
 
   defp retract_source_entry_from_event(repo, %ActorEvent{} = input, fact, kind, now) do

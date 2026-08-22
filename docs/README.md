@@ -112,7 +112,7 @@ providers.
 7. SignalsGateway supervisor
 8. Optional identity startup sync and RuntimeEvents
 9. AIGateway model metadata cache
-10. DNSCluster and the Phoenix endpoint
+10. Phoenix endpoint
 
 This order is a contract. A later child can use a service that started before
 it. The endpoint starts after the subsystems that serve requests.

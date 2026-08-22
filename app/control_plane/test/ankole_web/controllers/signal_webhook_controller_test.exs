@@ -1,5 +1,5 @@
 defmodule AnkoleWeb.SignalWebhookControllerTest do
-  use AnkoleWeb.ConnCase, async: false
+  use AnkoleWeb.ConnCase, async: true
 
   test "unknown handlers return 404 without echoing the payload", %{conn: conn} do
     conn =

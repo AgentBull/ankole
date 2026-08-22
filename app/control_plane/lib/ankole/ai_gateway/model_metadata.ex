@@ -162,9 +162,7 @@ defmodule Ankole.AIGateway.ModelMetadata do
 
   defp list_source_models(%Provider{} = provider, {:openrouter, source}, opts)
        when is_map(source) do
-    key =
-      {:model_metadata_source, provider.provider_id, :openrouter, Map.fetch!(source, :cache_key)}
-
+    key = source_cache_key(provider, :openrouter, Map.fetch!(source, :cache_key))
     ttl_ms = Keyword.get(opts, :cache_ttl_ms, @default_cache_ttl_ms)
 
     case cached_fetch(key, ttl_ms, Keyword.get(opts, :force_refresh, false), fn ->
@@ -177,7 +175,7 @@ defmodule Ankole.AIGateway.ModelMetadata do
 
   defp list_source_models(%Provider{} = provider, {:codex, source}, opts)
        when is_map(source) do
-    key = {:model_metadata_source, provider.provider_id, :codex, Map.fetch!(source, :cache_key)}
+    key = source_cache_key(provider, :codex, Map.fetch!(source, :cache_key))
     ttl_ms = Keyword.get(opts, :cache_ttl_ms, @default_cache_ttl_ms)
 
     case cached_fetch(key, ttl_ms, Keyword.get(opts, :force_refresh, false), fn ->
@@ -189,6 +187,15 @@ defmodule Ankole.AIGateway.ModelMetadata do
   end
 
   defp list_source_models(_provider, _source, _opts), do: {:ok, []}
+
+  # `updated_at` is the provider revision, so an operator edit (a new base URL
+  # or credential pool) reads a different key instead of the stale entry. The
+  # Cache has no sweeper, so entries for old revisions stay in ETS until the
+  # next restart, which operator edit rates make acceptable.
+  defp source_cache_key(%Provider{} = provider, source_kind, source_cache_key) do
+    {:model_metadata_source, provider.provider_id, provider.updated_at, source_kind,
+     source_cache_key}
+  end
 
   defp source_model(%Provider{}, {:llm_db, provider_atom}, model_id, _opts) do
     case LLMDB.model(provider_atom, model_id) do

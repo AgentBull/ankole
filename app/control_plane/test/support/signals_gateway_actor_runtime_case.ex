@@ -10,6 +10,7 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
   alias Ankole.AIGateway.Conversations
 
   alias Ankole.AIGateway.ProviderConfigs
+  alias Ankole.AIGateway.ModelMetadata
   alias Ankole.AIGateway.ModelMetadata.Cache, as: ModelMetadataCache
   alias Ankole.AIGateway.StatefulResponses
   alias Ankole.AIAgent.ModelProfiles
@@ -19,6 +20,7 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
   alias Ankole.SignalsGateway.Actors
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.ActorRuntime
+  alias Ankole.SignalsGateway.ActorTurnCompletion
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
   alias Ankole.SignalsGateway.ActorRuntime.TurnRef
@@ -208,24 +210,38 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
     %FabricProto.TurnAccepted{turn: turn_proto_ref(turn_ref)}
   end
 
-  def turn_completed_payload(turn_ref, final_response_id, outcome \\ "loop_finished") do
-    %FabricProto.TurnCompleted{
-      turn: turn_proto_ref(turn_ref),
-      final_response_id: final_response_id,
-      outcome: turn_completion_outcome(outcome)
-    }
+  def domain_turn_ref(%TurnRef{} = turn_ref), do: turn_ref
+
+  def domain_turn_ref(%FabricProto.ActorTurnRef{} = turn_ref) do
+    {:ok, turn_ref} = TurnRef.from_proto(turn_ref)
+    turn_ref
   end
 
-  def turn_noop_completed_payload(turn_ref, reason \\ "") do
-    %FabricProto.TurnNoopCompleted{turn: turn_proto_ref(turn_ref), reason: reason}
+  def commit_turn_completion(turn_ref, final_response_id, outcome \\ "loop_finished") do
+    ActorTurnCompletion.handle(domain_turn_ref(turn_ref), final_response_id, outcome, [])
   end
 
-  def turn_error_payload(turn_ref, code, message \\ "", details \\ nil) do
-    %FabricProto.TurnError{
-      turn: turn_proto_ref(turn_ref),
-      code: code,
-      message: message,
-      details_json: if(details, do: Torque.encode!(details), else: "")
+  def complete_turn_noop(turn_ref, reason \\ "") do
+    ActorRuntime.handle_turn_noop_completed(domain_turn_ref(turn_ref), reason)
+  end
+
+  def fail_turn(turn_ref, code, message \\ "", details \\ nil) do
+    fail_turn(turn_ref, code, message, details, [])
+  end
+
+  def fail_turn(turn_ref, code, message, details, opts) do
+    ActorRuntime.handle_turn_error(
+      domain_turn_ref(turn_ref),
+      turn_error_reason(code, message, details),
+      opts
+    )
+  end
+
+  def turn_error_reason(code, message \\ "", details \\ nil) do
+    %{
+      "code" => present_text(code) || "worker_turn_error",
+      "message" => present_text(message) || "worker turn failed",
+      "details_json" => details || %{}
     }
   end
 
@@ -242,12 +258,12 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
     }
   end
 
-  defp turn_completion_outcome("loop_finished"), do: :TURN_COMPLETION_OUTCOME_LOOP_FINISHED
-
-  defp turn_completion_outcome("iteration_exhausted"),
-    do: :TURN_COMPLETION_OUTCOME_ITERATION_EXHAUSTED
-
-  defp turn_completion_outcome(outcome) when is_atom(outcome), do: outcome
+  defp present_text(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
 
   @doc """
   Unwraps one expected body payload from a captured envelope struct.
@@ -368,6 +384,8 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
 
   @doc false
   def cache_actor_runtime_models(provider_id) do
+    {:ok, provider} = ProviderConfigs.fetch_provider(provider_id)
+
     models =
       Enum.map(
         [
@@ -384,11 +402,23 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
         end
       )
 
-    ModelMetadataCache.put(
-      {:model_metadata_source, provider_id, :openrouter, "models?output_modalities=all"},
-      models,
-      :timer.hours(1)
-    )
+    # The key must stay identical to ModelMetadata's own source cache key,
+    # provider revision included. A stale shape here is silent: every Turn that
+    # resolves a model profile then reaches the real OpenRouter catalog over the
+    # network, so the assertion below fails loudly instead.
+    :ok =
+      ModelMetadataCache.put(
+        {:model_metadata_source, provider_id, provider.updated_at, :openrouter,
+         "models?output_modalities=all"},
+        models,
+        :timer.hours(1)
+      )
+
+    assert {:ok, %{"top_provider" => %{"max_completion_tokens" => 65_536}}} =
+             ModelMetadata.model_metadata(provider, "google/gemini-3.5-flash", capability: "llm"),
+           "seeded model metadata is unreachable, so Turns will fetch the live catalog"
+
+    :ok
   end
 
   def binding_fixture(agent_uid, name, policy, opts \\ []) do
@@ -717,12 +747,10 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
 
     if Keyword.get(opts, :wait_for_mirror, false) do
       assert {:ok, %{status: :turn_completed}} =
-               ActorRuntime.handle_turn_completed(
-                 turn_completed_payload(
-                   turn_ref,
-                   "resp_#{committed.id}",
-                   Keyword.get(opts, :outcome, "loop_finished")
-                 )
+               commit_turn_completion(
+                 turn_ref,
+                 "resp_#{committed.id}",
+                 Keyword.get(opts, :outcome, "loop_finished")
                )
 
       dispatch_final_reply_outbox!(committed.id)

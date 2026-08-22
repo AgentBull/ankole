@@ -26,7 +26,7 @@ Ankole は Identity Provider を保存すると、最初の完全 sync を開始
 
 結果に期待した人や部門がない場合は、外部アプリケーションのディレクトリ権限と可用性の範囲を確認してください。API アクセスが、アプリケーションに組織全体へのアクセスを与えるとは限りません。
 
-最初の Identity Provider の接続は、[クイックスタート](../quickstart/#2-set-up-the-identity-provider-first) を参照してください。
+最初の Identity Provider の接続は、[クイックスタート](../quickstart/#identity-providers) を参照してください。
 
 ## Principal を表示する
 

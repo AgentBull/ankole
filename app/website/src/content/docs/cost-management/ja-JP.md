@@ -94,7 +94,7 @@ background job は再試行で token を使えます。上限がレバーです�
 
 ## 次のステップ
 
-- Agent の model profile は [Agents](../agents/#wire-up-its-models) を読んでください。
+- Agent の model profile は [Agents](../agents/#モデルを設定する) を読んでください。
 - agent ループのノブとそのキーは [環境変数](../environment-variables/) を読んでください。
 - 関連する会話と Job のエンドポイントは [Console API リファレンス](../console-api/) を読んでください。
 - Job の上限は [Background Agent Jobs](../background-jobs/) を読んでください。

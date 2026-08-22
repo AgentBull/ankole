@@ -23,9 +23,11 @@ defmodule Ankole.Schedule.Queries do
 
   @spec get_cron_schedule(Ecto.UUID.t()) :: {:ok, CronSchedule.t()} | {:error, :not_found}
   def get_cron_schedule(cron_schedule_id) when is_binary(cron_schedule_id) do
-    case Repo.get(CronSchedule, cron_schedule_id) do
-      %CronSchedule{} = schedule -> {:ok, schedule}
-      nil -> {:error, :not_found}
+    with {:ok, cron_schedule_id} <- Ecto.UUID.cast(cron_schedule_id),
+         %CronSchedule{} = schedule <- Repo.get(CronSchedule, cron_schedule_id) do
+      {:ok, schedule}
+    else
+      _not_found -> {:error, :not_found}
     end
   end
 

@@ -165,9 +165,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ChannelContextDeliveryDedupeTest do
              ])
 
     assert {:ok, %{status: :turn_completed}} =
-             ActorRuntime.handle_turn_completed(
-               turn_completed_payload(first_turn_ref, "resp_#{committed.id}")
-             )
+             commit_turn_completion(first_turn_ref, "resp_#{committed.id}")
 
     assert {:ok, %{send_outcome: "sent_or_queued"}} =
              process_ready_events_once(

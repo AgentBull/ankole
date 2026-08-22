@@ -197,7 +197,16 @@ export function ProvidersListPage() {
                 {provider.provider_id}
               </Link>
             </TableCell>
-            <TableCell>{kind ? providerKindLabel(kind) : provider.provider_kind}</TableCell>
+            <TableCell>
+              {kind ? (
+                providerKindLabel(kind)
+              ) : (
+                <div className="flex flex-wrap items-center gap-2">
+                  <span>{provider.provider_kind}</span>
+                  <Badge variant="warning">{t('console.providers.kind_unavailable')}</Badge>
+                </div>
+              )}
+            </TableCell>
             <TableCell>
               <div className="grid gap-1">
                 <span>
@@ -276,6 +285,16 @@ export function ProviderEditorPage() {
 
   const activeKind = kinds.find(kind => kind.provider_kind === model.providerKind.value)
   const settings = connectionSettings(activeKind)
+  // A disabled plugin removes its kind from the registry while the stored
+  // provider row survives. Detect from the stored row, not the editor model,
+  // so the notice cannot flash before the model seeds.
+  const unavailableKind =
+    mode === 'edit' &&
+    kinds.length > 0 &&
+    selected &&
+    !kinds.some(kind => kind.provider_kind === selected.provider_kind)
+      ? selected.provider_kind
+      : undefined
 
   const ready = kinds.length > 0 && (mode === 'new' ? Boolean(configuredProviders) : Boolean(selected))
   useEffect(() => {
@@ -378,11 +397,18 @@ export function ProviderEditorPage() {
       }
       submitting={saveProvider.isPending}
       submitDisabled={submitDisabled}
-      submitUnavailable={!ready}
+      submitUnavailable={!ready || Boolean(unavailableKind)}
       contentWidth="wide"
       supplementary={
-        mode === 'edit' && selected && activeKind ? (
-          <CredentialPoolEditor provider={selected} providerKind={activeKind} />
+        mode === 'edit' && selected ? (
+          activeKind ? (
+            <CredentialPoolEditor provider={selected} providerKind={activeKind} />
+          ) : unavailableKind ? (
+            <section className="grid gap-1 border border-border bg-card p-5 md:p-6">
+              <h3 className="text-lg font-semibold">{t('console.providers.pool_title')}</h3>
+              <p className="max-w-2xl text-sm text-muted-foreground">{t('console.providers.pool_kind_unavailable')}</p>
+            </section>
+          ) : null
         ) : null
       }
       onSubmit={submit}>
@@ -402,9 +428,25 @@ export function ProviderEditorPage() {
             />
           )}
         </LabeledField>
-        <LabeledField label={t('console.providers.kind')} required={mode === 'new'}>
+        <LabeledField
+          label={t('console.providers.kind')}
+          required={mode === 'new'}
+          description={
+            unavailableKind ? t('console.providers.kind_unavailable_description', { kind: unavailableKind }) : undefined
+          }>
           {mode === 'edit' ? (
-            <ReadOnlyValue>{activeKind ? providerKindLabel(activeKind) : model.providerKind.value}</ReadOnlyValue>
+            <ReadOnlyValue>
+              {unavailableKind ? (
+                <span className="flex flex-wrap items-center gap-2">
+                  {unavailableKind}
+                  <Badge variant="warning">{t('console.providers.kind_unavailable')}</Badge>
+                </span>
+              ) : activeKind ? (
+                providerKindLabel(activeKind)
+              ) : (
+                model.providerKind.value
+              )}
+            </ReadOnlyValue>
           ) : (
             <Select value={model.providerKind.value} onValueChange={value => changeKind(String(value))}>
               <SelectTrigger className="w-full">

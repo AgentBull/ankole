@@ -777,6 +777,68 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
     end
   end
 
+  describe "State.fail/3 on a stateful run" do
+    test "ends the stream with the durable terminal when the run already committed" do
+      agent = agent_fixture()
+
+      {:ok, conversation} =
+        Conversations.ensure_conversation(agent.principal.uid, "test-conv-fail-already-terminal")
+
+      {:ok, message} = start_run(agent, conversation, "event-fail-already-terminal")
+
+      output_items = [
+        %{"type" => "message", "content" => [%{"type" => "output_text", "text" => "Hello"}]}
+      ]
+
+      assert {:ok, _completed} = StatefulResponses.commit_complete(message, output_items)
+
+      stateful = %{
+        message_id: message.id,
+        message: message,
+        subject_uid: message.subject_uid,
+        conversation_id: message.conversation_id
+      }
+
+      assert {_state, [public_event],
+              %{terminal_response: terminal_response, terminal_error: terminal_error}} =
+               State.fail(
+                 State.new(agent.principal.uid, %{}, %{}, stateful: stateful),
+                 "provider stream closed",
+                 code: "provider_stream_closed_without_terminal",
+                 retryable: true
+               )
+
+      assert {:ok, %{body: durable_response}} =
+               StatefulLifecycle.retrieve_response(agent.principal.uid, "resp_#{message.id}")
+
+      assert public_event["type"] == "response.completed"
+      assert public_event["response"] == durable_response
+      assert terminal_response == durable_response
+      assert terminal_error == nil
+    end
+
+    test "ends without a terminal when the durable run is unreachable" do
+      agent = agent_fixture()
+
+      stateful = %{
+        message_id: Ecto.UUID.generate(),
+        subject_uid: agent.principal.uid
+      }
+
+      assert {state, [], nil} =
+               State.fail(
+                 State.new(agent.principal.uid, %{}, %{}, stateful: stateful),
+                 "provider stream closed",
+                 code: "provider_stream_closed_without_terminal",
+                 retryable: true
+               )
+
+      assert State.terminal?(state)
+      assert state.terminal_response == nil
+      assert state.terminal_error == nil
+    end
+  end
+
   describe "expand_history/2" do
     test "returns complete message chain in chronological order" do
       agent = agent_fixture()

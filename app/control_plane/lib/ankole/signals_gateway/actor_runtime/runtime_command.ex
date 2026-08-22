@@ -28,6 +28,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
   alias Ankole.Repo
   alias Ankole.SignalsGateway
 
+  # Bounds the synchronous replay work after one Turn starts.
   @post_start_steer_limit 100
 
   def process_new_command(actor_key, %ActorEvent{} = input, opts) do
@@ -817,7 +818,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
   end
 
   defp latest_terminal_retry_source(repo, actor_key, command_event) do
-    candidate_types = Enum.uniq(["command.new" | AIReplyPreview.im_visible_event_types()])
+    candidate_types = AIReplyPreview.channel_reply_event_types()
 
     ActorEvent
     |> where([event], event.agent_uid == ^actor_key.agent_uid)
@@ -904,11 +905,21 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
   defp stop_cancelled_previews(result), do: result
 
   defp cancel_live_turn(repo, actor_key, now, reason) do
-    live_deliveries = live_deliveries_for_activation(repo, actor_key)
+    {current_actor_event_id, live_deliveries} = live_deliveries_for_activation(repo, actor_key)
     actor_event_ids = cancellable_actor_event_ids(repo, actor_key, live_deliveries)
 
+    # A steer delivery carries its own actor_event_id under the activation's
+    # turn fence, so the durable cancel must target the fence, not whichever
+    # delivery row comes back first. Without live deliveries the retry-source
+    # fallback already names the generating turn's own event.
+    cancel_actor_event_id =
+      case live_deliveries do
+        [_delivery | _rest] -> current_actor_event_id
+        [] -> List.first(actor_event_ids)
+      end
+
     case actor_event_ids do
-      [actor_event_id | _rest] ->
+      [_actor_event_id | _rest] ->
         stop_controls =
           Enum.map(live_deliveries, &stop_control_for_delivery(actor_key, &1, reason))
 
@@ -916,7 +927,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
                TurnLifecycle.cancel_started_turn_in_tx(
                  repo,
                  actor_key,
-                 actor_event_id,
+                 cancel_actor_event_id,
                  now,
                  reason
                ),
@@ -988,18 +999,23 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
     end
   end
 
+  # Locks the live activation and returns its current turn fence together with
+  # the live deliveries under that fence.
   defp live_deliveries_for_activation(repo, actor_key) do
     case TurnLifecycle.lock_live_activation(repo, actor_key) do
       %ActorSessionActivation{current_actor_event_id: actor_event_id}
       when is_binary(actor_event_id) ->
-        ActorEventDelivery
-        |> where([delivery], delivery.actor_event_id_fence == ^actor_event_id)
-        |> where([delivery], delivery.state in ^ActorEventDelivery.live_states())
-        |> lock("FOR UPDATE")
-        |> repo.all()
+        deliveries =
+          ActorEventDelivery
+          |> where([delivery], delivery.actor_event_id_fence == ^actor_event_id)
+          |> where([delivery], delivery.state in ^ActorEventDelivery.live_states())
+          |> lock("FOR UPDATE")
+          |> repo.all()
+
+        {actor_event_id, deliveries}
 
       _activation ->
-        []
+        {nil, []}
     end
   end
 

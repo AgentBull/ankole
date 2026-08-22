@@ -56,7 +56,7 @@ export const createLocalAppDatabase = async (databaseName: string): Promise<void
   ])
 }
 
-export function buildDropDatabaseScript(): string {
+function buildDropDatabaseScript(): string {
   return [
     'set -eu',
     'if psql -U "$POSTGRES_USER" -d postgres -Atqc "SELECT datname FROM pg_database" | grep -Fxq "$DB_NAME"; then',

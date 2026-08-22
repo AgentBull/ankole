@@ -513,7 +513,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
              )
     end
 
-    test "broker accepts terminal worker writes after active steer bumps revision" do
+    test "broker accepts a terminal RPC after active steer bumps revision" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
       route = unique_route()
@@ -566,21 +566,34 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
 
       assert steer_id == steer_event.id
 
+      request_id = "turn-noop-after-steer"
+
       noop_envelope =
         encode_fabric_envelope(%FabricProto.Envelope{
           protocol_version: Ankole.Kernel.RuntimeFabric.protocol_version(),
-          message_id: "turn-noop-after-steer",
-          correlation_id: envelope.message_id,
-          lane: :LANE_TURN,
-          durability: :CONTROL_REPLAYABLE,
+          message_id: request_id,
+          correlation_id: request_id,
+          lane: :LANE_RPC,
+          durability: :CONTROL_EPHEMERAL,
           body:
-            {:turn_noop_completed, turn_noop_completed_payload(mailbox.turn, "ambient_silent")}
+            {:rpc_request,
+             rpc_request(
+               request_id,
+               "actor_turn.noop",
+               %FabricProto.ActorTurnNoopRequest{reason: "ambient_silent"},
+               turn: mailbox.turn
+             )}
         })
 
       send(
         Broker,
         {:runtime_fabric_router_received, route, nil, noop_envelope}
       )
+
+      assert_receive {:actor_lane, response_envelope}, 2_000
+
+      assert %FabricProto.ActorTurnNoopResponse{status: "noop_completed"} =
+               rpc_response_payload!(response_envelope, FabricProto.ActorTurnNoopResponse)
 
       assert %ActorEvent{completed_at: %DateTime{}} = wait_for_completed_event(input.id)
       assert %ActorEvent{completed_at: %DateTime{}} = wait_for_completed_event(steer_event.id)

@@ -1,5 +1,5 @@
 defmodule AnkoleWeb.WebhookCallbackControllerTest do
-  use AnkoleWeb.ConnCase, async: false
+  use AnkoleWeb.ConnCase, async: true
 
   import Ankole.PrincipalsFixtures
   import Ecto.Query

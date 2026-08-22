@@ -10,7 +10,9 @@ use ankole_kernel::runtime_fabric::transport::{
 use ankole_kernel::runtime_fabric::{PROTOCOL_VERSION, proto};
 use prost::Message;
 
+/// Names the only worker route used by this binding round-trip fixture.
 const WORKER_ROUTE: &str = "worker-binding-roundtrip";
+/// Supplies the shared secret for this local authenticated fixture.
 const WORKER_AUTH_KEY: &str = "binding-secret";
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -57,7 +59,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             },
         )),
     };
-    router.send_mandatory(WORKER_ROUTE, envelope.encode_to_vec())?;
+    router.send_mandatory(WORKER_ROUTE, &envelope.encode_to_vec())?;
     router.send_file_frame(
         WORKER_ROUTE,
         vec![

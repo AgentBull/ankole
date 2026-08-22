@@ -235,12 +235,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionResetTest do
         )
 
       assert {:ok, %{status: :turn_completed, outboxes: %{clarify: clarify_outbox}}} =
-               ActorRuntime.handle_turn_completed(
-                 turn_completed_payload(
-                   source_turn_ref,
-                   "resp_#{response.id}",
-                   "loop_finished"
-                 )
+               commit_turn_completion(
+                 source_turn_ref,
+                 "resp_#{response.id}",
+                 "loop_finished"
                )
 
       assert clarify_outbox.payload["metadata"]["source"] == "ai_gateway_clarify"
@@ -404,8 +402,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionResetTest do
                    },
                    "payload" => %{"task" => "continue after reset"},
                    "delivery" => %{
-                     "signal_channel_id" => "lark:chat:reset-barrier",
-                     "provider_thread_id" => "thread-reset-barrier"
+                     "targets" => [
+                       %{
+                         "binding_name" => "bot",
+                         "signal_channel_id" => "lark:chat:reset-barrier",
+                         "provider_thread_id" => "thread-reset-barrier"
+                       }
+                     ]
                    },
                    "idempotency_key" => "reset-boundary-cron"
                  },
@@ -475,9 +478,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionResetTest do
       committed = complete_aigateway_turn!(cron_turn_ref, "scheduled work completed")
 
       assert {:ok, %{status: :turn_completed}} =
-               ActorRuntime.handle_turn_completed(
-                 turn_completed_payload(cron_turn_ref, "resp_#{committed.id}", "loop_finished")
-               )
+               commit_turn_completion(cron_turn_ref, "resp_#{committed.id}", "loop_finished")
 
       assert %DateTime{} = Repo.get!(ActorEvent, cron_input.id).completed_at
 

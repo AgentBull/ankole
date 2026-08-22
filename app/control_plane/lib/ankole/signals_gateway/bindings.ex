@@ -52,8 +52,7 @@ defmodule Ankole.SignalsGateway.Bindings do
          {:ok, definition} <- Adapters.fetch(adapter_id),
          {:ok, config} <- binding_config(attrs),
          {:ok, normalized_config} <- validate_binding_config(definition, config),
-         {:ok, mode} <- group_message_mode(attrs),
-         {:ok, confidential_memory} <- confidential_memory(attrs, false),
+         {:ok, mode} <- group_message_mode(attrs, GroupMessageModes.default_mode()),
          :ok <- validate_supported_group_message_mode(definition, mode),
          {:ok, policy} <- GroupMessageModes.policy(mode),
          {:ok, unmatched_sender_policy} <-
@@ -67,8 +66,7 @@ defmodule Ankole.SignalsGateway.Bindings do
              normalized_config,
              config_key,
              policy,
-             unmatched_sender_policy,
-             confidential_memory
+             unmatched_sender_policy
            ),
          :ok <- maybe_handle_binding_saved(definition, binding, normalized_config),
          :ok <- Outbox.wake_blocked_for_binding(principal.uid, binding_name),
@@ -95,10 +93,9 @@ defmodule Ankole.SignalsGateway.Bindings do
            Repo.get_by(Binding, agent_uid: source_principal.uid, name: binding_name),
          {:ok, definition} <- Adapters.fetch(source_binding.adapter),
          {:ok, config_patch} <- binding_config(attrs),
-         {:ok, mode} <- group_message_mode(attrs),
-         {:ok, confidential_memory} <- confidential_memory(attrs, nil),
+         {:ok, mode} <- group_message_mode(attrs, nil),
          :ok <- validate_supported_group_message_mode(definition, mode),
-         {:ok, policy} <- GroupMessageModes.policy(mode),
+         {:ok, policy} <- group_message_policy(mode),
          {:ok, unmatched_sender_policy} <- unmatched_sender_policy(attrs, nil),
          {:ok, config_key} <-
            binding_config_key(definition, target_principal.uid, binding_name),
@@ -111,8 +108,7 @@ defmodule Ankole.SignalsGateway.Bindings do
              config_patch,
              config_key,
              policy,
-             unmatched_sender_policy,
-             confidential_memory
+             unmatched_sender_policy
            ),
          :ok <- maybe_handle_binding_saved(definition, binding, normalized_config),
          :ok <- Outbox.wake_blocked_for_binding(target_principal.uid, binding_name),
@@ -268,18 +264,18 @@ defmodule Ankole.SignalsGateway.Bindings do
   defp binding_config(%{config: config}) when is_map(config), do: {:ok, config}
   defp binding_config(_attrs), do: {:error, :missing_config}
 
-  defp group_message_mode(attrs) do
+  defp group_message_mode(attrs, default) do
     case Map.get(attrs, :group_message_mode, Map.get(attrs, "group_message_mode")) do
       mode when is_binary(mode) and mode != "" -> {:ok, mode}
-      nil -> {:ok, GroupMessageModes.default_mode()}
+      nil when is_nil(default) -> {:ok, nil}
+      nil -> {:ok, default}
       mode -> {:error, {:invalid_group_message_mode, mode}}
     end
   end
 
-  # `default` is the value an absent attribute resolves to: `put_binding`
-  # passes the catalog default; `update_binding` passes `nil`, and the
-  # transfer keeps the locked source binding's policy in-tx — the same
-  # absent-means-unchanged contract as `confidential_memory/2`.
+  defp group_message_policy(nil), do: {:ok, nil}
+  defp group_message_policy(mode), do: GroupMessageModes.policy(mode)
+
   defp unmatched_sender_policy(attrs, default) do
     case Map.get(attrs, :unmatched_sender_policy, Map.get(attrs, "unmatched_sender_policy")) do
       value when is_binary(value) and value != "" -> UnmatchedSenderPolicies.policy(value)
@@ -289,15 +285,7 @@ defmodule Ankole.SignalsGateway.Bindings do
     end
   end
 
-  defp confidential_memory(attrs, default) do
-    value = Map.get(attrs, :confidential_memory, Map.get(attrs, "confidential_memory", default))
-
-    case value do
-      value when is_boolean(value) -> {:ok, value}
-      nil -> {:ok, nil}
-      value -> {:error, {:invalid_confidential_memory, value}}
-    end
-  end
+  defp validate_supported_group_message_mode(%Definition{}, nil), do: :ok
 
   defp validate_supported_group_message_mode(%Definition{} = definition, mode) do
     case definition.supported_group_message_modes do
@@ -349,8 +337,7 @@ defmodule Ankole.SignalsGateway.Bindings do
          normalized_config,
          config_key,
          policy,
-         unmatched_sender_policy,
-         confidential_memory
+         unmatched_sender_policy
        ) do
     case Repo.transact(fn repo ->
            with :ok <- lock_adapter_assignments(repo, definition.id),
@@ -371,7 +358,6 @@ defmodule Ankole.SignalsGateway.Bindings do
                     filters: %{},
                     unaddressed_group_message_policy: policy,
                     unmatched_sender_policy: unmatched_sender_policy,
-                    confidential_memory: confidential_memory,
                     enabled: true
                   }),
                 {:ok, committed_config} <-
@@ -396,8 +382,7 @@ defmodule Ankole.SignalsGateway.Bindings do
          config_patch,
          config_key,
          policy,
-         unmatched_sender_policy,
-         confidential_memory
+         unmatched_sender_policy
        ) do
     case Repo.transact(fn repo ->
            with :ok <- lock_adapter_assignments(repo, definition.id),
@@ -437,14 +422,10 @@ defmodule Ankole.SignalsGateway.Bindings do
                     adapter: definition.id,
                     config_ref: "app-config://#{config_key}",
                     filters: source_binding.filters,
-                    unaddressed_group_message_policy: policy,
+                    unaddressed_group_message_policy:
+                      policy || source_binding.unaddressed_group_message_policy,
                     unmatched_sender_policy:
                       unmatched_sender_policy || source_binding.unmatched_sender_policy,
-                    confidential_memory:
-                      if(is_boolean(confidential_memory),
-                        do: confidential_memory,
-                        else: source_binding.confidential_memory
-                      ),
                     enabled: true,
                     unavailable_reason: nil
                   }),

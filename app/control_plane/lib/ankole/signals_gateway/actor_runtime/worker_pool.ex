@@ -53,17 +53,30 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerPool do
     actor_key = Common.normalize_actor_key(actor_key)
     now = DateTime.utc_now(:microsecond)
 
-    Repo.transact(fn repo -> assign_worker_in_tx(repo, actor_key, now) end)
+    job_limit = job_turn_limit(actor_key)
+
+    Repo.transact(fn repo -> assign_worker_in_tx(repo, actor_key, now, job_limit) end)
   end
 
+  @doc """
+  Resolves how many BackgroundAgentJob turns one worker may hold, or `nil` for a
+  session that does not consume Job placement capacity.
+
+  Callers resolve this before they open the placement transaction. AppConfigure
+  reads reach a separate process and a separate connection, which a transaction
+  must not wait on.
+  """
+  @spec job_turn_limit(actor_key() | map()) :: pos_integer() | nil
+  def job_turn_limit(actor_key), do: actor_key |> Common.normalize_actor_key() |> job_limit()
+
   @doc false
-  @spec assign_worker_in_tx(module(), actor_key() | map(), DateTime.t()) ::
+  @spec assign_worker_in_tx(module(), actor_key() | map(), DateTime.t(), pos_integer() | nil) ::
           {:ok, ActorSessionWorkerAssignment.t()} | {:error, term()}
-  def assign_worker_in_tx(repo, actor_key, %DateTime{} = now) do
+  def assign_worker_in_tx(repo, actor_key, %DateTime{} = now, job_limit) do
     actor_key = Common.normalize_actor_key(actor_key)
 
     with :ok <- lock_actor_assignment_in_tx(repo, actor_key) do
-      do_assign_worker_in_tx(repo, actor_key, now, job_limit(actor_key))
+      do_assign_worker_in_tx(repo, actor_key, now, job_limit)
     end
   end
 

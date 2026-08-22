@@ -134,14 +134,20 @@ export function ModelProfilesEditor({
 
   const updateDraft = (profile: ProfileName, patch: Partial<ProfileDraft>) => model.update(profile, patch)
 
+  // One in-flight save or clear per profile: a repeat submit while the first
+  // request runs would double-write and strand the submission bookkeeping.
   const persistProfile = (profile: ProfileName, submission: ModelProfileSubmission, body: ModelProfileWriteRequest) => {
-    pendingSaveSubmissions.current.set(profileSubmissionKey(agent.uid, profile), submission)
+    const key = profileSubmissionKey(agent.uid, profile)
+    if (pendingSaveSubmissions.current.has(key) || pendingClearSubmissions.current.has(key)) return
+    pendingSaveSubmissions.current.set(key, submission)
     saveProfile.mutate({ body, path: { agent_uid: agent.uid, profile } })
   }
 
   const clear = (profile: ProfileName) => {
+    const key = profileSubmissionKey(agent.uid, profile)
+    if (pendingSaveSubmissions.current.has(key) || pendingClearSubmissions.current.has(key)) return
     const submission = model.submission(profile)
-    pendingClearSubmissions.current.set(profileSubmissionKey(agent.uid, profile), submission)
+    pendingClearSubmissions.current.set(key, submission)
     clearProfile.mutate({ path: { agent_uid: agent.uid, profile } })
   }
 

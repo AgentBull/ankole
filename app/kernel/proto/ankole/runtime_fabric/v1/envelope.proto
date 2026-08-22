@@ -48,6 +48,8 @@ message Envelope {
   // fence.
   int64 sent_at_unix_ms = 6;
   DurabilityClass durability = 7;
+  reserved 41 to 43;
+  reserved "turn_error", "turn_noop_completed", "turn_completed";
 
   oneof body {
     // Worker lifecycle messages describe homogeneous computer workers. They do
@@ -61,9 +63,6 @@ message Envelope {
     TurnAccepted turn_accepted = 33;
     TurnControl turn_control = 34;
     WorkerProgress worker_progress = 35;
-    TurnError turn_error = 41;
-    TurnNoopCompleted turn_noop_completed = 42;
-    TurnCompleted turn_completed = 43;
     ControlShutdown control_shutdown = 50;
     RPCRequest rpc_request = 70;
     RPCResponse rpc_response = 71;
@@ -183,30 +182,6 @@ message WorkerProgress {
   string kind = 2;
   string summary = 3;
   bytes refs_json = 4;
-}
-
-message TurnError {
-  ActorTurnRef turn = 1;
-  string code = 2;
-  string message = 3;
-  bytes details_json = 4;
-}
-
-message TurnNoopCompleted {
-  ActorTurnRef turn = 1;
-  string reason = 2;
-}
-
-enum TurnCompletionOutcome {
-  TURN_COMPLETION_OUTCOME_UNSPECIFIED = 0;
-  TURN_COMPLETION_OUTCOME_LOOP_FINISHED = 1;
-  TURN_COMPLETION_OUTCOME_ITERATION_EXHAUSTED = 2;
-}
-
-message TurnCompleted {
-  ActorTurnRef turn = 1;
-  string final_response_id = 2;
-  TurnCompletionOutcome outcome = 3;
 }
 
 message ControlShutdown {

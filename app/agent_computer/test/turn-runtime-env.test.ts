@@ -4,7 +4,7 @@ import {
   buildTurnRuntimeEnv,
   CURRENT_ACTOR_SENDER_PRINCIPAL_ENV,
   LARK_PROFILE_ENV
-} from '../src/core/turns/turn_runtime_env'
+} from '../src/core/execution/turn_runtime_env'
 import type { TurnStart } from '../src/lanes/actor_lane'
 
 describe('turn runtime environment', () => {

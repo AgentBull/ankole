@@ -94,7 +94,7 @@ Agent 用不到 `vision_fallback` 时，可以把它留空，避免产生相应�
 
 ## 下一步
 
-- Agent 的模型档案，读 [Agent](../agents/#接上它的模型)。
+- Agent 的模型档案，读 [Agent](../agents/#配置模型)。
 - agent 循环旋钮及其键，读 [环境变量](../environment-variables/)。
 - 相关会话与后台任务接口，读 [Console API 参考](../console-api/)。
 - 任务上限，读 [后台 Agent 任务](../background-jobs/)。

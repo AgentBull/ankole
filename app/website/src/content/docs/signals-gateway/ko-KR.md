@@ -57,7 +57,7 @@ Signal Binding으로 저장되는 시그널 라우팅 규칙은 운영자가 선
 | `PATCH` | `/agents/:agent_uid/signal-bindings/:binding_name` | 라우팅 규칙 갱신 |
 | `DELETE` | `/agents/:agent_uid/signal-bindings/:binding_name` | 라우팅 규칙 제거 |
 
-규칙은 사용하는 어댑터, 구성 참조, 필터 규칙, 그룹 메시지 정책, `enabled` 플래그, `confidential_memory` 플래그를 담습니다. 규칙을 비활성화하면 규칙을 삭제하지 않고도 새 사실이 해당 Actor를 깨우지 않게 됩니다. 사용할 수 없게 된 규칙은 `unavailable_reason`을 기록하므로 운영자는 규칙이 멈춘 이유를 확인할 수 있습니다.
+규칙은 사용하는 어댑터, 구성 참조, 필터 규칙, 그룹 메시지 정책, `enabled` 플래그를 담습니다. 규칙을 비활성화하면 규칙을 삭제하지 않고도 새 사실이 해당 Actor를 깨우지 않게 됩니다. 사용할 수 없게 된 규칙은 `unavailable_reason`을 기록하므로 운영자는 규칙이 멈춘 이유를 확인할 수 있습니다.
 
 어댑터는 하드코딩되지 않습니다. 부팅 시 `signals_gateway.adapter` 계약 아래 플러그인 레지스트리에서 해석되므로, 사용 가능한 프로바이더 집합은 이 배포 인스턴스의 플러그인이 선언하는 대로 결정됩니다. 어떤 선언도 제공하지 않는 어댑터 id에 대한 요청은 `signal_adapter_not_found`를 반환합니다.
 

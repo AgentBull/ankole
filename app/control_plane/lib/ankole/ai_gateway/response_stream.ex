@@ -37,7 +37,7 @@ defmodule Ankole.AIGateway.ResponseStream do
   defstruct [:pid, :ref]
 
   @opaque t :: %__MODULE__{pid: pid(), ref: reference()}
-  @type terminal_status :: {:terminal, State.outcome()}
+  @type terminal_status :: {:terminal, State.outcome() | nil}
   @type message ::
           {:ai_gateway_response_stream, reference(), :events, [map()],
            :continue | terminal_status()}
@@ -1878,6 +1878,9 @@ defmodule Ankole.AIGateway.ResponseStream do
 
           {:ai_gateway_response_stream, ^ref, :events, _events, {:terminal, %{} = outcome}} ->
             {:ok, outcome, meta}
+
+          {:ai_gateway_response_stream, ^ref, :events, _events, {:terminal, nil}} ->
+            {:error, :response_stream_closed}
 
           {:DOWN, ^monitor, :process, _pid, reason} ->
             {:error, {:response_stream_closed, reason}}

@@ -88,7 +88,26 @@ defmodule AnkoleWeb.ScheduleControllerTest do
     assert remaining_id == evening.id
   end
 
-  test "creation carries the owner conversation and normalizes legacy delivery, and update accepts multiple targets",
+  test "a malformed cron schedule id answers not found in the console envelope", %{conn: conn} do
+    %{principal: agent} = agent_fixture()
+    conn = bearer_conn(conn)
+
+    assert %{"error" => %{"code" => "not_found", "message" => message}} =
+             conn
+             |> recycle_bearer()
+             |> get(~p"/api/v1/agents/#{agent.uid}/cron-schedules/not-a-uuid")
+             |> json_response(404)
+
+    assert is_binary(message)
+
+    assert %{"error" => %{"code" => "not_found"}} =
+             conn
+             |> recycle_bearer()
+             |> delete(~p"/api/v1/agents/#{agent.uid}/cron-schedules/not-a-uuid")
+             |> json_response(404)
+  end
+
+  test "creation carries the owner conversation and update accepts multiple targets",
        %{conn: conn} do
     %{principal: agent} = agent_fixture()
     api_spec = AnkoleWeb.APISpec.spec()
@@ -205,7 +224,11 @@ defmodule AnkoleWeb.ScheduleControllerTest do
       "schedule" => %{"kind" => "cron", "expression" => "0 9 * * *"},
       "timezone" => "Asia/Shanghai",
       "payload" => %{"task" => "console test task for #{name}"},
-      "delivery" => %{"signal_channel_id" => "lark:chat:#{name}"},
+      "delivery" => %{
+        "targets" => [
+          %{"binding_name" => "lark", "signal_channel_id" => "lark:chat:#{name}"}
+        ]
+      },
       "idempotency_key" => "console-test-#{name}"
     }
   end

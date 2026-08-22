@@ -56,11 +56,13 @@ defmodule AnkoleWeb.SetupController do
   """
   def create_session(conn, params) do
     with {:ok, false} <- SetupConfig.completed?(),
-         :ok <- maybe_put_locale(params["locale"]),
          {:ok, expected_code} <- SetupConfig.bootstrap_activation_code(),
          submitted_code <-
            normalize_activation_code(params["activationCode"] || params["activation_code"]),
-         true <- secure_equal?(submitted_code, expected_code) do
+         true <- secure_equal?(submitted_code, expected_code),
+         # The locale write comes after code verification so an unauthenticated
+         # caller cannot change installation state.
+         :ok <- maybe_put_locale(params["locale"]) do
       conn
       |> WebSession.put_setup_session()
       |> json(%{ok: true})

@@ -1,5 +1,6 @@
 use super::*;
 
+/// Marks private reasoning envelopes so foreign provider text cannot enter replay.
 const ANTHROPIC_REASONING_PREFIX: &str = "ankole-aigateway-anthropic-reasoning:";
 
 #[derive(Debug)]
@@ -59,11 +60,11 @@ impl AnthropicState {
                 Vec::new()
             }
             Some("message_stop") => {
-                let status = match self.stop_reason.as_deref() {
-                    Some("max_tokens") => "incomplete",
-                    _reason => "completed",
-                };
-                let reason = (status == "incomplete").then_some("max_output_tokens");
+                let (status, reason) = self
+                    .stop_reason
+                    .as_deref()
+                    .map(anthropic_terminal)
+                    .unwrap_or(("completed", None));
                 self.finish(context, status, reason)
             }
             Some("ping") | None => Vec::new(),
@@ -246,20 +247,23 @@ impl AnthropicState {
     }
 
     fn tool_arguments_delta(&mut self, index: usize, partial: &str) -> Vec<Value> {
-        let Some(mut call) = self.tool_calls.get(&index).cloned() else {
-            return Vec::new();
+        let (item_id, output_index) = {
+            let Some(call) = self.tool_calls.get_mut(&index) else {
+                return Vec::new();
+            };
+
+            call.arguments.push_str(partial);
+            (call.id.clone(), call.output_index)
         };
 
-        call.arguments.push_str(partial);
         let event = self.event(
             "response.function_call_arguments.delta",
             json!({
-                "item_id": call.id,
-                "output_index": call.output_index,
+                "item_id": item_id,
+                "output_index": output_index,
                 "delta": partial
             }),
         );
-        self.tool_calls.insert(index, call);
         vec![event]
     }
 
@@ -307,12 +311,11 @@ impl AnthropicState {
             return;
         };
 
-        let current = block
-            .get(key)
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string();
-        block.insert(key.to_string(), json!(format!("{current}{delta}")));
+        if let Some(Value::String(current)) = block.get_mut(key) {
+            current.push_str(delta);
+        } else {
+            block.insert(key.to_string(), Value::String(delta.to_string()));
+        }
     }
 
     fn finish_text_part(&mut self) -> Vec<Value> {
@@ -584,6 +587,16 @@ impl APIProtocol for AnthropicState {
     }
 }
 
+// Shared terminal mapping for the stream and one-shot Anthropic Messages paths.
+// `model_context_window_exceeded` maps like `max_tokens`, matching
+// `bedrock_terminal` for the same Claude stop reason.
+fn anthropic_terminal(stop_reason: &str) -> (&'static str, Option<&'static str>) {
+    match stop_reason {
+        "max_tokens" | "model_context_window_exceeded" => ("incomplete", Some("max_output_tokens")),
+        _reason => ("completed", None),
+    }
+}
+
 fn anthropic_body_to_response(context: &ResponseContext, body: Value) -> Value {
     let mut output = Vec::new();
     let mut text = String::new();
@@ -642,14 +655,21 @@ fn anthropic_body_to_response(context: &ResponseContext, body: Value) -> Value {
         );
     }
 
+    let (status, incomplete_reason) = body
+        .get("stop_reason")
+        .and_then(Value::as_str)
+        .map(anthropic_terminal)
+        .unwrap_or(("completed", None));
+
     complete_response_resource(
         context,
         json!({
             "id": body.get("id").and_then(Value::as_str).map(ToOwned::to_owned).unwrap_or_else(|| generated_id("resp")),
             "object": "response",
             "created_at": now_seconds(),
-            "completed_at": now_seconds(),
-            "status": "completed",
+            "completed_at": if status == "completed" { json!(now_seconds()) } else { Value::Null },
+            "status": status,
+            "incomplete_details": incomplete_reason.map(|reason| json!({"reason": reason})).unwrap_or(Value::Null),
             "model": body.get("model").and_then(Value::as_str).map(ToOwned::to_owned).unwrap_or_else(|| context.model.clone()),
             "output": output,
             "usage": normalize_anthropic_usage(body.get("usage").unwrap_or(&Value::Null)),

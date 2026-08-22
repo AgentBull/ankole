@@ -46,7 +46,7 @@ defmodule Ankole.AIGateway.ResponseStream.State do
         }
   @type status ::
           :continue
-          | {:terminal, outcome(), :keep_upstream | :cancel_upstream}
+          | {:terminal, outcome() | nil, :keep_upstream | :cancel_upstream}
           | {:round, map()}
           | {:local, [map()], map()}
 
@@ -125,32 +125,46 @@ defmodule Ankole.AIGateway.ResponseStream.State do
       |> maybe_put_metadata("details_json", details)
       |> correlate_provider_error(state)
 
-    commit_stateful_error(state.stateful, chronological(state.durable_items), error)
+    case commit_stateful_error(state.stateful, chronological(state.durable_items), error) do
+      :ok ->
+        response = %{
+          "id" => cleanup_response_id(state),
+          "object" => "response",
+          "status" => "failed",
+          "error" => error,
+          # Failure is another terminal projection of the same response. Items
+          # already emitted before a continuation/open failure cannot disappear
+          # from the final public response while remaining in durable history.
+          "output" => chronological(state.public_items)
+        }
 
-    response = %{
-      "id" => cleanup_response_id(state),
-      "object" => "response",
-      "status" => "failed",
-      "error" => error,
-      # Failure is another terminal projection of the same response. Items
-      # already emitted before a continuation/open failure cannot disappear
-      # from the final public response while remaining in durable history.
-      "output" => chronological(state.public_items)
-    }
+        event =
+          %{"type" => "response.failed", "response" => response}
+          |> maybe_put_sequence_number(next_sequence_number(state))
+          |> rewrite_response_id(state)
 
-    event =
-      %{"type" => "response.failed", "response" => response}
-      |> maybe_put_sequence_number(next_sequence_number(state))
-      |> rewrite_response_id(state)
+        state = %{
+          state
+          | terminal?: true,
+            terminal_response: event["response"],
+            terminal_error: event["response"]["error"]
+        }
 
-    state = %{
-      state
-      | terminal?: true,
-        terminal_response: event["response"],
-        terminal_error: event["response"]["error"]
-    }
+        {state, [event], outcome(state)}
 
-    {state, [event], outcome(state)}
+      {:already_terminal, authoritative_response} ->
+        {state, events, {:terminal, outcome, _upstream_action}} =
+          finalize_authoritative_terminal(
+            state,
+            authoritative_response,
+            next_sequence_number(state)
+          )
+
+        {state, events, outcome}
+
+      {:error, _reason} ->
+        {%{state | terminal?: true, terminal_response: nil, terminal_error: nil}, [], nil}
+    end
   end
 
   @spec outcome(t()) :: outcome()
@@ -857,17 +871,9 @@ defmodule Ankole.AIGateway.ResponseStream.State do
       {:already_terminal, authoritative_response} ->
         finalize_authoritative_terminal(state, authoritative_response, sequence)
 
-      {:error, reason} ->
-        public_event = stateful_commit_failed_event(state, reason, sequence)
-
-        state = %{
-          state
-          | terminal?: true,
-            terminal_response: public_event["response"],
-            terminal_error: public_event["response"]["error"]
-        }
-
-        {state, [public_event], {:terminal, outcome(state), :cancel_upstream}}
+      {:error, _reason} ->
+        state = %{state | terminal?: true, terminal_response: nil, terminal_error: nil}
+        {state, [], {:terminal, nil, :cancel_upstream}}
     end
   end
 
@@ -1421,8 +1427,7 @@ defmodule Ankole.AIGateway.ResponseStream.State do
           %{message_id: stateful.message_id, reason: inspect(reason)}
         )
 
-        commit_stateful_terminal_commit_failure(stateful, items, reason)
-        {:error, reason}
+        commit_stateful_terminal_commit_failure(stateful, items)
     end
   end
 
@@ -1463,27 +1468,42 @@ defmodule Ankole.AIGateway.ResponseStream.State do
     end
   end
 
-  defp commit_stateful_terminal_commit_failure(stateful, items, _reason) do
-    StatefulResponses.commit_error(
-      stateful.message_id,
-      items,
-      %{
-        "code" => "stateful_terminal_commit_failed",
-        "message" => safe_error_message("stateful_terminal_commit_failed"),
-        "stage" => "terminal_commit",
-        "retryable" => false
-      }
-    )
+  defp commit_stateful_terminal_commit_failure(stateful, items) do
+    case StatefulResponses.commit_error(
+           stateful.message_id,
+           items,
+           %{
+             "code" => "stateful_terminal_commit_failed",
+             "message" => safe_error_message("stateful_terminal_commit_failed"),
+             "stage" => "terminal_commit",
+             "retryable" => false
+           }
+         ) do
+      {:ok, _message_or_terminal} ->
+        authoritative_stateful_terminal(stateful)
+
+      {:error, reason} ->
+        Logging.warning(
+          "ai_gateway.response_stream.terminal_failure_commit_failed",
+          "AIGateway response stream terminal failure commit failed",
+          %{message_id: stateful.message_id, reason: inspect(reason)}
+        )
+
+        {:error, reason}
+    end
   end
 
   defp commit_stateful_error(nil, _partial_content, _error_details), do: :ok
 
-  defp commit_stateful_error(%{message_id: message_id}, partial_content, error_details) do
+  defp commit_stateful_error(%{message_id: message_id} = stateful, partial_content, error_details) do
     error_details = Map.put_new(error_details, "stage", "response_stream_cleanup")
 
     case StatefulResponses.commit_error(message_id, partial_content, error_details) do
-      {:ok, _message_or_terminal} ->
+      {:ok, %{} = _message} ->
         :ok
+
+      {:ok, :already_terminal} ->
+        authoritative_stateful_terminal(stateful)
 
       {:error, commit_reason} ->
         Logging.warning(
@@ -1494,23 +1514,6 @@ defmodule Ankole.AIGateway.ResponseStream.State do
 
         {:error, commit_reason}
     end
-  end
-
-  defp stateful_commit_failed_event(state, _reason, sequence_number) do
-    response = %{
-      "id" => stateful_response_id(state.stateful),
-      "object" => "response",
-      "status" => "failed",
-      "error" => %{
-        "code" => "stateful_commit_failed",
-        "message" => safe_error_message("stateful_commit_failed"),
-        "retryable" => false
-      },
-      "output" => []
-    }
-
-    %{"type" => "response.failed", "response" => response}
-    |> maybe_put_sequence_number(sequence_number)
   end
 
   defp remember_provider_response_id(state, %{"response" => %{"id" => response_id}})

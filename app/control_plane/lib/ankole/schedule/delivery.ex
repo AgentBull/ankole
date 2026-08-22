@@ -7,7 +7,7 @@ defmodule Ankole.Schedule.Delivery do
 
   @spec normalize(term(), String.t()) :: {:ok, map()} | {:error, term()}
   def normalize(delivery, binding_name) when is_map(delivery) and is_binary(binding_name) do
-    with {:ok, targets} <- normalize_targets(delivery, binding_name),
+    with {:ok, targets} <- normalize_targets(delivery),
          :ok <- validate_primary_binding(targets, binding_name),
          :ok <- validate_unique_targets(targets),
          {:ok, quiet_success} <- normalize_quiet_success(delivery) do
@@ -70,7 +70,7 @@ defmodule Ankole.Schedule.Delivery do
     |> Base.url_encode64(padding: false)
   end
 
-  defp normalize_targets(delivery, binding_name) do
+  defp normalize_targets(delivery) do
     case fetch(delivery, "targets") do
       {:ok, targets} when is_list(targets) and targets != [] ->
         targets
@@ -81,23 +81,6 @@ defmodule Ankole.Schedule.Delivery do
         {:error, :cron_delivery_route_required}
 
       :error ->
-        normalize_legacy_target(delivery, binding_name)
-    end
-  end
-
-  defp normalize_legacy_target(delivery, binding_name) do
-    case Attrs.map_text(delivery, "signal_channel_id") do
-      signal_channel_id when is_binary(signal_channel_id) ->
-        {:ok,
-         [
-           Attrs.reject_nil_values(%{
-             "binding_name" => binding_name,
-             "signal_channel_id" => signal_channel_id,
-             "provider_thread_id" => Attrs.map_text(delivery, "provider_thread_id")
-           })
-         ]}
-
-      nil ->
         {:error, :cron_delivery_route_required}
     end
   end
@@ -161,8 +144,7 @@ defmodule Ankole.Schedule.Delivery do
     do: {:error, :cron_delivery_route_required}
 
   defp route_update?(delivery) do
-    match?({:ok, _value}, fetch(delivery, "targets")) or
-      match?({:ok, _value}, fetch(delivery, "signal_channel_id"))
+    match?({:ok, _value}, fetch(delivery, "targets"))
   end
 
   defp fetch(map, key) do

@@ -295,16 +295,6 @@ function boundedBackgroundAgentJobSummary(summary: string | undefined): string |
 }
 
 /**
- * Enables AIGateway truncation only for the overflow-retry path.
- */
-export function statefulTruncationFromActorEventPayload(payload: JSONObject | undefined): 'auto' | undefined {
-  const retryReason =
-    deepString(payload, ['data', 'entry', 'retry_reason']) || deepString(payload, ['data', 'internal', 'retry_reason'])
-
-  return retryReason === 'overflow_retry' ? 'auto' : undefined
-}
-
-/**
  * Renders a delayed self-wakeup into concise model input.
  */
 function checkBackLaterInputText(payload: JSONObject | undefined): string {

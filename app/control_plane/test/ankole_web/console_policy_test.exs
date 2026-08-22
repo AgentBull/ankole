@@ -1,5 +1,5 @@
 defmodule AnkoleWeb.ConsolePolicyTest do
-  use AnkoleWeb.ConnCase, async: false
+  use AnkoleWeb.ConnCase, async: true
 
   import Ecto.Query
 

@@ -1,5 +1,5 @@
 defmodule Ankole.AuthZTest do
-  use Ankole.DataCase, async: false
+  use Ankole.DataCase, async: true
 
   alias Ankole.AuthZ
   alias Ankole.AuthZ.ExternalBinding

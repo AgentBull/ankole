@@ -37,56 +37,17 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
 
     conn = get(conn, ~p"/api/v1/ai-gateway/provider-kinds")
     assert %{"provider_kinds" => sources} = json_response(conn, 200)
+
+    # ProviderConfigs owns the catalog content. The API only has to project a
+    # credential-scoped api_key and a boolean `advanced` flag on every setting,
+    # because the Console groups its fields by those two.
     openrouter = Enum.find(sources, &(&1["provider_kind"] == "openrouter"))
-    openai_compatible = Enum.find(sources, &(&1["provider_kind"] == "openai_compatible"))
-    azure_openai = Enum.find(sources, &(&1["provider_kind"] == "azure_openai"))
-    parallel = Enum.find(sources, &(&1["provider_kind"] == "parallel"))
-    jina_search = Enum.find(sources, &(&1["provider_kind"] == "jina_search"))
-    jina_reader = Enum.find(sources, &(&1["provider_kind"] == "jina_reader"))
-
-    assert "llm" in openrouter["capabilities"]
-    assert "embedding" in openrouter["capabilities"]
-    assert "rerank" in openrouter["capabilities"]
-
     openrouter_settings = Map.new(openrouter["settings"], &{&1["key"], &1})
-
-    assert openrouter_settings["api_key"]["advanced"] == false
     assert openrouter_settings["api_key"]["scope"] == "credential"
-    assert openrouter_settings["base_url"]["advanced"] == true
-    assert openrouter_settings["headers"]["advanced"] == true
-    assert openrouter_settings["query_params"]["advanced"] == true
-    assert openrouter_settings["app_referer"]["advanced"] == true
-    assert openrouter_settings["app_title"]["advanced"] == true
-
-    assert openrouter_settings["reasoningEffort"] == %{
-             "key" => "reasoningEffort",
-             "type" => "select",
-             "default" => "high",
-             "options" => ~w(none minimal low medium high xhigh max ultra),
-             "required" => false,
-             "encrypted" => false,
-             "advanced" => false,
-             "scope" => "request"
-           }
-
-    assert openrouter_settings["strictJSONSchema"]["advanced"] == true
-    refute Map.has_key?(openrouter_settings, "reasoning")
 
     assert Enum.all?(sources, fn source ->
              Enum.all?(source["settings"], &is_boolean(&1["advanced"]))
            end)
-
-    assert "web_search" in parallel["capabilities"]
-    assert "web_fetch" in parallel["capabilities"]
-    assert "web_search" in jina_search["capabilities"]
-    assert "web_fetch" in jina_reader["capabilities"]
-
-    assert "transport" in openai_compatible["connection_options"]
-    assert is_nil(azure_openai["default_base_url"])
-    assert "transport" in azure_openai["connection_options"]
-    refute Map.has_key?(openrouter, "default_transport")
-
-    refute Enum.any?(sources, &(&1["provider_kind"] == "gemini"))
 
     conn =
       conn
@@ -367,9 +328,12 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
     assert %{"ai_gateway_provider" => %{"provider_id" => ^provider_id}} =
              json_response(conn, 200)
 
+    assert {:ok, provider} = ProviderConfigs.fetch_provider(provider_id)
+
     :ok =
       ModelMetadataCache.put(
-        {:model_metadata_source, provider_id, :openrouter, "models?output_modalities=all"},
+        {:model_metadata_source, provider_id, provider.updated_at, :openrouter,
+         "models?output_modalities=all"},
         [
           %{
             "id" => "openrouter/auto",
@@ -387,7 +351,7 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
 
     :ok =
       ModelMetadataCache.put(
-        {:image_model_catalog, provider_id, "images/models"},
+        {:image_model_catalog, provider_id, provider.updated_at, "images/models"},
         [
           %{"id" => "openrouter/auto"},
           %{"id" => "google/gemini-3.1-flash-lite-image"}
@@ -397,14 +361,15 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
 
     :ok =
       ModelMetadataCache.put(
-        {:image_model_endpoints, provider_id, "images/models/openrouter/auto/endpoints"},
+        {:image_model_endpoints, provider_id, provider.updated_at,
+         "images/models/openrouter/auto/endpoints"},
         [],
         60_000
       )
 
     :ok =
       ModelMetadataCache.put(
-        {:image_model_endpoints, provider_id,
+        {:image_model_endpoints, provider_id, provider.updated_at,
          "images/models/google/gemini-3.1-flash-lite-image/endpoints"},
         [
           %{

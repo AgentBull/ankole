@@ -187,12 +187,25 @@ defmodule AnkoleWeb.AuthController do
 
   @doc """
   Completes a forced password change and opens the admin session.
+
+  The admin check runs before the password write. The write locks the credential
+  and accepts only the version that the ticket verified while a change is still
+  required.
   """
   def local_password_change(conn, params) do
-    with %{"principal_uid" => principal_uid} = ticket <- WebSession.local_password_change(conn),
+    with %{
+           "principal_uid" => principal_uid,
+           "credential_version" => credential_version
+         } = ticket
+         when is_integer(credential_version) <- WebSession.local_password_change(conn),
          {:ok, new_password} <- required_param(params, "newPassword"),
-         {:ok, _credential} <- Principals.set_local_password(principal_uid, new_password, false),
-         true <- AdminAuth.active_human_admin?(principal_uid) do
+         true <- AdminAuth.active_human_admin?(principal_uid),
+         {:ok, _credential} <-
+           Principals.complete_forced_password_change(
+             principal_uid,
+             new_password,
+             credential_version
+           ) do
       conn
       |> WebSession.clear_local_password_change()
       |> WebSession.put_admin_session(%{
@@ -205,6 +218,9 @@ defmodule AnkoleWeb.AuthController do
       nil ->
         local_password_error(conn, 401, "change_ticket_expired")
 
+      %{} ->
+        local_password_error(conn, 401, "change_ticket_expired")
+
       false ->
         local_password_error(conn, 403, "not_an_admin")
 
@@ -213,6 +229,9 @@ defmodule AnkoleWeb.AuthController do
 
       {:error, :password_too_short} ->
         local_password_error(conn, 422, "password_too_short")
+
+      {:error, :password_change_not_required} ->
+        local_password_error(conn, 401, "change_ticket_expired")
 
       {:error, reason} ->
         error(conn, 400, reason)
@@ -232,6 +251,7 @@ defmodule AnkoleWeb.AuthController do
           principal_uid: login.principal_uid,
           provider_id: login.provider_id,
           external_id: login.email,
+          credential_version: login.credential_version,
           return_to: return_to
         })
         |> json(%{status: "password_change_required"})

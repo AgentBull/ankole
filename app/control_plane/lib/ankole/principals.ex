@@ -228,6 +228,29 @@ defmodule Ankole.Principals do
   end
 
   @doc """
+  Completes a forced password change for one human user.
+
+  The write locks the credential row and requires the verified credential
+  version and the must-change flag to still match.
+  """
+  @spec complete_forced_password_change(String.t(), String.t(), non_neg_integer()) ::
+          {:ok, LocalCredential.t()} | {:error, term()}
+  def complete_forced_password_change(uid, new_password, credential_version) do
+    with {:ok, uid} <- normalize_uid(uid),
+         :ok <- validate_local_password(new_password) do
+      Repo.transact(fn repo ->
+        with %LocalCredential{must_change_password: true} = credential <-
+               fetch_local_credential_for_update(repo, uid),
+             true <- LocalCredential.version(credential) == credential_version do
+          put_local_credential(repo, uid, new_password, false)
+        else
+          _no_matching_change -> {:error, :password_change_not_required}
+        end
+      end)
+    end
+  end
+
+  @doc """
   Replaces one human user's local password with a generated initial password.
   """
   @spec reset_local_password(String.t(), boolean()) :: {:ok, String.t()} | {:error, term()}
@@ -358,6 +381,7 @@ defmodule Ankole.Principals do
                repo,
                existing_identity,
                attrs,
+               provider,
                external_id,
                email,
                mobile
@@ -548,6 +572,14 @@ defmodule Ankole.Principals do
     end
   end
 
+  defp fetch_local_credential_for_update(repo, principal_uid) do
+    repo.one(
+      from credential in LocalCredential,
+        where: credential.principal_uid == ^principal_uid,
+        lock: "FOR UPDATE"
+    )
+  end
+
   defp put_local_credential(repo, principal_uid, password, must_change_password) do
     case NativeKernel.argon2id_hash(password) do
       hash when is_binary(hash) ->
@@ -712,6 +744,7 @@ defmodule Ankole.Principals do
          _repo,
          %ExternalIdentity{principal_uid: principal_uid},
          _attrs,
+         _provider,
          _external_id,
          _email,
          _mobile
@@ -719,13 +752,15 @@ defmodule Ankole.Principals do
     {:ok, principal_uid}
   end
 
-  defp platform_subject_principal_uid(repo, nil, attrs, external_id, email, mobile) do
+  defp platform_subject_principal_uid(repo, nil, attrs, provider, external_id, email, mobile) do
     case human_contact_owner_uid(repo, :email, email) ||
            human_contact_owner_uid(repo, :mobile, mobile) do
       nil ->
         case fetch_attr(attrs, :uid) do
           {:ok, uid} -> normalize_uid(uid)
-          :error -> normalize_uid(external_id)
+          # The derived uid carries the provider scope so equal external ids
+          # from different providers never collide on one Principal.
+          :error -> normalize_uid(provider <> ":" <> external_id)
         end
 
       owner_uid ->

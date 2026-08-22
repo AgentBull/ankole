@@ -127,4 +127,4 @@ file はファーストクラスです。`POST /files` がアップロードし�
 
 - AIGateway がシステム全体のどこに位置するかは、[architecture 概要](../architecture/) をお読みください。
 - これらの route をホストする server の実行方法は、[クイックスタートの deployment セクション](../quickstart/#deployment) をお読みください。
-- 最初の Provider と model profile のセットアップは、[クイックスタート](../quickstart/#3-add-an-llm-provider-and-create-an-agent) をお読みください。
+- 最初の Provider と model profile のセットアップは、[クイックスタート](../quickstart/#llm-providers) をお読みください。

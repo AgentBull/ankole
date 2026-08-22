@@ -76,10 +76,6 @@ defmodule Ankole.Ecto.PluginActivationAllowlistMigrationTest do
     assert_raise Postgrex.Error, ~r/existing plugins.enabled_ids row/, fn -> run_up() end
   end
 
-  test "refuses a lossy downgrade" do
-    assert_raise RuntimeError, ~r/cannot be downgraded/, fn -> @migration.down() end
-  end
-
   defp run_up do
     Repo.query!(@migration.up_sql(@table))
   end

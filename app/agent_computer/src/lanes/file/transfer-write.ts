@@ -25,7 +25,7 @@ export async function handleWriteOpen(
   const address = parseVirtualPathFrame(frames[3], 'write path')
   const expectedOriginalSize = readU64Frame(frames[4], 'original_size')
   const targetPath = assertCreatableFileAddress(context.config, address, resolveFileAddress(context.config, address))
-  const tempDir = scratchDirectoryFor(context.config, transferID)
+  const tempDir = scratchDirectoryFor(transferID)
   const decodedPath = join(tempDir, 'decoded')
 
   try {

@@ -1,5 +1,5 @@
 import { positiveInteger } from '../primitives'
-import { WEBHOOK_CLI_SOCKET_ENV } from '../../core/turns/turn_runtime_env'
+import { WEBHOOK_CLI_SOCKET_ENV } from '../../core/execution/turn_runtime_env'
 import { WebhookCLICommand, type WebhookCLICommand as WebhookCLICommandValue } from './webhook-cli-protocol'
 import { requestWebhookCLI } from './webhook-cli-client'
 import { errorMessage } from '../../common/errors'

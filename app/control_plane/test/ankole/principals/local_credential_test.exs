@@ -74,6 +74,34 @@ defmodule Ankole.Principals.LocalCredentialTest do
     end
   end
 
+  describe "complete_forced_password_change/3" do
+    test "rejects a credential version replaced by a password reset" do
+      %{principal: principal, human_user: human_user} = human_fixture()
+
+      assert {:ok, credential} =
+               Principals.set_local_password(principal.uid, "old-password", true)
+
+      credential_version = LocalCredential.version(credential)
+      assert {:ok, reset_password} = Principals.reset_local_password(principal.uid, true)
+
+      assert {:error, :password_change_not_required} =
+               Principals.complete_forced_password_change(
+                 principal.uid,
+                 "stale-ticket-password",
+                 credential_version
+               )
+
+      assert {:ok, login} = Principals.fetch_local_login(human_user.email)
+      assert login.credential.must_change_password
+      assert Ankole.Kernel.argon2id_verify(reset_password, login.credential.password_hash)
+
+      refute Ankole.Kernel.argon2id_verify(
+               "stale-ticket-password",
+               login.credential.password_hash
+             )
+    end
+  end
+
   describe "reset_local_password/2 and reset_local_password_by_email/1" do
     test "replaces the credential with a generated must-change password" do
       %{principal: principal, human_user: human_user} = human_fixture()

@@ -105,7 +105,7 @@ Workspace。中国市场模型 Plugin 为 AIGateway 增加模型提供商。
 7. SignalsGateway 监督进程
 8. 可选的身份启动同步与 RuntimeEvents
 9. AIGateway 模型信息缓存
-10. DNSCluster 与 Phoenix 请求入口
+10. Phoenix 请求入口
 
 这个顺序是契约。后启动的进程可以使用前面已经启动的服务。Phoenix 请求入口最后启动，
 避免请求到达时所需服务尚未就绪。

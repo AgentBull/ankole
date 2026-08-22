@@ -83,7 +83,7 @@ Agent の責任が不明確なときは `MISSION.md` を編集します。コミ
 
 ## DingTalk では agent ごとに 1 つの bot
 
-DingTalk は厳しい制約を強制します。agent ごとに有効な binding は 1 つ、`clientId` ごとに agent は 1 つです。スケールアウトするなら、agent ごとに 1 つの bot を計画してください。同じ agent への 2 つ目の binding は `dingtalk_binding_already_exists` で失敗し、別の agent での `clientId` 再利用は `dingtalk_app_already_bound` で失敗します。セットアップは [Quickstart](../quickstart/#4-connect-a-chat-channel-and-create-its-signal-routing-rule) を参照してください。
+DingTalk は厳しい制約を強制します。agent ごとに有効な binding は 1 つ、`clientId` ごとに agent は 1 つです。スケールアウトするなら、agent ごとに 1 つの bot を計画してください。同じ agent への 2 つ目の binding は `dingtalk_binding_already_exists` で失敗し、別の agent での `clientId` 再利用は `dingtalk_app_already_bound` で失敗します。セットアップは [Quickstart](../quickstart/#chat-channels) を参照してください。
 
 ## Teams は常にパブリックエンドポイントを必要とする
 

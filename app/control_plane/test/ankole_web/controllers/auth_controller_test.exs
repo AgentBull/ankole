@@ -1,15 +1,13 @@
 defmodule AnkoleWeb.AuthControllerTest do
   use AnkoleWeb.ConnCase, async: false
 
-  alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
   alias Ankole.AuthZ
   alias Ankole.IdentityProviders
-  alias Ankole.IdentityProviders.Config, as: IdentityProviderConfig
   alias Ankole.IdentityProviders.LocalPassword.RetryGuard
-  alias Ankole.Plugins.LarkAdapter
   alias Ankole.Principals
+  alias Ankole.Principals.LocalCredential
   alias Ankole.Setup.Config, as: SetupConfig
   alias AnkoleWeb.ConsoleTokens
   alias AnkoleWeb.Session, as: WebSession
@@ -381,6 +379,99 @@ defmodule AnkoleWeb.AuthControllerTest do
       assert json_response(conn, 401)["error"] == "change_ticket_expired"
     end
 
+    test "the change endpoint refuses a non-admin before writing the password", %{conn: conn} do
+      %{principal: principal, email: email, credential_version: credential_version} =
+        local_user_with_password("initial-pass", true)
+
+      conn =
+        conn
+        |> init_test_session(%{})
+        |> WebSession.put_local_password_change(%{
+          principal_uid: principal.uid,
+          provider_id: "local-main",
+          external_id: email,
+          credential_version: credential_version,
+          return_to: "/console"
+        })
+        |> post(~p"/.internal-apis/sessions/local-password/change", %{
+          "newPassword" => "my-own-password"
+        })
+
+      assert json_response(conn, 403)["error"] == "not_an_admin"
+      assert get_session(conn, :admin_session) == nil
+
+      assert {:ok, %{must_change_password: true}} =
+               Ankole.IdentityProviders.LocalPassword.authenticate(email, "initial-pass")
+    end
+
+    test "a change ticket cannot be replayed to set a second password", %{conn: conn} do
+      %{email: email} = local_admin_user("initial-pass", true)
+
+      login_conn =
+        conn
+        |> init_test_session(%{})
+        |> post(~p"/.internal-apis/sessions/local-password", %{
+          "email" => email,
+          "password" => "initial-pass"
+        })
+
+      assert %{"status" => "password_change_required"} = json_response(login_conn, 200)
+      assert is_integer(WebSession.local_password_change(login_conn)["credential_version"])
+
+      first =
+        post(login_conn, ~p"/.internal-apis/sessions/local-password/change", %{
+          "newPassword" => "first-choice-pass"
+        })
+
+      assert %{"returnTo" => _return_to} = json_response(first, 200)
+
+      replay =
+        post(login_conn, ~p"/.internal-apis/sessions/local-password/change", %{
+          "newPassword" => "replayed-pass-123"
+        })
+
+      assert json_response(replay, 401)["error"] == "change_ticket_expired"
+      assert get_session(replay, :admin_session) == nil
+
+      assert {:ok, %{must_change_password: false}} =
+               Ankole.IdentityProviders.LocalPassword.authenticate(email, "first-choice-pass")
+
+      assert {:error, :invalid_credentials} =
+               Ankole.IdentityProviders.LocalPassword.authenticate(email, "replayed-pass-123")
+    end
+
+    test "a password reset invalidates an earlier change ticket", %{conn: conn} do
+      %{principal: principal, email: email} = local_admin_user("initial-pass", true)
+
+      login_conn =
+        conn
+        |> init_test_session(%{})
+        |> post(~p"/.internal-apis/sessions/local-password", %{
+          "email" => email,
+          "password" => "initial-pass"
+        })
+
+      assert %{"status" => "password_change_required"} = json_response(login_conn, 200)
+      assert {:ok, reset_password} = Principals.reset_local_password(principal.uid, true)
+
+      replay =
+        post(login_conn, ~p"/.internal-apis/sessions/local-password/change", %{
+          "newPassword" => "stale-ticket-password"
+        })
+
+      assert json_response(replay, 401)["error"] == "change_ticket_expired"
+      assert get_session(replay, :admin_session) == nil
+
+      assert {:ok, %{must_change_password: true}} =
+               Ankole.IdentityProviders.LocalPassword.authenticate(email, reset_password)
+
+      assert {:error, :invalid_credentials} =
+               Ankole.IdentityProviders.LocalPassword.authenticate(
+                 email,
+                 "stale-ticket-password"
+               )
+    end
+
     test "five failures lock the account with a retry delay", %{conn: conn} do
       %{email: email} = local_admin_user("correct-horse")
 
@@ -423,8 +514,13 @@ defmodule AnkoleWeb.AuthControllerTest do
 
   defp local_user_with_password(password, must_change \\ false) do
     %{principal: principal, human_user: human_user} = human_fixture()
-    {:ok, _credential} = Principals.set_local_password(principal.uid, password, must_change)
-    %{principal: principal, email: human_user.email}
+    {:ok, credential} = Principals.set_local_password(principal.uid, password, must_change)
+
+    %{
+      principal: principal,
+      email: human_user.email,
+      credential_version: LocalCredential.version(credential)
+    }
   end
 
   defp local_admin_user(password, must_change \\ false) do

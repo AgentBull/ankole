@@ -799,13 +799,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ConversationCommandTest do
                )
 
       assert {:ok, %{status: :turn_failed, retry_available_at: retry_available_at}} =
-               ActorRuntime.handle_turn_error(
-                 turn_error_payload(
-                   old_turn_ref,
-                   "worker_turn_failed",
-                   "AIGateway socket closed before terminal",
-                   %{"retryable" => true}
-                 ),
+               fail_turn(
+                 old_turn_ref,
+                 "worker_turn_failed",
+                 "AIGateway socket closed before terminal",
+                 %{"retryable" => true},
                  now: DateTime.add(@base_time, 2, :second)
                )
 
@@ -877,9 +875,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ConversationCommandTest do
 
   defp assert_turn_completed(turn_ref, message) do
     assert {:ok, %{status: :turn_completed}} =
-             ActorRuntime.handle_turn_completed(
-               turn_completed_payload(turn_ref, "resp_#{message.id}", "loop_finished")
-             )
+             commit_turn_completion(turn_ref, "resp_#{message.id}", "loop_finished")
   end
 
   # These conversations are a few turns long, so the retained tail must stay

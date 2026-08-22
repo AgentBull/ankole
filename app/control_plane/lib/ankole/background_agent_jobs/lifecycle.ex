@@ -63,16 +63,36 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
     end)
   end
 
-  @doc false
-  @spec claim_attempt_in_tx(module(), pos_integer(), String.t(), pos_integer(), map()) ::
+  @doc """
+  Claims the next attempt of a Job inside the caller's transaction.
+
+  `max_running_per_agent` is the resolved per-Agent cap. The caller resolves it
+  before it opens the transaction, because an AppConfigure read reaches another
+  process on another connection, which a transaction must not wait on.
+  """
+  @spec claim_attempt_in_tx(
+          module(),
+          pos_integer(),
+          String.t(),
+          pos_integer(),
+          map(),
+          pos_integer()
+        ) ::
           {:ok, Job.t()} | {:error, term()}
-  def claim_attempt_in_tx(repo, job_id, agent_uid, expected_attempt, turn_start_spec)
+  def claim_attempt_in_tx(
+        repo,
+        job_id,
+        agent_uid,
+        expected_attempt,
+        turn_start_spec,
+        max_running_per_agent
+      )
       when is_integer(job_id) and job_id > 0 and is_binary(agent_uid) and expected_attempt > 0 and
              is_map(turn_start_spec) do
     with :ok <- lock_agent_slots(repo, agent_uid),
          %Job{} = job <-
            Queries.get_for_agent(repo, job_id, agent_uid, lock: "FOR UPDATE") do
-      claim_attempt(repo, job, expected_attempt, turn_start_spec)
+      claim_attempt(repo, job, expected_attempt, turn_start_spec, max_running_per_agent)
     else
       nil -> {:error, :job_not_found}
       {:error, _reason} = error -> error
@@ -80,15 +100,29 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
   end
 
   @doc false
-  @spec claim_continuation_in_tx(module(), pos_integer(), String.t(), pos_integer(), map()) ::
+  @spec claim_continuation_in_tx(
+          module(),
+          pos_integer(),
+          String.t(),
+          pos_integer(),
+          map(),
+          pos_integer()
+        ) ::
           {:ok, Job.t()} | {:error, term()}
-  def claim_continuation_in_tx(repo, job_id, agent_uid, expected_attempt, turn_start_spec)
+  def claim_continuation_in_tx(
+        repo,
+        job_id,
+        agent_uid,
+        expected_attempt,
+        turn_start_spec,
+        max_running_per_agent
+      )
       when is_integer(job_id) and job_id > 0 and is_binary(agent_uid) and expected_attempt > 0 and
              is_map(turn_start_spec) do
     with :ok <- lock_agent_slots(repo, agent_uid),
          %Job{} = job <-
            Queries.get_for_agent(repo, job_id, agent_uid, lock: "FOR UPDATE") do
-      claim_continuation(repo, job, expected_attempt, turn_start_spec)
+      claim_continuation(repo, job, expected_attempt, turn_start_spec, max_running_per_agent)
     else
       nil -> {:error, :job_not_found}
       {:error, _reason} = error -> error
@@ -645,7 +679,13 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
     |> repo.exists?()
   end
 
-  defp claim_attempt(_repo, %Job{status: status} = job, _expected_attempt, _turn_start_spec)
+  defp claim_attempt(
+         _repo,
+         %Job{status: status} = job,
+         _expected_attempt,
+         _turn_start_spec,
+         _max_running
+       )
        when status in @terminal_statuses,
        do: {:error, {:background_agent_job_terminal, job}}
 
@@ -653,36 +693,62 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
          _repo,
          %Job{execution_failures: failures},
          _expected_attempt,
-         _turn_start_spec
+         _turn_start_spec,
+         _max_running
        )
        when failures >= @max_execution_attempts,
        do: {:error, :background_agent_job_attempts_exhausted}
 
-  defp claim_attempt(_repo, %Job{attempts: attempts}, _expected_attempt, _turn_start_spec)
+  defp claim_attempt(
+         _repo,
+         %Job{attempts: attempts},
+         _expected_attempt,
+         _turn_start_spec,
+         _max_running
+       )
        when attempts >= @max_claims,
        do: {:error, :background_agent_job_claims_exhausted}
 
-  defp claim_attempt(_repo, %Job{attempts: attempts}, expected_attempt, _turn_start_spec)
+  defp claim_attempt(
+         _repo,
+         %Job{attempts: attempts},
+         expected_attempt,
+         _turn_start_spec,
+         _max_running
+       )
        when attempts + 1 != expected_attempt,
        do: {:error, :background_agent_job_attempt_changed}
 
-  defp claim_attempt(repo, %Job{} = job, expected_attempt, turn_start_spec) do
-    start_attempt(repo, job, expected_attempt, turn_start_spec)
+  defp claim_attempt(repo, %Job{} = job, expected_attempt, turn_start_spec, max_running) do
+    start_attempt(repo, job, expected_attempt, turn_start_spec, max_running)
   end
 
   defp claim_continuation(
          _repo,
          %Job{status: "stopped"} = job,
          _expected_attempt,
-         _turn_start_spec
+         _turn_start_spec,
+         _max_running
        ),
        do: {:error, {:background_agent_job_terminal, job}}
 
-  defp claim_continuation(_repo, %Job{attempts: attempts}, _expected_attempt, _turn_start_spec)
+  defp claim_continuation(
+         _repo,
+         %Job{attempts: attempts},
+         _expected_attempt,
+         _turn_start_spec,
+         _max_running
+       )
        when attempts >= @max_claims,
        do: {:error, :background_agent_job_claims_exhausted}
 
-  defp claim_continuation(_repo, %Job{attempts: attempts}, expected_attempt, _turn_start_spec)
+  defp claim_continuation(
+         _repo,
+         %Job{attempts: attempts},
+         expected_attempt,
+         _turn_start_spec,
+         _max_running
+       )
        when attempts + 1 != expected_attempt,
        do: {:error, :background_agent_job_attempt_changed}
 
@@ -691,19 +757,19 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
   # progress: when the lead thread only produces failures, each redelivered
   # steer event starts another attempt against the same broken dependency, so
   # the Job burns tokens for hours and the real cause never reaches the user.
-  defp claim_continuation(repo, %Job{} = job, expected_attempt, turn_start_spec) do
+  defp claim_continuation(repo, %Job{} = job, expected_attempt, turn_start_spec, max_running) do
     case Turns.consecutive_lead_failures_in_tx(repo, job, @max_consecutive_turn_failures) do
       {count, error} when count >= @max_consecutive_turn_failures ->
         {:error, {:background_agent_job_turn_failures_exhausted, error}}
 
       _below_limit ->
-        start_attempt(repo, job, expected_attempt, turn_start_spec)
+        start_attempt(repo, job, expected_attempt, turn_start_spec, max_running)
     end
   end
 
-  defp start_attempt(repo, %Job{} = job, expected_attempt, turn_start_spec) do
+  defp start_attempt(repo, %Job{} = job, expected_attempt, turn_start_spec, max_running) do
     if job.status not in @running_statuses and
-         running_count(repo, job.agent_uid, job.id) >= max_running_per_agent() do
+         running_count(repo, job.agent_uid, job.id) >= max_running do
       {:error, :background_agent_job_agent_at_capacity}
     else
       now = now()
@@ -965,9 +1031,12 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
     end
   end
 
+  # Only a transition into a running status needs the cap, and reading it costs
+  # a round trip to the AppConfigure owner on another connection. Terminal
+  # transitions, which is what every current caller of this path commits, must
+  # not pay for it inside their transaction.
   defp enforce_running_limit(repo, %Job{} = job, attrs) do
     status = Map.get(attrs, "status")
-    limit = max_running_per_agent()
 
     cond do
       status not in @running_statuses ->
@@ -976,11 +1045,16 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
       job.status in @running_statuses ->
         :ok
 
-      running_count(repo, job.agent_uid, job.id) < limit ->
-        :ok
-
       true ->
-        {:error, {:background_agent_job_agent_running_limit_exceeded, limit}}
+        enforce_agent_slot(repo, job, max_running_per_agent())
+    end
+  end
+
+  defp enforce_agent_slot(repo, %Job{} = job, limit) do
+    if running_count(repo, job.agent_uid, job.id) < limit do
+      :ok
+    else
+      {:error, {:background_agent_job_agent_running_limit_exceeded, limit}}
     end
   end
 

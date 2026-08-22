@@ -9,6 +9,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorTurnCompletionBroker do
 
   alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.SignalsGateway.ActorRuntime
+  alias Ankole.SignalsGateway.ActorRuntime.Common
   alias Ankole.SignalsGateway.ActorRuntime.RPCWire
   alias Ankole.SignalsGateway.ActorRuntime.TurnRef
   alias Ankole.SignalsGateway.ActorTurnCompletion
@@ -16,12 +17,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorTurnCompletionBroker do
   @spec handle_noop(TurnRef.t(), FabricProto.ActorTurnNoopRequest.t(), map()) ::
           {:ok, FabricProto.ActorTurnNoopResponse.t()} | {:error, map()}
   def handle_noop(%TurnRef{} = turn_ref, %FabricProto.ActorTurnNoopRequest{} = request, ctx) do
-    payload = %FabricProto.TurnNoopCompleted{
-      turn: TurnRef.to_proto(turn_ref),
-      reason: request.reason
-    }
-
-    case ActorRuntime.handle_turn_noop_completed(payload) do
+    case ActorRuntime.handle_turn_noop_completed(turn_ref, request.reason) do
       {:ok, result} ->
         {:ok,
          %FabricProto.ActorTurnNoopResponse{
@@ -37,14 +33,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorTurnCompletionBroker do
   @spec handle_abort(TurnRef.t(), FabricProto.ActorTurnAbortRequest.t(), map()) ::
           {:ok, FabricProto.ActorTurnAbortResponse.t()} | {:error, map()}
   def handle_abort(%TurnRef{} = turn_ref, %FabricProto.ActorTurnAbortRequest{} = request, ctx) do
-    payload = %FabricProto.TurnError{
-      turn: TurnRef.to_proto(turn_ref),
-      code: request.code,
-      message: request.message,
-      details_json: request.details_json
+    reason = %{
+      "code" => presence(request.code) || "worker_turn_error",
+      "message" => presence(request.message) || "worker turn failed",
+      "details_json" => Common.decode_json_bytes(request.details_json) || %{}
     }
 
-    case ActorRuntime.handle_turn_error(payload) do
+    case ActorRuntime.handle_turn_error(turn_ref, reason) do
       {:ok, result} ->
         {:ok,
          %FabricProto.ActorTurnAbortResponse{
@@ -94,4 +89,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorTurnCompletionBroker do
 
   defp encode_datetime(%DateTime{} = datetime), do: DateTime.to_iso8601(datetime)
   defp encode_datetime(_datetime), do: ""
+
+  defp presence(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
 end

@@ -1,4 +1,4 @@
-import pino, { type DestinationStream, type Logger as PinoLogger, type LoggerOptions } from 'pino'
+import pino, { type DestinationStream, type Logger, type LoggerOptions } from 'pino'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import { toError } from '../common/errors'
 
@@ -33,6 +33,7 @@ type WorkerLoggerContext = {
   labels: Record<string, string>
 }
 
+/** Maps Pino labels and aliases to canonical Worker severities. */
 const pinoLevelToSeverity: Record<string, LogSeverity> = {
   trace: 'DEBUG',
   debug: 'DEBUG',
@@ -47,7 +48,8 @@ const pinoLevelToSeverity: Record<string, LogSeverity> = {
   emergency: 'EMERGENCY'
 }
 
-const severityToPinoLevel: Record<LogSeverity, string> = {
+/** Selects the Pino method for each canonical Worker severity. */
+const severityToPinoLevel: Record<LogSeverity, WorkerPinoLevel> = {
   DEBUG: 'debug',
   INFO: 'info',
   NOTICE: 'notice',
@@ -58,6 +60,7 @@ const severityToPinoLevel: Record<LogSeverity, string> = {
   EMERGENCY: 'emergency'
 }
 
+/** Accepted ANKOLE_LOG_LEVEL spellings; unknown values use the fallback. */
 const severityAliases: Record<string, LogSeverity> = {
   trace: 'DEBUG',
   debug: 'DEBUG',
@@ -72,6 +75,7 @@ const severityAliases: Record<string, LogSeverity> = {
   emergency: 'EMERGENCY'
 }
 
+/** Adds syslog severities that Pino does not supply as built-in methods. */
 const customLevels = {
   notice: 35,
   critical: 60,
@@ -79,8 +83,20 @@ const customLevels = {
   emergency: 80
 }
 
+/**
+ * Worker severities map onto pino's built-in levels and `customLevels`. The
+ * declared level type lets `writeWorkerLog` select the log method by index,
+ * because pino's own type knows the custom levels.
+ */
+type WorkerCustomLevel = keyof typeof customLevels
+type WorkerPinoLevel = WorkerCustomLevel | 'debug' | 'info' | 'warn' | 'error'
+type PinoLogger = Logger<WorkerCustomLevel>
+type WorkerPinoOptions = LoggerOptions<WorkerCustomLevel>
+
+/** Log-envelope fields that caller payloads cannot replace. */
 const reservedPayloadKeys = new Set(['severity', 'level', 'severity_text', 'severity_number', 'message', 'time'])
 
+/** Process root logger; child loggers add component or execution context. */
 export const workerLogger = createWorkerLogger()
 
 /**
@@ -104,8 +120,8 @@ export function createWorkerLogger(bindings: WorkerLogFields = {}, options: Work
   return wrapPinoLogger(pinoLogger, { labels: defaultLabels(env) })
 }
 
-export function createWorkerPinoOptions(env: Record<string, string | undefined> = Bun.env): LoggerOptions {
-  const options: LoggerOptions = {
+export function createWorkerPinoOptions(env: Record<string, string | undefined> = Bun.env): WorkerPinoOptions {
+  const options: WorkerPinoOptions = {
     level: pinoLevelForSeverity(resolveLogSeverity(env.ANKOLE_LOG_LEVEL, 'INFO')),
     customLevels,
     useOnlyCustomLevels: false,
@@ -133,7 +149,7 @@ export function resolveLogSeverity(value: string | undefined, fallback: LogSever
   return severityAliases[value.trim().toLowerCase()] ?? fallback
 }
 
-export function pinoLevelForSeverity(severity: LogSeverity): string {
+export function pinoLevelForSeverity(severity: LogSeverity): WorkerPinoLevel {
   return severityToPinoLevel[severity]
 }
 
@@ -182,9 +198,7 @@ function writeWorkerLog(
     ...existingLabels
   })
 
-  const method = pinoLevelForSeverity(severity)
-  const logMethod = (logger as unknown as Record<string, (obj: WorkerLogFields, msg: string) => void>)[method]
-  logMethod.call(logger, payload, message)
+  logger[pinoLevelForSeverity(severity)](payload, message)
 }
 
 function defaultLabels(env: Record<string, string | undefined>): Record<string, string> {
@@ -202,6 +216,7 @@ function labelField(value: unknown): Record<string, string> {
   return compactLabels(value as Record<string, string | number | boolean | undefined>)
 }
 
+/** Removes reserved fields so call sites cannot replace log envelope metadata. */
 function normalizeFields(fields: WorkerLogFields): WorkerLogFields {
   const normalized: WorkerLogFields = {}
   for (const [key, value] of Object.entries(fields)) {

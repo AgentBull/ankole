@@ -13,7 +13,7 @@ import {
   materializeCodexJobRuntimeFiles,
   readCodexJobGuidance,
   renderCodexJobAgents
-} from '../src/core/codex-runner/runtime-files'
+} from '../src/core/codex-runner/job/runtime-files'
 import { rpcMethods, type RPCRequester } from '../src/lanes/rpc_lane'
 
 describe('@ankole/agent-computer Codex Job runtime files', () => {

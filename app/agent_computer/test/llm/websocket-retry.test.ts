@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { runAgentLoop } from '../../src/core/agent-loop'
 import { createModel } from '../../src/core/llm'
 import { classifyLLMError, isLocallyRetryableLLMError } from '../../src/core/llm-error-classifier'
-import { statefulTruncationFromActorEventPayload } from '../../src/core/turns/actor_event_text'
+import { statefulTruncationFromActorEventPayload } from '../../src/core/turns/turn_runtime_policy'
 import { defineWorkerTool } from '../../src/core'
 import { FakeResponseSocket, fakeResponseSocket, statefulTurnCall, testResponseSocket } from '../support/llm'
 

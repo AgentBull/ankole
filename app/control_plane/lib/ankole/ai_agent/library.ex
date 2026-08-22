@@ -18,6 +18,7 @@ defmodule Ankole.AIAgent.Library do
   alias Ankole.AIAgent.Library.Schemas.AgentSkillOverlay
   alias Ankole.AIAgent.Library.Schemas.LibraryBuiltinSyncState
   alias Ankole.AIAgent.Library.SourceReader
+  alias Ankole.Ecto.UUIDv7
   alias Ankole.Principals
   alias Ankole.Principals.Agent
   alias Ankole.Repo
@@ -705,28 +706,45 @@ defmodule Ankole.AIAgent.Library do
 
     source_names = MapSet.new(source_rows, & &1.skill_name)
 
+    existing_rows =
+      AgentSkill
+      |> where([skill], skill.agent_uid == ^agent_uid)
+      |> repo.all()
+
     preserved_installed_rows =
-      if sources.installed_authoritative? do
-        []
-      else
-        AgentSkill
-        |> where([skill], skill.agent_uid == ^agent_uid and skill.source_kind == "installed")
-        |> repo.all()
-      end
+      if sources.installed_authoritative?,
+        do: [],
+        else: Enum.filter(existing_rows, &(&1.source_kind == "installed"))
+
+    existing_by_name = Map.new(existing_rows, &{&1.skill_name, &1})
+
+    changed_rows =
+      Enum.reject(source_rows, &source_row_current?(existing_by_name[&1.skill_name], &1))
 
     with :ok <- reject_skill_row_conflicts(source_rows ++ preserved_installed_rows),
-         :ok <- upsert_agent_skill_rows(repo, agent_uid, source_rows),
-         {_count, _rows} <-
+         :ok <- upsert_agent_skill_rows(repo, agent_uid, changed_rows, now),
+         {stale_count, _rows} <-
            stale_agent_skills_query(agent_uid, source_names, sources.installed_authoritative?)
            |> repo.delete_all() do
       {:ok,
        %{
-         changed: true,
+         changed: changed_rows != [] or stale_count > 0,
          content_hash: agent_skill_hash(source_rows),
          skills: length(source_rows),
          files: Enum.reduce(source_rows, 0, fn row, count -> count + row.file_count end)
        }}
     end
+  end
+
+  # This sync runs on every Worker context read and Job dispatch, so an
+  # unchanged catalog must produce zero row writes.
+  defp source_row_current?(nil, _row), do: false
+
+  defp source_row_current?(%AgentSkill{} = current, row) do
+    {current.source_kind, current.agent_plugin_id, current.relative_path, current.default_enabled,
+     current.description, current.metadata, current.content_hash} ==
+      {row.source_kind, row.agent_plugin_id, row.relative_path, row.default_enabled,
+       row.description, row.metadata, row.content_hash}
   end
 
   defp stale_agent_skills_query(agent_uid, source_names, true) do
@@ -761,8 +779,28 @@ defmodule Ankole.AIAgent.Library do
     }
   end
 
-  defp upsert_agent_skill_rows(repo, agent_uid, source_rows) do
-    Enum.reduce_while(source_rows, :ok, fn row, :ok ->
+  @agent_skill_conflict_replace [
+    :source_kind,
+    :agent_plugin_id,
+    :relative_path,
+    :default_enabled,
+    :description,
+    :metadata,
+    :content_hash,
+    :synced_at,
+    :updated_at
+  ]
+
+  # Creating an Agent seeds every builtin bundle, so a row-at-a-time upsert made
+  # Agent creation pay one database round trip per Skill. The changeset still
+  # runs on every row, so normalization and validation keep their owner; only
+  # the write is batched. `enabled_override` stays out of the replace list, so
+  # an operator's per-Skill choice survives a resync.
+  defp upsert_agent_skill_rows(_repo, _agent_uid, [], _now), do: :ok
+
+  defp upsert_agent_skill_rows(repo, agent_uid, source_rows, now) do
+    source_rows
+    |> Enum.reduce_while({:ok, []}, fn row, {:ok, entries} ->
       attrs =
         row
         |> Map.take([
@@ -781,27 +819,43 @@ defmodule Ankole.AIAgent.Library do
 
       %AgentSkill{}
       |> AgentSkill.changeset(attrs)
-      |> repo.insert(
-        on_conflict:
-          {:replace,
-           [
-             :source_kind,
-             :agent_plugin_id,
-             :relative_path,
-             :default_enabled,
-             :description,
-             :metadata,
-             :content_hash,
-             :synced_at,
-             :updated_at
-           ]},
-        conflict_target: [:agent_uid, :skill_name]
-      )
+      |> Ecto.Changeset.apply_action(:insert)
       |> case do
-        {:ok, _skill} -> {:cont, :ok}
-        {:error, _reason} = error -> {:halt, error}
+        {:ok, skill} -> {:cont, {:ok, [agent_skill_entry(skill, now) | entries]}}
+        {:error, _changeset} = error -> {:halt, error}
       end
     end)
+    |> case do
+      {:ok, entries} ->
+        repo.insert_all(AgentSkill, Enum.reverse(entries),
+          on_conflict: {:replace, @agent_skill_conflict_replace},
+          conflict_target: [:agent_uid, :skill_name]
+        )
+
+        :ok
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp agent_skill_entry(%AgentSkill{} = skill, now) do
+    %{
+      id: UUIDv7.autogenerate(),
+      agent_uid: skill.agent_uid,
+      skill_name: skill.skill_name,
+      source_kind: skill.source_kind,
+      agent_plugin_id: skill.agent_plugin_id,
+      relative_path: skill.relative_path,
+      enabled_override: skill.enabled_override,
+      default_enabled: skill.default_enabled,
+      description: skill.description,
+      metadata: skill.metadata,
+      content_hash: skill.content_hash,
+      synced_at: skill.synced_at,
+      inserted_at: now,
+      updated_at: now
+    }
   end
 
   defp agent_skill_hash(rows) do

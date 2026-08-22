@@ -7,12 +7,14 @@ defmodule Ankole.BackgroundAgentJobsTest do
   alias Ankole.AgentHomePaths
   alias Ankole.AIGateway.Compaction
   alias Ankole.AIGateway.ModelMetadata.Cache, as: ModelMetadataCache
+  alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.RuntimeProjection
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.BackgroundAgentJobs.Schemas.TrajectoryGroup
   alias Ankole.BackgroundAgentJobs.Schemas.Turn
+  alias Ankole.BackgroundAgentJobs.Schemas.TurnItem
   alias Ankole.BackgroundAgentJobs.Text
   alias Ankole.BackgroundAgentJobs.Turns
   alias Ankole.Repo
@@ -1349,7 +1351,8 @@ defmodule Ankole.BackgroundAgentJobsTest do
                waiting.id,
                agent.uid,
                1,
-               runtime_turn_start_spec()
+               runtime_turn_start_spec(),
+               agent_slot_cap()
              )
 
     assert resumed.status == "running"
@@ -1362,7 +1365,14 @@ defmodule Ankole.BackgroundAgentJobsTest do
     first_spec = runtime_turn_start_spec("openai/gpt-5.6-sol")
 
     assert {:ok, first_attempt} =
-             BackgroundAgentJobs.claim_attempt_in_tx(Repo, job.id, agent.uid, 1, first_spec)
+             BackgroundAgentJobs.claim_attempt_in_tx(
+               Repo,
+               job.id,
+               agent.uid,
+               1,
+               first_spec,
+               agent_slot_cap()
+             )
 
     assert first_attempt.runtime_projection["version"] == 1
     assert first_attempt.runtime_projection["model_ref"] == first_spec.model_ref
@@ -1381,7 +1391,8 @@ defmodule Ankole.BackgroundAgentJobsTest do
                job.id,
                agent.uid,
                2,
-               changed_spec
+               changed_spec,
+               agent_slot_cap()
              )
 
     assert second_attempt.attempts == 2
@@ -1399,7 +1410,8 @@ defmodule Ankole.BackgroundAgentJobsTest do
                job.id,
                agent.uid,
                1,
-               runtime_turn_start_spec_for_provider("chatgpt_subscription")
+               runtime_turn_start_spec_for_provider("chatgpt_subscription"),
+               agent_slot_cap()
              )
 
     refute Map.has_key?(attempt.runtime_projection, "codex")
@@ -1422,7 +1434,14 @@ defmodule Ankole.BackgroundAgentJobsTest do
       |> Map.put(:hosted_tools, [%{"type" => "image_generation"}, %{"type" => "web_search"}])
 
     assert {:ok, attempt} =
-             BackgroundAgentJobs.claim_attempt_in_tx(Repo, job.id, agent.uid, 1, spec)
+             BackgroundAgentJobs.claim_attempt_in_tx(
+               Repo,
+               job.id,
+               agent.uid,
+               1,
+               spec,
+               agent_slot_cap()
+             )
 
     assert attempt.runtime_projection["hosted_tools"] == [
              %{"type" => "image_generation"},
@@ -1452,10 +1471,12 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
     assert {:ok, runtime_profile} = ModelProfiles.resolve_runtime_profile(agent.uid, "coding")
     provider_id = runtime_profile["provider_id"]
+    assert {:ok, provider} = ProviderConfigs.fetch_provider(provider_id)
 
     :ok =
       ModelMetadataCache.put(
-        {:model_metadata_source, provider_id, :openrouter, "models?output_modalities=all"},
+        {:model_metadata_source, provider_id, provider.updated_at, :openrouter,
+         "models?output_modalities=all"},
         [
           %{
             "id" => "openai/gpt-5.6-sol",
@@ -1473,7 +1494,14 @@ defmodule Ankole.BackgroundAgentJobsTest do
       |> update_in([:request_context, "model_ref"], &Map.delete(&1, "input_modalities"))
 
     assert {:ok, first_attempt} =
-             BackgroundAgentJobs.claim_attempt_in_tx(Repo, job.id, agent.uid, 1, legacy_spec)
+             BackgroundAgentJobs.claim_attempt_in_tx(
+               Repo,
+               job.id,
+               agent.uid,
+               1,
+               legacy_spec,
+               agent_slot_cap()
+             )
 
     refute Map.has_key?(first_attempt.runtime_projection["model_ref"], "input_modalities")
 
@@ -1546,7 +1574,8 @@ defmodule Ankole.BackgroundAgentJobsTest do
                job.id,
                agent.uid,
                2,
-               upgraded_spec
+               upgraded_spec,
+               agent_slot_cap()
              )
 
     assert second_attempt.runtime_projection["model_ref"]["input_modalities"] == [
@@ -1590,7 +1619,8 @@ defmodule Ankole.BackgroundAgentJobsTest do
                running.id,
                agent.uid,
                1,
-               runtime_turn_start_spec()
+               runtime_turn_start_spec(),
+               agent_slot_cap()
              )
 
     assert error["summary"] == "upstream returned HTTP status 502"
@@ -1617,7 +1647,8 @@ defmodule Ankole.BackgroundAgentJobsTest do
                running.id,
                agent.uid,
                1,
-               runtime_turn_start_spec()
+               runtime_turn_start_spec(),
+               agent_slot_cap()
              )
 
     assert resumed.status == "running"
@@ -2027,6 +2058,302 @@ defmodule Ankole.BackgroundAgentJobsTest do
            }
   end
 
+  test "trajectory page projects the stored item stream through a bounded window query" do
+    %{principal: agent} = background_agent_fixture()
+    job = create_job!(agent.uid, "item-trajectory-page")
+
+    from(row in Job, where: row.id == ^job.id)
+    |> Repo.update_all(set: [attempts: 1, runtime_thread_id: "thread-items"])
+
+    job = Repo.get!(Job, job.id)
+
+    items =
+      Enum.flat_map(1..30, fn index ->
+        [
+          assistant_item("assistant-#{index}", "item-message-#{index}"),
+          %{"type" => "reasoning", "id" => "reasoning-#{index}", "summary" => []}
+        ]
+      end)
+
+    turn =
+      insert_custom_turn!(job, %{
+        runtime_thread_id: "thread-items",
+        runtime_turn_id: "turn-items",
+        status: "in_progress",
+        trajectory_items: items
+      })
+
+    handler_id = "turn-item-window-#{System.unique_integer([:positive])}"
+    test_pid = self()
+    event = Ankole.Repo.config()[:telemetry_prefix] ++ [:query]
+
+    :ok =
+      :telemetry.attach(
+        handler_id,
+        event,
+        fn _event, _measurements, metadata, pid ->
+          if String.contains?(metadata.query, ~s(FROM "background_agent_job_turn_items")) do
+            send(pid, {:turn_item_query, metadata.result})
+          end
+        end,
+        test_pid
+      )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    assert {:ok, execution} = Turns.execution_projection(job, trajectory_limit: 1)
+
+    assert execution.trajectory_page.messages == [
+             assistant_item_message("assistant-30", "item-message-30")
+           ]
+
+    assert is_binary(execution.trajectory_page.next_cursor)
+
+    item_rows_read =
+      Stream.repeatedly(fn ->
+        receive do
+          {:turn_item_query, {:ok, result}} -> result.num_rows
+        after
+          0 -> nil
+        end
+      end)
+      |> Enum.take_while(&is_integer/1)
+      |> Enum.sum()
+
+    assert item_rows_read < 30
+
+    assert {:ok, second} =
+             Turns.execution_projection(job,
+               trajectory_limit: 2,
+               trajectory_cursor: execution.trajectory_page.next_cursor
+             )
+
+    assert second.trajectory_page.messages == [
+             assistant_item_message("assistant-28", "item-message-28"),
+             assistant_item_message("assistant-29", "item-message-29")
+           ]
+
+    replay_only_cursor =
+      %{"v" => 1, "attempt" => 1, "turn_id" => turn.id, "group_position" => 1}
+      |> Ankole.JSON.encode!()
+      |> Base.url_encode64(padding: false)
+
+    assert {:error, :invalid_background_agent_job_trajectory_cursor} =
+             Turns.execution_projection(job, trajectory_cursor: replay_only_cursor)
+  end
+
+  test "trajectory page merges group-only Turns with item Turns of one attempt in order" do
+    %{principal: agent} = background_agent_fixture()
+    job = create_job!(agent.uid, "mixed-trajectory-page")
+
+    from(row in Job, where: row.id == ^job.id)
+    |> Repo.update_all(set: [attempts: 1, runtime_thread_id: "thread-mixed"])
+
+    job = Repo.get!(Job, job.id)
+    base = DateTime.add(DateTime.utc_now(:microsecond), -10, :second)
+
+    legacy_turn =
+      insert_custom_turn!(job, %{
+        runtime_thread_id: "thread-mixed",
+        runtime_turn_id: "turn-legacy",
+        started_at: base,
+        status: "completed",
+        trajectory_groups: [
+          [assistant_message("legacy-old-1")],
+          [assistant_message("legacy-old-2")]
+        ]
+      })
+
+    insert_custom_turn!(job, %{
+      runtime_thread_id: "thread-mixed",
+      runtime_turn_id: "turn-current",
+      started_at: DateTime.add(base, 1, :second),
+      status: "in_progress",
+      trajectory_items: [
+        assistant_item("new-1", "item-new-1"),
+        assistant_item("new-2", "item-new-2")
+      ]
+    })
+
+    assert {:ok, newest} = Turns.execution_projection(job, trajectory_limit: 2)
+
+    assert newest.trajectory_page.messages == [
+             assistant_item_message("new-1", "item-new-1"),
+             assistant_item_message("new-2", "item-new-2")
+           ]
+
+    assert {:ok, older} =
+             Turns.execution_projection(job,
+               trajectory_limit: 2,
+               trajectory_cursor: newest.trajectory_page.next_cursor
+             )
+
+    assert older.trajectory_page.messages == [
+             assistant_message("legacy-old-1"),
+             assistant_message("legacy-old-2")
+           ]
+
+    refute Map.has_key?(older.trajectory_page, :next_cursor)
+
+    legacy_cursor =
+      %{
+        "v" => 1,
+        "attempt" => 1,
+        "turn_id" => legacy_turn.id,
+        "group_position" => 1
+      }
+      |> Ankole.JSON.encode!()
+      |> Base.url_encode64(padding: false)
+
+    assert {:ok, before_legacy} =
+             Turns.execution_projection(job, trajectory_cursor: legacy_cursor)
+
+    assert before_legacy.trajectory_page.messages == [assistant_message("legacy-old-1")]
+  end
+
+  test "message result reads the causal Turn from its stored item stream" do
+    %{principal: agent} = background_agent_fixture()
+    job = create_job!(agent.uid, "causal-item-message")
+
+    job =
+      job
+      |> Job.changeset(%{
+        status: "running",
+        attempts: 1,
+        runtime_thread_id: "thread-causal-items"
+      })
+      |> Repo.update!()
+
+    assert {:ok, %{command_event: command_event}} =
+             BackgroundAgentJobs.send_message(job.id, %{
+               "agent_uid" => agent.uid,
+               "message" => "Reply from the item stream.",
+               "request_id" => "causal-item-message"
+             })
+
+    started_at = DateTime.utc_now(:microsecond)
+
+    insert_custom_turn!(job, %{
+      runtime_thread_id: job.runtime_thread_id,
+      runtime_turn_id: "turn-causal-items",
+      started_at: started_at,
+      status: "completed",
+      trajectory_items: [
+        %{
+          "type" => "userMessage",
+          "id" => "client:#{command_event.id}",
+          "content" => [%{"type" => "text", "text" => "Reply from the item stream."}]
+        },
+        assistant_item("assistant-item-reply", "Item reply recorded.")
+      ]
+    })
+
+    insert_custom_turn!(job, %{
+      runtime_thread_id: job.runtime_thread_id,
+      runtime_turn_id: "turn-after-causal-items",
+      started_at: DateTime.add(started_at, 1, :microsecond),
+      status: "in_progress",
+      completed_at: nil,
+      trajectory_items: [assistant_item("assistant-continuing", "Continuing the report.")]
+    })
+
+    assert {:ok, result} =
+             BackgroundAgentJobs.message_result(job, command_event.id, job.owner_session_id)
+
+    assert result.ready
+    refute result.earlier_trajectory_omitted
+
+    assert Enum.map(result.last_turn_trajectory["messages"], & &1["content"]) == [
+             "Reply from the item stream.",
+             "Item reply recorded."
+           ]
+
+    refute Enum.any?(
+             result.last_turn_trajectory["messages"],
+             &(&1["content"] == "Continuing the report.")
+           )
+  end
+
+  test "waiting accepts the pending user-input request recorded in the item stream" do
+    %{principal: agent} = background_agent_fixture()
+    job = create_job!(agent.uid, "waiting-item-gate")
+
+    assert {:ok, %{job: running}} =
+             BackgroundAgentJobs.commit_status_with_wakeup(job.id, agent.uid, %{
+               "status" => "running",
+               "runtime_thread_id" => "thread-waiting-items"
+             })
+
+    running = set_attempts!(running, 1)
+
+    insert_custom_turn!(running, %{
+      runtime_thread_id: "thread-waiting-items",
+      runtime_turn_id: "turn-waiting-items-answered",
+      status: "interrupted",
+      error: %{"code" => "request_user_input"},
+      trajectory_items: [
+        %{
+          "type" => "dynamicToolCall",
+          "id" => "request-user-input-answered",
+          "tool" => "request_user_input",
+          "arguments" => %{"questions" => []},
+          "status" => "completed",
+          "contentItems" => "answered",
+          "success" => true
+        }
+      ]
+    })
+
+    assert {:error, :background_agent_job_turn_trajectory_incomplete} =
+             BackgroundAgentJobs.commit_status_with_wakeup(running.id, agent.uid, %{
+               "status" => "waiting_on_user",
+               "metadata" => %{"pending_user_input" => %{"questions" => []}}
+             })
+
+    insert_custom_turn!(running, %{
+      runtime_thread_id: "thread-waiting-items",
+      runtime_turn_id: "turn-waiting-items-pending",
+      status: "interrupted",
+      error: %{"code" => "request_user_input"},
+      trajectory_items: [
+        %{
+          "type" => "dynamicToolCall",
+          "id" => "request-user-input",
+          "tool" => "request_user_input",
+          "arguments" => %{"questions" => []},
+          "status" => "inProgress"
+        }
+      ]
+    })
+
+    assert {:ok, %{job: %{status: "waiting_on_user"}}} =
+             BackgroundAgentJobs.commit_status_with_wakeup(running.id, agent.uid, %{
+               "status" => "waiting_on_user",
+               "metadata" => %{"pending_user_input" => %{"questions" => []}}
+             })
+  end
+
+  test "attempt history reads prior-attempt summaries from the item stream" do
+    %{principal: agent} = background_agent_fixture()
+    job = create_job!(agent.uid, "item-attempt-history")
+
+    from(row in Job, where: row.id == ^job.id)
+    |> Repo.update_all(set: [attempts: 2, runtime_thread_id: "thread-current-items"])
+
+    job = Repo.get!(Job, job.id)
+
+    insert_custom_turn!(job, %{
+      attempt: 1,
+      runtime_thread_id: "thread-items-1",
+      runtime_turn_id: "turn-items-1",
+      status: "completed",
+      trajectory_items: [assistant_item("summary-item", "First item attempt report.")]
+    })
+
+    assert [%{attempt: 1, summary: "First item attempt report."}] =
+             Turns.attempt_history(job)
+  end
+
   test "message result waits through the status commit window and then reports continuation" do
     %{principal: agent} = background_agent_fixture()
     job = create_job!(agent.uid, "causal-message-continuation")
@@ -2423,10 +2750,14 @@ defmodule Ankole.BackgroundAgentJobsTest do
            ] = Turns.attempt_history(job)
   end
 
+  # `trajectory_groups` inserts stored group rows only, the shape of a Turn
+  # recorded before the item stream existed; `trajectory_items` inserts the
+  # semantic TurnItem stream that current Turns store.
   defp insert_custom_turn!(job, attrs) do
     status = Map.get(attrs, :status, "completed")
     started_at = Map.get(attrs, :started_at, DateTime.utc_now(:microsecond))
     {trajectory_groups, attrs} = Map.pop(attrs, :trajectory_groups, [])
+    {trajectory_items, attrs} = Map.pop(attrs, :trajectory_items, [])
 
     defaults = %{
       job_id: job.id,
@@ -2473,7 +2804,31 @@ defmodule Ankole.BackgroundAgentJobsTest do
       |> Repo.insert!()
     end)
 
+    Enum.with_index(trajectory_items, fn item, position ->
+      %TurnItem{}
+      |> TurnItem.changeset(%{
+        turn_id: turn.id,
+        position: position,
+        revision: turn.revision,
+        item_key: Map.get(item, "id", "item:#{position}"),
+        item: item
+      })
+      |> Repo.insert!()
+    end)
+
     turn
+  end
+
+  defp assistant_item(id, text),
+    do: %{"type" => "agentMessage", "id" => id, "text" => text}
+
+  defp assistant_item_message(id, text) do
+    %{
+      "id" => id,
+      "role" => "assistant",
+      "content" => text,
+      "metadata" => %{"phase" => "assistant"}
+    }
   end
 
   defp trajectory_header, do: %{"format" => "ankole_chatml", "version" => 1}
@@ -2809,4 +3164,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
     job
   end
+
+  defp agent_slot_cap,
+    do: Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobWorkerConfig.max_running_per_agent()
 end

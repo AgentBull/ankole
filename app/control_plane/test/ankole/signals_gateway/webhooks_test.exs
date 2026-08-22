@@ -1,4 +1,6 @@
 defmodule Ankole.SignalsGateway.WebhooksTest do
+  # Serial because the one-shot claim test leaves the sandbox with
+  # `unboxed_run` to prove real row locking.
   use Ankole.DataCase, async: false
 
   import Ankole.PrincipalsFixtures

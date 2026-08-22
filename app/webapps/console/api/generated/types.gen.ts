@@ -58,7 +58,6 @@ export type AiGatewayProviderListResponse = {
  * Sets any of the capability switches. Omitted keys stay unchanged.
  */
 export type ProviderHostedWriteRequest = {
-  compaction?: boolean
   image_generate?: boolean
   web_search?: boolean
 }
@@ -473,7 +472,6 @@ export type AiGatewayMessageItem = {
     [key: string]: unknown
   }
   previous_message_id?: string | null
-  role?: 'user' | 'assistant' | 'tool' | 'im_ambient'
   status: 'generating' | 'complete' | 'error' | 'retracted'
   subject_uid: string
   type: 'message' | 'checkpoint'
@@ -708,7 +706,6 @@ export type AppConfigurationItem = {
  * SignalBindingUpdateRequest
  */
 export type SignalBindingUpdateRequest = {
-  confidential_memory?: boolean | null
   config: JsonValue
   group_message_mode?: 'addressed_only' | 'observe_all' | 'may_intervene'
   target_agent_uid: string
@@ -1063,7 +1060,6 @@ export type WebhookEndpointItem = {
  * SignalBindingWriteRequest
  */
 export type SignalBindingWriteRequest = {
-  confidential_memory?: boolean
   config: JsonValue
   group_message_mode?: 'addressed_only' | 'observe_all' | 'may_intervene'
   unmatched_sender_policy?: 'manual_review' | 'create_standalone'
@@ -1634,7 +1630,6 @@ export type PrincipalListResponse = {
 export type SignalBindingItem = {
   adapter: string
   agent_uid: string
-  confidential_memory: boolean
   config_key: string
   config_ref: string
   enabled: boolean

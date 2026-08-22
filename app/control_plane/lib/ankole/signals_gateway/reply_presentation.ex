@@ -4,8 +4,8 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
 
   This is deliberately a bounded JSON map rather than provider card JSON. The
   worker may describe semantic work, but only this module decides which fields
-  can reach an IM renderer or durable terminal outbox. Transient reasoning is
-  kept only in the live value and is removed from checkpoints and every
+  can reach a provider renderer or durable terminal outbox. Transient reasoning
+  is kept only in the live value and is removed from checkpoints and every
   non-working state. A live phase label stays in working checkpoints for
   recovery, but every non-working state removes it before rendering or durable
   delivery.
@@ -13,30 +13,56 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
 
   alias Ankole.I18n
 
+  # This version identifies the stored provider-neutral checkpoint shape.
   @schema_version 1
+  # These states remove transient work before storage or delivery.
   @terminal_states ~w(awaiting_input completed continued failed stopped scheduled)
+  # One closed state vocabulary prevents adapters from inventing state meanings.
   @states ["debouncing", "working" | @terminal_states]
+  # These statuses keep plan rendering consistent across providers.
   @plan_statuses ~w(pending in_progress completed cancelled)
+  # These phases keep live activity rendering consistent across providers.
   @activity_phases ~w(pending running completed failed)
+  # These interaction types can use the generic action schema.
   @action_types ~w(button form)
+  # These statuses let all adapters resolve a user interaction in the same way.
   @interaction_statuses ~w(pending answered superseded)
+  # These result kinds keep provider-specific payloads outside checkpoints.
   @result_kinds ~w(table chart image artifact metrics)
+  # These background sources add context to a visible reply.
   @trigger_context_kinds ~w(background_agent_job_failure scheduled_task)
 
+  # This limit bounds transient thought data in checkpoints and provider updates.
   @max_thought_chars 4_000
+  # This limit keeps a plan usable on constrained provider surfaces.
   @max_plan_items 24
+  # This limit keeps each plan item readable on constrained provider surfaces.
   @max_plan_item_chars 500
+  # This limit prevents long tool runs from growing the activity list without
+  # limit.
   @max_activities 20
+  # This limit keeps activity labels usable in provider-native components.
   @max_activity_label_chars 120
+  # This limit keeps the main answer readable when a Turn produces many results.
   @max_results 12
+  # This limit keeps completed action history readable in one reply.
   @max_receipts 20
+  # This limit keeps interactive controls usable across providers.
   @max_actions 8
+  # This limit prevents one interaction answer from dominating a checkpoint.
   @max_interaction_answer_chars 1_000
+  # This limit keeps generic tables usable on narrow channel surfaces.
   @max_table_columns 8
+  # This limit keeps provider payloads small before an adapter renders a table.
   @max_table_rows 20
+  # This limit keeps charts readable on channel surfaces.
   @max_chart_series 6
+  # This limit keeps provider payloads small before an adapter renders a chart.
   @max_chart_points 40
+  # This limit keeps background-trigger titles usable in provider components.
   @max_trigger_title_chars 160
+  # This limit keeps background context small enough for live and durable
+  # delivery.
   @max_trigger_summary_chars 800
 
   @type t :: %{String.t() => term()}

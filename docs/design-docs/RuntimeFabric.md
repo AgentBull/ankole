@@ -242,8 +242,6 @@ it:
 - Turn and RPC envelopes require a correlation ID.
 - An RPC correlation ID must equal its request ID.
 - A turn reference must contain all turn-fence fields.
-- `turn_completed.final_response_id` must start with `resp_`.
-- `turn_completed.outcome` must be explicit.
 - A `turn_control` steer payload must be empty.
 - Worker progress must use an approved progress class.
 
@@ -274,7 +272,7 @@ version 1 messages.
 The Protobuf protocol uses four technical lanes:
 
 - `LANE_CONTROL` carries worker lifecycle and turn control.
-- `LANE_TURN` carries turn start, acceptance, no-op completion, and errors.
+- `LANE_TURN` carries turn start, mailbox updates, and acceptance.
 - `LANE_PROGRESS` carries progress observations.
 - `LANE_RPC` carries RPC requests and results.
 
@@ -297,16 +295,10 @@ The actor lane carries these common messages:
 - `turn_accepted`
 - `turn_control`
 - `worker_progress`
-- `turn_noop_completed`
-- `turn_error`
 
-`turn_completed`, `turn_noop_completed`, and `turn_error` remain accepted as
-rolling-deployment compatibility inputs. Current workers use the
-`actor_turn.complete`, `actor_turn.noop`, and `actor_turn.abort` RPCs. These
-compatibility inputs can be removed after all supported Workers use the three
-RPCs. They do not make mixed runtime versions a supported execution mode. A
-late old-Worker terminal input keeps user input durable, but an old Codex Worker
-can leave an applied steer open for one replay by the matching Worker.
+Workers finish turns through the `actor_turn.complete`, `actor_turn.noop`, and
+`actor_turn.abort` RPCs. All supported v0.70+ Workers use these RPCs, so the
+compatibility window does not include the former terminal envelopes.
 
 Worker capacity has one scheduling representation. `worker_ready`,
 `worker_heartbeat`, and `worker_capacity` carry integer `max_turns` and
@@ -445,9 +437,9 @@ It injects a steer command into a running turn.
 `sent_or_queued` does not complete the command event. A normal text Turn sends
 `turn_accepted` only after the steer enters model input. A Background Agent Job
 sends it only after Codex accepts `turn/steer`. The accepted revision advances
-`R`. For an IM-visible text Turn, that exact acceptance also moves the live reply
-preview to the steer event. Before acceptance, the old preview owner continues
-to receive progress from the current model round.
+`R`. For a reply-eligible text Turn, that exact acceptance also moves the live
+reply preview to the steer event. Before acceptance, the old preview owner
+continues to receive progress from the current model round.
 
 If the Worker finishes first at an older revision, the control plane supersedes
 the newer delivery attempt. Its ActorEvent stays open and gets a new delivery in

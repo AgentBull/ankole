@@ -118,7 +118,7 @@ export function parseOutputItems(
     ...(truncatedToolCalls.length > 0 ? { truncatedToolCalls } : {})
   }
 
-  return { message, toolCalls, hasToolCalls: toolCalls.length > 0 }
+  return { message, toolCalls }
 }
 
 function responseTerminalProjection(response: OpenAIResponse): {

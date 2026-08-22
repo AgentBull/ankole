@@ -407,8 +407,7 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
   defp upsert_member(config, user_id) when is_binary(user_id) do
     Principals.upsert_platform_subject_human(%{
       provider: namespace(config),
-      external_id: user_id,
-      uid: user_id
+      external_id: user_id
     })
   end
 

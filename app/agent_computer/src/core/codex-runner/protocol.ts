@@ -1,7 +1,7 @@
 import { compareCodePointStrings } from '../../common/ordering'
 import { jsonObject, match } from '@agentbull/active-support'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
-import type { JSONRPCMessage } from './app-server-client'
+import type { JSONRPCMessage } from './runtime/app-server-client'
 import type { BackgroundAgentJobStatus, BackgroundAgentJobTurnUsage } from '../background-agent-job-documents'
 import { boundedBackgroundAgentJobPaths, type BackgroundAgentJobPathHandoff } from '../background-agent-job-handoff'
 

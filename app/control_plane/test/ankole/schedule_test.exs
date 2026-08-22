@@ -34,8 +34,8 @@ defmodule Ankole.ScheduleTest do
       process_ready_events_once: 1,
       turn_proto_ref: 1,
       turn_accepted_payload: 1,
-      turn_completed_payload: 3,
-      turn_noop_completed_payload: 2,
+      commit_turn_completion: 3,
+      complete_turn_noop: 2,
       turn_start_payload!: 1,
       decoded_request_context: 1
     ]
@@ -481,7 +481,7 @@ defmodule Ankole.ScheduleTest do
                )
     end
 
-    test "an invalid explicit target list cannot fall back to legacy fields" do
+    test "a scalar delivery route is rejected" do
       %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
 
       assert {:error, :cron_delivery_route_required} =
@@ -489,10 +489,7 @@ defmodule Ankole.ScheduleTest do
                  cron_attrs(agent.uid,
                    name: "invalid-target-list",
                    idempotency_key: "invalid-target-list",
-                   delivery: %{
-                     "targets" => [],
-                     "signal_channel_id" => "mock:chat:legacy"
-                   }
+                   delivery: %{"signal_channel_id" => "mock:chat:legacy"}
                  ),
                  now: @base_time
                )
@@ -1239,8 +1236,13 @@ defmodule Ankole.ScheduleTest do
       assert {:ok, _updated} =
                Schedule.update_cron_schedule(schedule.id, %{
                  "delivery" => %{
-                   "signal_channel_id" => "mock:chat:elsewhere",
-                   "provider_thread_id" => "thread-elsewhere"
+                   "targets" => [
+                     %{
+                       "binding_name" => "bot",
+                       "signal_channel_id" => "mock:chat:elsewhere",
+                       "provider_thread_id" => "thread-elsewhere"
+                     }
+                   ]
                  }
                })
 
@@ -1832,8 +1834,13 @@ defmodule Ankole.ScheduleTest do
         payload_json: Torque.encode!(%{"task" => "dashboard-check"}),
         delivery_json:
           Torque.encode!(%{
-            "signal_channel_id" => source_event.signal_channel_id,
-            "provider_thread_id" => source_event.provider_thread_id
+            "targets" => [
+              %{
+                "binding_name" => source_event.binding_name,
+                "signal_channel_id" => source_event.signal_channel_id,
+                "provider_thread_id" => source_event.provider_thread_id
+              }
+            ]
           }),
         idempotency_key: "schedule-rpc-cron-1"
       }
@@ -1848,8 +1855,13 @@ defmodule Ankole.ScheduleTest do
       refute Map.has_key?(model_schedule, "id")
 
       bad_cron_delivery = %{
-        "signal_channel_id" => "not-current-channel",
-        "provider_thread_id" => source_event.provider_thread_id
+        "targets" => [
+          %{
+            "binding_name" => source_event.binding_name,
+            "signal_channel_id" => "not-current-channel",
+            "provider_thread_id" => source_event.provider_thread_id
+          }
+        ]
       }
 
       assert {:error, %{"code" => "reply_route_not_in_turn"}} =
@@ -2023,8 +2035,13 @@ defmodule Ankole.ScheduleTest do
                      }),
                    delivery_json:
                      Torque.encode!(%{
-                       "signal_channel_id" => source_event.signal_channel_id,
-                       "provider_thread_id" => source_event.provider_thread_id
+                       "targets" => [
+                         %{
+                           "binding_name" => source_event.binding_name,
+                           "signal_channel_id" => source_event.signal_channel_id,
+                           "provider_thread_id" => source_event.provider_thread_id
+                         }
+                       ]
                      }),
                    idempotency_key: "dashboard-cron-story"
                  },
@@ -2168,9 +2185,7 @@ defmodule Ankole.ScheduleTest do
                ActorRuntime.handle_turn_accepted(turn_accepted_payload(turn_ref))
 
       assert {:ok, %{status: :noop_completed}} =
-               ActorRuntime.handle_turn_noop_completed(
-                 turn_noop_completed_payload(turn_ref, "schedule_silent_success")
-               )
+               complete_turn_noop(turn_ref, "schedule_silent_success")
 
       # Actor events are durable — completion records the terminal timestamp.
       assert Repo.get(ActorEvent, input.id)
@@ -2271,8 +2286,13 @@ defmodule Ankole.ScheduleTest do
                  cron_attrs(agent.uid,
                    owner_session_id: channel_input.session_id,
                    delivery: %{
-                     "signal_channel_id" => channel_input.signal_channel_id,
-                     "provider_thread_id" => channel_input.provider_thread_id
+                     "targets" => [
+                       %{
+                         "binding_name" => channel_input.binding_name,
+                         "signal_channel_id" => channel_input.signal_channel_id,
+                         "provider_thread_id" => channel_input.provider_thread_id
+                       }
+                     ]
                    },
                    schedule: %{
                      "kind" => "every",
@@ -2434,8 +2454,13 @@ defmodule Ankole.ScheduleTest do
                Schedule.create_cron_schedule(
                  cron_attrs(agent.uid,
                    delivery: %{
-                     "signal_channel_id" => "mock:chat:schedule",
-                     "provider_thread_id" => "thread-schedule",
+                     "targets" => [
+                       %{
+                         "binding_name" => "bot",
+                         "signal_channel_id" => "mock:chat:schedule",
+                         "provider_thread_id" => "thread-schedule"
+                       }
+                     ],
                      "quiet_success" => true
                    },
                    schedule: %{
@@ -2467,9 +2492,7 @@ defmodule Ankole.ScheduleTest do
                ActorRuntime.handle_turn_accepted(turn_accepted_payload(turn_ref))
 
       assert {:ok, %{status: :noop_completed}} =
-               ActorRuntime.handle_turn_noop_completed(
-                 turn_noop_completed_payload(turn_ref, "schedule_silent_success")
-               )
+               complete_turn_noop(turn_ref, "schedule_silent_success")
 
       # Actor events are durable — completion records the terminal timestamp.
       assert Repo.get(ActorEvent, input.id)
@@ -2643,9 +2666,7 @@ defmodule Ankole.ScheduleTest do
       ])
 
     assert {:ok, %{status: :turn_completed}} =
-             ActorRuntime.handle_turn_completed(
-               turn_completed_payload(turn_ref, "resp_#{committed.id}", "loop_finished")
-             )
+             commit_turn_completion(turn_ref, "resp_#{committed.id}", "loop_finished")
 
     committed
   end
@@ -2738,8 +2759,13 @@ defmodule Ankole.ScheduleTest do
         },
         "payload" => %{"task" => "digest"},
         "delivery" => %{
-          "signal_channel_id" => "mock:chat:schedule",
-          "provider_thread_id" => "thread-schedule"
+          "targets" => [
+            %{
+              "binding_name" => "bot",
+              "signal_channel_id" => "mock:chat:schedule",
+              "provider_thread_id" => "thread-schedule"
+            }
+          ]
         },
         "idempotency_key" => "cron-key-1"
       },
@@ -2762,7 +2788,6 @@ defmodule Ankole.ScheduleTest do
       subject_uid: agent_uid,
       conversation_id: conversation.id,
       type: "message",
-      role: "assistant",
       status: "complete",
       content: [],
       metadata: %{},

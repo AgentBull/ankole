@@ -105,6 +105,7 @@ defmodule Ankole.MixProject do
       {:opentelemetry, "~> 1.7"},
       {:opentelemetry_exporter, "~> 1.10"},
       {:req, "~> 0.7"},
+      {:mint_web_socket, "~> 1.0"},
       {:telemetry_metrics, "~> 1.1"},
       {:telemetry_poller, "~> 1.3"},
       {:localize, "~> 1.2"},

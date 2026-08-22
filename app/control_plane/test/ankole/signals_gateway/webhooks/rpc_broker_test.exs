@@ -1,5 +1,5 @@
 defmodule Ankole.SignalsGateway.Webhooks.RPCBrokerTest do
-  use Ankole.DataCase, async: false
+  use Ankole.DataCase, async: true
 
   import Ankole.PrincipalsFixtures
 

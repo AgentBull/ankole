@@ -70,5 +70,5 @@ Console은 해당 모델 프로파일을 **Background Agent Jobs**라고 부릅�
 
 - 이러한 도구를 실행하고 `/agents` 파일 시스템을 소유하는 Worker에 대해서는 [Agent Computer Worker](../agent-computer-worker/)를 읽으세요.
 - Jupyter 스킬 뒤의 스킬 및 활성화 모델에 대해서는 [Agent Library](../agent-library/)를 읽으세요.
-- 내부 키가 `coding`으로 유지되는 Background Agent Jobs 프로파일에 대해서는 [Background Agent Jobs](../background-jobs/#select-the-runtime)를 읽으세요.
+- 내부 키가 `coding`으로 유지되는 Background Agent Jobs 프로파일에 대해서는 [Background Agent Jobs](../background-jobs/#모델-provider-선택)를 읽으세요.
 - Worker 이미지가 요구하는 제한 환경에 대해서는 [Quick start](../quickstart/#deployment)를 읽으세요.

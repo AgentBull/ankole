@@ -443,12 +443,12 @@ function DetailField({ label, value, mono = false }: { label: string; value: Rea
 }
 
 /**
- * Message stream, Codex-style: user input is a right-aligned bubble, assistant
- * replies flow full-width as Markdown, tool traffic (function_call,
- * function_call_output, reasoning) collapses into one-line tiles that expand
- * to pretty-printed payloads, and checkpoints render as hairline separators.
- * The raw JSON is always reachable via the <RawJSON> fallback so no
- * information is lost for unfamiliar ResponseItem variants.
+ * Each row is one Response run and can contain request and response items, so
+ * item roles do not project to one row role. Text flows as Markdown, tool
+ * traffic (function_call, function_call_output, reasoning) collapses into
+ * one-line tiles that expand to pretty-printed payloads, and checkpoints render
+ * as hairline separators. The raw JSON is always reachable via the <RawJSON>
+ * fallback so no information is lost for unfamiliar ResponseItem variants.
  */
 function MessageThread({ messages }: { messages: AIGatewayMessageItem[] }) {
   // The thread renders up to 200 rows of markdown and payload blocks;
@@ -487,7 +487,7 @@ function MessageRow({ message }: { message: AIGatewayMessageItem }) {
 
   // Tool traffic collapses to a one-line summary by default; expanding the
   // tile reveals the individual items and their pretty-printed payloads.
-  if (message.role === 'tool' || hasToolItems(message.content)) {
+  if (hasToolItems(message.content)) {
     return (
       <article className="border border-border">
         {text ? (
@@ -500,7 +500,7 @@ function MessageRow({ message }: { message: AIGatewayMessageItem }) {
             <AccordionTrigger className="items-center gap-3 px-4 py-2.5 text-xs font-normal hover:no-underline">
               <span className="flex min-w-0 flex-1 items-center gap-2">
                 <RiFunctionLine className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
-                <ToolSummary content={message.content} role={message.role} />
+                <ToolSummary content={message.content} />
                 <span className="ml-auto flex shrink-0 items-center gap-2 text-muted-foreground">
                   <MessageStatus message={message} />
                   <span>{formatConsoleDate(message.inserted_at)}</span>
@@ -516,28 +516,9 @@ function MessageRow({ message }: { message: AIGatewayMessageItem }) {
     )
   }
 
-  // Conversational text, Codex-style: user input is a right-aligned bubble on
-  // the layer-01 surface; assistant replies flow full-width without a tile.
-  if (message.role === 'user') {
-    return (
-      <article className="flex justify-end">
-        <div className="grid max-w-[85%] gap-1.5 sm:max-w-2xl">
-          <header className="flex items-center justify-end gap-2 px-1 text-xs text-muted-foreground">
-            <MessageStatus message={message} />
-            <span>{formatConsoleDate(message.inserted_at)}</span>
-          </header>
-          <div className="border border-border bg-card px-4 py-3">
-            {text ? <MarkdownBody text={text} /> : <RawJSON value={message.content} />}
-          </div>
-        </div>
-      </article>
-    )
-  }
-
   return (
     <article className="grid gap-1.5">
       <header className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
-        {message.role && message.role !== 'assistant' ? <Badge variant="secondary">{message.role}</Badge> : null}
         <MessageStatus message={message} />
         <span>{formatConsoleDate(message.inserted_at)}</span>
       </header>
@@ -547,12 +528,12 @@ function MessageRow({ message }: { message: AIGatewayMessageItem }) {
 }
 
 /** One-line summary of a collapsed tool tile: first item's name/type plus a count. */
-function ToolSummary({ content, role }: { content: ResponseItem[]; role?: AIGatewayMessageItem['role'] }) {
+function ToolSummary({ content }: { content: ResponseItem[] }) {
   const toolItems = content.filter(isToolItem)
   const first = toolItems[0]
 
   if (!first) {
-    return <Badge variant="secondary">{role ?? 'tool'}</Badge>
+    return <Badge variant="secondary">tool</Badge>
   }
 
   return (

@@ -1,5 +1,5 @@
 defmodule Ankole.WorkerFilesTest do
-  use Ankole.DataCase, async: false
+  use Ankole.DataCase, async: true
 
   alias Ankole.SignalsGateway.ActorRuntime.FileTransferLane
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker

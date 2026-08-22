@@ -111,21 +111,16 @@ pub struct AuthzDiagnostic {
     pub reason: String,
 }
 
-struct CachedCondition {
-    condition: String,
-    program: Arc<::cel::Program>,
-}
+/// Shares compiled CEL programs across grants and computed groups that use the
+/// same source.
+static CONDITION_CACHE: OnceLock<BoundedCache<String, Arc<::cel::Program>>> = OnceLock::new();
+/// Shares compiled matchers across grants with the same resource pattern.
+static RESOURCE_PATTERN_CACHE: OnceLock<BoundedCache<String, Arc<GlobMatcher>>> = OnceLock::new();
 
-struct CachedResourcePattern {
-    pattern: String,
-    matcher: Arc<GlobMatcher>,
-}
-
-static CONDITION_CACHE: OnceLock<BoundedCache<String, CachedCondition>> = OnceLock::new();
-static RESOURCE_PATTERN_CACHE: OnceLock<BoundedCache<String, CachedResourcePattern>> =
-    OnceLock::new();
-
+// Prevents persisted CEL text from growing the process cache without a bound.
 const MAX_CONDITION_CACHE_ENTRIES: usize = 1024;
+// Prevents persisted resource patterns from growing the process cache without
+// a bound.
 const MAX_RESOURCE_PATTERN_CACHE_ENTRIES: usize = 1024;
 
 /// Authorizes one exact action on one concrete resource.
@@ -261,10 +256,7 @@ fn effective_group_ids(
     let mut diagnostics = Vec::new();
 
     for group in computed_groups {
-        let program = match cached_condition_program(
-            format!("computed_group:{}", group.id),
-            &group.condition,
-        ) {
+        let program = match cached_condition_program(&group.condition) {
             Ok(program) => program,
             Err(reason) => {
                 diagnostics.push(computed_group_diagnostic(
@@ -322,6 +314,7 @@ fn grants_allow(
         ("action", JSONValue::String(action.to_owned())),
         ("context", normalized_context(request_context)),
     ])?;
+    let normalized_resource = normalize_resource_for_glob(resource);
     let mut diagnostics = Vec::new();
 
     for grant in grants {
@@ -331,7 +324,7 @@ fn grants_allow(
             continue;
         }
 
-        match cached_grant_resource_pattern_matches(grant, resource) {
+        match cached_resource_pattern_matches(&grant.resource_pattern, &normalized_resource) {
             Ok(false) => continue,
             Err(reason) => {
                 diagnostics.push(grant_diagnostic(grant, "resource_pattern", reason));
@@ -340,14 +333,13 @@ fn grants_allow(
             Ok(true) => {}
         }
 
-        let program =
-            match cached_condition_program(format!("grant:{}", grant.id), &grant.condition) {
-                Ok(program) => program,
-                Err(reason) => {
-                    diagnostics.push(grant_diagnostic(grant, "condition_compile", reason));
-                    continue;
-                }
-            };
+        let program = match cached_condition_program(&grant.condition) {
+            Ok(program) => program,
+            Err(reason) => {
+                diagnostics.push(grant_diagnostic(grant, "condition_compile", reason));
+                continue;
+            }
+        };
 
         match cel::execute_bool(&program, &cel_context) {
             Ok(true) => return Ok((true, diagnostics)),
@@ -419,101 +411,35 @@ fn grant_diagnostic(grant: &SnapshotGrant, kind: &str, reason: String) -> AuthzD
     }
 }
 
-fn cached_condition_program(
-    cache_key: String,
-    condition: &str,
-) -> std::result::Result<Arc<::cel::Program>, String> {
-    if let Some(program) = lookup_cached_condition_program(&cache_key, condition) {
+fn cached_condition_program(condition: &str) -> std::result::Result<Arc<::cel::Program>, String> {
+    let cache = CONDITION_CACHE.get_or_init(|| BoundedCache::new(MAX_CONDITION_CACHE_ENTRIES));
+    if let Some(program) = cache.get_cloned(condition) {
         return Ok(program);
     }
 
     let program = Arc::new(cel::compile_condition(condition).map_err(|reason| reason.to_string())?);
-    store_cached_condition_program(cache_key, condition, &program);
+    cache.insert(condition.to_owned(), Arc::clone(&program));
     Ok(program)
 }
 
-fn lookup_cached_condition_program(
-    cache_key: &str,
-    condition: &str,
-) -> Option<Arc<::cel::Program>> {
-    let cache = CONDITION_CACHE.get_or_init(|| BoundedCache::new(MAX_CONDITION_CACHE_ENTRIES));
-    let cache_key = cache_key.to_owned();
-    cache.get_if(
-        &cache_key,
-        |cached| cached.condition == condition,
-        |cached| Arc::clone(&cached.program),
-    )
-}
-
-fn store_cached_condition_program(
-    cache_key: String,
-    condition: &str,
-    program: &Arc<::cel::Program>,
-) {
-    let cache = CONDITION_CACHE.get_or_init(|| BoundedCache::new(MAX_CONDITION_CACHE_ENTRIES));
-    cache.insert(
-        cache_key,
-        CachedCondition {
-            condition: condition.to_owned(),
-            program: Arc::clone(program),
-        },
-    );
-}
-
-fn cached_grant_resource_pattern_matches(
-    grant: &SnapshotGrant,
-    resource: &str,
+fn cached_resource_pattern_matches(
+    pattern: &str,
+    normalized_resource: &str,
 ) -> std::result::Result<bool, String> {
-    let matcher = cached_grant_resource_pattern_matcher(grant)?;
-    Ok(matcher.is_match(normalize_resource_for_glob(resource)))
+    let matcher = cached_resource_pattern_matcher(pattern)?;
+    Ok(matcher.is_match(normalized_resource))
 }
 
-fn cached_grant_resource_pattern_matcher(
-    grant: &SnapshotGrant,
-) -> std::result::Result<Arc<GlobMatcher>, String> {
-    let cache_key = format!("grant:{}", grant.id);
-
-    if let Some(matcher) =
-        lookup_cached_resource_pattern_matcher(&cache_key, &grant.resource_pattern)
-    {
+fn cached_resource_pattern_matcher(pattern: &str) -> std::result::Result<Arc<GlobMatcher>, String> {
+    let cache = RESOURCE_PATTERN_CACHE
+        .get_or_init(|| BoundedCache::new(MAX_RESOURCE_PATTERN_CACHE_ENTRIES));
+    if let Some(matcher) = cache.get_cloned(pattern) {
         return Ok(matcher);
     }
 
-    let matcher = Arc::new(
-        resource_pattern_matcher(&grant.resource_pattern).map_err(|reason| reason.to_string())?,
-    );
-    store_cached_resource_pattern_matcher(cache_key, &grant.resource_pattern, &matcher);
+    let matcher = Arc::new(resource_pattern_matcher(pattern).map_err(|reason| reason.to_string())?);
+    cache.insert(pattern.to_owned(), Arc::clone(&matcher));
     Ok(matcher)
-}
-
-fn lookup_cached_resource_pattern_matcher(
-    cache_key: &str,
-    pattern: &str,
-) -> Option<Arc<GlobMatcher>> {
-    let cache = RESOURCE_PATTERN_CACHE
-        .get_or_init(|| BoundedCache::new(MAX_RESOURCE_PATTERN_CACHE_ENTRIES));
-    let cache_key = cache_key.to_owned();
-    cache.get_if(
-        &cache_key,
-        |cached| cached.pattern == pattern,
-        |cached| Arc::clone(&cached.matcher),
-    )
-}
-
-fn store_cached_resource_pattern_matcher(
-    cache_key: String,
-    pattern: &str,
-    matcher: &Arc<GlobMatcher>,
-) {
-    let cache = RESOURCE_PATTERN_CACHE
-        .get_or_init(|| BoundedCache::new(MAX_RESOURCE_PATTERN_CACHE_ENTRIES));
-    cache.insert(
-        cache_key,
-        CachedResourcePattern {
-            pattern: pattern.to_owned(),
-            matcher: Arc::clone(matcher),
-        },
-    );
 }
 
 fn decision(
@@ -644,31 +570,32 @@ mod tests {
     }
 
     #[test]
-    fn condition_cache_evicts_when_full() {
+    fn condition_cache_reuses_source_and_stays_bounded() {
         clear_condition_cache();
 
+        let first = cached_condition_program("principal.status == 'active'").unwrap();
+        let second = cached_condition_program("principal.status == 'active'").unwrap();
+
+        assert!(Arc::ptr_eq(&first, &second));
+
         for index in 0..=MAX_CONDITION_CACHE_ENTRIES {
-            cached_condition_program(format!("test-condition:{index}"), "true").unwrap();
+            cached_condition_program(&format!(r#"principal.uid == "user-{index}""#)).unwrap();
         }
 
         assert_eq!(condition_cache_len(), MAX_CONDITION_CACHE_ENTRIES);
     }
 
     #[test]
-    fn resource_pattern_cache_evicts_when_full() {
+    fn resource_pattern_cache_reuses_source_and_stays_bounded() {
         clear_resource_pattern_cache();
 
-        for index in 0..=MAX_RESOURCE_PATTERN_CACHE_ENTRIES {
-            let grant = SnapshotGrant {
-                id: format!("grant-{index}"),
-                principal_uid: Some("alice".to_owned()),
-                group_id: None,
-                resource_pattern: "web_console:**".to_owned(),
-                action: "read".to_owned(),
-                condition: "true".to_owned(),
-            };
+        let first = cached_resource_pattern_matcher("web_console:**").unwrap();
+        let second = cached_resource_pattern_matcher("web_console:**").unwrap();
 
-            cached_grant_resource_pattern_matcher(&grant).unwrap();
+        assert!(Arc::ptr_eq(&first, &second));
+
+        for index in 0..=MAX_RESOURCE_PATTERN_CACHE_ENTRIES {
+            cached_resource_pattern_matcher(&format!("web_console:entry-{index}")).unwrap();
         }
 
         assert_eq!(

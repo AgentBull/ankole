@@ -2084,7 +2084,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     assert StatefulResponses.latest_visible_leaf(conversation.id) == nil
   end
 
-  test "stateful terminal commit failure sends failed frame instead of completed" do
+  test "stateful terminal commit failure closes without a terminal frame" do
     message_id = Ecto.UUID.generate()
     ref = make_ref()
 
@@ -2107,22 +2107,12 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
       }
     }
 
-    assert {{:push, {:text, pushed}, _state}, _log} =
+    assert {{:stop, :stateful_commit_failed, 1011, [], state}, _log} =
              with_log(fn ->
                handle_test_event(%{active_stream: active}, ref, chunk, 3)
              end)
 
-    expected_response_id = "resp_#{message_id}"
-
-    assert %{
-             "type" => "response.failed",
-             "sequence_number" => 3,
-             "response" => %{
-               "id" => ^expected_response_id,
-               "status" => "failed",
-               "error" => %{"code" => "stateful_commit_failed"}
-             }
-           } = Ankole.JSON.decode!(pushed)
+    refute Map.has_key?(state, :active_stream)
   end
 
   test "stateful terminal commit does not project Actor state or attachments" do

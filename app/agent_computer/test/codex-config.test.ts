@@ -6,14 +6,14 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { AIGatewayAPIKeyResponseSchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
-import { codexJobThreadConfig } from '../src/core/codex-runner/thread-config'
+import { codexJobThreadConfig } from '../src/core/codex-runner/job/thread-config'
 import {
   codexAIGatewayTokenPath,
   codexConfigCLIOverrides,
   materializeCodexConfig,
   refreshCodexAgentRuntimeCredential,
   resetCodexAgentRuntimeConfig
-} from '../src/core/codex-runner/agent-home-config'
+} from '../src/core/codex-runner/runtime/agent-home-config'
 import type { CodexRuntimeConfig } from '../src/core/codex-runner/runtime-config'
 
 function aigatewayRuntime(): CodexRuntimeConfig {

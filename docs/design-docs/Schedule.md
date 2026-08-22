@@ -286,12 +286,10 @@ request can create or replace only the current turn route. A worker can change
 targets. An operator route update that omits `quiet_success` keeps the existing
 value.
 
-The control plane accepts the old scalar delivery form as input and normalizes
-it to one target. The data migration normalizes stored recurring rules and live
-`scheduled` or `firing` event snapshots. Terminal event history and existing
-outbox rows stay unchanged and are never replayed. A downgrade can convert a
-one-target rule back to the scalar form, but it stops if any rule has multiple
-targets because that conversion would lose configured routes.
+The control plane accepts only the target-list delivery form. The v0.68.3 data
+migration normalized stored recurring rules and live `scheduled` or `firing`
+event snapshots. Terminal event history and existing outbox rows stayed
+unchanged and were never replayed.
 
 A direct-Agent rule requires a non-empty `payload.task` at creation, and an
 update must keep it unless an `automation_job_id` consumes the trigger.

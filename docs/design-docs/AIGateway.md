@@ -831,7 +831,9 @@ Explicit continuation does not rewrite the caller-selected branch.
 ## Store the Result before Reporting Completion
 
 The stream stores terminal content before it sends a public terminal event. If
-storage fails, AIGateway sends `response.failed` and cancels the provider stream.
+that write fails, AIGateway tries to store a failure instead. It sends
+`response.failed` only when that failure is durable. If both writes fail, it
+cancels the provider stream and closes the transport without a terminal event.
 
 A generating row receives heartbeat updates during a live response.
 RuntimeEvents schedules an orphan check after each heartbeat.
@@ -1070,7 +1072,9 @@ OpenAI and `chatgpt_subscription` declare native image generation. Their native
 path does not resolve or validate a configured fallback, so a stale fallback
 cannot block an ordinary conversation. If neither native nor fallback execution
 is available, request preparation returns an explicit unsupported-value error.
-AIGateway never adds an image tool that the caller did not declare.
+AIGateway never adds an image tool that the caller did not declare. Before a
+native dispatch, it inlines local input-image and mask references because the
+Provider cannot read Ankole artifact IDs.
 
 The hosted tool can run for 30 minutes.
 The prepared streaming limits allow 128 MiB for the generated upstream response.
@@ -1078,13 +1082,15 @@ If the main provider uses a Responses WebSocket, each hosted fallback model
 round uses that WebSocket transport. Other streaming providers use one
 collected non-streaming main-model request for each round.
 Image persistence observes normalized image events from both execution paths.
-It stores the final image and accounts for native image usage. A hosted image
-attempt rotates only the image provider pool, while a main model attempt
-rotates only the main provider pool. Usage stays attributed to the credential
-that ran each attempt. An upstream failure keeps its provider HTTP status in
-safe public error details. When the provider supplies `error.message`, the
-authenticated caller receives a bounded copy. The provider body and metadata
-stay private.
+It stores the final image and accounts for native image usage. A hosted item
+id is a local `ig_` UUID and stays the Artifact primary key; a native
+provider's own item id is stored separately so later references to it resolve.
+A hosted image attempt rotates only the image provider pool, while a main
+model attempt rotates only the main provider pool. Usage stays attributed to
+the credential that ran each attempt. An upstream failure keeps its provider
+HTTP status in safe public error details. When the provider supplies
+`error.message`, the authenticated caller receives a bounded copy. The
+provider body and metadata stay private.
 
 ## Observe the Execution Path
 

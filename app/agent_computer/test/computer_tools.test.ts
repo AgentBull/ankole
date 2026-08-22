@@ -7,7 +7,8 @@ import {
   createContainerComputer,
   type CommandFinished,
   type CommandOutputMode,
-  type ContainerComputer
+  type ContainerComputer,
+  type ReadFileWindow
 } from '../src/tools/computer/computer'
 import type { ComputerToolContext } from '../src/tools/computer/context'
 import { createComputerTools } from '../src/tools/computer'
@@ -39,6 +40,18 @@ class FakeComputer implements ContainerComputer {
 
   async readFileToBuffer(input: { path: string }): Promise<Buffer | null> {
     return this.files.get(input.path) ?? null
+  }
+
+  async readFileWindow(input: { path: string; offset: number; limit: number }): Promise<ReadFileWindow | null> {
+    const buffer = this.files.get(input.path) ?? null
+    if (!buffer) return null
+    const lines = buffer.toString('utf8').split('\n')
+    if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop()
+    return {
+      sniff: buffer.subarray(0, 8192),
+      totalLines: lines.length,
+      lines: lines.slice(input.offset - 1, input.offset - 1 + input.limit)
+    }
   }
 
   fs = {
@@ -355,6 +368,82 @@ describe('computer tools', () => {
       rmSync(agentHome, { recursive: true, force: true })
     }
   })
+
+  it('keeps the model-visible truncation contract for multi-megabyte command output', async () => {
+    const agentHome = mkdtempSync('/agents/ankole-bounded-output-')
+    const workspaceRoot = join(agentHome, 'sessions', 'session-1')
+    mkdirSync(workspaceRoot, { recursive: true })
+    try {
+      const computer = createContainerComputer(agentHome, workspaceRoot)
+      const tool = createCommandTool(
+        contextFor(computer, { agentHome, workspaceRoot, userFilesRoot: join(agentHome, 'user-files') })
+      )
+
+      const result = await tool.execute('call-huge-output', {
+        command: 'yes 0123456789abcdef | head -c 3000000; echo; echo TAIL_SENTINEL'
+      })
+      const text = textOf(result)
+
+      expect(result.details.exitCode).toBe(0)
+      expect(text).toContain('exit_code=0')
+      expect(text).toContain('... [output truncated —')
+      expect(text).toContain('TAIL_SENTINEL')
+    } finally {
+      rmSync(agentHome, { recursive: true, force: true })
+    }
+  }, 30000)
+
+  it('reads a deep window of a large file with exact numbering, totals, and line clipping', async () => {
+    const agentHome = mkdtempSync('/agents/ankole-read-window-')
+    const workspaceRoot = join(agentHome, 'sessions', 'session-1')
+    mkdirSync(workspaceRoot, { recursive: true })
+    const totalLines = 60000
+    const content = Array.from({ length: totalLines }, (_, index) =>
+      index + 1 === 59991 ? 'L'.repeat(10000) : `line-${index + 1}`
+    ).join('\n')
+    writeFileSync(join(workspaceRoot, 'big.txt'), `${content}\n`)
+    try {
+      const computer = createContainerComputer(agentHome, workspaceRoot)
+      const tool = createReadFileTool(
+        contextFor(computer, { agentHome, workspaceRoot, userFilesRoot: join(agentHome, 'user-files') })
+      )
+
+      const page = await tool.execute('call-deep-window', { path: 'big.txt', offset: 59990, limit: 5 })
+      const text = textOf(page)
+
+      expect(page.details.totalLines).toBe(totalLines)
+      expect(text).toContain('59990|line-59990')
+      expect(text).toContain(`59991|${'L'.repeat(2000)}... [line truncated]`)
+      expect(text).toContain('59994|line-59994')
+      expect(text).toContain('... [showing lines 59990-59994 of 60000 — continue with offset=59995] ...')
+    } finally {
+      rmSync(agentHome, { recursive: true, force: true })
+    }
+  }, 30000)
+
+  it('kills a TERM-immune command after the timeout and explains the budget', async () => {
+    const agentHome = mkdtempSync('/agents/ankole-timeout-kill-')
+    const workspaceRoot = join(agentHome, 'sessions', 'session-1')
+    mkdirSync(workspaceRoot, { recursive: true })
+    try {
+      const computer = createContainerComputer(agentHome, workspaceRoot)
+      const tool = createCommandTool(
+        contextFor(computer, { agentHome, workspaceRoot, userFilesRoot: join(agentHome, 'user-files') })
+      )
+
+      const result = await tool.execute('call-term-immune', {
+        command: "trap '' TERM; while :; do :; done",
+        timeout: 1
+      })
+      const text = textOf(result)
+
+      expect(result.details.exitCode).toBe(137)
+      expect(text).toContain('exit_code=137')
+      expect(text).toContain('command timed out after 1s')
+    } finally {
+      rmSync(agentHome, { recursive: true, force: true })
+    }
+  }, 30000)
 
   it('keeps relative and home-relative file tool paths', async () => {
     const agentHome = mkdtempSync('/agents/ankole-computer-relative-paths-')

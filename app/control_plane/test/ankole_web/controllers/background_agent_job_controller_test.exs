@@ -15,8 +15,8 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
   alias Ankole.Setup.Config, as: SetupConfig
   alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Schemas.Job
-  alias Ankole.BackgroundAgentJobs.Schemas.TrajectoryGroup
   alias Ankole.BackgroundAgentJobs.Schemas.Turn
+  alias Ankole.BackgroundAgentJobs.Schemas.TurnItem
   alias AnkoleWeb.Session, as: WebSession
 
   setup do
@@ -257,14 +257,19 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
     assert [%{"trajectory" => trajectory}] = detail["turns"]
 
     assert trajectory["messages"] == [
-             %{"content" => "Finished semantic report.", "role" => "assistant"}
+             %{
+               "id" => "assistant:finished",
+               "role" => "assistant",
+               "content" => "Finished semantic report.",
+               "metadata" => %{"phase" => "assistant"}
+             }
            ]
 
     refute Map.has_key?(detail, "trajectory_archive")
     refute inspect(detail) =~ "json_rpc"
   end
 
-  test "Console Turn projection loads all trajectories in one query" do
+  test "Console Turn projection loads all item trajectories in one query" do
     agent = background_agent_fixture().principal
     job = create_job!(agent.uid, "batched-turn-projection")
     first = insert_turn!(job, "thread-batch", "turn-batch-1")
@@ -280,11 +285,18 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
         handler_id,
         event,
         fn _event, _measurements, metadata, pid ->
-          if String.contains?(
-               metadata.query,
-               ~s(FROM "background_agent_job_turn_trajectory_groups")
-             ) do
-            send(pid, :trajectory_group_query)
+          cond do
+            String.contains?(metadata.query, ~s(FROM "background_agent_job_turn_items")) ->
+              send(pid, :turn_item_query)
+
+            String.contains?(
+              metadata.query,
+              ~s(FROM "background_agent_job_turn_trajectory_groups")
+            ) ->
+              send(pid, :trajectory_group_query)
+
+            true ->
+              :ok
           end
         end,
         test_pid
@@ -297,7 +309,8 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
     assert Enum.map(projections, & &1.id) == Enum.map(turns, & &1.id)
     assert Enum.find(projections, &(&1.id == first.id)).trajectory["messages"] != []
     assert Enum.find(projections, &(&1.id == second.id)).trajectory["messages"] != []
-    assert_receive :trajectory_group_query
+    assert_receive :turn_item_query
+    refute_receive :turn_item_query
     refute_receive :trajectory_group_query
   end
 
@@ -378,14 +391,16 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
       })
       |> Repo.insert!()
 
-    %TrajectoryGroup{}
-    |> TrajectoryGroup.changeset(%{
+    %TurnItem{}
+    |> TurnItem.changeset(%{
       turn_id: turn.id,
       position: 0,
       revision: turn.revision,
       item_key: "assistant:finished",
-      content: %{
-        "messages" => [%{"role" => "assistant", "content" => "Finished semantic report."}]
+      item: %{
+        "type" => "agentMessage",
+        "id" => "assistant:finished",
+        "text" => "Finished semantic report."
       }
     })
     |> Repo.insert!()

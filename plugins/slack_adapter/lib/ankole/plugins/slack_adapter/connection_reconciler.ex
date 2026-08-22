@@ -1,21 +1,30 @@
 defmodule Ankole.Plugins.SlackAdapter.ConnectionReconciler do
   @moduledoc false
 
-  use GenServer
-
   alias Ankole.{IdentityProviders, Logging, SignalsGateway}
+  alias Ankole.Plugins.ConnectionLifecycle
   alias Ankole.Plugins.SlackAdapter.{Config, ConnectionSupervisor, IdentityProvider, Inbound}
   alias Ankole.SignalsGateway.{AdapterContext, Binding}
 
   @default_interval_ms 60_000
-  @call_timeout 30_000
+
+  @spec child_spec(keyword()) :: Supervisor.child_spec()
+  def child_spec(opts) do
+    %{id: __MODULE__, start: {__MODULE__, :start_link, [opts]}, type: :worker}
+  end
 
   @spec start_link(keyword()) :: GenServer.on_start()
-  def start_link(opts \\ []),
-    do: GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
+  def start_link(opts \\ []) do
+    ConnectionLifecycle.start_link(opts,
+      name: __MODULE__,
+      default_interval_ms: @default_interval_ms,
+      reconcile_opts: Keyword.take(opts, [:repo]),
+      reconcile: &run_reconcile/1
+    )
+  end
 
   @spec reconcile(GenServer.server()) :: map()
-  def reconcile(server \\ __MODULE__), do: GenServer.call(server, :reconcile, @call_timeout)
+  def reconcile(server \\ __MODULE__), do: ConnectionLifecycle.reconcile(server)
 
   @spec reconcile_once(keyword()) :: map()
   def reconcile_once(opts \\ []) do
@@ -24,41 +33,8 @@ defmodule Ankole.Plugins.SlackAdapter.ConnectionReconciler do
     |> start_connections(opts)
   end
 
-  @impl true
-  def init(opts) do
-    {:ok,
-     %{
-       interval_ms:
-         Keyword.get(
-           opts,
-           :interval_ms,
-           Application.get_env(
-             :ankole,
-             :signal_connection_reconcile_interval_ms,
-             @default_interval_ms
-           )
-         ),
-       reconcile_opts: Keyword.take(opts, [:repo])
-     }, {:continue, :reconcile}}
-  end
-
-  @impl true
-  def handle_continue(:reconcile, state) do
-    run_reconcile(state)
-    {:noreply, schedule_next(state)}
-  end
-
-  @impl true
-  def handle_call(:reconcile, _from, state), do: {:reply, run_reconcile(state), state}
-
-  @impl true
-  def handle_info(:reconcile, state) do
-    run_reconcile(state)
-    {:noreply, schedule_next(state)}
-  end
-
-  defp run_reconcile(state) do
-    result = reconcile_once(state.reconcile_opts)
+  defp run_reconcile(opts) do
+    result = reconcile_once(opts)
 
     if result.errors != [],
       do:
@@ -69,13 +45,6 @@ defmodule Ankole.Plugins.SlackAdapter.ConnectionReconciler do
         )
 
     result
-  end
-
-  defp schedule_next(%{interval_ms: nil} = state), do: state
-
-  defp schedule_next(state) do
-    Process.send_after(self(), :reconcile, state.interval_ms)
-    state
   end
 
   defp connection_specs(bindings, opts) do
@@ -191,6 +160,8 @@ defmodule Ankole.Plugins.SlackAdapter.ConnectionReconciler do
   end
 
   defp start_connections({specs, errors}, _opts) do
+    stopped = stop_undesired_connections(specs)
+
     results =
       Enum.map(
         Map.values(specs),
@@ -201,8 +172,21 @@ defmodule Ankole.Plugins.SlackAdapter.ConnectionReconciler do
 
     %{
       started: length(started),
+      stopped: stopped,
       errors:
         Enum.reverse(errors) ++ Enum.map(failed, fn {:error, reason} -> %{reason: reason} end)
     }
+  end
+
+  # A live connection whose key left the desired spec map is a zombie (disabled
+  # binding, removed identity provider, or a rotated appToken, which changes
+  # the key) and stops. Identity-provider sockets are part of the spec map, so
+  # the difference never kills a desired one.
+  defp stop_undesired_connections(specs) do
+    ConnectionLifecycle.stop_undesired(
+      specs,
+      ConnectionSupervisor.registered_keys(),
+      &ConnectionSupervisor.stop/1
+    )
   end
 end

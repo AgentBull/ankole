@@ -38,26 +38,17 @@ import {
   TurnStartSchema,
   type Envelope
 } from '../src/fabric/envelope_proto'
-import {
-  parseRuntimeFabricEndpoint,
-  workerCapacityEnvelope,
-  workerHeartbeatEnvelope,
-  workerReadyEnvelope
-} from '../src/worker/config'
+import { parseRuntimeFabricEndpoint } from '../src/worker/config'
+import { workerCapacityEnvelope, workerHeartbeatEnvelope, workerReadyEnvelope } from '../src/worker/lifecycle_messages'
 import { handleWorkerRPCRequest } from '../src/lanes/rpc_lane'
 import { controlShutdownEnvelope, workerProgressEnvelope } from '../src/fabric/envelopes'
 import type { WorkerConfig } from '../src/worker/config'
 import { prepareActorWorkspace, prepareTurnWorkspace } from '../src/worker/workspace'
 import { actorTurnRefToProto, mailboxUpdatedFromEnvelope, turnStartFromEnvelope } from '../src/lanes/actor_lane'
 import type { TurnStart } from '../src/lanes/actor_lane'
-import {
-  pushTurnSteering,
-  startTurnProgress,
-  turnFailureDetails,
-  waitForTurnSteering,
-  type ActiveTurn
-} from '../src/worker/active_turns'
-import { BackgroundAgentJobTurnPersistenceError } from '../src/core/codex-runner/turn-recorder'
+import { ActiveTurn, startTurnProgress } from '../src/worker/active_turns'
+import { turnFailureDetails } from '../src/worker/turn_failure'
+import { BackgroundAgentJobTurnPersistenceError } from '../src/core/codex-runner/job/turn-recorder'
 import { RPCRejectedError } from '../src/lanes/rpc_lane'
 import { agentHomePaths } from '../src/core/agent-home-paths'
 
@@ -211,16 +202,7 @@ describe('@ankole/agent-computer runtime', () => {
 
   it('renews a silent BackgroundAgentJob Turn independently of Codex notifications', async () => {
     const sent: unknown[] = []
-    const active = {
-      turnStart: { turn: actorTurnRef() } as TurnStart,
-      correlationID: 'turn-start-1',
-      steeringUpdates: [],
-      steeringWaiters: new Set(),
-      disabledSkillNames: [],
-      changedSkillNames: [],
-      abortController: new AbortController(),
-      controlledStopRequested: false
-    } satisfies ActiveTurn
+    const active = new ActiveTurn({ turn: actorTurnRef() } as TurnStart, 'turn-start-1')
     const reporter = startTurnProgress(
       async envelope => {
         sent.push(envelope)
@@ -239,19 +221,10 @@ describe('@ankole/agent-computer runtime', () => {
 
   it('wakes foreground observation without consuming the queued steer update', async () => {
     const turn = actorTurnRef()
-    const active = {
-      turnStart: { turn } as TurnStart,
-      correlationID: 'turn-start-steering',
-      steeringUpdates: [],
-      steeringWaiters: new Set(),
-      disabledSkillNames: [],
-      changedSkillNames: [],
-      abortController: new AbortController(),
-      controlledStopRequested: false
-    } satisfies ActiveTurn
+    const active = new ActiveTurn({ turn } as TurnStart, 'turn-start-steering')
 
-    const waiting = waitForTurnSteering(active)
-    pushTurnSteering(active, {
+    const waiting = active.waitForSteering()
+    active.pushSteering({
       turn: { ...turn, revision: turn.revision + 1 },
       actorEvent: {
         actor_event_id: '00000000-0000-0000-0000-000000000102',
@@ -262,9 +235,8 @@ describe('@ankole/agent-computer runtime', () => {
     })
 
     await waiting
-    expect(active.steeringUpdates).toHaveLength(1)
-    expect(active.steeringWaiters.size).toBe(0)
-    await expect(waitForTurnSteering(active)).resolves.toBeUndefined()
+    await expect(active.waitForSteering()).resolves.toBeUndefined()
+    expect(active.pollSteering()).toHaveLength(1)
   })
 
   it('prepares session workspace without projecting enabled skills', () => {

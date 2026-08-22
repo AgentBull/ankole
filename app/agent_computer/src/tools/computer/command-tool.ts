@@ -118,10 +118,11 @@ function formatDuration(durationMs: number): string {
 }
 
 /**
- * Detects the common `timeout` exit-code path for foreground commands.
+ * Detects the `timeout` exit-code paths for foreground commands: 124 when TERM
+ * stopped the command, 137 when the `-k` escalation had to KILL it.
  */
 function isLikelyForegroundTimeout(exitCode: number, durationMs: number, timeoutSeconds: number): boolean {
-  if (exitCode !== 124) return false
+  if (exitCode !== 124 && exitCode !== 137) return false
   const timeoutMs = timeoutSeconds * 1000
   return durationMs >= Math.max(0, timeoutMs - 1000)
 }

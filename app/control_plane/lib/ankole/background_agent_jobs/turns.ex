@@ -52,6 +52,7 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
   @message_ready_statuses ~w(waiting_on_user succeeded failed stopped)
   @trajectory_default_limit 3
   @trajectory_max_limit 20
+  @trajectory_item_window_factor 4
   @trajectory_page_bytes 24 * 1_024
   @trajectory_page_reserve_bytes 512
   @model_string_bytes 4_000
@@ -290,14 +291,21 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
     end
   end
 
+  # A Turn recorded before the item stream existed keeps the client key only
+  # in its stored trajectory-group rows, so a missing item falls back there.
   defp causal_message_turn(%Job{} = job, command_event_id) do
     item_key = "client:#{command_event_id}"
 
-    TrajectoryGroup
-    |> join(:inner, [group], turn in Turn, on: turn.id == group.turn_id)
-    |> where([group, turn], group.item_key == ^item_key and turn.job_id == ^job.id)
-    |> order_by([group, turn], asc: turn.started_at, asc: turn.id, asc: group.position)
-    |> select([_group, turn], turn)
+    causal_turn_by_item_key(TurnItem, job, item_key) ||
+      causal_turn_by_item_key(TrajectoryGroup, job, item_key)
+  end
+
+  defp causal_turn_by_item_key(schema, %Job{} = job, item_key) do
+    schema
+    |> join(:inner, [row], turn in Turn, on: turn.id == row.turn_id)
+    |> where([row, turn], row.item_key == ^item_key and turn.job_id == ^job.id)
+    |> order_by([row, turn], asc: turn.started_at, asc: turn.id, asc: row.position)
+    |> select([_row, turn], turn)
     |> limit(1)
     |> Repo.one()
   end
@@ -376,21 +384,20 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
 
   defp message_turn_trajectory(%Turn{} = turn) do
     groups =
-      TrajectoryGroup
-      |> where([group], group.turn_id == ^turn.id)
-      |> order_by([group], asc: group.position)
-      |> Repo.all()
-      |> Enum.map(fn group ->
-        {messages, content_truncated} =
-          group.content["messages"]
+      [turn.id]
+      |> projection_units_by_turn()
+      |> Map.get(turn.id, [])
+      |> Enum.map(fn unit ->
+        {messages, bound_truncated} =
+          unit.messages
           |> OpaqueContent.reveal()
           |> bound_group()
 
         %{
-          turn_id: group.turn_id,
-          position: group.position,
+          turn_id: turn.id,
+          position: unit.position,
           messages: messages,
-          content_truncated: content_truncated
+          content_truncated: unit.truncated or bound_truncated
         }
       end)
 
@@ -769,11 +776,13 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
 
         cond do
           existing == [] ->
-            with {:ok, _item} <- repo.insert(changeset),
-                 {:ok, group_truncated} <- append_derived_group(repo, turn, candidate) do
-              {:cont, {:ok, truncated or group_truncated}}
-            else
-              {:error, reason} -> {:halt, {:error, reason}}
+            case repo.insert(changeset) do
+              {:ok, _item} ->
+                {_messages, projection_truncated} = TurnItemProjection.project(candidate.item)
+                {:cont, {:ok, truncated or projection_truncated}}
+
+              {:error, reason} ->
+                {:halt, {:error, reason}}
             end
 
           Enum.any?(existing, &turn_item_equal?(&1, candidate)) and length(existing) == 1 ->
@@ -808,30 +817,6 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
 
   defp turn_item_candidate(_turn, _entry),
     do: {:error, :invalid_background_agent_job_turn_items}
-
-  # Derives the stored trajectory-group projection for one accepted item. An
-  # item that projects no messages stays replay-only.
-  defp append_derived_group(repo, %Turn{} = turn, %TurnItem{} = item) do
-    case TurnItemProjection.project(item.item) do
-      {[], truncated} ->
-        {:ok, truncated}
-
-      {messages, truncated} ->
-        changeset =
-          TrajectoryGroup.changeset(%TrajectoryGroup{}, %{
-            turn_id: turn.id,
-            position: item.position,
-            revision: turn.revision,
-            item_key: item.item_key,
-            content: %{"messages" => messages}
-          })
-
-        case repo.insert(changeset) do
-          {:ok, _group} -> {:ok, truncated}
-          {:error, reason} -> {:error, reason}
-        end
-    end
-  end
 
   defp turn_item_equal?(stored, candidate) do
     stored.position == candidate.position and stored.item_key == candidate.item_key and
@@ -1133,43 +1118,9 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
       turns
       |> Enum.filter(&lead_turn?(&1, job.runtime_thread_id))
 
-    groups =
-      if lead_turns == [] do
-        []
-      else
-        turn_ids = Enum.map(lead_turns, & &1.id)
-
-        stored_by_turn =
-          TrajectoryGroup
-          |> where([group], group.turn_id in ^turn_ids)
-          |> Repo.all()
-          |> Enum.group_by(& &1.turn_id)
-
-        Enum.flat_map(lead_turns, fn turn ->
-          metadata = get_in(turn.trajectory || %{}, ["metadata"])
-          redacted = is_map(metadata) and metadata["redacted"] == true
-          source_truncated = is_map(metadata) and metadata["content_truncated"] == true
-
-          stored_by_turn
-          |> Map.get(turn.id, [])
-          |> Enum.sort_by(& &1.position)
-          |> Enum.map(fn group ->
-            {messages, projection_truncated} = bound_group(group.content["messages"])
-
-            %{
-              turn_id: group.turn_id,
-              position: group.position,
-              messages: messages,
-              redacted: redacted,
-              content_truncated: source_truncated or projection_truncated
-            }
-          end)
-        end)
-      end
-
-    with {:ok, older_groups} <- groups_before_cursor(groups, cursor) do
-      selected = select_page_groups(older_groups, limit)
-      has_more = length(older_groups) > length(selected)
+    with {:ok, units} <- newest_lead_units_before_cursor(lead_turns, cursor, limit + 1) do
+      selected = select_page_groups(units, limit)
+      has_more = length(units) > length(selected)
 
       metadata =
         %{}
@@ -1200,13 +1151,241 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
     end
   end
 
-  defp groups_before_cursor(groups, nil), do: {:ok, groups}
+  # Collects the newest `want` page units older than the cursor without
+  # loading the whole attempt: TurnItem rows arrive through a windowed query
+  # in newest-first (turn order, position) order and project in memory. A
+  # Turn recorded before the item stream existed has no item rows; its
+  # stored trajectory-group rows are its readable form, so the walk merges
+  # both sources. The returned list is chronological.
+  defp newest_lead_units_before_cursor([], nil, _want), do: {:ok, []}
 
-  defp groups_before_cursor(groups, %{turn_id: turn_id, position: position}) do
-    case Enum.find_index(groups, &(&1.turn_id == turn_id and &1.position == position)) do
-      nil -> {:error, :invalid_background_agent_job_trajectory_cursor}
-      index -> {:ok, Enum.take(groups, index)}
+  defp newest_lead_units_before_cursor([], _cursor, _want),
+    do: {:error, :invalid_background_agent_job_trajectory_cursor}
+
+  defp newest_lead_units_before_cursor(lead_turns, cursor, want) do
+    turn_ids = Enum.map(lead_turns, & &1.id)
+    turn_index = turn_ids |> Enum.with_index() |> Map.new()
+    meta_by_turn = Map.new(lead_turns, &{&1.id, page_turn_meta(&1)})
+
+    item_turn_id_set =
+      TurnItem
+      |> where([row], row.turn_id in ^turn_ids)
+      |> select([row], row.turn_id)
+      |> distinct(true)
+      |> Repo.all()
+      |> MapSet.new()
+
+    fallback_units =
+      turn_ids
+      |> Enum.reject(&MapSet.member?(item_turn_id_set, &1))
+      |> fallback_page_units(meta_by_turn)
+
+    with {:ok, cursor_key} <-
+           locate_page_cursor(cursor, turn_index, item_turn_id_set, fallback_units) do
+      item_turn_ids = Enum.filter(turn_ids, &MapSet.member?(item_turn_id_set, &1))
+
+      items = %{
+        buffer: [],
+        done: item_turn_ids == [],
+        boundary: item_window_boundary(cursor, turn_index, item_turn_id_set, item_turn_ids),
+        turn_ids: item_turn_ids,
+        turn_index: turn_index,
+        batch: want * @trajectory_item_window_factor,
+        meta: meta_by_turn
+      }
+
+      fallback =
+        fallback_units
+        |> Enum.filter(fn unit ->
+          cursor_key == nil or unit_sort_key(unit, turn_index) < cursor_key
+        end)
+        |> Enum.sort_by(&unit_sort_key(&1, turn_index), :desc)
+
+      {:ok, merge_newest_units(items, fallback, want, [])}
     end
+  end
+
+  # The cursor must hit one exact stored unit; anything else is invalid. An
+  # attempt mismatch was already rejected while decoding the cursor.
+  defp locate_page_cursor(nil, _turn_index, _item_turn_id_set, _fallback_units), do: {:ok, nil}
+
+  defp locate_page_cursor(
+         %{turn_id: turn_id, position: position},
+         turn_index,
+         item_turn_id_set,
+         fallback_units
+       ) do
+    cond do
+      not Map.has_key?(turn_index, turn_id) ->
+        {:error, :invalid_background_agent_job_trajectory_cursor}
+
+      MapSet.member?(item_turn_id_set, turn_id) ->
+        if cursor_item_unit_exists?(turn_id, position),
+          do: {:ok, {Map.fetch!(turn_index, turn_id), position}},
+          else: {:error, :invalid_background_agent_job_trajectory_cursor}
+
+      Enum.any?(fallback_units, &(&1.turn_id == turn_id and &1.position == position)) ->
+        {:ok, {Map.fetch!(turn_index, turn_id), position}}
+
+      true ->
+        {:error, :invalid_background_agent_job_trajectory_cursor}
+    end
+  end
+
+  defp cursor_item_unit_exists?(turn_id, position) do
+    case Repo.get_by(TurnItem, turn_id: turn_id, position: position) do
+      nil -> false
+      %TurnItem{item: item} -> match?({[_ | _], _}, TurnItemProjection.project(item))
+    end
+  end
+
+  defp item_window_boundary(nil, _turn_index, _item_turn_id_set, _item_turn_ids), do: nil
+
+  defp item_window_boundary(
+         %{turn_id: turn_id, position: position},
+         turn_index,
+         item_turn_id_set,
+         item_turn_ids
+       ) do
+    cursor_index = Map.fetch!(turn_index, turn_id)
+
+    older_turn_ids =
+      Enum.filter(item_turn_ids, &(Map.fetch!(turn_index, &1) < cursor_index))
+
+    if MapSet.member?(item_turn_id_set, turn_id),
+      do: {turn_id, position, older_turn_ids},
+      else: {nil, position, older_turn_ids}
+  end
+
+  defp merge_newest_units(_items, _fallback, 0, acc), do: acc
+
+  defp merge_newest_units(items, fallback, want, acc) do
+    {item_unit, items} = peek_item_unit(items)
+
+    case {item_unit, fallback} do
+      {nil, []} ->
+        acc
+
+      {nil, [unit | rest]} ->
+        merge_newest_units(items, rest, want - 1, [unit | acc])
+
+      {unit, []} ->
+        merge_newest_units(pop_item_unit(items), [], want - 1, [unit | acc])
+
+      {unit, [fallback_unit | rest]} ->
+        if unit_sort_key(unit, items.turn_index) >
+             unit_sort_key(fallback_unit, items.turn_index) do
+          merge_newest_units(pop_item_unit(items), fallback, want - 1, [unit | acc])
+        else
+          merge_newest_units(items, rest, want - 1, [fallback_unit | acc])
+        end
+    end
+  end
+
+  defp unit_sort_key(unit, turn_index), do: {Map.fetch!(turn_index, unit.turn_id), unit.position}
+
+  defp peek_item_unit(%{buffer: [unit | _rest]} = items), do: {unit, items}
+  defp peek_item_unit(%{done: true} = items), do: {nil, items}
+
+  defp peek_item_unit(items) do
+    rows = fetch_item_window(items)
+
+    items = %{
+      items
+      | done: length(rows) < items.batch,
+        boundary: next_item_window_boundary(rows, items),
+        buffer: Enum.flat_map(rows, &item_page_unit(&1, items.meta))
+    }
+
+    peek_item_unit(items)
+  end
+
+  defp pop_item_unit(%{buffer: [_unit | rest]} = items), do: %{items | buffer: rest}
+
+  defp fetch_item_window(%{turn_ids: turn_ids, boundary: boundary, batch: batch}) do
+    TurnItem
+    |> join(:inner, [row], turn in Turn, on: turn.id == row.turn_id)
+    |> where([row], row.turn_id in ^turn_ids)
+    |> item_window_below(boundary)
+    |> order_by([row, turn], desc: turn.started_at, desc: turn.id, desc: row.position)
+    |> limit(^batch)
+    |> Repo.all()
+  end
+
+  defp item_window_below(query, nil), do: query
+
+  defp item_window_below(query, {nil, _position, older_turn_ids}),
+    do: where(query, [row], row.turn_id in ^older_turn_ids)
+
+  defp item_window_below(query, {turn_id, position, older_turn_ids}) do
+    where(
+      query,
+      [row],
+      (row.turn_id == ^turn_id and row.position < ^position) or
+        row.turn_id in ^older_turn_ids
+    )
+  end
+
+  defp next_item_window_boundary([], %{boundary: boundary}), do: boundary
+
+  defp next_item_window_boundary(rows, items) do
+    last = List.last(rows)
+    last_index = Map.fetch!(items.turn_index, last.turn_id)
+
+    older_turn_ids =
+      Enum.filter(items.turn_ids, &(Map.fetch!(items.turn_index, &1) < last_index))
+
+    {last.turn_id, last.position, older_turn_ids}
+  end
+
+  defp item_page_unit(%TurnItem{} = row, meta_by_turn) do
+    case TurnItemProjection.project(row.item) do
+      {[], _truncated} ->
+        []
+
+      {messages, projection_truncated} ->
+        {bounded, bound_truncated} = bound_group(messages)
+        meta = Map.fetch!(meta_by_turn, row.turn_id)
+
+        [
+          %{
+            turn_id: row.turn_id,
+            position: row.position,
+            messages: bounded,
+            redacted: meta.redacted,
+            content_truncated: meta.content_truncated or projection_truncated or bound_truncated
+          }
+        ]
+    end
+  end
+
+  defp fallback_page_units([], _meta_by_turn), do: []
+
+  defp fallback_page_units(turn_ids, meta_by_turn) do
+    TrajectoryGroup
+    |> where([group], group.turn_id in ^turn_ids)
+    |> Repo.all()
+    |> Enum.map(fn group ->
+      {bounded, bound_truncated} = bound_group(group.content["messages"])
+      meta = Map.fetch!(meta_by_turn, group.turn_id)
+
+      %{
+        turn_id: group.turn_id,
+        position: group.position,
+        messages: bounded,
+        redacted: meta.redacted,
+        content_truncated: meta.content_truncated or bound_truncated
+      }
+    end)
+  end
+
+  defp page_turn_meta(%Turn{} = turn) do
+    metadata = get_in(turn.trajectory || %{}, ["metadata"])
+
+    %{
+      redacted: is_map(metadata) and metadata["redacted"] == true,
+      content_truncated: is_map(metadata) and metadata["content_truncated"] == true
+    }
   end
 
   defp select_page_groups(groups, limit) do
@@ -1486,12 +1665,61 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
   end
 
   defp trajectory_messages_by_turn(turn_ids) do
+    turn_ids
+    |> projection_units_by_turn()
+    |> Map.new(fn {turn_id, units} ->
+      {turn_id, Enum.flat_map(units, & &1.messages)}
+    end)
+  end
+
+  # Returns the position-ordered message units of each Turn, projected from
+  # the stored TurnItem stream. An item whose projection is empty stays
+  # replay-only. A Turn recorded before the item stream existed has no item
+  # rows; its stored trajectory-group rows stay the readable form.
+  defp projection_units_by_turn([]), do: %{}
+
+  defp projection_units_by_turn(turn_ids) do
+    items_by_turn =
+      TurnItem
+      |> where([row], row.turn_id in ^turn_ids)
+      |> order_by([row], asc: row.turn_id, asc: row.position)
+      |> Repo.all()
+      |> Enum.group_by(& &1.turn_id)
+
+    item_units =
+      Map.new(items_by_turn, fn {turn_id, rows} ->
+        {turn_id,
+         Enum.flat_map(rows, fn row ->
+           case TurnItemProjection.project(row.item) do
+             {[], _truncated} ->
+               []
+
+             {messages, truncated} ->
+               [%{position: row.position, messages: messages, truncated: truncated}]
+           end
+         end)}
+      end)
+
+    turn_ids
+    |> Enum.reject(&Map.has_key?(item_units, &1))
+    |> group_units_by_turn()
+    |> Map.merge(item_units)
+  end
+
+  defp group_units_by_turn([]), do: %{}
+
+  defp group_units_by_turn(turn_ids) do
     TrajectoryGroup
     |> where([group], group.turn_id in ^turn_ids)
     |> order_by([group], asc: group.turn_id, asc: group.position)
     |> Repo.all()
-    |> Enum.group_by(& &1.turn_id, &Map.get(&1.content, "messages", []))
-    |> Map.new(fn {turn_id, message_groups} -> {turn_id, Enum.concat(message_groups)} end)
+    |> Enum.group_by(& &1.turn_id, fn group ->
+      %{
+        position: group.position,
+        messages: Map.get(group.content, "messages", []),
+        truncated: false
+      }
+    end)
   end
 
   defp empty_progress do

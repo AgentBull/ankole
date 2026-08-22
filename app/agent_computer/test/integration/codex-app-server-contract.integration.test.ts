@@ -24,8 +24,8 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
-import { CodexAppServerClient, type JSONRPCMessage } from '../../src/core/codex-runner/app-server-client'
-import { codexHomeRuntimeLockPath } from '../../src/core/codex-runner/codex-home-lock'
+import { CodexAppServerClient, type JSONRPCMessage } from '../../src/core/codex-runner/runtime/app-server-client'
+import { codexHomeRuntimeLockPath } from '../../src/core/codex-runner/runtime/codex-home-lock'
 import type { ListMcpServerStatusResponse } from '../../src/core/codex-runner/generated/protocol/v2/ListMcpServerStatusResponse'
 import type { McpServerToolCallResponse } from '../../src/core/codex-runner/generated/protocol/v2/McpServerToolCallResponse'
 import type { ThreadStartResponse } from '../../src/core/codex-runner/generated/protocol/v2/ThreadStartResponse'
@@ -33,24 +33,27 @@ import {
   materializeCodexConfig,
   refreshCodexAgentRuntimeCredential,
   resetCodexAgentRuntimeConfig
-} from '../../src/core/codex-runner/agent-home-config'
-import { codexAgentRuntimeSandboxSpec, codexJobThreadEnv } from '../../src/core/codex-runner/sandbox'
-import { materializeCodexJobRuntimeFiles, renderCodexJobAgents } from '../../src/core/codex-runner/runtime-files'
-import { prepareCodexJobProject } from '../../src/core/codex-runner/job-project'
-import { materializeCodexJobProjectConfig, readCodexJobProjectConfig } from '../../src/core/codex-runner/project-config'
-import { codexJobThreadConfig } from '../../src/core/codex-runner/thread-config'
+} from '../../src/core/codex-runner/runtime/agent-home-config'
+import { codexAgentRuntimeSandboxSpec, codexJobThreadEnv } from '../../src/core/codex-runner/runtime/sandbox'
+import { materializeCodexJobRuntimeFiles, renderCodexJobAgents } from '../../src/core/codex-runner/job/runtime-files'
+import { prepareCodexJobProject } from '../../src/core/codex-runner/job/job-project'
+import {
+  materializeCodexJobProjectConfig,
+  readCodexJobProjectConfig
+} from '../../src/core/codex-runner/job/project-config'
+import { codexJobThreadConfig } from '../../src/core/codex-runner/job/thread-config'
 import {
   materializeAgentPluginPackages,
   materializeSelectedAgentPlugins,
   prepareAgentPlugins,
   selectAgentPluginCapabilities
-} from '../../src/core/codex-runner/agent-plugin-materializer'
+} from '../../src/core/codex-runner/runtime/agent-plugin-materializer'
 import {
   AgentCodexRuntime,
   AgentCodexRuntimeManager,
   type AgentCodexRuntimeLease,
   type AgentCodexRuntimeSession
-} from '../../src/core/codex-runner/agent-runtime-manager'
+} from '../../src/core/codex-runner/runtime/agent-runtime-manager'
 import { rpcMethods, type RPCRequester } from '../../src/lanes/rpc_lane'
 import type { CodexRuntimeConfig } from '../../src/core/codex-runner/runtime-config'
 import { errorMessage } from '../../src/common/errors'

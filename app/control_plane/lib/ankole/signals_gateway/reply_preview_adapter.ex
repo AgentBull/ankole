@@ -4,7 +4,7 @@ defmodule Ankole.SignalsGateway.ReplyPreviewAdapter do
 
   SignalsGateway owns the semantic presentation and its PostgreSQL checkpoint;
   adapters own only the provider handle and provider-native mutations. This
-  keeps Slack Block Kit and Lark CardKit data out of worker events while each IM
+  keeps Slack Block Kit and Lark CardKit data out of worker events while each
   adapter implements its own transport rules.
   """
 

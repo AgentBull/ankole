@@ -477,7 +477,7 @@ compatibility branch。
 | --- | --- | --- |
 | 声明解析和配置生成 | `app/agent_computer/src/tools/mcp/config.ts`、`mcporter-config.ts` | 严格声明、冲突、filters、`imports: []`、0600 和清理 |
 | Main Agent | `app/agent_computer/src/core/turns/text_turn.ts` | 不再投影 MCP tools，只向 command sandbox 注入配置 |
-| Background Agent Job | `app/agent_computer/src/core/codex-runner/setup.ts`、`project-config.ts` | 注入同一 Skill mcporter 配置，并删除模板或恢复项目中的 `mcp_servers` |
+| Background Agent Job | `app/agent_computer/src/core/codex-runner/job/setup.ts`、`job/project-config.ts` | 注入同一 Skill mcporter 配置，并删除模板或恢复项目中的 `mcp_servers` |
 | Automation Control Plane | `rpc.proto`、`ExecuteRun`、`RPCWire` | 每个 attempt 投影当前 enabled Skill summaries，不复制 Skill 内容 |
 | Automation Worker | `app/agent_computer/src/automation-jobs/run.ts` | 用 Agent roots 解析声明，在脚本启动前失败并在结束后清理 |
 | BullX 模型路由 | `internals/skills/bullx-financial-data/` | 精确工具选择、单工具 schema、stdin JSON 和结果完整性 |

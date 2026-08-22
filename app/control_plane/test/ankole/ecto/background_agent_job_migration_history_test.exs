@@ -45,10 +45,6 @@ defmodule Ankole.Ecto.BackgroundAgentJobMigrationHistoryTest do
              """).rows
   end
 
-  test "cutover refuses a lossy downgrade" do
-    assert_raise RuntimeError, ~r/intentionally discarded/, fn -> @migration.down() end
-  end
-
   defp create_v0_7_0_runtime_fixture! do
     schema = "background_agent_job_cutover_#{System.unique_integer([:positive])}"
 

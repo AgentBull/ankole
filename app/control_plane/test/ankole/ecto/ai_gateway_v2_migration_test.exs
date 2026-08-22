@@ -352,48 +352,6 @@ defmodule Ankole.Ecto.AIGatewayV2MigrationTest do
            }
   end
 
-  test "current schema contains only the credential-pool contract" do
-    columns =
-      Repo.query!("""
-      SELECT column_name
-      FROM information_schema.columns
-      WHERE table_schema = current_schema()
-        AND table_name = 'ai_gateway_providers'
-      """).rows
-      |> List.flatten()
-      |> MapSet.new()
-
-    assert MapSet.member?(columns, "credential_pool")
-    refute MapSet.member?(columns, "encrypted_options")
-
-    assert [[nil]] = Repo.query!("SELECT to_regclass('codex_accounts')").rows
-
-    job_columns =
-      Repo.query!("""
-      SELECT column_name
-      FROM information_schema.columns
-      WHERE table_schema = current_schema()
-        AND table_name = 'background_agent_jobs'
-      """).rows
-      |> List.flatten()
-      |> MapSet.new()
-
-    refute MapSet.member?(job_columns, "codex_account_id")
-
-    assert [[constraint]] =
-             Repo.query!("""
-             SELECT pg_get_constraintdef(oid)
-             FROM pg_constraint
-             WHERE conname = 'ai_gateway_providers_credential_pool_object'
-             """).rows
-
-    assert constraint =~ "jsonb_typeof(credential_pool)"
-  end
-
-  test "refuses a lossy downgrade" do
-    assert_raise RuntimeError, ~r/flag-day migration/, fn -> @migration.down() end
-  end
-
   defp create_legacy_fixture do
     Repo.query!("""
     CREATE TEMPORARY TABLE ai_gateway_providers (

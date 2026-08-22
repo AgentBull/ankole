@@ -12,17 +12,19 @@ defmodule Ankole.Plugins.SlackAdapterTest do
     BlockKit,
     Channels,
     Config,
+    ConnectionReconciler,
+    ConnectionSupervisor,
     Dispatcher,
     Emoji,
     ErrorPolicy,
     IdentityProvider,
     Inbound,
     Mrkdwn,
-    Outbox,
-    ReplyPreview
+    Outbox
   }
 
   alias Ankole.Repo
+  alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.{AdapterContext, InboundBatch, OutboxEntry}
   alias SlackOpenAPI.Event
   alias SlackOpenAPI.SocketMode.Dispatcher, as: SocketDispatcher
@@ -64,15 +66,8 @@ defmodule Ankole.Plugins.SlackAdapterTest do
 
       assert Enum.all?(SlackAdapter.app_config_patterns(), & &1.encrypted)
 
-      [chat, identity] = SlackAdapter.adapter_declarations()
-      chat_fields = Map.new(chat.fields, &{&1.path, &1})
+      [_chat, identity] = SlackAdapter.adapter_declarations()
       fields = Map.new(identity.fields, &{&1.path, &1})
-
-      assert chat_fields["botToken"].advanced == false
-      assert chat_fields["appToken"].advanced == false
-      assert chat_fields["platformSubjectNamespace"].advanced == true
-      assert chat_fields["userName"].advanced == true
-      assert chat.reply_preview_module == ReplyPreview
 
       assert fields["botToken"].requiredWhen == [%{path: "sync.contacts", value: true}]
       assert fields["botToken"].validation.pattern == "^xoxb-"
@@ -83,13 +78,6 @@ defmodule Ankole.Plugins.SlackAdapterTest do
              ]
 
       assert fields["appToken"].validation.pattern == "^xapp-"
-      assert fields["clientID"].description["zh-Hans-CN"] =~ "App Credentials"
-      assert fields["botToken"].label["zh-Hans-CN"] == "Bot User OAuth Token"
-      assert fields["appToken"].label["zh-Hans-CN"] == "App-Level Token"
-      assert fields["oidc.scopes"].label["zh-Hans-CN"] == "登录权限范围"
-      assert fields["sync.contacts"].label["zh-Hans-CN"] == "同步通讯录"
-      assert fields["sync.websocket"].label["zh-Hans-CN"] == "实时同步通讯录变更"
-      assert fields["sync.pageSize"].label["zh-Hans-CN"] == "每页同步数量"
     end
 
     test "chat validation enforces token types and stable fingerprints" do
@@ -552,8 +540,11 @@ defmodule Ankole.Plugins.SlackAdapterTest do
       assert {:ok, [%{status: :accepted, actor_event: actor_event}]} =
                Inbound.handle_block_action("block_actions", action, [consumer])
 
+      assert {:ok, operator} =
+               Ankole.Principals.resolve_platform_subject("slack-main", "U-ACTION")
+
       assert actor_event.payload["data"]["action"]["operator_id"] == "U-ACTION"
-      assert actor_event.payload["data"]["action"]["operator_principal_uid"] == "u-action"
+      assert actor_event.payload["data"]["action"]["operator_principal_uid"] == operator.uid
       assert actor_event.payload["data"]["action"]["value"] == %{"custom" => "value"}
     end
 
@@ -687,6 +678,69 @@ defmodule Ankole.Plugins.SlackAdapterTest do
                IdentityProvider.handle_contact_event("subteam_updated", disabled, [consumer])
 
       refute Repo.get_by(Membership, principal_uid: u2.principal.uid, group_id: group_id)
+    end
+  end
+
+  describe "connection reconciliation" do
+    test "a rotated bot token restarts the owner under the same app token" do
+      config = chat_config(%{"appToken" => "xapp-reconcile-rotate"})
+      key = Config.connection_key(config)
+
+      context =
+        AdapterContext.new(
+          agent_uid: "slack-rotate-agent",
+          binding_name: "slack-reconcile-rotate",
+          adapter: "slack",
+          user_name: "Slack"
+        )
+
+      assert {:ok, old_owner} =
+               ConnectionSupervisor.ensure_started(config, [
+                 Inbound.chat_consumer(context, config)
+               ])
+
+      on_exit(fn -> ConnectionSupervisor.stop(key) end)
+
+      rotated = Map.put(config, "botToken", "xoxb-rotated")
+      assert Config.connection_key(rotated) == key
+
+      assert {:ok, new_owner} =
+               ConnectionSupervisor.ensure_started(rotated, [
+                 Inbound.chat_consumer(context, rotated)
+               ])
+
+      refute Process.alive?(old_owner)
+      assert Process.alive?(new_owner)
+      refute new_owner == old_owner
+    end
+
+    test "the reconciler stops the owner after its binding is disabled" do
+      %{principal: agent} = agent_fixture()
+      binding_name = "slack-reconcile-stop"
+      config = chat_config(%{"appToken" => "xapp-reconcile-stop", "botUserID" => "U0STOP"})
+      key = Config.connection_key(config)
+
+      binding_fixture(agent.uid, binding_name, :ignore, adapter: "slack")
+
+      context =
+        AdapterContext.new(
+          agent_uid: agent.uid,
+          binding_name: binding_name,
+          adapter: "slack",
+          user_name: "Slack"
+        )
+
+      assert {:ok, owner} =
+               ConnectionSupervisor.ensure_started(config, [
+                 Inbound.chat_consumer(context, config)
+               ])
+
+      on_exit(fn -> ConnectionSupervisor.stop(key) end)
+
+      assert {:ok, _binding} = SignalsGateway.disable_binding(agent.uid, binding_name)
+
+      assert %{started: 0, stopped: 1, errors: []} = ConnectionReconciler.reconcile_once()
+      refute Process.alive?(owner)
     end
   end
 

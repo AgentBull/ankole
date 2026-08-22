@@ -51,7 +51,7 @@ Agent ページで **MISSION / SOUL / DESIGN** を開きます。
 
 高度な設定には、選択した Provider が宣言したオプションだけが表示されます。**Reasoning summary** は Responses API だけに適用されます。**Answer detail** は応答の既定の詳しさを設定します。**Service tier** は、このモデルプロファイルの request tier を上書きします。使用できる値は Provider、アカウント、モデルによって異なります。空のままにすると Provider のデフォルト値を使います。
 
-最初の LLM Provider とモデルのセットアップは、[Quick start](../quickstart/#3-add-an-llm-provider-and-create-an-agent)を参照してください。
+最初の LLM Provider とモデルのセットアップは、[Quick start](../quickstart/#llm-providers)を参照してください。
 
 ## 機能と環境変数を設定する
 
@@ -87,4 +87,4 @@ Skill、コマンドラインツール、または MCP サービスが API key �
 4. 少なくとも 1 つの worker が準備完了である。
 5. **Console → Conversations** にメッセージが含まれ、役立つエラーが表示されている。
 
-channel 固有の確認は、[Quick start のトラブルシューティング](../quickstart/#if-the-agent-does-not-reply)を参照してください。
+channel 固有の確認は、[Quick start のトラブルシューティング](../quickstart/#agent-not-replying)を参照してください。

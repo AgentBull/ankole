@@ -35,7 +35,7 @@ If Workers show different files, repair the storage mounts instead of uploading 
 
 An upload creates missing subdirectories. Use stable names such as `customer-research/2026-q3-interviews.pdf`. Do not put every file at the root, and avoid names such as `final-v2-new.pdf` that do not identify the content.
 
-Uploading makes the file readable. It does not start work. Tell the Agent to use it in chat. To turn the material into durable knowledge, submit it through **Learn source** as described in [Long-term memory](../memory/).
+Uploading makes the file readable. It does not start work. Tell the Agent to use it in chat. To turn the material into durable knowledge, submit it through **Learn source**.
 
 ## Download Agent artifacts
 

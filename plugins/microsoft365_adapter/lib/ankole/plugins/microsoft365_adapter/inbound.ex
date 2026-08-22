@@ -116,7 +116,8 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
                "conversation_type" => conversation_type,
                "service_url" => MapHelpers.optional_text(activity, "serviceUrl"),
                "tenant_id" => tenant_id(activity),
-               "team_id" => team_id(activity)
+               "team_id" => team_id(activity),
+               "app_id" => config["appID"]
              }),
            raw_payload:
              MapHelpers.compact_map(MapHelpers.fetch_map(activity, "conversation", %{}))

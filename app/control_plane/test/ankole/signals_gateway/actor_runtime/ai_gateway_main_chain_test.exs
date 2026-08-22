@@ -553,9 +553,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
   end
 
   defp complete_turn(turn_ref, final_response, outcome \\ "loop_finished") do
-    ActorRuntime.handle_turn_completed(
-      turn_completed_payload(turn_ref, "resp_#{final_response.id}", outcome)
-    )
+    commit_turn_completion(turn_ref, "resp_#{final_response.id}", outcome)
   end
 
   # StatefulResponses is an internal storage API. The caller-owned metadata

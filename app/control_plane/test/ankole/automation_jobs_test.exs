@@ -1,4 +1,6 @@
 defmodule Ankole.AutomationJobsTest do
+  # Serial because cron creation reads `system.timezone` through the shared
+  # AppConfigure ETS cache, which needs the shared sandbox connection.
   use Ankole.DataCase, async: false
 
   import Ankole.PrincipalsFixtures
@@ -339,8 +341,13 @@ defmodule Ankole.AutomationJobsTest do
                  },
                  "payload" => %{"task" => "check deterministic state"},
                  "delivery" => %{
-                   "signal_channel_id" => source.signal_channel_id,
-                   "provider_thread_id" => source.provider_thread_id
+                   "targets" => [
+                     %{
+                       "binding_name" => source.binding_name,
+                       "signal_channel_id" => source.signal_channel_id,
+                       "provider_thread_id" => source.provider_thread_id
+                     }
+                   ]
                  },
                  "idempotency_key" => "automation-cron-#{System.unique_integer([:positive])}",
                  "automation_job_id" => job.id

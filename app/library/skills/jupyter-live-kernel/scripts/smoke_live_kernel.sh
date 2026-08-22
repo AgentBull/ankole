@@ -47,12 +47,11 @@ python - <<'PY'
 import json
 import os
 import pathlib
-import pathlib
 
 notebook_dir = pathlib.Path(os.environ.get("NOTEBOOK_DIR", str(pathlib.Path.home() / "user-files/notebooks")))
 path = notebook_dir / os.environ.get("NOTEBOOK_PATH", "scratch.ipynb")
 path.write_text(json.dumps({
-    "cells": [{"cell_type": "code", "execution_count": None, "metadata": {}, "outputs": [], "source": ""}],
+    "cells": [{"cell_type": "code", "execution_count": None, "id": "smoke-cell", "metadata": {}, "outputs": [], "source": ""}],
     "metadata": {"kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"}},
     "nbformat": 4,
     "nbformat_minor": 5
@@ -65,22 +64,43 @@ curl -sf --unix-socket "$JUPYTER_SOCKET" -X POST "http://localhost/api/sessions"
   > "$SESSION_TEMP/jupyter-smoke-session.json"
 
 python "$SCRIPT" servers --compact > "$SESSION_TEMP/jupyter-smoke-servers.json"
-python "$SCRIPT" execute --socket "$JUPYTER_SOCKET" --path "$NOTEBOOK_PATH" --code $'x = 41\nprint(x)' --compact \
+python "$SCRIPT" execute --socket "$JUPYTER_SOCKET" --path "$NOTEBOOK_PATH" \
+  --code $'x = 41\nprint("n" * 50000)' --compact \
   > "$SESSION_TEMP/jupyter-smoke-step1.json"
-python "$SCRIPT" execute --socket "$JUPYTER_SOCKET" --path "$NOTEBOOK_PATH" --code 'x + 1' --compact \
+python "$SCRIPT" execute --socket "$JUPYTER_SOCKET" --path "$NOTEBOOK_PATH" --cell-id smoke-cell \
+  --code $'print("s" * 50000)\nx + 1' --compact \
   > "$SESSION_TEMP/jupyter-smoke-step2.json"
 
 python - <<'PY'
 import json
 import os
+import pathlib
 
 session_temp = pathlib.Path(os.environ.get("SESSION_TEMP", str(pathlib.Path.cwd() / "temp")))
+no_save = json.load(open(session_temp / "jupyter-smoke-step1.json"))
+no_save_text = next(event["text"] for event in no_save["events"] if event["type"] == "stream")
+assert "[truncated " in no_save_text, no_save_text
+assert no_save["outputs_saved"] is False, no_save
+
 result = json.load(open(session_temp / "jupyter-smoke-step2.json"))
 texts = [event.get("data", {}).get("text/plain") for event in result["events"]]
 assert "42" in texts, texts
 assert result["transport"] == "websocket+unix", result
+saved_text = next(event["text"] for event in result["events"] if event["type"] == "stream")
+assert "[truncated " in saved_text, saved_text
+assert result["outputs_saved"] is True, result
+
 servers = json.load(open(session_temp / "jupyter-smoke-servers.json"))["servers"]
 expected_socket = os.environ.get("JUPYTER_SOCKET", str(session_temp / "jupyter-smoke.sock"))
 assert any(server["server"]["socket"] == expected_socket for server in servers), servers
+
+notebook_dir = pathlib.Path(os.environ.get("NOTEBOOK_DIR", str(pathlib.Path.home() / "user-files/notebooks")))
+notebook = json.load(open(notebook_dir / os.environ.get("NOTEBOOK_PATH", "scratch.ipynb")))
+cell = next(cell for cell in notebook["cells"] if cell.get("id") == "smoke-cell")
+stream_output = next(output for output in cell["outputs"] if output["output_type"] == "stream")
+notebook_text = stream_output["text"]
+if isinstance(notebook_text, list):
+    notebook_text = "".join(notebook_text)
+assert notebook_text == ("s" * 50000) + "\n", len(notebook_text)
 print("JUPYTER_LIVE_KERNEL_SMOKE_OK")
 PY

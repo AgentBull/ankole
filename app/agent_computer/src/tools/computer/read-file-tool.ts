@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { defineWorkerTool, type AgentToolResult, type WorkerAgentTool } from '../../core'
 import { compactActivityPath } from '../activity-summary'
 import type { ComputerToolContext } from './context'
-import { MAX_READ_CHARS, looksBinary, numberLines } from './format'
+import { MAX_READ_CHARS, looksBinary, renderNumberedWindow } from './format'
 
 const ReadFileParams = z.object({
   path: z.string().min(1).describe('Text file to read (absolute, relative, or ~/path).'),
@@ -45,13 +45,17 @@ export function createReadFileTool(
     },
     async execute(_toolCallId, params, signal): Promise<AgentToolResult<ReadFileDetails>> {
       const computer = await context.getComputer(signal)
-      const buffer = await computer.readFileToBuffer(
-        { path: params.path, cwd: params.cwd ?? params.workdir },
+      // Default window is the first 500 lines from line 1; the model widens or moves it
+      // via offset/limit. The sandbox reader streams the file and returns only this
+      // window plus the binary-sniff prefix, so a huge file never materializes here.
+      const start = Math.max(1, params.offset ?? 1)
+      const window = await computer.readFileWindow(
+        { path: params.path, cwd: params.cwd ?? params.workdir, offset: start, limit: params.limit ?? 500 },
         { signal }
       )
       // Missing file is a normal outcome, not an exception: report it as text with
       // found:false so the model can react instead of the whole tool call erroring out.
-      if (!buffer) {
+      if (!window) {
         return {
           content: [{ type: 'text', text: `File not found: ${params.path}` }],
           details: { path: params.path, found: false, totalLines: 0, truncated: false }
@@ -59,7 +63,7 @@ export function createReadFileTool(
       }
       // Refuse binaries up front: feeding raw bytes to the model is useless and pollutes
       // context. The model is told to use an image/binary-aware tool instead.
-      if (looksBinary(buffer)) {
+      if (looksBinary(window.sniff)) {
         return {
           content: [
             {
@@ -71,13 +75,12 @@ export function createReadFileTool(
         }
       }
 
-      // Default window is the first 500 lines from line 1; the model widens or moves it
-      // via offset/limit. Line numbering happens here, before the size check, because the
-      // rendered (numbered) text is what counts against the budget.
-      const { endLine, startLine, text, totalLines, truncated } = numberLines(
-        buffer.toString('utf-8'),
-        params.offset ?? 1,
-        params.limit ?? 500
+      // Line numbering happens here, before the size check, because the rendered
+      // (numbered) text is what counts against the budget.
+      const { endLine, startLine, text, totalLines, truncated } = renderNumberedWindow(
+        window.lines,
+        start,
+        window.totalLines
       )
       // Even within the line limit the rendered text can be huge (very long lines).
       // Rather than truncate and risk hiding the part the model wanted, reject the read

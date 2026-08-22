@@ -66,26 +66,23 @@ export interface NumberedLines {
 }
 
 /**
- * Renders `LINE_NUM|CONTENT` with 1-indexed pagination (the read_file format). Line
+ * Renders `LINE_NUM|CONTENT` for one pre-sliced page (the read_file format). Line
  * numbers are 1-based to match what an editor shows the user, so the model can refer to
- * a line the same way a person would. `offset` is clamped to >= 1 so a 0/negative value
- * does not slice from the wrong place.
+ * a line the same way a person would.
  *
- * @param offset - 1-based first line to emit.
- * @param limit - Maximum lines to emit from `offset`.
+ * @param lines - The window `[startLine, startLine + lines.length)`, already sliced by
+ *          the sandbox reader. Each line arrives clipped to its first 8 KB of bytes,
+ *          which always covers the 2000-char clip below unless sanitization strips
+ *          most of a line's first 8 KB (accepted: such a line renders from its
+ *          retained prefix only).
  * @returns The numbered text, the file's total line count, and whether more lines remain
  *          past this page (so read_file can hint that the model should continue).
  */
-export function numberLines(content: string, offset: number, limit: number): NumberedLines {
-  const lines = content.split('\n')
-  if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop() // trailing newline
-  const totalLines = lines.length
-  const start = Math.max(1, offset)
-  const slice = lines.slice(start - 1, start - 1 + limit)
-  const endLine = slice.length === 0 ? start - 1 : start + slice.length - 1
-  const text = slice
+export function renderNumberedWindow(lines: string[], startLine: number, totalLines: number): NumberedLines {
+  const endLine = lines.length === 0 ? startLine - 1 : startLine + lines.length - 1
+  const text = lines
     .map((line, index) => {
-      const lineNumber = start + index
+      const lineNumber = startLine + index
       const safeLine = sanitizeBinaryOutput(line)
       // Over-long single lines are clipped with a marker so one pathological line can't
       // blow past the read budget while the rest of the page is still useful.
@@ -97,8 +94,8 @@ export function numberLines(content: string, offset: number, limit: number): Num
     })
     .join('\n')
   // `truncated` is true when the page stopped short of the end of file (more to read),
-  // computed from where the slice ended rather than whether `limit` was hit.
-  return { endLine, startLine: start, text, totalLines, truncated: totalLines > start - 1 + slice.length }
+  // computed from where the window ended rather than whether the limit was hit.
+  return { endLine, startLine, text, totalLines, truncated: totalLines > startLine - 1 + lines.length }
 }
 
 /**

@@ -366,6 +366,54 @@ defmodule Ankole.AIAgent.LibraryTest do
              Repo.get_by!(AgentSkill, agent_uid: agent.uid, skill_name: "lark-im")
   end
 
+  test "a sync with unchanged sources rewrites no registry rows" do
+    %{principal: agent} = agent_fixture()
+    frozen = ~U[2020-01-01 00:00:00.000000Z]
+
+    {row_count, _rows} =
+      AgentSkill
+      |> where([skill], skill.agent_uid == ^agent.uid)
+      |> Repo.update_all(set: [synced_at: frozen, updated_at: frozen])
+
+    assert row_count > 0
+    assert {:ok, %{changed: false}} = Library.sync_agent_skills(agent.uid)
+
+    refreshed =
+      AgentSkill
+      |> where([skill], skill.agent_uid == ^agent.uid)
+      |> Repo.all()
+
+    assert length(refreshed) == row_count
+    assert Enum.all?(refreshed, &(&1.synced_at == frozen and &1.updated_at == frozen))
+  end
+
+  test "a sync rewrites only the skill row whose source content changed" do
+    %{principal: agent} = agent_fixture()
+    frozen = ~U[2020-01-01 00:00:00.000000Z]
+
+    AgentSkill
+    |> where([skill], skill.agent_uid == ^agent.uid)
+    |> Repo.update_all(set: [synced_at: frozen, updated_at: frozen])
+
+    AgentSkill
+    |> where([skill], skill.agent_uid == ^agent.uid and skill.skill_name == "pdf")
+    |> Repo.update_all(set: [description: "Stale description."])
+
+    assert {:ok, %{changed: true}} = Library.sync_agent_skills(agent.uid)
+
+    pdf = Repo.get_by!(AgentSkill, agent_uid: agent.uid, skill_name: "pdf")
+    refute pdf.description == "Stale description."
+    assert DateTime.after?(pdf.synced_at, frozen)
+
+    untouched =
+      AgentSkill
+      |> where([skill], skill.agent_uid == ^agent.uid and skill.skill_name != "pdf")
+      |> Repo.all()
+
+    assert untouched != []
+    assert Enum.all?(untouched, &(&1.synced_at == frozen and &1.updated_at == frozen))
+  end
+
   test "source reader uses runtime roots, internal shadowing, and metadata-only fingerprints" do
     root = tmp_library_root!("source-reader")
     public_skill = Path.join([root, "library", "skills", "shadowed"])

@@ -1201,9 +1201,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorTurnCompletionTest do
   end
 
   defp complete_turn(turn_ref, final, outcome \\ "loop_finished") do
-    ActorRuntime.handle_turn_completed(
-      turn_completed_payload(turn_ref, "resp_#{final.id}", outcome)
-    )
+    commit_turn_completion(turn_ref, "resp_#{final.id}", outcome)
   end
 
   defp assert_turn_remains_open(event) do

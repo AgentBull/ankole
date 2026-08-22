@@ -168,13 +168,16 @@ defmodule Ankole.PrincipalsTest do
 
   describe "platform subjects" do
     test "upsert_platform_subject_human/1 converges repeated observations on one Principal" do
+      # The uid attr is the admission-binding path: it points the first-seen
+      # subject at a Principal a human reviewer already matched.
+      %{principal: existing} = human_fixture(%{uid: "alice", email: "alice@example.com"})
+
       assert {:ok, first} =
                Principals.upsert_platform_subject_human(%{
                  provider: "lark-main",
                  external_id: "ou_user_1",
-                 uid: "Alice",
+                 uid: existing.uid,
                  display_name: "Alice",
-                 email: "alice@example.com",
                  metadata: %{"tenant_key" => "tenant_a"}
                })
 
@@ -228,17 +231,15 @@ defmodule Ankole.PrincipalsTest do
                Principals.upsert_platform_subject_human(%{
                  provider: "slack-main",
                  external_id: "U1000",
-                 uid: "U1000",
                  display_name: "Alice",
                  email: "join.alice@example.com"
                })
 
-      # The uid suggestion loses to the email claim; casing does not matter.
+      # The same verified email converges the two providers; casing does not matter.
       assert {:ok, google} =
                Principals.upsert_platform_subject_human(%{
                  provider: "google-workspace-main",
                  external_id: "103200300400500600700",
-                 uid: "103200300400500600700",
                  display_name: "Alice G",
                  email: "Join.Alice@Example.com",
                  job_title: "Engineer"
@@ -254,6 +255,52 @@ defmodule Ankole.PrincipalsTest do
       assert resolved.uid == slack.principal.uid
     end
 
+    test "upsert_platform_subject_human/1 lets the email claim win over a uid suggestion" do
+      %{principal: bystander} = human_fixture(%{uid: unique_uid("bystander")})
+
+      assert {:ok, owner} =
+               Principals.upsert_platform_subject_human(%{
+                 provider: "slack-main",
+                 external_id: "U1500",
+                 email: "claim.owner@example.com"
+               })
+
+      assert {:ok, joined} =
+               Principals.upsert_platform_subject_human(%{
+                 provider: "google-workspace-main",
+                 external_id: "207300400500600700800",
+                 uid: bystander.uid,
+                 email: "claim.owner@example.com"
+               })
+
+      assert joined.principal.uid == owner.principal.uid
+      refute joined.principal.uid == bystander.uid
+    end
+
+    test "upsert_platform_subject_human/1 keeps equal external ids from different providers apart" do
+      assert {:ok, first} =
+               Principals.upsert_platform_subject_human(%{
+                 provider: "slack-main",
+                 external_id: "12345",
+                 display_name: "Slack Person"
+               })
+
+      assert {:ok, second} =
+               Principals.upsert_platform_subject_human(%{
+                 provider: "dingtalk-main",
+                 external_id: "12345",
+                 display_name: "DingTalk Person"
+               })
+
+      assert first.principal.uid == "slack-main:12345"
+      assert second.principal.uid == "dingtalk-main:12345"
+
+      assert {:ok, slack_resolved} = Principals.resolve_platform_subject("slack-main", "12345")
+      assert {:ok, ding_resolved} = Principals.resolve_platform_subject("dingtalk-main", "12345")
+      assert slack_resolved.uid == first.principal.uid
+      assert ding_resolved.uid == second.principal.uid
+    end
+
     test "upsert_platform_subject_human/1 drops a conflicting email from a bound subject" do
       assert {:ok, google} =
                Principals.upsert_platform_subject_human(%{
@@ -265,8 +312,7 @@ defmodule Ankole.PrincipalsTest do
       assert {:ok, slack_first} =
                Principals.upsert_platform_subject_human(%{
                  provider: "slack-main",
-                 external_id: "U2000",
-                 uid: "U2000"
+                 external_id: "U2000"
                })
 
       refute slack_first.principal.uid == google.principal.uid

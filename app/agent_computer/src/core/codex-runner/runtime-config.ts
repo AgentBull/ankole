@@ -4,6 +4,7 @@ import type { AIGatewayAPIKeyRequester } from '../turns/turn_options'
 import type { TurnStart } from '../../lanes/actor_lane'
 import { type JsonObject as JSONObject } from '@agentbull/active-support'
 
+/** Reasoning effort values accepted from the frozen model projection. */
 export const CODEX_MODEL_REASONING_EFFORTS = [
   'none',
   'minimal',

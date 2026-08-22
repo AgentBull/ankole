@@ -3,8 +3,7 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionReconciler do
   Reconciles enabled Lark signal bindings into supervised long connections.
   """
 
-  use GenServer
-
+  alias Ankole.Plugins.ConnectionLifecycle
   alias Ankole.Plugins.LarkAdapter.Config
   alias Ankole.Plugins.LarkAdapter.ConnectionSupervisor
   alias Ankole.Plugins.LarkAdapter.IdentityProvider
@@ -20,24 +19,30 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionReconciler do
   # setup/e2e helpers may call reconcile_once/1, while normal runtime edits are
   # allowed to converge on the next tick.
   @default_interval_ms 60_000
-  # A reconcile pass reads bindings and starts supervised connections (DB plus
-  # supervisor calls), so the synchronous reconcile/1 uses a long timeout well
-  # above the 5s GenServer default.
-  @call_timeout 30_000
+
+  @spec child_spec(keyword()) :: Supervisor.child_spec()
+  def child_spec(opts) do
+    %{id: __MODULE__, start: {__MODULE__, :start_link, [opts]}, type: :worker}
+  end
 
   @doc """
   Starts the periodic connection reconciler.
   """
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
-    GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
+    ConnectionLifecycle.start_link(opts,
+      name: __MODULE__,
+      default_interval_ms: @default_interval_ms,
+      reconcile_opts: Keyword.drop(opts, [:name, :interval_ms]),
+      reconcile: &run_reconcile/1
+    )
   end
 
   @doc """
   Reconciles immediately through the supervised process.
   """
   @spec reconcile(GenServer.server()) :: map()
-  def reconcile(server \\ __MODULE__), do: GenServer.call(server, :reconcile, @call_timeout)
+  def reconcile(server \\ __MODULE__), do: ConnectionLifecycle.reconcile(server)
 
   @doc """
   Reconciles enabled bindings once.
@@ -53,46 +58,8 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionReconciler do
     |> start_connections(opts)
   end
 
-  @impl true
-  def init(opts) do
-    state = %{
-      interval_ms:
-        Keyword.get(
-          opts,
-          :interval_ms,
-          Application.get_env(
-            :ankole,
-            :signal_connection_reconcile_interval_ms,
-            @default_interval_ms
-          )
-        ),
-      reconcile_opts: Keyword.drop(opts, [:name, :interval_ms])
-    }
-
-    {:ok, state, {:continue, :reconcile}}
-  end
-
-  @impl true
-  def handle_continue(:reconcile, state) do
-    # Reconcile once on startup so connections come up immediately, before the
-    # first periodic tick, then fall into the timer-driven schedule.
-    run_reconcile(state)
-    {:noreply, schedule_next(state)}
-  end
-
-  @impl true
-  def handle_call(:reconcile, _from, state) do
-    {:reply, run_reconcile(state), state}
-  end
-
-  @impl true
-  def handle_info(:reconcile, state) do
-    run_reconcile(state)
-    {:noreply, schedule_next(state)}
-  end
-
-  defp run_reconcile(state) do
-    result = reconcile_once(state.reconcile_opts)
+  defp run_reconcile(opts) do
+    result = reconcile_once(opts)
 
     if result.errors != [] do
       Logging.warning(
@@ -105,13 +72,6 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionReconciler do
     end
 
     result
-  end
-
-  defp schedule_next(%{interval_ms: nil} = state), do: state
-
-  defp schedule_next(%{interval_ms: interval_ms} = state) do
-    Process.send_after(self(), :reconcile, interval_ms)
-    state
   end
 
   # Loads the bindings that should currently have a live connection: this adapter
@@ -252,6 +212,7 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionReconciler do
 
   defp start_connections({specs, errors}, opts) do
     supervisor_opts = Keyword.take(opts, [:registry, :supervisor, :client_opts])
+    stopped = stop_undesired_connections(specs, supervisor_opts)
 
     # Start each deduplicated connection, then partition successes from failures
     # so the caller receives a started-count plus a flat list of per-binding and
@@ -264,8 +225,20 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionReconciler do
 
     %{
       started: length(started),
+      stopped: stopped,
       errors: Enum.reverse(errors) ++ Enum.map(start_errors, &start_error/1)
     }
+  end
+
+  # A live connection whose key left the desired spec map is a zombie (disabled
+  # binding or removed identity provider) and stops. Identity-provider sockets
+  # are part of the spec map, so the difference never kills a desired one.
+  defp stop_undesired_connections(specs, supervisor_opts) do
+    ConnectionLifecycle.stop_undesired(
+      specs,
+      ConnectionSupervisor.registered_keys(supervisor_opts),
+      &ConnectionSupervisor.stop(&1, supervisor_opts)
+    )
   end
 
   defp start_connection(spec, supervisor_opts) do

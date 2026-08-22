@@ -29,7 +29,7 @@
   "devDependencies": {
     "knip": "^6.32.2",
     "konsistent": "1.0.0-beta.4",
-    "typescript": "7.0.2"
+    "typescript": "6.0.3"
   },
   "schematics": "./src/schematics/collection.json"
 }

@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { sendBrowserCommand } from '@ankole/browser'
 import { BrowserRuntime, browserSandboxRuntime, type MaterializedBrowserRuntime } from '../../src/browser-runtime'
-import { bubblewrapArgv } from '../../src/tools/computer/bubblewrap'
+import { bubblewrapArgv } from '../../src/sandbox/bubblewrap'
 
 const enabled = process.env.ANKOLE_BROWSER_BWRAP_INTEGRATION === '1'
 

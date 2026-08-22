@@ -147,7 +147,7 @@ tries these identities in order:
 2. Use the Principal that owns the normalized email.
 3. Use the Principal that owns the normalized mobile number.
 4. Use the caller-supplied UID.
-5. Use the external subject ID as the UID.
+5. Use the provider namespace and external subject ID as the UID.
 
 The contact lookups include disabled Principals. This can link accounts from
 different providers when they share one email or mobile number.

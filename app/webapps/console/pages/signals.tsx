@@ -12,7 +12,6 @@ import {
   SelectLabel,
   SelectTrigger,
   SelectValue,
-  Switch,
   Table,
   TableBody,
   TableCell,
@@ -84,7 +83,6 @@ export function SignalsListPage() {
         binding.agent_uid,
         binding.adapter,
         binding.unaddressed_group_message_policy,
-        binding.confidential_memory,
         binding.enabled
       )
     )
@@ -131,7 +129,6 @@ export function SignalsListPage() {
         t('console.agents.agent'),
         t('console.signals.adapter'),
         t('console.signals.policy'),
-        t('console.signals.memory_scope'),
         t('console.signals.state')
       ]}
       isLoading={signals.isLoading}
@@ -192,11 +189,6 @@ export function SignalsListPage() {
           {/* The stored value is a policy identifier, not a phrase an operator reads. */}
           <TableCell>{t(`console.signals.policy_${binding.unaddressed_group_message_policy}`)}</TableCell>
           <TableCell>
-            {binding.confidential_memory
-              ? t('console.signals.memory_confidential')
-              : t('console.signals.memory_shared')}
-          </TableCell>
-          <TableCell>
             <StatusIndicator tone={binding.enabled ? 'positive' : 'neutral'}>
               {binding.enabled ? t('console.status.enabled') : t('console.status.disabled')}
             </StatusIndicator>
@@ -222,8 +214,7 @@ export function SignalsListPage() {
                           target_agent_uid: binding.agent_uid,
                           config: {},
                           group_message_mode: groupMessageModeFromPolicy(binding.unaddressed_group_message_policy),
-                          unmatched_sender_policy: binding.unmatched_sender_policy,
-                          confidential_memory: binding.confidential_memory
+                          unmatched_sender_policy: binding.unmatched_sender_policy
                         }
                       })
                   }
@@ -424,8 +415,7 @@ export function SignalBindingEditorPage() {
     const body = {
       config: editing ? model.configPatch.value : model.config.value,
       group_message_mode: groupMessageMode,
-      unmatched_sender_policy: unmatchedSenderPolicy,
-      confidential_memory: model.confidentialMemory.value
+      unmatched_sender_policy: unmatchedSenderPolicy
     }
     if (editing) {
       updateBinding.mutate({
@@ -545,22 +535,6 @@ export function SignalBindingEditorPage() {
                 value={model.unmatchedSenderPolicy.value || defaultUnmatchedSenderPolicy(activeAdapter)}
                 onChange={value => (model.unmatchedSenderPolicy.value = String(value) as UnmatchedSenderPolicy)}
               />
-              <LabeledField
-                label={t('console.signals.confidential_memory')}
-                description={t('console.signals.confidential_memory_hint')}>
-                <div className="flex items-center justify-between border border-border p-3">
-                  <span className="text-sm text-muted-foreground">
-                    {model.confidentialMemory.value
-                      ? t('console.signals.memory_confidential')
-                      : t('console.signals.memory_shared')}
-                  </span>
-                  <Switch
-                    aria-label={t('console.signals.confidential_memory')}
-                    checked={model.confidentialMemory.value}
-                    onCheckedChange={checked => (model.confidentialMemory.value = checked)}
-                  />
-                </div>
-              </LabeledField>
             </div>
           </FormSection>
           <FormSection
@@ -620,7 +594,6 @@ function emptyForm(): SignalBindingAdapterDraft {
     name: '',
     groupMessageMode: '',
     unmatchedSenderPolicy: '',
-    confidentialMemory: false,
     config: {}
   }
 }
@@ -632,7 +605,6 @@ function formFromAdapter(adapter: SignalAdapterItem | undefined): SignalBindingA
     name: `${adapter.adapter_id}-main`,
     groupMessageMode: defaultGroupMessageMode(adapter),
     unmatchedSenderPolicy: defaultUnmatchedSenderPolicy(adapter),
-    confidentialMemory: false,
     config: defaultConfig(asConfigFields(adapter.fields))
   }
 }
@@ -643,7 +615,6 @@ function formFromBinding(binding: SignalBindingItem, config: unknown): SignalBin
     name: binding.name,
     groupMessageMode: groupMessageModeFromPolicy(binding.unaddressed_group_message_policy),
     unmatchedSenderPolicy: binding.unmatched_sender_policy,
-    confidentialMemory: binding.confidential_memory,
     config: asJSONObject(config)
   }
 }

@@ -97,12 +97,15 @@ class ProbeResult:
 
 @dataclass
 class ExecutionResult:
+    """Contains bounded events and optional full notebook events."""
+
     transport: str
     kernel_id: str
     session_id: str | None
     path: str | None
     reply: dict[str, Any]
     events: list[dict[str, Any]]
+    notebook_events: list[dict[str, Any]] | None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -934,8 +937,10 @@ def clear_cell_outputs(
 def _events_to_notebook_outputs(
     events: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], int | None]:
-    """Convert execution events to notebook cell output format.
+    """Convert raw channel events to notebook cell output format.
 
+    Takes ExecutionResult.notebook_events, not the bounded events, so the
+    notebook file keeps full stream text and binary MIME data.
     Returns (outputs, execution_count).
     """
     outputs: list[dict[str, Any]] = []
@@ -1144,6 +1149,7 @@ def _execute_request(
     kernel_id: str | None,
     request: ExecuteRequest,
     timeout: float,
+    capture_notebook_events: bool = False,
 ) -> ExecutionResult:
     target = _resolve_kernel_target(
         server,
@@ -1157,6 +1163,7 @@ def _execute_request(
         target=target,
         request=request,
         timeout=timeout,
+        capture_notebook_events=capture_notebook_events,
     )
 
 
@@ -1194,6 +1201,7 @@ def _execute_request_with_target(
     target: KernelTarget,
     request: ExecuteRequest,
     timeout: float,
+    capture_notebook_events: bool = False,
 ) -> ExecutionResult:
     return _execute_via_websocket(
         server,
@@ -1202,6 +1210,7 @@ def _execute_request_with_target(
         path=target.path,
         request=request,
         timeout=timeout,
+        capture_notebook_events=capture_notebook_events,
     )
 
 
@@ -1216,6 +1225,19 @@ def execute_code(
     save_outputs: bool = False,
     cell_id: str | None = None,
 ) -> dict[str, Any]:
+    notebook_model: dict[str, Any] | None = None
+    notebook_cell: dict[str, Any] | None = None
+    if save_outputs and path and cell_id:
+        notebook_model = _load_notebook_model(server, path, timeout=timeout)
+        notebook_cell = next(
+            (
+                cell
+                for cell in notebook_model["content"].get("cells", [])
+                if cell.get("id") == cell_id and cell.get("cell_type") == "code"
+            ),
+            None,
+        )
+
     result = _execute_request(
         server,
         path=path,
@@ -1223,32 +1245,25 @@ def execute_code(
         kernel_id=kernel_id,
         request=ExecuteRequest(code=code),
         timeout=timeout,
+        capture_notebook_events=notebook_cell is not None,
     )
     result_dict = result.as_dict()
 
     outputs_saved = False
-    if save_outputs and path and cell_id:
-        model = _load_notebook_model(server, path, timeout=timeout)
-        cells = model["content"].get("cells", [])
-        matched = False
-        for cell in cells:
-            if cell.get("id") == cell_id and cell.get("cell_type") == "code":
-                cell_outputs, exec_count = _events_to_notebook_outputs(
-                    result_dict.get("events") or []
-                )
-                cell["outputs"] = cell_outputs
-                cell["execution_count"] = exec_count
-                matched = True
-                break
-        if matched:
-            _save_notebook_content(
-                server,
-                path,
-                model["content"],
-                timeout=timeout,
-                expected_last_modified=model.get("last_modified"),
-            )
-            outputs_saved = True
+    if notebook_model is not None and notebook_cell is not None and path is not None:
+        cell_outputs, exec_count = _events_to_notebook_outputs(
+            result.notebook_events or []
+        )
+        notebook_cell["outputs"] = cell_outputs
+        notebook_cell["execution_count"] = exec_count
+        _save_notebook_content(
+            server,
+            path,
+            notebook_model["content"],
+            timeout=timeout,
+            expected_last_modified=notebook_model.get("last_modified"),
+        )
+        outputs_saved = True
 
     result_dict["outputs_saved"] = outputs_saved
     return result_dict
@@ -1324,28 +1339,27 @@ def _summarize_mime_bundle(data: Any) -> dict[str, Any]:
     }
 
 
-def _summarize_channel_message(msg: dict[str, Any]) -> dict[str, Any] | None:
+def _shape_channel_message(msg: dict[str, Any]) -> dict[str, Any] | None:
+    """Shape a wire message into a raw event dict without truncation."""
     msg_type = _message_type(msg)
     content = msg.get("content") or {}
     if msg_type == "stream":
         return {
             "type": "stream",
             "name": content.get("name"),
-            "text": _truncate_text(
-                content.get("text", ""), limit=MAX_STREAM_TEXT_CHARS
-            ),
+            "text": content.get("text", ""),
         }
     if msg_type == "execute_result":
         return {
             "type": "execute_result",
             "execution_count": content.get("execution_count"),
-            "data": _summarize_mime_bundle(content.get("data", {})),
+            "data": content.get("data", {}),
             "metadata": content.get("metadata", {}),
         }
     if msg_type == "display_data":
         return {
             "type": "display_data",
-            "data": _summarize_mime_bundle(content.get("data", {})),
+            "data": content.get("data", {}),
             "metadata": content.get("metadata", {}),
         }
     if msg_type == "error":
@@ -1359,13 +1373,31 @@ def _summarize_channel_message(msg: dict[str, Any]) -> dict[str, Any] | None:
         return {
             "type": "execute_input",
             "execution_count": content.get("execution_count"),
-            "code": _truncate_text(
-                content.get("code", ""), limit=MAX_EXECUTE_INPUT_CHARS
-            ),
+            "code": content.get("code", ""),
         }
     if msg_type == "status":
         return {"type": "status", "execution_state": content.get("execution_state")}
     return None
+
+
+def _summarize_channel_event(event: dict[str, Any]) -> dict[str, Any]:
+    """Bound a raw event for model-visible JSON output."""
+    etype = event.get("type")
+    if etype == "stream":
+        return {
+            **event,
+            "text": _truncate_text(event.get("text", ""), limit=MAX_STREAM_TEXT_CHARS),
+        }
+    if etype in {"execute_result", "display_data"}:
+        return {**event, "data": _summarize_mime_bundle(event.get("data", {}))}
+    if etype == "execute_input":
+        return {
+            **event,
+            "code": _truncate_text(
+                event.get("code", ""), limit=MAX_EXECUTE_INPUT_CHARS
+            ),
+        }
+    return event
 
 
 def _execute_via_websocket(
@@ -1376,6 +1408,7 @@ def _execute_via_websocket(
     path: str | None,
     request: ExecuteRequest,
     timeout: float,
+    capture_notebook_events: bool = False,
 ) -> ExecutionResult:
     # Kernel REST state can report ready before channels accept stable websocket traffic.
     # Keep this check bounded to avoid regressing steady-state execute throughput.
@@ -1407,6 +1440,9 @@ def _execute_via_websocket(
 
     reply: dict[str, Any] | None = None
     events: list[dict[str, Any]] = []
+    notebook_events: list[dict[str, Any]] | None = (
+        [] if capture_notebook_events else None
+    )
     deadline = time.time() + timeout
     request_sent = False
     ws = None
@@ -1428,9 +1464,11 @@ def _execute_via_websocket(
             msg = json.loads(raw)
             if not _belongs_to_execution(msg, msg_id):
                 continue
-            summary = _summarize_channel_message(msg)
-            if summary is not None:
-                events.append(summary)
+            event = _shape_channel_message(msg)
+            if event is not None:
+                events.append(_summarize_channel_event(event))
+                if notebook_events is not None:
+                    notebook_events.append(event)
             msg_type = _message_type(msg)
             if msg_type == "execute_reply":
                 reply = msg.get("content", {})
@@ -1470,6 +1508,7 @@ def _execute_via_websocket(
         path=path,
         reply=reply or {},
         events=events,
+        notebook_events=notebook_events,
     )
 
 
@@ -1591,6 +1630,20 @@ def run_all_cells(
     notebook_path = path or target.path
 
     model = _load_notebook_model(server, notebook_path, timeout=timeout)
+    if save_outputs:
+        # A saved run-all is a clean run: clear every code cell first so cells
+        # that do not execute (empty, or after a failed cell) keep no stale
+        # outputs on disk.
+        for cell in model["content"]["cells"]:
+            if cell.get("cell_type") == "code":
+                cell["outputs"] = []
+                cell["execution_count"] = None
+        _save_run_all_outputs(
+            server,
+            notebook_path,
+            executed_model=model["content"],
+            timeout=timeout,
+        )
     results: list[dict[str, Any]] = []
     executed_cell_count = 0
     skipped_cell_count = 0
@@ -1615,12 +1668,14 @@ def run_all_cells(
             continue
 
         executed_cell_count += 1
-        result = _execute_request_with_target(
+        execution = _execute_request_with_target(
             server,
             target=target,
             request=ExecuteRequest(code=source),
             timeout=timeout,
-        ).as_dict()
+            capture_notebook_events=save_outputs,
+        )
+        result = execution.as_dict()
         cell_result = {
             "index": cell_index,
             "cell_id": cell.get("id"),
@@ -1634,7 +1689,7 @@ def run_all_cells(
 
         if save_outputs:
             cell_outputs, exec_count = _events_to_notebook_outputs(
-                result.get("events") or []
+                execution.notebook_events or []
             )
             cell["outputs"] = cell_outputs
             cell["execution_count"] = exec_count

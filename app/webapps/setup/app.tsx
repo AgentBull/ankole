@@ -1,4 +1,4 @@
-import { Field as FormField, Form, useForm } from '@formisch/react'
+import { Field as FormField, Form, getInput, useForm } from '@formisch/react'
 import {
   RiArrowRightSLine,
   RiCheckLine,
@@ -38,7 +38,7 @@ import {
   type LocalizedText
 } from '../common/config-fields'
 import { ErrorBlock } from '../common/error-block'
-import i18n, { nativeLocaleLabel } from '../common/i18n'
+import i18n, { loadLocale, nativeLocaleLabel } from '../common/i18n'
 import { SetupLayout } from './layout'
 import { LocalAdminForm } from './local-admin-form'
 import { IdentitySetupModel, type IdentitySetupDraft } from './state/identity-setup-model'
@@ -107,8 +107,10 @@ export function SetupApp() {
 
   useEffect(() => {
     // The server owns the selected locale. The SPA mirrors it after loading
-    // setup state so client text stays aligned with the Phoenix shell.
-    if (state.data?.currentLocale) void i18n.changeLanguage(state.data.currentLocale)
+    // setup state so client text stays aligned with the Phoenix shell. The
+    // catalog must load first, or i18next falls back to en-US for good.
+    const locale = state.data?.currentLocale
+    if (locale) void loadLocale(locale).then(() => i18n.changeLanguage(locale))
   }, [state.data?.currentLocale])
 
   useEffect(() => {
@@ -254,7 +256,9 @@ function BootstrapGate({ setupState, onAuthenticated }: { setupState?: SetupStat
                   onValueChange={value => {
                     if (!value) return
                     field.onChange(value)
-                    void i18n.changeLanguage(value)
+                    void loadLocale(value).then(() => {
+                      if (getInput(form, { path: ['locale'] }) === value) void i18n.changeLanguage(value)
+                    })
                   }}>
                   <SelectTrigger className="w-full">
                     <SelectValue>{value => nativeLocaleLabel(value ?? locale)}</SelectValue>

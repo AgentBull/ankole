@@ -194,14 +194,17 @@ defmodule Ankole.AuthZ.Store do
     end
   end
 
+  # The admin group lock comes before the principal lock unconditionally, in
+  # the one installation-wide admin lock order (group, then principal).
   def ensure_can_disable_principal(principal_uid, repo, admin_group_name) do
     with {:ok, principal_uid} <- Principals.normalize_uid(principal_uid),
+         admin_group <- lock_built_in_admin_group_for_update(repo, admin_group_name),
          {:ok, principal} <- fetch_principal_for_update(repo, principal_uid) do
-      case principal do
-        %Principal{type: :human, status: :active} ->
-          ensure_disabling_keeps_active_human_admin(repo, principal.uid, admin_group_name)
+      case {principal, admin_group} do
+        {%Principal{type: :human, status: :active}, %Group{}} ->
+          ensure_disabling_keeps_active_human_admin(repo, principal.uid, admin_group)
 
-        %Principal{} ->
+        {_principal, _no_admin_group_or_not_active_human} ->
           :ok
       end
     end
@@ -600,8 +603,8 @@ defmodule Ankole.AuthZ.Store do
          admin_group_name
        )
        when group_name == admin_group_name do
-    with {:ok, principal} <- fetch_principal_for_update(repo, principal_uid),
-         {:ok, locked_group} <- lock_group(repo, group.id),
+    with {:ok, locked_group} <- lock_group(repo, group.id),
+         {:ok, principal} <- fetch_principal_for_update(repo, principal_uid),
          :ok <- ensure_membership_exists_for_update(repo, principal.uid, locked_group.id),
          :ok <- ensure_not_last_admin_member(repo, locked_group.id, principal.uid),
          :ok <- ensure_removing_keeps_active_human_admin(repo, locked_group.id, principal) do
@@ -613,16 +616,10 @@ defmodule Ankole.AuthZ.Store do
     delete_membership(repo, principal_uid, group.id)
   end
 
-  defp ensure_disabling_keeps_active_human_admin(repo, principal_uid, admin_group_name) do
-    case lock_built_in_admin_group_for_update(repo, admin_group_name) do
-      %Group{} = admin_group ->
-        case lock_membership_for_update(repo, principal_uid, admin_group.id) do
-          %Membership{} -> ensure_not_last_active_human_admin(repo, admin_group.id, principal_uid)
-          nil -> :ok
-        end
-
-      nil ->
-        :ok
+  defp ensure_disabling_keeps_active_human_admin(repo, principal_uid, %Group{} = admin_group) do
+    case lock_membership_for_update(repo, principal_uid, admin_group.id) do
+      %Membership{} -> ensure_not_last_active_human_admin(repo, admin_group.id, principal_uid)
+      nil -> :ok
     end
   end
 

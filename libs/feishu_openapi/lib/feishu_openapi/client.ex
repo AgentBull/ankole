@@ -71,7 +71,7 @@ defmodule FeishuOpenAPI.Client do
   defp default_timeout_options do
     [
       receive_timeout: :timer.seconds(15),
-      pool_timeout: :timer.seconds(5),
+      finch: [pool_timeout: :timer.seconds(5)],
       connect_options: [timeout: :timer.seconds(5)],
       retry: default_retry_fun()
     ]
@@ -85,7 +85,7 @@ defmodule FeishuOpenAPI.Client do
   * `:base_url` — overrides the URL derived from `:domain`
   * `:req_options` — extra options passed through to `Req.request/1`; merged on
     top of the SDK's transport-timeout defaults (`receive_timeout: :timer.seconds(15)`,
-    `pool_timeout: :timer.seconds(5)`, `connect_options[:timeout]: :timer.seconds(5)`)
+    `finch[:pool_timeout]: :timer.seconds(5)`, `connect_options[:timeout]: :timer.seconds(5)`)
   * `:headers` — additional headers to attach to every request
 
   `app_secret` may be a `String.t()` (auto-wrapped in a closure) or a

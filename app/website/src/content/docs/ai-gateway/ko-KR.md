@@ -127,4 +127,4 @@ AIGateway는 업스트림 호출 전에 모델 셀렉터를 실제 provider bind
 
 - AIGateway가 전체 시스템에서 어디에 있는지 보려면 [아키텍처 개요](../architecture/)를 읽으십시오.
 - 이 route들을 호스팅하는 서버를 실행하려면 [빠른 시작의 deployment 섹션](../quickstart/#deployment)을 읽으십시오.
-- 첫 Provider와 모델 profile 설정은 [빠른 시작](../quickstart/#3-add-an-llm-provider-and-create-an-agent)을 읽으십시오.
+- 첫 Provider와 모델 profile 설정은 [빠른 시작](../quickstart/#llm-providers)을 읽으십시오.

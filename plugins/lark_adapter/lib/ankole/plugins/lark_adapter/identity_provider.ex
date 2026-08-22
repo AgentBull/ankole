@@ -80,7 +80,6 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
         %{
           provider: provider_id,
           external_id: user_id,
-          uid: user_id,
           display_name: display_name(user),
           avatar_url: avatar_url(user),
           email: enterprise_email(user) || optional_text(user, "email"),

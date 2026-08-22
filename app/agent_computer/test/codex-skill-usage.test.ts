@@ -3,7 +3,7 @@ import {
   CodexSkillUsageTracker,
   explicitSkillReference,
   skillDisabledNotice
-} from '../src/core/codex-runner/skill-usage'
+} from '../src/core/codex-runner/job/skill-usage'
 
 describe('@ankole/agent-computer Codex Skill usage', () => {
   it('separates availability from use and sends one disable notice only after evidence', () => {

@@ -10,6 +10,7 @@ defmodule Ankole.IdentityProviders.LocalPasswordTest do
   alias Ankole.IdentityProviders.LocalPassword.RetryGuard
   alias Ankole.IdentityProviders.Login
   alias Ankole.Principals
+  alias Ankole.Principals.LocalCredential
 
   setup do
     AppConfigureRegistry.clear_for_test()
@@ -86,6 +87,8 @@ defmodule Ankole.IdentityProviders.LocalPasswordTest do
       assert login.principal_uid == principal.uid
       assert login.provider_id == "local-main"
       assert login.email == email
+      assert {:ok, %{credential: credential}} = Principals.fetch_local_login(email)
+      assert login.credential_version == LocalCredential.version(credential)
       refute login.must_change_password
 
       %{email: must_change_email} = local_user("initial-pass", true)

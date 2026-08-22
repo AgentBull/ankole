@@ -1974,6 +1974,8 @@ identity ソースとチャットチャンネルには異なるプラットフ�
   tabs={identityTabs}
 />
 
+<span id="llm-providers" aria-hidden="true" />
+
 ## 3. LLM Provider を追加して Agent を作成する
 
 Agent のモデルプロファイルはモデル参照を保存するため、最初に LLM Provider を追加してください。Console にサインインし、**Providers → New provider** を開いて、provider の種類を選択し、安定した Provider ID を付け、エンドポイントと credential のフィールドを入力して保存してください。
@@ -2017,7 +2019,7 @@ Console でチャットプラットフォームの Control Plane Plugin を有�
 
 ### Console で接続を完了する
 
-現在のリリースは直接接続を使用します。1 つの routing ルールが 1 つの Channel Provider を 1 つの Agent に接続します。これは、アダプタ、アプリの credential、ターゲット Agent、グループメッセージの動作、memory の動作を記録します。bot ごとに別のルールを作成してください。
+現在のリリースは直接接続を使用します。1 つの routing ルールが 1 つの Channel Provider を 1 つの Agent に接続します。これは、アダプタ、アプリの credential、ターゲット Agent、グループメッセージの動作を記録します。bot ごとに別のルールを作成してください。
 
 Console で、**Signal Routing → New routing rule** を開き、設定してください：
 
@@ -2027,7 +2029,6 @@ Console で、**Signal Routing → New routing rule** を開き、設定して�
 | **Adapter** | Slack、Teams、Lark/Feishu、DingTalk、または WeCom |
 | **Rule name** | `slack-main` や `lark-main` などの安定した名前 |
 | **Group message mode** | `addressed_only` から始める |
-| **Confidential memory** | 最初のテストではオフのままにする |
 | **Channel settings** | チャンネルタブの credential と値を貼り付ける |
 
 ルールを保存してください。リストに enabled として表示される必要があります。フォームが credential を拒否した場合は、IM をテストする前にそのエラーを修正してください。アダプタはまだ接続を開いていません。
@@ -2050,6 +2051,8 @@ bot をテスト用の会話に追加してください。グループチャッ�
 > @Ankole 何ができますか。どのチームにサービスを提供していますか？
 
 最初の実際のモデル返信の後、Agent の mission、モデル、グループチャットポリシーをチーム用に調整してください。
+
+<span id="agent-not-replying" aria-hidden="true" />
 
 ### Agent が返信しない場合
 

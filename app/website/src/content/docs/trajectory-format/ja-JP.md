@@ -30,17 +30,17 @@ AIGateway はライブ会話トランスクリプトを所有します。各メ�
 
 ## Background Agent Job の軌跡
 
-Background Agent Jobはターンごとの実行を `background_agent_job_turn_trajectory_groups` の軌跡グループとして保存します。各グループは 1 つのターンに属し、ポジション、リビジョン、アイテムキー、コンテンツを持ちます:
+Background Agent Jobはターンごとの実行を `background_agent_job_turn_items` の追記専用のサニタイズ済みセマンティックスレッドアイテムのストリームとして保存します。各アイテムは 1 つのターンに属し、ポジション、リビジョン、アイテムキー、セマンティックアイテム本体を持ちます:
 
 | フィールド | 意味 |
 |---|---|
-| `turn_id` | この軌跡グループが属する Job ターン |
-| `position` | ターン内でのグループの順序 |
-| `revision` | インプレース更新（ステア、プロンプト）で上がる |
-| `item_key` | グループの安定したキー |
-| `content` | 1 つ以上の正規 ChatML メッセージ |
+| `turn_id` | このアイテムが属する Job ターン |
+| `position` | ターン内でのアイテムの順序 |
+| `revision` | このアイテムを受理したターンのリビジョン |
+| `item_key` | アイテムの安定したキー（`client:` キーは呼び出し元メッセージを示す） |
+| `item` | 型付きのセマンティックスレッドアイテム 1 つ |
 
-コンテンツは有効な正規 ChatML でなければなりません。スキーマは `Trajectory.valid_group_content?/1` で検証し、正規 ChatML メッセージを含まないグループを拒否します。`revision` フィールドにより、インプレースのステアやプロンプトは新しい行を挿入せずに同じグループのコンテンツを更新でき、軌跡はそのグループの最新状態を反映します。
+行は追記専用です。ステアやプロンプトは保存済みアイテムを書き換えず、新しいアイテムを追記します。すべてのリーダーは読み取り時に保存済みアイテムを正規 ChatML メッセージにプロジェクションします。メッセージをプロジェクションしないアイテムもスレッドリプレイのために保存されたままです。アイテムストリーム以前に記録されたターンは、コンテンツをレガシーの `background_agent_job_turn_trajectory_groups` テーブルに保持し、リーダーはそのターンに限り保存済みグループ行を読みます。
 
 ツール結果メッセージの metadata は `execution_mechanism` を記録します。モデル Provider が実行したツールには `provider_hosted`、Codex が呼び出した Ankole の動的ツールには `local_dynamic` を使います。この安定した事実により、表示名が同じツールも区別できます。
 
@@ -63,7 +63,7 @@ Background Agent Jobはターンごとの実行を `background_agent_job_turn_tr
 |---|---|---|
 | 保存するもの | ライブ会話トランスクリプト | ターンごとの Job 実行記録 |
 | 所有者 | AIGateway | Background Agent Jobs |
-| 正規形式 | AIGateway のメッセージスキーマ | ChatML グループ |
+| 正規形式 | AIGateway のメッセージスキーマ | セマンティックアイテムを ChatML にプロジェクション |
 | モデルが見る経路 | ステートフル Responses API | `modelVisibleTrajectory` プロジェクション |
 | 圧縮 | AIGateway の圧縮が古いメッセージを置き換える | 圧縮されない（Job は再試行予算で境界付けられる）|
 
@@ -71,7 +71,7 @@ Background Agent Jobはターンごとの実行を `background_agent_job_turn_tr
 
 ## このガイドがそうでないもの
 
-ChatML 仕様ではありません。正規の ChatML 形式は標準であり、Ankole の検証（`valid_group_content?/1`）はその形状をチェックするもので、再定義しません。軌跡を読む消費者向け API でもありません。Console のルート（`/ai-gateway/conversations/:id/messages`、`/background-agent-jobs/:id`）はオペレーターサーフェスであり、[Console API reference](../console-api/) に文書化されています。そして保存ページの代わりでもありません。これは両方にまたがる形式レベルの見方です。
+ChatML 仕様ではありません。正規の ChatML 形式は標準であり、Ankole の読み取り時プロジェクションはその形状を保つもので、再定義しません。軌跡を読む消費者向け API でもありません。Console のルート（`/ai-gateway/conversations/:id/messages`、`/background-agent-jobs/:id`）はオペレーターサーフェスであり、[Console API reference](../console-api/) に文書化されています。そして保存ページの代わりでもありません。これは両方にまたがる形式レベルの見方です。
 
 ## 次のステップ
 

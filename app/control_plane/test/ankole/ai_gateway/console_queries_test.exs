@@ -230,7 +230,6 @@ defmodule Ankole.AIGateway.ConsoleQueriesTest do
     |> Message.changeset(%{
       subject_uid: conversation.subject_uid,
       conversation_id: conversation.id,
-      role: "user",
       type: "message",
       status: "complete",
       content: [%{"type" => "text", "text" => "hi"}],

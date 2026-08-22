@@ -25,6 +25,7 @@ mod atoms {
         runtime_fabric_router_decode_failed,
         runtime_fabric_router_socket_error,
         universal_ai_client,
+        universal_ai_client_request,
         ready,
         chunk,
         sse,
@@ -50,7 +51,9 @@ pub struct RuntimeFabricRouterResource(pub RouterHandle);
 
 #[rustler::resource_impl]
 impl rustler::Resource for RuntimeFabricRouterResource {
+    /// Stops the native transport when BEAM releases its last resource reference.
     const IMPLEMENTS_DESTRUCTOR: bool = true;
+    /// Stops the native transport when the monitored BEAM owner exits.
     const IMPLEMENTS_DOWN: bool = true;
 
     fn destructor(self, _env: Env<'_>) {
@@ -70,7 +73,9 @@ impl std::panic::UnwindSafe for UniversalAIClientStreamResource {}
 
 #[rustler::resource_impl]
 impl rustler::Resource for UniversalAIClientStreamResource {
+    /// Cancels provider work when BEAM releases its last resource reference.
     const IMPLEMENTS_DESTRUCTOR: bool = true;
+    /// Cancels provider work when the monitored BEAM owner exits.
     const IMPLEMENTS_DOWN: bool = true;
 
     fn destructor(self, _env: Env<'_>) {
@@ -271,7 +276,7 @@ pub fn runtime_fabric_router_send_mandatory(
 
     router
         .0
-        .send_mandatory(transport_route, envelope_bytes.as_slice().to_vec())
+        .send_mandatory(transport_route, envelope_bytes.as_slice())
         .map(|_| "sent_or_queued".to_string())
         .map_err(transport_error_term)
 }
@@ -359,32 +364,63 @@ pub fn universal_ai_client_cancel_nif(
     Ok(atoms::ok())
 }
 
-/// Sends one non-streaming UniversalAIClient model request.
+/// Starts one non-streaming UniversalAIClient model request.
+///
+/// The NIF creates the BEAM result sink and delegates the request to
+/// UniversalAIClient, which starts provider work and returns at once. The result
+/// arrives later as one `{:universal_ai_client_request, ref, result}` message.
 #[rustler::nif(schedule = "DirtyIo")]
 pub fn universal_ai_client_model_request_nif<'a>(
     env: Env<'a>,
     encoded_spec: Term<'a>,
+    owner_pid: LocalPid,
+    request_ref: Term<'a>,
 ) -> NIFResult<Term<'a>> {
     let encoded_spec = decode_string(encoded_spec, "encoded_spec")?;
+    let deliver = universal_ai_client_request_sink(owner_pid, BeamStreamRef::new(request_ref));
 
-    match universal_ai_client::send_model_request(&encoded_spec) {
-        Ok(response) => Ok((atoms::ok(), encode_json_value(env, &response)).encode(env)),
+    match universal_ai_client::start_model_request(&encoded_spec, deliver) {
+        Ok(()) => Ok(atoms::ok().encode(env)),
         Err(reason) => Ok((atoms::error(), encode_json_value(env, &reason.to_json())).encode(env)),
     }
 }
 
-/// Sends one raw UniversalAIClient HTTP request without model normalization.
+/// Starts one raw UniversalAIClient HTTP request without model normalization.
+///
+/// Same start-and-message contract as `universal_ai_client_model_request_nif`.
 #[rustler::nif(schedule = "DirtyIo")]
 pub fn universal_ai_client_raw_request_nif<'a>(
     env: Env<'a>,
     encoded_spec: Term<'a>,
+    owner_pid: LocalPid,
+    request_ref: Term<'a>,
 ) -> NIFResult<Term<'a>> {
     let encoded_spec = decode_string(encoded_spec, "encoded_spec")?;
+    let deliver = universal_ai_client_request_sink(owner_pid, BeamStreamRef::new(request_ref));
 
-    match universal_ai_client::send_raw_request(&encoded_spec) {
-        Ok(response) => Ok((atoms::ok(), encode_json_value(env, &response)).encode(env)),
+    match universal_ai_client::start_raw_request(&encoded_spec, deliver) {
+        Ok(()) => Ok(atoms::ok().encode(env)),
         Err(reason) => Ok((atoms::error(), encode_json_value(env, &reason.to_json())).encode(env)),
     }
+}
+
+fn universal_ai_client_request_sink(
+    owner_pid: LocalPid,
+    request_ref: BeamStreamRef,
+) -> universal_ai_client::RequestResultSink {
+    Box::new(move |result| {
+        let mut env = OwnedEnv::new();
+        let _ = env.send_and_clear(&owner_pid, |env| {
+            let request_ref = request_ref.encode(env);
+            let result = match &result {
+                Ok(response) => (atoms::ok(), encode_json_value(env, response)).encode(env),
+                Err(reason) => {
+                    (atoms::error(), encode_json_value(env, &reason.to_json())).encode(env)
+                }
+            };
+            (atoms::universal_ai_client_request(), request_ref, result).encode(env)
+        });
+    })
 }
 
 /// Returns whether a resource pattern matches a concrete resource key.

@@ -1,0 +1,290 @@
+import { compareCodePointStrings } from '../../../common/ordering'
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  readlinkSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync
+} from 'node:fs'
+import { join } from 'node:path'
+import type { ActorTurnRef } from '../../../lanes/actor_lane'
+import type { RPCRequester, RuntimeSkillSummary } from '../../../lanes/rpc_lane'
+import { labeledZonedDateTime } from '../../../prompts/zoned_time'
+import {
+  assertValidSkillName,
+  composeNativeSkillFile,
+  normalizeEnabledSkill,
+  resolveSkillFilesystemRoot,
+  resolveSkillOverlayText,
+  resolveSkillOverlayTexts,
+  type SkillFileRoots
+} from '../../../skills/effective-skill'
+
+export type MaterializedCodexJobSkill = {
+  name: string
+  sourcePath: string
+}
+
+export type MaterializedCodexJobRuntimeFiles = {
+  root: string
+  skillsRoot: string
+  skills: MaterializedCodexJobSkill[]
+  expectedSkillNames: string[]
+  refreshSkill(name: string): Promise<boolean>
+  cleanup(): void
+}
+
+// Serialize updates to shared Agent Skill material. Concurrent Job attempts
+// must not replace the same path at the same time.
+const skillMaterialUpdates = new Map<string, Promise<void>>()
+
+export async function materializeCodexJobRuntimeFiles(input: {
+  turn: ActorTurnRef
+  jobRoot: string
+  agentSkillsRoot: string
+  enabledSkills: RuntimeSkillSummary[]
+  projectSkillNames?: string[]
+  skillRoots?: SkillFileRoots
+  rpc: RPCRequester
+}): Promise<MaterializedCodexJobRuntimeFiles> {
+  const root = join(input.jobRoot, '.agents')
+  const skillsRoot = join(root, 'skills')
+  rmSync(skillsRoot, { recursive: true, force: true })
+  mkdirSync(skillsRoot, { recursive: true })
+
+  try {
+    const skills = await materializeSkills(input, skillsRoot)
+    const projectSkillNames = new Set(input.projectSkillNames ?? skills.map(skill => skill.name))
+    const skillsByName = new Map(
+      input.enabledSkills.map(skill => {
+        const normalized = normalizeEnabledSkill(skill)
+        if (!normalized) throw new Error(`enabled skill has invalid name: ${skill.skillName}`)
+        return [normalized.skillName, normalized] as const
+      })
+    )
+    return {
+      root,
+      skillsRoot,
+      skills,
+      expectedSkillNames: skills.filter(skill => projectSkillNames.has(skill.name)).map(skill => skill.name),
+      refreshSkill: async name => {
+        const skill = skillsByName.get(name)
+        if (!skill) return false
+        await refreshAgentSkillMaterial(input, skill)
+        return true
+      },
+      cleanup: () => undefined
+    }
+  } catch (error) {
+    rmSync(skillsRoot, { recursive: true, force: true })
+    throw error
+  }
+}
+
+export function renderCodexJobAgents(input: {
+  jobRoot: string
+  soul: string
+  mission: string
+  jobGuidance?: string
+  timezone?: string | null
+  now?: Date
+}): { content: string } {
+  return {
+    content: renderTaskAgents({
+      jobRoot: input.jobRoot,
+      soul: input.soul,
+      mission: input.mission,
+      jobGuidance: input.jobGuidance,
+      timezone: input.timezone,
+      now: input.now ?? new Date()
+    })
+  }
+}
+
+/**
+ * Reads the shared Job guidance template shipped with the app library.
+ * A missing template keeps the Job usable; the guidance section is skipped.
+ */
+export function readCodexJobGuidance(builtinSkillsRoot: string): string | undefined {
+  const path = join(builtinSkillsRoot, 'templates', 'AGENT_JOB.md')
+  if (!existsSync(path)) return undefined
+  const content = readFileSync(path, 'utf8').trim()
+  return content || undefined
+}
+
+async function materializeSkills(
+  input: Parameters<typeof materializeCodexJobRuntimeFiles>[0],
+  skillsRoot: string
+): Promise<MaterializedCodexJobSkill[]> {
+  const enabledSkills = input.enabledSkills
+    .map(skill => {
+      const normalized = normalizeEnabledSkill(skill)
+      if (!normalized) throw new Error(`enabled skill has invalid name: ${skill.skillName}`)
+      return normalized
+    })
+    .sort((left, right) => compareCodePointStrings(left.skillName, right.skillName))
+
+  if (new Set(enabledSkills.map(skill => skill.skillName)).size !== enabledSkills.length) {
+    throw new Error('enabled skill names must be unique')
+  }
+  if (enabledSkills.length > 0 && !input.skillRoots) {
+    throw new Error('Codex enabled skills require worker skill source roots')
+  }
+
+  mkdirSync(input.agentSkillsRoot, { recursive: true, mode: 0o700 })
+  const projectSkillNames = new Set(input.projectSkillNames ?? enabledSkills.map(skill => skill.skillName))
+  for (const name of projectSkillNames) {
+    if (!enabledSkills.some(skill => skill.skillName === name)) {
+      throw new Error(`project Skill is not in the enabled runtime set: ${name}`)
+    }
+  }
+
+  const overlays = await resolveSkillOverlayTexts(
+    enabledSkills.map(skill => skill.skillName),
+    { turn: input.turn, rpc: input.rpc }
+  )
+
+  return await Promise.all(
+    enabledSkills.map(async skill => {
+      const materialPath = await refreshAgentSkillMaterial(input, skill, overlays.get(skill.skillName))
+      if (!projectSkillNames.has(skill.skillName)) {
+        return { name: skill.skillName, sourcePath: materialPath }
+      }
+      const projectedPath = join(skillsRoot, skill.skillName)
+      symlinkSync(materialPath, projectedPath, 'dir')
+      return { name: skill.skillName, sourcePath: projectedPath }
+    })
+  )
+}
+
+async function refreshAgentSkillMaterial(
+  input: Parameters<typeof materializeCodexJobRuntimeFiles>[0],
+  skill: RuntimeSkillSummary,
+  resolvedOverlay?: string
+): Promise<string> {
+  assertValidSkillName(skill.skillName)
+  const materialPath = join(input.agentSkillsRoot, skill.skillName)
+  const previous = skillMaterialUpdates.get(materialPath) ?? Promise.resolve()
+  const update = previous
+    .catch(() => undefined)
+    .then(async () => {
+      const sourcePath = realpathSync(resolveSkillFilesystemRoot(skill, { skillRoots: input.skillRoots! }))
+      if (!statSync(sourcePath).isDirectory()) throw new Error(`skill source is not a directory: ${skill.skillName}`)
+      const sourceSkillPath = join(sourcePath, 'SKILL.md')
+      if (!existsSync(sourceSkillPath)) throw new Error(`enabled skill is missing SKILL.md: ${skill.skillName}`)
+
+      mkdirSync(materialPath, { recursive: true, mode: 0o700 })
+      reconcileSkillResources(sourcePath, materialPath)
+      const overlay =
+        resolvedOverlay ?? (await resolveSkillOverlayText(skill.skillName, { turn: input.turn, rpc: input.rpc }))
+      replaceEffectiveSkillFile(materialPath, sourceSkillPath, overlay)
+    })
+  skillMaterialUpdates.set(materialPath, update)
+  try {
+    await update
+  } finally {
+    if (skillMaterialUpdates.get(materialPath) === update) skillMaterialUpdates.delete(materialPath)
+  }
+  return materialPath
+}
+
+function reconcileSkillResources(sourcePath: string, materialPath: string): void {
+  const sourceEntries = new Set(readdirSync(sourcePath).filter(name => name !== 'SKILL.md'))
+  for (const name of sourceEntries) {
+    const source = join(sourcePath, name)
+    const target = join(materialPath, name)
+    const temporary = join(materialPath, `.resource-${name}-${crypto.randomUUID()}`)
+    symlinkSync(source, temporary, lstatSync(source).isDirectory() ? 'dir' : 'file')
+    replacePath(temporary, target)
+  }
+
+  for (const name of readdirSync(materialPath)) {
+    if (
+      name === 'SKILL.md' ||
+      sourceEntries.has(name) ||
+      name.startsWith('.resource-') ||
+      name.startsWith('.SKILL.md-')
+    ) {
+      continue
+    }
+    rmSync(join(materialPath, name), { recursive: true, force: true })
+  }
+}
+
+function replaceEffectiveSkillFile(materialPath: string, sourceSkillPath: string, overlay: string): void {
+  const target = join(materialPath, 'SKILL.md')
+  const temporary = join(materialPath, `.SKILL.md-${crypto.randomUUID()}`)
+  const source = readFileSync(sourceSkillPath, 'utf8')
+  writeFileSync(temporary, overlay ? composeNativeSkillFile(source, overlay) : source, { mode: 0o600 })
+  replacePath(temporary, target)
+}
+
+function replacePath(source: string, target: string): void {
+  if (existsSync(target) && lstatSync(target).isDirectory() && !lstatSync(target).isSymbolicLink()) {
+    rmSync(target, { recursive: true, force: true })
+  } else if (
+    existsSync(target) &&
+    lstatSync(target).isSymbolicLink() &&
+    lstatSync(source).isSymbolicLink() &&
+    readlinkSync(target) === readlinkSync(source)
+  ) {
+    rmSync(source, { force: true })
+    return
+  }
+  renameSync(source, target)
+}
+
+function renderTaskAgents(input: {
+  jobRoot: string
+  soul: string
+  mission: string
+  jobGuidance?: string
+  background?: string
+  notes?: string
+  timezone?: string | null
+  now: Date
+}): string {
+  // AGENTS.md is written once, when the Job project is created, so it states
+  // the start instant and the timezone to report in. The live clock comes from
+  // the Worker, which runs in UTC like the Codex environment_context.
+  const startedAt = labeledZonedDateTime(input.now, input.timezone)
+  const executionContext = [
+    startedAt
+      ? `Job start time: ${startedAt.text} (${startedAt.timezone}). Report times in ${startedAt.timezone}; the Worker system clock is UTC, so shell commands and the environment_context timezone show UTC.`
+      : '',
+    `Job workspace (the process cwd): ${input.jobRoot}.`,
+    'All absolute paths shown to you are the real paths inside this Worker. Relative paths resolve from the Job workspace.',
+    'Your final message is the Job result and the caller accepts it as the verification record: verify the work against what the task says the deliverable must satisfy, and state the outcome with evidence, relevant paths, and remaining risks.',
+    'The caller owns user-visible replies, attachments, scheduling, and durable Skill writes.',
+    'If genuinely required information is missing, the lead agent must call request_parent_input; child agents must report the question to the lead.',
+    'Complete foreground work before ending the turn; do not leave required shell jobs running in the background.'
+  ]
+    .filter(Boolean)
+    .join('\n')
+
+  return [
+    '# Ankole Background Agent Job Context',
+    section('SOUL', input.soul),
+    section('MISSION', input.mission),
+    section('Background', input.background),
+    section('Notes', input.notes),
+    section('Execution Context', executionContext),
+    section('Job Guidance', input.jobGuidance)
+  ]
+    .filter(Boolean)
+    .join('\n\n')
+    .trim()
+    .concat('\n')
+}
+
+function section(title: string, content: string | undefined): string {
+  const text = content?.trim()
+  return text ? `## ${title}\n\n${text}` : ''
+}

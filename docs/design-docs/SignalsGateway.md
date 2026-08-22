@@ -73,8 +73,8 @@ of these values:
 
 - `enterprise_im` identifies an enterprise messaging adapter. Lark, Slack,
   Microsoft Teams, DingTalk, and WeCom use this category.
-- `consumer_im` identifies a consumer messaging adapter. Telegram is the first
-  adapter in this category.
+- `consumer_im` identifies a consumer messaging adapter. Telegram and Discord
+  use this category.
 
 The category is catalog metadata. The adapter catalog, documentation, and
 Console use it to group adapters. It does not control identity admission,
@@ -394,8 +394,7 @@ behind earlier work. It then ends the current conversation and creates the
 successor under the same session key.
 
 A Worker `actor_turn.abort` leaves the ActorEvent open. ActorRuntime tries again
-and invalidates the old turn fence. The legacy `turn_error` envelope delegates
-to the same operation during rolling upgrades.
+and invalidates the old turn fence.
 
 `/llm` creates `command.llm_help`. ActorRuntime returns localized usage plus
 the current Agent's custom model names and descriptions. This command does not

@@ -117,6 +117,9 @@ function NewCustomModelProfileEditor({
   const { t } = useTranslation()
   const [name, setName] = useState('')
   const [draft, setDraft] = useState<ProfileDraft>(emptyProfileDraft)
+  // Blocks a repeat submit synchronously; `save.isPending` flips only after
+  // the render that follows the first mutate.
+  const pendingSubmission = useRef(false)
   const save = useMutation({
     ...ankoleWebAgentControllerPutModelProfileMutation(),
     onSuccess: (_response, variables) => {
@@ -124,10 +127,14 @@ function NewCustomModelProfileEditor({
       onChanged()
       onClose()
     },
-    onError: mutationError => setDraft(current => ({ ...current, error: requestErrorMessage(mutationError) }))
+    onError: mutationError => setDraft(current => ({ ...current, error: requestErrorMessage(mutationError) })),
+    onSettled: () => {
+      pendingSubmission.current = false
+    }
   })
 
   const submit = () => {
+    if (pendingSubmission.current) return
     const profile = name.trim()
     const nameError = customProfileNameError(profile, existingNames, t)
     if (nameError) {
@@ -149,6 +156,7 @@ function NewCustomModelProfileEditor({
     }
 
     setDraft(current => ({ ...current, error: undefined }))
+    pendingSubmission.current = true
     save.mutate({ body: built.body, path: { agent_uid: agentUID, profile } })
   }
 
@@ -242,6 +250,7 @@ function StoredCustomModelProfileEditor({
   })
 
   const submit = () => {
+    if (pendingSubmission.current) return
     const built = buildModelProfileWriteRequest({
       profile: name,
       draft: model.snapshot(),

@@ -80,10 +80,10 @@ defmodule Ankole.AIGateway.ConsoleQueries do
           | {:error, :invalid_cursor}
   def list_messages(conversation_id, opts \\ [])
       when is_binary(conversation_id) and is_list(opts) do
-    # No existence or UUID-shape check: a malformed or unknown id simply yields
-    # an empty page (the query filters by value), so the read-only browser keeps
-    # rendering on stale links.
-    with {:ok, cursor} <- decode_cursor(Keyword.get(opts, :cursor)) do
+    # No existence check: a malformed or unknown id simply yields an empty page,
+    # so the read-only browser keeps rendering on stale links.
+    with {:ok, conversation_id} <- Ecto.UUID.cast(conversation_id),
+         {:ok, cursor} <- decode_cursor(Keyword.get(opts, :cursor)) do
       limit = clamp(Keyword.get(opts, :limit, @message_limit_default), @message_limit_max)
 
       rows =
@@ -102,6 +102,9 @@ defmodule Ankole.AIGateway.ConsoleQueries do
         end
 
       {:ok, %{messages: page, next_cursor: next_cursor}}
+    else
+      :error -> {:ok, %{messages: [], next_cursor: nil}}
+      {:error, :invalid_cursor} = error -> error
     end
   end
 
@@ -122,7 +125,6 @@ defmodule Ankole.AIGateway.ConsoleQueries do
       subject_uid: message.subject_uid,
       conversation_id: message.conversation_id,
       type: message.type,
-      role: message.role,
       status: message.status,
       previous_message_id: message.previous_message_id,
       content: message.content || [],

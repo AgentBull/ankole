@@ -116,17 +116,15 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     retry_at = DateTime.add(failure_time, 300, :second)
 
     assert {:ok, %{status: :background_agent_job_requeued, retry_available_at: ^retry_at}} =
-             ActorRuntime.handle_turn_error(
-               turn_error_payload(
-                 first_start.turn,
-                 "worker_turn_failed",
-                 "AIGateway credential pool exhausted.",
-                 %{
-                   "error_code" => "credential_pool_exhausted",
-                   "retryable" => true,
-                   "retry_at" => DateTime.to_iso8601(retry_at)
-                 }
-               ),
+             fail_turn(
+               first_start.turn,
+               "worker_turn_failed",
+               "AIGateway credential pool exhausted.",
+               %{
+                 "error_code" => "credential_pool_exhausted",
+                 "retryable" => true,
+                 "retry_at" => DateTime.to_iso8601(retry_at)
+               },
                now: failure_time
              )
 
@@ -439,11 +437,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     assert waiting.status == "waiting_on_user"
 
     assert {:ok, %{status: :noop_completed}} =
-             ActorRuntime.handle_turn_noop_completed(
-               turn_noop_completed_payload(
-                 turn_start_payload!(envelope).turn,
-                 "background_agent_job_committed"
-               )
+             complete_turn_noop(
+               turn_start_payload!(envelope).turn,
+               "background_agent_job_committed"
              )
 
     assert %ActorSessionWorkerAssignment{status: "released"} =
@@ -532,9 +528,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     assert Repo.get!(Ankole.SignalsGateway.ActorEvent, reply_event.id).completed_at == nil
 
     assert {:ok, %{status: :noop_completed}} =
-             ActorRuntime.handle_turn_noop_completed(
-               turn_noop_completed_payload(reply_start.turn, "background_agent_job_committed")
-             )
+             complete_turn_noop(reply_start.turn, "background_agent_job_committed")
 
     assert %DateTime{} =
              Repo.get!(Ankole.SignalsGateway.ActorEvent, reply_event.id).completed_at
@@ -643,9 +637,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     assert Repo.get!(Ankole.SignalsGateway.ActorEvent, steer_event.id).completed_at == nil
 
     assert {:ok, %{status: :noop_completed}} =
-             ActorRuntime.handle_turn_noop_completed(
-               turn_noop_completed_payload(mailbox.turn, "background_agent_job_committed")
-             )
+             complete_turn_noop(mailbox.turn, "background_agent_job_committed")
 
     assert %DateTime{} =
              Repo.get!(Ankole.SignalsGateway.ActorEvent, steer_event.id).completed_at
@@ -975,16 +967,14 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     failure_time = DateTime.add(now, 31, :second)
 
     assert {:ok, %{status: :background_agent_job_requeued, retry_available_at: retry_at}} =
-             ActorRuntime.handle_turn_error(
-               turn_error_payload(
-                 first_turn_ref,
-                 "worker_turn_failed",
-                 "Background Agent Job steer delivery failed",
-                 %{
-                   "error_code" => "background_agent_job_steer_delivery_failed",
-                   "retryable" => true
-                 }
-               ),
+             fail_turn(
+               first_turn_ref,
+               "worker_turn_failed",
+               "Background Agent Job steer delivery failed",
+               %{
+                 "error_code" => "background_agent_job_steer_delivery_failed",
+                 "retryable" => true
+               },
                now: failure_time
              )
 
@@ -1484,17 +1474,15 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
                 job: requeued
               }
             }} =
-             ActorRuntime.handle_turn_error(
-               turn_error_payload(
-                 turn_ref,
-                 "worker_turn_failed",
-                 "AIGateway credential pool exhausted.",
-                 %{
-                   "error_code" => "credential_pool_exhausted",
-                   "retryable" => true,
-                   "retry_at" => DateTime.to_iso8601(pool_retry_at)
-                 }
-               ),
+             fail_turn(
+               turn_ref,
+               "worker_turn_failed",
+               "AIGateway credential pool exhausted.",
+               %{
+                 "error_code" => "credential_pool_exhausted",
+                 "retryable" => true,
+                 "retry_at" => DateTime.to_iso8601(pool_retry_at)
+               },
                now: failure_time
              )
 
@@ -1550,16 +1538,14 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     expected_retry_at = DateTime.add(failure_time, 60, :second)
 
     assert {:ok, result} =
-             ActorRuntime.handle_turn_error(
-               turn_error_payload(
-                 turn_ref,
-                 "worker_turn_failed",
-                 "AIGateway credential pool has no usable credentials.",
-                 %{
-                   "error_code" => "credential_pool_exhausted",
-                   "retryable" => true
-                 }
-               ),
+             fail_turn(
+               turn_ref,
+               "worker_turn_failed",
+               "AIGateway credential pool has no usable credentials.",
+               %{
+                 "error_code" => "credential_pool_exhausted",
+                 "retryable" => true
+               },
                now: failure_time
              )
 
@@ -1600,17 +1586,15 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     expected_retry_at = DateTime.add(failure_time, 60, :second)
 
     assert {:ok, result} =
-             ActorRuntime.handle_turn_error(
-               turn_error_payload(
-                 turn_ref,
-                 "worker_turn_failed",
-                 "AIGateway credential pool recovery time expired.",
-                 %{
-                   "error_code" => "credential_pool_exhausted",
-                   "retryable" => true,
-                   "retry_at" => DateTime.to_iso8601(expired_retry_at)
-                 }
-               ),
+             fail_turn(
+               turn_ref,
+               "worker_turn_failed",
+               "AIGateway credential pool recovery time expired.",
+               %{
+                 "error_code" => "credential_pool_exhausted",
+                 "retryable" => true,
+                 "retry_at" => DateTime.to_iso8601(expired_retry_at)
+               },
                now: failure_time
              )
 
@@ -1661,17 +1645,15 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
               status: :background_agent_job_requeued,
               background_agent_job_requeue: %{kind: :credential_pool_requeued, job: requeued}
             }} =
-             ActorRuntime.handle_turn_error(
-               turn_error_payload(
-                 turn_ref,
-                 "worker_turn_failed",
-                 "AIGateway credential pool exhausted.",
-                 %{
-                   "error_code" => "credential_pool_exhausted",
-                   "retryable" => true,
-                   "retry_at" => DateTime.to_iso8601(pool_retry_at)
-                 }
-               ),
+             fail_turn(
+               turn_ref,
+               "worker_turn_failed",
+               "AIGateway credential pool exhausted.",
+               %{
+                 "error_code" => "credential_pool_exhausted",
+                 "retryable" => true,
+                 "retry_at" => DateTime.to_iso8601(pool_retry_at)
+               },
                now: failure_time
              )
 
@@ -1757,16 +1739,14 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
 
         assert {:ok,
                 %{status: :background_agent_job_requeued, retry_available_at: retry_available_at}} =
-                 ActorRuntime.handle_turn_error(
-                   turn_error_payload(
-                     turn_ref,
-                     "worker_turn_failed",
-                     "Background Agent Job Turn persistence failed",
-                     %{
-                       "error_code" => "background_agent_job_turn_persistence_failed",
-                       "retryable" => true
-                     }
-                   ),
+                 fail_turn(
+                   turn_ref,
+                   "worker_turn_failed",
+                   "Background Agent Job Turn persistence failed",
+                   %{
+                     "error_code" => "background_agent_job_turn_persistence_failed",
+                     "retryable" => true
+                   },
                    now: failure_time
                  )
 
@@ -1834,17 +1814,15 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
               dead_lettered?: true,
               background_agent_job_failure: %{job: failed}
             }} =
-             ActorRuntime.handle_turn_error(
-               turn_error_payload(
-                 turn_ref,
-                 "worker_turn_failed",
-                 "Codex did not install Agent Plugin deep-research",
-                 %{
-                   "llm_error_kind" => "unknown",
-                   "retryable" => false,
-                   "runtime" => "bun"
-                 }
-               ),
+             fail_turn(
+               turn_ref,
+               "worker_turn_failed",
+               "Codex did not install Agent Plugin deep-research",
+               %{
+                 "llm_error_kind" => "unknown",
+                 "retryable" => false,
+                 "runtime" => "bun"
+               },
                now: DateTime.add(now, 1, :second)
              )
 
@@ -1915,16 +1893,14 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
 
     assert {:ok,
             %{status: :background_agent_job_failed, background_agent_job_failure: %{job: failed}}} =
-             ActorRuntime.handle_turn_error(
-               turn_error_payload(
-                 turn_ref,
-                 "worker_turn_failed",
-                 "Background Agent Job Turn persistence was rejected",
-                 %{
-                   "error_code" => "background_agent_job_turn_persistence_rejected",
-                   "retryable" => false
-                 }
-               ),
+             fail_turn(
+               turn_ref,
+               "worker_turn_failed",
+               "Background Agent Job Turn persistence was rejected",
+               %{
+                 "error_code" => "background_agent_job_turn_persistence_rejected",
+                 "retryable" => false
+               },
                now: DateTime.add(now, 1, :second)
              )
 

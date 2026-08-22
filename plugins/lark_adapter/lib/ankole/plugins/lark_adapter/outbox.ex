@@ -188,11 +188,9 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
 
         :reaction_remove ->
           %{
-            method: :delete,
-            path: "im/v1/messages/:message_id/reactions/:reaction_id",
-            path_params: %{
+            reaction_remove: %{
               message_id: outbox.target_source_entry_id,
-              reaction_id: reaction_key
+              reaction_type: reaction_key
             }
           }
       end
@@ -254,6 +252,33 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
     end
   end
 
+  # Lark's reaction DELETE takes the reaction instance id from the add
+  # response, not the emoji key, and Ankole does not persist provider reaction
+  # ids. Resolve the app's own instance at send time; no matching instance
+  # means the reaction is already gone, which is the requested outcome.
+  defp perform(
+         %{reaction_remove: %{message_id: message_id, reaction_type: reaction_type}},
+         client
+       ) do
+    case find_own_reaction_id(client, message_id, reaction_type) do
+      {:ok, nil} ->
+        {:ok, %{raw_payload: %{"reaction_absent" => true}}}
+
+      {:ok, reaction_id} ->
+        perform(
+          %{
+            method: :delete,
+            path: "im/v1/messages/:message_id/reactions/:reaction_id",
+            path_params: %{message_id: message_id, reaction_id: reaction_id}
+          },
+          client
+        )
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
   defp perform(%{method: method, path: path} = request, client) do
     opts =
       request
@@ -263,6 +288,27 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
     client
     |> FeishuOpenAPI.request(method, path, opts)
     |> normalize_send_response()
+  end
+
+  defp find_own_reaction_id(client, message_id, reaction_type) do
+    FeishuOpenAPI.Pagination.stream(client, "im/v1/messages/:message_id/reactions",
+      path_params: %{message_id: message_id},
+      query: [reaction_type: reaction_type, page_size: 50]
+    )
+    |> Enum.reduce_while({:ok, nil}, fn
+      {:ok, item}, acc ->
+        operator = MapHelpers.fetch_map(item, "operator", %{})
+
+        if optional_text(operator, "operator_type") == "app" and
+             optional_text(operator, "operator_id") == client.app_id do
+          {:halt, {:ok, optional_text(item, "reaction_id")}}
+        else
+          {:cont, acc}
+        end
+
+      {:error, reason}, _acc ->
+        {:halt, {:error, reason}}
+    end)
   end
 
   defp maybe_reply_fallback({:error, %Error{} = error}, client, outbox, %{reply_to: reply_to})

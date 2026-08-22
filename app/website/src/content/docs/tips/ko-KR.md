@@ -83,7 +83,7 @@ Agent의 책임이 불분명하면 `MISSION.md`를 편집하세요. 커뮤니케
 
 ## DingTalk 에이전트당 로봇 하나
 
-DingTalk은 엄격한 제약을 적용합니다: 에이전트당 활성화 바인딩 하나, `clientId`당 에이전트 하나. 확장한다면 에이전트마다 로봇 하나를 계획하세요. 동일한 에이전트의 두 번째 바인딩은 `dingtalk_binding_already_exists`로 실패합니다. 다른 에이전트에서 `clientId`를 재사용하면 `dingtalk_app_already_bound`로 실패합니다. 설정은 [Quickstart](../quickstart/#4-connect-a-chat-channel-and-create-its-signal-routing-rule)를 참조하세요.
+DingTalk은 엄격한 제약을 적용합니다: 에이전트당 활성화 바인딩 하나, `clientId`당 에이전트 하나. 확장한다면 에이전트마다 로봇 하나를 계획하세요. 동일한 에이전트의 두 번째 바인딩은 `dingtalk_binding_already_exists`로 실패합니다. 다른 에이전트에서 `clientId`를 재사용하면 `dingtalk_app_already_bound`로 실패합니다. 설정은 [Quickstart](../quickstart/#chat-channels)를 참조하세요.
 
 ## Teams는 항상 공개 엔드포인트 필요
 

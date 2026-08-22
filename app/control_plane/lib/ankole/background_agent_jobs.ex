@@ -130,8 +130,15 @@ defmodule Ankole.BackgroundAgentJobs do
   defdelegate respawn_with_dispatch(source_job_id, attrs), to: Dispatch
 
   @doc false
-  defdelegate claim_attempt_in_tx(repo, job_id, agent_uid, expected_attempt, turn_start_spec),
-    to: Lifecycle
+  defdelegate claim_attempt_in_tx(
+                repo,
+                job_id,
+                agent_uid,
+                expected_attempt,
+                turn_start_spec,
+                max_running_per_agent
+              ),
+              to: Lifecycle
 
   @doc false
   defdelegate claim_continuation_in_tx(
@@ -139,7 +146,8 @@ defmodule Ankole.BackgroundAgentJobs do
                 job_id,
                 agent_uid,
                 expected_attempt,
-                turn_start_spec
+                turn_start_spec,
+                max_running_per_agent
               ),
               to: Lifecycle
 

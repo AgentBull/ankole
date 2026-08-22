@@ -1,5 +1,6 @@
 use super::*;
 
+/// Marks private reasoning envelopes so foreign provider text cannot enter replay.
 const CHAT_REASONING_PREFIX: &str = "ankole-aigateway-chat-reasoning:";
 
 #[derive(Debug, Clone, Default)]
@@ -213,10 +214,7 @@ impl ChatState {
         }
 
         if let Some(finish_reason) = choice.get("finish_reason").and_then(Value::as_str) {
-            let (status, reason) = match finish_reason {
-                "length" => ("incomplete", Some("max_output_tokens")),
-                _reason => ("completed", None),
-            };
+            let (status, reason) = chat_terminal(finish_reason);
             self.pending_status = Some(status.to_string());
             self.pending_incomplete_reason = reason.map(ToOwned::to_owned);
         }
@@ -360,6 +358,14 @@ impl ChatState {
             .unwrap_or_else(|| self.tool_calls.len());
         let function = delta.get("function").unwrap_or(&Value::Null);
         let is_new = !self.tool_calls.contains_key(&index);
+        let call_id = delta
+            .get("id")
+            .and_then(Value::as_str)
+            .filter(|call_id| !call_id.is_empty());
+        let name = function
+            .get("name")
+            .and_then(Value::as_str)
+            .filter(|name| !name.is_empty());
 
         let output_index = if let Some(call) = self.tool_calls.get(&index) {
             call.output_index
@@ -369,57 +375,47 @@ impl ChatState {
             value
         };
 
-        let mut call = self
-            .tool_calls
-            .get(&index)
-            .cloned()
-            .unwrap_or_else(|| ToolCall {
+        if is_new {
+            let call = ToolCall {
                 id: generated_id("fc"),
-                call_id: delta
-                    .get("id")
-                    .and_then(Value::as_str)
-                    .filter(|call_id| !call_id.is_empty())
+                call_id: call_id
                     .map(ToOwned::to_owned)
                     .unwrap_or_else(|| generated_id("call")),
-                name: "unknown".to_string(),
+                name: name.unwrap_or("unknown").to_string(),
                 arguments: String::new(),
                 output_index,
-            });
-
-        if let Some(call_id) = delta
-            .get("id")
-            .and_then(Value::as_str)
-            .filter(|call_id| !call_id.is_empty())
-        {
-            call.call_id = call_id.to_string();
-        }
-        if let Some(name) = function
-            .get("name")
-            .and_then(Value::as_str)
-            .filter(|name| !name.is_empty())
-        {
-            call.name = name.to_string();
-        }
-
-        if is_new {
+            };
+            let item = chat_function_call_item(context, &call, "in_progress");
+            self.tool_calls.insert(index, call);
             events.push(self.event(
                 "response.output_item.added",
                 json!({
                     "output_index": output_index,
-                    "item": chat_function_call_item(context, &call, "in_progress")
+                    "item": item
                 }),
             ));
+        } else if let Some(call) = self.tool_calls.get_mut(&index) {
+            if let Some(call_id) = call_id {
+                call.call_id = call_id.to_string();
+            }
+            if let Some(name) = name {
+                call.name = name.to_string();
+            }
         }
 
         if let Some(arguments) = function.get("arguments").and_then(Value::as_str)
             && !arguments.is_empty()
         {
-            call.arguments.push_str(arguments);
-            if !chat_provider_custom_tool(context, &call.name) {
+            let argument_event = self.tool_calls.get_mut(&index).and_then(|call| {
+                call.arguments.push_str(arguments);
+                (!chat_provider_custom_tool(context, &call.name))
+                    .then(|| (call.id.clone(), call.output_index))
+            });
+            if let Some((item_id, output_index)) = argument_event {
                 events.push(self.event(
                     "response.function_call_arguments.delta",
                     json!({
-                        "item_id": call.id,
+                        "item_id": item_id,
                         "output_index": output_index,
                         "delta": arguments
                     }),
@@ -427,7 +423,6 @@ impl ChatState {
             }
         }
 
-        self.tool_calls.insert(index, call);
         events
     }
 
@@ -693,6 +688,14 @@ impl APIProtocol for ChatState {
     }
 }
 
+// Shared terminal mapping for the stream and one-shot Chat Completions paths.
+fn chat_terminal(finish_reason: &str) -> (&'static str, Option<&'static str>) {
+    match finish_reason {
+        "length" => ("incomplete", Some("max_output_tokens")),
+        _reason => ("completed", None),
+    }
+}
+
 fn chat_completion_body_to_response(
     context: &ResponseContext,
     body: Value,
@@ -713,6 +716,11 @@ fn chat_completion_body_to_response(
         .and_then(Value::as_str)
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| context.model.clone());
+    let (status, incomplete_reason) = body
+        .pointer("/choices/0/finish_reason")
+        .and_then(Value::as_str)
+        .map(chat_terminal)
+        .unwrap_or(("completed", None));
 
     let output = chat_output_items(context, &message)?;
     Ok(complete_response_resource(
@@ -721,8 +729,9 @@ fn chat_completion_body_to_response(
             "id": id,
             "object": "response",
             "created_at": created_at,
-            "completed_at": created_at,
-            "status": "completed",
+            "completed_at": if status == "completed" { json!(created_at) } else { Value::Null },
+            "status": status,
+            "incomplete_details": incomplete_reason.map(|reason| json!({"reason": reason})).unwrap_or(Value::Null),
             "model": model,
             "output": output,
             "usage": normalize_response_usage(body.get("usage").unwrap_or(&Value::Null)),

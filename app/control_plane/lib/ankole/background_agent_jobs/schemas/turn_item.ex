@@ -2,9 +2,9 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.TurnItem do
   @moduledoc """
   One append-only sanitized semantic thread item of a BackgroundAgentJob Turn.
 
-  This stream is the one turn content record from the Worker. The trajectory
-  group projection is derived from it at write time, and thread replay reads
-  it back when a lost Codex thread must be rebuilt.
+  This stream is the one turn content record from the Worker. Every
+  trajectory read path projects its messages from these rows at read time,
+  and thread replay reads them back when a lost Codex thread must be rebuilt.
   """
 
   use Ecto.Schema

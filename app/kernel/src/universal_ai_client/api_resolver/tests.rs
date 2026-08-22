@@ -1045,33 +1045,38 @@ fn openai_chat_accumulates_tool_calls() {
         APIResolverKind::OpenAIChatCompletions,
         ResponseContext::default(),
     );
+    let mut public_events = Vec::new();
 
-    resolver
-        .ingest(json!({
-            "choices": [{
-                "delta": {"tool_calls": [{
-                    "index": 0,
-                    "id": "call_1",
-                    "function": {"name": "get_weather", "arguments": "{\"city\""}
-                }]},
-                "finish_reason": null
-            }]
-        }))
-        .unwrap();
-    resolver
-        .ingest(json!({
-            "choices": [{
-                "delta": {"tool_calls": [{
-                    "index": 0,
-                    "id": "",
-                    "function": {"name": "", "arguments": ":\"Shanghai\"}"}
-                }]},
-                "finish_reason": "tool_calls"
-            }]
-        }))
-        .unwrap();
-    let events = resolver.finish().unwrap();
-    let terminal = events.last().unwrap();
+    public_events.extend(
+        resolver
+            .ingest(json!({
+                "choices": [{
+                    "delta": {"tool_calls": [{
+                        "index": 0,
+                        "id": "call_1",
+                        "function": {"name": "get_weather", "arguments": "{\"city\""}
+                    }]},
+                    "finish_reason": null
+                }]
+            }))
+            .unwrap(),
+    );
+    public_events.extend(
+        resolver
+            .ingest(json!({
+                "choices": [{
+                    "delta": {"tool_calls": [{
+                        "index": 0,
+                        "id": "",
+                        "function": {"name": "", "arguments": ":\"Shanghai\"}"}
+                    }]},
+                    "finish_reason": "tool_calls"
+                }]
+            }))
+            .unwrap(),
+    );
+    public_events.extend(resolver.finish().unwrap());
+    let terminal = public_events.last().unwrap();
     let call = terminal["response"]["output"]
         .as_array()
         .unwrap()
@@ -1082,6 +1087,24 @@ fn openai_chat_accumulates_tool_calls() {
     assert_eq!(call["call_id"], "call_1");
     assert_eq!(call["name"], "get_weather");
     assert_eq!(call["arguments"], "{\"city\":\"Shanghai\"}");
+    assert_eq!(
+        public_events
+            .iter()
+            .filter_map(|event| event["type"].as_str())
+            .collect::<Vec<_>>(),
+        vec![
+            "response.created",
+            "response.output_item.added",
+            "response.function_call_arguments.delta",
+            "response.function_call_arguments.delta",
+            "response.function_call_arguments.done",
+            "response.output_item.done",
+            "response.completed"
+        ]
+    );
+    for (expected, event) in public_events.iter().enumerate() {
+        assert_eq!(event["sequence_number"], expected as u64);
+    }
 }
 
 #[test]
@@ -2750,12 +2773,22 @@ fn anthropic_stream_round_trips_thinking_and_signature_deltas() {
         json!({
             "type": "content_block_delta",
             "index": 0,
-            "delta": {"type": "thinking_delta", "thinking": "Check the evidence."}
+            "delta": {"type": "thinking_delta", "thinking": "Check the "}
         }),
         json!({
             "type": "content_block_delta",
             "index": 0,
-            "delta": {"type": "signature_delta", "signature": "signed-stream"}
+            "delta": {"type": "thinking_delta", "thinking": "evidence."}
+        }),
+        json!({
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "signature_delta", "signature": "signed-"}
+        }),
+        json!({
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "signature_delta", "signature": "stream"}
         }),
         json!({"type": "content_block_stop", "index": 0}),
         json!({
@@ -3689,6 +3722,209 @@ fn bedrock_stop_reasons_map_to_incomplete_or_failed() {
         terminal["response"]["error"]["code"],
         "provider_terminal_rejected"
     );
+}
+
+#[test]
+fn openai_chat_stream_length_finish_reason_maps_to_incomplete() {
+    let mut resolver = APIResolver::new(
+        APIResolverKind::OpenAIChatCompletions,
+        ResponseContext::default(),
+    );
+
+    resolver
+        .ingest(json!({
+            "choices": [{
+                "delta": {"content": "truncated"},
+                "finish_reason": "length"
+            }]
+        }))
+        .unwrap();
+    let events = resolver.finish().unwrap();
+    let terminal = events.last().unwrap();
+
+    assert_eq!(terminal["type"], "response.incomplete");
+    assert_eq!(terminal["response"]["status"], "incomplete");
+    assert_eq!(
+        terminal["response"]["incomplete_details"]["reason"],
+        "max_output_tokens"
+    );
+    assert!(terminal["response"]["completed_at"].is_null());
+}
+
+#[test]
+fn openai_chat_one_shot_length_finish_reason_maps_to_incomplete() {
+    let mut resolver = APIResolver::new(
+        APIResolverKind::OpenAIChatCompletions,
+        ResponseContext::default(),
+    );
+
+    let response = resolver
+        .normalize_body(
+            200,
+            json!({
+                "id": "chatcmpl_length",
+                "created": 10,
+                "model": "chat-test",
+                "choices": [{
+                    "message": {"role": "assistant", "content": "truncated"},
+                    "finish_reason": "length"
+                }],
+                "usage": {"prompt_tokens": 2, "completion_tokens": 3, "total_tokens": 5}
+            }),
+        )
+        .unwrap();
+
+    assert_eq!(response["status"], "incomplete");
+    assert_eq!(
+        response["incomplete_details"]["reason"],
+        "max_output_tokens"
+    );
+    assert!(response["completed_at"].is_null());
+    assert_eq!(response["output"][0]["content"][0]["text"], "truncated");
+    assert_eq!(response["usage"]["total_tokens"], 5);
+}
+
+#[test]
+fn anthropic_stream_max_tokens_stop_reason_maps_to_incomplete() {
+    let mut resolver = APIResolver::new(
+        APIResolverKind::AnthropicMessages,
+        ResponseContext::default(),
+    );
+
+    resolver
+        .ingest(json!({
+            "type": "message_start",
+            "message": {"id": "msg_stream", "model": "claude-test"}
+        }))
+        .unwrap();
+    resolver
+        .ingest(json!({
+            "type": "message_delta",
+            "delta": {"stop_reason": "max_tokens"},
+            "usage": {"output_tokens": 5}
+        }))
+        .unwrap();
+    let events = resolver.ingest(json!({"type": "message_stop"})).unwrap();
+    let terminal = events.last().unwrap();
+
+    assert_eq!(terminal["type"], "response.incomplete");
+    assert_eq!(terminal["response"]["status"], "incomplete");
+    assert_eq!(
+        terminal["response"]["incomplete_details"]["reason"],
+        "max_output_tokens"
+    );
+    assert!(terminal["response"]["completed_at"].is_null());
+}
+
+#[test]
+fn anthropic_one_shot_max_tokens_stop_reason_maps_to_incomplete() {
+    let mut resolver = APIResolver::new(
+        APIResolverKind::AnthropicMessages,
+        ResponseContext::default(),
+    );
+
+    let response = resolver
+        .normalize_body(
+            200,
+            json!({
+                "id": "msg_one_shot",
+                "model": "claude-test",
+                "content": [{"type": "text", "text": "truncated"}],
+                "stop_reason": "max_tokens",
+                "usage": {"input_tokens": 3, "output_tokens": 5}
+            }),
+        )
+        .unwrap();
+
+    assert_eq!(response["status"], "incomplete");
+    assert_eq!(
+        response["incomplete_details"]["reason"],
+        "max_output_tokens"
+    );
+    assert!(response["completed_at"].is_null());
+    assert_eq!(response["output"][0]["content"][0]["text"], "truncated");
+    assert_eq!(response["usage"]["input_tokens"], 3);
+    assert_eq!(response["usage"]["output_tokens"], 5);
+}
+
+#[test]
+fn bedrock_converse_one_shot_body_maps_text_usage_and_stop_reason() {
+    let mut resolver = APIResolver::new(
+        APIResolverKind::BedrockConverse,
+        ResponseContext {
+            model: "bedrock-test".to_string(),
+            request: json!({}),
+            provider_options: json!({}),
+            stream: None,
+            include_model: true,
+        },
+    );
+
+    let response = resolver
+        .normalize_body(
+            200,
+            json!({
+                "output": {"message": {"role": "assistant", "content": [
+                    {"text": "hello "},
+                    {"text": "bedrock"}
+                ]}},
+                "stopReason": "end_turn",
+                "usage": {"inputTokens": 3, "outputTokens": 5, "totalTokens": 8},
+                "metrics": {"latencyMs": 42}
+            }),
+        )
+        .unwrap();
+
+    assert_eq!(response["status"], "completed");
+    assert!(!response["completed_at"].is_null());
+    assert_eq!(response["output"][0]["type"], "message");
+    assert_eq!(response["output"][0]["content"][0]["text"], "hello bedrock");
+    assert_eq!(response["usage"]["input_tokens"], 3);
+    assert_eq!(response["usage"]["output_tokens"], 5);
+    assert_eq!(response["usage"]["total_tokens"], 8);
+}
+
+#[test]
+fn bedrock_converse_one_shot_max_tokens_maps_to_incomplete() {
+    let mut resolver =
+        APIResolver::new(APIResolverKind::BedrockConverse, ResponseContext::default());
+
+    let response = resolver
+        .normalize_body(
+            200,
+            json!({
+                "output": {"message": {"content": [{"text": "truncated"}]}},
+                "stopReason": "max_tokens",
+                "usage": {"inputTokens": 3, "outputTokens": 5}
+            }),
+        )
+        .unwrap();
+
+    assert_eq!(response["status"], "incomplete");
+    assert_eq!(
+        response["incomplete_details"]["reason"],
+        "max_output_tokens"
+    );
+    assert!(response["completed_at"].is_null());
+    assert_eq!(response["output"][0]["content"][0]["text"], "truncated");
+}
+
+#[test]
+fn bedrock_converse_one_shot_content_filtered_fails() {
+    let mut resolver =
+        APIResolver::new(APIResolverKind::BedrockConverse, ResponseContext::default());
+
+    let error = resolver
+        .normalize_body(
+            200,
+            json!({
+                "output": {"message": {"content": [{"text": "blocked"}]}},
+                "stopReason": "content_filtered"
+            }),
+        )
+        .unwrap_err();
+
+    assert_eq!(error.code, "provider_terminal_rejected");
 }
 
 #[test]

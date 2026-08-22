@@ -245,14 +245,12 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
       |> patch(~p"/api/v1/agents/#{agent.uid}/signal-bindings/lark-main", %{
         "target_agent_uid" => agent.uid,
         "config" => %{"appSecret" => "", "domain" => "lark"},
-        "group_message_mode" => "observe_all",
-        "confidential_memory" => true
+        "group_message_mode" => "observe_all"
       })
 
     assert %{
              "signal_binding" => %{
                "enabled" => true,
-               "confidential_memory" => true,
                "unaddressed_group_message_policy" => "record_only"
              }
            } = json_response(conn, 200)
@@ -336,14 +334,12 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
       |> patch(~p"/api/v1/agents/#{agent.uid}/signal-bindings/lark-main", %{
         "target_agent_uid" => agent.uid,
         "config" => %{},
-        "group_message_mode" => "observe_all",
-        "confidential_memory" => true
+        "group_message_mode" => "observe_all"
       })
 
     assert %{
              "signal_binding" => %{
                "agent_uid" => agent_uid,
-               "confidential_memory" => true,
                "unaddressed_group_message_policy" => "record_only"
              }
            } = json_response(conn, 200)
@@ -405,6 +401,35 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
 
     assert {:ok, %{"appID" => "cli_move"}} =
              LarkConfig.load_chat_config_ref(source_binding.config_ref)
+  end
+
+  test "moving a binding keeps the group-message mode when the request omits it", %{conn: conn} do
+    %{principal: source_agent} = agent_fixture()
+    %{principal: target_agent} = agent_fixture()
+
+    conn =
+      conn
+      |> bearer_conn()
+      |> put(~p"/api/v1/agents/#{source_agent.uid}/signal-bindings/lark/lark-main", %{
+        "config" => lark_config("group-mode-keep"),
+        "group_message_mode" => "may_intervene"
+      })
+
+    assert response(conn, 200)
+    assert {:ok, source_binding} = SignalsGateway.get_binding(source_agent.uid, "lark-main")
+    assert source_binding.unaddressed_group_message_policy == :may_intervene
+
+    conn =
+      conn
+      |> recycle_api()
+      |> patch(~p"/api/v1/agents/#{source_agent.uid}/signal-bindings/lark-main", %{
+        "target_agent_uid" => target_agent.uid,
+        "config" => lark_config("group-mode-keep")
+      })
+
+    assert response(conn, 200)
+    assert {:ok, target_binding} = SignalsGateway.get_binding(target_agent.uid, "lark-main")
+    assert target_binding.unaddressed_group_message_policy == :may_intervene
   end
 
   test "moving a binding keeps the unmatched-sender policy when the request omits it", %{
@@ -783,14 +808,6 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     adapter = Enum.find(adapters, &(&1["adapter_id"] == "lark"))
     assert adapter["adapter_id"] == "lark"
     assert adapter["adapter_category"] == "enterprise_im"
-    assert adapter["display_name"]["default"] == "Lark"
-
-    fields = Map.new(adapter["fields"], &{&1["path"], &1})
-    assert fields["appID"]["advanced"] == false
-    assert fields["appSecret"]["advanced"] == false
-    assert fields["domain"]["advanced"] == false
-    assert fields["platformSubjectNamespace"]["advanced"] == true
-    assert fields["userName"]["advanced"] == true
 
     assert adapter["group_message_mode_field"]["path"] == "group_message_mode"
     assert adapter["group_message_mode_field"]["advanced"] == false
@@ -803,14 +820,6 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
            ]
 
     slack = Enum.find(adapters, &(&1["adapter_id"] == "slack"))
-    assert slack["display_name"]["default"] == "Slack"
-
-    slack_fields = Map.new(slack["fields"], &{&1["path"], &1})
-    assert slack_fields["botToken"]["advanced"] == false
-    assert slack_fields["appToken"]["advanced"] == false
-    assert slack_fields["platformSubjectNamespace"]["advanced"] == true
-    assert slack_fields["userName"]["advanced"] == true
-
     assert slack["group_message_mode_field"] == adapter["group_message_mode_field"]
 
     assert Enum.all?(

@@ -164,22 +164,6 @@ fn validate_body_required_fields(body: &proto::envelope::Body) -> KernelResult<(
             validate_turn_ref(payload.turn.as_ref(), "worker_progress.turn")?;
             require_non_empty(&payload.kind, "worker_progress.kind")
         }
-        proto::envelope::Body::TurnError(payload) => {
-            validate_turn_ref(payload.turn.as_ref(), "turn_error.turn")?;
-            require_non_empty(&payload.code, "turn_error.code")
-        }
-        proto::envelope::Body::TurnNoopCompleted(payload) => {
-            validate_turn_ref(payload.turn.as_ref(), "turn_noop_completed.turn")?;
-            Ok(())
-        }
-        proto::envelope::Body::TurnCompleted(payload) => {
-            validate_turn_ref(payload.turn.as_ref(), "turn_completed.turn")?;
-            require_response_id(
-                &payload.final_response_id,
-                "turn_completed.final_response_id",
-            )?;
-            validate_turn_completion_outcome(payload.outcome)
-        }
         proto::envelope::Body::ControlShutdown(_payload) => Ok(()),
         RPCRequestBody(payload) => {
             require_non_empty(&payload.request_id, "rpc_request.request_id")?;
@@ -305,26 +289,6 @@ fn require_non_empty(value: &str, field: &str) -> KernelResult<()> {
     }
 
     Ok(())
-}
-
-fn require_response_id(value: &str, field: &str) -> KernelResult<()> {
-    require_non_empty(value, field)?;
-    if !value.starts_with("resp_") {
-        return Err(KernelError::new(format!("{field} must start with resp_")));
-    }
-    Ok(())
-}
-
-fn validate_turn_completion_outcome(outcome: i32) -> KernelResult<()> {
-    match proto::TurnCompletionOutcome::try_from(outcome)
-        .unwrap_or(proto::TurnCompletionOutcome::Unspecified)
-    {
-        proto::TurnCompletionOutcome::LoopFinished
-        | proto::TurnCompletionOutcome::IterationExhausted => Ok(()),
-        proto::TurnCompletionOutcome::Unspecified => {
-            Err(KernelError::new("turn_completed.outcome must be specified"))
-        }
-    }
 }
 
 fn require_positive_u64(value: u64, field: &str) -> KernelResult<()> {

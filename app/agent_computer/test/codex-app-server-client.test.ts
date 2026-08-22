@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { CodexAppServerClient } from '../src/core/codex-runner/app-server-client'
+import { CodexAppServerClient } from '../src/core/codex-runner/runtime/app-server-client'
 import { toError } from '../src/common/errors'
 
 describe('Codex app-server client transport', () => {

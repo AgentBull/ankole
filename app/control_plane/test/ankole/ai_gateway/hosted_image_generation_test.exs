@@ -5,6 +5,7 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
   alias Ankole.AIGateway.Conversations
   alias Ankole.AIGateway.HostedTools.ImageGeneration
   alias Ankole.AIGateway.ModelMetadata.Cache, as: ModelMetadataCache
+  alias Ankole.AIGateway.ResponsesPreparation
   alias Ankole.AIGateway.StatefulResponses
 
   @png_base64 "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
@@ -72,7 +73,7 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
 
     provider_id = "unused-image-fallback-#{System.unique_integer([:positive])}"
 
-    assert {:ok, _provider} =
+    assert {:ok, provider} =
              ProviderConfigs.create_provider(%{
                provider_id: provider_id,
                provider_kind: "openrouter",
@@ -84,14 +85,15 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
 
     :ok =
       ModelMetadataCache.put(
-        {:image_model_catalog, provider_id, "images/models"},
+        {:image_model_catalog, provider_id, provider.updated_at, "images/models"},
         [%{"id" => "openai/gpt-image-1"}],
         60_000
       )
 
     :ok =
       ModelMetadataCache.put(
-        {:image_model_endpoints, provider_id, "images/models/openai/gpt-image-1/endpoints"},
+        {:image_model_endpoints, provider_id, provider.updated_at,
+         "images/models/openai/gpt-image-1/endpoints"},
         [
           %{
             "provider_slug" => "openai",
@@ -127,6 +129,74 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
     assert error.message =~ "native image generation"
   end
 
+  test "zero tool budget still resolves native local inputs before dispatch" do
+    %{principal: agent} = agent_fixture()
+    provider_id = "openai-zero-image-budget-#{System.unique_integer([:positive])}"
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: provider_id,
+               provider_kind: "openai",
+               base_url: "https://openai.test/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: provider_id,
+               model: "gpt-5.6"
+             })
+
+    image_id = "ig_#{Ankole.Ecto.UUIDv7.autogenerate()}"
+
+    assert {:ok, _artifact} =
+             Artifacts.persist_generated_image(agent.uid, image_id, @png_base64, "image/png")
+
+    request = %{
+      "model" => "primary",
+      "input" => [
+        %{
+          "id" => image_id,
+          "type" => "image_generation_call",
+          "status" => "completed",
+          "result" => nil
+        },
+        %{
+          "type" => "message",
+          "role" => "user",
+          "content" => [
+            %{"type" => "input_text", "text" => "darken the sky"},
+            %{"type" => "input_image", "file_id" => image_id},
+            %{"type" => "input_image", "file_id" => "file-provider-owned"}
+          ]
+        }
+      ],
+      "tools" => [
+        %{
+          "type" => "image_generation",
+          "action" => "edit",
+          "input_image_mask" => %{"file_id" => "file_#{Ankole.Ecto.UUIDv7.autogenerate()}"}
+        }
+      ],
+      "max_tool_calls" => 0
+    }
+
+    assert {:ok, %{request: ^request, spec: spec}} =
+             ResponsesPreparation.prepare(agent.uid, request)
+
+    resolved = spec.response_context.request
+    data_url = "data:image/png;base64,#{@png_base64}"
+    assert [replayed, message] = resolved["input"]
+    assert replayed["result"] == @png_base64
+    assert [_text, local, provider_owned] = message["content"]
+    assert local == %{"type" => "input_image", "image_url" => data_url}
+    assert provider_owned == %{"type" => "input_image", "file_id" => "file-provider-owned"}
+    assert resolved["tools"] == []
+    refute Map.has_key?(resolved, "max_tool_calls")
+  end
+
   test "hosted image fallback keeps a configured main-model WebSocket" do
     %{principal: agent} = agent_fixture()
     suffix = System.unique_integer([:positive])
@@ -154,7 +224,7 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
                provider_options: %{"serviceTier" => "fast"}
              })
 
-    assert {:ok, _provider} =
+    assert {:ok, image_provider} =
              ProviderConfigs.create_provider(%{
                provider_id: image_provider_id,
                provider_kind: "openrouter",
@@ -166,14 +236,15 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
 
     :ok =
       ModelMetadataCache.put(
-        {:image_model_catalog, image_provider_id, "images/models"},
+        {:image_model_catalog, image_provider_id, image_provider.updated_at, "images/models"},
         [%{"id" => "openai/gpt-image-2"}],
         60_000
       )
 
     :ok =
       ModelMetadataCache.put(
-        {:image_model_endpoints, image_provider_id, "images/models/openai/gpt-image-2/endpoints"},
+        {:image_model_endpoints, image_provider_id, image_provider.updated_at,
+         "images/models/openai/gpt-image-2/endpoints"},
         [
           %{
             "provider_slug" => "openai",

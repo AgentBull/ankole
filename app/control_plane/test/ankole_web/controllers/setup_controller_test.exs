@@ -69,11 +69,17 @@ defmodule AnkoleWeb.SetupControllerTest do
         state: "old-state",
         redirect_uri: "http://localhost/sessions/oidc/lark-main/callback"
       })
-      |> post(~p"/.internal-apis/setup/sessions", %{"activationCode" => "WRONG000"})
+      |> post(~p"/.internal-apis/setup/sessions", %{
+        "activationCode" => "WRONG000",
+        "locale" => "zh-Hans-CN"
+      })
 
     assert json_response(conn, 401)["error"] == "invalid bootstrap activation code"
     assert get_session(conn, :setup_session) == nil
     assert get_session(conn, :setup_oidc_state) == nil
+
+    # The rejected request must not persist its locale.
+    refute Repo.get_by(AppConfigure.AppConfig, scope: "global", key: "i18n.default_locale")
   end
 
   test "setup state reports the forwarded origin the callback URL is built from", %{conn: conn} do

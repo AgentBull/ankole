@@ -1833,8 +1833,8 @@ export const channelTabs = [
 ]
 
 export const signalAdvanced = {
-  title: '群聊处理方式、机密记忆和身份映射',
-  summary: '第一次配置时，建议只响应明确 @ Agent 的消息，并沿用默认的共享记忆。',
+  title: '群聊处理方式和身份映射',
+  summary: '第一次配置时，建议只响应明确 @ Agent 的消息。',
   steps: [
     {
       title: '选择如何处理没有 @ Agent 的群消息',
@@ -1854,12 +1854,6 @@ export const signalAdvanced = {
       ],
       caution:
         '聊天平台必须先把群消息发给 Ankole，这些模式才会生效。钉钉和企业微信只支持 addressed_only；Slack 和飞书还要添加额外的事件或权限，才能读取群里所有消息。'
-    },
-    {
-      title: '只有敏感会话才启用机密记忆',
-      body: [
-        '默认设置会把对话纳入共享知识。打开 Confidential memory 后，这段会话的历史只会在对应的 Channel 中召回。'
-      ]
     },
     {
       title: '用命名空间区分平台身份',
@@ -1954,6 +1948,8 @@ Ankole 的核心设计目标是服务企业内部的私有化部署。每家企�
   tabs={identityTabs}
 />
 
+<span id="llm-providers" aria-hidden="true" />
+
 ## 3. 添加模型提供商，并创建 Agent
 
 Agent 的模型档案只保存模型引用，因此要先添加模型提供商。登录 Console，打开 **模型提供商 → 新增提供商**，选择 Provider 类型，填写固定的 Provider ID、服务地址和凭证，然后保存。
@@ -1997,7 +1993,7 @@ Agent 的模型档案只保存模型引用，因此要先添加模型提供商�
 
 ### 在 Console 中完成连接
 
-当前版本使用直连：一条路由规则把一个聊天渠道连接到一个 Agent。它记录使用哪个适配器、哪套应用凭证、由哪个 Agent 回复，以及怎样处理群聊消息和记忆。多个机器人要分别创建多条路由规则。
+当前版本使用直连：一条路由规则把一个聊天渠道连接到一个 Agent。它记录使用哪个适配器、哪套应用凭证、由哪个 Agent 回复，以及怎样处理群聊消息。多个机器人要分别创建多条路由规则。
 
 打开 **Console → 信号路由 → 新增路由规则**，依次设置：
 
@@ -2007,7 +2003,6 @@ Agent 的模型档案只保存模型引用，因此要先添加模型提供商�
 | **Adapter** | Slack、Teams、飞书 / Lark、钉钉或企业微信 |
 | **规则名称** | 起一个固定的名称，例如 `slack-main` 或 `lark-main` |
 | **Group message mode** | 第一次测试选择 `addressed_only` |
-| **Confidential memory** | 第一次测试先关闭 |
 | **聊天渠道配置** | 填入对应平台 Tab 中准备好的凭证和字段 |
 
 保存后，应能在列表中看到启用状态。如果表单提示凭证有误，先改正再去 IM 测试；凭证没有通过检查，adapter 就不会建立连接。
@@ -2030,6 +2025,8 @@ Agent 的模型档案只保存模型引用，因此要先添加模型提供商�
 > @Ankole 你能做什么？你现在服务哪个团队？
 
 收到真实模型生成的回复后，就可以继续调整 Agent 的 mission、模型和群聊策略。
+
+<span id="agent-not-replying" aria-hidden="true" />
 
 ### Agent 没有回复时
 

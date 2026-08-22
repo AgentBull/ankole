@@ -85,7 +85,7 @@ Brain は「世界が今どのような状態か」を所有します。Skill Ov
 
 この構造は、Agent が時間とともにチームの規則を学ぶというホームページ上の約束を実現します。蓄積は、より長い log を意味しません。次の Job がより良い知識とより良い方法から始まることを意味します。
 
-ユーザー向けの説明は [長期 memory](../memory/) を、storage、Dreaming、書き込み権限は [Brain](../brain/) を参照してください。
+ユーザーから見えるのはこの仕組みの長期 memory であり、storage、Dreaming、書き込み権限は Brain が所有します。
 
 ## Background Agent Job: メイン session をブロックしない長時間の仕事
 
@@ -149,7 +149,7 @@ RuntimeFabric、Worker の process state、stream preview は再構築できま�
 | **Kubernetes · エンタープライズ deployment 向け推奨** | 1 つの control plane が 1 つ以上の Worker Pod に接続し、node またはセキュリティ要件に応じて schedule | PostgreSQL に加えて、共有の `ReadWriteMany` Agent Home storage |
 | **ソースインストール** | 開発環境が control plane と Worker を別々に実行 | 開発用に構成された PostgreSQL とローカル workspace |
 
-論理的な境界はどの形態でも同じです。instance は control plane を 1 つ持ち、Worker を水平に追加できます。完全な手順は [クイックスタート](../quickstart/#1-deploy-ankole) を参照してください。
+論理的な境界はどの形態でも同じです。instance は control plane を 1 つ持ち、Worker を水平に追加できます。完全な手順は [クイックスタート](../quickstart/#deployment) を参照してください。
 
 ## 5 つの技術的判断
 

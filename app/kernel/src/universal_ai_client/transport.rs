@@ -989,18 +989,17 @@ fn record_alt_svc(url: &str, headers: &HeaderMap) {
     }
 
     if let Some(max_age) = parse_same_authority_h3_alt_svc(header) {
+        // `ma` is remote-controlled; an overflowing expiry must not panic.
+        let Some(expires_at) = Instant::now().checked_add(Duration::from_secs(max_age)) else {
+            return;
+        };
         if !cache.contains_key(&origin)
             && cache.len() >= MAX_ALT_SVC_CACHE_ENTRIES
             && let Some(old_origin) = cache.keys().next().cloned()
         {
             cache.remove(&old_origin);
         }
-        cache.insert(
-            origin,
-            AltSvcEntry {
-                expires_at: Instant::now() + Duration::from_secs(max_age),
-            },
-        );
+        cache.insert(origin, AltSvcEntry { expires_at });
     }
 }
 
@@ -1337,6 +1336,19 @@ mod tests {
             parse_same_authority_h3_alt_svc(r#"h3="alt.example.com:443"; ma=3600"#),
             None
         );
+    }
+
+    #[test]
+    fn alt_svc_overflowing_ma_is_dropped_without_panic() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            reqwest::header::ALT_SVC,
+            r#"h3=":443"; ma=18446744073709551615"#.parse().unwrap(),
+        );
+
+        record_alt_svc("https://alt-svc-overflow.test/v1/responses", &headers);
+
+        assert!(cached_alt_svc_h3("https://alt-svc-overflow.test:443").is_none());
     }
 
     #[test]

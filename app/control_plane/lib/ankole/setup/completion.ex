@@ -11,16 +11,32 @@ defmodule Ankole.Setup.Completion do
   that the single completion check stays at each caller's own gate.
   """
 
+  alias Ankole.AppConfigure
   alias Ankole.AuthZ
+  alias Ankole.Repo
   alias Ankole.Setup.Config
 
   @doc """
   Grants root admin to `principal_uid` and marks setup complete.
+
+  The root claim and the completion flag commit in one transaction, so a
+  failed claim can never leave the installation marked complete and a failed
+  flag write can never leave a root grant behind. Activation-code deletion
+  stays outside: a leftover code is inert once setup is complete, and
+  bootstrap deletes it on the next start.
   """
   @spec complete_with_root_admin(String.t()) :: {:ok, map()} | {:error, term()}
   def complete_with_root_admin(principal_uid) do
-    with {:ok, root} <- AuthZ.root_init_admin(principal_uid),
-         {:ok, true} <- Config.put_completed(true),
+    transact_result =
+      Repo.transact(fn repo ->
+        with {:ok, root} <- AuthZ.root_init_admin(principal_uid, repo),
+             {:ok, completed_write} <- Config.put_completed_in_tx(repo, true) do
+          {:ok, {root, completed_write}}
+        end
+      end)
+
+    with {:ok, {root, completed_write}} <- transact_result,
+         {:ok, _completed} <- AppConfigure.cache_committed_write(completed_write),
          :ok <- Config.delete_bootstrap_activation_code() do
       {:ok, root}
     end

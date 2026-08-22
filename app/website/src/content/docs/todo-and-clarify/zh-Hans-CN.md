@@ -7,7 +7,7 @@ order: 124
 
 `todo` 和 `clarify` 是 agent 的结构化计划工具。一个把计划留在会话内，另一个在答案真的会改变结果时只问你一个问题。两者都随 worker 出厂，源在 `app/agent_computer/src/tools/`。它们不是记忆，也不是聊天界面——它们让 agent 自己站稳脚跟，也让它发起一次决策提问。
 
-先说明最关键的一点：todo 清单是易失的、按会话隔离的；一次 `clarify` 调用会结束本回合。清单不会跨会话保留，agent 一旦提问，就等你的下一条消息。两者都不是持久真相——那个角色归 [Memory](../memory/)。
+先说明最关键的一点：todo 清单是易失的、按会话隔离的；一次 `clarify` 调用会结束本回合。清单不会跨会话保留，agent 一旦提问，就等你的下一条消息。两者都不是持久真相——那个角色归 Memory。
 
 ## 每个工具是什么
 
@@ -24,7 +24,7 @@ todo 清单存在一个按会话隔离的 `TodoStore` 里。它是工作状态�
 2. **同时最多一项进行中。** agent 不会在第一项完成或取消前就开第二项。
 3. **完成即标记。** 做完的步骤以 `completed` 离开清单，而不是停在当前项。失败的步骤标 `cancelled`，并加一条修订项。
 
-todo 清单不是什么：它不是持久计划，也不是把活交给下一会话的手段。新会话从空清单开始。如果一份计划必须熬过会话，它进 [Memory](../memory/)，不进 `todo`。
+todo 清单不是什么：它不是持久计划，也不是把活交给下一会话的手段。新会话从空清单开始。如果一份计划必须熬过会话，它进 Memory，不进 `todo`。
 
 ## agent 何时用 clarify
 
@@ -49,6 +49,6 @@ todo store、clarify 的持久记录、结束回合的行为，都是 worker 内
 ## 下一步
 
 - 塑造 agent 何时做计划、何时提问的人设与能力，读 [Agents](../agents/)。
-- 真正熬过会话的持久知识，读 [Memory](../memory/)。
+- 真正熬过会话的持久知识，归 Memory。
 - `waiting_on_user` 任务状态，以及任务内一次 clarify 如何暂停它，读 [后台 Agent 任务](../background-jobs/)。
 - 回合内跑这些工具的 worker，读 [Agent Computer Worker](../agent-computer-worker/) 开发者页。

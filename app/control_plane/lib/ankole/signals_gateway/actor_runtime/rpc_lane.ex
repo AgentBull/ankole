@@ -385,9 +385,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
   # Only read operations are known to be side-effect free. Retrying a write or
   # completion after an internal exception could repeat an effect whose commit
   # outcome is unknown, so those failures remain terminal.
-  @doc false
   @spec retryable_handler_failure?(String.t()) :: boolean()
-  def retryable_handler_failure?(method) do
+  defp retryable_handler_failure?(method) do
     case Map.get(@rpc_operations, method) do
       {_module, _function, :turn_read, _request_mod} -> true
       _operation -> false

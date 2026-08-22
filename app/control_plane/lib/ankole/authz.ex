@@ -422,9 +422,11 @@ defmodule Ankole.AuthZ do
   """
   @spec delete_permission_grant(String.t()) :: {:ok, Grant.t()} | {:error, term()}
   def delete_permission_grant(id) do
-    case Repo.get(Grant, id) do
-      %Grant{} = grant -> Repo.delete(grant)
-      nil -> {:error, :not_found}
+    with {:ok, id} <- Ecto.UUID.cast(id),
+         %Grant{} = grant <- Repo.get(Grant, id) do
+      Repo.delete(grant)
+    else
+      _not_found -> {:error, :not_found}
     end
   end
 
@@ -530,6 +532,12 @@ defmodule Ankole.AuthZ do
   """
   @spec root_init_admin(String.t()) :: {:ok, map()} | {:error, term()}
   defdelegate root_init_admin(principal_uid), to: Root
+
+  @doc false
+  @spec root_init_admin(String.t(), term()) :: {:ok, map()} | {:error, term()}
+  def root_init_admin(principal_uid, repo) do
+    Root.root_init_admin(repo, principal_uid)
+  end
 
   @doc """
   Ensures disabling a Principal will not strand the installation without a root admin.

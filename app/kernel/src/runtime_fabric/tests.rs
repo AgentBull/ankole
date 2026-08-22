@@ -103,9 +103,8 @@ fn seals_headers_from_the_body_spec() {
         "seal-1",
         proto::Lane::Unspecified,
         proto::DurabilityClass::DurabilityUnspecified,
-        proto::envelope::Body::TurnNoopCompleted(proto::TurnNoopCompleted {
+        proto::envelope::Body::TurnAccepted(proto::TurnAccepted {
             turn: Some(turn_ref()),
-            reason: "ambient_silent".into(),
         }),
     );
     envelope.protocol_version = 0;
@@ -139,118 +138,28 @@ fn seals_headers_from_the_body_spec() {
 }
 
 #[test]
-fn accepts_turn_noop_completed() {
-    let envelope = base_envelope(
-        "turn-noop-completed-1",
-        "turn-noop-completed-1",
-        proto::Lane::Turn,
-        proto::DurabilityClass::ControlReplayable,
-        proto::envelope::Body::TurnNoopCompleted(proto::TurnNoopCompleted {
-            turn: Some(turn_ref()),
-            reason: "ambient_silent".into(),
-        }),
-    );
-
-    validate_envelope_bytes(&envelope.encode_to_vec()).expect("turn_noop_completed must validate");
-}
-
-#[test]
-fn accepts_turn_completed_and_rejects_invalid_payloads() {
-    let envelope = base_envelope(
-        "turn-completed-1",
-        "turn-start-1",
-        proto::Lane::Turn,
-        proto::DurabilityClass::ControlReplayable,
-        proto::envelope::Body::TurnCompleted(turn_completed(
-            "resp_final_1",
-            proto::TurnCompletionOutcome::IterationExhausted,
-        )),
-    );
-    validate_envelope_bytes(&envelope.encode_to_vec()).expect("turn_completed must validate");
-
-    let bad_response_id = validate_error(base_envelope(
-        "turn-completed-invalid",
-        "turn-start-1",
-        proto::Lane::Turn,
-        proto::DurabilityClass::ControlReplayable,
-        proto::envelope::Body::TurnCompleted(turn_completed(
-            "response-final",
-            proto::TurnCompletionOutcome::LoopFinished,
-        )),
-    ));
-    assert!(bad_response_id.contains("final_response_id must start with resp_"));
-
-    let unspecified_outcome = validate_error(base_envelope(
-        "turn-completed-invalid",
-        "turn-start-1",
-        proto::Lane::Turn,
-        proto::DurabilityClass::ControlReplayable,
-        proto::envelope::Body::TurnCompleted(turn_completed(
-            "resp_final_1",
-            proto::TurnCompletionOutcome::Unspecified,
-        )),
-    ));
-    assert!(unspecified_outcome.contains("turn_completed.outcome must be specified"));
-}
-
-#[test]
-fn rejects_turn_completed_without_required_fields() {
-    let cases = [
-        (
-            proto::TurnCompleted {
-                turn: None,
-                final_response_id: "resp_final_1".into(),
-                outcome: proto::TurnCompletionOutcome::LoopFinished as i32,
-            },
-            "turn_completed.turn is required",
-        ),
-        (
-            proto::TurnCompleted {
-                turn: Some(turn_ref()),
-                final_response_id: String::new(),
-                outcome: proto::TurnCompletionOutcome::LoopFinished as i32,
-            },
-            "turn_completed.final_response_id is required",
-        ),
-    ];
-
-    for (payload, expected_error) in cases {
-        let error = validate_error(base_envelope(
-            "turn-completed-missing-field",
-            "turn-start-1",
-            proto::Lane::Turn,
-            proto::DurabilityClass::ControlReplayable,
-            proto::envelope::Body::TurnCompleted(payload),
-        ));
-        assert!(error.contains(expected_error), "unexpected error: {error}");
-    }
-}
-
-#[test]
 fn rejects_body_lane_and_durability_mismatches() {
     let wrong_lane = validate_error(base_envelope(
-        "turn-completed-wrong-lane",
+        "turn-accepted-wrong-lane",
         "turn-start-1",
         proto::Lane::Progress,
         proto::DurabilityClass::ControlEphemeral,
-        proto::envelope::Body::TurnCompleted(turn_completed(
-            "resp_final_1",
-            proto::TurnCompletionOutcome::LoopFinished,
-        )),
+        proto::envelope::Body::TurnAccepted(proto::TurnAccepted {
+            turn: Some(turn_ref()),
+        }),
     ));
-    assert!(wrong_lane.contains("turn_completed must use lane LANE_TURN"));
+    assert!(wrong_lane.contains("turn_accepted must use lane LANE_TURN"));
 
     let wrong_durability = validate_error(base_envelope(
-        "turn-completed-wrong-durability",
+        "turn-accepted-wrong-durability",
         "turn-start-1",
         proto::Lane::Turn,
         proto::DurabilityClass::ControlEphemeral,
-        proto::envelope::Body::TurnCompleted(turn_completed(
-            "resp_final_1",
-            proto::TurnCompletionOutcome::LoopFinished,
-        )),
+        proto::envelope::Body::TurnAccepted(proto::TurnAccepted {
+            turn: Some(turn_ref()),
+        }),
     ));
-    assert!(wrong_durability.contains("turn_completed must use durability CONTROL_REPLAYABLE"));
+    assert!(wrong_durability.contains("turn_accepted must use durability CONTROL_REPLAYABLE"));
 
     let wrong_turn_start_lane = validate_error(base_envelope(
         "turn-start-wrong-lane",
@@ -597,17 +506,6 @@ fn base_envelope(
         sent_at_unix_ms: 1_782_300_000_000,
         durability: durability as i32,
         body: Some(body),
-    }
-}
-
-fn turn_completed(
-    final_response_id: &str,
-    outcome: proto::TurnCompletionOutcome,
-) -> proto::TurnCompleted {
-    proto::TurnCompleted {
-        turn: Some(turn_ref()),
-        final_response_id: final_response_id.into(),
-        outcome: outcome as i32,
     }
 }
 

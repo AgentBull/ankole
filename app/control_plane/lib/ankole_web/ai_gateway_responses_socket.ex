@@ -378,6 +378,15 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
   end
 
   def handle_info(
+        {:ai_gateway_response_stream, ref, :events, events, {:terminal, nil}},
+        %{active_stream: %{ref: ref}} = state
+      ) do
+    state = clear_active_stream(state)
+    chunks = Enum.map(events, &{:text, Ankole.JSON.encode!(&1)})
+    {:stop, :stateful_commit_failed, 1011, chunks, state}
+  end
+
+  def handle_info(
         {:ai_gateway_response_stream, ref, :events, events, {:terminal, outcome}},
         %{active_stream: %{ref: ref} = active} = state
       ) do

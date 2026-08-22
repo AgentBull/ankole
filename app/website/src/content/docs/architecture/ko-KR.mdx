@@ -15,7 +15,7 @@ Agent 하나가 한 기능을 몇 시간 동안 실행하고, 공유 운영 컨�
 
 ## 시스템 지도
 
-<DocsArchitectureDiagram lang="en-US" />
+<DocsArchitectureDiagram lang="ko-KR" />
 
 하나의 private deployment 인스턴스에는 논리적 컨트롤 플레인이 하나 있고 Agent Computer Worker가 한 대 이상 있습니다. 컨트롤 플레인은 identity, 상태, 스케줄링을 관리합니다. Worker는 Agent가 일하는 컴퓨팅 환경을 제공합니다.
 
@@ -85,7 +85,7 @@ Brain은 “지금 세계가 어떤 상태인가”를 소유합니다. Skill Ov
 
 이 구조는 Agent가 시간이 지나면서 팀의 규칙을 학습한다는 홈페이지의 약속을 구현합니다. 복리(compounding)는 더 긴 로그를 의미하지 않습니다. 다음 Job이 더 나은 지식과 더 나은 방법에서 시작한다는 뜻입니다.
 
-사용자 관점은 [장기 memory](../memory/)를, 저장, Dreaming, 작성 권한은 [Brain](../brain/)을 참조하십시오.
+사용자 관점에서 이 시스템은 장기 memory이고, 저장, Dreaming, 작성 권한은 Brain이 소유합니다.
 
 ## Background Agent Jobs: 메인 세션을 막지 않는 긴 작업
 
@@ -149,7 +149,7 @@ RuntimeFabric, Worker 프로세스 상태, 스트림 미리 보기는 다시 구
 | **Kubernetes · 엔터프라이즈 deployment 권장** | 컨트롤 플레인 하나가 Worker Pod 한 개 이상에 연결되고 노드 또는 보안 요구에 따라 스케줄링 | PostgreSQL과 공유 `ReadWriteMany` Agent Home 스토리지 |
 | **소스 설치** | 개발 환경이 컨트롤 플레인과 Worker를 별도로 실행 | 개발용으로 구성된 PostgreSQL과 로컬 workspace |
 
-논리적 경계는 모든 형태에서 같습니다. 인스턴스에는 컨트롤 플레인이 하나 있으며 Worker를 수평으로 추가할 수 있습니다. 전체 절차는 [빠른 시작](../quickstart/#1-deploy-ankole)을 참조하십시오.
+논리적 경계는 모든 형태에서 같습니다. 인스턴스에는 컨트롤 플레인이 하나 있으며 Worker를 수평으로 추가할 수 있습니다. 전체 절차는 [빠른 시작](../quickstart/#deployment)을 참조하십시오.
 
 ## 다섯 가지 기술적 결정
 

@@ -6,15 +6,12 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
 
   alias Ankole.AIGateway.Conversations
 
-  alias Ankole.AIGateway.Schemas.{Conversation, Message}
+  alias Ankole.AIGateway.Schemas.Message
   alias Ankole.AIGateway.StatefulResponses
-  alias Ankole.AuthZ.Group
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.Repo
   alias Ankole.SignalsGateway
-  alias Ankole.SignalsGateway.AdapterContext
   alias Ankole.SignalsGateway.AIGatewayLink
-  alias Ankole.SignalsGateway.BindingMembership
   alias Ankole.SignalsGateway.Channel
 
   test "records a tool result and completes its BackgroundAgentJob lifecycle event atomically" do
@@ -284,99 +281,6 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
     assert successor_origin == conversation.metadata["origin"]
   end
 
-  test "conversation origin is recorded once and never re-verified against later channel changes" do
-    %{principal: agent} = agent_fixture()
-    binding_name = "scope-rollover"
-    session_id = "group-scope-rollover"
-    now = DateTime.utc_now(:microsecond)
-
-    assert {:ok, binding} =
-             SignalsGateway.upsert_binding(%{
-               agent_uid: agent.uid,
-               name: binding_name,
-               adapter: "lark",
-               config_ref: "app-config://scope-rollover",
-               unaddressed_group_message_policy: :record_only,
-               unmatched_sender_policy: :create_standalone,
-               confidential_memory: false
-             })
-
-    group =
-      %Group{}
-      |> Group.changeset(%{
-        name: binding_name,
-        display_name: binding_name,
-        domain: :im_group,
-        metadata:
-          BindingMembership.project(
-            %{},
-            AdapterContext.new(
-              agent_uid: agent.uid,
-              binding_name: binding_name,
-              adapter: "lark",
-              user_name: "Lark"
-            ),
-            :joined,
-            now
-          )
-      })
-      |> Repo.insert!()
-
-    channel =
-      %Channel{}
-      |> Channel.changeset(%{
-        id: "lark:chat:scope-rollover",
-        kind: :im_group,
-        reply_mode: :entry,
-        name: binding_name,
-        principal_group_id: group.id,
-        metadata: %{},
-        raw_payload: %{},
-        first_seen_at: now,
-        last_seen_at: now
-      })
-      |> Repo.insert!()
-
-    first_event =
-      append_group_actor_event!(agent.uid, binding_name, channel.id, session_id, "shared", now)
-
-    assert {:ok, conversation} =
-             Repo.transact(fn repo ->
-               AIGatewayLink.ensure_and_lock_conversation_in_tx(
-                 repo,
-                 agent.uid,
-                 session_id,
-                 first_event
-               )
-             end)
-
-    assert conversation.metadata["origin"] == %{
-             "channel_id" => channel.id,
-             "channel_kind" => "im_group"
-           }
-
-    binding
-    |> Ecto.Changeset.change(confidential_memory: true)
-    |> Repo.update!()
-
-    second_event =
-      append_group_actor_event!(agent.uid, binding_name, channel.id, session_id, "channel", now)
-
-    assert {:ok, same_conversation} =
-             Repo.transact(fn repo ->
-               AIGatewayLink.ensure_and_lock_conversation_in_tx(
-                 repo,
-                 agent.uid,
-                 session_id,
-                 second_event
-               )
-             end)
-
-    assert same_conversation.id == conversation.id
-    assert same_conversation.metadata["origin"] == conversation.metadata["origin"]
-    refute Repo.get!(Conversation, conversation.id).ended_at
-  end
-
   test "missing schedule delivery channels leave the conversation origin undeclared" do
     %{principal: agent} = agent_fixture()
     now = DateTime.utc_now(:microsecond)
@@ -544,30 +448,5 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
       "metadata" => %{"actor_event_id" => current_event_id},
       "complete_actor_event_ids" => [lifecycle_event_id]
     }
-  end
-
-  defp append_group_actor_event!(
-         agent_uid,
-         binding_name,
-         channel_id,
-         session_id,
-         suffix,
-         now
-       ) do
-    assert {:ok, actor_event} =
-             SignalsGateway.append_actor_event(%{
-               agent_uid: agent_uid,
-               binding_name: binding_name,
-               session_id: session_id,
-               source_event_id: "event-#{suffix}-#{Ecto.UUID.generate()}",
-               signal_channel_id: channel_id,
-               source_entry_id: "message-#{suffix}",
-               type: "im.message.addressed",
-               available_at: now,
-               sender_key: "human-one",
-               payload: %{}
-             })
-
-    actor_event
   end
 end

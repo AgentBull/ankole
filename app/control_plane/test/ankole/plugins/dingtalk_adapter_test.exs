@@ -11,11 +11,15 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
   alias Ankole.AuthZ
   alias Ankole.Plugins.DingTalkAdapter
   alias Ankole.Plugins.DingTalkAdapter.Config
+  alias Ankole.Plugins.DingTalkAdapter.ConnectionReconciler
+  alias Ankole.Plugins.DingTalkAdapter.ConnectionSupervisor
   alias Ankole.Plugins.DingTalkAdapter.IdentityProvider
+  alias Ankole.Plugins.DingTalkAdapter.Inbound
   alias Ankole.Plugins.DingTalkAdapter.Outbox
   alias Ankole.Principals
   alias Ankole.Repo
   alias Ankole.SignalsGateway
+  alias Ankole.SignalsGateway.AdapterContext
   alias Ankole.SignalsGateway.Binding
   alias Ankole.SignalsGateway.Bindings
   alias Ankole.SignalsGateway.OutboxEntry
@@ -41,15 +45,6 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
       assert chat.supported_group_message_modes == ["addressed_only"]
       assert chat.inbound_capabilities == ["entry_receive", "action_event"]
       assert chat.outbound_capabilities == ["post_entry", "delete_entry", "card"]
-      assert chat.reply_preview_module == Ankole.Plugins.DingTalkAdapter.AICard
-
-      chat_fields = Map.new(chat.fields, &{&1.path, &1})
-      assert chat_fields["clientId"].advanced == false
-      assert chat_fields["clientSecret"].advanced == false
-      assert chat_fields["robotCode"].advanced == true
-      assert chat_fields["cardTemplateId"].advanced == true
-      assert chat_fields["platformSubjectNamespace"].advanced == true
-      assert chat_fields["userName"].advanced == true
 
       assert identity.contract_id == "principals.identity_provider"
 
@@ -60,15 +55,6 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
                "directory_full_sync",
                "directory_realtime_sync"
              ]
-
-      fields = Map.new(identity.fields, &{&1.path, &1})
-
-      assert fields["clientId"].label["zh-Hans-CN"] == "Client ID（原 AppKey）"
-      assert fields["clientSecret"].label["zh-Hans-CN"] == "Client Secret（原 AppSecret）"
-      assert fields["oidc.scope"].label["zh-Hans-CN"] == "登录权限范围"
-      assert fields["sync.contacts"].label["zh-Hans-CN"] == "同步通讯录"
-      assert fields["sync.websocket"].label["zh-Hans-CN"] == "实时同步通讯录变更"
-      assert fields["sync.pageSize"].label["zh-Hans-CN"] == "每页同步数量"
     end
   end
 
@@ -210,6 +196,45 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
 
     assert owner_uid == owner.uid
     refute Repo.get_by(Binding, agent_uid: claimant.uid, name: "dingtalk-main")
+  end
+
+  describe "connection reconciliation" do
+    test "the reconciler stops the owner after its binding is disabled" do
+      Req.Test.set_req_test_to_shared()
+
+      Req.Test.stub(DingTalkReconcilerStub, fn conn ->
+        # An empty body is an unexpected registration shape, so the Stream
+        # client backs off instead of dialing the real gateway.
+        Req.Test.json(conn, %{})
+      end)
+
+      Req.default_options(plug: {Req.Test, DingTalkReconcilerStub})
+
+      client_id = "cli_reconcile_stop_#{unique_suffix()}"
+      binding = setup_chat_binding(%{"clientId" => client_id})
+      config = dingtalk_config(client_id)
+      key = Config.connection_key(config)
+
+      context =
+        AdapterContext.new(
+          agent_uid: binding.agent_uid,
+          binding_name: binding.name,
+          adapter: "dingtalk",
+          user_name: "DingTalk"
+        )
+
+      assert {:ok, owner} =
+               ConnectionSupervisor.ensure_started(config, [
+                 Inbound.chat_consumer(context, config)
+               ])
+
+      on_exit(fn -> ConnectionSupervisor.stop(key) end)
+
+      assert {:ok, _binding} = SignalsGateway.disable_binding(binding.agent_uid, binding.name)
+
+      assert %{started: 0, stopped: 1, errors: []} = ConnectionReconciler.reconcile_once()
+      refute Process.alive?(owner)
+    end
   end
 
   # --- outbox ----------------------------------------------------------------

@@ -153,7 +153,6 @@ export type StatefulResponseContext = {
 export interface ModelCallResult {
   message: AssistantMessage
   toolCalls: ResponseToolCall[]
-  hasToolCalls: boolean
   responseID?: string
   errorRetryable?: boolean
 }

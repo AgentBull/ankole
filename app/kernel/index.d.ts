@@ -30,13 +30,8 @@ export declare function estimateO200kBaseTokens(text: string): number
 /** Hashes binary data through the shared kernel `generic_hash` contract. */
 export declare function genericHash(data: Buffer): string
 
-/**
- * Checks RuntimeFabric protocol invariants on host-encoded envelope bytes.
- *
- * The worker encodes envelopes with its generated protobuf codec; this keeps
- * the Rust kernel as the single semantic checker for received envelopes.
- */
-export declare function runtimeFabricValidateEnvelope(bytes: Buffer): void
+/** Returns the only RuntimeFabric protocol version this kernel speaks. */
+export declare function runtimeFabricProtocolVersion(): number
 
 /**
  * Seals host-encoded envelope bytes for the wire.
@@ -47,8 +42,13 @@ export declare function runtimeFabricValidateEnvelope(bytes: Buffer): void
  */
 export declare function runtimeFabricSealEnvelope(bytes: Buffer): Buffer
 
-/** Returns the only RuntimeFabric protocol version this kernel speaks. */
-export declare function runtimeFabricProtocolVersion(): number
+/**
+ * Checks RuntimeFabric protocol invariants on host-encoded envelope bytes.
+ *
+ * The worker encodes envelopes with its generated protobuf codec; this keeps
+ * the Rust kernel as the single semantic checker for received envelopes.
+ */
+export declare function runtimeFabricValidateEnvelope(bytes: Buffer): void
 
 /** Evaluates a SignalsGateway CEL admission filter. */
 export declare function signalsGatewayFilterMatch(filterSource: string, context: any): boolean

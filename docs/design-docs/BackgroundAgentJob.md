@@ -54,7 +54,7 @@ boundary is meaningful. Each entry contains an optional `namespace`, the tool
 fact survives trajectory pagination, so the parent Agent does not infer the
 mechanism from tool prose.
 `recent_trajectory` is an `ankole_chatml` trajectory built from the latest three
-stored semantic trajectory groups on the Job root thread. It does not filter
+semantic item groups on the Job root thread. It does not filter
 these groups by the stored Turn kind. It removes stored message IDs, maps
 tool-call correlation to turn-local `call_N` aliases, and contains no cursor. It
 preserves the trajectory-level `metadata.redacted` and
@@ -119,7 +119,7 @@ A ready result returns `job_id`, the current concrete status,
 whether the Job continues running. The parent records that tool result before
 applying queued steering to its next model input.
 
-`last_turn_trajectory` contains at most the latest 20 trajectory groups from
+`last_turn_trajectory` contains at most the latest 20 semantic item groups from
 that one Turn. Its serialized size is at most 24 KiB. The tool states when it
 omits earlier groups. It also preserves `metadata.redacted` and
 `metadata.content_truncated`; the latter remains true when Worker recording or
@@ -262,13 +262,13 @@ raw app-server frames. Each Turn row stores the trajectory header.
 
 The Worker ships one content stream per Turn: sanitized semantic thread items
 with their positions and item keys. Append-only `background_agent_job_turn_items`
-rows store that stream. The control plane derives the append-only
-trajectory-group rows from each accepted item at write time, so the group
-projection and every read path stay unchanged while the Worker sends the
-content once. An item whose projection is empty stays stored for thread
-replay. Turns recorded before the item stream existed keep only their group
-rows; their threads fall back to the Workspace rebuild below when replay finds
-no items.
+rows store that stream, and they are the one storage and read-path owner of
+Turn content: every trajectory reader projects `ankole_chatml` messages from
+the stored items at read time. An item whose projection is empty stays stored
+for thread replay. Turns recorded before the item stream existed keep only
+their trajectory-group rows; readers use those stored group rows for exactly
+those Turns, and their threads fall back to the Workspace rebuild below when
+replay finds no items.
 
 A stored tool-result message keeps the stable execution mechanism in metadata.
 `provider_hosted` means that the model Provider executed the tool.
@@ -301,7 +301,8 @@ call was `send_message` or `followup_task`. A matched activity enriches the raw
 call pair and is not stored as a separate display item.
 
 Each Turn also identifies its Job, attempt, Codex thread, and Codex turn. The API
-rebuilds trajectory pages from the header and message groups.
+rebuilds trajectory pages from the header and the messages that the stored
+items project.
 
 The stored Turn `kind` is Worker-to-control-plane metadata. It is not a Responses
 object and does not define a Job type, lead or child ownership, trajectory

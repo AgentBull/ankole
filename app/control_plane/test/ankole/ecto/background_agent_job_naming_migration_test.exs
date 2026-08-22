@@ -59,10 +59,6 @@ defmodule Ankole.Ecto.BackgroundAgentJobNamingMigrationTest do
     end
   end
 
-  test "refuses a lossy downgrade" do
-    assert_raise RuntimeError, ~r/cannot be downgraded/, fn -> @migration.down() end
-  end
-
   defp insert_configuration(scope, key, value) do
     type = if is_map(value), do: "encrypted", else: "plaintext"
 

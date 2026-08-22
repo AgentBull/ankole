@@ -94,7 +94,7 @@ deployment instance의 청구 금액이 일주일 만에 두 배가 되었습니
 
 ## 다음 단계
 
-- Agent의 model profile에 대해서는 [Agents](../agents/#wire-up-its-models) 문서를 읽으세요.
+- Agent의 model profile에 대해서는 [Agents](../agents/#모델-구성) 문서를 읽으세요.
 - agent-loop 노브와 해당 키에 대해서는 [Environment variables](../environment-variables/) 문서를 읽으세요.
 - 관련 conversation 및 Job 엔드포인트에 대해서는 [Console API reference](../console-api/) 문서를 읽으세요.
 - Job 상한에 대해서는 [Background Agent Jobs](../background-jobs/) 문서를 읽으세요.

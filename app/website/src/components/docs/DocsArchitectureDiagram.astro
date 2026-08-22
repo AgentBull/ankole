@@ -124,12 +124,12 @@ const copy = ko
 				'The control plane stores state and decides how work must run. Workers provide the compute environment. This split keeps Agent work independent of one process or machine.'
 		}
 
-const controlNodes = [
+const controlNodes: { copy: string[]; href?: string }[] = [
 	{ copy: copy.signals, href: docs('signals-gateway') },
 	{ copy: copy.identity, href: docs('principal-authz') },
 	{ copy: copy.ai, href: docs('ai-gateway') },
 	{ copy: copy.actor, href: docs('actor-runtime') },
-	{ copy: copy.brain, href: docs('brain') },
+	{ copy: copy.brain },
 	{ copy: copy.jobs, href: docs('background-jobs') }
 ]
 ---
@@ -210,11 +210,11 @@ const controlNodes = [
 			<text x="75" y="412" class="node-title">{copy.actor[0]}</text>
 			<text x="75" y="439" class="node-detail">{copy.actor[1]}</text>
 		</a>
-		<a href={docs('brain')} aria-label={copy.brain[0]}>
-			<rect x="375" y="375" width="250" height="100" class="node node-link node-primary"></rect>
+		<g>
+			<rect x="375" y="375" width="250" height="100" class="node node-primary"></rect>
 			<text x="395" y="412" class="node-title">{copy.brain[0]}</text>
 			<text x="395" y="439" class="node-detail">{copy.brain[1]}</text>
-		</a>
+		</g>
 		<a href={docs('background-jobs')} aria-label={copy.jobs[0]}>
 			<rect x="695" y="375" width="250" height="100" class="node node-link node-primary"></rect>
 			<text x="715" y="412" class="node-title">{copy.jobs[0]}</text>
@@ -281,12 +281,19 @@ const controlNodes = [
 			<p class="mobile-layer-label mb-3">{copy.control}</p>
 			<div class="grid grid-cols-2 gap-2">
 				{
-					controlNodes.map(node => (
-						<a href={node.href} class="mobile-node border border-border">
-							<strong>{node.copy[0]}</strong>
-							<span>{node.copy[1]}</span>
-						</a>
-					))
+					controlNodes.map(node =>
+						node.href ? (
+							<a href={node.href} class="mobile-node border border-border">
+								<strong>{node.copy[0]}</strong>
+								<span>{node.copy[1]}</span>
+							</a>
+						) : (
+							<div class="mobile-node border border-border">
+								<strong>{node.copy[0]}</strong>
+								<span>{node.copy[1]}</span>
+							</div>
+						)
+					)
 				}
 			</div>
 		</section>

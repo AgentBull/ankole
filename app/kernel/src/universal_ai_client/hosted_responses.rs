@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::io::{self, Write};
 use std::time::Instant;
 
 use base64_simd::STANDARD;
@@ -25,11 +26,43 @@ mod public_error;
 use events::image_item_events;
 use events::{
     image_completed_events, image_started_events, output_item_events, stream_event,
-    strip_internal_output_fields, terminal_stream_events,
+    strip_internal_image_fields, strip_internal_output_fields, terminal_stream_events,
 };
 use public_error::{normalize_image_error, redact_hosted_error, to_public_openai_error_json};
 
+/// Keeps generated image payloads inside the AIGateway artifact limit.
 const DEFAULT_MAX_DECODED_IMAGE_BYTES: u64 = 50 * 1024 * 1024;
+
+/// Stops a hidden tool loop from amplifying one public Response without a bound.
+const MAX_MAIN_MODEL_ROUNDS: u64 = 16;
+
+/// Counts encoded JSON without keeping a second copy of large image data.
+#[derive(Default)]
+struct JsonByteCounter {
+    bytes: usize,
+}
+
+impl Write for JsonByteCounter {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        self.bytes = self.bytes.saturating_add(buffer.len());
+        Ok(buffer.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+/// Tracks the public fields that grow while hosted output becomes visible.
+/// The fixed Response shape is normalized once, so one new item does not copy
+/// earlier images or the public request history.
+struct HostedResponseSizeBudget {
+    fixed_body_bytes: usize,
+    terminal_overhead_bytes: usize,
+    output_bytes: usize,
+    output_items: usize,
+    max_bytes: usize,
+}
 
 #[derive(Debug)]
 struct HostedExecution {
@@ -257,8 +290,20 @@ pub(super) async fn run_hosted_stream(
             return;
         }
     }
-    if !delivery.push_events_bounded(initial_events).await {
-        return;
+    match delivery.push_events_bounded(initial_events).await {
+        Ok(true) => {}
+        Ok(false) => return,
+        Err(error) => {
+            let error = redact_hosted_error(error);
+            delivery
+                .finish_error_events_with_metadata(
+                    Vec::new(),
+                    error.clone(),
+                    Some(hosted_failure_metadata(&hosted, &error, None)),
+                )
+                .await;
+            return;
+        }
     }
 
     let (progress_tx, mut progress_rx) = mpsc::channel(1);
@@ -271,7 +316,7 @@ pub(super) async fn run_hosted_stream(
     let mut progress_open = true;
     let websocket_spec = (spec.upstream.kind == UpstreamKind::WebSocketText).then_some(&spec);
 
-    let result = {
+    let mut result = {
         let execution =
             execute_hosted_with_timeout(&base_spec, websocket_spec, &hosted, Some(progress_tx));
         tokio::pin!(execution);
@@ -310,10 +355,15 @@ pub(super) async fn run_hosted_stream(
     };
 
     while let Ok(progress) = progress_rx.try_recv() {
-        if !deliver_hosted_progress(&mut delivery, &mut sequence, &mut streamed_output, progress)
+        match deliver_hosted_progress(&mut delivery, &mut sequence, &mut streamed_output, progress)
             .await
         {
-            return;
+            Ok(true) => {}
+            Ok(false) => return,
+            Err(error) => {
+                result = Err(error);
+                break;
+            }
         }
     }
 
@@ -325,8 +375,17 @@ pub(super) async fn run_hosted_stream(
                 final_body["created_at"] = created_at.clone();
             }
             let events = terminal_stream_events(&mut sequence, &final_body);
-            if !delivery.push_events_bounded(events).await {
-                return;
+            match delivery.push_events_bounded(events).await {
+                Ok(true) => {}
+                Ok(false) => return,
+                Err(error) => {
+                    let error = redact_hosted_error(error);
+                    let metadata = hosted_failure_metadata(&hosted, &error, Some(&streamed_output));
+                    delivery
+                        .finish_error_events_with_metadata(Vec::new(), error, Some(metadata))
+                        .await;
+                    return;
+                }
             }
             delivery
                 .finish_done(json!({
@@ -477,8 +536,8 @@ async fn deliver_hosted_progress_before_deadline(
     match deadline {
         Some(deadline) => timeout_at(deadline, delivery)
             .await
-            .map_err(|_| hosted_total_timeout_error()),
-        None => Ok(delivery.await),
+            .map_err(|_| hosted_total_timeout_error())?,
+        None => delivery.await,
     }
 }
 
@@ -506,15 +565,15 @@ async fn deliver_hosted_progress(
     sequence: &mut u64,
     output: &mut StreamedHostedOutput,
     progress: HostedProgress,
-) -> bool {
+) -> Result<bool, StreamError> {
     match progress {
         HostedProgress::MainModelRound => {
             output.main_model_rounds = output.main_model_rounds.saturating_add(1);
         }
         HostedProgress::ImageStarted { id, output_index } => {
             let events = image_started_events(sequence, output_index, &id);
-            if !delivery.push_events_bounded(events).await {
-                return false;
+            if !delivery.push_events_bounded(events).await? {
+                return Ok(false);
             }
             output.active_image = Some((output_index, id));
             output.hosted_tool_calls = output.hosted_tool_calls.saturating_add(1);
@@ -535,8 +594,8 @@ async fn deliver_hosted_progress(
                     "partial_image_b64": partial_image_b64
                 }),
             );
-            if !delivery.push_events_bounded(vec![event]).await {
-                return false;
+            if !delivery.push_events_bounded(vec![event]).await? {
+                return Ok(false);
             }
             output.partial_images = output.partial_images.saturating_add(1);
         }
@@ -546,8 +605,8 @@ async fn deliver_hosted_progress(
             metrics,
         } => {
             let events = image_completed_events(sequence, output_index, &item);
-            if !delivery.push_events_bounded(events).await {
-                return false;
+            if !delivery.push_events_bounded(events).await? {
+                return Ok(false);
             }
             output.active_image = None;
             output.items.insert(output_index, item);
@@ -559,14 +618,14 @@ async fn deliver_hosted_progress(
         }
         HostedProgress::PublicItem { output_index, item } => {
             let events = output_item_events(sequence, output_index, &item);
-            if !delivery.push_events_bounded(events).await {
-                return false;
+            if !delivery.push_events_bounded(events).await? {
+                return Ok(false);
             }
             output.items.insert(output_index, item);
         }
     }
 
-    true
+    Ok(true)
 }
 
 async fn execute_hosted(
@@ -613,8 +672,20 @@ async fn execute_hosted(
     let mut visible_output = Vec::new();
     let mut aggregate_usage = empty_usage();
     let mut aggregate_image_usage = empty_usage();
+    let mut response_size_budget =
+        HostedResponseSizeBudget::new(base_spec, &public_request, outer_stream);
 
     let (wrapper, final_body) = loop {
+        if main_model_rounds >= MAX_MAIN_MODEL_ROUNDS {
+            return Err(StreamError::new(
+                "hosted_round_limit_exceeded",
+                "hosted_responses",
+                format!(
+                    "hosted response exceeded the internal round limit of \
+                     {MAX_MAIN_MODEL_ROUNDS} main-model rounds"
+                ),
+            ));
+        }
         main_model_rounds = main_model_rounds.saturating_add(1);
         send_hosted_progress(progress, HostedProgress::MainModelRound).await?;
         let wrapper = match websocket_spec {
@@ -657,14 +728,7 @@ async fn execute_hosted(
         if hidden_calls == 0 {
             for item in round_output {
                 let output_index = visible_output.len();
-                ensure_projected_public_response_size(
-                    base_spec,
-                    &public_request,
-                    &visible_output,
-                    &item,
-                    &aggregate_usage,
-                    outer_stream,
-                )?;
+                response_size_budget.admit(&item, &aggregate_usage, &aggregate_image_usage)?;
                 send_hosted_progress(
                     progress,
                     HostedProgress::PublicItem {
@@ -711,13 +775,10 @@ async fn execute_hosted(
                         output_bytes = output_bytes.saturating_add(metrics.output_bytes);
                         partial_images = partial_images.saturating_add(metrics.partial_images);
                         provider_cost += metrics.provider_cost;
-                        ensure_projected_public_response_size(
-                            base_spec,
-                            &public_request,
-                            &visible_output,
+                        response_size_budget.admit(
                             &public_item,
                             &aggregate_usage,
-                            outer_stream,
+                            &aggregate_image_usage,
                         )?;
                         send_hosted_progress(
                             progress,
@@ -740,14 +801,7 @@ async fn execute_hosted(
                     public_function_present = true;
                 }
                 let output_index = visible_output.len();
-                ensure_projected_public_response_size(
-                    base_spec,
-                    &public_request,
-                    &visible_output,
-                    item,
-                    &aggregate_usage,
-                    outer_stream,
-                )?;
+                response_size_budget.admit(item, &aggregate_usage, &aggregate_image_usage)?;
                 send_hosted_progress(
                     progress,
                     HostedProgress::PublicItem {
@@ -1824,22 +1878,14 @@ fn max_decoded_image_bytes(image_spec: &HostedImageGenerationSpec) -> u64 {
 }
 
 fn validate_image_base64(image: &str, max_bytes: u64) -> Result<u64, StreamError> {
-    if base64_decoded_len(image) > max_bytes {
-        return Err(StreamError::new(
-            "response_body_too_large",
-            "image_generation",
-            "generated image exceeded configured decoded image byte limit",
-        ));
-    }
-
-    let decoded = STANDARD.decode_to_vec(image).map_err(|_| {
+    let image = image.as_bytes();
+    let decoded_bytes = STANDARD.decoded_length(image).map_err(|_| {
         StreamError::new(
             "invalid_image_response",
             "image_generation",
             "image provider returned invalid base64 image bytes",
         )
-    })?;
-    let decoded_bytes = decoded.len() as u64;
+    })? as u64;
     if decoded_bytes > max_bytes {
         return Err(StreamError::new(
             "response_body_too_large",
@@ -1848,7 +1894,117 @@ fn validate_image_base64(image: &str, max_bytes: u64) -> Result<u64, StreamError
         ));
     }
 
+    STANDARD.check(image).map_err(|_| {
+        StreamError::new(
+            "invalid_image_response",
+            "image_generation",
+            "image provider returned invalid base64 image bytes",
+        )
+    })?;
+
     Ok(decoded_bytes)
+}
+
+impl HostedResponseSizeBudget {
+    fn new(
+        base_spec: &ModelRequestSpec,
+        public_request: &Map<String, Value>,
+        outer_stream: bool,
+    ) -> Self {
+        let usage = empty_usage();
+        let tool_usage = json!({"image_gen": empty_usage()});
+        let context = ResponseContext {
+            model: base_spec.response_context.model.clone(),
+            request: Value::Object(public_request.clone()),
+            provider_options: Value::Null,
+            stream: Some(false),
+            include_model: true,
+        };
+        let response = api_resolver::complete_response_resource(
+            &context,
+            json!({
+                "id": api_resolver::generated_id("resp"),
+                "model": base_spec.response_context.model,
+                "status": "completed",
+                "incomplete_details": null,
+                "output": [],
+                "usage": usage,
+                "tool_usage": tool_usage,
+                "error": null
+            }),
+        );
+        let public_response = strip_internal_output_fields(response);
+        let body_bytes = serialized_json_size(&public_response);
+        let output_bytes = serialized_json_size(&public_response["output"]);
+        let usage_bytes = serialized_json_size(&public_response["usage"]);
+        let tool_usage_bytes = serialized_json_size(&public_response["tool_usage"]);
+        let fixed_body_bytes = body_bytes
+            .saturating_sub(output_bytes)
+            .saturating_sub(usage_bytes)
+            .saturating_sub(tool_usage_bytes);
+        let terminal_overhead_bytes = if outer_stream {
+            serialized_json_size(&json!({
+                "type": "response.completed",
+                "sequence_number": u64::MAX,
+                "response": public_response
+            }))
+            .saturating_sub(body_bytes)
+        } else {
+            0
+        };
+
+        Self {
+            fixed_body_bytes,
+            terminal_overhead_bytes,
+            output_bytes,
+            output_items: 0,
+            max_bytes: base_spec.limits.max_response_bytes,
+        }
+    }
+
+    fn admit(
+        &mut self,
+        candidate: &Value,
+        usage: &Value,
+        image_usage: &Value,
+    ) -> Result<(), StreamError> {
+        let public_item = api_resolver::normalize_output_item(candidate);
+        let public_item =
+            if public_item.get("type").and_then(Value::as_str) == Some("image_generation_call") {
+                strip_internal_image_fields(public_item)
+            } else {
+                public_item
+            };
+        let separator_bytes = usize::from(self.output_items > 0);
+        let next_output_bytes = self
+            .output_bytes
+            .saturating_add(separator_bytes)
+            .saturating_add(serialized_json_size(&public_item));
+        let public_usage = api_resolver::normalize_response_usage(usage);
+        let tool_usage = json!({"image_gen": image_usage});
+        let body_bytes = self
+            .fixed_body_bytes
+            .saturating_add(next_output_bytes)
+            .saturating_add(serialized_json_size(&public_usage))
+            .saturating_add(serialized_json_size(&tool_usage));
+        let terminal_bytes = body_bytes.saturating_add(self.terminal_overhead_bytes);
+
+        if body_bytes > self.max_bytes || terminal_bytes > self.max_bytes {
+            return Err(public_response_too_large());
+        }
+
+        self.output_bytes = next_output_bytes;
+        self.output_items = self.output_items.saturating_add(1);
+        Ok(())
+    }
+}
+
+fn serialized_json_size(value: &Value) -> usize {
+    let mut counter = JsonByteCounter::default();
+    let writer = sonic_rs::writer::BufferedWriter::new(&mut counter);
+    sonic_rs::to_writer(writer, value)
+        .map(|_| counter.bytes)
+        .unwrap_or(usize::MAX)
 }
 
 fn ensure_public_response_size(
@@ -1857,17 +2013,13 @@ fn ensure_public_response_size(
     outer_stream: bool,
 ) -> Result<(), StreamError> {
     let public_response = strip_internal_output_fields(response.clone());
-    let body_bytes = sonic_rs::to_vec(&public_response)
-        .map(|bytes| bytes.len())
-        .unwrap_or(usize::MAX);
+    let body_bytes = serialized_json_size(&public_response);
     let terminal_bytes = if outer_stream {
-        sonic_rs::to_vec(&json!({
+        serialized_json_size(&json!({
             "type": "response.completed",
             "sequence_number": u64::MAX,
             "response": public_response
         }))
-        .map(|bytes| bytes.len())
-        .unwrap_or(usize::MAX)
     } else {
         body_bytes
     };
@@ -1875,46 +2027,15 @@ fn ensure_public_response_size(
     if body_bytes <= max_bytes && terminal_bytes <= max_bytes {
         Ok(())
     } else {
-        Err(StreamError::new(
-            "response_body_too_large",
-            "hosted_responses",
-            "public hosted response exceeded configured response byte limit",
-        ))
+        Err(public_response_too_large())
     }
 }
 
-fn ensure_projected_public_response_size(
-    base_spec: &ModelRequestSpec,
-    public_request: &Map<String, Value>,
-    visible_output: &[Value],
-    candidate: &Value,
-    usage: &Value,
-    outer_stream: bool,
-) -> Result<(), StreamError> {
-    let mut output = visible_output.to_vec();
-    output.push(candidate.clone());
-    let context = ResponseContext {
-        model: base_spec.response_context.model.clone(),
-        request: Value::Object(public_request.clone()),
-        provider_options: Value::Null,
-        stream: Some(false),
-        include_model: true,
-    };
-    let projected = api_resolver::complete_response_resource(
-        &context,
-        json!({
-            "id": api_resolver::generated_id("resp"),
-            "status": "completed",
-            "output": output,
-            "usage": usage,
-            "error": null
-        }),
-    );
-
-    ensure_public_response_size(
-        &projected,
-        base_spec.limits.max_response_bytes,
-        outer_stream,
+fn public_response_too_large() -> StreamError {
+    StreamError::new(
+        "response_body_too_large",
+        "hosted_responses",
+        "public hosted response exceeded configured response byte limit",
     )
 }
 
@@ -2011,6 +2132,7 @@ mod tests {
     use super::*;
     use tokio_tungstenite::tungstenite::{Message, accept};
 
+    /// Names the private fixture tool that must not enter public output.
     const HIDDEN_TOOL: &str = "__ankole_hosted_image_generation";
 
     #[test]
@@ -2094,6 +2216,84 @@ mod tests {
             .unwrap_err();
 
         assert_eq!(error.code, "total_timeout");
+    }
+
+    #[tokio::test]
+    async fn hosted_round_limit_fails_an_endless_hidden_call_loop_explicitly() {
+        let main_listener = TCPListener::bind("127.0.0.1:0").unwrap();
+        let main_address = main_listener.local_addr().unwrap();
+        let (round_tx, round_rx) = mpsc::channel();
+
+        thread::spawn(move || {
+            loop {
+                let (stream, request) = read_http_request(&main_listener);
+                let hidden_name = request["tools"]
+                    .as_array()
+                    .and_then(|tools| {
+                        tools.iter().find_map(|tool| {
+                            tool.get("function")
+                                .and_then(|function| function.get("name"))
+                                .and_then(Value::as_str)
+                                .filter(|name| name.starts_with(HIDDEN_TOOL))
+                        })
+                    })
+                    .expect("hosted executor must inject the private image function");
+                let _ = round_tx.send(());
+                write_json_response(
+                    stream,
+                    &json!({
+                        "id": "chatcmpl_round_loop",
+                        "model": "upstream-main",
+                        "choices": [{
+                            "index": 0,
+                            "message": {
+                                "role": "assistant",
+                                "content": null,
+                                "tool_calls": [{
+                                    "id": "call_round_loop",
+                                    "type": "function",
+                                    "function": {"name": hidden_name, "arguments": "{}"}
+                                }]
+                            },
+                            "finish_reason": "tool_calls"
+                        }],
+                        "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}
+                    }),
+                );
+            }
+        });
+
+        let public_request = json!({
+            "model": "main-model",
+            "input": "draw a lake",
+            "tools": [{"type": "image_generation"}],
+            "tool_choice": {"type": "image_generation"}
+        });
+        let mut base_spec = ModelRequestSpec::from_json(
+            &json!({
+                "api_resolver": "openai_chat_completions",
+                "upstream": test_upstream(&format!("http://{main_address}/chat/completions")),
+                "response_context": {
+                    "model": "main-model",
+                    "request": public_request
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+        base_spec.upstream.timeout.total_ms = Some(30_000);
+        let hosted = HostedToolsSpec {
+            image_generation: test_image_spec("http://127.0.0.1:1/images"),
+            public_request,
+        };
+
+        let error = execute_hosted_with_timeout(&base_spec, None, &hosted, None)
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.code, "hosted_round_limit_exceeded");
+        assert!(error.message.contains("internal round limit"));
+        assert_eq!(round_rx.try_iter().count(), 16);
     }
 
     #[test]
@@ -2767,6 +2967,11 @@ mod tests {
         let exact_image = STANDARD.encode_to_string(vec![7_u8; 1_024]);
         assert_eq!(validate_image_base64(&exact_image, 1_024).unwrap(), 1_024);
 
+        assert_eq!(
+            validate_image_base64("AAAA*AAA", 1_024).unwrap_err().code,
+            "invalid_image_response"
+        );
+
         let oversized_image = STANDARD.encode_to_string(vec![7_u8; 1_025]);
         assert_eq!(
             validate_image_base64(&oversized_image, 1_024)
@@ -2785,6 +2990,88 @@ mod tests {
         ensure_public_response_size(&response, exact_response_bytes, false).unwrap();
         assert_eq!(
             ensure_public_response_size(&response, exact_response_bytes - 1, false)
+                .unwrap_err()
+                .code,
+            "response_body_too_large"
+        );
+    }
+
+    #[test]
+    fn projected_response_budget_matches_the_complete_public_response() {
+        let public_request = json!({
+            "model": "main-model",
+            "input": "Draw a lake",
+            "tools": [{"type": "image_generation"}]
+        });
+        let output = vec![
+            json!({
+                "id": "ig_budget",
+                "type": "image_generation_call",
+                "status": "completed",
+                "result": "ZmluYWw=",
+                "revised_prompt": "A lake",
+                "mime_type": "image/png",
+                "partial_images": ["eA==".repeat(1_000)]
+            }),
+            json!({
+                "id": "fc_budget",
+                "type": "function_call",
+                "call_id": "call_budget",
+                "name": "lookup",
+                "arguments": "{}",
+                "status": "completed",
+                "mime_type": "application/x-ankole-test",
+                "partial_images": ["this field belongs to the public function item"]
+            }),
+        ];
+        let usage = json!({
+            "input_tokens": 12,
+            "output_tokens": 3,
+            "total_tokens": 15,
+            "input_tokens_details": {"cached_tokens": 2},
+            "output_tokens_details": {"reasoning_tokens": 1}
+        });
+        let image_usage = empty_usage();
+        let context = ResponseContext {
+            model: "main-model".to_string(),
+            request: public_request.clone(),
+            provider_options: Value::Null,
+            stream: Some(false),
+            include_model: true,
+        };
+        let response = api_resolver::complete_response_resource(
+            &context,
+            json!({
+                "id": api_resolver::generated_id("resp"),
+                "model": "main-model",
+                "status": "completed",
+                "incomplete_details": null,
+                "output": output,
+                "usage": usage,
+                "tool_usage": {"image_gen": image_usage},
+                "error": null
+            }),
+        );
+        let exact_bytes = serialized_json_size(&strip_internal_output_fields(response));
+        let spec_json = json!({
+            "api_resolver": "openai_chat_completions",
+            "upstream": test_upstream("http://127.0.0.1:1/chat/completions"),
+            "response_context": {"model": "main-model", "request": public_request},
+            "limits": {"max_response_bytes": exact_bytes}
+        });
+        let mut spec = ModelRequestSpec::from_json(&spec_json.to_string()).unwrap();
+        let public_request = spec.response_context.request.as_object().unwrap().clone();
+        let mut budget = HostedResponseSizeBudget::new(&spec, &public_request, false);
+
+        budget.admit(&output[0], &usage, &image_usage).unwrap();
+        budget.admit(&output[1], &usage, &image_usage).unwrap();
+
+        spec.limits.max_response_bytes = exact_bytes - 1;
+        let mut budget = HostedResponseSizeBudget::new(&spec, &public_request, false);
+        budget.admit(&output[0], &usage, &image_usage).unwrap();
+        assert_eq!(
+            budget
+                .admit(&output[1], &usage, &image_usage)
                 .unwrap_err()
                 .code,
             "response_body_too_large"

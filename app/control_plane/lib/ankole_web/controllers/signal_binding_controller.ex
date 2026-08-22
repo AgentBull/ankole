@@ -322,7 +322,6 @@ defmodule AnkoleWeb.SignalBindingController do
       config_key: config_key,
       unaddressed_group_message_policy: Atom.to_string(binding.unaddressed_group_message_policy),
       unmatched_sender_policy: Atom.to_string(binding.unmatched_sender_policy),
-      confidential_memory: binding.confidential_memory,
       enabled: binding.enabled,
       unavailable_reason: binding.unavailable_reason
     }
@@ -337,7 +336,6 @@ defmodule AnkoleWeb.SignalBindingController do
       config_key: config_key_from_ref(binding.config_ref),
       unaddressed_group_message_policy: Atom.to_string(binding.unaddressed_group_message_policy),
       unmatched_sender_policy: Atom.to_string(binding.unmatched_sender_policy),
-      confidential_memory: binding.confidential_memory,
       enabled: binding.enabled,
       unavailable_reason: binding.unavailable_reason
     }

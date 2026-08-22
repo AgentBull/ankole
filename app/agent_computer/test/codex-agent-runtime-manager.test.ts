@@ -4,17 +4,17 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, wr
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { AgentPluginCatalogEntrySchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
-import type { CodexAppServerClient, JSONRPCMessage } from '../src/core/codex-runner/app-server-client'
-import type { CodexAppServerSandboxSpec } from '../src/core/codex-runner/sandbox'
-import { prepareAgentPlugins } from '../src/core/codex-runner/agent-plugin-materializer'
-import { codexAIGatewayTokenPath } from '../src/core/codex-runner/agent-home-config'
-import { codexHomeLockedCommandArgv } from '../src/core/codex-runner/codex-home-lock'
+import type { CodexAppServerClient, JSONRPCMessage } from '../src/core/codex-runner/runtime/app-server-client'
+import type { CodexAppServerSandboxSpec } from '../src/core/codex-runner/runtime/sandbox'
+import { prepareAgentPlugins } from '../src/core/codex-runner/runtime/agent-plugin-materializer'
+import { codexAIGatewayTokenPath } from '../src/core/codex-runner/runtime/agent-home-config'
+import { codexHomeLockedCommandArgv } from '../src/core/codex-runner/runtime/codex-home-lock'
 import {
   AgentCodexRuntime,
   AgentCodexRuntimeManager,
   type AgentCodexRuntimeLostError,
   type AgentCodexRuntimeSession
-} from '../src/core/codex-runner/agent-runtime-manager'
+} from '../src/core/codex-runner/runtime/agent-runtime-manager'
 
 describe('@ankole/agent-computer Agent Codex runtime manager', () => {
   it('single-flights one process per Agent and closes it at the last lease', async () => {

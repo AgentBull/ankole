@@ -5,9 +5,9 @@ import { jsonFromBytes } from '../src/fabric/envelope_proto'
 import { BackgroundAgentJobTurnUpsertResponseSchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import type { ActorTurnRef } from '../src/lanes/actor_lane'
 import type { RPCRequestInit } from '../src/lanes/rpc_lane'
-import { CODEX_OPT_OUT_NOTIFICATION_METHODS } from '../src/core/codex-runner/app-server-client'
+import { CODEX_OPT_OUT_NOTIFICATION_METHODS } from '../src/core/codex-runner/runtime/app-server-client'
 import type { ThreadItem } from '../src/core/codex-runner/generated/protocol/v2/ThreadItem'
-import { BackgroundAgentJobTurnRecorder } from '../src/core/codex-runner/turn-recorder'
+import { BackgroundAgentJobTurnRecorder } from '../src/core/codex-runner/job/turn-recorder'
 import { RPCRejectedError } from '../src/lanes/rpc_lane'
 import {
   configureWorkerTracing,

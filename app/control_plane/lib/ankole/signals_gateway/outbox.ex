@@ -31,11 +31,18 @@ defmodule Ankole.SignalsGateway.Outbox do
       normalize_uid: 1
     ]
 
+  # Give a transient provider failure a short recovery window before retry.
   @outbox_base_retry_seconds 5
+  # Prevent repeated provider failures from delaying recovery without limit.
   @outbox_max_retry_seconds 5 * 60
+  # Let recovery reclaim a provider call that has no durable result.
   @outbox_in_flight_recovery_seconds 60
+  # Keep the Console projection bounded when many deliveries need operator
+  # action.
   @stopped_delivery_limit 100
+  # Give a live preview time to checkpoint before durable delivery takes over.
   @reply_preview_settle_timeout_ms 30_000
+  # Outbox sources that must stop a live preview before dispatch.
   @reply_preview_finalization_sources ~w(
     actor_dead_letter_notice
     actor_model_profile_unavailable_notice
@@ -122,7 +129,7 @@ defmodule Ankole.SignalsGateway.Outbox do
   end
 
   @doc """
-  Commits the durable final IM replies adopted by an explicit Agent Turn completion.
+  Commits the durable final replies adopted by an explicit Agent Turn completion.
   """
   @spec commit_final_reply_outboxes_in_tx(
           module(),
@@ -1591,70 +1598,127 @@ defmodule Ankole.SignalsGateway.Outbox do
 
   # Runs after the adapter call returns (outside the prepare transaction). Re-open
   # a transaction and re-lock the row before recording the outcome, because the
-  # network call happened with no lock held and the row could have changed.
+  # network call happened with no lock held and the row could have changed:
+  # recovery may already have taken the attempt over and committed a terminal
+  # state, in which case this late result is stale and must not be recorded.
   # Outcome → status: ok ⇒ succeeded (+ mirror the posted entry), error ⇒ failed
   # (schedule a bounded retry), :unknown ⇒ unknown_after_send. A visible durable
   # reply can retry inside the same bound after it gains a possible-duplicate
   # notice; other uncertain operations stop.
   defp finalize_outbox_send(send_result, outbox, channel, now) do
     Repo.transact(fn repo ->
-      with %OutboxEntry{} = current_outbox <- fetch_outbox_for_update(repo, outbox) do
-        case send_result do
-          {:ok, result} ->
-            finalize_successful_outbox(repo, current_outbox, channel, result, now)
+      case refetch_claimed_outbox(repo, outbox, "send") do
+        {:ok, current_outbox} ->
+          case send_result do
+            {:ok, result} ->
+              finalize_successful_outbox(repo, current_outbox, channel, result, now)
 
-          {:error, reason} ->
-            mark_outbox_failed(repo, current_outbox, reason, now)
+            {:error, reason} ->
+              mark_outbox_failed(repo, current_outbox, reason, now)
 
-          :unknown ->
-            mark_outbox_unknown(
-              repo,
-              current_outbox,
-              %{
-                "reason" => "adapter returned unknown_after_send"
-              },
-              now
-            )
-        end
-      else
-        nil -> {:error, :outbox_not_found}
+            :unknown ->
+              mark_outbox_unknown(
+                repo,
+                current_outbox,
+                %{
+                  "reason" => "adapter returned unknown_after_send"
+                },
+                now
+              )
+          end
+
+        {:stale, current_outbox} ->
+          {:ok, current_outbox}
+
+        {:error, _reason} = error ->
+          error
       end
     end)
   end
 
   defp finalize_outbox_reconcile(reconcile_result, outbox, channel, now) do
     Repo.transact(fn repo ->
-      with %OutboxEntry{} = current_outbox <- fetch_outbox_for_update(repo, outbox) do
-        case reconcile_result do
-          {:ok, result} ->
-            finalize_successful_outbox(repo, current_outbox, channel, result, now)
+      case refetch_claimed_outbox(repo, outbox, "reconcile") do
+        {:ok, current_outbox} ->
+          case reconcile_result do
+            {:ok, result} ->
+              finalize_successful_outbox(repo, current_outbox, channel, result, now)
 
-          {:error, reason} ->
-            mark_outbox_unknown(
-              repo,
-              current_outbox,
-              %{
-                "reason" => "reconciliation adapter error",
-                "error" => reason
-              },
-              now
-            )
+            {:error, reason} ->
+              mark_outbox_unknown(
+                repo,
+                current_outbox,
+                %{
+                  "reason" => "reconciliation adapter error",
+                  "error" => reason
+                },
+                now
+              )
 
-          :unknown ->
-            mark_outbox_unknown(
-              repo,
-              current_outbox,
-              %{
-                "reason" => "reconciliation could not confirm provider send"
-              },
-              now
-            )
-        end
-      else
-        nil -> {:error, :outbox_not_found}
+            :unknown ->
+              mark_outbox_unknown(
+                repo,
+                current_outbox,
+                %{
+                  "reason" => "reconciliation could not confirm provider send"
+                },
+                now
+              )
+          end
+
+        {:stale, current_outbox} ->
+          {:ok, current_outbox}
+
+        {:error, _reason} = error ->
+          error
       end
     end)
   end
+
+  # The attempt fence between the claim and its result. A finalizer may only
+  # record an outcome for the attempt it claimed: the row must still be
+  # :sending with the same attempt_count (platform_send_started_at is a
+  # redundant guard for the same claim). Otherwise recovery took the row over
+  # and committed first, so the first committed outcome wins and the late
+  # result becomes a logged no-op. Without this fence a late error could turn
+  # a delivered succeeded row back into a retryable one and post a duplicate.
+  defp refetch_claimed_outbox(repo, %OutboxEntry{} = outbox, phase) do
+    case fetch_outbox_for_update(repo, outbox) do
+      %OutboxEntry{} = current_outbox ->
+        if current_outbox.status == :sending and
+             current_outbox.attempt_count == outbox.attempt_count and
+             same_send_start?(
+               current_outbox.platform_send_started_at,
+               outbox.platform_send_started_at
+             ) do
+          {:ok, current_outbox}
+        else
+          Logging.warning(
+            "signals_gateway.outbox.stale_attempt_result_ignored",
+            "signals gateway outbox ignored a stale attempt result",
+            %{
+              agent_uid: outbox.agent_uid,
+              binding_name: outbox.binding_name,
+              outbound_key: outbox.outbound_key,
+              phase: phase,
+              claimed_attempt_count: outbox.attempt_count,
+              current_attempt_count: current_outbox.attempt_count,
+              current_status: current_outbox.status
+            }
+          )
+
+          {:stale, current_outbox}
+        end
+
+      nil ->
+        {:error, :outbox_not_found}
+    end
+  end
+
+  defp same_send_start?(%DateTime{} = left, %DateTime{} = right),
+    do: DateTime.compare(left, right) == :eq
+
+  defp same_send_start?(left, right), do: left == right
 
   defp finalize_successful_outbox(repo, outbox, channel, result, now) do
     with {:ok, succeeded_outbox} <- mark_outbox_succeeded(repo, outbox, result) do

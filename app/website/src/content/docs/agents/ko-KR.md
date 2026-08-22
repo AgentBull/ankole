@@ -51,7 +51,7 @@ Agent 페이지에서 **MISSION / SOUL / DESIGN**을 엽니다.
 
 고급 설정에는 선택한 Provider가 선언한 옵션만 표시됩니다. **Reasoning summary**는 Responses API에만 적용됩니다. **Answer detail**은 기본 응답 상세 수준을 설정합니다. **Service tier**는 이 model profile의 request tier를 재정의합니다. 사용 가능한 값은 Provider, 계정, 모델에 따라 다릅니다. 비워 두면 Provider 기본값을 사용합니다.
 
-첫 LLM Provider와 모델 설정은 [Quick start](../quickstart/#3-add-an-llm-provider-and-create-an-agent)를 참조하십시오.
+첫 LLM Provider와 모델 설정은 [Quick start](../quickstart/#llm-providers)를 참조하십시오.
 
 ## 기능과 environment variable 구성
 
@@ -87,4 +87,4 @@ display name, 역할, durable 지침, 모델, 기능은 언제든 변경할 수 
 4. worker가 하나 이상 준비되었는지.
 5. **Console → Conversations**에 메시지가 있고 유용한 오류가 표시되는지.
 
-channel별 확인 사항은 [Quick start troubleshooting](../quickstart/#if-the-agent-does-not-reply)을 참조하십시오.
+channel별 확인 사항은 [Quick start troubleshooting](../quickstart/#agent-not-replying)을 참조하십시오.

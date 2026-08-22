@@ -9,8 +9,8 @@ import {
   materializeLarkCredential,
   sameLarkBindingIdentity,
   withoutLarkTenantTokenValue
-} from '../src/core/turns/lark-credential'
-import type { ResolvedAgentWorkerEnv } from '../src/core/turns/worker_env'
+} from '../src/core/execution/lark-credential'
+import type { ResolvedAgentWorkerEnv } from '../src/core/execution/worker_env'
 import { WorkerEnvResolveResponseSchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import { rpcMethods, type RPCRequester } from '../src/lanes/rpc_lane'
 

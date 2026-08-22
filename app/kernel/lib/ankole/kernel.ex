@@ -160,12 +160,16 @@ defmodule Ankole.Kernel do
   def universal_ai_client_cancel_nif(_stream), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc false
-  @spec universal_ai_client_model_request_nif(String.t()) :: {:ok, map()} | {:error, map()}
-  def universal_ai_client_model_request_nif(_encoded_spec), do: :erlang.nif_error(:nif_not_loaded)
+  @spec universal_ai_client_model_request_nif(String.t(), pid(), reference()) ::
+          :ok | {:error, map()}
+  def universal_ai_client_model_request_nif(_encoded_spec, _owner_pid, _request_ref),
+    do: :erlang.nif_error(:nif_not_loaded)
 
   @doc false
-  @spec universal_ai_client_raw_request_nif(String.t()) :: {:ok, map()} | {:error, map()}
-  def universal_ai_client_raw_request_nif(_encoded_spec), do: :erlang.nif_error(:nif_not_loaded)
+  @spec universal_ai_client_raw_request_nif(String.t(), pid(), reference()) ::
+          :ok | {:error, map()}
+  def universal_ai_client_raw_request_nif(_encoded_spec, _owner_pid, _request_ref),
+    do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
   Returns `true` when a CEL authorization condition compiles.

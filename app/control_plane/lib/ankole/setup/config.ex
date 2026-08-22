@@ -59,6 +59,19 @@ defmodule Ankole.Setup.Config do
   end
 
   @doc """
+  Writes the setup completion flag inside the caller's open transaction.
+
+  The caller must pass the returned committed write to
+  `AppConfigure.cache_committed_write/1` after the transaction commits, or
+  reads keep serving the stale cached value.
+  """
+  @spec put_completed_in_tx(module(), boolean()) ::
+          {:ok, AppConfigure.committed_write()} | {:error, term()}
+  def put_completed_in_tx(repo, completed) when is_boolean(completed) do
+    AppConfigure.put_global_by_key_in_tx(repo, @completed_key, completed)
+  end
+
+  @doc """
   Reads the current bootstrap activation code.
   """
   @spec bootstrap_activation_code() :: {:ok, String.t()} | :error | {:error, term()}

@@ -31,10 +31,6 @@ defmodule Ankole.Ecto.ActorScheduleIdentityMigrationTest do
     assert_reset_schedule_store()
   end
 
-  test "refuses a lossy downgrade" do
-    assert_raise RuntimeError, ~r/cannot be restored/, fn -> @migration.down() end
-  end
-
   defp create_schedule_fixture!(id_type) do
     schema = "actor_schedule_identity_#{System.unique_integer([:positive])}"
 

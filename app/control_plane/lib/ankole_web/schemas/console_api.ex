@@ -1901,8 +1901,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
             type: :string,
             enum: ["manual_review", "create_standalone"],
             nullable: true
-          },
-          confidential_memory: %Schema{type: :boolean, default: false}
+          }
         },
         required: [:config],
         additionalProperties: false
@@ -1932,8 +1931,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
             type: :string,
             enum: ["manual_review", "create_standalone"],
             nullable: true
-          },
-          confidential_memory: %Schema{type: :boolean, nullable: true}
+          }
         },
         required: [:target_agent_uid, :config],
         additionalProperties: false
@@ -2044,7 +2042,6 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
             type: :string,
             enum: ["manual_review", "create_standalone"]
           },
-          confidential_memory: %Schema{type: :boolean},
           enabled: %Schema{type: :boolean},
           unavailable_reason: %Schema{type: :string, nullable: true}
         },
@@ -2056,7 +2053,6 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           :config_key,
           :unaddressed_group_message_policy,
           :unmatched_sender_policy,
-          :confidential_memory,
           :enabled
         ],
         additionalProperties: false
@@ -3029,8 +3025,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
         type: :object,
         properties: %{
           web_search: %Schema{type: :boolean},
-          image_generate: %Schema{type: :boolean},
-          compaction: %Schema{type: :boolean}
+          image_generate: %Schema{type: :boolean}
         },
         additionalProperties: false
       },
@@ -4151,7 +4146,6 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
     require OpenAPISpex
 
     @types ~w(message checkpoint)
-    @roles ~w(user assistant tool im_ambient)
     @statuses ~w(generating complete error retracted)
 
     OpenAPISpex.schema(
@@ -4163,7 +4157,6 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           subject_uid: %Schema{type: :string},
           conversation_id: %Schema{type: :string},
           type: %Schema{type: :string, enum: @types},
-          role: %Schema{type: :string, enum: @roles, nullable: true},
           status: %Schema{type: :string, enum: @statuses},
           previous_message_id: %Schema{type: :string, nullable: true},
           content: %Schema{

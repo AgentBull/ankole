@@ -1,4 +1,6 @@
 defmodule Ankole.SignalsGatewayIngressTest do
+  # Serial because the channel-projection test leaves the sandbox with
+  # `unboxed_run` to prove real row locking.
   use Ankole.DataCase, async: false
 
   alias Ecto.Adapters.SQL
@@ -557,7 +559,6 @@ defmodule Ankole.SignalsGatewayIngressTest do
         subject_uid: agent.uid,
         conversation_id: conversation.id,
         type: "message",
-        role: "assistant",
         status: "complete",
         content: [%{"text" => "internal assistant row"}],
         metadata: %{

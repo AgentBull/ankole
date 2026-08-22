@@ -1975,6 +1975,8 @@ adapter를 처음 활성화했다면 첫 로그인 후 control plane을 재시�
   tabs={identityTabs}
 />
 
+<span id="llm-providers" aria-hidden="true" />
+
 ## 3. LLM Provider 추가 및 Agent 생성
 
 Agent model profile은 모델 참조를 저장하므로 LLM Provider를 먼저 추가하세요. Console에 로그인합니다. **Providers → New provider**를 열고 provider 종류를 선택한 다음 안정적인 Provider ID를 지정하고 endpoint와 credential 필드를 입력한 뒤 저장합니다.
@@ -2018,7 +2020,7 @@ Console에서 채팅 플랫폼의 Control Plane Plugin을 활성화한 다음, �
 
 ### Console에서 연결 완료
 
-현재 릴리스는 직접 연결을 사용합니다. 하나의 라우팅 규칙이 하나의 Channel Provider를 하나의 Agent에 연결합니다. 규칙은 adapter, 앱 자격 증명, 대상 Agent, 그룹 메시지 동작, memory 동작을 기록합니다. bot마다 별도의 규칙을 만드세요.
+현재 릴리스는 직접 연결을 사용합니다. 하나의 라우팅 규칙이 하나의 Channel Provider를 하나의 Agent에 연결합니다. 규칙은 adapter, 앱 자격 증명, 대상 Agent, 그룹 메시지 동작을 기록합니다. bot마다 별도의 규칙을 만드세요.
 
 Console에서 **Signal Routing → New routing rule**을 열고 설정합니다:
 
@@ -2028,7 +2030,6 @@ Console에서 **Signal Routing → New routing rule**을 열고 설정합니다:
 | **Adapter** | Slack, Teams, Lark/Feishu, DingTalk 또는 WeCom |
 | **Rule name** | `slack-main` 또는 `lark-main` 같은 안정적인 이름 |
 | **Group message mode** | `addressed_only`로 시작 |
-| **Confidential memory** | 첫 테스트에서는 끄기 |
 | **Channel settings** | 채널 tab의 자격 증명과 값을 붙여 넣기 |
 
 규칙을 저장합니다. 목록에 활성화된 상태로 표시되어야 합니다. 양식이 credential을 거부하면 IM을 테스트하기 전에 그 오류를 고치세요. adapter가 아직 연결을 열지 않았습니다.
@@ -2051,6 +2052,8 @@ Console에서 **Signal Routing → New routing rule**을 열고 설정합니다:
 > @Ankole 무엇을 할 수 있고, 어떤 팀을 서빙하나요?
 
 첫 실제 모델 답변이 온 뒤, 팀에 맞게 Agent mission, 모델, 그룹 채팅 정책을 조정하세요.
+
+<span id="agent-not-replying" aria-hidden="true" />
 
 ### Agent가 응답하지 않으면
 

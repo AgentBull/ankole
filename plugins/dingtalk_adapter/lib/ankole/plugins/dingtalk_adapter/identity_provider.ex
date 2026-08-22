@@ -92,7 +92,6 @@ defmodule Ankole.Plugins.DingTalkAdapter.IdentityProvider do
         %{
           provider: provider_id,
           external_id: userid,
-          uid: userid,
           display_name: display_name(user),
           avatar_url: optional_text(user, "avatar"),
           email: optional_text(user, "org_email") || optional_text(user, "email"),

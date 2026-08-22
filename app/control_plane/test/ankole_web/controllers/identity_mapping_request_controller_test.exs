@@ -104,6 +104,27 @@ defmodule AnkoleWeb.IdentityMappingRequestControllerTest do
     assert %{"error" => %{"code" => "invalid_principal"}} = json_response(conn, 422)
   end
 
+  test "a malformed mapping request id answers not found in the console envelope", %{conn: conn} do
+    %{principal: target} = human_fixture()
+    conn = bearer_conn(conn)
+
+    assert %{"error" => %{"code" => "not_found", "message" => message}} =
+             conn
+             |> recycle_api()
+             |> post(~p"/api/v1/identity-mapping-requests/not-a-uuid/bind", %{
+               "principal_uid" => target.uid
+             })
+             |> json_response(404)
+
+    assert is_binary(message)
+
+    assert %{"error" => %{"code" => "not_found"}} =
+             conn
+             |> recycle_api()
+             |> delete(~p"/api/v1/identity-mapping-requests/not-a-uuid")
+             |> json_response(404)
+  end
+
   test "admin maps a provider subject proactively", %{conn: conn} do
     %{principal: target} = human_fixture()
 

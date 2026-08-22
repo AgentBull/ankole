@@ -30,6 +30,10 @@ defmodule Ankole.Plugins.Microsoft365Adapter.GraphSubscriptions do
 
   @doc """
   Ensures both directory subscriptions exist and are outside the renewal window.
+
+  Each resource persists on its own success, so a later resource's failure (for
+  example a missing Graph permission) cannot orphan an already-created remote
+  subscription. Failed resources are aggregated into one loud error return.
   """
   @spec ensure(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   def ensure(provider_id, config, opts \\ []) do
@@ -38,26 +42,46 @@ defmodule Ankole.Plugins.Microsoft365Adapter.GraphSubscriptions do
     state = load_state(provider_id)
     now = Keyword.get(opts, :now, DateTime.utc_now())
 
-    @resources
-    |> Enum.reduce_while({:ok, []}, fn resource, {:ok, entries} ->
-      existing = Enum.find(state, &(MapHelpers.optional_text(&1, "resource") == resource))
+    {_state, entries, failures} =
+      Enum.reduce(@resources, {state, [], []}, fn resource, {state, entries, failures} ->
+        existing = Enum.find(state, &(MapHelpers.optional_text(&1, "resource") == resource))
 
-      case ensure_resource(client, resource, existing, notification_url, now) do
-        {:ok, entry} -> {:cont, {:ok, [entry | entries]}}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
-    |> case do
-      {:ok, entries} ->
-        entries = Enum.reverse(entries)
-
-        with {:ok, _persisted} <- persist_state(provider_id, entries) do
-          {:ok, %{subscriptions: entries}}
+        with {:ok, entry} <- ensure_resource(client, resource, existing, notification_url, now),
+             {:ok, state} <-
+               persist_resource_entry(provider_id, client, state, resource, entry, existing) do
+          {state, [entry | entries], failures}
+        else
+          {:error, reason} ->
+            {state, entries, [%{resource: resource, reason: reason} | failures]}
         end
+      end)
 
-      {:error, _reason} = error ->
-        error
+    case failures do
+      [] -> {:ok, %{subscriptions: Enum.reverse(entries)}}
+      failures -> {:error, {:graph_subscription_ensure_failed, Enum.reverse(failures)}}
     end
+  end
+
+  defp persist_resource_entry(provider_id, client, state, resource, entry, existing) do
+    state = put_resource_entry(state, resource, entry)
+
+    case persist_state(provider_id, state) do
+      {:ok, _persisted} ->
+        {:ok, state}
+
+      {:error, reason} ->
+        # A subscription created in this pass but never reaching durable state
+        # would become an untracked remote orphan; delete it best-effort.
+        if MapHelpers.optional_text(entry, "id") !=
+             MapHelpers.optional_text(existing || %{}, "id"),
+           do: delete_subscription(client, entry)
+
+        {:error, reason}
+    end
+  end
+
+  defp put_resource_entry(state, resource, entry) do
+    Enum.reject(state, &(MapHelpers.optional_text(&1, "resource") == resource)) ++ [entry]
   end
 
   @doc """

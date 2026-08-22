@@ -38,6 +38,7 @@ defmodule Ankole.IdentityProviders.LocalPassword do
              principal_uid: String.t(),
              provider_id: String.t(),
              email: String.t(),
+             credential_version: non_neg_integer(),
              must_change_password: boolean()
            }}
           | {:error, :invalid_credentials}
@@ -192,6 +193,7 @@ defmodule Ankole.IdentityProviders.LocalPassword do
        principal_uid: principal.uid,
        provider_id: provider["provider_id"],
        email: account_key,
+       credential_version: LocalCredential.version(credential),
        must_change_password: credential.must_change_password
      }}
   end

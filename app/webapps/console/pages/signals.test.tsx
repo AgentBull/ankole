@@ -76,7 +76,6 @@ function signalBindingResponse(agentUID: string) {
       {
         adapter: 'lark',
         agent_uid: agentUID,
-        confidential_memory: false,
         config_key: `signal:${agentUID}:lark:lark-main`,
         config_ref: 'app_configuration',
         enabled: true,

@@ -129,7 +129,6 @@ defmodule Ankole.Plugins.WeComAdapter.IdentityProvider do
         %{
           provider: provider_id,
           external_id: userid,
-          uid: userid,
           display_name: display_name(user),
           avatar_url: optional_text(user, "avatar"),
           email: optional_text(user, "biz_mail") || optional_text(user, "email"),

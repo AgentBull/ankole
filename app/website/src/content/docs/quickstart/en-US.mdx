@@ -1854,8 +1854,8 @@ export const channelTabs = [
 ]
 
 export const signalAdvanced = {
-  title: 'Group behavior, confidential memory, and subject namespaces',
-  summary: 'The safe first binding replies only when addressed and keeps the default shared memory scope.',
+  title: 'Group behavior and subject namespaces',
+  summary: 'The safe first binding replies only when addressed.',
   steps: [
     {
       title: 'Choose how the Agent handles unaddressed group messages',
@@ -1875,12 +1875,6 @@ export const signalAdvanced = {
       ],
       caution:
         'The provider must deliver those messages. DingTalk and WeCom support addressed_only only. Slack and Lark need extra events or scopes before they can observe a whole room.'
-    },
-    {
-      title: 'Use confidential memory only for a sensitive channel',
-      body: [
-        'The default shared scope lets the Agent use the conversation as shared knowledge. Confidential memory keeps that channel’s recalled history inside its channel scope.'
-      ]
     },
     {
       title: 'Treat the namespace as an identity mapping key',
@@ -1975,6 +1969,8 @@ If you enable the adapter for the first time, restart the control plane after th
   tabs={identityTabs}
 />
 
+<span id="llm-providers" aria-hidden="true" />
+
 ## 3. Add an LLM Provider and create an Agent
 
 An Agent model profile stores a model reference, so add the LLM Provider first. Sign in to the Console. Open **Providers → New provider**, choose the provider kind, give it a stable Provider ID, enter the endpoint and credential fields, and save.
@@ -2018,7 +2014,7 @@ One chat app usually represents one bot identity. If several Agents need differe
 
 ### Complete the connection in the Console
 
-The current release uses a direct connection. One routing rule connects one Channel Provider to one Agent. It records the adapter, app credentials, target Agent, group-message behavior, and memory behavior. Create a separate rule for each bot.
+The current release uses a direct connection. One routing rule connects one Channel Provider to one Agent. It records the adapter, app credentials, target Agent, and group-message behavior. Create a separate rule for each bot.
 
 In the Console, open **Signal Routing → New routing rule** and set:
 
@@ -2028,7 +2024,6 @@ In the Console, open **Signal Routing → New routing rule** and set:
 | **Adapter** | Slack, Teams, Lark/Feishu, DingTalk, or WeCom |
 | **Rule name** | A stable name such as `slack-main` or `lark-main` |
 | **Group message mode** | Start with `addressed_only` |
-| **Confidential memory** | Leave off for the first test |
 | **Channel settings** | Paste the credentials and values from the channel tab |
 
 Save the rule. The list must show it as enabled. If the form rejects a credential, fix that error before testing the IM; the adapter has not opened its connection yet.
@@ -2051,6 +2046,8 @@ Add the bot to a test conversation. In a group chat, start with an explicit @-me
 > @Ankole What can you do, and which team are you serving?
 
 After the first real model reply, tune the Agent mission, models, and group-chat policy for the team.
+
+<span id="agent-not-replying" aria-hidden="true" />
 
 ### If the Agent does not reply
 

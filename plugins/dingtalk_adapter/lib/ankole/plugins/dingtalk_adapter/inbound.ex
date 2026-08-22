@@ -267,8 +267,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
   defp observe_card_operator(%{context: context, config: config}, operator_id) do
     attrs = %{
       provider: Map.get(config, "platformSubjectNamespace", "dingtalk-main"),
-      external_id: operator_id,
-      uid: operator_id
+      external_id: operator_id
     }
 
     case AdapterContext.observe_platform_subject(context, attrs) do

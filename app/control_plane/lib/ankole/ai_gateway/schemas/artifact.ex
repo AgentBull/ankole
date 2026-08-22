@@ -28,6 +28,7 @@ defmodule Ankole.AIGateway.Schemas.Artifact do
     belongs_to(:message, Message, type: :binary_id)
 
     field(:kind, :string)
+    field(:provider_item_id, :string)
     field(:filename, :string)
     field(:purpose, :string)
     field(:mime_type, :string)
@@ -49,6 +50,7 @@ defmodule Ankole.AIGateway.Schemas.Artifact do
       :subject_uid,
       :message_id,
       :kind,
+      :provider_item_id,
       :filename,
       :purpose,
       :mime_type,

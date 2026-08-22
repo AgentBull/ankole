@@ -393,13 +393,16 @@ defmodule Ankole.SignalsGateway.Projection do
     entry_limit = Keyword.get(opts, :entry_limit, max(20, max_attachments))
     since = DateTime.add(provider_time, -window_seconds, :second)
 
+    # The author predicate runs in SQL before the window limit; filtering
+    # after the limit let a busy channel push the author's entries out of the
+    # window.
     Entry
     |> where([entry], entry.signal_channel_id == ^signal_channel_id)
+    |> where([entry], fragment("?->>'id' = ?", entry.author, ^author_id))
     |> where([entry], entry.provider_time >= ^since and entry.provider_time <= ^provider_time)
     |> order_by([entry], desc: entry.provider_time)
     |> limit(^entry_limit)
     |> repo.all()
-    |> Enum.filter(&(get_in(&1.author || %{}, ["id"]) == author_id))
     |> Enum.flat_map(&(&1.attachments || []))
     |> Enum.take(max_attachments)
   end

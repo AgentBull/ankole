@@ -1,5 +1,5 @@
 import { positiveInteger } from '../primitives'
-import { AUTOMATION_JOB_CLI_SOCKET_ENV } from '../../core/turns/turn_runtime_env'
+import { AUTOMATION_JOB_CLI_SOCKET_ENV } from '../../core/execution/turn_runtime_env'
 import { AutomationJobCLICommand, type AutomationJobCLICommand as Command } from './automation-job-cli-protocol'
 import { requestAutomationJobCLI } from './automation-job-cli-client'
 import { errorMessage } from '../../common/errors'

@@ -64,6 +64,11 @@ opens the session. A missing account and a wrong password return the same
 error, and a miss runs one verify against a throwaway hash so response time
 does not reveal whether the account exists.
 
+The change ticket carries the verified credential's `updated_at` value as a
+scalar version. Completion locks the credential row and requires that version
+and `must_change_password` to still match. A password reset changes the version,
+so it invalidates earlier tickets and keeps the new one-time password in force.
+
 Console-created accounts and password resets produce a generated 16-character
 one-time password from an alphabet without look-alike characters. The console
 shows it once. The setup administrator picks their own password and is not

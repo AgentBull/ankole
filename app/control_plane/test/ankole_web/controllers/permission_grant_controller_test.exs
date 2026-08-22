@@ -159,4 +159,15 @@ defmodule AnkoleWeb.PermissionGrantControllerTest do
 
     assert %{"error" => %{"code" => "not_found"}} = json_response(conn, 404)
   end
+
+  test "deleting a malformed grant id answers not found in the console envelope", %{conn: conn} do
+    conn =
+      conn
+      |> bearer_conn()
+      |> recycle_api()
+      |> delete(~p"/api/v1/permission-grants/not-a-uuid")
+
+    assert %{"error" => %{"code" => "not_found", "message" => message}} = json_response(conn, 404)
+    assert is_binary(message)
+  end
 end

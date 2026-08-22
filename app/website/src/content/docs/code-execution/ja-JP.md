@@ -70,5 +70,5 @@ Console は対応する model profile を **Background Agent Jobs** と表示し
 
 - これらの tool を実行し、`/agents` ファイルシステムを所有する Worker については、[Agent Computer Worker](../agent-computer-worker/) を読んでください。
 - Jupyter Skill の背後にある Skill と有効化モデルについては、[Agent Library](../agent-library/) を読んでください。
-- 内部キーが `coding` のままの Background Agent Jobs profile については、[Background Agent Jobs](../background-jobs/#select-the-runtime) を読んでください。
+- 内部キーが `coding` のままの Background Agent Jobs profile については、[Background Agent Jobs](../background-jobs/#モデル-provider-を選択する) を読んでください。
 - Worker イメージが要求する隔離については、[Quick start](../quickstart/#deployment) を読んでください。

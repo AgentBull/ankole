@@ -32,11 +32,7 @@ export {
   RPCRequestSchema,
   RPCResponseSchema,
   TurnAcceptedSchema,
-  TurnCompletedSchema,
-  TurnCompletionOutcome,
   TurnControlSchema,
-  TurnErrorSchema,
-  TurnNoopCompletedSchema,
   TurnStartSchema,
   WorkerProgressSchema,
   AgentComputerWorkerCapacitySchema,
@@ -57,10 +53,7 @@ export type {
   RPCError as RPCErrorMessage,
   RPCRequest as RPCRequestMessage,
   RPCResponse as RPCResponseMessage,
-  TurnCompleted as TurnCompletedMessage,
   TurnControl as TurnControlMessage,
-  TurnError as TurnErrorMessage,
-  TurnNoopCompleted as TurnNoopCompletedMessage,
   TurnStart as TurnStartMessage,
   WorkerProgress as WorkerProgressMessage
 } from './generated/ankole/runtime_fabric/v1/envelope_pb'

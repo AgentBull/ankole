@@ -87,4 +87,4 @@ provider 作成のチュートリアルではありません。DSL、定義、pr
 - provider の書き方については、[provider の追加](../adding-a-provider/)を参照してください。
 - AIGateway のコンセプトページ（エンドポイント、エラーの形状）については、[AIGateway](../ai-gateway/)を参照してください。
 - リクエストを実行する kernel については、[Kernel](../kernel/)を参照してください。
-- 最初のモデルプロファイルのセットアップについては、[Quick start](../quickstart/#3-add-an-llm-provider-and-create-an-agent)を参照してください。
+- 最初のモデルプロファイルのセットアップについては、[Quick start](../quickstart/#llm-providers)を参照してください。

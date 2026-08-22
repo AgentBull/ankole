@@ -47,6 +47,7 @@ pub(super) fn redact_hosted_error(mut error: StreamError) -> StreamError {
                 | "sse_event_too_large"
                 | "eventstream_frame_too_large"
                 | "websocket_message_too_large"
+                | "hosted_round_limit_exceeded"
                 | "upstream_error"
         );
 
@@ -126,6 +127,9 @@ fn public_message(error: &StreamError) -> &'static str {
             | "websocket_message_too_large"
     ) {
         return "The generated response exceeded 128 MiB.";
+    }
+    if error.code == "hosted_round_limit_exceeded" {
+        return "The hosted response exceeded the internal main-model round limit.";
     }
 
     "The hosted image generation request failed."

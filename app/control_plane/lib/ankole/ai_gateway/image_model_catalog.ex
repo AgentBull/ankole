@@ -149,17 +149,21 @@ defmodule Ankole.AIGateway.ImageModelCatalog do
 
   defp source(_runtime, opts), do: catalog_unavailable(opts)
 
-  defp cached_models(runtime, source, opts) do
-    key = {:image_model_catalog, runtime["provider_id"], source.cache_key}
+  # `updated_at` is the provider revision, so an operator edit reads a different
+  # key instead of the stale entry. The Cache has no sweeper, so entries for old
+  # revisions stay in ETS until the next restart, which operator edit rates make
+  # acceptable.
+  defp cached_models(%{"provider" => %Provider{} = provider}, source, opts) do
+    key = {:image_model_catalog, provider.provider_id, provider.updated_at, source.cache_key}
 
     cached_fetch(key, opts, fn ->
       fetch_list(source, source.models_path, &model_list/1)
     end)
   end
 
-  defp cached_endpoints(runtime, source, model, opts) do
+  defp cached_endpoints(%{"provider" => %Provider{} = provider}, source, model, opts) do
     path = endpoint_path(model)
-    key = {:image_model_endpoints, runtime["provider_id"], path}
+    key = {:image_model_endpoints, provider.provider_id, provider.updated_at, path}
 
     cached_fetch(key, opts, fn ->
       fetch_list(source, path, &endpoint_list/1)

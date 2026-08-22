@@ -9,7 +9,6 @@ defmodule Ankole.AIGateway.MessageSchemaTest do
         Message.changeset(%Message{}, %{
           subject_uid: "agent-x",
           conversation_id: Ecto.UUID.generate(),
-          role: "assistant",
           type: "message",
           status: "complete",
           content: [%{"type" => "compaction", "summary" => "compressed"}],
@@ -25,7 +24,6 @@ defmodule Ankole.AIGateway.MessageSchemaTest do
         Message.changeset(%Message{}, %{
           subject_uid: "agent-x",
           conversation_id: Ecto.UUID.generate(),
-          role: "assistant",
           type: "message",
           status: "complete",
           content: [%{"type" => "compaction_artifact", "id" => "cmp_#{Ecto.UUID.generate()}"}],
@@ -41,7 +39,6 @@ defmodule Ankole.AIGateway.MessageSchemaTest do
         Message.changeset(%Message{}, %{
           subject_uid: "agent-x",
           conversation_id: Ecto.UUID.generate(),
-          role: "assistant",
           type: "checkpoint",
           status: "complete",
           content: [%{"type" => "text", "text" => "compressed"}],
@@ -55,7 +52,6 @@ defmodule Ankole.AIGateway.MessageSchemaTest do
         Message.changeset(%Message{}, %{
           subject_uid: "agent-x",
           conversation_id: Ecto.UUID.generate(),
-          role: "assistant",
           type: "checkpoint",
           status: "complete",
           previous_message_id: Ecto.UUID.generate(),
@@ -73,7 +69,6 @@ defmodule Ankole.AIGateway.MessageSchemaTest do
         Message.changeset(%Message{}, %{
           subject_uid: "agent-x",
           conversation_id: Ecto.UUID.generate(),
-          role: "assistant",
           type: "checkpoint",
           status: "complete",
           previous_message_id: Ecto.UUID.generate(),

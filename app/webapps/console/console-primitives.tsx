@@ -1,6 +1,4 @@
 import { recordValue, type JsonObject as JSONObject } from '@agentbull/active-support'
-import { format, type Locale } from 'date-fns'
-import { enUS, ja, ko, zhCN } from 'date-fns/locale'
 import i18n from '../common/i18n'
 import { requestErrorMessage } from '../common/request-errors'
 
@@ -48,26 +46,17 @@ export function formatJSON(value: unknown): string {
 
 // --- Date formatting ---
 //
-// One console-wide date formatter so every page renders timestamps the same way.
-// `dateStyle: 'medium', timeStyle: 'short'` was previously re-implemented inline
-// in four pages via `Intl.DateTimeFormat`; date-fns lets the locale follow the
-// active i18n language (zh-CN browsers no longer silently fall back to English).
-//
-// The pattern follows the language too. One English pattern rendered under the
-// zh-CN locale produced "7月 26, 2026 1:09 上午" — Chinese month and meridiem
-// glued to an English date order — and a 12-hour clock is not how an operator
-// reads a timestamp in zh, ja, or ko. One entry per first-class locale catalog;
-// a language without an entry falls back to the en pattern.
-const CONSOLE_DATE_FORMATS: Record<string, { pattern: string; locale: Locale }> = {
-  en: { pattern: 'MMM d, yyyy h:mm a', locale: enUS },
-  ja: { pattern: 'yyyy年M月d日 H:mm', locale: ja },
-  ko: { pattern: 'yyyy. M. d. HH:mm', locale: ko },
-  zh: { pattern: 'yyyy年M月d日 HH:mm', locale: zhCN }
+// One formatter per first-class locale keeps all console timestamps consistent.
+const CONSOLE_DATE_FORMATTERS: Record<string, Intl.DateTimeFormat> = {
+  en: new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short' }),
+  ja: new Intl.DateTimeFormat('ja-JP', { dateStyle: 'medium', timeStyle: 'short' }),
+  ko: new Intl.DateTimeFormat('ko-KR', { dateStyle: 'medium', timeStyle: 'short' }),
+  zh: new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short' })
 }
 
-function consoleDateFormat(): { pattern: string; locale: Locale } {
+function consoleDateFormatter(): Intl.DateTimeFormat {
   const language = i18n.language ?? ''
-  return CONSOLE_DATE_FORMATS[language.slice(0, 2)] ?? CONSOLE_DATE_FORMATS.en
+  return CONSOLE_DATE_FORMATTERS[language.slice(0, 2)] ?? CONSOLE_DATE_FORMATTERS.en
 }
 
 /**
@@ -76,9 +65,8 @@ function consoleDateFormat(): { pattern: string; locale: Locale } {
  * nullable fields straight through.
  */
 export function formatConsoleDate(value?: string | null): string {
-  if (!value) return '—'
+  if (!value?.trim()) return '—'
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
-  const { pattern, locale } = consoleDateFormat()
-  return format(date, pattern, { locale })
+  return consoleDateFormatter().format(date)
 }

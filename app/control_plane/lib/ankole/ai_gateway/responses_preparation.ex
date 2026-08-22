@@ -6,6 +6,7 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
   declared. Hosted tools add a private composite spec consumed inside Kernel.
   """
 
+  alias Ankole.AIGateway.Artifacts
   alias Ankole.AIGateway.CompactionArtifacts
   alias Ankole.AIGateway.ChatGPTProtocol
   alias Ankole.AIGateway.CodexVision
@@ -100,7 +101,7 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
   defp build(subject_uid, runtime, request, opts) do
     stream? = Keyword.get(opts, :stream?, false)
 
-    with {:ok, provider_request} <- provider_request(runtime, request),
+    with {:ok, provider_request} <- provider_request(subject_uid, runtime, request),
          {:ok, provider_request, tool_plan} <- plan_tools(runtime, provider_request),
          response_stream_driver? = response_stream_driver?(runtime, tool_plan),
          provider_request =
@@ -133,8 +134,13 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
   defp initial_tool_budget(%{"max_tool_calls" => 0}), do: 0
   defp initial_tool_budget(_request), do: nil
 
-  defp prepare_image_generation(_subject_uid, %{"max_tool_calls" => 0}, _runtime, _stream?),
-    do: {:ok, nil}
+  defp prepare_image_generation(
+         _subject_uid,
+         %{"max_tool_calls" => 0},
+         _runtime,
+         _stream?
+       ),
+       do: {:ok, nil}
 
   defp prepare_image_generation(subject_uid, request, runtime, stream?) do
     ImageGeneration.prepare(subject_uid, request,
@@ -256,10 +262,24 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
     end
   end
 
-  defp provider_request(%{"provider_kind" => "chatgpt_subscription"}, request),
+  defp provider_request(subject_uid, runtime, request) do
+    with {:ok, request} <- normalize_provider_request(subject_uid, runtime, request) do
+      encode_provider_request(runtime, request)
+    end
+  end
+
+  defp normalize_provider_request(subject_uid, runtime, request) do
+    if Providers.supports_native_image_generation?(runtime) do
+      Artifacts.resolve_native_input(subject_uid, request)
+    else
+      {:ok, request}
+    end
+  end
+
+  defp encode_provider_request(%{"provider_kind" => "chatgpt_subscription"}, request),
     do: {:ok, request |> Map.delete("service_tier") |> drop_ankole_item_ids()}
 
-  defp provider_request(runtime, request) do
+  defp encode_provider_request(runtime, request) do
     request = request |> Map.delete("service_tier") |> drop_ankole_item_ids()
     ChatGPTProtocol.normalize_non_subscription(request, Map.get(runtime, "request_context", %{}))
   end

@@ -33,6 +33,8 @@ defmodule Ankole.Principals.LocalCredential do
     timestamps()
   end
 
+  @type t :: %__MODULE__{}
+
   @doc """
   Builds a changeset for local credential rows.
   """
@@ -43,6 +45,14 @@ defmodule Ankole.Principals.LocalCredential do
     |> validate_required([:principal_uid, :password_hash, :must_change_password])
     |> foreign_key_constraint(:principal_uid)
     |> unique_constraint(:principal_uid, name: :human_user_local_credentials_pkey)
+  end
+
+  @doc """
+  Returns the version of one stored local credential.
+  """
+  @spec version(t()) :: non_neg_integer()
+  def version(%__MODULE__{updated_at: %DateTime{} = updated_at}) do
+    DateTime.to_unix(updated_at, :microsecond)
   end
 
   @doc """

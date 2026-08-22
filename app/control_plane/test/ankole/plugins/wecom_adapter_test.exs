@@ -9,12 +9,16 @@ defmodule Ankole.Plugins.WeComAdapterTest do
   alias Ankole.Plugins.WeComAdapter
   alias Ankole.Plugins.WeComAdapter.Config
   alias Ankole.Plugins.WeComAdapter.ConnectionOwner
+  alias Ankole.Plugins.WeComAdapter.ConnectionReconciler
+  alias Ankole.Plugins.WeComAdapter.ConnectionSupervisor
   alias Ankole.Plugins.WeComAdapter.IdentityProvider
+  alias Ankole.Plugins.WeComAdapter.Inbound
   alias Ankole.Plugins.WeComAdapter.Outbox
   alias Ankole.Plugins.WeComAdapter.TemplateCard
   alias Ankole.Repo
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.Adapters
+  alias Ankole.SignalsGateway.AdapterContext
   alias Ankole.SignalsGateway.Channel
   alias Ankole.SignalsGateway.OutboxEntry
 
@@ -38,14 +42,7 @@ defmodule Ankole.Plugins.WeComAdapterTest do
       assert chat.inbound_capabilities == ["entry_receive", "action_event"]
       # No recall API on the bot surface — delete_entry is deliberately absent.
       assert chat.outbound_capabilities == ["post_entry", "card"]
-      assert chat.reply_preview_module == Ankole.Plugins.WeComAdapter.AIStream
       assert :ok = Adapters.validate_declaration(chat)
-
-      chat_fields = Map.new(chat.fields, &{&1.path, &1})
-      assert chat_fields["botId"].advanced == false
-      assert chat_fields["secret"].advanced == false
-      assert chat_fields["platformSubjectNamespace"].advanced == true
-      assert chat_fields["userName"].advanced == true
 
       assert identity.contract_id == "principals.identity_provider"
 
@@ -176,6 +173,33 @@ defmodule Ankole.Plugins.WeComAdapterTest do
         end
 
       {:reply, reply, state}
+    end
+  end
+
+  describe "connection reconciliation" do
+    test "the reconciler stops the owner after its binding is disabled" do
+      {binding, config} = setup_chat_binding()
+      key = Config.connection_key(config)
+
+      context =
+        AdapterContext.new(
+          agent_uid: binding.agent_uid,
+          binding_name: binding.name,
+          adapter: "wecom",
+          user_name: "WeCom"
+        )
+
+      assert {:ok, owner} =
+               ConnectionSupervisor.ensure_started(config, [
+                 Inbound.chat_consumer(context, config)
+               ])
+
+      on_exit(fn -> ConnectionSupervisor.stop(key) end)
+
+      assert {:ok, _binding} = SignalsGateway.disable_binding(binding.agent_uid, binding.name)
+
+      assert %{started: 0, stopped: 1, errors: []} = ConnectionReconciler.reconcile_once()
+      refute Process.alive?(owner)
     end
   end
 

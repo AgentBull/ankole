@@ -134,20 +134,23 @@ async fn run_http_stream(
                             }
 
                             match sonic_rs::from_str::<Value>(&event.data) {
-                                Ok(value) => match resolver.ingest(value) {
-                                    Ok(events) => {
-                                        if !flush_resolver_events(&mut delivery, &resolver, events)
-                                            .await
-                                        {
+                                Ok(value) => {
+                                    match ingest_resolver_event(&mut delivery, &mut resolver, value)
+                                        .await
+                                    {
+                                        Ok(true) => {}
+                                        Ok(false) => return,
+                                        Err(error) => {
+                                            finish_after_ready_error(
+                                                delivery,
+                                                &mut resolver,
+                                                error,
+                                            )
+                                            .await;
                                             return;
                                         }
                                     }
-                                    Err(error) => {
-                                        finish_after_ready_error(delivery, &mut resolver, error)
-                                            .await;
-                                        return;
-                                    }
-                                },
+                                }
                                 Err(reason) => {
                                     let error = StreamError::new(
                                         "invalid_provider_event",
@@ -171,18 +174,15 @@ async fn run_http_stream(
                         Ok(events) => {
                             for event in events {
                                 match sonic_rs::from_str::<Value>(&event.data) {
-                                    Ok(value) => match resolver.ingest(value) {
-                                        Ok(events) => {
-                                            if !flush_resolver_events(
-                                                &mut delivery,
-                                                &resolver,
-                                                events,
-                                            )
-                                            .await
-                                            {
-                                                return;
-                                            }
-                                        }
+                                    Ok(value) => match ingest_resolver_event(
+                                        &mut delivery,
+                                        &mut resolver,
+                                        value,
+                                    )
+                                    .await
+                                    {
+                                        Ok(true) => {}
+                                        Ok(false) => return,
                                         Err(error) => {
                                             finish_after_ready_error(
                                                 delivery,
@@ -263,18 +263,15 @@ async fn run_http_stream(
                                 }
 
                                 match sonic_rs::from_slice::<Value>(&message.payload) {
-                                    Ok(value) => match resolver.ingest(value) {
-                                        Ok(events) => {
-                                            if !flush_resolver_events(
-                                                &mut delivery,
-                                                &resolver,
-                                                events,
-                                            )
-                                            .await
-                                            {
-                                                return;
-                                            }
-                                        }
+                                    Ok(value) => match ingest_resolver_event(
+                                        &mut delivery,
+                                        &mut resolver,
+                                        value,
+                                    )
+                                    .await
+                                    {
+                                        Ok(true) => {}
+                                        Ok(false) => return,
                                         Err(error) => {
                                             finish_after_ready_error(
                                                 delivery,
@@ -451,17 +448,16 @@ async fn run_websocket_stream(
                 }
 
                 match sonic_rs::from_str::<Value>(&text) {
-                    Ok(value) => match resolver.ingest(value) {
-                        Ok(events) => {
-                            if !flush_resolver_events(&mut delivery, &resolver, events).await {
+                    Ok(value) => {
+                        match ingest_resolver_event(&mut delivery, &mut resolver, value).await {
+                            Ok(true) => {}
+                            Ok(false) => return,
+                            Err(error) => {
+                                finish_after_ready_error(delivery, &mut resolver, error).await;
                                 return;
                             }
                         }
-                        Err(error) => {
-                            finish_after_ready_error(delivery, &mut resolver, error).await;
-                            return;
-                        }
-                    },
+                    }
                     Err(reason) => {
                         let error = StreamError::new(
                             "invalid_provider_event",
@@ -921,36 +917,56 @@ impl Delivery {
         }
     }
 
+    // Unbounded on purpose: terminal batches from `resolver.finish()` and the
+    // failure paths may legally exceed `max_pending_bytes` for a long response,
+    // and a bounded push would turn that terminal into a silent stall.
     fn push_events(&mut self, events: Vec<Value>) {
         for event in events {
             self.push_chunk(self.encoder.encode_event(&event));
         }
     }
 
+    /// Queues mid-stream events within the pending-byte limit.
+    /// `Ok(false)` means that downstream cancellation was already reported.
     pub(in crate::universal_ai_client) async fn push_events_bounded(
         &mut self,
         events: Vec<Value>,
-    ) -> bool {
+    ) -> Result<bool, StreamError> {
         for event in events {
             let chunk = self.encoder.encode_event(&event);
 
             if chunk.bytes.len() > self.max_pending_bytes {
+                return Err(StreamError::new(
+                    "response_body_too_large",
+                    "downstream",
+                    format!(
+                        "downstream event of {} bytes exceeded the pending byte limit of {}",
+                        chunk.bytes.len(),
+                        self.max_pending_bytes
+                    ),
+                ));
+            }
+
+            if !self.push_chunk_when_capacity(chunk).await {
+                return Ok(false);
+            }
+        }
+
+        Ok(true)
+    }
+
+    async fn push_chunk_when_capacity(&mut self, chunk: DownstreamChunk) -> bool {
+        self.flush_pending_available();
+        while !self.has_capacity_for(chunk.bytes.len()) {
+            let command = self.command_rx.recv().await;
+            if !self.handle_command(command) {
                 return false;
             }
-
-            self.flush_pending_available();
-            while !self.has_capacity_for(chunk.bytes.len()) {
-                let command = self.command_rx.recv().await;
-                if !self.handle_command(command) {
-                    return false;
-                }
-                self.flush_pending_available();
-            }
-
-            self.push_chunk(chunk);
             self.flush_pending_available();
         }
 
+        self.push_chunk(chunk);
+        self.flush_pending_available();
         true
     }
 
@@ -1122,21 +1138,31 @@ fn summary(reason: &str) -> Value {
     json!({ "reason": reason })
 }
 
+async fn ingest_resolver_event(
+    delivery: &mut Delivery,
+    resolver: &mut api_resolver::APIResolver,
+    value: Value,
+) -> Result<bool, StreamError> {
+    let events = resolver.ingest(value)?;
+    flush_resolver_events(delivery, resolver, events).await
+}
+
 async fn flush_resolver_events(
     delivery: &mut Delivery,
     resolver: &api_resolver::APIResolver,
     events: Vec<Value>,
-) -> bool {
-    delivery.push_events(events);
+) -> Result<bool, StreamError> {
+    if !delivery.push_events_bounded(events).await? {
+        return Ok(false);
+    }
 
     if resolver.is_terminal() {
         delivery
             .finish_done_pending(summary("provider_terminal"))
             .await;
-        false
+        Ok(false)
     } else {
-        delivery.flush_pending_available();
-        true
+        Ok(true)
     }
 }
 
@@ -1253,7 +1279,10 @@ async fn provider_status_error(
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
+    use crate::universal_ai_client::spec::{APIResolverKind, DownstreamKind, ResponseContext};
 
     #[test]
     fn terminal_output_uses_completed_items_when_the_provider_omits_it() {
@@ -1313,5 +1342,101 @@ mod tests {
         reconcile_terminal_items(&mut response, &completed_items);
 
         assert_eq!(response["output"][0], terminal_item);
+    }
+
+    fn test_delivery(
+        limits: &StreamLimits,
+    ) -> (
+        mpsc::Sender<StreamCommand>,
+        std::sync::mpsc::Receiver<StreamEvent>,
+        Delivery,
+    ) {
+        let (command_tx, command_rx) = mpsc::channel(8);
+        let (event_tx, event_rx) = std::sync::mpsc::channel();
+        let sink: EventSink = Arc::new(move |event| {
+            let _ = event_tx.send(event);
+        });
+        let delivery = Delivery::new(
+            command_rx,
+            sink,
+            DownstreamEncoder::new(DownstreamKind::SSE),
+            Arc::new(AtomicBool::new(false)),
+            limits,
+        );
+        (command_tx, event_rx, delivery)
+    }
+
+    #[tokio::test]
+    async fn mid_stream_batches_wait_for_credit_under_the_pending_limit() {
+        let limits = StreamLimits {
+            max_pending_chunks: 2,
+            ..StreamLimits::default()
+        };
+        let (command_tx, event_rx, mut delivery) = test_delivery(&limits);
+        let resolver = api_resolver::APIResolver::new(
+            APIResolverKind::OpenAIResponses,
+            ResponseContext::default(),
+        );
+        let events = (0..5)
+            .map(|index| {
+                json!({"type": "response.output_text.delta", "delta": format!("chunk {index}")})
+            })
+            .collect::<Vec<_>>();
+
+        let flush = flush_resolver_events(&mut delivery, &resolver, events);
+        tokio::pin!(flush);
+
+        // Without credit the batch waits after filling the two-chunk window.
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), flush.as_mut())
+                .await
+                .is_err()
+        );
+        assert!(event_rx.try_recv().is_err());
+
+        command_tx.send(StreamCommand::Demand(1)).await.unwrap();
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), flush.as_mut())
+                .await
+                .is_err()
+        );
+        assert!(matches!(
+            event_rx.try_recv(),
+            Ok(StreamEvent::Chunk { seq: 1, .. })
+        ));
+        assert!(event_rx.try_recv().is_err());
+
+        command_tx.send(StreamCommand::Demand(16)).await.unwrap();
+        let completed = tokio::time::timeout(Duration::from_secs(1), flush.as_mut())
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert!(completed);
+        assert_eq!(std::iter::from_fn(|| event_rx.try_recv().ok()).count(), 4);
+    }
+
+    #[tokio::test]
+    async fn an_event_beyond_the_pending_byte_limit_fails_loudly() {
+        let limits = StreamLimits {
+            max_pending_bytes: 128,
+            ..StreamLimits::default()
+        };
+        let (_command_tx, _event_rx, mut delivery) = test_delivery(&limits);
+        let resolver = api_resolver::APIResolver::new(
+            APIResolverKind::OpenAIResponses,
+            ResponseContext::default(),
+        );
+        let events = vec![json!({
+            "type": "response.output_text.delta",
+            "delta": "x".repeat(4096)
+        })];
+
+        let error = flush_resolver_events(&mut delivery, &resolver, events)
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.code, "response_body_too_large");
+        assert!(error.message.contains("pending byte limit"));
     }
 }

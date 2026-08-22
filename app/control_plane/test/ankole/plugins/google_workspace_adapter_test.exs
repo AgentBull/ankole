@@ -78,13 +78,6 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapterTest do
       assert fields["oidc.allowedDomains"].requiredWhen == [%{path: "oidc.enabled", value: true}]
       assert fields["serviceAccountKey"].requiredWhen == [%{path: "sync.contacts", value: true}]
       assert fields["adminEmail"].requiredWhen == [%{path: "sync.contacts", value: true}]
-      assert fields["clientID"].label["zh-Hans-CN"] == "OAuth 客户端 ID"
-      assert fields["clientSecret"].label["zh-Hans-CN"] == "OAuth 客户端密钥"
-      assert fields["oidc.scopes"].label["zh-Hans-CN"] == "登录权限范围"
-      assert fields["serviceAccountKey"].label["zh-Hans-CN"] == "服务账号 JSON 密钥"
-      assert fields["adminEmail"].label["zh-Hans-CN"] == "委派管理员邮箱"
-      assert fields["sync.contacts"].label["zh-Hans-CN"] == "同步通讯录"
-      assert fields["sync.pageSize"].label["zh-Hans-CN"] == "每页同步数量"
 
       assert fields["oidc.allowedDomains"].validation.pattern ==
                "^[A-Za-z0-9][A-Za-z0-9.-]*\\.[A-Za-z]{2,}$"

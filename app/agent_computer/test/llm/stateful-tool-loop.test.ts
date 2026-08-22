@@ -1883,7 +1883,9 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
                   response: {
                     id: 'resp_boom_final',
                     status: 'completed',
-                    output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'recovered' }] }]
+                    output: [
+                      { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'recovered' }] }
+                    ]
                   }
                 }
               ]
@@ -1969,7 +1971,9 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
                   response: {
                     id: 'resp_bad_args_final',
                     status: 'completed',
-                    output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'retried fine' }] }]
+                    output: [
+                      { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'retried fine' }] }
+                    ]
                   }
                 }
               ]

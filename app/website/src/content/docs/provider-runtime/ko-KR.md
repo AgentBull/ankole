@@ -87,4 +87,4 @@ provider 작성 튜토리얼이 아닙니다 — DSL, 정의, prepare 함수는 
 - provider 작성 방법은 [provider 추가](../adding-a-provider/)를 읽으세요.
 - AIGateway 개념 페이지(엔드포인트, 오류 형태)는 [AIGateway](../ai-gateway/)를 읽으세요.
 - 요청을 실행하는 kernel은 [Kernel](../kernel/)을 읽으세요.
-- 첫 모델 프로필 설정은 [Quick start](../quickstart/#3-add-an-llm-provider-and-create-an-agent)를 읽으세요.
+- 첫 모델 프로필 설정은 [Quick start](../quickstart/#llm-providers)를 읽으세요.

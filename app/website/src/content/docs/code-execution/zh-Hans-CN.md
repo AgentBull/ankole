@@ -70,5 +70,5 @@ Console 将对应的模型档案显示为**后台 Agent 任务**。它在数据�
 
 - 跑这些工具、拥有 `/agents` 文件系统的 Worker，读 [Agent Computer Worker](../agent-computer-worker/)。
 - Jupyter skill 背后的 skill 与启用模型，读 [Agent Library](../agent-library/)。
-- 后台 Agent 任务档案及其内部键 `coding`，读 [后台 Agent 任务](../background-jobs/#选择运行方式)。
+- 后台 Agent 任务档案及其内部键 `coding`，读 [后台 Agent 任务](../background-jobs/#选择模型-provider)。
 - worker 镜像要求的沙箱，读 [快速开始](../quickstart/#deployment)。

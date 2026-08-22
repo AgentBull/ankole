@@ -56,7 +56,7 @@ agent-loop モジュールの doc は明示的です: worker は履歴の展開�
 | 方向 | 境界を越えるもの |
 |---|---|
 | コントロールプレーン → worker | `TurnStart` エンベロープ（actor アイデンティティ、ターン ref、処理するイベント） |
-| worker → コントロールプレーン | 進捗エンベロープ（チェックポイント、アクティビティサマリー）、失敗時の `TurnError`、またはターンの自然な完了 |
+| worker → コントロールプレーン | 進捗エンベロープ（チェックポイント、アクティビティサマリー）、失敗時の `actor_turn.abort` RPC、または完了時の `actor_turn.complete` / `actor_turn.noop` RPC |
 | worker → AIGateway | モデル呼び出し、関数呼び出し出力（これらはコントロールプレーンを経由しません） |
 
 worker のすべてのメッセージは `ActorTurnRef`（`activation_uid`、`actor_epoch`、`actor_event_id`）を運びます。コントロールプレーンはそれを現在のアクティベーションと照合します。ref がもはや一致しないメッセージは stale として拒否されます。これは [Actor Runtime](../actor-runtime/) トリプルフェンスをターンレベルから見たものです。

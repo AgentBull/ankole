@@ -114,31 +114,29 @@ impl DealerInbox {
     }
 
     pub(super) fn recv(&self, timeout: Duration) -> Result<Option<DealerEvent>, TransportError> {
-        let mut state = self
+        let state = self
             .state
             .lock()
             .map_err(|_| TransportError::SocketClosed)?;
+        // One receive call has one timeout budget, including notifications that
+        // do not make an event available.
+        let (mut state, wait_result) = self
+            .available
+            .wait_timeout_while(state, timeout, |state| {
+                state.queue.is_empty() && !state.closed
+            })
+            .map_err(|_| TransportError::SocketClosed)?;
 
-        loop {
-            if !state.queue.is_empty() {
-                return Ok(state.pop_front());
-            }
-
-            if state.closed {
-                return Err(TransportError::SocketClosed);
-            }
-
-            let (next_state, wait_result) = self
-                .available
-                .wait_timeout(state, timeout)
-                .map_err(|_| TransportError::SocketClosed)?;
-
-            state = next_state;
-
-            if wait_result.timed_out() {
-                return Ok(None);
-            }
+        if !state.queue.is_empty() {
+            return Ok(state.pop_front());
         }
+
+        if state.closed {
+            return Err(TransportError::SocketClosed);
+        }
+
+        debug_assert!(wait_result.timed_out());
+        Ok(None)
     }
 }
 
@@ -390,4 +388,36 @@ fn send_dealer_frames(
 // adapter owns envelope-vs-worker-file classification and protobuf decoding.
 pub(super) fn emit_dealer_frames(inbox: &DealerInbox, frames: Vec<Vec<u8>>) {
     inbox.push(DealerEvent::RawFrames(frames));
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Instant;
+
+    use super::*;
+
+    #[test]
+    fn inbox_recv_keeps_one_timeout_budget_across_notifications() {
+        let inbox = Arc::new(DealerInbox::new(1, 1));
+        let notifier_inbox = Arc::clone(&inbox);
+        let notifier = thread::spawn(move || {
+            for _notification in 0..20 {
+                thread::sleep(Duration::from_millis(10));
+                notifier_inbox.available.notify_all();
+            }
+        });
+
+        let started_at = Instant::now();
+        let event = inbox
+            .recv(Duration::from_millis(50))
+            .expect("receive timeout");
+        let elapsed = started_at.elapsed();
+
+        notifier.join().expect("notification thread");
+        assert!(event.is_none());
+        assert!(
+            elapsed < Duration::from_millis(150),
+            "notifications extended the receive timeout to {elapsed:?}"
+        );
+    }
 }

@@ -307,7 +307,7 @@ export function ModelProfileEditorCard({
               ) : !providerID ? (
                 <p className="text-xs text-muted-foreground">{t('console.models.provider_options_select')}</p>
               ) : !selectedKind ? (
-                <p className="text-xs text-muted-foreground">{t('common.loading')}</p>
+                <p className="text-xs text-muted-foreground">{t('console.models.provider_options_kind_unavailable')}</p>
               ) : optionSettings.length === 0 ? (
                 <p className="text-xs text-muted-foreground">{t('console.models.provider_options_empty')}</p>
               ) : (

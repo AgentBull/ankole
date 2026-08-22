@@ -7,8 +7,8 @@ import {
   CODEX_LOGS2_DATABASE_NAMES,
   codexHomeLockedCommandArgv,
   codexHomeLockedLogsDeleteArgv
-} from '../src/core/codex-runner/codex-home-lock'
-import { retireLegacySharedCodexConfig } from '../src/core/codex-runner/retire-legacy-shared-codex-config'
+} from '../src/core/codex-runner/runtime/codex-home-lock'
+import { retireLegacySharedCodexConfig } from '../src/core/codex-runner/runtime/retire-legacy-shared-codex-config'
 
 const previousFlockBinary = process.env.ANKOLE_FLOCK_BINARY
 

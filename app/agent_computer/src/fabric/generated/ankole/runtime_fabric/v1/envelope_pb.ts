@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file ankole/runtime_fabric/v1/envelope.proto.
  */
 export const file_ankole_runtime_fabric_v1_envelope: GenFile = /*@__PURE__*/
-  fileDesc("CidhbmtvbGUvcnVudGltZV9mYWJyaWMvdjEvZW52ZWxvcGUucHJvdG8SGGFua29sZS5ydW50aW1lX2ZhYnJpYy52MSIxCghBY3RvcktleRIRCglhZ2VudF91aWQYASABKAkSEgoKc2Vzc2lvbl9pZBgCIAEoCSKYAQoMQWN0b3JUdXJuUmVmEjEKBWFjdG9yGAEgASgLMiIuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLkFjdG9yS2V5EhYKDmFjdGl2YXRpb25fdWlkGAIgASgJEhMKC2FjdG9yX2Vwb2NoGAMgASgEEhYKDmFjdG9yX2V2ZW50X2lkGAQgASgJEhAKCHJldmlzaW9uGAUgASgNItsJCghFbnZlbG9wZRIYChBwcm90b2NvbF92ZXJzaW9uGAEgASgNEhIKCm1lc3NhZ2VfaWQYAiABKAkSFgoOY29ycmVsYXRpb25faWQYAyABKAkSLAoEbGFuZRgFIAEoDjIeLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5MYW5lEhcKD3NlbnRfYXRfdW5peF9tcxgGIAEoAxI9CgpkdXJhYmlsaXR5GAcgASgOMikuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLkR1cmFiaWxpdHlDbGFzcxJKCgx3b3JrZXJfcmVhZHkYFCABKAsyMi5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuQWdlbnRDb21wdXRlcldvcmtlclJlYWR5SAASUgoQd29ya2VyX2hlYXJ0YmVhdBgVIAEoCzI2LmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5BZ2VudENvbXB1dGVyV29ya2VySGVhcnRiZWF0SAASUAoPd29ya2VyX2NhcGFjaXR5GBYgASgLMjUuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLkFnZW50Q29tcHV0ZXJXb3JrZXJDYXBhY2l0eUgAEjkKCnR1cm5fc3RhcnQYHiABKAsyIy5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuVHVyblN0YXJ0SAASQwoPbWFpbGJveF91cGRhdGVkGB8gASgLMiguYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLk1haWxib3hVcGRhdGVkSAASPwoNdHVybl9hY2NlcHRlZBghIAEoCzImLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5UdXJuQWNjZXB0ZWRIABI9Cgx0dXJuX2NvbnRyb2wYIiABKAsyJS5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuVHVybkNvbnRyb2xIABJDCg93b3JrZXJfcHJvZ3Jlc3MYIyABKAsyKC5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuV29ya2VyUHJvZ3Jlc3NIABI5Cgp0dXJuX2Vycm9yGCkgASgLMiMuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLlR1cm5FcnJvckgAEkoKE3R1cm5fbm9vcF9jb21wbGV0ZWQYKiABKAsyKy5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuVHVybk5vb3BDb21wbGV0ZWRIABJBCg50dXJuX2NvbXBsZXRlZBgrIAEoCzInLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5UdXJuQ29tcGxldGVkSAASRQoQY29udHJvbF9zaHV0ZG93bhgyIAEoCzIpLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5Db250cm9sU2h1dGRvd25IABI7CgtycGNfcmVxdWVzdBhGIAEoCzIkLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5SUENSZXF1ZXN0SAASPQoMcnBjX3Jlc3BvbnNlGEcgASgLMiUuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLlJQQ1Jlc3BvbnNlSAASNwoJcnBjX2Vycm9yGEggASgLMiIuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLlJQQ0Vycm9ySABCBgoEYm9keSKeAQoYQWdlbnRDb21wdXRlcldvcmtlclJlYWR5EhEKCXdvcmtlcl9pZBgBIAEoCRIPCgdydW50aW1lGAIgASgJEg8KB3ZlcnNpb24YAyABKAkSFgoOaW5jYXJuYXRpb25faWQYBSABKAkSEQoJbWF4X3R1cm5zGAYgASgNEhwKFGF2YWlsYWJsZV90dXJuX3Nsb3RzGAcgASgNSgQIBBAFIs4BChxBZ2VudENvbXB1dGVyV29ya2VySGVhcnRiZWF0EhEKCXdvcmtlcl9pZBgBIAEoCRIUCgxtb25vdG9uaWNfbXMYAiABKAMSFgoOaW5jYXJuYXRpb25faWQYBCABKAkSFAoMYWN0aXZlX3R1cm5zGAUgASgNEg8KB3J1bnRpbWUYBiABKAkSDwoHdmVyc2lvbhgHIAEoCRIRCgltYXhfdHVybnMYCCABKA0SHAoUYXZhaWxhYmxlX3R1cm5fc2xvdHMYCSABKA1KBAgDEAQimwEKG0FnZW50Q29tcHV0ZXJXb3JrZXJDYXBhY2l0eRIRCgl3b3JrZXJfaWQYASABKAkSHAoUYXZhaWxhYmxlX3R1cm5fc2xvdHMYBCABKA0SFgoOaW5jYXJuYXRpb25faWQYBSABKAkSEQoJbWF4X3R1cm5zGAYgASgNEhQKDGFjdGl2ZV90dXJucxgHIAEoDUoECAIQA0oECAMQBCLnAQoSQWN0b3JFdmVudEVudmVsb3BlEhYKDmFjdG9yX2V2ZW50X2lkGAEgASgJEhYKDnF1ZXVlX3NlcXVlbmNlGAIgASgEEgwKBHR5cGUYAyABKAkSFwoPc291cmNlX2V2ZW50X2lkGAQgASgJEhcKD3NvdXJjZV9lbnRyeV9pZBgFIAEoCRIUCgxwYXlsb2FkX2pzb24YBiABKAwSFAoMYmluZGluZ19uYW1lGAcgASgJEhkKEXNpZ25hbF9jaGFubmVsX2lkGAggASgJEhoKEnByb3ZpZGVyX3RocmVhZF9pZBgJIAEoCSKLAwoJVHVyblN0YXJ0EjQKBHR1cm4YASABKAsyJi5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuQWN0b3JUdXJuUmVmEkEKC2FjdG9yX2V2ZW50GAIgASgLMiwuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLkFjdG9yRXZlbnRFbnZlbG9wZRI5Cgltb2RlbF9yZWYYAyABKAsyJi5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuVHVybk1vZGVsUmVmEhwKFHJlcXVlc3RfY29udGV4dF9qc29uGAQgASgMEhkKEWhvc3RlZF90b29sc19qc29uGAUgASgMEkgKC3J1bnRpbWVfZW52GAYgAygLMjMuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLlR1cm5TdGFydC5SdW50aW1lRW52RW50cnkSFAoMd29ya3NwYWNlX2lkGAcgASgEGjEKD1J1bnRpbWVFbnZFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBIvICCgxUdXJuTW9kZWxSZWYSDwoHcHJvZmlsZRgBIAEoCRITCgtwcm92aWRlcl9pZBgCIAEoCRINCgVtb2RlbBgDIAEoCRIVCg1wcm92aWRlcl9raW5kGAQgASgJEhgKEGlucHV0X21vZGFsaXRpZXMYBSADKAkSSQoZdmlzaW9uX2ZhbGxiYWNrX21vZGVsX3JlZhgGIAEoCzImLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5UdXJuTW9kZWxSZWYSIgoVbWF4X2NvbXBsZXRpb25fdG9rZW5zGAcgASgNSACIAQESHQoVcHJvdmlkZXJfb3B0aW9uc19qc29uGAggASgMEiQKHHN1cHBvcnRzX3BhcmFsbGVsX3Rvb2xfY2FsbHMYCSABKAgSGwoOY29udGV4dF9sZW5ndGgYCiABKA1IAYgBAUIYChZfbWF4X2NvbXBsZXRpb25fdG9rZW5zQhEKD19jb250ZXh0X2xlbmd0aCKZAQoOTWFpbGJveFVwZGF0ZWQSDgoGcmVhc29uGAEgASgJEjQKBHR1cm4YAiABKAsyJi5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuQWN0b3JUdXJuUmVmEkEKC2FjdG9yX2V2ZW50GAMgASgLMiwuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLkFjdG9yRXZlbnRFbnZlbG9wZSJECgxUdXJuQWNjZXB0ZWQSNAoEdHVybhgBIAEoCzImLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5BY3RvclR1cm5SZWYiagoLVHVybkNvbnRyb2wSNAoEdHVybhgBIAEoCzImLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5BY3RvclR1cm5SZWYSDwoHY29tbWFuZBgCIAEoCRIUCgxwYXlsb2FkX2pzb24YAyABKAwieAoOV29ya2VyUHJvZ3Jlc3MSNAoEdHVybhgBIAEoCzImLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5BY3RvclR1cm5SZWYSDAoEa2luZBgCIAEoCRIPCgdzdW1tYXJ5GAMgASgJEhEKCXJlZnNfanNvbhgEIAEoDCJ2CglUdXJuRXJyb3ISNAoEdHVybhgBIAEoCzImLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5BY3RvclR1cm5SZWYSDAoEY29kZRgCIAEoCRIPCgdtZXNzYWdlGAMgASgJEhQKDGRldGFpbHNfanNvbhgEIAEoDCJZChFUdXJuTm9vcENvbXBsZXRlZBI0CgR0dXJuGAEgASgLMiYuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLkFjdG9yVHVyblJlZhIOCgZyZWFzb24YAiABKAkiogEKDVR1cm5Db21wbGV0ZWQSNAoEdHVybhgBIAEoCzImLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5BY3RvclR1cm5SZWYSGQoRZmluYWxfcmVzcG9uc2VfaWQYAiABKAkSQAoHb3V0Y29tZRgDIAEoDjIvLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5UdXJuQ29tcGxldGlvbk91dGNvbWUiIQoPQ29udHJvbFNodXRkb3duEg4KBnJlYXNvbhgBIAEoCSKkAQoKUlBDUmVxdWVzdBISCgpyZXF1ZXN0X2lkGAEgASgJEg4KBm1ldGhvZBgCIAEoCRIYChBkZWFkbGluZV91bml4X21zGAMgASgDEg8KB3BheWxvYWQYBCABKAwSNAoEdHVybhgFIAEoCzImLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5BY3RvclR1cm5SZWYSEQoJYWdlbnRfdWlkGAYgASgJIjIKC1JQQ1Jlc3BvbnNlEhIKCnJlcXVlc3RfaWQYASABKAkSDwoHcGF5bG9hZBgCIAEoDCJTCghSUENFcnJvchISCgpyZXF1ZXN0X2lkGAEgASgJEgwKBGNvZGUYAiABKAkSDwoHbWVzc2FnZRgDIAEoCRIUCgxkZXRhaWxzX2pzb24YBCABKAwqXgoETGFuZRIUChBMQU5FX1VOU1BFQ0lGSUVEEAASEAoMTEFORV9DT05UUk9MEAESDQoJTEFORV9UVVJOEAISEQoNTEFORV9QUk9HUkVTUxADEgwKCExBTkVfUlBDEAQqcQoPRHVyYWJpbGl0eUNsYXNzEhoKFkRVUkFCSUxJVFlfVU5TUEVDSUZJRUQQABITCg9DT05UUk9MX0RVUkFCTEUQARIWChJDT05UUk9MX1JFUExBWUFCTEUQAhIVChFDT05UUk9MX0VQSEVNRVJBTBADKpwBChVUdXJuQ29tcGxldGlvbk91dGNvbWUSJwojVFVSTl9DT01QTEVUSU9OX09VVENPTUVfVU5TUEVDSUZJRUQQABIpCiVUVVJOX0NPTVBMRVRJT05fT1VUQ09NRV9MT09QX0ZJTklTSEVEEAESLworVFVSTl9DT01QTEVUSU9OX09VVENPTUVfSVRFUkFUSU9OX0VYSEFVU1RFRBACYgZwcm90bzM");
+  fileDesc("CidhbmtvbGUvcnVudGltZV9mYWJyaWMvdjEvZW52ZWxvcGUucHJvdG8SGGFua29sZS5ydW50aW1lX2ZhYnJpYy52MSIxCghBY3RvcktleRIRCglhZ2VudF91aWQYASABKAkSEgoKc2Vzc2lvbl9pZBgCIAEoCSKYAQoMQWN0b3JUdXJuUmVmEjEKBWFjdG9yGAEgASgLMiIuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLkFjdG9yS2V5EhYKDmFjdGl2YXRpb25fdWlkGAIgASgJEhMKC2FjdG9yX2Vwb2NoGAMgASgEEhYKDmFjdG9yX2V2ZW50X2lkGAQgASgJEhAKCHJldmlzaW9uGAUgASgNIsgICghFbnZlbG9wZRIYChBwcm90b2NvbF92ZXJzaW9uGAEgASgNEhIKCm1lc3NhZ2VfaWQYAiABKAkSFgoOY29ycmVsYXRpb25faWQYAyABKAkSLAoEbGFuZRgFIAEoDjIeLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5MYW5lEhcKD3NlbnRfYXRfdW5peF9tcxgGIAEoAxI9CgpkdXJhYmlsaXR5GAcgASgOMikuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLkR1cmFiaWxpdHlDbGFzcxJKCgx3b3JrZXJfcmVhZHkYFCABKAsyMi5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuQWdlbnRDb21wdXRlcldvcmtlclJlYWR5SAASUgoQd29ya2VyX2hlYXJ0YmVhdBgVIAEoCzI2LmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5BZ2VudENvbXB1dGVyV29ya2VySGVhcnRiZWF0SAASUAoPd29ya2VyX2NhcGFjaXR5GBYgASgLMjUuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLkFnZW50Q29tcHV0ZXJXb3JrZXJDYXBhY2l0eUgAEjkKCnR1cm5fc3RhcnQYHiABKAsyIy5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuVHVyblN0YXJ0SAASQwoPbWFpbGJveF91cGRhdGVkGB8gASgLMiguYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLk1haWxib3hVcGRhdGVkSAASPwoNdHVybl9hY2NlcHRlZBghIAEoCzImLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5UdXJuQWNjZXB0ZWRIABI9Cgx0dXJuX2NvbnRyb2wYIiABKAsyJS5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuVHVybkNvbnRyb2xIABJDCg93b3JrZXJfcHJvZ3Jlc3MYIyABKAsyKC5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuV29ya2VyUHJvZ3Jlc3NIABJFChBjb250cm9sX3NodXRkb3duGDIgASgLMikuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLkNvbnRyb2xTaHV0ZG93bkgAEjsKC3JwY19yZXF1ZXN0GEYgASgLMiQuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLlJQQ1JlcXVlc3RIABI9CgxycGNfcmVzcG9uc2UYRyABKAsyJS5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuUlBDUmVzcG9uc2VIABI3CglycGNfZXJyb3IYSCABKAsyIi5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuUlBDRXJyb3JIAEIGCgRib2R5SgQIKRAsUgp0dXJuX2Vycm9yUhN0dXJuX25vb3BfY29tcGxldGVkUg50dXJuX2NvbXBsZXRlZCKeAQoYQWdlbnRDb21wdXRlcldvcmtlclJlYWR5EhEKCXdvcmtlcl9pZBgBIAEoCRIPCgdydW50aW1lGAIgASgJEg8KB3ZlcnNpb24YAyABKAkSFgoOaW5jYXJuYXRpb25faWQYBSABKAkSEQoJbWF4X3R1cm5zGAYgASgNEhwKFGF2YWlsYWJsZV90dXJuX3Nsb3RzGAcgASgNSgQIBBAFIs4BChxBZ2VudENvbXB1dGVyV29ya2VySGVhcnRiZWF0EhEKCXdvcmtlcl9pZBgBIAEoCRIUCgxtb25vdG9uaWNfbXMYAiABKAMSFgoOaW5jYXJuYXRpb25faWQYBCABKAkSFAoMYWN0aXZlX3R1cm5zGAUgASgNEg8KB3J1bnRpbWUYBiABKAkSDwoHdmVyc2lvbhgHIAEoCRIRCgltYXhfdHVybnMYCCABKA0SHAoUYXZhaWxhYmxlX3R1cm5fc2xvdHMYCSABKA1KBAgDEAQimwEKG0FnZW50Q29tcHV0ZXJXb3JrZXJDYXBhY2l0eRIRCgl3b3JrZXJfaWQYASABKAkSHAoUYXZhaWxhYmxlX3R1cm5fc2xvdHMYBCABKA0SFgoOaW5jYXJuYXRpb25faWQYBSABKAkSEQoJbWF4X3R1cm5zGAYgASgNEhQKDGFjdGl2ZV90dXJucxgHIAEoDUoECAIQA0oECAMQBCLnAQoSQWN0b3JFdmVudEVudmVsb3BlEhYKDmFjdG9yX2V2ZW50X2lkGAEgASgJEhYKDnF1ZXVlX3NlcXVlbmNlGAIgASgEEgwKBHR5cGUYAyABKAkSFwoPc291cmNlX2V2ZW50X2lkGAQgASgJEhcKD3NvdXJjZV9lbnRyeV9pZBgFIAEoCRIUCgxwYXlsb2FkX2pzb24YBiABKAwSFAoMYmluZGluZ19uYW1lGAcgASgJEhkKEXNpZ25hbF9jaGFubmVsX2lkGAggASgJEhoKEnByb3ZpZGVyX3RocmVhZF9pZBgJIAEoCSKLAwoJVHVyblN0YXJ0EjQKBHR1cm4YASABKAsyJi5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuQWN0b3JUdXJuUmVmEkEKC2FjdG9yX2V2ZW50GAIgASgLMiwuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLkFjdG9yRXZlbnRFbnZlbG9wZRI5Cgltb2RlbF9yZWYYAyABKAsyJi5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuVHVybk1vZGVsUmVmEhwKFHJlcXVlc3RfY29udGV4dF9qc29uGAQgASgMEhkKEWhvc3RlZF90b29sc19qc29uGAUgASgMEkgKC3J1bnRpbWVfZW52GAYgAygLMjMuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLlR1cm5TdGFydC5SdW50aW1lRW52RW50cnkSFAoMd29ya3NwYWNlX2lkGAcgASgEGjEKD1J1bnRpbWVFbnZFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBIvICCgxUdXJuTW9kZWxSZWYSDwoHcHJvZmlsZRgBIAEoCRITCgtwcm92aWRlcl9pZBgCIAEoCRINCgVtb2RlbBgDIAEoCRIVCg1wcm92aWRlcl9raW5kGAQgASgJEhgKEGlucHV0X21vZGFsaXRpZXMYBSADKAkSSQoZdmlzaW9uX2ZhbGxiYWNrX21vZGVsX3JlZhgGIAEoCzImLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5UdXJuTW9kZWxSZWYSIgoVbWF4X2NvbXBsZXRpb25fdG9rZW5zGAcgASgNSACIAQESHQoVcHJvdmlkZXJfb3B0aW9uc19qc29uGAggASgMEiQKHHN1cHBvcnRzX3BhcmFsbGVsX3Rvb2xfY2FsbHMYCSABKAgSGwoOY29udGV4dF9sZW5ndGgYCiABKA1IAYgBAUIYChZfbWF4X2NvbXBsZXRpb25fdG9rZW5zQhEKD19jb250ZXh0X2xlbmd0aCKZAQoOTWFpbGJveFVwZGF0ZWQSDgoGcmVhc29uGAEgASgJEjQKBHR1cm4YAiABKAsyJi5hbmtvbGUucnVudGltZV9mYWJyaWMudjEuQWN0b3JUdXJuUmVmEkEKC2FjdG9yX2V2ZW50GAMgASgLMiwuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLkFjdG9yRXZlbnRFbnZlbG9wZSJECgxUdXJuQWNjZXB0ZWQSNAoEdHVybhgBIAEoCzImLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5BY3RvclR1cm5SZWYiagoLVHVybkNvbnRyb2wSNAoEdHVybhgBIAEoCzImLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5BY3RvclR1cm5SZWYSDwoHY29tbWFuZBgCIAEoCRIUCgxwYXlsb2FkX2pzb24YAyABKAwieAoOV29ya2VyUHJvZ3Jlc3MSNAoEdHVybhgBIAEoCzImLmFua29sZS5ydW50aW1lX2ZhYnJpYy52MS5BY3RvclR1cm5SZWYSDAoEa2luZBgCIAEoCRIPCgdzdW1tYXJ5GAMgASgJEhEKCXJlZnNfanNvbhgEIAEoDCIhCg9Db250cm9sU2h1dGRvd24SDgoGcmVhc29uGAEgASgJIqQBCgpSUENSZXF1ZXN0EhIKCnJlcXVlc3RfaWQYASABKAkSDgoGbWV0aG9kGAIgASgJEhgKEGRlYWRsaW5lX3VuaXhfbXMYAyABKAMSDwoHcGF5bG9hZBgEIAEoDBI0CgR0dXJuGAUgASgLMiYuYW5rb2xlLnJ1bnRpbWVfZmFicmljLnYxLkFjdG9yVHVyblJlZhIRCglhZ2VudF91aWQYBiABKAkiMgoLUlBDUmVzcG9uc2USEgoKcmVxdWVzdF9pZBgBIAEoCRIPCgdwYXlsb2FkGAIgASgMIlMKCFJQQ0Vycm9yEhIKCnJlcXVlc3RfaWQYASABKAkSDAoEY29kZRgCIAEoCRIPCgdtZXNzYWdlGAMgASgJEhQKDGRldGFpbHNfanNvbhgEIAEoDCpeCgRMYW5lEhQKEExBTkVfVU5TUEVDSUZJRUQQABIQCgxMQU5FX0NPTlRST0wQARINCglMQU5FX1RVUk4QAhIRCg1MQU5FX1BST0dSRVNTEAMSDAoITEFORV9SUEMQBCpxCg9EdXJhYmlsaXR5Q2xhc3MSGgoWRFVSQUJJTElUWV9VTlNQRUNJRklFRBAAEhMKD0NPTlRST0xfRFVSQUJMRRABEhYKEkNPTlRST0xfUkVQTEFZQUJMRRACEhUKEUNPTlRST0xfRVBIRU1FUkFMEANiBnByb3RvMw");
 
 /**
  * @generated from message ankole.runtime_fabric.v1.ActorKey
@@ -173,24 +173,6 @@ export type Envelope = Message<"ankole.runtime_fabric.v1.Envelope"> & {
      */
     value: WorkerProgress;
     case: "workerProgress";
-  } | {
-    /**
-     * @generated from field: ankole.runtime_fabric.v1.TurnError turn_error = 41;
-     */
-    value: TurnError;
-    case: "turnError";
-  } | {
-    /**
-     * @generated from field: ankole.runtime_fabric.v1.TurnNoopCompleted turn_noop_completed = 42;
-     */
-    value: TurnNoopCompleted;
-    case: "turnNoopCompleted";
-  } | {
-    /**
-     * @generated from field: ankole.runtime_fabric.v1.TurnCompleted turn_completed = 43;
-     */
-    value: TurnCompleted;
-    case: "turnCompleted";
   } | {
     /**
      * @generated from field: ankole.runtime_fabric.v1.ControlShutdown control_shutdown = 50;
@@ -659,87 +641,6 @@ export const WorkerProgressSchema: GenMessage<WorkerProgress> = /*@__PURE__*/
   messageDesc(file_ankole_runtime_fabric_v1_envelope, 12);
 
 /**
- * @generated from message ankole.runtime_fabric.v1.TurnError
- */
-export type TurnError = Message<"ankole.runtime_fabric.v1.TurnError"> & {
-  /**
-   * @generated from field: ankole.runtime_fabric.v1.ActorTurnRef turn = 1;
-   */
-  turn?: ActorTurnRef | undefined;
-
-  /**
-   * @generated from field: string code = 2;
-   */
-  code: string;
-
-  /**
-   * @generated from field: string message = 3;
-   */
-  message: string;
-
-  /**
-   * @generated from field: bytes details_json = 4;
-   */
-  detailsJson: Uint8Array;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.TurnError.
- * Use `create(TurnErrorSchema)` to create a new message.
- */
-export const TurnErrorSchema: GenMessage<TurnError> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_envelope, 13);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.TurnNoopCompleted
- */
-export type TurnNoopCompleted = Message<"ankole.runtime_fabric.v1.TurnNoopCompleted"> & {
-  /**
-   * @generated from field: ankole.runtime_fabric.v1.ActorTurnRef turn = 1;
-   */
-  turn?: ActorTurnRef | undefined;
-
-  /**
-   * @generated from field: string reason = 2;
-   */
-  reason: string;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.TurnNoopCompleted.
- * Use `create(TurnNoopCompletedSchema)` to create a new message.
- */
-export const TurnNoopCompletedSchema: GenMessage<TurnNoopCompleted> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_envelope, 14);
-
-/**
- * @generated from message ankole.runtime_fabric.v1.TurnCompleted
- */
-export type TurnCompleted = Message<"ankole.runtime_fabric.v1.TurnCompleted"> & {
-  /**
-   * @generated from field: ankole.runtime_fabric.v1.ActorTurnRef turn = 1;
-   */
-  turn?: ActorTurnRef | undefined;
-
-  /**
-   * @generated from field: string final_response_id = 2;
-   */
-  finalResponseId: string;
-
-  /**
-   * @generated from field: ankole.runtime_fabric.v1.TurnCompletionOutcome outcome = 3;
-   */
-  outcome: TurnCompletionOutcome;
-};
-
-/**
- * Describes the message ankole.runtime_fabric.v1.TurnCompleted.
- * Use `create(TurnCompletedSchema)` to create a new message.
- */
-export const TurnCompletedSchema: GenMessage<TurnCompleted> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_envelope, 15);
-
-/**
  * @generated from message ankole.runtime_fabric.v1.ControlShutdown
  */
 export type ControlShutdown = Message<"ankole.runtime_fabric.v1.ControlShutdown"> & {
@@ -754,7 +655,7 @@ export type ControlShutdown = Message<"ankole.runtime_fabric.v1.ControlShutdown"
  * Use `create(ControlShutdownSchema)` to create a new message.
  */
 export const ControlShutdownSchema: GenMessage<ControlShutdown> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_envelope, 16);
+  messageDesc(file_ankole_runtime_fabric_v1_envelope, 13);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.RPCRequest
@@ -804,7 +705,7 @@ export type RPCRequest = Message<"ankole.runtime_fabric.v1.RPCRequest"> & {
  * Use `create(RPCRequestSchema)` to create a new message.
  */
 export const RPCRequestSchema: GenMessage<RPCRequest> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_envelope, 17);
+  messageDesc(file_ankole_runtime_fabric_v1_envelope, 14);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.RPCResponse
@@ -828,7 +729,7 @@ export type RPCResponse = Message<"ankole.runtime_fabric.v1.RPCResponse"> & {
  * Use `create(RPCResponseSchema)` to create a new message.
  */
 export const RPCResponseSchema: GenMessage<RPCResponse> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_envelope, 18);
+  messageDesc(file_ankole_runtime_fabric_v1_envelope, 15);
 
 /**
  * @generated from message ankole.runtime_fabric.v1.RPCError
@@ -860,7 +761,7 @@ export type RPCError = Message<"ankole.runtime_fabric.v1.RPCError"> & {
  * Use `create(RPCErrorSchema)` to create a new message.
  */
 export const RPCErrorSchema: GenMessage<RPCError> = /*@__PURE__*/
-  messageDesc(file_ankole_runtime_fabric_v1_envelope, 19);
+  messageDesc(file_ankole_runtime_fabric_v1_envelope, 16);
 
 /**
  * @generated from enum ankole.runtime_fabric.v1.Lane
@@ -931,29 +832,3 @@ export enum DurabilityClass {
  */
 export const DurabilityClassSchema: GenEnum<DurabilityClass> = /*@__PURE__*/
   enumDesc(file_ankole_runtime_fabric_v1_envelope, 1);
-
-/**
- * @generated from enum ankole.runtime_fabric.v1.TurnCompletionOutcome
- */
-export enum TurnCompletionOutcome {
-  /**
-   * @generated from enum value: TURN_COMPLETION_OUTCOME_UNSPECIFIED = 0;
-   */
-  UNSPECIFIED = 0,
-
-  /**
-   * @generated from enum value: TURN_COMPLETION_OUTCOME_LOOP_FINISHED = 1;
-   */
-  LOOP_FINISHED = 1,
-
-  /**
-   * @generated from enum value: TURN_COMPLETION_OUTCOME_ITERATION_EXHAUSTED = 2;
-   */
-  ITERATION_EXHAUSTED = 2,
-}
-
-/**
- * Describes the enum ankole.runtime_fabric.v1.TurnCompletionOutcome.
- */
-export const TurnCompletionOutcomeSchema: GenEnum<TurnCompletionOutcome> = /*@__PURE__*/
-  enumDesc(file_ankole_runtime_fabric_v1_envelope, 2);

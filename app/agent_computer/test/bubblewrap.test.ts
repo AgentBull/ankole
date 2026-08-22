@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { WORKER_SHARE_ROOT } from '../src/core/agent-home-paths'
-import { bubblewrapArgv } from '../src/tools/computer/bubblewrap'
+import { bubblewrapArgv } from '../src/sandbox/bubblewrap'
 
 describe('bubblewrap Worker share', () => {
   test('binds the fixed Worker share into every sandbox', () => {

@@ -9,7 +9,7 @@ order: 14
 
 「signal」という言葉には、チャット以外への余地が含まれます。将来のルールでは、ルーティング式を使って channel、会話、その他の条件で Agent を選択できます。また、Salesforce などの system からのイベントを配信することもできます。
 
-Slack、Microsoft Teams、Lark、Feishu、DingTalk のアプリをまだ準備していない場合は、先に [Quick start](../quickstart/#4-connect-a-chat-channel-and-create-its-signal-routing-rule) の channel provider の手順を完了してください。
+Slack、Microsoft Teams、Lark、Feishu、DingTalk のアプリをまだ準備していない場合は、先に [Quick start](../quickstart/#chat-channels) の channel provider の手順を完了してください。
 
 ## ルーティングルールを作成する
 
@@ -34,7 +34,7 @@ Console には、選択した Channel Provider がサポートするモードだ
 | **Observe unaddressed messages** | メッセージは会話 context に入りますが、Agent は起動しません。誰かが Agent を宛てた後、Agent はそれを context として使えます。 |
 | **May intervene** | Agent はまず、会話に参加することが役立つかを判断します。発言すると判断した場合にのみ返信します。 |
 
-Slack、Microsoft Teams、Lark、Feishu は 3 つのモードすべてをサポートします。DingTalk と WeCom は、bot を明示的に宛てたグループメッセージしか受信できないため、Console はこれらに最初のモードしか提供しません。WeCom にはこれ以外にも多くの制限があります（recall 不可、グループ内ファイル不可、Agent が会話を開始不可）。そのため、最初の channel としては推奨しません。[Quick start](../quickstart/#4-connect-a-chat-channel-and-create-its-signal-routing-rule) の WeCom タブを参照してください。
+Slack、Microsoft Teams、Lark、Feishu は 3 つのモードすべてをサポートします。DingTalk と WeCom は、bot を明示的に宛てたグループメッセージしか受信できないため、Console はこれらに最初のモードしか提供しません。WeCom にはこれ以外にも多くの制限があります（recall 不可、グループ内ファイル不可、Agent が会話を開始不可）。そのため、最初の channel としては推奨しません。[Quick start](../quickstart/#chat-channels) の WeCom タブを参照してください。
 
 **May intervene** は、Agent があらゆるメッセージに返信することを意味しません。いつ発言するかを Agent に判断させ、各メッセージは一度だけ判断されます。あるグループでいつ発言すべきかを Agent に伝えるには、そのグループ内で channel 常駐指示を直接与えます（例: 「CI が赤になった時だけ発言して」）。それでも発言しすぎる場合は、まず常駐指示または役割指示を厳しくします。判断の挙動と常駐指示については [アンビエント介入](../ambient-intervention/) を参照してください。
 
@@ -75,10 +75,10 @@ server は保存済みの token や secret をブラウザーに返しません�
 
 - **Channel Provider がない場合:** **Agent Library → Control Plane Plugins** を開き、その plugin を有効にして、ページが指示したら control plane を再起動します。
 - **bot がグループメッセージを受信しない場合:** provider のイベント購読、権限、アプリのリリース状態を確認します。DingTalk と WeCom のグループメッセージは、bot への明示的な @ メンションが必要です。
-- **WeCom が予期しない動作をする場合:** 最初に [Quick start](../quickstart/#4-connect-a-chat-channel-and-create-its-signal-routing-rule) の WeCom タブと動作を比較してください。よくある原因は、スーパー管理者が作成していない bot、信頼済み IP の未設定、ユーザーがまだアクティブ化していない会話です。
+- **WeCom が予期しない動作をする場合:** 最初に [Quick start](../quickstart/#chat-channels) の WeCom タブと動作を比較してください。よくある原因は、スーパー管理者が作成していない bot、信頼済み IP の未設定、ユーザーがまだアクティブ化していない会話です。
 - **ルールは保存されたが返信がない場合:** 対象 Agent が有効であること、model 設定が動作すること、ルールがルール一覧に存在することを確認します。
 - **ダイレクトメッセージは動くがグループメッセージは動かない場合:** グループメッセージモードを確認し、bot が対象グループに属していることを確認します。
 
-provider 固有の権限、イベント、credential は [Quick start](../quickstart/#4-connect-a-chat-channel-and-create-its-signal-routing-rule) を使用します。
+provider 固有の権限、イベント、credential は [Quick start](../quickstart/#chat-channels) を使用します。
 
-DingTalk ルールでストリーミングカードの返信を使うには、DingTalk カードプラットフォームに AI カードテンプレートが 1 つ必要です。[Quick start](../quickstart/#4-connect-a-chat-channel-and-create-its-signal-routing-rule) の DingTalk タブの詳細セクションで、その構築方法を示しています。
+DingTalk ルールでストリーミングカードの返信を使うには、DingTalk カードプラットフォームに AI カードテンプレートが 1 つ必要です。[Quick start](../quickstart/#chat-channels) の DingTalk タブの詳細セクションで、その構築方法を示しています。

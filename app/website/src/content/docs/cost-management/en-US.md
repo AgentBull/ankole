@@ -94,7 +94,7 @@ It is not a real-time spend dashboard — Ankole does not emit one. It is not a 
 
 ## Next steps
 
-- For Agent model profiles, read [Agents](../agents/#wire-up-its-models).
+- For Agent model profiles, read [Agents](../agents/#configure-models).
 - For the agent-loop knobs and their keys, read [Environment variables](../environment-variables/).
 - For the related conversation and Job endpoints, read [Console API reference](../console-api/).
 - For the Job caps, read [Background Agent Jobs](../background-jobs/).
