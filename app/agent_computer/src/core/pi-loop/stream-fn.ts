@@ -150,20 +150,6 @@ export function createPiStreamFn(
   }
 
   async function run(stream: AssistantMessageEventStream, context: PiContext): Promise<void> {
-    // A round can start after the turn's already been aborted: pi converts
-    // an in-flight tool call's abort into a normal (non-throwing) error
-    // result rather than stopping the batch, so `hasMoreToolCalls` can still
-    // be true and cause another round. Refuse it here — before ever building
-    // or sending a request — rather than relying on the transport to notice.
-    if (config.abortSignal?.aborted) {
-      stream.push({
-        type: 'error',
-        reason: 'aborted',
-        error: errorAssistantMessage(config, true, errorMessage(config.abortSignal.reason ?? 'aborted'))
-      })
-      return
-    }
-
     // `context.messages` does not yet contain this round's own assistant
     // message when `run()` starts (pi appends it only after consuming our
     // `start`/`done` events, concurrently with the rest of this function) —
@@ -183,6 +169,22 @@ export function createPiStreamFn(
     // nudge, or response repair — bound for `.call()` as-is.
     const delta = context.messages.slice(turnState.cursor)
     try {
+      // A round can start after the turn's already been aborted: pi converts
+      // an in-flight tool call's abort into a normal (non-throwing) error
+      // result rather than stopping the batch, so `hasMoreToolCalls` can
+      // still be true and cause another round. Refuse it here — before ever
+      // building or sending a request — rather than relying on the transport
+      // to notice. Inside the `try` so the `finally` cursor advance below
+      // covers this exit like every other one.
+      if (config.abortSignal?.aborted) {
+        stream.push({
+          type: 'error',
+          reason: 'aborted',
+          error: errorAssistantMessage(config, true, errorMessage(config.abortSignal.reason ?? 'aborted'))
+        })
+        return
+      }
+
       const messagesForCall = delta.map(message => toOurMessage(message, toolCallMeta))
 
       let textSoFar = ''
@@ -290,22 +292,27 @@ export function createPiStreamFn(
 
 function toWireToolSet(tools: PiTool[] | undefined): ToolSet | undefined {
   if (!tools?.length) return undefined
-  const definitions: [string, ToolDefinition][] = (tools as WorkerAgentTool[]).map(tool => [
-    toolIdentity(tool.namespace, tool.name),
-    {
-      name: tool.name,
-      description: tool.description,
-      parameters: tool.schema,
-      inputFormat: tool.inputFormat,
-      jsonSchema: tool.jsonSchema,
-      outputSchema: tool.outputSchema,
-      namespace: tool.namespace,
-      namespaceDescription: tool.namespaceDescription,
-      deferLoading: tool.deferLoading,
-      toolSearchText: tool.toolSearchText,
-      allowedCallers: allowedCallers(tool)
-    }
-  ])
+  // `tools` is pi's registered set, whose `name` already is the identity
+  // alias (see `bareToolName`); the wire declaration needs the bare name.
+  // The unknown-tool sentinel is loop-internal and never declared.
+  const definitions: [string, ToolDefinition][] = (tools as WorkerAgentTool[])
+    .filter(tool => tool.name !== UNKNOWN_TOOL_SENTINEL_NAME)
+    .map(tool => [
+      tool.name,
+      {
+        name: bareToolName(tool.name),
+        description: tool.description,
+        parameters: tool.schema,
+        inputFormat: tool.inputFormat,
+        jsonSchema: tool.jsonSchema,
+        outputSchema: tool.outputSchema,
+        namespace: tool.namespace,
+        namespaceDescription: tool.namespaceDescription,
+        deferLoading: tool.deferLoading,
+        toolSearchText: tool.toolSearchText,
+        allowedCallers: allowedCallers(tool)
+      }
+    ])
   return Object.fromEntries(definitions)
 }
 
@@ -322,6 +329,52 @@ function hasProgrammaticCaller(tools: PiTool[] | undefined): boolean {
 export function toolIdentity(namespace: string | undefined, name: string): string {
   const canonicalNamespace = !namespace || namespace === 'functions' ? 'functions' : namespace
   return `${canonicalNamespace}\0${name}`
+}
+
+/**
+ * Reverses `toolIdentity` back to the wire-visible bare name. pi has one
+ * local name slot and resolves calls by it alone, so `agent-loop.ts`
+ * registers every tool under its identity — a reversible alias at this
+ * terminal boundary, not a tool identity of its own (see
+ * `docs/design-docs/MCPBackedSkills.md`). `\0` cannot appear in a real tool
+ * name, so the split is unambiguous.
+ */
+export function bareToolName(aliasedName: string): string {
+  const separator = aliasedName.lastIndexOf('\0')
+  return separator === -1 ? aliasedName : aliasedName.slice(separator + 1)
+}
+
+/** The wire-visible name for logs and model-facing failure text: `namespace.name`, bare when default. */
+export function toolDisplayName(namespace: string | undefined, name: string): string {
+  return namespace && namespace !== 'functions' ? `${namespace}.${name}` : name
+}
+
+/**
+ * Marks one tool call whose wire arguments never parsed as JSON. The
+ * substituted object flows through pi as that call's arguments; the wrapped
+ * tool's `prepareArguments` (which pi runs before its own schema gate, so
+ * this works for every schema shape) recognizes the marker and throws the
+ * model-visible failure. The marker never reaches a tool's `execute` or the
+ * upstream request body.
+ */
+export const INVALID_TOOL_ARGUMENTS_KEY = '__ankole_invalid_tool_arguments'
+
+/**
+ * The registered name of the loop's internal pairing target for calls to
+ * undeclared tools. pi resolves calls by name and reports a miss with its own
+ * unmarked message (leaking the registered alias), so `toPiAssistantMessage`
+ * reroutes an unknown call here instead: the sentinel's `prepareArguments`
+ * throws the marked `Unknown tool:` failure carried in the marker object, and
+ * the call still gets its paired result. A leading `\0` cannot collide with
+ * any real identity (`toolIdentity` output always starts with a namespace).
+ * `toWireToolSet` excludes it from the model-visible declarations.
+ */
+export const UNKNOWN_TOOL_SENTINEL_NAME = '\0unknown_tool'
+
+export function invalidToolArgumentsMessage(args: unknown): string | undefined {
+  if (typeof args !== 'object' || args === null) return undefined
+  const value = (args as Record<string, unknown>)[INVALID_TOOL_ARGUMENTS_KEY]
+  return typeof value === 'string' ? value : undefined
 }
 
 function requiredResponseID(responseID: string | undefined): string {
@@ -475,7 +528,7 @@ function toPiUsage(usage: ModelUsage | undefined): PiUsage {
 function toPiAssistantMessage(
   message: OurAssistantMessage,
   responseID: string,
-  config: Pick<AgentLoopConfig, 'model' | 'onActivity'>,
+  config: Pick<AgentLoopConfig, 'model' | 'onActivity' | 'logger' | 'stateful' | 'tools'>,
   turnState: PiTurnState
 ): PiAssistantMessage {
   const content: PiAssistantMessage['content'] = message.content.map(part => ({
@@ -491,13 +544,38 @@ function toPiAssistantMessage(
   if (message.truncatedToolCalls?.length) {
     turnState.pendingTruncatedToolCalls = message.truncatedToolCalls
   } else {
+    const registered = new Set((config.tools ?? []).map(tool => toolIdentity(tool.namespace, tool.name)))
     for (const call of message.toolCalls ?? []) {
       turnState.toolCallMeta.set(call.id, { type: call.type, namespace: call.namespace, caller: call.caller })
+      const identity = toolIdentity(call.namespace, call.name)
+
+      // A call to an undeclared tool still needs its paired, `Error:`-marked
+      // result — see `UNKNOWN_TOOL_SENTINEL_NAME`.
+      if (!registered.has(identity)) {
+        config.logger?.warning('worker.tool_call_rejected', 'worker tool call rejected', {
+          actor_event_id: config.stateful.actorEventID,
+          tool_name: call.name,
+          ...(call.namespace ? { tool_namespace: call.namespace } : {}),
+          tool_call_id: call.id,
+          failure_code: 'unknown_tool'
+        })
+        content.push({
+          type: 'toolCall',
+          id: call.id,
+          name: UNKNOWN_TOOL_SENTINEL_NAME,
+          arguments: {
+            [INVALID_TOOL_ARGUMENTS_KEY]: `Unknown tool: ${toolDisplayName(call.namespace, call.name)}`
+          },
+          ...(call.namespace ? { namespace: call.namespace } : {})
+        })
+        continue
+      }
+
       // A custom/freeform tool's "arguments" is raw text (a patch, a command
       // line — whatever its `inputFormat` grammar produced), not JSON;
       // repairing/parsing it as JSON would corrupt or reject it. Pass it
-      // through as-is — pi's own typebox gate validates the raw value
-      // against the tool's real (possibly non-object) schema either way.
+      // through as-is — the loop's zod gate validates the raw value against
+      // the tool's real (possibly non-object) schema either way.
       // pi-ai types `arguments` as `Record<string, any>` only for the common
       // function-call case; a plain string reaches `execute()` unmodified at
       // runtime regardless of that static shape.
@@ -505,14 +583,30 @@ function toPiAssistantMessage(
       if (call.type === 'custom') {
         toolArguments = call.arguments as unknown as Record<string, unknown>
       } else {
-        const repaired = repairToolArgumentsJSON(call.arguments)
-        if (repaired.repair !== 'none') config.onActivity?.(`tool_arguments_repaired:${repaired.repair}`)
-        toolArguments = repaired.value as Record<string, unknown>
+        try {
+          const repaired = repairToolArgumentsJSON(call.arguments)
+          if (repaired.repair !== 'none') config.onActivity?.(`tool_arguments_repaired:${repaired.repair}`)
+          toolArguments = repaired.value as Record<string, unknown>
+        } catch (error) {
+          // One unparseable call must fail alone and recoverably (the model
+          // retries it next round), not throw the whole turn away along
+          // with its sibling calls. See `INVALID_TOOL_ARGUMENTS_KEY`.
+          config.logger?.warning('worker.tool_call_rejected', 'worker tool call rejected', {
+            actor_event_id: config.stateful.actorEventID,
+            tool_name: call.name,
+            ...(call.namespace ? { tool_namespace: call.namespace } : {}),
+            tool_call_id: call.id,
+            failure_code: 'invalid_arguments'
+          })
+          toolArguments = { [INVALID_TOOL_ARGUMENTS_KEY]: errorMessage(error) }
+        }
       }
       content.push({
         type: 'toolCall',
         id: call.id,
-        name: call.name,
+        // The registered alias, so pi's by-name resolution lands on the
+        // right tool when two namespaces share a bare name.
+        name: identity,
         arguments: toolArguments,
         ...(call.namespace ? { namespace: call.namespace } : {})
       })

@@ -352,7 +352,7 @@ defmodule Ankole.E2E.ChaosE2ETest do
 
   @tag timeout: 600_000
   @tag ownership_timeout: 600_000
-  test "a rejected provider send leaves no platform message and retries cleanly" do
+  test "a rejected provider send leaves no platform message and stops for good" do
     ctx = start_worker_e2e_stack!(worker: false)
 
     assert :ok =
@@ -398,22 +398,40 @@ defmodule Ankole.E2E.ChaosE2ETest do
 
     assert bot_visible == []
 
-    # Stand in for the dispatcher's backoff timer, then retry: exactly one
-    # message becomes visible (uuid idempotency prevents duplicates).
-    failed_row
-    |> Ecto.Changeset.change(next_attempt_at: DateTime.utc_now(:microsecond))
-    |> Repo.update!()
+    # A non-transport business rejection of a plain send is permanent: no
+    # automatic retry may fire, and the row must carry the recovery state
+    # that records the stop instead of failing silently.
+    assert failed_row.status == :failed
+    assert failed_row.recovery_state["state"] == "permanent"
+    assert failed_row.next_attempt_at == nil
 
-    retried = dispatch_outbox_succeeded!(outbox)
-    message = platform_message!(ctx.fake_feishu, retried.created_source_entry_id)
-    assert message.text =~ "Started a new conversation."
+    assert {:error, :outbox_manual_requeue_required} =
+             Ankole.SignalsGateway.dispatch_outbox_by_key(
+               failed_row.agent_uid,
+               failed_row.binding_name,
+               failed_row.outbound_key,
+               now: DateTime.utc_now(:microsecond)
+             )
 
+    # A `:generic` delivery (command feedback) has no operator requeue
+    # surface — permanent means stopped for good; only `:durable_ai_reply`
+    # rows accept an explicit retry.
+    assert failed_row.delivery_class == :generic
+
+    assert {:error, :outbox_not_requeueable} =
+             Ankole.SignalsGateway.requeue_outbox(
+               failed_row.agent_uid,
+               failed_row.binding_name,
+               failed_row.outbound_key
+             )
+
+    # Stopped means stopped: nothing was partially sent then or later.
     bot_visible_after =
       ctx.fake_feishu.state
       |> FakeFeishu.State.visible_messages("oc_chaos_sendfail")
       |> Enum.filter(&(&1.sender == :bot))
 
-    assert length(bot_visible_after) == 1
+    assert bot_visible_after == []
   end
 
   # Re-dispatches one pending input until a live worker accepts it. Routes to

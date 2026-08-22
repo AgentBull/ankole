@@ -21,13 +21,16 @@ interface ContainerComputerOptions {
   runtimeEnv?: Record<string, string>
 }
 
+// These template strings are standalone `bun -e` programs, not part of this
+// module — they run inside the sandbox with no access to our imports, so
+// they must stay self-contained.
 const ReadFileScript = `
 import { readFile } from 'node:fs/promises'
 try {
   process.stdout.write(await readFile(process.argv[1]))
 } catch (error) {
   if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') process.exit(44)
-  console.error(errorMessage(error))
+  console.error(error instanceof Error ? error.message : String(error))
   process.exit(1)
 }
 `
@@ -35,7 +38,6 @@ try {
 const WriteFileScript = `
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
-import { errorMessage } from '../../common/errors'
 const target = process.argv[1]
 await mkdir(dirname(target), { recursive: true })
 await writeFile(target, await Bun.stdin.bytes())

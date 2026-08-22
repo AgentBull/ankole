@@ -847,10 +847,6 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
       optional_non_negative_integer(value(meta, "source_count"))
     )
     |> Ankole.Attrs.maybe_put(
-      "memory_source_count",
-      optional_non_negative_integer(value(meta, "memory_source_count"))
-    )
-    |> Ankole.Attrs.maybe_put(
       "elapsed_ms",
       optional_non_negative_integer(value(meta, "elapsed_ms"))
     )

@@ -407,6 +407,38 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
              LarkConfig.load_chat_config_ref(source_binding.config_ref)
   end
 
+  test "moving a binding keeps the unmatched-sender policy when the request omits it", %{
+    conn: conn
+  } do
+    %{principal: source_agent} = agent_fixture()
+    %{principal: target_agent} = agent_fixture()
+
+    conn =
+      conn
+      |> bearer_conn()
+      |> put(~p"/api/v1/agents/#{source_agent.uid}/signal-bindings/lark/lark-main", %{
+        "config" => lark_config("policy-keep"),
+        "unmatched_sender_policy" => "create_standalone"
+      })
+
+    assert response(conn, 200)
+    assert {:ok, source_binding} = SignalsGateway.get_binding(source_agent.uid, "lark-main")
+    assert source_binding.unmatched_sender_policy == :create_standalone
+
+    conn =
+      conn
+      |> recycle_api()
+      |> patch(~p"/api/v1/agents/#{source_agent.uid}/signal-bindings/lark-main", %{
+        "target_agent_uid" => target_agent.uid,
+        "config" => lark_config("policy-keep"),
+        "group_message_mode" => "may_intervene"
+      })
+
+    assert response(conn, 200)
+    assert {:ok, target_binding} = SignalsGateway.get_binding(target_agent.uid, "lark-main")
+    assert target_binding.unmatched_sender_policy == :create_standalone
+  end
+
   test "moving a binding rejects an enabled target conflict without disabling the source", %{
     conn: conn
   } do

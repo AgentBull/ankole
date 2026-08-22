@@ -188,8 +188,9 @@ export interface AgentToolResult<T> extends Omit<PiAgentToolResult<T>, 'content'
  * gating) and with a zod-authored `schema`. `schema` is the authoritative
  * definition — `wire.ts` derives the model-visible tool spec from it forever,
  * independent of loop implementation; `parameters` (typebox, inherited from
- * pi's `AgentTool`) is a view derived from `schema` once by `defineWorkerTool`,
- * used only by pi's own pre-`execute()` validation gate. Construct instances
+ * pi's `AgentTool`) is consumed only by pi's own pre-`execute()` gate and is
+ * always-passing by construction — the loop's zod gate in `agent-loop.ts`
+ * owns argument validation (see `worker-tool.ts`). Construct instances
  * with `defineWorkerTool` (`worker-tool.ts`), not this interface directly.
  */
 export interface WorkerAgentTool<TZod extends z.ZodType = z.ZodType, TDetails = any> extends Omit<

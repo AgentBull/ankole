@@ -1,5 +1,12 @@
 # Changelog
 
+## Version 1.0.0-alpha.5 (2026-08-22)
+
+- Worker tool failures reach the model with the failure marker and recovery hint again; a tool call with unparseable arguments fails alone and recoverably instead of failing the whole reply; and a reply-ending tool call (such as a clarify question) now ends the reply even when the model called another tool in the same round, holds queued user follow-ups for the next turn, and delivers several queued follow-ups in one model round instead of one round each.
+- Worker sandbox `read_file` failures other than a missing file report the real operating-system error again; a namespaced tool call now runs the tool of its own namespace when two connected tool sources share one tool name, instead of whichever registered first; and a call to a tool that does not exist again returns the marked `Unknown tool` failure instead of an unmarked engine message.
+- Moving a signal binding to another agent now keeps its "When account auto-mapping fails" setting when the move request omits it, instead of resetting it to "Hold for manual review".
+- An unmatched sender whose admission group name collides with an operator-created group of the same name now records a clear failure instead of crashing the inbound message, including when the sender already belongs to that colliding group. Internal cleanups remove dead memory-source residue in reply rendering, a stale Brain metadata key in the real-LLM e2e suite, and the retired `--brain-real-llm` documentation, and align the chaos delivery-failure suite with the 1.0.0-alpha.4 provider-error classification.
+
 ## Version 1.0.0-alpha.4 (2026-08-22)
 
 - Plain-message delivery failures on DingTalk, Lark, and Microsoft 365 now retry, wait for an operator, or stop according to the provider error, and honor the provider's requested retry delay, instead of repeating until the attempt budget runs out.

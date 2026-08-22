@@ -1,7 +1,6 @@
 import { Buffer } from 'node:buffer'
 import { safeJsonParse as safeJSONParse, type JsonObject as JSONObject } from '@agentbull/active-support'
 import { z } from 'zod'
-import { Type, type TSchema } from 'typebox'
 import { errorMessage } from '../../common/errors'
 
 export const MAX_TOOL_ARGUMENT_BYTES = 256 * 1024
@@ -21,18 +20,6 @@ export function zodToJSONSchema(schema: z.ZodType): JSONObject {
     throw new Error('function tool parameters must use a root object schema')
   }
   return jsonSchema
-}
-
-/**
- * Derives the typebox view of a tool's zod schema for pi-agent-core's own
- * pre-`execute()` validation gate. Unlike `zodToJSONSchema` (the Responses
- * function-tool wire contract, which requires an object root — see `wire.ts`),
- * pi's own gate has no such requirement: a freeform custom tool's schema
- * (raw text, e.g. `z.string()` for `apply_patch`) is exactly as valid here as
- * an object schema.
- */
-export function zodToTypeboxSchema(schema: z.ZodType): TSchema {
-  return Type.Unsafe(cleanedJSONSchema(schema))
 }
 
 function cleanedJSONSchema(schema: z.ZodType): JSONObject {

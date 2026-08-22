@@ -56,7 +56,8 @@ defmodule Ankole.SignalsGateway.Bindings do
          {:ok, confidential_memory} <- confidential_memory(attrs, false),
          :ok <- validate_supported_group_message_mode(definition, mode),
          {:ok, policy} <- GroupMessageModes.policy(mode),
-         {:ok, unmatched_sender_policy} <- unmatched_sender_policy(attrs),
+         {:ok, unmatched_sender_policy} <-
+           unmatched_sender_policy(attrs, UnmatchedSenderPolicies.default_value()),
          {:ok, config_key} <- binding_config_key(definition, principal.uid, binding_name),
          {:ok, binding} <-
            persist_binding_assignment(
@@ -98,7 +99,7 @@ defmodule Ankole.SignalsGateway.Bindings do
          {:ok, confidential_memory} <- confidential_memory(attrs, nil),
          :ok <- validate_supported_group_message_mode(definition, mode),
          {:ok, policy} <- GroupMessageModes.policy(mode),
-         {:ok, unmatched_sender_policy} <- unmatched_sender_policy(attrs),
+         {:ok, unmatched_sender_policy} <- unmatched_sender_policy(attrs, nil),
          {:ok, config_key} <-
            binding_config_key(definition, target_principal.uid, binding_name),
          {:ok, {binding, normalized_config}} <-
@@ -275,10 +276,15 @@ defmodule Ankole.SignalsGateway.Bindings do
     end
   end
 
-  defp unmatched_sender_policy(attrs) do
+  # `default` is the value an absent attribute resolves to: `put_binding`
+  # passes the catalog default; `update_binding` passes `nil`, and the
+  # transfer keeps the locked source binding's policy in-tx — the same
+  # absent-means-unchanged contract as `confidential_memory/2`.
+  defp unmatched_sender_policy(attrs, default) do
     case Map.get(attrs, :unmatched_sender_policy, Map.get(attrs, "unmatched_sender_policy")) do
       value when is_binary(value) and value != "" -> UnmatchedSenderPolicies.policy(value)
-      nil -> UnmatchedSenderPolicies.policy(UnmatchedSenderPolicies.default_value())
+      nil when is_nil(default) -> {:ok, nil}
+      nil -> UnmatchedSenderPolicies.policy(default)
       value -> {:error, {:unknown_unmatched_sender_policy, value}}
     end
   end
@@ -432,7 +438,8 @@ defmodule Ankole.SignalsGateway.Bindings do
                     config_ref: "app-config://#{config_key}",
                     filters: source_binding.filters,
                     unaddressed_group_message_policy: policy,
-                    unmatched_sender_policy: unmatched_sender_policy,
+                    unmatched_sender_policy:
+                      unmatched_sender_policy || source_binding.unmatched_sender_policy,
                     confidential_memory:
                       if(is_boolean(confidential_memory),
                         do: confidential_memory,

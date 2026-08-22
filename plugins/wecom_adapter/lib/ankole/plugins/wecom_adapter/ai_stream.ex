@@ -427,7 +427,6 @@ defmodule Ankole.Plugins.WeComAdapter.AIStream do
 
     [
       page_note(page),
-      count_note(meta["memory_source_count"], &"#{&1} 条记忆来源"),
       count_note(meta["attachment_count"], &"已附上 #{&1} 个文件"),
       elapsed_note(meta["elapsed_ms"])
     ]

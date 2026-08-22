@@ -201,9 +201,7 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
     owner_session_id = "codex-background-direct-real"
 
     assert {:ok, owner_conversation} =
-             Ankole.AIGateway.Conversations.ensure_conversation(ctx.agent.uid, owner_session_id,
-               metadata: %{"brain" => %{"visibility" => "self"}}
-             )
+             Ankole.AIGateway.Conversations.ensure_conversation(ctx.agent.uid, owner_session_id)
 
     marker = "ANKOLE_CODEX_BACKGROUND_DIRECT_REAL_OK"
 
@@ -214,7 +212,7 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
                "source_tool_call_id" => "codex-background-direct-real",
                "title" => "Verify the direct Codex subscription path",
                "task" => "Do not call tools. Reply exactly #{marker}.",
-               "metadata" => %{"brain_owner_conversation_id" => owner_conversation.id},
+               "metadata" => %{"owner_conversation_id" => owner_conversation.id},
                "reply_route" => %{
                  "binding_name" => ctx.primary_binding.name,
                  "signal_channel_id" => "oc_codex_background_direct_real",

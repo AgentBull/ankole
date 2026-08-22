@@ -556,12 +556,9 @@ tools/e2e/run --chaos
 tools/e2e/run --real-provider --providers=available
 tools/e2e/run --real-llm
 tools/e2e/run --all
-tools/e2e/run --brain-real-llm
 ```
 
 These suites are slower and are not part of the default fast path. Run the mode that protects the changed boundary; real-provider and real-LLM modes require the relevant test credentials.
-
-`--all` excludes the dedicated Brain real-model acceptance path, so run `--brain-real-llm` explicitly when the change requires it.
 
 ## Keep design docs and the changelog current
 

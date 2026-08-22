@@ -38,7 +38,14 @@ import {
 } from './llm'
 import { errorMessage } from '../common/errors'
 import { contentText, modelImageAdaptation, imageSummaryBlock, responseImageUnavailableText } from './vision'
-import { createPiStreamFn, toolIdentity } from './pi-loop/stream-fn'
+import {
+  bareToolName,
+  createPiStreamFn,
+  invalidToolArgumentsMessage,
+  toolDisplayName,
+  toolIdentity,
+  UNKNOWN_TOOL_SENTINEL_NAME
+} from './pi-loop/stream-fn'
 import { createPiTurnState, type PiTurnState } from './pi-loop/turn-state'
 import type {
   ActivityDescription,
@@ -56,6 +63,7 @@ const EMPTY_AFTER_TOOL_NUDGE_TEXT =
   'You just executed tool calls but returned an empty response. Please process the tool results above and continue with the task.'
 const MODEL_ITERATION_LIMIT_SYNTHESIS_TEXT =
   "You've reached the maximum number of tool-calling iterations allowed. Please provide a final response summarizing what you've found and accomplished so far, without calling any more tools."
+const TOOL_ERROR_RECOVERY_HINT = 'Analyze the error above and try a different approach.'
 const PI_API = 'openai-responses'
 
 interface RepeatedToolFailureState {
@@ -97,16 +105,49 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
   let agent!: Agent
   const wrappedTools = (config.tools ?? []).map(tool => ({
     ...tool,
+    // pi has one local name slot and resolves an incoming call by it alone,
+    // so register under the `{namespace, name}` identity — a reversible
+    // alias at this terminal boundary (see `bareToolName`), keeping
+    // same-named tools in different namespaces distinct. `stream-fn.ts`
+    // aliases each incoming call's name the same way.
+    name: toolIdentity(tool.namespace, tool.name),
+    // Runs before pi's own schema gate, so an unparseable-arguments marker
+    // (see `INVALID_TOOL_ARGUMENTS_KEY`) fails with the real parse error
+    // for every schema shape — a required-parameter schema would otherwise
+    // reject the placeholder first with an unmarked validation message.
+    prepareArguments: (args: unknown): unknown => {
+      const invalid = invalidToolArgumentsMessage(args)
+      if (invalid === undefined) return args
+      throw new Error(
+        formatToolError(`Invalid arguments for tool ${toolDisplayName(tool.namespace, tool.name)}: ${invalid}`)
+      )
+    },
     execute: wrapToolExecute(tool, config, turnState, semaphore)
   }))
+  // The pairing target for calls to undeclared tools — see
+  // `UNKNOWN_TOOL_SENTINEL_NAME`. pi only ever reads its `name` (resolution)
+  // and `prepareArguments` (which always throws the marked failure before
+  // validation or hooks could run), so nothing else needs to be real.
+  const unknownToolSentinel = {
+    name: UNKNOWN_TOOL_SENTINEL_NAME,
+    label: UNKNOWN_TOOL_SENTINEL_NAME,
+    description: 'Loop-internal pairing target for calls to undeclared tools.',
+    prepareArguments: (args: unknown): never => {
+      throw new Error(formatToolError(invalidToolArgumentsMessage(args) ?? 'Unknown tool'))
+    }
+  }
   agent = new Agent({
     initialState: {
       systemPrompt: config.systemPrompt ?? '',
       model: stubModel(config),
       thinkingLevel: 'off',
-      tools: wrappedTools as unknown as PiAgentTool[]
+      tools: [...wrappedTools, unknownToolSentinel] as unknown as PiAgentTool[]
     },
     streamFn,
+    // pi's default is 'one-at-a-time' (one queued message per model round);
+    // everything below steers as a batch, same as the old loop's
+    // `[...nextMessages, ...steeringMessages]`.
+    steeringMode: 'all',
 
     beforeToolCall: async ctx => {
       // pi executes every tool call the model requested in one round even
@@ -116,7 +157,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
       if (turnState.roundTerminated) {
         const result: BeforeToolCallResult = {
           block: true,
-          reason: 'A prior tool call already ended this turn.',
+          reason: formatToolError('A prior tool call already ended this turn.'),
           terminate: true
         }
         return result
@@ -126,41 +167,44 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
       const caller = meta?.caller?.type === 'program' ? 'programmatic' : 'direct'
       const tool = findTool(agent, ctx.toolCall.name)
       const allowed = tool?.allowedCallers ?? ['direct']
-      const displayName = toolDisplayName(meta?.namespace, ctx.toolCall.name)
+      const wireToolName = bareToolName(ctx.toolCall.name)
+      const displayName = toolDisplayName(meta?.namespace, wireToolName)
 
       if (!allowed.includes(caller)) {
         config.logger?.warning('worker.tool_call_rejected', 'worker tool call rejected', {
           actor_event_id: config.stateful.actorEventID,
-          tool_name: ctx.toolCall.name,
+          tool_name: wireToolName,
+          ...(meta?.namespace ? { tool_namespace: meta.namespace } : {}),
           tool_call_id: ctx.toolCall.id,
           failure_code: 'caller_not_allowed',
           caller
         })
         const result: BeforeToolCallResult = {
           block: true,
-          reason: `Caller ${caller} is not allowed for tool ${displayName}`
+          reason: formatToolError(`Caller ${caller} is not allowed for tool ${displayName}`)
         }
         return result
       }
 
-      // Real, strict validation — pi's own typebox gate already ran on
-      // `ctx.args`, but typebox's coercion is looser than zod's (e.g. it
-      // accepts a number where the schema declares a string). Validate the
-      // raw, pre-coercion value here and stash the zod-parsed result for the
-      // wrapped `execute` (`wrapToolExecute`) so `execute()` truly receives
-      // `z.output<TZod>`, not pi's coerced view.
+      // The single argument-validation gate: pi's own pre-`execute()` gate
+      // is always-passing by construction (see `worker-tool.ts`), so this
+      // strict zod check owns rejection — with wire tool names and the
+      // worker failure format. Stash the parsed result for the wrapped
+      // `execute` (`wrapToolExecute`) so `execute()` truly receives
+      // `z.output<TZod>`.
       if (!tool) return undefined
       const parsed = tool.schema.safeParse(ctx.toolCall.arguments)
       if (!parsed.success) {
         config.logger?.warning('worker.tool_call_rejected', 'worker tool call rejected', {
           actor_event_id: config.stateful.actorEventID,
-          tool_name: ctx.toolCall.name,
+          tool_name: wireToolName,
+          ...(meta?.namespace ? { tool_namespace: meta.namespace } : {}),
           tool_call_id: ctx.toolCall.id,
           failure_code: 'invalid_arguments'
         })
         const result: BeforeToolCallResult = {
           block: true,
-          reason: `Invalid arguments for tool ${displayName}: ${errorMessage(parsed.error)}`
+          reason: formatToolError(`Invalid arguments for tool ${displayName}: ${errorMessage(parsed.error)}`)
         }
         return result
       }
@@ -172,7 +216,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
       }
       config.logger?.info('worker.tool_call_started', 'worker tool call started', {
         actor_event_id: config.stateful.actorEventID,
-        tool_name: ctx.toolCall.name,
+        tool_name: wireToolName,
         ...(meta?.namespace ? { tool_namespace: meta.namespace } : {}),
         tool_call_id: ctx.toolCall.id,
         execution_mode: tool.executionMode,
@@ -199,7 +243,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
       const failureWarning = updateRepeatedFailureState(
         ctx.isError,
         meta?.namespace,
-        ctx.toolCall.name,
+        bareToolName(ctx.toolCall.name),
         repeatedFailureState
       )
       if (failureWarning) turnState.pendingToolResultFollowUps.push(failureWarning)
@@ -209,8 +253,11 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
 
       // A tool that returns no text content (only `details`) still needs a
       // non-empty function_call_output — fall back to the raw details rather
-      // than sending the model nothing.
-      const outputText = adapted.text || safeJSONStringify(result.details)
+      // than sending the model nothing. A failed call additionally gets the
+      // `Error:`-marked failure format: pi's own error result is the bare
+      // thrown message, which nothing downstream can tell from success.
+      const plainText = adapted.text || safeJSONStringify(result.details)
+      const outputText = ctx.isError ? formatToolError(plainText) : plainText
       const override: AfterToolCallResult = {
         content: [{ type: 'text', text: outputText }]
       }
@@ -219,7 +266,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
       const tool = findTool(agent, ctx.toolCall.name)
       const logFields: JSONObject = {
         actor_event_id: config.stateful.actorEventID,
-        tool_name: ctx.toolCall.name,
+        tool_name: bareToolName(ctx.toolCall.name),
         ...(meta?.namespace ? { tool_namespace: meta.namespace } : {}),
         tool_call_id: ctx.toolCall.id,
         duration_ms: Date.now() - (active?.startedAt ?? Date.now()),
@@ -260,7 +307,10 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
       if (config.abortSignal?.aborted) return undefined
 
       modelIterations += 1
-      turnState.roundTerminated = false
+      // Read-only snapshot: `shouldStopAfterTurn` (the round's last hook)
+      // consumes the flag. A terminated round must not steer, synthesize, or
+      // emit progress — the turn is over; `shouldStopAfterTurn` ends it.
+      const roundTerminated = turnState.roundTerminated
 
       const truncatedToolCalls = turnState.pendingTruncatedToolCalls
       turnState.pendingTruncatedToolCalls = []
@@ -309,6 +359,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
       // loop's `break` used to guarantee.
       if (
         ctx.toolResults.length > 0 &&
+        !roundTerminated &&
         modelIterations >= config.maxModelIterations &&
         outcome !== 'iteration_exhausted'
       ) {
@@ -322,10 +373,10 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
       // Fetched once (not just for the label below) so a queue-draining
       // `getSteeringMessages` isn't called twice for the same round.
       const steeringMessages =
-        ctx.toolResults.length > 0 && !turnState.roundTerminated && config.getSteeringMessages
+        ctx.toolResults.length > 0 && !roundTerminated && config.getSteeringMessages
           ? await config.getSteeringMessages()
           : []
-      if (ctx.toolResults.length > 0 && !turnState.roundTerminated) {
+      if (ctx.toolResults.length > 0 && !roundTerminated) {
         await emitPresentationEvent({
           kind: 'turn.phase',
           payload: {
@@ -356,6 +407,18 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
       for (const message of steeringMessages) agent.steer(toPiUserMessage(message))
 
       return undefined
+    },
+
+    // The round's last hook, and the only place `roundTerminated` is
+    // consumed. pi's own batch check ends a round only when *every* call in
+    // it terminated, so a terminating call sharing its round with an
+    // ordinary one (`[todo_update, clarify]`) would otherwise start another
+    // model round past the termination. The old hand-rolled loop's `break`
+    // was ANY-semantics; this restores it without touching pi.
+    shouldStopAfterTurn: async () => {
+      const terminated = turnState.roundTerminated
+      turnState.roundTerminated = false
+      return terminated
     }
   })
 
@@ -430,7 +493,13 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
   return { message: toOurAssistantMessage(lastAssistant), responseID, outcome }
 }
 
-/** Throws before any model call: two tools sharing one wire identity is a caller bug, not a runtime failure to negotiate. */
+/**
+ * Throws before any model call: two tools sharing one `{namespace, name}`
+ * identity is a caller bug, not a runtime failure to negotiate. pi resolves
+ * an incoming call by its single name slot, so the loop registers every tool
+ * under this same identity as a reversible alias (see `bareToolName`) —
+ * distinct identities therefore stay distinct all the way through execution.
+ */
 function assertNoDuplicateTools(tools: WorkerAgentTool[] | undefined): void {
   const seen = new Set<string>()
   for (const tool of tools ?? []) {
@@ -585,10 +654,6 @@ function findTool(agent: Agent, name: string): WorkerAgentTool | undefined {
   return (agent.state.tools as unknown as WorkerAgentTool[]).find(tool => tool.name === name)
 }
 
-function toolDisplayName(namespace: string | undefined, name: string): string {
-  return namespace && namespace !== 'functions' ? `${namespace}.${name}` : name
-}
-
 function userMessage(content: string): PiUserMessage {
   return { role: 'user', content, timestamp: Date.now() }
 }
@@ -719,6 +784,19 @@ function toolImageOutputText(text: string, imageCount: number): string {
     .join('\n')
 }
 
+/**
+ * The model-visible failure format for every tool result the worker marks as
+ * an error: the `Error:` prefix is the machine-detectable failure marker
+ * (consumers match on it — see `tools/e2e`'s `tool_result_error?`), the hint
+ * steers the model off blind retries. Applied in `afterToolCall` for executed
+ * tools, at each `beforeToolCall` block reason, and in the wrapped
+ * `prepareArguments` throw (blocked and thrown-in-preparation calls skip
+ * `afterToolCall` entirely — pi returns them as immediate results).
+ */
+function formatToolError(message: string): string {
+  return `Error: ${message}\n${TOOL_ERROR_RECOVERY_HINT}`
+}
+
 /** Returns a repeated-failure warning follow-up once a tool's failure streak reaches 2. */
 function updateRepeatedFailureState(
   isError: boolean,
@@ -726,7 +804,7 @@ function updateRepeatedFailureState(
   toolName: string,
   state: RepeatedToolFailureState
 ): PiUserMessage | undefined {
-  const key = `${namespace ?? ''} ${toolName}`
+  const key = `${namespace ?? ''}\u0000${toolName}`
   if (!isError) {
     state.key = undefined
     state.count = 0

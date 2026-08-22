@@ -545,6 +545,57 @@ defmodule Ankole.AuthZTest do
     end
   end
 
+  describe "synced group membership" do
+    test "rejects a same-named group of another domain instead of raising" do
+      %{principal: principal} = human_fixture(%{uid: unique_uid("synced-member")})
+      name = "signal_source_collision_#{System.unique_integer([:positive])}"
+
+      assert {:ok, operator_group} =
+               AuthZ.create_principal_group(%{
+                 name: name,
+                 display_name: "Operator-owned collision",
+                 domain: :operator
+               })
+
+      group_attrs = %{
+        name: name,
+        display_name: "Signal source group",
+        domain: :signal_source,
+        metadata: %{}
+      }
+
+      assert {:error, :group_domain_mismatch} =
+               AuthZ.ensure_synced_group_member(group_attrs, principal.uid)
+
+      # An existing membership in the same-named operator group must not
+      # satisfy the member-exists fast path either — the domain still
+      # mismatches.
+      Repo.insert!(%Membership{group_id: operator_group.id, principal_uid: principal.uid})
+
+      assert {:error, :group_domain_mismatch} =
+               AuthZ.ensure_synced_group_member(group_attrs, principal.uid)
+    end
+
+    test "creates the group and accumulates membership for the requested domain" do
+      %{principal: principal} = human_fixture(%{uid: unique_uid("synced-add")})
+      name = "signal_source_member_#{System.unique_integer([:positive])}"
+
+      group_attrs = %{
+        name: name,
+        display_name: "Signal source group",
+        domain: :signal_source,
+        metadata: %{}
+      }
+
+      assert :ok = AuthZ.ensure_synced_group_member(group_attrs, principal.uid)
+      assert :ok = AuthZ.ensure_synced_group_member(group_attrs, principal.uid)
+
+      group = Repo.get_by!(Group, name: name)
+      assert group.domain == :signal_source
+      assert Repo.get_by(Membership, group_id: group.id, principal_uid: principal.uid)
+    end
+  end
+
   describe "static group member deltas" do
     test "applies one add and remove set atomically in stable uid order" do
       %{principal: added_b} = human_fixture(%{uid: unique_uid("delta-b")})

@@ -337,15 +337,27 @@ defmodule Ankole.AuthZ do
   def ensure_synced_group_member(group_attrs, principal_uid)
       when is_map(group_attrs) and is_binary(principal_uid) do
     with {:ok, uid} <- Principals.normalize_uid(principal_uid) do
-      case synced_member?(Map.fetch!(group_attrs, :name), uid) do
+      case synced_member?(Map.fetch!(group_attrs, :name), Map.fetch!(group_attrs, :domain), uid) do
         true ->
           :ok
 
         false ->
+          # The caller's requested domain, not the fetched group's own:
+          # `ensure_synced_group` is fetch-or-create by name, so a
+          # pre-existing same-named group of another domain must fail the
+          # domain check as `{:error, :group_domain_mismatch}` — passing
+          # `group.domain` back in would make that check a tautology (and a
+          # non-synced domain would miss `add_synced_group_member`'s guard
+          # and raise out of the transaction).
           Repo.transact(fn repo ->
             with {:ok, group} <- Store.ensure_synced_group(repo, group_attrs),
                  {:ok, _membership} <-
-                   Store.add_synced_group_member(repo, group.id, group.domain, uid) do
+                   Store.add_synced_group_member(
+                     repo,
+                     group.id,
+                     Map.fetch!(group_attrs, :domain),
+                     uid
+                   ) do
               {:ok, :added}
             end
           end)
@@ -357,14 +369,19 @@ defmodule Ankole.AuthZ do
     end
   end
 
-  defp synced_member?(group_name, principal_uid) do
+  # Domain-qualified on purpose: a membership in a same-named group of
+  # another domain must not satisfy this check — it falls through to the
+  # transaction, whose domain assertion rejects the collision.
+  defp synced_member?(group_name, domain, principal_uid) do
     name = String.downcase(group_name)
 
     Repo.exists?(
       from membership in Membership,
         join: group in Group,
         on: group.id == membership.group_id,
-        where: group.name == ^name and membership.principal_uid == ^principal_uid
+        where:
+          group.name == ^name and group.domain == ^domain and
+            membership.principal_uid == ^principal_uid
     )
   end
 
