@@ -18,7 +18,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SignalChannelBroker do
     respond(ctx, "signal_channel_rpc_failed", fn ->
       with {:ok, result} <-
              AmbientCuration.record_judgment(turn_ref.agent_uid, turn_ref.actor_event_id, %{
-               decision: request.decision,
                action: request.action,
                authority: request.authority,
                handoff_job_id: request.handoff_job_id,
@@ -29,7 +28,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SignalChannelBroker do
         {:ok,
          %{
            "status" => "ok",
-           "decision" => result.decision,
            "action" => result.action,
            "authority" => result.authority,
            "handoff_job_id" => optional_job_id(result.handoff_job_id),

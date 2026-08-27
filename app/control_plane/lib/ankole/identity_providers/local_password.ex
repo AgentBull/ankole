@@ -18,6 +18,7 @@ defmodule Ankole.IdentityProviders.LocalPassword do
   alias Ankole.IdentityProviders.LocalPassword.RetryGuard
   alias Ankole.Kernel, as: NativeKernel
   alias Ankole.Principals
+  alias Ankole.Principals.LocalCredentials
   alias Ankole.Principals.LocalCredential
   alias Ankole.Principals.Principal
 
@@ -147,8 +148,8 @@ defmodule Ankole.IdentityProviders.LocalPassword do
   def authenticate(email, password, _opts) when is_binary(email) and is_binary(password) do
     with {:ok, provider} <- fetch_enabled_provider() do
       retry_protection? = retry_protection_enabled?(provider)
-      account_key = String.downcase(String.trim(email))
-      login = Principals.fetch_local_login(account_key)
+      account_key = Principals.normalize_email(email) || ""
+      login = LocalCredentials.fetch_local_login(account_key)
 
       # The attempt is reserved before the hash verification runs, so
       # concurrent requests cannot all pass the limit first and verify

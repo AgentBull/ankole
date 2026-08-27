@@ -44,7 +44,7 @@ export interface CreateSkillToolsOptions {
  * lesson block is read-only here: lessons are written by Dreaming and the
  * Console, and skill assignment remains a control-plane concern.
  */
-export function createSkillTools(opts: CreateSkillToolsOptions): WorkerAgentTool<any>[] {
+export function createSkillTools(opts: CreateSkillToolsOptions): WorkerAgentTool[] {
   return [createSkillViewTool(opts)]
 }
 

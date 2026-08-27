@@ -3,6 +3,7 @@ import { webURLFacts } from '@ankole/kernel'
 import {
   deepString,
   isRecord,
+  ms,
   safeJsonParse as safeJSONParse,
   safeJsonStringify as safeJSONStringify
 } from '@agentbull/active-support'
@@ -64,7 +65,7 @@ const WebFetchParams = z.object({
  * web_fetch can fall back to an internal rendered-page extractor, while
  * web_search remains provider-backed because the worker does not own a search index.
  */
-export async function createWebTools(opts: CreateWebToolsOptions): Promise<WorkerAgentTool<any>[]> {
+export async function createWebTools(opts: CreateWebToolsOptions): Promise<WorkerAgentTool[]> {
   return [
     createWebSearchTool(opts.aiGateway),
     createWebFetchTool(opts.aiGateway, {
@@ -117,7 +118,7 @@ function createWebSearchTool(aiGateway: AIGatewayHTTPClient): WorkerAgentTool<ty
  * the provider path is unavailable.
  */
 /** How long one session serves a repeated URL from its earlier result. */
-const RepeatFetchTTLMs = 15 * 60 * 1000
+const RepeatFetchTTLMs = ms('15m')
 /** Entry cap so a long run cannot grow the per-session page cache without bound. */
 const RepeatFetchMaxEntries = 100
 
@@ -236,7 +237,7 @@ function createWebFetchTool(
 
 /** States that a repeated URL was answered from this session's earlier fetch. */
 function repeatFetchNote(ageMs: number): string {
-  const minutes = Math.max(1, Math.round(ageMs / 60_000))
+  const minutes = Math.max(1, Math.round(ageMs / ms('1m')))
   return `[Repeat fetch: this URL was fetched ${minutes} minute${minutes === 1 ? '' : 's'} ago in this session; its earlier result is shown again without a new download.]`
 }
 

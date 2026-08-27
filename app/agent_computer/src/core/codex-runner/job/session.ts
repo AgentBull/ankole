@@ -816,7 +816,13 @@ class CodexJobSession implements AgentCodexRuntimeSession {
         return
       }
       this.rollActiveFilesChanged()
-      void this.handleTurnCompleted(projection.terminalStatus, projection.codexTurnStatus, projection.error)
+      // This runs outside any awaiting caller: a notification handler cannot
+      // await it. Its own failure paths (waiting for child threads, retrying an
+      // empty report) end the Job through `rejectDone`, so the rejection reaches
+      // the Job instead of the process.
+      this.handleTurnCompleted(projection.terminalStatus, projection.codexTurnStatus, projection.error).catch(error => {
+        this.rejectDone(toError(error))
+      })
     }
   }
 

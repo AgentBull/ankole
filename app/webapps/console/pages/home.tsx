@@ -406,7 +406,7 @@ function MetricTile({
   return (
     <Link
       to={to}
-      className="grid gap-3 border border-border bg-card p-4 transition-colors hover:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+      className="grid gap-3 border border-border bg-card p-4 transition-colors fine-hover:hover:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
       <span className="flex items-center gap-2 text-sm text-muted-foreground">
         <Icon className="size-4 shrink-0" aria-hidden />
         {label}
@@ -485,7 +485,7 @@ function NextStep({
   return (
     <Link
       to={to}
-      className="grid content-start gap-2 border border-border bg-card p-4 transition-colors hover:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+      className="grid content-start gap-2 border border-border bg-card p-4 transition-colors fine-hover:hover:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
       <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
         <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
         {title}

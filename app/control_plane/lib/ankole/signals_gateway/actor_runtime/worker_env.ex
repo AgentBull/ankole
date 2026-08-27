@@ -359,7 +359,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnv do
     end
   end
 
-  # ---- declared track ----
+  # declared track
 
   defp declared_definitions do
     AppConfigure.list_definitions()
@@ -503,7 +503,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnv do
     end
   end
 
-  # ---- custom track ----
+  # custom track
 
   defp custom_env(scope) do
     scope
@@ -660,7 +660,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnv do
   defp put_plain_value(item, true, _value), do: item
   defp put_plain_value(item, false, value), do: Map.put(item, :value, value)
 
-  # ---- routing ----
+  # routing
 
   # A name resolves to its custom row first because merge precedence puts
   # custom rows above declared values; editing must target what the shell
@@ -715,7 +715,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnv do
     }
   end
 
-  # ---- scope helpers ----
+  # scope helpers
 
   defp agent_scope(agent_uid) when is_binary(agent_uid) and agent_uid != "" do
     {:ok, @agent_scope_prefix <> agent_uid}

@@ -278,7 +278,7 @@ defmodule Ankole.IdentityProviders.DirectorySync do
   end
 
   defp periodic_sync_unique_opts(opts) do
-    with {:ok, period} <- periodic_sync_unique_period(opts) do
+    with {:ok, period} <- full_sync_interval_seconds(opts) do
       {:ok,
        [
          fields: [:worker, :args],
@@ -286,19 +286,6 @@ defmodule Ankole.IdentityProviders.DirectorySync do
          period: period,
          states: :successful
        ]}
-    end
-  end
-
-  defp periodic_sync_unique_period(opts) do
-    case Keyword.fetch(opts, :directory_full_sync_interval_seconds) do
-      {:ok, seconds} when is_integer(seconds) and seconds >= 1 ->
-        {:ok, seconds}
-
-      {:ok, seconds} ->
-        {:error, {:invalid_directory_full_sync_interval_seconds, seconds}}
-
-      :error ->
-        Config.directory_full_sync_interval_seconds()
     end
   end
 

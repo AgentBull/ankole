@@ -62,9 +62,10 @@ needs no second table.
 Event handling runs in one supervised task at a time. The owner keeps reading
 frames and answering heartbeats while that task runs, because a slow ingress or
 a large attachment download would otherwise miss a heartbeat. The local queue
-holds at most 1,000 events. At that limit, the owner reconnects and lets Discord
-replay from the last confirmed sequence instead of growing memory without a
-bound.
+holds at most 1,000 events. At that limit, the owner sheds the queued events
+that a resume will replay, keeps the in-flight event and events from an older
+session, and reconnects so Discord replays from the last confirmed sequence
+instead of growing memory without a bound.
 
 Close codes divide into three groups. `4004`, and `4010` through `4014`, need
 an operator to change the token or the Developer Portal, so the owner stops
@@ -72,7 +73,8 @@ reconnecting, reports the reason, and retries the preflight after five minutes,
 which keeps it far below the daily `IDENTIFY` budget. `4007` and `4009`
 invalidate the session but keep the token, so the owner identifies again. Every
 other close resumes. Ordinary reconnect backoff doubles from one second to a
-maximum of one minute and resets on `READY` or `RESUMED`.
+maximum of one minute and resets on `READY` or on the next durably handled
+event, not on the resume handshake alone.
 
 The connection reconciler reads the current enabled bindings. A token change
 replaces the old owner, and a disabled or deleted binding stops its owner. A

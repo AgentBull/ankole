@@ -87,7 +87,7 @@ defmodule Ankole.Plugins.WeComAdapter.Outbox do
   def send(%OutboxEntry{operation: :card} = outbox), do: deliver_card(outbox)
   def send(%OutboxEntry{}), do: {:error, :unsupported_outbox_operation}
 
-  # --- post -----------------------------------------------------------------
+  # post
 
   defp deliver_post(%OutboxEntry{} = outbox) do
     case fetch_list(outbox.payload, "attachments") do
@@ -128,7 +128,7 @@ defmodule Ankole.Plugins.WeComAdapter.Outbox do
     end
   end
 
-  # --- card -----------------------------------------------------------------
+  # card
 
   defp deliver_card(%OutboxEntry{} = outbox) do
     with {:ok, config} <- config_for_outbox(outbox),
@@ -140,7 +140,7 @@ defmodule Ankole.Plugins.WeComAdapter.Outbox do
     end
   end
 
-  # --- attachment -----------------------------------------------------------
+  # attachment
 
   defp deliver_attachment(%OutboxEntry{} = outbox, attachment) do
     with {:ok, config} <- config_for_outbox(outbox),
@@ -194,7 +194,7 @@ defmodule Ankole.Plugins.WeComAdapter.Outbox do
     end
   end
 
-  # --- send primitives ------------------------------------------------------
+  # send primitives
 
   defp send_markdown(client, %{respond_req_id: req_id}, chunk) when is_binary(req_id) do
     Bot.reply_markdown(client, req_id, chunk)
@@ -235,7 +235,7 @@ defmodule Ankole.Plugins.WeComAdapter.Outbox do
 
   defp combined_result([]), do: %{raw_payload: %{}}
 
-  # --- delivery resolution --------------------------------------------------
+  # delivery resolution
 
   @doc """
   Resolves the delivery channel for one signal channel: the chat target and
@@ -286,7 +286,7 @@ defmodule Ankole.Plugins.WeComAdapter.Outbox do
   defp decode_channel("wecom:" <> encoded), do: URI.decode(encoded)
   defp decode_channel(value), do: value
 
-  # --- helpers --------------------------------------------------------------
+  # helpers
 
   defp config_for_outbox(%OutboxEntry{} = outbox) do
     with {:ok, config_ref} <- SignalsGateway.outbox_binding_config_ref(outbox),

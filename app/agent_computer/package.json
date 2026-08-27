@@ -26,6 +26,7 @@
     "@bufbuild/protobuf": "2.14.0",
     "@earendil-works/pi-agent-core": "0.84.2",
     "@earendil-works/pi-ai": "0.84.2",
+    "@ff-labs/fff-bun": "0.10.5",
     "@opentelemetry/api": "^1.9.1",
     "@opentelemetry/otlp-transformer": "^0.221.0",
     "@opentelemetry/resources": "^2.10.0",

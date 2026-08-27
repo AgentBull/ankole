@@ -19,7 +19,9 @@ export const BRAIN_KEYS = {
   forgetting: 'brain.forgetting',
   dreamingTaskCron: 'brain.dreaming_task_cron',
   selfHealingTaskCron: 'brain.self_healing_task_cron',
-  signalChannelBatchIdleTime: 'brain.signal_channel_batch_idle_time'
+  signalChannelBatchIdleTime: 'brain.signal_channel_batch_idle_time',
+  skillLearningEnabled: 'brain.skill_learning_enabled',
+  skillLearningReflectionThreshold: 'brain.skill_learning_reflection_threshold'
 } as const
 
 /** The five nullable model keys; only the embedding model carries dimensions. */
@@ -96,12 +98,12 @@ export function brainModelValue(draft: BrainModelDraft, requireDimensions: boole
   if (!draft.configured) return null
 
   const value: Record<string, JSONValue> = {
-    ['provider_id']: draft.providerID.trim(),
+    provider_id: draft.providerID.trim(),
     model: draft.model.trim()
   }
   if (requireDimensions) value.dimensions = Number.parseInt(draft.dimensions, 10)
   const options = parseJSONObject(draft.providerOptions)
-  if (options && Object.keys(options).length > 0) value['provider_options'] = options
+  if (options && Object.keys(options).length > 0) value.provider_options = options
   return value
 }
 
@@ -220,6 +222,14 @@ export function brainSettingsValidationError(
   const idleTime = Number(brainNumberDraft(drafts[BRAIN_KEYS.signalChannelBatchIdleTime]))
   if (!Number.isInteger(idleTime) || idleTime < 1) {
     return { error: 'idle_time_invalid', key: BRAIN_KEYS.signalChannelBatchIdleTime }
+  }
+
+  const threshold = Number(brainNumberDraft(drafts[BRAIN_KEYS.skillLearningReflectionThreshold]))
+  if (!Number.isInteger(threshold) || threshold < 2) {
+    return {
+      error: 'skill_learning_threshold_invalid',
+      key: BRAIN_KEYS.skillLearningReflectionThreshold
+    }
   }
 
   return undefined

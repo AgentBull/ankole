@@ -20,16 +20,16 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
 
   @socket_response_history_limit 32
 
-  # ─────────────────────────────────────────────────────────────────
+
   # Connection lifecycle
-  # ─────────────────────────────────────────────────────────────────
+
 
   @impl WebSock
   def init(%{subject_uid: _subject_uid, subject_type: _subject_type} = state), do: {:ok, state}
 
-  # ─────────────────────────────────────────────────────────────────
+
   # Incoming: response.create
-  # ─────────────────────────────────────────────────────────────────
+
 
   @impl WebSock
   def handle_in({payload, [opcode: :text]}, state) do
@@ -348,9 +348,9 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
     end
   end
 
-  # ─────────────────────────────────────────────────────────────────
+
   # AIGateway response stream
-  # ─────────────────────────────────────────────────────────────────
+
 
   @impl WebSock
   def handle_info(
@@ -466,9 +466,9 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
       {:error, {:exit, reason}}
   end
 
-  # ─────────────────────────────────────────────────────────────────
+
   # Validation helpers
-  # ─────────────────────────────────────────────────────────────────
+
 
   defp ensure_no_active_stream(%{active_stream: _stream} = state) do
     {:error,

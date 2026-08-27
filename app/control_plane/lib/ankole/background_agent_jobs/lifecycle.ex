@@ -1055,8 +1055,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
 
   # Only a transition into a running status needs the cap, and reading it costs
   # a round trip to the AppConfigure owner on another connection. Terminal
-  # transitions, which is what every current caller of this path commits, must
-  # not pay for it inside their transaction.
+  # transitions must not pay for it inside their transaction.
   defp enforce_running_limit(repo, %Job{} = job, attrs) do
     status = Map.get(attrs, "status")
 

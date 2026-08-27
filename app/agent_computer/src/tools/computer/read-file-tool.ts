@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { defineWorkerTool, type AgentToolResult, type WorkerAgentTool } from '../../core'
 import { compactActivityPath } from '../activity-summary'
 import type { ComputerToolContext } from './context'
-import { MAX_READ_CHARS, looksBinary, renderNumberedWindow } from './format'
+import { MAX_READ_CHARS, clipLinesToBudget, looksBinary, renderNumberedWindow } from './format'
 
 const ReadFileParams = z.object({
   path: z.string().min(1).describe('Text file to read (absolute, relative, or ~/path).'),
@@ -32,7 +32,7 @@ export function createReadFileTool(
   return defineWorkerTool({
     name: 'read_file',
     description:
-      "Read a text file from the computer with line numbers and pagination. Use this instead of cat/head/tail in command. Output format: 'LINE_NUM|CONTENT'. Relative paths resolve from cwd/workdir, defaulting to the current workspace. Use offset and limit for large files; reads over about 100K characters are rejected so you can narrow the range. Cannot read images or binary files.",
+      "Read a text file from the computer with line numbers and pagination. Use this instead of cat/head/tail in command. Output format: 'LINE_NUM|CONTENT'. Relative paths resolve from cwd/workdir, defaulting to the current workspace. Use offset and limit for large files; a page stops at about 100K characters and tells you the offset to continue from. Cannot read images or binary files.",
     schema: ReadFileParams,
     executionMode: 'parallel',
     isReadOnly: true,
@@ -77,24 +77,19 @@ export function createReadFileTool(
 
       // Line numbering happens here, before the size check, because the rendered
       // (numbered) text is what counts against the budget.
-      const { endLine, startLine, text, totalLines, truncated } = renderNumberedWindow(
-        window.lines,
-        start,
-        window.totalLines
-      )
+      const window_ = renderNumberedWindow(window.lines, start, window.totalLines)
+      const { startLine, totalLines } = window_
+      let { endLine, text, truncated } = window_
       // Even within the line limit the rendered text can be huge (very long lines).
-      // Rather than truncate and risk hiding the part the model wanted, reject the read
-      // and ask it to narrow the range — an explicit retry beats a silently clipped result.
+      // Return the complete lines that fit the budget with an exact continuation
+      // offset — the model loses nothing and saves the retry round trip.
+      let clipNote = ''
       if (text.length > MAX_READ_CHARS) {
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `Read produced ${text.length} characters which exceeds the ${MAX_READ_CHARS}-char limit; narrow the range with offset and limit.`
-            }
-          ],
-          details: { path: params.path, found: true, totalLines, truncated: true }
-        }
+        const clipped = clipLinesToBudget(text, MAX_READ_CHARS)
+        text = clipped.text
+        endLine = startLine + clipped.keptLines - 1
+        truncated = true
+        clipNote = ` (${MAX_READ_CHARS}-char budget)`
       }
 
       // When more lines remain past this page, append a hint so the model knows to
@@ -103,7 +98,7 @@ export function createReadFileTool(
         text.length === 0 && totalLines > 0
           ? `\n[showing lines ${startLine}-${endLine} of ${totalLines}; offset is past end of file]`
           : truncated
-            ? `\n... [showing lines ${startLine}-${endLine} of ${totalLines} — continue with offset=${endLine + 1}] ...`
+            ? `\n... [showing lines ${startLine}-${endLine} of ${totalLines}${clipNote} — continue with offset=${endLine + 1}] ...`
             : `\n[${totalLines} lines total]`
       return {
         content: [{ type: 'text', text: text + hint }],

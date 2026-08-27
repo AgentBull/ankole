@@ -299,12 +299,22 @@ export function createPiStreamFn(
   }
 }
 
+/**
+ * Reinterprets pi's registered tool set as the `WorkerAgentTool`s the loop
+ * registered; `agent-loop.ts` performs the one inverse cast at registration.
+ * Every read of the set goes through here, so the reinterpretation lives in
+ * one place.
+ */
+export function registeredWorkerTools(tools: readonly unknown[] | undefined): WorkerAgentTool[] {
+  return (tools ?? []) as WorkerAgentTool[]
+}
+
 function toWireToolSet(tools: PiTool[] | undefined): ToolSet | undefined {
   if (!tools?.length) return undefined
   // `tools` is pi's registered set, whose `name` already is the identity
   // alias (see `bareToolName`); the wire declaration needs the bare name.
   // The unknown-tool sentinel is loop-internal and never declared.
-  const definitions: [string, ToolDefinition][] = (tools as WorkerAgentTool[])
+  const definitions: [string, ToolDefinition][] = registeredWorkerTools(tools)
     .filter(tool => tool.name !== UNKNOWN_TOOL_SENTINEL_NAME)
     .map(tool => [
       tool.name,
@@ -331,7 +341,7 @@ function allowedCallers(tool: WorkerAgentTool): Array<'direct' | 'programmatic'>
 }
 
 function hasProgrammaticCaller(tools: PiTool[] | undefined): boolean {
-  return ((tools as WorkerAgentTool[] | undefined) ?? []).some(tool => allowedCallers(tool).includes('programmatic'))
+  return registeredWorkerTools(tools).some(tool => allowedCallers(tool).includes('programmatic'))
 }
 
 /** `functions` is the Codex default namespace: a bare tool and one explicitly in `functions` share this identity. */

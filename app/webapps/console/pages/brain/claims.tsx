@@ -206,8 +206,9 @@ export function ClaimStateBadge({ claim }: { claim: BrainClaim }) {
       <Badge variant="success">{t('console.brain.current')}</Badge>
     )
   }
-  if (claim.resolved_at)
-    {return <Badge variant="info">{t('console.brain.resolved', { quality: claim.resolved_quality ?? '' })}</Badge>}
+  if (claim.resolved_at) {
+    return <Badge variant="info">{t('console.brain.resolved', { quality: claim.resolved_quality ?? '' })}</Badge>
+  }
   return claim.active ? (
     <Badge variant="success">{t('console.status.active')}</Badge>
   ) : (
@@ -430,9 +431,9 @@ function ResolveTakeDialog({
               resolve.mutate({
                 path: { claim_id: claim?.id ?? '' },
                 body: {
-                  ['resolved_quality']: quality,
-                  ['resolved_outcome']: outcomeRequired ? outcome : null,
-                  ['resolution_provenance']: provenance.trim() || null
+                  resolved_quality: quality,
+                  resolved_outcome: outcomeRequired ? outcome : null,
+                  resolution_provenance: provenance.trim() || null
                 }
               })
             }>

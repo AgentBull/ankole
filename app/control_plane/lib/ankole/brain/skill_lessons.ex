@@ -21,6 +21,7 @@ defmodule Ankole.Brain.SkillLessons do
 
   alias Ankole.AIAgent.Library
   alias Ankole.AIGateway.OpaqueContent
+  alias Ankole.BackgroundAgentJobs.Queries
   alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.BackgroundAgentJobs.Schemas.Turn
@@ -140,7 +141,7 @@ defmodule Ankole.Brain.SkillLessons do
     end
   end
 
-  # ── Per-agent round ─────────────────────────────────────────────
+  # Per-agent round
 
   defp run_agent(agent_uid, current_release, now) do
     %{
@@ -159,7 +160,7 @@ defmodule Ankole.Brain.SkillLessons do
     |> Enum.sort()
   end
 
-  # ── Production trigger ──────────────────────────────────────────
+  # Production trigger
 
   defp evaluate_trigger(agent_uid, now) do
     watermark = reflection_watermark(agent_uid)
@@ -181,7 +182,7 @@ defmodule Ankole.Brain.SkillLessons do
   defp reflection_watermark(agent_uid) do
     Job
     |> where([job], job.agent_uid == ^agent_uid)
-    |> where([job], fragment("(? ->> 'skill_lesson_reflection') = 'true'", job.metadata))
+    |> Queries.reflection_jobs()
     |> where([job], fragment("(? -> 'lessons_applied_at') IS NOT NULL", job.metadata))
     |> select([job], max(fragment("(? ->> 'through_job_id')::bigint", job.metadata)))
     |> Repo.one()
@@ -192,7 +193,7 @@ defmodule Ankole.Brain.SkillLessons do
     Job
     |> where([job], job.agent_uid == ^agent_uid)
     |> where([job], job.status not in ^@terminal_statuses)
-    |> where([job], fragment("(? ->> 'skill_lesson_reflection') = 'true'", job.metadata))
+    |> Queries.reflection_jobs()
     |> Repo.exists?()
   end
 
@@ -208,10 +209,7 @@ defmodule Ankole.Brain.SkillLessons do
       |> where([job], job.status in ^@terminal_statuses)
       |> where([job], job.id > ^watermark)
       |> where([job], coalesce(job.completed_at, job.updated_at) > ^age_floor)
-      |> where(
-        [job],
-        fragment("coalesce(? ->> 'skill_lesson_reflection', 'false') <> 'true'", job.metadata)
-      )
+      |> Queries.excluding_reflection_jobs()
       |> select([job], job.id)
       |> Repo.all()
 
@@ -293,7 +291,7 @@ defmodule Ankole.Brain.SkillLessons do
     end
   end
 
-  # ── Evidence bundle ─────────────────────────────────────────────
+  # Evidence bundle
 
   defp bundle_sections(bundle) do
     job_ids = Enum.map(bundle, & &1.job_id)
@@ -522,7 +520,7 @@ defmodule Ankole.Brain.SkillLessons do
     |> Enum.join("\n")
   end
 
-  # ── Reflection completion ───────────────────────────────────────
+  # Reflection completion
 
   defp do_apply_reflection_output(job) do
     output = job.result["output_text"] || ""
@@ -573,7 +571,7 @@ defmodule Ankole.Brain.SkillLessons do
     :ok
   end
 
-  # ── Review ──────────────────────────────────────────────────────
+  # Review
 
   defp run_review(agent_uid, current_release, now) do
     horizon = DateTime.add(now, @docket_horizon_hours, :hour)
@@ -639,10 +637,7 @@ defmodule Ankole.Brain.SkillLessons do
     |> where([job], job.agent_uid == ^agent_uid)
     |> where([job], job.status in ^@terminal_statuses)
     |> where([job], coalesce(job.completed_at, job.updated_at) > ^index_floor)
-    |> where(
-      [job],
-      fragment("coalesce(? ->> 'skill_lesson_reflection', 'false') <> 'true'", job.metadata)
-    )
+    |> Queries.excluding_reflection_jobs()
     |> order_by([job], desc: job.id)
     |> limit(@review_index_limit)
     |> select([job], %{id: job.id, title: job.title, status: job.status})
@@ -723,7 +718,7 @@ defmodule Ankole.Brain.SkillLessons do
     end)
   end
 
-  # ── Text helpers ────────────────────────────────────────────────
+  # Text helpers
 
   defp head(nil, _limit), do: ""
   defp head(text, limit) when is_binary(text), do: String.slice(text, 0, limit)

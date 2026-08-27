@@ -48,6 +48,15 @@ defmodule Ankole.Brain.Access do
   end
 
   @doc """
+  Returns whether one bare scope is reachable for this querier. A body
+  segment carries no author or holder, so the owned-Agent exemptions of
+  `reachable?/2` do not apply; membership in the accessible scopes is the
+  whole rule, and `world` is always a member.
+  """
+  @spec scope_reachable?(t(), String.t()) :: boolean()
+  def scope_reachable?(%__MODULE__{} = access, scope), do: scope in access.scopes
+
+  @doc """
   Returns whether one already-loaded row is reachable for this querier.
 
   Reachable rows satisfy an accessible scope, were written by the querier

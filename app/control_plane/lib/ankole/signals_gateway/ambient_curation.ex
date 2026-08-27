@@ -179,46 +179,16 @@ defmodule Ankole.SignalsGateway.AmbientCuration do
   end
 
   defp proposed_route(attrs) do
-    case presence(Map.get(attrs, :action)) do
-      nil -> legacy_route(attrs)
-      action -> explicit_route(action, attrs)
-    end
-  end
-
-  defp legacy_route(attrs) do
-    case Map.get(attrs, :decision) do
-      "silent" ->
-        {:ok, %{action: "NOOP", authority: "NONE", decision: "silent", handoff_job_id: nil}}
-
-      "intervene" ->
-        {:ok,
-         %{
-           action: "FOREGROUND_REPLY",
-           authority: "NONE",
-           decision: "intervene",
-           handoff_job_id: nil
-         }}
-
-      other ->
-        {:error, {:invalid_ambient_decision, other}}
-    end
+    explicit_route(presence(Map.get(attrs, :action)), attrs)
   end
 
   defp explicit_route(action, attrs) when action in @actions do
     authority = presence(Map.get(attrs, :authority))
     handoff_job_id = presence(Map.get(attrs, :handoff_job_id))
-    projected_decision = legacy_decision(action)
 
     with :ok <- validate_authority(action, authority),
-         {:ok, handoff_job_id} <- validate_handoff_job_id(action, handoff_job_id),
-         :ok <- validate_legacy_projection(Map.get(attrs, :decision), projected_decision) do
-      {:ok,
-       %{
-         action: action,
-         authority: authority,
-         decision: projected_decision,
-         handoff_job_id: handoff_job_id
-       }}
+         {:ok, handoff_job_id} <- validate_handoff_job_id(action, handoff_job_id) do
+      {:ok, %{action: action, authority: authority, handoff_job_id: handoff_job_id}}
     end
   end
 
@@ -241,16 +211,6 @@ defmodule Ankole.SignalsGateway.AmbientCuration do
 
   defp validate_handoff_job_id(_action, job_id),
     do: {:error, {:invalid_ambient_handoff_job_id, job_id}}
-
-  defp validate_legacy_projection(value, projected) when value in [nil, "", projected], do: :ok
-
-  defp validate_legacy_projection(value, _projected),
-    do: {:error, {:invalid_ambient_decision, value}}
-
-  defp legacy_decision(action) when action in ["FOREGROUND_REPLY", "NEW_WORK"],
-    do: "intervene"
-
-  defp legacy_decision(_action), do: "silent"
 
   defp lock_handoff_job(
          repo,
@@ -404,17 +364,13 @@ defmodule Ankole.SignalsGateway.AmbientCuration do
 
   defp judgment_result(%AmbientJudgment{} = judgment) do
     %{
-      decision: judgment.decision,
-      action: judgment.action || legacy_action(judgment.decision),
-      authority: judgment.authority || "NONE",
+      action: judgment.action,
+      authority: judgment.authority,
       handoff_job_id: judgment.handoff_job_id,
       asked_by_state: judgment.asked_by_state,
       judged_until: judgment.judged_until
     }
   end
-
-  defp legacy_action("intervene"), do: "FOREGROUND_REPLY"
-  defp legacy_action(_decision), do: "NOOP"
 
   defp ambient_event(repo, agent_uid, actor_event_id) do
     case event_for_agent(repo, agent_uid, actor_event_id) do
@@ -532,7 +488,6 @@ defmodule Ankole.SignalsGateway.AmbientCuration do
       actor_event_id: event.id,
       agent_uid: event.agent_uid,
       signal_channel_id: event.signal_channel_id,
-      decision: route.decision,
       action: route.action,
       authority: route.authority,
       handoff_job_id: route.handoff_job_id,

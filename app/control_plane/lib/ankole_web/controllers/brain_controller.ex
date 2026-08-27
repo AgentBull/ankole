@@ -18,6 +18,7 @@ defmodule AnkoleWeb.BrainController do
 
   alias Ankole.Brain.Access
   alias Ankole.Brain.Claims
+  alias Ankole.Brain.Dreaming
   alias Ankole.Brain.Forget
   alias Ankole.Brain.GetPage
   alias Ankole.Brain.Health
@@ -387,15 +388,7 @@ defmodule AnkoleWeb.BrainController do
 
     with :ok <- ConsolePolicy.authorize(conn, "brain", "update"),
          true <- status in ["resolved", "dismissed"] || {:error, :invalid_status},
-         %Contradiction{} = contradiction <- Repo.get(Contradiction, id) || {:error, :not_found},
-         {:ok, updated} <-
-           contradiction
-           |> Ecto.Changeset.change(
-             status: status,
-             resolution_note: params["resolution_note"],
-             decided_at: DateTime.utc_now(:microsecond)
-           )
-           |> Repo.update() do
+         {:ok, updated} <- Dreaming.decide_contradiction(id, status, params["resolution_note"]) do
       json_plain(conn, %{contradiction: %{id: updated.id, status: updated.status}})
     else
       {:error, reason} -> error(conn, reason)
@@ -515,11 +508,7 @@ defmodule AnkoleWeb.BrainController do
 
   def archive_source(conn, %{"source_id" => source_id}) do
     with :ok <- ConsolePolicy.authorize(conn, "brain", "update"),
-         %Source{} = source <- Repo.get(Source, source_id) || {:error, :not_found},
-         {:ok, archived} <-
-           source
-           |> Source.changeset(%{archived_at: DateTime.utc_now(:microsecond)})
-           |> Repo.update() do
+         {:ok, archived} <- SourceLearning.archive_source(source_id) do
       json_plain(conn, %{source: %{id: archived.id, archived_at: archived.archived_at}})
     else
       {:error, reason} -> error(conn, reason)
@@ -572,7 +561,7 @@ defmodule AnkoleWeb.BrainController do
     end
   end
 
-  # ── Helpers ─────────────────────────────────────────────────────
+  # Helpers
 
   # Brain payloads carry DateTime and Date values in many nested shapes, and
   # Torque cannot encode calendar structs, so every response passes through

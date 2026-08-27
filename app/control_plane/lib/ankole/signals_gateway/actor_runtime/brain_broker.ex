@@ -348,7 +348,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BrainBroker do
     end)
   end
 
-  # ── Context pack slot ───────────────────────────────────────────
+  # Context pack slot
 
   @context_pack_marker "brain_context_pack_at"
   @context_pack_event_marker "brain_context_pack_event"
@@ -423,7 +423,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BrainBroker do
     :ok
   end
 
-  # ── Turn context ────────────────────────────────────────────────
+  # Turn context
 
   # The disclosure recipients come from the Turn's channel: the asking
   # sender always, plus every channel-group member in strict mode. Private
@@ -548,7 +548,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BrainBroker do
     end
   end
 
-  # ── Shared plumbing ─────────────────────────────────────────────
+  # Shared plumbing
 
   defp decode_params(%FabricProto.BrainRequest{params_json: params_json}) do
     case params_json do

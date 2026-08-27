@@ -8,7 +8,7 @@ defmodule Ankole.AIGateway.PrepareContext do
   making provider code query model profiles or decrypt secrets by itself.
   """
 
-  import Ankole.AIGateway.MapUtils, only: [normalize_request_keys: 1]
+  import Ankole.Attrs, only: [normalize_external_attrs: 1]
 
   alias Ankole.AIGateway.ProviderDefinition
   alias Ankole.AIGateway.ProviderDefinition.Capability
@@ -74,7 +74,7 @@ defmodule Ankole.AIGateway.PrepareContext do
          provider: provider,
          capability: capability,
          runtime: runtime,
-         request: normalize_request_keys(request),
+         request: normalize_external_attrs(request),
          provider_options: provider_options(runtime),
          settings: settings(provider, runtime),
          model: runtime["model"],
@@ -106,7 +106,7 @@ defmodule Ankole.AIGateway.PrepareContext do
   # rows while still giving provider code one normalized shape.
   defp provider_options(runtime) do
     case Map.get(runtime, "provider_options") do
-      value when is_map(value) -> normalize_request_keys(value)
+      value when is_map(value) -> normalize_external_attrs(value)
       _value -> %{}
     end
   end

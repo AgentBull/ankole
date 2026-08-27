@@ -74,4 +74,22 @@ defmodule Ankole.Brain.DreamingContradictionsTest do
              {left.id, right.id} == ids or {right.id, left.id} == ids
            end)
   end
+
+  test "only an open contradiction accepts an operator decision", %{a: a, b: b} do
+    assert :ok = Dreaming.record_contradiction_verdict(a.id, b.id, "contradiction", 0.9, %{})
+    contradiction = Repo.get_by!(Contradiction, a_claim_id: a.id, b_claim_id: b.id)
+
+    assert {:ok, %Contradiction{status: "resolved"} = decided} =
+             Dreaming.decide_contradiction(contradiction.id, "resolved", "kept claim A")
+
+    assert decided.resolution_note == "kept claim A"
+    assert decided.decided_at
+
+    # A decided row must not flip again, and a missing row is its own error.
+    assert {:error, :conflict} =
+             Dreaming.decide_contradiction(contradiction.id, "dismissed", nil)
+
+    assert {:error, :not_found} =
+             Dreaming.decide_contradiction(Ecto.UUID.generate(), "resolved", nil)
+  end
 end

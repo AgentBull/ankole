@@ -164,7 +164,12 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
     // returns an empty pack.
     const memoryInjections: BrainTurnInjections = brainEnabled
       ? await turnActivity.runStep(
-          brainTurnInjections(opts.rpc, turnStart, actorEventText(actorEvent.payload_json, actorEvent.type)),
+          brainTurnInjections(
+            opts.rpc,
+            turnStart,
+            actorEventText(actorEvent.payload_json, actorEvent.type),
+            opts.logger
+          ),
           'brain memory injections'
         )
       : { pointerLines: [], packMessages: [] }

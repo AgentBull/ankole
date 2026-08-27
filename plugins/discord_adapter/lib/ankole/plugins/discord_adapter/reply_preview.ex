@@ -70,7 +70,8 @@ defmodule Ankole.Plugins.DiscordAdapter.ReplyPreview do
 
     chunks
     |> Enum.with_index()
-    |> Enum.reduce_while({:ok, existing, []}, fn {chunk, index}, {:ok, records, responses} ->
+    |> Enum.reduce_while({:ok, existing, [], false}, fn {chunk, index},
+                                                        {:ok, records, responses, changed?} ->
       current = Map.get(records, index)
 
       case upsert_message(client, event, current, chunk, channel, index) do
@@ -81,7 +82,7 @@ defmodule Ankole.Plugins.DiscordAdapter.ReplyPreview do
 
           case Actors.put_reply_preview_checkpoint(event.id, staged) do
             {:ok, _event} ->
-              {:cont, {:ok, records, [response | responses]}}
+              {:cont, {:ok, records, [response | responses], true}}
 
             {:error, _reason} ->
               {:halt, {:error, :discord_partial_delivery}}
@@ -90,12 +91,18 @@ defmodule Ankole.Plugins.DiscordAdapter.ReplyPreview do
         {:error, :discord_send_uncertain} ->
           {:halt, {:error, :discord_send_uncertain}}
 
+        # An earlier chunk already changed the visible reply, so the failure
+        # leaves a half-rendered message that needs an operator, not the
+        # permanent-failure classification of a clean first send.
+        {:error, _reason} when changed? ->
+          {:halt, {:error, :discord_partial_delivery}}
+
         {:error, _reason} = error ->
           {:halt, error}
       end
     end)
     |> case do
-      {:ok, records, responses} ->
+      {:ok, records, responses, _changed?} ->
         messages =
           records
           |> Enum.filter(fn {index, _message} -> index < length(chunks) end)

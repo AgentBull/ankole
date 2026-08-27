@@ -1070,6 +1070,7 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
       },
       tools: [
         defineWorkerTool({
+          executionMode: 'sequential',
           name: 'lookup',
           description: 'Read one value.',
           schema: z.object({ key: z.string() }),
@@ -1082,6 +1083,7 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
           })
         }),
         defineWorkerTool({
+          executionMode: 'sequential',
           name: 'write',
           description: 'Write one value.',
           schema: z.object({ key: z.string() }),

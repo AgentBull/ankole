@@ -46,12 +46,17 @@ defmodule Ankole.Plugins.TelegramAdapter.ActionToken do
   def resolve(_token, _agent_uid, _binding_name, _source_entry_id),
     do: {:error, :invalid_callback_token}
 
+  # A callback token arrives from the network, so every segment gets validated
+  # before it reaches a query; a non-UUID event id would otherwise raise in
+  # `Repo.get` and wedge the poll loop on the same update.
   defp decode(token) do
     case String.split(token, ":", parts: 4) do
       [@prefix, actor_event_id, encoded_index, fingerprint]
       when byte_size(fingerprint) == 11 ->
-        case Integer.parse(encoded_index, 36) do
-          {index, ""} when index >= 0 -> {:ok, actor_event_id, index, fingerprint}
+        with {:ok, _uuid} <- Ecto.UUID.cast(actor_event_id),
+             {index, ""} when index >= 0 <- Integer.parse(encoded_index, 36) do
+          {:ok, actor_event_id, index, fingerprint}
+        else
           _invalid -> {:error, :invalid_callback_token}
         end
 

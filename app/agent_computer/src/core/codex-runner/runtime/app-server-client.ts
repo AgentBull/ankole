@@ -96,6 +96,11 @@ const HEALTH_PROBE_TIMEOUT_MS = ms('5s')
 const STDOUT_EXIT_GRACE_MS = 50
 /** Grace period after stdin closes before Agent Computer kills the process. */
 const PROCESS_GRACEFUL_CLOSE_MS = ms('1s')
+// One JSON-RPC line the app-server can send. Above this the line is not a
+// message this client can act on, and buffering it would spend the shared
+// Worker's memory on a single Codex runtime. Generous enough for a large
+// turn/diff notification, small enough that it cannot exhaust the Worker.
+const MAX_JSONRPC_LINE_BYTES = 64 * 1024 * 1024
 // JSON line parsing stays non-throwing so one bad line becomes a protocol
 // failure with the original line attached.
 const parseJSONLine = (line: string): Result<unknown, unknown> =>
@@ -468,6 +473,17 @@ export class CodexAppServerRequestTimeoutError extends Error {
   }
 }
 
+export class CodexAppServerLineTooLongError extends Error {
+  readonly code = 'codex_app_server_line_too_long'
+
+  constructor(readonly bytes: number) {
+    super(
+      `codex app-server sent a ${bytes} byte line without a newline, above the ${MAX_JSONRPC_LINE_BYTES} byte bound`
+    )
+    this.name = 'CodexAppServerLineTooLongError'
+  }
+}
+
 export class CodexAppServerExitError extends Error {
   constructor(readonly exitCode: number | null) {
     super(`codex app-server exited with code ${exitCode ?? 'unknown'}`)
@@ -526,6 +542,12 @@ async function readJSONLines(stream: ReadableStream<Uint8Array> | null, onLine: 
         buffer = buffer.slice(newlineIndex + 1)
         if (line) onLine(line)
         newlineIndex = buffer.indexOf('\n')
+      }
+      // Checked after the split so the bound applies to one unterminated line,
+      // not to a batch of complete ones. Failing here reaches `failTransport`
+      // and takes down this runtime alone.
+      if (buffer.length > MAX_JSONRPC_LINE_BYTES) {
+        throw new CodexAppServerLineTooLongError(buffer.length)
       }
     }
     const tail = buffer.trim()

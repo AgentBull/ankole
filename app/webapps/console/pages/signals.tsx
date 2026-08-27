@@ -27,14 +27,7 @@ import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tansta
 import { useDeferredValue, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useSearchParams } from 'react-router'
-import {
-  ConfigField,
-  ConfigFields,
-  defaultConfig,
-  localizedText,
-  type ConfigFieldDefinition,
-  type LocalizedText
-} from '../../common/config-fields'
+import { ConfigField, ConfigFields, defaultConfig, localizedText } from '../../common/config-fields'
 import i18n from '../../common/i18n'
 import { requestErrorMessage } from '../../common/request-errors'
 import { formatConsoleDate } from '../console-primitives'
@@ -431,7 +424,7 @@ export function SignalBindingEditorPage() {
   }
 
   const targetAgentUID = model.agentUID.value || defaultAgentUID
-  const activeFields = asConfigFields(activeAdapter?.fields ?? [])
+  const activeFields = activeAdapter?.fields ?? []
   const submitDisabled = editing && !model.dirty.value
 
   return (
@@ -479,7 +472,7 @@ export function SignalBindingEditorPage() {
             {editing ? (
               <ReadOnlyValue>
                 {activeAdapter
-                  ? localizedUnknown(activeAdapter.display_name, locale, activeAdapter.adapter_id)
+                  ? (localizedText(activeAdapter.display_name, locale) ?? activeAdapter.adapter_id)
                   : model.adapterID.value}
               </ReadOnlyValue>
             ) : (
@@ -498,7 +491,7 @@ export function SignalBindingEditorPage() {
                       <SelectLabel>{t(group.labelKey)}</SelectLabel>
                       {group.adapters.map(adapter => (
                         <SelectItem key={adapter.adapter_id} value={adapter.adapter_id}>
-                          {localizedUnknown(adapter.display_name, locale, adapter.adapter_id)}
+                          {localizedText(adapter.display_name, locale) ?? adapter.adapter_id}
                         </SelectItem>
                       ))}
                     </SelectGroup>
@@ -524,13 +517,13 @@ export function SignalBindingEditorPage() {
             description={t('console.signals.section_behavior_hint')}>
             <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
               <ConfigField
-                field={asConfigField(activeAdapter.group_message_mode_field)}
+                field={activeAdapter.group_message_mode_field}
                 locale={locale}
                 value={model.groupMessageMode.value || defaultGroupMessageMode(activeAdapter)}
                 onChange={value => (model.groupMessageMode.value = String(value) as GroupMessageMode)}
               />
               <ConfigField
-                field={asConfigField(activeAdapter.unmatched_sender_policy_field)}
+                field={activeAdapter.unmatched_sender_policy_field}
                 locale={locale}
                 value={model.unmatchedSenderPolicy.value || defaultUnmatchedSenderPolicy(activeAdapter)}
                 onChange={value => (model.unmatchedSenderPolicy.value = String(value) as UnmatchedSenderPolicy)}
@@ -605,7 +598,7 @@ function formFromAdapter(adapter: SignalAdapterItem | undefined): SignalBindingA
     name: `${adapter.adapter_id}-main`,
     groupMessageMode: defaultGroupMessageMode(adapter),
     unmatchedSenderPolicy: defaultUnmatchedSenderPolicy(adapter),
-    config: defaultConfig(asConfigFields(adapter.fields))
+    config: defaultConfig(adapter.fields)
   }
 }
 
@@ -623,16 +616,8 @@ function asJSONObject(value: unknown): JSONObject {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as JSONObject) : {}
 }
 
-function asConfigFields(fields: readonly unknown[]): ConfigFieldDefinition[] {
-  return fields as readonly unknown[] as ConfigFieldDefinition[]
-}
-
-function asConfigField(field: unknown): ConfigFieldDefinition {
-  return field as unknown as ConfigFieldDefinition
-}
-
 function defaultGroupMessageMode(adapter: SignalAdapterItem): GroupMessageMode | '' {
-  const field = asConfigField(adapter.group_message_mode_field)
+  const field = adapter.group_message_mode_field
   return asGroupMessageMode(typeof field.default === 'string' ? field.default : undefined) ?? ''
 }
 
@@ -642,15 +627,11 @@ function asGroupMessageMode(value: string | undefined): GroupMessageMode | undef
 }
 
 function defaultUnmatchedSenderPolicy(adapter: SignalAdapterItem): UnmatchedSenderPolicy | '' {
-  const field = asConfigField(adapter.unmatched_sender_policy_field)
+  const field = adapter.unmatched_sender_policy_field
   return asUnmatchedSenderPolicy(typeof field.default === 'string' ? field.default : undefined) ?? ''
 }
 
 function asUnmatchedSenderPolicy(value: string | undefined): UnmatchedSenderPolicy | undefined {
   if (value === 'manual_review' || value === 'create_standalone') return value
   return undefined
-}
-
-function localizedUnknown(value: unknown, locale: string, fallback: string): string {
-  return localizedText(value as LocalizedText, locale) ?? fallback
 }

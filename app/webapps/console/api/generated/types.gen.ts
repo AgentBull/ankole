@@ -1137,14 +1137,16 @@ export type SignalAdapterField = {
   advanced?: boolean
   default?: JsonValue
   description?: LocalizedText
-  encrypted?: boolean | null
+  encrypted?: boolean
   label?: LocalizedText
-  max?: number | null
-  min?: number | null
-  options?: Array<SignalAdapterFieldOption> | null
+  max?: number
+  min?: number
+  options?: Array<SignalAdapterFieldOption>
   path: string
-  required?: boolean | null
+  required?: boolean
+  requiredWhen?: Array<SignalAdapterFieldRequirement>
   type: string
+  validation?: SignalAdapterPatternValidation | SignalAdapterJsonObjectValidation
   [key: string]: unknown
 }
 
@@ -1231,6 +1233,14 @@ export type WorkerFileUploadResponse = {
     size: number
     xxh3_128?: string | null
   }
+}
+
+/**
+ * SignalAdapterFieldRequirement
+ */
+export type SignalAdapterFieldRequirement = {
+  path: string
+  value: JsonValue
 }
 
 /**
@@ -2321,6 +2331,18 @@ export type ProviderHostedResponse = {
 }
 
 /**
+ * SignalAdapterJSONObjectValidation
+ */
+export type SignalAdapterJsonObjectValidation = {
+  kind: 'json_object'
+  message: LocalizedText
+  requiredStringProperties?: Array<string>
+  stringPrefixes?: {
+    [key: string]: string
+  }
+}
+
+/**
  * PermissionGrantResponse
  */
 export type PermissionGrantResponse = {
@@ -2372,6 +2394,15 @@ export type PrincipalGroupMemberItem = {
 export type AppConfigurationDecryptionValue = {
   key: string
   value: JsonValue
+}
+
+/**
+ * SignalAdapterPatternValidation
+ */
+export type SignalAdapterPatternValidation = {
+  kind: 'pattern'
+  message: LocalizedText
+  pattern: string
 }
 
 export type AnkoleWebAiGatewayFilesControllerContentData = {

@@ -240,7 +240,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
     |> collect_results()
   end
 
-  # --- author / platform subject -------------------------------------------
+  # author / platform subject
 
   defp author(payload, config) do
     case optional_text(payload, "senderStaffId") do
@@ -276,7 +276,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
     end
   end
 
-  # --- text ----------------------------------------------------------------
+  # text
 
   # Inbound text stays the user's own words. A voice message has no typed text —
   # its platform ASR transcript rides the attachment descriptor (`recognition`)
@@ -351,7 +351,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
   defp formatted_content(nil), do: %{}
   defp formatted_content(text), do: %{"format" => "markdown", "body" => text}
 
-  # --- attachments ---------------------------------------------------------
+  # attachments
 
   defp attachments(payload) do
     case optional_text(payload, "msgtype") do
@@ -475,7 +475,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
     ])
   end
 
-  # --- channel / helpers ---------------------------------------------------
+  # channel / helpers
 
   defp channel_kind(payload) do
     case optional_text(payload, "conversationType") do

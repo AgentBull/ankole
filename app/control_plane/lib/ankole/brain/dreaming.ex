@@ -12,6 +12,7 @@ defmodule Ankole.Brain.Dreaming do
 
   import Ecto.Query, warn: false
 
+  alias Ankole.Brain.Calibration
   alias Ankole.Brain.Claims
   alias Ankole.Brain.Config
   alias Ankole.Brain.Links
@@ -24,7 +25,6 @@ defmodule Ankole.Brain.Dreaming do
   alias Ankole.Brain.Schemas.SchemaSuggestion
   alias Ankole.Brain.Schemas.SchemaType
   alias Ankole.Brain.Schemas.Tag
-  alias Ankole.Brain.Schemas.TakeDomainAssignment
   alias Ankole.Brain.Timelines
   alias Ankole.Ecto.UUIDv7
   alias Ankole.Kernel, as: NativeKernel
@@ -36,8 +36,6 @@ defmodule Ankole.Brain.Dreaming do
   @consolidate_bucket_limit 200
   @patterns_window_days 30
   @patterns_min_items 5
-  @grade_batch_limit 50
-  @grade_stale_months 6
   @contradiction_batch_limit 50
   @contradiction_min_confidence 0.7
   @contradiction_verdicts ~w(
@@ -51,9 +49,6 @@ defmodule Ankole.Brain.Dreaming do
     family marriage wedding loss death grief relationship love mental-health
     health illness birth children kids parents
   ))
-
-  @calibration_start "<!-- brain:calibration:start -->"
-  @calibration_end "<!-- brain:calibration:end -->"
 
   @phases [
     :consolidate,
@@ -94,14 +89,25 @@ defmodule Ankole.Brain.Dreaming do
   # A phase boundary is a real failure boundary: one broken phase must not
   # block the rest of the round.
   defp run_phase(phase) do
-    apply(__MODULE__, :"phase_#{phase}", [])
+    case phase do
+      :consolidate -> phase_consolidate()
+      :patterns -> phase_patterns()
+      :extract_links -> phase_extract_links()
+      :emotional_weight -> phase_emotional_weight()
+      :grade_takes -> Calibration.grade_takes()
+      :calibration_profile -> Calibration.calibration_profile()
+      :contradictions -> phase_contradictions()
+      :schema_suggest -> phase_schema_suggest()
+      :purge -> phase_purge()
+      :skill_lessons -> Ankole.Brain.SkillLessons.run_phase()
+    end
   rescue
     error -> %{status: :failed, error: Exception.message(error)}
   catch
     :exit, reason -> %{status: :failed, error: inspect(reason)}
   end
 
-  # ── Phase 1: consolidate ────────────────────────────────────────
+  # Phase 1: consolidate
 
   # Bucket qualification runs as one aggregate query, so fact embeddings
   # only load for buckets that can actually promote; facts stuck in small
@@ -149,7 +155,7 @@ defmodule Ankole.Brain.Dreaming do
 
   defp consolidation_candidates(query) do
     query
-    |> current_fact_query()
+    |> Claims.current_external_facts()
     |> where([claim], is_nil(claim.consolidated_at))
     |> where([claim], not is_nil(claim.embedding))
     |> where([claim], not is_nil(claim.object_slug))
@@ -231,7 +237,7 @@ defmodule Ankole.Brain.Dreaming do
     end
   end
 
-  # ── Phase 2: patterns ───────────────────────────────────────────
+  # Phase 2: patterns
 
   @doc false
   def phase_patterns do
@@ -244,7 +250,7 @@ defmodule Ankole.Brain.Dreaming do
 
         buckets =
           Claim
-          |> current_fact_query()
+          |> Claims.current_external_facts()
           |> where([claim], claim.created_at >= ^window_start)
           |> where([claim], claim.notability == "high")
           |> where([claim], not is_nil(claim.object_slug))
@@ -317,7 +323,7 @@ defmodule Ankole.Brain.Dreaming do
     end
   end
 
-  # ── Phase 3: link and timeline extraction ───────────────────────
+  # Phase 3: link and timeline extraction
 
   # The phase contract covers wikilinks, name mentions, and timeline events.
   # The timeline half needs the model, so a missing model skips the whole
@@ -466,7 +472,7 @@ defmodule Ankole.Brain.Dreaming do
     |> Enum.reject(&(&1 == object.slug))
   end
 
-  # ── Phase 4: emotional weight ───────────────────────────────────
+  # Phase 4: emotional weight
 
   # Only the scoring fields load (never the bodies or vectors), changed
   # weights write individually, and one statement stamps the whole pass:
@@ -568,227 +574,7 @@ defmodule Ankole.Brain.Dreaming do
     |> min(1.0)
   end
 
-  # ── Phase 5: grade takes ────────────────────────────────────────
-
-  @doc false
-  def phase_grade_takes do
-    case Config.dreaming_model() do
-      nil ->
-        %{status: :skipped, reason: :dreaming_model_not_configured}
-
-      model ->
-        stale_before =
-          DateTime.add(DateTime.utc_now(), -@grade_stale_months * 30 * 86_400, :second)
-
-        today = Date.to_iso8601(Date.utc_today())
-
-        takes =
-          Claim
-          |> where([claim], claim.claim_type == "take" and claim.active == true)
-          |> where([claim], is_nil(claim.resolved_at))
-          |> where(
-            [claim],
-            (not is_nil(claim.until_date) and claim.until_date < ^today) or
-              claim.created_at < ^stale_before
-          )
-          |> limit(@grade_batch_limit)
-          |> Repo.all()
-
-        graded = Enum.count(takes, &(grade_take(model, &1) == :ok))
-        %{status: :ok, graded: graded, candidates: length(takes)}
-    end
-  end
-
-  defp grade_take(model, take) do
-    evidence =
-      case take.object_slug do
-        nil ->
-          []
-
-        slug ->
-          Claim
-          |> current_fact_query()
-          |> where([claim], claim.object_slug == ^slug)
-          |> order_by([claim], desc: claim.valid_from)
-          |> limit(10)
-          |> Repo.all()
-      end
-
-    evidence_text = Enum.map_join(evidence, "\n", fn fact -> "- #{fact.claim}" end)
-
-    domains =
-      Ankole.Brain.Schemas.SchemaCalibrationDomain
-      |> Repo.all()
-      |> Map.new(&{&1.name, &1.pack_name})
-
-    domain_line =
-      case Map.keys(domains) do
-        [] -> "none installed"
-        names -> Enum.join(names, ", ")
-      end
-
-    prompt = """
-    Grade one prediction against the available evidence. Return one JSON
-    object:
-    {"quality":"correct|incorrect|partial|unresolvable","confidence":0.8,
-     "domains":["<zero or more matching calibration domains>"]}
-
-    Installed calibration domains: #{domain_line}
-
-    Prediction (held by #{take.holder}, weight #{take.weight}): #{take.claim}
-    Until: #{take.until_date || "not stated"}
-
-    Evidence:
-    #{evidence_text}
-    """
-
-    with {:ok, output} <- ModelCalls.complete_json(model, prompt),
-         quality when quality in ["correct", "incorrect", "partial", "unresolvable"] <-
-           output["quality"],
-         confidence when is_number(confidence) <- output["confidence"] do
-      take
-      |> Ecto.Changeset.change(
-        graded_quality: quality,
-        graded_confidence: min(max(confidence * 1.0, 0.0), 1.0),
-        graded_at: DateTime.utc_now(:microsecond)
-      )
-      |> Repo.update!()
-
-      assign_take_domains(take, List.wrap(output["domains"]), domains)
-
-      :ok
-    else
-      _invalid -> :skip
-    end
-  end
-
-  # Domain assignments feed the calibration scorecards; the unique
-  # (take, domain) key makes grading reruns idempotent.
-  defp assign_take_domains(take, names, domains) do
-    names
-    |> Enum.filter(&Map.has_key?(domains, &1))
-    |> Enum.each(fn domain ->
-      Repo.insert!(
-        %TakeDomainAssignment{
-          id: UUIDv7.autogenerate(),
-          take_claim_id: take.id,
-          domain: domain,
-          pack: Map.fetch!(domains, domain),
-          assignment_provenance: "dreaming grade",
-          confidence: 1.0,
-          assigned_at: DateTime.utc_now(:microsecond)
-        },
-        on_conflict: :nothing,
-        conflict_target: [:take_claim_id, :domain]
-      )
-    end)
-  end
-
-  # ── Phase 6: calibration profile ────────────────────────────────
-
-  @doc false
-  def phase_calibration_profile do
-    scored =
-      Claim
-      |> where([claim], claim.claim_type == "take")
-      |> where([claim], claim.resolved_quality in ["correct", "incorrect"])
-      |> Repo.all()
-
-    domain_assignments =
-      TakeDomainAssignment
-      |> Repo.all()
-      |> Enum.group_by(& &1.take_claim_id, & &1.domain)
-
-    profiles =
-      scored
-      |> Enum.group_by(& &1.holder)
-      |> Enum.map(fn {holder, takes} ->
-        {holder, scorecard(takes, domain_assignments)}
-      end)
-
-    updated =
-      Enum.count(profiles, fn {holder, card} -> update_calibration_section(holder, card) end)
-
-    %{status: :ok, holders: length(profiles), updated: updated}
-  end
-
-  defp scorecard(takes, domain_assignments) do
-    overall = brier(takes)
-
-    domains =
-      takes
-      |> Enum.flat_map(fn take ->
-        domain_assignments
-        |> Map.get(take.id, [])
-        |> Enum.map(&{&1, take})
-      end)
-      |> Enum.group_by(fn {domain, _take} -> domain end, fn {_domain, take} -> take end)
-      |> Enum.map(fn {domain, domain_takes} ->
-        %{domain: domain, count: length(domain_takes), brier: brier(domain_takes)}
-      end)
-      |> Enum.sort_by(& &1.domain)
-
-    %{count: length(takes), brier: overall, domains: domains}
-  end
-
-  # Brier over resolved binary takes only: mean((weight - outcome)^2).
-  defp brier(takes) do
-    scores =
-      Enum.map(takes, fn take ->
-        outcome = if take.resolved_outcome, do: 1.0, else: 0.0
-        :math.pow(take.weight - outcome, 2)
-      end)
-
-    Float.round(Enum.sum(scores) / length(scores), 4)
-  end
-
-  defp update_calibration_section(holder, card) do
-    with {:ok, object} <- Objects.get_by_slug(holder) do
-      section =
-        [
-          @calibration_start,
-          "## Calibration",
-          "",
-          "Resolved takes: #{card.count}; Brier score: #{card.brier}.",
-          Enum.map_join(card.domains, "\n", fn domain ->
-            "- #{domain.domain}: #{domain.count} resolved, Brier #{domain.brier}"
-          end),
-          @calibration_end
-        ]
-        |> Enum.reject(&(&1 == ""))
-        |> Enum.join("\n")
-
-      body = replace_calibration_section(object.body, section)
-
-      if body == object.body do
-        false
-      else
-        case Objects.update_object(
-               object.slug,
-               %{body: body, expected_content_hash: object.content_hash},
-               :system
-             ) do
-          {:ok, _object} -> true
-          {:error, _reason} -> false
-        end
-      end
-    else
-      {:error, :not_found} -> false
-    end
-  end
-
-  defp replace_calibration_section(body, section) do
-    pattern =
-      ~r/#{Regex.escape(@calibration_start)}[\s\S]*?#{Regex.escape(@calibration_end)}/u
-
-    if Regex.match?(pattern, body) do
-      Regex.replace(pattern, body, section)
-    else
-      String.trim_trailing(body) <> "\n\n" <> section <> "\n"
-    end
-  end
-
-  # ── Phase 7: contradictions ─────────────────────────────────────
+  # Phase 7: contradictions
 
   @doc false
   def phase_contradictions do
@@ -812,7 +598,7 @@ defmodule Ankole.Brain.Dreaming do
       |> MapSet.new()
 
     Claim
-    |> current_fact_query()
+    |> Claims.current_external_facts()
     |> where([claim], not is_nil(claim.object_slug))
     |> order_by([claim], desc: claim.created_at)
     |> limit(400)
@@ -886,7 +672,41 @@ defmodule Ankole.Brain.Dreaming do
 
   defp normalize_severity(_severity), do: "info"
 
-  # ── Phase 8: schema suggestions ─────────────────────────────────
+  @doc """
+  Records an operator verdict for one open contradiction.
+
+  Only an `open` row is decidable: automatic negative verdicts land as
+  `dismissed` and stay out of triage, and a decided row must not flip again.
+  """
+  @spec decide_contradiction(Ecto.UUID.t(), String.t(), String.t() | nil) ::
+          {:ok, Contradiction.t()} | {:error, :not_found | :conflict | term()}
+  def decide_contradiction(contradiction_id, status, resolution_note)
+      when status in ["resolved", "dismissed"] do
+    Repo.transact(fn repo ->
+      Contradiction
+      |> where([contradiction], contradiction.id == ^contradiction_id)
+      |> lock("FOR UPDATE")
+      |> repo.one()
+      |> case do
+        %Contradiction{status: "open"} = contradiction ->
+          contradiction
+          |> Ecto.Changeset.change(
+            status: status,
+            resolution_note: resolution_note,
+            decided_at: DateTime.utc_now(:microsecond)
+          )
+          |> repo.update()
+
+        %Contradiction{} ->
+          {:error, :conflict}
+
+        nil ->
+          {:error, :not_found}
+      end
+    end)
+  end
+
+  # Phase 8: schema suggestions
 
   @doc false
   def phase_schema_suggest do
@@ -989,7 +809,7 @@ defmodule Ankole.Brain.Dreaming do
     end
   end
 
-  # ── Phase 9: purge ──────────────────────────────────────────────
+  # Phase 9: purge
 
   @doc false
   def phase_purge do
@@ -1005,21 +825,5 @@ defmodule Ankole.Brain.Dreaming do
     # Chunks of soft-deleted objects survive until this hard delete; expired
     # facts and superseded claims are never hard-deleted.
     %{status: :ok, purged: purged}
-  end
-
-  # ── Phase 10: skill lessons ─────────────────────────────────────
-
-  @doc false
-  def phase_skill_lessons, do: Ankole.Brain.SkillLessons.run_phase()
-
-  # ── Shared helpers ──────────────────────────────────────────────
-
-  defp current_fact_query(query) do
-    internal_prefix = Claims.internal_provenance_prefix() <> "%"
-
-    query
-    |> where([claim], claim.claim_type == "fact")
-    |> where([claim], is_nil(claim.expired_at) and is_nil(claim.superseded_by))
-    |> where([claim], not like(claim.provenance, ^internal_prefix))
   end
 end

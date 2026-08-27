@@ -105,7 +105,7 @@ export async function recognizeAmbientIntervention(
     abortSignal: opts?.abortSignal
   })
 
-  const parsed = parseAmbientDecision(assistantText(result.message), decisionSchema, workCandidates)
+  const parsed = parseAmbientDecision(assistantText(result.message), decisionSchema)
   const acceptsAskedBy = parsed.action === 'FOREGROUND_REPLY' || parsed.action === 'NEW_WORK'
   const askedBy = acceptsAskedBy ? resolveAskedBy(parsed.askedBy, window.delta) : { state: 'none' as const }
   const authority = corroboratedAuthority(parsed, askedBy, Boolean(standingOrders))
@@ -334,8 +334,7 @@ function formatTranscriptTime(value: string, timezone: string, currentDate: stri
  */
 function parseAmbientDecision(
   text: string,
-  schema: z.ZodType<AmbientDecisionWire>,
-  workCandidates: AmbientWorkCandidates
+  schema: z.ZodType<AmbientDecisionWire>
 ): {
   action: AmbientAction
   authority: AmbientAuthority
@@ -347,26 +346,17 @@ function parseAmbientDecision(
   if (!result.success) return invalidAmbientDecision()
 
   const parsed = result.data
-  const action = parsed.action
-  const authority = parsed.authority
   const askedBy = parsed.asked_by ?? undefined
   const handoffJobID = parsed.handoff_job_id ?? undefined
-  const validAction = ambientActions.find(candidate => candidate === action)
-  const validAuthority = ambientAuthorities.find(candidate => candidate === authority)
-  const allowedHandoffJobIDs = new Set(
-    workCandidates.complete ? workCandidates.jobs.map(candidate => candidate.jobID) : []
-  )
 
-  if (!validAction || !validAuthority) return invalidAmbientDecision()
-  if (validAction !== 'NEW_WORK' && validAuthority !== 'NONE') return invalidAmbientDecision()
-  if (validAction === 'HANDOFF' && (!handoffJobID || !allowedHandoffJobIDs.has(handoffJobID))) {
-    return invalidAmbientDecision()
-  }
-  if (validAction !== 'HANDOFF' && handoffJobID) return invalidAmbientDecision()
+  // The schema enums already fence every value set, so only the cross-field
+  // rules a JSON Schema cannot express get checked here.
+  if (parsed.action !== 'NEW_WORK' && parsed.authority !== 'NONE') return invalidAmbientDecision()
+  if ((parsed.action === 'HANDOFF') !== Boolean(handoffJobID)) return invalidAmbientDecision()
 
   return {
-    action: validAction,
-    authority: validAction === 'NEW_WORK' ? validAuthority : 'NONE',
+    action: parsed.action,
+    authority: parsed.authority,
     reason: parsed.reason,
     ...(askedBy ? { askedBy } : {}),
     ...(handoffJobID ? { handoffJobID } : {})

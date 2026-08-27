@@ -392,13 +392,12 @@ export class BackgroundAgentJobTurnRecorder {
     const item = this.canonicalItem(turn, rawItem)
     const key = itemKey(item)
     if (!key) return
-    if (turn.enqueuedItemKeys.has(key)) {
-      if (turn.activeItem?.id === id) {
-        turn.activeItem = undefined
-        this.markDirty(turn, true)
-      }
-      return
+    const alreadyEnqueued = turn.enqueuedItemKeys.has(key)
+    if (alreadyEnqueued && turn.activeItem?.id === id) {
+      turn.activeItem = undefined
+      this.markDirty(turn, true)
     }
+    if (alreadyEnqueued) return
     const changed = JSON.stringify(turn.items.get(key)) !== JSON.stringify(item)
     if (changed) this.putCanonicalEntry(turn, { key, item })
     const tracked = this.trackCompletedItem(turn, item)

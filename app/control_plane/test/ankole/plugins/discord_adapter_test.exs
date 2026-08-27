@@ -21,10 +21,19 @@ defmodule Ankole.Plugins.DiscordAdapterTest.FakeGateway do
 
     case payload["op"] do
       2 -> {:push, [ready(state) | Enum.map(state.events, &frame/1)], state}
-      6 -> {:push, [frame(%{"op" => 0, "t" => "RESUMED", "s" => nil, "d" => %{}})], state}
+      6 -> {:push, resume_replay(state, payload["d"]["seq"]), state}
       1 -> {:push, {:text, encode(%{"op" => 11, "d" => nil})}, state}
       _other -> {:ok, state}
     end
+  end
+
+  # Discord replays every event after the resume sequence, then marks the
+  # caught-up point with RESUMED.
+  defp resume_replay(state, seq) do
+    replayed = Enum.filter(state.events, &(is_integer(&1["s"]) and &1["s"] > seq))
+
+    Enum.map(replayed, &frame/1) ++
+      [frame(%{"op" => 0, "t" => "RESUMED", "s" => nil, "d" => %{}})]
   end
 
   @impl true
@@ -124,6 +133,31 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
   end
 
   describe "plugin and catalog contract" do
+    test "keeps two Agents' same-name bindings on distinct config keys" do
+      key = Config.binding_config_key("agent-a", "main")
+      assert key =~ ~r/\Asignals_gateway\.discord\.bindings\.[a-f0-9]{64}\z/
+      refute key == Config.binding_config_key("agent-b", "main")
+
+      %{principal: first} = agent_fixture()
+      %{principal: second} = agent_fixture()
+
+      assert {:ok, %{binding: first_binding}} =
+               SignalsGateway.put_binding(first.uid, "discord", "main", %{
+                 "config" => %{"botToken" => "bot.first-secret"}
+               })
+
+      assert {:ok, %{binding: second_binding}} =
+               SignalsGateway.put_binding(second.uid, "discord", "main", %{
+                 "config" => %{"botToken" => "bot.second-secret"}
+               })
+
+      assert {:ok, %{"botToken" => "bot.first-secret"}} =
+               SignalsGateway.Bindings.stored_binding_config(first_binding)
+
+      assert {:ok, %{"botToken" => "bot.second-secret"}} =
+               SignalsGateway.Bindings.stored_binding_config(second_binding)
+    end
+
     test "declares one consumer IM adapter with the complete gateway capability set" do
       assert DiscordAdapter.plugin_id() == "discord-adapter"
       assert [declaration] = DiscordAdapter.adapter_declarations()
@@ -421,6 +455,96 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
 
       assert %{state: :running, session?: true, message_content_intent?: true} =
                ConnectionOwner.status(owner)
+    end
+
+    test "sheds replayable events at the pending bound and recovers through resume replay" do
+      parent = self()
+      %{principal: agent} = agent_fixture()
+
+      assert {:ok, _binding} =
+               SignalsGateway.put_binding(agent.uid, "discord", "discord-bound", %{
+                 "config" => %{"botToken" => "bot.bound-secret"},
+                 "unmatched_sender_policy" => "create_standalone"
+               })
+
+      blocked =
+        dm_message("9600", "blocked head")
+        |> Map.put("attachments", [
+          %{
+            "id" => "bound-attachment",
+            "url" => "https://cdn.discord.test/attachments/bound/file.txt",
+            "filename" => "file.txt",
+            "size" => 4
+          }
+        ])
+
+      backlog =
+        Enum.map(3..6, fn seq ->
+          dispatch(seq, "MESSAGE_CREATE", dm_message("96#{seq}", "backlog #{seq}"))
+        end)
+
+      port = start_fake_gateway([dispatch(2, "MESSAGE_CREATE", blocked) | backlog])
+
+      Req.Test.stub(__MODULE__, fn conn ->
+        case conn.request_path do
+          "/api/v10/users/@me" ->
+            Req.Test.json(conn, %{"id" => "77", "username" => "AnkoleBot"})
+
+          "/api/v10/applications/@me" ->
+            Req.Test.json(conn, %{"id" => "app-77", "flags" => 0})
+
+          "/api/v10/gateway/bot" ->
+            Req.Test.json(conn, %{"url" => "ws://127.0.0.1:#{port}", "shards" => 1})
+
+          "/attachments/bound/file.txt" ->
+            send(parent, {:bound_download_started, self()})
+
+            receive do
+              :finish_bound_download -> Req.Test.transport_error(conn, :timeout)
+            end
+        end
+      end)
+
+      Application.put_env(:ankole, Config,
+        client_opts: [base_url: "https://discord.test/api/v10", plug: {Req.Test, __MODULE__}],
+        max_pending_events: 4
+      )
+
+      key = {agent.uid, "discord-bound"}
+
+      assert {:ok, owner} =
+               ConnectionSupervisor.ensure_started(%{"botToken" => "bot.bound-secret"}, [
+                 consumer(agent.uid, "discord-bound", %{"botToken" => "bot.bound-secret"})
+               ])
+
+      on_exit(fn -> ConnectionSupervisor.stop(key) end)
+
+      assert_receive {:bound_download_started, download_process}, 3_000
+
+      # The fifth backlog event hits the bound of four: the owner keeps only
+      # the in-flight head, sheds the replayable rest, and reconnects.
+      assert_receive {:gateway, :closed}, 3_000
+      assert %{pending_events: 1, sequence: 1} = ConnectionOwner.status(owner)
+
+      send(download_process, :finish_bound_download)
+
+      # The resume starts from the confirmed sequence and the replay restores
+      # the shed events, so the backlog drains once ingress moves again.
+      assert_receive {:gateway, %{"op" => 6, "d" => %{"seq" => 2, "session_id" => "sess-1"}}},
+                     5_000
+
+      assert eventually(fn -> ConnectionOwner.status(owner).sequence == 6 end),
+             inspect(ConnectionOwner.status(owner))
+
+      assert %{state: :running, session?: true, pending_events: 0} =
+               ConnectionOwner.status(owner)
+
+      assert eventually(fn ->
+               Repo.get_by(Entry,
+                 signal_channel_id: @dm_channel,
+                 source_entry_id: List.last(backlog)["d"]["id"]
+               ) != nil
+             end)
     end
 
     test "acknowledges a component while an earlier attachment is still downloading" do
@@ -1009,6 +1133,59 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
                %{"code" => "discord_delivery_unknown"}}} = ReplyPreview.update(request)
     end
 
+    test "classifies a rejected later chunk behind a delivered first chunk as partial delivery" do
+      %{principal: agent} = agent_fixture()
+      stub_client_opts()
+
+      assert {:ok, _binding} =
+               SignalsGateway.put_binding(agent.uid, "discord", "discord-preview-chunks", %{
+                 "config" => %{"botToken" => "bot.preview-chunks-secret"}
+               })
+
+      %{actor_event: %ActorEvent{} = event} =
+        emit_addressed_actor_event(agent.uid, "discord-preview-chunks", %{
+          source_event_id: "preview-chunks-event",
+          signal_channel_id: @dm_channel,
+          source_entry_id: "52",
+          channel: %{kind: :im_dm, reply_mode: :entry, name: "DM"},
+          text: "hello",
+          explicit: true,
+          author: %{principal_uid: "human-a", id: "7001"},
+          provider_time: base_time()
+        })
+
+      {:ok, counter} = Agent.start_link(fn -> 0 end)
+
+      Req.Test.stub(__MODULE__, fn conn ->
+        case Agent.get_and_update(counter, &{&1, &1 + 1}) do
+          0 ->
+            Req.Test.json(conn, %{"id" => "910"})
+
+          _later ->
+            conn
+            |> Plug.Conn.put_status(400)
+            |> Req.Test.json(%{"code" => 50_035, "message" => "Invalid Form Body"})
+        end
+      end)
+
+      request = %Request{
+        actor_event: event,
+        presentation:
+          ReplyPresentation.new(state: "working")
+          |> ReplyPresentation.replace_answer(String.duplicate("x", 2_500)),
+        checkpoint: nil,
+        subject_uid: "human-a",
+        conversation_id: "conversation-a",
+        mode: :working
+      }
+
+      # A bare 400 normalizes as permanent, but the first chunk is already
+      # visible, so the half-rendered reply must reach an operator instead.
+      assert {:error,
+              {:reply_delivery, :operator_action_required,
+               %{"code" => "discord_delivery_unknown"}}} = ReplyPreview.update(request)
+    end
+
     test "uses a custom_id within the Discord limit and restores the action from a checkpoint" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "discord-action", :ignore, adapter: "discord")
@@ -1064,6 +1241,16 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
       assert value["version"] == "ankole.interactive_output.action.v1"
       assert value["sourceActorEventId"] == event.id
       assert value["optionValue"] == "approved"
+
+      # A forged event id must fail as an invalid token, not raise in the
+      # event lookup.
+      assert {:error, :invalid_callback_token} =
+               ActionToken.resolve(
+                 "dc1:not-a-uuid:0:AAAAAAAAAAA",
+                 agent.uid,
+                 "discord-action",
+                 "900"
+               )
 
       changed =
         put_in(

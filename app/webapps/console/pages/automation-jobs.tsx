@@ -20,10 +20,9 @@ import {
 } from '../api/generated/@tanstack/react-query.gen'
 import type { AutomationJobItem, AutomationJobRunItem } from '../api/generated/types.gen'
 import { AgentFilter, useAgentScope } from '../console-agent-scope'
-import { resourceID } from '../console-route-loaders'
 import { StatusIndicator } from '../console-form'
 import { ErrorBlock } from '../../common/error-block'
-import { formatConsoleDate, formatJSON } from '../console-primitives'
+import { formatConsoleDate, formatJSON, resourceID } from '../console-primitives'
 import { AgentCell, FilterSwitch, ResourceListPage, ResourceSearch, RowViewAction } from '../console-list-page'
 import { matchesResourceSearch } from '../state/resource-search'
 

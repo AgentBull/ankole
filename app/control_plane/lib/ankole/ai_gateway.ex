@@ -14,7 +14,7 @@ defmodule Ankole.AIGateway do
   alias Ankole.AIGateway.FailureDiagnostics
   alias Ankole.AIGateway.HostedTools.ImageGeneration
   alias Ankole.AIGateway.HostedToolTelemetry
-  alias Ankole.AIGateway.MapUtils
+  alias Ankole.Attrs
   alias Ankole.AIGateway.Models
   alias Ankole.AIGateway.Observability
   alias Ankole.AIGateway.Providers
@@ -47,7 +47,7 @@ defmodule Ankole.AIGateway do
   def create_response(subject_uid, request, opts \\ [])
 
   def create_response(subject_uid, request, opts) when is_map(request) do
-    request = MapUtils.normalize_request_keys(request)
+    request = Attrs.normalize_external_attrs(request)
 
     # The trigger is a request item, not a transport event, so every transport
     # answers it the same way. AIGateway owns it on all of them, which is also
@@ -420,7 +420,7 @@ defmodule Ankole.AIGateway do
   def open_sse_stream(subject_uid, request, opts \\ [])
 
   def open_sse_stream(subject_uid, request, opts) when is_map(request) do
-    request = MapUtils.normalize_request_keys(request)
+    request = Attrs.normalize_external_attrs(request)
 
     with :ok <- reject_http_stateful_fields(request),
          {:ok, %{spec: prepared_request}} <-
@@ -451,7 +451,7 @@ defmodule Ankole.AIGateway do
       result =
         ResponseStream.open(
           subject_uid,
-          MapUtils.normalize_request_keys(request),
+          Attrs.normalize_external_attrs(request),
           prepared_request,
           Keyword.put(opts, :stateful, stateful_context)
         )
@@ -663,7 +663,7 @@ defmodule Ankole.AIGateway do
     with {:ok, runtime} <- Resolver.resolve_request_model(subject_uid, "web_fetch", request),
          {:ok, ssrf_filter?} <- SSRFFilter.enabled?(subject_uid),
          :ok <- validate_web_fetch_request(request, ssrf_filter?),
-         request = MapUtils.normalize_request_keys(request),
+         request = Attrs.normalize_external_attrs(request),
          {:ok, body} <- execute_web_fetch(runtime, request, opts) do
       {:ok, gateway_response(200, body, runtime)}
     end
@@ -698,7 +698,7 @@ defmodule Ankole.AIGateway do
     do: reject_http_stateful_fields(request)
 
   defp reject_http_stateful_fields(request) do
-    request = MapUtils.normalize_request_keys(request)
+    request = Attrs.normalize_external_attrs(request)
 
     case Enum.find(@stateful_http_fields, &Map.has_key?(request, &1)) do
       "store" ->
@@ -717,7 +717,7 @@ defmodule Ankole.AIGateway do
   end
 
   defp validate_embeddings_request(request) do
-    request = MapUtils.normalize_request_keys(request)
+    request = Attrs.normalize_external_attrs(request)
 
     cond do
       not Map.has_key?(request, "input") ->
@@ -732,7 +732,7 @@ defmodule Ankole.AIGateway do
   end
 
   defp validate_rerank_request(request) do
-    request = MapUtils.normalize_request_keys(request)
+    request = Attrs.normalize_external_attrs(request)
 
     cond do
       not non_empty_string?(Map.get(request, "query")) ->
@@ -750,7 +750,7 @@ defmodule Ankole.AIGateway do
   end
 
   defp validate_web_search_request(request) do
-    request = MapUtils.normalize_request_keys(request)
+    request = Attrs.normalize_external_attrs(request)
 
     cond do
       not non_empty_string?(Map.get(request, "query")) ->
@@ -768,7 +768,7 @@ defmodule Ankole.AIGateway do
   end
 
   defp validate_web_fetch_request(request, ssrf_filter?) do
-    request = MapUtils.normalize_request_keys(request)
+    request = Attrs.normalize_external_attrs(request)
 
     cond do
       not Map.has_key?(request, "urls") ->

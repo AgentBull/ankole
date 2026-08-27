@@ -598,6 +598,7 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
       },
       tools: [
         defineWorkerTool({
+          executionMode: 'sequential',
           name: 'write_report',
           description: 'Writes the report.',
           schema: z.object({ path: z.string() }),

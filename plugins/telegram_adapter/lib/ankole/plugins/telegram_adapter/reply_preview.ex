@@ -84,8 +84,10 @@ defmodule Ankole.Plugins.TelegramAdapter.ReplyPreview do
             {:ok, _event} ->
               {:cont, {:ok, records, [response | responses], true}}
 
-            {:error, _reason} = error ->
-              {:halt, if(changed?, do: {:error, :telegram_partial_delivery}, else: error)}
+            # The upsert already changed the visible reply, so an unrecorded
+            # checkpoint means a retry would post the chunk again.
+            {:error, _reason} ->
+              {:halt, {:error, :telegram_partial_delivery}}
           end
 
         {:error, :telegram_send_uncertain} ->
@@ -106,7 +108,7 @@ defmodule Ankole.Plugins.TelegramAdapter.ReplyPreview do
           |> Map.new()
           |> sorted_message_records()
 
-        with :ok <- delete_surplus_messages(client, event, existing, length(messages), channel) do
+        with :ok <- delete_surplus_messages(client, existing, length(messages), channel) do
           {:ok, messages, Enum.reverse(responses)}
         end
 
@@ -117,7 +119,7 @@ defmodule Ankole.Plugins.TelegramAdapter.ReplyPreview do
 
   defp upsert_message(
          client,
-         _event,
+         event,
          %{"message_id" => message_id} = current,
          chunk,
          channel,
@@ -139,15 +141,18 @@ defmodule Ankole.Plugins.TelegramAdapter.ReplyPreview do
 
         {:error, %Client.Error{error_code: 400, description: description}}
         when is_binary(description) ->
-          if String.contains?(String.downcase(description), "message is not modified") do
-            {:ok, Map.put(current, "index", index),
-             %{"message_id" => message_id, "not_modified" => true}}
-          else
-            if String.contains?(String.downcase(description), "message to edit not found") do
-              post_message(client, nil, chunk, channel, index)
-            else
+          normalized_description = String.downcase(description)
+
+          cond do
+            String.contains?(normalized_description, "message is not modified") ->
+              {:ok, Map.put(current, "index", index),
+               %{"message_id" => message_id, "not_modified" => true}}
+
+            String.contains?(normalized_description, "message to edit not found") ->
+              post_message(client, event, chunk, channel, index)
+
+            true ->
               {:error, %Client.Error{kind: :api, error_code: 400, description: description}}
-            end
           end
 
         {:error, %Client.Error{} = error} ->
@@ -170,8 +175,14 @@ defmodule Ankole.Plugins.TelegramAdapter.ReplyPreview do
       {:ok, %{"message_id" => message_id} = response} when is_integer(message_id) ->
         id = Integer.to_string(message_id)
 
-        with :ok <- maybe_record_first_message(event, id) do
-          {:ok, %{"index" => index, "message_id" => id}, compact_response(response)}
+        case maybe_record_first_message(event, id) do
+          :ok ->
+            {:ok, %{"index" => index, "message_id" => id}, compact_response(response)}
+
+          # The message is already visible, so a failed record must not read
+          # as a clean failure a retry could repeat.
+          {:error, _reason} ->
+            {:error, :telegram_partial_delivery}
         end
 
       {:ok, _invalid} ->
@@ -185,7 +196,10 @@ defmodule Ankole.Plugins.TelegramAdapter.ReplyPreview do
   defp maybe_reply(body, %ActorEvent{} = event) do
     case ActorEvent.reply_anchor_source_entry_id(event) |> Outbox.integer_value() do
       {:ok, source_entry_id} ->
-        Map.put(body, "reply_parameters", %{"message_id" => source_entry_id})
+        Map.put(body, "reply_parameters", %{
+          "message_id" => source_entry_id,
+          "allow_sending_without_reply" => true
+        })
 
       {:error, _reason} ->
         body
@@ -199,7 +213,7 @@ defmodule Ankole.Plugins.TelegramAdapter.ReplyPreview do
 
   defp maybe_record_first_message(_event, _id), do: :ok
 
-  defp delete_surplus_messages(client, _event, existing, retained_count, channel) do
+  defp delete_surplus_messages(client, existing, retained_count, channel) do
     existing
     |> Enum.filter(fn {index, _message} -> index >= retained_count end)
     |> Enum.reduce_while(:ok, fn {_index, %{"message_id" => message_id}}, :ok ->

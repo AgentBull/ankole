@@ -109,22 +109,6 @@ case System.get_env("ANKOLE_LOG_LEVEL") do
     config :logger, level: level
 end
 
-# config/runtime.exs is executed for all environments, including
-# during releases. It is executed after compilation and before the
-# system starts, so it is typically used to load production configuration
-# and secrets from environment variables or elsewhere. Do not define
-# any compile-time configuration in here, as it won't be applied.
-# The block below contains prod specific runtime configuration.
-
-# ## Using releases
-#
-# If you use `mix release`, you need to explicitly enable the server
-# by passing the PHX_SERVER=true when you start it:
-#
-#     PHX_SERVER=true bin/ankole start
-#
-# Alternatively, you can use `mix phx.gen.release` to generate a `bin/server`
-# script that automatically sets the env var above.
 if Ankole.Config.Bootstrap.env_boolean("PHX_SERVER", false) do
   config :ankole, AnkoleWeb.Endpoint, server: true
 end
@@ -165,11 +149,8 @@ if config_env() == :prod do
     if Ankole.Config.Bootstrap.env_boolean("ECTO_IPV6", false), do: [:inet6], else: []
 
   config :ankole, Ankole.Repo,
-    # ssl: true,
     url: database_url,
     pool_size: Ankole.Config.Bootstrap.env_integer("POOL_SIZE", 10),
-    # For machines with several cores, consider starting multiple pools of `pool_size`
-    # pool_count: 4,
     socket_options: maybe_ipv6
 
   host = Ankole.Config.Bootstrap.env_string("PHX_HOST", "example.com")
@@ -179,10 +160,6 @@ if config_env() == :prod do
   config :ankole, AnkoleWeb.Endpoint,
     url: [host: host, port: 443, scheme: "https"],
     http: [
-      # Enable IPv6 and bind on all interfaces.
-      # Set it to  {0, 0, 0, 0, 0, 0, 0, 1} for local network only access.
-      # See the documentation on https://hexdocs.pm/bandit/Bandit.html#t:options/0
-      # for details about using IPv6 vs IPv4 and loopback vs public addresses.
       ip: {0, 0, 0, 0, 0, 0, 0, 0}
     ]
 end

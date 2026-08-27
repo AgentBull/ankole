@@ -35,6 +35,7 @@ SignalsGateway ---- PostgreSQL ---- AIGateway ---- 模型提供商
 | --- | --- | --- |
 | SignalsGateway | 接收外部平台事件、启动 Agent 回合并发送回复 | [SignalsGateway](design-docs/SignalsGateway.md) |
 | AIGateway | 选择模型提供商，并为每个主体保存 Response | [AIGateway](design-docs/AIGateway.md) |
+| Brain | 保存实例共享知识，并在 Agent 需要时找出这些知识 | [BrainV3](design-docs/BrainV3.md) |
 | RuntimeFabric | 在进程之间传送实时消息、RPC 调用和文件 | [RuntimeFabric](design-docs/RuntimeFabric.md) |
 | Agent Computer | 运行模型循环、Codex 和工具 | `app/agent_computer/` |
 | PostgreSQL | 保存重启后仍然需要的事实 | `app/control_plane/priv/repo/migrations/` 下的迁移 |
@@ -119,6 +120,7 @@ PostgreSQL 保存以下数据，因为 Ankole 重启后仍然需要它们：
 - 消息连接、频道、消息、删除标记、ActorEvent 和待发回复
 - 定时规则和每次计划执行
 - AIGateway 对话、消息、压缩结果和模型提供商
+- Brain 页面、版本、chunk、claim、时间线、链接、Source、schema pack、矛盾与 skill lesson
 - BackgroundAgentJob 及其回合记录
 
 系统可以重新生成投递、激活、执行进程分配和在线执行进程记录。即使这些记录丢失，
@@ -219,6 +221,8 @@ tools/e2e/run --real-llm
 | --- | --- |
 | [AIGateway](design-docs/AIGateway.md) | 模型提供商、Response 历史、上下文压缩和生成文件 |
 | [SignalsGateway](design-docs/SignalsGateway.md) | 接收平台消息、运行 Agent、预览和发送回复 |
+| [BrainV3](design-docs/BrainV3.md) | 实例共享知识、作用域披露、学习与 Dreaming |
+| [Skill Lessons](design-docs/SkillLessons.md) | 来自已完成工作的租约制逐 skill 现场笔记 |
 | [RuntimeFabric](design-docs/RuntimeFabric.md) | ZeroMQ 消息、RPC 和文件传输 |
 | [Schedule](design-docs/Schedule.md) | 单次唤醒、周期任务和 ActorEvent |
 | [BackgroundAgentJob](design-docs/BackgroundAgentJob.md) | 进程失败后仍可继续的后台工作与 Codex 执行 |

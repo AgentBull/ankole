@@ -15,7 +15,11 @@ export function ThemeToggle({ className }: { className?: string }) {
         <TooltipTrigger
           render={<Button aria-label={label} className={className} size="icon-sm" type="button" variant="ghost" />}
           onClick={() => setTheme(dark ? 'light' : 'dark')}>
-          {dark ? <RiSunLine aria-hidden /> : <RiMoonLine aria-hidden />}
+          {dark ? (
+            <RiSunLine key="sun" aria-hidden className="size-4 [animation:theme-mark_180ms_var(--ease-productive)]" />
+          ) : (
+            <RiMoonLine key="moon" aria-hidden className="size-4 [animation:theme-mark_180ms_var(--ease-productive)]" />
+          )}
         </TooltipTrigger>
         <TooltipContent>{label}</TooltipContent>
       </Tooltip>

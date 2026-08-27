@@ -84,7 +84,7 @@
   "capabilities.async.body": "后台任务、定时任务、稍后回来查看。一个任务可以连续运行数小时，完成后 agent 会回到原来的群里通知你；中途哪一步出错，它会说明原因并重试。",
   "capabilities.tacit.title": "群聊里的隐性知识",
   "capabilities.tacit.body": "同事之间的对话，它同样在听。谁定下的规则、谁偏好什么、上次那个方案为什么没通过——这些从来没有人专门告诉过它的信息，会沉淀为这个群的共享记忆。",
-  "capabilities.brain.title": "不只是记住，而是建立世界模型",
+  "capabilities.brain.title": "从经验中学习的世界模型",
   "capabilities.brain.body": "记忆的本质是一个世界模型：用过去的经验预测接下来会发生什么，再让现实不断校正它。Brain 既归纳也演绎，还把外部世界的变化直接纳入认知——不必等谁在群里提起。所以它不只是记住，而是在学习和自我改进。",
   "capabilities.research.title": "Deep Research 与 Playbook",
   "capabilities.research.body": "扇出检索、分层验证、对立假设检验。一类任务跑通之后固化为 playbook，下次直接沿用。交付的是带引证的报告，而不是一段似是而非的摘要。",

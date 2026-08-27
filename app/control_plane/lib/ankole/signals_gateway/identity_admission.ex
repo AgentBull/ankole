@@ -36,10 +36,12 @@ defmodule Ankole.SignalsGateway.IdentityAdmission do
   Returns `{:ok, fact}` with the author resolved to a Principal, or
   `{:held, result}` when the fact must not be processed: the sender waits for
   manual review, or the sender's Principal is disabled. The held result is the
-  ingress status map.
+  ingress status map. A failed signal_source group write returns
+  `{:error, {:signal_source_group, reason}}`: the admission is incomplete and
+  the provider retries the event.
   """
   @spec admit_entry(Binding.t(), IngressFact.t(), DateTime.t()) ::
-          {:ok, IngressFact.t()} | {:held, map()}
+          {:ok, IngressFact.t()} | {:held, map()} | {:error, term()}
   def admit_entry(%Binding{} = binding, fact, now) do
     author = fact.author || %{}
 
@@ -62,7 +64,7 @@ defmodule Ankole.SignalsGateway.IdentityAdmission do
       {:ok, provider} ->
         case Principals.match_platform_subject_human(match_attrs(provider, author)) do
           {:ok, principal} ->
-            {:ok, admit(binding, fact, provider, author, principal.uid)}
+            admit(binding, fact, provider, author, principal.uid)
 
           {:error, :not_found} ->
             handle_unmatched(binding, fact, provider, now)
@@ -87,7 +89,7 @@ defmodule Ankole.SignalsGateway.IdentityAdmission do
 
     case rematch do
       {:ok, principal} ->
-        {:ok, admit(binding, %{fact | author: author}, provider, author, principal.uid)}
+        admit(binding, %{fact | author: author}, provider, author, principal.uid)
 
       {:error, :not_found} ->
         apply_policy(binding, %{fact | author: author}, provider, now)
@@ -105,7 +107,7 @@ defmodule Ankole.SignalsGateway.IdentityAdmission do
        ) do
     case upsert_subject(provider, fact.author, nil) do
       {:ok, principal} ->
-        {:ok, admitted_fact(binding, put_author_display(fact, principal), principal.uid)}
+        admitted_fact(binding, put_author_display(fact, principal), principal.uid)
 
       {:error, reason} ->
         held_silently(fact, {:standalone_account_failed, reason})
@@ -143,9 +145,14 @@ defmodule Ankole.SignalsGateway.IdentityAdmission do
     end
   end
 
+  # Group membership is part of the admission guarantee: permission policy
+  # addresses "users of this signal source" through the group, so a fact whose
+  # sender could not join must fail loudly and retry instead of entering with
+  # a narrower permission surface than the contract states.
   defp admitted_fact(%Binding{} = binding, fact, principal_uid) do
-    ensure_signal_source_membership(binding, principal_uid)
-    FactNormalizer.put_author_principal(fact, principal_uid)
+    with :ok <- ensure_signal_source_membership(binding, principal_uid) do
+      {:ok, FactNormalizer.put_author_principal(fact, principal_uid)}
+    end
   end
 
   # Absent attributes must stay absent: a nil display name or contact here
@@ -382,22 +389,8 @@ defmodule Ankole.SignalsGateway.IdentityAdmission do
     }
 
     case AuthZ.ensure_synced_group_member(group_attrs, principal_uid) do
-      :ok ->
-        :ok
-
-      {:error, reason} ->
-        Logging.warning(
-          "signals_gateway.identity_admission.source_group_failed",
-          "signal source group membership could not be ensured",
-          %{
-            binding: binding.name,
-            agent_uid: binding.agent_uid,
-            principal_uid: principal_uid,
-            reason: inspect(reason)
-          }
-        )
-
-        :ok
+      :ok -> :ok
+      {:error, reason} -> {:error, {:signal_source_group, reason}}
     end
   end
 

@@ -37,6 +37,7 @@ SignalsGateway ---- PostgreSQL ---- AIGateway ---- model providers
 | --- | --- | --- |
 | SignalsGateway | Receives provider events, starts Agent turns, and sends replies | [SignalsGateway](design-docs/SignalsGateway.md) |
 | AIGateway | Selects model providers and stores Responses for each Principal | [AIGateway](design-docs/AIGateway.md) |
+| Brain | Stores instance-shared knowledge and finds it when an Agent needs it | [BrainV3](design-docs/BrainV3.md) |
 | RuntimeFabric | Carries live messages, RPC calls, and files between processes | [RuntimeFabric](design-docs/RuntimeFabric.md) |
 | Agent Computer | Runs the model loop, Codex, and tools | `app/agent_computer/` |
 | PostgreSQL | Stores facts that must survive a restart | Migrations in `app/control_plane/priv/repo/migrations/` |
@@ -126,6 +127,7 @@ PostgreSQL keeps the following data because Ankole needs it after a restart:
 - Signal routing rules (`SignalBinding` records), channels, entries, tombstones, ActorEvent rows, and outbox rows
 - Schedules and scheduled events
 - AIGateway conversations, messages, compaction artifacts, and provider rows
+- Brain pages, versions, chunks, claims, timelines, links, sources, schema packs, contradictions, and skill lessons
 - BackgroundAgentJob rows and their turn records
 
 Ankole can rebuild deliveries, activations, worker assignments, and
@@ -229,6 +231,8 @@ credentials.
 | --- | --- |
 | [AIGateway](design-docs/AIGateway.md) | Model providers, Response history, compaction, and generated files |
 | [SignalsGateway](design-docs/SignalsGateway.md) | Provider input, Agent work, previews, and replies |
+| [BrainV3](design-docs/BrainV3.md) | Instance-shared knowledge, scoped disclosure, learning, and Dreaming |
+| [Skill Lessons](design-docs/SkillLessons.md) | Leased per-skill field notes from finished work |
 | [RuntimeFabric](design-docs/RuntimeFabric.md) | ZeroMQ messages, RPC calls, and file transfer |
 | [Schedule](design-docs/Schedule.md) | Checkbacks, cron schedules, and wake events |
 | [BackgroundAgentJob](design-docs/BackgroundAgentJob.md) | Durable background work and Codex execution |

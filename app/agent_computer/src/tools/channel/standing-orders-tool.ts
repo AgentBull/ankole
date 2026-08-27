@@ -30,7 +30,7 @@ const STANDING_ORDERS_DESCRIPTION = [
  * Builds the channel standing-orders tool for turns that carry a signal
  * channel. Turns without a provider channel get no tool.
  */
-export function createStandingOrdersTools(opts: CreateStandingOrdersToolsOptions): WorkerAgentTool<any>[] {
+export function createStandingOrdersTools(opts: CreateStandingOrdersToolsOptions): WorkerAgentTool[] {
   if (!currentReplyRoute(opts.turnStart)?.signal_channel_id) return []
 
   const tool: WorkerAgentTool<typeof StandingOrdersParams, JSONObject> = defineWorkerTool({

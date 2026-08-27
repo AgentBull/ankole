@@ -10,6 +10,7 @@ import {
   rmSync,
   statSync,
   symlinkSync,
+  utimesSync,
   writeFileSync
 } from 'node:fs'
 import {
@@ -635,6 +636,69 @@ describe('@ankole/agent-computer runtime', () => {
       ).toBe(false)
       expect(JSON.stringify(sentFrames)).not.toContain('object_key')
       expect(JSON.stringify(sentFrames)).not.toContain('sha256')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('refuses a read whose path became another file with the same size and mtime', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ankole-file-lane-identity-'))
+    const config = workerConfigForRoot(root)
+    const sentFrames: Buffer[][] = []
+    const sender = {
+      async sendFileFrame(frames: Buffer[]) {
+        sentFrames.push(frames)
+      }
+    }
+
+    try {
+      const paths = agentHomePaths(config.agentsRoot, 'agent-1')
+      mkdirSync(paths.userFiles, { recursive: true })
+      const lane = createFileTransferLane(config, sender.sendFileFrame)
+
+      const swappedPath = join(paths.userFiles, 'swapped.txt')
+      const replacementPath = join(paths.userFiles, 'replacement.txt')
+      const sharedMtime = new Date(1_700_000_000_000)
+      writeFileSync(swappedPath, 'original bytes')
+      utimesSync(swappedPath, sharedMtime, sharedMtime)
+
+      const transferID = 'transfer-read-swapped'
+      await lane.handle([
+        runtimeFabricFileProtocol,
+        Buffer.from('READ_OPEN'),
+        Buffer.from(transferID),
+        Buffer.from('/user_files/agent-1/user-files/swapped.txt'),
+        Buffer.from('none')
+      ])
+      expect(frameFor(sentFrames, transferID, 'READ_READY')[3]?.toString('utf8')).toBe(
+        '/user_files/agent-1/user-files/swapped.txt'
+      )
+
+      // The replacement matches every observable property the old check
+      // compared, so only the file's identity distinguishes it. Sending the
+      // open descriptor's bytes and reporting success would hand the control
+      // plane one file's content under another file's name.
+      writeFileSync(replacementPath, 'replaced bytes')
+      utimesSync(replacementPath, sharedMtime, sharedMtime)
+      renameSync(replacementPath, swappedPath)
+      const swapped = statSync(swappedPath)
+      expect(swapped.size).toBe('original bytes'.length)
+      expect(swapped.mtimeMs).toBe(sharedMtime.getTime())
+
+      await lane.handle([
+        runtimeFabricFileProtocol,
+        Buffer.from('CREDIT'),
+        Buffer.from(transferID),
+        u64Frame(creditWindow)
+      ])
+
+      const error = await waitForFrame(sentFrames, transferID, 'ERROR')
+      expect(error[3]?.toString('utf8')).toBe('file_changed')
+      expect(
+        sentFrames.some(
+          frames => frames[1]?.toString('utf8') === 'READ_DONE' && frames[2]?.toString('utf8') === transferID
+        )
+      ).toBe(false)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

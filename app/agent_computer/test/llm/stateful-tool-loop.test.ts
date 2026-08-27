@@ -576,6 +576,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
       },
       tools: [
         defineWorkerTool({
+          executionMode: 'sequential',
           name: 'lookup',
           description: 'Look up facts',
           schema: z.object({ q: z.string() }),
@@ -689,6 +690,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
       },
       tools: [
         defineWorkerTool({
+          executionMode: 'sequential',
           name: 'handoff',
           description: 'Return a background job result.',
           schema: z.object({}),
@@ -783,6 +785,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
       modelInputModalities: ['text', 'image'],
       tools: [
         defineWorkerTool({
+          executionMode: 'sequential',
           name: 'screenshot',
           description: 'Capture a screenshot',
           schema: z.object({}),
@@ -897,6 +900,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
       visionFallbackModel: fallbackModel,
       tools: [
         defineWorkerTool({
+          executionMode: 'sequential',
           name: 'screenshot',
           description: 'Capture a screenshot',
           schema: z.object({}),
@@ -1006,6 +1010,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
       },
       tools: [
         defineWorkerTool({
+          executionMode: 'sequential',
           name: 'lookup',
           description: 'Look up facts',
           schema: z.object({ q: z.string() }),
@@ -1120,6 +1125,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
       maxModelIterations: 3,
       tools: [
         defineWorkerTool({
+          executionMode: 'sequential',
           name: 'loop',
           description: 'Loop forever',
           schema: z.object({}),
@@ -1220,6 +1226,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
       maxModelIterations: 90,
       tools: [
         defineWorkerTool({
+          executionMode: 'sequential',
           name: 'write_file',
           description: 'Write one file',
           schema: z.object({ path: z.string(), content: z.string() }),
@@ -1311,6 +1318,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
       maxModelIterations: 90,
       tools: [
         defineWorkerTool({
+          executionMode: 'sequential',
           name: 'write_file',
           description: 'Write one file',
           schema: z.object({ path: z.string(), content: z.string() }),
@@ -1504,6 +1512,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
       },
       tools: [
         defineWorkerTool({
+          executionMode: 'sequential',
           name: 'lookup',
           description: 'Look up facts',
           schema: z.object({ q: z.string() }),
@@ -1669,6 +1678,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
       },
       tools: [
         defineWorkerTool({
+          executionMode: 'sequential',
           name: 'create_background_job',
           description: 'Create a background job',
           schema: z.object({ task: z.string() }),

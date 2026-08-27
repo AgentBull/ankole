@@ -14,7 +14,8 @@ export interface ReadFileWindow {
 
 export interface ContainerComputer {
   runCommand(input: CommandInput): Promise<CommandFinished>
-  readFileToBuffer(input: { path: string; cwd?: string }, opts?: { signal?: AbortSignal }): Promise<Buffer | null>
+  /** Size in bytes of a regular file, or `null` when the path does not exist. */
+  fileSize(input: { path: string; cwd?: string }, opts?: { signal?: AbortSignal }): Promise<number | null>
   readFileWindow(
     input: { path: string; cwd?: string; offset: number; limit: number },
     opts?: { signal?: AbortSignal }
@@ -37,10 +38,15 @@ interface ContainerComputerOptions {
 // These template strings are standalone `bun -e` programs, not part of this
 // module — they run inside the sandbox with no access to our imports, so
 // they must stay self-contained.
-const ReadFileScript = `
-import { readFile } from 'node:fs/promises'
+const FileSizeScript = `
+import { stat } from 'node:fs/promises'
 try {
-  process.stdout.write(await readFile(process.argv[1]))
+  const stats = await stat(process.argv[1])
+  if (!stats.isFile()) {
+    console.error('not a regular file')
+    process.exit(1)
+  }
+  process.stdout.write(String(stats.size))
 } catch (error) {
   if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') process.exit(44)
   console.error(error instanceof Error ? error.message : String(error))
@@ -139,11 +145,11 @@ export function createContainerComputer(
     runCommand(input) {
       return runWorkspaceCommand({ ...input, workerEnv, runtimeEnv }, root, cwd)
     },
-    async readFileToBuffer(input, opts) {
+    async fileSize(input, opts) {
       const target = computerPath(root, cwd, input.path, input.cwd)
       const result = await runWorkspaceProcess(
         {
-          commandArgv: [process.execPath, '-e', ReadFileScript, target],
+          commandArgv: [process.execPath, '-e', FileSizeScript, target],
           workerEnv,
           runtimeEnv,
           signal: opts?.signal
@@ -152,8 +158,8 @@ export function createContainerComputer(
         cwd
       )
       if (result.exitCode === 44) return null
-      if (result.exitCode !== 0) throw processError('read file', target, result)
-      return result.stdout
+      if (result.exitCode !== 0) throw processError('stat file', target, result)
+      return Number(result.stdout.toString('utf8'))
     },
     async readFileWindow(input, opts) {
       const target = computerPath(root, cwd, input.path, input.cwd)

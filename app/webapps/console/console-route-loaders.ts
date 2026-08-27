@@ -25,6 +25,7 @@ import {
 } from './api/generated/@tanstack/react-query.gen'
 import { backgroundAgentJobListOptions } from './pages/background-agent-jobs'
 import { conversationListOptions } from './pages/conversations'
+import { resourceID } from './console-primitives'
 import { GLOBAL_LIBRARY_SCOPE } from './state/agent-library-capabilities'
 
 /**
@@ -131,12 +132,4 @@ export function createConsoleRouteLoaders(queryClient: QueryClient) {
       ).then(() => null)
     }
   }
-}
-
-/** Parses a decimal route identifier and applies the owning API's lower bound. */
-export function resourceID(value: string | null, minimum: number): number | undefined {
-  if (!value || !/^[1-9][0-9]*$/.test(value)) return undefined
-
-  const parsed = Number(value)
-  return Number.isSafeInteger(parsed) && parsed >= minimum ? parsed : undefined
 }

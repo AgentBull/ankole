@@ -9,7 +9,7 @@ export const AGENT_LIBRARY_DOCUMENT_FILES: Record<AgentLibraryDocumentKind, stri
   mission: 'MISSION.md',
   soul: 'SOUL.md',
   design: 'DESIGN.md',
-  ['confidentiality_policy']: 'ConfidentialityPolicy.md'
+  confidentiality_policy: 'ConfidentialityPolicy.md'
 }
 
 export function agentLibraryDocumentTitle(kind: AgentLibraryDocumentKind): string {
@@ -60,7 +60,7 @@ export const AgentLibraryEditorModel = createModel(() => {
     mission: createDocumentState(),
     soul: createDocumentState(),
     design: createDocumentState(),
-    ['confidentiality_policy']: createDocumentState()
+    confidentiality_policy: createDocumentState()
   } satisfies Record<AgentLibraryDocumentKind, DocumentState>
 
   return {

@@ -376,12 +376,12 @@ class AIGatewayResponsesTurn implements ModelTurn {
     }
   }
 
+  // The conversation anchor holds for the first call only. Every later call
+  // continues the response this one produced, so the anchor is replaced rather
+  // than extended.
   private advanceAnchor(responseID: string): void {
-    this.stateful = {
-      ...this.stateful,
-      conversationID: undefined,
-      previousResponseID: responseID
-    }
+    const { actorEventID, truncation, metadata } = this.stateful
+    this.stateful = { actorEventID, truncation, metadata, previousResponseID: responseID }
   }
 
   private discardSocket(): void {

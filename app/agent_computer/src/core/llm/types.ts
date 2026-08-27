@@ -142,10 +142,14 @@ export interface CallModelOptions {
 
 export type ModelTurnCallOptions = Omit<CallModelOptions, 'abortSignal'>
 
-export type StatefulResponseContext = {
+// A stateful call continues exactly one anchor: the conversation it opens in,
+// or the response it continues from. The union makes both illegal combinations
+// unrepresentable — no anchor at all, and two competing anchors — so no caller
+// has to clear one field while setting the other.
+export type StatefulResponseAnchor = { conversationID: string } | { previousResponseID: string }
+
+export type StatefulResponseContext = StatefulResponseAnchor & {
   actorEventID: string
-  conversationID?: string
-  previousResponseID?: string
   truncation?: 'auto' | 'disabled'
   metadata?: JSONObject
 }

@@ -84,10 +84,7 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
         fragment("?->>'signal_channel_id' = ?", job.reply_route, ^signal_channel_id)
       )
       |> where([job], fragment("?->>'binding_name' = ?", job.reply_route, ^binding_name))
-      |> where(
-        [job],
-        fragment("coalesce(?->>'skill_lesson_reflection', 'false') <> 'true'", job.metadata)
-      )
+      |> excluding_reflection_jobs()
       |> order_by([job], desc: job.updated_at, desc: job.id)
       |> limit(@ambient_candidate_query_limit)
       |> select([job], %{
@@ -451,4 +448,27 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
   defp maybe_lock(query, nil), do: query
   defp maybe_lock(query, "FOR UPDATE"), do: lock(query, "FOR UPDATE")
   defp now, do: DateTime.utc_now(:microsecond)
+
+  @doc """
+  Keeps only skill-lesson reflection Jobs: the system Jobs the Brain runs to
+  reflect on finished work. The metadata flag at
+  `Ankole.Brain.SkillLessons` is the writer.
+  """
+  @spec reflection_jobs(Ecto.Queryable.t()) :: Ecto.Query.t()
+  def reflection_jobs(query) do
+    where(query, [job], fragment("(? ->> 'skill_lesson_reflection') = 'true'", job.metadata))
+  end
+
+  @doc """
+  Excludes skill-lesson reflection Jobs, so user-facing listings and budgets
+  see only real work.
+  """
+  @spec excluding_reflection_jobs(Ecto.Queryable.t()) :: Ecto.Query.t()
+  def excluding_reflection_jobs(query) do
+    where(
+      query,
+      [job],
+      fragment("coalesce(? ->> 'skill_lesson_reflection', 'false') <> 'true'", job.metadata)
+    )
+  end
 end

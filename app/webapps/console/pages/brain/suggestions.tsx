@@ -141,7 +141,7 @@ export function BrainSuggestionsPage() {
                     variant="ghost"
                     onClick={() =>
                       reject.mutate({
-                        path: { ['suggestion_id']: suggestion.id },
+                        path: { suggestion_id: suggestion.id },
                         body: { decision: 'reject' }
                       })
                     }>
@@ -200,12 +200,12 @@ export function BrainSuggestionsPage() {
               onClick={() =>
                 approveTarget &&
                 approve.mutate({
-                  path: { ['suggestion_id']: approveTarget.id },
+                  path: { suggestion_id: approveTarget.id },
                   body: {
                     decision: 'approve',
                     ...(primitive.trim() ? { primitive: primitive.trim() } : {}),
-                    ...(slugPrefix.trim() ? { ['slug_prefix']: slugPrefix.trim() } : {}),
-                    ...(targetType.trim() ? { ['target_type']: targetType.trim() } : {})
+                    ...(slugPrefix.trim() ? { slug_prefix: slugPrefix.trim() } : {}),
+                    ...(targetType.trim() ? { target_type: targetType.trim() } : {})
                   }
                 })
               }>

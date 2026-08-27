@@ -278,10 +278,9 @@ with their positions and item keys. Append-only `background_agent_job_turn_items
 rows store that stream, and they are the one storage and read-path owner of
 Turn content: every trajectory reader projects `ankole_chatml` messages from
 the stored items at read time. An item whose projection is empty stays stored
-for thread replay. Turns recorded before the item stream existed keep only
-their trajectory-group rows; readers use those stored group rows for exactly
-those Turns, and their threads fall back to the Workspace rebuild below when
-replay finds no items.
+for thread replay. A Turn recorded before the item stream existed has no item
+rows: it renders empty, and its thread falls back to the Workspace rebuild
+below when replay finds no items.
 
 A stored tool-result message keeps the stable execution mechanism in metadata.
 `provider_hosted` means that the model Provider executed the tool.

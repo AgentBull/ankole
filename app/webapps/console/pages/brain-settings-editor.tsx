@@ -36,7 +36,7 @@ function cronEditorLabels(t: TFunction): CronEditorLabels {
   return {
     mode: t('common.cron_mode'),
     modes: {
-      ['every_minutes']: t('common.cron_mode_every_minutes'),
+      every_minutes: t('common.cron_mode_every_minutes'),
       hourly: t('common.cron_mode_hourly'),
       daily: t('common.cron_mode_daily'),
       weekly: t('common.cron_mode_weekly'),
@@ -82,6 +82,7 @@ export function BrainSettingsEditor({
   const itemsByKey = new Map(items.map(item => [item.key, item]))
   const cronLabels = cronEditorLabels(t)
   const enabled = drafts[BRAIN_KEYS.enabled] === 'true'
+  const skillLearningEnabled = drafts[BRAIN_KEYS.skillLearningEnabled] === 'true'
   const tokenizer = brainStringDraft(drafts[BRAIN_KEYS.searchTokenizer])
   const chunking = brainNumberMapDraft(drafts[BRAIN_KEYS.chunking], BRAIN_CHUNKING_FIELDS)
   const forgetting = brainNumberMapDraft(drafts[BRAIN_KEYS.forgetting], BRAIN_FORGETTING_FIELDS)
@@ -200,6 +201,35 @@ export function BrainSettingsEditor({
           type="number"
           value={brainNumberDraft(drafts[BRAIN_KEYS.signalChannelBatchIdleTime])}
           onChange={event => onDraftChange(BRAIN_KEYS.signalChannelBatchIdleTime, brainNumberText(event.target.value))}
+        />
+      )}
+
+      {field(
+        BRAIN_KEYS.skillLearningEnabled,
+        t('console.settings.brain_skill_learning_enabled'),
+        <div className="flex min-h-12 items-center justify-between border border-border bg-muted/30 px-4 py-3">
+          <span className="text-sm text-foreground">
+            {skillLearningEnabled ? t('console.status.enabled') : t('console.status.disabled')}
+          </span>
+          <Switch
+            aria-label={t('console.settings.brain_skill_learning_enabled')}
+            checked={skillLearningEnabled}
+            onCheckedChange={next => onDraftChange(BRAIN_KEYS.skillLearningEnabled, String(next))}
+          />
+        </div>
+      )}
+
+      {field(
+        BRAIN_KEYS.skillLearningReflectionThreshold,
+        t('console.settings.brain_skill_learning_reflection_threshold'),
+        <Input
+          aria-label={t('console.settings.brain_skill_learning_reflection_threshold')}
+          min={2}
+          type="number"
+          value={brainNumberDraft(drafts[BRAIN_KEYS.skillLearningReflectionThreshold])}
+          onChange={event =>
+            onDraftChange(BRAIN_KEYS.skillLearningReflectionThreshold, brainNumberText(event.target.value))
+          }
         />
       )}
     </div>

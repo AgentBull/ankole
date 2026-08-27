@@ -2,7 +2,8 @@ import { describe, expect, test } from 'bun:test'
 import type { QueryClient } from '@tanstack/react-query'
 import type { LoaderFunctionArgs } from 'react-router'
 import { ankoleWebBackgroundAgentJobControllerIndexOptions } from './api/generated/@tanstack/react-query.gen'
-import { createConsoleRouteLoaders, resourceID } from './console-route-loaders'
+import { resourceID } from './console-primitives'
+import { createConsoleRouteLoaders } from './console-route-loaders'
 import { conversationListOptions } from './pages/conversations'
 
 describe('console route identifiers', () => {

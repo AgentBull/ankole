@@ -4,7 +4,27 @@
  * Ported/adapted from Claude Code's `utils/combinedAbortSignal.ts` and
  * `services/api/withRetry.ts`. Kept dependency-free and Bun-native.
  */
+import { ms } from '@agentbull/active-support'
 import { retryAfterMsFromError } from './retry-after'
+
+// Upper bound on a server-supplied `Retry-After`. The header is advice from a
+// party that does not know the caller's deadline, so it can lengthen a retry
+// schedule but never past this.
+const maxServerRetryAfterMs = ms('1m')
+
+/**
+ * How long to wait before the next attempt.
+ *
+ * A server hint raises the wait but never lowers it: backing off for less than
+ * the server asked only earns another rejection. The hint is bounded because a
+ * provider that asks for hours would otherwise park the caller past every
+ * deadline that matters. Our own schedule is left alone — `maxMs` already
+ * belongs to the caller.
+ */
+export function retrySleepMs(retryAfterMs: number | undefined, backoffMs: number): number {
+  if (retryAfterMs === undefined) return backoffMs
+  return Math.max(backoffMs, Math.min(retryAfterMs, maxServerRetryAfterMs))
+}
 
 /**
  * A combined `AbortSignal` that fires when `signal` aborts or `timeoutMs` elapses,
@@ -129,12 +149,7 @@ export async function withRetry<T>(
       // when the error is classified non-retryable. Re-throw the original error so
       // the caller sees the real failure, not a wrapper.
       if (attempt >= maxAttempts || opts.signal?.aborted || !isRetryable(error)) throw error
-      // When the server told us how long to wait, never back off for *less* than
-      // that; otherwise we'd just be rejected again. Take the larger of the
-      // server's hint and our own jittered schedule.
-      const retryAfterMs = retryAfterMsFromError(error)
-      const backoffMs = jitteredBackoff(attempt, opts)
-      await abortableSleep(retryAfterMs === undefined ? backoffMs : Math.max(backoffMs, retryAfterMs), opts.signal)
+      await abortableSleep(retrySleepMs(retryAfterMsFromError(error), jitteredBackoff(attempt, opts)), opts.signal)
       // The sleep resolves (does not throw) on abort, so re-check here and bail
       // instead of burning another attempt after the caller has given up.
       if (opts.signal?.aborted) throw error

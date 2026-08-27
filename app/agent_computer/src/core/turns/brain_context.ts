@@ -1,4 +1,4 @@
-import { deepString, isRecord, type JsonObject as JSONObject } from '@agentbull/active-support'
+import { deepString, isRecord, ms, type JsonObject as JSONObject } from '@agentbull/active-support'
 import { estimateO200kBaseTokens } from '@ankole/kernel'
 import type { TurnStart } from '../../lanes/actor_lane'
 import { jsonFromBytes } from '../../fabric/envelope_proto'
@@ -16,7 +16,7 @@ const packBudgetTokens = 4_000
 // Context injection is a zero-model enhancement with its own short timeout:
 // a slow control plane degrades the injection to nothing instead of holding
 // the turn for the general five-minute RPC timeout.
-const brainInjectionTimeoutMs = 5_000
+const brainInjectionTimeoutMs = ms('5s')
 
 // The control plane matches the injection text against exact aliases and
 // recent mentions, so a giant webhook or automation payload buys nothing:
@@ -66,24 +66,36 @@ export type BrainTurnInjections = {
  * volunteer pointers rendered as environment-info lines, and the context
  * pack rendered as one recalled-memory user message. The control plane owns
  * the context-pack slot (conversation start and after each compaction) and
- * returns an empty pack for every other turn. Each part degrades silently
- * to nothing on any failure.
+ * returns an empty pack for every other turn. Each part logs and degrades to
+ * nothing on failure.
  */
 export async function brainTurnInjections(
   rpc: RPCRequester,
   turnStart: TurnStart,
-  messageText: string
+  messageText: string,
+  logger?: AgentLoopLogger
 ): Promise<BrainTurnInjections> {
   const requestBrainRPC = brainRPCRequester(rpc, turnStart.turn)
   const boundedText = boundedInjectionText(messageText)
   const [pointerLines, packMessages] = await Promise.all([
-    volunteerPointerRequest(requestBrainRPC, boundedText),
-    contextPackRequest(requestBrainRPC, turnStart.actor_event.payload_json, boundedText)
+    volunteerPointerRequest(requestBrainRPC, boundedText, turnStart.turn.actor_event_id, logger),
+    contextPackRequest(
+      requestBrainRPC,
+      turnStart.actor_event.payload_json,
+      boundedText,
+      turnStart.turn.actor_event_id,
+      logger
+    )
   ])
   return { pointerLines, packMessages }
 }
 
-async function volunteerPointerRequest(requestBrainRPC: BrainRPCRequester, messageText: string): Promise<string[]> {
+async function volunteerPointerRequest(
+  requestBrainRPC: BrainRPCRequester,
+  messageText: string,
+  actorEventID: string,
+  logger?: AgentLoopLogger
+): Promise<string[]> {
   if (messageText.trim() === '') return []
   try {
     const response = await requestBrainRPC(
@@ -92,7 +104,8 @@ async function volunteerPointerRequest(requestBrainRPC: BrainRPCRequester, messa
       { timeoutMs: brainInjectionTimeoutMs }
     )
     return volunteerPointerLines(response)
-  } catch {
+  } catch (error) {
+    logInjectionFailure(logger, 'worker.brain_volunteer_pointers_failed', actorEventID, error)
     return []
   }
 }
@@ -100,7 +113,9 @@ async function volunteerPointerRequest(requestBrainRPC: BrainRPCRequester, messa
 async function contextPackRequest(
   requestBrainRPC: BrainRPCRequester,
   payload: JSONObject | undefined,
-  recentText: string
+  recentText: string,
+  actorEventID: string,
+  logger?: AgentLoopLogger
 ): Promise<UserMessage[]> {
   try {
     const response = await requestBrainRPC(
@@ -112,9 +127,22 @@ async function contextPackRequest(
       { timeoutMs: brainInjectionTimeoutMs }
     )
     return contextPackModelMessages(response)
-  } catch {
+  } catch (error) {
+    logInjectionFailure(logger, 'worker.brain_context_pack_failed', actorEventID, error)
     return []
   }
+}
+
+function logInjectionFailure(
+  logger: AgentLoopLogger | undefined,
+  event: string,
+  actorEventID: string,
+  error: unknown
+): void {
+  logger?.warning(event, 'Brain context injection failed; this turn continues without it', {
+    actor_event_id: actorEventID,
+    error: error instanceof Error ? error.message : String(error)
+  })
 }
 
 /**

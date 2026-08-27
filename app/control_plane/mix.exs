@@ -107,7 +107,6 @@ defmodule Ankole.MixProject do
       {:req, "~> 0.7"},
       {:mint_web_socket, "~> 1.0"},
       {:telemetry_metrics, "~> 1.2"},
-      {:telemetry_poller, "~> 1.3"},
       {:localize, "~> 1.2"},
       {:oban, "~> 2.24"},
       {:crontab, "~> 1.2"},

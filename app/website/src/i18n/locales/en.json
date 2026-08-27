@@ -84,7 +84,7 @@
   "capabilities.async.body": "Background jobs, schedules, and check back later. A job can run for hours; when it finishes, the agent comes back to the same channel. If a step fails, it says which one, then retries.",
   "capabilities.tacit.title": "What the room already knows",
   "capabilities.tacit.body": "It hears what teammates say to each other. House rules, who prefers what, why an option did not survive last time — things nobody thought to tell an agent — settle into the channel's shared memory.",
-  "capabilities.brain.title": "Not just remembering — building a world model",
+  "capabilities.brain.title": "A world model that learns from experience",
   "capabilities.brain.body": "Memory is a world model: it predicts what comes next from what has happened, and reality keeps correcting it. Brain induces and deduces, and it takes in changes from the outside world directly — nobody has to mention them in a channel first. So it does not only remember. It learns, and it improves itself.",
   "capabilities.research.title": "Deep research, and playbooks",
   "capabilities.research.body": "Fan-out retrieval, layered checks, competing-hypothesis analysis. Once a kind of job runs well it becomes a playbook, and the next one follows it. You get a cited report, not a confident-sounding summary.",

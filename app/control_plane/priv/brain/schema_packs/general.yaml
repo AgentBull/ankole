@@ -7,12 +7,8 @@ version: 1.0.0
 description: Minimal instance ontology for any digital employee.
 extends: null
 
-# Suggested kind values for claim_type=take. BrainV3 separates fact and take
-# at claim_type, so GBrain's "fact" kind is not a take kind here.
-take_kinds: [take, bet, hunch]
-
 page_types:
-  # ============ entity ============
+  # entity
   - name: person
     primitive: entity
     slug_prefix: people/
@@ -48,7 +44,7 @@ page_types:
     extractable: false
     expert_routing: true
 
-  # ============ temporal ============
+  # temporal
   - name: event
     primitive: temporal
     slug_prefix: events/
@@ -62,7 +58,7 @@ page_types:
     extractable: false
     expert_routing: false
 
-  # ============ media ============
+  # media
   - name: media
     primitive: media
     slug_prefix: media/
@@ -96,7 +92,7 @@ page_types:
     extractable: true
     expert_routing: false
 
-  # ============ concept ============
+  # concept
   - name: project
     primitive: concept
     slug_prefix: projects/

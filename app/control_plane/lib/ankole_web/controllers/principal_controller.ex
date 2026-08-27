@@ -11,6 +11,7 @@ defmodule AnkoleWeb.PrincipalController do
   alias Ankole.AuthZ
   alias Ankole.IdentityProviders.LocalPassword
   alias Ankole.Principals
+  alias Ankole.Principals.LocalCredentials
   alias Ankole.Principals.Principal
   alias AnkoleWeb.AuthZJSON
   alias AnkoleWeb.ConsoleErrors
@@ -175,7 +176,7 @@ defmodule AnkoleWeb.PrincipalController do
          :ok <- ConsolePolicy.authorize(conn, "principal:#{uid}", "reset"),
          :ok <- require_local_identity_provider(),
          {:ok, initial_password} <-
-           Principals.reset_local_password(uid, Map.get(body, :must_change_password, true)) do
+           LocalCredentials.reset_local_password(uid, Map.get(body, :must_change_password, true)) do
       json(conn, %{initial_password: initial_password})
     else
       {:error, reason} -> error(conn, reason)
@@ -222,14 +223,12 @@ defmodule AnkoleWeb.PrincipalController do
     end
   end
 
-  defp email_attr(email) when is_binary(email) do
-    case email |> String.trim() |> String.downcase() do
-      "" -> {:error, {:missing, "email"}}
+  defp email_attr(email) do
+    case Principals.normalize_email(email) do
+      nil -> {:error, {:missing, "email"}}
       normalized -> {:ok, normalized}
     end
   end
-
-  defp email_attr(_email), do: {:error, {:missing, "email"}}
 
   defp update_attrs(body) do
     attrs =

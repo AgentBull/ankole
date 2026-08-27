@@ -117,4 +117,26 @@ defmodule Ankole.SignalsGateway.IdentityAdmissionTest do
     assert Repo.aggregate(Membership, :count) >= 1
     assert [_group] = Repo.all(from group in Group, where: group.name == ^group_name)
   end
+
+  test "a failed signal_source group write refuses the entry instead of admitting it" do
+    %{principal: agent} = agent_fixture()
+    binding_fixture(agent.uid, "lark-adm", :ignore, unmatched_sender_policy: :create_standalone)
+
+    # A same-named group in another domain makes the synced group write fail
+    # with a domain mismatch, so the admission cannot complete.
+    group_name = String.downcase("signal_source:#{agent.uid}:lark-adm")
+
+    Repo.insert!(%Group{
+      name: group_name,
+      display_name: "collision",
+      domain: :operator,
+      kind: :static,
+      metadata: %{}
+    })
+
+    assert {:error, {:signal_source_group, _reason}} =
+             Ingress.emit_entry(agent.uid, "lark-adm", dm_entry(stranger_author()))
+
+    assert Repo.aggregate(Entry, :count) == 0
+  end
 end

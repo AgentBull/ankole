@@ -1,10 +1,3 @@
-# This file is responsible for configuring your application
-# and its dependencies with the aid of the Config module.
-#
-# This configuration file is loaded before any dependency and
-# is restricted to this project.
-
-# General application configuration
 import Config
 
 Code.require_file("support/bootstrap.exs", __DIR__)
@@ -29,7 +22,6 @@ config :ankole, :control_plane_plugin_modules, [
   Ankole.Plugins.WeComAdapter
 ]
 
-# Configure the endpoint
 config :ankole, AnkoleWeb.Endpoint,
   url: [host: "localhost"],
   adapter: Bandit.PhoenixAdapter,
@@ -78,6 +70,4 @@ config :ankole, Oban,
      ]}
   ]
 
-# Import environment specific config. This must remain at the bottom
-# of this file so it overrides the configuration defined above.
 import_config "#{config_env()}.exs"

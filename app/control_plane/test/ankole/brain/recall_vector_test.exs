@@ -76,7 +76,38 @@ defmodule Ankole.Brain.RecallVectorTest do
     end
   end
 
-  defp write_fact(object, member, claim_text) do
+  test "evidence found by both routes outranks a fresher single-route claim", %{member: member} do
+    {:ok, object} =
+      Objects.create_object(
+        %{slug: "concepts/orders", type: "concept", title: "Orders", body: "Order notes."},
+        member.uid
+      )
+
+    # BM25 and the vector arm both rank this first, but at half confidence.
+    {:ok, %{claim: both_routes}} =
+      write_fact(object, member, "Cobalt shipment arrived on time", 0.5)
+
+    # Only the vector arm finds this, at full confidence.
+    {:ok, %{claim: vector_only}} =
+      write_fact(object, member, "Graphite order was cancelled", 0.9)
+
+    assert {:ok, result} = Recall.recall(member.uid, %{query: "cobalt probe zzz"})
+
+    ids = Enum.map(result.claims, & &1.id)
+    both_index = Enum.find_index(ids, &(&1 == both_routes.id))
+    vector_index = Enum.find_index(ids, &(&1 == vector_only.id))
+
+    assert both_index
+    assert vector_index
+
+    # The kernel's fused score is additive, about twice a single-route score
+    # for a double hit, so half the confidence does not flip the order. A
+    # score rebuilt from the final rank would flatten that margin and put the
+    # full-confidence single-route claim first.
+    assert both_index < vector_index
+  end
+
+  defp write_fact(object, member, claim_text, confidence \\ 0.9) do
     Claims.write_fact(
       %{
         object_slug: object.slug,
@@ -85,7 +116,7 @@ defmodule Ankole.Brain.RecallVectorTest do
         holder: "world",
         audience_scope: "world",
         notability: "medium",
-        confidence: 0.9,
+        confidence: confidence,
         valid_from: DateTime.utc_now(:microsecond),
         provenance: "test"
       },

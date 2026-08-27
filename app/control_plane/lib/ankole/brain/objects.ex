@@ -494,7 +494,7 @@ defmodule Ankole.Brain.Objects do
     end
   end
 
-  # ── Validation ──────────────────────────────────────────────────
+  # Validation
 
   defp validate_slug(slug) when is_binary(slug) do
     if Regex.match?(@slug_format, slug), do: :ok, else: {:error, {:invalid_slug, slug}}

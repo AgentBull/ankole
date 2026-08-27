@@ -89,7 +89,7 @@ export function PrincipalCreatePage() {
     model.clearValidation()
     const draftError = model.draftError()
     if (draftError) {
-      model.validationError.value = principalDraftErrorText(draftError, t)
+      model.validationError.value = draftError
       return
     }
     create.mutate({ body: model.createBody() })
@@ -100,7 +100,11 @@ export function PrincipalCreatePage() {
       title={t('console.principals.create_title')}
       description={t('console.principals.create_description')}
       backTo="/access/principals"
-      error={model.validationError.value ?? principalRequestError(create.error, t)}
+      error={
+        model.validationError.value
+          ? principalDraftErrorText(model.validationError.value, t)
+          : principalRequestError(create.error, t)
+      }
       submitting={create.isPending}
       submitLabel={t('console.principals.create_submit')}
       onSubmit={submit}>

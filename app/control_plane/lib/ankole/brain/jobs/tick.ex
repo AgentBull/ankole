@@ -37,15 +37,11 @@ defmodule Ankole.Brain.Jobs.Tick do
   end
 
   defp local_now do
-    timezone =
-      case Ankole.AppConfigure.get_by_key("system.timezone") do
-        {:ok, timezone} when is_binary(timezone) -> timezone
-        _missing -> "Etc/UTC"
-      end
-
-    case DateTime.now(timezone) do
-      {:ok, datetime} -> DateTime.to_naive(datetime)
-      {:error, _reason} -> NaiveDateTime.utc_now()
+    with {:ok, timezone} <- Ankole.SystemConfig.timezone(),
+         {:ok, datetime} <- DateTime.now(timezone) do
+      DateTime.to_naive(datetime)
+    else
+      _unavailable -> NaiveDateTime.utc_now()
     end
   end
 end

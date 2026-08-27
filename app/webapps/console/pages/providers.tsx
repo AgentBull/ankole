@@ -1,3 +1,4 @@
+import { recordValue } from '@agentbull/active-support'
 import {
   Badge,
   Button,
@@ -935,12 +936,12 @@ function ChatGPTLoginDialog({
   }
   const start = useMutation({
     ...startChatGPTLoginMutation(),
-    onSuccess: response => setLogin(asRecord(response) ?? undefined)
+    onSuccess: response => setLogin(recordValue(response) ?? undefined)
   })
   const poll = useMutation({
     ...pollChatGPTLoginMutation(),
     onSuccess: response => {
-      const update = asRecord(response) ?? {}
+      const update = recordValue(response) ?? {}
       if (update.status === 'complete') {
         finish()
       } else {
@@ -967,7 +968,7 @@ function ChatGPTLoginDialog({
 
   const mode = textValue(login?.mode)
   const status = textValue(login?.status)
-  const loginContext = asRecord(login?.login_context)
+  const loginContext = recordValue(login?.login_context)
   const retryAfter = numberValue(login?.retry_after) ?? numberValue(login?.interval) ?? 5
 
   useEffect(() => {
@@ -1346,8 +1347,8 @@ function credentialStatusTone(
 
 function formatCredentialUsage(t: TFunction, value: Record<string, unknown>): string | undefined {
   const buckets = [
-    [t('console.providers.usage_model'), asRecord(value.model)],
-    [t('console.providers.usage_image_generation'), asRecord(value.image_gen)]
+    [t('console.providers.usage_model'), recordValue(value.model)],
+    [t('console.providers.usage_image_generation'), recordValue(value.image_gen)]
   ] as const
 
   const parts = buckets.flatMap(([name, usage]) => {
@@ -1377,12 +1378,6 @@ function formatRateLimits(value: Record<string, unknown>): string | undefined {
     .map(([name, limit]) => `${name.replace(/^x-codex-/, '')}: ${limit}`)
 
   return parts.length > 0 ? parts.join('\n') : undefined
-}
-
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined
 }
 
 function textValue(value: unknown): string {

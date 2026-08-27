@@ -347,7 +347,7 @@ defmodule Ankole.Plugins.TelegramAdapter.Inbound do
               %{
                 acc
                 | mentions: [mention | acc.mentions],
-                  replacements: [{value, ""} | acc.replacements],
+                  replacements: [{entity["offset"], entity["length"], ""} | acc.replacements],
                   explicit?: true
               }
 
@@ -357,7 +357,9 @@ defmodule Ankole.Plugins.TelegramAdapter.Inbound do
               %{
                 acc
                 | command_prefixes: [value | acc.command_prefixes],
-                  replacements: [{value, normalized} | acc.replacements],
+                  replacements: [
+                    {entity["offset"], entity["length"], normalized} | acc.replacements
+                  ],
                   explicit?: true
               }
 
@@ -385,12 +387,11 @@ defmodule Ankole.Plugins.TelegramAdapter.Inbound do
   defp visible_text(text, projection, message) do
     base = text || supplemental_text(message)
 
-    projection.replacements
-    |> Enum.reduce(base, fn
-      {from, to}, acc when is_binary(acc) and is_binary(from) -> String.replace(acc, from, to)
-      _replacement, acc -> acc
-    end)
-    |> blank_to_nil()
+    if is_binary(base) and projection.replacements != [] do
+      base |> EntityText.splice(projection.replacements) |> blank_to_nil()
+    else
+      blank_to_nil(base)
+    end
   end
 
   defp supplemental_text(%{"location" => %{} = location}) do
@@ -657,6 +658,10 @@ defmodule Ankole.Plugins.TelegramAdapter.Inbound do
 
   defp reaction_key(reaction), do: {"telegram_unknown", inspect(reaction)}
 
+  # A reaction update carries no topic id, so the lookup finds the channel the
+  # message entry recorded. The chat match is exact or `:topic:`-delimited: a
+  # bare prefix would also match another chat whose id extends this one, for
+  # example `-1001234` behind `-100123`.
   defp reaction_channel_id(context, bot_id, chat_id, source_entry_id) do
     base = signal_channel_id(bot_id, chat_id, nil)
 
@@ -664,7 +669,8 @@ defmodule Ankole.Plugins.TelegramAdapter.Inbound do
     |> where(
       [entry],
       entry.source_entry_id == ^source_entry_id and
-        like(entry.signal_channel_id, ^"#{base}%")
+        (entry.signal_channel_id == ^base or
+           like(entry.signal_channel_id, ^"#{base}:topic:%"))
     )
     |> limit(1)
     |> Repo.one()

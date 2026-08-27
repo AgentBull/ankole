@@ -182,7 +182,7 @@ function integerField(map: { [key: string]: unknown } | undefined, key: string):
   return typeof value === 'number' ? value : undefined
 }
 
-// --- Worker files page ---
+// Worker files page
 
 export function WorkerFilesPage() {
   const { t } = useTranslation()

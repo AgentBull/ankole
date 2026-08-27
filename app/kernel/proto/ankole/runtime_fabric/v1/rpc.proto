@@ -17,7 +17,7 @@ package ankole.runtime_fabric.v1;
 // layer validates them; `optional` marks scalars whose absence differs from
 // the zero value; timestamps are ISO-8601 strings.
 
-// ===== shared =====
+// shared
 
 // Response family whose body is model-facing JSON owned by the Elixir
 // broker. The worker parses body_json and passes it through to the model
@@ -26,7 +26,7 @@ message JSONPassthroughResponse {
   bytes body_json = 1;
 }
 
-// ===== brain =====
+// brain
 
 // Brain memory operations share one request message: the params document is
 // free-form JSON whose per-method contract the Brain domain layer owns and
@@ -36,7 +36,7 @@ message BrainRequest {
   bytes params_json = 1;
 }
 
-// ===== actor turn completion =====
+// actor turn completion
 
 // Completion is a terminal write. The turn fence stays on the RPC frame so a
 // retry can carry the same durable completion anchor with a new request id.
@@ -74,7 +74,7 @@ message ActorTurnAbortResponse {
   string retry_available_at = 3;
 }
 
-// ===== worker_agent scope =====
+// worker_agent scope
 
 message AIGatewayAPIKeyRequest {}
 
@@ -120,7 +120,7 @@ message ObservabilitySpansExportRequest {
 
 message ObservabilitySpansExportResponse {}
 
-// ===== agent conversation context =====
+// agent conversation context
 
 message AgentConversationContextRequest {}
 
@@ -174,7 +174,7 @@ message AgentConversationContextResponse {
   string design_content_hash = 11;
 }
 
-// ===== agent_plugin =====
+// agent_plugin
 
 message AgentPluginListRequest {}
 
@@ -197,7 +197,7 @@ message AgentPluginListResponse {
   repeated AgentPluginCatalogEntry agent_plugins = 1;
 }
 
-// ===== background_agent_job =====
+// background_agent_job
 
 message BackgroundAgentJobCreateRequest {
   string source_tool_call_id = 1;
@@ -401,7 +401,7 @@ message BackgroundAgentJobTurnUpsertResponse {
   BackgroundAgentJobTurn turn = 2;
 }
 
-// ===== schedule (requests typed, responses model-facing passthrough) =====
+// schedule (requests typed, responses model-facing passthrough)
 
 message ScheduleCheckBackLaterCreateRequest {
   string tool_call_id = 1;
@@ -464,7 +464,7 @@ message ScheduleCronRunRequest {
   string tool_call_id = 2;
 }
 
-// ===== webhook endpoint (requests typed, responses model-facing passthrough) =====
+// webhook endpoint (requests typed, responses model-facing passthrough)
 
 message WebhookEndpointCreateRequest {
   string token = 1;
@@ -483,11 +483,11 @@ message WebhookEndpointTargetRequest {
   string webhook_endpoint_id = 1;
 }
 
-// ===== signal channel (requests typed, responses model-facing passthrough) =====
+// signal channel (requests typed, responses model-facing passthrough)
 
 message AmbientJudgmentRecordRequest {
-  // Legacy projection retained during the action-router rollout.
-  string decision = 1; // intervene | silent
+  // Field 1 carried the retired two-valued `decision` projection.
+  reserved 1;
   string reason = 2;
   // The batch message the recognizer attributed the wake to; empty means the
   // wake is proactive. The worker validates the id against the judged batch
@@ -504,7 +504,7 @@ message SignalChannelStandingOrdersSetRequest {
   string orders = 1;
 }
 
-// ===== automation job =====
+// automation job
 
 message AutomationJobCreateRequest {
   string directory_path = 1;
@@ -570,7 +570,7 @@ message CodexLogs2DailyMaintenanceResponse {
   reserved "active_codex_processes";
 }
 
-// ===== skills =====
+// skills
 
 message SkillOverlayResolveRequest {
   repeated string skill_names = 1;

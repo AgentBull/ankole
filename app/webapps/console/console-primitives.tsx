@@ -9,7 +9,7 @@ import { requestErrorMessage } from '../common/request-errors'
  * `console-form` (editor frame).
  */
 
-// --- JSON / text helpers ---
+// JSON / text helpers
 
 /** Bounds display text and marks the cut with an ellipsis. */
 export function truncate(value: string, limit: number): string {
@@ -19,6 +19,14 @@ export function truncate(value: string, limit: number): string {
 export function blankToNull(value: string): string | null {
   const text = value.trim()
   return text ? text : null
+}
+
+/** Parses a decimal identifier and applies the owning API's lower bound. */
+export function resourceID(value: string | null, minimum: number): number | undefined {
+  if (!value || !/^[1-9][0-9]*$/.test(value)) return undefined
+
+  const parsed = Number(value)
+  return Number.isSafeInteger(parsed) && parsed >= minimum ? parsed : undefined
 }
 
 export function parseJSON(text: string, field: string): { ok: true; value: unknown } | { ok: false; error: string } {
@@ -44,7 +52,7 @@ export function formatJSON(value: unknown): string {
   return JSON.stringify(value, null, 2)
 }
 
-// --- Date formatting ---
+// Date formatting
 //
 // One formatter per first-class locale keeps all console timestamps consistent.
 const CONSOLE_DATE_FORMATTERS: Record<string, Intl.DateTimeFormat> = {

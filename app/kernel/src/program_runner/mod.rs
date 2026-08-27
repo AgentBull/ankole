@@ -432,14 +432,11 @@ deno_core::extension!(
 
 /// Runs one program to completion or to its first unanswered tool-call batch.
 pub fn run(request: RunRequest) -> RunOutcome {
-    let _permit = match RunPermit::acquire() {
-        Some(permit) => permit,
-        None => {
-            return failed(
-                "program_runtime_busy",
-                "program runtime concurrency limit reached",
-            );
-        }
+    let Some(_permit) = RunPermit::acquire() else {
+        return failed(
+            "program_runtime_busy",
+            "program runtime concurrency limit reached",
+        );
     };
 
     guarded_execute(request, Arc::new(RunControl::new()))
@@ -447,14 +444,11 @@ pub fn run(request: RunRequest) -> RunOutcome {
 
 /// Registers and runs one cancellable native execution.
 pub fn run_registered(run_id: &str, request: RunRequest) -> RunOutcome {
-    let _permit = match RunPermit::acquire() {
-        Some(permit) => permit,
-        None => {
-            return failed(
-                "program_runtime_busy",
-                "program runtime concurrency limit reached",
-            );
-        }
+    let Some(_permit) = RunPermit::acquire() else {
+        return failed(
+            "program_runtime_busy",
+            "program runtime concurrency limit reached",
+        );
     };
 
     let running = match RunningRun::begin(run_id) {

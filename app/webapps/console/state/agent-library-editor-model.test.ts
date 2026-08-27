@@ -6,7 +6,7 @@ function documents(mission: string, soul: string, design = 'Design A'): AgentLib
     mission: { kind: 'mission', content: mission, content_hash: `mission:${mission}` },
     soul: { kind: 'soul', content: soul, content_hash: `soul:${soul}` },
     design: { kind: 'design', content: design, content_hash: `design:${design}` },
-    ['confidentiality_policy']: {
+    confidentiality_policy: {
       kind: 'confidentiality_policy',
       content: 'Policy A',
       content_hash: 'confidentiality_policy:Policy A'

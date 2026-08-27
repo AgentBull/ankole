@@ -42,21 +42,28 @@ export async function executeActiveTurn(
     operation: turnOperation(turnStart.turn.actor_event_id)
   })
   const rpc = throwingRPCRequester(rpcClient)
-  const webhookCLI = startWebhookCLIBridge({
-    turnStart,
-    requestWebhookRPC: webhookRPCRequester(rpc, turnStart.turn)
-  })
-  const automationJobCLI = startAutomationJobCLIBridge({
-    agentHome: paths.home,
-    requestAutomationJobRPC: automationJobRPCRequester(rpc, turnStart.turn)
-  })
-  const runtimeEnv = {
-    ...buildTurnRuntimeEnv(turnStart, config.workerAuthKey),
-    [WEBHOOK_CLI_SOCKET_ENV]: webhookCLI.socketPath,
-    [AUTOMATION_JOB_CLI_SOCKET_ENV]: automationJobCLI.socketPath
-  }
+  // Both bridges listen on their own Unix socket, so they enter the try block
+  // that closes them: a failure while opening the second one, or while building
+  // the environment, would otherwise leave the first listener behind for the
+  // life of this long-running Worker.
+  let webhookCLI: ReturnType<typeof startWebhookCLIBridge> | undefined
+  let automationJobCLI: ReturnType<typeof startAutomationJobCLIBridge> | undefined
 
   try {
+    webhookCLI = startWebhookCLIBridge({
+      turnStart,
+      requestWebhookRPC: webhookRPCRequester(rpc, turnStart.turn)
+    })
+    automationJobCLI = startAutomationJobCLIBridge({
+      agentHome: paths.home,
+      requestAutomationJobRPC: automationJobRPCRequester(rpc, turnStart.turn)
+    })
+    const runtimeEnv = {
+      ...buildTurnRuntimeEnv(turnStart, config.workerAuthKey),
+      [WEBHOOK_CLI_SOCKET_ENV]: webhookCLI.socketPath,
+      [AUTOMATION_JOB_CLI_SOCKET_ENV]: automationJobCLI.socketPath
+    }
+
     await syncInstalledSkillsForTurn(turnStart, {
       agentInstalledSkillsRoot: paths.installedSkills,
       rpc,
@@ -113,8 +120,8 @@ export async function executeActiveTurn(
       }
     })
   } finally {
-    automationJobCLI.close()
-    webhookCLI.close()
+    automationJobCLI?.close()
+    webhookCLI?.close()
   }
 }
 

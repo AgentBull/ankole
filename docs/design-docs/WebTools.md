@@ -170,9 +170,18 @@ Credentials and decrypted settings must not appear in model output, result metad
 
 The model-facing web-tool list is stable. Each call sends its semantic selector
 directly to AIGateway, which resolves the current Agent profile and provider.
-There is no separate availability lookup or Worker cache.
+There is no separate availability lookup, and the Worker caches no provider
+resolution.
 
 `web_search` requires a provider. `web_fetch` remains usable when the rendered fallback is available.
+
+## Repeat Fetches Inside One Session
+
+The Worker keeps a session-local result cache for `web_fetch`: a clean result
+for a URL answers a repeat fetch of the same URL for 15 minutes, marked as a
+repeat in the output, without a new download. The cache holds at most 100
+entries, never stores failed or degraded results, and lives only for the
+session process. It caches results, not provider resolution.
 
 ## Tests
 

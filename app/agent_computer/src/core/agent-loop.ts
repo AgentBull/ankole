@@ -27,14 +27,21 @@ import type {
   Model as PiModel,
   UserMessage as PiUserMessage
 } from '@earendil-works/pi-ai'
-import { safeJsonStringify as safeJSONStringify, type JsonObject as JSONObject } from '@agentbull/active-support'
+import { createHash } from 'node:crypto'
+import {
+  safeJsonParse as safeJSONParse,
+  safeJsonStringify as safeJSONStringify,
+  type JsonObject as JSONObject
+} from '@agentbull/active-support'
 import { assistantText, type AssistantMessage, type ContentPart, type ImageContent, type Message } from './llm'
 import { errorMessage } from '../common/errors'
+import { finishWorkerSpan, startWorkerSpan } from '../observability/turn-tracing'
 import { contentText, modelImageAdaptation, imageSummaryBlock, responseImageUnavailableText } from './vision'
 import {
   bareToolName,
   createPiStreamFn,
   invalidToolArgumentsMessage,
+  registeredWorkerTools,
   toolDisplayName,
   toolIdentity,
   UNKNOWN_TOOL_SENTINEL_NAME
@@ -59,9 +66,25 @@ const MODEL_ITERATION_LIMIT_SYNTHESIS_TEXT =
 const TOOL_ERROR_RECOVERY_HINT = 'Analyze the error above and try a different approach.'
 const PI_API = 'openai-responses'
 
+const VOLATILE_TOOL_ARGUMENT_KEYS = new Set([
+  'idempotency_key',
+  'nonce',
+  'request_id',
+  'timestamp',
+  'tool_call_id',
+  'uuid'
+])
+
 interface RepeatedToolFailureState {
   key?: string
   count: number
+}
+
+interface ToolFailure {
+  kind: 'runtime_error' | 'unknown_tool' | 'caller_not_allowed' | 'invalid_arguments'
+  namespace: string | undefined
+  toolName: string
+  arguments: unknown
 }
 
 /**
@@ -88,6 +111,15 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
   // response id for that case (see the final-result construction below).
   let latestRecordedResponseID: string | undefined
   const repeatedFailureState: RepeatedToolFailureState = { count: 0 }
+  // One counter for every failure path. Executed failures count in
+  // `afterToolCall`; blocked and thrown-in-preparation calls never reach it
+  // (pi returns them as immediate results), so their sites call this
+  // directly. The warning rides the same follow-up channel as tool-result
+  // follow-ups, because every counted failure also produces a tool result.
+  const noteToolFailure = (failure: ToolFailure): void => {
+    const warning = updateRepeatedFailureState(failure, repeatedFailureState)
+    if (warning) turnState.pendingToolResultFollowUps.push(warning)
+  }
 
   // `execute()`'s return type carries our own `ContentPart[]` content shape
   // (see types.ts's doc comment), not pi-ai's `(TextContent|ImageContent)[]`.
@@ -111,6 +143,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
     prepareArguments: (args: unknown): unknown => {
       const invalid = invalidToolArgumentsMessage(args)
       if (invalid === undefined) return args
+      noteToolFailure({ kind: 'invalid_arguments', namespace: tool.namespace, toolName: tool.name, arguments: args })
       throw new Error(
         formatToolError(`Invalid arguments for tool ${toolDisplayName(tool.namespace, tool.name)}: ${invalid}`)
       )
@@ -126,6 +159,12 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
     label: UNKNOWN_TOOL_SENTINEL_NAME,
     description: 'Loop-internal pairing target for calls to undeclared tools.',
     prepareArguments: (args: unknown): never => {
+      noteToolFailure({
+        kind: 'unknown_tool',
+        namespace: undefined,
+        toolName: UNKNOWN_TOOL_SENTINEL_NAME,
+        arguments: args
+      })
       throw new Error(formatToolError(invalidToolArgumentsMessage(args) ?? 'Unknown tool'))
     }
   }
@@ -172,6 +211,12 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
           failure_code: 'caller_not_allowed',
           caller
         })
+        noteToolFailure({
+          kind: 'caller_not_allowed',
+          namespace: meta?.namespace,
+          toolName: wireToolName,
+          arguments: caller
+        })
         const result: BeforeToolCallResult = {
           block: true,
           reason: formatToolError(`Caller ${caller} is not allowed for tool ${displayName}`)
@@ -194,6 +239,12 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
           ...(meta?.namespace ? { tool_namespace: meta.namespace } : {}),
           tool_call_id: ctx.toolCall.id,
           failure_code: 'invalid_arguments'
+        })
+        noteToolFailure({
+          kind: 'invalid_arguments',
+          namespace: meta?.namespace,
+          toolName: wireToolName,
+          arguments: ctx.toolCall.arguments
         })
         const result: BeforeToolCallResult = {
           block: true,
@@ -234,9 +285,14 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
       }
 
       const failureWarning = updateRepeatedFailureState(
-        ctx.isError,
-        meta?.namespace,
-        bareToolName(ctx.toolCall.name),
+        ctx.isError
+          ? {
+              kind: 'runtime_error',
+              namespace: meta?.namespace,
+              toolName: bareToolName(ctx.toolCall.name),
+              arguments: active?.parsedArgs ?? ctx.toolCall.arguments
+            }
+          : undefined,
         repeatedFailureState
       )
       if (failureWarning) turnState.pendingToolResultFollowUps.push(failureWarning)
@@ -377,13 +433,14 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
         })
       }
 
+      // One corrective steer per round: the empty-response nudge goes first,
+      // and the repair only examines a round the nudge left alone. Firing
+      // both at once would spend the two one-shot budgets on one response.
       const text = piAssistantText(ctx.message)
       if (sawToolResults && !nudgedEmptyAfterTools && ctx.message.stopReason === 'stop' && text.trim().length === 0) {
         nudgedEmptyAfterTools = true
         agent.steer(userMessage(EMPTY_AFTER_TOOL_NUDGE_TEXT))
-      }
-
-      if (!repairedFinalResponse && ctx.message.stopReason === 'stop' && config.repairFinalResponse) {
+      } else if (!repairedFinalResponse && ctx.message.stopReason === 'stop' && config.repairFinalResponse) {
         const repair = config.repairFinalResponse(toOurAssistantMessage(ctx.message))
         if (repair) {
           repairedFinalResponse = true
@@ -587,11 +644,24 @@ function wrapToolExecute(
     const signal = config.abortSignal
     const parsedArgs = turnState.activeToolCalls.get(toolCallID)?.parsedArgs ?? params
     const release = tool.executionMode === 'parallel' ? await semaphore.acquire(signal) : undefined
+    // The one point every executed call passes through, so the per-tool trace
+    // span lives here; a blocked or thrown-in-preparation call never executes
+    // and gets no span, same as the old loop.
+    const span = startWorkerSpan(config.turnTrace, `tool ${toolDisplayName(tool.namespace, tool.name)}`, {
+      'gen_ai.tool.name': tool.name,
+      ...(tool.namespace ? { 'gen_ai.tool.namespace': tool.namespace } : {}),
+      'gen_ai.tool.call.id': toolCallID
+    })
+    let spanError: string | undefined
     try {
       const run = (): ReturnType<WorkerAgentTool['execute']> =>
         tool.execute(toolCallID, parsedArgs as never, signal, onUpdate)
       return config.withActivitySuspended ? await config.withActivitySuspended('tool_execution', run) : await run()
+    } catch (error) {
+      spanError = signal?.aborted ? 'tool_execution_aborted' : 'runtime_error'
+      throw error
     } finally {
+      finishWorkerSpan(span, { errorType: spanError })
       release?.()
     }
   }
@@ -650,7 +720,7 @@ function findLastAssistantMessage(messages: unknown[]): PiAssistantMessage | und
 }
 
 function findTool(agent: Agent, name: string): WorkerAgentTool | undefined {
-  return (agent.state.tools as unknown as WorkerAgentTool[]).find(tool => tool.name === name)
+  return registeredWorkerTools(agent.state.tools).find(tool => tool.name === name)
 }
 
 function userMessage(content: string): PiUserMessage {
@@ -796,26 +866,76 @@ function formatToolError(message: string): string {
   return `Error: ${message}\n${TOOL_ERROR_RECOVERY_HINT}`
 }
 
-/** Returns a repeated-failure warning follow-up once a tool's failure streak reaches 2. */
+/**
+ * Returns a repeated-failure warning follow-up once one failure streak
+ * reaches 2. The streak key hashes the failure kind, the tool identity, and
+ * the volatile-scrubbed arguments, so only the same call failing the same way
+ * counts as a loop — a tool retried with different arguments is progress, not
+ * repetition.
+ */
 function updateRepeatedFailureState(
-  isError: boolean,
-  namespace: string | undefined,
-  toolName: string,
+  failure: ToolFailure | undefined,
   state: RepeatedToolFailureState
 ): PiUserMessage | undefined {
-  const key = `${namespace ?? ''}\u0000${toolName}`
-  if (!isError) {
+  if (!failure) {
     state.key = undefined
     state.count = 0
     return undefined
   }
 
-  // oxlint-disable-next-line no-unused-expressions
-  state.key === key ? (state.count += 1) : ((state.key = key), (state.count = 1))
+  const key = toolCallFailureKey(failure)
+  if (state.key === key) {
+    state.count += 1
+  } else {
+    state.key = key
+    state.count = 1
+  }
+
   if (state.count === 2) {
-    return userMessage(repeatedToolFailureWarning(toolDisplayName(namespace, toolName), state.count))
+    return userMessage(repeatedToolFailureWarning(toolDisplayName(failure.namespace, failure.toolName), state.count))
   }
   return undefined
+}
+
+function toolCallFailureKey(failure: ToolFailure): string {
+  const stableInput = {
+    kind: failure.kind,
+    namespace: !failure.namespace || failure.namespace === 'functions' ? 'functions' : failure.namespace,
+    name: failure.toolName,
+    arguments: scrubVolatileToolArguments(parseToolArguments(failure.arguments))
+  }
+  return createHash('sha256').update(stableJSON(stableInput)).digest('hex').slice(0, 16)
+}
+
+function parseToolArguments(args: unknown): unknown {
+  if (typeof args !== 'string') return args
+  return safeJSONParse(args).match({
+    ok: value => value,
+    err: () => args
+  })
+}
+
+function scrubVolatileToolArguments(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(scrubVolatileToolArguments)
+  if (!value || typeof value !== 'object') return value
+
+  return Object.fromEntries(
+    Object.entries(value as JSONObject)
+      .filter(([key]) => !VOLATILE_TOOL_ARGUMENT_KEYS.has(key))
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => [key, scrubVolatileToolArguments(entry)])
+  )
+}
+
+function stableJSON(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJSON).join(',')}]`
+  if (value && typeof value === 'object') {
+    return `{${Object.entries(value as JSONObject)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${stableJSON(entry)}`)
+      .join(',')}}`
+  }
+  return JSON.stringify(value) ?? 'null'
 }
 
 function repeatedToolFailureWarning(toolName: string, count: number): string {

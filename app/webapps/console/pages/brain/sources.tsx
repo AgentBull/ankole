@@ -233,9 +233,9 @@ export function BrainSourcesPage() {
                 register.mutate({
                   body: {
                     kind,
-                    ['upstream_id']: upstreamID.trim(),
+                    upstream_id: upstreamID.trim(),
                     name: name.trim(),
-                    ...(scope.trim() ? { ['default_audience_scope']: scope.trim() } : {})
+                    ...(scope.trim() ? { default_audience_scope: scope.trim() } : {})
                   }
                 })
               }>

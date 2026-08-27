@@ -30,6 +30,7 @@ defmodule Ankole.Brain.SourceLearning do
   alias Ankole.Brain.Claims
   alias Ankole.Brain.Config
   alias Ankole.Brain.Embeddings
+  alias Ankole.Brain.Markdoc
   alias Ankole.Brain.ModelCalls
   alias Ankole.Brain.Objects
   alias Ankole.Brain.Schemas.SchemaType
@@ -59,6 +60,25 @@ defmodule Ankole.Brain.SourceLearning do
         config: attrs[:config] || %{}
       })
       |> Repo.insert()
+    end
+  end
+
+  @doc """
+  Archives one Source: no future learning run writes to it. Archiving an
+  archived Source keeps the first `archived_at`.
+  """
+  @spec archive_source(Ecto.UUID.t()) :: {:ok, Source.t()} | {:error, term()}
+  def archive_source(source_id) do
+    with {:ok, source} <- fetch_source(source_id) do
+      case source.archived_at do
+        nil ->
+          source
+          |> Source.changeset(%{archived_at: DateTime.utc_now(:microsecond)})
+          |> Repo.update()
+
+        %DateTime{} ->
+          {:ok, source}
+      end
     end
   end
 
@@ -105,7 +125,7 @@ defmodule Ankole.Brain.SourceLearning do
       slug: slug,
       subtype: source.config["subtype"] || default_subtype(source.kind),
       title: source.name,
-      body: scoped_body(content, scope)
+      body: Markdoc.wrap(content, scope)
     }
 
     # Model extraction is the slow, fallible part and must not hold locks;
@@ -114,11 +134,6 @@ defmodule Ankole.Brain.SourceLearning do
       commit_run(source, object_attrs, extraction, scope, fingerprint)
     end
   end
-
-  defp scoped_body(content, "world"), do: content
-
-  defp scoped_body(content, scope),
-    do: ~s({% audience scope="#{scope}" %}\n) <> content <> "\n{% /audience %}"
 
   # One transaction owns every write of the run. The locked re-read fences
   # two races: an archive during the fetch or extraction (the archived
@@ -136,6 +151,7 @@ defmodule Ankole.Brain.SourceLearning do
              {:ok, object} <- upsert_object(repo, object_attrs),
              expired = Claims.expire_source_session_facts(repo, object.slug, session),
              {:ok, written} <- write_claims(repo, object, extraction.items, scope, session),
+             :ok <- ensure_extraction_written(extraction.items, written),
              {:ok, _source} <- advance_revision(repo, current, fingerprint) do
           {:ok,
            %{
@@ -144,7 +160,8 @@ defmodule Ankole.Brain.SourceLearning do
              windows: extraction.windows,
              claims: written.claims,
              claims_expired: expired,
-             rejected: written.rejected
+             rejected: written.rejected,
+             reject_reasons: written.reject_reasons
            }}
         end
       end)
@@ -178,6 +195,17 @@ defmodule Ankole.Brain.SourceLearning do
        do: :ok
 
   defp ensure_same_revision(%Source{}, _expected), do: {:error, :stale_run}
+
+  # An extraction whose items all fail write validation is a model-quality
+  # failure, not new knowledge. Committing it would keep the expired old
+  # facts gone and advance the fingerprint, so the loss would read as
+  # `unchanged` forever; the rollback keeps the old memory and a later run
+  # retries the same revision. An extraction with no items stays a commit:
+  # the document really carries nothing to learn.
+  defp ensure_extraction_written(items, %{claims: 0, reject_reasons: reasons}) when items != [],
+    do: {:error, {:all_items_rejected, reasons}}
+
+  defp ensure_extraction_written(_items, _written), do: :ok
 
   defp upsert_object(repo, attrs) do
     case Objects.get_by_slug(attrs.slug, repo: repo) do
@@ -213,7 +241,7 @@ defmodule Ankole.Brain.SourceLearning do
     |> repo.update()
   end
 
-  # ── Extraction ──────────────────────────────────────────────────
+  # Extraction
 
   # Extraction covers every window of the content when the object type is
   # extractable. A model failure aborts the run instead of counting as an
@@ -337,7 +365,7 @@ defmodule Ankole.Brain.SourceLearning do
   defp default_subtype("url"), do: "article"
   defp default_subtype("file"), do: "book"
 
-  # ── Content fetch ───────────────────────────────────────────────
+  # Content fetch
 
   defp fetch_content(%Source{kind: "file", upstream_id: path}) do
     with {:ok, %File.Stat{size: size}} <- File.stat(path),
@@ -394,7 +422,7 @@ defmodule Ankole.Brain.SourceLearning do
     end
   end
 
-  # ── Validation and lookups ──────────────────────────────────────
+  # Validation and lookups
 
   defp validate_kind(kind) when kind in ["file", "url"], do: :ok
   defp validate_kind(kind), do: {:error, {:unsupported_source_kind, kind}}

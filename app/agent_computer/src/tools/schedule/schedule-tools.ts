@@ -241,7 +241,7 @@ const CronOriginReadActions = new Set<z.output<typeof CronParams>['action']>(['l
 /**
  * Creates the scheduling tools over the turn's schedule RPC seam.
  */
-export function createScheduleTools(opts: CreateScheduleToolsOptions): WorkerAgentTool<any>[] {
+export function createScheduleTools(opts: CreateScheduleToolsOptions): WorkerAgentTool[] {
   return [createCheckBackLaterTool(opts), createCronTool(opts)]
 }
 

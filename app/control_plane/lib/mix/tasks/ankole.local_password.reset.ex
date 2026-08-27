@@ -12,7 +12,7 @@ defmodule Mix.Tasks.Ankole.LocalPassword.Reset do
   use Mix.Task
 
   alias Ankole.IdentityProviders.LocalPassword
-  alias Ankole.Principals
+  alias Ankole.Principals.LocalCredentials
   alias Ankole.Principals.LocalPasswordResetText
 
   @shortdoc "Resets the local sign-in password for one email"
@@ -21,7 +21,7 @@ defmodule Mix.Tasks.Ankole.LocalPassword.Reset do
   def run([email]) do
     start_dependencies()
 
-    case Principals.reset_local_password_by_email(email) do
+    case LocalCredentials.reset_local_password_by_email(email) do
       {:ok, %{initial_password: initial_password}} ->
         Mix.shell().info(LocalPasswordResetText.success(initial_password))
         warn_when_provider_disabled()

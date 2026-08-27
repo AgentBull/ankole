@@ -13,7 +13,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   alias Ankole.AIGateway.CompactionArtifacts
   alias Ankole.AIGateway.CodexVision
   alias Ankole.AIGateway.FailureDiagnostics
-  alias Ankole.AIGateway.MapUtils
+  alias Ankole.Attrs
   alias Ankole.AIGateway.ModelMetadata
   alias Ankole.AIGateway.Providers
   alias Ankole.AIGateway.Resolver
@@ -86,7 +86,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   @spec prepare_websocket_provider_request(String.t(), map(), keyword()) ::
           {:ok, UniversalAIRequest.t(), map() | nil} | {:error, term()}
   def prepare_websocket_provider_request(subject_uid, request, opts \\ []) do
-    normalized_request = MapUtils.normalize_request_keys(request)
+    normalized_request = Attrs.normalize_external_attrs(request)
     request_context = websocket_request_context(opts, normalized_request)
 
     with :ok <- validate_websocket_stateful_shape(request),
@@ -121,7 +121,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   @spec prepare_and_start_websocket_provider_request(String.t(), map(), keyword()) ::
           {:ok, UniversalAIRequest.t(), map() | nil} | {:error, term()}
   def prepare_and_start_websocket_provider_request(subject_uid, request, opts \\ []) do
-    request = MapUtils.normalize_request_keys(request)
+    request = Attrs.normalize_external_attrs(request)
     request_context = websocket_request_context(opts, request)
     resolver_request = Map.put(request, "__ankole_request_context", request_context)
 
@@ -257,7 +257,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   #   - store (Ankole stateful switch; provider dispatch disables upstream storage)
   #   - conversation (internal correlation)
   defp provider_websocket_request(subject_uid, request, runtime) do
-    request = MapUtils.normalize_request_keys(request)
+    request = Attrs.normalize_external_attrs(request)
 
     if request["store"] == true do
       expand_and_inject_history(subject_uid, request, runtime)
@@ -1285,7 +1285,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   defp validate_external_conversation_id(_value), do: {:error, :invalid_conversation}
 
   defp validate_websocket_stateful_shape(request) do
-    request = MapUtils.normalize_request_keys(request)
+    request = Attrs.normalize_external_attrs(request)
     previous_response_id = Map.get(request, "previous_response_id")
     conversation_id = Map.get(request, "conversation")
 
@@ -1318,7 +1318,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   end
 
   defp validate_tool_results_record_shape(request) do
-    request = MapUtils.normalize_request_keys(request)
+    request = Attrs.normalize_external_attrs(request)
     previous_response_id = Map.get(request, "previous_response_id")
 
     cond do
@@ -1362,7 +1362,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   defp normalize_stateful_input(_input), do: {:error, :invalid_input}
 
   defp tool_result_record_attrs(subject_uid, request, internal_metadata) do
-    request = MapUtils.normalize_request_keys(request)
+    request = Attrs.normalize_external_attrs(request)
     previous_response_id = request["previous_response_id"]
 
     with :ok <- validate_tool_results_record_shape(request),

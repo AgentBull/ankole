@@ -12,6 +12,7 @@ defmodule AnkoleWeb.SetupController do
   alias Ankole.I18n
   alias Ankole.Principals
   alias Ankole.Principals.HumanUser
+  alias Ankole.Principals.LocalCredentials
   alias Ankole.Brain.SchemaPacks
   alias Ankole.Setup.Bootstrap
   alias Ankole.Plugins
@@ -322,7 +323,7 @@ defmodule AnkoleWeb.SetupController do
   end
 
   defp validate_local_admin_email(email) when is_binary(email) do
-    normalized = email |> String.trim() |> String.downcase()
+    normalized = Principals.normalize_email(email) || ""
 
     case Regex.match?(HumanUser.email_format(), normalized) do
       true -> {:ok, normalized}
@@ -333,7 +334,7 @@ defmodule AnkoleWeb.SetupController do
   defp validate_local_admin_email(_email), do: {:error, 422, "email is invalid"}
 
   defp validate_local_admin_password(password) when is_binary(password) do
-    case String.length(password) >= Principals.local_password_min_length() do
+    case String.length(password) >= LocalCredentials.local_password_min_length() do
       true -> :ok
       false -> {:error, 422, password_too_short_message()}
     end
@@ -342,7 +343,7 @@ defmodule AnkoleWeb.SetupController do
   defp validate_local_admin_password(_password), do: {:error, 422, password_too_short_message()}
 
   defp password_too_short_message,
-    do: "password must be at least #{Principals.local_password_min_length()} characters"
+    do: "password must be at least #{LocalCredentials.local_password_min_length()} characters"
 
   defp require_local_provider do
     case LocalPassword.fetch_enabled_provider() do
@@ -354,7 +355,7 @@ defmodule AnkoleWeb.SetupController do
   # The setup administrator picks their own password, so the credential never
   # carries the must-change flag.
   defp ensure_local_admin_account(email, password) do
-    case Principals.fetch_local_login(email) do
+    case LocalCredentials.fetch_local_login(email) do
       {:ok, %{principal: principal}} ->
         put_local_admin_password(principal.uid, password)
 
@@ -367,7 +368,7 @@ defmodule AnkoleWeb.SetupController do
   end
 
   defp put_local_admin_password(principal_uid, password) do
-    with {:ok, _credential} <- Principals.set_local_password(principal_uid, password, false) do
+    with {:ok, _credential} <- LocalCredentials.set_local_password(principal_uid, password, false) do
       {:ok, principal_uid}
     end
   end

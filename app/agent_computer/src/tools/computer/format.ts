@@ -47,14 +47,55 @@ export function stripAnsi(text: string): string {
  * parity.
  */
 export function truncateOutput(text: string, max = MAX_OUTPUT_CHARS): string {
+  return truncateOutputDetailed(text, max).text
+}
+
+/** `truncateOutput` plus the counts a caller needs to decide on persisting the full output. */
+export function truncateOutputDetailed(
+  text: string,
+  max = MAX_OUTPUT_CHARS
+): { text: string; omittedChars: number; totalChars: number } {
   const cleaned = sanitizeBinaryOutput(stripAnsi(text))
-  if (cleaned.length <= max) return cleaned
+  if (cleaned.length <= max) return { text: cleaned, omittedChars: 0, totalChars: cleaned.length }
   const head = Math.floor(max * 0.4)
   const tail = max - head
   const omitted = cleaned.length - max
   const prefix = truncateUtf16Safe(cleaned, head)
   const suffix = truncateUtf16SafeTail(cleaned, tail)
-  return `${prefix}\n... [output truncated — ${omitted} chars omitted of ${cleaned.length} total] ...\n${suffix}`
+  return {
+    text: `${prefix}\n... [output truncated — ${omitted} chars omitted of ${cleaned.length} total] ...\n${suffix}`,
+    omittedChars: omitted,
+    totalChars: cleaned.length
+  }
+}
+
+/**
+ * Clips text to a character budget on line boundaries, keeping the head. The
+ * head is the right end to keep for ranked or numbered output where the most
+ * relevant content comes first. Always keeps at least one line; a first line
+ * longer than the whole budget is clipped mid-line as the only exception.
+ */
+export function clipLinesToBudget(
+  text: string,
+  maxChars: number
+): { text: string; clipped: boolean; keptLines: number; totalLines: number } {
+  const lines = text.split('\n')
+  if (text.length <= maxChars) {
+    return { text, clipped: false, keptLines: lines.length, totalLines: lines.length }
+  }
+
+  const kept: string[] = []
+  let used = 0
+  for (const line of lines) {
+    const cost = line.length + (kept.length > 0 ? 1 : 0)
+    if (used + cost > maxChars) break
+    kept.push(line)
+    used += cost
+  }
+  if (kept.length === 0) {
+    return { text: truncateUtf16Safe(lines[0] ?? '', maxChars), clipped: true, keptLines: 1, totalLines: lines.length }
+  }
+  return { text: kept.join('\n'), clipped: true, keptLines: kept.length, totalLines: lines.length }
 }
 
 export interface NumberedLines {

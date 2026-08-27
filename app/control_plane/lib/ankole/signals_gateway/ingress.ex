@@ -65,6 +65,9 @@ defmodule Ankole.SignalsGateway.Ingress do
 
         {:held, result} ->
           {:ok, result}
+
+        {:error, _reason} = error ->
+          error
       end
     else
       :no_match -> {:ok, %{status: :filtered}}

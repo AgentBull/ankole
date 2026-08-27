@@ -38,8 +38,11 @@ class FakeComputer implements ContainerComputer {
     return this.runImpl(input)
   }
 
-  async readFileToBuffer(input: { path: string }): Promise<Buffer | null> {
-    return this.files.get(input.path) ?? null
+  statCalls: string[] = []
+
+  async fileSize(input: { path: string }): Promise<number | null> {
+    this.statCalls.push(input.path)
+    return this.files.get(input.path)?.byteLength ?? null
   }
 
   async readFileWindow(input: { path: string; offset: number; limit: number }): Promise<ReadFileWindow | null> {
@@ -82,7 +85,6 @@ function textOf(result: { content: Array<{ type: string; text?: string }> }): st
 describe('computer tools', () => {
   it('exposes only foreground, stateless computer tools to the main agent', () => {
     const tools = createComputerTools({
-      agentUID: 'agent-1',
       agentHome: '/agents/agent-1',
       workspaceRoot: '/agents/agent-1/sessions/session-1',
       userFilesRoot: '/agents/agent-1/user-files'
@@ -196,6 +198,9 @@ describe('computer tools', () => {
     await expect(
       tool.execute('call-reply-attachment-escape', { path: '/agents/agent-1/user-files/../temp/secret.txt' })
     ).rejects.toThrow('reply_attachment only accepts files under /agents/agent-1/user-files')
+    // The rejected path never reaches the sandbox: the size lookup runs only
+    // after the path is known to be inside user-files.
+    expect(computer.statCalls).toEqual([])
   })
 
   it('explains foreground timeout recovery when a command hits exit 124', async () => {
@@ -456,8 +461,9 @@ describe('computer tools', () => {
 
     try {
       const computer = createContainerComputer(agentHome, workspaceRoot)
-      expect(await computer.readFileToBuffer({ path: 'workspace.txt' })).toEqual(Buffer.from('workspace'))
-      expect(await computer.readFileToBuffer({ path: '~/user-files/allowed.txt' })).toEqual(Buffer.from('allowed'))
+      expect(await computer.fileSize({ path: 'workspace.txt' })).toBe(9)
+      expect(await computer.fileSize({ path: '~/user-files/allowed.txt' })).toBe(7)
+      expect(await computer.fileSize({ path: 'missing.txt' })).toBeNull()
     } finally {
       rmSync(agentHome, { recursive: true, force: true })
     }

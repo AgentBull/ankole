@@ -56,29 +56,10 @@ defmodule Ankole.AIAgent.Library.AgentPlugins.SourceReader do
         entries
         |> Enum.sort()
         |> Enum.reduce_while({:ok, []}, fn entry, {:ok, acc} ->
-          package_root = Path.join(root, entry)
-
-          case File.lstat(package_root) do
-            {:ok, %File.Stat{type: :directory}} ->
-              case File.regular?(Path.join(package_root, @manifest_path)) do
-                true ->
-                  case read_package(library_root, package_root, entry) do
-                    {:ok, plugin} -> {:cont, {:ok, [plugin | acc]}}
-                    {:error, _reason} = error -> {:halt, error}
-                  end
-
-                false ->
-                  {:cont, {:ok, acc}}
-              end
-
-            {:ok, %File.Stat{type: :symlink}} ->
-              {:halt, {:error, {:agent_plugin_symlink_rejected, entry}}}
-
-            {:ok, _stat} ->
-              {:cont, {:ok, acc}}
-
-            {:error, reason} ->
-              {:halt, {:error, {:agent_plugin_root_entry_unreadable, entry, reason}}}
+          case read_root_entry(library_root, root, entry) do
+            {:ok, nil} -> {:cont, {:ok, acc}}
+            {:ok, plugin} -> {:cont, {:ok, [plugin | acc]}}
+            {:error, _reason} = error -> {:halt, error}
           end
         end)
         |> case do
@@ -91,6 +72,28 @@ defmodule Ankole.AIAgent.Library.AgentPlugins.SourceReader do
 
       {:error, reason} ->
         {:error, {:agent_plugin_root_unreadable, root, reason}}
+    end
+  end
+
+  defp read_root_entry(library_root, root, entry) do
+    package_root = Path.join(root, entry)
+
+    case File.lstat(package_root) do
+      {:ok, %File.Stat{type: :directory}} ->
+        if File.regular?(Path.join(package_root, @manifest_path)) do
+          read_package(library_root, package_root, entry)
+        else
+          {:ok, nil}
+        end
+
+      {:ok, %File.Stat{type: :symlink}} ->
+        {:error, {:agent_plugin_symlink_rejected, entry}}
+
+      {:ok, _stat} ->
+        {:ok, nil}
+
+      {:error, reason} ->
+        {:error, {:agent_plugin_root_entry_unreadable, entry, reason}}
     end
   end
 

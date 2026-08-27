@@ -84,7 +84,7 @@
   "capabilities.async.body": "background job、schedule、あとで確認する、といった動きに対応します。job は数時間動き続け、終わると Agent は元の channel に戻ってきます。ある step が失敗したら、どの step かを報告して再試行します。",
   "capabilities.tacit.title": "その場にすでにある知識",
   "capabilities.tacit.body": "チームメイト同士の会話も聞いています。暗黙のルール、誰が何を好むか、前回なぜその案が生き残らなかったか——誰も Agent に伝えようと思わなかったこと——が channel の共有 memory に沈殿していきます。",
-  "capabilities.brain.title": "覚えるだけではない——世界 model を築く",
+  "capabilities.brain.title": "経験から学ぶ世界モデル",
   "capabilities.brain.body": "memory は世界 model です。起きたことから次に何が起こるかを予測し、現実が常にそれを修正します。Brain は帰納と演繹を行い、外部の変化を直接受け取ります——事前に channel で話題にする必要はありません。だから覚えているだけではありません。学習し、自らを改善します。",
   "capabilities.research.title": "Deep Research と Playbook",
   "capabilities.research.body": "Fan-out 検索、段階的な検証、競合仮説の分析。一度うまく回った種類の仕事は playbook になり、次はそれを踏襲します。自信ありげな要約ではなく、出典付きの report が手に入ります。",

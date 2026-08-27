@@ -48,11 +48,11 @@ export function BrainSearchPreviewPage() {
   const runPreview = () =>
     preview.mutate({
       body: {
-        ['principal_uid']: principalUID,
+        principal_uid: principalUID,
         query: query.trim(),
-        ['disclosure_mode']: mode,
-        ...(askerUID ? { ['asker_uid']: askerUID } : {}),
-        ...(presentUIDs.length > 0 ? { ['present_uids']: presentUIDs } : {})
+        disclosure_mode: mode,
+        ...(askerUID ? { asker_uid: askerUID } : {}),
+        ...(presentUIDs.length > 0 ? { present_uids: presentUIDs } : {})
       }
     })
   const result = preview.data?.result

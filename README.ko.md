@@ -29,9 +29,15 @@ Copilot은 사람이 작업을 끝내는 데 필요한 노력을 줄여 주지�
 - **경계가 있는 권한.** Identity, AuthZ, audit 기록, 승인 지점, escalation path가 Agent가 할 수 있는 일과 사람이 판단해야 하는 시점을 정의합니다.
 - **단일 request가 아니라 장시간 작업.** Session은 몇 시간 또는 며칠 동안 작동하고, 새로운 입력을 받고, 실패 후 복구하며, 다음 행동에 필요한 context를 유지할 수 있습니다.
 
+자율적인 작업은 정확한 현재 context에 의존합니다. Ankole은 모든 과거 message를 동등한 사실로 취급하는 대신, 규칙, 결정, 수정, 결과를 시간과 출처와 함께 기록합니다.
+
+Brain은 오래된 사실을 퇴역시키고, 관련된 수정을 통합하며, 충돌을 드러내고, 과거 예측을 이후의 실제 결과와 비교합니다. 각 실행은 더 정확한 운영 인식에서 시작합니다.
+
 ## 자율적인 노동력을 가능하게 하는 것
 
 - **긴 Job은 background에서 실행됩니다.** Job은 몇 시간 동안 실행되고, 원래 channel로 돌아와 실패한 단계를 보고하고, Main Agent를 막지 않고 재시도할 수 있습니다.
+- **공유 context가 working memory가 됩니다.** 아무도 Agent에게 직접 말하지 않았더라도 규칙, 선호, 거부된 안이 memory에 들어올 수 있습니다.
+- **Memory는 변화하는 세계를 다룹니다.** Brain은 Principal별 경계 안에서 instance 공유 지식을 큐레이션하고, 오래된 항목을 퇴역시키고, 증거를 바탕으로 추론하며, 등록된 Source에서 직접 학습합니다.
 - **Deep Research가 playbook이 됩니다.** Fan-out retrieval, 단계적 검증, 경쟁 가설 분석이 출처가 있는 report를 만듭니다. 성공한 방법은 다음 실행을 안내할 수 있습니다.
 - **실제 browser가 실제 작업을 합니다.** Agent는 렌더링된 page를 읽고, click, type, evidence 캡처, Playwright script 실행을 할 수 있으며, 여러 단계에 걸쳐 로그인 session을 유지할 수 있습니다.
 - **Skill은 사람의 통제 아래 개선됩니다.** Agent가 skill 업데이트를 제안할 수 있고, 사람이 승인한 후에야 이후 session에 적용됩니다.
@@ -86,6 +92,7 @@ flowchart TB
     Schedule["Schedule<br/>checkbacks · cron"]
     Runtime["Actor Runtime<br/>session lifecycle · 수용 · recovery"]
     Jobs["Durable 작업 제어<br/>Background Agent Jobs · Automation Jobs"]
+    Brain["Brain<br/>공유 지식 · recall · dreaming"]
     AI["AIGateway<br/>model routing · conversation · credential"]
   end
 
@@ -112,10 +119,11 @@ flowchart TB
 
 전체적으로 보면:
 
-- **하나의 control plane이 state와 coordination을 소유합니다.** Principal/AuthZ, SignalsGateway, Schedule, Actor Runtime, Job lifecycle, AIGateway는 Elixir/OTP에서 durable decision을 내리고, semantic fact는 PostgreSQL에 저장합니다.
+- **하나의 control plane이 state와 coordination을 소유합니다.** Principal/AuthZ, SignalsGateway, Schedule, Actor Runtime, Job lifecycle, Brain, AIGateway는 Elixir/OTP에서 durable decision을 내리고, semantic fact는 PostgreSQL에 저장합니다.
 - **Trigger owner는 분리되어 있습니다.** SignalsGateway는 channel과 webhook 수용을, Schedule은 checkback과 cron을 담당합니다. 각 trigger는 기본적으로 Actor session을 wake시키며, binding이 있으면 durable Automation Job run을 만듭니다.
 - **Workers는 교체 가능한 실행을 제공합니다.** 하나 이상의 Agent Computer Worker 풀이 Main Agent turn, Background Job/Codex turn, Automation script를 실행합니다. RuntimeFabric은 live actor traffic, bounded RPC, worker-file operation을 전달하지만 durable queue는 아닙니다.
 - **AIGateway는 통합 AI 경계입니다.** OpenResponses 호환 HTTP, SSE, WebSocket API가 stateless request와 Principal 범위의 stateful conversation을 지원합니다. LLM, embedding, rerank, web-search, web-fetch provider에 걸쳐 model을 라우팅하며, upstream credential은 control plane 안에 유지됩니다.
+- **Brain은 instance 공유 지식 공간입니다.** Agent, 사람, background learning이 같은 page와 claim에 기록하고, 모든 읽기는 querier의 지식 경계로 좁혀집니다. PostgreSQL row가 truth이고, page rendering과 injected context는 projection입니다.
 - **두 Job 유형은 서로 다른 약속을 합니다.** Background Agent Job은 다시 시작하고 입력을 기다릴 수 있는 interactive한 model 기반 작업입니다. Automation Job은 Agent가 소유한 deterministic script로, trigger를 소비할 때마다 durable run이 만들어지며 owner session에 event를 보낼 수 있습니다.
 - **Durability에는 두 가지 형태가 있습니다.** PostgreSQL이 semantic truth를 소유하고, shared Agent Home 저장소가 workspace, artifact, resumable file을 보관합니다. RuntimeFabric과 Worker process state는 다시 구축할 수 있습니다.
 
@@ -125,15 +133,16 @@ Ankole은 production에서 가동 중인 완전한 셀프호스팅 AI Workforce 
 
 - **다양한 model provider.** OpenAI, Azure OpenAI, Claude, Google AI Studio, OpenRouter 및 기타 OpenAI 호환 endpoint가 일급으로 지원되며, compaction, stateful conversation, reasoning-effort 제어, provider별 usage 처리를 제공합니다.
 - **실제 IM 통합.** Lark/Feishu와 Slack이 first-party provider로 통합되어 lifecycle, transport, main flow, real-LLM end-to-end 커버리지를 제공합니다.
+- **Brain.** scope 기반 공개를 갖춘 instance 공유 지식, 대화와 Source 학습, dreaming(오프라인 통합), operator review가 하나의 subsystem에 있으며, PostgreSQL 전체 텍스트 및 vector 검색으로 뒷받침됩니다.
 - **장시간 actor runtime.** Session은 wake, checkpoint, progress streaming, hibernate, context를 유지한 recovery가 가능합니다. Steering과 cancellation은 request/response가 아니라 live-control 작업입니다.
-- **운영 console.** Agents, Agent Library 기본값과 override, Control Plane Plugins, providers, model profiles, identity, signals, workers, worker 환경, Background Agent Jobs를 내장 web console에서 관리할 수 있습니다.
+- **운영 console.** Agents, Agent Library 기본값과 override, Control Plane Plugins, providers, model profiles, identity, signals, workers, worker 환경, Brain 지식, Background Agent Jobs를 내장 web console에서 관리할 수 있습니다.
 - **실전 조건을 위한 테스트.** Unit suite 외에도 Lark와 Slack의 main flow, transport, lifecycle, real-LLM, scheduling, worker computer, chaos recovery, concurrency/performance를 위한 전용 end-to-end suite가 있습니다.
 
 Ankole의 public API에는 아직 호환성 계약이 없습니다. 릴리스 사이에 breaking change가 발생할 수 있습니다.
 
 | 영역 | 상태 |
 | --- | --- |
-| Control plane | `app/control_plane`의 Phoenix/OTP application. durable state, configuration, actor orchestration, Principal/AuthZ, AIGateway, SignalsGateway, 운영 API를 담당합니다. |
+| Control plane | `app/control_plane`의 Phoenix/OTP application. durable state, configuration, actor orchestration, Principal/AuthZ, AIGateway, Brain, SignalsGateway, 운영 API를 담당합니다. |
 | Agent Computer | `app/agent_computer`의 Bun/TypeScript worker runtime. 격리된 Linux worker image 안에서 agent loop와 로컬 tools를 실행합니다. standalone CLI가 아닙니다. |
 | Kernel | `app/kernel`의 Rust crate. Elixir (Rustler)와 Bun (N-API)이 로드하여 crypto, identifier, AuthZ evaluation, ZeroMQ transport를 담당합니다. |
 | Frontend | `app/webapps`의 Vite + React console, auth, setup 표면. Phoenix static shell로 빌드됩니다. |
@@ -212,3 +221,5 @@ mix ankole.actor_runtime.worker_bootstrap --endpoint tcp://127.0.0.1:6010 --work
 ```
 
 Production bootstrap configuration은 `DATABASE_URL`, `SECRET_KEY_BASE` 같은 표준 infrastructure 이름을 사용합니다. Runtime application configuration은 process-local environment variables가 아니라 Ankole의 PostgreSQL 기반 AppConfigure 표면에 속합니다.
+
+Brain은 `pg_search`가 미리 로드되고 `pg_search`, `vector`, `pg_trgm` extension을 제공하는 PostgreSQL을 요구합니다. BrainV3 migration이 이들을 설치하며, `tools/devkit/postgres-for-ankole`가 조건을 만족하는 image를 빌드합니다.

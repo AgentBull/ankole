@@ -563,24 +563,19 @@ describe('ambient intervention recognizer', () => {
 })
 
 describe('canonicalAmbientRoute', () => {
-  it('uses only the canonical legacy decision when new route fields are absent', () => {
-    expect(canonicalAmbientRoute({ status: 'ok', decision: 'intervene', asked_by: 'none' })).toEqual({
+  it('requires a canonical action and authority pair from the control plane', () => {
+    expect(canonicalAmbientRoute({ status: 'ok', action: 'FOREGROUND_REPLY', authority: 'NONE' })).toEqual({
       action: 'FOREGROUND_REPLY',
       authority: 'NONE'
     })
-    expect(
-      canonicalAmbientRoute({
-        status: 'ok',
-        decision: 'silent',
-        asked_by: 'none',
-        handoff_job_id: '1001'
-      })
-    ).toEqual({ action: 'NOOP', authority: 'NONE' })
 
-    expect(() => canonicalAmbientRoute({ decision: 'silent', action: 'HANDOFF' })).toThrow(
+    expect(() => canonicalAmbientRoute({ status: 'ok', action: 'HANDOFF' })).toThrow(
       'ambient judgment response is missing a canonical action or authority'
     )
-    expect(canonicalAmbientRoute({ decision: 'silent', action: 'HANDOFF', authority: 'NONE' })).toEqual({
+    expect(() => canonicalAmbientRoute({ status: 'ok', action: 'NOOP', authority: 'EXPLICIT_REQUEST' })).toThrow(
+      'ambient judgment response returned authority for a non-NEW_WORK action'
+    )
+    expect(canonicalAmbientRoute({ status: 'ok', action: 'HANDOFF', authority: 'NONE' })).toEqual({
       action: 'HANDOFF',
       authority: 'NONE'
     })

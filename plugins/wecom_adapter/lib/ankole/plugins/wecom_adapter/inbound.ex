@@ -146,7 +146,7 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
     end
   end
 
-  # --- card events ----------------------------------------------------------
+  # card events
 
   @doc "Normalizes a template-card event without observing or submitting it. Test seam."
   @spec normalize_card_action(Event.t()) :: {:ok, map()} | {:error, term()}
@@ -324,7 +324,7 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
     |> collect_results()
   end
 
-  # --- author / platform subject -------------------------------------------
+  # author / platform subject
 
   defp sender(payload), do: fetch_value(payload, "from") || %{}
 
@@ -366,7 +366,7 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
     end
   end
 
-  # --- channel --------------------------------------------------------------
+  # channel
 
   defp channel_target(payload) do
     case optional_text(payload, "chattype") do
@@ -390,7 +390,7 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
 
   defp encode_id(id), do: URI.encode(id, &URI.char_unreserved?/1)
 
-  # --- text -----------------------------------------------------------------
+  # text
 
   # Inbound text stays the user's own words. A voice message arrives as its
   # platform transcript only (no audio file exists in the callback), so the
@@ -482,7 +482,7 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
   defp formatted_content(nil), do: %{}
   defp formatted_content(text), do: %{"format" => "markdown", "body" => text}
 
-  # --- attachments ----------------------------------------------------------
+  # attachments
 
   defp attachments(payload) do
     own =
@@ -620,7 +620,7 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
     ])
   end
 
-  # --- helpers --------------------------------------------------------------
+  # helpers
 
   defp provider_time(payload) do
     case fetch_value(payload, "create_time") do

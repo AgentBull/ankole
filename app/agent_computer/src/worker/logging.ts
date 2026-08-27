@@ -1,5 +1,5 @@
 import pino, { type DestinationStream, type Logger, type LoggerOptions } from 'pino'
-import type { JsonObject as JSONObject } from '@agentbull/active-support'
+import { isRecord, type JsonObject as JSONObject } from '@agentbull/active-support'
 import { toError } from '../common/errors'
 
 export type LogSeverity = 'DEBUG' | 'INFO' | 'NOTICE' | 'WARNING' | 'ERROR' | 'CRITICAL' | 'ALERT' | 'EMERGENCY'
@@ -241,13 +241,9 @@ function serializeError(error: Error): WorkerLogFields {
 
   if (typeof record.code === 'string') serialized.code = record.code
   if (typeof record.status === 'number') serialized.status = record.status
-  if (jsonObjectValue(record.details)) serialized.details = record.details
+  if (isRecord(record.details)) serialized.details = record.details
 
   return serialized
-}
-
-function jsonObjectValue(value: unknown): value is JSONObject {
-  return !!value && typeof value === 'object' && !Array.isArray(value)
 }
 
 function compactLabels(labels: Record<string, string | number | boolean | undefined>): Record<string, string> {

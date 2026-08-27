@@ -126,7 +126,7 @@ defmodule Ankole.Brain.SignalsLearning do
     |> Enum.filter(&has_pending_slice?/1)
   end
 
-  # ── Slice processing ────────────────────────────────────────────
+  # Slice processing
 
   defp process_slice(channel, learning_context, entries, token, model) do
     transcript = build_transcript(entries)
@@ -322,12 +322,7 @@ defmodule Ankole.Brain.SignalsLearning do
       confidence: Claims.snap_to_grid(item["confidence"]),
       context: item["context"],
       valid_from: parse_datetime(item["valid_from"]) || DateTime.utc_now(:microsecond),
-      provenance: item["provenance"] || "signal channel conversation",
-      event_type: item["event_type"],
-      claim_metric: item["claim_metric"],
-      claim_value: numeric(item["claim_value"]),
-      claim_unit: item["claim_unit"],
-      claim_period: item["claim_period"]
+      provenance: item["provenance"] || "signal channel conversation"
     }
 
     attrs = put_parent(attrs, repo, channel_id, item["object_slug"])
@@ -420,7 +415,7 @@ defmodule Ankole.Brain.SignalsLearning do
     end
   end
 
-  # ── Learning context (defaults per channel kind) ─────────────────
+  # Learning context (defaults per channel kind)
 
   # Deterministic default scope and author attribution; this path never
   # reads ConfidentialityPolicy.md.
@@ -519,7 +514,7 @@ defmodule Ankole.Brain.SignalsLearning do
     |> Repo.exists?()
   end
 
-  # ── Transcript and prompt ───────────────────────────────────────
+  # Transcript and prompt
 
   defp build_transcript(entries) do
     lines =
@@ -611,7 +606,7 @@ defmodule Ankole.Brain.SignalsLearning do
     """
   end
 
-  # ── Bookkeeping ─────────────────────────────────────────────────
+  # Bookkeeping
 
   defp ensure_enabled do
     if Config.enabled?(), do: :ok, else: {:skip, :brain_disabled}
@@ -694,9 +689,6 @@ defmodule Ankole.Brain.SignalsLearning do
         (entry.first_seen_at == ^boundary_at and entry.source_entry_id > ^boundary_entry_id)
     )
   end
-
-  defp numeric(value) when is_number(value), do: value * 1.0
-  defp numeric(_value), do: nil
 
   defp parse_datetime(value) when is_binary(value) do
     case DateTime.from_iso8601(value) do

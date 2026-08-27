@@ -63,11 +63,6 @@ defmodule Ankole.Plugins.DiscordAdapter.Socket do
     end
   end
 
-  @spec send_payload(t(), map()) :: {:ok, t()} | {:error, t(), term()}
-  def send_payload(%__MODULE__{} = socket, payload) when is_map(payload) do
-    send_frame(socket, {:text, Torque.encode!(payload)})
-  end
-
   @spec send_frame(t(), term()) :: {:ok, t()} | {:error, t(), term()}
   def send_frame(%__MODULE__{websocket: nil} = socket, _frame),
     do: {:error, socket, :websocket_not_ready}
@@ -95,9 +90,6 @@ defmodule Ankole.Plugins.DiscordAdapter.Socket do
     _ignored = Mint.HTTP.close(socket.conn)
     :ok
   end
-
-  @spec ready?(t()) :: boolean()
-  def ready?(%__MODULE__{websocket: websocket}), do: not is_nil(websocket)
 
   defp handle_responses([], socket, frames), do: {:ok, socket, Enum.reverse(frames)}
 

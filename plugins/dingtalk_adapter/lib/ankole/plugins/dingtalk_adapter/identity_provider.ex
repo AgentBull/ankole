@@ -166,7 +166,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.IdentityProvider do
     end
   end
 
-  # --- login helpers -------------------------------------------------------
+  # login helpers
 
   defp fetch_union_id(me) do
     case optional_text(me, "unionId") do
@@ -196,7 +196,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.IdentityProvider do
     end
   end
 
-  # --- directory sync ------------------------------------------------------
+  # directory sync
 
   defp sync_departments(provider_id, client) do
     walk_departments(provider_id, client, [Contact.root_department_id()], [])
@@ -344,7 +344,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.IdentityProvider do
     end
   end
 
-  # --- department groups ---------------------------------------------------
+  # department groups
 
   defp ensure_department_group(provider_id, department) when is_map(department) do
     with {:ok, department_id} <- department_id(department),
@@ -388,7 +388,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.IdentityProvider do
     end
   end
 
-  # --- field helpers -------------------------------------------------------
+  # field helpers
 
   defp user_id(user) do
     case optional_text(user, "userid") || optional_text(user, "userId") do

@@ -49,24 +49,28 @@ export function createReplyAttachmentTool(
         : { key: 'signals_gateway.reply.activity.attachment_prepare' }
     },
     async execute(_toolCallId, params, signal): Promise<AgentToolResult<ReplyAttachmentDetails>> {
-      const computer = await context.getComputer(signal)
-      const buffer = await computer.readFileToBuffer({ path: params.path }, { signal })
-      if (!buffer) {
-        throw new Error(`reply_attachment file not found: ${params.path}`)
-      }
-
+      // Resolve the path before touching the file: the check is a pure function,
+      // and running it first keeps a path outside `user-files` from reaching the
+      // sandbox at all. Only the file's size is needed, so the file is never
+      // read — a huge or sparse file must not become worker memory.
       const relativePath = userFilesRelativePath(
         params.path,
         context.agentHome,
         context.workspaceRoot,
         context.userFilesRoot
       )
+      const computer = await context.getComputer(signal)
+      const size = await computer.fileSize({ path: params.path }, { signal })
+      if (size === null) {
+        throw new Error(`reply_attachment file not found: ${params.path}`)
+      }
+
       const attachment = {
         agent_computer_path: `${context.userFilesRoot}/${relativePath}`,
         user_files_relative_path: relativePath,
         name: params.name ?? basename(relativePath),
         ...(params.mimeType ? { mime_type: params.mimeType } : {}),
-        size: buffer.byteLength
+        size
       }
       const details: ReplyAttachmentDetails = {
         tool: 'reply_attachment',

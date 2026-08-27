@@ -28,10 +28,10 @@ import {
   ankoleWebPrincipalControllerIndexOptions
 } from '../api/generated/@tanstack/react-query.gen'
 import type { IdentityMappingRequestItem, PrincipalItem } from '../api/generated/types.gen'
-import { AddMembershipPicker } from '../add-membership-picker'
 import { LabeledField, ResourceEditorPage } from '../console-form'
 import { ResourceListPage, ResourceSearch, SubNav } from '../console-list-page'
 import { formatConsoleDate } from '../console-primitives'
+import { SinglePrincipalPicker } from '../principal-picker'
 import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
 
 /** Sibling views of the "Identity" nav area: providers and the pending-mapping queue. */
@@ -175,7 +175,6 @@ export function IdentityMappingCreatePage() {
   const [externalID, setExternalID] = useState('')
   const [principalUID, setPrincipalUID] = useState<string>()
   const [validationError, setValidationError] = useState<string>()
-  const selected = humanPrincipals.find(principal => principal.uid === principalUID)
 
   const create = useMutation({
     ...ankoleWebIdentityMappingRequestControllerCreateMappingMutation(),
@@ -228,23 +227,16 @@ export function IdentityMappingCreatePage() {
         </LabeledField>
       </div>
       <LabeledField label={t('console.identity_mappings.picker_label')} required>
-        <AddMembershipPicker
+        <SinglePrincipalPicker
           ariaLabel={t('console.identity_mappings.picker_label')}
           placeholder={t('console.identity_mappings.picker_placeholder')}
-          emptyText={t('console.identity_mappings.picker_empty')}
           candidates={humanPrincipals.map(principal => ({ id: principal.uid, label: principal.display_name }))}
-          excludedIDs={new Set()}
+          disabled={create.isPending}
           error={principals.error}
           isLoading={principals.isLoading}
-          pending={create.isPending}
-          onAdd={setPrincipalUID}
+          value={principalUID ?? ''}
+          onChange={id => setPrincipalUID(id || undefined)}
         />
-        {selected ? (
-          <p className="text-sm">
-            {t('console.identity_mappings.bind_selected', { name: selected.display_name ?? selected.uid })}
-            <span className="ml-2 font-mono text-xs text-muted-foreground">{selected.uid}</span>
-          </p>
-        ) : null}
       </LabeledField>
     </ResourceEditorPage>
   )
@@ -294,23 +286,16 @@ function BindMappingDialog({
             {t('console.identity_mappings.bind_description', { name: senderName, provider: request?.provider })}
           </DialogDescription>
         </DialogHeader>
-        <AddMembershipPicker
+        <SinglePrincipalPicker
           ariaLabel={t('console.identity_mappings.picker_label')}
           placeholder={t('console.identity_mappings.picker_placeholder')}
-          emptyText={t('console.identity_mappings.picker_empty')}
           candidates={principals.map(principal => ({ id: principal.uid, label: principal.display_name }))}
-          excludedIDs={new Set()}
+          disabled={bind.isPending}
           error={principalsError}
           isLoading={principalsLoading}
-          pending={bind.isPending}
-          onAdd={setSelectedUID}
+          value={selectedUID ?? ''}
+          onChange={id => setSelectedUID(id || undefined)}
         />
-        {selected ? (
-          <p className="text-sm">
-            {t('console.identity_mappings.bind_selected', { name: selected.display_name ?? selected.uid })}
-            <span className="ml-2 font-mono text-xs text-muted-foreground">{selected.uid}</span>
-          </p>
-        ) : null}
         <DialogFooter>
           <DialogClose className={cn(buttonVariants({ size: 'sm', variant: 'ghost' }))}>
             {t('common.cancel')}

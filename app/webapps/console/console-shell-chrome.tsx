@@ -253,7 +253,7 @@ function ConsoleNavigation({ onNavigate }: { onNavigate?: () => void }) {
                         ? 'border-primary/60 bg-accent text-accent-foreground'
                         : isActive || matchesArea
                           ? 'border-primary bg-accent text-accent-foreground'
-                          : 'border-transparent text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                          : 'border-transparent text-muted-foreground fine-hover:hover:bg-accent fine-hover:hover:text-accent-foreground'
                     )
                   }>
                   <Icon className="size-4 shrink-0" aria-hidden />

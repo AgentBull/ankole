@@ -47,7 +47,7 @@ export function PrincipalEditPage() {
     model.clearValidation()
     const draftError = model.draftError()
     if (draftError) {
-      model.validationError.value = principalDraftErrorText(draftError, t)
+      model.validationError.value = draftError
       return
     }
     if (loadedPrincipal) update.mutate({ body: model.updateBody(), path: { uid: loadedPrincipal.uid } })
@@ -57,7 +57,11 @@ export function PrincipalEditPage() {
     <ResourceEditorPage
       title={t('console.principals.edit_title')}
       backTo={detailPath}
-      error={model.validationError.value ?? principalRequestError(update.error, t) ?? principal.error}
+      error={
+        (model.validationError.value
+          ? principalDraftErrorText(model.validationError.value, t)
+          : principalRequestError(update.error, t)) ?? principal.error
+      }
       submitting={update.isPending}
       submitDisabled={!model.dirty.value}
       onSubmit={submit}>

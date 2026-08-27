@@ -17,6 +17,16 @@ const TakeKinds = ['take', 'bet', 'hunch'] as const
 
 const AudienceScopePattern = /^(world|group:.+|principal:.+)$/
 
+// Confidence and weight live on a 0.05 grid, and the control plane rejects a
+// value off it. Enforcing the same rule here turns a wasted RPC round trip into
+// an immediate, self-explaining tool error.
+const GridValue = z.number().min(0).max(1).multipleOf(0.05)
+
+// `since`/`until` mirror the control plane's parse: a full ISO 8601 instant
+// with an offset, or a plain ISO date that reads as midnight UTC. An
+// unparseable value is an error there, never a silently absent bound.
+const ISOInstantOrDate = z.union([z.iso.datetime({ offset: true }), z.iso.date()])
+
 const RememberParams = z.object({
   claim: z
     .string()
@@ -49,22 +59,12 @@ const RememberParams = z.object({
       'Page slug or name of an existing entity page to attach the claim to. A name that does not resolve files the claim to the current channel instead; the result reports the parent it landed on.'
     ),
   notability: z.enum(['high', 'medium', 'low']).optional().describe('Fact notability. Defaults to medium.'),
-  confidence: z
-    .number()
-    .min(0)
-    .max(1)
-    .optional()
-    .describe(
-      'For fact kinds: certainty that the fact is correct, 0..1 in 0.05 steps. Defaults to 0.75. A fact the subject reports about themselves caps at 0.75 without independent support.'
-    ),
-  weight: z
-    .number()
-    .min(0)
-    .max(1)
-    .optional()
-    .describe(
-      'For take kinds: how strongly the holder holds the judgment, 0..1 in 0.05 steps. Defaults to 0.6. Your own adoption of a relayed judgment caps at 0.55.'
-    ),
+  confidence: GridValue.optional().describe(
+    'For fact kinds: certainty that the fact is correct, 0..1 in 0.05 steps. Defaults to 0.75. A fact the subject reports about themselves caps at 0.75 without independent support.'
+  ),
+  weight: GridValue.optional().describe(
+    'For take kinds: how strongly the holder holds the judgment, 0..1 in 0.05 steps. Defaults to 0.6. Your own adoption of a relayed judgment caps at 0.55.'
+  ),
   context: z
     .string()
     .max(2_000)
@@ -122,8 +122,8 @@ const SynthesizeParams = z.object({
 
 const DeltaParams = z.object({
   entity: z.string().min(1).optional().describe('Page slug or name that bounds the report to one entity.'),
-  since: z.string().min(1).optional().describe('ISO 8601 date or datetime start of the change window.'),
-  until: z.string().min(1).optional().describe('ISO 8601 date or datetime end of the change window.')
+  since: ISOInstantOrDate.optional().describe('ISO 8601 date or datetime start of the change window.'),
+  until: ISOInstantOrDate.optional().describe('ISO 8601 date or datetime end of the change window.')
 })
 
 /**
@@ -132,7 +132,7 @@ const DeltaParams = z.object({
  * Zod field names pass through the wire unchanged: they are the
  * control-plane BrainBroker param keys.
  */
-export function createBrainTools(opts: CreateBrainToolsOptions): WorkerAgentTool<any>[] {
+export function createBrainTools(opts: CreateBrainToolsOptions): WorkerAgentTool[] {
   return [
     createRememberTool(opts),
     createRecallTool(opts),
@@ -151,7 +151,7 @@ export function createBrainTools(opts: CreateBrainToolsOptions): WorkerAgentTool
  * re-researching it. Jobs get no Brain write tools; their findings enter
  * memory through the owning main session.
  */
-export function createBrainJobTools(opts: CreateBrainToolsOptions): WorkerAgentTool<any>[] {
+export function createBrainJobTools(opts: CreateBrainToolsOptions): WorkerAgentTool[] {
   return [createRecallTool(opts), createGetPageTool(opts)]
 }
 

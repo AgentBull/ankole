@@ -16,7 +16,7 @@ defmodule Ankole.AIGateway.Compaction do
   alias Ankole.AIGateway.CompactionPrompt
   alias Ankole.AIGateway.CompactionRender
   alias Ankole.AIGateway.CompactionRetention
-  alias Ankole.AIGateway.MapUtils
+  alias Ankole.Attrs
   alias Ankole.AIGateway.ModelMetadata
   alias Ankole.AIGateway.ProviderConfigs.Provider
   alias Ankole.AIGateway.ProviderSealedContent
@@ -371,7 +371,7 @@ defmodule Ankole.AIGateway.Compaction do
   """
   @spec compact_from_trigger(String.t(), map()) :: {:ok, map()} | {:error, term()}
   def compact_from_trigger(subject_uid, request) when is_map(request) do
-    request = MapUtils.normalize_request_keys(request)
+    request = Attrs.normalize_external_attrs(request)
 
     # What the caller sent decides which history is compacted. A caller that
     # sends only the trigger keeps its history here; a caller that sends history
@@ -548,7 +548,7 @@ defmodule Ankole.AIGateway.Compaction do
   """
   @spec compact_response(String.t(), map()) :: {:ok, map()} | {:error, term()}
   def compact_response(subject_uid, request) when is_map(request) do
-    request = MapUtils.normalize_request_keys(request)
+    request = Attrs.normalize_external_attrs(request)
     upstream_compaction? = upstream_compaction?()
 
     with {:ok, _model} <- standalone_model(request),

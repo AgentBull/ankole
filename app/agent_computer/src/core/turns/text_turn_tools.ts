@@ -49,7 +49,6 @@ type TextTurnToolsOptions = {
 export async function createTextTurnTools(opts: TextTurnToolsOptions): Promise<WorkerAgentTool[]> {
   const turnStart = opts.turnStart
   const computerTools = createComputerTools({
-    agentUID: turnStart.turn.actor.agent_uid,
     agentHome: opts.agentHome,
     workspaceRoot: opts.workspaceRoot,
     userFilesRoot: opts.userFilesRoot,

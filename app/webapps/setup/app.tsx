@@ -1,3 +1,4 @@
+import { uniq } from '@agentbull/active-support'
 import { Field as FormField, Form, getInput, useForm } from '@formisch/react'
 import {
   RiArrowRightSLine,
@@ -238,7 +239,7 @@ function BootstrapGate({ setupState, onAuthenticated }: { setupState?: SetupStat
   const availableLocales = useMemo(
     // Include the current locale even if catalog reload state is temporarily
     // behind AppConfigure. This avoids rendering an empty selected option.
-    () => unique([...(setupState?.availableLocales ?? []), locale]),
+    () => uniq([...(setupState?.availableLocales ?? []), locale].filter(Boolean)),
     [locale, setupState?.availableLocales]
   )
 
@@ -696,9 +697,4 @@ function identityAdapterLabel(adapter: IdentityAdapter, locale: string): string 
 /** Shows the first validation error from Formisch field state. */
 function FormFieldError({ errors }: { errors: [string, ...string[]] | null }) {
   return errors ? <UiFieldError>{errors[0]}</UiFieldError> : null
-}
-
-/** Returns unique non-empty values while preserving user-visible order. */
-function unique(values: string[]): string[] {
-  return [...new Set(values.filter(Boolean))]
 }

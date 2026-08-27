@@ -20,7 +20,11 @@ const entries = {
 
 // The Markdown rendering pipeline behind `console/markdown-renderer.tsx`.
 // These packages have no consumer outside that dynamic import, so grouping
-// them cannot pull the chunk into an eager entry.
+// them cannot pull the chunk into an eager entry. The list is hand-frozen:
+// after a react-markdown upgrade, rebuild it from the dependency closure
+// (`bun pm ls --all` under the react-markdown subtree) — a package that
+// falls off the list only lands in `vendor-utilities`, so the failure mode
+// is bundle-size drift, not breakage.
 const markdownPipelinePrefixes = [
   'character-entities',
   'hast-util-',
@@ -243,5 +247,5 @@ export default defineConfig(({ command }): UserConfig => ({
       }
     }
   },
-  clearScreen: command === 'serve' ? false : true
+  clearScreen: command !== 'serve'
 }))

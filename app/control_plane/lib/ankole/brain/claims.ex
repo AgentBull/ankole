@@ -44,6 +44,19 @@ defmodule Ankole.Brain.Claims do
   @spec internal_provenance_prefix() :: String.t()
   def internal_provenance_prefix, do: @internal_provenance_prefix
 
+  @doc """
+  Narrows a Claim query to current external facts: `claim_type` fact, not
+  expired, not superseded, and provenance outside the internal prefix that
+  extraction terminals use.
+  """
+  @spec current_external_facts(Ecto.Queryable.t()) :: Ecto.Query.t()
+  def current_external_facts(query) do
+    query
+    |> where([claim], claim.claim_type == "fact")
+    |> where([claim], is_nil(claim.expired_at) and is_nil(claim.superseded_by))
+    |> where([claim], not like(claim.provenance, ^(@internal_provenance_prefix <> "%")))
+  end
+
   @doc "Closed kind whitelist for facts."
   @spec fact_kinds() :: [String.t()]
   def fact_kinds, do: @fact_kinds
@@ -376,7 +389,7 @@ defmodule Ankole.Brain.Claims do
 
   def snap_to_grid(_value), do: 0.5
 
-  # ── Embedding preparation and dedup ─────────────────────────────
+  # Embedding preparation and dedup
 
   @doc """
   Prepares one claim text's embedding outside any transaction. The
@@ -421,12 +434,10 @@ defmodule Ankole.Brain.Claims do
   defp find_dedup_action(repo, attrs, embedding) do
     candidates =
       Claim
-      |> where([claim], claim.claim_type == "fact")
-      |> where([claim], is_nil(claim.expired_at) and is_nil(claim.superseded_by))
+      |> current_external_facts()
       |> where([claim], claim.holder == ^attrs[:holder])
       |> where([claim], claim.audience_scope == ^attrs[:audience_scope])
       |> where([claim], not is_nil(claim.embedding))
-      |> where([claim], not like(claim.provenance, ^(@internal_provenance_prefix <> "%")))
       |> parent_filter(attrs)
       |> order_by([claim], fragment("? <=> ?", claim.embedding, ^embedding))
       |> limit(@dedup_candidate_limit)
@@ -479,15 +490,6 @@ defmodule Ankole.Brain.Claims do
       valid_until: usec(attrs[:valid_until]),
       confidence: attrs[:confidence],
       provenance_session: attrs[:provenance_session],
-      claim_metric: attrs[:claim_metric],
-      claim_value: attrs[:claim_value],
-      claim_unit: attrs[:claim_unit],
-      claim_period: attrs[:claim_period],
-      event_type: attrs[:event_type],
-      dimension: attrs[:dimension],
-      value: attrs[:value],
-      value_hash: attrs[:value_hash],
-      dim_status: attrs[:dim_status],
       provenance: attrs[:provenance],
       embedding: embedding,
       embedding_signature: signature,
@@ -520,7 +522,7 @@ defmodule Ankole.Brain.Claims do
     |> repo.update()
   end
 
-  # ── Validation ──────────────────────────────────────────────────
+  # Validation
 
   defp validate_parent(attrs, repo) do
     object_slug = attrs[:object_slug]

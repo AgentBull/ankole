@@ -92,7 +92,6 @@ async function recordAmbientJudgment(
   const askedBy = decision.askedBy
   const requestSignalChannelRPC = signalChannelRPCRequester(opts.rpc, turnStart.turn)
   const response = await requestSignalChannelRPC(rpcMethods.signalChannelAmbientJudgmentRecord, {
-    decision: legacyDecision(decision.action),
     reason: decision.reason,
     askedBySourceEntryId: askedBy.state === 'none' ? '' : askedBy.sourceEntryID,
     askedByDegraded: askedBy.state === 'degraded',
@@ -104,26 +103,11 @@ async function recordAmbientJudgment(
   return canonicalAmbientRoute(response)
 }
 
-/**
- * Reads the route that the control plane actually committed.
- *
- * An older control plane returns only the canonical legacy decision. Its
- * `intervene` result can safely become a foreground reply, while `silent`
- * stays a no-op. Neither legacy result can claim that a HANDOFF committed.
- */
+/** Reads the route that the control plane actually committed. */
 export function canonicalAmbientRoute(response: JSONObject): {
   action: AmbientAction
   authority: AmbientAuthority
 } {
-  const hasAction = 'action' in response
-  const hasAuthority = 'authority' in response
-  if (!hasAction && !hasAuthority) {
-    const decision = stringArg(response, 'decision')
-    if (decision === 'intervene') return { action: 'FOREGROUND_REPLY', authority: 'NONE' }
-    if (decision === 'silent') return { action: 'NOOP', authority: 'NONE' }
-    throw new Error('ambient judgment legacy response is missing a canonical decision')
-  }
-
   const action = stringArg(response, 'action')
   const authority = stringArg(response, 'authority')
   if (
@@ -137,10 +121,6 @@ export function canonicalAmbientRoute(response: JSONObject): {
   }
 
   return { action: action as AmbientAction, authority: authority as AmbientAuthority }
-}
-
-function legacyDecision(action: AmbientAction): 'intervene' | 'silent' {
-  return action === 'FOREGROUND_REPLY' || action === 'NEW_WORK' ? 'intervene' : 'silent'
 }
 
 /**

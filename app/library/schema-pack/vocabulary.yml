@@ -1,17 +1,16 @@
 # Ankole Brain global vocabulary.
 # Preferred terms for the free-text naming surfaces of the Brain write path:
-# subtype, tag, claim_metric, event_type, and dimension. Agents consult this
-# file before they invent a new name. Installed schema types and subtypes
-# always take priority over this file.
+# subtype and tag. Agents consult this file before they invent a new name.
+# Installed schema types and subtypes always take priority over this file.
 # Sections come in three groups: cross-industry business functions, industry
 # domains, and classification labels. Admission tests and dedup decisions
 # live in docs/design-docs/BrainV3.md.
 api_version: ankole-brain-vocabulary-v1
 version: 1.1.0
 sections:
-  # ────────────────────────────────────────────────────────────
+
   # Cross-industry business functions
-  # ────────────────────────────────────────────────────────────
+
   - name: Marketing and Growth
     source: schema.org, IAB, and search-marketing vocabulary
     entries:
@@ -174,9 +173,9 @@ sections:
       - {term: trademark, description: "A registered or asserted sign, name, or symbol that distinguishes goods or services and carries legal protection."}
       - {term: copyright, description: "The legal right controlling reproduction and use of an original creative work for a limited term."}
 
-  # ────────────────────────────────────────────────────────────
+
   # Industry domains
-  # ────────────────────────────────────────────────────────────
+
   - name: Finance and Insurance
     source: FIBO
     entries:
@@ -247,9 +246,9 @@ sections:
       - {term: inspection, description: "An examination, measurement, or test used to determine whether an item or process conforms to specified requirements."}
       - {term: traceability, description: "The ability to identify an item's or material's history, application, and location through recorded identifiers and links."}
 
-  # ────────────────────────────────────────────────────────────
+
   # Cross-domain entities and classification labels
-  # ────────────────────────────────────────────────────────────
+
   - name: General Entities
     source: schema.org
     entries:

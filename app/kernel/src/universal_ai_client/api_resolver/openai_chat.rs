@@ -1025,18 +1025,7 @@ fn chat_messages(
                                 pending_tool_calls.push(chat_custom_tool_call(map)?);
                                 continue;
                             }
-                            Some("function_call_output") => {
-                                flush_chat_tool_calls(
-                                    &mut messages,
-                                    &mut pending_tool_calls,
-                                    &mut pending_reasoning,
-                                );
-                                let (tool_message, image_parts) = chat_function_call_output(map);
-                                messages.push(tool_message);
-                                pending_tool_output_images.extend(image_parts);
-                                continue;
-                            }
-                            Some("custom_tool_call_output") => {
+                            Some("function_call_output" | "custom_tool_call_output") => {
                                 flush_chat_tool_calls(
                                     &mut messages,
                                     &mut pending_tool_calls,
@@ -1727,9 +1716,7 @@ fn chat_tool_for_flattened_name<'a>(
                     return Some((None, function));
                 }
             }
-            _type => {
-                continue;
-            }
+            _type => {}
         }
     }
 

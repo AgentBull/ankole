@@ -81,7 +81,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
     request |> reconcile(final?, true) |> normalize_result()
   end
 
-  # --- core reconcile ------------------------------------------------------
+  # core reconcile
 
   defp reconcile(%Request{} = request, final?, repaint?) do
     with {:ok, event} <- fresh_event(request.actor_event),
@@ -150,7 +150,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
     |> then(&Actors.put_reply_preview_checkpoint(event.id, &1))
   end
 
-  # --- card path -----------------------------------------------------------
+  # card path
 
   defp reconcile_card(
          event,
@@ -468,7 +468,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
     end
   end
 
-  # --- rendering -----------------------------------------------------------
+  # rendering
 
   defp card_param_map(presentation, display_answer, card) do
     %{
@@ -633,7 +633,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
   defp text_or_empty(text) when is_binary(text), do: text
   defp text_or_empty(_other), do: ""
 
-  # --- space (group / DM) --------------------------------------------------
+  # space (group / DM)
 
   defp resolve_space(%ActorEvent{signal_channel_id: signal_channel_id}) do
     conversation_id = decode_channel(signal_channel_id)
@@ -653,7 +653,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
   defp decode_channel("dingtalk:" <> encoded), do: URI.decode(encoded)
   defp decode_channel(value), do: value
 
-  # --- checkpoint ----------------------------------------------------------
+  # checkpoint
 
   defp current_checkpoint(%ActorEvent{reply_preview_checkpoint: checkpoint}, _request)
        when is_map(checkpoint),
@@ -769,7 +769,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
     }
   end
 
-  # --- degraded plain delivery ----------------------------------------------
+  # degraded plain delivery
 
   # Terminal-only fallback: the durable reply intent is still delivered, just
   # without a card. Chunks ride the same Markdown split budget as Outbox text,
@@ -896,7 +896,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
     end)
   end
 
-  # --- helpers -------------------------------------------------------------
+  # helpers
 
   defp card_template_id(config) do
     case Map.get(config, "cardTemplateId") do

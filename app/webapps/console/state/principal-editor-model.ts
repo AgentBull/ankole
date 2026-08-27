@@ -7,7 +7,7 @@ export type PrincipalEditorDraft = {
   email: string
 }
 
-/** Client-side draft problems, mapped to i18n text by the pages. */
+/** Client-side draft problems; the pages translate the code at render. */
 export type PrincipalDraftError = 'display_name_required' | 'email_required' | 'email_invalid'
 
 const emailSchema = v.pipe(v.string(), v.email())
@@ -19,7 +19,7 @@ export const PrincipalEditorModel = createModel(() => {
   const email = signal('')
   const mustChangePassword = signal(true)
   const initialDraft = signal<PrincipalEditorDraft>()
-  const validationError = signal<string>()
+  const validationError = signal<PrincipalDraftError>()
   const dirty = computed(() => {
     const source = initialDraft.value
     return Boolean(source && (displayName.value !== source.displayName || email.value !== source.email))

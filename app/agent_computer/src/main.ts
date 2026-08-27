@@ -67,6 +67,12 @@ async function runWorker(): Promise<void> {
 
     let nextHeartbeatAt = Date.now() + heartbeatIntervalMs
     let shutdownReported = false
+    // Span export is an RPC: it needs a reply, and only this loop delivers
+    // replies. So the flush starts when the loop is otherwise done and the loop
+    // keeps pumping until it settles, instead of running after the loop exits
+    // where every export would wait out its timeout and lose its spans.
+    let tracingFlush: Promise<void> | undefined
+    let tracingFlushed = false
 
     for (;;) {
       if (!drain.acceptsTurns && !shutdownReported) {
@@ -86,7 +92,12 @@ async function runWorker(): Promise<void> {
         }
       }
 
-      if (!drain.shouldContinue) break
+      if (!drain.shouldContinue) {
+        if (tracingFlushed) break
+        tracingFlush ??= forceFlushWorkerTracing().finally(() => {
+          tracingFlushed = true
+        })
+      }
 
       if (Date.now() >= nextHeartbeatAt) {
         await sendWorkerHeartbeat(
@@ -112,8 +123,9 @@ async function runWorker(): Promise<void> {
       await handleEnvelope(sendEnvelope, rpcClient, activeTurns, drain, workerRPCHandlers, envelope)
     }
   } finally {
-    // Stop work producers before trace flush. RuntimeFabric must stay live
-    // until the trace exporter finishes.
+    // A drained shutdown already flushed its spans inside the loop, where their
+    // export could still be answered. This second flush covers the path that
+    // leaves the loop by throwing; it has nothing to send after a clean drain.
     try {
       await browserRuntime.stop()
     } finally {

@@ -923,7 +923,7 @@ export function ScheduleCronEditorPage() {
   )
 }
 
-// --- helpers ---
+// helpers
 
 /** Localized status labels; an unknown token renders as itself instead of a raw i18n key. */
 function scheduleStatusLabel(t: TFunction, status: string): string {

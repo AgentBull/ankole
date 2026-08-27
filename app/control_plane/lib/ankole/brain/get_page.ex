@@ -148,12 +148,11 @@ defmodule Ankole.Brain.GetPage do
     end)
   end
 
-  # ── Rendering ───────────────────────────────────────────────────
+  # Rendering
 
   defp render_page(%Object{} = object, access, disclosure) do
     keep = fn scope ->
-      reachable = scope == "world" or scope in access.scopes
-      reachable and Access.disclosable?(scope, disclosure)
+      Access.scope_reachable?(access, scope) and Access.disclosable?(scope, disclosure)
     end
 
     body =

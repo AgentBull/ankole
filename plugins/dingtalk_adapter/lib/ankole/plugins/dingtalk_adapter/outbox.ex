@@ -82,7 +82,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Outbox do
   def send(%OutboxEntry{operation: :card} = outbox), do: deliver_card(outbox)
   def send(%OutboxEntry{}), do: {:error, :unsupported_outbox_operation}
 
-  # --- post ----------------------------------------------------------------
+  # post
 
   defp deliver_post(%OutboxEntry{} = outbox) do
     case fetch_list(outbox.payload, "attachments") do
@@ -110,7 +110,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Outbox do
     |> normalize_delivery_result()
   end
 
-  # --- card ------------------------------------------------------------------
+  # card
 
   # A card row without a configured template still delivers its durable intent:
   # the gateway guarantees `fallback_visible_text` on card operations, so the
@@ -180,7 +180,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Outbox do
     end
   end
 
-  # --- attachment ----------------------------------------------------------
+  # attachment
 
   defp deliver_attachment(%OutboxEntry{} = outbox, attachment) do
     with {:ok, config} <- config_for_outbox(outbox),
@@ -247,7 +247,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Outbox do
     end
   end
 
-  # --- delete (recall) -----------------------------------------------------
+  # delete (recall)
 
   defp deliver_delete(%OutboxEntry{target_source_entry_id: nil}),
     do: {:error, :unsupported_target}
@@ -282,7 +282,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Outbox do
     |> normalize_delivery_result()
   end
 
-  # --- send primitive ------------------------------------------------------
+  # send primitive
 
   defp send_message(client, robot_code, {:dm, user_id}, msg_key, msg_param) do
     client
@@ -328,7 +328,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Outbox do
 
   defp combined_result([], _payload), do: %{raw_payload: %{}}
 
-  # --- helpers -------------------------------------------------------------
+  # helpers
 
   defp resolve_target(%OutboxEntry{signal_channel_id: signal_channel_id}) do
     conversation_id = decode_channel(signal_channel_id)

@@ -35,6 +35,25 @@ defmodule Ankole.Plugins.DiscordAdapter.Config do
     ]
   end
 
+  @doc """
+  Builds the stable AppConfigure key owned by one Agent binding.
+
+  The digest gives each `(agent, binding)` pair its own key; a name-only key
+  would collide across Agents that use the same binding name, so one Agent's
+  token write would replace another's.
+  """
+  @spec binding_config_key(String.t(), String.t()) :: String.t()
+  def binding_config_key(agent_uid, binding_name)
+      when is_binary(agent_uid) and is_binary(binding_name) do
+    id =
+      [agent_uid, binding_name]
+      |> Ankole.JSON.encode!()
+      |> then(&:crypto.hash(:sha256, &1))
+      |> Base.encode16(case: :lower)
+
+    "signals_gateway.discord.bindings.#{id}"
+  end
+
   @spec validate_binding_config(term()) :: {:ok, t()} | {:error, term()}
   def validate_binding_config(value) when is_map(value) do
     with {:ok, token} <- MapHelpers.required_string(value, "botToken") do

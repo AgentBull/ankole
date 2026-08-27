@@ -5,14 +5,12 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
   alias Ankole.AIAgent.Library.AgentPlugins
   alias Ankole.AgentHomePaths
-  alias Ankole.AIGateway.Compaction
   alias Ankole.AIGateway.ModelMetadata.Cache, as: ModelMetadataCache
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.RuntimeProjection
   alias Ankole.BackgroundAgentJobs.Schemas.Job
-  alias Ankole.BackgroundAgentJobs.Schemas.TrajectoryGroup
   alias Ankole.BackgroundAgentJobs.Schemas.Turn
   alias Ankole.BackgroundAgentJobs.Schemas.TurnItem
   alias Ankole.BackgroundAgentJobs.Text
@@ -727,7 +725,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
                "metadata" => %{"pending_user_input" => %{"questions" => []}}
              })
 
-    replace_turn_trajectory!(interrupted, request_user_input_messages(false), %{
+    replace_turn_items!(interrupted, [request_user_input_item(false)], %{
       revision: interrupted.revision + 1,
       error: %{"code" => "request_user_input"}
     })
@@ -748,7 +746,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
     interrupted = Repo.reload!(interrupted)
 
-    replace_turn_trajectory!(interrupted, request_user_input_messages(), %{
+    replace_turn_items!(interrupted, [request_user_input_item()], %{
       revision: interrupted.revision + 1
     })
 
@@ -788,7 +786,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
     now = DateTime.utc_now(:microsecond)
 
-    replace_turn_trajectory!(active, request_user_input_messages(), %{
+    replace_turn_items!(active, [request_user_input_item()], %{
       status: "interrupted",
       revision: active.revision + 1,
       error: %{"code" => "request_user_input"},
@@ -1687,7 +1685,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
         runtime_turn_id: "turn-failed-#{index}",
         kind: "compaction",
         status: "failed",
-        trajectory_groups: [[assistant_message("upstream returned HTTP status 502")]],
+        trajectory_items: [assistant_item("turn-failure", "upstream returned HTTP status 502")],
         error: %{"summary" => "upstream returned HTTP status 502"}
       })
     end
@@ -1924,13 +1922,10 @@ defmodule Ankole.BackgroundAgentJobsTest do
       started_at: base,
       status: "completed",
       completed_at: DateTime.add(base, 1, :microsecond),
-      trajectory_groups: [
-        [assistant_message("lead-old")],
-        [
-          tool_call_message("shell-1", "shell"),
-          tool_result_message("shell-1", "shell", "done")
-        ],
-        [assistant_message("context-compaction-recorded")]
+      trajectory_items: [
+        assistant_item("lead-old-item", "lead-old"),
+        dynamic_tool_item("shell-1", "shell", "done"),
+        assistant_item("compaction-note", "context-compaction-recorded")
       ],
       progress:
         progress_snapshot(3, "shell", ["a.ts"])
@@ -1947,7 +1942,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
       runtime_turn_id: "turn-child-1",
       started_at: DateTime.add(base, 1, :second),
       status: "in_progress",
-      trajectory_groups: [[assistant_message("child-report-must-not-appear")]],
+      trajectory_items: [assistant_item("child-report", "child-report-must-not-appear")],
       progress:
         progress_snapshot(2, "web_search", ["child.tmp"])
         |> Map.put("tools_used", [
@@ -1974,13 +1969,10 @@ defmodule Ankole.BackgroundAgentJobsTest do
       runtime_turn_id: "turn-lead-2",
       started_at: DateTime.add(base, 3, :second),
       status: "in_progress",
-      trajectory_groups: [
-        [assistant_message("lead-new-1")],
-        [assistant_message("lead-new-2")],
-        [
-          tool_call_message("patch-1", "apply_patch"),
-          tool_result_message("patch-1", "apply_patch", "patched")
-        ]
+      trajectory_items: [
+        assistant_item("lead-new-1-item", "lead-new-1"),
+        assistant_item("lead-new-2-item", "lead-new-2"),
+        dynamic_tool_item("patch-1", "apply_patch", "patched")
       ],
       progress:
         progress_snapshot(3, "apply_patch", ["b.ts"])
@@ -2114,7 +2106,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
         runtime_turn_id: "turn-large",
         status: "completed",
         completed_at: DateTime.utc_now(:microsecond),
-        trajectory_groups: [[assistant_message(String.duplicate("大", 80_000))]]
+        trajectory_items: [assistant_item("large-1", String.duplicate("大", 80_000))]
       })
 
     large_turn
@@ -2221,7 +2213,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
              Turns.execution_projection(job, trajectory_cursor: replay_only_cursor)
   end
 
-  test "trajectory page merges group-only Turns with item Turns of one attempt in order" do
+  test "a Turn without item rows renders empty and does not break the page walk" do
     %{principal: agent} = background_agent_fixture()
     job = create_job!(agent.uid, "mixed-trajectory-page")
 
@@ -2231,17 +2223,14 @@ defmodule Ankole.BackgroundAgentJobsTest do
     job = Repo.get!(Job, job.id)
     base = DateTime.add(DateTime.utc_now(:microsecond), -10, :second)
 
-    legacy_turn =
-      insert_custom_turn!(job, %{
-        runtime_thread_id: "thread-mixed",
-        runtime_turn_id: "turn-legacy",
-        started_at: base,
-        status: "completed",
-        trajectory_groups: [
-          [assistant_message("legacy-old-1")],
-          [assistant_message("legacy-old-2")]
-        ]
-      })
+    # A Turn recorded before the item stream existed has no item rows; its
+    # trajectory is no longer readable.
+    insert_custom_turn!(job, %{
+      runtime_thread_id: "thread-mixed",
+      runtime_turn_id: "turn-pre-item",
+      started_at: base,
+      status: "completed"
+    })
 
     insert_custom_turn!(job, %{
       runtime_thread_id: "thread-mixed",
@@ -2261,33 +2250,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
              assistant_item_message("new-2", "item-new-2")
            ]
 
-    assert {:ok, older} =
-             Turns.execution_projection(job,
-               trajectory_limit: 2,
-               trajectory_cursor: newest.trajectory_page.next_cursor
-             )
-
-    assert older.trajectory_page.messages == [
-             assistant_message("legacy-old-1"),
-             assistant_message("legacy-old-2")
-           ]
-
-    refute Map.has_key?(older.trajectory_page, :next_cursor)
-
-    legacy_cursor =
-      %{
-        "v" => 1,
-        "attempt" => 1,
-        "turn_id" => legacy_turn.id,
-        "group_position" => 1
-      }
-      |> Ankole.JSON.encode!()
-      |> Base.url_encode64(padding: false)
-
-    assert {:ok, before_legacy} =
-             Turns.execution_projection(job, trajectory_cursor: legacy_cursor)
-
-    assert before_legacy.trajectory_page.messages == [assistant_message("legacy-old-1")]
+    refute Map.has_key?(newest.trajectory_page, :next_cursor)
   end
 
   test "message result reads the causal Turn from its stored item stream" do
@@ -2462,12 +2425,13 @@ defmodule Ankole.BackgroundAgentJobsTest do
         kind: "compaction",
         started_at: started_at,
         status: "completed",
-        trajectory_groups: [
+        trajectory_items: [
           %{
-            item_key: "client:#{command_event.id}",
-            messages: [%{"role" => "user", "content" => "Use plain language."}]
+            "type" => "userMessage",
+            "id" => "client:#{command_event.id}",
+            "content" => [%{"type" => "text", "text" => "Use plain language."}]
           },
-          [assistant_message("I updated the draft.")]
+          assistant_item("draft-updated", "I updated the draft.")
         ]
       })
 
@@ -2493,7 +2457,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
         started_at: DateTime.add(started_at, 1, :microsecond),
         status: "in_progress",
         completed_at: nil,
-        trajectory_groups: [[assistant_message("Continuing the report.")]]
+        trajectory_items: [assistant_item("continuing", "Continuing the report.")]
       })
 
     assert {:ok, result} =
@@ -2547,12 +2511,13 @@ defmodule Ankole.BackgroundAgentJobsTest do
       runtime_turn_id: "turn-causal-waiting",
       status: "interrupted",
       error: %{"code" => "request_user_input", "summary" => "Input required."},
-      trajectory_groups: [
+      trajectory_items: [
         %{
-          item_key: "client:#{command_event.id}",
-          messages: [%{"role" => "user", "content" => "Operators"}]
+          "type" => "userMessage",
+          "id" => "client:#{command_event.id}",
+          "content" => [%{"type" => "text", "text" => "Operators"}]
         },
-        %{item_key: "request-user-input", messages: request_user_input_messages()}
+        request_user_input_item()
       ]
     })
 
@@ -2611,12 +2576,13 @@ defmodule Ankole.BackgroundAgentJobsTest do
         runtime_turn_id: "turn-causal-#{job_status}",
         status: turn_status,
         error: if(job_status == "failed", do: %{"summary" => "Revision failed."}, else: %{}),
-        trajectory_groups: [
+        trajectory_items: [
           %{
-            item_key: "client:#{command_event.id}",
-            messages: [%{"role" => "user", "content" => "Finish this revision."}]
+            "type" => "userMessage",
+            "id" => "client:#{command_event.id}",
+            "content" => [%{"type" => "text", "text" => "Finish this revision."}]
           },
-          [assistant_message("Causal #{job_status} output.")]
+          assistant_item("causal-output", "Causal #{job_status} output.")
         ]
       })
 
@@ -2727,7 +2693,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
         runtime_turn_id: "turn-lead-#{attempt}",
         started_at: started_at,
         status: "failed",
-        trajectory_groups: [[assistant_message(summary)]],
+        trajectory_items: [assistant_item("lead-summary", summary)],
         progress:
           progress_snapshot(1, "shell", [])
           |> then(fn progress ->
@@ -2741,7 +2707,9 @@ defmodule Ankole.BackgroundAgentJobsTest do
         runtime_turn_id: "turn-child-#{attempt}",
         started_at: DateTime.add(started_at, 1, :second),
         status: "failed",
-        trajectory_groups: [[assistant_message("Child report must not replace #{summary}")]]
+        trajectory_items: [
+          assistant_item("child-report", "Child report must not replace #{summary}")
+        ]
       })
     end
 
@@ -2780,7 +2748,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
       kind: "compaction",
       started_at: base,
       status: "failed",
-      trajectory_groups: [[assistant_message("Authoritative lead report.")]]
+      trajectory_items: [assistant_item("lead-report", "Authoritative lead report.")]
     })
 
     for index <- 1..101 do
@@ -2790,7 +2758,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
         runtime_turn_id: "turn-child-#{index}",
         started_at: DateTime.add(base, index, :second),
         status: "failed",
-        trajectory_groups: [[assistant_message("Passive child report #{index}.")]]
+        trajectory_items: [assistant_item("child-report", "Passive child report #{index}.")]
       })
     end
 
@@ -2817,7 +2785,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
         "summary" =>
           "codex app-server request 019f0000-0000-7000-8000-000000000099 exited with code 143"
       },
-      trajectory_groups: [[assistant_message("Stage 1 indexing was in progress.")]]
+      trajectory_items: [assistant_item("stage-1", "Stage 1 indexing was in progress.")]
     })
 
     assert [
@@ -2829,13 +2797,10 @@ defmodule Ankole.BackgroundAgentJobsTest do
            ] = Turns.attempt_history(job)
   end
 
-  # `trajectory_groups` inserts stored group rows only, the shape of a Turn
-  # recorded before the item stream existed; `trajectory_items` inserts the
-  # semantic TurnItem stream that current Turns store.
+  # `trajectory_items` inserts the semantic TurnItem stream that Turns store.
   defp insert_custom_turn!(job, attrs) do
     status = Map.get(attrs, :status, "completed")
     started_at = Map.get(attrs, :started_at, DateTime.utc_now(:microsecond))
-    {trajectory_groups, attrs} = Map.pop(attrs, :trajectory_groups, [])
     {trajectory_items, attrs} = Map.pop(attrs, :trajectory_items, [])
 
     defaults = %{
@@ -2863,25 +2828,6 @@ defmodule Ankole.BackgroundAgentJobsTest do
       %Turn{}
       |> Turn.changeset(Map.merge(defaults, attrs))
       |> Repo.insert!()
-
-    Enum.with_index(trajectory_groups, fn group, position ->
-      {item_key, messages} =
-        case group do
-          %{item_key: item_key, messages: messages} -> {item_key, messages}
-          %{"item_key" => item_key, "messages" => messages} -> {item_key, messages}
-          messages when is_list(messages) -> {"test:#{position}", messages}
-        end
-
-      %TrajectoryGroup{}
-      |> TrajectoryGroup.changeset(%{
-        turn_id: turn.id,
-        position: position,
-        revision: turn.revision,
-        item_key: item_key,
-        content: %{"messages" => messages}
-      })
-      |> Repo.insert!()
-    end)
 
     Enum.with_index(trajectory_items, fn item, position ->
       %TurnItem{}
@@ -2911,31 +2857,6 @@ defmodule Ankole.BackgroundAgentJobsTest do
   end
 
   defp trajectory_header, do: %{"format" => "ankole_chatml", "version" => 1}
-
-  defp assistant_message(content), do: %{"role" => "assistant", "content" => content}
-
-  defp tool_call_message(id, name) do
-    %{
-      "role" => "assistant",
-      "content" => "",
-      "tool_calls" => [
-        %{
-          "id" => id,
-          "type" => "function",
-          "function" => %{"name" => name, "arguments" => "{}"}
-        }
-      ]
-    }
-  end
-
-  defp tool_result_message(id, name, content) do
-    %{
-      "role" => "tool",
-      "tool_call_id" => id,
-      "name" => name,
-      "content" => content
-    }
-  end
 
   defp progress_snapshot(completed_items, tool_name, files_changed) do
     %{
@@ -2975,48 +2896,54 @@ defmodule Ankole.BackgroundAgentJobsTest do
       runtime_thread_id: runtime_thread_id,
       runtime_turn_id: runtime_turn_id,
       status: status,
-      trajectory_groups: [[assistant_message(summary)]],
+      trajectory_items: [assistant_item("turn-summary", summary)],
       error: if(status == "failed", do: %{"summary" => summary}, else: %{}),
       started_at: DateTime.utc_now(:microsecond)
     })
   end
 
-  defp request_user_input_messages(pending? \\ true) do
-    [
-      %{
-        "role" => "assistant",
-        "content" => "",
-        "metadata" => if(pending?, do: %{"status" => "pending_user_input"}, else: %{}),
-        "tool_calls" => [
-          %{
-            "id" => "request-user-input",
-            "type" => "function",
-            "function" => %{
-              "name" => "request_user_input",
-              "arguments" => ~s({"questions":[]})
-            }
-          }
-        ]
-      }
-    ]
+  # `inProgress` projects the pending-input tool call; `completed` projects
+  # the answered pair, so the pending check no longer matches it.
+  defp request_user_input_item(pending? \\ true) do
+    %{
+      "type" => "dynamicToolCall",
+      "id" => "request-user-input",
+      "tool" => "request_user_input",
+      "status" => if(pending?, do: "inProgress", else: "completed"),
+      "arguments" => ~s({"questions":[]})
+    }
   end
 
-  defp replace_turn_trajectory!(turn, messages, attrs) do
+  defp dynamic_tool_item(id, tool, result) do
+    %{
+      "type" => "dynamicToolCall",
+      "id" => id,
+      "tool" => tool,
+      "status" => "completed",
+      "success" => true,
+      "arguments" => "{}",
+      "contentItems" => result
+    }
+  end
+
+  defp replace_turn_items!(turn, items, attrs) do
     turn_id = turn.id
 
-    TrajectoryGroup
-    |> where([group], group.turn_id == ^turn_id)
+    TurnItem
+    |> where([row], row.turn_id == ^turn_id)
     |> Repo.delete_all()
 
-    %TrajectoryGroup{}
-    |> TrajectoryGroup.changeset(%{
-      turn_id: turn.id,
-      position: 0,
-      revision: Map.get(attrs, :revision, turn.revision),
-      item_key: "test:0",
-      content: %{"messages" => messages}
-    })
-    |> Repo.insert!()
+    Enum.with_index(items, fn item, position ->
+      %TurnItem{}
+      |> TurnItem.changeset(%{
+        turn_id: turn.id,
+        position: position,
+        revision: Map.get(attrs, :revision, turn.revision),
+        item_key: Map.get(item, "id", "test:#{position}"),
+        item: item
+      })
+      |> Repo.insert!()
+    end)
 
     turn
     |> Turn.changeset(Map.put(attrs, :trajectory, trajectory_header()))
@@ -3030,7 +2957,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
       runtime_turn_id: runtime_turn_id,
       status: "interrupted",
       revision: 2,
-      trajectory_groups: [request_user_input_messages()],
+      trajectory_items: [request_user_input_item()],
       error: %{"code" => "request_user_input"},
       started_at: DateTime.utc_now(:microsecond)
     })

@@ -10,6 +10,7 @@ defmodule Ankole.Brain.Experts do
 
   import Ecto.Query, warn: false
 
+  alias Ankole.Brain.Calibration
   alias Ankole.Brain.Access
   alias Ankole.Brain.Recall
   alias Ankole.Brain.Schemas.Claim
@@ -99,17 +100,7 @@ defmodule Ankole.Brain.Experts do
         nil
 
       takes ->
-        brier =
-          takes
-          |> Enum.map(fn take ->
-            outcome = if take.resolved_outcome, do: 1.0, else: 0.0
-            :math.pow(take.weight - outcome, 2)
-          end)
-          |> Enum.sum()
-          |> Kernel./(length(takes))
-          |> Float.round(4)
-
-        %{resolved_count: length(takes), brier: brier}
+        %{resolved_count: length(takes), brier: Calibration.brier(takes)}
     end
   end
 

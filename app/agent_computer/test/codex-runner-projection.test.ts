@@ -145,6 +145,7 @@ describe('@ankole/agent-computer Codex job capability projection', () => {
       required: ['metric']
     }
     const namespacedTool: WorkerAgentTool = defineWorkerTool({
+      executionMode: 'sequential',
       name: 'inspect_data',
       description: 'Inspect one metric.',
       schema: z.record(z.string(), z.unknown()),
@@ -381,6 +382,7 @@ describe('@ankole/agent-computer Codex notification projection', () => {
 
 function namespacedTool(namespace: string, name: string): WorkerAgentTool {
   return defineWorkerTool({
+    executionMode: 'sequential',
     name,
     description: 'Inspect data.',
     schema: z.object({}),
@@ -399,6 +401,7 @@ function namespacedTool(namespace: string, name: string): WorkerAgentTool {
 
 function tool(name: string, schema: z.ZodType, execute: (params: unknown) => string): WorkerAgentTool {
   return defineWorkerTool({
+    executionMode: 'sequential',
     name,
     description: `${name} description`,
     schema,
@@ -414,6 +417,7 @@ function tool(name: string, schema: z.ZodType, execute: (params: unknown) => str
 
 function imageTool(name: string): WorkerAgentTool {
   return defineWorkerTool({
+    executionMode: 'sequential',
     name,
     description: `${name} description`,
     schema: z.object({}),

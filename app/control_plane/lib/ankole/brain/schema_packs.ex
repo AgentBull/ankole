@@ -129,7 +129,7 @@ defmodule Ankole.Brain.SchemaPacks do
     end
   end
 
-  # ── Selection and seed loading ───────────────────────────────────
+  # Selection and seed loading
 
   defp normalize_selection(names) do
     names = Enum.map(names, &to_string/1)
@@ -270,7 +270,7 @@ defmodule Ankole.Brain.SchemaPacks do
   defp validate_extension_declaration(extension),
     do: {:error, {:invalid_subtype_extension_declaration, extension}}
 
-  # ── Merge rules ──────────────────────────────────────────────────
+  # Merge rules
 
   # Merges manifests in installation order into one consistent declaration
   # set: types identical-or-error with subtype union, unique slug prefixes,
@@ -406,7 +406,7 @@ defmodule Ankole.Brain.SchemaPacks do
   defp link_signature(link), do: {link["name"], Map.get(link, "inverse")}
   defp domain_signature(domain), do: {domain["name"], domain["aggregator"]}
 
-  # ── Materialization ──────────────────────────────────────────────
+  # Materialization
 
   defp materialize(repo, seeds, merged) do
     now = DateTime.utc_now(:microsecond)

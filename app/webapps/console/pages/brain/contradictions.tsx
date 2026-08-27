@@ -184,10 +184,10 @@ export function BrainContradictionsPage() {
               onClick={() =>
                 decideTarget &&
                 decide.mutate({
-                  path: { ['contradiction_id']: decideTarget.contradiction.id },
+                  path: { contradiction_id: decideTarget.contradiction.id },
                   body: {
                     status: decideTarget.decision,
-                    ...(note.trim() ? { ['resolution_note']: note.trim() } : {})
+                    ...(note.trim() ? { resolution_note: note.trim() } : {})
                   }
                 })
               }>

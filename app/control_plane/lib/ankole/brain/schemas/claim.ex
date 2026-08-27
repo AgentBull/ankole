@@ -31,15 +31,6 @@ defmodule Ankole.Brain.Schemas.Claim do
     field :consolidated_into, Ankole.Ecto.UUIDv7
     field :confidence, :float
     field :provenance_session, :string
-    field :claim_metric, :string
-    field :claim_value, :float
-    field :claim_unit, :string
-    field :claim_period, :string
-    field :event_type, :string
-    field :dimension, :string
-    field :value, :string
-    field :value_hash, :string
-    field :dim_status, :string
 
     # Take fields; NULL for facts.
     field :weight, :float

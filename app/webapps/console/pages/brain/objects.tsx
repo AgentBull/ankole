@@ -39,7 +39,6 @@ import {
   ankoleWebBrainControllerShowObjectOptions,
   ankoleWebBrainControllerShowObjectQueryKey
 } from '../../api/generated/@tanstack/react-query.gen'
-import type { BrainObjectPage } from '../../api/generated/types.gen'
 import { requestErrorMessage } from '../../../common/request-errors'
 import { ErrorBlock } from '../../../common/error-block'
 import { formatConsoleDate } from '../../console-primitives'
@@ -167,7 +166,7 @@ export function BrainObjectDrawer() {
     ...ankoleWebBrainControllerShowObjectOptions({ query: { slug } }),
     enabled: Boolean(slug)
   })
-  const page = detail.data?.object as BrainObjectPage | undefined
+  const page = detail.data?.object
   const versions = useQuery({
     ...ankoleWebBrainControllerObjectVersionsOptions({ query: { slug } }),
     enabled: Boolean(page)
@@ -503,9 +502,7 @@ export function BrainObjectDrawer() {
             </DialogClose>
             <Button
               disabled={rollback.isPending}
-              onClick={() =>
-                rollbackVersionID && rollback.mutate({ body: { slug, ['version_id']: rollbackVersionID } })
-              }>
+              onClick={() => rollbackVersionID && rollback.mutate({ body: { slug, version_id: rollbackVersionID } })}>
               {rollback.isPending ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
               {t('console.brain.rollback')}
             </Button>

@@ -5,6 +5,7 @@ defmodule Ankole.Principals.LocalCredentialTest do
 
   alias Ankole.Principals
   alias Ankole.Principals.LocalCredential
+  alias Ankole.Principals.LocalCredentials
 
   describe "generate_initial_password/0" do
     test "returns 16 characters from the unambiguous alphabet" do
@@ -33,7 +34,7 @@ defmodule Ankole.Principals.LocalCredentialTest do
       assert result.human_user.email == email
       assert String.length(result.initial_password) == 16
 
-      assert {:ok, login} = Principals.fetch_local_login(email)
+      assert {:ok, login} = LocalCredentials.fetch_local_login(email)
       assert login.credential.must_change_password
     end
 
@@ -57,20 +58,24 @@ defmodule Ankole.Principals.LocalCredentialTest do
       %{principal: principal} = human_fixture()
 
       assert {:error, :password_too_short} =
-               Principals.set_local_password(principal.uid, "12345", false)
+               LocalCredentials.set_local_password(principal.uid, "12345", false)
 
-      assert {:ok, credential} = Principals.set_local_password(principal.uid, "123456", false)
+      assert {:ok, credential} =
+               LocalCredentials.set_local_password(principal.uid, "123456", false)
+
       assert credential.password_hash =~ "$argon2id$"
     end
 
     test "rejects principals without a human email" do
       %{principal: agent} = agent_fixture()
-      assert {:error, :not_human} = Principals.set_local_password(agent.uid, "secret1", false)
+
+      assert {:error, :not_human} =
+               LocalCredentials.set_local_password(agent.uid, "secret1", false)
 
       %{principal: no_email} = human_fixture(%{email: nil})
 
       assert {:error, :email_missing} =
-               Principals.set_local_password(no_email.uid, "secret1", false)
+               LocalCredentials.set_local_password(no_email.uid, "secret1", false)
     end
   end
 
@@ -79,19 +84,19 @@ defmodule Ankole.Principals.LocalCredentialTest do
       %{principal: principal, human_user: human_user} = human_fixture()
 
       assert {:ok, credential} =
-               Principals.set_local_password(principal.uid, "old-password", true)
+               LocalCredentials.set_local_password(principal.uid, "old-password", true)
 
       credential_version = LocalCredential.version(credential)
-      assert {:ok, reset_password} = Principals.reset_local_password(principal.uid, true)
+      assert {:ok, reset_password} = LocalCredentials.reset_local_password(principal.uid, true)
 
       assert {:error, :password_change_not_required} =
-               Principals.complete_forced_password_change(
+               LocalCredentials.complete_forced_password_change(
                  principal.uid,
                  "stale-ticket-password",
                  credential_version
                )
 
-      assert {:ok, login} = Principals.fetch_local_login(human_user.email)
+      assert {:ok, login} = LocalCredentials.fetch_local_login(human_user.email)
       assert login.credential.must_change_password
       assert Ankole.Kernel.argon2id_verify(reset_password, login.credential.password_hash)
 
@@ -105,22 +110,25 @@ defmodule Ankole.Principals.LocalCredentialTest do
   describe "reset_local_password/2 and reset_local_password_by_email/1" do
     test "replaces the credential with a generated must-change password" do
       %{principal: principal, human_user: human_user} = human_fixture()
-      {:ok, _credential} = Principals.set_local_password(principal.uid, "old-password", false)
+
+      {:ok, _credential} =
+        LocalCredentials.set_local_password(principal.uid, "old-password", false)
 
       assert {:ok, %{principal_uid: uid, initial_password: initial_password}} =
-               Principals.reset_local_password_by_email(String.upcase(human_user.email))
+               LocalCredentials.reset_local_password_by_email(String.upcase(human_user.email))
 
       assert uid == principal.uid
       assert String.length(initial_password) == 16
 
-      assert {:ok, login} = Principals.fetch_local_login(human_user.email)
+      assert {:ok, login} = LocalCredentials.fetch_local_login(human_user.email)
       assert login.credential.must_change_password
       assert Ankole.Kernel.argon2id_verify(initial_password, login.credential.password_hash)
       refute Ankole.Kernel.argon2id_verify("old-password", login.credential.password_hash)
     end
 
     test "reports a miss for an unknown email" do
-      assert {:error, :not_found} = Principals.reset_local_password_by_email("nobody@example.com")
+      assert {:error, :not_found} =
+               LocalCredentials.reset_local_password_by_email("nobody@example.com")
     end
   end
 
@@ -133,11 +141,11 @@ defmodule Ankole.Principals.LocalCredentialTest do
       refute account.has_external_identity
       assert account.local_credential_status == nil
 
-      {:ok, _credential} = Principals.set_local_password(principal.uid, "secret1", true)
+      {:ok, _credential} = LocalCredentials.set_local_password(principal.uid, "secret1", true)
       assert {:ok, account} = Principals.get_principal_account(principal.uid)
       assert account.local_credential_status == :must_change
 
-      {:ok, _credential} = Principals.set_local_password(principal.uid, "secret1", false)
+      {:ok, _credential} = LocalCredentials.set_local_password(principal.uid, "secret1", false)
       assert {:ok, account} = Principals.get_principal_account(principal.uid)
       assert account.local_credential_status == :active
 

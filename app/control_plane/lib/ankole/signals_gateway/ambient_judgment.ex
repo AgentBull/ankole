@@ -20,7 +20,6 @@ defmodule Ankole.SignalsGateway.AmbientJudgment do
   @primary_key false
   @foreign_key_type :string
   @timestamps_opts [type: :utc_datetime_usec]
-  @decisions ~w(intervene silent)
   @actions ~w(NOOP FOREGROUND_REPLY NEW_WORK HANDOFF)
   @authorities ~w(NONE EXPLICIT_REQUEST STANDING_ORDER)
   @asked_by_states ~w(accepted degraded)
@@ -36,7 +35,6 @@ defmodule Ankole.SignalsGateway.AmbientJudgment do
       type: Ankole.Ecto.PrincipalKey
 
     field :signal_channel_id, :string
-    field :decision, :string
     field :action, :string
     field :authority, :string
     field :handoff_job_id, :integer
@@ -58,7 +56,6 @@ defmodule Ankole.SignalsGateway.AmbientJudgment do
       :actor_event_id,
       :agent_uid,
       :signal_channel_id,
-      :decision,
       :action,
       :authority,
       :handoff_job_id,
@@ -69,16 +66,14 @@ defmodule Ankole.SignalsGateway.AmbientJudgment do
     ])
     |> normalize_blank([:asked_by_source_entry_id, :asked_by_state])
     |> update_change(:reason, &String.slice(&1 || "", 0, 2_000))
-    |> validate_required([:actor_event_id, :agent_uid, :signal_channel_id, :decision])
-    |> validate_inclusion(:decision, @decisions)
-    |> validate_inclusion(:action, @actions, allow_nil: true)
-    |> validate_inclusion(:authority, @authorities, allow_nil: true)
+    |> validate_required([:actor_event_id, :agent_uid, :signal_channel_id, :action, :authority])
+    |> validate_inclusion(:action, @actions)
+    |> validate_inclusion(:authority, @authorities)
     |> validate_number(:handoff_job_id, greater_than: 0)
     |> validate_action_contract()
     |> validate_inclusion(:asked_by_state, @asked_by_states, allow_nil: true)
     |> foreign_key_constraint(:actor_event_id)
     |> foreign_key_constraint(:agent_uid)
-    |> check_constraint(:decision, name: :signal_gateway_ambient_judgments_decision_check)
     |> check_constraint(:asked_by_state,
       name: :signal_gateway_ambient_judgments_asked_by_state_check
     )
@@ -93,12 +88,6 @@ defmodule Ankole.SignalsGateway.AmbientJudgment do
     handoff_job_id = get_field(changeset, :handoff_job_id)
 
     cond do
-      is_nil(action) and is_nil(authority) and is_nil(handoff_job_id) ->
-        changeset
-
-      is_nil(action) or is_nil(authority) ->
-        add_error(changeset, :action, "requires action and authority together")
-
       action != "NEW_WORK" and authority != "NONE" ->
         add_error(changeset, :authority, "must be NONE unless action is NEW_WORK")
 

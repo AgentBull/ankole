@@ -25,14 +25,20 @@ defmodule Ankole.AIGateway.Artifacts.References do
   end
 
   defp hydrate_generated_images(subject_uid, items, bytes) do
-    Enum.reduce_while(items, {:ok, [], bytes}, fn item, {:ok, acc, bytes} ->
-      case hydrate_generated_image(subject_uid, item, bytes) do
-        {:ok, item, bytes} -> {:cont, {:ok, [item | acc], bytes}}
+    map_within_budget(items, bytes, &hydrate_generated_image(subject_uid, &1, &2))
+  end
+
+  # The budgeted hydration walks share one shape: each element transforms
+  # under the running byte budget, and the first failure fails the walk.
+  defp map_within_budget(elements, bytes, fun) do
+    Enum.reduce_while(elements, {:ok, [], bytes}, fn element, {:ok, acc, bytes} ->
+      case fun.(element, bytes) do
+        {:ok, element, bytes} -> {:cont, {:ok, [element | acc], bytes}}
         {:error, _reason} = error -> {:halt, error}
       end
     end)
     |> case do
-      {:ok, hydrated, bytes} -> {:ok, Enum.reverse(hydrated), bytes}
+      {:ok, elements, bytes} -> {:ok, Enum.reverse(elements), bytes}
       {:error, _reason} = error -> error
     end
   end
@@ -106,19 +112,9 @@ defmodule Ankole.AIGateway.Artifacts.References do
   defp inline_local_image_masks(subject_uid, request, bytes) do
     case Map.get(request, "tools") do
       tools when is_list(tools) ->
-        tools
-        |> Enum.reduce_while({:ok, [], bytes}, fn tool, {:ok, acc, bytes} ->
-          case inline_local_image_mask(subject_uid, tool, bytes) do
-            {:ok, tool, bytes} -> {:cont, {:ok, [tool | acc], bytes}}
-            {:error, _reason} = error -> {:halt, error}
-          end
-        end)
-        |> case do
-          {:ok, tools, bytes} ->
-            {:ok, Map.put(request, "tools", Enum.reverse(tools)), bytes}
-
-          {:error, _reason} = error ->
-            error
+        with {:ok, tools, bytes} <-
+               map_within_budget(tools, bytes, &inline_local_image_mask(subject_uid, &1, &2)) do
+          {:ok, Map.put(request, "tools", tools), bytes}
         end
 
       _tools ->
@@ -144,33 +140,14 @@ defmodule Ankole.AIGateway.Artifacts.References do
   defp inline_local_image_mask(_subject_uid, tool, bytes), do: {:ok, tool, bytes}
 
   defp inline_local_image_parts(subject_uid, items, bytes) do
-    Enum.reduce_while(items, {:ok, [], bytes}, fn item, {:ok, acc, bytes} ->
-      case inline_local_item(subject_uid, item, bytes) do
-        {:ok, item, bytes} -> {:cont, {:ok, [item | acc], bytes}}
-        {:error, _reason} = error -> {:halt, error}
-      end
-    end)
-    |> case do
-      {:ok, items, bytes} -> {:ok, Enum.reverse(items), bytes}
-      {:error, _reason} = error -> error
-    end
+    map_within_budget(items, bytes, &inline_local_item(subject_uid, &1, &2))
   end
 
   defp inline_local_item(subject_uid, %{"content" => content} = item, bytes)
        when is_list(content) do
-    content
-    |> Enum.reduce_while({:ok, [], bytes}, fn part, {:ok, acc, bytes} ->
-      case inline_local_image_part(subject_uid, part, bytes) do
-        {:ok, part, bytes} -> {:cont, {:ok, [part | acc], bytes}}
-        {:error, _reason} = error -> {:halt, error}
-      end
-    end)
-    |> case do
-      {:ok, parts, bytes} ->
-        {:ok, Map.put(item, "content", Enum.reverse(parts)), bytes}
-
-      {:error, _reason} = error ->
-        error
+    with {:ok, parts, bytes} <-
+           map_within_budget(content, bytes, &inline_local_image_part(subject_uid, &1, &2)) do
+      {:ok, Map.put(item, "content", parts), bytes}
     end
   end
 

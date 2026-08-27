@@ -3,7 +3,7 @@ import { createWriteStream } from 'node:fs'
 import { copyFile, mkdir, open, readFile, rename, stat } from 'node:fs/promises'
 import { dirname, isAbsolute, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { BrowserDataError } from '../errors'
+import { BrowserDataError, isFileNotFound } from '../errors'
 import type { BrowserCommand } from '../protocol'
 import { sendBrowserCommand, type BrowserClientContext } from '../client'
 
@@ -277,9 +277,11 @@ async function readRunResult(runDir: string): Promise<RunResult> {
 async function ensureRunResult(runDir: string, value: RunResult): Promise<void> {
   try {
     await stat(resolve(runDir, 'result.json'))
-  } catch {
-    await atomicText(resolve(runDir, 'result.json'), `${JSON.stringify(value, null, 2)}\n`)
+    return
+  } catch (error) {
+    if (!isFileNotFound(error)) throw error
   }
+  await atomicText(resolve(runDir, 'result.json'), `${JSON.stringify(value, null, 2)}\n`)
 }
 
 async function atomicText(path: string, value: string): Promise<void> {

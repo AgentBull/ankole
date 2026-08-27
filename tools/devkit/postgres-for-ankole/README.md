@@ -6,6 +6,7 @@ Included extensions:
 
 - `pg_search`
 - `vector`
+- `pg_trgm` (PostgreSQL contrib, present in the base image)
 
 `pg_search` must be present in `shared_preload_libraries` when PostgreSQL
 starts. The image's default command enables it; preserve that setting if you
@@ -44,15 +45,13 @@ SHOW shared_preload_libraries;    -- must include pg_search
 
 SELECT name, default_version, installed_version
 FROM pg_available_extensions
-WHERE name IN ('pg_search', 'vector')
+WHERE name IN ('pg_search', 'vector', 'pg_trgm')
 ORDER BY name;
 ```
 
-Historical migrations create the two extensions in the application database;
-a later migration removes the deleted Brain module's schema and both
-extensions again, so a fully migrated database does not have them installed —
-that's expected. Both packages must still be available in this image for
-those historical migrations to run without error.
+The BrainV3 migration installs `vector`, `pg_search`, and `pg_trgm` in the
+application database, so a fully migrated database has all three installed.
+The packages must be available in this image for the migration to run.
 
 Apply pending migrations the usual way:
 

@@ -26,7 +26,7 @@ defmodule Ankole.Plugins.DiscordAdapter.ConnectionOwner do
   @retry_ms 1_000
   @max_backoff_ms 60_000
   @configuration_timeout_ms 15_000
-  @max_pending_events 1_000
+  @default_max_pending_events 1_000
 
   # Discord counts IDENTIFY against a daily budget, so a connection that needs
   # operator action retries slowly enough to stay far below it.
@@ -317,12 +317,15 @@ defmodule Ankole.Plugins.DiscordAdapter.ConnectionOwner do
 
   # The event was accepted durably, so its queue entry can leave. Only the
   # session that received it can move the current session's resume point.
+  # Durable progress also resets the reconnect backoff: a resume handshake
+  # alone must not, because the reconnect cycle for a failing ingress resumes
+  # successfully every time.
   defp handle_task_result({:handled, generation, sequence}, state) do
     state
     |> cancel_event_retry()
     |> drop_pending_head()
     |> advance_sequence(generation, sequence)
-    |> Map.put(:last_error, nil)
+    |> Map.merge(%{last_error: nil, reconnect_attempt: 0})
     |> start_next_event()
   end
 
@@ -424,9 +427,11 @@ defmodule Ankole.Plugins.DiscordAdapter.ConnectionOwner do
     |> start_next_event()
   end
 
+  # The marker goes through the queue so it advances the sequence only after
+  # every event replayed before it, and it skips the bound: at the bound a
+  # reconnect would otherwise turn every resume into another reconnect.
   defp handle_payload({:dispatch, "RESUMED", sequence, _data}, state) do
-    %{state | reconnect_attempt: 0, last_error: nil}
-    |> enqueue_dispatch("RESUMED", %{}, sequence)
+    append_pending(%{state | last_error: nil}, "RESUMED", %{}, sequence)
   end
 
   defp handle_payload({:dispatch, type, sequence, data}, state) do
@@ -477,20 +482,43 @@ defmodule Ankole.Plugins.DiscordAdapter.ConnectionOwner do
     end
   end
 
+  # At the bound the owner cannot buffer more, so it sheds every event the
+  # resume will replay and reconnects; replay brings them back one read at a
+  # time. Retaining them would hold the queue at the bound and turn every
+  # replayed event into another reconnect.
   defp enqueue_dispatch(state, type, data, sequence) do
-    if length(state.pending) >= @max_pending_events do
-      reconnect(state, :pending_event_limit)
+    if length(state.pending) >= max_pending_events() do
+      state |> shed_replayable_pending() |> reconnect(:pending_event_limit)
     else
-      event = %{
-        type: type,
-        data: data,
-        sequence: sequence,
-        generation: state.session_generation,
-        session_id: state.session_id
-      }
-
-      %{state | pending: state.pending ++ [event]} |> start_next_event()
+      append_pending(state, type, data, sequence)
     end
+  end
+
+  defp append_pending(state, type, data, sequence) do
+    event = %{
+      type: type,
+      data: data,
+      sequence: sequence,
+      generation: state.session_generation,
+      session_id: state.session_id
+    }
+
+    %{state | pending: state.pending ++ [event]} |> start_next_event()
+  end
+
+  # The resume replays every current-session event after the confirmed
+  # sequence. The running task's event stays because the task result expects
+  # its queue head, and an older session's events stay because no resume can
+  # replay them; their local retry is their only path.
+  defp shed_replayable_pending(%{pending: pending} = state) do
+    {in_flight, sheddable} =
+      case {state.task_kind, pending} do
+        {:event, [head | rest]} -> {[head], rest}
+        _other -> {[], pending}
+      end
+
+    kept = Enum.reject(sheddable, &(&1.generation == state.session_generation))
+    %{state | pending: in_flight ++ kept}
   end
 
   defp acknowledge_dispatch(state, "INTERACTION_CREATE", data) do
@@ -600,6 +628,12 @@ defmodule Ankole.Plugins.DiscordAdapter.ConnectionOwner do
 
   defp block_reason(401), do: :authentication_failed
   defp block_reason(403), do: :permission_denied
+
+  defp max_pending_events do
+    :ankole
+    |> Application.get_env(Config, [])
+    |> Keyword.get(:max_pending_events, @default_max_pending_events)
+  end
 
   defp public_status(state) do
     %{

@@ -1523,6 +1523,69 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
     )
   end
 
+  defmodule SignalAdapterFieldRequirement do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "SignalAdapterFieldRequirement",
+        type: :object,
+        properties: %{
+          path: %Schema{type: :string},
+          value: JSONValue
+        },
+        required: [:path, :value],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule SignalAdapterPatternValidation do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "SignalAdapterPatternValidation",
+        type: :object,
+        properties: %{
+          kind: %Schema{type: :string, enum: ["pattern"]},
+          message: LocalizedText,
+          pattern: %Schema{type: :string}
+        },
+        required: [:kind, :message, :pattern],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule SignalAdapterJSONObjectValidation do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "SignalAdapterJSONObjectValidation",
+        type: :object,
+        properties: %{
+          kind: %Schema{type: :string, enum: ["json_object"]},
+          message: LocalizedText,
+          requiredStringProperties: %Schema{type: :array, items: %Schema{type: :string}},
+          stringPrefixes: %Schema{type: :object, additionalProperties: %Schema{type: :string}}
+        },
+        required: [:kind, :message],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
   defmodule SignalAdapterField do
     @moduledoc false
 
@@ -1539,11 +1602,15 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           description: LocalizedText,
           default: JSONValue,
           advanced: %Schema{type: :boolean},
-          required: %Schema{type: :boolean, nullable: true},
-          encrypted: %Schema{type: :boolean, nullable: true},
-          min: %Schema{type: :integer, nullable: true},
-          max: %Schema{type: :integer, nullable: true},
-          options: %Schema{type: :array, items: SignalAdapterFieldOption, nullable: true}
+          required: %Schema{type: :boolean},
+          requiredWhen: %Schema{type: :array, items: SignalAdapterFieldRequirement},
+          encrypted: %Schema{type: :boolean},
+          min: %Schema{type: :integer},
+          max: %Schema{type: :integer},
+          options: %Schema{type: :array, items: SignalAdapterFieldOption},
+          validation: %Schema{
+            oneOf: [SignalAdapterPatternValidation, SignalAdapterJSONObjectValidation]
+          }
         },
         required: [:path, :type],
         additionalProperties: true

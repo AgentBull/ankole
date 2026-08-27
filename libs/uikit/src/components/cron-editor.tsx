@@ -111,6 +111,20 @@ export function cronExpressionFor(mode: CronEditorMode, fields: CronEditorFields
   }
 }
 
+export type CronEditorModeOverride = { mode: CronEditorMode; forValue: string }
+
+/**
+ * The operator's explicit mode choice holds only for the expression it was
+ * chosen for. Any other value means something outside the editor replaced the
+ * expression, so the mode re-derives from the value.
+ */
+export function cronEditorModeWithOverride(
+  override: CronEditorModeOverride | undefined,
+  value: string
+): CronEditorMode {
+  return override && override.forValue === value ? override.mode : cronEditorMode(value)
+}
+
 function cronParts(expression: string): [string, string, string, string, string] | undefined {
   const parts = expression.trim().split(/\s+/)
   return parts.length === 5 ? (parts as [string, string, string, string, string]) : undefined
@@ -144,18 +158,25 @@ export function CronEditor({
 }) {
   // The expression is the single source of truth; only the operator's explicit
   // mode choice is local, because `custom` cannot be derived from a value that
-  // also matches a preset.
-  const [modeOverride, setModeOverride] = React.useState<CronEditorMode>()
-  const mode = modeOverride ?? cronEditorMode(value)
+  // also matches a preset. The override is pinned to the expression it was
+  // chosen for: the editor's own emissions carry it forward, and an external
+  // value replacement, such as a restore, drops it so the mode re-derives.
+  const [override, setOverride] = React.useState<CronEditorModeOverride>()
+  const mode = cronEditorModeWithOverride(override, value)
   const fields = cronEditorFields(value)
 
+  const emitAs = (nextMode: CronEditorMode, next: string) => {
+    setOverride({ mode: nextMode, forValue: next })
+    onChange(next)
+  }
+
   const emit = (nextMode: CronEditorMode, nextFields: CronEditorFields) => {
-    onChange(cronExpressionFor(nextMode, nextFields, value))
+    emitAs(nextMode, cronExpressionFor(nextMode, nextFields, value))
   }
 
   const selectMode = (nextMode: CronEditorMode) => {
-    setModeOverride(nextMode)
-    if (nextMode !== 'custom') emit(nextMode, fields)
+    if (nextMode === 'custom') setOverride({ mode: 'custom', forValue: value })
+    else emit(nextMode, fields)
   }
 
   const setTime = (time: string) => {
@@ -276,7 +297,7 @@ export function CronEditor({
             disabled={disabled}
             spellCheck={false}
             value={value}
-            onChange={event => onChange(event.target.value)}
+            onChange={event => emitAs('custom', event.target.value)}
           />
         ) : (
           <code className="flex min-h-8 items-center border border-border bg-background px-3 font-mono text-xs text-muted-foreground">

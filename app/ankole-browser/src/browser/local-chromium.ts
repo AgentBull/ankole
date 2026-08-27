@@ -3,7 +3,7 @@ import { cp, mkdir, open, readFile, rename, rm, stat } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { chromium, type Browser } from 'playwright-core'
 import type { BrowserMaterial } from '../protocol'
-import { BrowserDataError } from '../errors'
+import { BrowserDataError, isFileNotFound } from '../errors'
 import { dismissOrphanDialogsBeforeAttach } from './raw-cdp'
 
 type LiveMetadata = {
@@ -96,8 +96,9 @@ async function recoverLiveBrowser(livePath: string, timeout: number): Promise<Lo
   let metadata: LiveMetadata
   try {
     metadata = JSON.parse(await readFile(livePath, 'utf8')) as LiveMetadata
-  } catch {
-    return undefined
+  } catch (error) {
+    if (isFileNotFound(error)) return undefined
+    throw error
   }
   if (!Number.isInteger(metadata.pid) || !metadata.endpoint || !processAlive(metadata.pid)) {
     await rm(livePath, { force: true })
@@ -137,8 +138,8 @@ async function initializeProfile(profileDir: string, seedPath?: string): Promise
   try {
     await stat(profileDir)
     return
-  } catch {
-    // Initialize once below.
+  } catch (error) {
+    if (!isFileNotFound(error)) throw error
   }
   await mkdir(dirname(profileDir), { recursive: true })
   if (seedPath) await cp(seedPath, profileDir, { recursive: true, force: false, errorOnExist: false })

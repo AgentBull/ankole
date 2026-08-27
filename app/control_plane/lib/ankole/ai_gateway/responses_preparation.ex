@@ -12,7 +12,7 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
   alias Ankole.AIGateway.CodexVision
   alias Ankole.AIGateway.CredentialAttempts
   alias Ankole.AIGateway.HostedTools.ImageGeneration
-  alias Ankole.AIGateway.MapUtils
+  alias Ankole.Attrs
   alias Ankole.AIGateway.OpenAIError
   alias Ankole.AIGateway.Providers
   alias Ankole.AIGateway.RequestContext
@@ -51,7 +51,7 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
           {:ok, prepared()} | {:error, term()}
   def prepare_with_runtime(subject_uid, runtime, request, opts \\ [])
       when is_map(runtime) and is_map(request) do
-    request = MapUtils.normalize_request_keys(request)
+    request = Attrs.normalize_external_attrs(request)
 
     request_context =
       opts
@@ -73,7 +73,7 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
   end
 
   defp resolve_request_runtime(subject_uid, request, opts) do
-    request = MapUtils.normalize_request_keys(request)
+    request = Attrs.normalize_external_attrs(request)
 
     request_context =
       opts

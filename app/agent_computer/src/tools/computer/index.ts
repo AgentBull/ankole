@@ -3,11 +3,14 @@ import { createApplyPatchTool } from './apply-patch-tool'
 import { createCommandTool } from './command-tool'
 import { createContainerComputer } from './computer'
 import type { ComputerToolContext } from './context'
+import { fffSearchRuntime } from './fff-search'
+import { createFindTool } from './find-tool'
+import { createGrepTool } from './grep-tool'
+import { createLsTool } from './ls-tool'
 import { createReadFileTool } from './read-file-tool'
 import { createReplyAttachmentTool } from './reply-attachment-tool'
 
 export interface ComputerToolsBinding {
-  agentUID: string
   agentHome: string
   workspaceRoot: string
   userFilesRoot: string
@@ -24,12 +27,19 @@ export interface ComputerToolsBinding {
  * loop already runs inside Agent Computer, so this factory keeps the migrated
  * tool contracts but binds them to the current Agent Home at its real path.
  */
-export function createComputerTools(binding: ComputerToolsBinding): WorkerAgentTool<any>[] {
+export function createComputerTools(binding: ComputerToolsBinding): WorkerAgentTool[] {
   const context = createComputerToolContext(binding)
+  // Warm the workspace search index while the model is still thinking, and
+  // rescan a warm one: the shared filesystem can carry writes from other
+  // Workers that the local watcher never saw.
+  fffSearchRuntime.prewarm(binding.workspaceRoot)
 
   return [
     createCommandTool(context),
     createReadFileTool(context),
+    createFindTool(context),
+    createGrepTool(context),
+    createLsTool(context),
     createApplyPatchTool(context),
     createReplyAttachmentTool(context)
   ]

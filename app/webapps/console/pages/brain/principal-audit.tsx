@@ -22,7 +22,7 @@ export function BrainPrincipalAuditPage() {
 
   const principals = useQuery(ankoleWebPrincipalControllerIndexOptions())
   const knowledge = useQuery({
-    ...ankoleWebBrainControllerPrincipalKnowledgeOptions({ path: { ['principal_uid']: principalUID } }),
+    ...ankoleWebBrainControllerPrincipalKnowledgeOptions({ path: { principal_uid: principalUID } }),
     enabled: Boolean(principalUID)
   })
   const rows = knowledge.data?.claims ?? []

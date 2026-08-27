@@ -1,5 +1,5 @@
 import { zstdCompressBlock } from '@ankole/kernel'
-import { closeSync, existsSync, fstatSync, openSync, readSync, statSync } from 'node:fs'
+import { closeSync, fstatSync, openSync, readSync, statSync } from 'node:fs'
 import type { Stats } from 'node:fs'
 import {
   boolFrame,
@@ -42,6 +42,8 @@ export async function handleReadOpen(
     nextOffset: 0,
     credit: 0,
     chunksSent: 0,
+    initialDev: stableStat.dev,
+    initialIno: stableStat.ino,
     initialSize: stableStat.size,
     initialMtimeMs: stableStat.mtimeMs,
     draining: false
@@ -227,10 +229,28 @@ async function maybeFinishReadTransfer(context: FileTransferContext, transfer: G
   }
 }
 
+/**
+ * Reports whether the path still names the file the sent bytes came from.
+ *
+ * RuntimeFabric does not accept bytes from a stale descriptor as a successful
+ * read, so this compares the file's identity (`dev`/`ino`), not only its
+ * observable size and mtime: a replacement can reproduce both, but not the
+ * inode the descriptor is bound to.
+ */
 function readSourceStillStable(transfer: GetTransfer): boolean {
-  if (!existsSync(transfer.filePath)) return false
-  const current = statSync(transfer.filePath)
-  return current.isFile() && current.size === transfer.initialSize && current.mtimeMs === transfer.initialMtimeMs
+  let current: Stats
+  try {
+    current = statSync(transfer.filePath)
+  } catch {
+    return false
+  }
+  return (
+    current.isFile() &&
+    current.dev === transfer.initialDev &&
+    current.ino === transfer.initialIno &&
+    current.size === transfer.initialSize &&
+    current.mtimeMs === transfer.initialMtimeMs
+  )
 }
 
 function closeTransferFile(transfer: GetTransfer): void {

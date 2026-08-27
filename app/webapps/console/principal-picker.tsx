@@ -21,6 +21,7 @@ export type PrincipalCandidate = { id: string; label?: string | null }
 export function SinglePrincipalPicker({
   ariaLabel,
   candidates,
+  disabled = false,
   error,
   isLoading,
   onChange,
@@ -29,6 +30,7 @@ export function SinglePrincipalPicker({
 }: {
   ariaLabel: string
   candidates: PrincipalCandidate[]
+  disabled?: boolean
   error: unknown
   isLoading: boolean
   onChange: (id: string) => void
@@ -59,6 +61,7 @@ export function SinglePrincipalPicker({
         aria-label={ariaLabel}
         className="w-full"
         clearLabel={t('common.clear')}
+        disabled={disabled}
         placeholder={selected ? (selected.label ?? selected.id) : placeholder}
         showClear
       />

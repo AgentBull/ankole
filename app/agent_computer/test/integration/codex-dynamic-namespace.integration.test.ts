@@ -235,6 +235,7 @@ describe('Codex dynamic namespace integration', () => {
 
 function analysisTool(): WorkerAgentTool<typeof AnalysisArguments> {
   return defineWorkerTool({
+    executionMode: 'sequential',
     name: 'inspect_data',
     description: 'Inspect one named metric.',
     schema: AnalysisArguments,

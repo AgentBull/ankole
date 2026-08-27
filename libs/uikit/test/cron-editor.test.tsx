@@ -1,6 +1,12 @@
 import { describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { CronEditor, cronEditorFields, cronEditorMode, cronExpressionFor } from '../src/components/cron-editor'
+import {
+  CronEditor,
+  cronEditorFields,
+  cronEditorMode,
+  cronEditorModeWithOverride,
+  cronExpressionFor
+} from '../src/components/cron-editor'
 
 describe('cronEditorMode', () => {
   test('detects every common preset shape', () => {
@@ -36,6 +42,17 @@ describe('cronExpressionFor', () => {
 
   test('custom mode returns the raw fallback untouched', () => {
     expect(cronExpressionFor('custom', cronEditorFields(''), '*/5 9-17 * * 1-5')).toBe('*/5 9-17 * * 1-5')
+  })
+})
+
+describe('cronEditorModeWithOverride', () => {
+  test('keeps the chosen mode for the expression it was chosen for', () => {
+    expect(cronEditorModeWithOverride({ mode: 'custom', forValue: '0 5 * * *' }, '0 5 * * *')).toBe('custom')
+  })
+
+  test('an externally replaced value drops the override and re-derives the mode', () => {
+    expect(cronEditorModeWithOverride({ mode: 'custom', forValue: '0 5 * * *' }, '0 9 * * 1')).toBe('weekly')
+    expect(cronEditorModeWithOverride(undefined, '0 5 * * *')).toBe('daily')
   })
 })
 

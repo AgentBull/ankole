@@ -19,15 +19,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useDeferredValue, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams } from 'react-router'
-import {
-  ConfigFields,
-  defaultConfig,
-  getPath,
-  localizedText,
-  setPath,
-  type ConfigFieldDefinition,
-  type LocalizedText
-} from '../../common/config-fields'
+import { ConfigFields, defaultConfig, getPath, localizedText, setPath } from '../../common/config-fields'
 import i18n from '../../common/i18n'
 import { requestErrorMessage } from '../../common/request-errors'
 import {
@@ -209,7 +201,7 @@ export function IdentityProviderEditorPage() {
     selectedAdapter.capabilities.includes('directory_full_sync') &&
     syncEnabled(selected)
   )
-  const activeFields = asConfigFields(activeAdapter?.fields ?? [])
+  const activeFields = activeAdapter?.fields ?? []
   const submitDisabled = mode === 'edit' && !model.dirty.value
   // Explain why Save is unavailable when the configured adapter is missing.
   // The operator must restore its plugin before the provider can be edited.
@@ -259,7 +251,7 @@ export function IdentityProviderEditorPage() {
           {mode === 'edit' ? (
             <ReadOnlyValue>
               {activeAdapter
-                ? localizedUnknown(activeAdapter.display_name, locale, activeAdapter.adapter_id)
+                ? (localizedText(activeAdapter.display_name, locale) ?? activeAdapter.adapter_id)
                 : model.adapterID.value}
             </ReadOnlyValue>
           ) : (
@@ -272,7 +264,7 @@ export function IdentityProviderEditorPage() {
               <SelectContent emptyLabel={t('common.select_empty')}>
                 {identityAdapters.map(adapter => (
                   <SelectItem key={adapter.adapter_id} value={adapter.adapter_id}>
-                    {localizedUnknown(adapter.display_name, locale, adapter.adapter_id)}
+                    {localizedText(adapter.display_name, locale) ?? adapter.adapter_id}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -322,7 +314,7 @@ function emptyForm(adapter?: IdentityProviderAdapterItem): IdentityEditorDraft {
     adapterID: adapter?.adapter_id ?? '',
     providerID: adapter?.default_provider_id ?? '',
     enabled: true,
-    config: defaultConfig(asConfigFields(adapter?.fields ?? []))
+    config: defaultConfig(adapter?.fields ?? [])
   }
 }
 
@@ -333,14 +325,6 @@ function formFromProvider(provider: IdentityProviderItem): IdentityEditorDraft {
     enabled: provider.enabled,
     config: recordValue(provider.config) ?? {}
   }
-}
-
-function asConfigFields(fields: readonly unknown[]): ConfigFieldDefinition[] {
-  return fields as readonly unknown[] as ConfigFieldDefinition[]
-}
-
-function localizedUnknown(value: unknown, locale: string, fallback: string): string {
-  return localizedText(value as LocalizedText, locale) ?? fallback
 }
 
 function syncEnabled(provider: IdentityProviderItem): boolean {

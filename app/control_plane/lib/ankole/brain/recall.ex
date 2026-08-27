@@ -85,7 +85,7 @@ defmodule Ankole.Brain.Recall do
     end
   end
 
-  # ── Claim arm ───────────────────────────────────────────────────
+  # Claim arm
 
   defp claim_arm(access, query, query_vector, limit, neighborhood) do
     candidate_limit = min(limit * 2, 100)
@@ -110,7 +110,7 @@ defmodule Ankole.Brain.Recall do
         vector -> vector_candidate_ids(base, vector, candidate_limit, :claim)
       end
 
-    fused_ids = fuse(bm25_ids, vector_ids)
+    {fused_ids, fused_scores} = fuse(bm25_ids, vector_ids)
 
     rows =
       Claim
@@ -124,17 +124,14 @@ defmodule Ankole.Brain.Recall do
     fused_ids
     |> Enum.map(&Map.get(rows, &1))
     |> Enum.reject(&is_nil/1)
-    |> Enum.with_index()
-    |> Enum.map(fn {claim, rank} ->
-      base_score = 1.0 / (@rrf_k + rank + 1)
-
+    |> Enum.map(fn claim ->
       effective_confidence =
         case claim.claim_type do
           "fact" -> effective_confidence(claim, forgetting, now)
           "take" -> claim.weight
         end
 
-      %{claim: claim, score: base_score * max(effective_confidence, 0.05)}
+      %{claim: claim, score: Map.fetch!(fused_scores, claim.id) * max(effective_confidence, 0.05)}
     end)
     |> Enum.sort_by(& &1.score, :desc)
     |> Enum.map(fn %{claim: claim} ->
@@ -180,7 +177,7 @@ defmodule Ankole.Brain.Recall do
     Map.get(forgetting, key, 365)
   end
 
-  # ── Chunk arm ───────────────────────────────────────────────────
+  # Chunk arm
 
   defp chunk_arm(access, query, query_vector, limit, neighborhood) do
     candidate_limit = min(limit * 2, 100)
@@ -206,7 +203,7 @@ defmodule Ankole.Brain.Recall do
         vector -> vector_candidate_ids(base, vector, candidate_limit, :chunk)
       end
 
-    fused_ids = fuse(bm25_ids, vector_ids)
+    {fused_ids, fused_scores} = fuse(bm25_ids, vector_ids)
 
     rows =
       Chunk
@@ -220,9 +217,8 @@ defmodule Ankole.Brain.Recall do
       fused_ids
       |> Enum.map(&Map.get(rows, &1))
       |> Enum.reject(&is_nil/1)
-      |> Enum.with_index()
-      |> Enum.map(fn {{chunk, object}, rank} ->
-        %{chunk: chunk, object: object, score: 1.0 / (@rrf_k + rank + 1)}
+      |> Enum.map(fn {chunk, object} ->
+        %{chunk: chunk, object: object, score: Map.fetch!(fused_scores, chunk.id)}
       end)
 
     hits
@@ -294,6 +290,13 @@ defmodule Ankole.Brain.Recall do
     Repo.all(exact_query)
   end
 
+  # The kernel returns each id with its real fused score: an id both routes
+  # found carries the sum of both contributions, roughly twice a single-route
+  # score. Rebuilding a score from the final rank here would flatten that
+  # margin before the confidence and boost multipliers, so the kernel score
+  # flows through. One route alone also goes through the kernel; it returns
+  # the same `1 / (k + rank + 1)` scale. The inputs are cast UUIDs and a
+  # constant, so a malformed-input error is a caller bug and raises.
   defp fuse(bm25_ids, vector_ids) do
     lists =
       [bm25_ids, vector_ids]
@@ -302,17 +305,12 @@ defmodule Ankole.Brain.Recall do
 
     case lists do
       [] ->
-        []
-
-      [single] ->
-        single
+        {[], %{}}
 
       lists ->
-        # The native contract returns the fused list bare on success and
-        # `{:error, reason}` only for malformed input.
         case NativeKernel.reciprocal_rank_fusion(lists, @rrf_k) do
-          fused when is_list(fused) -> Enum.map(fused, & &1["id"])
-          {:error, _reason} -> List.first(lists)
+          fused when is_list(fused) ->
+            {Enum.map(fused, & &1["id"]), Map.new(fused, &{&1["id"], &1["score"]})}
         end
     end
   end
@@ -432,7 +430,7 @@ defmodule Ankole.Brain.Recall do
     end
   end
 
-  # ── Assembly ────────────────────────────────────────────────────
+  # Assembly
 
   # Claims take the budget first; chunks fill the remainder with at most two
   # chunks per page.
@@ -530,7 +528,7 @@ defmodule Ankole.Brain.Recall do
     :ok
   end
 
-  # ── Entity narrowing and query embedding ────────────────────────
+  # Entity narrowing and query embedding
 
   # Resolving an entity narrows both arms to the entity's parent container
   # and one-hop link neighborhood. An entity that does not resolve is an

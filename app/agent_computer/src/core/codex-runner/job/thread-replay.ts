@@ -27,8 +27,8 @@ export async function fetchReplayTurnItems(
 function parseItemJSON(bytes: Uint8Array): JSONObject {
   try {
     return jsonObject(JSON.parse(new TextDecoder().decode(bytes)))
-  } catch {
-    return {}
+  } catch (error) {
+    throw new Error('durable Turn item contains invalid JSON', { cause: error })
   }
 }
 

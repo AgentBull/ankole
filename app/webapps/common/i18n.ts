@@ -1,3 +1,4 @@
+import { isRecord } from '@agentbull/active-support'
 import i18n from 'i18next'
 import MF2 from 'i18next-mf2'
 import { initReactI18next } from 'react-i18next'
@@ -118,8 +119,4 @@ function normalizeCatalogNode(node: unknown, path: string[]): unknown {
   return Object.fromEntries(
     Object.entries(node).map(([key, value]) => [key, normalizeCatalogNode(value, [...path, key])])
   )
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
