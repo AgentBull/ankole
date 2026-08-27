@@ -1234,24 +1234,20 @@ export const identityTabs = [
 ]
 
 export const modelAdvanced = {
-  title: '其他模型能力和 Provider 调优',
-  summary: '暂时用不到的能力先不要配置。',
+  title: '可选 Agent 档案和 Brain 模型',
+  summary: 'Agent 能力按需配置；Brain 模型对整个实例生效。',
   steps: [
     {
-      title: '按需配置其他 profile',
+      title: '按需配置 Agent 能力档案',
       fields: [
         {
           name: '后台 Agent 任务',
           description:
-            '用于运行持久的后台 Agent 任务。当前内部存储键仍为 coding；普通对话不会因为代码较多而自动切换到这个模型。'
+            '使用 coding 档案运行持久的后台 Agent 任务。普通对话不会因为代码较多而选择这个档案。'
         },
         {
           name: 'vision_fallback',
           description: '主模型无法读取图像时改用的模型。'
-        },
-        {
-          name: 'embedding / rerank',
-          description: '负责检索和结果排序的模型。'
         },
         {
           name: 'web_search / web_fetch',
@@ -1261,6 +1257,36 @@ export const modelAdvanced = {
           name: 'image_generate',
           description: '负责生成图像的模型。'
         }
+      ]
+    },
+    {
+      title: '为实例配置 Brain 模型',
+      body: ['打开 Console → 系统配置 → Brain。这些设置对所有 Agent 生效，不属于 Agent 档案。'],
+      fields: [
+        {
+          name: 'brain.embedding_model',
+          description: '启用向量检索。请选择 Provider 和模型，并填写 embedding 维度。'
+        },
+        {
+          name: 'brain.rerank_model',
+          description: '对融合后的搜索结果重新排序；留空会保留融合顺序。'
+        },
+        {
+          name: 'brain.web_fetch_model',
+          description: '为 URL Source 抓取可读正文。'
+        },
+        {
+          name: 'brain.extraction_model',
+          description: '从 Signal 会话和 Source 中提取知识。'
+        },
+        {
+          name: 'brain.dreaming_model',
+          description: '汇总知识，并支持依赖模型的维护任务。'
+        }
+      ],
+      links: [
+        { label: 'Brain 指南', href: '../brain/' },
+        { label: 'AppConfigure 配置键', href: '../app-configuration/' }
       ]
     }
   ]

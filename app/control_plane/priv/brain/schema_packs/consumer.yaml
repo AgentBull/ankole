@@ -1,0 +1,40 @@
+# Ankole Brain schema pack seed. See docs/design-docs/BrainV3.md.
+api_version: ankole-brain-schema-pack-v1
+name: consumer
+version: 1.0.0
+description: Consumer goods and retail ontology increments.
+extends: general
+
+page_types:
+  - name: product
+    # Declared with software: core declaration identical, subtypes take the
+    # union on merge.
+    primitive: entity
+    slug_prefix: products/
+    subtypes: [product_line, sku]
+    extractable: false
+    expert_routing: false
+
+  - name: brand
+    # A brand is not a product or a legal entity: P&G is a company, Rejoice
+    # is a brand, linked to its owner with part_of.
+    primitive: entity
+    slug_prefix: brands/
+    extractable: false
+    expert_routing: false
+
+  - name: sales_channel
+    # GS1 calls this trade channel; the bare word channel collides with
+    # Ankole's Signal Channel, so the pack uses sales_channel.
+    primitive: entity
+    slug_prefix: sales_channels/
+    subtypes: [ecommerce, retail, distributor]
+    extractable: false
+    expert_routing: false
+
+link_types:
+  - {name: branded_as, inverse: brand_of}
+  - {name: sells, inverse: sold_by}
+  - {name: variant_of, inverse: has_variant}
+
+calibration_domains: []

@@ -174,16 +174,6 @@ defmodule Ankole.E2E.WorkerComputerE2ETest do
       "om_skill_view_all_1"
     )
 
-    skill_append = run_skill_append_tool_loop(ctx)
-
-    assert_lark_final_reply(
-      ctx.fake_feishu,
-      skill_append.reply,
-      "CHAOS_SKILL_APPEND_OK",
-      :reply,
-      "om_skill_append_1"
-    )
-
     disabled_skill = run_disabled_skill_guardrail(ctx)
 
     assert_lark_final_reply(
@@ -230,7 +220,6 @@ defmodule Ankole.E2E.WorkerComputerE2ETest do
     assert counters[:todo_tool] == 3
     assert counters[:skill_view_tool] == 2
     assert counters[:skill_view_all_tool] == 3
-    assert counters[:skill_append_tool] == 3
     assert counters[:skill_disabled_tool] == 2
     assert counters[:read_file_tool] == 3
     assert counters[:patch_tool] == 4

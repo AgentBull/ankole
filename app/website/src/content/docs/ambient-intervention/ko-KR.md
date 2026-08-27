@@ -5,7 +5,7 @@ section: User guide
 order: 17
 ---
 
-[signal binding](../signal-bindings/)이 그룹 메시지 mode를 **May intervene**으로 설정하면, Agent는 자신을 지칭하지 않는 그룹 메시지도 보고, 새 메시지 배치마다 먼저 값싼 판정 하나를 내립니다. 지금 말하는 것이 도움이 되는가? 기본값은 침묵입니다 — 대부분의 그룹 잡담에는 응답이 필요 없습니다. 판정이 응답할 가치가 있다고 말할 때만 실제 응답 turn이 시작됩니다.
+[signal binding](../signal-bindings/)이 그룹 메시지 mode를 **May intervene**으로 설정하면, Agent는 자신을 지칭하지 않는 그룹 메시지도 보고 새 메시지 배치마다 처리 경로를 선택합니다. 기본값은 침묵입니다. 필요한 경우 짧은 응답을 시작하거나, 새 작업을 식별하거나, 실행 중인 background job 하나에 새 정보를 전달할 수 있습니다.
 
 이 페이지는 그 판정이 어떻게 동작하는지와, 이를 제어하는 두 가지 수단(channel standing order와 binding 자체)을 설명합니다.
 
@@ -13,7 +13,16 @@ order: 17
 
 Agent는 channel별 판정 커서를 유지합니다. 각 검사는 마지막 검사 이후에 도착한 메시지만 판정하며, 이전 메시지는 배경으로만 나타나고 다시 평가되지 않습니다. Agent가 내버려 두기로 결정한 메시지가 몇 라운드 뒤에 갑자기 답변되지는 않습니다.
 
-모든 판정은 이유와 함께 기록됩니다. Agent가 너무 조용하거나 너무 적극적으로 보일 때 운영자는 추측 대신 매번 말하거나 침묵하기로 결정한 이유를 읽을 수 있습니다.
+모든 판정은 action, authorization source, 이유와 함께 기록됩니다. background handoff는 정확한 대상도 기록합니다. Agent가 너무 조용하거나 너무 적극적으로 보일 때 운영자는 선택된 경로를 직접 확인할 수 있습니다.
+
+## 네 가지 처리 경로
+
+- **처리 안 함(`NOOP`)**은 Agent를 침묵시킵니다. 잡담, 확인, 중복 답변 또는 사람이 이미 맡은 작업에는 일반적으로 이 경로를 사용합니다.
+- **foreground 응답(`FOREGROUND_REPLY`)**은 답변, 명확화, 조정, status 보고 또는 작고 제한된 조회를 위해 짧은 visible turn 하나를 시작합니다. 이 경로에서는 background job을 만들거나 다시 시작할 수 없습니다.
+- **새 작업(`NEW_WORK`)**은 독립적이고 실질적인 task를 식별합니다. 사람이 직접 요청하거나 일치하는 standing order가 있을 때만 일반 owner turn으로 진행합니다. 둘 다 없으면 Agent는 작업을 맡을지 확인만 요청합니다. 이 확인 turn에는 tool이 없고 job을 시작할 수 없습니다.
+- **전달(`HANDOFF`)**은 새 메시지를 동일한 Agent, owner session, channel, binding에 속한 명확히 일치하는 live background job 하나에 조용히 보냅니다. 후보가 불완전하거나 모호하면 전달하지 않습니다.
+
+recognizer 자체는 background job을 만들지 않습니다. 처리 경로와 authorization source만 선택하며, 일반 owner turn이 기존 승인 및 background-work 규칙을 적용합니다.
 
 ## 응답은 질문한 사람에게 연결됩니다
 
@@ -34,7 +43,7 @@ standing order는 channel에 붙은 하나의 durable 정책 텍스트입니다.
 
 **channel에서 Agent에게 직접 말해서 설정합니다.** 아무 channel 구성원이나 “지금부터 여기서는 CI가 빨간불일 때만 말해”라고 말할 수 있으며, Agent는 이를 이 channel의 standing order로 저장하고 누가 요청했는지 기록합니다. 변경은 완전한 교체입니다. order를 수정해 달라고 요청하면 Agent는 완전한 새 텍스트를 저장합니다. 제거하려면 “이 channel의 standing order를 지워 줘”라고 말하십시오.
 
-standing order는 두 곳에 전달됩니다. 말할지 침묵할지 판정은 이를 해당 방의 운영자 정책으로 취급하고(매치는 말할 이유가 되며, 키워드가 아니라 의미로 판정합니다), 실제 응답 turn도 context에서 이를 볼 수 있습니다.
+standing order는 두 곳에 전달됩니다. 경로 판정은 이를 channel의 운영자 정책으로 취급하고 의미가 명확히 일치하면 `NEW_WORK`를 승인할 수 있습니다. visible owner turn도 context에서 이를 볼 수 있습니다.
 
 두 가지 경계:
 

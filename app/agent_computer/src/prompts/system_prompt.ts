@@ -15,6 +15,7 @@ import { formatSkillsForSystemPrompt, type SkillPromptEntry } from './skills_pro
 import { formatZonedDateTime } from './zoned_time'
 import { ankoleSkillRuntime } from '../skills/effective-skill'
 import { signalAdapterDisplayName } from './signal_adapter'
+import type { AmbientTextTurnRoute } from './ambient_prompt'
 
 export type BuildAgentSystemPromptOptions = {
   userFilesRoot: string
@@ -22,6 +23,7 @@ export type BuildAgentSystemPromptOptions = {
   turnStart: TurnStart
   agentConversationContext?: AgentConversationContextResponse
   availableToolNames?: string[]
+  ambientRoute?: AmbientTextTurnRoute
 }
 
 /**
@@ -45,15 +47,46 @@ export function buildAgentSystemPrompt(opts: BuildAgentSystemPromptOptions): str
     soul.trim(),
     missionSection(mission),
     completionContractSection(),
+    ambientRouteSection(opts.ambientRoute),
     backgroundAgentJobPolicySection(opts),
     agentEnvironmentInfoPolicySection(),
     toolsSection(opts),
-    skillLessonPolicySection(opts),
     skillPrompt.trim(),
     runtimeContextSection(opts)
   ]
     .filter(Boolean)
     .join('\n\n')
+}
+
+/** Enforces the host-committed ambient route in trusted prompt text. */
+function ambientRouteSection(route: AmbientTextTurnRoute | undefined): string {
+  if (!route) return ''
+
+  if (route.action === 'FOREGROUND_REPLY') {
+    return [
+      '<ambient_route>',
+      'The trusted ambient router selected FOREGROUND_REPLY for this turn.',
+      'Give the room one concise, useful response now. You may do a small bounded lookup, but do not create or respawn background work. If substantial new work is needed, ask whether the Agent should take it on.',
+      '</ambient_route>'
+    ].join('\n')
+  }
+
+  if (route.authority === 'NONE') {
+    return [
+      '<ambient_route>',
+      'The trusted ambient router identified NEW_WORK, but no human request or standing order authorizes it.',
+      'Only ask whether the Agent should take on the concrete work. Do not begin the work, call a tool, create or change a background job, modify state, or claim that work has started.',
+      '</ambient_route>'
+    ].join('\n')
+  }
+
+  const source = route.authority === 'EXPLICIT_REQUEST' ? 'a direct human request' : 'the channel Standing Orders'
+  return [
+    '<ambient_route>',
+    `The trusted ambient router identified NEW_WORK authorized by ${source}.`,
+    'Handle the work through the normal completion, approval, and background-job boundaries. This authorization does not permit destructive actions, unrelated scope, or external writes beyond the request or standing order.',
+    '</ambient_route>'
+  ].join('\n')
 }
 
 /** Wraps the mission text in its tagged block, or yields nothing when the agent has no mission. */
@@ -106,23 +139,6 @@ function agentDisplayName(opts: BuildAgentSystemPromptOptions): string {
 function agentRole(opts: BuildAgentSystemPromptOptions): string | undefined {
   const role = opts.agentConversationContext?.agent?.role?.trim()
   return role || undefined
-}
-
-/** States how the agent should record a lesson tied to one enabled skill. */
-function skillLessonPolicySection(opts: BuildAgentSystemPromptOptions): string {
-  if (
-    !toolAvailable(opts, 'skill_view') ||
-    !toolAvailable(opts, 'skill_append') ||
-    !toolAvailable(opts, 'skill_replace')
-  ) {
-    return ''
-  }
-
-  return [
-    '<skill_lesson_policy>',
-    'For a lesson tied to one enabled skill, read the existing skill first: revise a mostly-overlapping note with skill_replace, add a mostly-new lesson with skill_append, and write nothing when there is no new information. Keep each note in a concise situation -> caution form, revise unverified notes when evidence arrives, and use skill_replace to deduplicate or compact the complete overlay before it grows beyond roughly 2000 tokens.',
-    '</skill_lesson_policy>'
-  ].join('\n')
 }
 
 /**

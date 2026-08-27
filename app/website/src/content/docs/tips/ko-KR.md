@@ -36,12 +36,13 @@ kubectl -n ankole logs deployment/ankole-control-plane -c control-plane | grep "
 
 ## 모델 프로파일 슬롯을 다이얼로 취급
 
-열 개의 프로파일 슬롯은 단지 “primary 모델과 그 친구들”이 아닙니다. 각각은 다이얼입니다:
+8개의 내장 Agent profile 슬롯인 `primary`, `light`, `heavy`, `coding`, `vision_fallback`, `web_search`, `web_fetch`, `image_generate`는 각각 하나의 다이얼입니다:
 
 - 에이전트가 주로 빠른 질문에 답할 때는 **`primary`**를 더 저렴한 모델로 낮추고, 품질이 비용보다 중요할 때는 올리세요.
 - **`light`**는 진짜로 저렴하고 빠른 모델에 바인딩하세요 — 고용량·저중요도 경로를 위해 존재합니다.
 - **`vision_fallback`**은 에이전트가 이미지를 보는 경우에만 설정하세요. 그렇지 않으면 바인딩하지 않고 슬롯을 아끼세요.
 - **`web_search`**와 **`web_fetch`**는 독립적입니다 — 에이전트가 웹에 접근해야 할 때만 바인딩하세요.
+- Brain 검색 모델은 Agent profile이 아니라 **AppConfigure**에서 한 번 설정합니다. `brain.embedding_model`은 모든 Agent의 벡터 검색에 적용되고, `brain.rerank_model`은 rerank에 적용됩니다. embedding 모델을 비워 두면 벡터 검색을 비활성화하고, rerank 모델을 비워 두면 융합 결과 순서를 유지합니다. 자세한 내용은 [Brain](../brain/)을 참조하십시오.
 
 “느리게 느껴지는” 에이전트는 대개 실제로 하는 작업에 비해 너무 무거운 `primary`가 바인딩된 경우입니다.
 

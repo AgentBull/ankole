@@ -3,8 +3,9 @@ defmodule Ankole.AIAgent.ModelProfiles do
   Agent-scoped model profile service.
 
   Profiles live under `agents.options["ai_agent"]["models"]`; provider rows own
-  endpoint and encrypted option details. LLM tiers and default embedding/rerank models
-  are all first-class profile slots.
+  endpoint and encrypted option details. Embedding and rerank are not Agent
+  profile slots: Brain owns those models instance-wide through `brain.*`
+  AppConfigure keys.
   """
 
   import Ecto.Query, warn: false
@@ -22,8 +23,12 @@ defmodule Ankole.AIAgent.ModelProfiles do
   alias Ankole.Repo
 
   @profiles ~w(
-    primary light heavy coding vision_fallback embedding rerank web_search web_fetch image_generate
+    primary light heavy coding vision_fallback web_search web_fetch image_generate
   )
+
+  # Retired Agent profile slots. The names stay reserved so a custom LLM
+  # profile cannot shadow the instance-global Brain model configuration.
+  @retired_profiles ~w(embedding rerank)
 
   # Capabilities a language-model Provider can run inside its own turn, so an
   # Agent can choose between its Provider and an Ankole capability profile.
@@ -51,7 +56,9 @@ defmodule Ankole.AIAgent.ModelProfiles do
   """
   @spec custom_profile_name?(term()) :: boolean()
   def custom_profile_name?(profile) when is_binary(profile),
-    do: profile not in @profiles and Regex.match?(@custom_profile_name, profile)
+    do:
+      profile not in @profiles and profile not in @retired_profiles and
+        Regex.match?(@custom_profile_name, profile)
 
   def custom_profile_name?(_profile), do: false
 
@@ -638,8 +645,6 @@ defmodule Ankole.AIAgent.ModelProfiles do
     end
   end
 
-  defp capability_for_profile("embedding"), do: "embedding"
-  defp capability_for_profile("rerank"), do: "rerank"
   defp capability_for_profile("web_search"), do: "web_search"
   defp capability_for_profile("web_fetch"), do: "web_fetch"
   defp capability_for_profile("image_generate"), do: "image_generate"

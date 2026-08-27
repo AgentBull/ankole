@@ -15,11 +15,13 @@ defmodule Ankole.AIAgent.Library.SourceReader do
   @soul_file "SOUL.md"
   @mission_file "MISSION.md"
   @design_file "DESIGN.md"
+  @confidentiality_policy_file "ConfidentialityPolicy.md"
   # Used only if the bundled templates are unreadable, so a fresh agent still
   # gets usable runtime documents rather than failing to seed.
   @fallback_soul "You are an Ankole AI colleague. Reply in plain text."
   @fallback_mission ""
   @fallback_design ""
+  @fallback_confidentiality_policy ""
   @yaml_block_item_regex ~r/^\s+-\s+(.+)\s*$/
   @yaml_block_end_regex ~r/^\S/
   @ankole_runtimes ~w(any main background_job)
@@ -167,6 +169,20 @@ defmodule Ankole.AIAgent.Library.SourceReader do
     |> case do
       {:ok, content} -> content
       {:error, _reason} -> @fallback_design
+    end
+  end
+
+  @doc """
+  Loads the default confidentiality policy template, falling back to an empty document.
+  """
+  @spec load_default_confidentiality_policy_template() :: String.t()
+  def load_default_confidentiality_policy_template do
+    templates_root()
+    |> Path.join(@confidentiality_policy_file)
+    |> File.read()
+    |> case do
+      {:ok, content} -> content
+      {:error, _reason} -> @fallback_confidentiality_policy
     end
   end
 

@@ -102,13 +102,13 @@ Control Plane Plugin は Channel Provider、identity source、システム設定
 
 Agent Plugin は複数の Skill を含むことができます。親を無効にするとその Skill は利用できなくなりますが、各 Skill の設定は書き換えられません。親を再度有効にすると、Skill はそれぞれの実効状態に戻ります。
 
-### Skill experience を確認する
+### Skill 教訓を確認する
 
-Skill を使用している間、Agent は Agent 固有の注意事項を保持できます。たとえば、内部システムの慣例や検証済みの運用詳細などです。この **Skill experience** は、その Agent が Skill を読み取るたびに Skill と共に表示されます。
+Agent は、完全な Skill 手順と共に、日付付きの作業上の注意事項を受け取れます。Dreaming は Job の証拠からリース付きの教訓を作り、運用者は人の教訓を追加できます。共有の `SKILL.md` は変わりません。
 
-Agent Plugin の詳細ページ、または **知識 → Skill experience** から確認できます。手動で記録を追加するときは、まず状況を述べ、次に注意事項を述べます。
+Agent Library の scope を対象の Agent に変更し、Skill card を見つけます。card には、有効な教訓と廃止済みの教訓、証拠 Job、再確認日、廃止理由が表示されます。運用者は教訓を追加または廃止できます。Agent は次の turn から廃止済み教訓を読みません。
 
-一般的な規則をすべての Agent の experience にコピーしないでください。規則がすべての Agent に適用される場合は、Skill の source を変更します。
+一般的な規則を各 Agent の教訓にコピーしないでください。すべての Agent に適用する規則は、Skill の source に記述します。証拠の規則、リース、設定については [Skill 教訓](../skill-lessons/) を参照してください。
 
 ## Control Plane Plugin を管理する
 

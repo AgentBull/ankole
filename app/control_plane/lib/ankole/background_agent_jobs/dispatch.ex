@@ -7,6 +7,7 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
 
   alias Ankole.AIAgent.Library.AgentPlugins
   alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.Conversations
   alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Attrs
   alias Ankole.BackgroundAgentJobs.Schemas.Job
@@ -169,6 +170,7 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
           {:error, :background_agent_job_not_found} ->
             with {:ok, job_id} <- next_job_id(repo),
                  attrs <- Map.put(attrs, "workspace_owner_job_id", job_id),
+                 {:ok, attrs} <- pin_owner_conversation(repo, attrs),
                  {:ok, job} <- repo.insert(Job.creation_changeset(%Job{id: job_id}, attrs)),
                  {:ok, dispatch_event} <- append_dispatch_event(repo, job, now) do
               {:ok, %{job: job, dispatch_event: dispatch_event}}
@@ -191,6 +193,7 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
                  :ok <- validate_respawn_source(source_job),
                  :ok <- ensure_no_successor(repo, source_job),
                  attrs <- respawn_job_attrs(attrs, source_job, now),
+                 {:ok, attrs} <- pin_owner_conversation(repo, attrs),
                  {:ok, job} <- repo.insert(Job.creation_changeset(%Job{}, attrs)),
                  {:ok, dispatch_event} <- append_dispatch_event(repo, job, now),
                  :ok <- inherit_worker_assignment(repo, source_job, job, now) do
@@ -389,6 +392,7 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
              "model_profile" => source_job.model_profile
            }
            |> respawn_job_attrs(source_job, now),
+         {:ok, attrs} <- pin_owner_conversation(repo, attrs),
          {:ok, job} <- repo.insert(Job.creation_changeset(%Job{}, attrs)),
          {:ok, _dispatch_event} <- append_dispatch_event(repo, job, now) do
       {:ok, job}
@@ -607,6 +611,28 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
 
       _value ->
         {:error, :invalid_background_agent_job_metadata}
+    end
+  end
+
+  # The Worker resolves every Job turn's conversation context from
+  # `metadata.owner_conversation_id`, so a Job without it fails only at runtime
+  # inside the Worker. Creation pins it here, on every insert path, from the
+  # owner session's active conversation; callers do not supply it.
+  defp pin_owner_conversation(repo, attrs) do
+    case Attrs.text(attrs, "owner_session_id") do
+      session_id when is_binary(session_id) ->
+        with {:ok, conversation} <-
+               Conversations.ensure_conversation(Attrs.text(attrs, "agent_uid"), session_id,
+                 repo: repo
+               ) do
+          metadata = Map.get(attrs, "metadata", %{})
+
+          {:ok,
+           Map.put(attrs, "metadata", Map.put(metadata, "owner_conversation_id", conversation.id))}
+        end
+
+      nil ->
+        {:error, :background_agent_job_owner_session_missing}
     end
   end
 

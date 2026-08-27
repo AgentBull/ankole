@@ -5,6 +5,8 @@ import type { SkillFileRoots } from '../../tools/library/skill-tools'
 import { loadEnabledSkillMCPServers, materializeMCPorterConfig, type MaterializedMCPorterConfig } from '../../tools/mcp'
 import { assistantText, userMessage, type UserMessage } from '../llm'
 import { actorEventUserContent } from './actor_event_content'
+import { actorEventText } from './actor_event_text'
+import { brainTurnInjections, resolveBrainEnabled, type BrainTurnInjections } from './brain_context'
 import { channelContextModelMessages } from './channel_context'
 import { acquireTurnAIGatewayAccess } from './turn_ai_gateway_access'
 import { workerTurnTrace } from '../../observability/turn-tracing'
@@ -79,6 +81,12 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
       resolveRenderedFetchRuntimeConfig(turnStart, opts.rpc),
       'rendered fetch runtime config'
     )
+    // Resolved once and reused for tool registration and both memory
+    // injections; a failed read leaves Brain off for this turn.
+    const confirmationOnly = opts.ambientRoute?.action === 'NEW_WORK' && opts.ambientRoute.authority === 'NONE'
+    const brainEnabled = confirmationOnly
+      ? false
+      : await turnActivity.runStep(resolveBrainEnabled(turnStart, opts.rpc, opts.logger), 'brain runtime config')
     const currentWorkerEnv = await turnActivity.runStep(
       resolveAgentWorkerEnvParts(turnStart.turn.actor.agent_uid, opts.rpc, turnStart.actor_event.binding_name),
       'worker env'
@@ -113,7 +121,7 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
       }),
       'web tools'
     )
-    const tools = await createTextTurnTools({
+    const resolvedTools = await createTextTurnTools({
       turnStart,
       agentsRoot: opts.agentsRoot,
       agentHome: opts.agentHome,
@@ -121,6 +129,7 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
       userFilesRoot: opts.userFilesRoot,
       enabledSkills: agentConversationContext.skills ?? [],
       skillRoots,
+      brainEnabled,
       rpc: opts.rpc,
       waitForSteering: opts.waitForSteering,
       workerEnv: toolWorkerEnv,
@@ -128,8 +137,9 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
       webTools,
       runStep: turnActivity.runStep
     })
+    const tools = toolsForAmbientRoute(resolvedTools, opts.ambientRoute)
 
-    const hostedTools = turnStart.hosted_tools ?? []
+    const hostedTools = confirmationOnly ? [] : (turnStart.hosted_tools ?? [])
 
     opts.logger?.info('worker.turn_tools_resolved', 'worker turn tools resolved', {
       actor_event_id: turnStart.turn.actor_event_id,
@@ -144,14 +154,26 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
       workspaceRoot: opts.workspaceRoot,
       turnStart,
       agentConversationContext,
-      availableToolNames: tools.map(tool => tool.name)
+      availableToolNames: tools.map(tool => tool.name),
+      ambientRoute: opts.ambientRoute
     }
     const systemPrompt = buildAgentSystemPrompt(promptOptions)
+    // Both memory injections run in parallel, stay zero-model, and degrade
+    // silently to nothing. The control plane owns the context-pack slot
+    // (conversation start and after each compaction); every other turn
+    // returns an empty pack.
+    const memoryInjections: BrainTurnInjections = brainEnabled
+      ? await turnActivity.runStep(
+          brainTurnInjections(opts.rpc, turnStart, actorEventText(actorEvent.payload_json, actorEvent.type)),
+          'brain memory injections'
+        )
+      : { pointerLines: [], packMessages: [] }
     const prompt = prependEnvironmentInfoLinesToUserMessage(userPrompt, [
       ...actorEventEnvironmentInfoLines(actorEvent.payload_json, {
         timezone: conversationTimezone
       }),
-      ...turnRequestEnvironmentInfoLines(turnStart)
+      ...turnRequestEnvironmentInfoLines(turnStart),
+      ...memoryInjections.pointerLines
     ])
 
     const latest = await runAgentLoop({
@@ -160,6 +182,7 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
       systemPrompt,
       messages: [
         ...channelContextModelMessages(actorEvent.payload_json, { timezone: conversationTimezone }),
+        ...memoryInjections.packMessages,
         prompt,
         ...(opts.extraMessages ?? [])
       ],
@@ -203,6 +226,14 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
       }
     }
   }
+}
+
+function toolsForAmbientRoute<T extends { name: string }>(tools: T[], route: TextTurnLoopOptions['ambientRoute']): T[] {
+  if (!route) return tools
+  if (route.action === 'NEW_WORK' && route.authority === 'NONE') return []
+  if (route.action !== 'FOREGROUND_REPLY') return tools
+
+  return tools.filter(tool => tool.name !== 'create_background_job' && tool.name !== 'respawn_background_job')
 }
 
 function logAIGatewayRoute(

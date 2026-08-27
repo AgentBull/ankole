@@ -76,6 +76,8 @@ defmodule AnkoleWeb.Router do
 
     get "/setup/plugins", SetupController, :plugins
     put "/setup/plugins/enabled", SetupController, :update_plugins
+    get "/setup/brain-packs", SetupController, :brain_packs
+    put "/setup/brain-packs", SetupController, :put_brain_packs
     get "/setup/identity-provider-adapters", SetupController, :identity_provider_adapters
     put "/setup/identity-providers/:provider_id", SetupController, :put_identity_provider
 
@@ -155,6 +157,31 @@ defmodule AnkoleWeb.Router do
     patch "/permission-grants/:id", PermissionGrantController, :update
     delete "/permission-grants/:id", PermissionGrantController, :delete
 
+    get "/brain/health", BrainController, :health
+    get "/brain/objects", BrainController, :list_objects
+    post "/brain/search-preview", BrainController, :search_preview
+    get "/brain/claims", BrainController, :list_claims
+    post "/brain/claims/:claim_id/supersede", BrainController, :supersede_claim
+    post "/brain/claims/:claim_id/forget", BrainController, :forget_claim
+    post "/brain/claims/:claim_id/resolve", BrainController, :resolve_take
+    get "/brain/contradictions", BrainController, :list_contradictions
+    post "/brain/contradictions/:contradiction_id/decide", BrainController, :decide_contradiction
+    get "/brain/suggestions", BrainController, :list_suggestions
+    post "/brain/suggestions/:suggestion_id/decide", BrainController, :decide_suggestion
+    get "/brain/sources", BrainController, :list_sources
+    post "/brain/sources", BrainController, :create_source
+    post "/brain/sources/:source_id/learn", BrainController, :learn_source
+    post "/brain/sources/:source_id/archive", BrainController, :archive_source
+    get "/brain/principals/:principal_uid/knowledge", BrainController, :principal_knowledge
+    # Object slugs contain `/`, so these operations carry the slug as a query
+    # parameter or in the body instead of a wildcard path segment, which the
+    # OpenAPI document could not express.
+    get "/brain/objects/show", BrainController, :show_object
+    get "/brain/objects/versions", BrainController, :object_versions
+    post "/brain/objects/rollback", BrainController, :rollback_object
+    post "/brain/objects/forget", BrainController, :forget_object
+    post "/brain/objects/restore", BrainController, :restore_object
+
     get "/agents", AgentController, :index
     post "/agents", AgentController, :create
     get "/agents/:agent_uid", AgentController, :show
@@ -192,17 +219,17 @@ defmodule AnkoleWeb.Router do
         AgentLibraryController,
         :update
 
-    get "/agents/:agent_uid/library-skill-overlays",
-        AgentLibrarySkillOverlayController,
+    get "/agents/:agent_uid/skill-lessons",
+        AgentSkillLessonController,
         :index
 
-    put "/agents/:agent_uid/library-skill-overlays/:skill_name",
-        AgentLibrarySkillOverlayController,
-        :update
+    post "/agents/:agent_uid/skill-lessons",
+         AgentSkillLessonController,
+         :create
 
-    delete "/agents/:agent_uid/library-skill-overlays/:skill_name",
-           AgentLibrarySkillOverlayController,
-           :delete
+    post "/agents/:agent_uid/skill-lessons/:lesson_id/retire",
+         AgentSkillLessonController,
+         :retire
 
     get "/console-readiness", ConsoleReadinessController, :show
 

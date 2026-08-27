@@ -36,6 +36,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
   alias Ankole.SignalsGateway.ActorRuntime.AIGatewayAPIKeyBroker
   alias Ankole.SignalsGateway.ActorRuntime.AppConfigureBroker
   alias Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker
+  alias Ankole.SignalsGateway.ActorRuntime.BrainBroker
   alias Ankole.SignalsGateway.ActorRuntime.ObservabilityBroker
   alias Ankole.SignalsGateway.ActorRuntime.RPCWire
   alias Ankole.SignalsGateway.ActorRuntime.SignalChannelBroker
@@ -68,6 +69,19 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
       {ActorTurnCompletionBroker, :handle_noop, :turn_complete, FabricProto.ActorTurnNoopRequest},
     "app_configure.resolve" =>
       {AppConfigureBroker, :handle_request, :worker_agent, FabricProto.AppConfigureResolveRequest},
+    "brain.remember" => {BrainBroker, :handle_remember, :turn_write, FabricProto.BrainRequest},
+    "brain.recall" => {BrainBroker, :handle_recall, :turn_read, FabricProto.BrainRequest},
+    "brain.get_page" => {BrainBroker, :handle_get_page, :turn_read, FabricProto.BrainRequest},
+    "brain.forget" => {BrainBroker, :handle_forget, :turn_write, FabricProto.BrainRequest},
+    "brain.entity" => {BrainBroker, :handle_entity, :turn_read, FabricProto.BrainRequest},
+    "brain.whoknows" => {BrainBroker, :handle_whoknows, :turn_read, FabricProto.BrainRequest},
+    "brain.synthesize" =>
+      {BrainBroker, :handle_synthesize, :turn_write, FabricProto.BrainRequest},
+    "brain.delta" => {BrainBroker, :handle_delta, :turn_read, FabricProto.BrainRequest},
+    "brain.context_pack" =>
+      {BrainBroker, :handle_context_pack, :turn_read, FabricProto.BrainRequest},
+    "brain.volunteer_pointers" =>
+      {BrainBroker, :handle_volunteer_pointers, :turn_read, FabricProto.BrainRequest},
     "agent_plugin.list" =>
       {AgentPluginBroker, :handle_list, :turn_read, FabricProto.AgentPluginListRequest},
     "automation_job.create" =>
@@ -165,10 +179,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
        FabricProto.InstalledSkillReplaceRequest},
     "skills.overlay.resolve" =>
       {SkillOverlayBroker, :handle_resolve, :turn_read, FabricProto.SkillOverlayResolveRequest},
-    "skills.overlay.append" =>
-      {SkillOverlayBroker, :handle_append, :turn_write, FabricProto.SkillOverlayAppendRequest},
-    "skills.overlay.replace" =>
-      {SkillOverlayBroker, :handle_replace, :turn_write, FabricProto.SkillOverlayReplaceRequest},
     "worker_env.resolve" =>
       {WorkerEnvBroker, :handle_request, :worker_agent, FabricProto.WorkerEnvResolveRequest}
   }

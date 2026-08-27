@@ -564,7 +564,7 @@ The registry currently contains these method families:
 - Schedule operations.
 - Signal channel ambient judgments and standing orders.
 - Installed Skill observations.
-- Skill overlay resolve, append, and replace operations.
+- Skill overlay resolve: the rendered skill-lesson block for a Skill set.
 
 Schedule RPCs use `JSONPassthroughResponse`. The worker passes
 `body_json` to the model without changing its fields.
@@ -742,15 +742,16 @@ metadata from `SKILL.md`; it does not contain a content hash or file inventory.
 PostgreSQL stores the current registry set. The worker keeps the files in the
 Agent Home and reads them when it prepares a run.
 
-The worker uses these overlay RPC methods:
+The worker reads per-Agent skill additions through one RPC method:
 
-- `skills.overlay.resolve` reads a complete requested Skill set in one batch.
-- `skills.overlay.append` appends one durable note.
-- `skills.overlay.replace` replaces the complete overlay.
+- `skills.overlay.resolve` reads the rendered skill-lesson block for a complete
+  requested Skill set in one batch. Lessons are written by Dreaming and the
+  Console only (see `docs/design-docs/SkillLessons.md`); the worker has no
+  overlay write methods.
 
 The resolve response contains exactly one entry for each unique requested name.
 The control plane synchronizes the Agent registry once and performs set reads
-for the Skill and overlay rows. A missing, disabled, invalid, or duplicate name
+for the Skill and lesson rows. A missing, disabled, invalid, or duplicate name
 rejects the whole request. The worker rejects a partial, duplicate, or
 unexpected response instead of materializing a mixed snapshot.
 

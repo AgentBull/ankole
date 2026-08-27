@@ -324,11 +324,25 @@ older event when a newer event covers the same Session and channel.
 
 ### Ambient Judgments and the Channel Cursor
 
-The Worker recognizer reports each `may_intervene` decision through the
-`signal_channel.ambient_judgment.record` RPC operation before the visible turn
-starts or the event completes silently. One transaction stores the judgment
-row, advances the channel `ambient_judged_until` cursor to the batch
-watermark, and applies an accepted `asked_by` attribution.
+The Worker recognizer reports one action through the
+`signal_channel.ambient_judgment.record` RPC operation before a visible turn
+starts or the event completes silently. The action is `NOOP`,
+`FOREGROUND_REPLY`, `NEW_WORK`, or `HANDOFF`. `NEW_WORK` also reports whether a
+direct human request, a standing order, or neither source authorizes the work.
+The recognizer never creates a Job.
+
+The ambient admission transaction gives the recognizer at most eight live Job
+candidates. Every candidate belongs to the same Agent, owner Session, signal
+channel, and binding. If more candidates exist, the list is incomplete and
+`HANDOFF` is unavailable.
+
+The judgment operation rechecks the binding, expiry, and scene hash. One
+transaction stores the first canonical judgment, advances the channel
+`ambient_judged_until` cursor to the batch watermark, and applies an accepted
+`asked_by` attribution. A `HANDOFF` transaction also locks the exact live Job,
+rechecks its owner Session and reply route, and appends one idempotent
+`command.steer` that contains only the new messages. A retry returns the first
+action and target instead of replacing them.
 
 The ambient payload splits observations at the cursor. `observed_messages`
 holds only messages after the cursor, merged with the triggering batch.
@@ -340,6 +354,11 @@ An accepted `asked_by` names one mirrored human message in the judged batch.
 The control plane stores it on the ActorEvent, and outbound replies anchor to
 that entry instead of the batch tail. A failed validation records a degraded
 attribution and the wake stays proactive.
+
+`FOREGROUND_REPLY` cannot create or respawn a Job. `NEW_WORK` without a direct
+request or matching standing order starts a confirmation-only Text Turn with
+no local or provider-hosted tools. An authorized `NEW_WORK` enters the normal
+owner Text Turn, which still applies the standard approval and Job policies.
 
 ### Channel Standing Orders
 

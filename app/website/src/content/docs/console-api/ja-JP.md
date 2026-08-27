@@ -88,11 +88,11 @@ Agent Library は agent ができること、つまり plugin と skill です�
 | `PUT` | `/agents/:agent_uid/library-capabilities/skills/:id` | 1 つの agent に対して skill を override |
 | `GET` | `/agents/:agent_uid/library-documents` | agent の library document を一覧表示 |
 | `PUT` | `/agents/:agent_uid/library-documents/:document_kind` | library document を設定 |
-| `GET` | `/agents/:agent_uid/library-skill-overlays` | skill overlay を一覧表示 |
-| `PUT` | `/agents/:agent_uid/library-skill-overlays/:skill_name` | skill overlay を設定 |
-| `DELETE` | `/agents/:agent_uid/library-skill-overlays/:skill_name` | skill overlay を削除 |
+| `GET` | `/agents/:agent_uid/skill-lessons` | 有効な Skill 教訓と廃止済み教訓を一覧表示 |
+| `POST` | `/agents/:agent_uid/skill-lessons` | 有効な Skill に人の教訓を追加 |
+| `POST` | `/agents/:agent_uid/skill-lessons/:lesson_id/retire` | Skill 教訓を廃止 |
 
-能力はまずグローバルに有効化され、その後 agent ごとに狭めたり広げたりできます。skill overlay を使うと、運用者は skill を fork せずに、1 つの agent に対する skill の振る舞いをカスタマイズできます。
+能力はまずグローバルに有効化され、その後 Agent ごとに狭めたり広げたりできます。Skill 教訓は Skill source を変更せずに、1 つの Agent へ追加の作業指針を渡します。一覧には証拠と廃止履歴も含まれます。廃止された教訓は配信されず、人が取り消した内容は Dreaming の再学習禁止 list に残ります。lifecycle と制限については [Skill 教訓](../skill-lessons/) を参照してください。
 
 ### 環境変数（WorkerEnv）
 

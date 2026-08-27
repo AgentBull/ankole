@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { create } from '@bufbuild/protobuf'
 import { createSkillTools } from '../src/tools/library/skill-tools'
-import { jsonBytes, jsonObjectFromBytes } from '../src/fabric/envelope_proto'
+import { jsonBytes } from '../src/fabric/envelope_proto'
 import {
   RuntimeSkillSummarySchema,
   SkillOverlayResolveResponseSchema,
@@ -43,12 +43,11 @@ function overlayResolveRPC(text?: string): RPCRequester {
 }
 
 describe('@ankole/agent-computer skill tools', () => {
-  it('describes skill work by name without exposing file paths or update content', () => {
+  it('exposes only skill_view and describes skill work by name without exposing file paths', () => {
     const tools = createSkillTools({ turn: testTurn, rpc: unusedRPC })
-    const view = tools.find(tool => tool.name === 'skill_view')!
-    const append = tools.find(tool => tool.name === 'skill_append')!
-    const replace = tools.find(tool => tool.name === 'skill_replace')!
+    expect(tools.map(tool => tool.name)).toEqual(['skill_view'])
 
+    const view = tools[0]!
     const viewActivity = view.describeActivity(
       view.schema.parse({ name: 'openai-docs', filePath: 'references/private/internal.md' })
     )
@@ -56,14 +55,6 @@ describe('@ankole/agent-computer skill tools', () => {
       key: 'signals_gateway.reply.activity.skill_load',
       bindings: { name: 'openai-docs' }
     })
-
-    for (const tool of [append, replace]) {
-      const activity = tool.describeActivity(tool.schema.parse({ name: 'openai-docs', content: 'do-not-leak' }))
-      expect(activity).toEqual({
-        key: 'signals_gateway.reply.activity.skill_update',
-        bindings: { name: 'openai-docs' }
-      })
-    }
   })
 
   it('skill_view reads internal builtin skills and renders the skill directory attribute', async () => {
@@ -160,7 +151,6 @@ describe('@ankole/agent-computer skill tools', () => {
     const root = join(tmpdir(), `ankole-skill-tools-long-${Date.now()}-${Math.random()}`)
     const builtinRoot = join(root, 'library')
     let overlayReads = 0
-    let overlayWrites = 0
     try {
       writeFileSyncWithParents(
         join(builtinRoot, 'long-report', 'SKILL.md'),
@@ -196,8 +186,7 @@ describe('@ankole/agent-computer skill tools', () => {
               ]
             })
           }
-          overlayWrites += 1
-          throw new Error('unexpected background-job Skill overlay write')
+          throw new Error('unexpected background-job Skill RPC')
         }) as RPCRequester
       })
 
@@ -215,17 +204,7 @@ describe('@ankole/agent-computer skill tools', () => {
       await expect(
         tool.execute('call-long-reference', { name: 'long-report', filePath: 'references/private.md' })
       ).rejects.toThrow('available only inside a background agent job')
-
-      const append = tools.find(candidate => candidate.name === 'skill_append')!
-      const replace = tools.find(candidate => candidate.name === 'skill_replace')!
-      await expect(
-        append.execute('call-long-append', { name: 'long-report', content: 'blind append' })
-      ).rejects.toThrow('available only inside a background agent job')
-      await expect(
-        replace.execute('call-long-replace', { name: 'long-report', content: 'blind replacement' })
-      ).rejects.toThrow('available only inside a background agent job')
       expect(overlayReads).toBe(0)
-      expect(overlayWrites).toBe(0)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
@@ -285,150 +264,6 @@ describe('@ankole/agent-computer skill tools', () => {
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
-  })
-
-  it('skill_append sends one atomic append request to the control plane', async () => {
-    const turn: ActorTurnRef = {
-      actor: { agent_uid: 'agent-1', session_id: 'session-1' },
-      activation_uid: 'activation-1',
-      actor_epoch: 1,
-      actor_event_id: '00000000-0000-0000-0000-000000000001',
-      revision: 0
-    }
-    const writes: unknown[] = []
-
-    const tools = createSkillTools({
-      turn,
-      enabledSkills: [
-        create(RuntimeSkillSummarySchema, { skillName: 'nano-pdf', sourceKind: 'builtin', relativePath: 'nano-pdf' })
-      ],
-      rpc: (async (method: unknown, payload: unknown) => {
-        expect(method).toBe(rpcMethods.skillsOverlayAppend)
-        const request = payload as { skillName: string; content: string }
-        writes.push(request)
-        return create(SkillOverlayResponseSchema, {
-          skillName: request.skillName,
-          hasOverlay: true,
-          overlayJson: jsonBytes({ text: 'Prefer page-by-page verification.\n\nUse render output as final evidence.' }),
-          contentHash: 'hash-2'
-        })
-      }) as RPCRequester
-    })
-
-    const tool = tools.find(candidate => candidate.name === 'skill_append')
-    expect(tool).toBeTruthy()
-
-    await tool!.execute('call-1', {
-      name: 'nano-pdf',
-      content: 'Use render output as final evidence.'
-    })
-
-    expect(writes).toHaveLength(1)
-    expect(writes[0]).toMatchObject({
-      skillName: 'nano-pdf',
-      content: 'Use render output as final evidence.'
-    })
-  })
-
-  it('skill_append creates the overlay text when no overlay exists yet', async () => {
-    const turn: ActorTurnRef = {
-      actor: { agent_uid: 'agent-1', session_id: 'session-1' },
-      activation_uid: 'activation-1',
-      actor_epoch: 1,
-      actor_event_id: '00000000-0000-0000-0000-000000000002',
-      revision: 0
-    }
-    const writes: unknown[] = []
-
-    const tools = createSkillTools({
-      turn,
-      enabledSkills: [
-        create(RuntimeSkillSummarySchema, { skillName: 'nano-pdf', sourceKind: 'builtin', relativePath: 'nano-pdf' })
-      ],
-      rpc: (async (method: unknown, payload: unknown) => {
-        expect(method).toBe(rpcMethods.skillsOverlayAppend)
-        const request = payload as { skillName: string; content: string }
-        writes.push(request)
-        return create(SkillOverlayResponseSchema, {
-          skillName: request.skillName,
-          hasOverlay: true,
-          overlayJson: jsonBytes({ text: request.content }),
-          contentHash: 'hash-1'
-        })
-      }) as RPCRequester
-    })
-
-    const tool = tools.find(candidate => candidate.name === 'skill_append')
-    expect(tool).toBeTruthy()
-
-    await tool!.execute('call-1', {
-      name: 'nano-pdf',
-      content: 'Create the first overlay note.'
-    })
-
-    expect(writes).toHaveLength(1)
-    expect(writes[0]).toMatchObject({
-      skillName: 'nano-pdf',
-      content: 'Create the first overlay note.'
-    })
-  })
-
-  it('skill_replace resolves the latest hash and sends a compare-and-swap replacement', async () => {
-    const turn: ActorTurnRef = {
-      actor: { agent_uid: 'agent-1', session_id: 'session-1' },
-      activation_uid: 'activation-1',
-      actor_epoch: 1,
-      actor_event_id: '00000000-0000-0000-0000-000000000004',
-      revision: 0
-    }
-    const writes: unknown[] = []
-    const tools = createSkillTools({
-      turn,
-      enabledSkills: [
-        create(RuntimeSkillSummarySchema, { skillName: 'nano-pdf', sourceKind: 'builtin', relativePath: 'nano-pdf' })
-      ],
-      rpc: (async (method: unknown, payload: unknown) => {
-        if (method === rpcMethods.skillsOverlayResolve) {
-          const request = payload as { skillNames: string[] }
-          return create(SkillOverlayResolveResponseSchema, {
-            overlays: request.skillNames.map(skillName =>
-              create(SkillOverlayResponseSchema, {
-                skillName,
-                hasOverlay: true,
-                overlayJson: jsonBytes({ text: 'Old duplicated notes.' }),
-                contentHash: 'current-hash'
-              })
-            )
-          })
-        }
-        expect(method).toBe(rpcMethods.skillsOverlayReplace)
-        const request = payload as { skillName: string; overlayJson?: Uint8Array }
-        writes.push(request)
-        return create(SkillOverlayResponseSchema, {
-          skillName: request.skillName,
-          hasOverlay: true,
-          overlayJson: request.overlayJson ?? new Uint8Array(0),
-          contentHash: 'replacement-hash'
-        })
-      }) as RPCRequester
-    })
-
-    const tool = tools.find(candidate => candidate.name === 'skill_replace')!
-    await tool.execute('call-replace', {
-      name: 'nano-pdf',
-      content: 'One concise current lesson.'
-    })
-
-    expect(writes).toHaveLength(1)
-    expect(writes[0]).toMatchObject({
-      skillName: 'nano-pdf',
-      content: 'One concise current lesson.',
-      expectedContentHash: 'current-hash'
-    })
-    const replaceWrite = writes[0] as { overlayJson: Uint8Array }
-    expect(jsonObjectFromBytes(replaceWrite.overlayJson, 'overlay_json')).toEqual({
-      text: 'One concise current lesson.'
-    })
   })
 })
 

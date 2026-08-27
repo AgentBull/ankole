@@ -1619,11 +1619,23 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
   end
 
   defp create_agent!(uid, options) do
+    owner_uid = "human-e2e-owner-#{System.unique_integer([:positive])}"
+
+    case Principals.create_human(%{
+           uid: owner_uid,
+           display_name: "E2E Agent Owner",
+           email: "#{owner_uid}@example.com"
+         }) do
+      {:ok, _owner} -> :ok
+      {:error, reason} -> raise "create owner failed: #{inspect(reason)}"
+    end
+
     case Principals.create_agent(%{
            uid: uid,
            display_name: uid,
            role: "AIGateway E2E Agent",
-           options: options
+           options: options,
+           owner_principal_uid: owner_uid
          }) do
       {:ok, %{principal: principal}} -> principal
       {:error, reason} -> raise "create agent failed: #{inspect(reason)}"

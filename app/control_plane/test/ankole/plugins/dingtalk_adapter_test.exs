@@ -104,7 +104,7 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
     send(first_save.pid, :save)
 
     assert_receive {:trace, ^first_save_pid, :send,
-                    {:"$gen_call", _from, {:load, "global", ^first_config_key}}, ^cache_pid},
+                    {:"$gen_call", _from, {:refresh, "global", ^first_config_key}}, ^cache_pid},
                    1_000
 
     second_save =

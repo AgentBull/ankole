@@ -21,6 +21,7 @@ defmodule AnkoleWeb.AgentControllerTest do
   end
 
   test "admin creates, lists, updates, reads, and disables an agent", %{conn: conn} do
+    %{principal: owner} = human_fixture(%{uid: unique_uid("agent-owner")})
     conn = bearer_conn(conn)
 
     conn =
@@ -28,8 +29,11 @@ defmodule AnkoleWeb.AgentControllerTest do
         "uid" => "Console-Agent",
         "display_name" => "Console Agent",
         "role" => "Research Operator",
+        "owner_principal_uid" => owner.uid,
         "options" => %{"ai_agent" => %{"temperature" => 0.2}}
       })
+
+    owner_uid = owner.uid
 
     assert %{
              "agent" => %{
@@ -39,6 +43,8 @@ defmodule AnkoleWeb.AgentControllerTest do
                "status" => "active",
                "type" => "ai_colleague",
                "options" => %{"ai_agent" => %{"temperature" => 0.2}},
+               "owner_principal_uid" => ^owner_uid,
+               "group_memory_disclosure_mode" => "strict",
                "created_by_principal_uid" => admin_uid
              }
            } = json_response(conn, 200)
@@ -108,12 +114,14 @@ defmodule AnkoleWeb.AgentControllerTest do
   end
 
   test "agent creation requires a nonblank display name", %{conn: conn} do
+    %{principal: owner} = human_fixture(%{uid: unique_uid("agent-owner")})
     conn = bearer_conn(conn)
 
     conn =
       post(conn, ~p"/api/v1/agents", %{
         "uid" => unique_uid("missing-display-name"),
-        "role" => "Research Analyst"
+        "role" => "Research Analyst",
+        "owner_principal_uid" => owner.uid
       })
 
     assert %{"error" => %{"code" => "validation_failed"}} = json_response(conn, 422)
@@ -124,7 +132,8 @@ defmodule AnkoleWeb.AgentControllerTest do
       |> post(~p"/api/v1/agents", %{
         "uid" => unique_uid("blank-display-name"),
         "display_name" => "   ",
-        "role" => "Research Analyst"
+        "role" => "Research Analyst",
+        "owner_principal_uid" => owner.uid
       })
 
     assert %{

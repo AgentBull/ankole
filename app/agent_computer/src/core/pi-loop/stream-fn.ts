@@ -30,9 +30,9 @@ import type {
   UserMessage as PiUserMessage,
   Usage as PiUsage
 } from '@earendil-works/pi-ai'
-import { createAssistantMessageEventStream } from '@earendil-works/pi-ai'
+import { createAssistantMessageEventStream, parseStreamingJson } from '@earendil-works/pi-ai'
 import type { StreamFn } from '@earendil-works/pi-agent-core'
-import type { JsonObject as JSONObject } from '@agentbull/active-support'
+import { recordValue, type JsonObject as JSONObject } from '@agentbull/active-support'
 import { withRetry } from '../../common/async'
 import { errorMessage } from '../../common/errors'
 import {
@@ -43,6 +43,7 @@ import {
   type Message as OurMessage,
   type ModelUsage,
   type StopReason as OurStopReason,
+  type ToolCall as OurToolCall,
   type ToolDefinition,
   type ToolSet
 } from '../llm'
@@ -159,15 +160,22 @@ export function createPiStreamFn(
     // (uniformly true on every exit path: success, provider error, and
     // abort all resolve through the same one-message `done`/`error` handling
     // in pi's `streamAssistantResponse`). Getting this wrong means the next
-    // round re-sends (or `toOurMessage` chokes on) this round's own assistant
-    // message, which has no `role` our wire format understands.
+    // round re-sends this round's own already-anchored assistant message.
     //
-    // The delta itself never contains a tool result: `recordToolResultsEagerly`
+    // The one exception is a response cut by the output token limit while it
+    // held tool calls: it never becomes the AIGateway anchor (see
+    // `session.ts`'s `anchorable` check), so the server thread does not hold
+    // it. The cursor then stays *before* that assistant message, and the next
+    // round's delta replays it — with pi's own error results for its calls —
+    // as ordinary input items from the previous anchor.
+    //
+    // The delta otherwise never contains a tool result: `recordToolResultsEagerly`
     // (called from `prepareNextTurnWithContext`, before pi ever gets back here)
     // already consumed and advanced the cursor past those. Whatever remains is
     // plain steering — external, iteration-limit synthesis, empty-response
     // nudge, or response repair — bound for `.call()` as-is.
     const delta = context.messages.slice(turnState.cursor)
+    let unanchoredAssistant = false
     try {
       // A round can start after the turn's already been aborted: pi converts
       // an in-flight tool call's abort into a normal (non-throwing) error
@@ -260,6 +268,7 @@ export function createPiStreamFn(
         })
       }
 
+      unanchoredAssistant = (result.message.truncatedToolCalls?.length ?? 0) > 0
       const finalMessage = toPiAssistantMessage(
         result.message,
         requiredResponseID(result.responseID),
@@ -285,7 +294,7 @@ export function createPiStreamFn(
         error: errorAssistantMessage(config, aborted, errorMessage(error))
       })
     } finally {
-      turnState.cursor += delta.length + 1
+      turnState.cursor += delta.length + (unanchoredAssistant ? 0 : 1)
     }
   }
 }
@@ -444,11 +453,47 @@ function toOurMessage(message: PiMessage, toolCallMeta: Map<string, ToolCallWire
     return toolResultToOurMessage(message, toolCallMeta)
   }
 
-  // Assistant messages never appear mid-delta: pi appends them to `context.messages`
-  // via the same `done`/`error` event this file itself produces, and the next
-  // `StreamFn` call's cursor always starts past them (they were already sent as
-  // part of the request that produced them).
+  // An anchored assistant message never appears mid-delta: pi appends it to
+  // `context.messages` via the same `done`/`error` event this file itself
+  // produces, and the next `StreamFn` call's cursor always starts past it.
+  // Only a response cut by the output token limit stays ahead of the cursor
+  // (see `run()`'s accounting) and replays here as input items.
+  if (message.role === 'assistant' && message.stopReason === 'length') {
+    return truncatedAssistantToOurMessage(message, toolCallMeta)
+  }
+
   throw new Error(`unexpected message role in StreamFn delta: ${message.role}`)
+}
+
+function truncatedAssistantToOurMessage(
+  message: PiAssistantMessage,
+  toolCallMeta: Map<string, ToolCallWireMeta>
+): OurMessage {
+  const text = message.content
+    .filter((part): part is Extract<(typeof message.content)[number], { type: 'text' }> => part.type === 'text')
+    .map(part => part.text)
+    .join('')
+  const toolCalls = message.content
+    .filter((part): part is Extract<(typeof message.content)[number], { type: 'toolCall' }> => part.type === 'toolCall')
+    .map(part => {
+      const meta = toolCallMeta.get(part.id)
+      return {
+        id: part.id,
+        type: meta?.type ?? ('function' as const),
+        // Truncated calls carry the bare wire name, never the registered
+        // alias — see `toPiAssistantMessage`'s truncated branch.
+        name: part.name,
+        ...(meta?.namespace ? { namespace: meta.namespace } : {}),
+        arguments: typeof part.arguments === 'string' ? part.arguments : JSON.stringify(part.arguments ?? {}),
+        ...(meta?.caller ? { caller: meta.caller } : {})
+      }
+    })
+  return {
+    role: 'assistant',
+    content: text ? [{ type: 'text', text }] : [],
+    ...(toolCalls.length > 0 ? { toolCalls } : {}),
+    stopReason: 'length'
+  }
 }
 
 function toolResultToOurMessage(message: PiToolResultMessage, toolCallMeta: Map<string, ToolCallWireMeta>): OurMessage {
@@ -524,6 +569,19 @@ function toPiUsage(usage: ModelUsage | undefined): PiUsage {
   }
 }
 
+/**
+ * The replayable form of a cut call's raw partial arguments: pi's own
+ * streaming-JSON salvage, the same finalizer pi-native transports apply to a
+ * cut call before failing it. It always yields valid JSON, so the durable
+ * thread stays replayable, and it keeps the fields that completed before the
+ * cut — the error result warns the model that the values may be truncated.
+ * A custom call's input is raw text and passes through unchanged.
+ */
+function truncatedToolCallArguments(call: OurToolCall): unknown {
+  if (call.type === 'custom') return call.arguments
+  return recordValue(parseStreamingJson(call.arguments)) ?? {}
+}
+
 /** Translates our `ModelCallResult.message` into pi-ai's `AssistantMessage` shape. */
 function toPiAssistantMessage(
   message: OurAssistantMessage,
@@ -536,13 +594,29 @@ function toPiAssistantMessage(
     text: part.text
   }))
 
-  // A truncated tool call's own diagnostic text belongs to `agent-loop.ts`'s
-  // salvage message, not pi's native `stopReason:'length'` handling (which
-  // would execute or fail these calls and record a generic one instead) —
-  // see `PiTurnState.pendingTruncatedToolCalls`'s doc. Drop the dangling
-  // call content so pi never touches it as a tool call at all.
+  // pi's native `stopReason:'length'` handling fails every call in a cut
+  // response with its own error result instead of executing it — hand the
+  // calls over and let it. Each call re-enters under a derived id: when the
+  // cut response is the effective anchor (a conversation-mode turn whose
+  // first call was cut), the stored partial call already owns the provider
+  // id's pair key, and AIGateway quarantines a conflicting duplicate from
+  // provider replay — the derived id lets the call/error-result pair
+  // survive as ordinary input items.
   if (message.truncatedToolCalls?.length) {
-    turnState.pendingTruncatedToolCalls = message.truncatedToolCalls
+    for (const call of message.truncatedToolCalls) {
+      const id = `${call.id}_r`
+      turnState.toolCallMeta.set(id, { type: call.type, namespace: call.namespace, caller: call.caller })
+      content.push({
+        type: 'toolCall',
+        id,
+        // The bare wire name, not the registered alias: pi never resolves a
+        // call from a cut response to a tool — it only fails it — and the
+        // alias's `\0` must not leak into pi's model-visible error text.
+        name: call.name,
+        arguments: truncatedToolCallArguments(call) as Record<string, unknown>,
+        ...(call.namespace ? { namespace: call.namespace } : {})
+      })
+    }
   } else {
     const registered = new Set((config.tools ?? []).map(tool => toolIdentity(tool.namespace, tool.name)))
     for (const call of message.toolCalls ?? []) {

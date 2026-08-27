@@ -3,7 +3,6 @@ defmodule Ankole.E2E.Scenarios.Skill do
   Skill-tool scenarios for the Docker worker suites.
   """
 
-  import Ecto.Query, only: [from: 2]
   import ExUnit.Assertions
 
   import Ankole.E2E.Harness
@@ -17,7 +16,6 @@ defmodule Ankole.E2E.Scenarios.Skill do
 
   alias Ankole.AIAgent.Library
   alias Ankole.AIAgent.Library.Schemas.AgentSkill
-  alias Ankole.AIAgent.Library.Schemas.AgentSkillOverlay
   alias Ankole.Repo
 
   @base_time ~U[2026-07-02 01:34:05.000000Z]
@@ -107,54 +105,6 @@ defmodule Ankole.E2E.Scenarios.Skill do
     refute rendered =~ "# PDF"
 
     assert rendered =~ "# Jupyter Live Kernel"
-
-    assert_actor_event_completed!(input.id)
-    %{input: input, reply: reply}
-  end
-
-  @doc """
-  Runs `skill_append` through RuntimeFabric and verifies the DB-backed overlay.
-  """
-  def run_skill_append_tool_loop(%{fake_feishu: fake_feishu, agent: agent, container: container}) do
-    mention = lark_bot_mention()
-
-    assert :ok =
-             FakeFeishu.State.user_sends_message(fake_feishu.state,
-               event_id: "evt_skill_append_1",
-               message_id: "om_skill_append_1",
-               chat_id: "oc_chaos_skill",
-               chat_type: "p2p",
-               text:
-                 "@_user_1 Run CHAOS_SKILL_APPEND. Use skill_view for brainstorming, then use skill_append for brainstorming once, then reply exactly CHAOS_SKILL_APPEND_OK.",
-               mentions: [mention],
-               create_time_ms:
-                 DateTime.to_unix(DateTime.add(@base_time, 5_075, :millisecond), :millisecond)
-             )
-
-    input = actor_event_by_source_entry_id!(agent.uid, "om_skill_append_1")
-
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_event_for_actor!(input, DateTime.add(input.available_at, 1, :second))
-
-    assert {:ok, reply, _message} =
-             wait_for_completed_final_reply(container, input.id, deadline(90_000))
-
-    assert reply.text =~ "CHAOS_SKILL_APPEND_OK"
-
-    messages = ai_messages_for_actor_event(input.id)
-    assert tool_result_succeeded?(messages, "skill_view")
-    assert tool_result_succeeded?(messages, "skill_append")
-
-    assert %AgentSkillOverlay{overlay_json: %{"text" => overlay_text}} =
-             Repo.one(
-               from(overlay in AgentSkillOverlay,
-                 where: overlay.agent_uid == ^agent.uid,
-                 where: overlay.skill_name == "brainstorming",
-                 where: is_nil(overlay.deleted_at)
-               )
-             )
-
-    assert overlay_text == "Lark fake overlay: CHAOS_SKILL_APPEND_OK"
 
     assert_actor_event_completed!(input.id)
     %{input: input, reply: reply}

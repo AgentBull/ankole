@@ -515,7 +515,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
 
     http_client = fn request ->
       assert request.url ==
-               "https://chatgpt.com/backend-api/codex/models?client_version=0.147.0"
+               "https://chatgpt.com/backend-api/codex/models?client_version=0.150.1"
 
       assert {"Authorization", "Bearer chatgpt-access"} in request.headers
       assert {"ChatGPT-Account-ID", "account-fedramp"} in request.headers
@@ -682,24 +682,19 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     assert coding_runtime_profile["provider_id"] == "openrouter-main"
     assert coding_runtime_profile["model"] == "anthropic/claude-sonnet-4.5"
 
-    assert {:error, {:provider_kind_missing_capability, "embedding"}} =
-             ModelProfiles.put_model_profile(agent.uid, "embedding", %{
-               provider_id: "claude-main",
-               model: "claude-sonnet-4-5"
-             })
-
-    assert {:ok, %{profile: embedding_profile}} =
+    # Embedding and rerank are retired Agent profile slots: Brain owns those
+    # models instance-wide, so the profile names are invalid and reserved.
+    assert {:error, :invalid_model_profile} =
              ModelProfiles.put_model_profile(agent.uid, "embedding", %{
                provider_id: "jina-main",
                model: "jina-embeddings-v4"
              })
 
-    assert embedding_profile["provider_id"] == "jina-main"
-
-    assert {:ok, runtime_profile} =
-             ModelProfiles.resolve_runtime_profile(agent.uid, "embedding")
-
-    assert runtime_profile["capability"] == "embedding"
+    assert {:error, :invalid_model_profile} =
+             ModelProfiles.put_model_profile(agent.uid, "rerank", %{
+               provider_id: "jina-main",
+               model: "jina-reranker-v2-base-multilingual"
+             })
 
     assert {:error, {:provider_kind_missing_capability, "web_search"}} =
              ModelProfiles.put_model_profile(agent.uid, "web_search", %{
@@ -770,8 +765,12 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     assert ModelProfiles.custom_profile_name?("kimi")
     refute ModelProfiles.custom_profile_name?("primary")
     refute ModelProfiles.custom_profile_name?("Kimi")
+    # Retired capability slot names stay reserved and cannot become custom
+    # LLM profiles.
+    refute ModelProfiles.custom_profile_name?("embedding")
+    refute ModelProfiles.custom_profile_name?("rerank")
     assert {:ok, "llm"} = ModelProfiles.profile_capability("kimi")
-    assert {:ok, "embedding"} = ModelProfiles.profile_capability("embedding")
+    assert {:error, :invalid_model_profile} = ModelProfiles.profile_capability("embedding")
 
     assert {:error, {:missing, "description"}} =
              ModelProfiles.put_model_profile(agent.uid, "kimi", %{
@@ -1410,26 +1409,13 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     assert context_payload.design_content_hash == current_documents["design"]["content_hash"]
     assert Enum.any?(context_payload.skills, &(&1.skill_name == "pdf"))
 
-    assert {:ok, replace_envelope} =
-             RPCLane.handle_request(
-               rpc_request(
-                 "skill-overlay-replace-1",
-                 "skills.overlay.replace",
-                 %FabricProto.SkillOverlayReplaceRequest{
-                   skill_name: "pdf",
-                   content: "Prefer page-by-page verification.",
-                   expected_content_hash: ""
-                 },
-                 turn: mixed_case_turn
-               ),
-               route
+    assert {:ok, _lesson} =
+             Library.create_skill_lesson(
+               agent.uid,
+               "pdf",
+               "Prefer page-by-page verification.",
+               agent.uid
              )
-
-    replace_payload = rpc_response_payload!(replace_envelope, FabricProto.SkillOverlayResponse)
-    assert replace_payload.has_overlay
-
-    assert Torque.decode!(replace_payload.overlay_json) ==
-             %{"text" => "Prefer page-by-page verification."}
 
     assert {:ok, resolve_envelope} =
              RPCLane.handle_request(
@@ -1447,9 +1433,11 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
 
     assert Enum.map(resolve_payload.overlays, & &1.skill_name) == ["pdf", "xlsx"]
 
-    assert Torque.decode!(hd(resolve_payload.overlays).overlay_json) ==
-             %{"text" => "Prefer page-by-page verification."}
-
+    pdf_overlay = hd(resolve_payload.overlays)
+    assert pdf_overlay.has_overlay
+    assert %{"text" => rendered_lessons} = Torque.decode!(pdf_overlay.overlay_json)
+    assert rendered_lessons =~ "Field notes (dated; verify against the current environment):"
+    assert rendered_lessons =~ ", human] Prefer page-by-page verification."
     refute List.last(resolve_payload.overlays).has_overlay
   end
 
@@ -1478,11 +1466,9 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     assert envelope_body!(envelope, :rpc_error).code == "worker_not_assigned_to_turn"
   end
 
-  test "runtime RPCLane accepts overlay writes after active steer bumps revision" do
+  test "runtime RPCLane accepts turn writes after active steer bumps revision" do
     %{principal: agent} = agent_fixture()
-    assert {:ok, _defaults} = Ankole.AIAgent.Library.AgentPlugins.Config.defaults()
-    assert {:ok, _sync} = Library.sync_agent_skills(agent.uid)
-    {route, turn} = assign_worker_route(agent.uid, "signal-channel:steered-overlay")
+    {route, turn} = assign_worker_route(agent.uid, "signal-channel:steered-write")
 
     turn.activation_uid
     |> then(&Repo.get_by!(ActorSessionActivation, activation_uid: &1))
@@ -1492,12 +1478,16 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     assert {:ok, envelope} =
              RPCLane.handle_request(
                rpc_request(
-                 "skill-overlay-after-steer",
-                 "skills.overlay.replace",
-                 %FabricProto.SkillOverlayReplaceRequest{
-                   skill_name: "pdf",
-                   content: "Prefer page-by-page verification after steer.",
-                   expected_content_hash: ""
+                 "brain-remember-after-steer",
+                 "brain.remember",
+                 %FabricProto.BrainRequest{
+                   params_json:
+                     Torque.encode!(%{
+                       "claim" => "Steered turns can still write memory.",
+                       "kind" => "fact",
+                       "scope" => "world",
+                       "provenance" => "provider runtime steer test"
+                     })
                  },
                  turn: turn
                ),
@@ -1505,11 +1495,6 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
              )
 
     assert envelope_body_type(envelope) == :rpc_response, inspect(envelope)
-    payload = rpc_response_payload!(envelope, FabricProto.SkillOverlayResponse)
-    assert payload.has_overlay
-
-    assert Torque.decode!(payload.overlay_json) ==
-             %{"text" => "Prefer page-by-page verification after steer."}
   end
 
   test "worker auth key is global AppConfigure state" do

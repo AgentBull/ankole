@@ -126,6 +126,14 @@ omits earlier groups. It also preserves `metadata.redacted` and
 control-plane projection reduced message content. If the Job is still running,
 the tool also states that the Job continues in the background.
 
+An ambient channel route can append the same `command.steer` without a model
+tool call. It may target only one live Job from the same Agent, owner Session,
+signal channel, and binding. The control plane rechecks those facts and the
+ambient scene, appends the steer, stores the canonical ambient judgment, and
+advances the channel cursor in one transaction. The steer contains only the
+new channel messages; it does not include earlier context, private memory, or
+the recognizer reason.
+
 `respawn_background_job` starts a new Job from one terminal Job. Its input
 contains only:
 
@@ -156,8 +164,13 @@ active Turn in the current attempt to `interrupted`. A completed lead Turn stays
 completed, so a successful Job keeps its result trajectory and every terminal
 child trajectory.
 
-The authorized parent turn supplies the Agent, originating conversation, tool
-call, and reply route. The task can use real paths inside that Agent Home.
+The authorized parent turn supplies the Agent, tool call, and reply route. The
+task can use real paths inside that Agent Home. Creation itself pins the
+originating conversation on every path: it resolves the owner session's active
+AIGateway conversation, creates one when none exists, and writes its id into
+`metadata.owner_conversation_id`. The Job runtime reads that field to resolve
+its conversation context, so a control-plane-created Job and the successor Job
+that open steers seed get a conversation without a calling turn.
 
 When the parent is a cron turn, the Job reply route also freezes that cron
 event's delivery targets. A terminal Job notification keeps this snapshot. The
@@ -475,10 +488,10 @@ Codex omits configured hosted search from that private carrier. Standard
 Responses sends the native `web_search` declaration.
 
 For AIGateway, the Agent Codex Home selects the `ankole_aigateway` provider.
-Its configured name is `OpenAI`, which tells Codex 0.147 that this hop can carry
-remote compaction. The provider ID does not change. Every Job uses that one
-protocol: Codex appends `compaction_trigger` to a normal Responses request and
-AIGateway answers it. A Job no longer carries a switch between two compaction
+Its configured name is `OpenAI`, which tells the pinned Codex runtime that this
+hop can carry remote compaction. The provider ID does not change. Every Job uses
+that one protocol: Codex appends `compaction_trigger` to a normal Responses
+request and AIGateway answers it. A Job no longer carries a switch between two compaction
 protocols, and a projection frozen while that switch existed keeps running
 because the retired value is read and discarded.
 

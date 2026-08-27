@@ -10,7 +10,13 @@ import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import { defineWorkerTool, type ActivityDescription, type AgentToolResult, type WorkerAgentTool } from '../../core'
 import type { AIGatewayHTTPClient } from '../../core/ai_gateway_transport'
 import { errorMessage } from '../../common/errors'
-import { WEB_FETCH_BUDGET_CHARS, fetchedPageHost, renderFetchedPages, stringField } from './fetched-page-text'
+import {
+  WEB_FETCH_BUDGET_CHARS,
+  fetchedPageHost,
+  renderFetchedPages,
+  stringField,
+  type RenderedPage
+} from './fetched-page-text'
 
 type WebToolDetails = JSONObject
 const RenderedFallbackSource = 'rendered_fallback'
@@ -110,6 +116,16 @@ function createWebSearchTool(aiGateway: AIGatewayHTTPClient): WorkerAgentTool<ty
  * extraction services. The internal fallback keeps rendered pages reachable when
  * the provider path is unavailable.
  */
+/** How long one session serves a repeated URL from its earlier result. */
+const RepeatFetchTTLMs = 15 * 60 * 1000
+/** Entry cap so a long run cannot grow the per-session page cache without bound. */
+const RepeatFetchMaxEntries = 100
+
+interface CachedFetchedPage {
+  page: RenderedPage
+  at: number
+}
+
 function createWebFetchTool(
   aiGateway: AIGatewayHTTPClient,
   config: {
@@ -117,6 +133,24 @@ function createWebFetchTool(
     renderedFallback?: RenderedWebFetchOptions
   }
 ): WorkerAgentTool<typeof WebFetchParams, WebToolDetails> {
+  // Session-scoped repeat-fetch cache. Research runs re-pull the same URL for
+  // facts they already hold; serving the earlier result saves the round trip
+  // and keeps the two copies identical. Only clean results enter: an error must
+  // stay retryable, and a shell or near-empty page must not become the answer
+  // this session keeps returning.
+  const recentPages = new Map<string, CachedFetchedPage>()
+
+  function cacheRenderedPage(url: string, page: RenderedPage, at: number): void {
+    if (page.details.error || page.details.render_warning) return
+    recentPages.delete(url)
+    recentPages.set(url, { page, at })
+    while (recentPages.size > RepeatFetchMaxEntries) {
+      const oldest = recentPages.keys().next().value
+      if (oldest === undefined) break
+      recentPages.delete(oldest)
+    }
+  }
+
   return defineWorkerTool({
     name: 'web_fetch',
     description: `Extract and return readable text from HTTPS web pages through AIGateway, with an internal rendered-page fallback when the provider is unavailable. This tool returns text only, never binary file content. Do not use web_fetch for PDFs, archives, images, audio/video, executables, or other binary files; use the command shell tool to run aria2c for those downloads. Pass all needed text-page URLs in one call. One call returns at most about ${WEB_FETCH_BUDGET_CHARS} characters of page text; a longer page shows its start and its end, its full text is saved in the workspace, and the result gives the file path and the read_file call that shows the omitted middle.`,
@@ -127,23 +161,83 @@ function createWebFetchTool(
     describeActivity: params => webFetchActivity(params.urls),
     describeCompletedActivity: (params, details) => completedWebFetchActivity(params.urls, details),
     async execute(_toolCallId, params, signal): Promise<AgentToolResult<WebToolDetails>> {
-      let body: unknown
-
-      try {
-        body = await postAIGatewayJSON(aiGateway, '/web_fetch', { model: WebFetchSelector, urls: params.urls }, signal)
-      } catch (error) {
-        if (signal?.aborted || !config.renderedFallback) throw error
-        body = await renderedFallbackFetch(params.urls, config.renderedFallback, signal, errorMessage(error))
+      const now = Date.now()
+      const cachedByURL = new Map<string, CachedFetchedPage>()
+      const missing: string[] = []
+      for (const url of params.urls) {
+        const cached = recentPages.get(url)
+        if (cached && now - cached.at <= RepeatFetchTTLMs && !cachedByURL.has(url)) cachedByURL.set(url, cached)
+        else if (!cachedByURL.has(url) && !missing.includes(url)) missing.push(url)
       }
 
-      const rendered = renderFetchedPages(body, { workspaceRoot: config.workspaceRoot })
+      let bodyFacts: JSONObject = {}
+      const fetchedByURL = new Map<string, RenderedPage>()
+      let unpaired: { text: string; results: JSONObject[] } | undefined
+      if (missing.length > 0) {
+        let body: unknown
 
+        try {
+          body = await postAIGatewayJSON(aiGateway, '/web_fetch', { model: WebFetchSelector, urls: missing }, signal)
+        } catch (error) {
+          if (signal?.aborted || !config.renderedFallback) throw error
+          body = await renderedFallbackFetch(missing, config.renderedFallback, signal, errorMessage(error))
+        }
+
+        const rendered = renderFetchedPages(body, { workspaceRoot: config.workspaceRoot })
+        bodyFacts = rendered.details
+        if (rendered.pages.length === missing.length) {
+          for (const [index, url] of missing.entries()) {
+            const page = rendered.pages[index]!
+            cacheRenderedPage(url, page, now)
+            if (!fetchedByURL.has(url)) fetchedByURL.set(url, page)
+          }
+        } else {
+          // A provider that drops or merges pages breaks the position ↔ URL
+          // pairing this cache keys on: pass its result through whole and
+          // uncached instead of guessing which page belongs to which URL.
+          if (cachedByURL.size === 0) {
+            return { content: [{ type: 'text', text: rendered.text }], details: rendered.details }
+          }
+          unpaired = {
+            text: rendered.text,
+            results: rendered.pages.map(page => page.details)
+          }
+        }
+      }
+
+      const blocks: string[] = []
+      const results: JSONObject[] = []
+      for (const url of params.urls) {
+        const cached = cachedByURL.get(url)
+        if (cached) {
+          blocks.push(`${repeatFetchNote(now - cached.at)}\n${cached.page.text}`)
+          results.push({ ...cached.page.details, repeat_fetch: true })
+          continue
+        }
+        const page = fetchedByURL.get(url)
+        if (page) {
+          blocks.push(page.text)
+          results.push(page.details)
+        }
+      }
+      if (unpaired) {
+        blocks.push(unpaired.text)
+        results.push(...unpaired.results)
+      }
+
+      const facts = Object.fromEntries(Object.entries(bodyFacts).filter(([key]) => key !== 'results'))
       return {
-        content: [{ type: 'text', text: rendered.text }],
-        details: rendered.details
+        content: [{ type: 'text', text: blocks.join('\n\n---\n\n') }],
+        details: { ...facts, results }
       }
     }
   })
+}
+
+/** States that a repeated URL was answered from this session's earlier fetch. */
+function repeatFetchNote(ageMs: number): string {
+  const minutes = Math.max(1, Math.round(ageMs / 60_000))
+  return `[Repeat fetch: this URL was fetched ${minutes} minute${minutes === 1 ? '' : 's'} ago in this session; its earlier result is shown again without a new download.]`
 }
 
 /**

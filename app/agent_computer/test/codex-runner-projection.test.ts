@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test'
 import { z } from 'zod'
 import { defineWorkerTool, type WorkerAgentTool } from '../src/core'
 import { buildCodexJobProjection } from '../src/core/codex-runner/job/projection'
+import { projectCodexNotification } from '../src/core/codex-runner/protocol'
 import { createWebTools } from '../src/tools/web/web-tools'
 
 describe('@ankole/agent-computer Codex job capability projection', () => {
@@ -15,6 +16,11 @@ describe('@ankole/agent-computer Codex job capability projection', () => {
         return 'search result'
       }),
       tool('web_fetch', z.object({ urls: z.array(z.string()) }), () => 'x'.repeat(20_000)),
+      tool('recall', z.object({ query: z.string() }), () => 'recalled memory'),
+      tool('get_page', z.object({ reference: z.string() }), () => 'memory page'),
+      ...['remember', 'forget', 'entity', 'whoknows', 'synthesize', 'delta'].map(name =>
+        tool(name, z.object({ value: z.string() }), () => 'must stay hidden')
+      ),
       tool('browser_navigate', z.object({ url: z.string() }), () => 'page snapshot'),
       imageTool('browser_screenshot'),
       ...['browser_run', 'command', 'interactive_terminal', 'read_file', 'apply_patch', 'reply_attachment'].map(name =>
@@ -32,7 +38,7 @@ describe('@ankole/agent-computer Codex job capability projection', () => {
     })
 
     expect(projection.dynamicTools.map(spec => ('name' in spec ? spec.name : undefined)).sort()).toEqual(
-      ['web_search', 'web_fetch'].sort()
+      ['web_search', 'web_fetch', 'recall', 'get_page'].sort()
     )
     expect(projection.quarantinedTools).toEqual([])
 
@@ -79,6 +85,23 @@ describe('@ankole/agent-computer Codex job capability projection', () => {
     expect(hidden.contentItems[0]).toEqual({
       type: 'inputText',
       text: 'Dynamic tool is unavailable: command'
+    })
+
+    const brainWrite = await projection.handleToolCall(
+      {
+        ['threadId']: 'thread-1',
+        ['turnId']: 'turn-1',
+        ['callId']: 'call-brain-write',
+        namespace: null,
+        tool: 'remember',
+        arguments: { value: 'durable claim' }
+      },
+      new AbortController().signal
+    )
+    expect(brainWrite.success).toBe(false)
+    expect(brainWrite.contentItems[0]).toEqual({
+      type: 'inputText',
+      text: 'Dynamic tool is unavailable: remember'
     })
 
     const bounded = await projection.handleToolCall(
@@ -254,6 +277,105 @@ describe('@ankole/agent-computer Codex job capability projection', () => {
     ])
     expect(projection.quarantinedTools).toEqual(['mcp__native_data.lookup_metric', 'functions.lookup_record'])
     expect(audit.map(entry => entry.event)).toEqual(['dynamic_tool_quarantined', 'dynamic_tool_quarantined'])
+  })
+})
+
+describe('@ankole/agent-computer Codex notification projection', () => {
+  it('projects item and turn notifications with their thread scope and turn identity', () => {
+    const item = { type: 'commandExecution', cwd: '/workspace', command: 'ls' }
+    expect(
+      projectCodexNotification({
+        method: 'item/started',
+        params: { threadId: 'thread-2', turnId: 'turn-9', item }
+      })
+    ).toEqual({ type: 'item_started', threadID: 'thread-2', turnID: 'turn-9', item })
+
+    expect(
+      projectCodexNotification({
+        method: 'item/completed',
+        params: { threadId: 'thread-1', turnId: 'turn-3', item: { type: 'contextCompaction' } }
+      })
+    ).toEqual({ type: 'compaction_completed', threadID: 'thread-1', turnID: 'turn-3' })
+
+    expect(
+      projectCodexNotification({
+        method: 'item/completed',
+        params: {
+          threadId: 'thread-1',
+          turnId: 'turn-3',
+          item: { type: 'agentMessage', id: 'message-1', text: 'done' }
+        }
+      })
+    ).toEqual({ type: 'agent_completed', threadID: 'thread-1', text: 'done' })
+
+    expect(
+      projectCodexNotification({
+        method: 'turn/completed',
+        params: { threadId: 'thread-1', turn: { id: 'turn-3', status: 'completed' } }
+      })
+    ).toEqual({
+      type: 'turn_completed',
+      threadID: 'thread-1',
+      turnID: 'turn-3',
+      codexTurnStatus: 'completed',
+      terminalStatus: 'succeeded',
+      error: {}
+    })
+  })
+
+  it('projects a failed MCP server startup with a bounded diagnostic and ignores other statuses', () => {
+    const failed = projectCodexNotification({
+      method: 'mcpServer/startupStatus/updated',
+      params: {
+        threadId: 'thread-1',
+        name: 'job-data',
+        status: 'failed',
+        failureReason: 'handshake',
+        error: 'x'.repeat(3_000)
+      }
+    })
+    expect(failed).toMatchObject({
+      type: 'mcp_server_startup_failed',
+      threadID: 'thread-1',
+      server: 'job-data',
+      failureReason: 'handshake'
+    })
+    const diagnostic = failed.type === 'mcp_server_startup_failed' ? failed.error : ''
+    expect(new TextEncoder().encode(diagnostic).byteLength).toBeLessThanOrEqual(2_048)
+    expect(diagnostic).toEndWith('...[truncated]')
+
+    expect(
+      projectCodexNotification({
+        method: 'mcpServer/startupStatus/updated',
+        params: { threadId: 'thread-1', name: 'job-data', status: 'starting', error: null, failureReason: null }
+      })
+    ).toEqual({ type: 'ignored' })
+  })
+
+  it('projects only the credential-pool terminal from an error notification', () => {
+    expect(
+      projectCodexNotification({
+        method: 'error',
+        params: {
+          threadId: 'thread-1',
+          error: {
+            codexErrorInfo: 'usageLimitExceeded',
+            message: 'AIGateway credential pool exhausted. retry_at=2026-07-29T08:15:00Z'
+          }
+        }
+      })
+    ).toEqual({
+      type: 'credential_pool_exhausted',
+      threadID: 'thread-1',
+      exhaustion: { retryAt: '2026-07-29T08:15:00.000Z' }
+    })
+
+    expect(
+      projectCodexNotification({
+        method: 'error',
+        params: { threadId: 'thread-1', error: { message: 'response stream closed before completion' } }
+      })
+    ).toEqual({ type: 'ignored' })
   })
 })
 

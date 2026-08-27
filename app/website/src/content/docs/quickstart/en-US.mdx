@@ -1248,24 +1248,20 @@ export const identityTabs = [
 ]
 
 export const modelAdvanced = {
-  title: 'Optional model profiles and provider tuning',
-  summary: 'Leave optional capability slots empty until an Agent needs them.',
+  title: 'Optional Agent profiles and Brain models',
+  summary: 'Configure Agent capability profiles only where needed. Brain models apply to the whole instance.',
   steps: [
     {
-      title: 'Add optional capability profiles',
+      title: 'Add optional Agent capability profiles',
       fields: [
         {
           name: 'Background Agent Jobs',
           description:
-            'Runs durable Background Agent Jobs. The stored profile key is currently coding; normal conversations do not switch to it because a message contains a lot of code.'
+            'Uses the coding profile for durable Background Agent Jobs. Normal conversations do not select it because a message contains a lot of code.'
         },
         {
           name: 'vision_fallback',
           description: 'Fallback when the primary model cannot inspect an image.'
-        },
-        {
-          name: 'embedding / rerank',
-          description: 'Models for retrieval and result ordering.'
         },
         {
           name: 'web_search / web_fetch',
@@ -1275,6 +1271,38 @@ export const modelAdvanced = {
           name: 'image_generate',
           description: 'Model for image generation.'
         }
+      ]
+    },
+    {
+      title: 'Configure Brain models for the instance',
+      body: [
+        'Open Console → AppConfigure → Brain. These settings apply to every Agent and do not belong to an Agent profile.'
+      ],
+      fields: [
+        {
+          name: 'brain.embedding_model',
+          description: 'Enables vector retrieval. Select a Provider and model, and enter its embedding dimensions.'
+        },
+        {
+          name: 'brain.rerank_model',
+          description: 'Reranks fused search results. Leave it empty to keep the fusion order.'
+        },
+        {
+          name: 'brain.web_fetch_model',
+          description: 'Fetches readable content for URL Sources.'
+        },
+        {
+          name: 'brain.extraction_model',
+          description: 'Extracts knowledge from Signal conversations and Sources.'
+        },
+        {
+          name: 'brain.dreaming_model',
+          description: 'Consolidates knowledge and supports model-dependent maintenance.'
+        }
+      ],
+      links: [
+        { label: 'Brain guide', href: '../brain/' },
+        { label: 'AppConfigure reference', href: '../app-configuration/' }
       ]
     }
   ]

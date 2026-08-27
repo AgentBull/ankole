@@ -244,7 +244,9 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
              })
              |> Repo.insert()
 
-    assert {:ok, _overlay} = Library.skill_append(agent.uid, "pdf", "Refresh active material.")
+    assert {:ok, _lesson} =
+             Library.create_skill_lesson(agent.uid, "pdf", "Refresh active material.", agent.uid)
+
     assert_receive {:actor_lane, %{body: {:turn_control, content_control}}}, 2_000
     assert content_control.command == "skill_content_changed"
     assert Torque.decode!(content_control.payload_json) == %{"skill_names" => ["pdf"]}

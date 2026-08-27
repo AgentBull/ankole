@@ -23,7 +23,7 @@ defmodule FakeFeishu.CLI do
   User side (target server: --url URL or FAKE_FEISHU_URL, default #{@default_url}):
     fake-feishu status
     fake-feishu chats [--json]
-    fake-feishu chat-create --name NAME [--p2p] [--user NAME]... [--bot APP_ID]...
+    fake-feishu chat-create --name NAME [--id CHAT_ID] [--p2p] [--user NAME]... [--bot APP_ID]...
     fake-feishu send TEXT [--chat ID] [--as NAME] [--mention-bot]
                      [--reply MSG_ID] [--file PATH] [--image PATH]
     fake-feishu ls [--chat ID] [--json]
@@ -168,15 +168,22 @@ defmodule FakeFeishu.CLI do
   defp chat_create(url, args) do
     {opts, _rest, _invalid} =
       OptionParser.parse(args,
-        strict: [name: :string, p2p: :boolean, user: :keep, bot: :keep]
+        strict: [id: :string, name: :string, p2p: :boolean, user: :keep, bot: :keep]
       )
 
-    body = %{
-      "name" => opts[:name] || abort("chat-create requires --name"),
-      "type" => if(opts[:p2p], do: "p2p", else: "group"),
-      "users" => Keyword.get_values(opts, :user),
-      "bots" => Keyword.get_values(opts, :bot)
-    }
+    body =
+      %{
+        "name" => opts[:name] || abort("chat-create requires --name"),
+        "type" => if(opts[:p2p], do: "p2p", else: "group"),
+        "users" => Keyword.get_values(opts, :user),
+        "bots" => Keyword.get_values(opts, :bot)
+      }
+      |> then(fn body ->
+        case opts[:id] do
+          nil -> body
+          id -> Map.put(body, "id", id)
+        end
+      end)
 
     with {:ok, chat} <- HTTP.post(url, "/sim/v1/chats", body) do
       IO.puts("created #{chat["id"]}")

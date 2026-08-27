@@ -3,13 +3,10 @@ import { readFile, realpath } from 'node:fs/promises'
 import { z } from 'zod'
 import type { ActorTurnRef } from '../../lanes/actor_lane'
 import { defineWorkerTool, type AgentToolResult, type WorkerAgentTool } from '../../core'
-import { jsonToolResult } from '../../core/tool-result'
-import { jsonBytes } from '../../fabric/envelope_proto'
-import { rpcMethods, type RPCRequester, type RuntimeSkillSummary } from '../../lanes/rpc_lane'
+import type { RPCRequester, RuntimeSkillSummary } from '../../lanes/rpc_lane'
 import {
   ankoleSkillRuntime,
   enabledSkillByName,
-  resolveSkillOverlay,
   resolveSkillFilesystemRoot,
   resolveSkillOverlayText,
   stripSkillFrontmatter,
@@ -24,21 +21,10 @@ const SkillViewParams = z.object({
   filePath: z.string().optional().describe('Skill-relative file path. Defaults to SKILL.md.')
 })
 
-const SkillAppendParams = z.object({
-  name: z.string().min(1).describe('Enabled skill name whose agent notes should be updated.'),
-  content: z.string().min(1).describe('New durable note text to append to this agent-specific skill overlay.')
-})
-
-const SkillReplaceParams = z.object({
-  name: z.string().min(1).describe('Enabled skill name whose agent notes should be replaced.'),
-  content: z.string().describe('Complete replacement text for this agent-specific skill overlay.')
-})
-
-/** Structured echo for logs/UI: which skill, which file, and (for append) whether it wrote. */
+/** Structured echo for logs/UI: which skill and which file. */
 interface SkillToolDetails {
   name: string
   path?: string
-  changed?: boolean
 }
 
 export type { SkillFileRoots } from '../../skills/effective-skill'
@@ -54,12 +40,12 @@ export interface CreateSkillToolsOptions {
  * Creates the skill tools available to the model.
  *
  * `skill_view` reads base skill files from their real source roots and resolves
- * the per-agent overlay over RuntimeFabric only for SKILL.md.
- * `skill_append` appends to that DB overlay over RuntimeFabric and does not write
- * any workspace file. Assignment remains a control-plane concern.
+ * the per-agent skill-lesson block over RuntimeFabric only for SKILL.md. The
+ * lesson block is read-only here: lessons are written by Dreaming and the
+ * Console, and skill assignment remains a control-plane concern.
  */
 export function createSkillTools(opts: CreateSkillToolsOptions): WorkerAgentTool<any>[] {
-  return [createSkillViewTool(opts), createSkillAppendTool(opts), createSkillReplaceTool(opts)]
+  return [createSkillViewTool(opts)]
 }
 
 /**
@@ -113,79 +99,6 @@ function createSkillViewTool(opts: CreateSkillToolsOptions): WorkerAgentTool<typ
         content: [{ type: 'text', text: rendered }],
         details: { name: params.name, path: filePath }
       }
-    }
-  })
-}
-
-/**
- * `skill_append`: atomically adds one durable note to the DB-backed overlay. The
- * control plane owns the read-modify-write transaction so concurrent turns do
- * not lose each other's additions.
- */
-function createSkillAppendTool(
-  opts: CreateSkillToolsOptions
-): WorkerAgentTool<typeof SkillAppendParams, SkillToolDetails> {
-  return defineWorkerTool({
-    name: 'skill_append',
-    description:
-      "Append durable notes to this agent's DB-backed overlay for an enabled skill. Use only after reading the skill and only for agent-specific additions learned while using it.",
-    schema: SkillAppendParams,
-    executionMode: 'sequential',
-    isReadOnly: false,
-    isDestructive: false,
-    describeActivity: params => ({
-      key: 'signals_gateway.reply.activity.skill_update',
-      bindings: { name: params.name }
-    }),
-    async execute(_toolCallId, params): Promise<AgentToolResult<SkillToolDetails>> {
-      enabledInlineSkillForOverlay(params.name, opts)
-      await opts.rpc(
-        rpcMethods.skillsOverlayAppend,
-        { skillName: params.name, content: params.content },
-        { turn: opts.turn }
-      )
-
-      const details: SkillToolDetails = { name: params.name, changed: true }
-      return jsonToolResult(details)
-    }
-  })
-}
-
-/**
- * Replaces the complete overlay using the latest resolved content hash as an
- * optimistic compare-and-swap fence. A concurrent writer causes the control
- * plane to reject the replacement instead of silently losing an update.
- */
-function createSkillReplaceTool(
-  opts: CreateSkillToolsOptions
-): WorkerAgentTool<typeof SkillReplaceParams, SkillToolDetails> {
-  return defineWorkerTool({
-    name: 'skill_replace',
-    description:
-      "Replace all durable notes in this agent's DB-backed overlay for an enabled skill. Read the skill first, then use this for revisions, deduplication, or budget-preserving compaction; a concurrent change is rejected.",
-    schema: SkillReplaceParams,
-    executionMode: 'sequential',
-    isReadOnly: false,
-    isDestructive: true,
-    describeActivity: params => ({
-      key: 'signals_gateway.reply.activity.skill_update',
-      bindings: { name: params.name }
-    }),
-    async execute(_toolCallID, params): Promise<AgentToolResult<SkillToolDetails>> {
-      enabledInlineSkillForOverlay(params.name, opts)
-      const current = await resolveSkillOverlay(params.name, opts)
-      await opts.rpc(
-        rpcMethods.skillsOverlayReplace,
-        {
-          skillName: params.name,
-          content: params.content,
-          overlayJson: jsonBytes({ text: params.content }),
-          expectedContentHash: current.contentHash
-        },
-        { turn: opts.turn }
-      )
-
-      return jsonToolResult({ name: params.name, changed: true })
     }
   })
 }
@@ -248,15 +161,6 @@ async function safeSkillPath(skillRoot: string, filePath: string): Promise<strin
  */
 function enabledSkill(name: string, opts: CreateSkillToolsOptions): RuntimeSkillSummary {
   return enabledSkillByName(name, opts.enabledSkills)
-}
-
-/** Rejects main-agent overlay writes for Skills whose complete contract belongs to a Job. */
-function enabledInlineSkillForOverlay(name: string, opts: CreateSkillToolsOptions): RuntimeSkillSummary {
-  const skill = enabledSkill(name, opts)
-  if (ankoleSkillRuntime(skill) === 'background_job') {
-    throw new Error(`background-job Skill overlays are available only inside a background agent job: ${name}`)
-  }
-  return skill
 }
 
 /**

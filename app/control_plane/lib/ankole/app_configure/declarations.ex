@@ -27,6 +27,7 @@ defmodule Ankole.AppConfigure.Declarations do
       BackgroundAgentJobWorkerConfig.agent_cap_definition(),
       DeadLetterNoticeConfig.definition()
     ] ++
+      Ankole.Brain.Config.definitions() ++
       Ankole.I18n.Config.definitions() ++
       Ankole.Observability.definitions() ++
       AgentPluginConfig.definitions() ++

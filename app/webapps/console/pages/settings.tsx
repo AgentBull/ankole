@@ -75,6 +75,17 @@ import {
   sameObservabilityHeaderRows,
   type ObservabilityHeaderRow
 } from '../state/observability-setting-editor'
+import {
+  brainCanonicalDraft,
+  brainModelDraft,
+  brainModelRequiresDimensions,
+  brainModelValue,
+  brainSettingsValidationError,
+  isBrainModelKey,
+  sameBrainModelDraft,
+  type BrainModelDraft
+} from '../state/brain-setting-editor'
+import { BrainSettingsEditor } from './brain-settings-editor'
 import { ObservabilitySettingsEditor } from './observability-settings-editor'
 import { SettingValueEditor } from './setting-value-editors'
 
@@ -547,6 +558,11 @@ export function SettingGroupDrawer() {
   const [headerRows, setHeaderRows] = useState<ObservabilityHeaderRow[]>()
   const [initialHeaderRows, setInitialHeaderRows] = useState<ObservabilityHeaderRow[]>()
   const [headersEditing, setHeadersEditing] = useState(false)
+  // The brain model keys hold a nullable object; the composed editor edits its
+  // fields plus a raw provider-options text, so the drafts map alone cannot
+  // carry an in-progress edit without losing it or blessing invalid JSON.
+  const [brainModels, setBrainModels] = useState<Record<string, BrainModelDraft>>({})
+  const [initialBrainModels, setInitialBrainModels] = useState<Record<string, BrainModelDraft>>({})
 
   const list = useQuery(ankoleWebAppConfigurationControllerIndexOptions())
   const items = (list.data?.app_configurations ?? []).filter(
@@ -554,10 +570,17 @@ export function SettingGroupDrawer() {
   )
   const signature = items.map(item => item.key).join(',')
   const visualObservabilityEditor = groupID === 'observability'
+  const visualBrainEditor = groupID === 'brain'
   const headersItem = items.find(item => item.key === OBSERVABILITY_TRACE_KEYS.headers)
   const headersDirty =
     visualObservabilityEditor && headersEditing && !sameObservabilityHeaderRows(headerRows, initialHeaderRows)
-  const dirty = items.some(item => drafts[item.key] !== initial[item.key]) || headersDirty
+  const brainModelsDirty =
+    visualBrainEditor &&
+    Object.entries(brainModels).some(([key, draft]) => {
+      const initialDraft = initialBrainModels[key]
+      return !initialDraft || !sameBrainModelDraft(draft, initialDraft)
+    })
+  const dirty = items.some(item => drafts[item.key] !== initial[item.key]) || headersDirty || brainModelsDirty
   const blocker = useBlocker(useCallback(() => !allowNavigation.current && dirty, [dirty]))
 
   useEffect(() => {
@@ -568,7 +591,7 @@ export function SettingGroupDrawer() {
         item.key,
         item.key === OBSERVABILITY_TRACE_KEYS.headers && item.present
           ? ENCRYPTED_VALUE_MASK
-          : formatJSON(item.value ?? null)
+          : (brainCanonicalDraft(item.key, item.value) ?? formatJSON(item.value ?? null))
       ])
     )
     setDrafts(next)
@@ -576,6 +599,11 @@ export function SettingGroupDrawer() {
     setHeaderRows(undefined)
     setInitialHeaderRows(undefined)
     setHeadersEditing(false)
+    const nextModels = Object.fromEntries(
+      items.filter(item => isBrainModelKey(item.key)).map(item => [item.key, brainModelDraft(item.value)])
+    )
+    setBrainModels(nextModels)
+    setInitialBrainModels(nextModels)
   }, [items, signature])
 
   const refresh = () => {
@@ -605,7 +633,8 @@ export function SettingGroupDrawer() {
       // every draft would read the still-stale list cache and discard sibling
       // edits, and the key-only signature would then skip the refetch.
       const restoredKey = response.app_configuration.key
-      const restoredDraft = formatJSON(response.app_configuration.value ?? null)
+      const restoredValue = response.app_configuration.value
+      const restoredDraft = brainCanonicalDraft(restoredKey, restoredValue) ?? formatJSON(restoredValue ?? null)
       setDrafts(current => ({ ...current, [restoredKey]: restoredDraft }))
       setInitial(current => ({ ...current, [restoredKey]: restoredDraft }))
       if (restoredKey === OBSERVABILITY_TRACE_KEYS.headers) {
@@ -613,6 +642,11 @@ export function SettingGroupDrawer() {
         setInitialHeaderRows(undefined)
         setHeadersEditing(false)
         decrypt.reset()
+      }
+      if (isBrainModelKey(restoredKey)) {
+        const restoredModel = brainModelDraft(restoredValue)
+        setBrainModels(current => ({ ...current, [restoredKey]: restoredModel }))
+        setInitialBrainModels(current => ({ ...current, [restoredKey]: restoredModel }))
       }
       toast.success(t('console.settings.reset_done', { key: restoredKey }))
       refresh()
@@ -642,10 +676,28 @@ export function SettingGroupDrawer() {
       }
     }
 
+    if (visualBrainEditor) {
+      const brainError = brainSettingsValidationError(drafts, brainModels)
+      if (brainError) {
+        setEditorError(
+          t(`console.settings.brain_error_${brainError.error}`, { key: brainError.key, field: brainError.field })
+        )
+        return
+      }
+    }
+
     for (const item of items) {
       if (item.key === OBSERVABILITY_TRACE_KEYS.headers && visualObservabilityEditor) {
         if (headersDirty && headerRows) {
           pending.push({ key: item.key, value: observabilityHeadersValue(headerRows) })
+        }
+        continue
+      }
+      if (visualBrainEditor && isBrainModelKey(item.key)) {
+        const model = brainModels[item.key]
+        const initialModel = initialBrainModels[item.key]
+        if (model && (!initialModel || !sameBrainModelDraft(model, initialModel))) {
+          pending.push({ key: item.key, value: brainModelValue(model, brainModelRequiresDimensions(item.key)) })
         }
         continue
       }
@@ -670,6 +722,10 @@ export function SettingGroupDrawer() {
         setInitial(current => ({ ...current, [entry.key]: drafts[entry.key] ?? '' }))
         if (entry.key === OBSERVABILITY_TRACE_KEYS.headers && headerRows) {
           setInitialHeaderRows(headerRows)
+        }
+        const savedModel = brainModels[entry.key]
+        if (savedModel) {
+          setInitialBrainModels(current => ({ ...current, [entry.key]: savedModel }))
         }
       } catch (error) {
         setSaving(false)
@@ -732,7 +788,23 @@ export function SettingGroupDrawer() {
                     error={editorError ?? list.error ?? (prefix ? undefined : t('console.settings.not_found'))}
                   />
 
-                  {visualObservabilityEditor ? (
+                  {visualBrainEditor ? (
+                    <BrainSettingsEditor
+                      drafts={drafts}
+                      items={items}
+                      models={brainModels}
+                      saving={saving || restoreDefault.isPending}
+                      onDraftChange={(key, value) => {
+                        setDrafts(current => ({ ...current, [key]: value }))
+                        setEditorError(undefined)
+                      }}
+                      onModelChange={(key, draft) => {
+                        setBrainModels(current => ({ ...current, [key]: draft }))
+                        setEditorError(undefined)
+                      }}
+                      onRestore={setRestoreItem}
+                    />
+                  ) : visualObservabilityEditor ? (
                     <ObservabilitySettingsEditor
                       drafts={drafts}
                       headerRows={headerRows}

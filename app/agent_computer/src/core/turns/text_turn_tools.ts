@@ -1,11 +1,13 @@
 import type { TurnStart } from '../../lanes/actor_lane'
 import {
+  brainRPCRequester,
   rpcMethods,
   scheduleRPCRequester,
   signalChannelRPCRequester,
   type RPCRequester,
   type RuntimeSkillSummary
 } from '../../lanes/rpc_lane'
+import { createBrainTools } from '../../tools/brain/brain-tools'
 import { createComputerTools } from '../../tools/computer'
 import { createCreateBackgroundJobTool } from '../../tools/background-agent-job/create-background-job'
 import { createListBackgroundJobsTool } from '../../tools/background-agent-job/list-background-jobs'
@@ -29,6 +31,8 @@ type TextTurnToolsOptions = {
   userFilesRoot: string
   enabledSkills: Array<RuntimeSkillSummary | string>
   skillRoots: SkillFileRoots
+  /** Per-turn `brain.enabled` resolution; false leaves the Brain tools unregistered. */
+  brainEnabled: boolean
   rpc: RPCRequester
   waitForSteering?: (signal?: AbortSignal) => Promise<void>
   workerEnv: Record<string, string>
@@ -40,6 +44,7 @@ type TextTurnToolsOptions = {
 /**
  * Owns the model-visible tool catalog for Text Turns.
  * Provider-hosted search removes only the local web_search tool.
+ * Brain memory tools register only when `brain.enabled` resolved true.
  */
 export async function createTextTurnTools(opts: TextTurnToolsOptions): Promise<WorkerAgentTool[]> {
   const turnStart = opts.turnStart
@@ -67,6 +72,7 @@ export async function createTextTurnTools(opts: TextTurnToolsOptions): Promise<W
       turnStart,
       requestSignalChannelRPC: signalChannelRPCRequester(opts.rpc, turnStart.turn)
     }),
+    ...(opts.brainEnabled ? createBrainTools({ requestBrainRPC: brainRPCRequester(opts.rpc, turnStart.turn) }) : []),
     ...opts.webTools.filter(tool => !webSearchIsProviderHosted(turnStart) || tool.name !== 'web_search'),
     createClarifyTool(),
     ...backgroundAgentJobTools,

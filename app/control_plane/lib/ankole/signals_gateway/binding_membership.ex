@@ -81,6 +81,21 @@ defmodule Ankole.SignalsGateway.BindingMembership do
   end
 
   @doc """
+  Returns the distinct Agent UIDs of the currently joined bindings.
+  """
+  @spec joined_agent_uids(map() | nil) :: [String.t()]
+  def joined_agent_uids(metadata) do
+    metadata
+    |> memberships()
+    |> Enum.filter(fn {_key, membership} ->
+      is_map(membership) and Map.get(membership, "state") == "joined"
+    end)
+    |> Enum.map(fn {_key, membership} -> Map.get(membership, "agent_uid") end)
+    |> Enum.filter(&is_binary/1)
+    |> Enum.uniq()
+  end
+
+  @doc """
   Returns whether at least one membership is known and all known bindings left.
   """
   @spec all_left?(map() | nil) :: boolean()

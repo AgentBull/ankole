@@ -90,11 +90,11 @@ Agent Library 是一个 agent 能做什么——它的 plugin 和 skill。Consol
 | `PUT` | `/agents/:agent_uid/library-capabilities/skills/:id` | 为某一个 agent 覆盖一个 skill |
 | `GET` | `/agents/:agent_uid/library-documents` | 列出某个 agent 的 library 文档 |
 | `PUT` | `/agents/:agent_uid/library-documents/:document_kind` | 设定一份 library 文档 |
-| `GET` | `/agents/:agent_uid/library-skill-overlays` | 列出 skill overlay |
-| `PUT` | `/agents/:agent_uid/library-skill-overlays/:skill_name` | 设定一个 skill overlay |
-| `DELETE` | `/agents/:agent_uid/library-skill-overlays/:skill_name` | 移除一个 skill overlay |
+| `GET` | `/agents/:agent_uid/skill-lessons` | 列出生效和已退场的技能教训 |
+| `POST` | `/agents/:agent_uid/skill-lessons` | 为已启用的 Skill 新增人工教训 |
+| `POST` | `/agents/:agent_uid/skill-lessons/:lesson_id/retire` | 让一条技能教训退场 |
 
-一项能力先在全局启用，再按 agent 收窄或放宽。skill overlay 让运维者为某一个 agent 定制某个 skill 的行为，而不必 fork 它。
+一项能力先在全局启用，再按 Agent 收窄或放宽。技能教训为单个 Agent 提供附加的过程指引，不改动 Skill 来源。列表会保留证据和退场历史。已退场的教训不再投递；人工撤销的内容会留在 Dreaming 的禁止再学习清单中。生命周期与限制见[技能教训](../skill-lessons/)。
 
 ### 环境变量（WorkerEnv）
 

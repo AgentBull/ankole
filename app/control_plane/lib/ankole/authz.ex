@@ -128,14 +128,113 @@ defmodule Ankole.AuthZ do
   def list_principal_group_memberships(principal_uid) do
     with {:ok, principal} <- Principals.get_principal(principal_uid) do
       groups =
-        Group
-        |> join(:inner, [group], membership in Membership, on: membership.group_id == group.id)
-        |> where([_group, membership], membership.principal_uid == ^principal.uid)
+        principal.uid
+        |> static_groups_query()
         |> order_by([group, _membership], asc: group.name)
         |> Repo.all()
 
       {:ok, groups}
     end
+  end
+
+  @doc """
+  Lists every group one Principal currently belongs to, including computed
+  groups, ordered by group name.
+
+  Membership is resolved against the current relations at call time: static
+  groups through their membership rows and computed groups through their CEL
+  condition. Brain audience scopes depend on this live resolution instead of
+  write-time snapshots.
+  """
+  @spec list_current_groups_for_principal(String.t()) :: {:ok, [Group.t()]} | {:error, term()}
+  def list_current_groups_for_principal(principal_uid) do
+    with {:ok, principal} <- Principals.get_principal(principal_uid) do
+      static = principal.uid |> static_groups_query() |> Repo.all()
+
+      computed =
+        Group
+        |> where([group], group.kind == :computed)
+        |> Repo.all()
+        |> Enum.filter(&computed_group_member?(principal, &1))
+
+      {:ok, Enum.sort_by(static ++ computed, & &1.name)}
+    end
+  end
+
+  @doc """
+  Returns whether a Principal currently belongs to one group.
+
+  Static groups check their membership rows; computed groups evaluate their
+  CEL condition against the current Principal.
+  """
+  @spec principal_in_group?(String.t(), Group.t()) :: boolean()
+  def principal_in_group?(principal_uid, %Group{kind: :static} = group) do
+    case Principals.normalize_uid(principal_uid) do
+      {:ok, uid} ->
+        Membership
+        |> where([membership], membership.group_id == ^group.id)
+        |> where([membership], membership.principal_uid == ^uid)
+        |> Repo.exists?()
+
+      {:error, _reason} ->
+        false
+    end
+  end
+
+  def principal_in_group?(principal_uid, %Group{kind: :computed} = group) do
+    case Principals.get_principal(principal_uid) do
+      {:ok, principal} -> computed_group_member?(principal, group)
+      {:error, _reason} -> false
+    end
+  end
+
+  @doc """
+  Returns whether every listed Principal currently belongs to one group.
+
+  A static group answers with one membership query over the whole list, so a
+  per-hit disclosure check over a large present-member set stays one round
+  trip; a computed group evaluates its CEL condition per Principal.
+  """
+  @spec all_in_group?([String.t()], Group.t()) :: boolean()
+  def all_in_group?([], %Group{}), do: true
+
+  def all_in_group?(principal_uids, %Group{kind: :static} = group) do
+    normalized =
+      for uid <- principal_uids, {:ok, normalized} <- [Principals.normalize_uid(uid)] do
+        normalized
+      end
+
+    if length(normalized) != length(principal_uids) do
+      false
+    else
+      unique = Enum.uniq(normalized)
+
+      matched =
+        Membership
+        |> where([membership], membership.group_id == ^group.id)
+        |> where([membership], membership.principal_uid in ^unique)
+        |> select([membership], count(membership.principal_uid, :distinct))
+        |> Repo.one()
+
+      matched == length(unique)
+    end
+  end
+
+  def all_in_group?(principal_uids, %Group{} = group) do
+    Enum.all?(principal_uids, &principal_in_group?(&1, group))
+  end
+
+  defp static_groups_query(principal_uid) do
+    Group
+    |> join(:inner, [group], membership in Membership, on: membership.group_id == group.id)
+    |> where([_group, membership], membership.principal_uid == ^principal_uid)
+  end
+
+  defp computed_group_member?(%Principal{} = principal, %Group{} = group) do
+    is_binary(group.computed_condition) and
+      principal
+      |> Snapshot.build_condition_preview_snapshot(group.id, group.computed_condition)
+      |> Decision.preview_computed_membership?(group.id)
   end
 
   @doc """

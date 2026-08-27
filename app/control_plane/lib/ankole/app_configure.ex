@@ -592,7 +592,7 @@ defmodule Ankole.AppConfigure do
   defp refresh_cache_after_commit(scope, key) do
     result =
       try do
-        with {:ok, state} <- Cache.load(scope, key),
+        with {:ok, state} <- Cache.refresh(scope, key),
              :ok <- validate_refreshed_state(scope, key, state) do
           :ok
         end

@@ -28,10 +28,10 @@ import {
   ankoleWebAgentLibraryCapabilityControllerPutGlobalSkill,
   ankoleWebAgentLibraryControllerIndex,
   ankoleWebAgentLibraryControllerUpdate,
-  ankoleWebAgentLibrarySkillOverlayControllerDelete,
-  ankoleWebAgentLibrarySkillOverlayControllerIndex,
-  ankoleWebAgentLibrarySkillOverlayControllerUpdate,
   ankoleWebAgentSessionControllerIndex,
+  ankoleWebAgentSkillLessonControllerCreate,
+  ankoleWebAgentSkillLessonControllerIndex,
+  ankoleWebAgentSkillLessonControllerRetire,
   ankoleWebAiGatewayControllerEmbeddings,
   ankoleWebAiGatewayControllerModels,
   ankoleWebAiGatewayControllerRerank,
@@ -85,6 +85,27 @@ import {
   ankoleWebBackgroundAgentJobControllerHealth,
   ankoleWebBackgroundAgentJobControllerIndex,
   ankoleWebBackgroundAgentJobControllerShow,
+  ankoleWebBrainControllerArchiveSource,
+  ankoleWebBrainControllerCreateSource,
+  ankoleWebBrainControllerDecideContradiction,
+  ankoleWebBrainControllerDecideSuggestion,
+  ankoleWebBrainControllerForgetClaim,
+  ankoleWebBrainControllerForgetObject,
+  ankoleWebBrainControllerHealth,
+  ankoleWebBrainControllerLearnSource,
+  ankoleWebBrainControllerListClaims,
+  ankoleWebBrainControllerListContradictions,
+  ankoleWebBrainControllerListObjects,
+  ankoleWebBrainControllerListSources,
+  ankoleWebBrainControllerListSuggestions,
+  ankoleWebBrainControllerObjectVersions,
+  ankoleWebBrainControllerPrincipalKnowledge,
+  ankoleWebBrainControllerResolveTake,
+  ankoleWebBrainControllerRestoreObject,
+  ankoleWebBrainControllerRollbackObject,
+  ankoleWebBrainControllerSearchPreview,
+  ankoleWebBrainControllerShowObject,
+  ankoleWebBrainControllerSupersedeClaim,
   ankoleWebConsoleReadinessControllerShow,
   ankoleWebControlPlanePluginControllerIndex,
   ankoleWebControlPlanePluginControllerUpdate,
@@ -200,18 +221,18 @@ import type {
   AnkoleWebAgentLibraryControllerUpdateData,
   AnkoleWebAgentLibraryControllerUpdateError,
   AnkoleWebAgentLibraryControllerUpdateResponse,
-  AnkoleWebAgentLibrarySkillOverlayControllerDeleteData,
-  AnkoleWebAgentLibrarySkillOverlayControllerDeleteError,
-  AnkoleWebAgentLibrarySkillOverlayControllerDeleteResponse,
-  AnkoleWebAgentLibrarySkillOverlayControllerIndexData,
-  AnkoleWebAgentLibrarySkillOverlayControllerIndexError,
-  AnkoleWebAgentLibrarySkillOverlayControllerIndexResponse,
-  AnkoleWebAgentLibrarySkillOverlayControllerUpdateData,
-  AnkoleWebAgentLibrarySkillOverlayControllerUpdateError,
-  AnkoleWebAgentLibrarySkillOverlayControllerUpdateResponse,
   AnkoleWebAgentSessionControllerIndexData,
   AnkoleWebAgentSessionControllerIndexError,
   AnkoleWebAgentSessionControllerIndexResponse,
+  AnkoleWebAgentSkillLessonControllerCreateData,
+  AnkoleWebAgentSkillLessonControllerCreateError,
+  AnkoleWebAgentSkillLessonControllerCreateResponse,
+  AnkoleWebAgentSkillLessonControllerIndexData,
+  AnkoleWebAgentSkillLessonControllerIndexError,
+  AnkoleWebAgentSkillLessonControllerIndexResponse,
+  AnkoleWebAgentSkillLessonControllerRetireData,
+  AnkoleWebAgentSkillLessonControllerRetireError,
+  AnkoleWebAgentSkillLessonControllerRetireResponse,
   AnkoleWebAiGatewayControllerEmbeddingsData,
   AnkoleWebAiGatewayControllerEmbeddingsError,
   AnkoleWebAiGatewayControllerEmbeddingsResponse,
@@ -370,6 +391,48 @@ import type {
   AnkoleWebBackgroundAgentJobControllerShowData,
   AnkoleWebBackgroundAgentJobControllerShowError,
   AnkoleWebBackgroundAgentJobControllerShowResponse,
+  AnkoleWebBrainControllerArchiveSourceData,
+  AnkoleWebBrainControllerArchiveSourceResponse,
+  AnkoleWebBrainControllerCreateSourceData,
+  AnkoleWebBrainControllerCreateSourceResponse,
+  AnkoleWebBrainControllerDecideContradictionData,
+  AnkoleWebBrainControllerDecideContradictionResponse,
+  AnkoleWebBrainControllerDecideSuggestionData,
+  AnkoleWebBrainControllerDecideSuggestionResponse,
+  AnkoleWebBrainControllerForgetClaimData,
+  AnkoleWebBrainControllerForgetClaimResponse,
+  AnkoleWebBrainControllerForgetObjectData,
+  AnkoleWebBrainControllerForgetObjectResponse,
+  AnkoleWebBrainControllerHealthData,
+  AnkoleWebBrainControllerHealthResponse,
+  AnkoleWebBrainControllerLearnSourceData,
+  AnkoleWebBrainControllerLearnSourceResponse,
+  AnkoleWebBrainControllerListClaimsData,
+  AnkoleWebBrainControllerListClaimsResponse,
+  AnkoleWebBrainControllerListContradictionsData,
+  AnkoleWebBrainControllerListContradictionsResponse,
+  AnkoleWebBrainControllerListObjectsData,
+  AnkoleWebBrainControllerListObjectsResponse,
+  AnkoleWebBrainControllerListSourcesData,
+  AnkoleWebBrainControllerListSourcesResponse,
+  AnkoleWebBrainControllerListSuggestionsData,
+  AnkoleWebBrainControllerListSuggestionsResponse,
+  AnkoleWebBrainControllerObjectVersionsData,
+  AnkoleWebBrainControllerObjectVersionsResponse,
+  AnkoleWebBrainControllerPrincipalKnowledgeData,
+  AnkoleWebBrainControllerPrincipalKnowledgeResponse,
+  AnkoleWebBrainControllerResolveTakeData,
+  AnkoleWebBrainControllerResolveTakeResponse,
+  AnkoleWebBrainControllerRestoreObjectData,
+  AnkoleWebBrainControllerRestoreObjectResponse,
+  AnkoleWebBrainControllerRollbackObjectData,
+  AnkoleWebBrainControllerRollbackObjectResponse,
+  AnkoleWebBrainControllerSearchPreviewData,
+  AnkoleWebBrainControllerSearchPreviewResponse,
+  AnkoleWebBrainControllerShowObjectData,
+  AnkoleWebBrainControllerShowObjectResponse,
+  AnkoleWebBrainControllerSupersedeClaimData,
+  AnkoleWebBrainControllerSupersedeClaimResponse,
   AnkoleWebConsoleReadinessControllerShowData,
   AnkoleWebConsoleReadinessControllerShowError,
   AnkoleWebConsoleReadinessControllerShowResponse,
@@ -1205,6 +1268,60 @@ export const ankoleWebAgentLibraryCapabilityControllerPutAgentPluginOverrideMuta
 }
 
 /**
+ * Resolve one take; resolution is immutable
+ */
+export const ankoleWebBrainControllerResolveTakeMutation = (
+  options?: Partial<Options<AnkoleWebBrainControllerResolveTakeData>>
+): UseMutationOptions<
+  AnkoleWebBrainControllerResolveTakeResponse,
+  DefaultError,
+  Options<AnkoleWebBrainControllerResolveTakeData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebBrainControllerResolveTakeResponse,
+    DefaultError,
+    Options<AnkoleWebBrainControllerResolveTakeData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebBrainControllerResolveTake({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * Expire a fact or deactivate a take with a reason
+ */
+export const ankoleWebBrainControllerForgetClaimMutation = (
+  options?: Partial<Options<AnkoleWebBrainControllerForgetClaimData>>
+): UseMutationOptions<
+  AnkoleWebBrainControllerForgetClaimResponse,
+  DefaultError,
+  Options<AnkoleWebBrainControllerForgetClaimData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebBrainControllerForgetClaimResponse,
+    DefaultError,
+    Options<AnkoleWebBrainControllerForgetClaimData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebBrainControllerForgetClaim({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
  * Delete one file or directory from a worker filesystem root
  */
 export const ankoleWebWorkerFileControllerDeleteMutation = (
@@ -1282,6 +1399,34 @@ export const ankoleWebWorkerFileControllerUploadMutation = (
   }
   return mutationOptions
 }
+
+export const ankoleWebBrainControllerListSuggestionsQueryKey = (
+  options?: Options<AnkoleWebBrainControllerListSuggestionsData>
+) => createQueryKey('ankoleWebBrainControllerListSuggestions', options)
+
+/**
+ * List schema promotion suggestions
+ */
+export const ankoleWebBrainControllerListSuggestionsOptions = (
+  options?: Options<AnkoleWebBrainControllerListSuggestionsData>
+) =>
+  queryOptions<
+    AnkoleWebBrainControllerListSuggestionsResponse,
+    DefaultError,
+    AnkoleWebBrainControllerListSuggestionsResponse,
+    ReturnType<typeof ankoleWebBrainControllerListSuggestionsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebBrainControllerListSuggestions({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebBrainControllerListSuggestionsQueryKey(options)
+  })
 
 /**
  * Create a stateless OpenResponses response
@@ -1410,6 +1555,33 @@ export const ankoleWebAuthZGroupControllerAddMemberMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await ankoleWebAuthZGroupControllerAddMember({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * Soft-delete one object with a reason
+ */
+export const ankoleWebBrainControllerForgetObjectMutation = (
+  options?: Partial<Options<AnkoleWebBrainControllerForgetObjectData>>
+): UseMutationOptions<
+  AnkoleWebBrainControllerForgetObjectResponse,
+  DefaultError,
+  Options<AnkoleWebBrainControllerForgetObjectData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebBrainControllerForgetObjectResponse,
+    DefaultError,
+    Options<AnkoleWebBrainControllerForgetObjectData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebBrainControllerForgetObject({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -1744,6 +1916,33 @@ export const ankoleWebAiGatewayControllerModelsOptions = (options?: Options<Anko
     },
     queryKey: ankoleWebAiGatewayControllerModelsQueryKey(options)
   })
+
+/**
+ * Run recall as any Principal for diagnosis
+ */
+export const ankoleWebBrainControllerSearchPreviewMutation = (
+  options?: Partial<Options<AnkoleWebBrainControllerSearchPreviewData>>
+): UseMutationOptions<
+  AnkoleWebBrainControllerSearchPreviewResponse,
+  DefaultError,
+  Options<AnkoleWebBrainControllerSearchPreviewData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebBrainControllerSearchPreviewResponse,
+    DefaultError,
+    Options<AnkoleWebBrainControllerSearchPreviewData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebBrainControllerSearchPreview({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
 
 export const ankoleWebBackgroundAgentJobControllerIndexQueryKey = (
   options?: Options<AnkoleWebBackgroundAgentJobControllerIndexData>
@@ -2146,6 +2345,61 @@ export const ankoleWebIdentityProviderControllerAdaptersOptions = (
     queryKey: ankoleWebIdentityProviderControllerAdaptersQueryKey(options)
   })
 
+export const ankoleWebBrainControllerListSourcesQueryKey = (
+  options?: Options<AnkoleWebBrainControllerListSourcesData>
+) => createQueryKey('ankoleWebBrainControllerListSources', options)
+
+/**
+ * List learning sources
+ */
+export const ankoleWebBrainControllerListSourcesOptions = (
+  options?: Options<AnkoleWebBrainControllerListSourcesData>
+) =>
+  queryOptions<
+    AnkoleWebBrainControllerListSourcesResponse,
+    DefaultError,
+    AnkoleWebBrainControllerListSourcesResponse,
+    ReturnType<typeof ankoleWebBrainControllerListSourcesQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebBrainControllerListSources({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebBrainControllerListSourcesQueryKey(options)
+  })
+
+/**
+ * Register one file or url learning source
+ */
+export const ankoleWebBrainControllerCreateSourceMutation = (
+  options?: Partial<Options<AnkoleWebBrainControllerCreateSourceData>>
+): UseMutationOptions<
+  AnkoleWebBrainControllerCreateSourceResponse,
+  DefaultError,
+  Options<AnkoleWebBrainControllerCreateSourceData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebBrainControllerCreateSourceResponse,
+    DefaultError,
+    Options<AnkoleWebBrainControllerCreateSourceData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebBrainControllerCreateSource({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
 export const ankoleWebAiGatewayControllerRetrieveResponseQueryKey = (
   options: Options<AnkoleWebAiGatewayControllerRetrieveResponseData>
 ) => createQueryKey('ankoleWebAiGatewayControllerRetrieveResponse', options)
@@ -2445,6 +2699,33 @@ export const ankoleWebSignalBindingControllerIndexOptions = (
     queryKey: ankoleWebSignalBindingControllerIndexQueryKey(options)
   })
 
+/**
+ * Retire one skill lesson
+ */
+export const ankoleWebAgentSkillLessonControllerRetireMutation = (
+  options?: Partial<Options<AnkoleWebAgentSkillLessonControllerRetireData>>
+): UseMutationOptions<
+  AnkoleWebAgentSkillLessonControllerRetireResponse,
+  AnkoleWebAgentSkillLessonControllerRetireError,
+  Options<AnkoleWebAgentSkillLessonControllerRetireData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebAgentSkillLessonControllerRetireResponse,
+    AnkoleWebAgentSkillLessonControllerRetireError,
+    Options<AnkoleWebAgentSkillLessonControllerRetireData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebAgentSkillLessonControllerRetire({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
 export const ankoleWebPrincipalControllerGrantsQueryKey = (options: Options<AnkoleWebPrincipalControllerGrantsData>) =>
   createQueryKey('ankoleWebPrincipalControllerGrants', options)
 
@@ -2579,6 +2860,58 @@ export const ankoleWebAiGatewayProviderControllerIndexOptions = (
   })
 
 /**
+ * Restore one soft-deleted object inside its purge window
+ */
+export const ankoleWebBrainControllerRestoreObjectMutation = (
+  options?: Partial<Options<AnkoleWebBrainControllerRestoreObjectData>>
+): UseMutationOptions<
+  AnkoleWebBrainControllerRestoreObjectResponse,
+  DefaultError,
+  Options<AnkoleWebBrainControllerRestoreObjectData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebBrainControllerRestoreObjectResponse,
+    DefaultError,
+    Options<AnkoleWebBrainControllerRestoreObjectData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebBrainControllerRestoreObject({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+export const ankoleWebBrainControllerHealthQueryKey = (options?: Options<AnkoleWebBrainControllerHealthData>) =>
+  createQueryKey('ankoleWebBrainControllerHealth', options)
+
+/**
+ * Read the Brain health snapshot
+ */
+export const ankoleWebBrainControllerHealthOptions = (options?: Options<AnkoleWebBrainControllerHealthData>) =>
+  queryOptions<
+    AnkoleWebBrainControllerHealthResponse,
+    DefaultError,
+    AnkoleWebBrainControllerHealthResponse,
+    ReturnType<typeof ankoleWebBrainControllerHealthQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebBrainControllerHealth({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebBrainControllerHealthQueryKey(options)
+  })
+
+/**
  * Resume one recurring schedule
  */
 export const ankoleWebScheduleControllerResumeCronMutation = (
@@ -2632,6 +2965,33 @@ export const ankoleWebAutomationJobControllerIndexOptions = (
     },
     queryKey: ankoleWebAutomationJobControllerIndexQueryKey(options)
   })
+
+/**
+ * Supersede one claim with corrected content
+ */
+export const ankoleWebBrainControllerSupersedeClaimMutation = (
+  options?: Partial<Options<AnkoleWebBrainControllerSupersedeClaimData>>
+): UseMutationOptions<
+  AnkoleWebBrainControllerSupersedeClaimResponse,
+  DefaultError,
+  Options<AnkoleWebBrainControllerSupersedeClaimData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebBrainControllerSupersedeClaimResponse,
+    DefaultError,
+    Options<AnkoleWebBrainControllerSupersedeClaimData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebBrainControllerSupersedeClaim({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
 
 export const ankoleWebAgentControllerIndexModelProfilesQueryKey = (
   options: Options<AnkoleWebAgentControllerIndexModelProfilesData>
@@ -2908,6 +3268,33 @@ export const ankoleWebAgentLibraryCapabilityControllerPutAgentSkillOverrideMutat
 }
 
 /**
+ * Approve or reject one promotion suggestion
+ */
+export const ankoleWebBrainControllerDecideSuggestionMutation = (
+  options?: Partial<Options<AnkoleWebBrainControllerDecideSuggestionData>>
+): UseMutationOptions<
+  AnkoleWebBrainControllerDecideSuggestionResponse,
+  DefaultError,
+  Options<AnkoleWebBrainControllerDecideSuggestionData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebBrainControllerDecideSuggestionResponse,
+    DefaultError,
+    Options<AnkoleWebBrainControllerDecideSuggestionData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebBrainControllerDecideSuggestion({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
  * Search the web through AIGateway
  */
 export const ankoleWebAiGatewayControllerWebSearchMutation = (
@@ -2933,6 +3320,34 @@ export const ankoleWebAiGatewayControllerWebSearchMutation = (
   }
   return mutationOptions
 }
+
+export const ankoleWebBrainControllerPrincipalKnowledgeQueryKey = (
+  options: Options<AnkoleWebBrainControllerPrincipalKnowledgeData>
+) => createQueryKey('ankoleWebBrainControllerPrincipalKnowledge', options)
+
+/**
+ * Audit all knowledge related to one Principal
+ */
+export const ankoleWebBrainControllerPrincipalKnowledgeOptions = (
+  options: Options<AnkoleWebBrainControllerPrincipalKnowledgeData>
+) =>
+  queryOptions<
+    AnkoleWebBrainControllerPrincipalKnowledgeResponse,
+    DefaultError,
+    AnkoleWebBrainControllerPrincipalKnowledgeResponse,
+    ReturnType<typeof ankoleWebBrainControllerPrincipalKnowledgeQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebBrainControllerPrincipalKnowledge({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebBrainControllerPrincipalKnowledgeQueryKey(options)
+  })
 
 export const ankoleWebScheduleControllerIndexCronQueryKey = (
   options?: Options<AnkoleWebScheduleControllerIndexCronData>
@@ -3176,24 +3591,21 @@ export const ankoleWebAiGatewayConversationControllerIndexInfiniteOptions = (
   return opts as Omit<typeof opts, 'initialData'>
 }
 
-export const ankoleWebAgentLibrarySkillOverlayControllerIndexQueryKey = (
-  options: Options<AnkoleWebAgentLibrarySkillOverlayControllerIndexData>
-) => createQueryKey('ankoleWebAgentLibrarySkillOverlayControllerIndex', options)
+export const ankoleWebBrainControllerListClaimsQueryKey = (options?: Options<AnkoleWebBrainControllerListClaimsData>) =>
+  createQueryKey('ankoleWebBrainControllerListClaims', options)
 
 /**
- * Read the skill overlays of one agent
+ * List claims with filters
  */
-export const ankoleWebAgentLibrarySkillOverlayControllerIndexOptions = (
-  options: Options<AnkoleWebAgentLibrarySkillOverlayControllerIndexData>
-) =>
+export const ankoleWebBrainControllerListClaimsOptions = (options?: Options<AnkoleWebBrainControllerListClaimsData>) =>
   queryOptions<
-    AnkoleWebAgentLibrarySkillOverlayControllerIndexResponse,
-    AnkoleWebAgentLibrarySkillOverlayControllerIndexError,
-    AnkoleWebAgentLibrarySkillOverlayControllerIndexResponse,
-    ReturnType<typeof ankoleWebAgentLibrarySkillOverlayControllerIndexQueryKey>
+    AnkoleWebBrainControllerListClaimsResponse,
+    DefaultError,
+    AnkoleWebBrainControllerListClaimsResponse,
+    ReturnType<typeof ankoleWebBrainControllerListClaimsQueryKey>
   >({
     queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebAgentLibrarySkillOverlayControllerIndex({
+      const { data } = await ankoleWebBrainControllerListClaims({
         ...options,
         ...queryKey[0],
         signal,
@@ -3201,7 +3613,7 @@ export const ankoleWebAgentLibrarySkillOverlayControllerIndexOptions = (
       })
       return data
     },
-    queryKey: ankoleWebAgentLibrarySkillOverlayControllerIndexQueryKey(options)
+    queryKey: ankoleWebBrainControllerListClaimsQueryKey(options)
   })
 
 export const ankoleWebPrincipalControllerShowQueryKey = (options: Options<AnkoleWebPrincipalControllerShowData>) =>
@@ -3256,6 +3668,88 @@ export const ankoleWebPrincipalControllerUpdateMutation = (
   return mutationOptions
 }
 
+export const ankoleWebAgentSkillLessonControllerIndexQueryKey = (
+  options: Options<AnkoleWebAgentSkillLessonControllerIndexData>
+) => createQueryKey('ankoleWebAgentSkillLessonControllerIndex', options)
+
+/**
+ * Read the skill lessons of one agent
+ */
+export const ankoleWebAgentSkillLessonControllerIndexOptions = (
+  options: Options<AnkoleWebAgentSkillLessonControllerIndexData>
+) =>
+  queryOptions<
+    AnkoleWebAgentSkillLessonControllerIndexResponse,
+    AnkoleWebAgentSkillLessonControllerIndexError,
+    AnkoleWebAgentSkillLessonControllerIndexResponse,
+    ReturnType<typeof ankoleWebAgentSkillLessonControllerIndexQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebAgentSkillLessonControllerIndex({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebAgentSkillLessonControllerIndexQueryKey(options)
+  })
+
+/**
+ * Add one human skill lesson
+ */
+export const ankoleWebAgentSkillLessonControllerCreateMutation = (
+  options?: Partial<Options<AnkoleWebAgentSkillLessonControllerCreateData>>
+): UseMutationOptions<
+  AnkoleWebAgentSkillLessonControllerCreateResponse,
+  AnkoleWebAgentSkillLessonControllerCreateError,
+  Options<AnkoleWebAgentSkillLessonControllerCreateData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebAgentSkillLessonControllerCreateResponse,
+    AnkoleWebAgentSkillLessonControllerCreateError,
+    Options<AnkoleWebAgentSkillLessonControllerCreateData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebAgentSkillLessonControllerCreate({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * Resolve or dismiss one contradiction
+ */
+export const ankoleWebBrainControllerDecideContradictionMutation = (
+  options?: Partial<Options<AnkoleWebBrainControllerDecideContradictionData>>
+): UseMutationOptions<
+  AnkoleWebBrainControllerDecideContradictionResponse,
+  DefaultError,
+  Options<AnkoleWebBrainControllerDecideContradictionData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebBrainControllerDecideContradictionResponse,
+    DefaultError,
+    Options<AnkoleWebBrainControllerDecideContradictionData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebBrainControllerDecideContradiction({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
 /**
  * Cancel one webhook endpoint
  */
@@ -3282,6 +3776,62 @@ export const ankoleWebWebhookEndpointControllerDeleteMutation = (
   }
   return mutationOptions
 }
+
+export const ankoleWebBrainControllerListObjectsQueryKey = (
+  options?: Options<AnkoleWebBrainControllerListObjectsData>
+) => createQueryKey('ankoleWebBrainControllerListObjects', options)
+
+/**
+ * List Brain objects by prefix or search
+ */
+export const ankoleWebBrainControllerListObjectsOptions = (
+  options?: Options<AnkoleWebBrainControllerListObjectsData>
+) =>
+  queryOptions<
+    AnkoleWebBrainControllerListObjectsResponse,
+    DefaultError,
+    AnkoleWebBrainControllerListObjectsResponse,
+    ReturnType<typeof ankoleWebBrainControllerListObjectsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebBrainControllerListObjects({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebBrainControllerListObjectsQueryKey(options)
+  })
+
+export const ankoleWebBrainControllerListContradictionsQueryKey = (
+  options?: Options<AnkoleWebBrainControllerListContradictionsData>
+) => createQueryKey('ankoleWebBrainControllerListContradictions', options)
+
+/**
+ * List contradiction findings
+ */
+export const ankoleWebBrainControllerListContradictionsOptions = (
+  options?: Options<AnkoleWebBrainControllerListContradictionsData>
+) =>
+  queryOptions<
+    AnkoleWebBrainControllerListContradictionsResponse,
+    DefaultError,
+    AnkoleWebBrainControllerListContradictionsResponse,
+    ReturnType<typeof ankoleWebBrainControllerListContradictionsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebBrainControllerListContradictions({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebBrainControllerListContradictionsQueryKey(options)
+  })
 
 /**
  * Add a ChatGPT enterprise access token
@@ -3497,6 +4047,34 @@ export const ankoleWebAiGatewayControllerRerankMutation = (
   return mutationOptions
 }
 
+export const ankoleWebBrainControllerObjectVersionsQueryKey = (
+  options: Options<AnkoleWebBrainControllerObjectVersionsData>
+) => createQueryKey('ankoleWebBrainControllerObjectVersions', options)
+
+/**
+ * List one object's version history
+ */
+export const ankoleWebBrainControllerObjectVersionsOptions = (
+  options: Options<AnkoleWebBrainControllerObjectVersionsData>
+) =>
+  queryOptions<
+    AnkoleWebBrainControllerObjectVersionsResponse,
+    DefaultError,
+    AnkoleWebBrainControllerObjectVersionsResponse,
+    ReturnType<typeof ankoleWebBrainControllerObjectVersionsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebBrainControllerObjectVersions({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebBrainControllerObjectVersionsQueryKey(options)
+  })
+
 export const ankoleWebWorkerEnvControllerIndexQueryKey = (options?: Options<AnkoleWebWorkerEnvControllerIndexData>) =>
   createQueryKey('ankoleWebWorkerEnvControllerIndex', options)
 
@@ -3577,6 +4155,60 @@ export const ankoleWebAppConfigurationControllerDecryptMutation = (
 }
 
 /**
+ * Roll one object back to a stored version
+ */
+export const ankoleWebBrainControllerRollbackObjectMutation = (
+  options?: Partial<Options<AnkoleWebBrainControllerRollbackObjectData>>
+): UseMutationOptions<
+  AnkoleWebBrainControllerRollbackObjectResponse,
+  DefaultError,
+  Options<AnkoleWebBrainControllerRollbackObjectData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebBrainControllerRollbackObjectResponse,
+    DefaultError,
+    Options<AnkoleWebBrainControllerRollbackObjectData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebBrainControllerRollbackObject({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * Archive one source; stored memory stays
+ */
+export const ankoleWebBrainControllerArchiveSourceMutation = (
+  options?: Partial<Options<AnkoleWebBrainControllerArchiveSourceData>>
+): UseMutationOptions<
+  AnkoleWebBrainControllerArchiveSourceResponse,
+  DefaultError,
+  Options<AnkoleWebBrainControllerArchiveSourceData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebBrainControllerArchiveSourceResponse,
+    DefaultError,
+    Options<AnkoleWebBrainControllerArchiveSourceData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebBrainControllerArchiveSource({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
  * Create embeddings through AIGateway
  */
 export const ankoleWebAiGatewayControllerEmbeddingsMutation = (
@@ -3608,7 +4240,7 @@ export const ankoleWebAgentLibraryControllerIndexQueryKey = (
 ) => createQueryKey('ankoleWebAgentLibraryControllerIndex', options)
 
 /**
- * Read the MISSION, SOUL, and DESIGN documents for one agent
+ * Read the MISSION, SOUL, DESIGN, and ConfidentialityPolicy documents for one agent
  */
 export const ankoleWebAgentLibraryControllerIndexOptions = (
   options: Options<AnkoleWebAgentLibraryControllerIndexData>
@@ -3851,7 +4483,7 @@ export const ankoleWebAiGatewayConversationControllerMessagesInfiniteOptions = (
 }
 
 /**
- * Replace one agent MISSION, SOUL, or DESIGN document
+ * Replace one agent MISSION, SOUL, DESIGN, or ConfidentialityPolicy document
  */
 export const ankoleWebAgentLibraryControllerUpdateMutation = (
   options?: Partial<Options<AnkoleWebAgentLibraryControllerUpdateData>>
@@ -3904,6 +4536,31 @@ export const ankoleWebAgentControllerPutProviderHostedMutation = (
   return mutationOptions
 }
 
+export const ankoleWebBrainControllerShowObjectQueryKey = (options: Options<AnkoleWebBrainControllerShowObjectData>) =>
+  createQueryKey('ankoleWebBrainControllerShowObject', options)
+
+/**
+ * Read one Brain object with full admin detail
+ */
+export const ankoleWebBrainControllerShowObjectOptions = (options: Options<AnkoleWebBrainControllerShowObjectData>) =>
+  queryOptions<
+    AnkoleWebBrainControllerShowObjectResponse,
+    DefaultError,
+    AnkoleWebBrainControllerShowObjectResponse,
+    ReturnType<typeof ankoleWebBrainControllerShowObjectQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebBrainControllerShowObject({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebBrainControllerShowObjectQueryKey(options)
+  })
+
 /**
  * Re-enable one disabled AIGateway provider
  */
@@ -3921,6 +4578,33 @@ export const ankoleWebAiGatewayProviderControllerEnableProviderMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await ankoleWebAiGatewayProviderControllerEnableProvider({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * Enqueue one learning run for a source
+ */
+export const ankoleWebBrainControllerLearnSourceMutation = (
+  options?: Partial<Options<AnkoleWebBrainControllerLearnSourceData>>
+): UseMutationOptions<
+  AnkoleWebBrainControllerLearnSourceResponse,
+  DefaultError,
+  Options<AnkoleWebBrainControllerLearnSourceData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebBrainControllerLearnSourceResponse,
+    DefaultError,
+    Options<AnkoleWebBrainControllerLearnSourceData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebBrainControllerLearnSource({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -4003,60 +4687,6 @@ export const ankoleWebPermissionGrantControllerUpdateMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await ankoleWebPermissionGrantControllerUpdate({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-/**
- * Delete one agent skill overlay
- */
-export const ankoleWebAgentLibrarySkillOverlayControllerDeleteMutation = (
-  options?: Partial<Options<AnkoleWebAgentLibrarySkillOverlayControllerDeleteData>>
-): UseMutationOptions<
-  AnkoleWebAgentLibrarySkillOverlayControllerDeleteResponse,
-  AnkoleWebAgentLibrarySkillOverlayControllerDeleteError,
-  Options<AnkoleWebAgentLibrarySkillOverlayControllerDeleteData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebAgentLibrarySkillOverlayControllerDeleteResponse,
-    AnkoleWebAgentLibrarySkillOverlayControllerDeleteError,
-    Options<AnkoleWebAgentLibrarySkillOverlayControllerDeleteData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebAgentLibrarySkillOverlayControllerDelete({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-/**
- * Replace one agent skill overlay
- */
-export const ankoleWebAgentLibrarySkillOverlayControllerUpdateMutation = (
-  options?: Partial<Options<AnkoleWebAgentLibrarySkillOverlayControllerUpdateData>>
-): UseMutationOptions<
-  AnkoleWebAgentLibrarySkillOverlayControllerUpdateResponse,
-  AnkoleWebAgentLibrarySkillOverlayControllerUpdateError,
-  Options<AnkoleWebAgentLibrarySkillOverlayControllerUpdateData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebAgentLibrarySkillOverlayControllerUpdateResponse,
-    AnkoleWebAgentLibrarySkillOverlayControllerUpdateError,
-    Options<AnkoleWebAgentLibrarySkillOverlayControllerUpdateData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebAgentLibrarySkillOverlayControllerUpdate({
         ...options,
         ...fnOptions,
         throwOnError: true

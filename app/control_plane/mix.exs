@@ -95,7 +95,7 @@ defmodule Ankole.MixProject do
   defp deps do
     [
       {:archdo, ">= 0.0.0", github: "BadBeta/archdo", only: :dev, runtime: false},
-      {:phoenix, "~> 1.8.11"},
+      {:phoenix, "~> 1.8.13"},
       {:phoenix_ecto, "~> 4.7"},
       {:ecto_sql, "~> 3.14"},
       {:postgrex, ">= 0.22.4"},
@@ -106,13 +106,15 @@ defmodule Ankole.MixProject do
       {:opentelemetry_exporter, "~> 1.10"},
       {:req, "~> 0.7"},
       {:mint_web_socket, "~> 1.0"},
-      {:telemetry_metrics, "~> 1.1"},
+      {:telemetry_metrics, "~> 1.2"},
       {:telemetry_poller, "~> 1.3"},
       {:localize, "~> 1.2"},
-      {:oban, "~> 2.23"},
+      {:oban, "~> 2.24"},
       {:crontab, "~> 1.2"},
       {:open_api_spex, "~> 3.22"},
       {:toml_elixir, "~> 3.1"},
+      {:yaml_elixir, "~> 2.12"},
+      {:pgvector, "~> 0.4"},
       {:tzdata, "~> 1.1"},
       {:hackney, "~> 4.7", override: true},
       {:h2, "~> 0.12", override: true},
@@ -126,7 +128,7 @@ defmodule Ankole.MixProject do
       {:microsoft_openapi, path: "../../libs/microsoft_openapi"},
       {:google_openapi, path: "../../libs/google_openapi"},
       {:wecom_openapi, path: "../../libs/wecom_openapi"},
-      {:dns_cluster, "~> 0.2"},
+      {:dns_cluster, "~> 0.3"},
       {:bandit, "~> 1.12"}
     ]
   end

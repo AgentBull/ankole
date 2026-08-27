@@ -1,6 +1,7 @@
 import { compareCodePointStrings } from '../../../common/ordering'
 import type { TurnStart } from '../../../lanes/actor_lane'
 import {
+  brainRPCRequester,
   rpcMethods,
   type AIGatewayAPIKeyResponse,
   type AgentPluginCatalogEntry,
@@ -17,8 +18,10 @@ import {
 } from '../../../browser-runtime'
 import { httpClientFromAIGatewayAPIKey } from '../../ai_gateway_transport'
 import { resolveAgentConversationContext } from '../../turns/turn_context'
+import { resolveBrainEnabled } from '../../turns/brain_context'
 import { resolveRenderedFetchRuntimeConfig } from '../../turns/rendered_fetch_runtime_config'
 import { createTurnWebTools } from '../../turns/turn_web_tools'
+import { createBrainJobTools } from '../../../tools/brain/brain-tools'
 import {
   materializeLarkCredential,
   sameLarkBindingIdentity,
@@ -159,7 +162,17 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput) {
     browserRuntime: opts.browserRuntime
   })
   opts.abortSignal?.throwIfAborted()
-  const projectedTools = baseWebTools.filter(tool => !providerHostedWebSearch || tool.name !== 'web_search')
+  // Jobs get the read-only Brain pair so they reuse instance knowledge
+  // instead of re-researching it; a failed read leaves Brain off this Job.
+  const brainEnabled = await resolveBrainEnabled(turnStart, opts.rpc, opts.logger)
+  opts.abortSignal?.throwIfAborted()
+  const brainTools = brainEnabled
+    ? createBrainJobTools({ requestBrainRPC: brainRPCRequester(opts.rpc, turnStart.turn) })
+    : []
+  const projectedTools = [
+    ...baseWebTools.filter(tool => !providerHostedWebSearch || tool.name !== 'web_search'),
+    ...brainTools
+  ]
   const projection = buildCodexJobProjection({ tools: projectedTools })
   projection.dynamicTools.push(parentInputToolSpec())
   const runtimeFiles = await materializeCodexJobRuntimeFiles({

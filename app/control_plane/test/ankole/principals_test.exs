@@ -82,11 +82,14 @@ defmodule Ankole.PrincipalsTest do
 
   describe "agents" do
     test "create_agent/1 creates an agent Principal with AI Colleague defaults" do
+      %{principal: owner} = human_fixture(%{uid: unique_uid("agent-owner")})
+
       assert {:ok, %{principal: principal, agent: agent}} =
                Principals.create_agent(%{
                  uid: " Research-Agent ",
                  display_name: "Research Agent",
-                 role: " Research Analyst "
+                 role: " Research Analyst ",
+                 owner_principal_uid: owner.uid
                })
 
       assert principal.uid == "research-agent"
@@ -96,6 +99,47 @@ defmodule Ankole.PrincipalsTest do
       assert agent.type == :ai_colleague
       assert agent.role == "Research Analyst"
       assert agent.options == %{}
+      assert agent.owner_principal_uid == owner.uid
+      assert agent.group_memory_disclosure_mode == :strict
+    end
+
+    test "create_agent/1 requires an owner principal" do
+      assert {:error, changeset} =
+               Principals.create_agent(%{
+                 uid: unique_uid("ownerless-agent"),
+                 role: "Research Analyst"
+               })
+
+      assert %{owner_principal_uid: [_]} = errors_on(changeset)
+    end
+
+    test "create_agent/1 and update_agent/2 require a human owner" do
+      %{principal: owner} = human_fixture(%{uid: unique_uid("agent-owner")})
+      %{principal: other_agent} = agent_fixture()
+
+      assert {:error, :agent_owner_must_be_human} =
+               Principals.create_agent(%{
+                 uid: unique_uid("agent-owned-agent"),
+                 role: "Research Analyst",
+                 owner_principal_uid: other_agent.uid
+               })
+
+      assert {:error, :agent_owner_not_found} =
+               Principals.create_agent(%{
+                 uid: unique_uid("ghost-owned-agent"),
+                 role: "Research Analyst",
+                 owner_principal_uid: "no-such-principal"
+               })
+
+      assert {:ok, %{agent: agent}} =
+               Principals.create_agent(%{
+                 uid: unique_uid("owned-agent"),
+                 role: "Research Analyst",
+                 owner_principal_uid: owner.uid
+               })
+
+      assert {:error, :agent_owner_must_be_human} =
+               Principals.update_agent(agent.uid, %{owner_principal_uid: other_agent.uid})
     end
 
     test "create_agent/1 requires role and object options" do
@@ -124,6 +168,7 @@ defmodule Ankole.PrincipalsTest do
                Principals.create_agent(%{
                  uid: unique_uid("created-agent"),
                  role: "Research Analyst",
+                 owner_principal_uid: creator.uid,
                  created_by_principal_uid: String.upcase(creator.uid)
                })
 

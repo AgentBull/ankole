@@ -37,8 +37,10 @@ const codexReservedResponsesNamespaces = new Set([
   'tool_search',
   'web'
 ])
-/** Default local tools exposed to a Background Agent Job. */
-export const codexJobToolPaths = new Set(['web_search', 'web_fetch'])
+/** Default local tools exposed to a Background Agent Job. `recall` and
+ * `get_page` are the read-only Brain pair; Brain write tools stay outside
+ * this allowlist by design. */
+export const codexJobToolPaths = new Set(['web_search', 'web_fetch', 'recall', 'get_page'])
 
 export type CodexJobProjection = {
   dynamicTools: DynamicToolSpec[]

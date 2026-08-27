@@ -23,6 +23,7 @@ defmodule AnkoleWeb.Session do
 
   @setup_session_key :setup_session
   @setup_oidc_state_key :setup_oidc_state
+  @setup_brain_packs_key :setup_brain_packs
   @admin_session_key :admin_session
   @admin_oidc_state_key :admin_oidc_state
   @local_password_change_key :local_password_change
@@ -55,6 +56,27 @@ defmodule AnkoleWeb.Session do
     conn
     |> delete_session(@setup_session_key)
     |> delete_session(@setup_oidc_state_key)
+    |> delete_session(@setup_brain_packs_key)
+  end
+
+  @doc """
+  Stores the Brain industry pack selection made during setup, so completion
+  can materialize it whichever identity path finishes the wizard.
+  """
+  @spec put_setup_brain_packs(Plug.Conn.t(), [String.t()]) :: Plug.Conn.t()
+  def put_setup_brain_packs(conn, packs) when is_list(packs),
+    do: put_expiring_session(conn, @setup_brain_packs_key, %{packs: packs}, @setup_ttl_seconds)
+
+  @doc """
+  Reads the stored Brain pack selection; missing or expired reads return an
+  empty selection (general only).
+  """
+  @spec setup_brain_packs(Plug.Conn.t()) :: [String.t()]
+  def setup_brain_packs(conn) do
+    case active_payload(get_session(conn, @setup_brain_packs_key)) do
+      %{"packs" => packs} when is_list(packs) -> packs
+      _missing -> []
+    end
   end
 
   @doc """

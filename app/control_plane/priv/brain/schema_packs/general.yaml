@@ -1,0 +1,134 @@
+# Ankole Brain schema pack seed. Installation materializes this content into
+# the brain_schema_* tables; after installation the tables are authoritative.
+# Rationale and admission tests live in docs/design-docs/BrainV3.md.
+api_version: ankole-brain-schema-pack-v1
+name: general
+version: 1.0.0
+description: Minimal instance ontology for any digital employee.
+extends: null
+
+# Suggested kind values for claim_type=take. BrainV3 separates fact and take
+# at claim_type, so GBrain's "fact" kind is not a take kind here.
+take_kinds: [take, bet, hunch]
+
+page_types:
+  # ============ entity ============
+  - name: person
+    primitive: entity
+    slug_prefix: people/
+    subtypes:
+      # internal: the canonical Object of a human Principal
+      # (people/<principal_uid>), system-written. external: every other person.
+      - internal
+      - external
+    extractable: false
+    expert_routing: true
+
+  - name: agent
+    primitive: entity
+    slug_prefix: agents/
+    subtypes:
+      # internal: canonical Object of this instance's digital employee
+      # (agents/<agent_uid>), system-written. external: third-party agents.
+      - internal
+      - external
+    extractable: false
+    expert_routing: true
+
+  - name: company
+    primitive: entity
+    slug_prefix: companies/
+    subtypes:
+      - company
+      # department: organization units are knowledge objects linked with
+      # part_of; Principal Groups stay a permission construct.
+      - department
+      - government
+      - nonprofit
+    extractable: false
+    expert_routing: true
+
+  # ============ temporal ============
+  - name: event
+    primitive: temporal
+    slug_prefix: events/
+    subtypes:
+      - meeting
+      - milestone
+      - incident
+      # external: events of the outside world. A news report is media/article;
+      # the event itself is this type.
+      - external
+    extractable: false
+    expert_routing: false
+
+  # ============ media ============
+  - name: media
+    primitive: media
+    slug_prefix: media/
+    subtypes:
+      - article
+      - video
+      - book
+      - podcast
+      - paper
+      - post
+    extractable: true
+    expert_routing: false
+
+  - name: document
+    # media is an external publication; document is a work document that this
+    # organization or its counterparties produce.
+    primitive: media
+    slug_prefix: documents/
+    subtypes:
+      - contract
+      - report
+      - policy
+    extractable: true
+    expert_routing: false
+
+  - name: analysis
+    # Agent research output and Dreaming synthesis pages. Evidence chains use
+    # derived_from links and Claim attribution.
+    primitive: media
+    slug_prefix: analysis/
+    extractable: true
+    expert_routing: false
+
+  # ============ concept ============
+  - name: project
+    primitive: concept
+    slug_prefix: projects/
+    extractable: false
+    expert_routing: false
+
+  - name: concept
+    primitive: concept
+    slug_prefix: concepts/
+    extractable: true
+    expert_routing: false
+
+  - name: note
+    # Fallback type: the legal exit when the write path rejects an undeclared
+    # type. Vocabulary terms as tags keep the promotion trail.
+    primitive: concept
+    slug_prefix: notes/
+    extractable: true
+    expert_routing: false
+
+link_types:
+  - {name: relates_to, inverse: relates_to}
+  - {name: mentions}
+  - {name: part_of, inverse: has_part}
+  - {name: works_at, inverse: employs}
+  - {name: founded, inverse: founded_by}
+  - {name: attended, inverse: attended_by}
+  - {name: authored, inverse: authored_by}
+  - {name: customer_of, inverse: vendor_of}
+  - {name: competes_with, inverse: competes_with}
+  - {name: derived_from}
+  - {name: sourced_from}
+  - {name: supersedes}
+
+calibration_domains: []

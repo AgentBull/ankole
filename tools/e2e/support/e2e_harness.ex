@@ -321,6 +321,25 @@ defmodule Ankole.E2E.Harness do
 
   # -- domain setup -----------------------------------------------------------
 
+  @doc """
+  Creates an e2e agent with the human owner every Agent now requires.
+  """
+  def create_e2e_agent!(attrs) do
+    owner_uid = "human-e2e-owner-#{System.unique_integer([:positive])}"
+
+    assert {:ok, %{principal: _owner}} =
+             Principals.create_human(%{
+               uid: owner_uid,
+               display_name: "E2E Agent Owner",
+               email: "#{owner_uid}@example.com"
+             })
+
+    assert {:ok, %{principal: _agent} = result} =
+             Principals.create_agent(Map.put(attrs, :owner_principal_uid, owner_uid))
+
+    result
+  end
+
   def setup_lark_domain!(fake_llm_port, fake_feishu) do
     uid =
       "agent-lark-e2e-#{System.system_time(:nanosecond)}-#{System.unique_integer([:positive])}"
@@ -328,12 +347,12 @@ defmodule Ankole.E2E.Harness do
     provider_id = "fake-openrouter-e2e-#{Ecto.UUID.generate()}"
     assert {:ok, %{skills: _count}} = Library.sync_builtin_skills(force: true)
 
-    assert {:ok, %{principal: agent}} =
-             Principals.create_agent(%{
-               uid: uid,
-               display_name: "Lark Chaos Agent",
-               role: "Reliability test agent"
-             })
+    %{principal: agent} =
+      create_e2e_agent!(%{
+        uid: uid,
+        display_name: "Lark Chaos Agent",
+        role: "Reliability test agent"
+      })
 
     create_fake_llm_provider!(provider_id, fake_llm_port, "sk-fake-chaos")
 
@@ -378,12 +397,12 @@ defmodule Ankole.E2E.Harness do
 
     provider_id = "fake-chaos2-#{Ecto.UUID.generate()}"
 
-    assert {:ok, %{principal: agent}} =
-             Principals.create_agent(%{
-               uid: uid,
-               display_name: "Lark Chaos Secondary Agent",
-               role: "Second reliability test agent"
-             })
+    %{principal: agent} =
+      create_e2e_agent!(%{
+        uid: uid,
+        display_name: "Lark Chaos Secondary Agent",
+        role: "Second reliability test agent"
+      })
 
     create_fake_llm_provider!(provider_id, fake_llm_port, "sk-fake-chaos-secondary")
 
@@ -418,12 +437,12 @@ defmodule Ankole.E2E.Harness do
     provider_id = "openrouter-lark-real-#{Ecto.UUID.generate()}"
     assert {:ok, %{skills: _count}} = Library.sync_builtin_skills(force: true)
 
-    assert {:ok, %{principal: agent}} =
-             Principals.create_agent(%{
-               uid: uid,
-               display_name: "Lark Real LLM Agent",
-               role: "Reliability test agent"
-             })
+    %{principal: agent} =
+      create_e2e_agent!(%{
+        uid: uid,
+        display_name: "Lark Real LLM Agent",
+        role: "Reliability test agent"
+      })
 
     assert {:ok, _provider} =
              ProviderConfigs.create_provider(%{

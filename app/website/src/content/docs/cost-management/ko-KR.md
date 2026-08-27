@@ -11,7 +11,7 @@ Ankole이 지출하는 비용의 대부분은 model token이며, 그중 대부�
 
 ## 레버 1: model-profile 계층
 
-10개의 profile 슬롯이 가장 큰 레버입니다. 각 슬롯은 model 선택이며, model 선택이 token 비용을 좌우합니다.
+8개의 내장 Agent profile은 서로 다른 유료 경로를 제어합니다. 5개는 언어 모델을 선택하고, 3개는 웹 검색, 웹 가져오기, 이미지 생성 기능을 연결합니다.
 
 | 슬롯 | 실행 시점 | 비용 레버 |
 |---|---|---|
@@ -20,9 +20,10 @@ Ankole이 지출하는 비용의 대부분은 model token이며, 그중 대부�
 | `heavy` | 어려운 종합(synthesis) 작업 | 비쌈. `primary`가 잘 조정되면 거의 사용되지 않음 |
 | Background Agent Jobs(내부적으로는 `coding`) | 모든 Background Agent Job | 지속적인 백그라운드 작업의 provider와 model을 선택 |
 | `vision_fallback` | `primary`가 이미지를 처리할 수 없을 때 | agent가 이미지를 볼 때만 바인딩 |
-| `embedding`, `rerank` | memory 및 검색(retrieval) | 호출당 과금, 보통 소액 |
 | `web_search`, `web_fetch` | web 도구 | 레버 3 참조 |
 | `image_generate` | 이미지 생성 | 호출당 비쌈. 사용할 때만 바인딩 |
+
+Brain에는 Agent profile과 별개인 인스턴스 공용 모델 설정이 5개 있습니다. `brain.embedding_model`과 `brain.rerank_model`은 검색을 제어합니다. `brain.web_fetch_model`은 URL Source를 읽고, `brain.extraction_model`은 대화와 Source에서 학습하며, `brain.dreaming_model`은 모델 기반 유지 관리와 Skill 교훈 재검토를 실행합니다. [AppConfigure](../app-configuration/)에서 한 번 설정하십시오. 비어 있는 설정은 관련 작업을 중지하거나 제한하며, **Brain → 상태**에 사용할 수 없는 작업이 표시됩니다. 전체 동작은 [Brain](../brain/)을 참조하십시오.
 
 가장 많이 절약하는 두 가지 조치:
 

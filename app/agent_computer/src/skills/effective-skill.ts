@@ -125,13 +125,6 @@ async function resolveSkillOverlayResponses(
   return overlays
 }
 
-export async function resolveSkillOverlay(
-  name: string,
-  input: { turn: ActorTurnRef; rpc: RPCRequester }
-): Promise<SkillOverlayResponse> {
-  return (await resolveSkillOverlayResponses([name], input)).get(name)!
-}
-
 function overlayText(response: SkillOverlayResponse): string {
   if (!response.hasOverlay) return ''
   const overlay = jsonObjectFromBytes(response.overlayJson, 'skill_overlay.overlay_json')

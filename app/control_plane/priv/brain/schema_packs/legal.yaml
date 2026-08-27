@@ -1,0 +1,23 @@
+# Ankole Brain schema pack seed. See docs/design-docs/BrainV3.md.
+api_version: ankole-brain-schema-pack-v1
+name: legal
+version: 1.0.0
+description: Law firm ontology increments.
+extends: general
+
+page_types:
+  - name: matter
+    primitive: temporal
+    slug_prefix: matters/
+    # Business-line split; procedural status belongs to Timeline, not subtype.
+    subtypes: [litigation, transaction, advisory, compliance]
+    extractable: false
+    expert_routing: false
+
+link_types:
+  - {name: represents, inverse: represented_by}
+  - {name: adverse_to, inverse: adverse_to}
+
+calibration_domains:
+  # Matter outcomes have a real adjudication flow, a natural resolution source.
+  - {name: matter_outcome, aggregator: scalar_brier}

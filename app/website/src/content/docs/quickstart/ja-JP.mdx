@@ -1248,24 +1248,20 @@ export const identityTabs = [
 ]
 
 export const modelAdvanced = {
-  title: '任意のモデルプロファイルと provider の調整',
-  summary: 'Agent が必要になるまで、任意の能力スロットは空のままにしてください。',
+  title: '任意の Agent profile と Brain モデル',
+  summary: 'Agent の能力 profile は必要な場合だけ設定します。Brain モデルはインスタンス全体に適用されます。',
   steps: [
     {
-      title: '任意の能力プロファイルを追加する',
+      title: '任意の Agent 能力 profile を追加する',
       fields: [
         {
           name: 'Background Agent Jobs',
           description:
-            '永続的な Background Agent Jobs を実行します。保存されるプロファイルキーは現在 coding です。メッセージにはコードが多く含まれるため、通常の会話はこれに切り替わりません。'
+            'coding profile を使って、永続的な Background Agent Jobs を実行します。メッセージにコードが多くても、通常の会話はこの profile を選びません。'
         },
         {
           name: 'vision_fallback',
           description: 'プライマリモデルが画像を検査できないときのフォールバック。'
-        },
-        {
-          name: 'embedding / rerank',
-          description: '取得と結果の順序付け用のモデル。'
         },
         {
           name: 'web_search / web_fetch',
@@ -1275,6 +1271,38 @@ export const modelAdvanced = {
           name: 'image_generate',
           description: '画像生成用のモデル。'
         }
+      ]
+    },
+    {
+      title: 'インスタンスの Brain モデルを設定する',
+      body: [
+        'Console → AppConfigure → Brain を開きます。これらの設定はすべての Agent に適用され、Agent profile には含まれません。'
+      ],
+      fields: [
+        {
+          name: 'brain.embedding_model',
+          description: 'ベクトル検索を有効にします。Provider とモデルを選び、embedding の次元数を入力します。'
+        },
+        {
+          name: 'brain.rerank_model',
+          description: '融合した検索結果を rerank します。空の場合は融合後の順序を保ちます。'
+        },
+        {
+          name: 'brain.web_fetch_model',
+          description: 'URL Source の読み取り可能な本文を取得します。'
+        },
+        {
+          name: 'brain.extraction_model',
+          description: 'Signal の会話と Source から知識を抽出します。'
+        },
+        {
+          name: 'brain.dreaming_model',
+          description: '知識を統合し、モデルが必要な保守タスクを実行します。'
+        }
+      ],
+      links: [
+        { label: 'Brain ガイド', href: '../brain/' },
+        { label: 'AppConfigure リファレンス', href: '../app-configuration/' }
       ]
     }
   ]
@@ -1853,8 +1881,8 @@ export const channelTabs = [
 ]
 
 export const signalAdvanced = {
-  title: 'グループ動作、秘密 memory、主体 namespace',
-  summary: '安全な最初の binding は、アドレス指定された場合にのみ返信し、デフォルトの共有 memory スコープを維持します。',
+  title: 'グループでの動作と identity mapping',
+  summary: '最初の設定では、Agent 宛のメッセージだけに返信させてください。',
   steps: [
     {
       title: 'Agent がアドレス指定されていないグループメッセージをどう処理するかを選択する',
@@ -1874,12 +1902,6 @@ export const signalAdvanced = {
       ],
       caution:
         'provider がそれらのメッセージを配信する必要があります。DingTalk と WeCom は addressed_only のみをサポートします。Slack と Lark は、部屋全体を観察できるようになる前に追加のイベントまたは scope が必要です。'
-    },
-    {
-      title: '秘密 memory は機密性の高いチャンネルにのみ使用する',
-      body: [
-        'デフォルトの共有スコープにより、Agent は会話を共有知識として使用できます。秘密 memory は、そのチャンネルの呼び出された履歴をチャンネルのスコープ内に保ちます。'
-      ]
     },
     {
       title: 'namespace を identity マッピングのキーとして扱う',

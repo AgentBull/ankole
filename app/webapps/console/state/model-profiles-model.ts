@@ -1,14 +1,14 @@
 import { recordValue, type JsonObject as JSONObject } from '@agentbull/active-support'
 import { batch, createModel, signal } from '@preact/signals-react'
 
+// Embedding and rerank are not Agent profile slots: Brain owns those models
+// instance-wide through the brain.* settings.
 export const PROFILE_NAMES = [
   'primary',
   'light',
   'heavy',
   'coding',
   'vision_fallback',
-  'embedding',
-  'rerank',
   'web_search',
   'web_fetch',
   'image_generate'

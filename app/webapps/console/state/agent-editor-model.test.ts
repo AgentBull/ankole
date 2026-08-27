@@ -13,6 +13,8 @@ describe('AgentEditorModel', () => {
       uid: 'alpha',
       displayName: 'Alpha',
       avatarURL: '',
+      ownerPrincipalUID: 'operator',
+      groupMemoryDisclosureMode: 'strict' as const,
       role: 'Research Analyst'
     })
     expect(model.dirty.value).toBe(false)
@@ -22,6 +24,8 @@ describe('AgentEditorModel', () => {
       uid: 'alpha',
       displayName: 'Refetched Alpha',
       avatarURL: '',
+      ownerPrincipalUID: 'operator',
+      groupMemoryDisclosureMode: 'strict' as const,
       role: 'Research Analyst'
     })
 
@@ -31,6 +35,8 @@ describe('AgentEditorModel', () => {
       uid: 'beta',
       displayName: 'Beta',
       avatarURL: '',
+      ownerPrincipalUID: 'operator',
+      groupMemoryDisclosureMode: 'strict' as const,
       role: 'Operator'
     })
 
@@ -41,13 +47,15 @@ describe('AgentEditorModel', () => {
     model[Symbol.dispose]()
   })
 
-  test('reports the required display name, UID, and role before submission', () => {
+  test('reports the required display name, UID, role, and owner before submission', () => {
     const model = new AgentEditorModel()
 
     model.initialize('new', {
       uid: '',
       displayName: '',
       avatarURL: '',
+      ownerPrincipalUID: '',
+      groupMemoryDisclosureMode: 'strict' as const,
       role: ''
     })
     expect(model.draftError('new')).toBe('display_name_required')
@@ -60,6 +68,10 @@ describe('AgentEditorModel', () => {
     expect(model.draftError('edit')).toBe('role_required')
 
     model.role.value = 'Research Analyst'
+    expect(model.draftError('new')).toBe('owner_required')
+    expect(model.draftError('edit')).toBe('owner_required')
+
+    model.ownerPrincipalUID.value = 'operator'
     expect(model.draftError('new')).toBeUndefined()
     model[Symbol.dispose]()
   })
@@ -71,6 +83,8 @@ describe('AgentEditorModel', () => {
       uid: 'legacy-agent',
       displayName: '',
       avatarURL: '',
+      ownerPrincipalUID: 'operator',
+      groupMemoryDisclosureMode: 'strict' as const,
       role: 'Legacy Operator'
     })
 
@@ -89,6 +103,8 @@ describe('AgentEditorModel', () => {
       uid: '',
       displayName: '',
       avatarURL: '',
+      ownerPrincipalUID: 'operator',
+      groupMemoryDisclosureMode: 'strict' as const,
       role: 'Research Analyst'
     })
 
@@ -121,6 +137,8 @@ describe('AgentEditorModel', () => {
       uid: '',
       displayName: 'Invalid UID Agent',
       avatarURL: '',
+      ownerPrincipalUID: 'operator',
+      groupMemoryDisclosureMode: 'strict' as const,
       role: 'Research Analyst'
     })
     model.setUID('Invalid UID')

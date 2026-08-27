@@ -88,11 +88,11 @@ The Agent Library is what an agent can do — its plugins and skills. The Consol
 | `PUT` | `/agents/:agent_uid/library-capabilities/skills/:id` | Override a skill for one agent |
 | `GET` | `/agents/:agent_uid/library-documents` | List library documents for an agent |
 | `PUT` | `/agents/:agent_uid/library-documents/:document_kind` | Set a library document |
-| `GET` | `/agents/:agent_uid/library-skill-overlays` | List skill overlays |
-| `PUT` | `/agents/:agent_uid/library-skill-overlays/:skill_name` | Set a skill overlay |
-| `DELETE` | `/agents/:agent_uid/library-skill-overlays/:skill_name` | Remove a skill overlay |
+| `GET` | `/agents/:agent_uid/skill-lessons` | List active and retired Skill lessons |
+| `POST` | `/agents/:agent_uid/skill-lessons` | Add a human Skill lesson to an enabled Skill |
+| `POST` | `/agents/:agent_uid/skill-lessons/:lesson_id/retire` | Retire a Skill lesson |
 
-A capability is enabled globally, then narrowed or widened per agent. Skill overlays let an operator customize how a skill behaves for one agent without forking it.
+A capability is enabled globally, then narrowed or widened per agent. Skill lessons give one Agent additional process guidance without changing the Skill source. The list includes evidence and retirement history. A retired lesson stops being delivered, and Dreaming keeps human-retired content on its never-relearn list. See [Skill lessons](../skill-lessons/) for the lifecycle and limits.
 
 ### Environment variables (WorkerEnv)
 

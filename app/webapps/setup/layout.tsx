@@ -1,8 +1,21 @@
+import { Card, CardContent, CardHeader, CardTitle } from '@ankole/uikit/components/card'
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ThemeToggle } from '../common/theme-toggle'
 import logoDark from './logo-dark.svg'
 import backgroundImageURL from './marjan-taghipour-0fof1Z4CwQo-unsplash.jpg'
+
+/** Shared setup panel frame used by every step. */
+export function SetupPanel({ children, title }: { children: ReactNode; title: string }) {
+  return (
+    <Card className="w-full rounded-none border-border/70 bg-background/90 backdrop-blur">
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-6">{children}</CardContent>
+    </Card>
+  )
+}
 
 /** Provides the visual frame for the setup-only SPA. */
 export function SetupLayout({ children }: { children: ReactNode }) {

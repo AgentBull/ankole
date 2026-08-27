@@ -72,6 +72,27 @@ AppConfigure 목록에는 인스턴스 오버라이드 또는 버전 기본값�
 | `ai_agent.library.agent_plugin_defaults` | 인스턴스 | Agent Plugin의 기본 활성화 상태 |
 | `ai_agent.library.skill_defaults` | 인스턴스 | Skill의 기본 활성화 상태 |
 
+### Brain
+
+| 키 | 범위 | 용도 |
+|---|---|---|
+| `brain.enabled` | 인스턴스 | Brain 검색, 학습, 유지 관리를 활성화합니다. 비활성화해도 저장된 지식은 유지됩니다. |
+| `brain.embedding_model` | 인스턴스 | 벡터 검색에 사용할 Provider, 모델, 차원 수입니다. 비어 있으면 벡터 검색을 비활성화합니다. |
+| `brain.rerank_model` | 인스턴스 | 검색 결과 rerank에 사용할 Provider와 모델입니다. 비어 있으면 융합 결과 순서를 유지합니다. |
+| `brain.web_fetch_model` | 인스턴스 | URL Source 학습에 사용할 Provider와 모델입니다. 비어 있으면 URL Source 학습을 중지합니다. |
+| `brain.extraction_model` | 인스턴스 | Signal 대화와 Source에서 지식을 추출할 모델입니다. 비어 있으면 관련 학습 작업을 중지합니다. |
+| `brain.dreaming_model` | 인스턴스 | 지식을 통합하고 사람이 검토할 모순을 찾는 모델입니다. 비어 있으면 모델이 필요한 유지 관리 작업을 건너뜁니다. |
+| `brain.search_tokenizer` | 인스턴스 | BM25 tokenizer: `icu`, `jieba`, `lindera_japanese`, `lindera_korean`. 변경 후에는 BM25 index를 다시 만들어야 합니다. |
+| `brain.chunking` | 인스턴스 | Source chunk 크기, overlap, 입력 상한입니다. |
+| `brain.forgetting` | 인스턴스 | 지식 종류별 감쇠 반감기와 soft-delete purge 간격입니다. |
+| `brain.dreaming_task_cron` | 인스턴스 | 정기 지식 통합 schedule입니다. |
+| `brain.self_healing_task_cron` | 인스턴스 | 오래된 chunk, embedding, 검색 index projection을 다시 만드는 schedule입니다. |
+| `brain.signal_channel_batch_idle_time` | 인스턴스 | 대기 중인 chat message가 학습에 들어가기 전까지의 idle 초입니다. 대화 종료 시에도 학습을 시작합니다. |
+| `brain.skill_learning_enabled` | 인스턴스 | Skill lesson 학습과 전달을 활성화합니다. 비활성화하면 저장된 lesson은 유지되지만 제공되지 않습니다. |
+| `brain.skill_learning_reflection_threshold` | 인스턴스 | Agent 하나가 Skill lesson reflection을 시작하기 전에 쌓아야 하는, 아직 소비되지 않은 Signal Job 수입니다. 최솟값은 `2`입니다. |
+
+지식 동작과 모델 요구 사항은 [Brain](../brain/)을 참조하십시오. Skill과 함께 제공되는 lesson은 [Skill lessons](../skill-lessons/)를 참조하십시오.
+
 ### AI Gateway 및 observability
 
 | 키 | 범위 | 용도 |

@@ -12,6 +12,7 @@ defmodule AnkoleWeb.SetupController do
   alias Ankole.I18n
   alias Ankole.Principals
   alias Ankole.Principals.HumanUser
+  alias Ankole.Brain.SchemaPacks
   alias Ankole.Setup.Bootstrap
   alias Ankole.Plugins
   alias Ankole.Setup.Completion, as: SetupCompletion
@@ -206,6 +207,73 @@ defmodule AnkoleWeb.SetupController do
   end
 
   @doc """
+  Lists the Brain schema packs a setup can select: the always-installed base
+  pack and the selectable industry packs with their seed descriptions.
+  """
+  def brain_packs(conn, _params) do
+    with :ok <- require_setup_session(conn) do
+      packs =
+        [SchemaPacks.base_pack() | SchemaPacks.industry_packs()]
+        |> Enum.map(fn name ->
+          required = name == SchemaPacks.base_pack()
+
+          case SchemaPacks.load_seed(name) do
+            {:ok, %{manifest: manifest}} ->
+              %{
+                name: name,
+                description: manifest["description"],
+                version: manifest["version"],
+                required: required
+              }
+
+            {:error, _reason} ->
+              %{name: name, description: nil, version: nil, required: required}
+          end
+        end)
+
+      json(conn, %{packs: packs, selected: WebSession.setup_brain_packs(conn)})
+    else
+      {:error, status, reason} -> error(conn, status, reason)
+    end
+  end
+
+  @doc """
+  Stores the industry pack selection in the setup session; completion
+  materializes it whichever identity path finishes the wizard.
+  """
+  def put_brain_packs(conn, params) do
+    with :ok <- require_setup_session(conn),
+         {:ok, packs} <- validate_brain_packs(params["packs"]) do
+      conn
+      |> WebSession.put_setup_brain_packs(packs)
+      |> json(%{packs: packs})
+    else
+      {:error, status, reason} -> error(conn, status, reason)
+      {:error, reason} -> error(conn, 422, reason)
+    end
+  end
+
+  defp validate_brain_packs(packs) when is_list(packs) do
+    with :ok <- ensure_pack_names(packs) do
+      industry = SchemaPacks.industry_packs()
+      packs = packs -- [SchemaPacks.base_pack()]
+
+      case Enum.reject(packs, &(&1 in industry)) do
+        [] -> {:ok, Enum.uniq(packs)}
+        unknown -> {:error, "unknown brain packs: #{Enum.join(unknown, ", ")}"}
+      end
+    end
+  end
+
+  defp validate_brain_packs(_packs), do: {:error, "packs must be a list of pack names"}
+
+  defp ensure_pack_names(packs) do
+    if Enum.all?(packs, &is_binary/1),
+      do: :ok,
+      else: {:error, "packs must be a list of pack names"}
+  end
+
+  @doc """
   Creates the local administrator account and completes setup.
 
   This is the local-password twin of the setup OIDC callback: it creates the
@@ -217,9 +285,12 @@ defmodule AnkoleWeb.SetupController do
     with :ok <- require_setup_session(conn),
          {:ok, email} <- validate_local_admin_email(params["email"]),
          :ok <- validate_local_admin_password(params["password"]),
+         # The session is the single owner of the pack selection; both
+         # identity paths (this one and the setup OIDC callback) read it.
+         brain_packs = WebSession.setup_brain_packs(conn),
          {:ok, provider} <- require_local_provider(),
          {:ok, principal_uid} <- ensure_local_admin_account(email, params["password"]),
-         {:ok, _root} <- SetupCompletion.complete_with_root_admin(principal_uid) do
+         {:ok, _root} <- SetupCompletion.complete_with_root_admin(principal_uid, brain_packs) do
       conn
       |> WebSession.clear_setup_session()
       |> WebSession.put_admin_session(%{

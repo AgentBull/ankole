@@ -17,6 +17,14 @@ import { WorkerFilesPage, WorkersListPage } from './pages/workers'
 import { BackgroundAgentJobsPage } from './pages/background-agent-jobs'
 import { ConversationDetailPage, ConversationsListPage } from './pages/conversations'
 import { AgentLibraryPage, AgentPluginDetailPage } from './pages/agent-library'
+import { BrainObjectDrawer, BrainObjectsPage } from './pages/brain/objects'
+import { BrainClaimsPage } from './pages/brain/claims'
+import { BrainContradictionsPage } from './pages/brain/contradictions'
+import { BrainSuggestionsPage } from './pages/brain/suggestions'
+import { BrainSourcesPage } from './pages/brain/sources'
+import { BrainSearchPreviewPage } from './pages/brain/search-preview'
+import { BrainPrincipalAuditPage } from './pages/brain/principal-audit'
+import { BrainHealthPage } from './pages/brain/health'
 import { PrincipalGroupEditorPage, PrincipalGroupsListPage } from './pages/principal-groups'
 import { PrincipalCreatePage } from './pages/principal-create'
 import { PrincipalEditPage } from './pages/principal-edit'
@@ -64,6 +72,19 @@ export function createConsoleRouter(queryClient: QueryClient) {
               { path: 'agents/:uid', element: <AgentEditorPage /> },
               { path: 'agent-library', element: <AgentLibraryPage />, ...preloadRoute(loaders.agentLibrary) },
               { path: 'agent-library/agent-plugins/:pluginID', element: <AgentPluginDetailPage /> },
+              { path: 'brain', element: <Navigate to="/brain/objects" replace /> },
+              {
+                path: 'brain/objects',
+                element: <BrainObjectsPage />,
+                children: [{ path: '*', element: <BrainObjectDrawer /> }]
+              },
+              { path: 'brain/claims', element: <BrainClaimsPage /> },
+              { path: 'brain/contradictions', element: <BrainContradictionsPage /> },
+              { path: 'brain/suggestions', element: <BrainSuggestionsPage /> },
+              { path: 'brain/sources', element: <BrainSourcesPage /> },
+              { path: 'brain/search-preview', element: <BrainSearchPreviewPage /> },
+              { path: 'brain/principal-audit', element: <BrainPrincipalAuditPage /> },
+              { path: 'brain/health', element: <BrainHealthPage /> },
               { path: 'providers', element: <ProvidersListPage />, ...preloadRoute(loaders.providers) },
               { path: 'providers/new', element: <ProviderEditorPage /> },
               { path: 'providers/:providerID', element: <ProviderEditorPage /> },

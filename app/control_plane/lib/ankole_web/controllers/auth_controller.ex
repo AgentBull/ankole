@@ -350,7 +350,11 @@ defmodule AnkoleWeb.AuthController do
            Login.complete_oidc_login(provider_id, code, redirect_uri: oidc_state["redirect_uri"]),
          # The first OIDC user becomes the root admin only inside the setup flow.
          # Normal admin login below must pass the already-created AuthZ check.
-         {:ok, _root} <- SetupCompletion.complete_with_root_admin(login.principal_uid) do
+         {:ok, _root} <-
+           SetupCompletion.complete_with_root_admin(
+             login.principal_uid,
+             WebSession.setup_brain_packs(conn)
+           ) do
       conn
       |> WebSession.clear_setup_session()
       |> WebSession.put_admin_session(%{

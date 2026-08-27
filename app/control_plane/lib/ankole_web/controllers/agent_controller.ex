@@ -334,6 +334,8 @@ defmodule AnkoleWeb.AgentController do
       type: Atom.to_string(agent.type),
       role: agent.role,
       options: agent.options || %{},
+      owner_principal_uid: agent.owner_principal_uid,
+      group_memory_disclosure_mode: Atom.to_string(agent.group_memory_disclosure_mode),
       created_by_principal_uid: agent.created_by_principal_uid,
       inserted_at: DateTime.to_iso8601(agent.inserted_at),
       updated_at: DateTime.to_iso8601(agent.updated_at)

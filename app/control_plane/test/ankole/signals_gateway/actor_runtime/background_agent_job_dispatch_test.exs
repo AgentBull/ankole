@@ -829,6 +829,15 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     assert successor.source_actor_event_id == steer_event.id
     assert successor.metadata["seeded_from_steer"] == true
 
+    # The Worker resolves every Job turn's conversation from
+    # metadata.owner_conversation_id; a successor without it cannot start.
+    source_job = Repo.get!(Ankole.BackgroundAgentJobs.Schemas.Job, job.id)
+
+    assert successor.metadata["owner_conversation_id"] ==
+             source_job.metadata["owner_conversation_id"]
+
+    assert is_binary(successor.metadata["owner_conversation_id"])
+
     assert Repo.get!(Ankole.SignalsGateway.ActorEvent, steer_event.id).completed_at != nil
     assert get_in(wakeup.payload, ["data", "successor_job_id"]) == successor.id
   end

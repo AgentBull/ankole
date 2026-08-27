@@ -333,7 +333,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
          {:ok, steer_outcome} <-
            resolve_open_steers_after_commit(repo, job, now, turn_ref, opts),
          :ok <- maybe_release_worker_assignment(repo, job, turn_ref),
-         {:ok, wakeup_event} <- append_wakeup_event(repo, job, now, steer_outcome),
+         {:ok, wakeup_event} <- conclude_job_transition(repo, job, now, steer_outcome),
          :ok <- maybe_nudge_queued_after_status_commit(repo, job, now, turn_ref) do
       {:ok, %{job: job, wakeup_event: wakeup_event}}
     else
@@ -800,6 +800,28 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
 
   defp ensure_runtime_projection(repo, %Job{} = job, %{} = turn_start_spec),
     do: RuntimeProjection.capture(repo, job.agent_uid, turn_start_spec)
+
+  # A skill-lesson reflection is a system job: its end must wake no session.
+  # A succeeded reflection instead enqueues the apply worker inside this
+  # transaction, so lessons land only after the terminal status is durable.
+  defp conclude_job_transition(
+         _repo,
+         %Job{metadata: %{"skill_lesson_reflection" => true}} = job,
+         _now,
+         _steer_outcome
+       ) do
+    if job.status == "succeeded" do
+      {:ok, _oban_job} =
+        %{"job_id" => job.id}
+        |> Ankole.Brain.Jobs.ApplySkillLessons.new()
+        |> Oban.insert()
+    end
+
+    {:ok, nil}
+  end
+
+  defp conclude_job_transition(repo, %Job{} = job, now, steer_outcome),
+    do: append_wakeup_event(repo, job, now, steer_outcome)
 
   defp append_wakeup_event(repo, %Job{} = job, now, steer_outcome) do
     case wakeup_event_type(job.status) do

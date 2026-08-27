@@ -98,13 +98,13 @@ Control Plane Plugin 不属于 OpenAI Plugin，也不会进入 Agent 的工作�
 
 Agent Plugin 可以包含多个 Skill。关闭父 Plugin 会让其中的 Skill 暂时不可用，但不会改写每个 Skill 原有的设置。以后重新开启父 Plugin 时，各 Skill 会恢复自己的有效状态。
 
-### 复核 Skill 经验
+### 复核技能教训
 
-Agent 在使用 Skill 时，可以积累只属于自己的长期注意事项，例如某个内部系统的约定或已经验证过的操作细节。这些内容显示为**技能经验**，Agent 会在读取 Skill 时一并看到。
+Agent 可以在完整 Skill 说明中收到带日期的过程注意事项。Dreaming 从 Job 证据中提炼带租约的教训，运维人员也可以新增人工教训。共享的 `SKILL.md` 保持不变。
 
-打开 Agent Plugin 详情或知识库中的**技能经验**即可复核。需要人工补充时，先写清适用场景，再写需要注意的事项。
+把 Agent 能力库的作用域切换到目标 Agent，再找到 Skill 卡片。卡片会列出生效和已退场的教训、证据 Job、复审日期与退场原因。运维人员可以新增教训或让教训退场；Agent 会从下一轮开始停止读取已退场的教训。
 
-不要把通用规则重复写到每个 Agent 的经验中；通用内容应回到 Skill 来源统一修改。
+不要把通用规则重复写入每个 Agent 的教训。适用于所有 Agent 的规则应写入 Skill 来源。证据规则、租约和配置见[技能教训](../skill-lessons/)。
 
 ## 管理 Control Plane Plugin
 

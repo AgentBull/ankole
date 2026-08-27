@@ -26,6 +26,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
     Binding,
     BindingMembership,
     Channel,
+    IMGroupMembers,
     Projection
   }
 
@@ -245,7 +246,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
       with {:ok, group} <- ensure_conversation_group(context, config, mirror),
            {:ok, members} <- list_members(client, mirror),
            {:ok, uids} <- member_principal_uids(config, members),
-           {:ok, replace} <- AuthZ.replace_static_group_members(group.id, :im_group, uids) do
+           {:ok, replace} <- IMGroupMembers.replace_members(group.id, uids) do
         {:ok,
          %{
            conversation_id: mirror.conversation_id,
@@ -574,7 +575,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
 
           with {:ok, group} <- AuthZ.update_principal_group(group, %{metadata: metadata}) do
             if BindingMembership.all_left?(metadata) do
-              with {:ok, result} <- AuthZ.replace_static_group_members(group.id, :im_group, []) do
+              with {:ok, result} <- IMGroupMembers.replace_members(group.id, []) do
                 {:ok,
                  %{
                    status: :all_participants_left,
@@ -583,7 +584,11 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
                  }}
               end
             else
-              {:ok, %{status: :participant_marked_left, group_id: group.id}}
+              # A leaving Agent loses its mirrored membership row at once,
+              # the same way a leaving human does.
+              with {:ok, _delta} <- IMGroupMembers.reconcile_agent_members(group.id) do
+                {:ok, %{status: :participant_marked_left, group_id: group.id}}
+              end
             end
           end
 
@@ -606,7 +611,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
           metadata = BindingMembership.mark_all_left(group.metadata)
 
           with {:ok, group} <- AuthZ.update_principal_group(group, %{metadata: metadata}),
-               {:ok, result} <- AuthZ.replace_static_group_members(group.id, :im_group, []) do
+               {:ok, result} <- IMGroupMembers.replace_members(group.id, []) do
             {:ok,
              %{
                status: :conversation_gone,

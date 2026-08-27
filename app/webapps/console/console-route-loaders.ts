@@ -5,7 +5,7 @@ import {
   ankoleWebAgentControllerIndexOptions,
   ankoleWebAgentLibraryCapabilityControllerAgentIndexOptions,
   ankoleWebAgentLibraryCapabilityControllerGlobalIndexOptions,
-  ankoleWebAgentLibrarySkillOverlayControllerIndexOptions,
+  ankoleWebAgentSkillLessonControllerIndexOptions,
   ankoleWebAppConfigurationControllerIndexOptions,
   ankoleWebAuthZGroupControllerIndexOptions,
   ankoleWebAutomationJobControllerIndexOptions,
@@ -62,7 +62,7 @@ export function createConsoleRouteLoaders(queryClient: QueryClient) {
         : all(
             agents,
             ensure(ankoleWebAgentLibraryCapabilityControllerAgentIndexOptions({ path: { agent_uid: scope } })),
-            ensure(ankoleWebAgentLibrarySkillOverlayControllerIndexOptions({ path: { agent_uid: scope } }))
+            ensure(ankoleWebAgentSkillLessonControllerIndexOptions({ path: { agent_uid: scope } }))
           )
     },
     providers: () => ensure(ankoleWebAIGatewayProviderControllerIndexOptions()).then(() => null),

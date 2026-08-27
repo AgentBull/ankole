@@ -429,8 +429,9 @@ export class CodexAppServerClient {
   }
 
   /**
-   * Codex 0.147 rejects an unknown method before request scheduling or config
-   * handling. Its JSON-RPC error proves that the stdio request path is alive.
+   * The pinned Codex app-server rejects an unknown method before request
+   * scheduling or config handling. Its JSON-RPC error proves that the stdio
+   * request path is alive.
    */
   private async probeResponsive(): Promise<boolean> {
     if (this.closed) return false

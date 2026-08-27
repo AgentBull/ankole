@@ -117,9 +117,15 @@ defmodule Ankole.AIGateway.Conversations do
   def end_active_conversation_in_tx(repo, subject_uid, conversation_key, %DateTime{} = now) do
     case active_conversation_for_update(repo, subject_uid, conversation_key) do
       %Conversation{} = conversation ->
-        conversation
-        |> Ecto.Changeset.change(ended_at: now)
-        |> repo.update()
+        with {:ok, ended} <-
+               conversation
+               |> Ecto.Changeset.change(ended_at: now)
+               |> repo.update() do
+          # Brain learns from channel slices when their conversation ends;
+          # the trigger commits atomically with ended_at.
+          :ok = Ankole.Brain.SignalsTriggers.conversation_ended_in_tx(repo, conversation_key)
+          {:ok, ended}
+        end
 
       nil ->
         {:ok, nil}

@@ -1478,13 +1478,10 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
   end
 
   defp agent_fixture do
-    {:ok, result} =
-      Ankole.Principals.create_agent(%{
-        uid: "agent-#{System.unique_integer([:positive])}",
-        display_name: "Agent",
-        role: "Operator"
-      })
-
-    result
+    Ankole.PrincipalsFixtures.agent_fixture(%{
+      uid: "agent-#{System.unique_integer([:positive])}",
+      display_name: "Agent",
+      role: "Operator"
+    })
   end
 end

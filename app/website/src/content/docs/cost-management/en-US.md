@@ -11,7 +11,7 @@ The decisive property, stated up front: cost is a function of *which model runs,
 
 ## Lever 1: the model-profile tiers
 
-The ten profile slots are the biggest lever. Each one is a model choice, and model choice dominates token cost.
+The eight built-in Agent profiles control separate paid paths. Five select language models. Three bind web-search, web-fetch, and image-generation capabilities.
 
 | Slot | When it runs | Cost lever |
 |---|---|---|
@@ -20,9 +20,10 @@ The ten profile slots are the biggest lever. Each one is a model choice, and mod
 | `heavy` | hard synthesis | expensive; used rarely if `primary` is well-tuned |
 | Background Agent Jobs (`coding` internally) | every Background Agent Job | selects the provider and model for durable background work |
 | `vision_fallback` | when `primary` cannot handle an image | only bound if the agent sees images |
-| `embedding`, `rerank` | memory and retrieval | priced per-call, usually small |
 | `web_search`, `web_fetch` | web tools | see Lever 3 |
 | `image_generate` | image generation | expensive per call; only bound if used |
+
+Brain has five instance-wide model settings, separate from Agent profiles. `brain.embedding_model` and `brain.rerank_model` control retrieval. `brain.web_fetch_model` reads URL Sources, `brain.extraction_model` learns from conversations and Sources, and `brain.dreaming_model` runs model-dependent maintenance and Skill lesson review. Configure them once in [AppConfigure](../app-configuration/). Empty settings stop or narrow the related work, and **Brain → Health** reports what is unavailable. See [Brain](../brain/) for the full behavior.
 
 Two moves save the most:
 

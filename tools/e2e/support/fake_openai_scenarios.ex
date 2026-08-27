@@ -83,9 +83,6 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
       String.contains?(prompt, "CHAOS_SKILL_VIEW") ->
         :skill_view_tool
 
-      String.contains?(prompt, "CHAOS_SKILL_APPEND") ->
-        :skill_append_tool
-
       String.contains?(prompt, "CHAOS_SKILL_DISABLED") ->
         :skill_disabled_tool
 
@@ -251,7 +248,6 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
       {"CHAOS_TODO_TOOL", "CHAOS_TODO_TOOL"},
       {"CHAOS_SKILL_VIEW_ALL", "CHAOS_SKILL_VIEW_ALL"},
       {"CHAOS_SKILL_VIEW", "CHAOS_SKILL_VIEW"},
-      {"CHAOS_SKILL_APPEND", "CHAOS_SKILL_APPEND"},
       {"CHAOS_SKILL_DISABLED", "CHAOS_SKILL_DISABLED"},
       {"CHAOS_INSTALLED_SKILL_DELETED", "CHAOS_INSTALLED_SKILL_DELETED"},
       {"CHAOS_INSTALLED_SKILL", "CHAOS_INSTALLED_SKILL"},
@@ -356,7 +352,6 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
         "CHAOS_TODO_TOOL",
         "CHAOS_SKILL_VIEW_ALL",
         "CHAOS_SKILL_VIEW",
-        "CHAOS_SKILL_APPEND",
         "CHAOS_SKILL_DISABLED",
         "CHAOS_INSTALLED_SKILL_DELETED",
         "CHAOS_INSTALLED_SKILL",
@@ -387,11 +382,11 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
 
   defp reply_for(:ambient_decision),
     do:
-      ~s({"should_proactively_speak":true,"reason":"fake Feishu chaos handoff needs a visible reply"})
+      ~s({"action":"FOREGROUND_REPLY","authority":"NONE","handoff_job_id":null,"asked_by":null,"reason":"fake Feishu chaos needs a visible reply"})
 
   defp reply_for(:ambient_noop_decision),
     do:
-      ~s({"should_proactively_speak":false,"reason":"fake Feishu chaos says the agent should stay silent"})
+      ~s({"action":"NOOP","authority":"NONE","handoff_job_id":null,"asked_by":null,"reason":"fake Feishu chaos says the agent should stay silent"})
 
   defp reply_for(:after_new_recall), do: "CHAOS_AFTER_NEW_RECALL_OK"
   defp reply_for(:ambient_reply), do: "CHAOS_AMBIENT_OK"
@@ -415,7 +410,6 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
   defp reply_for(:reply_attachment), do: "CHAOS_REPLY_ATTACHMENT_OK"
   defp reply_for(:installed_skill_deleted_tool), do: "CHAOS_INSTALLED_SKILL_DELETED_OK"
   defp reply_for(:installed_skill_tool), do: "CHAOS_INSTALLED_SKILL_OK"
-  defp reply_for(:skill_append_tool), do: "CHAOS_SKILL_APPEND_OK"
   defp reply_for(:skill_disabled_tool), do: "CHAOS_SKILL_DISABLED_OK"
   defp reply_for(:skill_view_all_tool), do: "CHAOS_SKILL_VIEW_ALL_OK"
   defp reply_for(:skill_view_tool), do: "CHAOS_SKILL_VIEW_OK"
@@ -435,7 +429,6 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
        when kind in [
               :skill_view_tool,
               :skill_view_all_tool,
-              :skill_append_tool,
               :skill_disabled_tool,
               :installed_skill_tool,
               :installed_skill_deleted_tool

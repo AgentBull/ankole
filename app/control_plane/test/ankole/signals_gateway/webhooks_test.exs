@@ -97,9 +97,7 @@ defmodule Ankole.SignalsGateway.WebhooksTest do
 
     on_exit(fn ->
       Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
-        Ankole.Principals.Principal
-        |> where([principal], principal.uid == ^agent_uid)
-        |> Repo.delete_all()
+        delete_agent_fixture_rows(agent_uid)
       end)
     end)
 

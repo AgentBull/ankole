@@ -1,0 +1,23 @@
+# Ankole Brain schema pack seed. See docs/design-docs/BrainV3.md.
+api_version: ankole-brain-schema-pack-v1
+name: consulting
+version: 1.0.0
+description: Consulting firm ontology increments.
+extends: general
+
+page_types:
+  - name: engagement
+    primitive: temporal
+    slug_prefix: engagements/
+    # Business-line split; proposal, delivery, and closing are states that
+    # belong to Timeline.
+    subtypes: [strategy, implementation, diligence]
+    extractable: false
+    expert_routing: false
+
+link_types:
+  - {name: delivered_to, inverse: client_of}
+
+calibration_domains:
+  # Proposal wins have a real resolution flow.
+  - {name: proposal_win, aggregator: scalar_brier}

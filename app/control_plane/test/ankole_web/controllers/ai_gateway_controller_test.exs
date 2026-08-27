@@ -607,7 +607,9 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     assert runtime["use_responses_lite"] == false
   end
 
-  test "models endpoint includes non-LLM selectors by default", %{conn: conn} do
+  test "models endpoint lists LLM aliases and no retired embedding or rerank aliases", %{
+    conn: conn
+  } do
     assert {:ok, _provider} =
              ProviderConfigs.create_provider(%{
                provider_id: "openai-models-all-capabilities",
@@ -617,33 +619,12 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                }
              })
 
-    assert {:ok, _provider} =
-             ProviderConfigs.create_provider(%{
-               provider_id: "jina-models-all-capabilities",
-               provider_kind: "jina",
-               credential_pool: %{
-                 "entries" => [%{"label" => "Default", "api_key" => "jina-key"}]
-               }
-             })
-
     %{principal: agent} = agent_fixture()
 
     assert {:ok, _profile} =
              ModelProfiles.put_model_profile(agent.uid, "primary", %{
                provider_id: "openai-models-all-capabilities",
                model: "gpt-4o-mini"
-             })
-
-    assert {:ok, _profile} =
-             ModelProfiles.put_model_profile(agent.uid, "embedding", %{
-               provider_id: "jina-models-all-capabilities",
-               model: "jina-embeddings-v3"
-             })
-
-    assert {:ok, _profile} =
-             ModelProfiles.put_model_profile(agent.uid, "rerank", %{
-               provider_id: "jina-models-all-capabilities",
-               model: "jina-reranker-v2-base-multilingual"
              })
 
     assert {:ok, api_key} = Tokens.mint_for_agent(agent.uid)
@@ -657,8 +638,11 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     selectors = MapSet.new(models, & &1["id"])
 
     assert MapSet.member?(selectors, "primary")
-    assert MapSet.member?(selectors, "embedding.default")
-    assert MapSet.member?(selectors, "rerank.default")
+
+    # Embedding and rerank are instance-global Brain models, not Agent
+    # profile aliases; only explicit provider/model selectors reach them.
+    refute MapSet.member?(selectors, "embedding.default")
+    refute MapSet.member?(selectors, "rerank.default")
   end
 
   test "web tool endpoints use provider-backed AIGateway profiles", %{conn: conn} do

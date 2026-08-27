@@ -11,7 +11,7 @@ Ankole が使うコストの大半はモデル token であり、その大部分
 
 ## レバー 1: model profile の階層
 
-10 個の profile スロットが最大のレバーです。それぞれがモデルの選択であり、モデルの選択が token コストを支配します。
+8 つの組み込み Agent profile は、それぞれ別の有料経路を制御します。5 つは言語モデルを選び、3 つは web 検索、web fetch、画像生成の能力をバインドします。
 
 | スロット | 実行される場面 | コストのレバー |
 |---|---|---|
@@ -20,9 +20,10 @@ Ankole が使うコストの大半はモデル token であり、その大部分
 | `heavy` | 困難な合成作業 | 高価。`primary` がうまく調整されていれば滅多に使われない |
 | Background Agent Jobs（内部では `coding`） | すべての Background Agent Job | 永続的なバックグラウンド作業の Provider とモデルを選ぶ |
 | `vision_fallback` | `primary` が画像を処理できないとき | agent が画像を見る場合にだけバインドする |
-| `embedding`、`rerank` | memory と検索（retrieval） | 呼び出しごとに課金され、通常は小さい |
 | `web_search`、`web_fetch` | web ツール | レバー 3 を参照 |
 | `image_generate` | 画像生成 | 呼び出しごとに高価。使用時にのみバインドする |
+
+Brain には、Agent profile とは別に 5 つのインスタンス共通モデル設定があります。`brain.embedding_model` と `brain.rerank_model` は検索を制御します。`brain.web_fetch_model` は URL Source を読み、`brain.extraction_model` は会話と Source から学習し、`brain.dreaming_model` はモデルを使う保守と Skill 教訓の再確認を実行します。[AppConfigure](../app-configuration/) で一度設定してください。空の設定は該当する処理を停止または制限し、**Brain → Health** が利用できない処理を示します。全体の動作は [Brain](../brain/) を参照してください。
 
 最も節約できる 2 つの動き:
 

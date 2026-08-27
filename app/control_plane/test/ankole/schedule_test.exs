@@ -974,9 +974,7 @@ defmodule Ankole.ScheduleTest do
             |> Repo.delete_all()
           end
 
-          Ankole.Principals.Principal
-          |> where([principal], principal.uid == ^agent_uid)
-          |> Repo.delete_all()
+          Ankole.PrincipalsFixtures.delete_agent_fixture_rows(agent_uid)
         end)
       end)
 

@@ -7,11 +7,9 @@ import type {
 import type { ProfileDraft } from '../state/model-profiles-model'
 import type { SettingValidationError } from './provider-settings'
 
-export type ModelProfileCapability = 'llm' | 'embedding' | 'rerank' | 'web_search' | 'web_fetch' | 'image_generate'
+export type ModelProfileCapability = 'llm' | 'web_search' | 'web_fetch' | 'image_generate'
 
 export function profileCapability(profile: string): ModelProfileCapability {
-  if (profile === 'embedding') return 'embedding'
-  if (profile === 'rerank') return 'rerank'
   if (profile === 'web_search') return 'web_search'
   if (profile === 'web_fetch') return 'web_fetch'
   if (profile === 'image_generate') return 'image_generate'
@@ -126,12 +124,15 @@ type CatalogCapability = ModelProfileCapability | 'other' | 'unknown'
 
 function inferredCapability(entry: CatalogEntry): CatalogCapability {
   const outputModalities = stringArray(entry.architecture?.output_modalities)
+
+  // Embedding and rerank models stay out of every profile list: those models
+  // are instance-wide Brain settings, not Agent profile slots.
   if (outputModalities.includes('embeddings') || entry.supportedParameters.includes('encoding_format')) {
-    return 'embedding'
+    return 'other'
   }
 
   if (entry.supportedParameters.includes('query') && entry.supportedParameters.includes('documents')) {
-    return 'rerank'
+    return 'other'
   }
 
   if (outputModalities.includes('image')) return 'image_generate'

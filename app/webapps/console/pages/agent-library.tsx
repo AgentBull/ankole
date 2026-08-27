@@ -44,17 +44,17 @@ import {
   ankoleWebAgentLibraryCapabilityControllerPutAgentSkillOverrideMutation,
   ankoleWebAgentLibraryCapabilityControllerPutGlobalAgentPluginMutation,
   ankoleWebAgentLibraryCapabilityControllerPutGlobalSkillMutation,
-  ankoleWebAgentLibrarySkillOverlayControllerDeleteMutation,
-  ankoleWebAgentLibrarySkillOverlayControllerIndexOptions,
-  ankoleWebAgentLibrarySkillOverlayControllerUpdateMutation,
+  ankoleWebAgentSkillLessonControllerCreateMutation,
+  ankoleWebAgentSkillLessonControllerIndexOptions,
+  ankoleWebAgentSkillLessonControllerRetireMutation,
   ankoleWebControlPlanePluginControllerIndexOptions,
   ankoleWebControlPlanePluginControllerUpdateMutation
 } from '../api/generated/@tanstack/react-query.gen'
 import type {
   AgentLibraryCapabilitiesResponse,
   AgentLibrarySkillCapabilityItem,
-  AgentLibrarySkillOverlayItem,
   AgentPluginCapabilityItem,
+  AgentSkillLessonItem,
   ControlPlanePluginItem
 } from '../api/generated/types.gen'
 import { BackLink, PageHeader, PageStack, RefreshButton } from '../console-page'
@@ -86,7 +86,7 @@ export function AgentLibraryPage() {
   const [controlPlaneQuery, setControlPlaneQuery] = useState('')
   const data = useLibraryCapabilities(scope)
   const capabilityMutations = useCapabilityMutations(scope)
-  const experience = useSkillExperience(scope)
+  const lessons = useSkillLessons(scope)
   const controlPlaneMutation = useControlPlanePluginMutation()
 
   // Derived during render: an agent scope has no control-plane tab, so the
@@ -119,7 +119,7 @@ export function AgentLibraryPage() {
         }
       />
 
-      <ErrorBlock error={data.error ?? experience?.error} />
+      <ErrorBlock error={data.error ?? lessons?.error} />
 
       <Tabs value={activeTab} onValueChange={value => setTab(value as AgentLibraryTab)} className="min-w-0 gap-5">
         <TabsList className="max-w-full overflow-x-auto">
@@ -175,7 +175,7 @@ export function AgentLibraryPage() {
                 skill={skill}
                 scope={scope}
                 pending={capabilityMutations.pending}
-                experience={experience}
+                lessons={lessons}
                 onChange={enabled => capabilityMutations.setSkill(skill.id, enabled)}
               />
             ))}
@@ -214,7 +214,7 @@ export function AgentPluginDetailPage() {
   const scope = searchParams.get('scope') || GLOBAL_LIBRARY_SCOPE
   const data = useLibraryCapabilities(scope)
   const mutations = useCapabilityMutations(scope)
-  const experience = useSkillExperience(scope)
+  const lessons = useSkillLessons(scope)
   const plugin = data.capabilities?.agent_plugins.find(item => item.id === pluginID)
   const setScope = (value: string) => {
     if (value === GLOBAL_LIBRARY_SCOPE) setSearchParams({})
@@ -244,7 +244,7 @@ export function AgentPluginDetailPage() {
         </div>
       </header>
 
-      <ErrorBlock error={data.error ?? experience?.error} />
+      <ErrorBlock error={data.error ?? lessons?.error} />
       {data.loading ? <LoadingCards /> : null}
       {!data.loading && !plugin ? (
         <Alert variant="destructive">
@@ -299,7 +299,7 @@ export function AgentPluginDetailPage() {
                   scope={scope}
                   pending={mutations.pending}
                   parentEnabled={plugin.effective_enabled}
-                  experience={experience}
+                  lessons={lessons}
                   onChange={enabled => mutations.setSkill(skill.id, enabled)}
                 />
               ))}
@@ -421,14 +421,14 @@ function AgentPluginCard({
 }
 
 function SkillCard({
-  experience,
+  lessons,
   onChange,
   parentEnabled = true,
   pending,
   scope,
   skill
 }: {
-  experience?: SkillExperienceController
+  lessons?: SkillLessonsController
   onChange: (enabled: boolean | null) => void
   parentEnabled?: boolean
   pending: boolean
@@ -474,9 +474,9 @@ function SkillCard({
           ) : null}
           <EffectiveBadge enabled={skill.effective_enabled} />
         </div>
-        {experience ? (
-          <SkillExperience
-            controller={experience}
+        {lessons ? (
+          <SkillLessons
+            controller={lessons}
             skillName={skill.name}
             writable={skill.effective_enabled && parentEnabled}
           />
@@ -486,60 +486,70 @@ function SkillCard({
   )
 }
 
-function SkillExperience({
+function SkillLessons({
   controller,
   skillName,
   writable
 }: {
-  controller: SkillExperienceController
+  controller: SkillLessonsController
   skillName: string
   writable: boolean
 }) {
   const { t } = useTranslation()
-  const [draft, setDraft] = useState<SkillExperienceDraft>()
-  const item = controller.byName.get(skillName)
-  const editing = draft !== undefined
+  const [draft, setDraft] = useState<string>()
+  const group = controller.bySkill.get(skillName)
+  const active = group?.active ?? []
+  const retired = group?.retired ?? []
+  const adding = draft !== undefined
 
   return (
     <section className="grid gap-2 border-t border-border pt-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h4 className="text-sm font-medium">{t('console.agent_library_capabilities.experience')}</h4>
-        <div className="flex items-center gap-1">
-          {writable && !editing ? (
-            <Button type="button" size="xs" variant="outline" onClick={() => setDraft(skillExperienceDraft(item))}>
-              {item ? t('common.edit') : t('console.agent_library_capabilities.experience_add')}
-            </Button>
-          ) : null}
-          {item && !editing ? (
-            <ConfirmDeleteButton
-              pending={controller.pending}
-              confirm={{
-                title: t('console.agent_library_capabilities.experience_delete_title'),
-                description: t('console.agent_library_capabilities.experience_delete_description', {
-                  skill: skillName
-                }),
-                confirmLabel: t('common.delete')
-              }}
-              onConfirm={() => controller.remove(skillName)}
-            />
-          ) : null}
-        </div>
+        <h4 className="text-sm font-medium">{t('console.agent_library_capabilities.lessons')}</h4>
+        {writable && !adding ? (
+          <Button type="button" size="xs" variant="outline" onClick={() => setDraft('')}>
+            {t('console.agent_library_capabilities.lesson_add')}
+          </Button>
+        ) : null}
       </div>
 
-      {editing ? (
+      {active.length === 0 ? (
+        <p className="text-xs text-muted-foreground">{t('console.agent_library_capabilities.lessons_empty')}</p>
+      ) : (
+        <ul className="grid gap-2">
+          {active.map(lesson => (
+            <SkillLessonRow key={lesson.id} lesson={lesson}>
+              <ConfirmDeleteButton
+                label={t('console.agent_library_capabilities.lesson_retire')}
+                pending={controller.pending}
+                confirm={{
+                  title: t('console.agent_library_capabilities.lesson_retire_title'),
+                  description: t('console.agent_library_capabilities.lesson_retire_description', {
+                    skill: skillName
+                  }),
+                  confirmLabel: t('console.agent_library_capabilities.lesson_retire')
+                }}
+                onConfirm={() => controller.retire(lesson.id)}
+              />
+            </SkillLessonRow>
+          ))}
+        </ul>
+      )}
+
+      {adding ? (
         <form
           className="grid gap-2"
           onSubmit={event => {
             event.preventDefault()
-            controller.save(skillName, draft, () => setDraft(undefined))
+            controller.add(skillName, draft, () => setDraft(undefined))
           }}>
           <Textarea
-            aria-label={t('console.agent_library_capabilities.experience')}
-            className="min-h-32"
+            aria-label={t('console.agent_library_capabilities.lesson_add')}
+            className="min-h-24"
             required
-            value={draft.text}
-            placeholder={t('console.agent_library_capabilities.experience_placeholder')}
-            onChange={event => setDraft(current => (current ? { ...current, text: event.target.value } : current))}
+            value={draft}
+            placeholder={t('console.agent_library_capabilities.lesson_placeholder')}
+            onChange={event => setDraft(event.target.value)}
           />
           <div className="flex justify-end gap-2">
             <Button type="button" size="sm" variant="ghost" onClick={() => setDraft(undefined)}>
@@ -550,51 +560,99 @@ function SkillExperience({
               size="sm"
               disabled={controller.pending}
               loading={controller.pending}
-              incomplete={!draft.text.trim() && !controller.pending}>
+              incomplete={!draft.trim() && !controller.pending}>
               {t('common.save')}
             </SaveButton>
           </div>
         </form>
-      ) : item ? (
-        <>
-          <pre className="max-h-56 overflow-auto whitespace-pre-wrap border border-border bg-muted p-3 text-xs leading-5">
-            {item.text}
-          </pre>
-          <span className="text-xs text-muted-foreground">{formatConsoleDate(item.updated_at)}</span>
-        </>
-      ) : (
-        <p className="text-xs text-muted-foreground">{t('console.agent_library_capabilities.experience_empty')}</p>
-      )}
+      ) : null}
 
-      {item && !writable ? (
-        <p className="text-xs text-muted-foreground">
-          {t('console.agent_library_capabilities.experience_disabled_hint')}
-        </p>
+      {!writable && (active.length > 0 || retired.length > 0) ? (
+        <p className="text-xs text-muted-foreground">{t('console.agent_library_capabilities.lessons_disabled_hint')}</p>
+      ) : null}
+
+      {retired.length > 0 ? (
+        <details>
+          <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
+            {t('console.agent_library_capabilities.lessons_retired_section', { count: retired.length })}
+          </summary>
+          <ul className="mt-2 grid gap-2">
+            {retired.map(lesson => (
+              <SkillLessonRow key={lesson.id} lesson={lesson} />
+            ))}
+          </ul>
+        </details>
       ) : null}
     </section>
   )
 }
 
-export type SkillExperienceDraft = {
-  expectedContentHash: string
-  text: string
+/** One lesson with its provenance line; active rows slot the retire control into `children`. */
+function SkillLessonRow({ children, lesson }: { children?: React.ReactNode; lesson: AgentSkillLessonItem }) {
+  const { t } = useTranslation()
+  return (
+    <li className="grid gap-2 border border-border bg-muted p-3">
+      <div className="flex items-start justify-between gap-2">
+        <p className="min-w-0 flex-1 whitespace-pre-wrap text-xs leading-5">{lesson.content}</p>
+        {children}
+      </div>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+        <Badge variant={lesson.author_kind === 'human' ? 'secondary' : 'info'}>
+          {lesson.author_kind === 'human'
+            ? t('console.agent_library_capabilities.lessons_author_human')
+            : t('console.agent_library_capabilities.lessons_author_dreaming')}
+        </Badge>
+        <span>{formatConsoleDate(lesson.created_at)}</span>
+        {lesson.checked_release ? (
+          <span>
+            {t('console.agent_library_capabilities.lessons_checked_release', { release: lesson.checked_release })}
+          </span>
+        ) : null}
+        {lesson.review_after ? (
+          <span>
+            {t('console.agent_library_capabilities.lessons_review_after', {
+              date: formatConsoleDate(lesson.review_after)
+            })}
+          </span>
+        ) : null}
+        {lesson.evidence_job_ids.length > 0 ? (
+          <span className="flex flex-wrap items-center gap-1.5">
+            {t('console.agent_library_capabilities.lessons_evidence')}
+            {lesson.evidence_job_ids.map(jobID => (
+              <Link key={jobID} className="text-link hover:underline" to={`/background-agent-jobs?job=${jobID}`}>
+                #{jobID}
+              </Link>
+            ))}
+          </span>
+        ) : null}
+        {lesson.retired_at ? (
+          <>
+            <Badge variant="outline">
+              {t(`console.agent_library_capabilities.lessons_retire_reason_${lesson.retire_reason}`)}
+            </Badge>
+            <span>{formatConsoleDate(lesson.retired_at)}</span>
+          </>
+        ) : null}
+      </div>
+    </li>
+  )
 }
 
-/** Freezes the optimistic-lock baseline for the lifetime of one edit. */
-export function skillExperienceDraft(
-  item: Pick<AgentLibrarySkillOverlayItem, 'content_hash' | 'text'> | undefined
-): SkillExperienceDraft {
-  return {
-    expectedContentHash: item?.content_hash ?? '',
-    text: item?.text ?? ''
-  }
+export type SkillLessonGroup = {
+  active: AgentSkillLessonItem[]
+  retired: AgentSkillLessonItem[]
 }
 
-export function skillExperienceUpdateBody(draft: SkillExperienceDraft) {
-  return {
-    expected_content_hash: draft.expectedContentHash,
-    text: draft.text
+/** Splits the agent's lessons per skill, keeping the server's newest-first order. */
+export function groupSkillLessons(lessons: AgentSkillLessonItem[]): Map<string, SkillLessonGroup> {
+  const groups = new Map<string, SkillLessonGroup>()
+  for (const lesson of lessons) {
+    const group = groups.get(lesson.skill_name) ?? { active: [], retired: [] }
+    if (lesson.retired_at) group.retired.push(lesson)
+    else group.active.push(lesson)
+    groups.set(lesson.skill_name, group)
   }
+  return groups
 }
 
 function ControlPlanePluginCard({
@@ -849,39 +907,39 @@ function useCapabilityMutations(scope: string) {
   }
 }
 
-type SkillExperienceController = {
-  byName: Map<string, AgentLibrarySkillOverlayItem>
+type SkillLessonsController = {
+  bySkill: Map<string, SkillLessonGroup>
   error: unknown
   pending: boolean
-  remove: (skillName: string) => void
-  save: (skillName: string, draft: SkillExperienceDraft, onSuccess: () => void) => void
+  add: (skillName: string, content: string, onSuccess: () => void) => void
+  retire: (lessonID: string) => void
 }
 
-// Dreaming and the Agent's own `skill_append` write the same rows, so a save
-// carries the hash the editor loaded and a stale editor is rejected instead of
-// dropping guidance that a curation run added meanwhile.
-function useSkillExperience(scope: string): SkillExperienceController | undefined {
+// Dreaming writes leased lessons through its own gates; this surface is the
+// operator's veto and manual path. A retired Dreaming lesson joins the
+// immunity list, so Dreaming never re-adds equivalent content.
+function useSkillLessons(scope: string): SkillLessonsController | undefined {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const agentScope = scope !== GLOBAL_LIBRARY_SCOPE
-  const overlays = useQuery({
-    ...ankoleWebAgentLibrarySkillOverlayControllerIndexOptions({ path: { agent_uid: scope } }),
+  const lessonsQuery = useQuery({
+    ...ankoleWebAgentSkillLessonControllerIndexOptions({ path: { agent_uid: scope } }),
     enabled: agentScope
   })
   const onError = (mutationError: unknown) => toast.error(requestErrorMessage(mutationError))
   const refresh = () => void queryClient.invalidateQueries()
-  const save = useMutation({
-    ...ankoleWebAgentLibrarySkillOverlayControllerUpdateMutation(),
+  const create = useMutation({
+    ...ankoleWebAgentSkillLessonControllerCreateMutation(),
     onSuccess: () => {
-      toast.success(t('console.agent_library_capabilities.experience_saved'))
+      toast.success(t('console.agent_library_capabilities.lesson_added'))
       refresh()
     },
     onError
   })
-  const remove = useMutation({
-    ...ankoleWebAgentLibrarySkillOverlayControllerDeleteMutation(),
+  const retire = useMutation({
+    ...ankoleWebAgentSkillLessonControllerRetireMutation(),
     onSuccess: () => {
-      toast.success(t('console.agent_library_capabilities.experience_deleted'))
+      toast.success(t('console.agent_library_capabilities.lesson_retired'))
       refresh()
     },
     onError
@@ -890,20 +948,14 @@ function useSkillExperience(scope: string): SkillExperienceController | undefine
   if (!agentScope) return undefined
 
   return {
-    byName: new Map((overlays.data?.skill_overlays ?? []).map(item => [item.skill_name, item])),
-    error: overlays.error,
-    pending: save.isPending || remove.isPending,
-    remove(skillName) {
-      remove.mutate({ path: { agent_uid: scope, skill_name: skillName } })
+    bySkill: groupSkillLessons(lessonsQuery.data?.skill_lessons ?? []),
+    error: lessonsQuery.error,
+    pending: create.isPending || retire.isPending,
+    add(skillName, content, onSuccess) {
+      create.mutate({ path: { agent_uid: scope }, body: { skill_name: skillName, content } }, { onSuccess })
     },
-    save(skillName, draft, onSuccess) {
-      save.mutate(
-        {
-          path: { agent_uid: scope, skill_name: skillName },
-          body: skillExperienceUpdateBody(draft)
-        },
-        { onSuccess }
-      )
+    retire(lessonID) {
+      retire.mutate({ path: { agent_uid: scope, lesson_id: lessonID } })
     }
   }
 }

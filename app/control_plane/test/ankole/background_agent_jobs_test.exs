@@ -251,6 +251,85 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert get_in(final.result, ["summary"]) == "EXTERNALLY-VERIFIED"
   end
 
+  test "a skill-lesson reflection job wakes no session and enqueues the apply worker" do
+    %{principal: agent} = background_agent_fixture()
+
+    assert {:ok, %{job: reflection}} =
+             BackgroundAgentJobs.create_with_dispatch(%{
+               "agent_uid" => agent.uid,
+               "owner_session_id" => "brain:skill-lessons:" <> agent.uid,
+               "source_tool_call_id" => "skill-lessons:9000",
+               "title" => "Skill lessons reflection",
+               "task" => "Reflect over the evidence bundle.",
+               "reply_route" => %{"binding_name" => "lark"},
+               "metadata" => %{
+                 "skill_lesson_reflection" => true,
+                 "through_job_id" => 9000,
+                 "evidence_job_ids" => [8999, 9000],
+                 "human_input_job_ids" => [8999]
+               }
+             })
+
+    assert {:ok, %{job: running}} =
+             BackgroundAgentJobs.commit_status_with_wakeup(reflection.id, agent.uid, %{
+               "status" => "running",
+               "runtime_thread_id" => "thread-reflection"
+             })
+
+    running = running |> Ecto.Changeset.change(attempts: 1) |> Repo.update!()
+    insert_turn!(running, 1, "thread-reflection", "turn-reflection", "completed")
+
+    assert {:ok, %{job: succeeded, wakeup_event: nil}} =
+             BackgroundAgentJobs.commit_status_with_wakeup(running.id, agent.uid, %{
+               "status" => "succeeded",
+               "result" => %{"output_text" => ~s({"adds": []})}
+             })
+
+    assert succeeded.status == "succeeded"
+
+    # No wakeup event reached the synthetic owner session.
+    refute Repo.exists?(
+             from(event in ActorEvent,
+               where: event.session_id == ^("brain:skill-lessons:" <> agent.uid)
+             )
+           )
+
+    # The apply worker was enqueued in the terminal-commit transaction.
+    assert [%Oban.Job{args: %{"job_id" => job_id}}] =
+             all_enqueued(worker: Ankole.Brain.Jobs.ApplySkillLessons)
+
+    assert job_id == succeeded.id
+
+    # An ordinary job's terminal commit still appends its wakeup event.
+    assert {:ok, %{job: plain}} =
+             BackgroundAgentJobs.create_with_dispatch(%{
+               "agent_uid" => agent.uid,
+               "owner_session_id" => "signal-channel:plain-session",
+               "source_tool_call_id" => "plain-wakeup-control",
+               "title" => "Plain job",
+               "task" => "Do the work.",
+               "reply_route" => %{"binding_name" => "lark"}
+             })
+
+    assert {:ok, %{job: plain_running}} =
+             BackgroundAgentJobs.commit_status_with_wakeup(plain.id, agent.uid, %{
+               "status" => "running",
+               "runtime_thread_id" => "thread-plain"
+             })
+
+    plain_running = plain_running |> Ecto.Changeset.change(attempts: 1) |> Repo.update!()
+    insert_turn!(plain_running, 1, "thread-plain", "turn-plain", "completed")
+
+    assert {:ok, %{job: _plain_done, wakeup_event: %ActorEvent{} = wakeup}} =
+             BackgroundAgentJobs.commit_status_with_wakeup(plain_running.id, agent.uid, %{
+               "status" => "succeeded",
+               "result" => %{"output_text" => "done"}
+             })
+
+    assert wakeup.type == "background_agent_job.completed"
+    assert wakeup.session_id == "signal-channel:plain-session"
+  end
+
   test "Jobs do not persist AIGateway credentials or a second model-profile copy" do
     %{principal: agent} = background_agent_fixture()
     assert {:ok, profile} = ModelProfiles.get_model_profile(agent.uid, "coding")

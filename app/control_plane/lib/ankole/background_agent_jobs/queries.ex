@@ -12,6 +12,8 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
   @list_cursor_version "1"
   @list_page_size 32
   @list_query_limit @list_page_size + 1
+  @ambient_candidate_limit 8
+  @ambient_candidate_query_limit @ambient_candidate_limit + 1
   @list_statuses %{
     "live" => ~w(queued running waiting_on_user),
     "stop" => ~w(succeeded failed stopped)
@@ -53,6 +55,53 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
 
       {:ok, %{jobs: jobs, next_cursor: next_cursor}}
     end
+  end
+
+  @doc false
+  @spec ambient_candidates_in_tx(
+          module(),
+          String.t(),
+          String.t(),
+          String.t(),
+          String.t()
+        ) :: %{complete: boolean(), jobs: [map()]}
+  def ambient_candidates_in_tx(
+        repo,
+        agent_uid,
+        owner_session_id,
+        signal_channel_id,
+        binding_name
+      )
+      when is_binary(agent_uid) and is_binary(owner_session_id) and
+             is_binary(signal_channel_id) and is_binary(binding_name) do
+    rows =
+      Job
+      |> where([job], job.agent_uid == ^agent_uid)
+      |> where([job], job.owner_session_id == ^owner_session_id)
+      |> where([job], job.status in ~w(queued running waiting_on_user))
+      |> where(
+        [job],
+        fragment("?->>'signal_channel_id' = ?", job.reply_route, ^signal_channel_id)
+      )
+      |> where([job], fragment("?->>'binding_name' = ?", job.reply_route, ^binding_name))
+      |> where(
+        [job],
+        fragment("coalesce(?->>'skill_lesson_reflection', 'false') <> 'true'", job.metadata)
+      )
+      |> order_by([job], desc: job.updated_at, desc: job.id)
+      |> limit(@ambient_candidate_query_limit)
+      |> select([job], %{
+        job_id: job.id,
+        title: job.title,
+        status: job.status,
+        task_excerpt: fragment("left(?, 600)", job.task)
+      })
+      |> repo.all()
+
+    %{
+      complete: length(rows) <= @ambient_candidate_limit,
+      jobs: Enum.take(rows, @ambient_candidate_limit)
+    }
   end
 
   # A Console list page holds up to 100 jobs and reloads every few seconds, so it

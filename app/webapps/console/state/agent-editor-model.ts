@@ -15,14 +15,23 @@ export function preloadTransliteration(): Promise<void> {
   return transliterationLoading
 }
 
+export type AgentMemoryDisclosureMode = 'strict' | 'relaxed'
+
 export type AgentEditorDraft = {
   uid: string
   displayName: string
   avatarURL: string
   role: string
+  ownerPrincipalUID: string
+  groupMemoryDisclosureMode: AgentMemoryDisclosureMode
 }
 
-export type AgentEditorDraftError = 'display_name_required' | 'uid_invalid' | 'uid_required' | 'role_required'
+export type AgentEditorDraftError =
+  | 'display_name_required'
+  | 'uid_invalid'
+  | 'uid_required'
+  | 'role_required'
+  | 'owner_required'
 
 const agentUIDPattern = /^[a-z0-9][a-z0-9._-]{0,95}$/
 
@@ -48,6 +57,8 @@ export const AgentEditorModel = createModel(() => {
   const displayName = signal('')
   const avatarURL = signal('')
   const role = signal('')
+  const ownerPrincipalUID = signal('')
+  const groupMemoryDisclosureMode = signal<AgentMemoryDisclosureMode>('strict')
   const initialDraft = signal<AgentEditorDraft>()
   const validationError = signal<AgentEditorDraftError>()
   const dirty = computed(() => {
@@ -57,7 +68,9 @@ export const AgentEditorModel = createModel(() => {
       (uid.value !== initial.uid ||
         displayName.value !== initial.displayName ||
         avatarURL.value !== initial.avatarURL ||
-        role.value !== initial.role)
+        role.value !== initial.role ||
+        ownerPrincipalUID.value !== initial.ownerPrincipalUID ||
+        groupMemoryDisclosureMode.value !== initial.groupMemoryDisclosureMode)
     )
   })
   let uidManuallyEdited = false
@@ -68,6 +81,8 @@ export const AgentEditorModel = createModel(() => {
     displayName,
     avatarURL,
     role,
+    ownerPrincipalUID,
+    groupMemoryDisclosureMode,
     dirty,
     validationError,
     initialize(nextSourceKey: string, draft: AgentEditorDraft) {
@@ -79,6 +94,8 @@ export const AgentEditorModel = createModel(() => {
         displayName.value = draft.displayName
         avatarURL.value = draft.avatarURL
         role.value = draft.role
+        ownerPrincipalUID.value = draft.ownerPrincipalUID
+        groupMemoryDisclosureMode.value = draft.groupMemoryDisclosureMode
         initialDraft.value = { ...draft }
         validationError.value = undefined
         uidManuallyEdited = false
@@ -90,7 +107,14 @@ export const AgentEditorModel = createModel(() => {
     markSaved(draft?: AgentEditorDraft) {
       initialDraft.value = draft
         ? { ...draft }
-        : { uid: uid.value, displayName: displayName.value, avatarURL: avatarURL.value, role: role.value }
+        : {
+            uid: uid.value,
+            displayName: displayName.value,
+            avatarURL: avatarURL.value,
+            role: role.value,
+            ownerPrincipalUID: ownerPrincipalUID.value,
+            groupMemoryDisclosureMode: groupMemoryDisclosureMode.value
+          }
     },
     setDisplayName(value: string, deriveUID: boolean) {
       batch(() => {
@@ -128,6 +152,7 @@ export const AgentEditorModel = createModel(() => {
         if (uidError) return uidError
       }
       if (!role.value.trim()) return 'role_required'
+      if (!ownerPrincipalUID.value.trim()) return 'owner_required'
       return undefined
     }
   }

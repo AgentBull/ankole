@@ -11,9 +11,11 @@ The resolver, the provider module, and the kernel each own one stage. The resolv
 
 ## Stage 1: resolution (Resolver)
 
-`Ankole.AIGateway.Resolver` turns the `model` field of a request into a concrete provider runtime map. The resolver is where a subject-visible selector — `primary`, `light`, `embedding.default`, or an explicit `provider_id/model` — becomes a provider id, a provider kind, an upstream model name, and the resolved runtime settings.
+`Ankole.AIGateway.Resolver` turns the `model` field of a request into a concrete provider runtime map. The resolver is where a subject-visible selector — such as `primary`, `web_search.default`, or an explicit `provider_id/model` — becomes a provider id, a provider kind, an upstream model name, and the resolved runtime settings.
 
-LLM aliases (`primary`, `light`, `heavy`, `coding`, `vision_fallback`) resolve through the agent's model profiles. `coding` is the persisted and API alias for the user-facing Background Agent Jobs profile. Embedding and rerank accept `default`, explicit default bindings (`embedding.default`), or explicit selectors. The resolver is the sole point where subject identity and model profiles are consulted.
+An Agent has eight built-in model profiles: `primary`, `light`, `heavy`, `coding`, `vision_fallback`, `web_search`, `web_fetch`, and `image_generate`. `coding` is the API and storage name for the user-facing Background Agent Jobs profile. The first five profiles select language models; the last three select separate web-search, web-fetch, and image-generation capabilities.
+
+Embedding and rerank are not Agent profiles. Direct AIGateway calls for these capabilities require an explicit `provider_id/model` selector. Brain instead reads one instance-wide embedding model and rerank model from `brain.embedding_model` and `brain.rerank_model` in [AppConfigure](../app-configuration/). See [Brain](../brain/) for their effect on retrieval.
 
 After it resolves the provider row, the resolver selects one usable credential. Thread affinity wins before the row's `fill_first`, `round_robin`, `least_used`, or `random` strategy. The runtime map carries the exact credential ID to every later failure path. For a ChatGPT subscription OAuth member, the resolver refreshes a near-expiry or stale token under the provider-row lock. A permanent refresh failure marks that member `dead`; a temporary failure marks it `exhausted`; both select the next usable member.
 

@@ -7,7 +7,6 @@ import type {
   ResponseCustomToolCall,
   ResponseFunctionToolCall
 } from 'openai/resources/responses/responses'
-import type { TruncatedToolCall } from './partial-tool-input'
 
 export interface TextContent {
   type: 'text'
@@ -45,10 +44,11 @@ export interface AssistantMessage {
   toolCalls?: ToolCall[]
   /**
    * Calls the output-token limit discarded, present only when `stopReason` is
-   * `length`. They record where the model stopped writing arguments and are
-   * never executable.
+   * `length`. Their `arguments` hold the raw partial text as it arrived; they
+   * are never executable and exist only so the failed attempt can re-enter
+   * the thread as a call/error-result pair.
    */
-  truncatedToolCalls?: TruncatedToolCall[]
+  truncatedToolCalls?: ToolCall[]
   usage?: ModelUsage
   stopReason?: StopReason
   model?: string

@@ -56,5 +56,27 @@ defmodule Ankole.Setup.CompletionTest do
       assert {:ok, groups} = AuthZ.list_principal_group_memberships(second.uid)
       assert groups == []
     end
+
+    test "materializes the selected brain packs in the completion transaction" do
+      %{principal: principal} = human_fixture()
+
+      assert {:ok, _root} = Completion.complete_with_root_admin(principal.uid, ["pevc"])
+
+      assert {:ok, true} = SetupConfig.completed?()
+      installed = Enum.map(Ankole.Brain.SchemaPacks.installed_packs(), & &1.name)
+      assert "general" in installed
+      assert "pevc" in installed
+    end
+
+    test "a failed pack materialization rolls back the root claim and the flag" do
+      %{principal: principal} = human_fixture()
+
+      assert {:error, {:unknown_packs, ["bogus"]}} =
+               Completion.complete_with_root_admin(principal.uid, ["bogus"])
+
+      assert {:ok, false} = SetupConfig.completed?()
+      assert {:ok, []} = AuthZ.list_principal_group_memberships(principal.uid)
+      assert Ankole.Brain.SchemaPacks.installed_packs() == []
+    end
   end
 end

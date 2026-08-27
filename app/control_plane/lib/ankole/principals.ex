@@ -23,7 +23,14 @@ defmodule Ankole.Principals do
 
   @principal_profile_fields [:display_name, :avatar_url]
   @human_profile_fields [:email, :mobile, :job_title]
-  @agent_fields [:type, :role, :options, :created_by_principal_uid]
+  @agent_fields [
+    :type,
+    :role,
+    :options,
+    :owner_principal_uid,
+    :group_memory_disclosure_mode,
+    :created_by_principal_uid
+  ]
   @provider_format ~r/\A[a-z][a-z0-9_-]*\z/
   @local_password_min_length 6
 
@@ -109,8 +116,11 @@ defmodule Ankole.Principals do
       attrs = attrs |> Map.delete("uid") |> Map.put(:uid, uid)
 
       Repo.transact(fn repo ->
-        with {:ok, principal} <- insert_principal(repo, agent_principal_attrs(attrs)),
-             {:ok, agent} <- insert_agent(repo, principal.uid, take_attrs(attrs, @agent_fields)),
+        agent_attrs = take_attrs(attrs, @agent_fields)
+
+        with :ok <- validate_agent_owner(repo, agent_attrs),
+             {:ok, principal} <- insert_principal(repo, agent_principal_attrs(attrs)),
+             {:ok, agent} <- insert_agent(repo, principal.uid, agent_attrs),
              :ok <- Library.seed_agent_library_in_tx(repo, principal.uid),
              :ok <- RuntimeEvents.notify_agent_home_projection(repo, principal.uid) do
           {:ok, %{principal: principal, agent: agent}}
@@ -159,10 +169,13 @@ defmodule Ankole.Principals do
           {:ok, %{principal: Principal.t(), agent: Agent.t()}} | {:error, term()}
   def update_agent(uid, attrs) when is_map(attrs) do
     Repo.transact(fn repo ->
+      agent_attrs = take_attrs(attrs, @agent_fields)
+
       with {:ok, principal} <- fetch_principal_for_update(repo, uid),
            :ok <- ensure_principal_type(principal, :agent),
+           :ok <- validate_agent_owner(repo, agent_attrs),
            {:ok, principal} <- update_principal_profile(repo, principal, attrs),
-           {:ok, agent} <- update_agent_row(repo, principal.uid, take_attrs(attrs, @agent_fields)) do
+           {:ok, agent} <- update_agent_row(repo, principal.uid, agent_attrs) do
         {:ok, %{principal: principal, agent: agent}}
       end
     end)
@@ -465,11 +478,30 @@ defmodule Ankole.Principals do
     end
   end
 
+  # Every human and agent Principal owns one canonical Brain Object
+  # (people/<uid> or agents/<uid>); the creation transaction keeps that
+  # invariant so holder attribution and recall never miss a subject page.
   defp insert_principal(repo, attrs) do
-    %Principal{}
-    |> Principal.changeset(attrs)
-    |> repo.insert()
+    with {:ok, principal} <-
+           %Principal{}
+           |> Principal.changeset(attrs)
+           |> repo.insert(),
+         :ok <- ensure_canonical_brain_object(repo, principal) do
+      {:ok, principal}
+    end
   end
+
+  defp ensure_canonical_brain_object(repo, %Principal{type: type} = principal)
+       when type in [:human, :agent] do
+    Ankole.Brain.Objects.ensure_canonical_object_in_tx(
+      repo,
+      principal.uid,
+      type,
+      principal.display_name
+    )
+  end
+
+  defp ensure_canonical_brain_object(_repo, %Principal{}), do: :ok
 
   defp insert_human_user(repo, principal_uid, attrs) do
     attrs = Map.put(attrs, :principal_uid, principal_uid)
@@ -485,6 +517,24 @@ defmodule Ankole.Principals do
     %Agent{}
     |> Agent.changeset(attrs)
     |> repo.insert()
+  end
+
+  # The Brain owner read exemption chains through this field: an Agent or
+  # system Principal as owner would extend private-scope reachability in a
+  # way no contract describes, so the owner must be a human. Blank values
+  # fall through to the changeset's required validation.
+  defp validate_agent_owner(repo, attrs) do
+    case Map.get(attrs, :owner_principal_uid) do
+      owner_uid when is_binary(owner_uid) and owner_uid != "" ->
+        case repo.one(from p in Principal, where: p.uid == ^owner_uid, select: p.type) do
+          :human -> :ok
+          nil -> {:error, :agent_owner_not_found}
+          _other_type -> {:error, :agent_owner_must_be_human}
+        end
+
+      _absent_or_blank ->
+        :ok
+    end
   end
 
   defp update_agent_row(repo, uid, attrs) do

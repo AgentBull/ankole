@@ -27,7 +27,6 @@ export type {
 } from './types'
 export { createModel } from './model'
 export { createModelTurn } from './session'
-export { describeTruncatedToolCalls, readTruncatedToolCall, type TruncatedToolCall } from './partial-tool-input'
 export {
   MAX_REPAIRABLE_TOOL_ARGUMENT_BYTES,
   MAX_TOOL_ARGUMENT_BYTES,

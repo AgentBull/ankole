@@ -18,8 +18,8 @@ defmodule Ankole.AIGateway.Resolver do
   Resolves the request `model` field for one Principal subject and capability.
 
   LLM aliases use named profiles such as `primary`. Embedding and rerank accept
-  `default`, explicit default bindings such as `embedding.default`, or explicit
-  `provider_id/model` selectors.
+  only explicit `provider_id/model` selectors; other capabilities also accept
+  `default` or their explicit default bindings such as `web_search.default`.
   """
   @spec resolve_request_model(String.t(), String.t(), map()) :: {:ok, map()} | {:error, term()}
   def resolve_request_model(subject_uid, capability, request) do
@@ -39,7 +39,7 @@ defmodule Ankole.AIGateway.Resolver do
   end
 
   defp resolve_model(subject_uid, capability, selector, request)
-       when capability in ["embedding", "rerank", "web_search", "web_fetch", "image_generate"] do
+       when capability in ["web_search", "web_fetch", "image_generate"] do
     case explicit_provider_selector(selector) do
       {:ok, provider_id, model} ->
         resolve_provider_model(subject_uid, capability, selector, provider_id, model, request)

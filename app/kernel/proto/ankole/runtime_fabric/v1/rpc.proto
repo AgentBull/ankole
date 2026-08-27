@@ -26,6 +26,16 @@ message JSONPassthroughResponse {
   bytes body_json = 1;
 }
 
+// ===== brain =====
+
+// Brain memory operations share one request message: the params document is
+// free-form JSON whose per-method contract the Brain domain layer owns and
+// validates (scope rules, weight grids, holder resolution). Responses are
+// model-facing JSON through JSONPassthroughResponse.
+message BrainRequest {
+  bytes params_json = 1;
+}
+
 // ===== actor turn completion =====
 
 // Completion is a terminal write. The turn fence stays on the RPC frame so a
@@ -476,6 +486,7 @@ message WebhookEndpointTargetRequest {
 // ===== signal channel (requests typed, responses model-facing passthrough) =====
 
 message AmbientJudgmentRecordRequest {
+  // Legacy projection retained during the action-router rollout.
   string decision = 1; // intervene | silent
   string reason = 2;
   // The batch message the recognizer attributed the wake to; empty means the
@@ -483,6 +494,9 @@ message AmbientJudgmentRecordRequest {
   // and sets asked_by_degraded when a proposed id fails that validation.
   string asked_by_source_entry_id = 3;
   bool asked_by_degraded = 4;
+  string action = 5; // NOOP | FOREGROUND_REPLY | NEW_WORK | HANDOFF
+  string authority = 6; // NONE | EXPLICIT_REQUEST | STANDING_ORDER
+  string handoff_job_id = 7; // exact candidate Job id; empty unless HANDOFF
 }
 
 message SignalChannelStandingOrdersSetRequest {
@@ -560,18 +574,6 @@ message CodexLogs2DailyMaintenanceResponse {
 
 message SkillOverlayResolveRequest {
   repeated string skill_names = 1;
-}
-
-message SkillOverlayAppendRequest {
-  string skill_name = 1;
-  string content = 2;
-}
-
-message SkillOverlayReplaceRequest {
-  string skill_name = 1;
-  string content = 2;
-  bytes overlay_json = 3;
-  string expected_content_hash = 4;
 }
 
 message SkillOverlayResponse {

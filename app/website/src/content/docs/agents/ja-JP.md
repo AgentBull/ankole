@@ -1,36 +1,47 @@
 ---
 title: Agents
-description: Console で Agent を作成し、ロール、永続的な動作、モデル、機能、環境変数を設定する。
+description: Console で Agent を作成し、所有者、永続的な動作、モデル、機能、環境変数を設定する。
 section: User guide
 order: 13
 ---
 
-Agent は、時間をかけて働くデジタル同僚です。各 Agent は独自の identity、作業指示、モデル、機能、ファイルスペースを持ちます。signal routing ルールが Agent をchat channel からのメッセージに接続します。
+Agent は、時間をかけて働くデジタル同僚です。各 Agent は独自の identity、所有者、作業指示、モデル、機能、ファイルスペースを持ちます。signal routing ルールが Agent を chat channel からのメッセージに接続します。
 
 ## Agent を作成する
 
 1. **Console → Agents** を開き、**New Agent** を選択します。
 2. 必須の表示名を入力します。Console は英語または中国語のテキストから UID を生成します。たとえば `Research Analyst` から `research-analyst`、`研究分析师` から `yan-jiu-fen-xi-shi` です。混合言語の名前も機能します。
 3. UID を確認または変更し、ロールとオプションのアバター URL を入力します。UID はこのデプロイメントインスタンス内で一意の安定した識別子であり、Agent を保存した後は変更できません。表示名は後から変更しても、既存の設定を壊しません。
-4. Agent を保存します。ページにはその永続的な指示、モデルプロファイル、Agent 固有の環境変数が表示されます。
+4. Agent を所有する人間の Principal と、group memory の開示モードを選択します。
+5. Agent を保存します。ページにはその永続的な指示、モデルプロファイル、Agent 固有の環境変数が表示されます。
 
-以前の Ankole バージョンの Agent は、表示名なしでも読み込みと実行が可能です。次に基本情報を保存する前に、表示名を追加する必要があります。
+ロールは、「Research Analyst」や「Customer Support」など、作業の短い要約を提供します。以下の 4 つの永続的なドキュメントが、責任、動作、ビジュアルデザイン、機密性を管理します。
 
-ロールは、「Research Analyst」や「Customer Support」など、作業の短い要約を提供します。以下の 3 つの永続的なドキュメントが、責任、動作、ビジュアルデザインを管理します。
+## 所有者と group memory の開示を設定する
+
+すべての Agent に所有者が必要です。所有者は、Agent が作成または保持する知識と、その Agent を audience とする知識を確認できます。所有者が Group のメンバーでない場合、所有権だけではその Group の知識を読み取れません。
+
+group memory の開示モードは、複数の人が回答を見られるときに Agent が開示できる知識を制御します。
+
+- **Strict** では、group conversation にいる全員が、memory item の audience scope を満たす必要があります。
+- **Relaxed** では、質問者だけを確認します。他の参加者は結果を狭めません。
+
+direct message では、両方のモードが同じように動作します。Group が広い開示規則を受け入れている場合を除き、**Strict** を使います。知識と開示の全体像は [Brain](../brain/) を参照してください。
 
 ## 永続的なドキュメントを設定する
 
-Agent ページで **MISSION / SOUL / DESIGN** を開きます。
+Agent ページで **MISSION / SOUL / DESIGN / CONFIDENTIALITY POLICY** を開きます。
 
 | ドキュメント | 書くべき内容 |
 |---|---|
 | `MISSION.md` | Agent がなぜ存在するか、どの作業を所有するか、完全な結果が何を意味するか |
 | `SOUL.md` | どのようにコミュニケーションするか、どのように決定するか、不確実性にどう対処するか |
 | `DESIGN.md` | ウェブページ、スライド、ドキュメント、チャート、その他のビジュアルアーティファクトのデザインシステム |
+| `ConfidentialityPolicy.md` | Agent が Brain に知識を書き込むときに audience scope を選択する方法 |
 
 `DESIGN.md` は <a href="https://www.designmd.co/about" target="_blank" rel="noreferrer">DESIGN.md 形式</a>を使います。YAML frontmatter は色、タイポグラフィ、間隔、角、コンポーネントなどのデザイン token を保存します。Markdown の本文はビジュアルの原理とその適用方法を説明します。Ankole にはそのまま使えるデフォルトのデザインシステムが含まれています。**Console → Agents → DESIGN** で自社のブランドに置き換えられます。
 
-ワークフロー、権限境界、動作ルールを `DESIGN.md` に入れないでください。それらは `MISSION.md`、`SOUL.md`、または特定の Skill に入れてください。少なく明確なドキュメントのセットから始め、実際の作業が必要であることを示したときだけルールを追加してください。
+ワークフロー、権限境界、動作ルールを `DESIGN.md` に入れないでください。それらは `MISSION.md`、`SOUL.md`、`ConfidentialityPolicy.md`、または特定の Skill に入れてください。`ConfidentialityPolicy.md` は Agent 自身の Brain 書き込みを導きます。chat からの自動学習では、conversation の参加者から audience を決めます。少なく明確なドキュメントのセットから始め、実際の作業が必要であることを示したときだけルールを追加してください。
 
 保存した変更は後の会話に適用されます。すでに実行中の作業は、開始時に読み取ったバージョンで続行します。
 

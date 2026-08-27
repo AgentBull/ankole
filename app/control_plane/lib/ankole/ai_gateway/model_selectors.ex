@@ -2,21 +2,15 @@ defmodule Ankole.AIGateway.ModelSelectors do
   @moduledoc """
   Maps agent model-profile names to public AIGateway model selectors.
 
-  LLM profiles keep their familiar names such as `primary`, while embedding and
-  rerank expose explicit default selectors. This keeps `/models` and request
+  LLM profiles keep their familiar names such as `primary`, while capability
+  profiles expose explicit default selectors. This keeps `/models` and request
   resolution readable for API clients without leaking the internal profile row
-  names as the only public contract.
+  names as the only public contract. Embedding and rerank have no default
+  binding: those capabilities accept only explicit `provider_id/model`
+  selectors, and Brain resolves them from instance-global `brain.*` keys.
   """
 
   @default_bindings %{
-    "embedding" => %{
-      profile: "embedding",
-      selector: "embedding.default"
-    },
-    "rerank" => %{
-      profile: "rerank",
-      selector: "rerank.default"
-    },
     "web_search" => %{
       profile: "web_search",
       selector: "web_search.default"
@@ -34,7 +28,7 @@ defmodule Ankole.AIGateway.ModelSelectors do
   @doc """
   Returns the selector that should be shown to callers for a profile.
 
-  Embedding and rerank use capability-specific defaults because the bare word
+  Capability profiles use capability-specific defaults because the bare word
   `default` is ambiguous once one request can target several model capabilities.
   """
   @spec public_selector(String.t(), String.t()) :: String.t()

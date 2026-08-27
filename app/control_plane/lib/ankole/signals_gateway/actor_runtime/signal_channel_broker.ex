@@ -19,6 +19,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SignalChannelBroker do
       with {:ok, result} <-
              AmbientCuration.record_judgment(turn_ref.agent_uid, turn_ref.actor_event_id, %{
                decision: request.decision,
+               action: request.action,
+               authority: request.authority,
+               handoff_job_id: request.handoff_job_id,
                reason: request.reason,
                asked_by_source_entry_id: request.asked_by_source_entry_id,
                asked_by_degraded: request.asked_by_degraded
@@ -27,6 +30,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SignalChannelBroker do
          %{
            "status" => "ok",
            "decision" => result.decision,
+           "action" => result.action,
+           "authority" => result.authority,
+           "handoff_job_id" => optional_job_id(result.handoff_job_id),
            "asked_by" => result.asked_by_state || "none"
          }}
       end
@@ -56,6 +62,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SignalChannelBroker do
       end
     end)
   end
+
+  defp optional_job_id(nil), do: nil
+  defp optional_job_id(job_id) when is_integer(job_id), do: Integer.to_string(job_id)
 
   defp respond(ctx, fallback_code, fun) do
     case fun.() do

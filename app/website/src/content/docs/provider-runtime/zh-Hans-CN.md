@@ -11,9 +11,11 @@ Resolver、Provider 模块、kernel 各自拥有一个阶段。Resolver 拥有�
 
 ## 阶段 1：解析（Resolver）
 
-`Ankole.AIGateway.Resolver` 把请求的 `model` 字段变成具体的 provider 运行时 map。resolver 是主体可见选择符——`primary`、`light`、`embedding.default` 或显式 `provider_id/model`——变成 provider ID、provider kind、上游模型名和解析后运行时设置的地方。
+`Ankole.AIGateway.Resolver` 把请求的 `model` 字段变成具体的 provider 运行时 map。在这里，主体可见的选择符（如 `primary`、`web_search.default` 或显式 `provider_id/model`）会变成 provider ID、provider kind、上游模型名和解析后的运行时设置。
 
-LLM 别名（`primary`、`light`、`heavy`、`coding`、`vision_fallback`）通过 Agent 的模型档案解析。其中 `coding` 是“后台 Agent 任务”档案沿用至今的持久化键和 API 别名。Embedding 和 rerank 接受 `default`、显式默认绑定（`embedding.default`）或显式选择符。Resolver 是唯一读取主体身份和模型档案的地方。
+每个 Agent 有八个内置模型档案：`primary`、`light`、`heavy`、`coding`、`vision_fallback`、`web_search`、`web_fetch` 和 `image_generate`。`coding` 是面向用户的“后台 Agent 任务”档案所使用的 API 和存储名称。前五个档案选择语言模型，后三个档案分别选择网页搜索、网页抓取和图像生成能力。
+
+Embedding 和 rerank 不属于 Agent 档案。直接调用 AIGateway 的这两项能力时，必须提供显式 `provider_id/model` 选择符。Brain 则从 [AppConfigure](../app-configuration/) 的 `brain.embedding_model` 和 `brain.rerank_model` 读取实例级模型。[Brain](../brain/) 说明这两个模型如何影响检索。
 
 解析到 Provider 行后，Resolver 选择一份可用凭据。thread 亲和优先于该行的 `fill_first`、`round_robin`、`least_used` 或 `random` 策略。运行时 map 把准确的 credential ID 带到之后每个失败路径。对 ChatGPT 订阅的 OAuth 成员，Resolver 会在 Provider 行锁内刷新接近过期或过久未刷新的 token。永久刷新失败把该成员标成 `dead`，临时失败标成 `exhausted`，两者都会继续选择下一个可用成员。
 

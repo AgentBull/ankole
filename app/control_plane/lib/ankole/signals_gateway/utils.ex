@@ -3,6 +3,13 @@ defmodule Ankole.SignalsGateway.Utils do
 
   def signal_session_id(signal_channel_id), do: "signal-channel:#{signal_channel_id}"
 
+  @doc "Inverse of `signal_session_id/1`: the Channel id, or nil for other keys."
+  def signal_channel_id_from_session_id("signal-channel:" <> channel_id)
+      when channel_id != "",
+      do: channel_id
+
+  def signal_channel_id_from_session_id(_key), do: nil
+
   def maybe_put_result(result, _key, nil), do: result
   def maybe_put_result(result, key, value), do: Map.put(result, key, value)
 

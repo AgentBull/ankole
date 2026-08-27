@@ -1372,12 +1372,10 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
     expect(result.message.errorMessage).toBeUndefined()
     expect(result.message.truncatedToolCalls).toEqual([
       {
+        id: 'call_partial_length',
+        type: 'function',
         name: 'patch',
-        argumentsComplete: false,
-        argumentChars: 19,
-        completedFields: [],
-        cutField: 'path',
-        cutFieldChars: 10
+        arguments: '{"path":"/tmp/repor'
       }
     ])
   })

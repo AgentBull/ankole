@@ -3,7 +3,6 @@ import { jsonObject, ms, type JsonObject as JSONObject } from '@agentbull/active
 import { existsSync, realpathSync, statSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { errorMessage, toError } from '../../../common/errors'
-import { sanitizeBinaryOutput, truncateUTF8Safe, utf8ByteLength } from '../../../common/text-sanitize'
 import { jsonBytes } from '../../../fabric/envelope_proto'
 import type { TurnStart, TurnSteerUpdate } from '../../../lanes/actor_lane'
 import { rpcMethods, type BackgroundAgentJobResponse } from '../../../lanes/rpc_lane'
@@ -56,8 +55,6 @@ import { fetchReplayTurnItems, wireItemsFromTurnItems } from './thread-replay'
  * RuntimeFabric traffic.
  */
 const activeTurnUpdatePollIntervalMs = 250
-/** Maximum MCP startup diagnostic stored in a Worker log field. */
-const maxMCPStartupErrorBytes = 2_048
 // Detect an app-server that accepted turn/start but produced no event. This is
 // not an overall Job timeout.
 const defaultFirstCodexProgressTimeoutMs = ms('1m')
@@ -759,60 +756,45 @@ class CodexJobSession implements AgentCodexRuntimeSession {
     // would duplicate the turn content stream.
     if (this.suppressRuntimeCapture) return
     this.turnRecorder.handleNotification(message)
-    const params = jsonObject(message.params)
-    const notificationThreadID = stringValue(params.threadId)
-    const isLeadNotification = !notificationThreadID || notificationThreadID === this.runtimeThreadID
     const projection = projectCodexNotification(message)
-    if (projection.type !== 'ignored') {
-      this.input.opts.onTurnActivity?.(`codex:${isLeadNotification ? '' : 'child:'}${projection.type}`)
-      if (isLeadNotification) this.noteLeadRuntimeProgress()
+    if (projection.type === 'ignored') return
+    const isLeadNotification = !projection.threadID || projection.threadID === this.runtimeThreadID
+    this.input.opts.onTurnActivity?.(`codex:${isLeadNotification ? '' : 'child:'}${projection.type}`)
+    if (isLeadNotification) this.noteLeadRuntimeProgress()
+
+    // Child-thread items also carry Skill-usage evidence.
+    if (projection.type === 'item_started') {
+      this.recordUsedSkills(this.skillUsage.observeItem(projection.item), projection.turnID)
+      return
     }
 
-    if (message.method === 'item/started') {
-      this.recordUsedSkills(this.skillUsage.observeItem(params.item), stringValue(params.turnId))
-    }
-
-    if (
-      message.method === 'mcpServer/startupStatus/updated' &&
-      params.status === 'failed' &&
-      (!this.runtimeThreadID || isLeadNotification)
-    ) {
-      const server = stringValue(params.name) ?? 'unknown'
-      const failureReason = stringValue(params.failureReason)
-      const failure = boundedMCPStartupError(stringValue(params.error) ?? 'Codex MCP server failed to start')
-      this.input.opts.logger?.warning('worker.codex_mcp_server_unavailable', 'Codex MCP server is unavailable', {
-        server,
-        status: 'failed',
-        ...(failureReason ? { failure_reason: failureReason } : {}),
-        error: failure
-      })
+    if (projection.type === 'mcp_server_startup_failed') {
+      if (!this.runtimeThreadID || isLeadNotification) {
+        this.input.opts.logger?.warning('worker.codex_mcp_server_unavailable', 'Codex MCP server is unavailable', {
+          server: projection.server,
+          status: 'failed',
+          ...(projection.failureReason ? { failure_reason: projection.failureReason } : {}),
+          error: projection.error
+        })
+      }
+      return
     }
 
     if (!isLeadNotification) return
 
-    if (message.method === 'error') {
-      const exhaustion = codexCredentialPoolExhaustion(jsonObject(params.error))
-      if (exhaustion) this.pendingCredentialPoolExhaustion = exhaustion
-    }
-
-    if (message.method === 'item/completed') {
-      const item = jsonObject(params.item)
-      if (item.type === 'contextCompaction' && stringValue(params['threadId']) === this.compactingThreadID) {
+    if (projection.type === 'credential_pool_exhausted') {
+      this.pendingCredentialPoolExhaustion = projection.exhaustion
+    } else if (projection.type === 'compaction_completed') {
+      if (projection.threadID === this.compactingThreadID) {
         // Compaction emits its own turn/completed event. Track that Turn so it
         // cannot finalize the Job.
-        const completedTurnID = stringValue(params['turnId']) ?? this.compactionTurnID
+        const completedTurnID = projection.turnID ?? this.compactionTurnID
         if (completedTurnID) this.completedCompactionTurnIDs.add(completedTurnID)
         this.resolveCompaction?.()
       }
-    }
-
-    if (projection.type === 'turn_started') {
+    } else if (projection.type === 'turn_started') {
       this.pendingCredentialPoolExhaustion = undefined
-      this.completedFilesChanged = mergeBackgroundAgentJobPathHandoffs(
-        this.completedFilesChanged,
-        this.activeFilesChanged
-      )
-      this.activeFilesChanged = emptyBackgroundAgentJobPathHandoff()
+      this.rollActiveFilesChanged()
       this.codexTurnID = projection.turnID ?? this.codexTurnID
       if (this.resolveCompaction && projection.turnID) this.compactionTurnID = projection.turnID
     } else if (projection.type === 'agent_completed') {
@@ -822,7 +804,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
     } else if (projection.type === 'turn_diff') {
       this.activeFilesChanged = projection.filesChanged
     } else if (projection.type === 'turn_completed' && !this.finalizing && !this.waitingOnUserInput) {
-      const completedTurnID = stringValue(jsonObject(jsonObject(message.params).turn).id)
+      const completedTurnID = projection.turnID
       if (completedTurnID && this.completedCompactionTurnIDs.delete(completedTurnID)) return
       if (this.rejectCompaction && (!this.compactionTurnID || completedTurnID === this.compactionTurnID)) {
         this.rejectCompaction(
@@ -833,13 +815,18 @@ class CodexJobSession implements AgentCodexRuntimeSession {
         )
         return
       }
-      this.completedFilesChanged = mergeBackgroundAgentJobPathHandoffs(
-        this.completedFilesChanged,
-        this.activeFilesChanged
-      )
-      this.activeFilesChanged = emptyBackgroundAgentJobPathHandoff()
+      this.rollActiveFilesChanged()
       void this.handleTurnCompleted(projection.terminalStatus, projection.codexTurnStatus, projection.error)
     }
+  }
+
+  /** Folds the running Turn's diff into the Job-wide total and starts a fresh one. */
+  private rollActiveFilesChanged(): void {
+    this.completedFilesChanged = mergeBackgroundAgentJobPathHandoffs(
+      this.completedFilesChanged,
+      this.activeFilesChanged
+    )
+    this.activeFilesChanged = emptyBackgroundAgentJobPathHandoff()
   }
 
   async handleRuntimeServerRequest(message: JSONRPCMessage, appServer: CodexAppServerClient): Promise<void> {
@@ -1094,13 +1081,6 @@ class CodexJobSession implements AgentCodexRuntimeSession {
       )
     }
   }
-}
-
-function boundedMCPStartupError(value: string): string {
-  const sanitized = sanitizeBinaryOutput(value)
-  if (utf8ByteLength(sanitized) <= maxMCPStartupErrorBytes) return sanitized
-  const suffix = '...[truncated]'
-  return `${truncateUTF8Safe(sanitized, maxMCPStartupErrorBytes - utf8ByteLength(suffix))}${suffix}`
 }
 
 export async function verifiedCodexSkills(

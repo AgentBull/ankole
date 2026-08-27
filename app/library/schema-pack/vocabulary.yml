@@ -1,0 +1,276 @@
+# Ankole Brain global vocabulary.
+# Preferred terms for the free-text naming surfaces of the Brain write path:
+# subtype, tag, claim_metric, event_type, and dimension. Agents consult this
+# file before they invent a new name. Installed schema types and subtypes
+# always take priority over this file.
+# Sections come in three groups: cross-industry business functions, industry
+# domains, and classification labels. Admission tests and dedup decisions
+# live in docs/design-docs/BrainV3.md.
+api_version: ankole-brain-vocabulary-v1
+version: 1.1.0
+sections:
+  # ────────────────────────────────────────────────────────────
+  # Cross-industry business functions
+  # ────────────────────────────────────────────────────────────
+  - name: Marketing and Growth
+    source: schema.org, IAB, and search-marketing vocabulary
+    entries:
+      - {term: campaign, description: "A coordinated marketing initiative with a defined objective, audience, budget, channels, and time period."}
+      - {term: creative, description: "A designed advertising or content asset, such as a banner, video, or copy variant, used in marketing delivery."}
+      - {term: keyword, description: "A search term targeted for paid bidding or organic ranking, tracked with its intent and performance."}
+      - {term: content_brief, description: "A specification for one content piece that defines its target query, audience, structure, and requirements."}
+      - {term: landing_page, description: "A web page built as the arrival point of a campaign or search visit and optimized for a defined conversion."}
+      - {term: promotion, description: "A time-bound commercial incentive, such as a discount or bundle, offered to stimulate demand."}
+      - {term: conversion, description: "A visitor's or lead's completion of a defined target action, such as a purchase, signup, or qualified submission."}
+      - {term: attribution, description: "An assignment of credit for a conversion or outcome across the touchpoints that contributed to it."}
+      - {term: bid, description: "A price offered in a competitive auction or tender, including advertising auctions and procurement bidding."}
+      - {term: press_release, description: "An official public statement that an organization issues for distribution to news media and other audiences."}
+      - {term: roas, description: "A metric: revenue attributed to advertising divided by the advertising spend that produced it."}
+      - {term: cac, description: "A metric: the average sales and marketing cost required to acquire one new customer."}
+      - {term: organic_traffic, description: "A metric: visits arriving from unpaid search results, distinguished from paid and direct traffic."}
+      - {term: search_ranking, description: "A metric: the position of a page in search results for a tracked keyword at a measurement time."}
+
+  - name: Sales and Customer
+    source: CRM and subscription-business vocabulary, and schema.org
+    entries:
+      - {term: offer, description: "A seller's or provider's proposal to supply specified goods or services under stated price and contract terms."}
+      - {term: order, description: "A buyer's committed request for specified goods or services, including quantities, prices, and fulfillment terms."}
+      - {term: lead, description: "A person or organization identified as a potential customer but not yet qualified as a sales opportunity."}
+      - {term: opportunity, description: "A qualified potential sale tracked by stage, expected value, responsible owner, and expected close date."}
+      - {term: quota, description: "A performance target assigned to a person, team, or territory for a defined period, usually in sales or revenue units."}
+      - {term: churn, description: "The loss of customers, subscriptions, or recurring revenue through cancellation or nonrenewal during a defined period."}
+      - {term: customer_segment, description: "A group of customers sharing defined characteristics, needs, or behavior for analysis or targeted action."}
+      - {term: subscription, description: "A recurring commercial agreement that grants continued access to a product or service under periodic billing."}
+      - {term: renewal, description: "The extension of an expiring subscription, contract, lease, or policy for a further term."}
+
+  - name: Service and Support
+    source: customer-service and ITSM vocabulary, and schema.org
+    entries:
+      - {term: ticket, description: "A tracked record of one customer or internal service request or issue, managed from receipt through resolution."}
+      - {term: sla, description: "A committed service-level target, such as response or resolution time, agreed between a provider and a customer."}
+      - {term: complaint, description: "A formal expression of dissatisfaction from a customer or stakeholder that requires tracking and resolution."}
+      - {term: escalation, description: "A transfer of an unresolved issue to a higher support tier, authority level, or management attention."}
+      - {term: reservation, description: "A commitment of capacity, space, or time for a named party at a future time, such as a room, table, or appointment."}
+      - {term: review, description: "An evaluative assessment of a product, service, organization, or creative work, optionally including a rating."}
+
+  - name: Supply Chain and Procurement
+    source: GS1 and APICS SCOR
+    entries:
+      - {term: trade_item, description: "A product or service unit assigned an identifier because it can be priced, ordered, or invoiced."}
+      - {term: shipment, description: "A consignment of goods moved from a shipper to a consignee under one transport movement or shipping reference."}
+      - {term: pallet, description: "A rigid handling platform together with the goods assembled on it as one storage or transport unit."}
+      - {term: batch, description: "A traceable quantity produced or processed together under materially uniform conditions."}
+      - {term: recall, description: "A coordinated withdrawal, return, or correction of specified products because of a safety, quality, or regulatory issue."}
+      - {term: point_of_sale, description: "The physical or digital location and system where a retail transaction is completed and recorded."}
+      - {term: assortment, description: "The defined set and range of products offered by a seller, channel, or location during a given period."}
+      - {term: replenishment, description: "The process of restoring inventory at a location to a target level under a demand and stock policy."}
+      - {term: stockout, description: "A state in which a required item is unavailable at the specified location when demand occurs."}
+      - {term: lead_time, description: "The elapsed time from an order or process trigger until the requested item or result becomes available."}
+      - {term: inventory, description: "The quantity and condition of items held at locations, available to meet demand or planned use."}
+      - {term: warehouse, description: "A facility used to receive, store, and dispatch inventory within a distribution network."}
+      - {term: return, description: "Goods sent back from a buyer or user to a seller or supplier for refund, replacement, repair, or disposal."}
+
+  - name: Finance and Accounting
+    source: general accounting vocabulary and schema.org
+    entries:
+      - {term: invoice, description: "A seller-issued payment request that itemizes delivered goods or services, amounts, taxes, and the payment due date."}
+      - {term: expense, description: "A cost incurred by the organization or reimbursed to an employee, recorded with its purpose, amount, and period."}
+      - {term: reconciliation, description: "A comparison of two records of the same activity, such as ledger and bank statements, to find and resolve differences."}
+      - {term: accounts_payable, description: "Amounts the organization owes suppliers for received goods or services, managed as a ledger category and process."}
+      - {term: accounts_receivable, description: "Amounts customers owe the organization for delivered goods or services, managed as a ledger category and process."}
+      - {term: tax_filing, description: "A declaration or return submitted to a tax authority for a defined tax type and period."}
+      - {term: cost_center, description: "An organizational unit to which costs are allocated for accounting, budgeting, and analysis."}
+
+  - name: People and HR
+    source: HR vocabulary and schema.org
+    entries:
+      - {term: job_posting, description: "A published notice for an open role that states its responsibilities, qualifications, location, and application process."}
+      - {term: requisition, description: "An approved internal request to hire for a role, preceding and authorizing its published job postings."}
+      - {term: candidate, description: "A person under consideration in a recruiting pipeline for one or more open roles."}
+      - {term: competency, description: "A defined skill, knowledge area, or ability used to describe role requirements and workforce capability."}
+      - {term: course, description: "A structured program of instruction with a defined subject, learning objectives, and delivery schedule."}
+      - {term: headcount, description: "The number of occupied or authorized worker positions in an organization or unit at a specified time."}
+      - {term: attrition, description: "Workforce reduction through employee departures during a period, often measured against average workforce size."}
+      - {term: onboarding, description: "A structured process that integrates a new employee, customer, or partner and completes required setup and training."}
+      - {term: compensation, description: "Monetary and nonmonetary remuneration for work, including salary, bonus, equity, and benefits."}
+      - {term: performance_review, description: "A formal assessment of an employee's performance against defined expectations for a specified review period."}
+      - {term: leave, description: "An approved absence from work for a defined period and reason, such as vacation, sickness, or parental leave."}
+      - {term: shift, description: "A scheduled work period that assigns people to cover defined hours, locations, or duties."}
+
+  - name: IT and Data
+    source: data-management and blockchain vocabulary, and schema.org
+    entries:
+      - {term: dataset, description: "A named and structured collection of related data records maintained and distributed as one resource."}
+      - {term: smart_contract, description: "A program deployed on a blockchain that executes agreement logic automatically and is subject to security audit."}
+
+  - name: Assets and Facilities
+    source: asset-management vocabulary
+    entries:
+      - {term: equipment, description: "A machine, instrument, or hardware unit operated and maintained as an identifiable asset."}
+      - {term: facility, description: "A built site operated for a business purpose, such as a plant, office, store, or data center."}
+      - {term: vehicle, description: "A car, truck, vessel, aircraft, or other conveyance operated as an identifiable asset."}
+      - {term: meter, description: "A device that measures consumption or output, such as electricity, water, gas, or flow, at a metered point."}
+      - {term: lease, description: "A contract granting use of property, equipment, or vehicles for a period in exchange for payment."}
+      - {term: downtime, description: "A period during which equipment, a line, a system, or a service is unavailable because of a planned or unplanned stop."}
+
+  - name: Strategy, Projects, and Governance
+    source: general management vocabulary
+    entries:
+      - {term: goal, description: "A desired future outcome defined by its scope, owner, target measure, and time horizon when available."}
+      - {term: decision, description: "A selected course of action recorded with its context, alternatives, rationale, owner, and effective date."}
+      - {term: learning, description: "A reusable conclusion derived from experience and recorded with the evidence and conditions under which it applies."}
+      - {term: memo, description: "A concise internal document that communicates analysis, policy, a decision, or a recommendation to a defined audience."}
+      - {term: business_review, description: "A periodic assessment of business performance against goals, including metrics, explanations, risks, and follow-up actions."}
+      - {term: budget, description: "An approved plan allocating expected income, expenses, capital, or other resources for a defined period."}
+      - {term: forecast, description: "A time-bound estimate of future business results based on current data, assumptions, and an explicit forecast horizon."}
+      - {term: roadmap, description: "A time-ordered plan of intended outcomes, capabilities, or milestones used to communicate strategic direction."}
+      - {term: backlog, description: "A prioritized collection of work items accepted for future consideration or implementation."}
+      - {term: program, description: "A coordinated group of related projects and activities managed together to deliver outcomes beyond a single project."}
+      - {term: requirement, description: "A documented condition or capability that a product, service, or system must satisfy."}
+      - {term: approval, description: "A recorded authorization of a request, document, or change by a person or body with defined authority."}
+      - {term: procedure, description: "A documented step-by-step instruction for performing a defined task or operation consistently."}
+      - {term: change_request, description: "A proposed modification to a system, product, contract, or plan, tracked from submission through decision and implementation."}
+
+  - name: Risk, Quality, and Security
+    source: ISO 31000, ISO 9000, and ISO/IEC 27000
+    entries:
+      - {term: risk, description: "An identified effect of uncertainty on an objective, recorded with its causes, consequences, likelihood, and impact when known."}
+      - {term: risk_appetite, description: "The amount and type of risk an organization is willing to pursue or retain while seeking its objectives."}
+      - {term: risk_assessment, description: "A structured process that identifies risks, analyzes them, and evaluates them against defined risk criteria."}
+      - {term: residual_risk, description: "The portion of a risk that remains after applicable controls or treatments have been implemented."}
+      - {term: mitigation, description: "A planned action or control intended to reduce the likelihood, impact, or exposure of an identified risk."}
+      - {term: nonconformity, description: "A failure of a product, process, or management system to meet a specified requirement."}
+      - {term: corrective_action, description: "An action taken to eliminate the cause of a detected nonconformity and prevent its recurrence."}
+      - {term: audit_finding, description: "A conclusion obtained by comparing verified audit evidence with defined audit criteria."}
+      - {term: threat, description: "A potential cause of an unwanted incident that could harm a system, organization, person, or asset."}
+      - {term: vulnerability, description: "A weakness in an asset, process, or control that a threat can exploit to cause harm."}
+      - {term: control, description: "A measure that modifies risk by preventing, detecting, correcting, or enabling recovery from an unwanted event."}
+      - {term: business_continuity, description: "The capability and plans required to continue priority activities at acceptable levels during a disruption."}
+
+  - name: Law, Contracts, and Compliance
+    source: schema.org Legislation, FIBO contract vocabulary, and patent and regulatory practice
+    entries:
+      - {term: statute, description: "A written law enacted by a legislative authority through its prescribed lawmaking process."}
+      - {term: precedent, description: "A prior judicial decision used as authority when deciding a later case with a similar legal question."}
+      - {term: regulation, description: "A binding rule issued by an authorized administrative or regulatory body under delegated legal power."}
+      - {term: motion, description: "A formal request asking a court or tribunal to issue a specified order or ruling."}
+      - {term: discovery, description: "A pretrial process through which parties disclose and obtain evidence relevant to claims or defenses under procedural rules."}
+      - {term: injunction, description: "A court order requiring a party to perform or refrain from a specified act."}
+      - {term: settlement, description: "An agreement that resolves all or part of a dispute without a final adjudication and creates defined obligations."}
+      - {term: liability, description: "Legal responsibility for an act, omission, debt, or harm that can create an enforceable duty or remedy."}
+      - {term: indemnity, description: "A contractual obligation to compensate another party for defined losses, claims, costs, or liabilities."}
+      - {term: warranty, description: "A contractual assurance about a fact, condition, or performance that provides a remedy if the assurance is untrue."}
+      - {term: jurisdiction, description: "A court's or regulator's legal authority over a subject, person, territory, or proceeding."}
+      - {term: arbitration, description: "A private dispute-resolution process in which a neutral arbitrator decides a matter under an agreement and procedural rules."}
+      - {term: obligation, description: "A duty imposed by law, regulation, permit, or contract that the organization must fulfill and can track for compliance."}
+      - {term: permit, description: "A government authorization required to conduct a specified activity, such as construction, operation, or emission."}
+      - {term: license, description: "A grant of rights from a rights holder allowing defined use of property, technology, content, or a brand."}
+      - {term: regulatory_submission, description: "An application or dossier submitted to a regulator seeking approval, registration, clearance, or licensure."}
+      - {term: deficiency_letter, description: "A regulator's formal notice identifying deficiencies in a submission and requesting corrections or additional information."}
+      - {term: patent, description: "A jurisdiction-specific right to exclude others from practicing the claims of an invention for a limited term."}
+      - {term: patent_claim, description: "A numbered statement in a patent or application that defines the legal scope of the claimed invention."}
+      - {term: prior_art, description: "Existing public knowledge relevant to whether a claimed invention is novel and nonobvious."}
+      - {term: office_action, description: "A patent or trademark examiner's official communication stating objections or rejections that require a response."}
+      - {term: trademark, description: "A registered or asserted sign, name, or symbol that distinguishes goods or services and carries legal protection."}
+      - {term: copyright, description: "The legal right controlling reproduction and use of an original creative work for a limited term."}
+
+  # ────────────────────────────────────────────────────────────
+  # Industry domains
+  # ────────────────────────────────────────────────────────────
+  - name: Finance and Insurance
+    source: FIBO
+    entries:
+      - {term: bond, description: "A debt security under which an issuer owes principal and usually interest to its holder under defined terms."}
+      - {term: loan, description: "Funds advanced by a lender to a borrower under contractual repayment, interest, maturity, and collateral terms."}
+      - {term: collateral, description: "An asset pledged to secure an obligation and available to the creditor after a qualifying default."}
+      - {term: covenant, description: "A contractual promise or restriction in a financing agreement that requires or prohibits specified borrower actions."}
+      - {term: tranche, description: "A contractually distinct portion of a financing or security that differs in payment priority, risk, maturity, or return."}
+      - {term: syndicate, description: "A group of financial institutions acting jointly to lend, underwrite, or distribute one transaction."}
+      - {term: underwriter, description: "A financial institution that structures and distributes an issuance while assuming defined placement or underwriting risk."}
+      - {term: swap, description: "A derivative contract in which parties exchange defined cash flows or financial exposures under a calculation schedule."}
+      - {term: option, description: "A contract giving its holder the right, but not the obligation, to buy or sell an underlying asset on specified terms."}
+      - {term: futures, description: "A standardized exchange-traded contract obligating parties to transact or cash-settle an underlying asset at a set future date."}
+      - {term: dividend, description: "A distribution of earnings or capital by a company or fund to eligible holders based on their ownership."}
+      - {term: ipo, description: "The first public offering of shares by a previously private company under a securities registration or listing process."}
+      - {term: credit_rating, description: "A rating provider's opinion of an issuer's or obligation's relative creditworthiness expressed on a defined scale."}
+      - {term: benchmark, description: "A reference index, rate, or portfolio used to evaluate performance or determine a financial contract's value."}
+      - {term: custodian, description: "A regulated institution that safeguards client assets and administers settlement, ownership records, and corporate actions."}
+      - {term: margin, description: "Collateral required to open or maintain a leveraged position or to cover current counterparty exposure."}
+      - {term: hedge, description: "A position or arrangement intended to offset a specified market, credit, currency, or other measurable exposure."}
+      - {term: financing_round, description: "A discrete private capital raise identified by its stage, investors, amount, date, and principal terms."}
+      - {term: position, description: "The quantity and direction of financial exposure held in an asset, contract, or account at a specified time."}
+      - {term: watchlist, description: "A maintained list of instruments, issuers, or events selected for monitoring and not necessarily held as positions."}
+      - {term: insurance_policy, description: "An insurance contract specifying covered risks, terms, premium, and the parties it protects."}
+      - {term: insurance_claim, description: "A policyholder's demand for compensation or coverage under an insurance policy after a covered event."}
+      - {term: premium, description: "The price paid, usually periodically, to keep an insurance policy in force."}
+      - {term: coverage, description: "The scope of risks, amounts, and conditions that an insurance policy protects against."}
+
+  - name: Health Care
+    source: HL7 FHIR resource vocabulary and ClinicalTrials.gov
+    entries:
+      - {term: patient, description: "A person who receives or is registered to receive health-care services from a provider."}
+      - {term: clinical_trial, description: "A prospective study in human participants that evaluates one or more health-related interventions and their outcomes."}
+      - {term: indication, description: "A disease, condition, or patient population for which a treatment, test, or device is intended or approved."}
+      - {term: therapy, description: "An intervention intended to treat, manage, or prevent a health condition or to relieve its symptoms."}
+      - {term: drug, description: "A substance or preparation intended to diagnose, treat, mitigate, cure, or prevent disease through a biological effect."}
+      - {term: medical_device, description: "An instrument, apparatus, software, or material intended for a medical purpose whose primary action is not pharmacological."}
+      - {term: adverse_event, description: "An unfavorable medical occurrence after exposure to a product or procedure, without requiring a causal relationship."}
+      - {term: diagnosis, description: "An identified disease or condition based on clinical signs, symptoms, tests, and professional judgment."}
+      - {term: healthcare_provider, description: "A licensed individual or authorized organization that delivers health-care services to patients."}
+      - {term: payer, description: "An organization or public program responsible for financing or reimbursing covered health-care services."}
+
+  - name: Scholarly Research
+    source: schema.org ScholarlyArticle hierarchy and OpenAIRE
+    entries:
+      - {term: preprint, description: "A scholarly manuscript made publicly available before completion of formal peer review or journal publication."}
+      - {term: journal, description: "A periodical publication that issues scholarly articles under a defined editorial and review policy."}
+      - {term: conference, description: "An organized scholarly event for presenting and discussing research, identified by its edition, dates, and venue when known."}
+      - {term: peer_review, description: "An evaluation of scholarly work by subject-matter peers against stated methodological or publication criteria."}
+      - {term: citation, description: "A structured reference from one work to another that identifies the cited source and, when available, the cited location."}
+      - {term: dissertation, description: "A substantial scholarly work submitted for an academic degree, typically presenting original research."}
+      - {term: experiment, description: "A controlled empirical procedure that tests a hypothesis by manipulating or measuring variables under defined conditions."}
+      - {term: protocol, description: "A prespecified plan describing a study's objectives, methods, procedures, analysis, and governance."}
+      - {term: hypothesis, description: "A testable statement predicting a relationship or explanation that can be evaluated with evidence."}
+      - {term: retraction, description: "A formal withdrawal of a published scholarly work from the record through a notice that identifies the work and reason."}
+      - {term: grant, description: "Funding awarded for a defined purpose, usually with eligibility, permitted-use, and reporting conditions."}
+
+  - name: Manufacturing
+    source: ISO 9000 and APICS SCOR
+    entries:
+      - {term: bill_of_materials, description: "A structured and revision-controlled list of components and quantities required to manufacture or assemble a product."}
+      - {term: work_order, description: "An authorized instruction to perform defined production or maintenance work with a specified item, quantity, location, and schedule."}
+      - {term: production_line, description: "An ordered arrangement of workstations and resources that performs a repeatable manufacturing sequence."}
+      - {term: yield, description: "The proportion of process input or produced units that becomes output meeting the specified acceptance requirements."}
+      - {term: defect, description: "A product characteristic that fails a requirement related to its intended or specified use."}
+      - {term: capacity, description: "The maximum sustainable output a resource or production system can deliver in a period under stated operating conditions."}
+      - {term: changeover, description: "The process and elapsed time required to switch equipment or a production line from one product or setup to another."}
+      - {term: inspection, description: "An examination, measurement, or test used to determine whether an item or process conforms to specified requirements."}
+      - {term: traceability, description: "The ability to identify an item's or material's history, application, and location through recorded identifiers and links."}
+
+  # ────────────────────────────────────────────────────────────
+  # Cross-domain entities and classification labels
+  # ────────────────────────────────────────────────────────────
+  - name: General Entities
+    source: schema.org
+    entries:
+      - {term: award, description: "Formal recognition granted to a person, organization, or work for a stated achievement or distinction."}
+      - {term: membership, description: "A person's or organization's recognized affiliation with a group, including its role and validity period when known."}
+      - {term: place, description: "A geographically or physically bounded location, area, or site."}
+      - {term: trip, description: "A planned or completed journey identified by its origin, destination, dates, and purpose when known."}
+
+  - name: Industry Classification
+    source: GICS, supplemented by NAICS
+    entries:
+      - {term: energy, description: "An industry classification for companies involved in energy exploration, production, refining, equipment, or related services."}
+      - {term: materials, description: "An industry classification for companies producing chemicals, construction materials, packaging, metals, mining, paper, or forest products."}
+      - {term: industrials, description: "An industry classification for capital-goods, commercial-services, professional-services, and transportation companies."}
+      - {term: consumer_discretionary, description: "An industry classification for cyclically sensitive consumer goods and services such as vehicles, leisure, and discretionary retail."}
+      - {term: consumer_staples, description: "An industry classification for frequently purchased essentials such as food, beverages, and household or personal products."}
+      - {term: health_care, description: "An industry classification for health-care equipment, services, pharmaceuticals, biotechnology, and life-sciences companies."}
+      - {term: financials, description: "An industry classification for banks, financial-services firms, insurers, and other providers of financial intermediation."}
+      - {term: information_technology, description: "An industry classification for software, technology hardware, electronic equipment, and semiconductor companies."}
+      - {term: communication_services, description: "An industry classification for telecommunications, media, entertainment, and interactive-service companies."}
+      - {term: utilities, description: "An industry classification for electric, gas, water, and multi-utility operators and independent power producers."}
+      - {term: real_estate, description: "An industry classification for companies that own, develop, manage, finance, or provide services for real property."}
+      - {term: semiconductors, description: "An industry group for companies that design, manufacture, package, test, or supply equipment for semiconductor devices."}
+      - {term: biotechnology, description: "An industry group for companies using biological processes to research or develop therapeutic, diagnostic, or other commercial products."}

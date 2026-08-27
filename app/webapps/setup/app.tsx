@@ -8,7 +8,6 @@ import {
   RiLoginCircleLine
 } from '@remixicon/react'
 import { Button } from '@ankole/uikit/components/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@ankole/uikit/components/card'
 import { Checkbox } from '@ankole/uikit/components/checkbox'
 import {
   Field,
@@ -25,7 +24,7 @@ import { toast } from '@ankole/uikit/components/sonner'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useId, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useId, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import * as v from 'valibot'
 import { internalAPIGet, internalAPIPost, internalAPIPut } from '../common/internal-api-client'
@@ -39,7 +38,8 @@ import {
 } from '../common/config-fields'
 import { ErrorBlock } from '../common/error-block'
 import i18n, { loadLocale, nativeLocaleLabel } from '../common/i18n'
-import { SetupLayout } from './layout'
+import { BrainPacksStep } from './brain-packs-step'
+import { SetupLayout, SetupPanel } from './layout'
 import { LocalAdminForm } from './local-admin-form'
 import { IdentitySetupModel, type IdentitySetupDraft } from './state/identity-setup-model'
 import { PluginsStepModel, visibleIdentityAdapters } from './state/plugins-step-model'
@@ -98,8 +98,12 @@ export function SetupApp() {
   // this model, and the identity step reads them to know which adapters to
   // offer, so restoring the step alone would land the operator on a screen
   // that reports no adapters at all.
-  const [step, setStep] = useState<'plugins' | 'identity'>('plugins')
-  const [pluginsCompleted, setPluginsCompleted] = useState(false)
+  const [step, setStep] = useState<'plugins' | 'industry' | 'identity'>('plugins')
+  const [completedSteps, setCompletedSteps] = useState<ReadonlySet<SetupStepID>>(new Set())
+  const completeStep = (completed: SetupStepID, next: 'industry' | 'identity') => {
+    setCompletedSteps(current => new Set([...current, completed]))
+    setStep(next)
+  }
   const state = useQuery({
     queryKey: ['setup-state'],
     queryFn: () => internalAPIGet<SetupState>('/.internal-apis/setup/state')
@@ -126,6 +130,7 @@ export function SetupApp() {
   const steps: Array<{ id: SetupStepID; label: string }> = [
     { id: 'bootstrap', label: t('setup.step_bootstrap') },
     { id: 'plugins', label: t('setup.step_plugins') },
+    { id: 'industry', label: t('setup.step_industry') },
     { id: 'identity', label: t('setup.step_identity') }
   ]
 
@@ -135,7 +140,7 @@ export function SetupApp() {
         <nav className="h-fit border border-border bg-background/95 p-3 backdrop-blur" aria-label={t('setup.steps')}>
           <ol className="flex flex-row gap-2 overflow-x-auto lg:flex-col lg:overflow-visible">
             {steps.map((item, index) => {
-              const itemState = setupStepState(item.id, currentStep, authenticated, pluginsCompleted)
+              const itemState = setupStepState(item.id, currentStep, authenticated, completedSteps)
               const locked = itemState === 'locked'
               const navigable = authenticated && item.id !== 'bootstrap' && !locked
               return (
@@ -179,7 +184,7 @@ export function SetupApp() {
 
         <div className="min-w-0">
           {state.error ? (
-            <Panel title={t('setup.title')}>
+            <SetupPanel title={t('setup.title')}>
               <ErrorBlock
                 error={state.error}
                 action={
@@ -188,22 +193,18 @@ export function SetupApp() {
                   </Button>
                 }
               />
-            </Panel>
+            </SetupPanel>
           ) : state.isLoading ? (
-            <Panel title={t('setup.title')}>{t('common.loading')}</Panel>
+            <SetupPanel title={t('setup.title')}>{t('common.loading')}</SetupPanel>
           ) : !authenticated ? (
             <BootstrapGate
               setupState={state.data}
               onAuthenticated={() => queryClient.invalidateQueries({ queryKey: ['setup-state'] })}
             />
           ) : step === 'plugins' ? (
-            <PluginsStep
-              model={pluginsModel}
-              onContinue={() => {
-                setPluginsCompleted(true)
-                setStep('identity')
-              }}
-            />
+            <PluginsStep model={pluginsModel} onContinue={() => completeStep('plugins', 'industry')} />
+          ) : step === 'industry' ? (
+            <BrainPacksStep onContinue={() => completeStep('industry', 'identity')} />
           ) : (
             <IdentityStep
               model={identityModel}
@@ -242,7 +243,7 @@ function BootstrapGate({ setupState, onAuthenticated }: { setupState?: SetupStat
   )
 
   return (
-    <Panel title={t('setup.bootstrap_title')}>
+    <SetupPanel title={t('setup.bootstrap_title')}>
       <p className="text-sm leading-6 text-muted-foreground">{t('setup.activation_hint')}</p>
       <ErrorBlock error={mutation.error ?? printActivationCode.error} />
       <Form className="grid gap-6" of={form} onSubmit={output => mutation.mutate(output)}>
@@ -312,7 +313,7 @@ function BootstrapGate({ setupState, onAuthenticated }: { setupState?: SetupStat
           </Button>
         </div>
       </Form>
-    </Panel>
+    </SetupPanel>
   )
 }
 
@@ -342,7 +343,7 @@ function PluginsStep({ model, onContinue }: { model: InstanceType<typeof Plugins
   })
 
   return (
-    <Panel title={t('setup.choose_plugins')}>
+    <SetupPanel title={t('setup.choose_plugins')}>
       <p className="text-sm leading-6 text-muted-foreground">{t('setup.plugin_restart_note')}</p>
       <ErrorBlock error={query.error ?? mutation.error} />
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
@@ -375,7 +376,7 @@ function PluginsStep({ model, onContinue }: { model: InstanceType<typeof Plugins
           <RiArrowRightSLine data-icon="inline-end" />
         </Button>
       </div>
-    </Panel>
+    </SetupPanel>
   )
 }
 
@@ -396,7 +397,7 @@ function IdentityStep({
   })
   const adapters = visibleIdentityAdapters(query.data?.adapters ?? [], pluginsModel.selectedPluginIDs.value)
 
-  if (query.isLoading) return <Panel title={t('setup.identity_provider')}>{t('common.loading')}</Panel>
+  if (query.isLoading) return <SetupPanel title={t('setup.identity_provider')}>{t('common.loading')}</SetupPanel>
   if (adapters.length === 0) return <NoAdapters error={query.error} />
 
   return <IdentityMethodStep adapters={adapters} model={model} publicBaseURL={publicBaseURL} />
@@ -447,7 +448,7 @@ function IdentityMethodStep({
   }
 
   return (
-    <Panel title={t('setup.identity_provider')}>
+    <SetupPanel title={t('setup.identity_provider')}>
       <p className="text-sm leading-6 text-muted-foreground">{t('setup.identity_intro')}</p>
       <section className="grid gap-4">
         <h2 className="text-sm font-semibold uppercase tracking-normal text-muted-foreground">
@@ -495,7 +496,7 @@ function IdentityMethodStep({
           publicBaseURL={publicBaseURL}
         />
       )}
-    </Panel>
+    </SetupPanel>
   )
 }
 
@@ -652,10 +653,10 @@ function NoAdapters({ error }: { error: unknown }) {
   const { t } = useTranslation()
 
   return (
-    <Panel title={t('setup.identity_provider')}>
+    <SetupPanel title={t('setup.identity_provider')}>
       <p className="text-sm leading-6 text-muted-foreground">{t('setup.no_adapters')}</p>
       <ErrorBlock error={error} />
-    </Panel>
+    </SetupPanel>
   )
 }
 
@@ -690,18 +691,6 @@ function oidcCallbackURLHintKey(adapterID: string): string {
 
 function identityAdapterLabel(adapter: IdentityAdapter, locale: string): string {
   return localizedText(adapter.displayName, locale) ?? adapter.adapterID
-}
-
-/** Shared setup panel frame. */
-function Panel({ children, title }: { children: ReactNode; title: string }) {
-  return (
-    <Card className="w-full rounded-none border-border/70 bg-background/90 backdrop-blur">
-      <CardHeader>
-        <CardTitle>{title}</CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-6">{children}</CardContent>
-    </Card>
-  )
 }
 
 /** Shows the first validation error from Formisch field state. */

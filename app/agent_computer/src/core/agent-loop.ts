@@ -28,14 +28,7 @@ import type {
   UserMessage as PiUserMessage
 } from '@earendil-works/pi-ai'
 import { safeJsonStringify as safeJSONStringify, type JsonObject as JSONObject } from '@agentbull/active-support'
-import {
-  assistantText,
-  describeTruncatedToolCalls,
-  type AssistantMessage,
-  type ContentPart,
-  type ImageContent,
-  type Message
-} from './llm'
+import { assistantText, type AssistantMessage, type ContentPart, type ImageContent, type Message } from './llm'
 import { errorMessage } from '../common/errors'
 import { contentText, modelImageAdaptation, imageSummaryBlock, responseImageUnavailableText } from './vision'
 import {
@@ -86,7 +79,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
   let sawToolResults = false
   let nudgedEmptyAfterTools = false
   let repairedFinalResponse = false
-  let salvagedTruncatedToolCall = false
+  let truncatedRounds = 0
   let outcome: AgentLoopResult['outcome'] = 'loop_finished'
   // Set on every `recordToolResultsEagerly` call. A round whose tool results
   // terminate the run (or otherwise leave nothing pending) never causes
@@ -312,26 +305,20 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
       // emit progress — the turn is over; `shouldStopAfterTurn` ends it.
       const roundTerminated = turnState.roundTerminated
 
-      const truncatedToolCalls = turnState.pendingTruncatedToolCalls
-      turnState.pendingTruncatedToolCalls = []
-      if (truncatedToolCalls.length > 0 && !salvagedTruncatedToolCall) {
-        // The same request would hit the same limit, so a second salvage
-        // attempt only helps once the model has already learned where its
-        // arguments stopped — beyond that, accept the cut response as final
-        // (see the module doc: the worker owns the iteration budget, not
-        // endless retries against the same wall).
-        salvagedTruncatedToolCall = true
-        config.logger?.warning(
-          'worker.tool_call_truncated',
-          'worker discarded tool calls cut off by the output limit',
-          {
-            actor_event_id: config.stateful.actorEventID,
-            model_iteration: modelIterations,
-            tool_names: truncatedToolCalls.map(call => call.name),
-            cut_fields: truncatedToolCalls.map(call => call.cutField ?? '')
-          }
-        )
-        agent.steer(userMessage(describeTruncatedToolCalls(truncatedToolCalls)))
+      // A round cut by the output token limit: pi already failed every one
+      // of its calls with an error result, without executing anything. Those
+      // results pair with calls that live only in the un-anchored cut
+      // response, so they ride the next `response.create` input from the
+      // previous anchor (see `stream-fn.ts`'s cursor accounting) — never
+      // `recordToolResults`, whose anchor does not hold the calls.
+      if (ctx.message.stopReason === 'length' && ctx.toolResults.length > 0) {
+        truncatedRounds += 1
+        config.logger?.warning('worker.tool_call_truncated', 'worker failed tool calls cut off by the output limit', {
+          actor_event_id: config.stateful.actorEventID,
+          model_iteration: modelIterations,
+          tool_names: ctx.toolResults.map(result => result.toolName)
+        })
+        return undefined
       }
 
       if (ctx.toolResults.length > 0) {
@@ -415,10 +402,15 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
     // ordinary one (`[todo_update, clarify]`) would otherwise start another
     // model round past the termination. The old hand-rolled loop's `break`
     // was ANY-semantics; this restores it without touching pi.
-    shouldStopAfterTurn: async () => {
+    shouldStopAfterTurn: async ctx => {
       const terminated = turnState.roundTerminated
       turnState.roundTerminated = false
-      return terminated
+      if (terminated) return true
+      // One retry per turn against the output token limit. pi itself would
+      // retry a cut tool-call round without bound; the retry only helps once
+      // the model has seen the error results, so the second cut accepts the
+      // cut response as final.
+      return ctx.message.stopReason === 'length' && ctx.toolResults.length > 0 && truncatedRounds >= 2
     }
   })
 
@@ -485,7 +477,14 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
     // not a fresh `Error` that only carries its `.message`.
     throw turnState.lastError ?? new Error(lastAssistant.errorMessage || 'LLM provider returned an error')
   }
-  const responseID = lastEntry === lastAssistant ? lastAssistant?.responseId : latestRecordedResponseID
+  // A turn can also end on the error results of a second cut round (see
+  // `shouldStopAfterTurn`). Those results were never sent anywhere, but the
+  // cut response itself is stored, so its id is the turn's anchor — the
+  // partial call it holds is quarantined from provider replay on continuation.
+  const responseID =
+    lastEntry === lastAssistant || lastAssistant?.stopReason === 'length'
+      ? lastAssistant?.responseId
+      : latestRecordedResponseID
   if (!lastAssistant || !responseID) {
     throw new Error('agent loop completed without a response-backed assistant message')
   }

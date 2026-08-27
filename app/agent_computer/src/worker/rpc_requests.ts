@@ -26,8 +26,13 @@ function isRejection(value: RPCResponseOf<ControlPlaneOwnedRPCMethod> | RPCRejec
  * state.
  */
 export function throwingRPCRequester(rpcClient: RuntimeRPCClient): RPCRequester {
-  return async <M extends ControlPlaneOwnedRPCMethod>(method: M, payload: RPCRequestInit<M>, frame: RPCFrame<M>) => {
-    const response = await rpcClient.request(method, payload, frame)
+  return async <M extends ControlPlaneOwnedRPCMethod>(
+    method: M,
+    payload: RPCRequestInit<M>,
+    frame: RPCFrame<M>,
+    options?: { timeoutMs?: number }
+  ) => {
+    const response = await rpcClient.request(method, payload, frame, options)
     if (isRejection(response)) throw new RPCRejectedError(method, response)
     return response
   }

@@ -71,17 +71,17 @@ Actor Runtime owns this long-running work identity. It creates a new activation 
 
 Streamed content is progress. Only messages, tool results, and state transitions that the control plane confirms and stores are facts. This keeps “the interface shows work in progress” separate from “the work is complete.”
 
-## Brain: a world model that keeps correcting itself
+## Brain: a world model that stays current
 
-Brain is not a vector database filled with chat excerpts. It maintains an evolving world model. New evidence can extend, revise, or retire old conclusions, and conflicting memories are resolved by time, source, and confidence.
+Brain is not a vector database filled with chat excerpts. It maintains an evolving world model. New evidence can extend, revise, or retire earlier claims. When evidence conflicts, Dreaming records the contradiction for human review instead of silently rewriting the claims.
 
-Knowledge can come from conversations with the Agent, group chat that nobody addressed to it, documents, connectors, and other external sources.
+Knowledge can come from conversations with the Agent, eligible group messages that nobody addressed to it, and registered file or URL Sources.
 
-Memory is separated by shared, Agent, direct-message, and channel scopes so context does not cross the wrong boundary.
+All Agents in one instance share one knowledge space. Each protected passage, claim, and timeline event uses a `world`, permission-group, or Principal audience scope. A Source or channel records provenance; it does not grant access to the learned knowledge.
 
-During a turn, unified recall supplies the long-term context that the current work needs. Offline Dreaming organizes new evidence, compacts repeated facts, resolves conflicts, and compares earlier predictions with later outcomes.
+During a turn, unified recall supplies the long-term context that the current work needs. Offline Dreaming organizes new evidence, finds patterns, grades earlier predictions, and flags conflicts for review.
 
-Brain owns “what the world is like now.” Skill Overlay owns “how this work should be done next time.” An Agent can propose a Skill change after a failure or correction. A person approves it before later sessions use it.
+[Brain](../brain/) owns “what the world is like now.” [Skill Lessons](../skill-lessons/) preserve Agent-specific process guardrails learned from repeated work evidence. They accompany the relevant Skill without changing its source and retire when they no longer apply.
 
 This structure implements the homepage promise that an Agent learns the team's rules over time. Compounding does not mean a longer log. It means that the next job starts from better knowledge and a better method.
 
@@ -105,7 +105,7 @@ See [Background Agent Jobs](../background-jobs/) and [Deep Research](../deep-res
 
 AIGateway separates model capabilities from Agent execution. Main Agents, Jobs, Brain, and external API clients use the same boundary for LLM, embedding, rerank, image, Web Search, and Web Fetch Providers.
 
-Model profiles select the model for each type of work. The control plane stores Provider credentials in encrypted form, and AIGateway uses them for upstream requests.
+Agent model profiles select models for Agent execution. Brain uses five instance-wide model settings in AppConfigure. The control plane stores Provider credentials in encrypted form, and AIGateway uses them for upstream requests.
 
 Agents and Workers receive only the model choices and call results that they can use.
 

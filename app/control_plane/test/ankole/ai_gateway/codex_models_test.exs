@@ -5,17 +5,17 @@ defmodule Ankole.AIGateway.CodexModelsTest do
 
   # Field set from the codex pin's own minimal deserialize test
   # (`model_info_defaults_availability_nux_to_none_when_omitted`,
-  # rust-v0.147.0 codex-rs/protocol/src/openai_models.rs). Every field
+  # rust-v0.150.1 codex-rs/protocol/src/openai_models.rs). Every field
   # listed there is required by serde on the pinned version.
   @required_card_fields ~w(
     slug display_name description supported_reasoning_levels shell_type
     visibility supported_in_api priority upgrade base_instructions model_messages
     support_verbosity default_verbosity apply_patch_tool_type
-    truncation_policy supports_parallel_tool_calls experimental_supported_tools
+    truncation_policy experimental_supported_tools
   )
 
   test "codex_manifest_request? keys on the client_version query parameter" do
-    assert CodexModels.codex_manifest_request?(%{"client_version" => "0.147.0"})
+    assert CodexModels.codex_manifest_request?(%{"client_version" => "0.150.1"})
     refute CodexModels.codex_manifest_request?(%{})
     refute CodexModels.codex_manifest_request?(%{"q" => "gpt"})
   end
@@ -33,7 +33,7 @@ defmodule Ankole.AIGateway.CodexModelsTest do
 
     assert card["slug"] == "gpt-main"
     assert card["display_name"] == "gpt-main"
-    assert card["shell_type"] == "default"
+    assert card["shell_type"] == "unified_exec"
     assert card["visibility"] == "none"
     assert card["truncation_policy"] == %{"mode" => "tokens", "limit" => 10_000}
     assert card["context_window"] == 272_000

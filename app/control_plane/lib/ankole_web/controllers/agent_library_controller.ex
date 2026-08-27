@@ -2,7 +2,8 @@ defmodule AnkoleWeb.AgentLibraryController do
   alias OpenApiSpex, as: OpenAPISpex
 
   @moduledoc """
-  Console REST API for operator-managed Agent MISSION, SOUL, and DESIGN documents.
+  Console REST API for operator-managed Agent MISSION, SOUL, DESIGN, and
+  ConfidentialityPolicy documents.
   """
 
   use AnkoleWeb, :controller
@@ -17,7 +18,7 @@ defmodule AnkoleWeb.AgentLibraryController do
   alias AnkoleWeb.Schemas.ConsoleAPI.ErrorEnvelope
   alias OpenAPISpex.Schema
 
-  @document_kinds ~w(mission soul design)
+  @document_kinds ~w(mission soul design confidentiality_policy)
 
   tags(["Agents"])
   security([%{"consoleBearer" => []}])
@@ -26,7 +27,7 @@ defmodule AnkoleWeb.AgentLibraryController do
     render_error: AnkoleWeb.OpenAPIValidationErrorRenderer
 
   operation(:index,
-    summary: "Read the MISSION, SOUL, and DESIGN documents for one agent",
+    summary: "Read the MISSION, SOUL, DESIGN, and ConfidentialityPolicy documents for one agent",
     parameters: [agent_uid: [in: :path, type: :string, required: true]],
     responses: [
       ok: {"Agent library documents", "application/json", AgentLibraryDocumentsResponse},
@@ -37,7 +38,7 @@ defmodule AnkoleWeb.AgentLibraryController do
   )
 
   operation(:update,
-    summary: "Replace one agent MISSION, SOUL, or DESIGN document",
+    summary: "Replace one agent MISSION, SOUL, DESIGN, or ConfidentialityPolicy document",
     parameters: [
       agent_uid: [in: :path, type: :string, required: true],
       document_kind: [

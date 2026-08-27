@@ -88,11 +88,11 @@ Agent Library는 에이전트가 할 수 있는 일, 즉 플러그인과 스킬�
 | `PUT` | `/agents/:agent_uid/library-capabilities/skills/:id` | 에이전트 하나의 스킬 재정의 |
 | `GET` | `/agents/:agent_uid/library-documents` | 에이전트의 라이브러리 문서 목록 |
 | `PUT` | `/agents/:agent_uid/library-documents/:document_kind` | 라이브러리 문서 설정 |
-| `GET` | `/agents/:agent_uid/library-skill-overlays` | 스킬 오버레이 목록 |
-| `PUT` | `/agents/:agent_uid/library-skill-overlays/:skill_name` | 스킬 오버레이 설정 |
-| `DELETE` | `/agents/:agent_uid/library-skill-overlays/:skill_name` | 스킬 오버레이 제거 |
+| `GET` | `/agents/:agent_uid/skill-lessons` | 활성 및 폐기된 Skill 교훈 목록 |
+| `POST` | `/agents/:agent_uid/skill-lessons` | 활성화된 Skill에 사람의 교훈 추가 |
+| `POST` | `/agents/:agent_uid/skill-lessons/:lesson_id/retire` | Skill 교훈 폐기 |
 
-능력은 전역으로 활성화된 다음 에이전트별로 좁히거나 넓힐 수 있습니다. 스킬 오버레이는 운영자가 스킬을 포크하지 않고 에이전트 하나에 대해 그 스킬의 동작을 사용자 지정할 수 있게 해 줍니다.
+능력은 전역으로 활성화된 다음 Agent별로 좁히거나 넓힐 수 있습니다. Skill 교훈은 Skill 소스를 변경하지 않고 Agent 하나에 추가 작업 지침을 제공합니다. 목록에는 증거와 폐기 이력도 포함됩니다. 폐기된 교훈은 더 이상 전달되지 않으며, 사람이 취소한 내용은 Dreaming의 재학습 금지 목록에 남습니다. 수명 주기와 제한은 [Skill 교훈](../skill-lessons/)을 참고하십시오.
 
 ### 환경 변수(WorkerEnv)
 

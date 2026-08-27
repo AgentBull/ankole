@@ -1,0 +1,37 @@
+# Ankole Brain schema pack seed. See docs/design-docs/BrainV3.md.
+api_version: ankole-brain-schema-pack-v1
+name: pevc
+version: 1.0.0
+description: Private equity and venture capital ontology increments.
+extends: general
+
+page_types:
+  - name: deal
+    primitive: temporal
+    slug_prefix: deals/
+    # Funnel states are long-term classes, not short-term status: a passed
+    # deal is calibration material.
+    subtypes: [pipeline, portfolio, passed]
+    extractable: false
+    expert_routing: false
+
+  - name: thesis
+    # Declared identically by public_markets; the merge deduplicates it.
+    primitive: concept
+    slug_prefix: theses/
+    extractable: true
+    expert_routing: false
+
+subtype_extensions:
+  # company/fund is the fund as an organization (GP vehicle, LP relations);
+  # instrument/fund in public_markets is the tradable share.
+  - {type: company, add: [fund]}
+
+link_types:
+  - {name: invested_in, inverse: investor_of}
+  - {name: passed_on, inverse: passed_by}
+
+calibration_domains:
+  - {name: deal_success, aggregator: weighted_brier}
+  # Declared identically by public_markets; the merge deduplicates it.
+  - {name: market_call, aggregator: scalar_brier}

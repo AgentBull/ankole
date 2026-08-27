@@ -72,6 +72,27 @@ AppConfigure の一覧には、インスタンスレベルの上書きまたは�
 | `ai_agent.library.agent_plugin_defaults` | インスタンス | Agent Plugin のデフォルトの有効状態 |
 | `ai_agent.library.skill_defaults` | インスタンス | Skill のデフォルトの有効状態 |
 
+### Brain
+
+| キー | 適用範囲 | 用途 |
+|---|---|---|
+| `brain.enabled` | インスタンス | Brain の検索、学習、保守を有効にする。無効にしても保存済みの知識は残る |
+| `brain.embedding_model` | インスタンス | ベクトル検索に使う Provider、モデル、次元数。空の場合はベクトル検索を無効にする |
+| `brain.rerank_model` | インスタンス | 検索結果の rerank に使う Provider とモデル。空の場合は融合後の順序を保つ |
+| `brain.web_fetch_model` | インスタンス | URL Source からの学習に使う Provider とモデル。空の場合は URL Source の学習を停止する |
+| `brain.extraction_model` | インスタンス | Signal の会話と Source から知識を抽出するモデル。空の場合は該当する学習タスクを停止する |
+| `brain.dreaming_model` | インスタンス | 知識を統合し、人が確認する矛盾を見つけるモデル。空の場合はモデルが必要な保守タスクを省略する |
+| `brain.search_tokenizer` | インスタンス | BM25 tokenizer: `icu`、`jieba`、`lindera_japanese`、`lindera_korean`。変更後は BM25 index の再構築が必要 |
+| `brain.chunking` | インスタンス | Source chunk のサイズ、overlap、入力上限 |
+| `brain.forgetting` | インスタンス | 知識の種類ごとの減衰半減期と soft-delete の purge 間隔 |
+| `brain.dreaming_task_cron` | インスタンス | 定期的に知識を統合する schedule |
+| `brain.self_healing_task_cron` | インスタンス | 古くなった chunk、embedding、search index の projection を再構築する schedule |
+| `brain.signal_channel_batch_idle_time` | インスタンス | 未処理の chat message が学習に入るまでの idle 秒数。会話の終了時にも学習を開始する |
+| `brain.skill_learning_enabled` | インスタンス | Skill lesson の学習と提供を有効にする。無効時は保存済みの lesson が残るが、提供されない |
+| `brain.skill_learning_reflection_threshold` | インスタンス | 1 つの Agent が Skill lesson の reflection を始めるまでに必要な未消費 Signal Job 数。最小値は `2` |
+
+知識の動作とモデル要件については [Brain](../brain/) を参照してください。Skill と共に提供される lesson については [Skill lessons](../skill-lessons/) を参照してください。
+
 ### AI Gateway と observability
 
 | キー | 適用範囲 | 用途 |

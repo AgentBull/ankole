@@ -1,5 +1,16 @@
-import { recordValue } from '@agentbull/active-support'
-import { Input, TableCell, TableRow, cn, toast } from '@ankole/uikit'
+import { match, recordValue } from '@agentbull/active-support'
+import {
+  Input,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  TableCell,
+  TableRow,
+  cn,
+  toast
+} from '@ankole/uikit'
 import { RiRobot2Line } from '@remixicon/react'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
@@ -16,7 +27,8 @@ import {
   ankoleWebAgentControllerUpdateMutation,
   ankoleWebAiGatewayControllerModelsOptions as ankoleWebAIGatewayControllerModelsOptions,
   ankoleWebAiGatewayProviderControllerIndexOptions as ankoleWebAIGatewayProviderControllerIndexOptions,
-  ankoleWebAiGatewayProviderControllerProviderKindsOptions as ankoleWebAIGatewayProviderControllerProviderKindsOptions
+  ankoleWebAiGatewayProviderControllerProviderKindsOptions as ankoleWebAIGatewayProviderControllerProviderKindsOptions,
+  ankoleWebPrincipalControllerIndexOptions
 } from '../api/generated/@tanstack/react-query.gen'
 import type { AgentItem } from '../api/generated/types.gen'
 import { requestErrorMessage } from '../../common/request-errors'
@@ -25,7 +37,13 @@ import { blankToNull } from '../console-primitives'
 import { LabeledField, ReadOnlyValue, ResourceEditorPage, StatusIndicator } from '../console-form'
 import { BackLink, PageStack } from '../console-page'
 import { ResourceListPage, ResourceSearch, RowActions } from '../console-list-page'
-import { agentUIDError, AgentEditorModel, type AgentEditorDraft } from '../state/agent-editor-model'
+import { SinglePrincipalPicker } from '../principal-picker'
+import {
+  agentUIDError,
+  AgentEditorModel,
+  type AgentEditorDraft,
+  type AgentMemoryDisclosureMode
+} from '../state/agent-editor-model'
 import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
 import { AgentLibraryEditor } from './agent-library-editor'
 import { CustomModelProfilesEditor } from './custom-model-profiles-editor'
@@ -136,6 +154,7 @@ export function AgentEditorPage() {
   const [touched, setTouched] = useState({ displayName: false, role: false, uid: false })
 
   const agentDetail = useQuery(agentEditorDetailOptions(uid ?? ''))
+  const principals = useQuery(ankoleWebPrincipalControllerIndexOptions())
   const providers = useQuery(ankoleWebAIGatewayProviderControllerIndexOptions())
   const providerKinds = useQuery({
     ...ankoleWebAIGatewayProviderControllerProviderKindsOptions(),
@@ -189,15 +208,21 @@ export function AgentEditorPage() {
     const draftError = model.draftError(mode)
     if (draftError) {
       model.validationError.value = draftError
-      if (draftError === 'display_name_required') displayNameInput.current?.focus()
-      else if (draftError === 'uid_required' || draftError === 'uid_invalid') uidInput.current?.focus()
-      else roleInput.current?.focus()
+      match(draftError)
+        .with('display_name_required', () => displayNameInput.current?.focus())
+        .with('uid_required', 'uid_invalid', () => uidInput.current?.focus())
+        .with('role_required', () => roleInput.current?.focus())
+        // The owner picker renders no focusable ref; its inline error is the signal.
+        .with('owner_required', () => undefined)
+        .exhaustive()
       return
     }
     const body = {
       display_name: model.displayName.value.trim(),
       avatar_url: blankToNull(model.avatarURL.value),
-      role: model.role.value.trim()
+      role: model.role.value.trim(),
+      owner_principal_uid: model.ownerPrincipalUID.value.trim(),
+      group_memory_disclosure_mode: model.groupMemoryDisclosureMode.value
     }
     if (mode === 'new') {
       createAgent.mutate({ body: { ...body, uid: model.uid.value.trim() } })
@@ -222,6 +247,7 @@ export function AgentEditorPage() {
     model.validationError.value === 'role_required' || (touched.role && !model.role.value.trim())
       ? (validationMessage ?? t('console.agents.role_required'))
       : undefined
+  const ownerError = model.validationError.value === 'owner_required' ? validationMessage : undefined
   const submitDisabledReason =
     mode === 'edit' && !model.dirty.value ? t('console.agents.save_disabled_unchanged') : undefined
 
@@ -348,6 +374,46 @@ export function AgentEditorPage() {
         <LabeledField label={t('console.agents.avatar_url')}>
           <Input value={model.avatarURL.value} onChange={event => (model.avatarURL.value = event.target.value)} />
         </LabeledField>
+        <LabeledField
+          label={t('console.agents.owner')}
+          description={t('console.agents.owner_hint')}
+          error={ownerError}
+          required>
+          <SinglePrincipalPicker
+            ariaLabel={t('console.agents.owner')}
+            error={principals.error}
+            isLoading={principals.isLoading}
+            placeholder={t('console.agents.owner_placeholder')}
+            candidates={(principals.data?.principals ?? []).map(principal => ({
+              id: principal.uid,
+              label: principal.display_name
+            }))}
+            value={model.ownerPrincipalUID.value}
+            onChange={ownerUID => {
+              model.ownerPrincipalUID.value = ownerUID
+              if (model.validationError.value === 'owner_required') model.clearValidation()
+            }}
+          />
+        </LabeledField>
+        <LabeledField
+          label={t('console.agents.group_memory_disclosure_mode')}
+          description={t('console.agents.group_memory_disclosure_mode_hint')}>
+          <Select
+            value={model.groupMemoryDisclosureMode.value}
+            onValueChange={value => {
+              if (value === 'strict' || value === 'relaxed') {
+                model.groupMemoryDisclosureMode.value = value satisfies AgentMemoryDisclosureMode
+              }
+            }}>
+            <SelectTrigger aria-label={t('console.agents.group_memory_disclosure_mode')} className="w-full">
+              <SelectValue>{value => t(`console.agents.group_memory_disclosure_mode_${String(value)}`)}</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="strict">{t('console.agents.group_memory_disclosure_mode_strict')}</SelectItem>
+              <SelectItem value="relaxed">{t('console.agents.group_memory_disclosure_mode_relaxed')}</SelectItem>
+            </SelectContent>
+          </Select>
+        </LabeledField>
       </div>
     </ResourceEditorPage>
   )
@@ -358,7 +424,9 @@ function emptyAgentForm(): AgentEditorDraft {
     uid: '',
     displayName: '',
     avatarURL: '',
-    role: ''
+    role: '',
+    ownerPrincipalUID: '',
+    groupMemoryDisclosureMode: 'strict'
   }
 }
 
@@ -367,6 +435,8 @@ function formFromAgent(agent: AgentItem): AgentEditorDraft {
     uid: agent.uid,
     displayName: agent.display_name ?? '',
     avatarURL: agent.avatar_url ?? '',
-    role: agent.role
+    role: agent.role,
+    ownerPrincipalUID: agent.owner_principal_uid,
+    groupMemoryDisclosureMode: agent.group_memory_disclosure_mode
   }
 }

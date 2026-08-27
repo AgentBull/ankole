@@ -39,15 +39,32 @@ defmodule Ankole.AppConfigure.Cache do
   end
 
   @doc """
-  Loads the current concrete row from PostgreSQL.
+  Loads the current concrete row from PostgreSQL on a cache miss.
 
-  Reads use it on a cache miss. The AppConfigure write owner also uses it after
-  commit so delayed publishers cannot replace a newer database value with an
-  older captured envelope.
+  The read runs in the calling process, so it is re-entrant inside the caller's
+  open transaction and the SQL Sandbox serves it from the caller's test
+  connection. The cache process only publishes the result, and it keeps an
+  existing entry instead of the reader's snapshot, so a reader cannot replace a
+  newer refreshed value with an older captured envelope.
   """
   @spec load(String.t(), String.t()) :: {:ok, row_state()} | {:error, term()}
   def load(scope, key) do
-    GenServer.call(__MODULE__, {:load, scope, key})
+    GenServer.call(__MODULE__, {:publish_load, scope, key, read_one(scope, key)})
+  end
+
+  @doc """
+  Re-reads one key after a committed write and replaces its projection.
+
+  The read runs inside the cache process, so concurrent refreshes serialize and
+  each one reads the row state as of its turn; a delayed publisher therefore
+  cannot replace a newer database value with an older captured envelope. The
+  query names the requesting process as `:caller`: write owners call this
+  outside their transaction, the SQL Sandbox then uses the writer's test
+  connection, and normal pools ignore the option.
+  """
+  @spec refresh(String.t(), String.t()) :: {:ok, row_state()} | {:error, term()}
+  def refresh(scope, key) do
+    GenServer.call(__MODULE__, {:refresh, scope, key})
   end
 
   @doc """
@@ -73,7 +90,7 @@ defmodule Ankole.AppConfigure.Cache do
 
   @impl true
   def handle_call(
-        {:load, scope, key},
+        {:publish_load, scope, key, _read_result},
         _from,
         %{fail_next_load: reason} = server_state
       ) do
@@ -81,8 +98,22 @@ defmodule Ankole.AppConfigure.Cache do
     {:reply, {:error, reason}, Map.delete(server_state, :fail_next_load)}
   end
 
-  def handle_call({:load, scope, key}, _from, server_state) do
-    {:reply, load_one(scope, key), server_state}
+  def handle_call({:publish_load, scope, key, read_result}, _from, server_state) do
+    case read_result do
+      {:ok, state} -> :ets.insert_new(@table, {{scope, key}, state})
+      {:error, _reason} -> :ok
+    end
+
+    {:reply, read_result, server_state}
+  end
+
+  def handle_call({:refresh, scope, key}, _from, %{fail_next_load: reason} = server_state) do
+    :ets.delete(@table, {scope, key})
+    {:reply, {:error, reason}, Map.delete(server_state, :fail_next_load)}
+  end
+
+  def handle_call({:refresh, scope, key}, {caller, _tag}, server_state) do
+    {:reply, load_one(scope, key, caller), server_state}
   end
 
   def handle_call({:fail_next_load_for_test, reason}, _from, server_state) do
@@ -122,14 +153,14 @@ defmodule Ankole.AppConfigure.Cache do
       {:error, {:load_failed, Exception.message(error)}}
   end
 
-  # Deletes the stale ETS entry before reading PostgreSQL so a failed or missing
-  # row cannot leave an old value behind in the projection.
-  defp load_one(scope, key) do
+  # Refresh path: deletes the stale ETS entry before reading PostgreSQL so a
+  # failed or missing row cannot leave an old value behind in the projection.
+  defp load_one(scope, key, caller) do
     :ets.delete(@table, {scope, key})
 
     AppConfig
     |> where([row], row.scope == ^scope and row.key == ^key)
-    |> Repo.one()
+    |> Repo.one(caller: caller)
     |> case do
       nil ->
         write_state(scope, key, :absent)
@@ -138,6 +169,21 @@ defmodule Ankole.AppConfigure.Cache do
       %AppConfig{} = row ->
         write_row(row)
         {:ok, {:row, row.value}}
+    end
+  rescue
+    error ->
+      reason = {:load_failed, scope, key, Exception.message(error)}
+      {:error, reason}
+  end
+
+  # Runs in the process that called `load/2`, not in the cache process.
+  defp read_one(scope, key) do
+    AppConfig
+    |> where([row], row.scope == ^scope and row.key == ^key)
+    |> Repo.one()
+    |> case do
+      nil -> {:ok, :absent}
+      %AppConfig{} = row -> {:ok, {:row, row.value}}
     end
   rescue
     error ->

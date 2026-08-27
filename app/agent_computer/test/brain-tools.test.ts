@@ -1,0 +1,149 @@
+import { describe, expect, it } from 'bun:test'
+import { create } from '@bufbuild/protobuf'
+import type { JsonObject as JSONObject } from '@agentbull/active-support'
+import { jsonBytes } from '../src/fabric/envelope_proto'
+import { JSONPassthroughResponseSchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
+import type { ActorTurnRef } from '../src/lanes/actor_lane'
+import { brainRPCRequester, type RPCRequester } from '../src/lanes/rpc_lane'
+import { createBrainTools } from '../src/tools/brain/brain-tools'
+
+const turn: ActorTurnRef = {
+  actor: { agent_uid: 'agent-brain', session_id: 'session-1' },
+  activation_uid: 'activation-1',
+  actor_epoch: 1,
+  actor_event_id: 'event-1',
+  revision: 1
+}
+
+function brainRPC(expectedMethod: string, body: JSONObject, onParams?: (params: JSONObject) => void): RPCRequester {
+  return (async (method: unknown, payload: unknown, frame: unknown) => {
+    expect(method).toBe(expectedMethod)
+    expect(frame).toEqual({ turn })
+    const request = payload as { paramsJson: Uint8Array }
+    onParams?.(JSON.parse(new TextDecoder().decode(request.paramsJson)) as JSONObject)
+    return create(JSONPassthroughResponseSchema, { bodyJson: jsonBytes(body) })
+  }) as RPCRequester
+}
+
+function brainTools(rpc: RPCRequester) {
+  return createBrainTools({ requestBrainRPC: brainRPCRequester(rpc, turn) })
+}
+
+function brainTool(rpc: RPCRequester, name: string) {
+  const tool = brainTools(rpc).find(candidate => candidate.name === name)
+  if (!tool) throw new Error(`missing brain tool ${name}`)
+  return tool
+}
+
+describe('@ankole/agent-computer brain tools', () => {
+  it('registers the eight memory tools', () => {
+    const names = brainTools(brainRPC('unused', {})).map(tool => tool.name)
+
+    expect(names).toEqual(['remember', 'recall', 'get_page', 'forget', 'entity', 'whoknows', 'synthesize', 'delta'])
+  })
+
+  it('validates remember scope, kinds, and required provenance', () => {
+    const rpc = brainRPC('unused', {})
+    const tool = brainTool(rpc, 'remember')
+    const base = {
+      claim: 'Ding prefers concise replies.',
+      kind: 'preference',
+      provenance: 'Ding said so on 2026-08-25.'
+    }
+
+    expect(tool.schema.safeParse({ ...base, scope: 'world' }).success).toBe(true)
+    expect(tool.schema.safeParse({ ...base, scope: 'group:sales' }).success).toBe(true)
+    expect(tool.schema.safeParse({ ...base, scope: 'principal:user-1' }).success).toBe(true)
+    expect(tool.schema.safeParse({ ...base, scope: 'company:sales' }).success).toBe(false)
+    expect(tool.schema.safeParse({ ...base, scope: 'group:' }).success).toBe(false)
+    expect(tool.schema.safeParse({ ...base, kind: 'hunch', scope: 'world', weight: 0.6 }).success).toBe(true)
+    expect(tool.schema.safeParse({ ...base, kind: 'rumor', scope: 'world' }).success).toBe(false)
+    expect(tool.schema.safeParse({ claim: 'x', kind: 'fact', scope: 'world' }).success).toBe(false)
+    expect(tool.schema.safeParse({ ...base, scope: 'world', confidence: 1.5 }).success).toBe(false)
+  })
+
+  it('sends remember params as BrainBroker JSON keys and returns the passthrough body', async () => {
+    let sent: JSONObject | undefined
+    const rpc = brainRPC(
+      'brain.remember',
+      { status: 'inserted', claim_id: 'claim-1', audience_scope: 'group:sales' },
+      params => {
+        sent = params
+      }
+    )
+    const tool = brainTool(rpc, 'remember')
+    const params = tool.schema.parse({
+      claim: 'Acme renewed the annual contract.',
+      kind: 'event',
+      scope: 'group:sales',
+      entity: 'companies/acme',
+      notability: 'high',
+      confidence: 0.9,
+      provenance: 'Zhang San announced it in #sales.'
+    })
+
+    const result = await tool.execute('brain-1', params)
+
+    expect(sent).toEqual({
+      claim: 'Acme renewed the annual contract.',
+      kind: 'event',
+      scope: 'group:sales',
+      entity: 'companies/acme',
+      notability: 'high',
+      confidence: 0.9,
+      provenance: 'Zhang San announced it in #sales.'
+    })
+    expect(result.details).toEqual({ status: 'inserted', claim_id: 'claim-1', audience_scope: 'group:sales' })
+    expect(JSON.parse(result.content[0]?.type === 'text' ? result.content[0].text : '')).toEqual(result.details)
+  })
+
+  it('requires exactly one forget target', () => {
+    const rpc = brainRPC('unused', {})
+    const tool = brainTool(rpc, 'forget')
+
+    expect(tool.schema.safeParse({ claim_id: 'claim-1', reason: 'wrong fact' }).success).toBe(true)
+    expect(tool.schema.safeParse({ slug: 'people/zhang-san', reason: 'duplicate page' }).success).toBe(true)
+    expect(tool.schema.safeParse({ reason: 'no target' }).success).toBe(false)
+    expect(tool.schema.safeParse({ claim_id: 'claim-1', slug: 'people/zhang-san', reason: 'both' }).success).toBe(false)
+    expect(tool.schema.safeParse({ claim_id: 'claim-1' }).success).toBe(false)
+  })
+
+  it('bounds recall and whoknows numeric params', () => {
+    const rpc = brainRPC('unused', {})
+    const recall = brainTool(rpc, 'recall')
+    const whoknows = brainTool(rpc, 'whoknows')
+
+    expect(recall.schema.safeParse({ query: 'contract renewals' }).success).toBe(true)
+    expect(recall.schema.safeParse({ query: 'contract renewals', budget_tokens: 2_000 }).success).toBe(true)
+    expect(recall.schema.safeParse({ query: 'contract renewals', budget_tokens: 0 }).success).toBe(false)
+    expect(recall.schema.safeParse({ query: 'contract renewals', budget_tokens: 20_000 }).success).toBe(false)
+    expect(whoknows.schema.safeParse({ topic: 'vector databases', limit: 5 }).success).toBe(true)
+    expect(whoknows.schema.safeParse({ topic: 'vector databases', limit: 0 }).success).toBe(false)
+  })
+
+  it('routes each read tool to its RPC method', async () => {
+    const cases: Array<{ name: string; method: string; params: JSONObject }> = [
+      { name: 'recall', method: 'brain.recall', params: { query: 'renewals' } },
+      { name: 'get_page', method: 'brain.get_page', params: { reference: 'companies/acme' } },
+      { name: 'entity', method: 'brain.entity', params: { name: 'Acme' } },
+      { name: 'whoknows', method: 'brain.whoknows', params: { topic: 'pricing' } },
+      { name: 'synthesize', method: 'brain.synthesize', params: { question: 'How did the Acme deal evolve?' } },
+      { name: 'delta', method: 'brain.delta', params: { entity: 'companies/acme', since: '2026-08-01T00:00:00Z' } }
+    ]
+
+    for (const { name, method, params } of cases) {
+      let sent: JSONObject | undefined
+      const tool = brainTool(
+        brainRPC(method, { ok: true }, sentParams => {
+          sent = sentParams
+        }),
+        name
+      )
+
+      const result = await tool.execute('brain-2', tool.schema.parse(params))
+
+      expect(sent).toEqual(params)
+      expect(result.details).toEqual({ ok: true })
+    }
+  })
+})

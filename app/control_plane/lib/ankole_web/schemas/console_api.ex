@@ -215,6 +215,8 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           type: %Schema{type: :string, enum: ["ai_colleague"]},
           role: %Schema{type: :string},
           options: %Schema{type: :object, additionalProperties: true},
+          owner_principal_uid: %Schema{type: :string},
+          group_memory_disclosure_mode: %Schema{type: :string, enum: ["strict", "relaxed"]},
           created_by_principal_uid: %Schema{type: :string, nullable: true},
           inserted_at: %Schema{type: :string},
           updated_at: %Schema{type: :string}
@@ -225,6 +227,8 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           :type,
           :role,
           :options,
+          :owner_principal_uid,
+          :group_memory_disclosure_mode,
           :inserted_at,
           :updated_at
         ],
@@ -794,9 +798,11 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           display_name: %Schema{type: :string},
           avatar_url: %Schema{type: :string, nullable: true},
           role: %Schema{type: :string},
-          options: %Schema{type: :object, additionalProperties: true}
+          options: %Schema{type: :object, additionalProperties: true},
+          owner_principal_uid: %Schema{type: :string},
+          group_memory_disclosure_mode: %Schema{type: :string, enum: ["strict", "relaxed"]}
         },
-        required: [:uid, :display_name, :role],
+        required: [:uid, :display_name, :role, :owner_principal_uid],
         additionalProperties: false
       },
       struct?: false
@@ -816,7 +822,9 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           display_name: %Schema{type: :string},
           avatar_url: %Schema{type: :string, nullable: true},
           role: %Schema{type: :string},
-          options: %Schema{type: :object, additionalProperties: true}
+          options: %Schema{type: :object, additionalProperties: true},
+          owner_principal_uid: %Schema{type: :string},
+          group_memory_disclosure_mode: %Schema{type: :string, enum: ["strict", "relaxed"]}
         },
         additionalProperties: false
       },
@@ -834,7 +842,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
         title: "AgentLibraryDocumentItem",
         type: :object,
         properties: %{
-          kind: %Schema{type: :string, enum: ~w(mission soul design)},
+          kind: %Schema{type: :string, enum: ~w(mission soul design confidentiality_policy)},
           content: %Schema{type: :string},
           content_hash: %Schema{type: :string}
         },
@@ -857,9 +865,10 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
         properties: %{
           mission: AgentLibraryDocumentItem,
           soul: AgentLibraryDocumentItem,
-          design: AgentLibraryDocumentItem
+          design: AgentLibraryDocumentItem,
+          confidentiality_policy: AgentLibraryDocumentItem
         },
-        required: [:mission, :soul, :design],
+        required: [:mission, :soul, :design, :confidentiality_policy],
         additionalProperties: false
       },
       struct?: false
@@ -924,34 +933,50 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
     )
   end
 
-  defmodule AgentLibrarySkillOverlayItem do
+  defmodule AgentSkillLessonItem do
     @moduledoc false
 
     require OpenAPISpex
 
     OpenAPISpex.schema(
       %{
-        title: "AgentLibrarySkillOverlayItem",
+        title: "AgentSkillLessonItem",
         type: :object,
         properties: %{
+          id: %Schema{type: :string},
           skill_name: %Schema{type: :string},
-          skill_id: %Schema{type: :string, nullable: true},
           agent_plugin_id: %Schema{type: :string, nullable: true},
           description: %Schema{type: :string, nullable: true},
           effective_enabled: %Schema{type: :boolean},
-          text: %Schema{type: :string},
-          content_hash: %Schema{type: :string},
-          updated_at: %Schema{type: :string, format: :"date-time"}
+          content: %Schema{type: :string},
+          author_kind: %Schema{type: :string, enum: ["dreaming", "human"]},
+          author_uid: %Schema{type: :string, nullable: true},
+          evidence_job_ids: %Schema{type: :array, items: %Schema{type: :integer}},
+          checked_release: %Schema{type: :string, nullable: true},
+          review_after: %Schema{type: :string, format: :"date-time", nullable: true},
+          retired_at: %Schema{type: :string, format: :"date-time", nullable: true},
+          retire_reason: %Schema{
+            type: :string,
+            enum: ["human_revoked", "lapsed", "obsolete"],
+            nullable: true
+          },
+          created_at: %Schema{type: :string, format: :"date-time"}
         },
         required: [
+          :id,
           :skill_name,
-          :skill_id,
           :agent_plugin_id,
           :description,
           :effective_enabled,
-          :text,
-          :content_hash,
-          :updated_at
+          :content,
+          :author_kind,
+          :author_uid,
+          :evidence_job_ids,
+          :checked_release,
+          :review_after,
+          :retired_at,
+          :retire_reason,
+          :created_at
         ],
         additionalProperties: false
       },
@@ -959,39 +984,39 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
     )
   end
 
-  defmodule AgentLibrarySkillOverlaysResponse do
+  defmodule AgentSkillLessonsResponse do
     @moduledoc false
 
     require OpenAPISpex
 
     OpenAPISpex.schema(
       %{
-        title: "AgentLibrarySkillOverlaysResponse",
+        title: "AgentSkillLessonsResponse",
         type: :object,
         properties: %{
-          skill_overlays: %Schema{type: :array, items: AgentLibrarySkillOverlayItem}
+          skill_lessons: %Schema{type: :array, items: AgentSkillLessonItem}
         },
-        required: [:skill_overlays],
+        required: [:skill_lessons],
         additionalProperties: false
       },
       struct?: false
     )
   end
 
-  defmodule AgentLibrarySkillOverlayWriteRequest do
+  defmodule AgentSkillLessonCreateRequest do
     @moduledoc false
 
     require OpenAPISpex
 
     OpenAPISpex.schema(
       %{
-        title: "AgentLibrarySkillOverlayWriteRequest",
+        title: "AgentSkillLessonCreateRequest",
         type: :object,
         properties: %{
-          text: %Schema{type: :string},
-          expected_content_hash: %Schema{type: :string}
+          skill_name: %Schema{type: :string},
+          content: %Schema{type: :string}
         },
-        required: [:text, :expected_content_hash],
+        required: [:skill_name, :content],
         additionalProperties: false
       },
       struct?: false

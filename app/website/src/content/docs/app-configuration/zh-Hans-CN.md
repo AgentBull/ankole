@@ -72,6 +72,27 @@ Agent 的 Skill、命令行工具或 MCP 服务需要 API Key 等自定义值时
 | `ai_agent.library.agent_plugin_defaults` | 实例 | Agent Plugin 的默认启用状态 |
 | `ai_agent.library.skill_defaults` | 实例 | Skill 的默认启用状态 |
 
+### Brain
+
+| 配置键 | 作用范围 | 用途 |
+|---|---|---|
+| `brain.enabled` | 实例 | 启用 Brain 的检索、学习和维护；关闭后仍保留已经存储的知识 |
+| `brain.embedding_model` | 实例 | 向量检索使用的 Provider、模型和维度；留空会停用向量检索 |
+| `brain.rerank_model` | 实例 | 搜索结果重排使用的 Provider 和模型；留空会保留融合后的顺序 |
+| `brain.web_fetch_model` | 实例 | 从 URL Source 学习时使用的 Provider 和模型；留空会停止这类学习 |
+| `brain.extraction_model` | 实例 | 从 Signal 会话和 Source 中提取知识的模型；留空会停止相关学习任务 |
+| `brain.dreaming_model` | 实例 | 汇总知识并发现待人工复核矛盾的模型；留空会跳过依赖模型的维护任务 |
+| `brain.search_tokenizer` | 实例 | BM25 分词器：`icu`、`jieba`、`lindera_japanese` 或 `lindera_korean`；修改后需要重建 BM25 索引 |
+| `brain.chunking` | 实例 | Source 分块大小、重叠量和输入上限 |
+| `brain.forgetting` | 实例 | 各类知识的衰减半衰期和软删除清理间隔 |
+| `brain.dreaming_task_cron` | 实例 | 定期汇总知识的执行计划 |
+| `brain.self_healing_task_cron` | 实例 | 重建过期分块、embedding 和搜索索引投影的执行计划 |
+| `brain.signal_channel_batch_idle_time` | 实例 | 待处理聊天消息进入学习前的空闲秒数；会话结束也会触发学习 |
+| `brain.skill_learning_enabled` | 实例 | 启用 Skill lesson 的学习和交付；关闭后会保留已经存储的 lesson，但不再提供 |
+| `brain.skill_learning_reflection_threshold` | 实例 | 单个 Agent 触发一次 Skill lesson 反思前需要积累的未消费 Signal Job 数量；最小值为 `2` |
+
+[Brain](../brain/) 说明知识行为和模型要求；[Skill lesson](../skill-lessons/) 说明 Brain 会随 Skill 提供哪些经验。
+
 ### AI Gateway 与可观测性
 
 | 配置键 | 作用范围 | 用途 |

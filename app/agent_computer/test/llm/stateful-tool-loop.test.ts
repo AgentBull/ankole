@@ -1150,7 +1150,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
     expect(JSON.stringify(responseCreates[3]!.input)).toContain('maximum number of tool-calling iterations')
   })
 
-  it('salvages a tool call cut by the output limit with one described continuation', async () => {
+  it('replays a cut tool call with its error result from the previous anchor', async () => {
     const sentPayloads: JSONObject[] = []
     let toolExecutions = 0
     const model = createModel({
@@ -1239,20 +1239,31 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
     expect(toolExecutions).toBe(0)
     expect(responseCreates).toHaveLength(2)
 
-    // The truncated response is not the anchor: the salvage continuation keeps
-    // the conversation anchor, so the stored thread never ends on a function
-    // call without an output.
+    // The cut response is not the anchor: the recovery continuation keeps the
+    // conversation anchor and replays the cut call with pi's error result as
+    // ordinary input items. The call re-enters under a derived id because the
+    // provider id's pair key belongs to the stored partial call, and its
+    // partial arguments re-enter through pi's streaming-JSON salvage, so the
+    // thread holds valid JSON that shows how far the model got.
     expect(responseCreates[1]!.previous_response_id).toBeUndefined()
     expect(responseCreates[1]!.conversation).toBe('conv_21212121-2121-2121-2121-212121212121')
-
-    const salvageText = JSON.stringify(responseCreates[1]!.input)
-    expect(salvageText).toContain('did not run')
-    expect(salvageText).toContain('write_file')
-    expect(salvageText).toContain('completed fields: path')
-    expect(salvageText).toContain('stopped inside the value of')
+    expect(responseCreates[1]!.input).toEqual([
+      {
+        type: 'function_call',
+        call_id: 'call_cut_r',
+        name: 'write_file',
+        arguments: '{"path":"report.md","content":"# Report\\nThe first"}'
+      },
+      {
+        type: 'function_call_output',
+        call_id: 'call_cut_r',
+        output: expect.stringContaining('output token limit')
+      }
+    ])
+    expect(JSON.stringify(responseCreates[1]!.input)).toContain('write_file')
   })
 
-  it('breaks after a second output-limit cut instead of describing it again', async () => {
+  it('breaks after a second output-limit cut instead of retrying again', async () => {
     const sentPayloads: JSONObject[] = []
     const cutFrame = (id: string) => ({
       type: 'response.incomplete',

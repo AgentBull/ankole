@@ -70,8 +70,9 @@ defmodule FakeFeishu.Sim do
   def send_user_message(state, chat_id, params) do
     with {:ok, chat} <- fetch_chat(state, chat_id),
          {:ok, sender} <- resolve_sender(chat, params["as"]) do
-      message_id = "om_sim_#{System.unique_integer([:positive])}"
-      event_id = "evt_sim_#{System.unique_integer([:positive])}"
+      token = State.run_token(state)
+      message_id = "om_sim_#{token}_#{System.unique_integer([:positive])}"
+      event_id = "evt_sim_#{token}_#{System.unique_integer([:positive])}"
 
       attrs =
         [
@@ -112,7 +113,7 @@ defmodule FakeFeishu.Sim do
     with {:ok, message} <- fetch_message(state, message_id) do
       attrs = [
         message_id: message_id,
-        event_id: "evt_sim_#{System.unique_integer([:positive])}",
+        event_id: "evt_sim_#{State.run_token(state)}_#{System.unique_integer([:positive])}",
         chat_id: message.chat_id,
         chat_type: message.chat_type || "group"
       ]

@@ -70,7 +70,7 @@ describe('@ankole/agent-computer Codex app-server protocol contract', () => {
     ])
 
     expect(exitCode).toBe(0)
-    expect(`${stdout}${stderr}`.trim()).toBe('codex-cli 0.147.0')
+    expect(`${stdout}${stderr}`.trim()).toBe('codex-cli 0.150.1')
   })
 
   it('does not retry a canonical Provider validation failure', async () => {
@@ -127,71 +127,6 @@ describe('@ankole/agent-computer Codex app-server protocol contract', () => {
 
       expect(completedTurn.status).toBe('failed')
       expect(requests).toHaveLength(1)
-    } finally {
-      await client?.close()
-      provider.stop(true)
-      rmSync(root, { recursive: true, force: true })
-    }
-  }, 60_000)
-
-  it('uses the standalone compact endpoint when the frozen projection disables v2', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'ankole-codex-standalone-compaction-'))
-    const workspace = join(root, 'workspace')
-    const codexHome = join(root, 'codex-home')
-    const requestPaths: string[] = []
-    const requests: JSONObject[] = []
-    const notifications: JSONRPCMessage[] = []
-    const provider = createRemoteCompactionResponsesProvider(requestPaths, requests)
-    if (typeof provider.port !== 'number') throw new Error('Remote compaction provider did not bind a TCP port')
-    let client: CodexAppServerClient | undefined
-
-    try {
-      mkdirSync(workspace, { recursive: true })
-      mkdirSync(codexHome, { recursive: true })
-      const baseURL = `http://127.0.0.1:${provider.port}/v1`
-      resetCodexAgentRuntimeConfig(codexHome, baseURL)
-      refreshCodexAgentRuntimeCredential(codexHome, 'contract-key')
-
-      const runtime = pluginTestRuntime(baseURL, 'gpt-5.6-sol')
-      const config = codexJobThreadConfig({ cwd: workspace, codexHome, env: {}, runtime }) as Record<string, any>
-      config.model_providers.ankole_aigateway.supports_websockets = false
-
-      client = new CodexAppServerClient({
-        cwd: workspace,
-        env: {
-          PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin',
-          HOME: workspace,
-          CODEX_HOME: codexHome,
-          CODEX_UNSAFE_ALLOW_NO_SANDBOX: '1',
-          LANG: 'C.UTF-8'
-        },
-        onNotification: notification => notifications.push(notification)
-      })
-
-      await client.initialize()
-      const thread = (await client.request('thread/start', {
-        cwd: workspace,
-        model: runtime.modelProfile.model,
-        modelProvider: 'ankole_aigateway',
-        approvalPolicy: 'never',
-        sandbox: 'danger-full-access',
-        config
-      })) as ThreadStartResponse
-      const turn = (await client.request('turn/start', {
-        threadId: thread.thread.id,
-        input: [{ type: 'text', text: 'Create one response before compaction.', text_elements: [] }],
-        cwd: workspace,
-        approvalPolicy: 'never',
-        sandboxPolicy: { type: 'dangerFullAccess' }
-      })) as { turn: { id: string } }
-      await waitForPluginTurn(notifications, turn.turn.id)
-
-      await client.request('thread/compact/start', { threadId: thread.thread.id })
-      await waitForContextCompaction(notifications, thread.thread.id)
-
-      expect(requestPaths).toEqual(['/v1/responses', '/v1/responses/compact'])
-      expect(requests).toHaveLength(2)
-      expect(requests[1]?.input).toBeArray()
     } finally {
       await client?.close()
       provider.stop(true)
@@ -1107,7 +1042,7 @@ test ! -e ./AGENTS.override.md
       let stage = 'initialize'
       try {
         const initializeResponse = await realClient.initialize()
-        expect(initializeResponse.userAgent).toStartWith('codex_cli_rs/0.147.0 ')
+        expect(initializeResponse.userAgent).toStartWith('codex_cli_rs/0.150.1 ')
         stage = 'skills/list'
         const response = (await realClient.request('skills/list', {
           cwds: [project.codexCwd],
@@ -1609,7 +1544,7 @@ function execOutputModelCard(model: string): JSONObject {
     display_name: model,
     description: null,
     supported_reasoning_levels: [],
-    shell_type: 'default',
+    shell_type: 'unified_exec',
     visibility: 'none',
     supported_in_api: true,
     priority: 99,
@@ -1623,7 +1558,6 @@ function execOutputModelCard(model: string): JSONObject {
     apply_patch_tool_type: 'freeform',
     web_search_tool_type: 'text',
     truncation_policy: { mode: 'tokens', limit: 10_000 },
-    supports_parallel_tool_calls: false,
     context_window: 272_000,
     max_context_window: 272_000,
     effective_context_window_percent: 95,
@@ -1700,7 +1634,7 @@ function createPluginResponsesProvider(requests: JSONObject[]) {
             display_name: model,
             description: null,
             supported_reasoning_levels: [],
-            shell_type: 'default',
+            shell_type: 'unified_exec',
             visibility: 'none',
             supported_in_api: true,
             priority: 99,
@@ -1713,7 +1647,6 @@ function createPluginResponsesProvider(requests: JSONObject[]) {
             apply_patch_tool_type: 'freeform',
             web_search_tool_type: 'text',
             truncation_policy: { mode: 'tokens', limit: 10_000 },
-            supports_parallel_tool_calls: false,
             context_window: 272_000,
             max_context_window: 272_000,
             effective_context_window_percent: 95,

@@ -1,6 +1,6 @@
 ---
 title: Signal routing 규칙
-description: chat application을 Agent에 연결하고, 그룹 메시지와 memory 처리 방식을 선택하는 방법을 설명합니다.
+description: chat application을 Agent에 연결하고 그룹 메시지 처리 방식을 선택하는 방법을 설명합니다.
 section: User guide
 order: 14
 ---
@@ -16,7 +16,7 @@ Slack, Microsoft Teams, Lark, Feishu 또는 DingTalk application을 아직 준�
 1. Console에서 **Signal Routing**을 열고 **New routing rule**을 선택합니다.
 2. 메시지를 받을 Agent와 Channel Provider adapter를 선택합니다.
 3. `support-slack`처럼 명확한 규칙 이름을 입력합니다.
-4. group-message mode와 memory scope를 선택합니다.
+4. group-message mode를 선택합니다.
 5. chat application의 credential과 connection 세부 정보를 입력하고 규칙을 저장합니다.
 6. 해당 chat application에서 bot에게 메시지를 보냅니다. 선택한 Agent가 응답하는지 확인합니다.
 
@@ -48,24 +48,27 @@ Ankole는 발신자를 알려진 계정에 자동으로 매핑합니다. 디렉�
 
 | 옵션 | 동작 |
 |---|---|
-| **수동 검토**(기본값) | 발신자가 콘솔의 **아이덴티티 → 대기 중인 매핑** 목록에 나타납니다. 관리자가 계정을 연결할 때까지 Agent를 향한 메시지에는 관리자에게 연결을 요청하라는 고정 답장 하나만 돌아가며, 그 외에는 아무 처리도 하지 않습니다. 메시지는 컨텍스트나 메모리에 들어가지 않습니다. |
+| **수동 검토**(기본값) | 발신자가 콘솔의 **아이덴티티 → 대기 중인 매핑** 목록에 나타납니다. 관리자가 계정을 연결할 때까지 Agent를 향한 메시지에는 관리자에게 연결을 요청하라는 고정 답장 하나만 돌아가며, 그 외에는 아무 처리도 하지 않습니다. 메시지는 컨텍스트나 Brain 학습에 들어가지 않습니다. |
 | **독립 계정 자동 생성** | Ankole가 발신자를 위한 독립 계정을 만들고 즉시 응답합니다. 누구나 Agent와 대화할 수 있는 열린 채널에 적합합니다. |
 
 매핑되지 않은 발신자가 그룹에서 Agent를 지목하지 않고 나눈 잡담은 항상 무시됩니다.
 
 Lark와 Feishu에서는 외부 그룹도 여기에 해당합니다. 외부 테넌트 구성원에게는 직원 ID가 없으므로 수동 연결이나 자동 생성이 필요합니다. 같은 콘솔 페이지에서 본인이 메시지를 보내기 전에 미리 매핑을 등록할 수도 있습니다. 예를 들어 로컬 로그인 사용자를 채팅 계정과 연결할 때 사용합니다.
 
-## memory scope 선택
+## 채팅 내용이 Brain 지식이 되는 방식
 
-**Shared**는 그룹 메시지가 이 인스턴스의 shared memory scope에 들어가도록 합니다. Agent가 여러 conversation에 걸쳐 지식을 유지해야 하는 작업 그룹에 사용하십시오.
+routing 규칙은 메시지 전달만 제어하며 지식 범위를 선택하지 않습니다. Brain이 채팅에서 학습할 때는 대화 종류와 확인된 identity로 접근 범위를 정합니다.
 
-**Channel only**는 그룹 메시지를 이 channel만 읽을 수 있는 memory에 보관합니다. 고객 데이터, 기밀 프로젝트 또는 분리되어야 하는 팀에 사용하십시오.
+- **그룹 채팅:** channel의 현재 member group에 속한 구성원과 Agent가 학습한 지식을 사용할 수 있습니다. member group이 없는 그룹에서는 학습하지 않습니다.
+- **다이렉트 메시지:** 상대 사용자와 규칙에 바인딩된 Agent가 학습한 지식을 사용할 수 있습니다. 다른 Agent는 기본적으로 사용할 수 없습니다.
+
+공개 사실은 인스턴스 공용 지식이 될 수 있습니다. 명시적으로 기밀 처리가 필요한 내용은 해당 발언자에게만 제한할 수 있습니다. 그 밖의 내용은 위의 그룹 채팅 또는 다이렉트 메시지 접근 범위를 유지합니다. 모델 요구 사항과 검색 동작은 [Brain](../brain/)을 참조하십시오.
 
 ## 규칙 편집, 비활성화 또는 활성화
 
 목록에는 기본적으로 활성화된 규칙만 표시됩니다. 이전 규칙을 확인하거나 복원해야 하면 **비활성 규칙 표시**를 켜세요.
 
-**편집**을 선택하면 현재의 비밀 정보가 아닌 설정을 볼 수 있습니다. 대상 Agent, group-message mode, memory scope 또는 chat credential을 변경할 수 있습니다. 다른 Agent를 선택하면 새 메시지가 그 Agent로 전달됩니다. 기존 conversation과 memory는 자동으로 이동하지 않습니다.
+**편집**을 선택하면 현재의 비밀 정보가 아닌 설정을 볼 수 있습니다. 대상 Agent, group-message mode 또는 chat credential을 변경할 수 있습니다. 다른 Agent를 선택하면 새 메시지가 그 Agent로 전달됩니다.
 
 server는 저장된 token이나 secret을 브라우저로 반환하지 않습니다. credential 필드를 비워 두면 암호화된 기존 값을 유지합니다. 값을 바꾸려는 경우에만 새 값을 입력하세요.
 

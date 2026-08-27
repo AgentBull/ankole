@@ -1,6 +1,6 @@
 ---
 title: Signal routing rules
-description: Connect a chat application to an Agent and select how it handles group messages and memory.
+description: Connect a chat application to an Agent and select how it handles group messages.
 section: User guide
 order: 14
 ---
@@ -16,7 +16,7 @@ If you have not prepared a Slack, Microsoft Teams, Lark, Feishu, or DingTalk app
 1. Open **Signal Routing** in the Console and select **New routing rule**.
 2. Select the Agent that will receive messages and the Channel Provider adapter.
 3. Enter a clear rule name, such as `support-slack`.
-4. Select the group-message mode and memory scope.
+4. Select the group-message mode.
 5. Enter the credentials and connection details for the chat application, and save the rule.
 6. Send a message to the bot in that chat application. Confirm that the selected Agent replies.
 
@@ -54,7 +54,7 @@ sender:
 
 | Option | Behavior |
 |---|---|
-| **Manual review** (default) | The sender appears under **Identity → Pending mappings** in the Console. Until an administrator binds the account there, a message that addresses the Agent gets one fixed reply that asks the sender to contact an administrator, and nothing else happens — the message does not enter context or memory. |
+| **Manual review** (default) | The sender appears under **Identity → Pending mappings** in the Console. Until an administrator binds the account there, a message that addresses the Agent gets one fixed reply that asks the sender to contact an administrator, and nothing else happens — the message does not enter context or Brain learning. |
 | **Create a standalone account** | Ankole creates a standalone account for the sender and serves them at once. Use this for open channels where anyone may talk to the Agent. |
 
 Unaddressed group chatter from an unmapped sender is always ignored.
@@ -65,17 +65,20 @@ standalone option. You can also map an account before the person ever writes,
 for example to link a local-login user to their chat account, from the same
 Console page.
 
-## Select the memory scope
+## How chat conversations become Brain knowledge
 
-**Shared** lets group messages enter the shared memory scope for this instance. Use it for work groups where the Agent must keep knowledge across conversations.
+A routing rule controls message delivery, not knowledge scope. When Brain learns from a chat conversation, it uses the conversation kind and known identities to set access:
 
-**Channel only** keeps group messages in memory that only this channel can read. Use it for customer data, confidential projects, or teams that must stay separate.
+- **Group chat:** members and Agents in the channel's current member group can use the learned knowledge. Brain does not learn from a group that has no member group.
+- **Direct message:** the human counterpart and the Agent bound to the rule can use the learned knowledge. Other Agents cannot use it by default.
+
+Public facts can become instance-wide knowledge. Content with an explicit confidentiality requirement can be limited to the relevant speaker. All other learned content keeps the group-chat or direct-message access above. See [Brain](../brain/) for model requirements and retrieval behavior.
 
 ## Edit, disable, or enable a rule
 
 The list shows enabled rules by default. Turn on **Show disabled** when you must inspect or restore an older rule.
 
-Select **Edit** to view the current non-secret settings. You can change the target Agent, group-message mode, memory scope, or chat credentials. If you select another Agent, new messages go to that Agent. Existing conversations and memory do not move automatically.
+Select **Edit** to view the current non-secret settings. You can change the target Agent, group-message mode, or chat credentials. If you select another Agent, new messages go to that Agent.
 
 The server does not return stored tokens or secrets to the browser. Leave a credential field empty to keep its encrypted value. Enter a new value only when you want to replace it.
 

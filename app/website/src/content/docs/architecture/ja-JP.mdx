@@ -71,21 +71,21 @@ Actor Runtime はこの長時間の work identity を所有します。各 turn 
 
 stream された content は進捗です。事実となるのは、control plane が確認して保存した message、tool の結果、state の遷移だけです。これにより「interface には作業中と表示されている」ことと「仕事が完了している」ことが区別されます。
 
-## Brain: 修正を続ける世界 model
+## Brain: 現在の状態を保つ世界モデル
 
-Brain は chat の抜粋を詰め込んだ vector database ではありません。進化し続ける世界 model を維持します。新しい証拠は古い結論を拡張、修正、退役させることができ、矛盾する memory は時刻、出所、confidence によって裁定されます。
+Brain はチャットの抜粋を詰め込んだベクトルデータベースではありません。変化し続ける世界の見取り図を維持します。新しい証拠は以前の Claim を補足、修正、または置換できます。証拠が矛盾する場合、Dreaming は人が確認できる記録を作り、関連する Claim を密かに書き換えません。
 
-知識は、Agent との会話、誰も Agent に宛てなかった group chat、document、connector、その他の外部 source から得られます。
+知識は、Agent との会話、対象となるグループ内で誰も Agent に宛てなかったメッセージ、登録済みのファイルまたは URL Source から得られます。
 
-memory は shared、Agent、direct message、channel の scope に分離され、context が誤った境界を越えないようにします。
+1 つのインスタンスに属するすべての Agent が、同じ知識空間を使います。保護された本文、Claim、Timeline イベントは、`world`、権限グループ、または 1 つの Principal の開示範囲を持ちます。Source と Channel は出所を記録しますが、学習した知識へのアクセス権を付与しません。
 
-turn の間、unified recall が現在の仕事に必要な長期 context を供給します。オフラインの Dreaming は新しい証拠を整理し、繰り返される事実を圧縮し、矛盾を解決し、以前の予測と後の結果を比較します。
+ターンの間、統合された想起が現在の仕事に必要な長期コンテキストを供給します。オフラインの Dreaming は新しい証拠を整理し、パターンを見つけ、以前の予測を採点し、確認が必要な矛盾を示します。
 
-Brain は「世界が今どのような状態か」を所有します。Skill Overlay は「この作業を次回はどう行うべきか」を所有します。Agent は失敗や修正の後に Skill の変更を提案できます。人が承認してから、後の session がそれを使用します。
+[Brain](../brain/) は「世界が今どのような状態か」を担います。[Skill Lessons](../skill-lessons/) は、繰り返し現れる作業証拠から Agent が学んだ手順上のガードレールを保存します。対応する Skill と共に提示されますが、Skill のソースは書き換えません。適用できなくなった Lesson は退役します。
 
 この構造は、Agent が時間とともにチームの規則を学ぶというホームページ上の約束を実現します。蓄積は、より長い log を意味しません。次の Job がより良い知識とより良い方法から始まることを意味します。
 
-ユーザーから見えるのはこの仕組みの長期 memory であり、storage、Dreaming、書き込み権限は Brain が所有します。
+ユーザーから見えるのはこの仕組みの長期記憶であり、保存、Dreaming、書き込み権限は Brain が担います。
 
 ## Background Agent Job: メイン session をブロックしない長時間の仕事
 
@@ -105,7 +105,7 @@ Agent Home は調査資料と成果物を保持します。
 
 AIGateway は model の能力を Agent の実行から分離します。メイン Agent、Job、Brain、外部 API client は、LLM、embedding、rerank、画像、Web Search、Web Fetch Provider に対して同じ境界を使います。
 
-model profile が仕事の種類ごとに model を選択します。control plane は Provider の credential を暗号化して保存し、AIGateway は上流への request でそれらを使用します。
+Agent の model profile は Agent 実行用の model を選択します。Brain は AppConfigure のインスタンス全体に適用する 5 つの model 設定を使います。control plane は Provider の credential を暗号化して保存し、AIGateway は上流への request でそれらを使用します。
 
 Agent と Worker が受け取るのは、使用できる model の選択と呼び出し結果だけです。
 

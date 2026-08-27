@@ -427,6 +427,13 @@ defmodule Ankole.BackgroundAgentJobs do
   defdelegate send_message(job_id, attrs), to: Control
 
   @doc false
+  defdelegate lock_ambient_handoff_target_in_tx(repo, agent_uid, job_id), to: Control
+
+  @doc false
+  defdelegate handoff_ambient_message_in_tx(repo, source_event, job, message, now),
+    to: Control
+
+  @doc false
   defdelegate message_result(job, command_event_id, caller_session_id), to: Turns
 
   @doc false

@@ -6,7 +6,6 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
   import Ecto.Query, warn: false
 
   alias Ecto.Adapters.SQL
-  alias Ankole.AuthZ
   alias Ankole.AuthZ.ExternalBinding
   alias Ankole.AuthZ.Group
   alias Ankole.AuthZ.Store, as: AuthZStore
@@ -21,6 +20,7 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
   alias Ankole.SignalsGateway.Binding
   alias Ankole.SignalsGateway.BindingMembership
   alias Ankole.SignalsGateway.Channel
+  alias Ankole.SignalsGateway.IMGroupMembers
   alias Ankole.SignalsGateway.Projection
   alias FeishuOpenAPI.Event
   alias FeishuOpenAPI.Pagination
@@ -209,7 +209,7 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
          # The API snapshot can be older than a just-arrived member event. The
          # per-chat lock keeps writes ordered; later events or refreshes converge
          # stale snapshots.
-         {:ok, replace} <- AuthZ.replace_static_group_members(group.id, :im_group, principal_uids) do
+         {:ok, replace} <- IMGroupMembers.replace_members(group.id, principal_uids) do
       {:ok,
        %{
          group_id: group.id,
@@ -374,8 +374,7 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
            # Writes are serialized per chat, but the provider snapshot can still
            # be older than a just-arrived member event. Later member events or
            # refresh jobs converge the group again.
-           {:ok, _replace} <-
-             AuthZ.replace_static_group_members(group.id, :im_group, principal_uids) do
+           {:ok, _replace} <- IMGroupMembers.replace_members(group.id, principal_uids) do
         {:cont, {:ok, count + 1}}
       else
         {:error, reason} -> {:halt, {:error, reason}}
@@ -710,15 +709,20 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
     end)
   end
 
-  defp maybe_clear_all_left_members(repo, %Group{} = group) do
+  defp maybe_clear_all_left_members(_repo, %Group{} = group) do
     if BindingMembership.all_left?(group.metadata) do
-      AuthZStore.clear_static_group_members(repo, group.id, :im_group)
+      IMGroupMembers.replace_members(group.id, [])
       |> case do
         {:ok, result} -> {:ok, Map.put(result, :status, :all_left_members_cleared)}
         {:error, _reason} = error -> error
       end
     else
-      {:ok, %{status: :participant_marked_left, removed_memberships: 0}}
+      # A leaving Agent loses its mirrored membership row at once, the same
+      # way a leaving human does.
+      with {:ok, delta} <- IMGroupMembers.reconcile_agent_members(group.id) do
+        {:ok,
+         %{status: :participant_marked_left, removed_memberships: delta.removed_memberships}}
+      end
     end
   end
 

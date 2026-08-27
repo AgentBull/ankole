@@ -79,7 +79,7 @@ compaction은 흐름을 잃지 않고 긴 저장 기록을 짧은 기록으로 �
 
 ## Provider 라우팅
 
-AIGateway는 업스트림 호출 전에 모델 셀렉터를 실제 provider binding으로 해석합니다. 셀렉터는 호출자가 보는 것입니다. 예를 들어 `main` 또는 provider가 소유한 명시적 이름이며, 해석은 subject에 따라 달라집니다. Agent의 셀렉터는 구성된 모델 binding에서 나오고, admin은 명시적 provider 항목을 봅니다. `GET /models`는 현재 subject가 해석할 수 있는 것을 나열하며 OpenRouter 스타일 필터(`q`, `context`, `min_price`, `max_price`, `sort`, modality 필터)를 선택적으로 받습니다.
+AIGateway는 업스트림 호출 전에 모델 selector를 실제 provider binding으로 해석합니다. Agent에는 8개의 내장 profile이 있습니다. `primary`, `light`, `heavy`, `coding`, `vision_fallback`, `web_search`, `web_fetch`, `image_generate`입니다. 처음 5개는 언어 모델을 선택하고, 마지막 3개는 별도 기능을 선택합니다. Agent는 사용자 지정 언어 모델 profile도 가질 수 있습니다. 관리자는 명시적 provider entry를 사용합니다. `GET /models`는 현재 subject가 해석할 수 있는 것을 나열하며 OpenRouter 스타일 필터(`q`, `context`, `min_price`, `max_price`, `sort`, modality 필터)를 선택적으로 받습니다.
 
 각 provider 행은 credential 풀을 소유합니다. provider kind, base URL, 헤더, 설정, capability 선언은 모든 멤버가 공유합니다. 모델 profile은 행을 가리키며 풀 멤버를 지명하지 않습니다. AIGateway는 구성된 `fill_first`, `round_robin`, `least_used`, `random` strategy에 따라 정상 멤버를 선택합니다. Console은 선택된 UI 언어에 맞춰 이 strategy 이름들을 번역하며, API와 저장된 값은 그대로 유지됩니다. stateful thread는 가능하면 같은 멤버에 머무릅니다.
 
@@ -115,7 +115,9 @@ AIGateway는 업스트림 호출 전에 모델 셀렉터를 실제 provider bind
 
 ## Web tool, 파일, 그 밖의 capability
 
-같은 subject와 token이 인접한 capability를 구동합니다. `POST /web_search`는 `query`(길이 제한 있음)를 받아 provider가 뒷받침하는 결과를 반환하고, `POST /web_fetch`는 1개에서 5개의 공용 HTTPS URL을 받아 페이지 콘텐츠를 반환합니다. `POST /embeddings`는 텍스트, token 배열, 또는 input 블록을 받습니다. `POST /rerank`는 비어 있지 않은 문서 배열을 rerank하며 양의 정수 `top_n`을 받습니다. 각 요청은 `web_search.default`나 `web_fetch.default` 같은 capability별 semantic selector를 사용합니다. AIGateway는 호출이 도착할 때 현재 Agent profile을 해석합니다.
+같은 subject와 token이 인접한 capability를 구동합니다. `POST /web_search`는 길이 제한이 있는 `query`를 받아 provider가 제공하는 결과를 반환합니다. `POST /web_fetch`는 1개에서 5개의 공용 HTTPS URL을 받아 페이지 콘텐츠를 반환합니다. 이 호출은 `web_search.default`와 `web_fetch.default`를 사용할 수 있으며, AIGateway가 현재 Agent profile을 해석합니다.
+
+`POST /embeddings`는 텍스트, token 배열, input 블록을 받습니다. `POST /rerank`는 비어 있지 않은 문서 배열을 rerank하며 양의 정수 `top_n`을 받습니다. 이 두 endpoint에는 명시적인 `provider_id/model` selector가 필요하며 Agent profile을 해석하지 않습니다. Brain은 이 기능을 호출할 때 [AppConfigure](../app-configuration/)의 인스턴스 공용 설정인 `brain.embedding_model`과 `brain.rerank_model`을 사용합니다. 검색 동작은 [Brain](../brain/)을 참조하십시오.
 
 파일은 first-class입니다. `POST /files`가 업로드하고, `GET /files`가 나열하며, `GET /files/:id`와 `GET /files/:id/content`가 메타데이터와 바이트를 읽고, `DELETE /files/:id`가 하나를 삭제합니다. 모두 subject 범위로 제한됩니다.
 

@@ -54,25 +54,6 @@ export function commandEnv(
   options: CommandEnvOptions = {}
 ): Record<string, string> {
   const shellBootstrap = process.env.BASH_ENV ?? inputEnv?.BASH_ENV ?? '/etc/profile.d/ankole-agent-computer.sh'
-  const env: Record<string, string> = {
-    PATH: commandPath(process.env.PATH),
-    HOME: options.home ?? process.env.HOME ?? '/agents',
-    LANG: process.env.LANG ?? 'C.UTF-8',
-    TERM: process.env.TERM ?? 'xterm-256color',
-    SHELL: process.env.SHELL ?? '/bin/bash',
-    BASH_ENV: shellBootstrap,
-    ENV: process.env.ENV ?? inputEnv?.ENV ?? shellBootstrap,
-    CODEX_UNSAFE_ALLOW_NO_SANDBOX: process.env.CODEX_UNSAFE_ALLOW_NO_SANDBOX ?? '1',
-    ANKOLE_AGENT_HOME: options.ankoleAgentHome ?? options.home ?? process.env.ANKOLE_AGENT_HOME ?? '/agents'
-  }
-
-  for (const [key, value] of injectableWorkerEnv(options.workerEnv)) {
-    env[key] = value
-  }
-
-  for (const [key, value] of Object.entries(inputEnv ?? {})) {
-    if (ENV_NAME_FORMAT.test(key)) env[key] = value
-  }
 
   for (const [key, value] of Object.entries(options.runtimeEnv ?? {})) {
     if (
@@ -83,13 +64,27 @@ export function commandEnv(
     ) {
       throw new Error(`invalid turn runtime environment variable: ${key}`)
     }
-    env[key] = value
   }
 
-  if (options.home !== undefined) env.HOME = options.home
-  if (options.ankoleAgentHome !== undefined) env.ANKOLE_AGENT_HOME = options.ankoleAgentHome
-
-  return env
+  return {
+    // Fixed sandbox base.
+    PATH: commandPath(process.env.PATH),
+    HOME: process.env.HOME ?? '/agents',
+    LANG: process.env.LANG ?? 'C.UTF-8',
+    TERM: process.env.TERM ?? 'xterm-256color',
+    SHELL: process.env.SHELL ?? '/bin/bash',
+    BASH_ENV: shellBootstrap,
+    ENV: process.env.ENV ?? inputEnv?.ENV ?? shellBootstrap,
+    CODEX_UNSAFE_ALLOW_NO_SANDBOX: process.env.CODEX_UNSAFE_ALLOW_NO_SANDBOX ?? '1',
+    ANKOLE_AGENT_HOME: options.home ?? process.env.ANKOLE_AGENT_HOME ?? '/agents',
+    // Operator WorkerEnv, then caller variables.
+    ...Object.fromEntries(injectableWorkerEnv(options.workerEnv)),
+    ...Object.fromEntries(Object.entries(inputEnv ?? {}).filter(([key]) => ENV_NAME_FORMAT.test(key))),
+    // Trusted execution runtime values win over every lower layer.
+    ...options.runtimeEnv,
+    ...(options.home !== undefined ? { HOME: options.home } : {}),
+    ...(options.ankoleAgentHome !== undefined ? { ANKOLE_AGENT_HOME: options.ankoleAgentHome } : {})
+  }
 }
 
 // Image-provided wrappers must win over entries inherited from the Worker process.

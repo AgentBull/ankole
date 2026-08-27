@@ -6,7 +6,7 @@
 
 import type { UserMessage as PiUserMessage } from '@earendil-works/pi-ai'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
-import type { ToolCaller, TruncatedToolCall } from '../llm'
+import type { ToolCaller } from '../llm'
 
 /** One tool call `beforeToolCall` has validated and is about to hand to the wrapped `execute` — see `PiTurnState.activeToolCalls`. */
 export interface ActiveToolCall {
@@ -68,17 +68,6 @@ export interface PiTurnState {
    */
   roundTerminated: boolean
   /**
-   * Set by `stream-fn.ts` when a round's assistant message hit the output
-   * token limit mid-tool-call. pi's own `stopReason:'length'` handling would
-   * execute or fail these calls and record a generic message; the diagnostic
-   * ("stopped inside the value of...") one is ours, and never anchors on the
-   * cut response (see `session.ts`'s `anchorable` check) — so `stream-fn.ts`
-   * drops the dangling tool-call content from what pi sees entirely, and
-   * `agent-loop.ts`'s `prepareNextTurnWithContext` reads this instead to
-   * steer the real salvage message, once per turn.
-   */
-  pendingTruncatedToolCalls: TruncatedToolCall[]
-  /**
    * Keyed by `ToolCall.id`. `beforeToolCall` validates arguments and computes
    * the "running" activity row before pi ever calls `execute()`; the wrapped
    * `execute` (`wrapToolExecute`) reads `parsedArgs` (so a tool truly
@@ -110,7 +99,6 @@ export function createPiTurnState(): PiTurnState {
     pendingToolResultFollowUps: [],
     cursor: 0,
     roundTerminated: false,
-    pendingTruncatedToolCalls: [],
     activeToolCalls: new Map(),
     lastError: undefined
   }

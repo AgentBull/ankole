@@ -102,13 +102,13 @@ A capability that applies to a small role, needs special credentials, or has mat
 
 An Agent Plugin can contain several Skills. Disabling the parent makes its Skills unavailable but does not rewrite each Skill setting. When you enable the parent again, the Skills return to their own effective states.
 
-### Review Skill experience
+### Review Skill lessons
 
-While it uses a Skill, an Agent can retain Agent-specific cautions, such as an internal-system convention or a verified operating detail. This **Skill experience** appears with the Skill whenever that Agent reads it.
+An Agent can receive dated process cautions with its full Skill instructions. Dreaming derives leased lessons from Job evidence, and an operator can add a human lesson. The shared `SKILL.md` stays unchanged.
 
-Review it from the Agent Plugin detail page or **Knowledge → Skill experience**. For a manual note, state the situation first and then the caution.
+Change the Agent Library scope to the target Agent, then find the Skill card. The card lists active and retired lessons, evidence Jobs, review dates, and retirement reasons. An operator can add a lesson or retire one; the Agent stops reading a retired lesson on its next turn.
 
-Do not copy a general rule into every Agent's experience. Change the Skill source when the rule applies to all Agents.
+Do not copy a general rule into every Agent's lessons. Change the Skill source when the rule applies to all Agents. See [Skill lessons](../skill-lessons/) for the evidence rules, leases, and settings.
 
 ## Manage Control Plane Plugins
 

@@ -322,7 +322,7 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
     send(first_save.pid, :save)
 
     assert_receive {:trace, ^first_save_pid, :send,
-                    {:"$gen_call", _from, {:load, "global", ^first_config_key}}, ^cache_pid},
+                    {:"$gen_call", _from, {:refresh, "global", ^first_config_key}}, ^cache_pid},
                    1_000
 
     second_save =
@@ -764,15 +764,17 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
       [uid]
     )
 
+    %{principal: owner} = Ankole.PrincipalsFixtures.human_fixture()
+
     SQL.query!(Repo, "ALTER TABLE agents DROP CONSTRAINT agents_uid_agent_home_safe")
 
     SQL.query!(
       Repo,
       """
-      INSERT INTO agents (uid, type, role, options, inserted_at, updated_at)
-      VALUES ($1, 'ai_colleague', 'Legacy Agent', '{}'::jsonb, NOW(), NOW())
+      INSERT INTO agents (uid, type, role, options, owner_principal_uid, inserted_at, updated_at)
+      VALUES ($1, 'ai_colleague', 'Legacy Agent', '{}'::jsonb, $2, NOW(), NOW())
       """,
-      [uid]
+      [uid, owner.uid]
     )
 
     SQL.query!(Repo, """

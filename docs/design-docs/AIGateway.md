@@ -92,18 +92,18 @@ path can accept an image.
 
 Agent Computer puts the real model in the Job project configuration and selects
 the `ankole_aigateway` Codex provider. The provider name is `OpenAI` because
-Codex 0.147 uses that name to enable its remote-compaction protocol. The
-provider ID remains `ankole_aigateway`. Agent Computer sends the frozen binding
-in the `x-ankole-aigateway-model-binding` header. AIGateway applies this binding
+the pinned Codex runtime uses that name to enable its remote-compaction
+protocol. The provider ID remains `ankole_aigateway`. Agent Computer sends the
+frozen binding in the `x-ankole-aigateway-model-binding` header. AIGateway applies this binding
 before provider resolution. The binding replaces a conflicting Codex model,
 provider option, reasoning effort, or parallel-tool-call choice. It also removes
 the Codex-only `internal_chat_message_metadata_passthrough` and
 `encrypted_function_args` fields before provider dispatch. Responses Lite stays
-serial. AIGateway model cards disable Responses Lite because Codex 0.147 omits
-configured hosted web search from that private carrier. Standard Responses
-keeps the native tool declaration. Thus Codex receives the real model and effort
-that it needs for local execution, but AIGateway remains the authority for the
-upstream request. The runner removes `model_catalog_json` from the Job project
+serial. AIGateway model cards disable Responses Lite because the pinned Codex
+runtime omits configured hosted web search from that private carrier. Standard
+Responses keeps the native tool declaration. Thus Codex receives the real model
+and effort that it needs for local execution, but AIGateway remains the authority
+for the upstream request. The runner removes `model_catalog_json` from the Job project
 configuration, so a workspace template cannot replace the AIGateway-owned
 model cards. The logical profile name never enters Codex as a model.
 

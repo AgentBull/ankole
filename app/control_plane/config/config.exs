@@ -71,6 +71,7 @@ config :ankole, Oban,
     {Oban.Plugins.Cron,
      crontab: [
        {"* * * * *", Ankole.SignalsGateway.ActorRuntime.Jobs.EnqueueDailySessionResets},
+       {"* * * * *", Ankole.Brain.Jobs.Tick},
        {"0 * * * *", Ankole.IdentityProviders.Jobs.EnqueueDirectorySyncs},
        {"*/15 * * * *", Ankole.SignalsGateway.Jobs.CleanupExpiredState},
        {"41 * * * *", Ankole.AIGateway.Jobs.CleanupExpiredArtifacts}

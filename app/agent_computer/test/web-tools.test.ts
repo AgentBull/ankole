@@ -469,6 +469,111 @@ describe('web tools', () => {
     expect(textOf(result)).not.toContain('Truncated:')
     expect(readdirSync(workspaceRoot)).toEqual([])
   })
+
+  it('serves a repeated URL from the session cache without a new fetch', async () => {
+    const requests: unknown[] = []
+    const client: AIGatewayHTTPClient = {
+      baseURL: 'https://control.test/api/v1/ai-gateway',
+      fetch: async (_input, init) => {
+        requests.push(JSON.parse(String(init?.body)))
+        return jsonResponse({
+          success: true,
+          results: [{ url: 'https://example.com', title: 'Example', text: 'Extracted text' }]
+        })
+      }
+    }
+    const tools = await createWebTools({ aiGateway: client, workspaceRoot })
+    const webFetch = tools.find(tool => tool.name === 'web_fetch')
+
+    const first = await webFetch!.execute('call-1', { urls: ['https://example.com'] })
+    const second = await webFetch!.execute('call-2', { urls: ['https://example.com'] })
+
+    expect(requests).toHaveLength(1)
+    expect(textOf(first)).not.toContain('[Repeat fetch:')
+    expect(textOf(second)).toContain('[Repeat fetch:')
+    expect(textOf(second)).toContain('Extracted text')
+    expect(second.details).toMatchObject({ results: [{ url: 'https://example.com', repeat_fetch: true }] })
+  })
+
+  it('fetches only the uncached URLs of a batch and keeps the request order', async () => {
+    const bodies: Array<{ urls: string[] }> = []
+    const client: AIGatewayHTTPClient = {
+      baseURL: 'https://control.test/api/v1/ai-gateway',
+      fetch: async (_input, init) => {
+        const body = JSON.parse(String(init?.body)) as { urls: string[] }
+        bodies.push(body)
+        return jsonResponse({
+          success: true,
+          results: body.urls.map(url => ({ url, text: `Text of ${url}` }))
+        })
+      }
+    }
+    const tools = await createWebTools({ aiGateway: client, workspaceRoot })
+    const webFetch = tools.find(tool => tool.name === 'web_fetch')
+
+    await webFetch!.execute('call-1', { urls: ['https://a.example/'] })
+    const result = await webFetch!.execute('call-2', { urls: ['https://a.example/', 'https://b.example/'] })
+
+    expect(bodies.map(body => body.urls)).toEqual([['https://a.example/'], ['https://b.example/']])
+    const text = textOf(result)
+    expect(text).toContain('[Repeat fetch:')
+    expect(text.indexOf('Text of https://a.example/')).toBeLessThan(text.indexOf('Text of https://b.example/'))
+    expect(result.details).toMatchObject({
+      results: [{ url: 'https://a.example/', repeat_fetch: true }, { url: 'https://b.example/' }]
+    })
+  })
+
+  it('does not serve failed fetches from the repeat cache', async () => {
+    let calls = 0
+    const client: AIGatewayHTTPClient = {
+      baseURL: 'https://control.test/api/v1/ai-gateway',
+      fetch: async () => {
+        calls += 1
+        return jsonResponse({ success: false, results: [{ url: 'https://example.com', error: 'boom' }] })
+      }
+    }
+    const tools = await createWebTools({ aiGateway: client, workspaceRoot })
+    const webFetch = tools.find(tool => tool.name === 'web_fetch')
+
+    await webFetch!.execute('call-1', { urls: ['https://example.com'] })
+    await webFetch!.execute('call-2', { urls: ['https://example.com'] })
+
+    expect(calls).toBe(2)
+  })
+
+  it('labels a script shell, tells the model to change source, and keeps it out of the repeat cache', async () => {
+    const shell = `You need to enable JavaScript to run this app. ${'Application shell placeholder. '.repeat(4)}`
+    let calls = 0
+    const client: AIGatewayHTTPClient = {
+      baseURL: 'https://control.test/api/v1/ai-gateway',
+      fetch: async () => {
+        calls += 1
+        return jsonResponse({ success: true, results: [{ url: 'https://spa.example/', text: shell }] })
+      }
+    }
+    const tools = await createWebTools({ aiGateway: client, workspaceRoot })
+    const webFetch = tools.find(tool => tool.name === 'web_fetch')
+
+    const first = await webFetch!.execute('call-1', { urls: ['https://spa.example/'] })
+    await webFetch!.execute('call-2', { urls: ['https://spa.example/'] })
+
+    expect(textOf(first)).toContain('[Not rendered:')
+    expect(first.details).toMatchObject({ results: [{ url: 'https://spa.example/', render_warning: 'script_shell' }] })
+    expect(calls).toBe(2)
+  })
+
+  it('labels an extraction that produced no text', async () => {
+    const tools = await createWebTools({
+      aiGateway: fetchProviderClient({ success: true, results: [{ url: 'https://empty.example/', text: '' }] }),
+      workspaceRoot
+    })
+    const webFetch = tools.find(tool => tool.name === 'web_fetch')
+
+    const result = await webFetch!.execute('call-1', { urls: ['https://empty.example/'] })
+
+    expect(textOf(result)).toContain('[No text:')
+    expect(result.details).toMatchObject({ results: [{ url: 'https://empty.example/', render_warning: 'empty_text' }] })
+  })
 })
 
 function storedPageFrom(text: string): string {

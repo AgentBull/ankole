@@ -70,12 +70,12 @@ describe('Codex dynamic namespace integration', () => {
       client = codexClient({ workspace, codexHome, notifications, projection })
 
       const initializeResponse = await client.initialize()
-      expect(initializeResponse.userAgent).toContain('/0.147.0 ')
+      expect(initializeResponse.userAgent).toContain('/0.150.1 ')
       const models = (await client.request('model/list', { includeHidden: true })) as {
         data: Array<{ model: string }>
       }
       expect(manifestRequests.length).toBeGreaterThan(0)
-      expect(manifestRequests.every(url => url.includes('client_version=0.147.0'))).toBe(true)
+      expect(manifestRequests.every(url => url.includes('client_version=0.150.1'))).toBe(true)
       expect(models.data.some(model => model.model === 'gpt-5.4')).toBe(true)
       const started = (await client.request('thread/start', {
         cwd: workspace,
@@ -147,7 +147,7 @@ describe('Codex dynamic namespace integration', () => {
       })
 
       const initializeResponse = await client.initialize()
-      expect(initializeResponse.userAgent).toContain('/0.147.0 ')
+      expect(initializeResponse.userAgent).toContain('/0.150.1 ')
       const started = (await client.request('thread/start', {
         cwd: workspace,
         approvalPolicy: 'never',
@@ -401,7 +401,7 @@ function codexModelsManifest(): JSONObject {
         display_name: 'gpt-5.4',
         description: null,
         supported_reasoning_levels: [],
-        shell_type: 'default',
+        shell_type: 'unified_exec',
         visibility: 'none',
         supported_in_api: true,
         priority: 99,
@@ -414,7 +414,6 @@ function codexModelsManifest(): JSONObject {
         apply_patch_tool_type: 'freeform',
         web_search_tool_type: 'text',
         truncation_policy: { mode: 'tokens', limit: 10_000 },
-        supports_parallel_tool_calls: false,
         context_window: 272_000,
         max_context_window: 272_000,
         effective_context_window_percent: 95,

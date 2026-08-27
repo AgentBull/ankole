@@ -11,7 +11,7 @@ Ankole 花的大部分是模型 token，而其中大部分由一小撮配置杠�
 
 ## 杠杆 1：model profile 档位
 
-十个 profile 槽是最大的杠杆。每个槽是一次模型选择，而模型选择主导 token 成本。
+八个内置 Agent profile 分别控制不同的付费路径。五个选择语言模型，三个绑定网页搜索、网页抓取和图像生成能力。
 
 | 槽 | 何时跑 | 成本杠杆 |
 |---|---|---|
@@ -20,9 +20,10 @@ Ankole 花的大部分是模型 token，而其中大部分由一小撮配置杠�
 | `heavy` | 硬综合 | 昂贵；`primary` 调好时很少用到 |
 | 后台 Agent 任务（内部键为 `coding`） | 每个后台 Agent 任务 | 决定持久后台任务使用哪个 Provider 和模型 |
 | `vision_fallback` | `primary` 处理不了图像时 | 仅在 agent 看图像时绑定 |
-| `embedding`、`rerank` | 记忆与检索 | 按调用计价，通常小 |
 | `web_search`、`web_fetch` | web 工具 | 见杠杆 3 |
 | `image_generate` | 图像生成 | 按次昂贵；仅在用时绑定 |
+
+Brain 另有五个实例级模型设置，不属于 Agent profile。`brain.embedding_model` 和 `brain.rerank_model` 控制检索，`brain.web_fetch_model` 读取 URL Source，`brain.extraction_model` 从对话和 Source 中学习，`brain.dreaming_model` 执行依赖模型的维护与技能教训复审。请在 [AppConfigure](../app-configuration/) 中统一配置。留空会停止或收窄对应工作，**Brain → 健康**会说明哪些能力不可用。完整行为见 [Brain](../brain/)。
 
 两招最省：
 

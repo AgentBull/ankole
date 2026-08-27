@@ -29,14 +29,14 @@ The resolution is the `effective_enabled` field the capability endpoints return:
 
 This is the model the Console's [Agent Library capabilities](../console-api/) routes expose: set the global default, then narrow or widen it per agent.
 
-## Durable Agent documents and Skill overlays
+## Durable Agent documents and Skill lessons
 
-Alongside capabilities, the library holds the agent's own writable documents and skill customizations:
+Alongside capabilities, the library holds the agent's own writable documents and Agent-specific Skill guidance:
 
-- **Durable Agent documents** are `mission`, `soul`, and `design`, the three `source_kind` values accepted by the container table. The first two define responsibility and behavior. `design` stores the design system for visual work. They live in `agent_library_container_entries` and use content hashes.
-- **Skill overlays** are semantic rows in `agent_skill_overlays`, one per `(agent, skill)`. They let an operator customize how a skill behaves for one agent without forking the skill bundle. An overlay supports compare-and-swap replacement, so concurrent edits resolve deterministically.
+- **Durable Agent documents** are `mission`, `soul`, `design`, and `confidentiality_policy`, the four `source_kind` values accepted by the container table. The first two define responsibility and behavior. `design` stores the design system for visual work. `confidentiality_policy` guides audience selection when the Agent writes to Brain. They live in `agent_library_container_entries` and use content hashes.
+- **Skill lessons** are immutable semantic rows in `agent_skill_lessons`. Each row belongs to one Agent and one Skill, and records its author, evidence, lease state, and retirement history. Dreaming writes evidence-backed leased lessons. An operator can add a human lesson with no lease or retire any lesson.
 
-A skill view reads the skill's files plus any overlay the agent has for it, so the agent sees one coherent skill, not a bundle and a separate patch.
+A Skill view reads the Skill files and renders eligible lessons under `Agent-specific additions`. The base `SKILL.md` does not change. See [Skill lessons](../skill-lessons/) for the evidence, review, and delivery rules.
 
 ## Sync: keeping the registry honest
 
@@ -59,11 +59,11 @@ The Console routes already covered in the [Console](../console-api/) page drive 
 | `GET` | `/agents/:agent_uid/library-capabilities` | One agent's effective capabilities |
 | `PUT` | `/agents/:agent_uid/library-capabilities/agent-plugins/:id` | Override a plugin for one agent |
 | `PUT` | `/agents/:agent_uid/library-capabilities/skills/:id` | Override a skill for one agent |
-| `GET` | `/agents/:agent_uid/library-documents` | List the agent's mission/soul/design |
+| `GET` | `/agents/:agent_uid/library-documents` | List the agent's mission/soul/design/confidentiality policy |
 | `PUT` | `/agents/:agent_uid/library-documents/:document_kind` | Set one document |
-| `GET` | `/agents/:agent_uid/library-skill-overlays` | List skill overlays |
-| `PUT` | `/agents/:agent_uid/library-skill-overlays/:skill_name` | Set a skill overlay |
-| `DELETE` | `/agents/:agent_uid/library-skill-overlays/:skill_name` | Remove a skill overlay |
+| `GET` | `/agents/:agent_uid/skill-lessons` | List active and retired Skill lessons |
+| `POST` | `/agents/:agent_uid/skill-lessons` | Add a human Skill lesson |
+| `POST` | `/agents/:agent_uid/skill-lessons/:lesson_id/retire` | Retire a Skill lesson |
 
 Reading `/agents/:agent_uid/library-capabilities` triggers an agent-skill sync, so what the operator sees is the registry reconciled against current storage — not a stale snapshot.
 
@@ -74,5 +74,6 @@ It is not a marketplace and not a hot-load system. The skills and plugins are tr
 ## Next steps
 
 - For the routes that configure the library, read the [Console](../console-api/) page.
+- For Agent-specific process guidance, read [Skill lessons](../skill-lessons/).
 - For the worker that runs an enabled skill during a turn, read the [Actor Runtime](../actor-runtime/) page.
 - For the agent Principal a library is scoped to, read [Principal and AuthZ](../principal-authz/).

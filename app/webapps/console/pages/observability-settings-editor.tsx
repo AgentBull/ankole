@@ -9,8 +9,7 @@ import {
   SelectValue,
   Switch
 } from '@ankole/uikit'
-import { RiAddLine, RiDeleteBin6Line, RiEyeLine, RiResetLeftLine } from '@remixicon/react'
-import { type ReactNode } from 'react'
+import { RiAddLine, RiDeleteBin6Line, RiEyeLine } from '@remixicon/react'
 import { useTranslation } from 'react-i18next'
 import type { AppConfigurationItem } from '../api/generated/types.gen'
 import { EncryptedValueInput } from '../encrypted-value-input'
@@ -20,6 +19,7 @@ import {
   observabilityTraceDraft,
   type ObservabilityHeaderRow
 } from '../state/observability-setting-editor'
+import { SettingGroupField } from './setting-group-field'
 
 export function ObservabilitySettingsEditor({
   drafts,
@@ -55,7 +55,7 @@ export function ObservabilitySettingsEditor({
         {t('console.settings.observability_restart_hint')}
       </p>
 
-      <ObservabilityField
+      <SettingGroupField
         item={itemsByKey.get(OBSERVABILITY_TRACE_KEYS.enabled)}
         label={t('console.settings.observability_enabled')}
         description={t('console.settings.observability_enabled_hint')}
@@ -71,9 +71,9 @@ export function ObservabilitySettingsEditor({
             onCheckedChange={enabled => onDraftChange(OBSERVABILITY_TRACE_KEYS.enabled, String(enabled))}
           />
         </div>
-      </ObservabilityField>
+      </SettingGroupField>
 
-      <ObservabilityField
+      <SettingGroupField
         item={itemsByKey.get(OBSERVABILITY_TRACE_KEYS.provider)}
         label={t('console.settings.observability_provider')}
         description={t('console.settings.observability_provider_hint')}
@@ -97,9 +97,9 @@ export function ObservabilitySettingsEditor({
             ))}
           </SelectContent>
         </Select>
-      </ObservabilityField>
+      </SettingGroupField>
 
-      <ObservabilityField
+      <SettingGroupField
         item={itemsByKey.get(OBSERVABILITY_TRACE_KEYS.endpoint)}
         label={t('console.settings.observability_endpoint')}
         description={t('console.settings.observability_endpoint_hint')}
@@ -114,9 +114,9 @@ export function ObservabilitySettingsEditor({
           placeholder={endpointPlaceholder(draft.provider)}
           onChange={event => onDraftChange(OBSERVABILITY_TRACE_KEYS.endpoint, JSON.stringify(event.target.value))}
         />
-      </ObservabilityField>
+      </SettingGroupField>
 
-      <ObservabilityField
+      <SettingGroupField
         item={headers}
         label={t('console.settings.observability_headers')}
         description={t(`console.settings.observability_headers_hint_${draft.provider || 'opentelemetry'}`)}
@@ -197,44 +197,8 @@ export function ObservabilitySettingsEditor({
             </Button>
           </div>
         )}
-      </ObservabilityField>
+      </SettingGroupField>
     </div>
-  )
-}
-
-function ObservabilityField({
-  children,
-  description,
-  item,
-  label,
-  onRestore,
-  saving
-}: {
-  children: ReactNode
-  description: string
-  item?: AppConfigurationItem
-  label: string
-  onRestore: (item: AppConfigurationItem) => void
-  saving: boolean
-}) {
-  const { t } = useTranslation()
-
-  return (
-    <section className="grid gap-3 border-t border-border pt-6 first:border-t-0 first:pt-0">
-      <div className="flex items-start justify-between gap-3">
-        <div className="grid min-w-0 gap-1">
-          <h2 className="text-sm font-semibold text-foreground">{label}</h2>
-          <p className="text-xs leading-5 text-muted-foreground">{description}</p>
-        </div>
-        {item?.overridden ? (
-          <Button disabled={saving} size="sm" type="button" variant="ghost" onClick={() => onRestore(item)}>
-            <RiResetLeftLine />
-            {t('console.settings.restore_default')}
-          </Button>
-        ) : null}
-      </div>
-      {children}
-    </section>
   )
 }
 

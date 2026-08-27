@@ -15,6 +15,7 @@ defmodule Ankole.SignalsGateway.ConversationChannel do
   alias Ankole.Principals.Principal
   alias Ankole.Repo
   alias Ankole.SignalsGateway.Channel
+  alias Ankole.SignalsGateway.Utils
 
   require Ankole.BackgroundAgentJobs
 
@@ -115,10 +116,7 @@ defmodule Ankole.SignalsGateway.ConversationChannel do
     origin_text(conversation, "channel_id") || channel_id_from_key(conversation.conversation_key)
   end
 
-  defp channel_id_from_key("signal-channel:" <> channel_id) when channel_id != "",
-    do: channel_id
-
-  defp channel_id_from_key(_key), do: nil
+  defp channel_id_from_key(key), do: Utils.signal_channel_id_from_session_id(key)
 
   defp channel_kind(_conversation, %Channel{kind: kind}), do: Atom.to_string(kind)
   defp channel_kind(conversation, _channel), do: origin_text(conversation, "channel_kind")

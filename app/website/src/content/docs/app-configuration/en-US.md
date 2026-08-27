@@ -72,6 +72,27 @@ The following AppConfigure keys are built into Ankole. A Control Plane Plugin ca
 | `ai_agent.library.agent_plugin_defaults` | Instance | Default enablement for Agent Plugins |
 | `ai_agent.library.skill_defaults` | Instance | Default enablement for Skills |
 
+### Brain
+
+| Key | Scope | Purpose |
+|---|---|---|
+| `brain.enabled` | Instance | Enable Brain retrieval, learning, and maintenance; stored knowledge remains when disabled |
+| `brain.embedding_model` | Instance | Provider, model, and dimensions for vector retrieval; an empty value disables vector retrieval |
+| `brain.rerank_model` | Instance | Provider and model for reranking search results; an empty value keeps the fusion order |
+| `brain.web_fetch_model` | Instance | Provider and model for learning from URL Sources; an empty value stops URL Source learning |
+| `brain.extraction_model` | Instance | Model that extracts knowledge from Signal conversations and Sources; an empty value stops those learning tasks |
+| `brain.dreaming_model` | Instance | Model that consolidates knowledge and finds contradictions for human review; an empty value skips model-dependent maintenance |
+| `brain.search_tokenizer` | Instance | BM25 tokenizer: `icu`, `jieba`, `lindera_japanese`, or `lindera_korean`; a change requires a BM25 index rebuild |
+| `brain.chunking` | Instance | Source chunk size, overlap, and input limits |
+| `brain.forgetting` | Instance | Knowledge-decay half-lives and the soft-delete purge interval |
+| `brain.dreaming_task_cron` | Instance | Schedule for regular knowledge consolidation |
+| `brain.self_healing_task_cron` | Instance | Schedule for rebuilding stale chunk, embedding, and search-index projections |
+| `brain.signal_channel_batch_idle_time` | Instance | Idle seconds before pending chat messages enter learning; conversation end also triggers learning |
+| `brain.skill_learning_enabled` | Instance | Enable Skill lesson learning and delivery; when disabled, stored lessons remain but are not supplied |
+| `brain.skill_learning_reflection_threshold` | Instance | Unconsumed Signal Jobs one Agent must accumulate before Skill lesson reflection starts; minimum `2` |
+
+Read [Brain](../brain/) for its knowledge behavior and model requirements. Read [Skill lessons](../skill-lessons/) for the lessons that Brain supplies with Skills.
+
 ### AI Gateway and observability
 
 | Key | Scope | Purpose |
