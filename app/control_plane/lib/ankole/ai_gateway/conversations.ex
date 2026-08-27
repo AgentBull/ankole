@@ -87,6 +87,24 @@ defmodule Ankole.AIGateway.Conversations do
   end
 
   @doc """
+  Bumps the conversation's `updated_at` inside the caller's transaction.
+
+  Message writes call this so the Console lists and orders conversations by
+  their last activity instead of the row's last direct change.
+  """
+  @spec touch_conversation_in_tx(module(), String.t()) :: :ok
+  def touch_conversation_in_tx(repo, conversation_id) do
+    now = DateTime.utc_now(:microsecond)
+
+    {_count, _rows} =
+      Conversation
+      |> where([conversation], conversation.id == ^conversation_id)
+      |> repo.update_all(set: [updated_at: now])
+
+    :ok
+  end
+
+  @doc """
   Locks a conversation row for update.
   """
   @spec lock_conversation(module(), term()) :: Conversation.t() | nil

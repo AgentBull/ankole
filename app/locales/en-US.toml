@@ -2,6 +2,7 @@
 bcp47 = "en-US"
 
 [app_configure.descriptions.agent_computer.background_agent_job]
+max_running_per_agent = "Maximum concurrently running BackgroundAgentJobs per Agent across all workers."
 max_turns_per_worker = "Maximum concurrent BackgroundAgentJob turns placed on one Agent Computer worker."
 
 [app_configure.descriptions.ai_agent]
@@ -28,9 +29,18 @@ forgetting = "Fact decay halflives in days per kind, plus purge_soft_delete_ttl_
 dreaming_task_cron = "Cron expression for the daily Dreaming maintenance task."
 self_healing_task_cron = "Cron expression for the Self-healing task that rebuilds stale chunk, embedding, and index projections."
 signal_channel_batch_idle_time = "Idle seconds after a signal channel's last message before its unprocessed slice enters batch learning. Conversation end also triggers it."
+web_fetch_model = "Instance-global web-fetch provider with provider_id, model, and optional provider_options for url Source learning. Empty stops url Source learning and reports unhealthy."
+skill_learning_enabled = "Whether skill lessons are learned from job trajectories and delivered with skills. Disabling skips the Dreaming phase and hides stored lessons; data stays unchanged."
+skill_learning_reflection_threshold = "Unconsumed signal jobs (mid-run human input or failed calls) an agent must accumulate before one skill-lesson reflection job starts. Minimum 2."
 
 [app_configure.descriptions.i18n]
 default_locale = "Default locale used when rendering Ankole text."
+
+[app_configure.descriptions.observability.traces]
+enabled = "When true, the control plane exports process-wide OpenTelemetry traces to the configured OTLP endpoint after restart."
+otlp_endpoint = "Base OTLP HTTP endpoint for traces. The exporter appends /v1/traces. Required when trace export is enabled."
+otlp_headers = "Secret HTTP headers for OTLP trace export, such as Authorization. Values take effect after restart."
+provider = "Semantic provider for LLM traces: langfuse, langsmith, or opentelemetry. Required when trace export is enabled."
 
 [app_configure.descriptions.plugins]
 enabled_ids = "Plugin ids enabled on the next Ankole process start."
@@ -53,6 +63,9 @@ directory_full_sync_interval_hours = "Hours between periodic full directory sync
 
 [app_configure.descriptions.principals.identity_providers.lark]
 "*" = "Encrypted Lark / Feishu identity-provider configuration."
+
+[app_configure.descriptions.principals.identity_providers.local]
+"*" = "Built-in local email-and-password identity provider configuration."
 
 [app_configure.descriptions.principals.identity_providers.slack]
 "*" = "Encrypted Slack identity-provider configuration."
@@ -211,9 +224,13 @@ group_memory_disclosure_mode_strict = "Strict"
 group_memory_disclosure_mode_relaxed = "Relaxed"
 agent = "Agent"
 avatar_url = "Avatar URL"
-delete_description = "Disable Agent {$id}? It stops handling work. The Console has no re-enable control."
-delete_title = "Disable Agent"
-deleted = "Agent {$id} disabled."
+delete_description = "Permanently delete Agent {$id}? Its sessions, jobs, and records are deleted with it and cannot be restored."
+delete_title = "Delete Agent"
+deleted = "Agent {$id} deleted."
+disable_description = "Disable Agent {$id}? It stops handling work; you can re-enable it at any time. Deleting requires disabling first."
+disable_title = "Disable Agent"
+disabled_toast = "Agent {$id} disabled."
+enabled = "Agent {$id} enabled."
 description = "Digital workers that run long-lived tasks. Configure identity and per-role model profiles."
 display_name = "Display name"
 display_name_required = "Display name is required."
@@ -456,7 +473,6 @@ embedding_signature = "Embedding signature"
 health_signals = "Signals learning queue"
 pending_channels = "Idle channels with pending slices"
 oldest_pending_age = "Oldest pending entry"
-age_seconds = "{$seconds} s"
 health_embeddings = "Embedding projections"
 failed_chunks = "Chunks with embedding failures"
 failed_claims = "Claims with embedding failures"
@@ -619,6 +635,7 @@ display_name = "Display name"
 display_name_required = "Display name is required."
 domain_directory = "Directory"
 domain_im_group = "IM group"
+domain_signal_source = "Signal source"
 editor_description = "Group identity and membership rule. Members and grants are managed below once the group exists."
 empty_description = "Create a group to grant permissions to several principals at once."
 empty_title = "No groups yet"
@@ -1033,7 +1050,13 @@ browser_login_instructions = "Open the authorization page. After the browser red
 callback_url = "Callback URL"
 chatgpt_credential_editor_description = "The ChatGPT login flow owns this account's tokens. Only the label and selection priority can change here."
 chatgpt_login_complete = "ChatGPT account connected."
+chatgpt_login_denied = "The ChatGPT account denied this sign-in."
 chatgpt_login_description = "Sign in with the official Codex device flow. The control plane stores and refreshes the completed credential."
+chatgpt_login_expired = "The sign-in expired. Start it again."
+chatgpt_login_invalid = "This sign-in attempt is no longer valid. Start it again."
+chatgpt_login_rejected = "The ChatGPT sign-in service rejected the request ({$upstream})."
+chatgpt_login_unreachable = "The ChatGPT sign-in service was unreachable ({$upstream})."
+chatgpt_refresh_failed = "Credential refresh failed ({$upstream}). Sign in again."
 complete_login = "Complete login"
 credential_deleted = "Credential deleted."
 credential_editor_description = "The provider row owns shared connection settings. This member contains only its credential and selection metadata."
@@ -1559,6 +1582,7 @@ upload_subdirectory = "Subdirectory (optional)"
 upload_title = "Upload files"
 
 uploaded = "Uploaded {$name}."
+
 [console.worker_envs]
 agent_section_description = "Exactly what this Agent's shells receive: declared exports, instance-wide variables, and this Agent's overrides. Editing here always writes the Agent tier."
 agent_section_title = "Environment variables"

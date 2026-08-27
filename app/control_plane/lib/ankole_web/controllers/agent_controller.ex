@@ -33,7 +33,7 @@ defmodule AnkoleWeb.AgentController do
     render_error: AnkoleWeb.OpenAPIValidationErrorRenderer
 
   operation(:index,
-    summary: "List active agents",
+    summary: "List agents, including disabled agents",
     responses: [
       ok: {"Agents", "application/json", AgentListResponse},
       unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
@@ -77,7 +77,18 @@ defmodule AnkoleWeb.AgentController do
   )
 
   operation(:delete,
-    summary: "Disable one agent",
+    summary: "Disable an active agent, or delete an agent that is already disabled",
+    parameters: [agent_uid: [in: :path, type: :string, required: true]],
+    responses: [
+      ok: {"Agent", "application/json", AgentResponse},
+      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
+      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
+      not_found: {"Not found", "application/json", ErrorEnvelope}
+    ]
+  )
+
+  operation(:enable,
+    summary: "Re-enable one disabled agent",
     parameters: [agent_uid: [in: :path, type: :string, required: true]],
     responses: [
       ok: {"Agent", "application/json", AgentResponse},
@@ -135,7 +146,7 @@ defmodule AnkoleWeb.AgentController do
 
   def index(conn, _params) do
     with :ok <- ConsolePolicy.authorize(conn, "agents", "read") do
-      json(conn, %{agents: Enum.map(Principals.list_active_agents(), &agent_json/1)})
+      json(conn, %{agents: Enum.map(Principals.list_agents(), &agent_json/1)})
     else
       {:error, reason} -> error(conn, reason)
     end
@@ -176,7 +187,18 @@ defmodule AnkoleWeb.AgentController do
     with {:ok, agent_uid} <- agent_uid_param(params),
          :ok <- ConsolePolicy.authorize(conn, "agent:#{agent_uid}", "delete"),
          {:ok, %{agent: agent}} <- Principals.get_agent(agent_uid),
-         {:ok, %Principal{} = principal} <- Principals.disable_principal(agent_uid) do
+         {:ok, %Principal{} = principal} <- Principals.delete_agent(agent_uid) do
+      json(conn, %{agent: agent_json(%{principal: principal, agent: agent})})
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  def enable(conn, params) do
+    with {:ok, agent_uid} <- agent_uid_param(params),
+         :ok <- ConsolePolicy.authorize(conn, "agent:#{agent_uid}", "update"),
+         {:ok, %{agent: agent}} <- Principals.get_agent(agent_uid),
+         {:ok, %Principal{} = principal} <- Principals.enable_agent(agent_uid) do
       json(conn, %{agent: agent_json(%{principal: principal, agent: agent})})
     else
       {:error, reason} -> error(conn, reason)

@@ -20,7 +20,7 @@ defmodule AnkoleWeb.AgentControllerTest do
     :ok
   end
 
-  test "admin creates, lists, updates, reads, and disables an agent", %{conn: conn} do
+  test "admin creates, lists, updates, disables, re-enables, and deletes an agent", %{conn: conn} do
     %{principal: owner} = human_fixture(%{uid: unique_uid("agent-owner")})
     conn = bearer_conn(conn)
 
@@ -92,6 +92,38 @@ defmodule AnkoleWeb.AgentControllerTest do
 
     assert %{"agent" => %{"uid" => "console-agent", "status" => "disabled"}} =
              json_response(conn, 200)
+
+    # A disabled agent stays listed so the operator can re-enable or delete it.
+    conn =
+      conn
+      |> recycle_api()
+      |> get(~p"/api/v1/agents")
+
+    assert %{"agents" => agents} = json_response(conn, 200)
+    assert Enum.any?(agents, &(&1["uid"] == "console-agent" and &1["status"] == "disabled"))
+
+    conn =
+      conn
+      |> recycle_api()
+      |> post(~p"/api/v1/agents/console-agent/enable")
+
+    assert %{"agent" => %{"uid" => "console-agent", "status" => "active"}} =
+             json_response(conn, 200)
+
+    # Deleting requires disabling first; the second delete removes the row.
+    conn =
+      conn
+      |> recycle_api()
+      |> delete(~p"/api/v1/agents/console-agent")
+
+    assert %{"agent" => %{"status" => "disabled"}} = json_response(conn, 200)
+
+    conn =
+      conn
+      |> recycle_api()
+      |> delete(~p"/api/v1/agents/console-agent")
+
+    assert %{"agent" => %{"uid" => "console-agent"}} = json_response(conn, 200)
 
     conn =
       conn

@@ -86,7 +86,7 @@ Skill, 명령줄 tool 또는 MCP service에 API key가 필요하면 Agent 페이
 
 display name, 역할, durable 지침, 모델, 기능은 언제든 변경할 수 있습니다. UID는 다른 configuration이 Agent를 식별하는 데 사용하므로 변경할 수 없습니다.
 
-비활성화된 Agent는 새 작업을 받지 않습니다. 하나의 chat entry point만 중지하려면 Agent 전체를 비활성화하는 대신 관련 signal routing 규칙을 비활성화하십시오.
+비활성화된 Agent는 새 작업을 받지 않지만, "비활성" 상태로 에이전트 목록에 남아 있습니다. 언제든지 다시 활성화할 수 있고, 영구 삭제할 수도 있습니다. 삭제는 비활성화된 Agent에만 가능하며 해당 Agent의 세션, 작업, 관련 기록이 함께 삭제됩니다. 하나의 chat entry point만 중지하려면 Agent 전체를 비활성화하는 대신 관련 signal routing 규칙을 비활성화하십시오.
 
 ## Agent가 응답하지 않는 경우
 

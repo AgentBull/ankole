@@ -16,6 +16,28 @@ defmodule AnkoleWeb.ConsoleErrors do
   end
 
   @doc """
+  Renders an unlisted error reason without leaking internal terms.
+
+  An unlisted reason is a server-side gap: the warning log carries the full
+  reason for the operator, and the response stays generic. `log_event` names
+  the owning API, for example `"ai_gateway.provider_api.unexpected_error"`.
+  """
+  def unexpected(conn, log_event, reason) do
+    Ankole.Logging.warning(
+      log_event,
+      "console API request failed for an unhandled reason",
+      %{reason: inspect(reason)}
+    )
+
+    render(
+      conn,
+      422,
+      "invalid_value",
+      "the request failed for an unexpected reason; check the server log"
+    )
+  end
+
+  @doc """
   Converts changeset errors into the console API detail list.
   """
   def changeset_details(%Ecto.Changeset{} = changeset) do

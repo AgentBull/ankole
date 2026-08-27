@@ -21,7 +21,7 @@ import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useParams, useSearchParams } from 'react-router'
 import { AgentFilter, useAgentScope } from '../console-agent-scope'
-import { BackLink, PageStack } from '../console-page'
+import { BackLink, DocumentTitle, PageStack } from '../console-page'
 import { ErrorBlock } from '../../common/error-block'
 import { formatConsoleDate, truncate } from '../console-primitives'
 import { conversationDisplayName } from '../conversation-presentation'
@@ -368,6 +368,7 @@ export function ConversationDetailPage() {
         <Skeleton className="h-40 w-full" />
       ) : (
         <>
+          <DocumentTitle title={conversationDisplayName(detail)} />
           <ConversationHeader conversation={detail} />
 
           <section className="grid gap-3" aria-label={t('console.conversations.details')}>

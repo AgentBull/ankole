@@ -26,7 +26,7 @@ describe('resource editor lookup with fresh caches', () => {
     expect(html).not.toContain('Agent newly-created was not found.')
   })
 
-  test('treats a disabled Agent as deleted instead of reopening its editor', () => {
+  test('opens a disabled Agent in the editor so it can be inspected before re-enabling or deleting', () => {
     const queryClient = freshQueryClient()
     queryClient.setQueryData(ankoleWebAgentControllerShowQueryKey({ path: { agent_uid: 'disabled-agent' } }), {
       agent: {
@@ -47,10 +47,9 @@ describe('resource editor lookup with fresh caches', () => {
 
     const html = renderEditor(queryClient, '/agents/disabled-agent', 'agents/:uid', <AgentEditorPage />)
 
-    expect(html).toContain('Page not found')
+    expect(html).not.toContain('Page not found')
+    expect(html).toContain('<form')
     expect(html).toContain('disabled-agent')
-    expect(html).toContain('was not found.')
-    expect(html).not.toContain('<form')
   })
 
   test('refreshes a fresh Agent detail cache when the editor mounts', async () => {

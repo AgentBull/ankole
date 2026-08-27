@@ -2,6 +2,7 @@
 bcp47 = "ko-KR"
 
 [app_configure.descriptions.agent_computer.background_agent_job]
+max_running_per_agent = "한 Agent가 모든 워커에서 동시에 실행할 수 있는 Background Agent Job 상한."
 max_turns_per_worker = "하나의 Agent Computer worker에 배치되는 BackgroundAgentJob 턴의 최대 동시 실행 수입니다."
 
 [app_configure.descriptions.ai_agent]
@@ -28,9 +29,18 @@ forgetting = "종류별 사실 감쇠 반감기(일)와 소프트 삭제된 객�
 dreaming_task_cron = "매일 실행되는 Dreaming 유지보수 작업의 cron 표현식."
 self_healing_task_cron = "오래된 청크·임베딩·인덱스 투영을 재구축하는 자가 복구 작업의 cron 표현식."
 signal_channel_batch_idle_time = "시그널 채널의 마지막 메시지 이후 미처리 슬라이스가 배치 학습에 들어가기까지의 유휴 초. 대화 종료 시에도 트리거됩니다."
+web_fetch_model = "url 소스 학습에 사용하는 인스턴스 전역 웹 가져오기 provider로, provider_id, model, 선택적 provider_options를 포함합니다. 비우면 url 소스 학습이 중지되고 비정상으로 보고됩니다."
+skill_learning_enabled = "작업 궤적에서 스킬 교훈을 학습해 스킬과 함께 전달할지 여부. 비활성화하면 해당 Dreaming 단계를 건너뛰고 저장된 교훈을 숨깁니다. 데이터는 그대로 유지됩니다."
+skill_learning_reflection_threshold = "스킬 교훈 리플렉션 작업을 시작하기 전에 Agent가 누적해야 하는 미소비 신호 작업 수(실행 중 사람 개입 또는 실패한 호출). 최소 2."
 
 [app_configure.descriptions.i18n]
 default_locale = "Ankole 텍스트를 렌더링할 때 사용되는 기본 로캘입니다."
+
+[app_configure.descriptions.observability.traces]
+enabled = "활성화하면 컨트롤 플레인이 재시작 후 구성된 OTLP 엔드포인트로 프로세스 전역 OpenTelemetry 트레이스를 내보냅니다."
+otlp_endpoint = "트레이스용 OTLP HTTP 기본 엔드포인트. 익스포터가 /v1/traces를 덧붙입니다. 트레이스 내보내기를 활성화할 때 필수입니다."
+otlp_headers = "OTLP 트레이스 내보내기에 사용하는 비밀 HTTP 헤더(예: Authorization). 값은 재시작 후 적용됩니다."
+provider = "LLM 트레이스의 시맨틱 provider: langfuse, langsmith 또는 opentelemetry. 트레이스 내보내기를 활성화할 때 필수입니다."
 
 [app_configure.descriptions.plugins]
 enabled_ids = "다음 Ankole 프로세스 시작 시 활성화할 Plugin id입니다."
@@ -53,6 +63,9 @@ directory_full_sync_interval_hours = "주기적 전체 디렉터리 동기화 �
 
 [app_configure.descriptions.principals.identity_providers.lark]
 "*" = "암호화된 Lark / Feishu Identity Provider 설정입니다."
+
+[app_configure.descriptions.principals.identity_providers.local]
+"*" = "내장 로컬 이메일·비밀번호 ID 공급자 구성."
 
 [app_configure.descriptions.principals.identity_providers.slack]
 "*" = "암호화된 Slack Identity Provider 설정입니다."
@@ -211,9 +224,13 @@ group_memory_disclosure_mode_strict = "엄격"
 group_memory_disclosure_mode_relaxed = "완화"
 agent = "Agent"
 avatar_url = "아바타 URL"
-delete_description = "Agent {$id}를 비활성화할까요? 작업 처리를 중단합니다. Console에는 다시 활성화하는 기능이 없습니다."
-delete_title = "Agent 비활성화"
-deleted = "Agent {$id}가 비활성화되었습니다."
+delete_description = "Agent {$id}를 완전히 삭제할까요? 세션, 작업, 관련 기록이 함께 삭제되며 복구할 수 없습니다."
+delete_title = "Agent 삭제"
+deleted = "Agent {$id}가 삭제되었습니다."
+disable_description = "Agent {$id}를 비활성화할까요? 작업 처리를 중단하지만 언제든지 다시 활성화할 수 있습니다. 삭제하려면 먼저 비활성화해야 합니다."
+disable_title = "Agent 비활성화"
+disabled_toast = "Agent {$id}가 비활성화되었습니다."
+enabled = "Agent {$id}가 활성화되었습니다."
 description = "장기 실행 작업을 수행하는 디지털 작업자입니다. ID와 역할별 모델 프로필을 구성하세요."
 display_name = "표시 이름"
 display_name_required = "표시 이름은 필수입니다."
@@ -261,6 +278,7 @@ reveal_secret = "값 표시"
 sections = "콘솔 섹션"
 skip_to_content = "본문으로 건너뛰기"
 sign_out = "로그아웃"
+
 [console.brain]
 sections = "Brain 섹션"
 objects = "객체"
@@ -455,7 +473,6 @@ embedding_signature = "임베딩 서명"
 health_signals = "시그널 학습 대기열"
 pending_channels = "미처리 슬라이스가 있는 유휴 채널"
 oldest_pending_age = "가장 오래된 대기 항목"
-age_seconds = "{$seconds}초"
 health_embeddings = "임베딩 투영"
 failed_chunks = "임베딩 실패 청크"
 failed_claims = "임베딩 실패 클레임"
@@ -602,6 +619,7 @@ display_name = "표시 이름"
 display_name_required = "표시 이름이 필요합니다."
 domain_directory = "디렉터리"
 domain_im_group = "IM 그룹"
+domain_signal_source = "신호 소스"
 editor_description = "그룹 ID 및 멤버십 규칙입니다. 그룹이 생성되면 아래에서 멤버와 권한을 관리할 수 있습니다."
 empty_description = "여러 Principal에 한 번에 권한을 부여하려면 그룹을 만드세요."
 empty_title = "아직 그룹 없음"
@@ -996,7 +1014,13 @@ browser_login_instructions = "인증 페이지를 여세요. 브라우저가 loc
 callback_url = "Callback URL"
 chatgpt_credential_editor_description = "ChatGPT 로그인 플로우가 이 계정의 토큰을 소유합니다. 여기에서는 라벨과 선택 우선순위만 변경할 수 있습니다."
 chatgpt_login_complete = "ChatGPT 계정이 연결되었습니다."
+chatgpt_login_denied = "해당 ChatGPT 계정이 로그인을 거부했습니다."
 chatgpt_login_description = "공식 Codex 디바이스 플로우로 로그인합니다. 컨트롤 플레인은 완료된 credential을 저장하고 갱신합니다."
+chatgpt_login_expired = "로그인이 만료되었습니다. 다시 시작하세요."
+chatgpt_login_invalid = "이 로그인 시도는 더 이상 유효하지 않습니다. 다시 시작하세요."
+chatgpt_login_rejected = "ChatGPT 로그인 서비스가 요청을 거부했습니다({$upstream})."
+chatgpt_login_unreachable = "ChatGPT 로그인 서비스에 연결할 수 없습니다({$upstream})."
+chatgpt_refresh_failed = "credential 갱신에 실패했습니다({$upstream}). 다시 로그인하세요."
 complete_login = "로그인 완료"
 credential_deleted = "Credential이 삭제되었습니다."
 credential_editor_description = "provider 행이 공유 연결 설정을 소유합니다. 이 멤버에는 credential과 선택 메타데이터만 포함됩니다."

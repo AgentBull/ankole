@@ -240,12 +240,25 @@ defmodule Ankole.PrincipalsTest do
                })
 
       assert second.principal.uid == first.principal.uid
-      assert second.principal.display_name == "Alice Updated"
+      # A message observation must not rename a Principal that already has a
+      # display name; the fixture's name survives both observations.
+      assert second.principal.display_name == "Human"
       assert second.human_user.email == "alice@example.com"
       assert second.identity.metadata["tenant_key"] == "tenant_a"
       assert second.identity.metadata["open_id"] == "open_1"
       assert second.identity.metadata["provider"] == "lark-main"
       assert second.identity.metadata["external_id"] == "ou_user_1"
+
+      # Directory sync stays authoritative for the profile and may rename.
+      assert {:ok, synced} =
+               Principals.upsert_platform_subject_human(%{
+                 provider: "lark-main",
+                 external_id: "ou_user_1",
+                 display_name: "Alice Directory",
+                 authoritative_profile: true
+               })
+
+      assert synced.principal.display_name == "Alice Directory"
     end
 
     test "resolve_platform_subject/2 returns only active humans" do
@@ -293,7 +306,9 @@ defmodule Ankole.PrincipalsTest do
       assert google.principal.uid == slack.principal.uid
       assert google.identity.provider == "google-workspace-main"
       assert google.identity.external_id == "103200300400500600700"
-      assert google.principal.display_name == "Alice G"
+      # The first observation named the blank Principal; the later provider's
+      # nickname does not rename it.
+      assert google.principal.display_name == "Alice"
       assert google.human_user.job_title == "Engineer"
 
       assert {:ok, resolved} = Principals.resolve_platform_subject("slack-main", "U1000")

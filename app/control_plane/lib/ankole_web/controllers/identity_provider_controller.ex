@@ -200,10 +200,24 @@ defmodule AnkoleWeb.IdentityProviderController do
     error(conn, 422, "validation_failed", "enabled must be a boolean")
   end
 
+  defp error(conn, {:local_provider_exists, existing_id}) do
+    error(
+      conn,
+      422,
+      "local_provider_exists",
+      "a local password identity provider already exists (#{existing_id}); edit it instead",
+      [%{provider_id: existing_id}]
+    )
+  end
+
+  # An unlisted reason is a server-side defect: log it for the operator and
+  # answer without internal terms.
+  defp error(conn, {:invalid_id, field, _value}) do
+    error(conn, 422, "validation_failed", "#{field} is not a valid identifier")
+  end
+
   defp error(conn, reason) do
-    error(conn, 422, "invalid_value", "identity provider configuration is invalid", [
-      %{reason: inspect(reason)}
-    ])
+    ConsoleErrors.unexpected(conn, "principals.identity_provider_api.unexpected_error", reason)
   end
 
   defp error(conn, status, code, message, details \\ []) do

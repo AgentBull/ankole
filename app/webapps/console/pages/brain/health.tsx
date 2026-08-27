@@ -6,7 +6,7 @@ import { ankoleWebBrainControllerHealthOptions } from '../../api/generated/@tans
 import type { BrainHealth, BrainModelStatus } from '../../api/generated/types.gen'
 import { ErrorBlock } from '../../../common/error-block'
 import { PageHeader, PageStack } from '../../console-page'
-import { formatJSON } from '../../console-primitives'
+import { formatDuration, formatJSON } from '../../console-primitives'
 import { IDLE_REFRESH_MS } from '../../refresh-intervals'
 import { BrainSubNav } from './brain-nav'
 
@@ -49,9 +49,13 @@ export function BrainHealthPage() {
             <ModelStatusItem label={t('console.settings.brain_extraction_model')} status={snapshot.models.extraction} />
             <ModelStatusItem label={t('console.settings.brain_dreaming_model')} status={snapshot.models.dreaming} />
             <HealthItem label={t('console.brain.embedding_signature')}>
-              <code className="text-xs break-all text-muted-foreground">
-                {formatJSON(snapshot.embedding_signature)}
-              </code>
+              {snapshot.embedding_signature == null ? (
+                <Badge variant="warning">{t('console.brain.model_not_configured')}</Badge>
+              ) : (
+                <code className="text-xs break-all text-muted-foreground">
+                  {formatJSON(snapshot.embedding_signature)}
+                </code>
+              )}
             </HealthItem>
           </HealthSection>
 
@@ -62,8 +66,8 @@ export function BrainHealthPage() {
               </span>
             </HealthItem>
             <HealthItem label={t('console.brain.oldest_pending_age')}>
-              {snapshot.signals.oldest_pending_age_seconds !== null
-                ? t('console.brain.age_seconds', { seconds: snapshot.signals.oldest_pending_age_seconds })
+              {snapshot.signals.oldest_pending_age_seconds != null
+                ? formatDuration(snapshot.signals.oldest_pending_age_seconds)
                 : '—'}
             </HealthItem>
             <HealthItem label={t('console.brain.context_pack_counters')}>

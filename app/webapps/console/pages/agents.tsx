@@ -11,7 +11,7 @@ import {
   cn,
   toast
 } from '@ankole/uikit'
-import { RiRobot2Line } from '@remixicon/react'
+import { RiPauseCircleLine, RiPlayCircleLine, RiRobot2Line } from '@remixicon/react'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -21,6 +21,7 @@ import { Link, useNavigate, useParams } from 'react-router'
 import {
   ankoleWebAgentControllerCreateMutation,
   ankoleWebAgentControllerDeleteMutation,
+  ankoleWebAgentControllerEnableMutation,
   ankoleWebAgentControllerIndexOptions,
   ankoleWebAgentControllerIndexModelProfilesOptions,
   ankoleWebAgentControllerShowOptions,
@@ -60,10 +61,18 @@ export function AgentsListPage() {
   const rows = (agents.data?.agents ?? []).filter(agent =>
     matchesResourceSearch(searchQuery, agent.uid, agent.display_name, agent.role, agent.status)
   )
+  // The DELETE response reports status "disabled" for both steps, so the
+  // toast keys on the row's status at click time: a disabled row's delete is
+  // the permanent one.
   const deleteAgent = useMutation({
     ...ankoleWebAgentControllerDeleteMutation(),
+    onSuccess: () => void queryClient.invalidateQueries(),
+    onError: error => toast.error(requestErrorMessage(error))
+  })
+  const enableAgent = useMutation({
+    ...ankoleWebAgentControllerEnableMutation(),
     onSuccess: (_data, variables) => {
-      toast.success(t('console.agents.deleted', { id: variables.path.agent_uid }))
+      toast.success(t('console.agents.enabled', { id: variables.path.agent_uid }))
       void queryClient.invalidateQueries()
     },
     onError: error => toast.error(requestErrorMessage(error))
@@ -98,35 +107,71 @@ export function AgentsListPage() {
           onChange={setQuery}
         />
       }>
-      {rows.map(agent => (
-        <TableRow key={agent.uid}>
-          <TableCell className="font-mono text-xs">
-            <Link className="text-foreground hover:text-link hover:underline" to={encodeURIComponent(agent.uid)}>
-              {agent.uid}
-            </Link>
-          </TableCell>
-          <TableCell className={agent.display_name ? undefined : 'text-muted-foreground'}>
-            {agent.display_name || '—'}
-          </TableCell>
-          <TableCell>{agent.role}</TableCell>
-          <TableCell>
-            <StatusIndicator tone={agent.status === 'active' ? 'positive' : 'neutral'}>
-              {t(`console.status.${agent.status}`)}
-            </StatusIndicator>
-          </TableCell>
-          <RowActions
-            editTo={encodeURIComponent(agent.uid)}
-            editLabel={t('common.edit')}
-            deletePending={deleteAgent.isPending}
-            deleteConfirm={{
-              title: t('console.agents.delete_title'),
-              description: t('console.agents.delete_description', { id: agent.uid }),
-              confirmLabel: t('common.disable')
-            }}
-            onDelete={() => deleteAgent.mutate({ path: { agent_uid: agent.uid } })}
-          />
-        </TableRow>
-      ))}
+      {rows.map(agent => {
+        const disabled = agent.status === 'disabled'
+        return (
+          <TableRow key={agent.uid}>
+            <TableCell className="font-mono text-xs">
+              <Link className="text-foreground hover:text-link hover:underline" to={encodeURIComponent(agent.uid)}>
+                {agent.uid}
+              </Link>
+            </TableCell>
+            <TableCell className={agent.display_name ? undefined : 'text-muted-foreground'}>
+              {agent.display_name || '—'}
+            </TableCell>
+            <TableCell>{agent.role}</TableCell>
+            <TableCell>
+              <StatusIndicator tone={disabled ? 'neutral' : 'positive'}>
+                {t(`console.status.${agent.status}`)}
+              </StatusIndicator>
+            </TableCell>
+            <RowActions
+              editTo={encodeURIComponent(agent.uid)}
+              editLabel={t('common.edit')}
+              actions={
+                disabled
+                  ? [
+                      {
+                        icon: <RiPlayCircleLine />,
+                        label: t('common.enable'),
+                        pending: enableAgent.isPending,
+                        onAction: () => enableAgent.mutate({ path: { agent_uid: agent.uid } })
+                      }
+                    ]
+                  : []
+              }
+              deletePending={deleteAgent.isPending}
+              deleteConfirm={
+                disabled
+                  ? {
+                      title: t('console.agents.delete_title'),
+                      description: t('console.agents.delete_description', { id: agent.uid }),
+                      confirmLabel: t('common.delete')
+                    }
+                  : {
+                      title: t('console.agents.disable_title'),
+                      description: t('console.agents.disable_description', { id: agent.uid }),
+                      confirmLabel: t('common.disable'),
+                      icon: <RiPauseCircleLine />
+                    }
+              }
+              onDelete={() =>
+                deleteAgent.mutate(
+                  { path: { agent_uid: agent.uid } },
+                  {
+                    onSuccess: () =>
+                      toast.success(
+                        t(disabled ? 'console.agents.deleted' : 'console.agents.disabled_toast', {
+                          id: agent.uid
+                        })
+                      )
+                  }
+                )
+              }
+            />
+          </TableRow>
+        )
+      })}
     </ResourceListPage>
   )
 }
@@ -164,8 +209,7 @@ export function AgentEditorPage() {
     ...ankoleWebAIGatewayControllerModelsOptions(),
     enabled: Boolean(uid)
   })
-  const detailAgent = agentDetail.data?.agent
-  const selectedAgent = detailAgent?.status === 'active' ? detailAgent : undefined
+  const selectedAgent = agentDetail.data?.agent
   const modelProfiles = useQuery({
     ...ankoleWebAgentControllerIndexModelProfilesOptions({ path: { agent_uid: selectedAgent?.uid ?? '' } }),
     enabled: Boolean(selectedAgent?.uid)
@@ -251,10 +295,9 @@ export function AgentEditorPage() {
   const submitDisabledReason =
     mode === 'edit' && !model.dirty.value ? t('console.agents.save_disabled_unchanged') : undefined
 
-  // The detail endpoint owns absence. A fresh list cache can predate a create,
-  // while deletion keeps a disabled row that must not reopen as an editor.
-  const agentUnavailable =
-    agentDetail.error?.error?.code === 'not_found' || (detailAgent !== undefined && detailAgent.status !== 'active')
+  // The detail endpoint owns absence; disabled agents stay editable so an
+  // operator can inspect them before re-enabling or deleting.
+  const agentUnavailable = agentDetail.error?.error?.code === 'not_found'
   if (mode === 'edit' && agentUnavailable) {
     return (
       <PageStack className="mx-auto w-full max-w-3xl">

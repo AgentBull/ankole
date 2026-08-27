@@ -64,7 +64,7 @@ import type {
 } from '../api/generated/types.gen'
 import { AgentFilter, type AgentScope, useAgentScope } from '../console-agent-scope'
 import { ErrorBlock } from '../../common/error-block'
-import { formatConsoleDate, formatJSON, resourceID, truncate } from '../console-primitives'
+import { formatConsoleDate, formatDuration, formatJSON, resourceID, truncate } from '../console-primitives'
 import { MarkdownBody } from '../markdown-body'
 import { StatusIndicator } from '../console-form'
 import { ResourceSearch, ResultCount, useResourceSearchDraft } from '../console-list-page'
@@ -1080,13 +1080,6 @@ function cancellable(status: JobStatus): boolean {
 function distinguishesStatus(status: JobStatus): boolean {
   const column = columns.find(candidate => candidate.statuses.includes(status))
   return (column?.statuses.length ?? 0) > 1
-}
-
-function formatDuration(seconds: number): string {
-  if (seconds < 60) return `${seconds}s`
-  if (seconds < 3_600) return `${Math.floor(seconds / 60)}m`
-  if (seconds < 86_400) return `${Math.floor(seconds / 3_600)}h ${Math.floor((seconds % 3_600) / 60)}m`
-  return `${Math.floor(seconds / 86_400)}d ${Math.floor((seconds % 86_400) / 3_600)}h`
 }
 
 /** Preferred human-readable field of a freeform result/error object, when it has one. */

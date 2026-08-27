@@ -2,6 +2,7 @@
 bcp47 = "ja-JP"
 
 [app_configure.descriptions.agent_computer.background_agent_job]
+max_running_per_agent = "1 つの Agent が全ワーカーで同時に実行できる Background Agent Job の上限。"
 max_turns_per_worker = "1 台の Agent Computer worker に配置する BackgroundAgentJob ターンの最大同時実行数。"
 
 [app_configure.descriptions.ai_agent]
@@ -28,9 +29,18 @@ forgetting = "種類ごとの事実の減衰半減期（日）と、ソフト削
 dreaming_task_cron = "毎日の Dreaming メンテナンスタスクの cron 式。"
 self_healing_task_cron = "古いチャンク・埋め込み・インデックス投影を再構築する自己修復タスクの cron 式。"
 signal_channel_batch_idle_time = "シグナルチャンネルの最後のメッセージから、未処理スライスがバッチ学習に入るまでのアイドル秒数。会話終了でもトリガーされます。"
+web_fetch_model = "url ソース学習に使うインスタンス共通の Web 取得プロバイダー。provider_id、model、任意の provider_options を含みます。空にすると url ソース学習が停止し、不健全と報告されます。"
+skill_learning_enabled = "ジョブ軌跡からスキル教訓を学習しスキルと共に配信するかどうか。無効にすると該当の Dreaming フェーズをスキップし、保存済みの教訓を非表示にします。データは変わりません。"
+skill_learning_reflection_threshold = "スキル教訓のリフレクションジョブを開始する前に Agent が蓄積すべき未消費シグナルジョブ数（実行中の人間の介入または失敗した呼び出し）。最小 2。"
 
 [app_configure.descriptions.i18n]
 default_locale = "Ankole のテキストを描画するときの既定ロケール。"
+
+[app_configure.descriptions.observability.traces]
+enabled = "有効にすると、コントロールプレーンは再起動後、設定した OTLP エンドポイントへプロセス全体の OpenTelemetry トレースをエクスポートします。"
+otlp_endpoint = "トレース用の OTLP HTTP ベースエンドポイント。エクスポーターが /v1/traces を追加します。トレースエクスポートを有効にする場合は必須です。"
+otlp_headers = "OTLP トレースエクスポートに使う機密 HTTP ヘッダー（例: Authorization）。値は再起動後に有効になります。"
+provider = "LLM トレースのセマンティックプロバイダー: langfuse、langsmith、または opentelemetry。トレースエクスポートを有効にする場合は必須です。"
 
 [app_configure.descriptions.plugins]
 enabled_ids = "次回の Ankole プロセス起動時に有効化する Plugin の id。"
@@ -53,6 +63,9 @@ directory_full_sync_interval_hours = "定期的なディレクトリ完全同期
 
 [app_configure.descriptions.principals.identity_providers.lark]
 "*" = "暗号化された Lark / Feishu Identity Provider の設定。"
+
+[app_configure.descriptions.principals.identity_providers.local]
+"*" = "組み込みのローカルメール・パスワード ID プロバイダー設定。"
 
 [app_configure.descriptions.principals.identity_providers.slack]
 "*" = "暗号化された Slack Identity Provider の設定。"
@@ -211,9 +224,13 @@ group_memory_disclosure_mode_strict = "厳格"
 group_memory_disclosure_mode_relaxed = "緩和"
 agent = "Agent"
 avatar_url = "アバター URL"
-delete_description = "Agent {$id} を無効にしますか？作業の受け付けを停止します。コンソールに再有効化の操作はありません。"
-delete_title = "Agent を無効化"
-deleted = "Agent {$id} を無効にしました。"
+delete_description = "Agent {$id} を完全に削除しますか？セッション、ジョブ、関連レコードも一緒に削除され、元に戻せません。"
+delete_title = "Agent を削除"
+deleted = "Agent {$id} を削除しました。"
+disable_description = "Agent {$id} を無効にしますか？作業の受け付けを停止しますが、いつでも再有効化できます。削除するには先に無効化が必要です。"
+disable_title = "Agent を無効化"
+disabled_toast = "Agent {$id} を無効にしました。"
+enabled = "Agent {$id} を有効にしました。"
 description = "長時間実行するタスクを担当するデジタルワーカー。アイデンティティとロール別のモデルプロファイルを設定します。"
 display_name = "表示名"
 display_name_required = "表示名は必須です。"
@@ -456,7 +473,6 @@ embedding_signature = "埋め込み署名"
 health_signals = "シグナル学習キュー"
 pending_channels = "未処理スライスを持つアイドルチャンネル"
 oldest_pending_age = "最も古い未処理エントリ"
-age_seconds = "{$seconds} 秒"
 health_embeddings = "埋め込み投影"
 failed_chunks = "埋め込みに失敗したチャンク"
 failed_claims = "埋め込みに失敗したクレーム"
@@ -603,6 +619,7 @@ display_name = "表示名"
 display_name_required = "表示名は必須です。"
 domain_directory = "ディレクトリ"
 domain_im_group = "IM グループ"
+domain_signal_source = "シグナルソース"
 editor_description = "グループのアイデンティティとメンバーシップルール。グループが作成されると、以下でメンバーと grant を管理します。"
 empty_description = "複数の Principal に一度に権限を付与するには、グループを作成してください。"
 empty_title = "グループがまだありません"
@@ -997,7 +1014,13 @@ browser_login_instructions = "認可ページを開きます。ブラウザー�
 callback_url = "コールバック URL"
 chatgpt_credential_editor_description = "ChatGPT ログインフローがこのアカウントのトークンを所有します。ここではラベルと選択優先度のみを変更できます。"
 chatgpt_login_complete = "ChatGPT アカウントに接続しました。"
+chatgpt_login_denied = "この ChatGPT アカウントはサインインを拒否しました。"
 chatgpt_login_description = "公式の Codex デバイスフローでサインインします。コントロールプレーンが完了した認証情報を保存し、更新します。"
+chatgpt_login_expired = "サインインの有効期限が切れました。最初からやり直してください。"
+chatgpt_login_invalid = "このサインイン試行は無効になりました。最初からやり直してください。"
+chatgpt_login_rejected = "ChatGPT サインインサービスがリクエストを拒否しました（{$upstream}）。"
+chatgpt_login_unreachable = "ChatGPT サインインサービスに接続できません（{$upstream}）。"
+chatgpt_refresh_failed = "認証情報の更新に失敗しました（{$upstream}）。再度サインインしてください。"
 complete_login = "ログインを完了"
 credential_deleted = "認証情報を削除しました。"
 credential_editor_description = "プロバイダーの行は共有接続設定を所有します。このメンバーにはその認証情報と選択メタデータのみが含まれます。"
@@ -1507,6 +1530,7 @@ upload_subdirectory = "サブディレクトリ（任意）"
 upload_title = "ファイルをアップロード"
 
 uploaded = "{$name} をアップロードしました。"
+
 [console.worker_envs]
 agent_section_description = "この Agent のシェルが受け取る内容そのもの: 宣言された export、インスタンス全体の変数、この Agent の上書き。ここでの編集は常に Agent 層に書き込まれます。"
 agent_section_title = "環境変数"

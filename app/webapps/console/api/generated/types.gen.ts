@@ -7653,6 +7653,43 @@ export type AnkoleWebAppConfigurationControllerUpdateResponses = {
 export type AnkoleWebAppConfigurationControllerUpdateResponse =
   AnkoleWebAppConfigurationControllerUpdateResponses[keyof AnkoleWebAppConfigurationControllerUpdateResponses]
 
+export type AnkoleWebAgentControllerEnableData = {
+  body?: never
+  path: {
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v1/agents/{agent_uid}/enable'
+}
+
+export type AnkoleWebAgentControllerEnableErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebAgentControllerEnableError =
+  AnkoleWebAgentControllerEnableErrors[keyof AnkoleWebAgentControllerEnableErrors]
+
+export type AnkoleWebAgentControllerEnableResponses = {
+  /**
+   * Agent
+   */
+  200: AgentResponse
+}
+
+export type AnkoleWebAgentControllerEnableResponse =
+  AnkoleWebAgentControllerEnableResponses[keyof AnkoleWebAgentControllerEnableResponses]
+
 export type AnkoleWebScheduleControllerCronRunsData = {
   body?: never
   path: {

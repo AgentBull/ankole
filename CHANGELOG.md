@@ -1,5 +1,13 @@
 # Changelog
 
+## Version 1.0.0-alpha.9 (2026-08-27)
+
+- The ChatGPT account dialog now reports the real sign-in failure — the upstream HTTP status and error code, a denied or expired login, an unreachable sign-in service, or an unreadable stored credential — instead of "provider configuration is invalid". ChatGPT sign-in and token refresh follow the HTTPS_PROXY/ALL_PROXY/HTTP_PROXY/NO_PROXY environment like model traffic, send Proxy-Authorization when the proxy URL carries credentials, log a warning instead of silently connecting directly when the proxy value is unsupported, and each credential-refresh failure writes a warning log with its upstream cause.
+- Console API errors stop leaking raw internal terms: a known configuration or sign-in mistake names the violated rule, and an unexpected failure answers with a plain message and a server log entry.
+- An IM sender observation no longer renames a user who already has a display name; only directory sync updates names. Conversation lists and details now advance their update time with new messages, so ordering follows last activity.
+- Disabled agents stay visible: the agent list shows every agent with its status, a disabled agent can be re-enabled or opened in the editor, and deleting follows the provider pattern — disabling first, then a second delete permanently removes the agent and its records with a matching confirmation and toast. Pickers that target new work — signal routing rules, schedules, and the worker file browser — offer only agents that can run. The Website agent guide and Console API reference describe the new lifecycle in all four languages.
+- Console polish: computed groups show "—" instead of a 0 member count, the signal-source group type is translated and missing settings descriptions are filled in across the four languages, Brain health shows a plain reason instead of a raw error and formats queue age as a duration, conversation details carry a page title, principal and membership pickers match UID searches, and the Chinese disabled-status label is "已停用" everywhere.
+
 ## Version 1.0.0-alpha.8 (2026-08-27)
 
 - Telegram and Discord connections survive hostile and busy conditions: a forged Telegram callback token no longer wedges the poll loop on one update, a Discord event backlog at the queue bound now sheds what a resume can replay instead of reconnecting forever, reconnect backoff resets on durable progress rather than on every resume handshake, and two Agents that name their bindings identically no longer overwrite each other's bot token. Reaction lookups no longer leak into another chat whose numeric id extends the reacted chat's, and mention removal follows the message's entity offsets, so a username that extends the bot's stays intact.

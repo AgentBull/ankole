@@ -45,6 +45,18 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
              ]
     end
 
+    test "message writes bump the conversation's updated_at for activity ordering" do
+      agent = agent_fixture()
+
+      {:ok, conversation} =
+        Conversations.ensure_conversation(agent.principal.uid, "test-conv-touch")
+
+      {:ok, _message} = start_run(agent, conversation, "event-touch", %{})
+
+      touched = Ankole.Repo.get!(Ankole.AIGateway.Schemas.Conversation, conversation.id)
+      assert DateTime.compare(touched.updated_at, conversation.updated_at) == :gt
+    end
+
     test "decodes previous_response_id to previous_message_id" do
       agent = agent_fixture()
 
