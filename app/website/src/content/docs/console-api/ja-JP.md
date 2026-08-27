@@ -56,7 +56,8 @@ agent は、運用者が他のすべてを構成する際の単位です。
 | `POST` | `/agents` | agent を作成 |
 | `GET` | `/agents/:agent_uid` | 1 つの agent を読み取る |
 | `PATCH` | `/agents/:agent_uid` | agent を更新 |
-| `DELETE` | `/agents/:agent_uid` | agent を削除 |
+| `POST` | `/agents/:agent_uid/enable` | 無効化された agent を再有効化 |
+| `DELETE` | `/agents/:agent_uid` | 有効な agent を無効化し、無効化済みの agent は完全に削除 |
 
 ### signal routing rule
 

@@ -14,6 +14,7 @@ import {
   ankoleWebAgentControllerCreate,
   ankoleWebAgentControllerDelete,
   ankoleWebAgentControllerDeleteModelProfile,
+  ankoleWebAgentControllerEnable,
   ankoleWebAgentControllerIndex,
   ankoleWebAgentControllerIndexModelProfiles,
   ankoleWebAgentControllerPutModelProfile,
@@ -179,6 +180,9 @@ import type {
   AnkoleWebAgentControllerDeleteModelProfileError,
   AnkoleWebAgentControllerDeleteModelProfileResponse,
   AnkoleWebAgentControllerDeleteResponse,
+  AnkoleWebAgentControllerEnableData,
+  AnkoleWebAgentControllerEnableError,
+  AnkoleWebAgentControllerEnableResponse,
   AnkoleWebAgentControllerIndexData,
   AnkoleWebAgentControllerIndexError,
   AnkoleWebAgentControllerIndexModelProfilesData,
@@ -2457,7 +2461,7 @@ export const ankoleWebBackgroundAgentJobControllerShowOptions = (
   })
 
 /**
- * Disable one agent
+ * Disable an active agent, or delete an agent that is already disabled
  */
 export const ankoleWebAgentControllerDeleteMutation = (
   options?: Partial<Options<AnkoleWebAgentControllerDeleteData>>
@@ -2783,7 +2787,7 @@ export const ankoleWebAgentControllerIndexQueryKey = (options?: Options<AnkoleWe
   createQueryKey('ankoleWebAgentControllerIndex', options)
 
 /**
- * List active agents
+ * List agents, including disabled agents
  */
 export const ankoleWebAgentControllerIndexOptions = (options?: Options<AnkoleWebAgentControllerIndexData>) =>
   queryOptions<
@@ -4769,6 +4773,33 @@ export const ankoleWebAppConfigurationControllerUpdateMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await ankoleWebAppConfigurationControllerUpdate({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * Re-enable one disabled agent
+ */
+export const ankoleWebAgentControllerEnableMutation = (
+  options?: Partial<Options<AnkoleWebAgentControllerEnableData>>
+): UseMutationOptions<
+  AnkoleWebAgentControllerEnableResponse,
+  AnkoleWebAgentControllerEnableError,
+  Options<AnkoleWebAgentControllerEnableData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebAgentControllerEnableResponse,
+    AnkoleWebAgentControllerEnableError,
+    Options<AnkoleWebAgentControllerEnableData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebAgentControllerEnable({
         ...options,
         ...fnOptions,
         throwOnError: true

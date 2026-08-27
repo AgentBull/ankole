@@ -58,7 +58,8 @@ agent 是核心单位，运维者的其它配置都围绕它展开：
 | `POST` | `/agents` | 创建一个 agent |
 | `GET` | `/agents/:agent_uid` | 读取一个 agent |
 | `PATCH` | `/agents/:agent_uid` | 更新一个 agent |
-| `DELETE` | `/agents/:agent_uid` | 移除一个 agent |
+| `POST` | `/agents/:agent_uid/enable` | 重新启用一个已停用的 agent |
+| `DELETE` | `/agents/:agent_uid` | 停用一个运行中的 agent；对已停用的 agent 执行则永久删除 |
 
 ### 信号路由规则
 

@@ -187,6 +187,7 @@ defmodule AnkoleWeb.Router do
     get "/agents/:agent_uid", AgentController, :show
     patch "/agents/:agent_uid", AgentController, :update
     delete "/agents/:agent_uid", AgentController, :delete
+    post "/agents/:agent_uid/enable", AgentController, :enable
 
     get "/agent-library/capabilities", AgentLibraryCapabilityController, :global_index
 

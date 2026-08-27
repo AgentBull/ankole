@@ -130,7 +130,9 @@ export function PrincipalGroupsListPage() {
                 ) : null}
               </div>
             </TableCell>
-            <TableCell className="tabular-nums">{group.member_count}</TableCell>
+            {/* A computed group derives membership per principal at check time;
+                the stored membership count is always 0 and would mislead. */}
+            <TableCell className="tabular-nums">{group.kind === 'computed' ? '—' : group.member_count}</TableCell>
             <TableCell className="tabular-nums">{group.grant_count}</TableCell>
             <TableCell>
               <span className="block max-w-64 truncate" title={group.description ?? undefined}>

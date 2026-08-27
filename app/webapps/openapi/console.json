@@ -5224,7 +5224,7 @@
           }
         },
         "security": [{ "consoleBearer": [] }],
-        "summary": "Disable one agent",
+        "summary": "Disable an active agent, or delete an agent that is already disabled",
         "tags": ["Agents"]
       },
       "get": {
@@ -5644,7 +5644,7 @@
           }
         },
         "security": [{ "consoleBearer": [] }],
-        "summary": "List active agents",
+        "summary": "List agents, including disabled agents",
         "tags": ["Agents"]
       },
       "post": {
@@ -7859,6 +7859,36 @@
         "security": [{ "consoleBearer": [] }],
         "summary": "Store one global AppConfigure value",
         "tags": ["AppConfigure"]
+      }
+    },
+    "/api/v1/agents/{agent_uid}/enable": {
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AgentController.enable",
+        "parameters": [
+          { "description": "", "in": "path", "name": "agent_uid", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AgentResponse" } } },
+            "description": "Agent"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Not found"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Re-enable one disabled agent",
+        "tags": ["Agents"]
       }
     },
     "/api/v1/agents/{agent_uid}/cron-schedules/{cron_schedule_id}/runs": {

@@ -11,6 +11,8 @@ defmodule Ankole.AIGateway.ChatGPTAuth do
   alias Ankole.AIGateway.CredentialPool
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.ProviderConfigs.Provider
+  alias Ankole.EgressProxy
+  alias Ankole.Logging
 
   @client_id "app_EMoamEEZ73f0CkXaXp7hrann"
   @default_issuer "https://auth.openai.com"
@@ -226,8 +228,9 @@ defmodule Ankole.AIGateway.ChatGPTAuth do
   defp record_refresh_health(
          provider,
          entry,
-         {:error, {:chatgpt_refresh_permanent, _reason}} = error
+         {:error, {:chatgpt_refresh_permanent, reason}} = error
        ) do
+    log_refresh_failure(provider, entry, "permanent", nil, reason)
     :ok = CredentialPool.mark_dead(provider.id, entry)
     error
   end
@@ -235,13 +238,40 @@ defmodule Ankole.AIGateway.ChatGPTAuth do
   defp record_refresh_health(
          provider,
          entry,
-         {:error, {:chatgpt_refresh_transient, 429, headers, _reason}} = error
+         {:error, {:chatgpt_refresh_transient, 429, headers, reason}} = error
        ) do
+    log_refresh_failure(provider, entry, "transient", 429, reason)
     :ok = CredentialPool.mark_exhausted(provider.id, entry, 429, headers)
     error
   end
 
+  defp record_refresh_health(
+         provider,
+         entry,
+         {:error, {:chatgpt_refresh_transient, status, _headers, reason}} = error
+       ) do
+    log_refresh_failure(provider, entry, "transient", status, reason)
+    error
+  end
+
   defp record_refresh_health(_provider, _entry, result), do: result
+
+  # A refresh failure otherwise surfaces only as a generic turn reply; the log
+  # line is what lets an operator find the upstream rejection.
+  defp log_refresh_failure(provider, entry, class, status, reason) do
+    Logging.warning(
+      "ai_gateway.chatgpt_auth.refresh_failed",
+      "ChatGPT credential refresh failed",
+      %{
+        provider_id: provider.provider_id,
+        credential_id: entry["id"],
+        credential_label: entry["label"],
+        class: class,
+        upstream_status: status,
+        reason: inspect(reason)
+      }
+    )
+  end
 
   defp refresh_from_authority(provider, credential, opts) do
     with {:ok, refresh_token} <- required_text(credential, "refresh_token"),
@@ -682,7 +712,7 @@ defmodule Ankole.AIGateway.ChatGPTAuth do
         url: url,
         retry: false,
         receive_timeout: Keyword.get(opts, :receive_timeout, 30_000)
-      ] ++ request_options ++ Keyword.get(opts, :req_options, [])
+      ] ++ EgressProxy.req_options(url) ++ request_options ++ Keyword.get(opts, :req_options, [])
 
     case Req.request(options) do
       {:ok, %Req.Response{} = response} ->

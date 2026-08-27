@@ -125,8 +125,9 @@ defmodule Ankole.SignalsGateway.IdentityAdmission do
   end
 
   # A match hit still writes: the primary subject id gets or refreshes its
-  # identity binding, and the profile picks up the platform display name. This
-  # is the same per-message write the adapters previously issued themselves.
+  # identity binding and contact fields. The platform display name only fills
+  # a blank profile; an observation never renames a known person — only
+  # directory sync carries an authoritative name.
   defp admit(%Binding{} = binding, fact, provider, author, principal_uid) do
     case upsert_subject(provider, author, principal_uid) do
       {:ok, principal} ->

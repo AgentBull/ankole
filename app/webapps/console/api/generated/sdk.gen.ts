@@ -22,6 +22,9 @@ import type {
   AnkoleWebAgentControllerDeleteModelProfileErrors,
   AnkoleWebAgentControllerDeleteModelProfileResponses,
   AnkoleWebAgentControllerDeleteResponses,
+  AnkoleWebAgentControllerEnableData,
+  AnkoleWebAgentControllerEnableErrors,
+  AnkoleWebAgentControllerEnableResponses,
   AnkoleWebAgentControllerIndexData,
   AnkoleWebAgentControllerIndexErrors,
   AnkoleWebAgentControllerIndexModelProfilesData,
@@ -2136,7 +2139,7 @@ export const ankoleWebBackgroundAgentJobControllerShow = <ThrowOnError extends b
   })
 
 /**
- * Disable one agent
+ * Disable an active agent, or delete an agent that is already disabled
  */
 export const ankoleWebAgentControllerDelete = <ThrowOnError extends boolean = false>(
   options: Options<AnkoleWebAgentControllerDeleteData, ThrowOnError>
@@ -2440,7 +2443,7 @@ export const ankoleWebAiGatewayConversationControllerShow = <ThrowOnError extend
   })
 
 /**
- * List active agents
+ * List agents, including disabled agents
  */
 export const ankoleWebAgentControllerIndex = <ThrowOnError extends boolean = false>(
   options?: Options<AnkoleWebAgentControllerIndexData, ThrowOnError>
@@ -4193,6 +4196,28 @@ export const ankoleWebAppConfigurationControllerUpdate = <ThrowOnError extends b
       'Content-Type': 'application/json',
       ...options.headers
     }
+  })
+
+/**
+ * Re-enable one disabled agent
+ */
+export const ankoleWebAgentControllerEnable = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAgentControllerEnableData, ThrowOnError>
+): RequestResult<AnkoleWebAgentControllerEnableResponses, AnkoleWebAgentControllerEnableErrors, ThrowOnError> =>
+  (options.client ?? client).post<
+    AnkoleWebAgentControllerEnableResponses,
+    AnkoleWebAgentControllerEnableErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/agents/{agent_uid}/enable',
+    ...options
   })
 
 /**

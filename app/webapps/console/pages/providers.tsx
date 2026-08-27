@@ -62,7 +62,7 @@ import type {
 } from '../api/generated/types.gen'
 import { localizedText } from '../../common/config-fields'
 import i18n from '../../common/i18n'
-import { requestErrorMessage } from '../../common/request-errors'
+import { requestErrorCode, requestErrorDetails, requestErrorMessage } from '../../common/request-errors'
 import {
   ConfirmDeleteButton,
   DiscardConfirmDialog,
@@ -909,6 +909,40 @@ function CredentialEditorDialog({
   )
 }
 
+// Coded ChatGPT sign-in failures and whether their message interpolates the
+// upstream response. Each code's locale key is `console.providers.<code>`.
+const chatGPTLoginErrorCodes: Record<string, { upstream: boolean }> = {
+  chatgpt_login_rejected: { upstream: true },
+  chatgpt_login_unreachable: { upstream: true },
+  chatgpt_refresh_failed: { upstream: true },
+  chatgpt_login_denied: { upstream: false },
+  chatgpt_login_expired: { upstream: false },
+  chatgpt_login_invalid: { upstream: false }
+}
+
+/**
+ * Localizes coded ChatGPT sign-in failures and keeps the real upstream
+ * response visible; unknown failures fall back to the envelope message.
+ */
+function chatGPTLoginErrorText(error: unknown, t: (key: string, values?: Record<string, string>) => string): string {
+  if (typeof error === 'string') return error
+  const code = requestErrorCode(error) ?? ''
+  const entry = chatGPTLoginErrorCodes[code]
+  if (!entry) return requestErrorMessage(error)
+  if (!entry.upstream) return t(`console.providers.${code}`)
+
+  const details = requestErrorDetails(error)
+  const status = details.upstream_status
+  const upstreamCode = details.upstream_code ?? details.transport
+  const upstream = [
+    typeof status === 'number' ? `HTTP ${status}` : undefined,
+    typeof upstreamCode === 'string' ? upstreamCode : undefined
+  ]
+    .filter(Boolean)
+    .join(', ')
+  return upstream ? t(`console.providers.${code}`, { upstream }) : requestErrorMessage(error)
+}
+
 function ChatGPTLoginDialog({
   entry,
   onOpenChange,
@@ -1045,7 +1079,7 @@ function ChatGPTLoginDialog({
           <div className="grid gap-4">
             {error ? (
               <p className="text-sm text-destructive" aria-live="assertive">
-                {requestErrorMessage(error)}
+                {chatGPTLoginErrorText(error, t)}
               </p>
             ) : null}
             {!login ? (

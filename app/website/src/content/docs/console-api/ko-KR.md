@@ -56,7 +56,8 @@ order: 203
 | `POST` | `/agents` | 에이전트 생성 |
 | `GET` | `/agents/:agent_uid` | 에이전트 하나 읽기 |
 | `PATCH` | `/agents/:agent_uid` | 에이전트 갱신 |
-| `DELETE` | `/agents/:agent_uid` | 에이전트 제거 |
+| `POST` | `/agents/:agent_uid/enable` | 비활성화된 에이전트 다시 활성화 |
+| `DELETE` | `/agents/:agent_uid` | 활성 에이전트는 비활성화하고, 이미 비활성화된 에이전트는 영구 삭제 |
 
 ### 시그널 라우팅 규칙
 

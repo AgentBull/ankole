@@ -86,7 +86,7 @@ See [Signal routing rules](../signal-bindings/).
 
 You can change the display name, role, durable instructions, models, and capabilities at any time. You cannot change the UID because other configuration uses it to identify the Agent.
 
-A disabled Agent does not accept new work. If you only want to stop one chat entry point, disable the related signal routing rule instead of disabling the full Agent.
+A disabled Agent does not accept new work, but it stays in the agent list with a disabled status. You can re-enable it at any time, or delete it permanently — deletion is only available for a disabled Agent, and it removes the Agent together with its sessions, jobs, and records. If you only want to stop one chat entry point, disable the related signal routing rule instead of disabling the full Agent.
 
 ## If the Agent does not reply
 

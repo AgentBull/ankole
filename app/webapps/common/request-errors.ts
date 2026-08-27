@@ -15,6 +15,29 @@ export function requestErrorCode(error: unknown): string | undefined {
   return undefined
 }
 
+/**
+ * Reads the structured detail list from a console API error envelope
+ * (`{error: {details: [{...}]}}`), merged into one record. Pages use it to
+ * show the real upstream response behind a coded failure.
+ */
+export function requestErrorDetails(error: unknown): Record<string, unknown> {
+  if (error && typeof error === 'object' && 'error' in error) {
+    const value = (error as { error?: unknown }).error
+    if (value && typeof value === 'object' && 'details' in value) {
+      const details = (value as { details?: unknown }).details
+      if (Array.isArray(details)) {
+        const merged: Record<string, unknown> = {}
+        for (const entry of details) {
+          if (entry && typeof entry === 'object') Object.assign(merged, entry)
+        }
+        return merged
+      }
+    }
+  }
+
+  return {}
+}
+
 /** Converts caught request failures into UI-safe text. */
 export function requestErrorMessage(error: unknown): string {
   if (error && typeof error === 'object') {

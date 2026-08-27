@@ -194,8 +194,11 @@ export function WorkerFilesPage() {
   const root = rootOrDefault(searchParams.get('root'))
   const requestedPath = searchParams.get('path') ?? ''
   const agents = useQuery(ankoleWebAgentControllerIndexOptions())
+  // The browser defaults to and lists agents that can run; a disabled agent's
+  // leftover directory stays reachable through an explicit ?path=.
+  const agentList = (agents.data?.agents ?? []).filter(agent => agent.status === 'active')
   const pathAgentUID = agentUIDFromWorkerFilePath(root, requestedPath)
-  const agentUID = pathAgentUID ?? agents.data?.agents[0]?.uid ?? ''
+  const agentUID = pathAgentUID ?? agentList[0]?.uid ?? ''
   const path = pathAgentUID ? requestedPath : agentUID ? workerFileRootPath(root, agentUID) : ''
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
@@ -284,7 +287,7 @@ export function WorkerFilesPage() {
       <Breadcrumbs
         root={root}
         path={path}
-        agents={agents.data?.agents ?? []}
+        agents={agentList}
         agentUID={agentUID}
         onNavigate={enterPath}
         onAgentChange={setAgent}

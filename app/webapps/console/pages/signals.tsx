@@ -320,7 +320,8 @@ export function SignalBindingEditorPage() {
   const returnPath = signalBindingReturnPath(returnAgentUID)
 
   const agents = useQuery(ankoleWebAgentControllerIndexOptions())
-  const agentList = agents.data?.agents ?? []
+  // A routing rule targets an agent that can run, so disabled agents stay out.
+  const agentList = (agents.data?.agents ?? []).filter(agent => agent.status === 'active')
   const defaultAgentUID = resolveAgentUID(agentList, sourceAgentUID)
   const adapters = useQuery(ankoleWebSignalBindingControllerAdaptersOptions())
   const signalAdapters = adapters.data?.signal_adapters ?? []

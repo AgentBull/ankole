@@ -150,10 +150,20 @@ defmodule Ankole.Principals do
   Lists active agent Principals ordered by creation time.
   """
   @spec list_active_agents() :: [%{principal: Principal.t(), agent: Agent.t()}]
-  def list_active_agents do
+  def list_active_agents, do: list_agents(status: :active)
+
+  @doc """
+  Lists agent Principals ordered by creation time.
+
+  `status: :active` keeps only active agents; the default returns disabled
+  agents too, so the Console can show and delete them.
+  """
+  @spec list_agents(keyword()) :: [%{principal: Principal.t(), agent: Agent.t()}]
+  def list_agents(opts \\ []) do
     Agent
     |> join(:inner, [agent], principal in assoc(agent, :principal))
-    |> where([_agent, principal], principal.status == :active and principal.type == :agent)
+    |> where([_agent, principal], principal.type == :agent)
+    |> filter_agent_status(Keyword.get(opts, :status))
     |> order_by([agent, _principal], asc: agent.inserted_at)
     |> preload([_agent, principal], principal: principal)
     |> Repo.all()
@@ -161,6 +171,11 @@ defmodule Ankole.Principals do
       %{principal: principal, agent: agent}
     end)
   end
+
+  defp filter_agent_status(query, :active),
+    do: where(query, [_agent, principal], principal.status == :active)
+
+  defp filter_agent_status(query, nil), do: query
 
   @doc """
   Updates mutable agent attributes.
@@ -186,12 +201,60 @@ defmodule Ankole.Principals do
   """
   @spec disable_principal(String.t()) :: principal_result()
   def disable_principal(uid) do
+    Repo.transact(fn repo -> disable_in_tx(repo, uid) end)
+  end
+
+  # The AuthZ check takes the admin group lock, and the installation-wide lock
+  # order puts that lock before the principal row lock. Every path that
+  # disables a principal must go through here so the order cannot invert.
+  defp disable_in_tx(repo, uid) do
+    with :ok <- Ankole.AuthZ.ensure_can_disable_principal(uid, repo),
+         {:ok, principal} <- fetch_principal_for_update(repo, uid) do
+      principal
+      |> Principal.status_changeset(%{status: :disabled})
+      |> repo.update()
+    end
+  end
+
+  @doc """
+  Re-enables a disabled agent Principal.
+  """
+  @spec enable_agent(String.t()) :: principal_result()
+  def enable_agent(uid) do
+    Repo.transact(fn repo ->
+      with {:ok, principal} <- fetch_principal_for_update(repo, uid),
+           :ok <- ensure_principal_type(principal, :agent) do
+        principal
+        |> Principal.status_changeset(%{status: :active})
+        |> repo.update()
+      end
+    end)
+  end
+
+  @doc """
+  Disables an active agent, or deletes an agent that is already disabled.
+
+  Deletion removes the Principal row; the foreign keys cascade the agent's
+  sessions, events, and other owned rows.
+  """
+  @spec delete_agent(String.t()) :: principal_result()
+  def delete_agent(uid) do
     Repo.transact(fn repo ->
       with :ok <- Ankole.AuthZ.ensure_can_disable_principal(uid, repo),
-           {:ok, principal} <- fetch_principal_for_update(repo, uid) do
-        principal
-        |> Principal.status_changeset(%{status: :disabled})
-        |> repo.update()
+           {:ok, principal} <- fetch_principal_for_update(repo, uid),
+           :ok <- ensure_principal_type(principal, :agent) do
+        case principal.status do
+          :active ->
+            # Keep this branch equal to disable_in_tx: the AuthZ gate above
+            # runs first for the same lock order, and a side effect added to
+            # one disable path belongs in both.
+            principal
+            |> Principal.status_changeset(%{status: :disabled})
+            |> repo.update()
+
+          :disabled ->
+            repo.delete(principal)
+        end
       end
     end)
   end
@@ -372,6 +435,9 @@ defmodule Ankole.Principals do
   email or mobile value owned by a different Principal than the one the
   subject resolves to is dropped from the profile update with a warning;
   subjects are never re-pointed automatically.
+
+  An observation keeps the Principal's existing display name; only
+  `authoritative_profile: true` (directory sync) may replace it.
   """
   @spec upsert_platform_subject_human(map()) ::
           {:ok,
@@ -566,7 +632,7 @@ defmodule Ankole.Principals do
   defp upsert_human_principal(repo, uid, attrs) do
     case fetch_principal_for_update(repo, uid) do
       {:ok, %Principal{type: :human} = principal} ->
-        update_principal_profile(repo, principal, attrs)
+        update_principal_profile(repo, principal, observed_profile_attrs(principal, attrs))
 
       {:ok, %Principal{type: :agent}} ->
         {:error, :not_human}
@@ -579,6 +645,22 @@ defmodule Ankole.Principals do
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  # A message or roster observation must not rename a person who already has a
+  # display name; only an authoritative source (directory sync) may replace it.
+  # Attrs can carry atom or string keys, so both spellings must be dropped.
+  defp observed_profile_attrs(%Principal{display_name: current}, attrs) do
+    cond do
+      fetch_attr(attrs, :authoritative_profile) == {:ok, true} ->
+        attrs
+
+      is_binary(current) and String.trim(current) != "" ->
+        attrs |> Map.delete(:display_name) |> Map.delete("display_name")
+
+      true ->
+        attrs
     end
   end
 

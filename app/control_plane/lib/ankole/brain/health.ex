@@ -123,9 +123,15 @@ defmodule Ankole.Brain.Health do
   defp embedding_signature do
     case Embeddings.signature() do
       {:ok, signature} -> signature
-      {:error, reason} -> %{error: inspect(reason)}
+      # No configured embedding model means no signature, not an error blob.
+      {:error, :embedding_model_not_configured} -> nil
+      {:error, reason} -> %{error: reason_text(reason)}
     end
   end
+
+  defp reason_text(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp reason_text(reason) when is_binary(reason), do: reason
+  defp reason_text(reason), do: inspect(reason)
 
   # Queue depth: idle channels whose slices are pending, plus the oldest
   # pending entry age in seconds.

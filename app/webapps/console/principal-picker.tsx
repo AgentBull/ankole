@@ -50,6 +50,9 @@ export function SinglePrincipalPicker({
       items={visible}
       value={selected}
       inputValue={inputValue}
+      // `visible` already matches label AND uid; the built-in filter would
+      // re-filter by label only and hide uid matches.
+      filter={null}
       itemToStringLabel={candidate => candidate.label ?? candidate.id}
       itemToStringValue={candidate => candidate.id}
       isItemEqualToValue={(candidate, current) => candidate.id === current.id}

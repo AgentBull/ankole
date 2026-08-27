@@ -59,6 +59,14 @@ function consoleDateFormatter(): Intl.DateTimeFormat {
   return CONSOLE_DATE_FORMATTERS[language.slice(0, 2)] ?? CONSOLE_DATE_FORMATTERS.en
 }
 
+/** Compact duration for operator surfaces: 42s, 5m, 3h 20m, 22d 4h. */
+export function formatDuration(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`
+  if (seconds < 3_600) return `${Math.floor(seconds / 60)}m`
+  if (seconds < 86_400) return `${Math.floor(seconds / 3_600)}h ${Math.floor((seconds % 3_600) / 60)}m`
+  return `${Math.floor(seconds / 86_400)}d ${Math.floor((seconds % 86_400) / 3_600)}h`
+}
+
 /**
  * Formats an ISO timestamp for display. Returns `'—'` for null/blank input and
  * the raw string for values that do not parse as dates, so callers can pass

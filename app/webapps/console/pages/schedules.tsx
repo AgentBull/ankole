@@ -423,7 +423,8 @@ export function ScheduleCronEditorPage() {
   const editing = Boolean(cronID)
 
   const agents = useQuery(ankoleWebAgentControllerIndexOptions())
-  const agentList = agents.data?.agents ?? []
+  // A schedule targets an agent that can run, so disabled agents stay out.
+  const agentList = (agents.data?.agents ?? []).filter(agent => agent.status === 'active')
   // An existing schedule is pinned to its agent; a new one starts from the
   // resolved `?agent=` request.
   const agentUID = editing ? routeAgentUID : resolveAgentUID(agentList, routeAgentUID)

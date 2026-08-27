@@ -3,6 +3,7 @@ bcp47 = "zh-Hans-CN"
 fallback = "en-US"
 
 [app_configure.descriptions.agent_computer.background_agent_job]
+max_running_per_agent = "单个 Agent 在所有工作节点上可同时运行的 Background Agent Job 上限。"
 max_turns_per_worker = "单个 Agent Computer 工作节点可并发承载的 Background Agent Job 回合上限。"
 
 [app_configure.descriptions.ai_agent]
@@ -29,9 +30,18 @@ forgetting = "各类事实的衰减半衰期（天），以及硬删除软删除
 dreaming_task_cron = "每日 Dreaming 维护任务的 cron 表达式。"
 self_healing_task_cron = "重建过期分块、嵌入和索引投影的自愈任务的 cron 表达式。"
 signal_channel_batch_idle_time = "信号通道最后一条消息之后进入批量学习前的空闲秒数。会话结束也会触发。"
+web_fetch_model = "用于 url 来源学习的实例级网页抓取 Provider，包含 provider_id、model 和可选的 provider_options。留空则停止 url 来源学习并报告不健康。"
+skill_learning_enabled = "是否从任务轨迹学习技能教训并随技能下发。停用后跳过对应 Dreaming 阶段并隐藏已存教训；数据保持不变。"
+skill_learning_reflection_threshold = "触发一次技能教训反思任务前，Agent 需要积累的未消费信号任务数（运行中人工介入或失败调用）。最小 2。"
 
 [app_configure.descriptions.i18n]
 default_locale = "渲染 Ankole 文本时使用的默认语言区域。"
+
+[app_configure.descriptions.observability.traces]
+enabled = "启用后，控制面在重启后向配置的 OTLP 端点导出进程级 OpenTelemetry trace。"
+otlp_endpoint = "trace 的 OTLP HTTP 基础端点；导出器会追加 /v1/traces。启用 trace 导出时必填。"
+otlp_headers = "OTLP trace 导出使用的机密 HTTP 头，例如 Authorization。修改在重启后生效。"
+provider = "LLM trace 的语义 Provider：langfuse、langsmith 或 opentelemetry。启用 trace 导出时必填。"
 
 [app_configure.descriptions.plugins]
 enabled_ids = "下次 Ankole 进程启动时启用的 Control Plane Plugin ID。"
@@ -54,6 +64,9 @@ directory_full_sync_interval_hours = "两次定期完整目录同步入队尝试
 
 [app_configure.descriptions.principals.identity_providers.lark]
 "*" = "加密的 Lark / 飞书身份源提供商配置。"
+
+[app_configure.descriptions.principals.identity_providers.local]
+"*" = "内置的本地邮箱密码身份源提供商配置。"
 
 [app_configure.descriptions.principals.identity_providers.slack]
 "*" = "加密的 Slack 身份源提供商配置。"
@@ -212,9 +225,13 @@ group_memory_disclosure_mode_strict = "严格"
 group_memory_disclosure_mode_relaxed = "宽松"
 agent = "Agent"
 avatar_url = "头像 URL"
-delete_description = "停用 Agent {$id}？停用后将不再处理工作。控制台没有重新启用入口。"
-delete_title = "停用 Agent"
-deleted = "已停用 Agent {$id}。"
+delete_description = "永久删除 Agent {$id}？其会话、任务与相关记录将一并删除，无法恢复。"
+delete_title = "删除 Agent"
+deleted = "已删除 Agent {$id}。"
+disable_description = "停用 Agent {$id}？停用后将不再处理工作，可随时重新启用；删除前需先停用。"
+disable_title = "停用 Agent"
+disabled_toast = "已停用 Agent {$id}。"
+enabled = "已启用 Agent {$id}。"
 description = "承担长期任务的数字员工。可配置身份与各角色的模型档案。"
 display_name = "显示名称"
 display_name_required = "显示名称为必填项。"
@@ -457,7 +474,6 @@ embedding_signature = "嵌入签名"
 health_signals = "信号学习队列"
 pending_channels = "有待处理切片的空闲通道"
 oldest_pending_age = "最早的待处理条目"
-age_seconds = "{$seconds} 秒"
 health_embeddings = "嵌入投影"
 failed_chunks = "嵌入失败的分块"
 failed_claims = "嵌入失败的断言"
@@ -606,6 +622,7 @@ display_name = "显示名称"
 display_name_required = "显示名称为必填项。"
 domain_directory = "目录同步"
 domain_im_group = "IM 群组"
+domain_signal_source = "信号来源"
 editor_description = "组的身份信息与成员规则。创建保存后可在下方管理成员与授权。"
 empty_description = "创建第一个组，为多个主体统一授权。"
 empty_title = "暂无组"
@@ -1000,7 +1017,13 @@ browser_login_instructions = "打开授权页面。浏览器重定向到 localho
 callback_url = "回调 URL"
 chatgpt_credential_editor_description = "ChatGPT 登录流程管理此账号的令牌；这里只能修改标签和选择优先级。"
 chatgpt_login_complete = "已连接 ChatGPT 账号。"
+chatgpt_login_denied = "该 ChatGPT 账号拒绝了这次登录。"
 chatgpt_login_description = "使用 Codex 官方设备码流程登录；控制面保存并刷新完成后的凭据。"
+chatgpt_login_expired = "登录已过期，请重新开始。"
+chatgpt_login_invalid = "此登录尝试已失效，请重新开始。"
+chatgpt_login_rejected = "ChatGPT 登录服务拒绝了请求（{$upstream}）。"
+chatgpt_login_unreachable = "无法连接 ChatGPT 登录服务（{$upstream}）。"
+chatgpt_refresh_failed = "凭据刷新失败（{$upstream}），请重新登录。"
 complete_login = "完成登录"
 credential_deleted = "已删除凭据。"
 credential_editor_description = "Provider 行保存共享连接设置；这个成员只保存凭据和选择元数据。"
@@ -1507,6 +1530,7 @@ upload_subdirectory = "子目录（可选）"
 upload_title = "上传文件"
 
 uploaded = "已上传 {$name}。"
+
 [console.worker_envs]
 agent_section_description = "该 Agent 的 shell 实际收到的环境:声明导出、全局变量与本 Agent 的覆盖值。在此编辑始终写入 Agent 层。"
 agent_section_title = "环境变量"
@@ -1594,7 +1618,7 @@ signal_incomplete = "接入 Slack、飞书或其他消息渠道，以便直接�
 [console.status]
 active = "运行中"
 contacts = "联系人"
-disabled = "已禁用"
+disabled = "已停用"
 draining = "正在排空"
 enabled = "已启用"
 encrypted = "已加密"

@@ -51,7 +51,8 @@ defmodule Ankole.IdentityProviders.Directory do
   @spec upsert_user(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   def upsert_user(provider_id, attrs, opts \\ [])
       when is_binary(provider_id) and is_map(attrs) and is_list(opts) do
-    with {:ok, observed} <- Principals.upsert_platform_subject_human(attrs),
+    with {:ok, observed} <-
+           Principals.upsert_platform_subject_human(Map.put(attrs, :authoritative_profile, true)),
          :ok <- ensure_members_group_membership(provider_id, observed.principal.uid),
          {:ok, _sync} <- maybe_sync_memberships(provider_id, observed.principal.uid, opts) do
       {:ok, observed}

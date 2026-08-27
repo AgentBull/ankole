@@ -56,7 +56,8 @@ The agent is the unit an operator configures everything else against:
 | `POST` | `/agents` | Create an agent |
 | `GET` | `/agents/:agent_uid` | Read one agent |
 | `PATCH` | `/agents/:agent_uid` | Update an agent |
-| `DELETE` | `/agents/:agent_uid` | Remove an agent |
+| `POST` | `/agents/:agent_uid/enable` | Re-enable a disabled agent |
+| `DELETE` | `/agents/:agent_uid` | Disable an active agent, or permanently delete a disabled one |
 
 ### Signal routing rules
 

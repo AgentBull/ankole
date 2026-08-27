@@ -25,6 +25,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
 
   alias Ecto.Adapters.SQL
   alias Ankole.AIGateway.CompactionArtifacts
+  alias Ankole.AIGateway.Conversations
   alias Ankole.AIGateway.Events
   alias Ankole.AIGateway.ResponseItems
   alias Ankole.AIGateway.Schemas.Conversation
@@ -544,17 +545,21 @@ defmodule Ankole.AIGateway.StatefulResponses do
          initial_content: initial_content,
          merged_metadata: merged_metadata
        }) do
-    %Message{}
-    |> Message.changeset(%{
-      subject_uid: subject_uid,
-      conversation_id: conversation_id,
-      type: "message",
-      status: "generating",
-      previous_message_id: previous_message_id,
-      content: initial_content,
-      metadata: merged_metadata
-    })
-    |> repo.insert()
+    changeset =
+      Message.changeset(%Message{}, %{
+        subject_uid: subject_uid,
+        conversation_id: conversation_id,
+        type: "message",
+        status: "generating",
+        previous_message_id: previous_message_id,
+        content: initial_content,
+        metadata: merged_metadata
+      })
+
+    with {:ok, %Message{} = message} <- repo.insert(changeset) do
+      :ok = Conversations.touch_conversation_in_tx(repo, conversation_id)
+      {:ok, message}
+    end
   end
 
   defp insert_tool_result_journal(
@@ -604,6 +609,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
 
     case repo.insert(changeset) do
       {:ok, %Message{} = message} ->
+        :ok = Conversations.touch_conversation_in_tx(repo, anchor.conversation_id)
         maybe_publish_tool_result_events(publish?, message, request_items)
         {:ok, message, :inserted}
 
@@ -855,6 +861,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
 
     case repo.insert(changeset) do
       {:ok, %Message{} = message} ->
+        :ok = Conversations.touch_conversation_in_tx(repo, anchor.conversation_id)
         tool_results_quarantined_error(message, quarantine)
 
       {:error, %Ecto.Changeset{} = changeset} ->
@@ -1990,6 +1997,9 @@ defmodule Ankole.AIGateway.StatefulResponses do
     end
   end
 
+  # A checkpoint is background compaction, not user activity, so this insert
+  # deliberately skips Conversations.touch_conversation_in_tx: the console
+  # orders conversations by activity and compaction must not reorder them.
   defp insert_checkpoint_row(
          repo,
          subject_uid,
