@@ -2,6 +2,12 @@ import { compareCodePointStrings } from '../../common/ordering'
 import { z } from 'zod'
 import { sanitizeCatalogLine } from '../../common/text-sanitize'
 import { defineWorkerTool, type WorkerAgentTool } from '../../core'
+import {
+  availableCustomModelProfiles,
+  customModelProfileDescription,
+  customModelProfileSchema,
+  type CustomModelProfile
+} from '../../core/custom-model-profiles'
 import { modelIntegerIDFromWire } from '../../core/model-integer-id'
 import { jsonToolResult } from '../../core/tool-result'
 import type { TurnStart } from '../../lanes/actor_lane'
@@ -13,12 +19,6 @@ import {
 
 const identifier = /^[a-z][a-z0-9_-]{0,63}$/
 const CATALOG_DESCRIPTION_MAX_CHARS = 400
-const CustomModelProfileSchema = z
-  .object({
-    name: z.string().regex(identifier),
-    description: z.string().min(1).max(200)
-  })
-  .strict()
 
 type CreateBackgroundJobResult = {
   job_id: number
@@ -44,7 +44,7 @@ export function createCreateBackgroundJobTool(
       'title is only a management label and is not sent to Codex.',
       'task is the work handed off to the background agent to complete.',
       'State in task what the finished deliverable is and what it must satisfy; the background agent verifies against that before finishing.',
-      modelProfileDescription(customModelProfiles),
+      customModelProfileDescription(customModelProfiles, 'coding'),
       workspaceTemplateDescription(workspaceTemplates)
     ].join(' '),
     schema: createBackgroundJobParamsSchema(workspaceTemplates, customModelProfiles),
@@ -86,8 +86,6 @@ function selectedModelProfile(params: CreateBackgroundJobParams): string {
   return params.model_profile ?? ''
 }
 
-type CustomModelProfile = z.output<typeof CustomModelProfileSchema>
-
 function createBackgroundJobParamsSchema(
   workspaceTemplates: WorkspaceTemplate[],
   customModelProfiles: CustomModelProfile[]
@@ -108,18 +106,7 @@ function createBackgroundJobParamsSchema(
     .strict()
 
   if (customModelProfiles.length === 0) return base
-  return base.extend({ model_profile: modelProfileSchema(customModelProfiles).optional() }).strict()
-}
-
-function availableCustomModelProfiles(turnStart: TurnStart): CustomModelProfile[] {
-  const parsed = z.array(CustomModelProfileSchema).safeParse(turnStart.request_context?.custom_model_profiles ?? [])
-  if (!parsed.success) throw new Error('turn custom model profile catalog is invalid')
-
-  const profiles = [...parsed.data].sort((left, right) => compareCodePointStrings(left.name, right.name))
-  if (new Set(profiles.map(profile => profile.name)).size !== profiles.length) {
-    throw new Error('duplicate custom model profile name')
-  }
-  return profiles
+  return base.extend({ model_profile: customModelProfileSchema(customModelProfiles).optional() }).strict()
 }
 
 function availableWorkspaceTemplates(catalog: AgentPluginCatalogEntry[]): WorkspaceTemplate[] {
@@ -150,20 +137,6 @@ function workspaceTemplateSchema(workspaceTemplates: WorkspaceTemplate[]): z.Zod
     return z.string().refine(() => false, { message: 'no workspace templates are available' })
   }
   return z.enum(ids as [string, ...string[]])
-}
-
-function modelProfileSchema(customModelProfiles: CustomModelProfile[]): z.ZodType<string> {
-  const names = customModelProfiles.map(profile => profile.name)
-  return z.enum(names as [string, ...string[]])
-}
-
-function modelProfileDescription(customModelProfiles: CustomModelProfile[]): string {
-  if (customModelProfiles.length === 0) {
-    return 'No custom model profile is available; omit model_profile to use the default coding profile.'
-  }
-  return `Available custom model profiles: ${customModelProfiles
-    .map(profile => `${profile.name} (${profile.description})`)
-    .join(', ')}. Omit model_profile to use the default coding profile.`
 }
 
 function workspaceTemplateDescription(workspaceTemplates: WorkspaceTemplate[]): string {

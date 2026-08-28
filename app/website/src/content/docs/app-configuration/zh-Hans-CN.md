@@ -72,6 +72,16 @@ Agent 的 Skill、命令行工具或 MCP 服务需要 API Key 等自定义值时
 | `ai_agent.library.agent_plugin_defaults` | 实例 | Agent Plugin 的默认启用状态 |
 | `ai_agent.library.skill_defaults` | 实例 | Skill 的默认启用状态 |
 
+### Workflow
+
+| 配置键 | 作用范围 | 用途 |
+|---|---|---|
+| `workflow.max_concurrency_per_run` | 实例 | 单次 Workflow 可以申请的任务并发上限；默认 `8`，有效范围为 `1`–`32` |
+| `workflow.max_running_per_agent` | 实例 | 单个 Agent 的所有 Workflow 中正在运行的任务总上限；默认 `8`，有效范围为 `1`–`64` |
+| `workflow.max_agent_calls_per_run` | 实例 | 单次 Workflow 可以创建的子 Agent 调用上限；默认 `256`，有效范围为 `1`–`1,024` |
+
+这些限制影响后续 Workflow 工作。单次运行可以申请更低的并发数或调用数，但不能抬高实例上限。任务行为和其他大小限制见 [Workflow](../workflows/)。
+
 ### Brain
 
 | 配置键 | 作用范围 | 用途 |

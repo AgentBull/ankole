@@ -17,6 +17,7 @@ defmodule Ankole.Brain.Recall do
   alias Ankole.Brain.Chunker
   alias Ankole.Brain.Config
   alias Ankole.Brain.Embeddings
+  alias Ankole.Brain.LazySkillVisibility
   alias Ankole.Brain.Sanitize
   alias Ankole.Brain.Schemas.Chunk
   alias Ankole.Brain.Schemas.Claim
@@ -61,11 +62,12 @@ defmodule Ankole.Brain.Recall do
       {:error, :missing_query}
     else
       with {:ok, access} <- Access.for_querier(querier_uid),
-           {:ok, neighborhood} <- entity_neighborhood(params[:entity]) do
+           {:ok, visibility} <- LazySkillVisibility.for_querier(querier_uid),
+           {:ok, neighborhood} <- entity_neighborhood(params[:entity], visibility) do
         query_vector = query_embedding(query)
 
-        claims = claim_arm(access, query, query_vector, limit, neighborhood)
-        chunks = chunk_arm(access, query, query_vector, limit, neighborhood)
+        claims = claim_arm(access, visibility, query, query_vector, limit, neighborhood)
+        chunks = chunk_arm(access, visibility, query, query_vector, limit, neighborhood)
 
         claims = Access.filter_disclosable(claims, & &1.audience_scope, disclosure)
         chunks = Access.filter_disclosable(chunks, & &1.chunk.audience_scope, disclosure)
@@ -87,13 +89,14 @@ defmodule Ankole.Brain.Recall do
 
   # Claim arm
 
-  defp claim_arm(access, query, query_vector, limit, neighborhood) do
+  defp claim_arm(access, visibility, query, query_vector, limit, neighborhood) do
     candidate_limit = min(limit * 2, 100)
 
     base =
       Claim
       |> Access.filter_claims(access)
       |> Access.filter_current_claims()
+      |> LazySkillVisibility.filter_claims(visibility)
       |> claim_neighborhood_filter(neighborhood)
 
     bm25_ids =
@@ -179,7 +182,7 @@ defmodule Ankole.Brain.Recall do
 
   # Chunk arm
 
-  defp chunk_arm(access, query, query_vector, limit, neighborhood) do
+  defp chunk_arm(access, visibility, query, query_vector, limit, neighborhood) do
     candidate_limit = min(limit * 2, 100)
 
     base =
@@ -187,6 +190,7 @@ defmodule Ankole.Brain.Recall do
       |> join(:inner, [chunk], object in Object, on: object.id == chunk.object_id)
       |> where([_chunk, object], is_nil(object.deleted_at))
       |> Access.filter_chunks(access)
+      |> LazySkillVisibility.filter_chunks(visibility)
       |> chunk_neighborhood_filter(neighborhood)
 
     bm25_ids =
@@ -222,13 +226,13 @@ defmodule Ankole.Brain.Recall do
       end)
 
     hits
-    |> apply_adjacency_boost()
+    |> apply_adjacency_boost(visibility)
     |> apply_recency_and_salience()
     |> maybe_rerank(query)
     |> Enum.sort_by(& &1.score, :desc)
   end
 
-  defp vector_candidate_ids(base, vector, candidate_limit, kind) do
+  defp vector_candidate_ids(base, {vector, signature}, candidate_limit, kind) do
     # ANN selects candidates on the first 4000 halfvec dimensions; the exact
     # order comes from the full 4096 vector over that candidate set.
     ann_limit = candidate_limit * 3
@@ -242,6 +246,7 @@ defmodule Ankole.Brain.Recall do
         :claim ->
           base
           |> where([claim], not is_nil(claim.embedding))
+          |> where([claim], claim.embedding_signature == ^signature)
           |> order_by(
             [claim],
             fragment(
@@ -256,6 +261,7 @@ defmodule Ankole.Brain.Recall do
         :chunk ->
           base
           |> where([chunk, _object], not is_nil(chunk.embedding))
+          |> where([chunk, _object], chunk.embedding_signature == ^signature)
           |> order_by(
             [chunk, _object],
             fragment(
@@ -275,6 +281,7 @@ defmodule Ankole.Brain.Recall do
         :claim ->
           Claim
           |> where([claim], claim.id in ^candidate_ids)
+          |> where([claim], claim.embedding_signature == ^signature)
           |> order_by([claim], fragment("? <=> ?", claim.embedding, ^vector))
           |> limit(^candidate_limit)
           |> select([claim], claim.id)
@@ -282,6 +289,7 @@ defmodule Ankole.Brain.Recall do
         :chunk ->
           Chunk
           |> where([chunk], chunk.id in ^candidate_ids)
+          |> where([chunk], chunk.embedding_signature == ^signature)
           |> order_by([chunk], fragment("? <=> ?", chunk.embedding, ^vector))
           |> limit(^candidate_limit)
           |> select([chunk], chunk.id)
@@ -317,7 +325,7 @@ defmodule Ankole.Brain.Recall do
 
   # Pages adjacent (one link hop) to at least two hit pages get a small
   # graph boost.
-  defp apply_adjacency_boost(hits) do
+  defp apply_adjacency_boost(hits, visibility) do
     hit_slugs = hits |> Enum.map(& &1.object.slug) |> Enum.uniq()
 
     if length(hit_slugs) < @adjacency_min_hits do
@@ -329,6 +337,7 @@ defmodule Ankole.Brain.Recall do
           [link],
           link.from_object_slug in ^hit_slugs or link.to_object_slug in ^hit_slugs
         )
+        |> LazySkillVisibility.filter_links(visibility)
         |> select([link], {link.from_object_slug, link.to_object_slug})
         |> Repo.all()
         |> Enum.flat_map(fn {from, to} ->
@@ -533,11 +542,11 @@ defmodule Ankole.Brain.Recall do
   # Resolving an entity narrows both arms to the entity's parent container
   # and one-hop link neighborhood. An entity that does not resolve is an
   # explicit error, never a silent global query.
-  defp entity_neighborhood(nil), do: {:ok, nil}
-  defp entity_neighborhood(""), do: {:ok, nil}
+  defp entity_neighborhood(nil, _visibility), do: {:ok, nil}
+  defp entity_neighborhood("", _visibility), do: {:ok, nil}
 
-  defp entity_neighborhood(entity) when is_binary(entity) do
-    case Ankole.Brain.Objects.resolve_reference(entity) do
+  defp entity_neighborhood(entity, visibility) when is_binary(entity) do
+    case Ankole.Brain.Objects.resolve_reference(entity, lazy_skill_visibility: visibility) do
       {:ok, object} ->
         neighbors =
           Link
@@ -545,6 +554,7 @@ defmodule Ankole.Brain.Recall do
             [link],
             link.from_object_slug == ^object.slug or link.to_object_slug == ^object.slug
           )
+          |> LazySkillVisibility.filter_links(visibility)
           |> select([link], {link.from_object_slug, link.to_object_slug})
           |> Repo.all()
           |> Enum.flat_map(fn {from, to} -> [from, to] end)
@@ -571,7 +581,7 @@ defmodule Ankole.Brain.Recall do
 
   defp query_embedding(query) do
     case Embeddings.embed_texts([query]) do
-      {:ok, [vector]} -> vector
+      {:ok, {[vector], signature}} -> {vector, signature}
       {:error, _reason} -> nil
     end
   end

@@ -7,7 +7,7 @@ order: 309
 
 Ankole의 자동화는 세 가지 트리거 중 하나와 두 가지 소비자 중 하나를 결합합니다. Agent session은 판단, memory 또는 대화가 필요한 작업을 처리합니다. automation job은 기계적인 처리를 위해 결정적 스크립트를 실행합니다. 이 페이지는 일반적인 형태에 바로 사용할 수 있는 블루프린트를 제공합니다.
 
-Ankole은 워크플로 언어나 단계 그래프를 추가하지 않습니다. automation job은 Agent Home 안의 평범한 Bun `main.ts`입니다. 트리거 소유자는 시간이나 인그레스(ingress)를 유지하고, 선택된 소비자가 변경되지 않은 이벤트를 처리합니다. Agent는 스크립트가 이벤트를 발행하거나 실패 정책이 깨울 때만 다시 작업에 개입합니다.
+이 페이지의 automation job은 워크플로 언어나 단계 그래프가 아닙니다. Agent Home 안의 평범한 Bun `main.ts`로, 고정된 이벤트를 기계적으로 처리합니다. [Workflow](../workflows/)는 별도의 기능으로, Main Agent가 한 번 시작하는 고정되고 유한한 서브에이전트 orchestration입니다. Workflow도 scheduler, YAML 단계 목록 또는 범용 이벤트 버스는 아닙니다.
 
 ## 세 가지 트리거
 
@@ -30,6 +30,8 @@ Ankole은 워크플로 언어나 단계 그래프를 추가하지 않습니다. 
 
 처리 방식이 불분명한 동안에는 직접 Agent 깨우기로 시작하세요. 입증된 기계적인 부분만 automation job으로 옮기세요. 이렇게 하면 스크립트를 작게 유지하고 model을 유휴 폴링 루프에 빠뜨리지 않습니다.
 
+Agent session이 유한한 배치를 받으면 Agent는 그 session 안에서 Workflow를 시작할 수 있습니다. Workflow는 세 번째 trigger나 consumer가 아니라, Agent가 독립적인 여러 판단을 병렬로 실행하고 그 결과를 고정된 JavaScript로 결합하는 도구입니다.
+
 ## 블루프린트: 일일 다이제스트(스케줄)
 
 스케줄이 하루에 한 번 Agent를 깨웁니다. Agent는 요청된 정보를 수집하고 요약한 다음 결과를 바인딩된 chat channel에 게시합니다. 일일 cron 표현식을 설정하기 전에 [스케줄](../schedules/) 문서로 만들고 테스트하세요.
@@ -51,6 +53,17 @@ curl -X POST https://ankole.example.com/api/v1/agents/<agent_uid>/cron-schedules
 ```
 
 조정 가능한 부분: cron 표현식(주기), `timezone`(“오전 9시”가 언제인지), `task`(무엇을 할지), persona(어떻게 할지). 스케줄에 의존하기 전에 수동 실행으로 검증하세요.
+
+## 블루프린트: 유한한 병렬 분석(Agent session + Workflow)
+
+하나의 요청이 서로 독립적인 여러 분석 단위를 가지면 Workflow를 사용하세요. 예를 들어 20개 공급업체를 각각 조사한 뒤 결과를 비교하거나, 여러 독립 검토자가 같은 제안서를 판단하는 경우입니다.
+
+1. 채팅 요청이나 schedule이 Agent session을 깨웁니다.
+2. Agent가 유한한 입력, 동시성, 총 task 상한을 정하고 Workflow를 시작합니다.
+3. Workflow가 독립적인 task turn을 실행하고 구조화된 결과를 다음 단계로 전달합니다.
+4. run이 완료되거나 실패하면 원래 session이 자동으로 깨어납니다.
+
+Workflow를 사용하는 동안 폴링하거나 외부 상태를 기다리지 마세요. 새 정보, 사용자의 판단 또는 장기간 유지할 workspace가 필요하면 [Background Agent Job](../background-jobs/)을 사용하세요.
 
 ## 블루프린트: 결정적 감시자(스케줄 + automation job)
 
@@ -100,6 +113,7 @@ Agent가 현재 외부 객체를 검사하고 이벤트를 판단해야 할 때�
 ## 블루프린트 선택
 
 - **시계에 맞춰 실행되길 원하나요?** Schedule. 매번 게시할지 아니면 중요한 일이 있을 때만 게시할지에 따라 다이제스트 또는 감시자 형태를 고르세요.
+- **유한한 배치를 병렬로 분석하길 원하나요?** Agent session + Workflow. 입력 크기와 반복 횟수를 먼저 고정하세요.
 - **진행 중인 작업에 다시 돌아오길 원하나요?** Checkback. agent가 타이밍을 소유합니다.
 - **긴 작업을 시계로 시작하길 원하나요?** Schedule + background job.
 - **model turn 없이 빈번한 기계적 점검을 원하나요?** Schedule 또는 Checkback + automation job.
@@ -108,11 +122,14 @@ Agent가 현재 외부 객체를 검사하고 이벤트를 판단해야 할 때�
 
 ## Ankole 자동화가 아닌 것
 
-이것은 워크플로 언어가 아닙니다. YAML 단계 목록, 플랫폼 DAG, 숨겨진 커서, 범용 이벤트 버스도 없습니다. automation job은 작은 스크립트를 실행할 수 있지만, 스크립트가 자체 상태와 반복 안전성을 책임집니다. 전달은 여전히 소유자 session의 라우팅 규칙을 사용하며, 자동화는 권한을 우회할 수 없습니다. 판단에는 Agent를 사용하고 스크립트는 기계적인 부분에만 사용하세요.
+Automation job은 워크플로 언어가 아닙니다. YAML 단계 목록, 플랫폼 DAG, 숨겨진 커서, 범용 이벤트 버스도 없습니다. automation job은 작은 스크립트를 실행할 수 있지만, 스크립트가 자체 상태와 반복 안전성을 책임집니다. 전달은 여전히 소유자 session의 라우팅 규칙을 사용하며, 자동화는 권한을 우회할 수 없습니다.
+
+Workflow는 또한 scheduler나 일반적인 이벤트 orchestration이 아닙니다. 고정된 `args`와 유한한 반복에서만 실행되며 외부 상태를 폴링하거나 나중에 메시지를 받지 않습니다. 판단은 Agent에게, 반복 가능한 기계적 처리는 automation job에게, 유한한 병렬 판단은 Workflow에게 맡기세요.
 
 ## 다음 단계
 
 - 스케줄 표면에 대해서는 [스케줄](../schedules/) 문서를 읽으세요.
 - 결정적 스크립트 소비자에 대해서는 [Automation Jobs](../automation-jobs/) 문서를 읽으세요.
 - 백그라운드 실행 및 협업 선택에 대해서는 [Background Agent Jobs](../background-jobs/) 문서를 읽으세요.
+- 유한한 서브에이전트 병렬 처리에 대해서는 [Workflows](../workflows/) 문서를 읽으세요.
 - 외부 이벤트 capability에 대해서는 [Webhook 위임](../webhook-delegations/) 문서를 읽으세요.

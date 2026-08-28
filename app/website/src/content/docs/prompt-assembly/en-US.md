@@ -28,7 +28,7 @@ The split is deliberate: turn-local facts travel on `turn_start` because they ch
 
 ### Enabled skills
 
-`Library.skills_for_system_prompt/1` returns the agent's effective skill set — the skills enabled by default-then-override, with their descriptions and metadata. The worker uses these to build the skills block of the system prompt, telling the model which skills it has and what each is for.
+`Library.runtime_skills_for_agent/1` sends the Agent's complete effective Skill set, with descriptions and metadata, to the Worker. The Worker keeps the complete set for `skill_view`. When it builds the model-visible catalog, it omits Skills that declare `brain-recall-only: true`, so Brain can discover them without listing them in every prompt.
 
 ### Conversation origin channel
 

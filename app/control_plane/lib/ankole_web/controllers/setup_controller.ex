@@ -10,9 +10,9 @@ defmodule AnkoleWeb.SetupController do
   use AnkoleWeb, :controller
 
   alias Ankole.I18n
+  alias Ankole.IdentityProviders.LocalPassword
   alias Ankole.Principals
   alias Ankole.Principals.HumanUser
-  alias Ankole.Principals.LocalCredentials
   alias Ankole.Brain.SchemaPacks
   alias Ankole.Setup.Bootstrap
   alias Ankole.Plugins
@@ -20,7 +20,6 @@ defmodule AnkoleWeb.SetupController do
   alias Ankole.Setup.Config, as: SetupConfig
   alias AnkoleWeb.Session, as: WebSession
   alias Ankole.IdentityProviders
-  alias Ankole.IdentityProviders.LocalPassword
   alias Ankole.IdentityProviders.Login
 
   @doc """
@@ -334,7 +333,7 @@ defmodule AnkoleWeb.SetupController do
   defp validate_local_admin_email(_email), do: {:error, 422, "email is invalid"}
 
   defp validate_local_admin_password(password) when is_binary(password) do
-    case String.length(password) >= LocalCredentials.local_password_min_length() do
+    case String.length(password) >= LocalPassword.local_password_min_length() do
       true -> :ok
       false -> {:error, 422, password_too_short_message()}
     end
@@ -343,7 +342,7 @@ defmodule AnkoleWeb.SetupController do
   defp validate_local_admin_password(_password), do: {:error, 422, password_too_short_message()}
 
   defp password_too_short_message,
-    do: "password must be at least #{LocalCredentials.local_password_min_length()} characters"
+    do: "password must be at least #{LocalPassword.local_password_min_length()} characters"
 
   defp require_local_provider do
     case LocalPassword.fetch_enabled_provider() do
@@ -355,7 +354,7 @@ defmodule AnkoleWeb.SetupController do
   # The setup administrator picks their own password, so the credential never
   # carries the must-change flag.
   defp ensure_local_admin_account(email, password) do
-    case LocalCredentials.fetch_local_login(email) do
+    case LocalPassword.fetch_local_login(email) do
       {:ok, %{principal: principal}} ->
         put_local_admin_password(principal.uid, password)
 
@@ -368,7 +367,7 @@ defmodule AnkoleWeb.SetupController do
   end
 
   defp put_local_admin_password(principal_uid, password) do
-    with {:ok, _credential} <- LocalCredentials.set_local_password(principal_uid, password, false) do
+    with {:ok, _credential} <- LocalPassword.set_local_password(principal_uid, password, false) do
       {:ok, principal_uid}
     end
   end

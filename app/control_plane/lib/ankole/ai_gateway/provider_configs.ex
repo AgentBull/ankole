@@ -945,7 +945,6 @@ defmodule Ankole.AIGateway.ProviderConfigs do
        when is_binary(revision) and revision != "",
        do: revision
 
-  defp health_revision(%{}, false), do: "legacy"
   defp health_revision(nil, false), do: health_revision()
 
   defp health_revision, do: Ankole.Ecto.UUIDv7.autogenerate()

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'bun:test'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -8,7 +8,6 @@ import {
   codexHomeLockedCommandArgv,
   codexHomeLockedLogsDeleteArgv
 } from '../src/core/codex-runner/runtime/codex-home-lock'
-import { retireLegacySharedCodexConfig } from '../src/core/codex-runner/runtime/retire-legacy-shared-codex-config'
 
 const previousFlockBinary = process.env.ANKOLE_FLOCK_BINARY
 
@@ -77,77 +76,6 @@ describe('@ankole/agent-computer Codex Home physical lock', () => {
       expect(existsSync(unrelated)).toBe(true)
     } finally {
       runtime?.kill()
-      rmSync(root, { recursive: true, force: true })
-    }
-  })
-
-  it('retires only an unlocked legacy shared config and retries after an old runtime exits', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'ankole-legacy-codex-config-'))
-    const agentHome = join(root, 'agent-home')
-    const legacyCodexHome = join(agentHome, '.codex')
-    const configPath = join(legacyCodexHome, 'config.toml')
-    const retainedState = join(legacyCodexHome, 'state_5.sqlite')
-    const ready = join(root, 'ready')
-    const release = join(root, 'release')
-    const lockHelper = join(root, 'flock')
-    let oldRuntime: ReturnType<typeof Bun.spawn> | undefined
-
-    try {
-      writePortableFlock(lockHelper)
-      process.env.ANKOLE_FLOCK_BINARY = lockHelper
-      mkdirSync(legacyCodexHome, { recursive: true })
-      writeFileSync(configPath, 'legacy config')
-      writeFileSync(retainedState, 'keep')
-
-      oldRuntime = Bun.spawn(
-        codexHomeLockedCommandArgv({
-          codexHome: legacyCodexHome,
-          commandArgv: [
-            '/bin/sh',
-            '-c',
-            'touch "$1"; while [ ! -e "$2" ]; do sleep 0.02; done',
-            'ankole-old-runtime',
-            ready,
-            release
-          ]
-        })
-      )
-      await waitForFile(ready)
-
-      await expect(retireLegacySharedCodexConfig(agentHome)).resolves.toBe('skipped_legacy_runtime_active')
-      expect(existsSync(configPath)).toBe(true)
-      expect(existsSync(retainedState)).toBe(true)
-
-      writeFileSync(release, 'release')
-      expect(await oldRuntime.exited).toBe(0)
-      oldRuntime = undefined
-
-      await expect(retireLegacySharedCodexConfig(agentHome)).resolves.toBe('removed')
-      expect(existsSync(configPath)).toBe(false)
-      expect(existsSync(retainedState)).toBe(true)
-      await expect(retireLegacySharedCodexConfig(agentHome)).resolves.toBe('config_missing')
-    } finally {
-      oldRuntime?.kill()
-      rmSync(root, { recursive: true, force: true })
-    }
-  })
-
-  it('does not follow a legacy Codex Home symlink', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'ankole-legacy-codex-symlink-'))
-    const agentHome = join(root, 'agent-home')
-    const outsideCodexHome = join(root, 'outside-codex-home')
-    const outsideConfig = join(outsideCodexHome, 'config.toml')
-
-    try {
-      mkdirSync(agentHome)
-      mkdirSync(outsideCodexHome)
-      writeFileSync(outsideConfig, 'keep')
-      symlinkSync(outsideCodexHome, join(agentHome, '.codex'), 'dir')
-
-      await expect(retireLegacySharedCodexConfig(agentHome)).resolves.toBe('config_missing')
-      expect(existsSync(outsideConfig)).toBe(true)
-      expect(existsSync(join(outsideCodexHome, '.ankole-app-server.lock'))).toBe(false)
-    } finally {
       rmSync(root, { recursive: true, force: true })
     }
   })

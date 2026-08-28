@@ -19,6 +19,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime do
   """
 
   alias Ankole.SignalsGateway.ActorRuntime.ReadyEventProcessor
+  alias Ankole.SignalsGateway.ActorRuntime.AsyncWorkUnit
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionActivation
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionWorkerAssignment
@@ -32,6 +33,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime do
   alias Ankole.SignalsGateway.AIReplyPreview
   alias Ankole.BackgroundAgentJobs
   alias Ankole.Observability
+  alias Ankole.Workflow
 
   @type actor_key :: %{agent_uid: String.t(), session_id: String.t()}
 
@@ -46,11 +48,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime do
   """
   @spec admit_worker_ready(
           FabricProto.AgentComputerWorkerReady.t(),
-          String.t() | map(),
-          non_neg_integer()
+          String.t() | map()
         ) ::
           {:ok, AgentComputerWorker.t()} | {:error, term()}
-  defdelegate admit_worker_ready(worker_ready, authenticated_route, protocol_version),
+  defdelegate admit_worker_ready(worker_ready, authenticated_route),
     to: WorkerAdmission
 
   @doc """
@@ -100,12 +101,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime do
   """
   @spec handle_turn_error(TurnRef.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   def handle_turn_error(%TurnRef{} = turn_ref, %{} = reason, opts \\ []) do
+    async_work_unit = AsyncWorkUnit.for_session(turn_ref.session_id)
+
     opts =
-      Keyword.put(
-        opts,
-        :compensate_turn_error_in_tx,
-        &BackgroundAgentJobs.compensate_turn_error_in_tx/4
-      )
+      if async_work_unit,
+        do: Keyword.put(opts, :async_work_unit, async_work_unit),
+        else: opts
 
     result = TurnLifecycle.handle_turn_abort(turn_ref, reason, opts)
 
@@ -119,7 +120,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime do
           error
       end
 
-    result = BackgroundAgentJobs.finalize_turn_error(result)
+    result =
+      if async_work_unit == Workflow,
+        do: Workflow.cleanup_terminal_transition(result),
+        else: BackgroundAgentJobs.finalize_turn_error(result)
 
     case result do
       {:ok, %{dead_lettered?: true, actor_event: event}} ->

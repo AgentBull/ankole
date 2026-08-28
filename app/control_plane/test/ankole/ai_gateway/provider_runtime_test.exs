@@ -682,20 +682,6 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     assert coding_runtime_profile["provider_id"] == "openrouter-main"
     assert coding_runtime_profile["model"] == "anthropic/claude-sonnet-4.5"
 
-    # Embedding and rerank are retired Agent profile slots: Brain owns those
-    # models instance-wide, so the profile names are invalid and reserved.
-    assert {:error, :invalid_model_profile} =
-             ModelProfiles.put_model_profile(agent.uid, "embedding", %{
-               provider_id: "jina-main",
-               model: "jina-embeddings-v4"
-             })
-
-    assert {:error, :invalid_model_profile} =
-             ModelProfiles.put_model_profile(agent.uid, "rerank", %{
-               provider_id: "jina-main",
-               model: "jina-reranker-v2-base-multilingual"
-             })
-
     assert {:error, {:provider_kind_missing_capability, "web_search"}} =
              ModelProfiles.put_model_profile(agent.uid, "web_search", %{
                provider_id: "claude-main",
@@ -765,12 +751,10 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     assert ModelProfiles.custom_profile_name?("kimi")
     refute ModelProfiles.custom_profile_name?("primary")
     refute ModelProfiles.custom_profile_name?("Kimi")
-    # Retired capability slot names stay reserved and cannot become custom
-    # LLM profiles.
-    refute ModelProfiles.custom_profile_name?("embedding")
-    refute ModelProfiles.custom_profile_name?("rerank")
+    assert ModelProfiles.custom_profile_name?("embedding")
+    assert ModelProfiles.custom_profile_name?("rerank")
     assert {:ok, "llm"} = ModelProfiles.profile_capability("kimi")
-    assert {:error, :invalid_model_profile} = ModelProfiles.profile_capability("embedding")
+    assert {:ok, "llm"} = ModelProfiles.profile_capability("embedding")
 
     assert {:error, {:missing, "description"}} =
              ModelProfiles.put_model_profile(agent.uid, "kimi", %{
@@ -1409,6 +1393,14 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     assert context_payload.design_content_hash == current_documents["design"]["content_hash"]
     assert Enum.any?(context_payload.skills, &(&1.skill_name == "pdf"))
 
+    research_plugin = Enum.find(context_payload.agent_plugins, &(&1.id == "deep-research"))
+    assert Enum.any?(research_plugin.skills, &(&1.catalog_name == "create-deep-research"))
+
+    assert %FabricProto.RuntimeSkillSummary{metadata_json: lineage_metadata} =
+             Enum.find(context_payload.skills, &(&1.skill_name == "idea-lineage"))
+
+    assert Torque.decode!(lineage_metadata)["brain_recall_only"]
+
     assert {:ok, _lesson} =
              Library.create_skill_lesson(
                agent.uid,
@@ -1435,7 +1427,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
 
     pdf_overlay = hd(resolve_payload.overlays)
     assert pdf_overlay.has_overlay
-    assert %{"text" => rendered_lessons} = Torque.decode!(pdf_overlay.overlay_json)
+    rendered_lessons = pdf_overlay.text
     assert rendered_lessons =~ "Field notes (dated; verify against the current environment):"
     assert rendered_lessons =~ ", human] Prefer page-by-page verification."
     refute List.last(resolve_payload.overlays).has_overlay

@@ -175,43 +175,4 @@ defmodule AnkoleWeb.AgentControllerTest do
              }
            } = json_response(conn, 422)
   end
-
-  test "legacy agents without a display name remain readable and updatable", %{conn: conn} do
-    %{principal: legacy_agent} =
-      agent_fixture(%{uid: unique_uid("legacy-agent"), display_name: nil})
-
-    legacy_agent_uid = legacy_agent.uid
-
-    conn =
-      conn
-      |> bearer_conn()
-      |> get(~p"/api/v1/agents/#{legacy_agent_uid}")
-
-    assert %{"agent" => %{"display_name" => nil}} = json_response(conn, 200)
-
-    conn =
-      conn
-      |> recycle_api()
-      |> patch(~p"/api/v1/agents/#{legacy_agent_uid}", %{"role" => "Legacy Operator"})
-
-    assert %{
-             "agent" => %{
-               "display_name" => nil,
-               "role" => "Legacy Operator",
-               "uid" => ^legacy_agent_uid
-             }
-           } = json_response(conn, 200)
-
-    conn =
-      conn
-      |> recycle_api()
-      |> patch(~p"/api/v1/agents/#{legacy_agent_uid}", %{"display_name" => "   "})
-
-    assert %{
-             "error" => %{
-               "code" => "validation_failed",
-               "message" => "display_name is required"
-             }
-           } = json_response(conn, 422)
-  end
 end

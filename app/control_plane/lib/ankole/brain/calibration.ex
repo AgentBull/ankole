@@ -39,6 +39,7 @@ defmodule Ankole.Brain.Calibration do
 
         takes =
           Claim
+          |> Claims.filter_live_parents()
           |> where([claim], claim.claim_type == "take" and claim.active == true)
           |> where([claim], is_nil(claim.resolved_at))
           |> where(
@@ -143,6 +144,7 @@ defmodule Ankole.Brain.Calibration do
   def calibration_profile do
     scored =
       Claim
+      |> Claims.filter_live_parents()
       |> where([claim], claim.claim_type == "take")
       |> where([claim], claim.resolved_quality in ["correct", "incorrect"])
       |> Repo.all()

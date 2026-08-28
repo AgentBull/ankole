@@ -8,8 +8,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BrainBrokerTest do
   import Ankole.PrincipalsFixtures
 
   alias Ankole.Brain.Claims
+  alias Ankole.Brain.LibraryKnowledge
   alias Ankole.Brain.Objects
   alias Ankole.Brain.SchemaPacks
+  alias Ankole.AIAgent.Library
   alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.SignalsGateway.ActorRuntime.BrainBroker
   alias Ankole.SignalsGateway.ActorRuntime.TurnRef
@@ -264,6 +266,45 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BrainBrokerTest do
       assert {:ok, fallback} = BrainBroker.handle_remember(context.turn_ref, miss, @ctx)
       assert fallback["object_slug"] == "agents/" <> context.agent.uid
     end
+
+    test "does not resolve a disabled lazy Skill as the memory parent", context do
+      lazy_set = %{
+        kind: :lazy_skills,
+        set_id: "remember-lazy-visibility",
+        name: "Remember lazy visibility",
+        skills: [
+          %{
+            name: "idea-lineage",
+            description: "Trace an idea evolution from stored lineage evidence.",
+            metadata: %{"tags" => ["hidden-lineage-route"]},
+            source_hash: "remember-visibility-v1",
+            files: []
+          }
+        ]
+      }
+
+      assert {:ok, _report} = LibraryKnowledge.sync(sets: [lazy_set])
+      assert {:ok, _sync} = Library.sync_agent_skills(context.agent.uid)
+
+      assert {:ok, _skill} =
+               Library.set_agent_skill_override(
+                 context.agent.uid,
+                 "brain:idea-lineage",
+                 false
+               )
+
+      request =
+        brain_request(%{
+          "claim" => "An idea lineage trace needs stored lineage evidence",
+          "kind" => "fact",
+          "scope" => "world",
+          "entity" => "hidden-lineage-route",
+          "provenance" => "test"
+        })
+
+      assert {:ok, result} = BrainBroker.handle_remember(context.turn_ref, request, @ctx)
+      assert result["object_slug"] == "agents/" <> context.agent.uid
+    end
   end
 
   describe "disclosure" do
@@ -378,6 +419,56 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BrainBrokerTest do
       assert {:ok, result} = BrainBroker.handle_recall(turn_ref, request, @ctx)
       refute context.private_fact.id in Enum.map(result["claims"], & &1["id"])
     end
+
+    test "a scheduled group chat discloses nothing when its member group is unavailable",
+         context do
+      unresolved_channel = insert_channel!(:im_group, nil)
+      event = insert_actor_event!(context.agent.uid, nil, unresolved_channel.id)
+      turn_ref = %{context.turn_ref | actor_event_id: event.id}
+
+      request = brain_request(%{"query" => "wire format secret"})
+      assert {:ok, result} = BrainBroker.handle_recall(turn_ref, request, @ctx)
+      refute context.private_fact.id in Enum.map(result["claims"], & &1["id"])
+    end
+
+    test "a strict group chat does not degrade to asker-only disclosure", context do
+      unresolved_channel = insert_channel!(:im_group, nil)
+      event = insert_actor_event!(context.agent.uid, context.asker.uid, unresolved_channel.id)
+      turn_ref = %{context.turn_ref | actor_event_id: event.id}
+
+      request = brain_request(%{"query" => "wire format secret"})
+      assert {:ok, result} = BrainBroker.handle_recall(turn_ref, request, @ctx)
+      refute context.private_fact.id in Enum.map(result["claims"], & &1["id"])
+    end
+
+    test "a scheduled reply checks every delivery target", context do
+      insert_entry!(context.dm_channel.id, context.asker.uid)
+
+      delivery = %{
+        "targets" => [
+          %{
+            "binding_name" => "test-binding",
+            "signal_channel_id" => context.dm_channel.id
+          },
+          %{
+            "binding_name" => "second-binding",
+            "signal_channel_id" => context.group_channel.id
+          }
+        ]
+      }
+
+      event =
+        insert_actor_event!(context.agent.uid, nil, context.dm_channel.id, %{
+          type: "cron.fire",
+          payload: %{"data" => %{"wake_payload" => %{"delivery" => delivery}}}
+        })
+
+      turn_ref = %{context.turn_ref | actor_event_id: event.id}
+      request = brain_request(%{"query" => "wire format secret"})
+
+      assert {:ok, result} = BrainBroker.handle_recall(turn_ref, request, @ctx)
+      refute context.private_fact.id in Enum.map(result["claims"], & &1["id"])
+    end
   end
 
   test "the context pack carries what a participant holds in this channel", context do
@@ -412,6 +503,107 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BrainBrokerTest do
     assert [card] = pack["entities"]
     assert card["slug"] == speaker_slug
     assert Enum.any?(card["facts"], &(&1["claim"] =~ "written summary"))
+  end
+
+  describe "learn_source" do
+    test "a channel-less turn defaults to the agent's own scope and enqueues the run",
+         context do
+      url = "https://example.com/paper-#{System.unique_integer([:positive])}"
+      request = brain_request(%{"url" => url})
+
+      assert {:ok, result} = BrainBroker.handle_learn_source(context.turn_ref, request, @ctx)
+      assert result["status"] == "learning"
+      assert result["audience_scope"] == "principal:" <> context.agent.uid
+
+      source = Repo.get_by!(Ankole.Brain.Schemas.Source, kind: "url", upstream_id: url)
+      assert source.default_audience_scope == "principal:" <> context.agent.uid
+
+      assert [_job] =
+               Repo.all(
+                 from job in Oban.Job, where: job.worker == "Ankole.Brain.Jobs.LearnSource"
+               )
+
+      # The same url reuses the Source and re-runs learning.
+      assert {:ok, again} = BrainBroker.handle_learn_source(context.turn_ref, request, @ctx)
+      assert again["source_id"] == result["source_id"]
+
+      assert [_only] =
+               Repo.all(
+                 from source in Ankole.Brain.Schemas.Source,
+                   where: source.kind == "url" and source.upstream_id == ^url
+               )
+    end
+
+    test "a DM turn defaults to the asker's principal scope", context do
+      %{principal: asker} = human_fixture()
+      dm = insert_channel!(:im_dm, nil)
+      event = insert_actor_event!(context.agent.uid, asker.uid, dm.id)
+      turn_ref = %{context.turn_ref | actor_event_id: event.id}
+
+      url = "https://example.com/dm-#{System.unique_integer([:positive])}"
+
+      assert {:ok, result} =
+               BrainBroker.handle_learn_source(turn_ref, brain_request(%{"url" => url}), @ctx)
+
+      assert result["audience_scope"] == "principal:" <> asker.uid
+    end
+
+    test "a member-backed group turn defaults to the group scope", context do
+      {:ok, group} =
+        Ankole.AuthZ.create_principal_group(%{
+          name: "learn-team-#{System.unique_integer([:positive])}",
+          display_name: "Learn Team",
+          domain: :operator,
+          kind: :static
+        })
+
+      {:ok, _membership} = Ankole.AuthZ.add_principal_to_group(context.agent.uid, group.id)
+      channel = insert_channel!(:im_group, group.id)
+      event = insert_actor_event!(context.agent.uid, nil, channel.id)
+      turn_ref = %{context.turn_ref | actor_event_id: event.id}
+
+      url = "https://example.com/group-#{System.unique_integer([:positive])}"
+
+      assert {:ok, result} =
+               BrainBroker.handle_learn_source(turn_ref, brain_request(%{"url" => url}), @ctx)
+
+      assert result["audience_scope"] == "group:" <> group.name
+    end
+
+    test "a group without a member group names the blocker instead of guessing", context do
+      channel = insert_channel!(:im_group, nil)
+      event = insert_actor_event!(context.agent.uid, nil, channel.id)
+      turn_ref = %{context.turn_ref | actor_event_id: event.id}
+
+      url = "https://example.com/orphan-#{System.unique_integer([:positive])}"
+
+      assert {:error, payload} =
+               BrainBroker.handle_learn_source(turn_ref, brain_request(%{"url" => url}), @ctx)
+
+      assert payload["code"] == "im_group_without_member_group"
+    end
+
+    test "an explicit world scope applies and a non-http url is refused", context do
+      url = "https://example.com/world-#{System.unique_integer([:positive])}"
+
+      assert {:ok, result} =
+               BrainBroker.handle_learn_source(
+                 context.turn_ref,
+                 brain_request(%{"url" => url, "scope" => "world"}),
+                 @ctx
+               )
+
+      assert result["audience_scope"] == "world"
+
+      assert {:error, payload} =
+               BrainBroker.handle_learn_source(
+                 context.turn_ref,
+                 brain_request(%{"url" => "ftp://example.com/file"}),
+                 @ctx
+               )
+
+      assert payload["code"] == "invalid_url"
+    end
   end
 
   defp insert_channel!(kind, principal_group_id) do
@@ -459,19 +651,25 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BrainBrokerTest do
     )
   end
 
-  defp insert_actor_event!(agent_uid, sender_uid, channel_id) do
-    Repo.insert!(%Ankole.SignalsGateway.ActorEvent{
-      agent_uid: agent_uid,
-      binding_name: "test-binding",
-      session_id: "session-#{System.unique_integer([:positive])}",
-      source_event_id: "event-#{System.unique_integer([:positive])}",
-      signal_channel_id: channel_id,
-      type: "signal",
-      available_at: DateTime.utc_now(:microsecond),
-      queue_sequence: System.unique_integer([:positive]),
-      sender_key: sender_uid,
-      payload: %{}
-    })
+  defp insert_actor_event!(agent_uid, sender_uid, channel_id, overrides \\ %{}) do
+    attrs =
+      Map.merge(
+        %{
+          agent_uid: agent_uid,
+          binding_name: "test-binding",
+          session_id: "session-#{System.unique_integer([:positive])}",
+          source_event_id: "event-#{System.unique_integer([:positive])}",
+          signal_channel_id: channel_id,
+          type: "signal",
+          available_at: DateTime.utc_now(:microsecond),
+          queue_sequence: System.unique_integer([:positive]),
+          sender_key: sender_uid,
+          payload: %{}
+        },
+        overrides
+      )
+
+    Repo.insert!(struct!(Ankole.SignalsGateway.ActorEvent, attrs))
   end
 
   defp brain_request(params) do

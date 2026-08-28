@@ -5,7 +5,8 @@ import { jsonBytes } from '../src/fabric/envelope_proto'
 import { JSONPassthroughResponseSchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import type { ActorTurnRef } from '../src/lanes/actor_lane'
 import { brainRPCRequester, type RPCRequester } from '../src/lanes/rpc_lane'
-import { createBrainTools } from '../src/tools/brain/brain-tools'
+import { createBrainJobTools, createBrainTools } from '../src/tools/brain/brain-tools'
+import type { SkillLoader } from '../src/skills/skill-loader'
 
 const turn: ActorTurnRef = {
   actor: { agent_uid: 'agent-brain', session_id: 'session-1' },
@@ -25,21 +26,50 @@ function brainRPC(expectedMethod: string, body: JSONObject, onParams?: (params: 
   }) as RPCRequester
 }
 
-function brainTools(rpc: RPCRequester) {
-  return createBrainTools({ requestBrainRPC: brainRPCRequester(rpc, turn) })
+function brainTools(rpc: RPCRequester, skillLoader?: SkillLoader) {
+  return createBrainTools({ requestBrainRPC: brainRPCRequester(rpc, turn), skillLoader })
 }
 
-function brainTool(rpc: RPCRequester, name: string) {
-  const tool = brainTools(rpc).find(candidate => candidate.name === name)
+function brainTool(rpc: RPCRequester, name: string, skillLoader?: SkillLoader) {
+  const tool = brainTools(rpc, skillLoader).find(candidate => candidate.name === name)
   if (!tool) throw new Error(`missing brain tool ${name}`)
   return tool
 }
 
+function brainJobTool(rpc: RPCRequester, name: string, skillLoader?: SkillLoader) {
+  const tool = createBrainJobTools({ requestBrainRPC: brainRPCRequester(rpc, turn), skillLoader }).find(
+    candidate => candidate.name === name
+  )
+  if (!tool) throw new Error(`missing Brain Job tool ${name}`)
+  return tool
+}
+
 describe('@ankole/agent-computer brain tools', () => {
-  it('registers the eight memory tools', () => {
+  it('registers the nine memory tools', () => {
     const names = brainTools(brainRPC('unused', {})).map(tool => tool.name)
 
-    expect(names).toEqual(['remember', 'recall', 'get_page', 'forget', 'entity', 'whoknows', 'synthesize', 'delta'])
+    expect(names).toEqual([
+      'remember',
+      'learn_source',
+      'recall',
+      'get_page',
+      'forget',
+      'entity',
+      'whoknows',
+      'synthesize',
+      'delta'
+    ])
+  })
+
+  it('validates learn_source urls and scope', () => {
+    const rpc = brainRPC('unused', {})
+    const tool = brainTool(rpc, 'learn_source')
+
+    expect(tool.schema.safeParse({ url: 'https://example.com/paper' }).success).toBe(true)
+    expect(tool.schema.safeParse({ url: 'https://example.com/paper', scope: 'world' }).success).toBe(true)
+    expect(tool.schema.safeParse({ url: 'ftp://example.com/file' }).success).toBe(false)
+    expect(tool.schema.safeParse({ url: 'example.com/no-protocol' }).success).toBe(false)
+    expect(tool.schema.safeParse({ url: 'https://example.com', scope: 'company:x' }).success).toBe(false)
   })
 
   it('validates remember scope, kinds, and required provenance', () => {
@@ -146,4 +176,158 @@ describe('@ankole/agent-computer brain tools', () => {
       expect(result.details).toEqual({ ok: true })
     }
   })
+
+  it('adds the lazy Skill hint only when recall returns a lazy Skill slug', async () => {
+    const loader = fakeSkillLoader([])
+    const lazy = brainJobTool(
+      brainRPC('brain.recall', {
+        chunks: [{ object_slug: 'lazyload-agent-skills/voice-drafting-method', text: 'Draft by listening.' }]
+      }),
+      'recall',
+      loader
+    )
+    const ordinary = brainJobTool(
+      brainRPC('brain.recall', { chunks: [{ object_slug: 'concepts/voice', text: 'Voice.' }] }),
+      'recall',
+      loader
+    )
+
+    const lazyResult = await lazy.execute('brain-lazy', { query: 'voice drafting' })
+    const ordinaryResult = await ordinary.execute('brain-ordinary', { query: 'voice drafting' })
+    const lazyText = lazyResult.content[0]?.type === 'text' ? lazyResult.content[0].text : ''
+    const ordinaryText = ordinaryResult.content[0]?.type === 'text' ? ordinaryResult.content[0].text : ''
+
+    expect(lazyText).toStartWith('Use skill_view to load lazyload-agent-skills/ results.\n')
+    expect(ordinaryText).not.toContain('Use skill_view')
+    expect(lazyResult.details).toEqual({
+      chunks: [{ object_slug: 'lazyload-agent-skills/voice-drafting-method', text: 'Draft by listening.' }]
+    })
+  })
+
+  it('returns lazy Skill recall results without a skill_view hint when no loader exists', async () => {
+    const details = {
+      chunks: [{ object_slug: 'lazyload-agent-skills/voice-drafting-method', text: 'Draft by listening.' }]
+    }
+    const tool = brainJobTool(brainRPC('brain.recall', details), 'recall')
+
+    const result = await tool.execute('brain-lazy-without-loader', { query: 'voice drafting' })
+    const text = result.content[0]?.type === 'text' ? result.content[0].text : ''
+
+    expect(text).not.toContain('Use skill_view')
+    expect(result.details).toEqual(details)
+  })
+
+  it('delegates an exact lazy Skill slug without calling Brain', async () => {
+    const loadedNames: string[] = []
+    const loader = fakeSkillLoader(loadedNames)
+    const rpc = (async () => {
+      throw new Error('exact lazy Skill slug must bypass Brain get_page')
+    }) as RPCRequester
+    const tool = brainJobTool(rpc, 'get_page', loader)
+
+    const result = await tool.execute('brain-lazy-page', {
+      reference: 'lazyload-agent-skills/voice-drafting-method'
+    })
+    const text = result.content[0]?.type === 'text' ? result.content[0].text : ''
+
+    expect(loadedNames).toEqual(['voice-drafting-method'])
+    expect(text).toStartWith(
+      'This is a Skill discovery record; get_page delegated to skill_view("voice-drafting-method") and returned the loaded Skill.\n'
+    )
+    expect(text).toContain('<external_content source="skill">')
+    expect(result.details).toEqual({
+      kind: 'skill',
+      name: 'voice-drafting-method',
+      path: 'SKILL.md',
+      loaded_via: 'skill_view'
+    })
+  })
+
+  it('reads an exact lazy Skill page through Brain when no loader exists', async () => {
+    let sent: JSONObject | undefined
+    const details = {
+      page: { slug: 'lazyload-agent-skills/voice-drafting-method', title: 'Voice drafting' }
+    }
+    const tool = brainJobTool(
+      brainRPC('brain.get_page', details, params => {
+        sent = params
+      }),
+      'get_page'
+    )
+
+    const result = await tool.execute('brain-lazy-page-without-loader', {
+      reference: 'lazyload-agent-skills/voice-drafting-method'
+    })
+
+    expect(sent).toEqual({ reference: 'lazyload-agent-skills/voice-drafting-method' })
+    expect(result.details).toEqual(details)
+  })
+
+  it('preserves Brain ambiguity and delegates only a resolved lazy Skill page', async () => {
+    const ambiguousLoads: string[] = []
+    const ambiguous = brainJobTool(
+      brainRPC('brain.get_page', {
+        candidates: [
+          { slug: 'lazyload-agent-skills/voice-drafting-method', title: 'Voice drafting' },
+          { slug: 'concepts/voice-drafting', title: 'Voice drafting concept' }
+        ]
+      }),
+      'get_page',
+      fakeSkillLoader(ambiguousLoads)
+    )
+    const resolvedLoads: string[] = []
+    const resolved = brainJobTool(
+      brainRPC('brain.get_page', {
+        page: { slug: 'lazyload-agent-skills/voice-drafting-method', title: 'Voice drafting' }
+      }),
+      'get_page',
+      fakeSkillLoader(resolvedLoads)
+    )
+
+    const ambiguousResult = await ambiguous.execute('brain-ambiguous', { reference: 'voice drafting' })
+    const resolvedResult = await resolved.execute('brain-resolved', { reference: 'voice drafting method' })
+
+    expect(ambiguousLoads).toEqual([])
+    expect(ambiguousResult.details).toHaveProperty('candidates')
+    expect(resolvedLoads).toEqual(['voice-drafting-method'])
+    expect(resolvedResult.details).toMatchObject({ kind: 'skill', loaded_via: 'skill_view' })
+  })
+
+  it('keeps a naturally resolved lazy Skill page as a Brain result when no loader exists', async () => {
+    let sent: JSONObject | undefined
+    const details = {
+      page: { slug: 'lazyload-agent-skills/voice-drafting-method', title: 'Voice drafting' }
+    }
+    const tool = brainJobTool(
+      brainRPC('brain.get_page', details, params => {
+        sent = params
+      }),
+      'get_page'
+    )
+
+    const result = await tool.execute('brain-resolved-without-loader', {
+      reference: 'voice drafting method'
+    })
+
+    expect(sent).toEqual({ reference: 'voice drafting method' })
+    expect(result.details).toEqual(details)
+  })
 })
+
+function fakeSkillLoader(loadedNames: string[]): SkillLoader {
+  return {
+    disable() {},
+    async load({ name }) {
+      loadedNames.push(name)
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `<skill name="${name}"><external_content source="skill"># Loaded</external_content></skill>`
+          }
+        ],
+        details: { name, path: 'SKILL.md' }
+      }
+    }
+  }
+}

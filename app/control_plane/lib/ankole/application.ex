@@ -33,8 +33,10 @@ defmodule Ankole.Application do
     #     provider stream.
     #   - SignalsGateway owns both preview and ActorRuntime supervision, keeping
     #     their restart escalation inside the SignalsGateway failure domain.
-    #   - RuntimeEvents after SignalsGateway: LISTEN is followed by a snapshot of
-    #     durable rows into exact per-key timers.
+    #   - Workflow after SignalsGateway: recovered runs can enqueue durable Actor
+    #     work only after the ActorRuntime supervision tree exists.
+    #   - RuntimeEvents after Workflow: LISTEN is followed by a snapshot of
+    #     durable rows into exact per-key timers, including active Workflow runs.
     #   - Endpoint last: accept web traffic only after every subsystem it serves
     #     (auth, config, plugins, actors, i18n) is ready.
     children =
@@ -55,7 +57,8 @@ defmodule Ankole.Application do
         {Task.Supervisor,
          name: Ankole.AIGateway.ResponseRecoveryTaskSupervisor, max_children: 16},
         Ankole.AIGateway.ResponseStream.Supervisor,
-        Ankole.SignalsGateway.Supervisor
+        Ankole.SignalsGateway.Supervisor,
+        Ankole.Workflow.Supervisor
       ]
 
     children =

@@ -77,6 +77,23 @@ defmodule Ankole.RuntimeEventsTest do
              })
   end
 
+  test "workflow run ready events carry typed scheduling metadata" do
+    payload = %{"run_id" => 1_000}
+    channel = RuntimeEvents.workflow_run_ready_channel()
+
+    assert channel in RuntimeEvents.channels()
+
+    assert [
+             %Event{
+               kind: :workflow_run_ready,
+               channel: ^channel,
+               payload: ^payload,
+               due_at: nil,
+               timer_key: {^channel, 1_000}
+             }
+           ] = RuntimeEvents.expand(channel, payload)
+  end
+
   test "missing timer key fields preserve the old payload fallback key" do
     payload = %{"due_at" => DateTime.to_iso8601(~U[2026-07-07 10:00:00.000000Z])}
 

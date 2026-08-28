@@ -40,10 +40,14 @@ const DEFAULT_MAX_ERROR_BYTES: usize = 16 * 1024;
 const DEFAULT_MAX_TEXT_BYTES: usize = 64 * 1024;
 /// Bounds one image reference before it enters the shared output budget.
 const DEFAULT_MAX_IMAGE_BYTES: usize = 16 * 1024;
-/// Bounds the first tool-call batch that can pause a program.
+/// Sets the default size of the first tool-call batch that can pause a program.
 const DEFAULT_MAX_PENDING_CALLS: usize = 64;
-/// Bounds all arguments retained for one unanswered tool-call batch.
+/// Caps the first tool-call batch when a caller requests a larger limit.
+const HARD_MAX_PENDING_CALLS: usize = 1024;
+/// Sets the default byte limit for one unanswered tool-call batch.
 const DEFAULT_MAX_PENDING_BYTES: usize = 1024 * 1024;
+/// Caps pending argument bytes when a caller requests a larger limit.
+const HARD_MAX_PENDING_BYTES: usize = 8 * 1024 * 1024;
 /// Prevents one call from consuming the complete pending-call budget.
 const DEFAULT_MAX_PENDING_ARGUMENT_BYTES: usize = 256 * 1024;
 /// Bounds the replay steps that one request can supply.
@@ -262,8 +266,16 @@ impl ProgramState {
             failure: None,
             status: ProgramStatus::Running,
             max_output_bytes: capped(request.max_output_bytes, DEFAULT_MAX_OUTPUT_BYTES),
-            max_pending_calls: capped(request.max_pending_calls, DEFAULT_MAX_PENDING_CALLS),
-            max_pending_bytes: capped(request.max_pending_bytes, DEFAULT_MAX_PENDING_BYTES),
+            max_pending_calls: bounded(
+                request.max_pending_calls,
+                DEFAULT_MAX_PENDING_CALLS,
+                HARD_MAX_PENDING_CALLS,
+            ),
+            max_pending_bytes: bounded(
+                request.max_pending_bytes,
+                DEFAULT_MAX_PENDING_BYTES,
+                HARD_MAX_PENDING_BYTES,
+            ),
             max_pending_argument_bytes: DEFAULT_MAX_PENDING_ARGUMENT_BYTES,
         }
     }
@@ -927,6 +939,10 @@ fn qualified_name(namespace: Option<&str>, name: &str) -> String {
 
 fn capped(requested: Option<usize>, hard_max: usize) -> usize {
     requested.unwrap_or(hard_max).min(hard_max)
+}
+
+fn bounded(requested: Option<usize>, default: usize, hard_max: usize) -> usize {
+    requested.unwrap_or(default).min(hard_max)
 }
 
 fn bounded_message(message: &str) -> String {

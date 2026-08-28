@@ -553,6 +553,13 @@ fn golden_dir() -> std::path::PathBuf {
 }
 
 fn golden_turn_start(max_completion_tokens: Option<u32>) -> proto::Envelope {
+    let cron_event = proto::ActorEventEnvelope {
+        r#type: "cron.fire".into(),
+        payload_json: br#"{"data":{"wake_payload":{"cron_schedule_name":"golden","payload":{}}}}"#
+            .to_vec(),
+        ..actor_event()
+    };
+
     base_envelope(
         "golden-turn-start-1",
         "golden-turn-start-1",
@@ -560,7 +567,7 @@ fn golden_turn_start(max_completion_tokens: Option<u32>) -> proto::Envelope {
         proto::DurabilityClass::ControlReplayable,
         proto::envelope::Body::TurnStart(proto::TurnStart {
             turn: Some(turn_ref()),
-            actor_event: Some(actor_event()),
+            actor_event: Some(cron_event),
             model_ref: Some(proto::TurnModelRef {
                 profile: "chat".into(),
                 provider_id: "openrouter-main".into(),
@@ -573,7 +580,7 @@ fn golden_turn_start(max_completion_tokens: Option<u32>) -> proto::Envelope {
                 supports_parallel_tool_calls: false,
                 context_length: None,
             }),
-            request_context_json: br#"{"kind":"schedule","silent_success_allowed":true}"#.to_vec(),
+            request_context_json: br#"{"schedule_origin":{"cron_schedule_name":"golden","payload":{}},"silent_success_allowed":true}"#.to_vec(),
             hosted_tools_json: br#"[{"type":"image_generation"}]"#.to_vec(),
             runtime_env: Default::default(),
             workspace_id: 10_000,
@@ -598,130 +605,200 @@ fn golden_worker_ready() -> proto::Envelope {
     )
 }
 
+fn golden_brain_recall_request() -> proto::Envelope {
+    base_envelope(
+        "golden-rpc-brain-recall-request-1",
+        "golden-rpc-brain-recall-1",
+        RPCLane,
+        proto::DurabilityClass::ControlEphemeral,
+        RPCRequestBody(proto::RpcRequest {
+            request_id: "golden-rpc-brain-recall-1".into(),
+            method: "brain.recall".into(),
+            deadline_unix_ms: 1_782_300_001_000,
+            payload: proto::BrainRequest {
+                params_json: br#"{"budget_tokens":512,"query":"golden memory"}"#.to_vec(),
+            }
+            .encode_to_vec(),
+            turn: Some(turn_ref()),
+            agent_uid: String::new(),
+        }),
+    )
+}
+
+fn golden_brain_recall_response() -> proto::Envelope {
+    base_envelope(
+        "golden-rpc-brain-recall-response-1",
+        "golden-rpc-brain-recall-1",
+        RPCLane,
+        proto::DurabilityClass::ControlEphemeral,
+        RPCResponseBody(proto::RpcResponse {
+            request_id: "golden-rpc-brain-recall-1".into(),
+            payload: proto::JsonPassthroughResponse {
+                body_json:
+                    br#"{"chunks":[{"object_slug":"concepts/golden","text":"Golden memory."}]}"#
+                        .to_vec(),
+            }
+            .encode_to_vec(),
+        }),
+    )
+}
+
+fn golden_skill_overlay_resolve_request() -> proto::Envelope {
+    base_envelope(
+        "golden-rpc-skill-overlay-resolve-request-1",
+        "golden-rpc-skill-overlay-resolve-1",
+        RPCLane,
+        proto::DurabilityClass::ControlEphemeral,
+        RPCRequestBody(proto::RpcRequest {
+            request_id: "golden-rpc-skill-overlay-resolve-1".into(),
+            method: "skills.overlay.resolve".into(),
+            deadline_unix_ms: 1_782_300_001_000,
+            payload: proto::SkillOverlayResolveRequest {
+                skill_names: vec!["pdf".into(), "xlsx".into()],
+            }
+            .encode_to_vec(),
+            turn: Some(turn_ref()),
+            agent_uid: String::new(),
+        }),
+    )
+}
+
+fn golden_skill_overlay_resolve_response() -> proto::Envelope {
+    base_envelope(
+        "golden-rpc-skill-overlay-resolve-response-1",
+        "golden-rpc-skill-overlay-resolve-1",
+        RPCLane,
+        proto::DurabilityClass::ControlEphemeral,
+        RPCResponseBody(proto::RpcResponse {
+            request_id: "golden-rpc-skill-overlay-resolve-1".into(),
+            payload: proto::SkillOverlayResolveResponse {
+                overlays: vec![
+                    proto::SkillOverlayResponse {
+                        skill_name: "pdf".into(),
+                        has_overlay: true,
+                        text: "Prefer page-by-page verification.".into(),
+                        content_hash: "overlay-hash-pdf".into(),
+                    },
+                    proto::SkillOverlayResponse {
+                        skill_name: "xlsx".into(),
+                        has_overlay: false,
+                        text: String::new(),
+                        content_hash: "overlay-hash-xlsx".into(),
+                    },
+                ],
+            }
+            .encode_to_vec(),
+        }),
+    )
+}
+
+fn read_golden(name: &str) -> proto::Envelope {
+    let bytes = std::fs::read(golden_dir().join(name)).expect("golden fixture");
+    validate_envelope_bytes(&bytes).expect("golden fixture must validate");
+    proto::Envelope::decode(bytes.as_slice()).expect("golden fixture must decode")
+}
+
 #[test]
 #[ignore = "writes the committed golden fixtures; run explicitly after protocol changes"]
 fn regenerate_golden_envelope_fixtures() {
     let dir = golden_dir();
     std::fs::create_dir_all(&dir).expect("golden dir");
 
-    std::fs::write(
-        dir.join("turn_start.v4.bin"),
-        golden_turn_start(Some(32_000)).encode_to_vec(),
-    )
-    .expect("turn_start fixture");
-    std::fs::write(
-        dir.join("worker_ready.v4.bin"),
-        golden_worker_ready().encode_to_vec(),
-    )
-    .expect("worker_ready fixture");
+    for (name, envelope) in [
+        ("turn_start.v5.bin", golden_turn_start(Some(32_000))),
+        ("worker_ready.v5.bin", golden_worker_ready()),
+        (
+            "rpc_brain_recall_request.v5.bin",
+            golden_brain_recall_request(),
+        ),
+        (
+            "rpc_brain_recall_response.v5.bin",
+            golden_brain_recall_response(),
+        ),
+        (
+            "rpc_skill_overlay_resolve_request.v5.bin",
+            golden_skill_overlay_resolve_request(),
+        ),
+        (
+            "rpc_skill_overlay_resolve_response.v5.bin",
+            golden_skill_overlay_resolve_response(),
+        ),
+    ] {
+        std::fs::write(dir.join(name), envelope.encode_to_vec()).expect("golden fixture");
+    }
 }
 
 #[test]
 fn golden_fixtures_stay_valid_and_decode_to_the_expected_structs() {
-    let with_field =
-        std::fs::read(golden_dir().join("turn_start.v4.bin")).expect("turn_start fixture");
-    validate_envelope_bytes(&with_field).expect("turn_start fixture must validate");
     assert_eq!(
-        proto::Envelope::decode(with_field.as_slice()).expect("turn_start fixture decodes"),
+        read_golden("turn_start.v5.bin"),
         golden_turn_start(Some(32_000))
     );
+    assert_eq!(read_golden("worker_ready.v5.bin"), golden_worker_ready());
 
-    let worker_ready =
-        std::fs::read(golden_dir().join("worker_ready.v4.bin")).expect("worker_ready fixture");
-    validate_envelope_bytes(&worker_ready).expect("worker_ready fixture must validate");
+    let brain_request = read_golden("rpc_brain_recall_request.v5.bin");
+    assert_eq!(brain_request, golden_brain_recall_request());
+    let Some(RPCRequestBody(brain_request)) = brain_request.body else {
+        panic!("expected brain recall rpc_request fixture");
+    };
+    let brain_request = proto::BrainRequest::decode(brain_request.payload.as_slice())
+        .expect("brain request payload");
     assert_eq!(
-        proto::Envelope::decode(worker_ready.as_slice()).expect("worker_ready fixture decodes"),
-        golden_worker_ready()
+        serde_json::from_slice::<serde_json::Value>(&brain_request.params_json)
+            .expect("brain params json"),
+        serde_json::json!({"budget_tokens": 512, "query": "golden memory"})
     );
 
-    // Older versions remain structurally decodable by Protobuf, but the semantic
-    // validator must reject them before an old worker can enter the ready pool or
-    // exchange typed RPC payloads with a version 4 control plane.
-    let version_3_turn =
-        std::fs::read(golden_dir().join("turn_start.v3.bin")).expect("version 3 turn fixture");
+    let brain_response = read_golden("rpc_brain_recall_response.v5.bin");
+    assert_eq!(brain_response, golden_brain_recall_response());
+    let Some(RPCResponseBody(brain_response)) = brain_response.body else {
+        panic!("expected brain recall rpc_response fixture");
+    };
+    let brain_response = proto::JsonPassthroughResponse::decode(brain_response.payload.as_slice())
+        .expect("brain response payload");
     assert_eq!(
-        proto::Envelope::decode(version_3_turn.as_slice())
-            .expect("version 3 turn fixture decodes structurally")
-            .protocol_version,
-        3
-    );
-    assert!(
-        validate_envelope_bytes(&version_3_turn)
-            .unwrap_err()
-            .to_string()
-            .contains("unsupported runtime fabric protocol version: 3")
+        serde_json::from_slice::<serde_json::Value>(&brain_response.body_json)
+            .expect("brain response json"),
+        serde_json::json!({
+            "chunks": [{"object_slug": "concepts/golden", "text": "Golden memory."}]
+        })
     );
 
-    let version_3_worker =
-        std::fs::read(golden_dir().join("worker_ready.v3.bin")).expect("version 3 worker fixture");
-    assert!(
-        validate_envelope_bytes(&version_3_worker)
-            .unwrap_err()
-            .to_string()
-            .contains("unsupported runtime fabric protocol version: 3")
-    );
+    let overlay_request = read_golden("rpc_skill_overlay_resolve_request.v5.bin");
+    assert_eq!(overlay_request, golden_skill_overlay_resolve_request());
+    let Some(RPCRequestBody(overlay_request)) = overlay_request.body else {
+        panic!("expected skill overlay rpc_request fixture");
+    };
+    let overlay_request =
+        proto::SkillOverlayResolveRequest::decode(overlay_request.payload.as_slice())
+            .expect("skill overlay request payload");
+    assert_eq!(overlay_request.skill_names, ["pdf", "xlsx"]);
 
-    let version_2_turn =
-        std::fs::read(golden_dir().join("turn_start.v2.bin")).expect("version 2 turn fixture");
+    let overlay_response = read_golden("rpc_skill_overlay_resolve_response.v5.bin");
+    assert_eq!(overlay_response, golden_skill_overlay_resolve_response());
+    let Some(RPCResponseBody(overlay_response)) = overlay_response.body else {
+        panic!("expected skill overlay rpc_response fixture");
+    };
+    let overlay_response =
+        proto::SkillOverlayResolveResponse::decode(overlay_response.payload.as_slice())
+            .expect("skill overlay response payload");
     assert_eq!(
-        proto::Envelope::decode(version_2_turn.as_slice())
-            .expect("version 2 turn fixture decodes structurally")
-            .protocol_version,
-        2
-    );
-    assert!(
-        validate_envelope_bytes(&version_2_turn)
-            .unwrap_err()
-            .to_string()
-            .contains("unsupported runtime fabric protocol version: 2")
-    );
-
-    let version_2_worker =
-        std::fs::read(golden_dir().join("worker_ready.v2.bin")).expect("version 2 worker fixture");
-    assert!(
-        validate_envelope_bytes(&version_2_worker)
-            .unwrap_err()
-            .to_string()
-            .contains("unsupported runtime fabric protocol version: 2")
-    );
-
-    let legacy_turn =
-        std::fs::read(golden_dir().join("turn_start.v1.bin")).expect("legacy turn fixture");
-    assert_eq!(
-        proto::Envelope::decode(legacy_turn.as_slice())
-            .expect("legacy turn fixture decodes structurally")
-            .protocol_version,
-        1
-    );
-    assert!(
-        validate_envelope_bytes(&legacy_turn)
-            .unwrap_err()
-            .to_string()
-            .contains("unsupported runtime fabric protocol version: 1")
-    );
-
-    let pre_field = std::fs::read(golden_dir().join("turn_start.pre_max_completion_tokens.v1.bin"))
-        .expect("pre-field fixture");
-    let pre_field = proto::Envelope::decode(pre_field.as_slice())
-        .expect("pre-field fixture decodes structurally");
-    assert_eq!(pre_field.protocol_version, 1);
-    assert_eq!(
-        pre_field
-            .body
-            .and_then(|body| match body {
-                proto::envelope::Body::TurnStart(turn_start) => turn_start.model_ref,
-                _ => None,
-            })
-            .and_then(|model_ref| model_ref.max_completion_tokens),
-        None
-    );
-
-    let legacy_worker =
-        std::fs::read(golden_dir().join("worker_ready.v1.bin")).expect("legacy worker fixture");
-    assert!(
-        validate_envelope_bytes(&legacy_worker)
-            .unwrap_err()
-            .to_string()
-            .contains("unsupported runtime fabric protocol version: 1")
+        overlay_response,
+        proto::SkillOverlayResolveResponse {
+            overlays: vec![
+                proto::SkillOverlayResponse {
+                    skill_name: "pdf".into(),
+                    has_overlay: true,
+                    text: "Prefer page-by-page verification.".into(),
+                    content_hash: "overlay-hash-pdf".into(),
+                },
+                proto::SkillOverlayResponse {
+                    skill_name: "xlsx".into(),
+                    has_overlay: false,
+                    text: String::new(),
+                    content_hash: "overlay-hash-xlsx".into(),
+                },
+            ],
+        }
     );
 }

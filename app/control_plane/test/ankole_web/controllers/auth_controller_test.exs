@@ -5,9 +5,9 @@ defmodule AnkoleWeb.AuthControllerTest do
   alias Ankole.AppConfigure.Registry
   alias Ankole.AuthZ
   alias Ankole.IdentityProviders
+  alias Ankole.IdentityProviders.LocalPassword
   alias Ankole.IdentityProviders.LocalPassword.RetryGuard
   alias Ankole.Principals
-  alias Ankole.Principals.LocalCredentials
   alias Ankole.Principals.LocalCredential
   alias Ankole.Setup.Config, as: SetupConfig
   alias AnkoleWeb.ConsoleTokens
@@ -453,7 +453,7 @@ defmodule AnkoleWeb.AuthControllerTest do
         })
 
       assert %{"status" => "password_change_required"} = json_response(login_conn, 200)
-      assert {:ok, reset_password} = LocalCredentials.reset_local_password(principal.uid, true)
+      assert {:ok, reset_password} = LocalPassword.reset_local_password(principal.uid, true)
 
       replay =
         post(login_conn, ~p"/.internal-apis/sessions/local-password/change", %{
@@ -515,7 +515,7 @@ defmodule AnkoleWeb.AuthControllerTest do
 
   defp local_user_with_password(password, must_change \\ false) do
     %{principal: principal, human_user: human_user} = human_fixture()
-    {:ok, credential} = LocalCredentials.set_local_password(principal.uid, password, must_change)
+    {:ok, credential} = LocalPassword.set_local_password(principal.uid, password, must_change)
 
     %{
       principal: principal,

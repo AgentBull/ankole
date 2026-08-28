@@ -27,6 +27,7 @@ defmodule Ankole.SignalsGateway.Ingress do
   alias Ankole.SignalsGateway.IdentityAdmission
   alias Ankole.SignalsGateway.InboundBatches
   alias Ankole.SignalsGateway.IngressFact
+  alias Ankole.SignalsGateway.Outbox
   alias Ankole.SignalsGateway.Projection
   alias Ankole.SignalsGateway.ReplyReference
   alias Ankole.SignalsGateway.ReplyInteractions
@@ -370,6 +371,9 @@ defmodule Ankole.SignalsGateway.Ingress do
   end
 
   defp apply_entry_policy(repo, binding, fact, {:actor_event, type, command_payload}, now) do
+    {fact, command_payload} =
+      resolve_retry_target(repo, binding, fact, type, command_payload)
+
     fact = Map.put(fact, :command_payload, command_payload)
 
     with {:ok, channel} <- Projection.upsert_channel(repo, fact, now),
@@ -382,6 +386,95 @@ defmodule Ankole.SignalsGateway.Ingress do
          signal_entry: entry
        })}
     end
+  end
+
+  defp resolve_retry_target(
+         repo,
+         binding,
+         fact,
+         "command.retry",
+         %{"argsText" => args_text} = command
+       ) do
+    case retry_target_request(args_text, fact.reply_to_source_entry_id) do
+      :bare ->
+        {fact, command}
+
+      {:explicit, actor_event_id} ->
+        resolve_explicit_retry_target(repo, binding, fact, command, actor_event_id)
+
+      {:reply, provider_source_entry_id} ->
+        resolve_reply_retry_target(repo, binding, fact, command, provider_source_entry_id)
+
+      :invalid ->
+        unresolved_retry_target(fact, command)
+    end
+  end
+
+  defp resolve_retry_target(_repo, _binding, fact, _type, command), do: {fact, command}
+
+  defp retry_target_request(args_text, reply_to_source_entry_id) do
+    case String.trim(args_text) do
+      "" -> reply_retry_target_request(reply_to_source_entry_id)
+      actor_event_ref -> explicit_retry_target_request(actor_event_ref)
+    end
+  end
+
+  defp explicit_retry_target_request("actor-event::" <> actor_event_id)
+       when byte_size(actor_event_id) == 36 do
+    case Ecto.UUID.cast(actor_event_id) do
+      {:ok, actor_event_id} -> {:explicit, actor_event_id}
+      :error -> :invalid
+    end
+  end
+
+  defp explicit_retry_target_request(_actor_event_ref), do: :invalid
+
+  defp reply_retry_target_request(reply_to_source_entry_id)
+       when is_binary(reply_to_source_entry_id) and reply_to_source_entry_id != "",
+       do: {:reply, reply_to_source_entry_id}
+
+  defp reply_retry_target_request(_reply_to_source_entry_id), do: :bare
+
+  defp resolve_explicit_retry_target(repo, binding, fact, command, actor_event_id) do
+    case Outbox.durable_reply_surface_exists_in_tx?(
+           repo,
+           binding.agent_uid,
+           binding.name,
+           fact.signal_channel_id,
+           actor_event_id
+         ) do
+      true -> resolved_retry_target(repo, fact, command, actor_event_id)
+      false -> unresolved_retry_target(fact, command)
+    end
+  end
+
+  defp resolve_reply_retry_target(repo, binding, fact, command, provider_source_entry_id) do
+    case Outbox.resolve_durable_reply_actor_event_in_tx(
+           repo,
+           binding.agent_uid,
+           binding.name,
+           fact.signal_channel_id,
+           provider_source_entry_id
+         ) do
+      {:ok, actor_event_id} -> resolved_retry_target(repo, fact, command, actor_event_id)
+      {:error, :unresolved_reply_target} -> unresolved_retry_target(fact, command)
+    end
+  end
+
+  defp resolved_retry_target(repo, fact, command, actor_event_id) do
+    case repo.get(ActorEvent, actor_event_id) do
+      %ActorEvent{session_id: session_id} ->
+        fact = Map.put(fact, :session_id, session_id)
+        command = Map.put(command, "targetActorEventId", actor_event_id)
+        {fact, command}
+
+      nil ->
+        unresolved_retry_target(fact, command)
+    end
+  end
+
+  defp unresolved_retry_target(fact, command) do
+    {fact, Map.put(command, "targetActorEventId", nil)}
   end
 
   defp actor_event_append_result(%ActorEvent{} = actor_event, extra) do

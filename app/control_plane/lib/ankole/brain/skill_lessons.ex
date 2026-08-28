@@ -537,11 +537,14 @@ defmodule Ankole.Brain.SkillLessons do
           {:ok, result} ->
             stamp_lessons_applied(job)
 
+            # The count alone cannot tell harmless duplicates from a reflection
+            # that keeps re-proposing notes the Library gates already block.
             Logging.info("brain.skill_lessons.reflection_applied", "reflection output applied", %{
               job_id: job.id,
               agent_uid: job.agent_uid,
               accepted: length(result.accepted),
-              rejected: length(result.rejected)
+              rejected: length(result.rejected),
+              rejected_reasons: Enum.frequencies_by(result.rejected, & &1.reason)
             })
 
             :ok

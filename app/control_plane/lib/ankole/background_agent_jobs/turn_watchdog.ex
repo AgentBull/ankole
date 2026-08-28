@@ -163,6 +163,7 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdog do
     with {:ok, _result} <-
            TurnLifecycle.handle_turn_abort(turn_ref, stall_reason(plan),
              now: now,
+             async_work_unit: BackgroundAgentJobs,
              compensate_turn_error_in_tx: &__MODULE__.compensate_in_tx/4
            ) do
       TurnRetry.dispatch_retry_controls({:ok, %{retry_controls: plan.controls}})

@@ -47,14 +47,6 @@ export interface PiTurnState {
    */
   pendingToolResultFollowUps: PiUserMessage[]
   /**
-   * Shared with `stream-fn.ts`'s `run()`: the boundary in `context.messages`
-   * already sent to AIGateway (via `.call()` or `recordToolResultsEagerly`).
-   * Owned jointly because tool results are recorded eagerly, from
-   * `agent-loop.ts`'s `prepareNextTurnWithContext`, not from `run()` — see
-   * `stream-fn.ts`'s module doc for why that split exists.
-   */
-  cursor: number
-  /**
    * True once a tool call this round has already returned `terminate:true`.
    * pi executes every tool call the model requested in one round regardless
    * of an earlier one's `terminate` (unlike the old hand-rolled loop, which
@@ -97,7 +89,6 @@ export function createPiTurnState(): PiTurnState {
     toolCallMeta: new Map(),
     pendingCompleteActorEventIDs: [],
     pendingToolResultFollowUps: [],
-    cursor: 0,
     roundTerminated: false,
     activeToolCalls: new Map(),
     lastError: undefined

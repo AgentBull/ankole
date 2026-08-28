@@ -597,11 +597,8 @@ function ToolItemView({ item }: { item: ResponseItem }) {
     )
   }
 
-  // The runtime stopped writing the untrusted-content envelope in 0.59.0, but
-  // conversation rows stored before that change still carry it. Unwrap those
-  // rows and keep the nonce as provenance instead of dumping the wrapper
-  // markup into the reading column. Remove this unwrap when no stored
-  // conversation carries the envelope.
+  // Stable databases can retain rows written before the runtime stopped using
+  // this envelope. Decode it only at the stored-message presentation edge.
   const envelope = type === 'function_call_output' ? stripUntrustedEnvelope(raw) : null
   const body = envelope ? envelope.body : raw
 

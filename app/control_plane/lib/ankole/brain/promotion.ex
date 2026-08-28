@@ -20,6 +20,20 @@ defmodule Ankole.Brain.Promotion do
   alias Ankole.Repo
 
   @promoted_pack "promoted"
+  @library_projection_type "agent-skills"
+  @lazy_skill_prefix "lazyload-agent-skills/"
+
+  @doc "Lists promotion suggestions for the Console read model."
+  @spec list_for_console(String.t(), keyword()) :: [SchemaSuggestion.t()]
+  def list_for_console(status, opts) when is_binary(status) and is_list(opts) do
+    limit = Keyword.fetch!(opts, :limit)
+
+    SchemaSuggestion
+    |> where([suggestion], suggestion.status == ^status)
+    |> order_by([suggestion], desc: suggestion.created_at)
+    |> limit(^limit)
+    |> Repo.all()
+  end
 
   @doc """
   Approves one pending suggestion and materializes it.
@@ -64,19 +78,20 @@ defmodule Ankole.Brain.Promotion do
     primitive = attrs[:primitive] || "concept"
     prefix = attrs[:slug_prefix] || pluralized_prefix(term)
 
-    type = %SchemaType{
-      id: UUIDv7.autogenerate(),
-      name: term,
-      primitive: primitive,
-      slug_prefix: prefix,
-      subtypes: [],
-      extractable: attrs[:extractable] == true,
-      expert_routing: false,
-      pack_name: ensure_promoted_pack(repo),
-      created_at: DateTime.utc_now(:microsecond)
-    }
-
-    with {:ok, _type} <- repo.insert(type) do
+    with :ok <- reject_library_projection_type(term),
+         :ok <- reject_lazy_skill_prefix(prefix),
+         type = %SchemaType{
+           id: UUIDv7.autogenerate(),
+           name: term,
+           primitive: primitive,
+           slug_prefix: prefix,
+           subtypes: [],
+           extractable: attrs[:extractable] == true,
+           expert_routing: false,
+           pack_name: ensure_promoted_pack(repo),
+           created_at: DateTime.utc_now(:microsecond)
+         },
+         {:ok, _type} <- repo.insert(type) do
       migrated = retype_tagged_objects(repo, term, prefix)
       {:ok, %{status: :type_created, type: term, migrated: migrated}}
     end
@@ -85,18 +100,30 @@ defmodule Ankole.Brain.Promotion do
   defp materialize_subtype(repo, suggestion, attrs) do
     target = attrs[:target_type] || suggestion.target_type || "note"
 
-    case repo.get_by(SchemaType, name: target) do
-      nil ->
-        {:error, {:unknown_target_type, target}}
+    with :ok <- reject_library_projection_type(target) do
+      case repo.get_by(SchemaType, name: target) do
+        nil ->
+          {:error, {:unknown_target_type, target}}
 
-      %SchemaType{} = type ->
-        subtypes = Enum.uniq(type.subtypes ++ [suggestion.term])
+        %SchemaType{} = type ->
+          subtypes = Enum.uniq(type.subtypes ++ [suggestion.term])
 
-        with {:ok, _type} <- repo.update(Ecto.Changeset.change(type, subtypes: subtypes)) do
-          {:ok, %{status: :subtype_added, type: target, subtype: suggestion.term}}
-        end
+          with {:ok, _type} <- repo.update(Ecto.Changeset.change(type, subtypes: subtypes)) do
+            {:ok, %{status: :subtype_added, type: target, subtype: suggestion.term}}
+          end
+      end
     end
   end
+
+  defp reject_library_projection_type(@library_projection_type),
+    do: {:error, {:reserved_object_type, @library_projection_type}}
+
+  defp reject_library_projection_type(_type), do: :ok
+
+  defp reject_lazy_skill_prefix(@lazy_skill_prefix <> _rest = prefix),
+    do: {:error, {:reserved_object_slug_prefix, prefix}}
+
+  defp reject_lazy_skill_prefix(_prefix), do: :ok
 
   defp retype_tagged_objects(repo, term, prefix) do
     objects =
@@ -104,6 +131,7 @@ defmodule Ankole.Brain.Promotion do
       |> join(:inner, [object], tag in Tag, on: tag.object_slug == object.slug)
       |> where([_object, tag], tag.tag == ^term)
       |> where([object, _tag], is_nil(object.deleted_at))
+      |> where([object, _tag], is_nil(object.managed_by_source_id))
       |> select([object, _tag], object)
       |> distinct(true)
       |> repo.all()

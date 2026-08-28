@@ -13,6 +13,7 @@ defmodule Ankole.RuntimeEvents.Event do
           | :activation_deadline
           | :ai_message_deadline
           | :job_turn_deadline
+          | :workflow_run_ready
           | :unknown
 
   @enforce_keys [:kind, :channel, :payload, :timer_key]
@@ -48,6 +49,7 @@ defmodule Ankole.RuntimeEvents do
   @activation_deadline_channel "ankole_activation_deadline"
   @ai_message_deadline_channel "ankole_ai_message_deadline"
   @job_turn_deadline_channel "ankole_job_turn_deadline"
+  @workflow_run_ready_channel "ankole_workflow_run_ready"
 
   @actor_session_ready %{
     kind: :actor_session_ready,
@@ -132,6 +134,12 @@ defmodule Ankole.RuntimeEvents do
     timer_key_fields: ["job_id"]
   }
 
+  @workflow_run_ready %{
+    kind: :workflow_run_ready,
+    channel: @workflow_run_ready_channel,
+    timer_key_fields: ["run_id"]
+  }
+
   @notification_events [
     @actor_session_ready,
     @agent_home_projection,
@@ -142,7 +150,8 @@ defmodule Ankole.RuntimeEvents do
     @worker_deadline,
     @activation_deadline,
     @ai_message_deadline,
-    @job_turn_deadline
+    @job_turn_deadline,
+    @workflow_run_ready
   ]
 
   @handler_events [
@@ -156,7 +165,8 @@ defmodule Ankole.RuntimeEvents do
     @worker_delete_deadline,
     @activation_deadline,
     @ai_message_deadline,
-    @job_turn_deadline
+    @job_turn_deadline,
+    @workflow_run_ready
   ]
 
   @channels Enum.map(@notification_events, & &1.channel)
@@ -195,6 +205,10 @@ defmodule Ankole.RuntimeEvents do
 
   @spec job_turn_deadline_channel() :: String.t()
   def job_turn_deadline_channel, do: channel_for_kind!(:job_turn_deadline)
+
+  @doc false
+  @spec workflow_run_ready_channel() :: String.t()
+  def workflow_run_ready_channel, do: channel_for_kind!(:workflow_run_ready)
 
   @doc false
   @spec expand(String.t(), map()) :: [Event.t()]
@@ -302,6 +316,12 @@ defmodule Ankole.RuntimeEvents do
       "job_id" => job_id,
       "stuck_at" => encode_datetime(stuck_at)
     })
+  end
+
+  @doc false
+  @spec notify_workflow_run_ready(module(), pos_integer()) :: :ok | {:error, term()}
+  def notify_workflow_run_ready(repo, run_id) when is_integer(run_id) and run_id > 0 do
+    Notifier.notify_in_tx(repo, workflow_run_ready_channel(), %{"run_id" => run_id})
   end
 
   @spec encode_datetime(DateTime.t() | nil) :: String.t() | nil

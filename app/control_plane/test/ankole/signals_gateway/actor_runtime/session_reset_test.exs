@@ -470,7 +470,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionResetTest do
       cron_start = turn_start_payload!(cron_envelope)
       cron_turn_ref = cron_start.turn
       assert cron_start.actor_event.actor_event_id == cron_input.id
-      assert decoded_request_context(cron_start)["turn_mode"] == "cron"
+      assert cron_start.actor_event.type == "cron.fire"
+      refute Map.has_key?(decoded_request_context(cron_start), "turn_mode")
 
       assert {:ok, [_delivery]} =
                ActorRuntime.handle_turn_accepted(turn_accepted_payload(cron_turn_ref))

@@ -71,6 +71,12 @@ ankole-runtime: any
 
 Deep Research のエントリ Skill は `main` を使用します。元の会話で依頼を確認し、Job を作成するからです。調査用の Skill は Background Agent Job 内で実行できます。
 
+#### Ankole 拡張: Brain から Skill を発見する
+
+一部の SOP や方法論は、現在の作業に関連するときだけ役立ちます。すべての Prompt に表示すると context を浪費します。同梱 Skill は `brain-recall-only: true` を宣言できます。これは標準 Skill のままであり、Agent Plugin、Skill の有効化、実行 surface、`skill_view` の規則も変わりません。違いは、model に見える Skill カタログへ入れず、Brain が意味に基づいて発見することです。
+
+Brain は Skill の名前、説明、tag を検索します。一致した後、Agent は `skill_view` を呼び出します。`skill_view` は `ankole-runtime` に従い、互換性のある実行 surface では Skill を読み込み、それ以外では正しい routing または rejection の結果を返します。Skill または親 Agent Plugin を無効にすると、その Agent は Brain から発見することも読み込むこともできません。この意味検索の経路には、有効な Brain が必要です。この mode は、必要なときだけ利用でき、すべての Prompt を常に占有すべきではない同梱の方法論や SOP に適しています。
+
 ### Control Plane Plugin: 管理 platform を拡張する
 
 Control Plane Plugin は OpenAI Plugin ではなく、Agent の作業 context に入りません。Ankole control plane を拡張します。

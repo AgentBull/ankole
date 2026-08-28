@@ -18,14 +18,7 @@ describe('@ankole/agent-computer installed skill scanner', () => {
       writeSkill(skillDir, {
         name: 'agent-notes',
         description: '>-\n  Agent installed notes.',
-        extra: [
-          'tags:',
-          '  - "notes:custom"',
-          '  - custom',
-          'category: custom',
-          'disable-model-invocation: true',
-          'ankole-runtime: background_job'
-        ]
+        extra: ['tags:', '  - "notes:custom"', '  - custom', 'category: custom', 'ankole-runtime: background_job']
       })
 
       try {
@@ -42,7 +35,6 @@ describe('@ankole/agent-computer installed skill scanner', () => {
         default_enabled: true,
         tags: ['notes:custom', 'custom'],
         category: 'custom',
-        disable_model_invocation: true,
         ankole_runtime: 'background_job'
       })
 
@@ -67,7 +59,6 @@ describe('@ankole/agent-computer installed skill scanner', () => {
         description: 'Invalid runtime.',
         extra: ['ankole-runtime: worker']
       })
-
       try {
         symlinkSync(join(agentRoot, 'mismatch'), join(agentRoot, 'linked-skill'), 'dir')
       } catch {

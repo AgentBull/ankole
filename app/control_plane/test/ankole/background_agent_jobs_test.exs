@@ -5,15 +5,12 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
   alias Ankole.AIAgent.Library.AgentPlugins
   alias Ankole.AgentHomePaths
-  alias Ankole.AIGateway.ModelMetadata.Cache, as: ModelMetadataCache
-  alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.RuntimeProjection
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.BackgroundAgentJobs.Schemas.Turn
   alias Ankole.BackgroundAgentJobs.Schemas.TurnItem
-  alias Ankole.BackgroundAgentJobs.Text
   alias Ankole.BackgroundAgentJobs.Turns
   alias Ankole.Repo
 
@@ -54,16 +51,6 @@ defmodule Ankole.BackgroundAgentJobsTest do
                  match?({:ok, _job_id}, BackgroundAgentJobs.parse_job_session_id(value))
       end
     end
-  end
-
-  test "bounded trajectory excerpts preserve valid UTF-8 at both ends" do
-    excerpt = Text.truncate_utf8_window("开" <> String.duplicate("大", 100) <> "终", 64)
-
-    assert String.valid?(excerpt)
-    assert byte_size(excerpt) <= 64
-    assert String.starts_with?(excerpt, "开")
-    assert String.ends_with?(excerpt, "终")
-    assert excerpt =~ "[truncated]"
   end
 
   test "Turn changesets validate concrete progress and official usage snapshots" do
@@ -1460,6 +1447,21 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert first_attempt.runtime_projection["browser"] == %{"mode" => "persistent"}
     refute Map.has_key?(first_attempt.runtime_projection, "api_key")
 
+    assert %{
+             "id" => "brain:idea-lineage",
+             "name" => "idea-lineage",
+             "agent_plugin_id" => "brain"
+           } =
+             Enum.find(
+               first_attempt.runtime_projection["skills"],
+               &(&1["name"] == "idea-lineage")
+             )
+
+    assert %{"skills" => brain_skills} =
+             Enum.find(first_attempt.runtime_projection["agent_plugins"], &(&1["id"] == "brain"))
+
+    assert "idea-lineage" in brain_skills
+
     changed_spec = runtime_turn_start_spec("openai/gpt-5.6-terra")
 
     assert {:ok, second_attempt} =
@@ -1475,31 +1477,6 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert second_attempt.attempts == 2
     assert second_attempt.runtime_projection == first_attempt.runtime_projection
     assert second_attempt.runtime_projection["model_ref"]["model"] == "openai/gpt-5.6-sol"
-  end
-
-  test "a runtime projection discards the retired Codex compaction key" do
-    %{principal: agent} = background_agent_fixture()
-    job = create_job!(agent.uid, "retired-compaction-key")
-
-    assert {:ok, attempt} =
-             BackgroundAgentJobs.claim_attempt_in_tx(
-               Repo,
-               job.id,
-               agent.uid,
-               1,
-               runtime_turn_start_spec_for_provider("chatgpt_subscription"),
-               agent_slot_cap()
-             )
-
-    refute Map.has_key?(attempt.runtime_projection, "codex")
-    stop_claimed_job!(attempt)
-
-    # AIGateway serves the compaction protocol for every Provider, so a Job
-    # frozen while the retired key still existed keeps working without it.
-    frozen = Map.put(attempt.runtime_projection, "codex", %{"remote_compaction_v2" => true})
-
-    assert {:ok, overrides} = RuntimeProjection.turn_start_overrides(frozen)
-    refute Map.has_key?(overrides.request_context, "codex")
   end
 
   test "runtime projections carry the frozen hosted tool declarations" do
@@ -1525,10 +1502,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
              %{"type" => "web_search"}
            ]
 
-    assert {:ok, overrides} =
-             RuntimeProjection.turn_start_overrides(attempt.runtime_projection,
-               agent_uid: agent.uid
-             )
+    assert {:ok, overrides} = RuntimeProjection.turn_start_overrides(attempt.runtime_projection)
 
     assert overrides.hosted_tools == [
              %{"type" => "image_generation"},
@@ -1537,136 +1511,8 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
     assert {:error, :background_agent_job_runtime_projection_invalid} =
              RuntimeProjection.turn_start_overrides(
-               Map.put(attempt.runtime_projection, "hosted_tools", ["web_search"]),
-               agent_uid: agent.uid
+               Map.put(attempt.runtime_projection, "hosted_tools", ["web_search"])
              )
-  end
-
-  test "a legacy projection freezes inferred modalities on its next claim" do
-    %{principal: agent} = background_agent_fixture()
-    job = create_job!(agent.uid, "legacy-runtime-modalities")
-
-    assert {:ok, runtime_profile} = ModelProfiles.resolve_runtime_profile(agent.uid, "coding")
-    provider_id = runtime_profile["provider_id"]
-    assert {:ok, provider} = ProviderConfigs.fetch_provider(provider_id)
-
-    :ok =
-      ModelMetadataCache.put(
-        {:model_metadata_source, provider_id, provider.updated_at, :openrouter,
-         "models?output_modalities=all"},
-        [
-          %{
-            "id" => "openai/gpt-5.6-sol",
-            "architecture" => %{"input_modalities" => ["text", "image"]}
-          }
-        ],
-        :timer.hours(1)
-      )
-
-    legacy_spec =
-      runtime_turn_start_spec("openai/gpt-5.6-sol")
-      |> put_in([:model_ref, "provider_id"], provider_id)
-      |> put_in([:request_context, "model_ref", "provider_id"], provider_id)
-      |> update_in([:model_ref], &Map.delete(&1, "input_modalities"))
-      |> update_in([:request_context, "model_ref"], &Map.delete(&1, "input_modalities"))
-
-    assert {:ok, first_attempt} =
-             BackgroundAgentJobs.claim_attempt_in_tx(
-               Repo,
-               job.id,
-               agent.uid,
-               1,
-               legacy_spec,
-               agent_slot_cap()
-             )
-
-    refute Map.has_key?(first_attempt.runtime_projection["model_ref"], "input_modalities")
-
-    assert {:ok, _changed_profile} =
-             ModelProfiles.put_model_profile(agent.uid, "coding", %{
-               provider_id: provider_id,
-               model: "different/model"
-             })
-
-    wrong_type_projection =
-      put_in(
-        first_attempt.runtime_projection,
-        ["model_ref", "provider_kind"],
-        "openai"
-      )
-
-    assert {:ok, wrong_type_overrides} =
-             RuntimeProjection.turn_start_overrides(wrong_type_projection,
-               agent_uid: agent.uid
-             )
-
-    assert wrong_type_overrides.model_ref["input_modalities"] == ["text"]
-
-    assert {:ok, frozen_overrides} =
-             RuntimeProjection.turn_start_overrides(first_attempt.runtime_projection,
-               agent_uid: agent.uid
-             )
-
-    assert frozen_overrides.model_ref["model"] == "openai/gpt-5.6-sol"
-    assert frozen_overrides.model_ref["input_modalities"] == ["text", "image"]
-
-    current_ref =
-      Map.merge(legacy_spec.model_ref, %{
-        "input_modalities" => ["text"],
-        "vision_fallback_model_ref" => %{
-          "profile" => "vision_fallback",
-          "provider_id" => "openrouter-vision",
-          "provider_kind" => "openrouter",
-          "model" => "google/gemini-3-flash-preview",
-          "input_modalities" => ["text", "image"]
-        }
-      })
-
-    assert {:ok, mismatched_overrides} =
-             RuntimeProjection.turn_start_overrides(first_attempt.runtime_projection,
-               current_model_ref: %{current_ref | "model" => "different/model"}
-             )
-
-    assert mismatched_overrides.model_ref["input_modalities"] == ["text"]
-    refute Map.has_key?(mismatched_overrides.model_ref, "vision_fallback_model_ref")
-
-    assert {:ok, overrides} =
-             RuntimeProjection.turn_start_overrides(first_attempt.runtime_projection,
-               current_model_ref: current_ref
-             )
-
-    assert overrides.model_ref["input_modalities"] == ["text"]
-
-    assert overrides.model_ref["vision_fallback_model_ref"] ==
-             current_ref["vision_fallback_model_ref"]
-
-    upgraded_spec =
-      runtime_turn_start_spec("openai/gpt-5.6-sol")
-      |> Map.put(:model_ref, frozen_overrides.model_ref)
-      |> put_in([:request_context, "model_ref"], frozen_overrides.model_ref)
-
-    assert {:ok, second_attempt} =
-             BackgroundAgentJobs.claim_continuation_in_tx(
-               Repo,
-               job.id,
-               agent.uid,
-               2,
-               upgraded_spec,
-               agent_slot_cap()
-             )
-
-    assert second_attempt.runtime_projection["model_ref"]["input_modalities"] == [
-             "text",
-             "image"
-           ]
-
-    refute Map.has_key?(
-             second_attempt.runtime_projection["model_ref"],
-             "vision_fallback_model_ref"
-           )
-
-    assert second_attempt.runtime_projection["model_ref"]["model"] ==
-             first_attempt.runtime_projection["model_ref"]["model"]
   end
 
   test "claiming a continuation counts compaction-labeled lead failures" do
@@ -2969,12 +2815,6 @@ defmodule Ankole.BackgroundAgentJobsTest do
     |> Repo.update!()
   end
 
-  defp stop_claimed_job!(job) do
-    job
-    |> Ecto.Changeset.change(status: "stopped", completed_at: DateTime.utc_now(:microsecond))
-    |> Repo.update!()
-  end
-
   defp runtime_turn_start_spec(model \\ "openai/gpt-5.6-sol") do
     model_ref = %{
       "profile" => "coding",
@@ -2996,16 +2836,6 @@ defmodule Ankole.BackgroundAgentJobsTest do
         }
       }
     }
-  end
-
-  defp runtime_turn_start_spec_for_provider(provider_kind) do
-    provider_id = "#{provider_kind}-main"
-
-    runtime_turn_start_spec("gpt-5.6-sol")
-    |> put_in([:model_ref, "provider_id"], provider_id)
-    |> put_in([:model_ref, "provider_kind"], provider_kind)
-    |> put_in([:request_context, "model_ref", "provider_id"], provider_id)
-    |> put_in([:request_context, "model_ref", "provider_kind"], provider_kind)
   end
 
   describe "request_complete/2" do

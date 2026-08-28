@@ -141,9 +141,8 @@ async function runWorker(): Promise<void> {
 /**
  * Routes one decoded RuntimeFabric envelope to its concrete Worker owner.
  *
- * Unknown body types are ignored for forward compatibility. RuntimeFabric
- * validates each envelope before this dispatcher. Each handled lane validates
- * its own payload.
+ * RuntimeFabric validates each envelope before this dispatcher. Each handled
+ * lane validates its own payload.
  */
 async function handleEnvelope(
   sendEnvelope: EnvelopeSender,
@@ -175,5 +174,7 @@ async function handleEnvelope(
     .with({ case: 'turnStart' }, () => activeTurns.start(envelope))
     .with({ case: 'mailboxUpdated' }, () => activeTurns.mailboxUpdated(envelope))
     .with({ case: 'turnControl' }, () => activeTurns.control(envelope))
-    .otherwise(() => undefined)
+    .otherwise(body => {
+      throw new Error(`RuntimeFabric protocol error: Worker cannot receive ${body.case ?? 'an empty body'}`)
+    })
 }

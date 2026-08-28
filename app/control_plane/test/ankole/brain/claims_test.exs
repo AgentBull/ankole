@@ -48,6 +48,37 @@ defmodule Ankole.Brain.ClaimsTest do
       assert is_nil(claim.embedding_signature)
     end
 
+    test "semantic dedup compares only the same embedding signature", %{human: human} do
+      vector =
+        [1.0 | List.duplicate(0.0, 4095)]
+        |> Pgvector.new()
+
+      assert {:ok, %{claim: first, status: :inserted}} =
+               Claims.write_fact(
+                 fact_attrs(%{claim: "Acme opened its Singapore office"}),
+                 human.uid,
+                 embedding: {vector, "model-a"}
+               )
+
+      assert {:ok, %{claim: second, status: :inserted}} =
+               Claims.write_fact(
+                 fact_attrs(%{claim: "Acme closed its Singapore office"}),
+                 human.uid,
+                 embedding: {vector, "model-b"}
+               )
+
+      assert Repo.get!(Ankole.Brain.Schemas.Claim, first.id).expired_at == nil
+
+      assert {:ok, %{claim: duplicate, status: :duplicate}} =
+               Claims.write_fact(
+                 fact_attrs(%{claim: "Acme closed its Singapore office"}),
+                 human.uid,
+                 embedding: {vector, "model-b"}
+               )
+
+      assert duplicate.id == second.id
+    end
+
     test "rejects off-grid confidence", %{human: human} do
       assert {:error, {:off_weight_grid, :confidence}} =
                Claims.write_fact(fact_attrs(%{confidence: 0.42}), human.uid)

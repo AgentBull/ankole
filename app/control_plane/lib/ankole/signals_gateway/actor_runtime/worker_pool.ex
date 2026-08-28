@@ -47,7 +47,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerPool do
   Placement only needs liveness and capacity because all workers run the same
   image. A future heterogeneous pool is not a requirement of this runtime path.
   """
-  @spec assign_worker(actor_key() | map()) ::
+  @spec assign_worker(actor_key()) ::
           {:ok, ActorSessionWorkerAssignment.t()} | {:error, term()}
   def assign_worker(actor_key) do
     actor_key = Common.normalize_actor_key(actor_key)
@@ -66,11 +66,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerPool do
   reads reach a separate process and a separate connection, which a transaction
   must not wait on.
   """
-  @spec job_turn_limit(actor_key() | map()) :: pos_integer() | nil
+  @spec job_turn_limit(actor_key()) :: pos_integer() | nil
   def job_turn_limit(actor_key), do: actor_key |> Common.normalize_actor_key() |> job_limit()
 
   @doc false
-  @spec assign_worker_in_tx(module(), actor_key() | map(), DateTime.t(), pos_integer() | nil) ::
+  @spec assign_worker_in_tx(module(), actor_key(), DateTime.t(), pos_integer() | nil) ::
           {:ok, ActorSessionWorkerAssignment.t()} | {:error, term()}
   def assign_worker_in_tx(repo, actor_key, %DateTime{} = now, job_limit) do
     actor_key = Common.normalize_actor_key(actor_key)
@@ -191,7 +191,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerPool do
   A source without a live assignment returns `:ok`. There is then no thread host
   to inherit and ordinary placement is already correct.
   """
-  @spec inherit_assignment_in_tx(module(), actor_key() | map(), actor_key() | map(), DateTime.t()) ::
+  @spec inherit_assignment_in_tx(module(), actor_key(), actor_key(), DateTime.t()) ::
           :ok | {:error, term()}
   def inherit_assignment_in_tx(repo, source_actor_key, target_actor_key, %DateTime{} = now) do
     source_actor_key = Common.normalize_actor_key(source_actor_key)
@@ -413,7 +413,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerPool do
   end
 
   @doc false
-  @spec lock_actor_assignment_in_tx(module(), actor_key() | map()) :: :ok | {:error, term()}
+  @spec lock_actor_assignment_in_tx(module(), actor_key()) :: :ok | {:error, term()}
   def lock_actor_assignment_in_tx(repo, actor_key) do
     actor_key = Common.normalize_actor_key(actor_key)
 

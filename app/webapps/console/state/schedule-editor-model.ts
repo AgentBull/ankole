@@ -67,42 +67,23 @@ type DeliveryTarget = {
   provider_thread_id?: string
 }
 
-/** The stored delivery projection, including the legacy single-target shape. */
+/** The stored multi-target delivery projection. */
 export type CronDeliveryProjection = {
   targets?: Array<{
     binding_name?: string
     signal_channel_id?: string
     provider_thread_id?: string
   }>
-  signal_channel_id?: string
-  provider_thread_id?: string
 }
 
-/**
- * Maps a stored delivery to editable target drafts.
- *
- * Early schedules stored one target's channel at the delivery top level with no
- * `targets` list (the control plane still accepts that shape on write). Mapping
- * it to an empty list made every such schedule uneditable: the editor showed
- * one blank target whose hidden binding never matched the schedule's binding,
- * so every save failed validation.
- */
-export function deliveryTargetDrafts(
-  delivery: CronDeliveryProjection | null | undefined,
-  bindingName: string
-): DeliveryTargetDraft[] {
+/** Maps stored delivery targets to editable drafts. */
+export function deliveryTargetDrafts(delivery: CronDeliveryProjection | null | undefined): DeliveryTargetDraft[] {
   const targets = Array.isArray(delivery?.targets) ? delivery.targets : []
-  if (targets.length > 0) {
-    return targets.map(target => ({
-      bindingName: target.binding_name ?? '',
-      channelId: target.signal_channel_id ?? '',
-      threadId: target.provider_thread_id ?? ''
-    }))
-  }
-
-  const channelId = delivery?.signal_channel_id ?? ''
-  if (!channelId) return []
-  return [{ bindingName, channelId, threadId: delivery?.provider_thread_id ?? '' }]
+  return targets.map(target => ({
+    bindingName: target.binding_name ?? '',
+    channelId: target.signal_channel_id ?? '',
+    threadId: target.provider_thread_id ?? ''
+  }))
 }
 
 /** Reads the normalized occurrence bound that the editor must preserve. */

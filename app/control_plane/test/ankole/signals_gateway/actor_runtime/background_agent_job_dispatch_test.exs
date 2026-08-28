@@ -50,13 +50,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
              Ankole.JSON.encode!(%{"reasoningEffort" => "medium"})
 
     assert is_binary(Ankole.Kernel.RuntimeFabric.encode_envelope(envelope))
-    assert decoded_request_context(turn_start)["turn_mode"] == "background_agent_job"
-    assert decoded_request_context(turn_start)["job_id"] == job.id
-    assert decoded_request_context(turn_start)["owner_session_id"] == job.owner_session_id
-    assert decoded_request_context(turn_start)["attempts"] == 1
-
-    assert get_in(decoded_request_context(turn_start), ["model_ref", "model"]) ==
-             "openai/gpt-5.4-nano"
+    context = decoded_request_context(turn_start)
+    refute Map.has_key?(context, "turn_mode")
+    refute Map.has_key?(context, "job_id")
+    refute Map.has_key?(context, "owner_session_id")
+    refute Map.has_key?(context, "attempts")
+    refute Map.has_key?(context, "model_ref")
 
     refute Repo.get_by(Conversation,
              subject_uid: agent.uid,
@@ -146,7 +145,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     retry_start = turn_start_payload!(retry_envelope)
     assert retry_start.model_ref.profile == "kimi"
     assert retry_start.model_ref.model == "moonshotai/kimi-k2.7-code"
-    assert decoded_request_context(retry_start)["attempts"] == 2
 
     assert retry_start.model_ref.provider_options_json ==
              Ankole.JSON.encode!(%{"reasoningEffort" => "high"})
@@ -892,8 +890,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
                lease_seconds: @long_lease_seconds
              )
 
-    assert_receive {:actor_lane, second_envelope}, 200
-    assert decoded_request_context(turn_start_payload!(second_envelope))["attempts"] == 2
+    assert_receive {:actor_lane, _second_envelope}, 200
 
     assert {:error, :worker_not_assigned_to_turn} =
              BackgroundAgentJobs.upsert_turn_from_worker(
@@ -1002,8 +999,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
 
     assert_receive {:actor_lane, recovery_envelope}, 200
     recovery = turn_start_payload!(recovery_envelope)
-
-    assert decoded_request_context(recovery)["attempts"] == 2
 
     assert BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid).runtime_thread_id ==
              "thread-existing"
@@ -1519,8 +1514,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
                lease_seconds: @long_lease_seconds
              )
 
-    assert_receive {:actor_lane, retry_envelope}, 200
-    assert decoded_request_context(turn_start_payload!(retry_envelope))["attempts"] == 2
+    assert_receive {:actor_lane, _retry_envelope}, 200
     assert BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid).attempts == 2
   end
 

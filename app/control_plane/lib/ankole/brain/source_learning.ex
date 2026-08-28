@@ -36,7 +36,7 @@ defmodule Ankole.Brain.SourceLearning do
   alias Ankole.Brain.Schemas.SchemaType
   alias Ankole.Brain.Schemas.Source
   alias Ankole.Brain.Scope
-  alias Ankole.Ecto.UUIDv7
+  alias Ankole.Brain.Sources
   alias Ankole.Kernel, as: NativeKernel
   alias Ankole.Logging
   alias Ankole.Repo
@@ -51,34 +51,13 @@ defmodule Ankole.Brain.SourceLearning do
   def register_source(attrs) when is_map(attrs) do
     with :ok <- validate_kind(attrs[:kind]),
          :ok <- validate_default_scope(attrs[:default_audience_scope]) do
-      %Source{id: UUIDv7.autogenerate()}
-      |> Source.changeset(%{
+      Sources.create(%{
         upstream_id: attrs[:upstream_id],
         kind: attrs[:kind],
         name: attrs[:name],
         default_audience_scope: attrs[:default_audience_scope] || "world",
         config: attrs[:config] || %{}
       })
-      |> Repo.insert()
-    end
-  end
-
-  @doc """
-  Archives one Source: no future learning run writes to it. Archiving an
-  archived Source keeps the first `archived_at`.
-  """
-  @spec archive_source(Ecto.UUID.t()) :: {:ok, Source.t()} | {:error, term()}
-  def archive_source(source_id) do
-    with {:ok, source} <- fetch_source(source_id) do
-      case source.archived_at do
-        nil ->
-          source
-          |> Source.changeset(%{archived_at: DateTime.utc_now(:microsecond)})
-          |> Repo.update()
-
-        %DateTime{} ->
-          {:ok, source}
-      end
     end
   end
 
@@ -92,7 +71,7 @@ defmodule Ankole.Brain.SourceLearning do
     with :ok <- ensure_enabled(),
          {:ok, source} <- fetch_source(source_id),
          :ok <- validate_kind(source.kind),
-         :ok <- ensure_not_archived(source),
+         :ok <- Sources.ensure_active(source),
          {:ok, _job} <- Ankole.Brain.Jobs.LearnSource.enqueue(source.id) do
       {:ok, %{status: :enqueued}}
     end
@@ -105,7 +84,7 @@ defmodule Ankole.Brain.SourceLearning do
   def learn(source_id) do
     with :ok <- ensure_enabled(),
          {:ok, source} <- fetch_source(source_id),
-         :ok <- ensure_not_archived(source),
+         :ok <- Sources.ensure_active(source),
          {:ok, content} <- fetch_content(source) do
       fingerprint = NativeKernel.xxh3_128_hex(content)
 
@@ -145,14 +124,13 @@ defmodule Ankole.Brain.SourceLearning do
 
     result =
       Repo.transact(fn repo ->
-        with {:ok, current} <- lock_source(repo, source.id),
-             :ok <- ensure_not_archived(current),
+        with {:ok, current} <- Sources.lock_active(repo, source),
              :ok <- ensure_same_revision(current, source.upstream_revision),
              {:ok, object} <- upsert_object(repo, object_attrs),
              expired = Claims.expire_source_session_facts(repo, object.slug, session),
              {:ok, written} <- write_claims(repo, object, extraction.items, scope, session),
              :ok <- ensure_extraction_written(extraction.items, written),
-             {:ok, _source} <- advance_revision(repo, current, fingerprint) do
+             {:ok, _source} <- Sources.record_revision(repo, current, fingerprint) do
           {:ok,
            %{
              status: :learned,
@@ -176,17 +154,6 @@ defmodule Ankole.Brain.SourceLearning do
       end
 
       {:ok, Map.delete(report, :reject_reasons)}
-    end
-  end
-
-  defp lock_source(repo, source_id) do
-    Source
-    |> where([source], source.id == ^source_id)
-    |> lock("FOR UPDATE")
-    |> repo.one()
-    |> case do
-      %Source{} = source -> {:ok, source}
-      nil -> {:error, :not_found}
     end
   end
 
@@ -230,15 +197,6 @@ defmodule Ankole.Brain.SourceLearning do
           repo: repo
         )
     end
-  end
-
-  defp advance_revision(repo, %Source{} = source, fingerprint) do
-    source
-    |> Source.changeset(%{
-      upstream_revision: fingerprint,
-      last_sync_at: DateTime.utc_now(:microsecond)
-    })
-    |> repo.update()
   end
 
   # Extraction
@@ -440,7 +398,4 @@ defmodule Ankole.Brain.SourceLearning do
       nil -> {:error, :not_found}
     end
   end
-
-  defp ensure_not_archived(%Source{archived_at: nil}), do: :ok
-  defp ensure_not_archived(%Source{}), do: {:error, :source_archived}
 end

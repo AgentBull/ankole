@@ -26,6 +26,9 @@ defmodule Ankole.SignalsGateway.ActorEventTypes do
     background_agent_job.completed
     background_agent_job.failed
     background_agent_job.waiting
+    workflow.run.completed
+    workflow.run.failed
+    workflow.run.attention
   )
 
   @doc """

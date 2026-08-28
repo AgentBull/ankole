@@ -212,7 +212,8 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionReconciler do
 
   defp start_connections({specs, errors}, opts) do
     supervisor_opts = Keyword.take(opts, [:registry, :supervisor, :client_opts])
-    stopped = stop_undesired_connections(specs, supervisor_opts)
+    snapshot = ConnectionLifecycle.desired_snapshot(specs, errors)
+    stopped = stop_undesired_connections(snapshot, supervisor_opts)
 
     # Start each deduplicated connection, then partition successes from failures
     # so the caller receives a started-count plus a flat list of per-binding and
@@ -230,12 +231,11 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionReconciler do
     }
   end
 
-  # A live connection whose key left the desired spec map is a zombie (disabled
-  # binding or removed identity provider) and stops. Identity-provider sockets
-  # are part of the spec map, so the difference never kills a desired one.
-  defp stop_undesired_connections(specs, supervisor_opts) do
+  # Only a complete snapshot can prove that a registered connection is no
+  # longer desired. A read error keeps the last live connection until recovery.
+  defp stop_undesired_connections(snapshot, supervisor_opts) do
     ConnectionLifecycle.stop_undesired(
-      specs,
+      snapshot,
       ConnectionSupervisor.registered_keys(supervisor_opts),
       &ConnectionSupervisor.stop(&1, supervisor_opts)
     )

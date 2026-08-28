@@ -158,8 +158,8 @@ defmodule Ankole.I18n.Resolver do
   @doc """
   Finds a loaded locale matching an atom, string, or Localize language tag.
 
-  Accepting atoms keeps compatibility with Localize structs and older test code,
-  but the result is always a loaded string id from Ankole's catalog set.
+  Localize structs can carry atom locale ids, but the result is always a loaded
+  string id from Ankole's catalog set.
   """
   @spec exact_loaded_locale(term(), %{locale() => true}) :: locale() | nil
   def exact_loaded_locale(%Localize.LanguageTag{} = tag, loaded) do

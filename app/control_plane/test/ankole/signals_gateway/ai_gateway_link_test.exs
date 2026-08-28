@@ -145,6 +145,36 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
     assert message_id == response.id
   end
 
+  test "exact replay rejects a composite turn without changing broad live replay safety" do
+    %{principal: subject} = agent_fixture()
+    {:ok, conversation} = Conversations.ensure_conversation(subject.uid, "composite-replay")
+
+    {:ok, response} =
+      start_response(subject.uid, conversation.id, %{
+        "actor_event_id" => "event-main",
+        "request_refs" => [%{"actor_event_id" => "event-steer"}]
+      })
+
+    assert {:ok, _completed} =
+             StatefulResponses.commit_complete(response, [
+               %{
+                 "type" => "message",
+                 "role" => "assistant",
+                 "content" => [%{"type" => "output_text", "text" => "done"}]
+               }
+             ])
+
+    actor_key = %{agent_uid: subject.uid, session_id: conversation.conversation_key}
+
+    assert {:ok, :checked} =
+             Repo.transact(fn repo ->
+               assert AIGatewayLink.turn_replay_safe_in_tx(repo, actor_key, "event-main")
+               refute AIGatewayLink.exact_turn_replay_safe_in_tx(repo, actor_key, "event-main")
+               refute AIGatewayLink.exact_turn_replay_safe_in_tx(repo, actor_key, "event-steer")
+               {:ok, :checked}
+             end)
+  end
+
   test "retracts only the current actor-correlated visible suffix" do
     %{principal: subject} = agent_fixture()
     {:ok, conversation} = Conversations.ensure_conversation(subject.uid, "link-retry-retract")

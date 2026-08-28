@@ -3,6 +3,8 @@ defmodule Ankole.IdentityProviders.LocalPassword.RetryGuardTest do
 
   alias Ankole.IdentityProviders.LocalPassword.RetryGuard
 
+  @max_account_keys 10_000
+
   setup do
     RetryGuard.reset_for_test()
     on_exit(&RetryGuard.reset_for_test/0)
@@ -68,5 +70,25 @@ defmodule Ankole.IdentityProviders.LocalPassword.RetryGuardTest do
     end
 
     assert {:locked, _seconds} = RetryGuard.register_attempt("user@example.com")
+  end
+
+  test "saturation bounds state and locks every account key the same way" do
+    for index <- 1..@max_account_keys do
+      assert :ok = RetryGuard.register_attempt("user-#{index}@example.com")
+    end
+
+    assert {:locked, overflow_retry_after} =
+             RetryGuard.register_attempt("overflow@example.com")
+
+    assert {:locked, admitted_retry_after} =
+             RetryGuard.register_attempt("user-1@example.com")
+
+    assert abs(overflow_retry_after - admitted_retry_after) <= 1
+
+    assert %{attempts_by_account: attempts_by_account, saturated_until_ms: saturated_until_ms} =
+             :sys.get_state(RetryGuard)
+
+    assert map_size(attempts_by_account) == @max_account_keys
+    assert is_integer(saturated_until_ms)
   end
 end

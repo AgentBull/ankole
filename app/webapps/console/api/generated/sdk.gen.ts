@@ -243,12 +243,16 @@ import type {
   AnkoleWebBrainControllerCreateSourceResponses,
   AnkoleWebBrainControllerDecideContradictionData,
   AnkoleWebBrainControllerDecideContradictionResponses,
+  AnkoleWebBrainControllerDecideMergeSuggestionData,
+  AnkoleWebBrainControllerDecideMergeSuggestionResponses,
   AnkoleWebBrainControllerDecideSuggestionData,
   AnkoleWebBrainControllerDecideSuggestionResponses,
   AnkoleWebBrainControllerForgetClaimData,
   AnkoleWebBrainControllerForgetClaimResponses,
   AnkoleWebBrainControllerForgetObjectData,
   AnkoleWebBrainControllerForgetObjectResponses,
+  AnkoleWebBrainControllerForkObjectData,
+  AnkoleWebBrainControllerForkObjectResponses,
   AnkoleWebBrainControllerHealthData,
   AnkoleWebBrainControllerHealthResponses,
   AnkoleWebBrainControllerLearnSourceData,
@@ -257,6 +261,8 @@ import type {
   AnkoleWebBrainControllerListClaimsResponses,
   AnkoleWebBrainControllerListContradictionsData,
   AnkoleWebBrainControllerListContradictionsResponses,
+  AnkoleWebBrainControllerListMergeSuggestionsData,
+  AnkoleWebBrainControllerListMergeSuggestionsResponses,
   AnkoleWebBrainControllerListObjectsData,
   AnkoleWebBrainControllerListObjectsResponses,
   AnkoleWebBrainControllerListSourcesData,
@@ -795,6 +801,24 @@ export const ankoleWebAiGatewayFilesControllerShow = <ThrowOnError extends boole
   })
 
 /**
+ * List duplicate-page merge suggestions
+ */
+export const ankoleWebBrainControllerListMergeSuggestions = <ThrowOnError extends boolean = false>(
+  options?: Options<AnkoleWebBrainControllerListMergeSuggestionsData, ThrowOnError>
+): RequestResult<AnkoleWebBrainControllerListMergeSuggestionsResponses, unknown, ThrowOnError> =>
+  (options?.client ?? client).get<AnkoleWebBrainControllerListMergeSuggestionsResponses, unknown, ThrowOnError>({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/brain/merge-suggestions',
+    ...options
+  })
+
+/**
  * List console-visible AppConfigure entries
  */
 export const ankoleWebAppConfigurationControllerIndex = <ThrowOnError extends boolean = false>(
@@ -1231,6 +1255,28 @@ export const ankoleWebBrainControllerListSuggestions = <ThrowOnError extends boo
     ],
     url: '/api/v1/brain/suggestions',
     ...options
+  })
+
+/**
+ * Fork one library-managed page into instance ownership
+ */
+export const ankoleWebBrainControllerForkObject = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebBrainControllerForkObjectData, ThrowOnError>
+): RequestResult<AnkoleWebBrainControllerForkObjectResponses, unknown, ThrowOnError> =>
+  (options.client ?? client).post<AnkoleWebBrainControllerForkObjectResponses, unknown, ThrowOnError>({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/brain/objects/fork',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
   })
 
 /**
@@ -4109,6 +4155,28 @@ export const ankoleWebPermissionGrantControllerUpdate = <ThrowOnError extends bo
       }
     ],
     url: '/api/v1/permission-grants/{id}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
+ * Approve or reject one merge suggestion
+ */
+export const ankoleWebBrainControllerDecideMergeSuggestion = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebBrainControllerDecideMergeSuggestionData, ThrowOnError>
+): RequestResult<AnkoleWebBrainControllerDecideMergeSuggestionResponses, unknown, ThrowOnError> =>
+  (options.client ?? client).post<AnkoleWebBrainControllerDecideMergeSuggestionResponses, unknown, ThrowOnError>({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/brain/merge-suggestions/{suggestion_id}/decide',
     ...options,
     headers: {
       'Content-Type': 'application/json',

@@ -27,8 +27,6 @@ import {
 import {
   AgentConversationContextRequestSchema,
   AgentConversationContextResponseSchema,
-  AgentPluginListRequestSchema,
-  AgentPluginListResponseSchema,
   AIGatewayAPIKeyRequestSchema,
   AIGatewayAPIKeyResponseSchema,
   ActorTurnAbortRequestSchema,
@@ -90,6 +88,20 @@ import {
   WebhookEndpointCreateRequestSchema,
   WebhookEndpointListRequestSchema,
   WebhookEndpointTargetRequestSchema,
+  WorkflowCancelRequestSchema,
+  WorkflowCancelResponseSchema,
+  WorkflowCreateRequestSchema,
+  WorkflowCreateResponseSchema,
+  WorkflowGetRequestSchema,
+  WorkflowGetResponseSchema,
+  WorkflowListRequestSchema,
+  WorkflowListResponseSchema,
+  WorkflowTaskMessageSendRequestSchema,
+  WorkflowTaskMessageSendResponseSchema,
+  WorkflowTaskResultSubmitRequestSchema,
+  WorkflowTaskResultSubmitResponseSchema,
+  WorkflowTaskSleepRequestSchema,
+  WorkflowTaskSleepResponseSchema,
   WorkerEnvResolveRequestSchema,
   WorkerEnvResolveResponseSchema
 } from '../fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
@@ -110,6 +122,7 @@ export const rpcMethods = {
   aiGatewayAPIKeyForCreateOrFindByAgent: 'ai_gateway.api_key_for.create_or_find_by_agent',
   agentConversationContextResolve: 'agent_conversation.context.resolve',
   brainRemember: 'brain.remember',
+  brainLearnSource: 'brain.learn_source',
   brainRecall: 'brain.recall',
   brainGetPage: 'brain.get_page',
   brainForget: 'brain.forget',
@@ -123,7 +136,6 @@ export const rpcMethods = {
   actorTurnComplete: 'actor_turn.complete',
   actorTurnNoop: 'actor_turn.noop',
   appConfigureResolve: 'app_configure.resolve',
-  agentPluginList: 'agent_plugin.list',
   automationJobCreate: 'automation_job.create',
   automationJobList: 'automation_job.list',
   automationJobShow: 'automation_job.show',
@@ -141,6 +153,13 @@ export const rpcMethods = {
   backgroundAgentJobTurnUpsert: 'background_agent_job.turn.upsert',
   backgroundAgentJobTurnItemsList: 'background_agent_job.turn_items.list',
   backgroundAgentJobStatusUpdate: 'background_agent_job.status.update',
+  workflowCreate: 'workflow.create',
+  workflowGet: 'workflow.get',
+  workflowList: 'workflow.list',
+  workflowCancel: 'workflow.cancel',
+  workflowTaskResultSubmit: 'workflow.task.result.submit',
+  workflowTaskSleep: 'workflow.task.sleep',
+  workflowTaskMessageSend: 'workflow.task.message.send',
   observabilitySpansExport: 'observability.spans.export',
   scheduleCheckBackLaterCreate: 'schedule.check_back_later.create',
   scheduleCheckBackLaterList: 'schedule.check_back_later.list',
@@ -186,6 +205,7 @@ export const rpcOperationMeta = {
   [rpcMethods.aiGatewayAPIKeyForCreateOrFindByAgent]: { scope: 'worker_agent' },
   [rpcMethods.agentConversationContextResolve]: { scope: 'turn', effect: 'read' },
   [rpcMethods.brainRemember]: { scope: 'turn', effect: 'write' },
+  [rpcMethods.brainLearnSource]: { scope: 'turn', effect: 'write' },
   [rpcMethods.brainRecall]: { scope: 'turn', effect: 'read' },
   [rpcMethods.brainGetPage]: { scope: 'turn', effect: 'read' },
   [rpcMethods.brainForget]: { scope: 'turn', effect: 'write' },
@@ -199,7 +219,6 @@ export const rpcOperationMeta = {
   [rpcMethods.actorTurnComplete]: { scope: 'turn', effect: 'complete' },
   [rpcMethods.actorTurnNoop]: { scope: 'turn', effect: 'complete' },
   [rpcMethods.appConfigureResolve]: { scope: 'worker_agent' },
-  [rpcMethods.agentPluginList]: { scope: 'turn', effect: 'read' },
   [rpcMethods.automationJobCreate]: { scope: 'turn', effect: 'write' },
   [rpcMethods.automationJobList]: { scope: 'turn', effect: 'read' },
   [rpcMethods.automationJobShow]: { scope: 'turn', effect: 'read' },
@@ -217,6 +236,13 @@ export const rpcOperationMeta = {
   [rpcMethods.backgroundAgentJobTurnUpsert]: { scope: 'turn', effect: 'write' },
   [rpcMethods.backgroundAgentJobTurnItemsList]: { scope: 'turn', effect: 'read' },
   [rpcMethods.backgroundAgentJobStatusUpdate]: { scope: 'turn', effect: 'write' },
+  [rpcMethods.workflowCreate]: { scope: 'turn', effect: 'write' },
+  [rpcMethods.workflowGet]: { scope: 'turn', effect: 'read' },
+  [rpcMethods.workflowList]: { scope: 'turn', effect: 'read' },
+  [rpcMethods.workflowCancel]: { scope: 'turn', effect: 'write' },
+  [rpcMethods.workflowTaskResultSubmit]: { scope: 'turn', effect: 'write' },
+  [rpcMethods.workflowTaskSleep]: { scope: 'turn', effect: 'write' },
+  [rpcMethods.workflowTaskMessageSend]: { scope: 'turn', effect: 'write' },
   [rpcMethods.observabilitySpansExport]: { scope: 'worker_agent' },
   [rpcMethods.scheduleCheckBackLaterCreate]: { scope: 'turn', effect: 'write' },
   [rpcMethods.scheduleCheckBackLaterList]: { scope: 'turn', effect: 'read' },
@@ -256,6 +282,7 @@ export const rpcSchemas = {
     response: AgentConversationContextResponseSchema
   },
   [rpcMethods.brainRemember]: { request: BrainRequestSchema, response: JSONPassthroughResponseSchema },
+  [rpcMethods.brainLearnSource]: { request: BrainRequestSchema, response: JSONPassthroughResponseSchema },
   [rpcMethods.brainRecall]: { request: BrainRequestSchema, response: JSONPassthroughResponseSchema },
   [rpcMethods.brainGetPage]: { request: BrainRequestSchema, response: JSONPassthroughResponseSchema },
   [rpcMethods.brainForget]: { request: BrainRequestSchema, response: JSONPassthroughResponseSchema },
@@ -283,10 +310,6 @@ export const rpcSchemas = {
   [rpcMethods.appConfigureResolve]: {
     request: AppConfigureResolveRequestSchema,
     response: AppConfigureResolveResponseSchema
-  },
-  [rpcMethods.agentPluginList]: {
-    request: AgentPluginListRequestSchema,
-    response: AgentPluginListResponseSchema
   },
   [rpcMethods.automationJobCreate]: {
     request: AutomationJobCreateRequestSchema,
@@ -355,6 +378,34 @@ export const rpcSchemas = {
   [rpcMethods.backgroundAgentJobStatusUpdate]: {
     request: BackgroundAgentJobStatusUpdateRequestSchema,
     response: BackgroundAgentJobResponseSchema
+  },
+  [rpcMethods.workflowCreate]: {
+    request: WorkflowCreateRequestSchema,
+    response: WorkflowCreateResponseSchema
+  },
+  [rpcMethods.workflowGet]: {
+    request: WorkflowGetRequestSchema,
+    response: WorkflowGetResponseSchema
+  },
+  [rpcMethods.workflowList]: {
+    request: WorkflowListRequestSchema,
+    response: WorkflowListResponseSchema
+  },
+  [rpcMethods.workflowCancel]: {
+    request: WorkflowCancelRequestSchema,
+    response: WorkflowCancelResponseSchema
+  },
+  [rpcMethods.workflowTaskResultSubmit]: {
+    request: WorkflowTaskResultSubmitRequestSchema,
+    response: WorkflowTaskResultSubmitResponseSchema
+  },
+  [rpcMethods.workflowTaskSleep]: {
+    request: WorkflowTaskSleepRequestSchema,
+    response: WorkflowTaskSleepResponseSchema
+  },
+  [rpcMethods.workflowTaskMessageSend]: {
+    request: WorkflowTaskMessageSendRequestSchema,
+    response: WorkflowTaskMessageSendResponseSchema
   },
   [rpcMethods.observabilitySpansExport]: {
     request: ObservabilitySpansExportRequestSchema,
@@ -808,7 +859,6 @@ export type {
   AgentConversationContextResponse,
   AgentPluginCatalogEntry,
   AgentPluginCatalogSkill,
-  AgentPluginListResponse,
   AIGatewayAPIKeyResponse,
   AppConfigureResolution,
   AppConfigureResolveResponse,

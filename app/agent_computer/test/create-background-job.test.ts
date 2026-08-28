@@ -88,8 +88,8 @@ describe('@ankole/agent-computer create_background_job tool', () => {
           request_context: {
             ai_agent: { max_iterations: 90 },
             custom_model_profiles: [
-              { name: 'deepseek', description: 'Low-cost code review.' },
-              { name: 'kimi', description: 'Long-context coding.' }
+              { name: 'kimi', description: 'Long-context coding.' },
+              { name: 'deepseek', description: 'Low-cost code review.' }
             ]
           }
         },

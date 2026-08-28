@@ -5,6 +5,7 @@ defmodule Ankole.SignalsGateway.ReplyReference do
 
   alias Ankole.SignalsGateway.Entry
   alias Ankole.SignalsGateway.InboundBatches
+  alias Ankole.SignalsGateway.Outbox
 
   @spec enrich(module(), map()) :: map()
   def enrich(repo, fact) when is_map(fact) do
@@ -19,6 +20,7 @@ defmodule Ankole.SignalsGateway.ReplyReference do
         |> Map.put(:reply_to_source_entry_id, source_entry_id)
         |> Map.put(:reply_to, reply_to)
         |> maybe_mark_explicit(reply_to)
+        |> maybe_mark_durable_agent_reply_explicit(repo, reply_to)
         |> maybe_mark_agent_thread_explicit(repo)
     end
   end
@@ -110,6 +112,33 @@ defmodule Ankole.SignalsGateway.ReplyReference do
   end
 
   defp maybe_mark_explicit(fact, _reply_to), do: fact
+
+  defp maybe_mark_durable_agent_reply_explicit(
+         %{explicit?: false} = fact,
+         repo,
+         %{"resolution" => "unresolved", "source_entry_id" => source_entry_id}
+       ) do
+    with :im_group <- Map.get(fact, :channel_kind),
+         agent_uid when is_binary(agent_uid) <- normalized_target_id(Map.get(fact, :agent_uid)),
+         binding_name when is_binary(binding_name) <-
+           normalized_target_id(Map.get(fact, :binding_name)),
+         signal_channel_id when is_binary(signal_channel_id) <-
+           normalized_target_id(Map.get(fact, :signal_channel_id)),
+         {:ok, _actor_event_id} <-
+           Outbox.resolve_durable_reply_actor_event_in_tx(
+             repo,
+             agent_uid,
+             binding_name,
+             signal_channel_id,
+             source_entry_id
+           ) do
+      Map.put(fact, :explicit?, true)
+    else
+      _not_a_durable_agent_reply -> fact
+    end
+  end
+
+  defp maybe_mark_durable_agent_reply_explicit(fact, _repo, _reply_to), do: fact
 
   defp maybe_mark_agent_thread_explicit(%{explicit?: true} = fact, _repo), do: fact
 

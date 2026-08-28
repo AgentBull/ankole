@@ -20,8 +20,8 @@ generated UUIDv7; the database never generates a random UUID for these tables.
 | `brain_schema_types` | The instance page-type registry, merged from the installed packs |
 | `brain_schema_link_types` | The relation predicate vocabulary |
 | `brain_schema_calibration_domains` | Named calibration domains for Take scorecards |
-| `brain_sources` | Registered `file` and `url` learning Sources with their revision fingerprints |
-| `brain_objects` | One page per slug: type, subtype, title, Markdown body, emotional weight |
+| `brain_sources` | Registered learning Sources and shipped-library projection sets with their revision fingerprints |
+| `brain_objects` | One page per slug: type, subtype, title, Markdown body, emotional weight, and optional shipped-library owner |
 | `brain_object_versions` | Append-only page history with author and content hash |
 | `brain_chunks` | Retrieval chunks of page bodies, with BM25 text and vector columns |
 | `brain_claims` | Atomic assertions: bitemporal Facts and calibratable Takes |
@@ -76,6 +76,26 @@ type-owned prefix (`people/`, `companies/`, `concepts/`, ...), a Markdown
 body, and append-only versions. Concurrent edits use an expected content
 hash; a mismatch rejects the write.
 
+Shipped knowledge files project through `library` Sources. The file remains
+authoritative while `managed_by_source_id` is set, so an operator can attach
+claims and links but cannot edit the projected page body. An instance-owned
+page at the same slug shadows the file. Forking an ordinary managed knowledge
+page makes it an instance page. Removing a shipped set soft-deletes its managed
+pages and keeps their instance-owned periphery so the same set can restore in
+place.
+
+A shipped Skill can declare `brain-recall-only: true`. It remains one standard
+Skill with its global Skill name, but it is absent from the model-visible Skill
+catalog. The library sweep projects only its name, description, and tags into
+a world-visible managed Object of type `agent-skills` at
+`lazyload-agent-skills/<skill-name>`; the full `SKILL.md`, resources, and Agent
+lesson remain in the Skill loader. The `agent-skills` type and slug prefix are
+reserved for this projection. An Agent's current effective Plugin and Skill
+settings filter these records before retrieval limits and name resolution.
+Disabling a Skill prevents discovery and loading without deleting its global
+projection; removing the shipped file or the metadata declaration withdraws
+the projection.
+
 A claim is one atomic assertion attached to a page or a signal channel.
 `claim_type` separates two families with disjoint field sets, enforced by a
 database check:
@@ -116,7 +136,9 @@ row lock, and only a pending suggestion is decidable.
 
 ## Retrieval
 
-`recall` fuses two candidate routes over the querier-reachable rows:
+`recall` fuses two candidate routes over the querier-reachable rows. For an
+Agent, current lazy-Skill visibility is part of the base query, before either
+route takes its candidate limit:
 
 1. BM25 over claim text and chunk text.
 2. Vector search over `halfvec` embeddings: an HNSW scan on the first 4000
@@ -146,8 +168,9 @@ RuntimeFabric RPC into the control plane, executed as the turn's Agent.
 | Tool | RPC | What it does |
 | --- | --- | --- |
 | `remember` | `brain.remember` | Writes one Fact or Take through the shared write contract |
+| `learn_source` | `brain.learn_source` | Registers one web URL Source and starts a background learning run |
 | `recall` | `brain.recall` | Fused retrieval over reachable claims and chunks |
-| `get_page` | `brain.get_page` | Renders one page with scope-pruned body, facts, takes, and timeline |
+| `get_page` | `brain.get_page` | Renders one page; the Worker delegates a lazy Skill record to the shared `skill_view` loader |
 | `forget` | `brain.forget` | Expires or retracts a claim; soft-deletes a page |
 | `entity` | `brain.entity` | Resolves a name to a page through aliases; ambiguity returns candidates |
 | `whoknows` | `brain.whoknows` | Reports which Principals' scopes hold knowledge on a topic |
@@ -167,7 +190,12 @@ Two background paths write memory without a `remember` call:
   conversation end. Extraction runs before the commit transaction; the
   commit writes claims, entity links, and the extraction watermark terminal
   in one transaction, so a replay of the same slice fails its commit instead
-  of double-writing.
+  of double-writing. Before the model call, exact alias matching collects
+  the stored pages the slice already names, and the prompt lists them with
+  the rule to reuse their slugs — write-time dedup of named entities, since
+  neither slug idempotency nor vector similarity recognizes the same entity
+  under a second wording. Source learning does not carry this list: its
+  extraction produces no entity slugs.
 - **Source learning** keeps one `media` page per registered `file` or `url`
   Source. A run fetches the content, compares the fingerprint, extracts
   claims from every content window, and commits object, claim, and revision
@@ -202,8 +230,16 @@ recorded without blocking the rest:
    operator decision (`resolved` or `dismissed`) applies only to an open row,
    under a row lock.
 8. `schema_suggest` — proposes vocabulary and type promotions.
-9. `purge` — hard-deletes soft-deleted pages past the TTL.
-10. `skill_lessons` — see `docs/design-docs/SkillLessons.md`.
+9. `merge_suggest` — the mechanical backstop behind write-time entity
+   dedup: pairs live pages of one type that share a normalized alias or
+   carry near-identical titles into `brain_merge_suggestions`, one row per
+   pair forever. Nothing merges automatically; a Console approval merges
+   the pair in one transaction (claims, holders, timelines, tags, aliases,
+   and links repoint, the duplicate becomes a slug redirect), and canonical
+   Principal pages, library pages, media-primitive pages, and duplicates
+   with a written body are refused.
+10. `purge` — hard-deletes soft-deleted pages past the TTL.
+11. `skill_lessons` — see `docs/design-docs/SkillLessons.md`.
 
 Self-healing runs on its own cron: it embeds pending rows, repairs missing
 projections, and reports drift. Time decay itself stores nothing: ranking
@@ -225,5 +261,5 @@ of them.
 The Console `Brain` area gives operators: object browsing with version
 history and rollback, claim listing with take resolution, source management
 (register, learn, archive), contradiction triage, schema suggestion
-decisions, per-principal knowledge audit, search preview as any Principal,
-and health counters.
+decisions, duplicate-page merge decisions, per-principal knowledge audit,
+search preview as any Principal, and health counters.

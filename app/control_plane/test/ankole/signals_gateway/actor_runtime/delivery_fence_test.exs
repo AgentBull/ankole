@@ -3,6 +3,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.DeliveryFenceTest do
 
   alias Ankole.AppConfigure
   alias Ankole.SignalsGateway.ActorRuntime.DeadLetterNoticeConfig
+  alias Ankole.SignalsGateway.ActorRuntime.ReadyEventProcessor
 
   describe "delivery fences" do
     test "record_only input does not start an actor turn or emit PONG" do
@@ -549,6 +550,102 @@ defmodule Ankole.SignalsGateway.ActorRuntime.DeliveryFenceTest do
       end
 
       assert Repo.aggregate(OutboxEntry, :count) == 0
+    end
+
+    # A dead-lettered Workflow completion must still hand the user the run
+    # outcome from the durable payload, like a dead-lettered Job wakeup.
+    test "a dead-lettered Workflow completion notice carries the run outcome" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+      route = unique_route()
+
+      :ok = Broker.register_local_worker(route, self())
+      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      assert {:ok, _worker} = admit_worker(route)
+
+      # The owner session and its channel must exist like a real run's owner:
+      # seed them through ingress, then retire the seed input.
+      assert {:ok, %{actor_event: seed_input}} =
+               emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "seed the owner channel", explicit: true}),
+                 now: @base_time
+               )
+
+      seed_input
+      |> Ecto.Changeset.change(%{completed_at: DateTime.utc_now(:microsecond)})
+      |> Repo.update!()
+
+      run =
+        Repo.insert!(
+          Ankole.Workflow.Schemas.Run.creation_changeset(%Ankole.Workflow.Schemas.Run{}, %{
+            agent_uid: agent.uid,
+            owner_session_id: seed_input.session_id,
+            reply_route: %{
+              "binding_name" => "bot",
+              "signal_channel_id" => seed_input.signal_channel_id
+            },
+            source_tool_call_id: "workflow-dead-letter-tool",
+            title: "Dead letter run",
+            script: "return 'preview text';",
+            args: %{},
+            status: "running",
+            concurrency: 8,
+            max_agent_calls: 32,
+            error: %{}
+          })
+        )
+
+      runner = fn _run_id, _source, _tools, _memo, _options ->
+        {:ok,
+         %{
+           status: :completed,
+           output: [%{kind: "text", value: "preview text"}],
+           pending_calls: [],
+           error: nil,
+           error_code: nil
+         }}
+      end
+
+      assert :ok = Ankole.Workflow.RunServer.poke(run.id, runner: runner)
+
+      completion_event =
+        wait_for_completion_event!(agent.uid, "workflow:#{run.id}:completed")
+
+      # Terminal cleanup runs in the RunServer process after the commit; wait
+      # for it so the sandbox owner does not exit under its queries.
+      wait_for_run_cleanup!(run.id)
+
+      assert {:ok, %{send_outcome: "sent_or_queued"}} =
+               ReadyEventProcessor.process_ready_event_for_actor(
+                 %{agent_uid: agent.uid, session_id: seed_input.session_id},
+                 now: DateTime.add(completion_event.available_at, 1, :second),
+                 lease_seconds: @long_lease_seconds
+               )
+
+      assert_receive {:actor_lane, envelope}, 2_000
+      turn_ref = turn_start_payload!(envelope).turn
+
+      assert {:ok, %{status: :turn_dead_lettered}} =
+               fail_turn(turn_ref, "worker_loop_failed", "worker loop failed", %{},
+                 now: DateTime.add(completion_event.available_at, 2, :second)
+               )
+
+      notice = Repo.get_by!(OutboxEntry, outbound_key: "ai-dead-letter:#{completion_event.id}")
+
+      assert notice.fallback_visible_text ==
+               Ankole.I18n.t("signals_gateway.reply.workflow_dead_letter_completed", %{
+                 "run_id" => run.id,
+                 "title" => "Dead letter run",
+                 "succeeded" => 0,
+                 "failed" => 0,
+                 "total" => 0,
+                 "detail" => "preview text"
+               })
+
+      assert notice.fallback_visible_text =~ "Dead letter run"
+      assert notice.fallback_visible_text =~ "preview text"
     end
 
     test "non-retryable turn_error dead-letters immediately and releases the session" do
@@ -1194,6 +1291,38 @@ defmodule Ankole.SignalsGateway.ActorRuntime.DeliveryFenceTest do
 
   defp message_has_role?(%Message{content: items}, role) do
     Enum.any?(items, &match?(%{"role" => ^role}, &1))
+  end
+
+  defp wait_for_completion_event!(agent_uid, source_event_id, attempts \\ 200)
+
+  defp wait_for_completion_event!(_agent_uid, source_event_id, 0),
+    do: flunk("Workflow completion event #{source_event_id} never appeared")
+
+  defp wait_for_completion_event!(agent_uid, source_event_id, attempts) do
+    case Repo.get_by(ActorEvent, agent_uid: agent_uid, source_event_id: source_event_id) do
+      %ActorEvent{} = event ->
+        event
+
+      nil ->
+        Process.sleep(10)
+        wait_for_completion_event!(agent_uid, source_event_id, attempts - 1)
+    end
+  end
+
+  defp wait_for_run_cleanup!(run_id, attempts \\ 200)
+
+  defp wait_for_run_cleanup!(run_id, 0),
+    do: flunk("Workflow run #{run_id} terminal cleanup never completed")
+
+  defp wait_for_run_cleanup!(run_id, attempts) do
+    case Repo.get!(Ankole.Workflow.Schemas.Run, run_id) do
+      %Ankole.Workflow.Schemas.Run{cleanup_completed_at: %DateTime{}} ->
+        :ok
+
+      _run ->
+        Process.sleep(10)
+        wait_for_run_cleanup!(run_id, attempts - 1)
+    end
   end
 
   defp fail_next_turn!(now, opts \\ []) do

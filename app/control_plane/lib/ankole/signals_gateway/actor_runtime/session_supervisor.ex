@@ -29,7 +29,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionSupervisor do
   Registry-unique name. Both callers treat that as success and return the live
   pid, so callers never have to coordinate who starts the actor.
   """
-  @spec ensure_session_controller(map()) :: {:ok, pid()} | {:error, term()}
+  @spec ensure_session_controller(%{agent_uid: String.t(), session_id: String.t()}) ::
+          {:ok, pid()} | {:error, term()}
   def ensure_session_controller(actor_key) do
     case DynamicSupervisor.start_child(__MODULE__, {SessionController, actor_key}) do
       {:ok, pid} -> {:ok, pid}

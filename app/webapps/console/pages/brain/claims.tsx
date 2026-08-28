@@ -35,7 +35,7 @@ import type { BrainClaim } from '../../api/generated/types.gen'
 import { requestErrorMessage } from '../../../common/request-errors'
 import { formatConsoleDate } from '../../console-primitives'
 import { FilterSwitch, ResourceListPage, ResourceSearch } from '../../console-list-page'
-import { effectiveResourceSearchQuery, matchesResourceSearch } from '../../state/resource-search'
+import { effectiveResourceSearchQuery } from '../../state/resource-search'
 import { BrainSubNav, brainObjectPath } from './brain-nav'
 
 const RESOLUTION_QUALITIES = ['correct', 'incorrect', 'partial', 'unresolvable'] as const
@@ -58,13 +58,12 @@ export function BrainClaimsPage() {
       query: {
         ...(claimType === 'all' ? {} : { claim_type: claimType }),
         ...(currentOnly ? { status: 'current' } : {}),
-        ...(deferredSlug.trim() ? { object_slug: deferredSlug.trim() } : {})
+        ...(deferredSlug.trim() ? { object_slug: deferredSlug.trim() } : {}),
+        ...(searchQuery.trim() ? { q: searchQuery.trim() } : {})
       }
     })
   )
-  const rows = (claims.data?.claims ?? []).filter(claim =>
-    matchesResourceSearch(searchQuery, claim.claim, claim.kind, claim.holder, claim.object_slug, claim.author_uid)
-  )
+  const rows = claims.data?.claims ?? []
 
   const invalidate = () =>
     void queryClient.invalidateQueries({ queryKey: ankoleWebBrainControllerListClaimsQueryKey() })

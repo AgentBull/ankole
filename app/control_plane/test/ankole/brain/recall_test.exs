@@ -107,6 +107,63 @@ defmodule Ankole.Brain.RecallTest do
     refute "group:#{context.group.name}" in outsider_scopes
   end
 
+  test "soft-deleted object claims disappear without hiding channel claims", context do
+    {:ok, forgotten_object} =
+      Objects.create_object(
+        %{
+          slug: "concepts/cinnabar-record",
+          type: "concept",
+          title: "Cinnabar Record",
+          body: "Cinnabar retention notes"
+        },
+        context.member.uid
+      )
+
+    {:ok, %{claim: forgotten_claim}} =
+      Claims.write_fact(
+        %{
+          object_slug: forgotten_object.slug,
+          claim: "Cinnabar retention belongs to the deleted page",
+          kind: "fact",
+          holder: "world",
+          audience_scope: "world",
+          notability: "medium",
+          confidence: 0.8,
+          valid_from: DateTime.utc_now(:microsecond),
+          provenance: "test"
+        },
+        context.member.uid,
+        embed: false
+      )
+
+    channel = insert_channel!()
+
+    {:ok, %{claim: channel_claim}} =
+      Claims.write_fact(
+        %{
+          signal_gateway_channel_id: channel.id,
+          claim: "Cinnabar retention remains in channel memory",
+          kind: "fact",
+          holder: "world",
+          audience_scope: "world",
+          notability: "medium",
+          confidence: 0.8,
+          valid_from: DateTime.utc_now(:microsecond),
+          provenance: "test"
+        },
+        context.member.uid,
+        embed: false
+      )
+
+    assert {:ok, _object} = Objects.soft_delete(forgotten_object.slug)
+    assert {:ok, result} = Recall.recall(context.member.uid, %{query: "cinnabar retention"})
+
+    claim_ids = Enum.map(result.claims, & &1.id)
+    assert channel_claim.id in claim_ids
+    refute forgotten_claim.id in claim_ids
+    refute Enum.any?(result.chunks, &(&1.object_slug == forgotten_object.slug))
+  end
+
   test "authors always reach their own writes", context do
     {:ok, %{claim: private_fact}} =
       Claims.write_fact(
@@ -258,5 +315,21 @@ defmodule Ankole.Brain.RecallTest do
              "concepts/hormuz-shipping",
              "concepts/hormuz-strait"
            ]
+  end
+
+  defp insert_channel! do
+    now = DateTime.utc_now(:microsecond)
+
+    Repo.insert!(
+      Ankole.SignalsGateway.Channel.changeset(%Ankole.SignalsGateway.Channel{}, %{
+        id: "test:recall-#{System.unique_integer([:positive])}",
+        kind: :im_dm,
+        reply_mode: :entry,
+        metadata: %{},
+        raw_payload: %{},
+        first_seen_at: now,
+        last_seen_at: now
+      })
+    )
   end
 end

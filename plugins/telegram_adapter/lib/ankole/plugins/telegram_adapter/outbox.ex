@@ -244,7 +244,8 @@ defmodule Ankole.Plugins.TelegramAdapter.Outbox do
             |> Kernel.++([
               {field,
                {content,
-                filename: name, content_type: attachment["mimetype"] || "application/octet-stream"}}
+                filename: name,
+                content_type: attachment["mime_type"] || "application/octet-stream"}}
             ])
 
           {:ok, %{method: method, multipart: fields}}
@@ -386,7 +387,7 @@ defmodule Ankole.Plugins.TelegramAdapter.Outbox do
   end
 
   defp image_attachment?(attachment) do
-    String.starts_with?(attachment["mimetype"] || "", "image/")
+    String.starts_with?(attachment["mime_type"] || "", "image/")
   end
 
   defp uncertain?(%Client.Error{kind: kind, error_code: code}),

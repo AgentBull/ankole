@@ -100,6 +100,15 @@ export interface AgentLoopConfig {
    */
   repairFinalResponse?: (message: AssistantMessage) => UserMessage | undefined
 
+  /** Local tools exposed only during the one protocol-repair round. */
+  repairTools?: WorkerAgentTool[]
+
+  /** Hosted tools exposed only during the one protocol-repair round. */
+  repairHostedTools?: HostedTool[]
+
+  /** Set false when the caller's protocol repair owns empty responses. */
+  nudgeEmptyAfterTools?: boolean
+
   /** Abort signal for the whole loop. */
   abortSignal?: AbortSignal
 
@@ -205,6 +214,8 @@ export interface WorkerAgentTool<TZod extends z.ZodType = z.ZodType, TDetails = 
   jsonSchema?: Record<string, unknown>
   /** Optional result schema from the tool owner. */
   outputSchema?: Record<string, unknown>
+  /** Enables provider-side strict validation for this function tool. */
+  strict?: boolean
   /** Groups this tool under one Responses namespace. */
   namespace?: string
   namespaceDescription?: string

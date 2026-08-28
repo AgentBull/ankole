@@ -25,7 +25,7 @@ kernel 的存在，是为了阻止 Bun 这边和 Elixir 这边对同一种原生
 
 - **`common/`**——宿主中立的原语：AEAD token 加密与解密、密钥派生、哈希、编码、UUID 帮助函数（含 `gen_uuid_v7`，对 Elixir 暴露为 `gen_uuid_v7/0`，对 Bun 暴露为 `genUUIDv7()`）、JWT 帮助函数、电话号码归一化。这些是两个运行时都会用到的小型受信任操作。
 - **`authz/`**——只根据快照执行授权求值。`authorize` 和 `authorize_all` 接收 `AuthzSnapshot` 并返回 `AuthzDecision`；CEL 条件校验和资源模式匹配也在这里完成。这就是 [主体与 AuthZ](../principal-authz/) 中描述的确定性求值器，控制面负责为它组装快照。
-- **`runtime_fabric/`**——RuntimeFabric v1 信封协议：lane、持久性等级、关联规则，以及回合/控制/进度/RPC 体语义，全部对宿主编码的 protobuf 字节做校验。唯一的结构声明是 `proto/envelope.proto`；每个宿主从它派生自己的编解码——Rust 用 `prost-build`，Elixir 用 `protox`，TypeScript 用 `protoc-gen-es`。没有哪个宿主自己发明结构。
+- **`runtime_fabric/`**——`ankole.runtime_fabric.v1` protobuf 命名空间和当前 wire protocol version 5：lane、持久性等级、关联规则，以及回合/控制/进度/RPC 体语义，全部对宿主编码的 protobuf 字节做校验。唯一的结构声明是 `proto/envelope.proto`；每个宿主从它派生自己的编解码——Rust 用 `prost-build`，Elixir 用 `protox`，TypeScript 用 `protoc-gen-es`。没有哪个宿主自己发明结构。
 - **`universal_ai_client/`**——一个 feature 门控的原生异步流式客户端，用于已准备好的 AI provider 请求：上游的 HTTP SSE/EventStream 和 WebSocket 传输、provider 响应归一化、下游的 SSE/WebSocket 分块编码、需求信用、取消。这就是 [AIGateway](../ai-gateway/) 用来与 provider 通信的 AI 数据面原语。
 
 ## ZeroMQ 传输

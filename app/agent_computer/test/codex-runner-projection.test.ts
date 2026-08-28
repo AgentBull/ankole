@@ -9,7 +9,7 @@ describe('@ankole/agent-computer Codex job capability projection', () => {
   it('projects the exact Job allowlist and rejects browser and foreground-only tools', async () => {
     const calls: unknown[] = []
     const tools: WorkerAgentTool[] = [
-      tool('skill_view', z.object({ name: z.string() }), () => 'must stay hidden'),
+      tool('skill_view', z.object({ name: z.string() }), () => 'loaded Skill'),
       tool('scratch_note', z.object({ content: z.string() }), () => 'must stay hidden'),
       tool('web_search', z.object({ query: z.string().min(1) }), params => {
         calls.push(params)
@@ -38,7 +38,7 @@ describe('@ankole/agent-computer Codex job capability projection', () => {
     })
 
     expect(projection.dynamicTools.map(spec => ('name' in spec ? spec.name : undefined)).sort()).toEqual(
-      ['web_search', 'web_fetch', 'recall', 'get_page'].sort()
+      ['web_search', 'web_fetch', 'recall', 'get_page', 'skill_view'].sort()
     )
     expect(projection.quarantinedTools).toEqual([])
 

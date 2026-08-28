@@ -12,7 +12,6 @@ defmodule Ankole.AIAgent.Library do
 
   alias Ankole.AIAgent.Library.AgentPlugins
   alias Ankole.AIAgent.Library.AgentPlugins.Config, as: AgentPluginConfig
-  alias Ankole.AIAgent.Library.RuntimeCapabilityChanges
   alias Ankole.AIAgent.Library.Schemas.AgentLibraryContainerEntry
   alias Ankole.AIAgent.Library.Schemas.AgentSkill
   alias Ankole.AIAgent.Library.Schemas.AgentSkillLesson
@@ -52,9 +51,17 @@ defmodule Ankole.AIAgent.Library do
           optional(:default_enabled) => boolean(),
           optional(:tags) => [String.t()],
           optional(:category) => String.t(),
-          optional(:disable_model_invocation) => boolean(),
           optional(:ankole_runtime) => String.t()
         }
+
+  @doc "Returns the globally unique union of every shipped standalone and Agent Plugin Skill."
+  @spec shipped_skill_sources(keyword()) :: {:ok, [map()]} | {:error, term()}
+  def shipped_skill_sources(opts \\ []) do
+    with {:ok, builtin_sources} <- SourceReader.read_builtin_skill_sources(),
+         {:ok, agent_plugin_sources} <- AgentPlugins.skill_sources(opts) do
+      reject_skill_source_conflicts(builtin_sources ++ agent_plugin_sources)
+    end
+  end
 
   @doc """
   Scans first-party builtin skill files and updates the global sync cursor.
@@ -68,10 +75,7 @@ defmodule Ankole.AIAgent.Library do
     force? = Keyword.get(opts, :force, false)
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
-    with {:ok, builtin_sources} <- SourceReader.read_builtin_skill_sources(),
-         {:ok, agent_plugin_sources} <- AgentPlugins.skill_sources(),
-         {:ok, sources} <-
-           reject_skill_source_conflicts(builtin_sources ++ agent_plugin_sources) do
+    with {:ok, sources} <- shipped_skill_sources() do
       content_hash = SourceReader.catalog_hash(sources)
       current_state = repo.get(LibraryBuiltinSyncState, @sync_name)
 
@@ -136,15 +140,14 @@ defmodule Ankole.AIAgent.Library do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
     with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
-         {:ok, builtin_sources} <- SourceReader.read_builtin_skill_sources(),
-         {:ok, agent_plugin_sources} <- AgentPlugins.skill_sources(opts),
+         {:ok, shipped_sources} <- shipped_skill_sources(opts),
          {:ok, installed_sources} <- installed_sources_from_observations(observations) do
       repo.transact(fn repo ->
         sync_agent_skills_in_tx(
           repo,
           agent_uid,
           %{
-            builtin: builtin_sources ++ agent_plugin_sources,
+            builtin: shipped_sources,
             installed: installed_sources,
             installed_authoritative?: true
           },
@@ -193,11 +196,11 @@ defmodule Ankole.AIAgent.Library do
   @spec global_capabilities(keyword()) :: {:ok, map()} | {:error, term()}
   def global_capabilities(opts \\ []) do
     with {:ok, agent_plugins} <- AgentPlugins.global_capabilities(opts),
-         {:ok, builtin_sources} <- SourceReader.read_builtin_skill_sources(),
-         {:ok, agent_plugin_sources} <- AgentPlugins.skill_sources(opts),
-         {:ok, _sources} <-
-           reject_skill_source_conflicts(builtin_sources ++ agent_plugin_sources),
+         {:ok, shipped_sources} <- shipped_skill_sources(opts),
          {:ok, defaults} <- library_defaults(opts) do
+      builtin_sources =
+        Enum.reject(shipped_sources, &is_binary(&1.metadata["agent_plugin_id"]))
+
       skills =
         Enum.map(builtin_sources, fn source ->
           global_default = Map.get(defaults.skills, source.name, source.default_enabled)
@@ -292,31 +295,8 @@ defmodule Ankole.AIAgent.Library do
   """
   @spec enabled_skills_for_agent(String.t(), keyword()) :: {:ok, [map()]} | {:error, term()}
   def enabled_skills_for_agent(agent_uid, opts \\ []) do
-    repo = Keyword.get(opts, :repo, Repo)
-
-    with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
-         {:ok, agent_plugins} <- AgentPlugins.capabilities_for_agent(agent_uid, opts),
-         {:ok, defaults} <- library_defaults(opts) do
-      lesson_skills = delivered_lesson_skill_names(repo, agent_uid)
-
-      all_skills =
-        AgentSkill
-        |> where([skill], skill.agent_uid == ^agent_uid)
-        |> order_by([skill], asc: skill.skill_name)
-        |> repo.all()
-
-      parent_enabled = Map.new(agent_plugins, &{&1["id"], &1["effective_enabled"]})
-
-      {:ok,
-       all_skills
-       |> Enum.map(fn skill ->
-         effective = effective_skill_enabled?(skill, defaults, parent_enabled)
-         {skill, effective}
-       end)
-       |> Enum.filter(&elem(&1, 1))
-       |> Enum.map(fn {skill, effective} ->
-         skill_summary(skill, lesson_skills, effective, defaults)
-       end)}
+    with {:ok, runtime_state} <- enabled_runtime_state(agent_uid, opts) do
+      {:ok, runtime_state.skills}
     end
   end
 
@@ -385,8 +365,7 @@ defmodule Ankole.AIAgent.Library do
   `context` carries `:evidence_job_ids` (the evidence-bundle job id set),
   `:human_input_job_ids` (its subset with mid-run human input), and
   `:checked_release`. Rejected adds are reported with a reason; accepted adds
-  are inserted in one transaction and touched Skills get a content-change
-  notification.
+  are inserted in one transaction.
   """
   @spec apply_skill_lesson_adds(String.t(), [map()], map(), keyword()) ::
           {:ok, %{accepted: [AgentSkillLesson.t()], rejected: [map()]}} | {:error, term()}
@@ -413,7 +392,6 @@ defmodule Ankole.AIAgent.Library do
           {:ok, %{accepted: Enum.reverse(state.accepted), rejected: Enum.reverse(state.rejected)}}
         end
       end)
-      |> notify_lesson_skills(agent_uid, repo)
     end
   end
 
@@ -457,7 +435,6 @@ defmodule Ankole.AIAgent.Library do
            retired_skills: Enum.uniq(state.retired_skills)
          }}
       end)
-      |> notify_lesson_skills(agent_uid, repo)
     end
   end
 
@@ -558,7 +535,6 @@ defmodule Ankole.AIAgent.Library do
           |> repo.insert()
         end
       end)
-      |> notify_lesson_skills(agent_uid, repo)
     end
   end
 
@@ -592,7 +568,6 @@ defmodule Ankole.AIAgent.Library do
             |> repo.update()
         end
       end)
-      |> notify_lesson_skills(agent_uid, repo)
     end
   end
 
@@ -736,41 +711,85 @@ defmodule Ankole.AIAgent.Library do
   def replace_agent_document(_agent_uid, _kind, _content, _expected_content_hash, _opts),
     do: {:error, :invalid_agent_document}
 
-  @doc """
-  Returns the compact skill index used by prompt builders.
-  """
-  @spec skills_for_system_prompt(String.t(), keyword()) :: {:ok, [map()]} | {:error, term()}
-  def skills_for_system_prompt(agent_uid, opts \\ []) do
-    with {:ok, skills} <- enabled_skills_for_agent(agent_uid, opts) do
+  @doc "Returns one coherent Agent Plugin and Skill catalog for an Agent runtime."
+  @spec runtime_catalog_for_agent(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def runtime_catalog_for_agent(agent_uid, opts \\ []) do
+    with {:ok, runtime_state} <- enabled_runtime_state(agent_uid, opts) do
       {:ok,
-       Enum.map(skills, fn skill ->
-         metadata = skill["metadata"] || %{}
-
-         %{
-           "skill_name" => skill["skill_name"],
-           "name" => skill["skill_name"],
-           "description" => skill["description"],
-           "category" => skill["category"],
-           "source_kind" => skill["source_kind"],
-           "agent_plugin_id" => skill["agent_plugin_id"],
-           "relative_path" => skill["relative_path"],
-           "skill_root" => metadata["skill_root"],
-           "skill_uri" => skill_uri(skill["skill_name"], @skill_file),
-           "metadata" => metadata,
-           "disable_model_invocation" => metadata["disable_model_invocation"] == true
-         }
-       end)}
+       %{
+         "agent_plugins" => AgentPlugins.enabled_catalog(runtime_state.agent_plugins),
+         "skills" => Enum.map(runtime_state.skills, &runtime_skill_summary/1)
+       }}
     end
   end
 
+  @doc """
+  Returns the compact effective Skill set sent to an Agent runtime.
+
+  The runtime keeps this complete set for `skill_view` and applies discovery
+  policy when it renders a model-visible Skill catalog.
+  """
+  @spec runtime_skills_for_agent(String.t(), keyword()) :: {:ok, [map()]} | {:error, term()}
+  def runtime_skills_for_agent(agent_uid, opts \\ []) do
+    with {:ok, runtime_catalog} <- runtime_catalog_for_agent(agent_uid, opts) do
+      {:ok, runtime_catalog["skills"]}
+    end
+  end
+
+  defp enabled_runtime_state(agent_uid, opts) do
+    repo = Keyword.get(opts, :repo, Repo)
+
+    with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
+         {:ok, defaults} <- library_defaults(opts),
+         runtime_opts = Keyword.put(opts, :agent_library_defaults, defaults),
+         {:ok, agent_plugins} <- AgentPlugins.capabilities_for_agent(agent_uid, runtime_opts) do
+      lesson_skills = delivered_lesson_skill_names(repo, agent_uid)
+
+      plugin_member_enabled =
+        Map.new(
+          for agent_plugin <- agent_plugins,
+              skill <- agent_plugin["skills"],
+              do: {skill["id"], skill["effective_enabled"]}
+        )
+
+      skills =
+        AgentSkill
+        |> where([skill], skill.agent_uid == ^agent_uid)
+        |> order_by([skill], asc: skill.skill_name)
+        |> repo.all()
+        |> Enum.map(fn skill ->
+          effective = runtime_skill_enabled?(skill, defaults, plugin_member_enabled)
+          {skill, effective}
+        end)
+        |> Enum.filter(&elem(&1, 1))
+        |> Enum.map(fn {skill, effective} ->
+          skill_summary(skill, lesson_skills, effective, defaults)
+        end)
+
+      {:ok, %{agent_plugins: agent_plugins, skills: skills}}
+    end
+  end
+
+  defp runtime_skill_summary(skill) do
+    metadata = skill["metadata"] || %{}
+
+    %{
+      "skill_name" => skill["skill_name"],
+      "description" => skill["description"],
+      "category" => skill["category"],
+      "source_kind" => skill["source_kind"],
+      "agent_plugin_id" => skill["agent_plugin_id"],
+      "relative_path" => skill["relative_path"],
+      "skill_root" => metadata["skill_root"],
+      "metadata" => metadata
+    }
+  end
+
   defp agent_skill_sources(_agent_uid, opts) do
-    with {:ok, builtin_sources} <- SourceReader.read_builtin_skill_sources(),
-         {:ok, agent_plugin_sources} <- AgentPlugins.skill_sources(opts),
-         {:ok, _all_sources} <-
-           reject_skill_source_conflicts(builtin_sources ++ agent_plugin_sources) do
+    with {:ok, shipped_sources} <- shipped_skill_sources(opts) do
       {:ok,
        %{
-         builtin: builtin_sources ++ agent_plugin_sources,
+         builtin: shipped_sources,
          installed: [],
          installed_authoritative?: false
        }}
@@ -1250,15 +1269,10 @@ defmodule Ankole.AIAgent.Library do
          {:ok, default_enabled} <- observation_boolean(observation, :default_enabled, true),
          {:ok, tags} <- observation_tags(observation),
          {:ok, category} <- observation_optional_text(observation, :category),
-         {:ok, disable_model_invocation} <-
-           observation_boolean(observation, :disable_model_invocation, false),
          {:ok, ankole_runtime} <-
            SourceReader.normalize_ankole_runtime(map_text(observation, :ankole_runtime)) do
       metadata =
-        %{
-          "tags" => tags,
-          "disable_model_invocation" => disable_model_invocation
-        }
+        %{"tags" => tags}
         |> put_optional_metadata("category", category)
         |> put_optional_metadata("ankole-runtime", ankole_runtime)
 
@@ -1269,7 +1283,6 @@ defmodule Ankole.AIAgent.Library do
           default_enabled,
           tags,
           category,
-          disable_model_invocation,
           ankole_runtime
         )
 
@@ -1355,7 +1368,6 @@ defmodule Ankole.AIAgent.Library do
          default_enabled,
          tags,
          category,
-         disable_model_invocation,
          ankole_runtime
        ) do
     [
@@ -1363,7 +1375,6 @@ defmodule Ankole.AIAgent.Library do
       description,
       to_string(default_enabled),
       category || "",
-      to_string(disable_model_invocation),
       ankole_runtime || ""
       | tags
     ]
@@ -1799,35 +1810,6 @@ defmodule Ankole.AIAgent.Library do
     }
   end
 
-  defp notify_lesson_skills(
-         {:ok, %AgentSkillLesson{skill_name: skill_name}} = result,
-         agent_uid,
-         repo
-       ) do
-    RuntimeCapabilityChanges.notify_skill_content(agent_uid, skill_name, repo: repo)
-    result
-  end
-
-  defp notify_lesson_skills({:ok, %{accepted: accepted}} = result, agent_uid, repo) do
-    accepted
-    |> Enum.map(& &1.skill_name)
-    |> Enum.uniq()
-    |> Enum.each(&RuntimeCapabilityChanges.notify_skill_content(agent_uid, &1, repo: repo))
-
-    result
-  end
-
-  defp notify_lesson_skills({:ok, %{retired_skills: retired_skills}} = result, agent_uid, repo) do
-    Enum.each(
-      retired_skills,
-      &RuntimeCapabilityChanges.notify_skill_content(agent_uid, &1, repo: repo)
-    )
-
-    result
-  end
-
-  defp notify_lesson_skills(result, _agent_uid, _repo), do: result
-
   defp skill_summary(%AgentSkill{} = skill, lesson_skills, effective, defaults) do
     metadata = skill.metadata || %{}
     global_default = skill_global_default(skill, defaults)
@@ -1874,6 +1856,15 @@ defmodule Ankole.AIAgent.Library do
     if is_binary(skill.agent_plugin_id),
       do: enabled and Map.get(parent_enabled, skill.agent_plugin_id, false),
       else: enabled
+  end
+
+  defp runtime_skill_enabled?(%AgentSkill{agent_plugin_id: id} = skill, _defaults, enabled)
+       when is_binary(id) do
+    Map.get(enabled, skill_stable_id(skill), false)
+  end
+
+  defp runtime_skill_enabled?(%AgentSkill{} = skill, defaults, _enabled) do
+    effective_override(skill.enabled_override, skill_global_default(skill, defaults))
   end
 
   defp skill_global_default(%AgentSkill{source_kind: "installed"} = skill, _defaults),

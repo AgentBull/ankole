@@ -34,7 +34,7 @@ defmodule Ankole.Plugins.TelegramAdapter.ConnectionReconciler do
 
     stopped =
       ConnectionLifecycle.stop_undesired(
-        specs,
+        {:complete, specs},
         ConnectionSupervisor.registered_keys(),
         &ConnectionSupervisor.stop/1
       )

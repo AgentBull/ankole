@@ -29,6 +29,7 @@ import {
   ankoleWebBrainControllerListSourcesOptions,
   ankoleWebBrainControllerListSourcesQueryKey
 } from '../../api/generated/@tanstack/react-query.gen'
+import type { BrainSource } from '../../api/generated/types.gen'
 import { requestErrorMessage } from '../../../common/request-errors'
 import { formatConsoleDate } from '../../console-primitives'
 import { ResourceListPage } from '../../console-list-page'
@@ -44,6 +45,7 @@ export function BrainSourcesPage() {
   const [upstreamID, setUpstreamID] = useState('')
   const [name, setName] = useState('')
   const [scope, setScope] = useState('')
+  const [archiveTarget, setArchiveTarget] = useState<BrainSource>()
 
   const sources = useQuery(ankoleWebBrainControllerListSourcesOptions())
   const rows = sources.data?.sources ?? []
@@ -79,6 +81,7 @@ export function BrainSourcesPage() {
     ...ankoleWebBrainControllerArchiveSourceMutation(),
     onSuccess: () => {
       toast.success(t('console.brain.archive_done'))
+      setArchiveTarget(undefined)
       invalidate()
     },
     onError: error => toast.error(requestErrorMessage(error))
@@ -122,7 +125,9 @@ export function BrainSourcesPage() {
           <TableRow key={source.id} className={source.archived_at ? 'opacity-60' : undefined}>
             <TableCell className="text-sm">{source.name}</TableCell>
             <TableCell>
-              <Badge variant="secondary">{source.kind}</Badge>
+              <Badge variant="secondary">
+                {source.kind === 'library' ? t('console.brain.source_kind_library') : source.kind}
+              </Badge>
             </TableCell>
             <TableCell className="max-w-[280px] truncate font-mono text-xs">{source.upstream_id}</TableCell>
             <TableCell className="font-mono text-xs">{source.default_audience_scope ?? '—'}</TableCell>
@@ -156,12 +161,7 @@ export function BrainSourcesPage() {
                       {t('console.brain.learn_now')}
                     </Button>
                   ) : null}
-                  <Button
-                    disabled={archive.isPending}
-                    size="xs"
-                    type="button"
-                    variant="ghost"
-                    onClick={() => archive.mutate({ path: { source_id: source.id } })}>
+                  <Button size="xs" type="button" variant="ghost" onClick={() => setArchiveTarget(source)}>
                     {t('console.brain.archive')}
                   </Button>
                 </div>
@@ -241,6 +241,35 @@ export function BrainSourcesPage() {
               }>
               {register.isPending ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
               {t('console.brain.register_source')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(archiveTarget)}
+        onOpenChange={open => !archive.isPending && !open && setArchiveTarget(undefined)}>
+        <DialogContent closeLabel={t('common.close')} showCloseButton={!archive.isPending}>
+          <DialogHeader>
+            <DialogTitle>{t('console.brain.source_archive_title', { name: archiveTarget?.name ?? '' })}</DialogTitle>
+            {/* Archiving a library set withdraws its pages instead of only
+                stopping sync, so the confirmation states that difference. */}
+            <DialogDescription>
+              {archiveTarget?.kind === 'library'
+                ? t('console.brain.source_archive_library_description')
+                : t('console.brain.source_archive_description')}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose render={<Button variant="outline" />} disabled={archive.isPending}>
+              {t('common.cancel')}
+            </DialogClose>
+            <Button
+              disabled={archive.isPending}
+              variant="destructive"
+              onClick={() => archiveTarget && archive.mutate({ path: { source_id: archiveTarget.id } })}>
+              {archive.isPending ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
+              {t('console.brain.archive')}
             </Button>
           </DialogFooter>
         </DialogContent>

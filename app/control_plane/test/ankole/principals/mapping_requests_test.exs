@@ -182,6 +182,22 @@ defmodule Ankole.Principals.MappingRequestsTest do
     assert resolved.uid == principal.uid
   end
 
+  test "bind_subject is idempotent for one principal and rejects a reassignment" do
+    %{principal: first} = human_fixture()
+    %{principal: second} = human_fixture()
+    subject = %{provider: "lark-main", external_id: "ou_bound_once"}
+
+    assert {:ok, identity} = MappingRequests.bind_subject(first.uid, subject)
+    assert {:ok, same_identity} = MappingRequests.bind_subject(first.uid, subject)
+    assert same_identity.id == identity.id
+
+    assert {:error, :platform_subject_already_bound} =
+             MappingRequests.bind_subject(second.uid, subject)
+
+    assert {:ok, resolved} = Principals.resolve_platform_subject("lark-main", "ou_bound_once")
+    assert resolved.uid == first.uid
+  end
+
   test "delete_request drops the row without binding" do
     assert {:ok, request} =
              MappingRequests.record_observation(%{

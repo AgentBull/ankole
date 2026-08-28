@@ -6,6 +6,5 @@ export type InstalledSkillObservation = {
   default_enabled: boolean
   tags: string[]
   category?: string
-  disable_model_invocation: boolean
   ankole_runtime?: AnkoleSkillRuntime
 }

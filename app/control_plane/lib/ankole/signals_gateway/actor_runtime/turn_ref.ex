@@ -31,13 +31,19 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRef do
           revision: non_neg_integer()
         }
 
-  @spec from_activation(map(), ActorSessionActivation.t()) :: t()
-  def from_activation(actor_key, %ActorSessionActivation{} = activation) when is_map(actor_key) do
-    {:ok, agent_uid} = actor_key |> actor_key_value("agent_uid") |> Principals.normalize_uid()
+  @spec from_activation(
+          %{agent_uid: String.t(), session_id: String.t()},
+          ActorSessionActivation.t()
+        ) :: t()
+  def from_activation(
+        %{agent_uid: raw_agent_uid, session_id: session_id},
+        %ActorSessionActivation{} = activation
+      ) do
+    {:ok, agent_uid} = Principals.normalize_uid(raw_agent_uid)
 
     %__MODULE__{
       agent_uid: agent_uid,
-      session_id: actor_key_value(actor_key, "session_id"),
+      session_id: presence(session_id),
       activation_uid: activation.activation_uid,
       actor_epoch: activation.actor_epoch,
       actor_event_id: activation.current_actor_event_id,
@@ -115,8 +121,4 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRef do
   end
 
   defp presence(_value), do: nil
-
-  defp actor_key_value(actor_key, key) do
-    presence(Map.get(actor_key, key) || Map.get(actor_key, String.to_existing_atom(key)))
-  end
 end

@@ -61,7 +61,6 @@ export async function syncInstalledSkillsForTurn(turnStart: TurnStart, opts: Ins
               defaultEnabled: observation.default_enabled,
               tags: observation.tags,
               category: observation.category ?? '',
-              disableModelInvocation: observation.disable_model_invocation,
               ankoleRuntime: observation.ankole_runtime ?? ''
             }))
           },

@@ -5,9 +5,9 @@ import { createWebTools } from '../../tools/web/web-tools'
 import { renderedFetchBrowserSettings, type RenderedFetchRuntimeConfig } from './rendered_fetch_runtime_config'
 
 /**
- * Text Turns and Codex Jobs share this projection so their rendered-fetch
- * fallback stays identical. Browser materialization keeps browser-source
- * variables that other tools do not receive.
+ * Text turns, Workflow tasks, and Codex Jobs share this projection so their
+ * rendered-fetch fallback stays identical. Browser materialization keeps
+ * browser-source variables that other tools do not receive.
  */
 export function createTurnWebTools(opts: {
   aiGateway: AIGatewayHTTPClient

@@ -186,22 +186,6 @@ defmodule Ankole.I18n do
     end
   end
 
-  @doc """
-  Returns the Ankole locale id for a locale value.
-
-  This is the public facade for rendering boundaries that need ids such as
-  `<html lang>` but should not depend on the catalog resolver internals.
-  """
-  @spec locale_id(locale()) :: String.t()
-  def locale_id(%Localize.LanguageTag{} = tag), do: locale_from_language_tag(tag)
-  def locale_id(locale) when is_atom(locale), do: Atom.to_string(locale)
-  def locale_id(locale) when is_binary(locale), do: locale
-
-  # A leading dot means "relative to the supplied scope". This keeps the helper
-  # compatible with legacy call sites without making scoped helpers a separate
-  # public API.
-  defp leading_dot_key("." <> rest, nil), do: rest
-  defp leading_dot_key("." <> rest, scope), do: "#{scope}.#{rest}"
   defp leading_dot_key(key, nil), do: key
   defp leading_dot_key(key, scope), do: "#{scope}.#{key}"
 

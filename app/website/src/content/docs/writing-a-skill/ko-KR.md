@@ -49,6 +49,25 @@ platforms: [linux]
 
 `description`은 구체적인 trigger를 명시해야 합니다. Agent가 Skill을 읽을지 여부를 결정할 때 이 값을 사용하기 때문입니다. 작업에 Job 격리가 필요하면 `ankole-runtime: background_job`을 설정하십시오. Skill이 Linux tool을 필요로 하는 경우에만 `platforms: [linux]`를 설정하십시오.
 
+### 배포되는 Skill을 Brain에서 발견할 수 있게 하기
+
+모든 Prompt에 표시할 필요는 없지만 현재 작업과 의미상 관련될 때 발견해야 하는 SOP나 방법론에는 `brain-recall-only`를 사용하십시오.
+
+```yaml
+---
+name: idea-lineage
+description: Trace how one idea evolved through memory — first mention, best articulation, reversals, and the current live version, each cited from stored evidence.
+tags:
+  - idea lineage
+  - how my thinking evolved
+brain-recall-only: true
+---
+```
+
+이 필드는 배포되는 standalone Skill과 Agent Plugin 안의 Skill만 지원합니다. Agent가 설치한 Skill은 이 발견 모드를 사용하지 않습니다. 배포되는 Skill 이름은 계속 전역에서 고유하며, Agent Plugin 소속이 namespace를 추가하지 않습니다. Brain은 표준 Skill metadata에서 `lazyload-agent-skills/<name>` 발견 레코드를 자동으로 파생합니다.
+
+Skill에 `slug`, `type`, `title`, `aliases` 같은 Object 필드를 추가하지 마십시오. Brain은 `name`, `description`, `tags`를 검색하고 이름과 태그를 자연어 해석에 사용합니다. Skill 본문, 그 밖의 모든 Skill 파일, Agent별 교훈은 Brain에 들어가지 않습니다. 발견한 뒤에도 `skill_view`를 통해서만 읽을 수 있습니다.
+
 ### 본문 작성
 
 우리의 로컬 규칙을 모르는 유능한 Agent를 위해 작성하십시오. 다음 사항을 명시합니다.
@@ -80,6 +99,8 @@ dependency는 Skill이 활성화된 동안에만 사용할 수 있습니다. nat
 ### Skill 검증
 
 테스트용 Agent에서 Skill을 활성화하고 실제 작업을 부여하십시오. Agent가 Skill을 선택하고 필요한 파일을 읽으며 완료 기준을 따르는지 확인합니다. 선택이 실패하면 `description`을 개선하십시오. 실행이 불안정하면 순서와 제약을 명시적으로 만드십시오.
+
+`brain-recall-only` Skill은 일반 Prompt에 표시되지 않는지, Brain이 이름, 설명, 태그로 발견할 수 있는지도 확인하십시오. `skill_view`가 호환되는 실행 표면에서는 전체 Skill을 로드하고, 호환되지 않는 표면에서는 기존 라우팅 또는 거부 동작을 유지하는지 확인하십시오. 그런 다음 Skill이나 부모 Agent Plugin을 비활성화하고 같은 Agent가 발견하거나 로드할 수 없는지 확인하십시오.
 
 ## Control Plane Plugin 개발
 

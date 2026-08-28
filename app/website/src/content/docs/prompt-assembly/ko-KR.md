@@ -28,7 +28,7 @@ Worker는 제어 플레인으로부터 두 경로로 컨텍스트를 받으며, 
 
 ### 활성화된 Skills
 
-`Library.skills_for_system_prompt/1`은 에이전트의 실질 스킬 집합, 즉 기본값-후-덮어쓰기 방식으로 활성화된 스킬과 그 설명 및 메타데이터를 반환합니다. Worker는 이를 사용하여 시스템 프롬프트의 스킬 블록을 구성하고, 모델에게 어떤 스킬이 있고 각각 무엇을 위한 것인지 알려줍니다.
+`Library.runtime_skills_for_agent/1`은 설명과 메타데이터를 포함한 Agent의 전체 유효 Skill 집합을 Worker에 전달합니다. Worker는 전체 집합을 `skill_view`에서 사용할 수 있도록 유지합니다. 모델에 표시되는 Skill 카탈로그를 구성할 때는 `brain-recall-only: true`를 선언한 Skill을 제외하므로, 모든 프롬프트에 나열하지 않고 Brain을 통해 해당 Skill을 발견할 수 있습니다.
 
 ### 대화 원본 채널
 

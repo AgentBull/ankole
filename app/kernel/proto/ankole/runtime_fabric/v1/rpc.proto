@@ -146,16 +146,12 @@ message ConversationInfo {
 message RuntimeSkillSummary {
   string skill_name = 1;
   string description = 2;
-  optional bool default_enabled = 3; // absent = inherit the skill default
   string source_kind = 4;            // builtin | installed | open set
   string agent_plugin_id = 5;
   string relative_path = 6;
   string skill_root = 7;             // library | internal | open set
   bytes metadata_json = 8;
   string category = 9;
-  bytes tags_json = 10;
-  string skill_uri = 11;
-  bool has_agent_overlay = 12;
 }
 
 message AgentConversationContextResponse {
@@ -164,37 +160,26 @@ message AgentConversationContextResponse {
   string soul = 3;
   string mission = 4;
   string design = 5;
-  reserved 6;
-  reserved "system_prompt_snapshot";
-  reserved 7;
-  reserved "brain_snapshot";
   repeated RuntimeSkillSummary skills = 8;
   string soul_content_hash = 9;
   string mission_content_hash = 10;
   string design_content_hash = 11;
+  string confidentiality_policy = 12;
+  string confidentiality_policy_content_hash = 13;
+  repeated AgentPluginCatalogEntry agent_plugins = 14;
 }
 
-// agent_plugin
-
-message AgentPluginListRequest {}
+// agent plugin catalog
 
 message AgentPluginCatalogSkill {
   string catalog_name = 1;
-  reserved 2;
-  reserved "codex_name";
 }
 
 message AgentPluginCatalogEntry {
   string id = 1;
   string description = 2;
-  reserved 3, 4;
-  reserved "version", "content_hash";
   repeated AgentPluginCatalogSkill skills = 5;
   bool has_workspace_template = 6;
-}
-
-message AgentPluginListResponse {
-  repeated AgentPluginCatalogEntry agent_plugins = 1;
 }
 
 // background_agent_job
@@ -205,7 +190,6 @@ message BackgroundAgentJobCreateRequest {
   string task = 3;
   string workspace_template_id = 6;
   string model_profile = 11;
-  reserved 4, 5, 7 to 10;
 }
 
 message BackgroundAgentJobRespawnRequest {
@@ -259,7 +243,6 @@ message BackgroundAgentJobMessageResultResponse {
 
 message BackgroundAgentJobStopRequest {
   string job_id = 1;
-  reserved 2;
 }
 
 message BackgroundAgentJobStopResponse {
@@ -276,8 +259,6 @@ message BackgroundAgentJobTurnUpsertRequest {
   string status = 6; // in_progress | completed | failed | interrupted
   uint32 revision = 7;
   bytes trajectory_json = 8;
-  reserved 9;
-  reserved "trajectory_groups_json";
   bytes progress_json = 10;
   bytes usage_json = 11;
   bytes error_json = 12;
@@ -340,8 +321,6 @@ message BackgroundAgentJobResponse {
   string source_tool_call_id = 5;
   string status = 6;
   string runtime_thread_id = 7;
-  reserved 8;
-  reserved "codex_account_id";
   string title = 9;
   string task = 10;
   bytes reply_route_json = 13;
@@ -349,12 +328,9 @@ message BackgroundAgentJobResponse {
   string workspace_template_id = 15;
   string continued_from_job_id = 16;
   string workspace_owner_job_id = 17;
-  reserved 11, 12, 18, 19;
   string queued_at = 20;
   string started_at = 21;
   string completed_at = 22;
-  reserved 23;
-  reserved "result_json";
   bytes error_json = 24;
   bytes metadata_json = 25;
   // Rich nested execution document rendered for the model.
@@ -399,6 +375,98 @@ message BackgroundAgentJobTurn {
 message BackgroundAgentJobTurnUpsertResponse {
   string job_id = 1;
   BackgroundAgentJobTurn turn = 2;
+}
+
+// workflow
+
+message WorkflowCreateRequest {
+  string source_tool_call_id = 1;
+  string title = 2;
+  string script = 3;
+  bytes args_json = 4;
+  optional uint32 concurrency = 5;
+  optional uint32 max_agent_calls = 6;
+  string model_profile = 7;
+}
+
+message WorkflowCreateResponse {
+  string run_id = 1;
+  string status = 2;
+}
+
+message WorkflowGetRequest {
+  string run_id = 1;
+  string result_offset = 2; // UTF-8 byte offset; empty omits the result window
+}
+
+message WorkflowGetResponse {
+  string run_id = 1;
+  string title = 2;
+  string status = 3;
+  bytes counts_json = 4;
+  bytes failure_summaries_json = 5;
+  bytes error_json = 6;
+  string result_output_text = 7;
+  string result_output_total_bytes = 8;
+  bytes live_tasks_json = 9; // [{call_seq,label,status,note,attention,sleeping_until,wake_count}]
+}
+
+message WorkflowListRequest {
+  string status = 1; // live | done; empty means live
+  string cursor = 2;
+}
+
+message WorkflowListResponse {
+  bytes runs_json = 1; // [{run_id,title,status}]
+  string next_cursor = 2;
+}
+
+message WorkflowCancelRequest {
+  string run_id = 1;
+}
+
+message WorkflowCancelResponse {
+  string run_id = 1;
+  string status = 2;
+}
+
+message WorkflowTaskResultSubmitRequest {
+  string call_id = 1;
+  bool ok = 2;
+  bytes value_json = 3;
+  string code = 4;
+  string summary = 5;
+  bool retryable = 6;
+}
+
+message WorkflowTaskResultSubmitResponse {
+  bool accepted = 1;
+  string task_status = 2;
+}
+
+message WorkflowTaskSleepRequest {
+  string call_id = 1;
+  uint64 wake_after_ms = 2;
+  string note = 3;
+  bool attention = 4;
+}
+
+message WorkflowTaskSleepResponse {
+  string task_status = 1;
+  uint32 wake_count = 2;
+}
+
+message WorkflowTaskMessageSendRequest {
+  string run_id = 1;
+  uint32 call_seq = 2;
+  string message = 3;
+  string source_tool_call_id = 4;
+}
+
+message WorkflowTaskMessageSendResponse {
+  string run_id = 1;
+  uint32 call_seq = 2;
+  string task_status = 3;
 }
 
 // schedule (requests typed, responses model-facing passthrough)
@@ -449,8 +517,6 @@ message ScheduleCronAddRequest {
   bytes payload_json = 4;
   bytes delivery_json = 5;
   string idempotency_key = 6;
-  reserved 7;
-  reserved "failure_policy_json";
   string automation_job_id = 8;
 }
 
@@ -486,8 +552,6 @@ message WebhookEndpointTargetRequest {
 // signal channel (requests typed, responses model-facing passthrough)
 
 message AmbientJudgmentRecordRequest {
-  // Field 1 carried the retired two-valued `decision` projection.
-  reserved 1;
   string reason = 2;
   // The batch message the recognizer attributed the wake to; empty means the
   // wake is proactive. The worker validates the id against the judged batch
@@ -566,8 +630,6 @@ message CodexLogs2DailyMaintenanceRequest {
 message CodexLogs2DailyMaintenanceResponse {
   string status = 1; // deleted | database_missing | skipped_runtime_active
   repeated string deleted_files = 2;
-  reserved 3;
-  reserved "active_codex_processes";
 }
 
 // skills
@@ -579,7 +641,7 @@ message SkillOverlayResolveRequest {
 message SkillOverlayResponse {
   string skill_name = 1;
   bool has_overlay = 2;
-  bytes overlay_json = 3;
+  string text = 3;
   string content_hash = 4;
 }
 
@@ -589,13 +651,10 @@ message SkillOverlayResolveResponse {
 
 message InstalledSkillObservation {
   string skill_name = 1;
-  reserved 2, 5 to 8;
-  reserved "relative_path", "metadata_json", "content_hash", "xxh3_128", "file_count";
   string description = 3;
   optional bool default_enabled = 4;
   repeated string tags = 9;
   string category = 10;
-  bool disable_model_invocation = 11;
   string ankole_runtime = 12;
 }
 
@@ -603,7 +662,4 @@ message InstalledSkillReplaceRequest {
   repeated InstalledSkillObservation observations = 1;
 }
 
-message InstalledSkillReplaceResponse {
-  reserved 1 to 4;
-  reserved "changed", "skills", "files", "content_hash";
-}
+message InstalledSkillReplaceResponse {}

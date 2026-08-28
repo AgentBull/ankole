@@ -18,6 +18,7 @@ defmodule Ankole.Brain.ContextPack do
   alias Ankole.Brain.Config
   alias Ankole.Brain.ContextPackStats
   alias Ankole.Brain.Links
+  alias Ankole.Brain.LazySkillVisibility
   alias Ankole.Brain.Recall
   alias Ankole.Brain.Sanitize
   alias Ankole.Brain.Schemas.Claim
@@ -42,7 +43,8 @@ defmodule Ankole.Brain.ContextPack do
     disclosure = Keyword.get(opts, :disclosure, Access.open_disclosure())
 
     with true <- Config.enabled?(),
-         {:ok, access} <- Access.for_querier(agent_uid) do
+         {:ok, access} <- Access.for_querier(agent_uid),
+         {:ok, visibility} <- LazySkillVisibility.for_querier(agent_uid) do
       forgetting = Config.forgetting()
       now = DateTime.utc_now()
 
@@ -50,15 +52,15 @@ defmodule Ankole.Brain.ContextPack do
 
       cards =
         params
-        |> pack_entity_slugs()
-        |> Enum.map(&entity_card(&1, access, disclosure, forgetting, now, channel_id))
+        |> pack_entity_slugs(visibility)
+        |> Enum.map(&entity_card(&1, access, disclosure, forgetting, now, channel_id, visibility))
         |> Enum.reject(&is_nil/1)
 
       ContextPackStats.record(:served)
 
       %{
         entities: cards,
-        open_threads: open_threads(access, disclosure)
+        open_threads: open_threads(access, disclosure, visibility)
       }
     else
       false ->
@@ -85,6 +87,19 @@ defmodule Ankole.Brain.ContextPack do
   @spec entity_card(String.t(), Access.t(), disclosure(), map(), DateTime.t(), String.t() | nil) ::
           map() | nil
   def entity_card(slug, access, disclosure, forgetting, now, channel_id) do
+    entity_card(slug, access, disclosure, forgetting, now, channel_id, %LazySkillVisibility{})
+  end
+
+  @spec entity_card(
+          String.t(),
+          Access.t(),
+          disclosure(),
+          map(),
+          DateTime.t(),
+          String.t() | nil,
+          LazySkillVisibility.t()
+        ) :: map() | nil
+  def entity_card(slug, access, disclosure, forgetting, now, channel_id, visibility) do
     case Repo.get_by(Object, slug: slug) do
       nil ->
         nil
@@ -93,59 +108,66 @@ defmodule Ankole.Brain.ContextPack do
         nil
 
       %Object{} = object ->
-        facts =
-          object.slug
-          |> entity_claims(channel_id)
-          |> where([claim], claim.claim_type == "fact" and is_nil(claim.expired_at))
-          |> Access.filter_claims(access)
-          |> order_by([claim], desc: claim.valid_from)
-          |> limit(50)
-          |> Repo.all()
-          |> Access.filter_disclosable(& &1.audience_scope, disclosure)
-          |> Enum.sort_by(
-            fn claim ->
-              notability_rank(claim.notability) +
-                Recall.effective_confidence(claim, forgetting, now)
-            end,
-            :desc
-          )
-          |> Enum.take(@pack_facts_per_entity)
-          |> Enum.map(fn claim ->
-            {text, _matched} = Sanitize.sanitize(claim.claim)
-            %{claim: text, kind: claim.kind, holder: claim.holder}
-          end)
+        if LazySkillVisibility.visible?(visibility, object.slug) do
+          facts =
+            object.slug
+            |> entity_claims(channel_id)
+            |> where([claim], claim.claim_type == "fact" and is_nil(claim.expired_at))
+            |> Access.filter_claims(access)
+            |> LazySkillVisibility.filter_claims(visibility)
+            |> order_by([claim], desc: claim.valid_from)
+            |> limit(50)
+            |> Repo.all()
+            |> Access.filter_disclosable(& &1.audience_scope, disclosure)
+            |> Enum.sort_by(
+              fn claim ->
+                notability_rank(claim.notability) +
+                  Recall.effective_confidence(claim, forgetting, now)
+              end,
+              :desc
+            )
+            |> Enum.take(@pack_facts_per_entity)
+            |> Enum.map(fn claim ->
+              {text, _matched} = Sanitize.sanitize(claim.claim)
+              %{claim: text, kind: claim.kind, holder: claim.holder}
+            end)
 
-        aka =
-          Ankole.Brain.Schemas.ObjectAlias
-          |> where([alias], alias.object_slug == ^object.slug)
-          |> limit(5)
-          |> select([alias], alias.alias_norm)
-          |> Repo.all()
+          aka =
+            Ankole.Brain.Schemas.ObjectAlias
+            |> where([alias], alias.object_slug == ^object.slug)
+            |> limit(5)
+            |> select([alias], alias.alias_norm)
+            |> Repo.all()
 
-        outgoing =
-          Link
-          |> where([link], link.from_object_slug == ^object.slug)
-          |> limit(10)
-          |> select([link], {link.link_type, link.to_object_slug})
-          |> Repo.all()
-          |> Enum.map(fn {link_type, to} -> %{link_type: link_type, to: to} end)
+          outgoing =
+            Link
+            |> where([link], link.from_object_slug == ^object.slug)
+            |> LazySkillVisibility.filter_links(visibility)
+            |> limit(10)
+            |> select([link], {link.link_type, link.to_object_slug})
+            |> Repo.all()
+            |> Enum.map(fn {link_type, to} -> %{link_type: link_type, to: to} end)
 
-        backlinks =
-          Link
-          |> where([link], link.to_object_slug == ^object.slug)
-          |> Repo.aggregate(:count)
+          backlinks =
+            Link
+            |> where([link], link.to_object_slug == ^object.slug)
+            |> LazySkillVisibility.filter_links(visibility)
+            |> Repo.aggregate(:count)
 
-        %{
-          slug: object.slug,
-          title: object.title,
-          type: object.type,
-          subtype: object.subtype,
-          aka: aka,
-          facts: facts,
-          edges: outgoing,
-          backlink_count: backlinks,
-          last_touched: object.salience_touched_at || object.updated_at
-        }
+          %{
+            slug: object.slug,
+            title: object.title,
+            type: object.type,
+            subtype: object.subtype,
+            aka: aka,
+            facts: facts,
+            edges: outgoing,
+            backlink_count: backlinks,
+            last_touched: object.salience_touched_at || object.updated_at
+          }
+        else
+          nil
+        end
     end
   end
 
@@ -166,15 +188,17 @@ defmodule Ankole.Brain.ContextPack do
 
     with true <- Config.enabled?(),
          true <- is_binary(message_text) and String.trim(message_text) != "",
-         {:ok, access} <- Access.for_querier(agent_uid) do
+         {:ok, access} <- Access.for_querier(agent_uid),
+         {:ok, visibility} <- LazySkillVisibility.for_querier(agent_uid) do
       message_text
       |> Links.match_aliases_in_text()
-      |> Enum.take(@pointer_limit)
       |> Enum.map(&Repo.get_by(Object, slug: &1))
       |> Enum.filter(&live_object?/1)
+      |> Enum.filter(&LazySkillVisibility.visible?(visibility, &1.slug))
       |> Enum.filter(fn object ->
         visible_to_querier?(object, access, disclosure)
       end)
+      |> Enum.take(@pointer_limit)
       |> Enum.map(fn object ->
         %{slug: object.slug, title: object.title, type: object.type}
       end)
@@ -234,7 +258,7 @@ defmodule Ankole.Brain.ContextPack do
     )
   end
 
-  defp pack_entity_slugs(params) do
+  defp pack_entity_slugs(params, visibility) do
     participant_slugs =
       params
       |> Map.get(:participant_uids, [])
@@ -253,17 +277,19 @@ defmodule Ankole.Brain.ContextPack do
 
     (participant_slugs ++ mentioned_slugs)
     |> Enum.uniq()
+    |> Enum.filter(&LazySkillVisibility.visible?(visibility, &1))
     |> Enum.take(@pack_entity_limit)
   end
 
   # Open threads: unresolved high-weight takes plus unclosed commitments.
-  defp open_threads(access, disclosure) do
+  defp open_threads(access, disclosure, visibility) do
     takes =
       Claim
       |> where([claim], claim.claim_type == "take" and claim.active == true)
       |> where([claim], is_nil(claim.resolved_at))
       |> where([claim], claim.weight >= 0.6)
       |> Access.filter_claims(access)
+      |> LazySkillVisibility.filter_claims(visibility)
       |> order_by([claim], desc: claim.weight)
       |> limit(@open_thread_limit)
       |> Repo.all()
@@ -273,6 +299,7 @@ defmodule Ankole.Brain.ContextPack do
       |> where([claim], claim.claim_type == "fact" and is_nil(claim.expired_at))
       |> where([claim], claim.kind == "commitment")
       |> Access.filter_claims(access)
+      |> LazySkillVisibility.filter_claims(visibility)
       |> order_by([claim], desc: claim.valid_from)
       |> limit(@open_thread_limit)
       |> Repo.all()

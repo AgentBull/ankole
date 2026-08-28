@@ -99,6 +99,45 @@ defmodule Ankole.Kernel.ProgramRunnerTest do
     assert reason =~ "invalid program run request"
   end
 
+  test "forwards only supported native run limits" do
+    program =
+      "await Promise.all(Array.from({ length: 200 }, (_, index) => tools.agent({ index })));"
+
+    bindings = [tool(nil, "agent", "agent")]
+
+    assert {:ok, %{status: :pending, pending_calls: pending_calls}} =
+             ProgramRunner.run(ProgramRunner.new_run_id(), program, bindings, [],
+               max_pending_calls: 1024,
+               max_pending_bytes: 8 * 1024 * 1024,
+               max_memo_bytes: 8 * 1024 * 1024
+             )
+
+    assert length(pending_calls) == 200
+    assert hd(pending_calls).arguments == %{"index" => 0}
+    assert List.last(pending_calls).arguments == %{"index" => 199}
+
+    memo = [
+      %{
+        "namespace" => nil,
+        "name" => "agent",
+        "arguments" => %{},
+        "output" => %{"ok" => true}
+      }
+    ]
+
+    assert {:ok, %{status: :failed, error_code: "program_memo_limit_exceeded"}} =
+             ProgramRunner.run(
+               ProgramRunner.new_run_id(),
+               "await tools.agent({});",
+               bindings,
+               memo,
+               max_memo_bytes: 1
+             )
+
+    assert {:error, "unsupported program run options: :other"} =
+             ProgramRunner.run(ProgramRunner.new_run_id(), "text(1);", [], [], other: 1)
+  end
+
   test "cancelling before native registration does not poison a later run" do
     run_id = ProgramRunner.new_run_id()
     assert :ok = ProgramRunner.cancel(run_id)

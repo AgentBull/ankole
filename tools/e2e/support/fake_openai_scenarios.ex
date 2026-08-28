@@ -41,6 +41,15 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
       structured_output_request?(request) ->
         :ambient_decision
 
+      String.contains?(prompt, "CHAOS_WF_KILL_TASK") ->
+        :workflow_kill_task
+
+      String.contains?(prompt, "CHAOS_WF_KILL_RUN") ->
+        :workflow_kill_done
+
+      String.contains?(prompt, "CHAOS_WF_KILL_START") ->
+        :workflow_kill_start
+
       String.contains?(prompt, "CHAOS_MALFORMED_STREAM") ->
         :malformed_stream
 
@@ -179,6 +188,7 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
           | :slow_stop_stream
           | {:delayed_completion, String.t(), pos_integer()}
           | {:tool_call, map()}
+          | {:delayed_tool_call, map(), pos_integer()}
           | {:completion, String.t(), keyword()}
   def action_for(kind, count, request \\ %{}) do
     cond do
@@ -193,6 +203,11 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
 
       kind in [:followup_slow, :followup_recall_slow] ->
         {:delayed_completion, reply_for(kind), 1_500}
+
+      # The delay keeps the Workflow task turn provably in flight so a chaos
+      # scenario can kill the worker mid-turn before submit_result commits.
+      kind == :workflow_kill_task ->
+        {:delayed_tool_call, tool_call_for(:workflow_kill_task_submit), 1_500}
 
       tool_call = tool_call_for(kind, count, request) ->
         {:tool_call, tool_call}
@@ -418,6 +433,8 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
   defp reply_for(:todo_tool), do: "CHAOS_TODO_OK"
   defp reply_for(:workspace_read_tool), do: "CHAOS_WORKSPACE_READ_OK"
   defp reply_for(:workspace_write_tool), do: "CHAOS_WORKSPACE_WRITE_OK"
+  defp reply_for(:workflow_kill_start), do: "CHAOS_WF_KILL_STARTED_OK"
+  defp reply_for(:workflow_kill_done), do: "CHAOS_WF_KILL_DONE_OK"
   defp reply_for(:generic), do: "CHAOS_GENERIC_OK"
 
   defp tool_call_for(:reply_attachment, 1), do: tool_call_for(:reply_attachment_command)
@@ -446,7 +463,29 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
   defp tool_call_for(kind, 1) when kind in [:checkback_tool, :cron_tool, :steer_tool],
     do: tool_call_for(kind)
 
+  defp tool_call_for(:workflow_kill_start, 1), do: tool_call_for(:workflow_kill_start)
+
   defp tool_call_for(_kind, _count), do: nil
+
+  defp tool_call_for(:workflow_kill_start) do
+    %{
+      id: "call_lark_chaos_workflow_kill",
+      name: "workflow",
+      arguments: %{
+        "title" => "CHAOS_WF_KILL_RUN",
+        "script" =>
+          "return await agent(\"CHAOS_WF_KILL_TASK submit exactly the string killed-and-recovered\", {label: \"killer\"});"
+      }
+    }
+  end
+
+  defp tool_call_for(:workflow_kill_task_submit) do
+    %{
+      id: "call_lark_chaos_wf_submit",
+      name: "submit_result",
+      arguments: %{"result" => "killed-and-recovered"}
+    }
+  end
 
   defp tool_call_for(:checkback_tool) do
     %{

@@ -146,6 +146,37 @@ defmodule AnkoleWeb.IdentityMappingRequestControllerTest do
     assert resolved.uid == target.uid
   end
 
+  test "admin cannot reassign a provider subject", %{conn: conn} do
+    %{principal: first} = human_fixture()
+    %{principal: second} = human_fixture()
+
+    conn =
+      conn
+      |> bearer_conn()
+      |> post(~p"/api/v1/identity-mappings", %{
+        "principal_uid" => first.uid,
+        "provider" => "lark-main",
+        "external_id" => "ou_bound_once"
+      })
+
+    assert json_response(conn, 200)
+
+    assert %{"error" => %{"code" => "subject_already_bound"}} =
+             conn
+             |> recycle_api()
+             |> post(~p"/api/v1/identity-mappings", %{
+               "principal_uid" => second.uid,
+               "provider" => "lark-main",
+               "external_id" => "ou_bound_once"
+             })
+             |> json_response(409)
+
+    assert {:ok, resolved} =
+             Principals.resolve_platform_subject("lark-main", "ou_bound_once")
+
+    assert resolved.uid == first.uid
+  end
+
   defp revoke_console_grants do
     Repo.delete_all(from grant in Grant, where: grant.resource_pattern == "**")
   end

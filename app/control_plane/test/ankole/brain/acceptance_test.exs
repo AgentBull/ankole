@@ -220,6 +220,71 @@ defmodule Ankole.Brain.AcceptanceTest do
 
       assert takes_after == 1
     end
+
+    test "does not combine vectors from different embedding signatures", %{
+      human: human,
+      object: object
+    } do
+      vector = Pgvector.new([1.0 | List.duplicate(0.0, 4095)])
+      old = DateTime.add(DateTime.utc_now(:microsecond), -2 * 86_400, :second)
+
+      for {text, signature} <- [
+            {"Signature A fact one", "model-a"},
+            {"Signature A fact two", "model-a"},
+            {"Signature B fact one", "model-b"}
+          ] do
+        Repo.insert!(%Claim{
+          id: UUIDv7.autogenerate(),
+          claim_type: "fact",
+          object_slug: object.slug,
+          claim: text,
+          kind: "preference",
+          holder: "people/#{human.uid}",
+          audience_scope: "world",
+          notability: "medium",
+          confidence: 0.8,
+          valid_from: old,
+          created_at: old,
+          provenance: "test",
+          embedding: vector,
+          embedding_signature: signature,
+          embedded_at: old
+        })
+      end
+
+      assert %{buckets: 0, promoted: 0} = Dreaming.phase_consolidate()
+    end
+
+    test "does not consolidate facts on a soft-deleted object", %{
+      human: human,
+      object: object
+    } do
+      vector = Pgvector.new([1.0 | List.duplicate(0.0, 4095)])
+      old = DateTime.add(DateTime.utc_now(:microsecond), -2 * 86_400, :second)
+
+      for index <- 1..3 do
+        Repo.insert!(%Claim{
+          id: UUIDv7.autogenerate(),
+          claim_type: "fact",
+          object_slug: object.slug,
+          claim: "Forgotten consolidation fact #{index}",
+          kind: "preference",
+          holder: "people/#{human.uid}",
+          audience_scope: "world",
+          notability: "medium",
+          confidence: 0.8,
+          valid_from: old,
+          created_at: old,
+          provenance: "test",
+          embedding: vector,
+          embedding_signature: "model-a",
+          embedded_at: old
+        })
+      end
+
+      assert {:ok, _object} = Objects.soft_delete(object.slug)
+      assert %{buckets: 0, promoted: 0} = Dreaming.phase_consolidate()
+    end
   end
 
   describe "acceptance 2: slice terminals" do

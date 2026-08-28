@@ -35,8 +35,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SkillRegistryBroker do
   defp observation_attrs(%FabricProto.InstalledSkillObservation{} = observation) do
     %{
       "skill_name" => observation.skill_name,
-      "tags" => observation.tags,
-      "disable_model_invocation" => observation.disable_model_invocation
+      "tags" => observation.tags
     }
     |> put_present("description", observation.description)
     |> put_present("category", observation.category)

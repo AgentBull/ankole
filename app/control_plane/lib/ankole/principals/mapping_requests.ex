@@ -171,19 +171,12 @@ defmodule Ankole.Principals.MappingRequests do
   defp bind_subject_in_repo(repo, principal_uid, attrs) do
     with {:ok, principal_uid} <- Principals.normalize_uid(principal_uid),
          {:ok, principal} <- fetch_human_principal(repo, principal_uid) do
-      changeset =
-        Ankole.Principals.ExternalIdentity.changeset(%Ankole.Principals.ExternalIdentity{}, %{
-          principal_uid: principal.uid,
-          provider: Map.get(attrs, :provider),
-          external_id: Map.get(attrs, :external_id),
-          metadata: Map.get(attrs, :metadata, %{}) |> Map.put("origin", "manual")
-        })
-
-      repo.insert(changeset,
-        conflict_target: [:provider, :external_id],
-        on_conflict: {:replace, [:principal_uid, :metadata, :updated_at]},
-        returning: true
-      )
+      Principals.bind_external_identity(repo, %{
+        principal_uid: principal.uid,
+        provider: Map.get(attrs, :provider),
+        external_id: Map.get(attrs, :external_id),
+        metadata: Map.get(attrs, :metadata, %{}) |> Map.put("origin", "manual")
+      })
     end
   end
 

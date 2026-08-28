@@ -50,6 +50,7 @@ defmodule Ankole.SignalsGateway.Outbox do
     ai_gateway_clarify
     ai_gateway_final_reply
   )
+  @durable_reply_create_operations [:post, :reply, :card, :divider]
 
   @spec outbox_in_flight_recovery_seconds() :: pos_integer()
   def outbox_in_flight_recovery_seconds, do: @outbox_in_flight_recovery_seconds
@@ -510,6 +511,67 @@ defmodule Ankole.SignalsGateway.Outbox do
     |> Enum.map(&outbox_runtime_event/1)
   end
 
+  @doc false
+  @spec resolve_durable_reply_actor_event_in_tx(
+          module(),
+          String.t(),
+          String.t(),
+          String.t(),
+          String.t()
+        ) :: {:ok, Ecto.UUID.t()} | {:error, :unresolved_reply_target}
+  def resolve_durable_reply_actor_event_in_tx(
+        repo,
+        agent_uid,
+        binding_name,
+        signal_channel_id,
+        provider_source_entry_id
+      )
+      when is_binary(agent_uid) and is_binary(binding_name) and
+             is_binary(signal_channel_id) and is_binary(provider_source_entry_id) do
+    owners =
+      agent_uid
+      |> durable_reply_surface_query(binding_name, signal_channel_id)
+      |> where(
+        [entry],
+        (entry.operation in ^@durable_reply_create_operations and
+           entry.created_source_entry_id == ^provider_source_entry_id) or
+          (entry.operation == :edit and
+             entry.target_source_entry_id == ^provider_source_entry_id)
+      )
+      |> select([entry], entry.source_actor_event_id)
+      |> distinct(true)
+      |> limit(2)
+      |> repo.all()
+
+    case owners do
+      [actor_event_id] -> {:ok, actor_event_id}
+      _unresolved -> {:error, :unresolved_reply_target}
+    end
+  end
+
+  @doc false
+  @spec durable_reply_surface_exists_in_tx?(
+          module(),
+          String.t(),
+          String.t(),
+          String.t(),
+          Ecto.UUID.t()
+        ) :: boolean()
+  def durable_reply_surface_exists_in_tx?(
+        repo,
+        agent_uid,
+        binding_name,
+        signal_channel_id,
+        actor_event_id
+      )
+      when is_binary(agent_uid) and is_binary(binding_name) and
+             is_binary(signal_channel_id) and is_binary(actor_event_id) do
+    agent_uid
+    |> durable_reply_surface_query(binding_name, signal_channel_id)
+    |> where([entry], entry.source_actor_event_id == ^actor_event_id)
+    |> repo.exists?()
+  end
+
   @doc """
   Lists the latest stopped durable replies, optionally for one Agent.
 
@@ -549,6 +611,22 @@ defmodule Ankole.SignalsGateway.Outbox do
 
   defp maybe_where_agent(query, agent_uid),
     do: where(query, [entry], entry.agent_uid == ^normalize_uid(agent_uid))
+
+  defp durable_reply_surface_query(agent_uid, binding_name, signal_channel_id) do
+    OutboxEntry
+    |> where([entry], entry.agent_uid == ^normalize_uid(agent_uid))
+    |> where([entry], entry.binding_name == ^binding_name)
+    |> where([entry], entry.signal_channel_id == ^signal_channel_id)
+    |> where([entry], entry.status == :succeeded)
+    |> where([entry], entry.delivery_class == :durable_ai_reply)
+    |> where([entry], not is_nil(entry.source_actor_event_id))
+    |> where(
+      [entry],
+      (entry.operation in ^@durable_reply_create_operations and
+         not is_nil(entry.created_source_entry_id)) or
+        (entry.operation == :edit and not is_nil(entry.target_source_entry_id))
+    )
+  end
 
   @doc """
   Returns whether one stopped outbox row can receive an explicit retry.

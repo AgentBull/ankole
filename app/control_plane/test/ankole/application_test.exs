@@ -28,6 +28,29 @@ defmodule Ankole.ApplicationTest do
              I18n.translate("signals_gateway.cardkit.refining", %{}, locale: "zh-Hans-CN")
   end
 
+  test "starts Workflow after SignalsGateway and before RuntimeEvents" do
+    reverse_start_order =
+      Ankole.Supervisor
+      |> Supervisor.which_children()
+      |> Enum.map(&elem(&1, 0))
+
+    signals_gateway_index =
+      Enum.find_index(reverse_start_order, &(&1 == Ankole.SignalsGateway.Supervisor))
+
+    workflow_index =
+      Enum.find_index(reverse_start_order, &(&1 == Ankole.Workflow.Supervisor))
+
+    assert workflow_index < signals_gateway_index
+
+    case Enum.find_index(reverse_start_order, &(&1 == Ankole.RuntimeEvents.Supervisor)) do
+      nil ->
+        refute Keyword.get(Application.get_env(:ankole, :runtime_events, []), :enabled, true)
+
+      runtime_events_index ->
+        assert runtime_events_index < workflow_index
+    end
+  end
+
   test "AppConfigure registry rebuilds core and active Plugin declarations without restarting consumers" do
     app_config_registry = restart_named!(AppConfigureRegistry)
     plugin_registry = Process.whereis(PluginRegistry)

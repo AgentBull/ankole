@@ -49,7 +49,6 @@ type SharedTurnOptions = {
   waitForSteering?: (signal?: AbortSignal) => Promise<void>
   onSteeringApplied?: (update: TurnSteerUpdate) => Promise<void>
   pollDisabledSkills?: () => string[]
-  pollChangedSkills?: () => string[]
   abortSignal?: AbortSignal
   browserRuntime?: BrowserRuntime
 }

@@ -40,7 +40,7 @@ AIGateway 拥有实时会话转写。每条消息是 `ai_gateway_messages` 里�
 | `item_key` | 条目的稳定键（`client:` 键标记调用者消息） |
 | `item` | 一个带类型的语义线程条目 |
 
-这些行只追加：steer 或 nudge 追加新条目，而不改写已存条目。所有读者在读取时把每个已存条目投影成规范 ChatML 消息；投影不出消息的条目仍会保存，用于线程重放。条目流出现之前记录的回合把内容留在旧 `background_agent_job_turn_trajectory_groups` 表里，读者只对这些回合读取已存的组行。
+这些行只追加：steer 或 nudge 追加新条目，而不改写已存条目。所有读者在读取时把每个已存条目投影成规范 ChatML 消息；投影不出消息的条目仍会保存，用于线程重放。条目流启用前记录的 Turn 没有条目行，因此轨迹显示为空。
 
 工具结果消息的 metadata 会记录 `execution_mechanism`。模型 Provider 执行的工具使用 `provider_hosted`，Codex 调用的 Ankole 动态工具使用 `local_dynamic`。即使两个工具的展示名相同，这一稳定事实也能区分它们。
 

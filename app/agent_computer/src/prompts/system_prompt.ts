@@ -13,7 +13,7 @@ import type { TurnStart } from '../lanes/actor_lane'
 import type { AgentConversationContextResponse, ConversationChannel, RuntimeSkillSummary } from '../lanes/rpc_lane'
 import { formatSkillsForSystemPrompt, type SkillPromptEntry } from './skills_prompt'
 import { formatZonedDateTime } from './zoned_time'
-import { ankoleSkillRuntime } from '../skills/effective-skill'
+import { ankoleSkillRuntime, type AnkoleSkillExecutionRuntime } from '../skills/effective-skill'
 import { signalAdapterDisplayName } from './signal_adapter'
 import type { AmbientTextTurnRoute } from './ambient_prompt'
 
@@ -49,6 +49,8 @@ export function buildAgentSystemPrompt(opts: BuildAgentSystemPromptOptions): str
     completionContractSection(),
     ambientRouteSection(opts.ambientRoute),
     backgroundAgentJobPolicySection(opts),
+    workflowPolicySection(opts),
+    longTermMemorySection(opts),
     agentEnvironmentInfoPolicySection(),
     toolsSection(opts),
     skillPrompt.trim(),
@@ -185,6 +187,80 @@ function backgroundAgentJobPolicySection(opts: BuildAgentSystemPromptOptions): s
 }
 
 /**
+ * Defines when the conversation Agent can use one bounded Workflow run.
+ * This block is absent from task turns because they do not expose the tool.
+ */
+function workflowPolicySection(opts: BuildAgentSystemPromptOptions): string {
+  if (!toolAvailable(opts, 'workflow')) return ''
+
+  return [
+    '<workflow_policy>',
+    '# Bounded subagent fanout',
+    'Use workflow when one request contains a bounded batch or staged analysis whose independent units benefit from parallel subagent turns and local JavaScript control flow, such as map, filter, verify, and synthesize. Use direct work or one Background Agent Job for a single stateful task.',
+    'Each attempt is one real subagent turn; one agent() call can use up to three attempts. Give each call a meaningful unit of work — batch wide fanout into one task per group, not one task per item — choose a bounded concurrency, and set max_agent_calls to the smallest safe ceiling.',
+    'The script must terminate from its fixed args: use finite arrays and explicit loop bounds, never poll or wait for external state, and handle a failed agent() result as null. Use Promise.all when calls can run in parallel.',
+    'A task can itself delegate one or more Background Agent Jobs and hibernate until they finish, so an agent() call may legitimately take hours; the memo result stays bounded by its schema.',
+    'workflow returns a run_id immediately, and completion or failure wakes this conversation automatically. Do not poll. If an interim update is actually required, schedule one check_back_later instead of looping on show_workflow or list_workflows.',
+    'show_workflow lists live tasks: a sleeping task is still executing and its note states what it waits for. A workflow.run.attention wakeup means at least one task cannot proceed without your input; read the waiting notes and answer each with send_message_to_workflow_task. The send is asynchronous, and a running task sees it only after its current turn ends.',
+    'When the completion preview is not enough, call show_workflow with result_offset 0, concatenate result.output_text, and pass result.next_offset to the next call until it is null.',
+    '</workflow_policy>'
+  ].join('\n')
+}
+
+/**
+ * Explains the Agent's own memory model: what the Brain is, that ambient
+ * learning and maintenance run without the model, when to write deliberately,
+ * and the correction duty. Users name these systems in conversation ("Brain",
+ * "Dreaming"), so the terms appear with their explanations instead of being
+ * hidden. A read-only tool set gets a smaller block that does not imply Brain
+ * write authority.
+ */
+function longTermMemorySection(opts: BuildAgentSystemPromptOptions): string {
+  const canRemember = toolAvailable(opts, 'remember')
+  const canRecall = toolAvailable(opts, 'recall')
+  const canGetPage = toolAvailable(opts, 'get_page')
+  const lazySkillRouting =
+    canGetPage && toolAvailable(opts, 'skill_view')
+      ? 'A `lazyload-agent-skills/` record is a Skill discovery record; load it with `skill_view`, while `get_page` delegates to `skill_view` and returns the loaded Skill.'
+      : ''
+
+  if (!canRemember) {
+    if (!canRecall && !canGetPage) return ''
+    const readGuidance =
+      canRecall && canGetPage
+        ? 'Use `recall` to search the Brain and `get_page` to read one full page by name when the task likely touches stored knowledge beyond what arrived.'
+        : canRecall
+          ? 'Use `recall` to search the Brain when the task likely touches stored knowledge beyond what arrived.'
+          : 'Use `get_page` to read one full Brain page by name when the task likely touches stored knowledge beyond what arrived.'
+    return [
+      '<long_term_memory>',
+      '# Long-term memory (Brain)',
+      "The Brain is durable long-term memory shared across this deployment. What its read tools return is already bounded to what this conversation's audience may see.",
+      readGuidance,
+      lazySkillRouting,
+      '</long_term_memory>'
+    ]
+      .filter(Boolean)
+      .join('\n')
+  }
+
+  return [
+    '<long_term_memory>',
+    '# Long-term memory (Brain)',
+    "You have durable long-term memory, called the Brain: one knowledge space shared across this deployment. Each memory carries an audience scope — `world`, `group:<name>`, or `principal:<uid>` — and what the memory tools return is already bounded to what this conversation's audience may see.",
+    'The Brain learns and maintains itself without you: conversations are learned into it automatically after they go idle, and Dreaming, its periodic maintenance, consolidates related memories, links entities, grades recorded predictions, and lets stale memories fade.',
+    'Because the automatic path covers what was said here, do not re-save conversation content as memories. Call `remember` only for the exceptions: a conclusion whose exact wording or structure matters, something others need before this conversation goes idle, and findings from background jobs — a job cannot write memory and its findings live only in its result, so what you do not file is lost.',
+    'Relevant memories arrive on their own: a recalled-memory block at conversation start and `memory:` pointer lines as known entities come up. Call `recall` (search) or `get_page` (one full page by name) when the task likely touches stored knowledge beyond what arrived.',
+    lazySkillRouting,
+    'When someone corrects a fact you remembered, repair memory in that moment, not only apologize: `remember` the correction — a close match supersedes the stale claim on write, and the result reports it. When nothing was superseded, `recall` the stale claim and `forget` it by claim id; without a confident id, keep the correction and leave `forget` alone.',
+    "Choose each memory's audience scope by ConfidentialityPolicy.md in your Agent Home, and split mixed-scope material into separate `remember` calls.",
+    '</long_term_memory>'
+  ]
+    .filter(Boolean)
+    .join('\n')
+}
+
+/**
  * States how the model should treat the `<agent_environment_info>` block that
  * Ankole may prepend to a user-role message. This is a trust boundary: the
  * facts are system-injected observations about the agent's environment, useful
@@ -239,7 +315,7 @@ function toolAvailable(opts: BuildAgentSystemPromptOptions, name: string): boole
  */
 function skillsForSystemPrompt(opts: BuildAgentSystemPromptOptions): SkillPromptEntry[] {
   return (opts.agentConversationContext?.skills ?? [])
-    .map(skillPromptEntryFromRuntime)
+    .map(skill => skillPromptEntryFromRuntime(skill))
     .filter(isSkillPromptEntry)
     .filter(skill => !skill.backgroundJobOnly || toolAvailable(opts, 'create_background_job'))
 }
@@ -247,18 +323,19 @@ function skillsForSystemPrompt(opts: BuildAgentSystemPromptOptions): SkillPrompt
 /**
  * Drops skills that do not have enough metadata to appear in the prompt index.
  */
-export function skillPromptEntryFromRuntime(skill: RuntimeSkillSummary): SkillPromptEntry | null {
+export function skillPromptEntryFromRuntime(
+  skill: RuntimeSkillSummary,
+  runtime: AnkoleSkillExecutionRuntime = 'main'
+): SkillPromptEntry | null {
   if (!skill.skillName || !skill.description) return null
   const metadata = jsonObjectFromBytes(skill.metadataJson, 'runtime_skill_summary.metadata_json') ?? {}
-  const disableModelInvocation =
-    metadata['disable_model_invocation'] === true || metadata['disable-model-invocation'] === true
 
   return {
     name: skill.skillName,
     description: skill.description,
     category: skill.category || undefined,
-    disableModelInvocation,
-    backgroundJobOnly: ankoleSkillRuntime(skill) === 'background_job'
+    brainRecallOnly: metadata['brain_recall_only'] === true,
+    backgroundJobOnly: runtime === 'main' && ankoleSkillRuntime(skill) === 'background_job'
   }
 }
 

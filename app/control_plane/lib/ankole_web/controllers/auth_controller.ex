@@ -16,7 +16,6 @@ defmodule AnkoleWeb.AuthController do
   alias Ankole.IdentityProviders
   alias Ankole.IdentityProviders.LocalPassword
   alias Ankole.IdentityProviders.Login
-  alias Ankole.Principals.LocalCredentials
   alias Ankole.Setup.Completion, as: SetupCompletion
   alias Ankole.Setup.Config, as: SetupConfig
   alias AnkoleWeb.ConsoleTokens
@@ -201,7 +200,7 @@ defmodule AnkoleWeb.AuthController do
          {:ok, new_password} <- required_param(params, "newPassword"),
          true <- AdminAuth.active_human_admin?(principal_uid),
          {:ok, _credential} <-
-           LocalCredentials.complete_forced_password_change(
+           LocalPassword.complete_forced_password_change(
              principal_uid,
              new_password,
              credential_version

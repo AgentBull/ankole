@@ -10,13 +10,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
 
   alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Schemas.Job
-  alias Ankole.BackgroundAgentJobs.Text
   alias Ankole.Repo
   alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.ActorRuntime.Common
   alias Ankole.SignalsGateway.ActorRuntime.RPCWire
   alias Ankole.SignalsGateway.ActorRuntime.TurnRef
+  alias Ankole.Text
 
   require Ankole.BackgroundAgentJobs
 

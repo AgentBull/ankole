@@ -29,6 +29,14 @@ Skill 和 Plugin 本身是文件系统中的 Bundle，不是数据库记录。Po
 
 这就是 [Console](../console-api/) 的 Agent Library 能力路由所暴露的模型：先设全局默认值，再按 agent 收窄或放宽。
 
+## 只通过 Brain 召回的 Skill 发现
+
+随产品发布的独立 Skill 或 Agent Plugin 成员 Skill 可以声明 `brain-recall-only: true`。所有随产品发布的 Skill 共用一个全局名称空间，Plugin 成员关系不会改变 Skill 名称。安装到 Agent 的 Skill 不参与这种模式。
+
+Agent Library 会把完整的有效 Skill 集发送给 Worker。普通 Skill 进入模型可见的 Skill 目录；只通过 Brain 召回的 Skill 保留在 `skill_view` 可加载集合中，但不会进入该目录。Library sweep 只把它们的名称、描述和标签投影为 `lazyload-agent-skills/<skill-name>` 下的轻量 Brain 记录；Skill 正文、资源和 Agent 专属教训仍留在各自的文件与数据库所有者中。
+
+投影由实例共享，不会因为某个 Agent 关闭 Skill 而删除。Brain 查询和 `skill_view` 都会应用该 Agent 当前的 Plugin 与 Skill 有效状态，因此已关闭的记录不会占用召回名额，也不能被加载。重新启用能力后会直接恢复已有投影。
+
 ## Agent 长期文档与技能教训
 
 除了能力，库还持有 Agent 自己的可写文档和 Agent 专属的 Skill 指引：

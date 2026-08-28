@@ -69,6 +69,9 @@ describe('@ankole/agent-computer list background jobs tool', () => {
       }) as RPCRequester
     })
 
+    await expect(
+      tool.execute('call-list-unknown', { status: 'stop', page: 'page_1' }, new AbortController().signal)
+    ).rejects.toThrow('unknown background agent job page page_1; use next_page from this turn')
     await tool.execute('call-list-first', { status: 'stop' }, new AbortController().signal)
     const result = await tool.execute('call-list', { status: 'stop', page: 'page_1' }, new AbortController().signal)
 

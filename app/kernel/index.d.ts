@@ -30,9 +30,6 @@ export declare function estimateO200kBaseTokens(text: string): number
 /** Hashes binary data through the shared kernel `generic_hash` contract. */
 export declare function genericHash(data: Buffer): string
 
-/** Returns the only RuntimeFabric protocol version this kernel speaks. */
-export declare function runtimeFabricProtocolVersion(): number
-
 /**
  * Seals host-encoded envelope bytes for the wire.
  *

@@ -160,7 +160,8 @@ defmodule Ankole.Plugins.SlackAdapter.ConnectionReconciler do
   end
 
   defp start_connections({specs, errors}, _opts) do
-    stopped = stop_undesired_connections(specs)
+    snapshot = ConnectionLifecycle.desired_snapshot(specs, errors)
+    stopped = stop_undesired_connections(snapshot)
 
     results =
       Enum.map(
@@ -178,13 +179,11 @@ defmodule Ankole.Plugins.SlackAdapter.ConnectionReconciler do
     }
   end
 
-  # A live connection whose key left the desired spec map is a zombie (disabled
-  # binding, removed identity provider, or a rotated appToken, which changes
-  # the key) and stops. Identity-provider sockets are part of the spec map, so
-  # the difference never kills a desired one.
-  defp stop_undesired_connections(specs) do
+  # Only a complete snapshot can prove that a registered connection is no
+  # longer desired. A read error keeps the last live connection until recovery.
+  defp stop_undesired_connections(snapshot) do
     ConnectionLifecycle.stop_undesired(
-      specs,
+      snapshot,
       ConnectionSupervisor.registered_keys(),
       &ConnectionSupervisor.stop/1
     )

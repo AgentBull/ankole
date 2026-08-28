@@ -8,15 +8,7 @@ function progressFraction(value: number | null | undefined, min: number, max: nu
   return Math.min(1, Math.max(0, (value - min) / (max - min)))
 }
 
-function Progress({
-  className,
-  children,
-  max = 100,
-  min = 0,
-  style,
-  value,
-  ...props
-}: ProgressPrimitive.Root.Props) {
+function Progress({ className, children, max = 100, min = 0, style, value, ...props }: ProgressPrimitive.Root.Props) {
   return (
     <ProgressPrimitive.Root
       value={value}

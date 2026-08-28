@@ -116,9 +116,7 @@ export function AgentsListPage() {
                 {agent.uid}
               </Link>
             </TableCell>
-            <TableCell className={agent.display_name ? undefined : 'text-muted-foreground'}>
-              {agent.display_name || '—'}
-            </TableCell>
+            <TableCell>{agent.display_name}</TableCell>
             <TableCell>{agent.role}</TableCell>
             <TableCell>
               <StatusIndicator tone={disabled ? 'neutral' : 'positive'}>
@@ -476,7 +474,7 @@ function emptyAgentForm(): AgentEditorDraft {
 function formFromAgent(agent: AgentItem): AgentEditorDraft {
   return {
     uid: agent.uid,
-    displayName: agent.display_name ?? '',
+    displayName: agent.display_name,
     avatarURL: agent.avatar_url ?? '',
     role: agent.role,
     ownerPrincipalUID: agent.owner_principal_uid,

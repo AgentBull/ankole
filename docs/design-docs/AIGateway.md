@@ -219,8 +219,7 @@ Thus, a late result from an old credential changes only the old revision's
 health, affinity, and rate-limit state. Enabling an active provider does not
 change the revision or health. Disabled entries also stay out. PostgreSQL
 stores the credential revision, but it does not store these rebuildable health
-facts. An entry without this field uses one stable legacy revision until its
-next credential write.
+facts.
 
 An upstream reset header sets the recovery time when it is available. The
 fallback is five minutes for HTTP 401 and one hour for HTTP 429. A process

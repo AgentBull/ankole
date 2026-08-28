@@ -72,6 +72,16 @@ AppConfigure 목록에는 인스턴스 오버라이드 또는 버전 기본값�
 | `ai_agent.library.agent_plugin_defaults` | 인스턴스 | Agent Plugin의 기본 활성화 상태 |
 | `ai_agent.library.skill_defaults` | 인스턴스 | Skill의 기본 활성화 상태 |
 
+### Workflow
+
+| 키 | 범위 | 용도 |
+|---|---|---|
+| `workflow.max_concurrency_per_run` | 인스턴스 | Workflow run 하나가 요청할 수 있는 최대 task 동시성. 기본값은 `8`, 범위는 `1`–`32` |
+| `workflow.max_running_per_agent` | 인스턴스 | Agent 하나의 모든 Workflow에서 동시에 실행할 수 있는 task 수. 기본값은 `8`, 범위는 `1`–`64` |
+| `workflow.max_agent_calls_per_run` | 인스턴스 | Workflow run 하나가 만들 수 있는 총 `agent()` 호출 수. 기본값은 `256`, 범위는 `1`–`1,024` |
+
+Workflow 생성 요청은 이 상한을 높일 수 없습니다. 요청한 `concurrency`나 `max_agent_calls`가 더 높으면 Ankole이 배포 상한으로 낮추어 저장합니다. 작업 분할과 결과 확인 방법은 [Workflows](../workflows/)를 참조하세요.
+
 ### Brain
 
 | 키 | 범위 | 용도 |

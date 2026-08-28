@@ -23,8 +23,8 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
   alias Ankole.BackgroundAgentJobs.RuntimeProjection
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.BackgroundAgentJobs.Schemas.Turn
-  alias Ankole.BackgroundAgentJobs.Text
   alias Ankole.BackgroundAgentJobs.Turns
+  alias Ankole.Text
 
   @max_execution_attempts 5
   @max_claims 25

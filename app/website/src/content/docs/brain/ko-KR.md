@@ -51,6 +51,7 @@ Brain은 두 가지 방식으로 관련 기억을 제공합니다. 대화 시작
 
 | 도구 | 결과 |
 | --- | --- |
+| `learn_source` | 하나의 웹 URL을 Source로 등록하고 백그라운드 학습을 시작 |
 | `recall` | Token 한도 안에서 현재 Fact와 Take를 먼저 반환하고 관련 페이지 구절을 이어서 반환 |
 | `get_page` | slug 또는 자연어 이름으로 공개 범위에 맞게 잘린 전체 페이지를 읽음. 이름이 모호하면 추측하지 않고 후보를 반환 |
 | `entity` | 선택된 Fact, 관계, 백링크 수가 포함된 대상 카드를 반환 |
@@ -58,6 +59,14 @@ Brain은 두 가지 방식으로 관련 기억을 제공합니다. 대화 시작
 | `delta` | 지정 기간에 추가되거나 만료된 Claim과 Timeline 이벤트를 보고 |
 | `synthesize` | 회상한 증거를 사용해 하나의 질문에 답하는 영구 분석 페이지를 작성 |
 | `forget` | 이유를 기록하고 Fact를 만료하거나 Take를 비활성화하거나 페이지를 소프트 삭제 |
+
+### Brain에서만 검색되는 Skill 발견하기
+
+배포되는 Skill 중 일부는 현재 작업과 관련될 때만 필요한 SOP 또는 방법론을 담습니다. Skill에 `brain-recall-only: true`를 선언하면 모든 Prompt의 Skill 카탈로그에서는 빠지고 Brain을 통해 발견할 수 있습니다.
+
+Brain은 Skill의 `name`, `description`, `tags`만 `lazyload-agent-skills/<skill-name>`이라는 `world` 범위의 발견 레코드로 인덱싱합니다. Skill 본문, 그 밖의 모든 Skill 파일, Agent별 교훈은 기존 소유자에게 남고 `skill_view`를 통해 읽습니다. `recall`이 이 레코드를 반환하면 Agent는 `skill_view`를 호출합니다. loader는 `ankole-runtime`을 적용하여 호환되는 실행 표면에서는 지침을 로드하고, 메인 Agent가 background-only Skill을 선택하면 Job 라우팅 안내를 반환하며, 그 밖의 호환되지 않는 읽기는 거부합니다. 이 레코드에 대한 `get_page` 호출도 `skill_view`에 위임하여 같은 결과를 반환합니다.
+
+Brain은 후보를 선택하기 전에 현재 Agent의 Agent Plugin 및 Skill 유효 활성화 상태를 적용합니다. 비활성화된 Skill은 검색하거나 로드할 수 없습니다. 공유 발견 projection은 비활성화해도 삭제되지 않으므로, 다시 활성화하면 재구축 없이 접근이 복원됩니다.
 
 Embedding 모델이 있으면 검색은 전문 검색 후보와 벡터 후보를 결합합니다. Rerank 모델이 있으면 결합된 결과의 순서를 다시 정할 수 있습니다. Embedding 모델이 없어도 전문 검색은 작동합니다. Rerank 모델이 없으면 결합 후 순서를 유지합니다.
 

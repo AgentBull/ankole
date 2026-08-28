@@ -13,9 +13,9 @@ export type AgentConversationContextOptions = {
 /**
  * Returns the already-resolved conversation context or asks the control plane.
  *
- * Ambient turns pass the context they already resolved; production text turns
- * must resolve it through RuntimeFabric so identity, prompt, and skill metadata
- * stay control-plane-owned.
+ * Ambient turns pass the context they already resolved; production turns ask
+ * through RuntimeFabric so identity, prompt, and skill metadata stay
+ * control-plane-owned.
  */
 export async function resolveAgentConversationContext(
   turnStart: TurnStart,

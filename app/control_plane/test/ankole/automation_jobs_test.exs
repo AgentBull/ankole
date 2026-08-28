@@ -8,13 +8,79 @@ defmodule Ankole.AutomationJobsTest do
   alias Ankole.AutomationJobs
   alias Ankole.AutomationJobs.Jobs.ExecuteRun
   alias Ankole.AutomationJobs.Schemas.Run
+  alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.Repo
   alias Ankole.Schedule
   alias Ankole.Schedule.Schemas.ScheduledEvent
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.ActorEvent
+  alias Ankole.SignalsGateway.ActorRuntime.Transport.Broker
+  alias Ankole.SignalsGateway.ActorRuntimeCase
 
   @now ~U[2026-07-30 09:00:00.000000Z]
+
+  test "dispatch sends brain-recall-only Skills to the automation runtime" do
+    %{principal: agent} = agent_fixture()
+    source = source_event!(agent.uid)
+    automation_job = job!(source)
+    run = enqueue!(automation_job, trigger_event("lazy-skill-runtime"))
+    route = ActorRuntimeCase.unique_route()
+
+    assert {:ok, _worker} = ActorRuntimeCase.admit_worker(route)
+    assert :ok = Broker.register_local_worker(route, self())
+    on_exit(fn -> Broker.unregister_local_worker(route) end)
+
+    oban_job = %Oban.Job{
+      args: %{"automation_job_run_id" => run.id},
+      attempt: 1,
+      max_attempts: 5,
+      queue: "default"
+    }
+
+    task =
+      Task.async(fn ->
+        receive do
+          :perform -> ExecuteRun.perform(oban_job)
+        end
+      end)
+
+    Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), task.pid)
+    send(task.pid, :perform)
+
+    assert_receive {:actor_lane, %FabricProto.Envelope{body: {:rpc_request, request}}}, 1_000
+    assert request.method == "automation_job.run"
+    assert {:ok, payload} = FabricProto.AutomationJobRunRequest.decode(request.payload)
+
+    assert %FabricProto.RuntimeSkillSummary{metadata_json: lineage_metadata} =
+             Enum.find(payload.skills, &(&1.skill_name == "idea-lineage"))
+
+    assert Torque.decode!(lineage_metadata)["brain_recall_only"]
+
+    response_payload =
+      ActorRuntimeCase.encode_proto!(%FabricProto.AutomationJobRunResponse{
+        status: "succeeded",
+        exit_code: 0
+      })
+
+    send(
+      Broker,
+      {:runtime_fabric_router_received, route,
+       ActorRuntimeCase.encode_fabric_envelope(%FabricProto.Envelope{
+         message_id: "automation-lazy-skill-response",
+         correlation_id: request.request_id,
+         lane: :LANE_RPC,
+         durability: :CONTROL_EPHEMERAL,
+         body:
+           {:rpc_response,
+            %FabricProto.RPCResponse{
+              request_id: request.request_id,
+              payload: response_payload
+            }}
+       })}
+    )
+
+    assert :ok = Task.await(task, 2_000)
+  end
 
   test "attempt fences reject stale completion and emission after infrastructure replay" do
     %{principal: agent} = agent_fixture()

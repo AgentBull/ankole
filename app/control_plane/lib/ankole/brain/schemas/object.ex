@@ -29,6 +29,12 @@ defmodule Ankole.Brain.Schemas.Object do
     field :links_extracted_at, :utc_datetime_usec
     field :deleted_at, :utc_datetime_usec
 
+    # Non-nil marks a library-managed page: a projection of a shipped okf
+    # file owned by that brain_source. The shared changeset does not cast it,
+    # so no instance write path can set or clear it by accident; only
+    # LibraryKnowledge sync and the explicit fork operation touch it.
+    field :managed_by_source_id, Ankole.Ecto.UUIDv7
+
     # `updated_at` means "logical page content last changed" and is written
     # only by the content write paths in `Objects`. Ecto's autoupdate would
     # bump it on every status writeback (salience recompute, extraction

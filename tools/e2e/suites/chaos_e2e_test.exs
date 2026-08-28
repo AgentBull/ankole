@@ -25,6 +25,10 @@ defmodule Ankole.E2E.ChaosE2ETest do
   alias Ankole.E2E.FakeOpenAIState
   alias Ankole.Repo
   alias Ankole.SignalsGateway.OutboxEntry
+  alias Ankole.Workflow
+  alias Ankole.Workflow.RunServer, as: WorkflowRunServer
+  alias Ankole.Workflow.Schemas.AgentCall
+  alias Ankole.Workflow.Schemas.Run, as: WorkflowRun
 
   @tag timeout: 600_000
   @tag ownership_timeout: 600_000
@@ -163,6 +167,197 @@ defmodule Ankole.E2E.ChaosE2ETest do
       "CHAOS_FOLLOWUP_FIRST_OK",
       :reply,
       "om_chaos_kill_1"
+    )
+  end
+
+  @tag timeout: 600_000
+  @tag ownership_timeout: 600_000
+  test "worker killed mid Workflow-task turn requeues the call and a new worker completes the run" do
+    ctx = start_worker_e2e_stack!()
+
+    assert :ok =
+             FakeFeishu.State.user_sends_message(ctx.fake_feishu.state,
+               event_id: "evt_chaos_wf_kill_1",
+               message_id: "om_chaos_wf_kill_1",
+               chat_id: "oc_chaos_wf_kill",
+               chat_type: "p2p",
+               text:
+                 "@_user_1 Trigger CHAOS_WF_KILL_START and reply exactly CHAOS_WF_KILL_STARTED_OK.",
+               mentions: [lark_bot_mention()]
+             )
+
+    input = actor_event_by_source_entry_id!(ctx.agent.uid, "om_chaos_wf_kill_1")
+
+    assert {:ok, %{send_outcome: "sent_or_queued"}} =
+             ReadyEventProcessor.process_ready_event_for_actor(
+               %{agent_uid: input.agent_uid, session_id: input.session_id},
+               now: DateTime.add(input.available_at, 1, :second),
+               lease_seconds: long_lease_seconds()
+             )
+
+    assert {:ok, start_reply, _message} =
+             wait_for_completed_final_reply(ctx.container, input.id, deadline(120_000))
+
+    assert start_reply.text =~ "CHAOS_WF_KILL_STARTED_OK"
+
+    run =
+      Repo.one!(
+        from(run in WorkflowRun,
+          where: run.agent_uid == ^ctx.agent.uid,
+          where: run.source_actor_event_id == ^input.id
+        )
+      )
+
+    assert :ok = WorkflowRunServer.poke(run.id)
+
+    assert {:ok, %AgentCall{} = call} =
+             wait_until(deadline(30_000), fn ->
+               case Repo.get_by(AgentCall, run_id: run.id, call_seq: 0) do
+                 %AgentCall{} = call -> {:ok, call}
+                 nil -> nil
+               end
+             end)
+
+    dispatch_event =
+      Repo.get_by!(ActorEvent,
+        agent_uid: ctx.agent.uid,
+        source_event_id: "workflow:call:#{call.id}:dispatch"
+      )
+
+    # Short lease: the dead worker's activation must expire instead of holding
+    # the task session.
+    assert {:ok, %{activation: activation, send_outcome: "sent_or_queued"}} =
+             ReadyEventProcessor.process_ready_event_for_actor(
+               %{agent_uid: ctx.agent.uid, session_id: dispatch_event.session_id},
+               now: DateTime.add(dispatch_event.available_at, 1, :second),
+               lease_seconds: 5
+             )
+
+    # The fake upstream delays the task turn by 1.5s, so the kill lands while
+    # the submit_result turn is provably in flight.
+    assert_receive {:fake_llm_request, :workflow_kill_task, 1, _request}, 30_000
+    DockerWorker.kill_docker_worker!(ctx.container)
+
+    # PostgreSQL still owns the truth: the claimed call stays running with no
+    # committed result.
+    assert %AgentCall{status: "running", attempts: 1, result: nil} = Repo.get!(AgentCall, call.id)
+
+    # The RunServer watchdog reconciles stale running tasks in production; run
+    # the same function with the stale window logically elapsed.
+    reconcile_now = DateTime.add(DateTime.utc_now(:microsecond), 6, :second)
+
+    assert {:ok, %{reconciled: 1}} =
+             Workflow.reconcile_stale_tasks(run.id, reconcile_now, reconcile_now)
+
+    assert %AgentCall{status: "queued", attempts: 1} = Repo.get!(AgentCall, call.id)
+
+    # The session activation still belongs to the dead worker until its lease
+    # expiry is enforced, exactly as in the main-turn kill scenario.
+    activation = Repo.reload(activation)
+    expiry_now = DateTime.add(activation.lease_expires_at, 1, :microsecond)
+
+    case ActorRuntime.fail_activation_if_expired(activation.activation_uid, now: expiry_now) do
+      {:ok, _failed_activation} ->
+        :ok
+
+      {:error, :activation_not_due} ->
+        assert Repo.reload(activation).status in ["failed", "stopped"]
+    end
+
+    replacement =
+      start_additional_worker!(
+        ctx.endpoint,
+        "chaos-wf-replacement-#{System.unique_integer([:positive])}",
+        ctx.worker_auth_key
+      )
+
+    # The retry clock must move past the dead activation's lease and follow the
+    # +30s defer that an unsent Workflow dispatch writes into available_at.
+    retry_result =
+      wait_until(deadline(120_000), fn ->
+        event = Repo.reload(dispatch_event)
+        wall_now = DateTime.utc_now(:microsecond)
+
+        base =
+          if DateTime.compare(event.available_at, wall_now) == :gt,
+            do: event.available_at,
+            else: wall_now
+
+        retry_now = DateTime.add(base, 1, :second)
+
+        outcome =
+          ReadyEventProcessor.process_ready_event_for_actor(
+            %{agent_uid: ctx.agent.uid, session_id: event.session_id},
+            now: retry_now,
+            lease_seconds: long_lease_seconds()
+          )
+
+        Process.put(:wf_chaos_retry_outcome, outcome)
+
+        case outcome do
+          {:ok, %{send_outcome: "sent_or_queued"} = result} -> result
+          {:ok, _other} -> nil
+          {:error, _reason} -> nil
+        end
+      end)
+
+    case retry_result do
+      {:ok, _sent} ->
+        :ok
+
+      :timeout ->
+        flunk(
+          "the requeued Workflow task was never accepted by the replacement worker; " <>
+            "last outcome: #{inspect(Process.get(:wf_chaos_retry_outcome), limit: 20)}"
+        )
+    end
+
+    assert {:ok, %AgentCall{} = call} =
+             wait_until(deadline(120_000), fn ->
+               case Repo.get!(AgentCall, call.id) do
+                 %AgentCall{status: "succeeded"} = done -> {:ok, done}
+                 %AgentCall{status: status} when status in ["failed", "cancelled"] -> {:ok, call}
+                 _pending -> nil
+               end
+             end)
+
+    assert call.status == "succeeded"
+    assert call.result == %{"ok" => true, "value" => "killed-and-recovered"}
+    assert call.attempts == 2
+
+    assert :ok = WorkflowRunServer.poke(run.id)
+
+    assert {:ok, %ActorEvent{} = completion} =
+             wait_until(deadline(30_000), fn ->
+               case Repo.get_by(ActorEvent,
+                      agent_uid: ctx.agent.uid,
+                      source_event_id: "workflow:#{run.id}:completed"
+                    ) do
+                 %ActorEvent{} = event -> {:ok, event}
+                 nil -> nil
+               end
+             end)
+
+    assert Repo.get!(WorkflowRun, run.id).status == "completed"
+
+    assert {:ok, %{send_outcome: "sent_or_queued"}} =
+             ReadyEventProcessor.process_ready_event_for_actor(
+               %{agent_uid: ctx.agent.uid, session_id: completion.session_id},
+               now: DateTime.add(completion.available_at, 1, :second),
+               lease_seconds: long_lease_seconds()
+             )
+
+    assert {:ok, done_reply, _message} =
+             wait_for_completed_final_reply(replacement, completion.id, deadline(120_000))
+
+    assert done_reply.text =~ "CHAOS_WF_KILL_DONE_OK"
+
+    assert_lark_final_reply(
+      ctx.fake_feishu,
+      done_reply,
+      "CHAOS_WF_KILL_DONE_OK",
+      :reply,
+      "om_chaos_wf_kill_1"
     )
   end
 

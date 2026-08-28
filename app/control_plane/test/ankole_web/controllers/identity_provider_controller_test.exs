@@ -3,21 +3,15 @@ defmodule AnkoleWeb.IdentityProviderControllerTest do
   use Oban.Testing, repo: Ankole.Repo
 
   import Ecto.Query, only: [from: 2]
-  import Ankole.PrincipalsFixtures
 
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
-  alias Ankole.AuthZ
   alias Ankole.AuthZ.Grant
-  alias Ankole.IdentityProviders.Config, as: IdentityProviderConfig
   alias Ankole.IdentityProviders.Jobs.SyncProvider
-  alias Ankole.Plugins.Config, as: PluginsConfig
-  alias Ankole.Plugins.LarkAdapter
   alias Ankole.Plugins.LarkAdapter.Config, as: LarkConfig
   alias Ankole.Repo
   alias Ankole.Setup.Config, as: SetupConfig
-  alias AnkoleWeb.Session, as: WebSession
 
   setup do
     allow_cache_database_access()
@@ -188,25 +182,6 @@ defmodule AnkoleWeb.IdentityProviderControllerTest do
 
     assert {:ok, config} = AppConfigure.get_by_key(LarkConfig.identity_config_key("lark-main"))
     assert config["appID"] == "cli_identity_console_renamed"
-    assert config["appSecret"] == "secret-console"
-
-    conn =
-      conn
-      |> recycle_api()
-      |> put(~p"/api/v1/identity-providers/lark-main", %{
-        "adapter_id" => "lark",
-        "enabled" => true,
-        "config" => %{
-          "appID" => "cli_identity_console_renamed",
-          "appSecret" => "********",
-          "sync" => %{"contacts" => true}
-        }
-      })
-
-    assert %{"identity_provider" => %{"stored_secret_paths" => ["appSecret"]}} =
-             json_response(conn, 200)
-
-    assert {:ok, config} = AppConfigure.get_by_key(LarkConfig.identity_config_key("lark-main"))
     assert config["appSecret"] == "secret-console"
   end
 

@@ -47,7 +47,7 @@ import {
   type AgentCodexRuntimeLease,
   type AgentCodexRuntimeSession
 } from '../runtime/agent-runtime-manager'
-import { CodexSkillUsageTracker, skillDisabledNotice, type DiscoveredCodexSkill } from './skill-usage'
+import { CodexSkillUsageTracker, skillDisabledNotice } from './skill-usage'
 import { fetchReplayTurnItems, wireItemsFromTurnItems } from './thread-replay'
 
 /**
@@ -253,21 +253,14 @@ class CodexJobSession implements AgentCodexRuntimeSession {
     })
     if (await this.finishClaimedFinalization()) return
 
-    const resumeOutcome = await this.resumeExistingThread()
+    const resumeOutcome = this.input.replaceLegacySkillThread
+      ? await this.replaceLostThread()
+      : await this.resumeExistingThread()
     this.recreatedThreadOnResume = resumeOutcome === 'recreated'
     this.replayedThreadOnResume = resumeOutcome === 'replayed'
     if (await this.finishClaimedFinalization()) return
     if (!this.runtimeThreadID) await this.startNewThread()
     if (await this.finishClaimedFinalization()) return
-    const discoveredSkills = await verifiedCodexSkills(
-      this.client,
-      this.input.jobProject.codexCwd,
-      this.input.runtimeFiles.expectedSkillNames
-    )
-    this.skillUsage.setDiscoveredSkills(this.input.jobProject.codexCwd, [
-      ...discoveredSkills,
-      ...this.input.agentPluginCapabilities.discoveredSkills
-    ])
     abortSignal?.throwIfAborted()
     await this.publishRunningStatus(initializeResponse, expectedSkills)
     if (await this.finishClaimedFinalization()) return
@@ -277,7 +270,6 @@ class CodexJobSession implements AgentCodexRuntimeSession {
       ? recreatedThreadInput(this.input.job, initialTurnInput, await this.continuationSourceContext())
       : initialTurnInput
     await this.startCodexTurn(effectiveTurnInput)
-    this.recordUsedSkills(this.skillUsage.observeInput(effectiveTurnInput))
     if (await this.finishClaimedFinalization()) return
     this.startActiveTurnUpdatePoll()
     await this.done
@@ -321,7 +313,8 @@ class CodexJobSession implements AgentCodexRuntimeSession {
   }
 
   /**
-   * Rebuilds the runtime thread after the native Codex state is gone.
+   * Rebuilds the runtime thread after native state is gone or its frozen
+   * capability projection is obsolete.
    *
    * The ladder is: replay the control plane's stored turn items into a fresh
    * thread; when the store has nothing to replay or the inject fails, keep
@@ -517,9 +510,6 @@ class CodexJobSession implements AgentCodexRuntimeSession {
         config: this.input.threadConfig,
         threadSource: 'ankole',
         dynamicTools: this.input.projection.dynamicTools,
-        ...(this.input.agentPluginCapabilities.selectedCapabilityRoots.length > 0
-          ? { selectedCapabilityRoots: this.input.agentPluginCapabilities.selectedCapabilityRoots }
-          : {}),
         ...(this.threadModel ? { model: this.threadModel } : {})
       })
     )
@@ -898,6 +888,9 @@ class CodexJobSession implements AgentCodexRuntimeSession {
           message.params as DynamicToolCallParams,
           this.toolAbortController.signal
         )
+        for (const name of this.input.takeLoadedSkillNames()) {
+          this.recordUsedSkills(this.skillUsage.recordLoaded(name))
+        }
         await appServer.respond(message.id, response)
       } catch (error) {
         await appServer.respondError(
@@ -975,16 +968,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
       // Apply Skill disables before the Codex readiness checks. A running Job
       // must stop exposing a disabled Skill while another update is in flight.
       const disabledSkills = this.input.opts.pollDisabledSkills?.() ?? []
-      let pluginMaterialsChanged = false
-      try {
-        pluginMaterialsChanged = this.input.agentPluginMaterials.disableSkills(disabledSkills)
-      } catch (error) {
-        if (!this.finalizing) {
-          this.finalizing = true
-          this.rejectDone(toError(error))
-        }
-        return
-      }
+      this.input.skillLoader.disable(disabledSkills)
       this.skillUsage.disable(disabledSkills)
       if (
         this.activeTurnUpdateInFlight ||
@@ -997,33 +981,22 @@ class CodexJobSession implements AgentCodexRuntimeSession {
       ) {
         return
       }
-      const changedSkills = [...new Set(this.input.opts.pollChangedSkills?.() ?? [])]
       const updates = this.input.opts.pollSteering?.() ?? []
       const disabledNotices = this.skillUsage.pendingDisabledNotices()
-      if (
-        updates.length === 0 &&
-        disabledNotices.length === 0 &&
-        changedSkills.length === 0 &&
-        !pluginMaterialsChanged
-      ) {
-        return
-      }
+      if (updates.length === 0 && disabledNotices.length === 0) return
       this.activeTurnUpdateInFlight = true
-      void this.refreshChangedSkills(changedSkills)
-        .then(() =>
-          steerDisabledSkills(
-            this.client!,
-            this.runtimeThreadID!,
-            this.codexTurnID!,
-            disabledNotices,
-            () => !this.finalizing,
-            async (name, eventID, text) => {
-              this.skillUsage.markNotified(name)
-              this.turnRecorder.recordSteering(this.codexTurnID, eventID, text)
-              await this.turnRecorder.flush()
-            }
-          )
-        )
+      void steerDisabledSkills(
+        this.client!,
+        this.runtimeThreadID!,
+        this.codexTurnID!,
+        disabledNotices,
+        () => !this.finalizing,
+        async (name, eventID, text) => {
+          this.skillUsage.markNotified(name)
+          this.turnRecorder.recordSteering(this.codexTurnID, eventID, text)
+          await this.turnRecorder.flush()
+        }
+      )
         .then(() =>
           steerActiveTurn(
             this.client!,
@@ -1032,7 +1005,6 @@ class CodexJobSession implements AgentCodexRuntimeSession {
             updates,
             () => !this.finalizing,
             async (eventID, text) => {
-              this.recordUsedSkills(this.skillUsage.observeInput(text))
               this.turnRecorder.recordSteering(this.codexTurnID, eventID, text)
               await this.turnRecorder.flush()
             },
@@ -1057,76 +1029,6 @@ class CodexJobSession implements AgentCodexRuntimeSession {
   private recordUsedSkills(skillNames: string[], turnID = this.codexTurnID): void {
     for (const name of skillNames) this.turnRecorder.recordSkillUsed(turnID, name)
   }
-
-  private async refreshChangedSkills(skillNames: string[]): Promise<void> {
-    let refreshed = false
-    for (const name of skillNames) {
-      try {
-        if (await this.input.runtimeFiles.refreshSkill(name)) {
-          refreshed = true
-          this.input.opts.onTurnActivity?.(`codex:skill_refreshed:${name}`)
-        }
-      } catch (error) {
-        this.input.opts.logger?.warning('worker.codex_skill_refresh_failed', 'active Job Skill refresh failed', {
-          skill_name: name,
-          error: toError(error)
-        })
-      }
-    }
-    if (!refreshed) return
-    try {
-      this.input.agentPluginMaterials.materialize()
-    } catch (error) {
-      this.input.opts.logger?.warning(
-        'worker.codex_agent_plugin_skill_refresh_failed',
-        'active Agent Plugin Skill refresh failed',
-        {
-          skill_names: skillNames,
-          error: toError(error)
-        }
-      )
-    }
-  }
-}
-
-export async function verifiedCodexSkills(
-  client: Pick<CodexAppServerClient, 'request'>,
-  cwd: string,
-  expectedSkillNames: string[]
-): Promise<DiscoveredCodexSkill[]> {
-  const discovered = await listCodexSkills(client, cwd)
-  const discoveredByName = new Map(discovered.map(skill => [skill.name, skill]))
-  const missing = expectedSkillNames.filter(name => discoveredByName.get(name)?.enabled !== true)
-  if (missing.length > 0) {
-    throw new Error(`Codex did not discover enabled project Skills: ${missing.join(', ')}`)
-  }
-  return discovered
-}
-
-async function listCodexSkills(
-  client: Pick<CodexAppServerClient, 'request'>,
-  cwd: string
-): Promise<Array<{ name: string; path: string; enabled: boolean }>> {
-  const response = jsonObject(await client.request('skills/list', { cwds: [cwd], forceReload: true }))
-  const entries = Array.isArray(response.data) ? response.data.map(jsonObject) : []
-  const entry = entries.find(candidate => stringValue(candidate.cwd) === cwd) ?? entries[0]
-  if (!entry) return []
-  const errors = Array.isArray(entry.errors) ? entry.errors.map(jsonObject) : []
-  if (errors.length > 0) {
-    const summaries = errors
-      .map(error => [stringValue(error.path), stringValue(error.message)].filter(Boolean).join(': '))
-      .filter(Boolean)
-    throw new Error(`Codex skill discovery failed: ${summaries.join('; ') || 'unknown skill error'}`)
-  }
-  if (!Array.isArray(entry.skills)) return []
-  return entry.skills.map(jsonObject).map((skill, index) => {
-    const name = stringValue(skill.name)
-    const path = stringValue(skill.path)
-    if (!name || !path || typeof skill.enabled !== 'boolean') {
-      throw new Error(`Codex skills/list returned an invalid Skill at index ${index}`)
-    }
-    return { name, path, enabled: skill.enabled }
-  })
 }
 
 function turnInput(turnStart: TurnStart, job: BackgroundAgentJobResponse): string {
@@ -1261,9 +1163,7 @@ async function steerDisabledSkills(
 }
 
 function expectedSkillNames(input: PreparedCodexJobExecution): string[] {
-  return [...input.runtimeFiles.expectedSkillNames, ...input.agentPluginCapabilities.availableSkillNames].sort(
-    compareCodePointStrings
-  )
+  return input.loadableSkills.map(skill => skill.skillName).sort(compareCodePointStrings)
 }
 
 function isSteerCompletionRace(error: unknown): boolean {

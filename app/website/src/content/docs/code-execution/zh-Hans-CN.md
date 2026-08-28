@@ -40,11 +40,13 @@ agent 读写的一切都在 `/agents` 下，按 agent key 布局。agent 直接�
 ├── sessions/<workspace-id>/
 └── jobs/<job-id>/
     ├── .codex/config.toml
-    ├── .ankole/skills/
+    ├── AGENTS.md
     └── temp/
 ```
 
 `SOUL.md`、`MISSION.md` 和 `DESIGN.md` 是 [Agent Library](../agent-library/) 中的长期文档。前两份定义职责与行为，`DESIGN.md` 是视觉内容使用的设计系统。`installed-skills/` 存放 Agent 安装的 Skill。`sessions/` 使用由 PostgreSQL 从 10000 开始分配的稳定数字 ID 保存普通会话工作区，`jobs/` 是后台 Agent 任务的独立工作区。
+
+后台 Agent Job 通过 Ankole `skill_view` 加载 Skill，不会把 Skill root 复制到 Job 工作区。
 
 ## 迭代 Python 用的 Jupyter live kernel
 

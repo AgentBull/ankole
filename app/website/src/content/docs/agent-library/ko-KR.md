@@ -29,6 +29,14 @@ Agent의 유효 Capability는 두 계층으로 카탈로그를 훑어 해석된�
 
 이것이 Console의 [Agent Library capabilities](../console-api/) 라우트가 노출하는 모델입니다: 전역 기본값을 설정한 다음 Agent별로 좁히거나 넓힙니다.
 
+## Brain에서만 검색하는 Skill 발견
+
+배포되는 standalone Skill이나 Agent Plugin member는 `brain-recall-only: true`를 선언할 수 있습니다. 배포되는 Skill은 하나의 전역 이름 공간을 공유하므로 Plugin 소속이 Skill 이름을 바꾸지 않습니다. Agent가 설치한 Skill은 이 모드에 참여하지 않습니다.
+
+Agent Library는 전체 유효 Skill 집합을 Worker에 전달합니다. 일반 Skill은 모델에 표시되는 Skill 카탈로그에 들어갑니다. Brain에서만 검색하는 Skill은 `skill_view`로 로드할 수 있는 집합에 남지만 카탈로그에서는 제외됩니다. Library sweep은 이름, 설명, 태그만 `lazyload-agent-skills/<skill-name>`의 가벼운 Brain 레코드로 projection합니다. Skill 본문, 리소스, Agent별 교훈은 각각을 소유하는 파일 및 데이터베이스 경로에 남습니다.
+
+projection은 인스턴스에서 공유되며 한 Agent가 Skill을 비활성화해도 삭제되지 않습니다. Brain query와 `skill_view`는 모두 해당 Agent의 현재 Plugin 및 Skill 유효 상태를 적용합니다. 따라서 비활성화된 레코드는 검색 슬롯을 차지하지 않고 로드할 수도 없습니다. 기능을 다시 활성화하면 기존 projection을 그대로 사용할 수 있습니다.
+
 ## 영구 Agent 문서와 Skill 교훈
 
 Capability와 함께 라이브러리는 Agent 자신이 쓰는 문서와 Agent별 Skill 지침도 보관합니다.

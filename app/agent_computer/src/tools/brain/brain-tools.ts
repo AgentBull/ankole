@@ -3,9 +3,11 @@ import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import { defineWorkerTool, type AgentToolResult, type WorkerAgentTool } from '../../core'
 import { jsonToolResult } from '../../core/tool-result'
 import { rpcMethods, type BrainRPCRequester } from '../../lanes/rpc_lane'
+import { lazySkillNameFromSlug, lazySkillSlugPrefix, type SkillLoader } from '../../skills/skill-loader'
 
 export interface CreateBrainToolsOptions {
   requestBrainRPC: BrainRPCRequester
+  skillLoader?: SkillLoader
 }
 
 type BrainToolDetails = JSONObject
@@ -75,6 +77,22 @@ const RememberParams = z.object({
   provenance: z.string().min(1).describe('Quote or close paraphrase of the source of this claim.')
 })
 
+const LearnSourceParams = z.object({
+  url: z
+    .string()
+    .min(1)
+    .max(2_000)
+    .regex(/^https?:\/\//, "url must start with 'http://' or 'https://'")
+    .describe('Public web address of the material to learn.'),
+  scope: z
+    .string()
+    .regex(AudienceScopePattern, "scope must be 'world', 'group:<name>', or 'principal:<uid>'")
+    .optional()
+    .describe(
+      "Audience scope of the learned knowledge. Defaults to this conversation's scope. Pass 'world' only when the material is public and the requester wants the whole deployment to know it."
+    )
+})
+
 const RecallParams = z.object({
   query: z.string().min(1).describe('What to search for.'),
   entity: z
@@ -135,6 +153,7 @@ const DeltaParams = z.object({
 export function createBrainTools(opts: CreateBrainToolsOptions): WorkerAgentTool[] {
   return [
     createRememberTool(opts),
+    createLearnSourceTool(opts),
     createRecallTool(opts),
     createGetPageTool(opts),
     createForgetTool(opts),
@@ -162,7 +181,7 @@ function createRememberTool(opts: CreateBrainToolsOptions): WorkerAgentTool<type
       'Write one durable memory claim to the shared Brain.',
       'Use it for information with long-term value: facts, preferences, commitments, beliefs, events, and your own takes, bets, or hunches. Do not store small talk or transient task detail.',
       'Consult the ConfidentialityPolicy.md guidance when you choose scope. When one input contains parts with different disclosure ranges, split it and call remember once for each part with its own scope.',
-      'holder names who HOLDS the judgment, not who the claim is about: when a person states an opinion about someone else, the holder is that person.',
+      "holder names who HOLDS the judgment, not who the claim is about: when a person states an opinion about someone else, the holder is that person. Relaying someone's judgment keeps their holder; your own endorsement of it is a separate take.",
       'Use multiples of 0.05 for confidence and weight.',
       'The write persists immediately; a later failure or retry of this turn does not revert it.'
     ].join('\n'),
@@ -173,6 +192,24 @@ function createRememberTool(opts: CreateBrainToolsOptions): WorkerAgentTool<type
     describeActivity: () => ({ key: 'signals_gateway.reply.activity.memory_remember' }),
     async execute(_toolCallID, params): Promise<AgentToolResult<BrainToolDetails>> {
       return jsonToolResult(await opts.requestBrainRPC(rpcMethods.brainRemember, params))
+    }
+  })
+}
+
+function createLearnSourceTool(
+  opts: CreateBrainToolsOptions
+): WorkerAgentTool<typeof LearnSourceParams, BrainToolDetails> {
+  return defineWorkerTool({
+    name: 'learn_source',
+    description:
+      'Register one web url as a Brain learning source and start its learning run in the background. Consult the brain-learning skill for source routing and scope judgment before first use.',
+    schema: LearnSourceParams,
+    executionMode: 'sequential',
+    isReadOnly: false,
+    isDestructive: false,
+    describeActivity: () => ({ key: 'signals_gateway.reply.activity.memory_learn_source' }),
+    async execute(_toolCallID, params): Promise<AgentToolResult<BrainToolDetails>> {
+      return jsonToolResult(await opts.requestBrainRPC(rpcMethods.brainLearnSource, params))
     }
   })
 }
@@ -191,7 +228,13 @@ function createRecallTool(opts: CreateBrainToolsOptions): WorkerAgentTool<typeof
     isDestructive: false,
     describeActivity: () => ({ key: 'signals_gateway.reply.activity.memory_recall' }),
     async execute(_toolCallID, params): Promise<AgentToolResult<BrainToolDetails>> {
-      return jsonToolResult(await opts.requestBrainRPC(rpcMethods.brainRecall, params))
+      const details = await opts.requestBrainRPC(rpcMethods.brainRecall, params)
+      return jsonToolResult(details, {
+        textPrefix:
+          opts.skillLoader && containsLazySkillSlug(details)
+            ? 'Use skill_view to load lazyload-agent-skills/ results.\n'
+            : ''
+      })
     }
   })
 }
@@ -207,9 +250,54 @@ function createGetPageTool(opts: CreateBrainToolsOptions): WorkerAgentTool<typeo
     isDestructive: false,
     describeActivity: () => ({ key: 'signals_gateway.reply.activity.memory_page_read' }),
     async execute(_toolCallID, params): Promise<AgentToolResult<BrainToolDetails>> {
-      return jsonToolResult(await opts.requestBrainRPC(rpcMethods.brainGetPage, params))
+      const exactSkillName = opts.skillLoader ? lazySkillNameFromSlug(params.reference) : undefined
+      if (exactSkillName) return await delegatedSkillResult(exactSkillName, opts)
+
+      const details = await opts.requestBrainRPC(rpcMethods.brainGetPage, params)
+      const resolvedSkillName = opts.skillLoader ? lazySkillNameFromPage(details) : undefined
+      return resolvedSkillName ? await delegatedSkillResult(resolvedSkillName, opts) : jsonToolResult(details)
     }
   })
+}
+
+async function delegatedSkillResult(
+  name: string,
+  opts: CreateBrainToolsOptions
+): Promise<AgentToolResult<BrainToolDetails>> {
+  if (!opts.skillLoader) throw new Error('get_page requires skill_view to load a Skill discovery record')
+  const loaded = await opts.skillLoader.load({ name })
+  const loadedText = loaded.content.flatMap(part => (part.type === 'text' ? [part.text] : [])).join('\n')
+  return {
+    content: [
+      {
+        type: 'text',
+        text: `This is a Skill discovery record; get_page delegated to skill_view("${name}") and returned the loaded Skill.\n${loadedText}`
+      }
+    ],
+    details: {
+      kind: 'skill',
+      name,
+      path: loaded.details.path,
+      loaded_via: 'skill_view'
+    }
+  }
+}
+
+function lazySkillNameFromPage(details: JSONObject): string | undefined {
+  const page = details.page
+  if (!page || typeof page !== 'object' || Array.isArray(page)) return undefined
+  const slug = (page as JSONObject).slug
+  return typeof slug === 'string' ? lazySkillNameFromSlug(slug) : undefined
+}
+
+function containsLazySkillSlug(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(containsLazySkillSlug)
+  if (!value || typeof value !== 'object') return false
+  return Object.entries(value).some(([key, child]) =>
+    (key === 'slug' || key === 'object_slug') && typeof child === 'string'
+      ? child.startsWith(lazySkillSlugPrefix)
+      : containsLazySkillSlug(child)
+  )
 }
 
 function createForgetTool(opts: CreateBrainToolsOptions): WorkerAgentTool<typeof ForgetParams, BrainToolDetails> {

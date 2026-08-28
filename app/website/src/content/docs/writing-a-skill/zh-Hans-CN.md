@@ -49,6 +49,25 @@ platforms: [linux]
 
 `description` 要说明具体触发条件，因为 Agent 会根据它决定是否读取 Skill。需要后台任务隔离时设置 `ankole-runtime: background_job`；只有依赖 Linux 工具时才设置 `platforms: [linux]`。
 
+### 让 Brain 发现随产品发布的 Skill
+
+如果某个 SOP 或方法论不应出现在每个 Prompt 中，但需要在当前工作与其语义相关时被发现，可以使用 `brain-recall-only`：
+
+```yaml
+---
+name: idea-lineage
+description: 追溯一个想法在记忆中的演变——首次提出、最佳表述、立场反转与当前版本，每项都引用已存证据。
+tags:
+  - 想法演变
+  - 思想脉络
+brain-recall-only: true
+---
+```
+
+这个字段只支持随产品发布的独立 Skill 和 Agent Plugin 内的 Skill；安装到 Agent 的 Skill 不使用这种发现模式。随产品发布的 Skill 名称仍然全局唯一，Agent Plugin 成员关系不会增加命名空间。Brain 根据标准 Skill 元数据自动派生 `lazyload-agent-skills/<name>` 发现记录。
+
+不要在 Skill 中加入 `slug`、`type`、`title` 或 `aliases` 等 Object 字段。Brain 搜索 `name`、`description` 和 `tags`，并用名称和标签做自然语言解析。Skill 正文、其他所有 Skill 文件和 Agent 专属教训不会进入 Brain；发现后仍只能通过 `skill_view` 读取。
+
 ### 写正文
 
 正文要让一个有能力但不了解项目约定的 Agent 完成任务。至少写清：
@@ -80,6 +99,8 @@ dependencies:
 ### 验证 Skill
 
 在测试 Agent 上启用 Skill，给出一个真实任务，并检查 Agent 是否正确选中 Skill、读取所需资料并遵守完成标准。若 Agent 从未选中它，先改 `description`；若执行步骤不稳定，改正文中的顺序和约束。
+
+对于 `brain-recall-only` Skill，还要确认普通 Prompt 不会列出它，Brain 可以根据名称、描述和标签找到它。确认 `skill_view` 会在兼容的执行位置加载完整 Skill，并在不兼容的执行位置保留既有的路由或拒绝行为。然后关闭该 Skill 或它所属的 Agent Plugin，确认同一个 Agent 既不能发现它，也不能加载它。
 
 ## 开发 Control Plane Plugin
 

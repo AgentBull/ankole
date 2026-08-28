@@ -40,35 +40,72 @@ defmodule Ankole.Brain.Embeddings do
   @spec signature(map()) :: {:ok, String.t()} | {:error, term()}
   def signature(%{"provider_id" => provider_id, "model" => model, "dimensions" => dimensions}) do
     with {:ok, provider} <- ProviderConfigs.fetch_active_provider(provider_id) do
-      canonical = Enum.join([provider.provider_kind, model, dimensions], "|")
-      {:ok, NativeKernel.xxh3_128_hex(canonical)}
+      build_signature(provider.provider_kind, model, dimensions)
     end
   end
 
   @doc """
   Embeds a list of texts with the instance embedding model.
 
-  Returns vectors zero-padded to the physical width, in input order.
+  Returns vectors zero-padded to the physical width, in input order, and the
+  signature of the same model snapshot that produced them.
   """
-  @spec embed_texts([String.t()]) :: {:ok, [Pgvector.t()]} | {:error, term()}
-  def embed_texts([]), do: {:ok, []}
-
-  def embed_texts(texts) when is_list(texts) do
-    with {:ok, model} <- configured_model() do
-      request =
-        %{
-          "model" => model["provider_id"] <> "/" <> model["model"],
-          "input" => texts,
-          "dimensions" => model["dimensions"]
-        }
-        |> maybe_put_provider_options(model)
-
-      case AIGateway.create_embeddings(@subject_uid, request) do
-        {:ok, %{body: body}} -> extract_vectors(body, length(texts), model["dimensions"])
-        {:error, _reason} = error -> error
-      end
+  @spec embed_texts([String.t()]) ::
+          {:ok, {[Pgvector.t()], String.t()}} | {:error, term()}
+  def embed_texts([]) do
+    with {:ok, model} <- configured_model(),
+         {:ok, signature} <- signature(model) do
+      {:ok, {[], signature}}
     end
   end
+
+  def embed_texts(texts) when is_list(texts) do
+    with {:ok, model} <- configured_model(),
+         {:ok, {vectors, model_ref}} <- embed_with_model(texts, model),
+         {:ok, signature} <- signature_from_model_ref(model_ref, model["dimensions"]) do
+      {:ok, {vectors, signature}}
+    end
+  end
+
+  defp embed_with_model(texts, model) do
+    request =
+      %{
+        "model" => model["provider_id"] <> "/" <> model["model"],
+        "input" => texts,
+        "dimensions" => model["dimensions"]
+      }
+      |> maybe_put_provider_options(model)
+
+    case AIGateway.create_embeddings(@subject_uid, request) do
+      {:ok, %{body: body, model_ref: model_ref}} ->
+        with {:ok, vectors} <- extract_vectors(body, length(texts), model["dimensions"]) do
+          {:ok, {vectors, model_ref}}
+        end
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp signature_from_model_ref(
+         %{"provider_kind" => provider_kind, "model" => model},
+         dimensions
+       ) do
+    build_signature(provider_kind, model, dimensions)
+  end
+
+  defp signature_from_model_ref(_model_ref, _dimensions),
+    do: {:error, :invalid_embedding_model_ref}
+
+  defp build_signature(provider_kind, model, dimensions)
+       when is_binary(provider_kind) and provider_kind != "" and is_binary(model) and model != "" and
+              is_integer(dimensions) and dimensions > 0 do
+    canonical = Enum.join([provider_kind, model, dimensions], "|")
+    {:ok, NativeKernel.xxh3_128_hex(canonical)}
+  end
+
+  defp build_signature(_provider_kind, _model, _dimensions),
+    do: {:error, :invalid_embedding_model_ref}
 
   defp configured_model do
     case Config.embedding_model() do

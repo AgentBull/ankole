@@ -18,10 +18,11 @@ defmodule Ankole.Brain.SignalsLearning do
   alias Ankole.Brain.Links
   alias Ankole.Brain.ModelCalls
   alias Ankole.Brain.Objects
-  alias Ankole.Brain.Schemas.Source
+  alias Ankole.Brain.Schemas.Object
+  alias Ankole.Brain.Schemas.ObjectAlias
   alias Ankole.Brain.Scope
+  alias Ankole.Brain.Sources
   alias Ankole.Brain.Timelines
-  alias Ankole.Ecto.UUIDv7
   alias Ankole.Kernel, as: NativeKernel
   alias Ankole.Logging
   alias Ankole.Principals.Principal
@@ -31,6 +32,8 @@ defmodule Ankole.Brain.SignalsLearning do
   alias Ankole.SignalsGateway.Entry
 
   @max_slice_entries 200
+  @known_page_limit 20
+  @known_page_alias_limit 5
 
   @doc """
   Processes the pending slice of one channel. Returns a status map; slices
@@ -43,7 +46,7 @@ defmodule Ankole.Brain.SignalsLearning do
          {:ok, model} <- ensure_extraction_model(),
          {:ok, channel} <- fetch_channel(channel_id),
          {:ok, learning_context} <- learning_context(channel),
-         :ok <- ensure_active_source(channel) do
+         {:ok, source} <- ensure_active_source(channel) do
       case pending_slice(channel_id) do
         [] ->
           {:ok, %{status: :no_pending_entries}}
@@ -54,7 +57,7 @@ defmodule Ankole.Brain.SignalsLearning do
           if Claims.extraction_terminal(channel_id, token) do
             {:ok, %{status: :already_processed, token: token}}
           else
-            process_slice(channel, learning_context, entries, token, model)
+            process_slice(channel, source, learning_context, entries, token, model)
           end
       end
     else
@@ -128,14 +131,14 @@ defmodule Ankole.Brain.SignalsLearning do
 
   # Slice processing
 
-  defp process_slice(channel, learning_context, entries, token, model) do
+  defp process_slice(channel, source, learning_context, entries, token, model) do
     transcript = build_transcript(entries)
     boundary = slice_boundary(entries)
 
     if String.trim(transcript.text) == "" do
-      finalize(channel.id, token, :not_applicable, [], learning_context, boundary)
+      finalize(source, channel.id, token, :not_applicable, [], learning_context, boundary)
     else
-      prompt = extraction_prompt(transcript, learning_context)
+      prompt = extraction_prompt(transcript, learning_context, known_pages(transcript.text))
 
       case ModelCalls.complete_json(model, prompt) do
         {:ok, output} ->
@@ -148,7 +151,7 @@ defmodule Ankole.Brain.SignalsLearning do
           # continuously active channel could never commit any slice.
           if slice_still_current?(channel.id, entries, token) do
             outcome = if items == [], do: :not_applicable, else: :complete
-            finalize(channel.id, token, outcome, items, learning_context, boundary)
+            finalize(source, channel.id, token, outcome, items, learning_context, boundary)
           else
             {:ok, %{status: :slice_changed, token: token}}
           end
@@ -191,12 +194,12 @@ defmodule Ankole.Brain.SignalsLearning do
   # block the terminal, because the prompt-contract filter is expected to
   # drop garbage and an unwritable item must not wedge the channel forever.
   # Infrastructure failures abort the transaction and leave no terminal.
-  defp finalize(channel_id, token, outcome, items, learning_context, boundary) do
+  defp finalize(source, channel_id, token, outcome, items, learning_context, boundary) do
     prepared = prepare_embeddings(items)
 
     result =
       Repo.transact(fn repo ->
-        with :ok <- lock_active_source(repo, channel_id) do
+        with :ok <- lock_active_source(repo, source) do
           written = write_items(repo, channel_id, items, learning_context, prepared)
 
           with {:ok, _terminal} <-
@@ -246,8 +249,7 @@ defmodule Ankole.Brain.SignalsLearning do
       |> Enum.uniq()
 
     with [_ | _] <- texts,
-         {:ok, vectors} <- Ankole.Brain.Embeddings.embed_texts(texts),
-         {:ok, signature} <- Ankole.Brain.Embeddings.signature() do
+         {:ok, {vectors, signature}} <- Ankole.Brain.Embeddings.embed_texts(texts) do
       texts |> Enum.zip(Enum.map(vectors, &{&1, signature})) |> Map.new()
     else
       _empty_or_failed -> %{}
@@ -476,13 +478,12 @@ defmodule Ankole.Brain.SignalsLearning do
 
   defp learning_context(%Channel{kind: kind}), do: {:skip, {:unsupported_channel_kind, kind}}
 
-  # The model can deviate from the default scope in exactly two directions:
-  # up to world for public knowledge, or down to one speaker for content
-  # with an explicit confidentiality signal. Everything else clamps to the
-  # deterministic default.
+  # The source audience is an upper bound. The model can keep the deterministic
+  # default or narrow content with an explicit confidentiality signal to one
+  # speaker; every other value clamps to the default.
   defp enforce_scope(scope, learning_context) do
     allowed =
-      ["world", learning_context.default_scope] ++
+      [learning_context.default_scope] ++
         Enum.map(learning_context.speaker_uids, &Scope.principal/1)
 
     if is_binary(scope) and scope in allowed,
@@ -547,7 +548,56 @@ defmodule Ankole.Brain.SignalsLearning do
 
   defp speaker_label(_entry), do: "unknown"
 
-  defp extraction_prompt(transcript, learning_context) do
+  # Write-time dedup of named entities: the model declares new pages, and
+  # the exact-slug idempotency on the write side cannot recognize the same
+  # entity under a second wording, so the prompt must carry the pages this
+  # slice already names. Vector similarity does not catch these duplicates
+  # either — a page stored under its chosen name does not embed near a
+  # descriptive paraphrase — so the match is the exact-alias containment
+  # that volunteer pointers already use.
+  defp known_pages(text) do
+    text
+    |> Links.match_aliases_in_text()
+    |> Enum.take(@known_page_limit)
+    |> Enum.map(&Repo.get_by(Object, slug: &1))
+    |> Enum.filter(&match?(%Object{deleted_at: nil}, &1))
+    |> Enum.map(fn object ->
+      aliases =
+        ObjectAlias
+        |> where([alias], alias.object_slug == ^object.slug)
+        |> order_by([alias], asc: alias.alias_norm)
+        |> limit(@known_page_alias_limit)
+        |> select([alias], alias.alias_norm)
+        |> Repo.all()
+
+      %{slug: object.slug, title: object.title, aliases: aliases}
+    end)
+  end
+
+  defp known_pages_section([]), do: ""
+
+  defp known_pages_section(pages) do
+    lines =
+      Enum.map_join(pages, "\n", fn page ->
+        case page.aliases do
+          [] -> "- #{page.slug} — #{page.title}"
+          aliases -> "- #{page.slug} — #{page.title} (aka: #{Enum.join(aliases, ", ")})"
+        end
+      end)
+
+    """
+    Known pages already in memory that this transcript mentions:
+    #{lines}
+
+    An entity in this list must reuse the listed slug in every object_slug,
+    link, and timeline reference; do not create a new object item for it.
+    Create a new object only for an entity absent from this list and from
+    the speaker list.
+
+    """
+  end
+
+  defp extraction_prompt(transcript, learning_context, known_pages) do
     speakers =
       learning_context.speaker_uids
       |> Enum.map(fn uid ->
@@ -561,6 +611,7 @@ defmodule Ankole.Brain.SignalsLearning do
 
     installed_types =
       Ankole.Brain.Schemas.SchemaType
+      |> where([type], type.name != "agent-skills")
       |> select([type], {type.name, type.slug_prefix})
       |> order_by([type], asc: type.name)
       |> Repo.all()
@@ -589,17 +640,18 @@ defmodule Ankole.Brain.SignalsLearning do
     6. Skip greetings, transient operational detail, and anything without
        long-term value. Prefer writing nothing over writing noise.
 
-    Scope: the default scope is #{learning_context.default_scope}. Use
-    "world" only for public common knowledge. Use a narrower
-    "principal:<uid>" of one speaker only when the content carries an
-    explicit confidentiality signal (for example "don't tell anyone").
-    Any other scope value falls back to the default.
+    Scope: the source audience is an upper bound. The default scope is
+    #{learning_context.default_scope}. Keep that scope unless the content has
+    an explicit confidentiality signal (for example "don't tell anyone"); in
+    that case, use the narrower "principal:<uid>" of one speaker. Do not use
+    "world" for content learned from this conversation. Any other scope value
+    falls back to the default.
 
     Holders are canonical page slugs of the speakers, "world" for common
     knowledge, or an entity page slug. Speakers:
     #{speakers}
 
-    Installed object types (for new object items): #{installed_types}
+    #{known_pages_section(known_pages)}Installed object types (for new object items): #{installed_types}
 
     Transcript:
     #{transcript.text}
@@ -630,35 +682,27 @@ defmodule Ankole.Brain.SignalsLearning do
   # trigger. An archived Source stops later learning, so the registered row
   # reads back and gates the run.
   defp ensure_active_source(%Channel{} = channel) do
-    Repo.insert!(
-      %Source{
-        id: UUIDv7.autogenerate(),
-        upstream_id: channel.id,
-        kind: "signal_channel",
-        name: channel.name || channel.id
-      },
-      on_conflict: :nothing,
-      conflict_target: [:kind, :upstream_id]
-    )
-
-    case Repo.get_by!(Source, kind: "signal_channel", upstream_id: channel.id) do
-      %Source{archived_at: nil} -> :ok
-      %Source{} -> {:skip, :source_archived}
+    with {:ok, source} <-
+           Sources.get_or_create(%{
+             upstream_id: channel.id,
+             kind: "signal_channel",
+             name: channel.name || channel.id
+           }),
+         :ok <- Sources.ensure_active(source) do
+      {:ok, source}
+    else
+      {:error, :source_archived} -> {:skip, :source_archived}
+      {:error, _reason} = error -> error
     end
   end
 
   # The final-commit half of the archive fence: the run start already
   # checked, this locked re-read catches an archive that landed during the
   # model call, following the SourceLearning.commit_run pattern.
-  defp lock_active_source(repo, channel_id) do
-    Source
-    |> where([source], source.kind == "signal_channel" and source.upstream_id == ^channel_id)
-    |> lock("FOR UPDATE")
-    |> repo.one()
-    |> case do
-      %Source{archived_at: nil} -> :ok
-      %Source{} -> {:error, :source_archived}
-      nil -> {:error, :source_archived}
+  defp lock_active_source(repo, source) do
+    case Sources.lock_active(repo, source) do
+      {:ok, _source} -> :ok
+      {:error, reason} when reason in [:not_found, :source_archived] -> {:error, :source_archived}
     end
   end
 
@@ -675,11 +719,6 @@ defmodule Ankole.Brain.SignalsLearning do
   end
 
   defp maybe_after_watermark(query, nil), do: query
-
-  # A terminal written before boundaries carried the entry id filters on the
-  # arrival time alone; every new terminal stores both halves.
-  defp maybe_after_watermark(query, {boundary_at, nil}),
-    do: where(query, [entry], entry.first_seen_at > ^boundary_at)
 
   defp maybe_after_watermark(query, {boundary_at, boundary_entry_id}) do
     where(

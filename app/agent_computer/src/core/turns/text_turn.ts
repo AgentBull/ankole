@@ -20,6 +20,7 @@ import { createTurnActivity } from './turn_activity'
 import { resolveAgentConversationContext } from './turn_context'
 import { agentRuntimePolicyFromTurnStart, statefulTruncationFromActorEventPayload } from './turn_runtime_policy'
 import { resolveRenderedFetchRuntimeConfig } from './rendered_fetch_runtime_config'
+import { scheduleTurnContextFromTurnStart } from './schedule_turn_context'
 import { createTurnWebTools } from './turn_web_tools'
 import { createTextTurnTools } from './text_turn_tools'
 import { materializeLarkCredential, type MaterializedLarkCredential } from '../execution/lark-credential'
@@ -121,25 +122,25 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
       }),
       'web tools'
     )
-    const resolvedTools = await createTextTurnTools({
+    const resolvedTools = createTextTurnTools({
       turnStart,
       agentsRoot: opts.agentsRoot,
       agentHome: opts.agentHome,
       workspaceRoot: opts.workspaceRoot,
       userFilesRoot: opts.userFilesRoot,
       enabledSkills: agentConversationContext.skills ?? [],
+      agentPluginCatalog: agentConversationContext.agentPlugins ?? [],
       skillRoots,
       brainEnabled,
       rpc: opts.rpc,
       waitForSteering: opts.waitForSteering,
       workerEnv: toolWorkerEnv,
       runtimeEnv,
-      webTools,
-      runStep: turnActivity.runStep
+      webTools
     })
     const tools = toolsForAmbientRoute(resolvedTools, opts.ambientRoute)
 
-    const hostedTools = confirmationOnly ? [] : (turnStart.hosted_tools ?? [])
+    const hostedTools = hostedToolsForAmbientRoute(turnStart.hosted_tools ?? [], opts.ambientRoute)
 
     opts.logger?.info('worker.turn_tools_resolved', 'worker turn tools resolved', {
       actor_event_id: turnStart.turn.actor_event_id,
@@ -152,7 +153,7 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
     const promptOptions = {
       userFilesRoot: opts.userFilesRoot,
       workspaceRoot: opts.workspaceRoot,
-      turnStart,
+      turnStart: { ...turnStart, hosted_tools: hostedTools },
       agentConversationContext,
       availableToolNames: tools.map(tool => tool.name),
       ambientRoute: opts.ambientRoute
@@ -233,12 +234,26 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
   }
 }
 
-function toolsForAmbientRoute<T extends { name: string }>(tools: T[], route: TextTurnLoopOptions['ambientRoute']): T[] {
+export function toolsForAmbientRoute<T extends { isReadOnly?: boolean }>(
+  tools: T[],
+  route: TextTurnLoopOptions['ambientRoute']
+): T[] {
   if (!route) return tools
   if (route.action === 'NEW_WORK' && route.authority === 'NONE') return []
   if (route.action !== 'FOREGROUND_REPLY') return tools
 
-  return tools.filter(tool => tool.name !== 'create_background_job' && tool.name !== 'respawn_background_job')
+  return tools.filter(tool => tool.isReadOnly === true)
+}
+
+export function hostedToolsForAmbientRoute<T extends { type: string }>(
+  tools: T[],
+  route: TextTurnLoopOptions['ambientRoute']
+): T[] {
+  if (!route) return tools
+  if (route.action === 'NEW_WORK' && route.authority === 'NONE') return []
+  if (route.action !== 'FOREGROUND_REPLY') return tools
+
+  return tools.filter(tool => tool.type === 'web_search')
 }
 
 function logAIGatewayRoute(
@@ -289,7 +304,7 @@ export function textTurnResultFromAssistantReply(
 }
 
 function silentSuccessAllowed(turnStart: TurnStart): boolean {
-  return turnStart.request_context?.silent_success_allowed === true
+  return scheduleTurnContextFromTurnStart(turnStart)?.silentSuccessAllowed === true
 }
 
 /**

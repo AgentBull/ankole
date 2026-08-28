@@ -40,6 +40,7 @@ export function BrainSuggestionsPage() {
   const queryClient = useQueryClient()
   const [status, setStatus] = useState<(typeof SUGGESTION_STATUSES)[number]>('pending')
   const [approveTarget, setApproveTarget] = useState<BrainSuggestion>()
+  const [rejectTarget, setRejectTarget] = useState<BrainSuggestion>()
   const [primitive, setPrimitive] = useState('')
   const [slugPrefix, setSlugPrefix] = useState('')
   const [targetType, setTargetType] = useState('')
@@ -65,6 +66,7 @@ export function BrainSuggestionsPage() {
     ...ankoleWebBrainControllerDecideSuggestionMutation(),
     onSuccess: () => {
       toast.success(t('console.brain.suggestion_rejected'))
+      setRejectTarget(undefined)
       invalidate()
     },
     onError: error => toast.error(requestErrorMessage(error))
@@ -134,17 +136,7 @@ export function BrainSuggestionsPage() {
                   <Button size="xs" type="button" variant="ghost" onClick={() => setApproveTarget(suggestion)}>
                     {t('console.brain.approve')}
                   </Button>
-                  <Button
-                    disabled={reject.isPending}
-                    size="xs"
-                    type="button"
-                    variant="ghost"
-                    onClick={() =>
-                      reject.mutate({
-                        path: { suggestion_id: suggestion.id },
-                        body: { decision: 'reject' }
-                      })
-                    }>
+                  <Button size="xs" type="button" variant="ghost" onClick={() => setRejectTarget(suggestion)}>
                     {t('console.brain.reject')}
                   </Button>
                 </div>
@@ -211,6 +203,35 @@ export function BrainSuggestionsPage() {
               }>
               {approve.isPending ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
               {t('console.brain.approve')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(rejectTarget)}
+        onOpenChange={open => !reject.isPending && !open && setRejectTarget(undefined)}>
+        <DialogContent closeLabel={t('common.close')} showCloseButton={!reject.isPending}>
+          <DialogHeader>
+            <DialogTitle>{t('console.brain.reject_title', { term: rejectTarget?.term ?? '' })}</DialogTitle>
+            <DialogDescription>{t('console.brain.reject_description')}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose render={<Button variant="outline" />} disabled={reject.isPending}>
+              {t('common.cancel')}
+            </DialogClose>
+            <Button
+              disabled={reject.isPending}
+              variant="destructive"
+              onClick={() =>
+                rejectTarget &&
+                reject.mutate({
+                  path: { suggestion_id: rejectTarget.id },
+                  body: { decision: 'reject' }
+                })
+              }>
+              {reject.isPending ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
+              {t('console.brain.reject')}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -540,13 +540,6 @@ fn aigateway_decodes_opaque_history_before_native_responses_provider() {
                             "type": "encrypted_content",
                             "encrypted_content": opaque_message
                         }]
-                    },
-                    {
-                        "type": "agent_message",
-                        "content": [{
-                            "type": "encrypted_content",
-                            "encrypted_content": "ankole-chat-encoded-v1:bGVnYWN5"
-                        }]
                     }
                 ]
             }),
@@ -569,7 +562,6 @@ fn aigateway_decodes_opaque_history_before_native_responses_provider() {
         provider_body["input"][1]["content"][0]["text"],
         "history secret"
     );
-    assert_eq!(provider_body["input"][2]["content"][0]["text"], "legacy");
     assert!(!provider_body.to_string().contains(opaque_message));
 }
 

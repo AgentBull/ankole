@@ -518,7 +518,7 @@ describe('ambient intervention recognizer', () => {
     })
   })
 
-  it('keeps legacy payload candidates as context but disables HANDOFF', async () => {
+  it('keeps incomplete payload candidates as context but disables HANDOFF', async () => {
     const bodies: JSONObject[] = []
     const turnStart = ambientTurnStart(
       {

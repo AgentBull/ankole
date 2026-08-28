@@ -154,6 +154,23 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
   @spec get(pos_integer()) :: Job.t() | nil
   def get(job_id) when is_integer(job_id) and job_id > 0, do: Repo.get(Job, job_id)
 
+  @doc "Lists live Job ids owned by any of the given actor sessions."
+  @spec live_job_ids_for_owner_sessions([String.t()], String.t()) :: [pos_integer()]
+  def live_job_ids_for_owner_sessions([], _agent_uid), do: []
+
+  def live_job_ids_for_owner_sessions(session_ids, agent_uid)
+      when is_list(session_ids) and is_binary(agent_uid) do
+    Job
+    |> where(
+      [job],
+      job.agent_uid == ^agent_uid and job.owner_session_id in ^session_ids and
+        job.status in ["queued", "running", "waiting_on_user"]
+    )
+    |> order_by([job], asc: job.id)
+    |> select([job], job.id)
+    |> Repo.all()
+  end
+
   @spec get_for_agent(pos_integer() | nil, String.t()) :: Job.t() | nil
   def get_for_agent(nil, _agent_uid), do: nil
 

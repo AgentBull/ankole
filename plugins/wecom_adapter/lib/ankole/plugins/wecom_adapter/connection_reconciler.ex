@@ -149,7 +149,7 @@ defmodule Ankole.Plugins.WeComAdapter.ConnectionReconciler do
   # example a disabled binding) and stops.
   defp stop_undesired_connections(specs) do
     ConnectionLifecycle.stop_undesired(
-      specs,
+      {:complete, specs},
       ConnectionSupervisor.registered_keys(),
       &ConnectionSupervisor.stop/1
     )

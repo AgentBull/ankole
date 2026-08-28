@@ -8,13 +8,11 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
   alias Ankole.AIAgent.Library.AgentPlugins
   alias Ankole.AppConfigure.Cache, as: AppConfigureCache
   alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
-  alias Ankole.AuthZ
   alias Ankole.BackgroundAgentJobs
   alias Ankole.Repo
   alias Ankole.Setup.Config, as: SetupConfig
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery
   alias Ankole.SignalsGateway.ActorRuntime.Transport.Broker
-  alias AnkoleWeb.Session, as: WebSession
 
   setup do
     allow_cache_database_access()
@@ -143,8 +141,7 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
                  skill_name: "private-notes",
                  description: "Private notes Skill.",
                  default_enabled: true,
-                 tags: [],
-                 disable_model_invocation: false
+                 tags: []
                }
              ])
 
@@ -180,7 +177,7 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
 
     assert Repo.reload!(existing_job).workspace_template_id == "deep-research"
 
-    assert {:ok, catalog} = AgentPlugins.enabled_catalog_for_agent(agent.uid)
+    assert {:ok, %{"agent_plugins" => catalog}} = Library.runtime_catalog_for_agent(agent.uid)
     current = Enum.find(catalog, &(&1["id"] == "deep-research"))
     assert current["id"] == "deep-research"
     assert current["skills"] == []
@@ -243,13 +240,6 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
                error: %{}
              })
              |> Repo.insert()
-
-    assert {:ok, _lesson} =
-             Library.create_skill_lesson(agent.uid, "pdf", "Refresh active material.", agent.uid)
-
-    assert_receive {:actor_lane, %{body: {:turn_control, content_control}}}, 2_000
-    assert content_control.command == "skill_content_changed"
-    assert Torque.decode!(content_control.payload_json) == %{"skill_names" => ["pdf"]}
 
     response =
       conn

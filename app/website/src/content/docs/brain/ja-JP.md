@@ -51,6 +51,7 @@ Brain は 2 つの方法で関連する記憶を提供します。会話の開�
 
 | ツール | 結果 |
 | --- | --- |
+| `learn_source` | 1 つの Web URL を Source として登録し、バックグラウンドで学習を開始する |
 | `recall` | Token 上限の中で、現在の Fact と Take を先に返し、その後に関連するページ断片を返す |
 | `get_page` | slug または自然言語名から、開示範囲で裁断した完全なページを読む。名前が曖昧な場合は推測せず候補を返す |
 | `entity` | 選択された Fact、関係、バックリンク数を含む対象カードを返す |
@@ -58,6 +59,14 @@ Brain は 2 つの方法で関連する記憶を提供します。会話の開�
 | `delta` | 指定期間に追加または失効した Claim と Timeline イベントを報告する |
 | `synthesize` | 想起した証拠を使い、1 つの問いに答える永続的な分析ページを書く |
 | `forget` | 理由を記録して、Fact を失効、Take を非アクティブ化、またはページをソフト削除する |
+
+### Brain からだけ想起する Skill を発見する
+
+同梱 Skill の一部は、現在の作業に関連するときだけ必要になる SOP や方法論を含みます。Skill に `brain-recall-only: true` を宣言すると、各 Prompt の Skill カタログには表示されず、Brain から発見できる状態を保ちます。
+
+Brain は Skill の `name`、`description`、`tags` だけを、`lazyload-agent-skills/<skill-name>` という `world` scope の発見レコードとしてインデックスします。Skill の本文、その他すべての Skill file、Agent 固有の教訓は既存の owner に残り、`skill_view` を通じて読み取られます。`recall` がこのレコードを返した場合、Agent は `skill_view` を呼び出します。loader は `ankole-runtime` に従い、互換性のある実行 surface では手順を読み込み、メイン Agent が background-only Skill を選んだ場合は Job への routing guidance を返し、それ以外の互換性のない読み取りは拒否します。このレコードに対する `get_page` も `skill_view` に委譲し、同じ結果を返します。
+
+Brain は候補を選ぶ前に、現在の Agent に対する Agent Plugin と Skill の実効有効化状態を適用します。無効な Skill は発見も読み込みもできません。共有の発見 projection は無効化しても削除されないため、再び有効にすると再構築なしで利用できます。
 
 Embedding モデルがある場合、検索は全文候補とベクトル候補を組み合わせます。Rerank モデルがある場合は、統合した結果を再順位付けできます。Embedding モデルがなくても全文検索は動作します。Rerank モデルがない場合は、統合後の順序を維持します。
 

@@ -1,13 +1,13 @@
 ---
 title: Cost management
-description: The levers that control what Ankole spends — model-profile tiers, reasoning effort, web-tool gating, agent-loop budgets, and background-job retry and slot caps.
+description: The levers that control what Ankole spends — model profiles, reasoning effort, web tools, turn budgets, Workflow fanout, and background-job caps.
 section: Guides
 order: 314
 ---
 
 Most of what Ankole spends is model tokens, and most of *that* is decided by a small set of configuration levers, not by usage you cannot shape. This page names the levers, says what each one costs and saves, and gives the order to pull them when the bill is too high. Every lever here is a real knob in the control plane; none of it is "use the agent less."
 
-The decisive property, stated up front: cost is a function of *which model runs, how many times, and for how long*. The levers map to those three: the model-profile tiers pick the model, the agent-loop budgets cap the iterations, and the job-retry and slot caps bound the runaway cases. Pull the one that matches where the spend is.
+The decisive property, stated up front: cost is a function of *which model runs, how many times, and for how long*. The levers map to those three: the model-profile tiers pick the model, the agent-loop budgets cap the iterations, and the Workflow and Job caps bound fanout and retries. Pull the one that matches where the spend is.
 
 ## Lever 1: the model-profile tiers
 
@@ -59,7 +59,21 @@ Three AppConfigure keys cap the per-turn spend:
 
 `max_iterations` is the one that bounds a chatty agent loop. A loop that calls ten tools where two would do hits the model ten times; a lower cap forces the agent to converge. `max_output_tokens` bounds the size of each response. These are instance-wide defaults — set them to the shape of a normal turn, and accept that a genuinely hard turn may hit the cap and produce a "synthesize what you have" final answer.
 
-## Lever 5: background-job retry and slot caps
+## Lever 5: Workflow fanout and task attempts
+
+Each Workflow `agent()` attempt is a complete model turn. One call can make at most three attempts, so a run that creates many calls can multiply model and Web-tool use even when the main conversation makes only one Workflow request.
+
+| AppConfigure key | Default | Maximum | What it controls |
+|---|---:|---:|---|
+| `workflow.max_concurrency_per_run` | 8 | 32 | Tasks from one run that can execute at the same time |
+| `workflow.max_running_per_agent` | 8 | 64 | Running Workflow tasks across one Agent's runs |
+| `workflow.max_agent_calls_per_run` | 256 | 1,024 | Total subagent calls one run can create |
+
+Concurrency changes elapsed time; it does not reduce the total number of model calls. Set the call limit from the finite input size, and request only the concurrency that the deployment needs. A run can request lower `concurrency` and `max_agent_calls` values, but it cannot change the cross-run `max_running_per_agent` limit or raise an AppConfigure limit.
+
+Workflow has no batch-wide token or currency budget. Every task still uses the normal per-turn iteration, output-token, and inactivity limits. Use a narrow prompt and a small structured result for each task, handle `null` failures, and split a large collection into separate runs when one aggregate would be too large. See [Workflows](../workflows/) for the task and result limits.
+
+## Lever 6: background-job retry and slot caps
 
 Background jobs can spend tokens on retries, and the caps are the lever:
 
@@ -75,9 +89,10 @@ A job that fails transiently five times spends five runs' worth of tokens. Most 
 
 ## Where the spend actually is
 
-Before you change models or concurrency, use the Console to find the Agent, conversation, or Background Agent Job that made the calls:
+Before you change models or concurrency, inspect the Agent, conversation, Workflow, or Background Agent Job that made the calls:
 
 - `GET /ai-gateway/conversations` shows the model calls recent turns made — which profiles resolved, how many calls, which providers. This is the fastest way to see whether the spend is `primary` (volume), `heavy` (a few expensive calls), or `web_search` (many small calls).
+- Ask the main Agent to show the Workflow. Its task counts reveal the fanout and failed calls. The current version has no Workflow Console page or per-run cost total.
 - `GET /background-agent-jobs` shows job `attempts` — a job with `attempts: 5` spent five runs.
 - The structured control-plane logs carry the event names and fields for provider calls; your log ingester can aggregate by provider and by agent.
 
@@ -98,4 +113,5 @@ It is not a real-time spend dashboard — Ankole does not emit one. It is not a 
 - For Agent model profiles, read [Agents](../agents/#configure-models).
 - For the agent-loop knobs and their keys, read [Environment variables](../environment-variables/).
 - For the related conversation and Job endpoints, read [Console API reference](../console-api/).
+- For bounded subagent fanout and its limits, read [Workflows](../workflows/).
 - For the Job caps, read [Background Agent Jobs](../background-jobs/).

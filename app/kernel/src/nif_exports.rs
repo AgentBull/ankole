@@ -254,12 +254,6 @@ pub fn runtime_fabric_router_endpoint(
     Ok(router.0.endpoint().to_string())
 }
 
-/// Returns the only RuntimeFabric protocol version this kernel speaks.
-#[rustler::nif]
-pub fn runtime_fabric_protocol_version() -> u32 {
-    runtime_fabric::PROTOCOL_VERSION
-}
-
 /// Sends a RuntimeFabric envelope to one ROUTER identity with mandatory routing.
 ///
 /// The envelope arrives as protobuf bytes produced by the Elixir generated

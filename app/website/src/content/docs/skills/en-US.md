@@ -71,6 +71,12 @@ This field controls where the Skill is visible. It does not create a Background 
 
 The Deep Research entry Skill uses `main` because it confirms the request in the original conversation and creates the Job. The research Skills can then run inside the Background Agent Job.
 
+#### Ankole extension: discover a Skill through Brain
+
+Some SOPs and methods are useful only when the current work matches them, so listing them in every prompt would waste context. A shipped Skill can declare `brain-recall-only: true`. It remains a standard Skill and keeps the same Agent Plugin, Skill enablement, execution-surface, and `skill_view` rules, but Brain discovers it by meaning instead of placing it in the model-visible Skill catalog.
+
+Brain searches the Skill's name, description, and tags. After a match, the Agent calls `skill_view`, which applies `ankole-runtime` and either loads the Skill on a compatible execution surface or returns the correct routing or rejection result. Disabling the Skill, or its parent Agent Plugin, removes it from both Brain discovery and loading for that Agent. Brain must be enabled for this semantic discovery path. This mode is suitable for shipped methods and SOPs that should be available on demand without occupying every prompt.
+
 ### Control Plane Plugin: extend the management platform
 
 A Control Plane Plugin is not an OpenAI Plugin and does not enter the Agent's working context. It extends the Ankole control plane.

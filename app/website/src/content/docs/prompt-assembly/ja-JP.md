@@ -28,7 +28,7 @@ worker はコントロールプレーンから 2 つの経路でコンテキス�
 
 ### 有効な Skill
 
-`Library.skills_for_system_prompt/1` は agent の実効的な Skill セットを返します — 既定と上書きで有効化された Skill と、その説明とメタデータです。worker はこれらを使ってシステムプロンプトの Skill ブロックを構築し、モデルにどの Skill があり、それぞれが何のためのものかを伝えます。
+`Library.runtime_skills_for_agent/1` は、説明とメタデータを含む Agent の完全な有効 Skill セットを Worker に送ります。Worker は完全なセットを `skill_view` 用に保持します。モデルに見える Skill カタログを構築するときは、`brain-recall-only: true` を宣言した Skill を除外します。これにより、すべてのプロンプトに表示せずに Brain からその Skill を発見できます。
 
 ### 会話の発信 channel
 

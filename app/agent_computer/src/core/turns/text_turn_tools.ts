@@ -1,9 +1,9 @@
 import type { TurnStart } from '../../lanes/actor_lane'
 import {
   brainRPCRequester,
-  rpcMethods,
   scheduleRPCRequester,
   signalChannelRPCRequester,
+  type AgentPluginCatalogEntry,
   type RPCRequester,
   type RuntimeSkillSummary
 } from '../../lanes/rpc_lane'
@@ -20,8 +20,14 @@ import { createClarifyTool } from '../../tools/clarify/clarify-tool'
 import { createSkillTools, type SkillFileRoots } from '../../tools/library/skill-tools'
 import { createScheduleTools } from '../../tools/schedule/schedule-tools'
 import { createTodoTool, TodoStore } from '../../tools/todo/todo-tool'
+import { createCancelWorkflowTool } from '../../tools/workflow/cancel-workflow'
+import { createListWorkflowsTool } from '../../tools/workflow/list-workflows'
+import { createSendMessageToWorkflowTaskTool } from '../../tools/workflow/send-message-to-workflow-task'
+import { createShowWorkflowTool } from '../../tools/workflow/show-workflow'
+import { createWorkflowTool } from '../../tools/workflow/workflow'
 import type { WorkerAgentTool } from '../types'
 import { webSearchIsProviderHosted } from './turn_runtime_policy'
+import { createSkillLoader } from '../../skills/skill-loader'
 
 type TextTurnToolsOptions = {
   turnStart: TurnStart
@@ -29,7 +35,8 @@ type TextTurnToolsOptions = {
   agentHome: string
   workspaceRoot: string
   userFilesRoot: string
-  enabledSkills: Array<RuntimeSkillSummary | string>
+  enabledSkills: RuntimeSkillSummary[]
+  agentPluginCatalog: AgentPluginCatalogEntry[]
   skillRoots: SkillFileRoots
   /** Per-turn `brain.enabled` resolution; false leaves the Brain tools unregistered. */
   brainEnabled: boolean
@@ -38,7 +45,6 @@ type TextTurnToolsOptions = {
   workerEnv: Record<string, string>
   runtimeEnv: Record<string, string>
   webTools: WorkerAgentTool[]
-  runStep: <T>(promise: Promise<T>, step: string) => Promise<T>
 }
 
 /**
@@ -46,7 +52,7 @@ type TextTurnToolsOptions = {
  * Provider-hosted search removes only the local web_search tool.
  * Brain memory tools register only when `brain.enabled` resolved true.
  */
-export async function createTextTurnTools(opts: TextTurnToolsOptions): Promise<WorkerAgentTool[]> {
+export function createTextTurnTools(opts: TextTurnToolsOptions): WorkerAgentTool[] {
   const turnStart = opts.turnStart
   const computerTools = createComputerTools({
     agentHome: opts.agentHome,
@@ -55,10 +61,14 @@ export async function createTextTurnTools(opts: TextTurnToolsOptions): Promise<W
     workerEnv: opts.workerEnv,
     runtimeEnv: opts.runtimeEnv
   })
-  const backgroundAgentJobTools = await opts.runStep(
-    resolveBackgroundAgentJobTools(opts),
-    'background agent job tool availability'
-  )
+  const backgroundAgentJobTools = createBackgroundAgentJobTools(opts)
+  const skillLoader = createSkillLoader({
+    turn: turnStart.turn,
+    enabledSkills: opts.enabledSkills,
+    skillRoots: opts.skillRoots,
+    rpc: opts.rpc,
+    runtime: 'main'
+  })
 
   return [
     createTodoTool(new TodoStore()),
@@ -71,25 +81,32 @@ export async function createTextTurnTools(opts: TextTurnToolsOptions): Promise<W
       turnStart,
       requestSignalChannelRPC: signalChannelRPCRequester(opts.rpc, turnStart.turn)
     }),
-    ...(opts.brainEnabled ? createBrainTools({ requestBrainRPC: brainRPCRequester(opts.rpc, turnStart.turn) }) : []),
+    ...(opts.brainEnabled
+      ? createBrainTools({ requestBrainRPC: brainRPCRequester(opts.rpc, turnStart.turn), skillLoader })
+      : []),
     ...opts.webTools.filter(tool => !webSearchIsProviderHosted(turnStart) || tool.name !== 'web_search'),
     createClarifyTool(),
     ...backgroundAgentJobTools,
+    createWorkflowTool({ turnStart, rpc: opts.rpc }),
+    createShowWorkflowTool({ turnStart, rpc: opts.rpc }),
+    createListWorkflowsTool({ turnStart, rpc: opts.rpc }),
+    createSendMessageToWorkflowTaskTool({ turnStart, rpc: opts.rpc }),
+    createCancelWorkflowTool({ turnStart, rpc: opts.rpc }),
     ...createSkillTools({
       turn: turnStart.turn,
       enabledSkills: opts.enabledSkills,
       skillRoots: opts.skillRoots,
-      rpc: opts.rpc
+      rpc: opts.rpc,
+      loader: skillLoader
     })
   ]
 }
 
-async function resolveBackgroundAgentJobTools(opts: TextTurnToolsOptions): Promise<WorkerAgentTool[]> {
+function createBackgroundAgentJobTools(opts: TextTurnToolsOptions): WorkerAgentTool[] {
   const turnStart = opts.turnStart
-  const response = await opts.rpc(rpcMethods.agentPluginList, {}, { turn: turnStart.turn })
 
   return [
-    createCreateBackgroundJobTool({ turnStart, agentPluginCatalog: response.agentPlugins, rpc: opts.rpc }),
+    createCreateBackgroundJobTool({ turnStart, agentPluginCatalog: opts.agentPluginCatalog, rpc: opts.rpc }),
     createListBackgroundJobsTool({ turnStart, rpc: opts.rpc }),
     createShowBackgroundJobDetailsTool({ turnStart, rpc: opts.rpc }),
     createSendMessageToBackgroundJobTool({

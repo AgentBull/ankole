@@ -69,6 +69,12 @@ ankole-runtime: any
 
 Deep Research 的入口 Skill 使用 `main`，因为它要先在原对话中确认需求并创建 Job。真正执行研究的 Skills 可以在后台 Job 中使用。
 
+#### Ankole 扩展：通过 Brain 发现 Skill
+
+部分 SOP 和方法论只在当前工作与其相关时才有用，把它们列入每个 Prompt 会浪费上下文。随产品发布的 Skill 可以声明 `brain-recall-only: true`。它仍是标准 Skill，继续使用原有的 Agent Plugin、Skill 启用状态、执行位置和 `skill_view` 规则，只是改由 Brain 按语义发现，不进入模型可见的 Skill 目录。
+
+Brain 会搜索 Skill 的名称、描述和标签。命中后，Agent 调用 `skill_view`；它会遵守 `ankole-runtime`，在兼容的执行位置加载 Skill，或返回正确的路由或拒绝结果。关闭该 Skill 或它所属的 Agent Plugin 后，当前 Agent 既不能通过 Brain 发现它，也不能加载它。这条语义发现路径要求 Brain 已启用。这种模式适合需要按需使用、但不应长期占用每个 Prompt 的随产品发布的方法论和 SOP。
+
 ### Control Plane Plugin：扩展管理平台
 
 Control Plane Plugin 不属于 OpenAI Plugin，也不会进入 Agent 的工作上下文。它扩展的是 Ankole 控制面。

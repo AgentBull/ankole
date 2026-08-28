@@ -28,7 +28,6 @@ describe('@ankole/agent-computer installed skill sync', () => {
           'default_enabled: true',
           'tags: [notes, custom]',
           'category: custom',
-          'disable-model-invocation: true',
           'ankole-runtime: background_job',
           '---',
           '',
@@ -56,7 +55,6 @@ describe('@ankole/agent-computer installed skill sync', () => {
         defaultEnabled: true,
         tags: ['notes', 'custom'],
         category: 'custom',
-        disableModelInvocation: true,
         ankoleRuntime: 'background_job'
       })
 

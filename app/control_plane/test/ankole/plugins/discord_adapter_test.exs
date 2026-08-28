@@ -214,6 +214,25 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
     end
   end
 
+  describe "message chunking" do
+    test "counts astral and ZWJ text in UTF-16 units without splitting graphemes" do
+      prefix = String.duplicate("😀", 995)
+      suffix = "👨‍👩‍👧‍👦tail"
+      text = prefix <> suffix
+
+      assert [^prefix, ^suffix] = assert_utf16_chunks(text, 2_000)
+    end
+
+    test "splits an oversized grapheme only between code points" do
+      text = "😀" <> String.duplicate("\u0301", 1_999)
+      assert [^text] = String.graphemes(text)
+
+      assert [first, second] = assert_utf16_chunks(text, 2_000)
+      assert utf16_units(first) == 2_000
+      assert utf16_units(second) == 1
+    end
+  end
+
   describe "gateway protocol" do
     test "asks for the privileged message-content intent only when the application allows it" do
       assert Gateway.intents(false) == 512 + 1_024 + 4_096 + 8_192
@@ -1766,6 +1785,24 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
       started_at: now,
       metadata: %{"runtime" => "test"}
     })
+  end
+
+  defp assert_utf16_chunks(text, budget) do
+    chunks = Presentation.chunks(text)
+
+    assert Enum.join(chunks) == text
+    assert Enum.all?(chunks, &String.valid?/1)
+    assert Enum.all?(chunks, &(length(String.codepoints(&1)) <= budget))
+    assert Enum.all?(chunks, &(utf16_units(&1) <= budget))
+
+    chunks
+  end
+
+  defp utf16_units(text) do
+    text
+    |> :unicode.characters_to_binary(:utf8, {:utf16, :little})
+    |> byte_size()
+    |> div(2)
   end
 
   defp u64(value), do: <<value::unsigned-big-integer-size(64)>>

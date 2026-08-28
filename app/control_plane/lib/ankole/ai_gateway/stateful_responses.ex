@@ -38,9 +38,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
   @history_chain_max_depth 10_000
   @public_chain_max_depth 500
 
-
   # Public API
-
 
   @doc """
   Starts a stateful response run: creates a `generating` message row.
@@ -1886,9 +1884,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
     end
   end
 
-
   # Internal helpers
-
 
   # Decodes a "resp_#{uuid}" string to the raw UUID. Internal DB-facing helpers
   # may pass raw UUIDs; HTTP/WS/API boundaries enforce prefixed ids before this

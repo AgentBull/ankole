@@ -168,6 +168,12 @@ defmodule AnkoleWeb.Router do
     post "/brain/contradictions/:contradiction_id/decide", BrainController, :decide_contradiction
     get "/brain/suggestions", BrainController, :list_suggestions
     post "/brain/suggestions/:suggestion_id/decide", BrainController, :decide_suggestion
+    get "/brain/merge-suggestions", BrainController, :list_merge_suggestions
+
+    post "/brain/merge-suggestions/:suggestion_id/decide",
+         BrainController,
+         :decide_merge_suggestion
+
     get "/brain/sources", BrainController, :list_sources
     post "/brain/sources", BrainController, :create_source
     post "/brain/sources/:source_id/learn", BrainController, :learn_source
@@ -181,6 +187,7 @@ defmodule AnkoleWeb.Router do
     post "/brain/objects/rollback", BrainController, :rollback_object
     post "/brain/objects/forget", BrainController, :forget_object
     post "/brain/objects/restore", BrainController, :restore_object
+    post "/brain/objects/fork", BrainController, :fork_object
 
     get "/agents", AgentController, :index
     post "/agents", AgentController, :create

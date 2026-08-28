@@ -5,7 +5,7 @@ defmodule Ankole.Plugins.DiscordAdapter.Presentation do
   alias Ankole.Plugins.DiscordAdapter.ActionToken
   alias Ankole.SignalsGateway.ReplyPresentation
 
-  @message_chars 2_000
+  @message_utf16_units 2_000
   @button_chars 80
   @buttons_per_row 5
   @rows 5
@@ -79,12 +79,44 @@ defmodule Ankole.Plugins.DiscordAdapter.Presentation do
   def chunks(value) do
     value
     |> to_string()
-    |> String.graphemes()
-    |> Enum.chunk_every(@message_chars)
-    |> Enum.map(&Enum.join/1)
+    |> message_chunks()
     |> case do
       [] -> [I18n.t("signals_gateway.reply.no_content")]
       values -> values
     end
+  end
+
+  defp message_chunks(text) do
+    {chunks, current, _units} =
+      text
+      |> String.graphemes()
+      |> Enum.flat_map(fn grapheme ->
+        if utf16_units(grapheme) > @message_utf16_units,
+          do: String.codepoints(grapheme),
+          else: [grapheme]
+      end)
+      |> Enum.reduce({[], [], 0}, fn segment, {chunks, current, units} ->
+        segment_units = utf16_units(segment)
+
+        if units + segment_units <= @message_utf16_units do
+          {chunks, [segment | current], units + segment_units}
+        else
+          {[Enum.join(Enum.reverse(current)) | chunks], [segment], segment_units}
+        end
+      end)
+
+    chunks =
+      case current do
+        [] -> chunks
+        current -> [Enum.join(Enum.reverse(current)) | chunks]
+      end
+
+    Enum.reverse(chunks)
+  end
+
+  defp utf16_units(text) do
+    Enum.reduce(String.to_charlist(text), 0, fn codepoint, units ->
+      units + if(codepoint > 0xFFFF, do: 2, else: 1)
+    end)
   end
 end

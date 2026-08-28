@@ -105,7 +105,7 @@ export function bubblewrapArgv(input: BubblewrapArgvInput, mode?: BubblewrapMode
 }
 
 function agentDocumentBinds(agentHome: string): NonNullable<BubblewrapArgvInput['extraBinds']> {
-  return ['SOUL.md', 'MISSION.md', 'DESIGN.md'].map(name => ({
+  return ['SOUL.md', 'MISSION.md', 'DESIGN.md', 'ConfidentialityPolicy.md'].map(name => ({
     source: `${agentHome}/${name}`,
     target: `${agentHome}/${name}`,
     readonly: true

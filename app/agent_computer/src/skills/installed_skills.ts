@@ -126,17 +126,6 @@ function validateSkillMetadata(
     return null
   }
 
-  const disableModelInvocation = booleanScalar(
-    frontmatter['disable-model-invocation'] ?? frontmatter.disable_model_invocation,
-    false
-  )
-  if (disableModelInvocation === null) {
-    diagnostics.push(
-      diagnostic('invalid_disable_model_invocation', 'disable-model-invocation must be true or false', skillPath)
-    )
-    return null
-  }
-
   const ankoleRuntime = optionalStringScalar(frontmatter['ankole-runtime'])
   if (ankoleRuntime === null || (ankoleRuntime !== undefined && !isAnkoleSkillRuntime(ankoleRuntime))) {
     diagnostics.push(
@@ -151,7 +140,6 @@ function validateSkillMetadata(
     default_enabled: defaultEnabled,
     tags,
     ...(category ? { category } : {}),
-    disable_model_invocation: disableModelInvocation,
     ...(ankoleRuntime ? { ankole_runtime: ankoleRuntime } : {})
   }
 }

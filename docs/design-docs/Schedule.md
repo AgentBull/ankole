@@ -356,18 +356,19 @@ the complete stored diagnostic for operators.
 
 ActorRuntime maps scheduled ActorEvents to dedicated turn kinds:
 
-| ActorEvent type | Turn kind | `turn_mode` |
+| ActorEvent type | Turn kind | Agent schedule mode |
 | --- | --- | --- |
 | `check_back_later.wakeup` | `checkback_generation` | `check_back_later` |
 | `cron.fire` | `scheduled_task` | `cron` |
 
-The request tells the Agent which schedule woke it and whether it can report
-success without a reply. A cron turn also says that Ankole will deliver the
-configured output. The Agent runs once even when the rule has multiple targets.
-After completion, SignalsGateway stores one target-scoped outbox intent for each
-target. A BackgroundAgentJob created by that turn keeps the same frozen targets
-for its terminal notification. Interactive clarification stays on the primary
-target.
+Agent Computer derives the schedule mode from the ActorEvent type. The request
+context carries the schedule origin and whether the Agent can report success
+without a reply; it does not repeat the mode. A cron turn also says that Ankole
+will deliver the configured output. The Agent runs once even when the rule has
+multiple targets. After completion, SignalsGateway stores one target-scoped
+outbox intent for each target. A BackgroundAgentJob created by that turn keeps
+the same frozen targets for its terminal notification. Interactive clarification
+stays on the primary target.
 
 The model must not send the same cron result through another messaging tool.
 

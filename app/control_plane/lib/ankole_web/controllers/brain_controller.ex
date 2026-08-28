@@ -14,25 +14,19 @@ defmodule AnkoleWeb.BrainController do
   use AnkoleWeb, :controller
   use OpenAPISpex.ControllerSpecs
 
-  import Ecto.Query, warn: false
-
-  alias Ankole.Brain.Access
   alias Ankole.Brain.Claims
   alias Ankole.Brain.Dreaming
   alias Ankole.Brain.Forget
   alias Ankole.Brain.GetPage
   alias Ankole.Brain.Health
+  alias Ankole.Brain.Merge
   alias Ankole.Brain.Objects
   alias Ankole.Brain.Promotion
   alias Ankole.Brain.Recall
   alias Ankole.Brain.Schemas.Claim
-  alias Ankole.Brain.Schemas.Contradiction
   alias Ankole.Brain.Schemas.Object
-  alias Ankole.Brain.Schemas.ObjectVersion
-  alias Ankole.Brain.Schemas.SchemaSuggestion
-  alias Ankole.Brain.Schemas.Source
   alias Ankole.Brain.SourceLearning
-  alias Ankole.Repo
+  alias Ankole.Brain.Sources
   alias AnkoleWeb.ConsoleErrors
   alias AnkoleWeb.ConsolePolicy
   alias AnkoleWeb.Schemas.BrainAPI
@@ -95,12 +89,19 @@ defmodule AnkoleWeb.BrainController do
     responses: [ok: {"Object", "application/json", BrainAPI.BrainObjectSummaryResponse}]
   )
 
+  operation(:fork_object,
+    summary: "Fork one library-managed page into instance ownership",
+    request_body: {"Fork", "application/json", BrainAPI.BrainObjectForkRequest, required: true},
+    responses: [ok: {"Object", "application/json", BrainAPI.BrainObjectSummaryResponse}]
+  )
+
   operation(:list_claims,
     summary: "List claims with filters",
     parameters: [
       object_slug: [in: :query, type: :string, required: false],
       claim_type: [in: :query, type: :string, required: false],
-      status: [in: :query, type: :string, required: false]
+      status: [in: :query, type: :string, required: false],
+      q: [in: :query, type: :string, required: false]
     ],
     responses: [ok: {"Claims", "application/json", BrainAPI.BrainClaimListResponse}]
   )
@@ -161,6 +162,22 @@ defmodule AnkoleWeb.BrainController do
     responses: [ok: {"Result", "application/json", BrainAPI.BrainPromotionResultResponse}]
   )
 
+  operation(:list_merge_suggestions,
+    summary: "List duplicate-page merge suggestions",
+    parameters: [status: [in: :query, type: :string, required: false]],
+    responses: [
+      ok: {"Merge suggestions", "application/json", BrainAPI.BrainMergeSuggestionListResponse}
+    ]
+  )
+
+  operation(:decide_merge_suggestion,
+    summary: "Approve or reject one merge suggestion",
+    parameters: [suggestion_id: [in: :path, type: :string, required: true]],
+    request_body:
+      {"Decide", "application/json", BrainAPI.BrainMergeSuggestionDecideRequest, required: true},
+    responses: [ok: {"Result", "application/json", BrainAPI.BrainMergeResultResponse}]
+  )
+
   operation(:list_sources,
     summary: "List learning sources",
     responses: [ok: {"Sources", "application/json", BrainAPI.BrainSourceListResponse}]
@@ -209,13 +226,12 @@ defmodule AnkoleWeb.BrainController do
   def list_objects(conn, params) do
     with :ok <- ConsolePolicy.authorize(conn, "brain", "read") do
       objects =
-        Object
-        |> maybe_prefix(params["prefix"])
-        |> maybe_search(params["q"])
-        |> maybe_deleted(params["deleted"])
-        |> order_by([object], asc: object.slug)
-        |> limit(@list_limit)
-        |> Repo.all()
+        Objects.list_for_console(
+          prefix: params["prefix"],
+          search: params["q"],
+          deleted: params["deleted"] == "true",
+          limit: @list_limit
+        )
         |> Enum.map(&object_summary/1)
 
       json_plain(conn, %{objects: objects})
@@ -238,13 +254,10 @@ defmodule AnkoleWeb.BrainController do
 
   def object_versions(conn, %{"slug" => slug}) do
     with :ok <- ConsolePolicy.authorize(conn, "brain", "read"),
-         {:ok, object} <- Objects.resolve_slug(slug) do
+         {:ok, stored_versions} <-
+           Objects.list_versions_for_console(slug, limit: @list_limit) do
       versions =
-        ObjectVersion
-        |> where([version], version.object_id == ^object.id)
-        |> order_by([version], desc: version.snapshot_at)
-        |> limit(@list_limit)
-        |> Repo.all()
+        stored_versions
         |> Enum.map(fn version ->
           %{
             id: version.id,
@@ -280,6 +293,18 @@ defmodule AnkoleWeb.BrainController do
     end
   end
 
+  # Fork moves a library-managed page into instance ownership: the body
+  # becomes editable and stops receiving product upgrades. The library sync
+  # then shadows the slug instead of reprojecting it.
+  def fork_object(conn, %{"slug" => slug}) do
+    with :ok <- ConsolePolicy.authorize(conn, "brain", "update"),
+         {:ok, object} <- Objects.fork_library_page(slug) do
+      json_plain(conn, %{object: object_summary(object)})
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
   # Restore closes the soft-delete recovery loop: without it the purge TTL
   # would only be a delay, not a recovery window.
   def restore_object(conn, %{"slug" => slug}) do
@@ -294,11 +319,13 @@ defmodule AnkoleWeb.BrainController do
   def list_claims(conn, params) do
     with :ok <- ConsolePolicy.authorize(conn, "brain", "read") do
       claims =
-        Claim
-        |> maybe_claim_filter(params)
-        |> order_by([claim], desc: claim.created_at)
-        |> limit(@list_limit)
-        |> Repo.all()
+        Claims.list_for_console(
+          object_slug: params["object_slug"],
+          claim_type: params["claim_type"],
+          status: params["status"],
+          search: params["q"],
+          limit: @list_limit
+        )
         |> Enum.map(&claim_detail/1)
 
       json_plain(conn, %{claims: claims})
@@ -358,16 +385,17 @@ defmodule AnkoleWeb.BrainController do
       status = params["status"] || "open"
 
       contradictions =
-        Contradiction
-        |> where([contradiction], contradiction.status == ^status)
-        |> order_by([contradiction], desc: contradiction.created_at)
-        |> limit(@list_limit)
-        |> Repo.all()
-        |> Enum.map(fn contradiction ->
+        status
+        |> Dreaming.list_contradictions_for_console(limit: @list_limit)
+        |> Enum.map(fn %{
+                         contradiction: contradiction,
+                         a_claim: a_claim,
+                         b_claim: b_claim
+                       } ->
           %{
             id: contradiction.id,
-            a_claim: claim_detail(Repo.get(Claim, contradiction.a_claim_id)),
-            b_claim: claim_detail(Repo.get(Claim, contradiction.b_claim_id)),
+            a_claim: claim_detail(a_claim),
+            b_claim: claim_detail(b_claim),
             verdict: contradiction.verdict,
             axis: contradiction.axis,
             severity: contradiction.severity,
@@ -400,11 +428,8 @@ defmodule AnkoleWeb.BrainController do
       status = params["status"] || "pending"
 
       suggestions =
-        SchemaSuggestion
-        |> where([suggestion], suggestion.status == ^status)
-        |> order_by([suggestion], desc: suggestion.created_at)
-        |> limit(@list_limit)
-        |> Repo.all()
+        status
+        |> Promotion.list_for_console(limit: @list_limit)
         |> Enum.map(fn suggestion ->
           %{
             id: suggestion.id,
@@ -455,13 +480,61 @@ defmodule AnkoleWeb.BrainController do
     end
   end
 
+  def list_merge_suggestions(conn, params) do
+    with :ok <- ConsolePolicy.authorize(conn, "brain", "read") do
+      status = params["status"] || "pending"
+
+      suggestions =
+        status
+        |> Merge.list_for_console(limit: @list_limit)
+        |> Enum.map(fn suggestion ->
+          %{
+            id: suggestion.id,
+            a: merge_page_summary(suggestion.a_slug),
+            b: merge_page_summary(suggestion.b_slug),
+            reason: suggestion.reason,
+            status: suggestion.status,
+            created_at: suggestion.created_at
+          }
+        end)
+
+      json_plain(conn, %{suggestions: suggestions})
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  def decide_merge_suggestion(conn, %{"suggestion_id" => id} = params) do
+    operator = conn.assigns.current_principal_uid
+
+    with :ok <- ConsolePolicy.authorize(conn, "brain", "update") do
+      result =
+        case params["decision"] do
+          "approve" ->
+            Merge.approve(id, operator, %{canonical_slug: params["canonical_slug"]})
+
+          "reject" ->
+            with {:ok, suggestion} <- Merge.reject(id, operator) do
+              {:ok, %{id: suggestion.id, status: suggestion.status}}
+            end
+
+          _invalid ->
+            {:error, :invalid_decision}
+        end
+
+      case result do
+        {:ok, outcome} -> json_plain(conn, %{result: outcome})
+        {:error, reason} -> error(conn, reason)
+      end
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
   def list_sources(conn, _params) do
     with :ok <- ConsolePolicy.authorize(conn, "brain", "read") do
       sources =
-        Source
-        |> order_by([source], desc: source.updated_at)
-        |> limit(@list_limit)
-        |> Repo.all()
+        Sources.list_for_console(limit: @list_limit)
         |> Enum.map(fn source ->
           %{
             id: source.id,
@@ -508,7 +581,7 @@ defmodule AnkoleWeb.BrainController do
 
   def archive_source(conn, %{"source_id" => source_id}) do
     with :ok <- ConsolePolicy.authorize(conn, "brain", "update"),
-         {:ok, archived} <- SourceLearning.archive_source(source_id) do
+         {:ok, archived} <- Sources.archive(source_id) do
       json_plain(conn, %{source: %{id: archived.id, archived_at: archived.archived_at}})
     else
       {:error, reason} -> error(conn, reason)
@@ -540,19 +613,9 @@ defmodule AnkoleWeb.BrainController do
   # or the audience.
   def principal_knowledge(conn, %{"principal_uid" => principal_uid}) do
     with :ok <- ConsolePolicy.authorize(conn, "brain", "read") do
-      holder_slugs = ["people/#{principal_uid}", "agents/#{principal_uid}"]
-      scope = "principal:#{principal_uid}"
-
       claims =
-        Claim
-        |> where(
-          [claim],
-          claim.holder in ^holder_slugs or claim.author_uid == ^principal_uid or
-            claim.audience_scope == ^scope
-        )
-        |> order_by([claim], desc: claim.created_at)
-        |> limit(@list_limit)
-        |> Repo.all()
+        principal_uid
+        |> Claims.list_for_principal_audit(limit: @list_limit)
         |> Enum.map(&claim_detail/1)
 
       json_plain(conn, %{claims: claims})
@@ -576,9 +639,20 @@ defmodule AnkoleWeb.BrainController do
       title: object.title,
       effective_date: object.effective_date,
       emotional_weight: object.emotional_weight,
+      library_managed: object.managed_by_source_id != nil,
       deleted_at: object.deleted_at,
       updated_at: object.updated_at
     }
+  end
+
+  # The merge queue survives its own approvals: a decided row can name a
+  # page that no longer exists, so the summary resolves through the redirect
+  # ladder and degrades to the bare slug.
+  defp merge_page_summary(slug) do
+    case Objects.resolve_slug(slug) do
+      {:ok, object} -> %{slug: object.slug, title: object.title, type: object.type}
+      {:error, :not_found} -> %{slug: slug, title: nil, type: nil}
+    end
   end
 
   defp claim_detail(nil), do: nil
@@ -612,52 +686,6 @@ defmodule AnkoleWeb.BrainController do
       provenance: claim.provenance,
       created_at: claim.created_at
     }
-  end
-
-  defp maybe_prefix(query, prefix) when is_binary(prefix) and prefix != "" do
-    where(query, [object], like(object.slug, ^(prefix <> "%")))
-  end
-
-  defp maybe_prefix(query, _prefix), do: query
-
-  defp maybe_search(query, term) when is_binary(term) and term != "" do
-    pattern = "%" <> term <> "%"
-
-    where(
-      query,
-      [object],
-      ilike(object.title, ^pattern) or ilike(object.slug, ^pattern)
-    )
-  end
-
-  defp maybe_search(query, _term), do: query
-
-  defp maybe_deleted(query, "true"), do: where(query, [object], not is_nil(object.deleted_at))
-  defp maybe_deleted(query, _other), do: where(query, [object], is_nil(object.deleted_at))
-
-  defp maybe_claim_filter(query, params) do
-    query
-    |> then(fn query ->
-      case params["object_slug"] do
-        slug when is_binary(slug) and slug != "" ->
-          where(query, [claim], claim.object_slug == ^slug)
-
-        _missing ->
-          query
-      end
-    end)
-    |> then(fn query ->
-      case params["claim_type"] do
-        type when type in ["fact", "take"] -> where(query, [claim], claim.claim_type == ^type)
-        _missing -> query
-      end
-    end)
-    |> then(fn query ->
-      case params["status"] do
-        "current" -> Access.filter_current_claims(query)
-        _all -> query
-      end
-    end)
   end
 
   defp maybe_put(map, _key, nil), do: map

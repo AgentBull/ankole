@@ -51,6 +51,7 @@ Agents can also use these tools when a task needs an explicit memory operation:
 
 | Tool | Outcome |
 | --- | --- |
+| `learn_source` | Registers one web URL as a Source and starts background learning |
 | `recall` | Returns current Facts and Takes first, then relevant page passages within a token budget |
 | `get_page` | Reads one complete filtered page by slug or natural-language name; ambiguous names return candidates instead of a guess |
 | `entity` | Returns an entity card with selected facts, relationships, and a backlink count |
@@ -58,6 +59,14 @@ Agents can also use these tools when a task needs an explicit memory operation:
 | `delta` | Reports new and expired claims and timeline events within a time range |
 | `synthesize` | Uses recalled evidence to write a durable analysis page for one question |
 | `forget` | Expires one Fact, deactivates one Take, or soft-deletes one page, with a recorded reason |
+
+### Discover recall-only Skills
+
+Some shipped Skills contain an SOP or method that is useful only when the current work matches it. A Skill can declare `brain-recall-only: true` so it stays out of the Skill catalog in every prompt and remains discoverable through Brain.
+
+Brain indexes only the Skill's `name`, `description`, and `tags` in a world-scope discovery record named `lazyload-agent-skills/<skill-name>`. The Skill body, all other Skill files, and Agent-specific lessons stay with their existing owners and are read through `skill_view`. If `recall` returns such a record, the Agent calls `skill_view`, which applies `ankole-runtime`: it loads the instructions on a compatible execution surface, routes the Main Agent to a background-only Skill, and rejects any other incompatible read. `get_page` provides the same result by delegating the request to `skill_view`.
+
+The current Agent's effective Agent Plugin and Skill settings apply before Brain selects candidates. A disabled Skill is not discoverable and cannot be loaded. Its shared discovery projection remains in storage, so re-enabling it restores access without rebuilding the projection.
 
 Recall combines full-text and vector candidates when an Embedding model is available. It can rerank the result when a Rerank model is configured. Without an Embedding model, full-text recall still works. Without a Rerank model, recall keeps the fused order.
 

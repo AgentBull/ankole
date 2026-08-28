@@ -38,7 +38,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SkillOverlayBroker do
     %FabricProto.SkillOverlayResponse{
       skill_name: skill_name,
       has_overlay: entry["has_lessons"],
-      overlay_json: Torque.encode!(%{"text" => entry["text"]}),
+      text: entry["text"],
       content_hash: entry["content_hash"]
     }
   end

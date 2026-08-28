@@ -5,7 +5,7 @@ defmodule Ankole.Kernel.RuntimeFabric.Proto do
   `envelope.proto` declares the envelope frames and `rpc.proto` the RPC
   business payload messages. Protox derives these modules
   (`Ankole.RuntimeFabric.V1.*`) directly from those files at compile time,
-  mirroring how `prost-build` derives the Rust envelope types, so the Elixir
+  mirroring how `prost-build` derives the Rust types, so the Elixir
   shape cannot drift from the proto. Semantic protocol validation stays in
   the Rust kernel at the transport boundary; RPC payloads are opaque bytes to
   the kernel.

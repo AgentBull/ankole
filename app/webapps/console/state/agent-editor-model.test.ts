@@ -76,27 +76,6 @@ describe('AgentEditorModel', () => {
     model[Symbol.dispose]()
   })
 
-  test('loads a legacy agent without a display name and requires it on the next edit', () => {
-    const model = new AgentEditorModel()
-
-    model.initialize('agent:legacy-agent', {
-      uid: 'legacy-agent',
-      displayName: '',
-      avatarURL: '',
-      ownerPrincipalUID: 'operator',
-      groupMemoryDisclosureMode: 'strict' as const,
-      role: 'Legacy Operator'
-    })
-
-    expect(model.uid.value).toBe('legacy-agent')
-    expect(model.draftError('edit')).toBe('display_name_required')
-
-    model.setDisplayName('Legacy Agent', false)
-    expect(model.uid.value).toBe('legacy-agent')
-    expect(model.draftError('edit')).toBeUndefined()
-    model[Symbol.dispose]()
-  })
-
   test('derives an editable UID from the display name', () => {
     const model = new AgentEditorModel()
     model.initialize('new', {

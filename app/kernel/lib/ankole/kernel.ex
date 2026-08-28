@@ -125,10 +125,6 @@ defmodule Ankole.Kernel do
   def runtime_fabric_router_endpoint(_router), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc false
-  @spec runtime_fabric_protocol_version() :: pos_integer()
-  def runtime_fabric_protocol_version, do: :erlang.nif_error(:nif_not_loaded)
-
-  @doc false
   @spec runtime_fabric_router_send_mandatory(runtime_fabric_router(), String.t(), binary()) ::
           result(String.t())
   def runtime_fabric_router_send_mandatory(_router, _transport_route, _envelope_bytes),

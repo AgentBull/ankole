@@ -4,29 +4,37 @@ defmodule Ankole.Brain.Jobs.Tick do
 
   Oban's cron plugin is static configuration, while `brain.*` cron
   expressions are operator settings. The tick runs every minute, checks the
-  configured expressions against the current minute in the system timezone,
+  configured expressions against its insertion minute in the system timezone,
   and enqueues the matching task. A disabled Brain schedules nothing.
   """
 
-  use Oban.Worker, queue: :default, max_attempts: 1
+  use Oban.Worker, queue: :default, max_attempts: 3
 
   alias Ankole.Brain.Config
+  alias Ankole.SystemConfig
+  alias Ankole.TimeZone
 
   @impl Oban.Worker
-  def perform(%Oban.Job{}) do
+  def perform(%Oban.Job{inserted_at: inserted_at}) do
     if Config.enabled?() do
-      now = local_now()
-
-      if cron_matches?(Config.self_healing_task_cron(), now) do
-        Oban.insert(Ankole.Brain.Jobs.SelfHealing.new(%{}))
+      with {:ok, scheduled_minute} <- local_scheduled_minute(inserted_at),
+           :ok <-
+             enqueue_if_matches(
+               Config.self_healing_task_cron(),
+               scheduled_minute,
+               Ankole.Brain.Jobs.SelfHealing
+             ),
+           :ok <-
+             enqueue_if_matches(
+               Config.dreaming_task_cron(),
+               scheduled_minute,
+               Ankole.Brain.Jobs.Dreaming
+             ) do
+        :ok
       end
-
-      if cron_matches?(Config.dreaming_task_cron(), now) do
-        Oban.insert(Ankole.Brain.Jobs.Dreaming.new(%{}))
-      end
+    else
+      :ok
     end
-
-    :ok
   end
 
   defp cron_matches?(expression, now) do
@@ -36,12 +44,23 @@ defmodule Ankole.Brain.Jobs.Tick do
     end
   end
 
-  defp local_now do
-    with {:ok, timezone} <- Ankole.SystemConfig.timezone(),
-         {:ok, datetime} <- DateTime.now(timezone) do
-      DateTime.to_naive(datetime)
+  defp enqueue_if_matches(expression, scheduled_minute, worker) do
+    if cron_matches?(expression, scheduled_minute) do
+      case Oban.insert(worker.new(%{})) do
+        {:ok, _job} -> :ok
+        {:error, reason} -> {:error, reason}
+      end
     else
-      _unavailable -> NaiveDateTime.utc_now()
+      :ok
     end
   end
+
+  defp local_scheduled_minute(%DateTime{} = inserted_at) do
+    with {:ok, timezone} <- SystemConfig.timezone(),
+         {:ok, datetime} <- TimeZone.shift(inserted_at, timezone) do
+      {:ok, DateTime.to_naive(datetime)}
+    end
+  end
+
+  defp local_scheduled_minute(_missing), do: {:error, :missing_inserted_at}
 end

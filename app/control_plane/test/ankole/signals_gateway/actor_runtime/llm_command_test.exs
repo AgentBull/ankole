@@ -245,12 +245,26 @@ defmodule Ankole.SignalsGateway.ActorRuntime.LLMCommandTest do
 
     configure_custom_profile(agent.uid, "kimi", "moonshotai/kimi-k3-code", "max")
 
+    Repo.insert!(%OutboxEntry{
+      agent_uid: agent.uid,
+      binding_name: "bot",
+      outbound_key: "llm-retry-surface",
+      delivery_class: :durable_ai_reply,
+      operation: :post,
+      status: :succeeded,
+      signal_channel_id: original.signal_channel_id,
+      created_source_entry_id: "provider-llm-reply",
+      source_actor_event_id: original.id,
+      payload: %{},
+      attempt_count: 1
+    })
+
     assert {:ok, %{actor_event: retry_command}} =
              emit_entry(
                agent.uid,
                "bot",
                group_entry(%{
-                 text: "/retry",
+                 text: "/retry actor-event::#{original.id}",
                  explicit: true,
                  source_event_id: "evt-retry-llm",
                  source_entry_id: "msg-retry-llm"

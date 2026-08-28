@@ -2,7 +2,6 @@ import { compareCodePointStrings } from '../../../common/ordering'
 import type { TurnStart } from '../../../lanes/actor_lane'
 import {
   brainRPCRequester,
-  rpcMethods,
   type AIGatewayAPIKeyResponse,
   type AgentPluginCatalogEntry,
   type BackgroundAgentJobResponse,
@@ -22,6 +21,7 @@ import { resolveBrainEnabled } from '../../turns/brain_context'
 import { resolveRenderedFetchRuntimeConfig } from '../../turns/rendered_fetch_runtime_config'
 import { createTurnWebTools } from '../../turns/turn_web_tools'
 import { createBrainJobTools } from '../../../tools/brain/brain-tools'
+import { createSkillTools } from '../../../tools/library/skill-tools'
 import {
   materializeLarkCredential,
   sameLarkBindingIdentity,
@@ -33,17 +33,14 @@ import { resolveAgentWorkerEnvParts } from '../../execution/worker_env'
 import { webSearchIsProviderHosted } from '../../turns/turn_runtime_policy'
 import type { CodexJobOptions } from '../../turns/turn_options'
 import { join } from 'node:path'
-import {
-  createJobAgentPluginMaterials,
-  prepareAgentPlugins,
-  selectAgentPluginCapabilities
-} from '../runtime/agent-plugin-materializer'
+import { prepareAgentPlugins } from '../runtime/agent-plugin-materializer'
 import { assertCodexJobProjectResumeState, codexJobProjectLocation, prepareCodexJobProject } from './job-project'
 import { parentInputToolSpec } from './parent-input'
 import { materializeCodexJobProjectConfig, readCodexJobProjectConfig } from './project-config'
 import { buildCodexJobProjection } from './projection'
-import { materializeCodexJobRuntimeFiles, readCodexJobGuidance, renderCodexJobAgents } from './runtime-files'
+import { migrateLegacyCodexJobSkillRoots, readCodexJobGuidance, renderCodexJobAgents } from './runtime-files'
 import { skillAvailableInRuntime } from '../../../skills/effective-skill'
+import { createSkillLoader } from '../../../skills/skill-loader'
 import { loadEnabledSkillMCPServers, materializeMCPorterConfig } from '../../../tools/mcp'
 import {
   decodeCodexJobRuntimeProjection,
@@ -53,6 +50,8 @@ import {
 } from './runtime-projection'
 import { codexJobThreadConfig } from './thread-config'
 import { turnTracePropagationFromTurnStart } from '../../../observability/turn-tracing'
+import { formatSkillsForSystemPrompt, type SkillPromptEntry } from '../../../prompts/skills_prompt'
+import { skillPromptEntryFromRuntime } from '../../../prompts/system_prompt'
 
 export type CodexJobSetupInput = {
   turnStart: TurnStart
@@ -75,39 +74,57 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput) {
   const enabledSkills = selectCurrentStandaloneSkills(
     selectProjectedStandaloneSkills(runtimeProjection, availableSkills)
   )
-  const agentPluginCatalogResponse = await opts.rpc(rpcMethods.agentPluginList, {}, { turn: turnStart.turn })
-  opts.abortSignal?.throwIfAborted()
-  const projectedAgentPlugins = selectProjectedAgentPlugins(
-    runtimeProjection,
-    agentPluginCatalogResponse.agentPlugins,
-    availableSkills
-  )
+  const agentPluginCatalog = agentContext.agentPlugins ?? []
+  const projectedAgentPlugins = selectProjectedAgentPlugins(runtimeProjection, agentPluginCatalog, availableSkills)
   const enabledAgentPlugins = projectedAgentPlugins.agentPlugins
   const agentPluginSkills = selectCurrentAgentPluginSkills(enabledAgentPlugins, projectedAgentPlugins.skills)
-  const backgroundAgentPlugins = projectBackgroundJobAgentPlugins(enabledAgentPlugins, agentPluginSkills)
+  const loadableSkills = [...enabledSkills, ...agentPluginSkills]
   const skillRoots = {
     builtinSkillsRoot: opts.builtinSkillsRoot,
     agentInstalledSkillsRoot: opts.agentInstalledSkillsRoot,
     ...(opts.internalSkillsRoot ? { internalSkillsRoot: opts.internalSkillsRoot } : {})
   }
+  const loadedSkillNames = new Set<string>()
+  const skillLoader = createSkillLoader({
+    turn: turnStart.turn,
+    enabledSkills: loadableSkills,
+    skillRoots,
+    rpc: opts.rpc,
+    runtime: 'background_job',
+    onSkillLoaded: name => loadedSkillNames.add(name)
+  })
+  const brainEnabled = await resolveBrainEnabled(turnStart, opts.rpc, opts.logger)
+  opts.abortSignal?.throwIfAborted()
   const workspaceOwnerJobID = job.workspaceOwnerJobId
   if (!workspaceOwnerJobID) throw new Error('Background agent job is missing its workspace owner')
   const projectLocation = codexJobProjectLocation(opts.agentsRoot, job.agentUid, workspaceOwnerJobID)
   if (job.runtimeThreadId) assertCodexJobProjectResumeState(projectLocation.hostPath)
   const jobProject = prepareCodexJobProject({ jobProjectRoot: projectLocation.hostPath })
   const initializeProject = !job.runtimeThreadId
+  const skillsPrompt = formatSkillsForSystemPrompt(
+    loadableSkills.map(skill => skillPromptEntryFromRuntime(skill, 'background_job')).filter(isSkillPromptEntry)
+  )
+  const replaceLegacySkillThread = initializeProject
+    ? false
+    : migrateLegacyCodexJobSkillRoots({
+        jobRoot: jobProject.root,
+        runtimeThreadID: job.runtimeThreadId,
+        skillsPrompt
+      })
   const agentsContent = initializeProject
     ? renderCodexJobAgents({
         jobRoot: jobProject.root,
         soul: agentContext.soul ?? '',
         mission: agentContext.mission ?? '',
         jobGuidance: readCodexJobGuidance(opts.builtinSkillsRoot),
+        skillsPrompt,
+        lazySkillRouting: brainEnabled,
         timezone: agentContext.conversation?.timezone
       }).content
     : undefined
   const preparedAgentPlugins = prepareAgentPlugins({
     projectRoot: projectLocation.hostPath,
-    agentPlugins: agentPluginCatalogResponse.agentPlugins,
+    agentPlugins: agentPluginCatalog,
     agentHome: opts.agentHome,
     libraryRoot: join(opts.builtinSkillsRoot, 'agent-plugins'),
     initializeProject,
@@ -115,7 +132,7 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput) {
     ...(agentsContent ? { agentsContent } : {})
   })
   const skillMCPServers = await loadEnabledSkillMCPServers({
-    enabledSkills: [...enabledSkills, ...agentPluginSkills],
+    enabledSkills: loadableSkills,
     skillRoots,
     runtime: 'background_job'
   })
@@ -162,46 +179,23 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput) {
     browserRuntime: opts.browserRuntime
   })
   opts.abortSignal?.throwIfAborted()
-  // Jobs get the read-only Brain pair so they reuse instance knowledge
-  // instead of re-researching it; a failed read leaves Brain off this Job.
-  const brainEnabled = await resolveBrainEnabled(turnStart, opts.rpc, opts.logger)
-  opts.abortSignal?.throwIfAborted()
   const brainTools = brainEnabled
-    ? createBrainJobTools({ requestBrainRPC: brainRPCRequester(opts.rpc, turnStart.turn) })
+    ? createBrainJobTools({ requestBrainRPC: brainRPCRequester(opts.rpc, turnStart.turn), skillLoader })
     : []
+  const skillTools = createSkillTools({
+    turn: turnStart.turn,
+    enabledSkills: loadableSkills,
+    skillRoots,
+    rpc: opts.rpc,
+    loader: skillLoader
+  })
   const projectedTools = [
     ...baseWebTools.filter(tool => !providerHostedWebSearch || tool.name !== 'web_search'),
-    ...brainTools
+    ...brainTools,
+    ...skillTools
   ]
   const projection = buildCodexJobProjection({ tools: projectedTools })
   projection.dynamicTools.push(parentInputToolSpec())
-  const runtimeFiles = await materializeCodexJobRuntimeFiles({
-    turn: turnStart.turn,
-    jobRoot: jobProject.root,
-    agentSkillsRoot: join(opts.agentHome, 'runtime-materials', 'skills'),
-    enabledSkills: [...enabledSkills, ...agentPluginSkills],
-    projectSkillNames: enabledSkills.map(skill => skill.skillName),
-    skillRoots,
-    rpc: opts.rpc
-  })
-  const agentPluginMaterials = createJobAgentPluginMaterials({
-    prepared: preparedAgentPlugins,
-    selected: backgroundAgentPlugins,
-    materializedRoot: join(jobProject.root, '.ankole', 'agent-plugins'),
-    skillMaterialsRoot: join(opts.agentHome, 'runtime-materials', 'skills')
-  })
-  let selectedAgentPluginPackages
-  try {
-    selectedAgentPluginPackages = agentPluginMaterials.materialize()
-  } catch (error) {
-    runtimeFiles.cleanup()
-    throw error
-  }
-  const agentPluginCapabilities = selectAgentPluginCapabilities(
-    selectedAgentPluginPackages,
-    backgroundAgentPlugins,
-    runtimeProjection.agentPluginSelections
-  )
   const mcporterConfig = materializeMCPorterConfig(skillMCPServers, { directory: join(jobProject.root, 'temp') })
   let browserRuntimeMaterial: MaterializedBrowserRuntime | undefined
   let larkCredential: MaterializedLarkCredential | undefined
@@ -255,7 +249,6 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput) {
     larkCredential?.cleanup()
     await browserRuntimeMaterial?.cleanup().catch(() => undefined)
     mcporterConfig.cleanup()
-    runtimeFiles.cleanup()
     throw error
   }
 
@@ -268,11 +261,6 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput) {
       await browserRuntimeMaterial?.cleanup()
     } catch (error) {
       firstError = error
-    }
-    try {
-      runtimeFiles.cleanup()
-    } catch (error) {
-      firstError ??= error
     }
     try {
       mcporterConfig.cleanup()
@@ -298,7 +286,14 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput) {
     runtimeConfig,
     materialized,
     projection,
-    runtimeFiles,
+    replaceLegacySkillThread,
+    loadableSkills,
+    skillLoader,
+    takeLoadedSkillNames: () => {
+      const names = [...loadedSkillNames]
+      loadedSkillNames.clear()
+      return names
+    },
     agentRuntimeSandbox,
     threadEnv,
     threadConfig: codexJobThreadConfig({
@@ -310,8 +305,6 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput) {
       projectConfig: readCodexJobProjectConfig(jobProject.root)
     }),
     preparedAgentPlugins,
-    agentPluginCapabilities,
-    agentPluginMaterials,
     cleanup
   }
 }
@@ -362,22 +355,14 @@ function selectCurrentAgentPluginSkills(
     .filter(skill => skillAvailableInRuntime(skill, 'background_job'))
 }
 
-function projectBackgroundJobAgentPlugins(
-  enabledAgentPlugins: AgentPluginCatalogEntry[],
-  agentPluginSkills: RuntimeSkillSummary[]
-): AgentPluginCatalogEntry[] {
-  const selectedSkillKeys = new Set(agentPluginSkills.map(skill => `${skill.agentPluginId}\0${skill.skillName}`))
-
-  return enabledAgentPlugins.map(agentPlugin => ({
-    ...agentPlugin,
-    skills: agentPlugin.skills.filter(skill => selectedSkillKeys.has(`${agentPlugin.id}\0${skill.catalogName}`))
-  }))
-}
-
 async function requestProjectionAIGatewayKey(
   turnStart: TurnStart,
   opts: CodexJobOptions,
   options?: { forceRefresh?: boolean }
 ): Promise<AIGatewayAPIKeyResponse> {
   return await opts.requestAIGatewayAPIKey(turnStart.turn.actor.agent_uid, options)
+}
+
+function isSkillPromptEntry(entry: SkillPromptEntry | null): entry is SkillPromptEntry {
+  return entry !== null
 }

@@ -22,7 +22,9 @@ defmodule Ankole.EgressProxy do
   @spec req_options(String.t()) :: keyword()
   def req_options(url) when is_binary(url) do
     with value when is_binary(value) <-
-           environment_value(~w(HTTPS_PROXY https_proxy ALL_PROXY all_proxy HTTP_PROXY http_proxy)),
+           environment_value(
+             ~w(HTTPS_PROXY https_proxy ALL_PROXY all_proxy HTTP_PROXY http_proxy)
+           ),
          %URI{host: host} when is_binary(host) <- URI.parse(url),
          false <- no_proxy?(host) do
       case parse_proxy(value) do

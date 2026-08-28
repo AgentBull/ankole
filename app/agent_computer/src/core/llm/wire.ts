@@ -159,7 +159,7 @@ function localToolSpec(tool: NonNullable<CallModelOptions['tools']>[string]) {
     description: tool.description,
     parameters: tool.jsonSchema ?? zodToJSONSchema(tool.parameters),
     ...(tool.outputSchema ? { output_schema: tool.outputSchema } : {}),
-    strict: false,
+    strict: tool.strict ?? false,
     ...(tool.deferLoading ? { defer_loading: true } : {}),
     ...(tool.toolSearchText ? { __ankole_search_text: tool.toolSearchText } : {}),
     ...(tool.allowedCallers?.length ? { allowed_callers: tool.allowedCallers } : {})

@@ -5,6 +5,8 @@ defmodule Ankole.Plugins.ConnectionLifecycle do
 
   @call_timeout 30_000
 
+  @type desired_snapshot :: {:complete, map()} | {:incomplete, map()}
+
   @spec start_link(keyword(), keyword()) :: GenServer.on_start()
   def start_link(opts, config) when is_list(opts) and is_list(config) do
     state = %{
@@ -30,8 +32,17 @@ defmodule Ankole.Plugins.ConnectionLifecycle do
   @spec reconcile(GenServer.server()) :: term()
   def reconcile(server), do: GenServer.call(server, :reconcile, @call_timeout)
 
-  @spec stop_undesired(map(), [term()], (term() -> :ok | {:error, term()})) :: non_neg_integer()
-  def stop_undesired(specs, registered_keys, stop)
+  @spec desired_snapshot(map(), [term()]) :: desired_snapshot()
+  def desired_snapshot(specs, []), do: {:complete, specs}
+  def desired_snapshot(specs, [_error | _errors]), do: {:incomplete, specs}
+
+  @spec stop_undesired(desired_snapshot(), [term()], (term() -> :ok | {:error, term()})) ::
+          non_neg_integer()
+  def stop_undesired({:incomplete, _specs}, registered_keys, stop)
+      when is_list(registered_keys) and is_function(stop, 1),
+      do: 0
+
+  def stop_undesired({:complete, specs}, registered_keys, stop)
       when is_map(specs) and is_list(registered_keys) and is_function(stop, 1) do
     desired_keys = specs |> Map.keys() |> MapSet.new()
 

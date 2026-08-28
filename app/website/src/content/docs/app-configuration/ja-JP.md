@@ -72,6 +72,16 @@ AppConfigure の一覧には、インスタンスレベルの上書きまたは�
 | `ai_agent.library.agent_plugin_defaults` | インスタンス | Agent Plugin のデフォルトの有効状態 |
 | `ai_agent.library.skill_defaults` | インスタンス | Skill のデフォルトの有効状態 |
 
+### Workflow
+
+| キー | 適用範囲 | 用途 |
+|---|---|---|
+| `workflow.max_concurrency_per_run` | インスタンス | 1 つの Workflow が要求できるタスク同時実行数の上限。デフォルト `8`、有効範囲 `1`〜`32` |
+| `workflow.max_running_per_agent` | インスタンス | 1 つの Agent の複数 run にまたがって実行できる Workflow タスク数の上限。デフォルト `8`、有効範囲 `1`〜`64` |
+| `workflow.max_agent_calls_per_run` | インスタンス | 1 つの Workflow が作成できるサブエージェント call 数の上限。デフォルト `256`、有効範囲 `1`〜`1,024` |
+
+これらの上限は、後から開始する Workflow の作業に適用されます。run はより低い同時実行数または call 上限を要求できますが、インスタンス上限は引き上げられません。タスクの動作と他のサイズ境界は [Workflow](../workflows/) を参照してください。
+
 ### Brain
 
 | キー | 適用範囲 | 用途 |

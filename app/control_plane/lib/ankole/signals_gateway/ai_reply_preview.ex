@@ -72,11 +72,12 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
     background_agent_job.completed
     background_agent_job.failed
     background_agent_job.waiting
+    workflow.run.completed
+    workflow.run.failed
+    workflow.run.attention
   )
 
-
   # Public API
-
 
   @doc """
   Starts one preview handler for a dispatched Actor turn.
@@ -756,9 +757,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
     }
   end
 
-
   # GenServer callbacks
-
 
   @impl GenServer
   def init({%ActorEvent{} = event, subject_uid, conversation_id, stream_actor_event_id}) do
@@ -1820,9 +1819,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
     |> Map.merge(extra)
   end
 
-
   # Adapter resolution
-
 
   defp send_new_reply(%ActorEvent{} = event, text, ai_message_id, idempotency_key) do
     with text when is_binary(text) and text != "" <- normalize_text(text),

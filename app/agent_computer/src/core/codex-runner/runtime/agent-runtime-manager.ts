@@ -1,4 +1,6 @@
 import { jsonObject, ms } from '@agentbull/active-support'
+import { lstat, unlink } from 'node:fs/promises'
+import { join } from 'node:path'
 import { errorMessage, toError } from '../../../common/errors'
 import type { AgentLoopLogger } from '../../types'
 import { CodexAppServerClient, CodexAppServerExitError, type JSONRPCMessage } from './app-server-client'
@@ -17,7 +19,6 @@ import {
   materializeAgentPluginPackages,
   type PreparedAgentPlugins
 } from './agent-plugin-materializer'
-import { retireLegacySharedCodexConfig } from './retire-legacy-shared-codex-config'
 
 /** Log threshold for slow initialization; it does not cancel startup. */
 const INITIALIZE_SLOW_DIAGNOSTIC_MS = ms('1m')
@@ -156,11 +157,8 @@ export class AgentCodexRuntimeManager {
     input: AgentCodexRuntimeAcquireInput,
     onExit: (error: Error) => void
   ): Promise<AgentCodexRuntime> {
-    const legacyConfigRetirement = await retireLegacySharedCodexConfig(input.agentHome)
-    input.logger?.info('worker.codex_legacy_shared_config_retired', 'Legacy shared Codex config checked', {
-      agent_uid: input.agentUID,
-      status: legacyConfigRetirement
-    })
+    await removeFormerAgentHomeConfig(input.agentHome)
+
     const runtimeRef: { current?: AgentCodexRuntime } = {}
     const client = new CodexAppServerClient({
       cwd: input.sandbox.cwd,
@@ -236,6 +234,24 @@ export class AgentCodexRuntimeManager {
       }
     })()
     return entry.closing
+  }
+}
+
+async function removeFormerAgentHomeConfig(agentHome: string): Promise<void> {
+  const formerCodexHome = join(agentHome, '.codex')
+
+  try {
+    if (!(await lstat(formerCodexHome)).isDirectory()) return
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
+    throw error
+  }
+
+  const configPath = join(formerCodexHome, 'config.toml')
+  try {
+    if (!(await lstat(configPath)).isDirectory()) await unlink(configPath)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
   }
 }
 

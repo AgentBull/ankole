@@ -8,7 +8,6 @@ defmodule Ankole.BackgroundAgentJobs.RuntimeProjection do
   """
 
   alias Ankole.AIAgent.Library
-  alias Ankole.AIAgent.Library.AgentPlugins
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.SignalsGateway.ActorRuntime.WorkerEnv
 
@@ -18,8 +17,8 @@ defmodule Ankole.BackgroundAgentJobs.RuntimeProjection do
   def capture(repo, agent_uid, turn_start_spec)
       when is_atom(repo) and is_binary(agent_uid) and is_map(turn_start_spec) do
     with %{} = model_ref <- Map.get(turn_start_spec, :model_ref),
-         {:ok, skills} <- Library.skills_for_system_prompt(agent_uid, repo: repo),
-         {:ok, agent_plugins} <- AgentPlugins.enabled_catalog_for_agent(agent_uid, repo: repo),
+         {:ok, %{"skills" => skills, "agent_plugins" => agent_plugins}} <-
+           Library.runtime_catalog_for_agent(agent_uid, repo: repo),
          {:ok, worker_env} <- WorkerEnv.runtime_projection(agent_uid, repo: repo) do
       request_context = Map.get(turn_start_spec, :request_context, %{})
 
@@ -61,14 +60,12 @@ defmodule Ankole.BackgroundAgentJobs.RuntimeProjection do
         model_ref
       end
 
-    with :ok <- validate_retired_codex_projection(projection),
-         {:ok, hosted_tool_overrides} <- hosted_tool_overrides(projection) do
+    with {:ok, hosted_tool_overrides} <- hosted_tool_overrides(projection) do
       {:ok,
        Map.merge(
          %{
            model_ref: model_ref,
            request_context: %{
-             "model_ref" => model_ref,
              "ai_agent" => runtime_policy
            }
          },
@@ -112,15 +109,10 @@ defmodule Ankole.BackgroundAgentJobs.RuntimeProjection do
   end
 
   defp complete_legacy_model_ref(model_ref, current_model_ref) do
-    cond do
-      not legacy_model_ref?(model_ref) ->
-        model_ref
-
-      same_model?(model_ref, current_model_ref) ->
-        copy_model_capabilities(model_ref, current_model_ref)
-
-      true ->
-        Map.put(model_ref, "input_modalities", ["text"])
+    if same_model?(model_ref, current_model_ref) do
+      copy_model_capabilities(model_ref, current_model_ref)
+    else
+      Map.put(model_ref, "input_modalities", ["text"])
     end
   end
 
@@ -162,16 +154,6 @@ defmodule Ankole.BackgroundAgentJobs.RuntimeProjection do
   end
 
   defp same_model?(_frozen_ref, _current_ref), do: false
-
-  # AIGateway serves the compaction protocol for every Provider, so a Job no
-  # longer chooses between two compaction protocols. A projection frozen before
-  # that change still carries the retired block; it is read and discarded.
-  defp validate_retired_codex_projection(%{"codex" => %{}}), do: :ok
-
-  defp validate_retired_codex_projection(%{"codex" => _invalid}),
-    do: {:error, :background_agent_job_runtime_projection_invalid}
-
-  defp validate_retired_codex_projection(_projection), do: :ok
 
   defp maybe_put_hosted_tools(projection, turn_start_spec) do
     case Map.fetch(turn_start_spec, :hosted_tools) do

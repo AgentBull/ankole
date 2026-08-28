@@ -86,7 +86,6 @@ export async function executeActiveTurn(
       pollSteering: () => active.pollSteering(),
       waitForSteering: signal => active.waitForSteering(signal),
       pollDisabledSkills: () => active.pollDisabledSkills(),
-      pollChangedSkills: () => active.pollChangedSkills(),
       onSteeringApplied: update =>
         sendEnvelope(turnAcceptedEnvelope(update.turn, update.correlationID ?? active.correlationID)),
       onTurnActivity,

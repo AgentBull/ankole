@@ -4,7 +4,7 @@
  * per Ankole turn and owns the underlying `ModelTurn`'s full lifecycle.
  *
  * `Context.messages` (pi's view) accumulates the full run history; AIGateway
- * expects only the delta since the last anchored response. `turnState.cursor`
+ * expects only the delta since the last anchored response. A private cursor
  * bridges the two — see the cursor-advancement comment inside `run()` for the
  * exact accounting, which is less trivial than "jump to the current length"
  * because pi hasn't appended this round's own assistant message yet when a
@@ -12,12 +12,10 @@
  * `context.messages` within a bare `runAgentLoop` (no `transformContext`/
  * compaction in phase one) — see the plan doc.
  *
- * The cursor is shared with `agent-loop.ts` (not purely local) because tool
- * results must reach AIGateway even on a round pi's own loop never revisits —
- * a terminating tool call, or one with no follow-up and no other pending
- * message, never causes another `streamFn` call. `recordToolResultsEagerly`
- * (exported below, called from `prepareNextTurnWithContext`) is that path;
- * `run()`'s own delta is therefore guaranteed to never contain a tool result.
+ * Tool results must reach AIGateway even on a round pi's own loop never
+ * revisits. `recordToolResultsEagerly` shares this private cursor and is called
+ * from `prepareNextTurnWithContext`; `run()`'s delta therefore never contains
+ * a tool result.
  */
 
 import type {
@@ -77,8 +75,15 @@ export function createPiStreamFn(
     | 'logger'
   >,
   turnState: PiTurnState
-): { streamFn: StreamFn; recordToolResultsEagerly: RecordToolResultsEagerly; close: () => void } {
+): {
+  streamFn: StreamFn
+  recordToolResultsEagerly: RecordToolResultsEagerly
+  replaceHostedTools: (tools: AgentLoopConfig['hostedTools']) => void
+  close: () => void
+} {
   let currentTextSink: ((delta: string) => void) | undefined
+  let hostedTools = config.hostedTools
+  let cursor = 0
   const { toolCallMeta } = turnState
 
   const modelTurn = createModelTurn(config.model, {
@@ -94,7 +99,14 @@ export function createPiStreamFn(
     return stream
   }
 
-  return { streamFn, recordToolResultsEagerly, close: () => modelTurn.close() }
+  return {
+    streamFn,
+    recordToolResultsEagerly,
+    replaceHostedTools: tools => {
+      hostedTools = tools
+    },
+    close: () => modelTurn.close()
+  }
 
   /**
    * Records this round's tool results (the delta since the cursor — always
@@ -105,7 +117,7 @@ export function createPiStreamFn(
    * `run()` call's delta — stays consistent, and returns the new response id.
    */
   async function recordToolResultsEagerly(context: PiContext, followUps: PiUserMessage[]): Promise<string> {
-    const toolResults = context.messages.slice(turnState.cursor).map(message => toOurMessage(message, toolCallMeta))
+    const toolResults = context.messages.slice(cursor).map(message => toOurMessage(message, toolCallMeta))
     const followUpMessages = followUps.map(message => toOurMessage(message, toolCallMeta))
     const bundled = [...toolResults, ...followUpMessages]
     const completeActorEventIDs = turnState.pendingCompleteActorEventIDs.splice(0)
@@ -146,7 +158,7 @@ export function createPiStreamFn(
       { maxAttempts: 3, signal: config.abortSignal, isRetryable: isLocallyRetryableLLMError }
     )
     context.messages.push(...followUps)
-    turnState.cursor = context.messages.length
+    cursor = context.messages.length
     return requiredResponseID(recorded.responseID)
   }
 
@@ -174,7 +186,7 @@ export function createPiStreamFn(
     // already consumed and advanced the cursor past those. Whatever remains is
     // plain steering — external, iteration-limit synthesis, empty-response
     // nudge, or response repair — bound for `.call()` as-is.
-    const delta = context.messages.slice(turnState.cursor)
+    const delta = context.messages.slice(cursor)
     let unanchoredAssistant = false
     try {
       // A round can start after the turn's already been aborted: pi converts
@@ -212,7 +224,7 @@ export function createPiStreamFn(
         messages: messagesForCall,
         tools: toWireToolSet(context.tools),
         programmaticToolCalling: hasProgrammaticCaller(context.tools),
-        hostedTools: config.hostedTools,
+        hostedTools,
         maxOutputTokens: config.maxTokens,
         temperature: config.temperature,
         text: config.text
@@ -230,7 +242,7 @@ export function createPiStreamFn(
             attempt: modelAttempt,
             input_message_count: callOptions.messages.length,
             tool_count: callOptions.tools ? Object.keys(callOptions.tools).length : 0,
-            hosted_tool_count: config.hostedTools?.length ?? 0
+            hosted_tool_count: hostedTools?.length ?? 0
           }
           config.logger?.info('worker.model_call_started', 'worker model call started', requestFields)
           try {
@@ -294,7 +306,7 @@ export function createPiStreamFn(
         error: errorAssistantMessage(config, aborted, errorMessage(error))
       })
     } finally {
-      turnState.cursor += delta.length + (unanchoredAssistant ? 0 : 1)
+      cursor += delta.length + (unanchoredAssistant ? 0 : 1)
     }
   }
 }
@@ -325,6 +337,7 @@ function toWireToolSet(tools: PiTool[] | undefined): ToolSet | undefined {
         inputFormat: tool.inputFormat,
         jsonSchema: tool.jsonSchema,
         outputSchema: tool.outputSchema,
+        strict: tool.strict,
         namespace: tool.namespace,
         namespaceDescription: tool.namespaceDescription,
         deferLoading: tool.deferLoading,

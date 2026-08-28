@@ -76,22 +76,27 @@ forced to change it.
 
 ## Retry Protection
 
-When `retry_protection.enabled` is true (the default), one account gets at
-most five password attempts inside a sliding 30-minute window. The guard
-reserves each attempt before the hash verification runs, in one serialized
-call, so concurrent requests cannot pass the limit together and verify
-without bound. A successful sign-in releases the account's attempts, so only
-failures accumulate. A blocked attempt waits until the oldest counted attempt
-leaves the window.
+When `retry_protection.enabled` is true (the default), one normalized email
+key gets at most five password attempts inside a sliding 30-minute window.
+The guard reserves each attempt before the hash verification runs, in one
+serialized call, so concurrent requests cannot pass the limit together and
+verify without bound. A successful sign-in releases the account's attempts,
+so only failures accumulate. A blocked attempt waits until the oldest counted
+attempt leaves the window.
 
-A password reset ends the wait at once: attempts recorded before the
-credential row's `updated_at` do not count, because guesses against a
+A password reset ends that email key's wait at once: attempts recorded before
+the credential row's `updated_at` do not count, because guesses against a
 replaced password prove nothing about the new one. The `updated_at` fact is
 durable, so a rescue reset from another OS process also unlocks the account.
+A guard-wide saturation lock still applies to every email until one admitted
+key expires, so saturation cannot reveal whether the reset account exists.
 
-The counter lives in process memory (`LocalPassword.RetryGuard`). A sweep
-once per window drops aged-out entries, so probes with unknown account keys
-cannot grow the state without bound. A control-plane restart clears the
+The counter lives in process memory (`LocalPassword.RetryGuard`) and stores
+only fixed-size hashes for at most 10,000 email keys. The next new key locks
+all email keys until one admitted key expires. A sweep once per window drops
+aged-out entries. This fail-closed bound prevents an unknown-email spray from
+growing memory or Argon2 work without limit, while the common lock response
+does not expose whether an email exists. A control-plane restart clears the
 counters and can let one extra burst of attempts through, but it cannot lose
 an account or a credential. This trade keeps the sign-in path free of write
 amplification.

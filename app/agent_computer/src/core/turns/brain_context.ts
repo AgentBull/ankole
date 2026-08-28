@@ -23,6 +23,8 @@ const brainInjectionTimeoutMs = ms('5s')
 // cap what crosses the RPC at a grapheme boundary.
 const injectionTextMaxGraphemes = 4_000
 
+const recalledMemoryTag = /<\s*\/?\s*recalled_memory\s*>/giu
+
 /**
  * Resolves the instance-global `brain.enabled` AppConfigure key for one turn.
  *
@@ -172,7 +174,9 @@ export function contextPackModelMessages(pack: JSONObject): UserMessage[] {
   const threadLines = (Array.isArray(pack.open_threads) ? pack.open_threads : []).flatMap(openThreadLines)
 
   const lines = truncateToBudget(
-    [...entityLines, ...(threadLines.length > 0 ? ['open threads:', ...threadLines] : [])],
+    [...entityLines, ...(threadLines.length > 0 ? ['open threads:', ...threadLines] : [])].map(
+      escapeRecalledMemoryTags
+    ),
     packBudgetTokens
   )
   if (lines.length === 0) return []
@@ -187,6 +191,10 @@ export function contextPackModelMessages(pack: JSONObject): UserMessage[] {
       ].join('\n')
     )
   ]
+}
+
+function escapeRecalledMemoryTags(text: string): string {
+  return text.replace(recalledMemoryTag, tag => tag.replace('<', '&lt;').replace('>', '&gt;'))
 }
 
 function entityCardLines(card: unknown): string[] {

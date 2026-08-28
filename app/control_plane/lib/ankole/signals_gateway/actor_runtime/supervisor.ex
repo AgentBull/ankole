@@ -67,13 +67,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Supervisor do
 
   defp normalize_router_opts(value) when value in [nil, false, []], do: {:ok, nil}
 
-  defp normalize_router_opts(endpoint) when is_binary(endpoint) and endpoint != "" do
-    router_opts_with_auth_key(endpoint, [])
-  end
-
   defp normalize_router_opts(opts) when is_list(opts) do
-    endpoint = Keyword.get(opts, :endpoint) || Keyword.get(opts, :bind_endpoint)
-    opts = Keyword.drop(opts, [:endpoint, :bind_endpoint])
+    {endpoint, opts} = Keyword.pop(opts, :bind_endpoint)
 
     case endpoint do
       endpoint when is_binary(endpoint) and endpoint != "" ->

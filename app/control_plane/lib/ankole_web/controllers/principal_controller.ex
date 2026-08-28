@@ -11,7 +11,6 @@ defmodule AnkoleWeb.PrincipalController do
   alias Ankole.AuthZ
   alias Ankole.IdentityProviders.LocalPassword
   alias Ankole.Principals
-  alias Ankole.Principals.LocalCredentials
   alias Ankole.Principals.Principal
   alias AnkoleWeb.AuthZJSON
   alias AnkoleWeb.ConsoleErrors
@@ -176,7 +175,7 @@ defmodule AnkoleWeb.PrincipalController do
          :ok <- ConsolePolicy.authorize(conn, "principal:#{uid}", "reset"),
          :ok <- require_local_identity_provider(),
          {:ok, initial_password} <-
-           LocalCredentials.reset_local_password(uid, Map.get(body, :must_change_password, true)) do
+           LocalPassword.reset_local_password(uid, Map.get(body, :must_change_password, true)) do
       json(conn, %{initial_password: initial_password})
     else
       {:error, reason} -> error(conn, reason)

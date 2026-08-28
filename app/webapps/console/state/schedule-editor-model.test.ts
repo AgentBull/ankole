@@ -181,26 +181,11 @@ describe('ScheduleEditorModel', () => {
     model[Symbol.dispose]()
   })
 
-  test('maps the legacy single-target delivery and keeps the schedule editable', () => {
-    expect(
-      deliveryTargetDrafts({ signal_channel_id: 'lark:market', provider_thread_id: 'thread-1' }, 'lark-agent')
-    ).toEqual([{ bindingName: 'lark-agent', channelId: 'lark:market', threadId: 'thread-1' }])
-    expect(deliveryTargetDrafts({ targets: [{ binding_name: 'a', signal_channel_id: 'c' }] }, 'a')).toEqual([
+  test('maps stored delivery targets', () => {
+    expect(deliveryTargetDrafts({ targets: [{ binding_name: 'a', signal_channel_id: 'c' }] })).toEqual([
       { bindingName: 'a', channelId: 'c', threadId: '' }
     ])
-    expect(deliveryTargetDrafts(undefined, 'a')).toEqual([])
-
-    const model = new ScheduleEditorModel()
-    model.initialize('cron:legacy', {
-      ...draft,
-      deliveryTargets: deliveryTargetDrafts({ signal_channel_id: 'lark:market' }, 'lark-agent')
-    })
-
-    expect(model.toUpdateBody()).toEqual({})
-    model.name.value = 'renamed'
-    expect(model.toUpdateBody()).toEqual({ name: 'renamed' })
-
-    model[Symbol.dispose]()
+    expect(deliveryTargetDrafts(undefined)).toEqual([])
   })
 
   test('requires an anchor for interval schedules and drops the hidden timezone', () => {

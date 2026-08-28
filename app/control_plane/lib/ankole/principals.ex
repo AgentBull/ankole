@@ -7,6 +7,7 @@ defmodule Ankole.Principals do
   import Ecto.Query, warn: false
 
   alias Ecto.Changeset
+  alias Ankole.IdentityProviders.LocalPassword
   alias Ankole.Kernel, as: NativeKernel
   alias Ankole.Logging
   alias Ankole.PrincipalKey
@@ -14,7 +15,6 @@ defmodule Ankole.Principals do
   alias Ankole.Principals.ExternalIdentity
   alias Ankole.Principals.HumanUser
   alias Ankole.Principals.LocalCredential
-  alias Ankole.Principals.LocalCredentials
   alias Ankole.Principals.MappingRequest
   alias Ankole.Principals.Principal
   alias Ankole.AIAgent.Library
@@ -287,7 +287,7 @@ defmodule Ankole.Principals do
              {:ok, human_user} <-
                insert_human_user(repo, principal.uid, take_attrs(attrs, @human_profile_fields)),
              {:ok, _credential} <-
-               LocalCredentials.put_in_tx(
+               LocalPassword.put_in_tx(
                  repo,
                  principal.uid,
                  initial_password,
@@ -337,12 +337,28 @@ defmodule Ankole.Principals do
     |> Repo.insert()
   end
 
-  @doc """
-  Inserts or updates an external identity by its natural provider/channel key.
-  """
-  @spec upsert_external_identity(map()) :: {:ok, ExternalIdentity.t()} | {:error, term()}
-  def upsert_external_identity(attrs) when is_map(attrs) do
-    Repo.transact(fn repo -> upsert_external_identity(repo, attrs) end)
+  @doc false
+  @spec bind_external_identity(module(), map()) ::
+          {:ok, ExternalIdentity.t()} | {:error, term()}
+  def bind_external_identity(repo, attrs) when is_map(attrs) do
+    changeset = ExternalIdentity.changeset(%ExternalIdentity{}, attrs)
+
+    with {:ok, normalized} <- Changeset.apply_action(changeset, :validate) do
+      case repo.get_by(ExternalIdentity,
+             provider: normalized.provider,
+             external_id: normalized.external_id
+           ) do
+        %ExternalIdentity{principal_uid: principal_uid} = identity
+        when principal_uid == normalized.principal_uid ->
+          {:ok, identity}
+
+        %ExternalIdentity{} ->
+          {:error, :platform_subject_already_bound}
+
+        nil ->
+          repo.insert(changeset)
+      end
+    end
   end
 
   @doc """
@@ -631,12 +647,23 @@ defmodule Ankole.Principals do
   defp upsert_external_identity(repo, attrs) do
     changeset = ExternalIdentity.changeset(%ExternalIdentity{}, attrs)
 
-    with {:ok, _normalized} <- Changeset.apply_action(changeset, :validate) do
-      repo.insert(changeset,
-        conflict_target: [:provider, :external_id],
-        on_conflict: {:replace, [:principal_uid, :metadata, :updated_at]},
-        returning: true
-      )
+    with {:ok, normalized} <- Changeset.apply_action(changeset, :validate) do
+      case repo.get_by(ExternalIdentity,
+             provider: normalized.provider,
+             external_id: normalized.external_id
+           ) do
+        %ExternalIdentity{principal_uid: principal_uid} = identity
+        when principal_uid == normalized.principal_uid ->
+          identity
+          |> ExternalIdentity.changeset(%{metadata: normalized.metadata})
+          |> repo.update()
+
+        %ExternalIdentity{} ->
+          {:error, :platform_subject_already_bound}
+
+        nil ->
+          repo.insert(changeset)
+      end
     end
   end
 

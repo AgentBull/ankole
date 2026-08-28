@@ -6,9 +6,14 @@ defmodule Ankole.Brain.RecallVectorTest do
 
   alias Ankole.AppConfigure
   alias Ankole.Brain.Claims
+  alias Ankole.Brain.Embeddings
   alias Ankole.Brain.Objects
   alias Ankole.Brain.Recall
   alias Ankole.Brain.SchemaPacks
+  alias Ankole.Brain.Schemas.Claim
+  alias Ankole.Brain.SelfHealing
+  alias Ankole.Kernel, as: NativeKernel
+  alias Ankole.Repo
 
   @dimensions 8
 
@@ -76,6 +81,108 @@ defmodule Ankole.Brain.RecallVectorTest do
     end
   end
 
+  test "vector arm ignores rows from another embedding signature", %{member: member} do
+    {:ok, object} =
+      Objects.create_object(
+        %{slug: "concepts/model-switch", type: "concept", title: "Model Switch"},
+        member.uid
+      )
+
+    {:ok, %{claim: stale_fact}} =
+      write_fact(object, member, "Cobalt shipment arrived on time")
+
+    {:ok, _value} =
+      AppConfigure.put_global_by_key("brain.embedding_model", %{
+        "provider_id" => "brain-embed",
+        "model" => "fake-embed-v2",
+        "dimensions" => @dimensions
+      })
+
+    # The upstream returns the same vector for both model names. Only the
+    # signature filter can keep this stale row out of the pure-vector result.
+    assert {:ok, result} = Recall.recall(member.uid, %{query: "warehouse probe zzz"})
+    refute stale_fact.id in Enum.map(result.claims, & &1.id)
+  end
+
+  test "embedding signature follows the provider snapshot resolved by AIGateway" do
+    handler_id = {__MODULE__, make_ref()}
+    marker = {__MODULE__, make_ref()}
+    target = self()
+    event = Repo.config()[:telemetry_prefix] ++ [:query]
+
+    :ok =
+      :telemetry.attach(
+        handler_id,
+        event,
+        fn _event, _measurements, metadata, {target, marker} ->
+          if self() == target and is_binary(metadata.query) and
+               String.contains?(metadata.query, ~s(FROM "ai_gateway_providers")) and
+               is_nil(Process.get(marker)) do
+            Process.put(marker, true)
+
+            {:ok, _provider} =
+              ProviderConfigs.update_provider("brain-embed", %{
+                provider_kind: "openai_compatible",
+                connection_options: %{}
+              })
+          end
+        end,
+        {target, marker}
+      )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    assert {:ok, {[_vector], signature}} = Embeddings.embed_texts(["Cobalt snapshot probe"])
+    assert Process.get(marker)
+    assert signature == NativeKernel.xxh3_128_hex("openrouter|fake-embed|#{@dimensions}")
+  end
+
+  test "self-healing skips deleted Object claims and keeps channel claims", %{member: member} do
+    {:ok, object} =
+      Objects.create_object(
+        %{slug: "concepts/deleted-embedding", type: "concept", title: "Deleted Embedding"},
+        member.uid
+      )
+
+    {:ok, %{claim: object_claim}} =
+      write_fact(object, member, "Cobalt object memory must stay forgotten")
+
+    channel = insert_channel!()
+
+    {:ok, %{claim: channel_claim}} =
+      Claims.write_fact(
+        %{
+          signal_gateway_channel_id: channel.id,
+          claim: "Cobalt channel memory remains live",
+          kind: "fact",
+          holder: "world",
+          audience_scope: "world",
+          notability: "medium",
+          confidence: 0.9,
+          valid_from: DateTime.utc_now(:microsecond),
+          provenance: "test"
+        },
+        member.uid
+      )
+
+    old_signature = object_claim.embedding_signature
+    assert channel_claim.embedding_signature == old_signature
+
+    {:ok, _value} =
+      AppConfigure.put_global_by_key("brain.embedding_model", %{
+        "provider_id" => "brain-embed",
+        "model" => "fake-embed-v2",
+        "dimensions" => @dimensions
+      })
+
+    assert {:ok, _object} = Objects.soft_delete(object.slug)
+    assert %{claims: 1} = SelfHealing.embed_pending()
+
+    current_signature = NativeKernel.xxh3_128_hex("openrouter|fake-embed-v2|#{@dimensions}")
+    assert Repo.get!(Claim, channel_claim.id).embedding_signature == current_signature
+    assert Repo.get!(Claim, object_claim.id).embedding_signature == old_signature
+  end
+
   test "evidence found by both routes outranks a fresher single-route claim", %{member: member} do
     {:ok, object} =
       Objects.create_object(
@@ -121,6 +228,22 @@ defmodule Ankole.Brain.RecallVectorTest do
         provenance: "test"
       },
       member.uid
+    )
+  end
+
+  defp insert_channel! do
+    now = DateTime.utc_now(:microsecond)
+
+    Repo.insert!(
+      Ankole.SignalsGateway.Channel.changeset(%Ankole.SignalsGateway.Channel{}, %{
+        id: "test:embedding-#{System.unique_integer([:positive])}",
+        kind: :im_dm,
+        reply_mode: :entry,
+        metadata: %{},
+        raw_payload: %{},
+        first_seen_at: now,
+        last_seen_at: now
+      })
     )
   end
 

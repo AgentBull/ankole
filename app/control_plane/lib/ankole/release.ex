@@ -7,7 +7,6 @@ defmodule Ankole.Release do
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
   alias Ankole.IdentityProviders.LocalPassword
-  alias Ankole.Principals.LocalCredentials
   alias Ankole.Principals.LocalPasswordResetText
   alias Ankole.Repo
   alias Ankole.Schedule
@@ -58,7 +57,7 @@ defmodule Ankole.Release do
       start_child!(Registry)
       start_child!(Cache)
 
-      case LocalCredentials.reset_local_password_by_email(email) do
+      case LocalPassword.reset_local_password_by_email(email) do
         {:ok, %{initial_password: initial_password}} ->
           IO.puts(LocalPasswordResetText.success(initial_password))
 

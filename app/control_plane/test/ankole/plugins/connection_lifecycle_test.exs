@@ -35,7 +35,7 @@ defmodule Ankole.Plugins.ConnectionLifecycleTest do
 
     assert 1 ==
              ConnectionLifecycle.stop_undesired(
-               %{:desired => %{}},
+               ConnectionLifecycle.desired_snapshot(%{:desired => %{}}, []),
                [:desired, :zombie],
                fn key ->
                  send(parent, {:stopped, key})
@@ -45,6 +45,22 @@ defmodule Ankole.Plugins.ConnectionLifecycleTest do
 
     assert_receive {:stopped, :zombie}
     refute_receive {:stopped, :desired}
+  end
+
+  test "keeps registered keys when the desired snapshot is incomplete" do
+    parent = self()
+
+    assert 0 ==
+             ConnectionLifecycle.stop_undesired(
+               ConnectionLifecycle.desired_snapshot(%{}, [:config_unavailable]),
+               [:live],
+               fn key ->
+                 send(parent, {:stopped, key})
+                 :ok
+               end
+             )
+
+    refute_receive {:stopped, :live}
   end
 
   defp unique_name do

@@ -226,7 +226,6 @@ The runtimes generate codecs from the same file:
 - TypeScript uses `protoc-gen-es`.
 
 Generate committed TypeScript output with `bun run gen:proto`.
-A sidecar hash pins the source and generator inputs.
 
 The Rust kernel seals every envelope at the send boundary: a host supplies
 only the ids, the send time, and the body, and the kernel writes
@@ -263,9 +262,7 @@ without interpreting their business fields.
 
 Golden fixtures live under `app/kernel/proto/golden`.
 Rust, Elixir, and TypeScript decode the same fixture bytes.
-
-Tools can decode version 1 fixtures for diagnosis, but worker admission rejects
-version 1 messages.
+RPC fixtures cover the outer frame and representative typed and JSON payloads.
 
 ## Protocol Lanes and Durability Classes
 
@@ -297,8 +294,8 @@ The actor lane carries these common messages:
 - `worker_progress`
 
 Workers finish turns through the `actor_turn.complete`, `actor_turn.noop`, and
-`actor_turn.abort` RPCs. All supported v0.70+ Workers use these RPCs, so the
-compatibility window does not include the former terminal envelopes.
+`actor_turn.abort` RPCs. A release runs one matching control-plane and Worker
+image pair; RuntimeFabric does not keep former terminal envelope variants.
 
 Worker capacity has one scheduling representation. `worker_ready`,
 `worker_heartbeat`, and `worker_capacity` carry integer `max_turns` and
@@ -341,8 +338,8 @@ supplied raw model.
 
 The Session workspace ID names `/agents/<agent-key>/sessions/<workspace-id>`.
 It starts at 10000 and stays stable for one `{agent_uid, session_id}` pair.
-Protocol version 4 requires this field so a mixed-version worker cannot create
-a different directory.
+The current protocol requires this field so each runtime resolves the same
+directory.
 
 Turn runtime environment names use the `ANKOLE_RUNTIME_` prefix. These values
 are not WorkerEnv configuration. The control plane derives them from the current
@@ -538,10 +535,13 @@ Each contract row defines:
 - the request message type
 - the response message type
 
-Elixir keeps an explicit dispatch table because broker functions and request
-modules are control-plane implementation facts. Package-local tests compare the
-Bun projection and the Elixir table with the committed contract. The control
-plane encodes and decodes all business payloads in one place.
+Elixir keeps an explicit dispatch table because broker functions and generated
+request and response modules are control-plane implementation facts.
+Package-local tests compare the Bun projection and the Elixir table with the
+committed contract. The control plane encodes and decodes all business payloads
+in one place. It rejects a broker response struct whose module differs from the
+declared response module. It accepts a plain map only when the declared response
+module is `JSONPassthroughResponse`.
 
 Turn-scoped frames carry `ActorTurnRef` outside the payload.
 Worker-agent frames carry a trusted `agent_uid` outside the payload.
@@ -553,8 +553,7 @@ identity or request IDs.
 
 The registry currently contains these method families:
 
-- Agent conversation context.
-- Agent Plugin catalog.
+- Agent conversation context with one coherent Agent Plugin and Skill catalog.
 - Actor turn completion.
 - AIGateway API key resolution.
 - AppConfigure and WorkerEnv resolution.

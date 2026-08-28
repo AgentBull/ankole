@@ -170,7 +170,8 @@ defmodule Ankole.MixProject do
       "e2e.real_llm": [
         "ecto.create --quiet",
         "ecto.migrate --quiet",
-        "test ../../tools/e2e/suites/lark_real_llm_e2e_test.exs --trace"
+        "test ../../tools/e2e/suites/lark_real_llm_e2e_test.exs " <>
+          "../../tools/e2e/suites/lark_workflow_real_llm_e2e_test.exs --trace"
       ],
       "e2e.ai_gateway_real_provider": [
         "ecto.create --quiet",

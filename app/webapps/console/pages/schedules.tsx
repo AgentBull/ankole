@@ -1009,7 +1009,7 @@ function draftFromCron(row: CronScheduleRow, schedule: Record<string, unknown>):
     anchorAt: String(schedule.anchor_at ?? ''),
     timezone: row.timezone ?? '',
     occurrences: scheduleOccurrenceBound(schedule),
-    deliveryTargets: deliveryTargetDrafts(row.delivery, row.binding_name),
+    deliveryTargets: deliveryTargetDrafts(row.delivery),
     task: typeof payload.task === 'string' ? payload.task : '',
     payload: safeStringify(payload),
     hasAutomationJob: row.automation_job_id != null,

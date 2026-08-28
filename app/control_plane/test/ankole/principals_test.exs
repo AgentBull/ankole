@@ -107,6 +107,7 @@ defmodule Ankole.PrincipalsTest do
       assert {:error, changeset} =
                Principals.create_agent(%{
                  uid: unique_uid("ownerless-agent"),
+                 display_name: "Ownerless Agent",
                  role: "Research Analyst"
                })
 
@@ -120,6 +121,7 @@ defmodule Ankole.PrincipalsTest do
       assert {:error, :agent_owner_must_be_human} =
                Principals.create_agent(%{
                  uid: unique_uid("agent-owned-agent"),
+                 display_name: "Agent-owned Agent",
                  role: "Research Analyst",
                  owner_principal_uid: other_agent.uid
                })
@@ -127,6 +129,7 @@ defmodule Ankole.PrincipalsTest do
       assert {:error, :agent_owner_not_found} =
                Principals.create_agent(%{
                  uid: unique_uid("ghost-owned-agent"),
+                 display_name: "Ghost-owned Agent",
                  role: "Research Analyst",
                  owner_principal_uid: "no-such-principal"
                })
@@ -134,6 +137,7 @@ defmodule Ankole.PrincipalsTest do
       assert {:ok, %{agent: agent}} =
                Principals.create_agent(%{
                  uid: unique_uid("owned-agent"),
+                 display_name: "Owned Agent",
                  role: "Research Analyst",
                  owner_principal_uid: owner.uid
                })
@@ -146,6 +150,7 @@ defmodule Ankole.PrincipalsTest do
       assert {:error, role_changeset} =
                Principals.create_agent(%{
                  uid: unique_uid("roleless-agent"),
+                 display_name: "Roleless Agent",
                  role: " "
                })
 
@@ -154,6 +159,7 @@ defmodule Ankole.PrincipalsTest do
       assert {:error, options_changeset} =
                Principals.create_agent(%{
                  uid: unique_uid("bad-options-agent"),
+                 display_name: "Bad Options Agent",
                  role: "Research Analyst",
                  options: "not-a-map"
                })
@@ -167,6 +173,7 @@ defmodule Ankole.PrincipalsTest do
       assert {:ok, %{agent: agent}} =
                Principals.create_agent(%{
                  uid: unique_uid("created-agent"),
+                 display_name: "Created Agent",
                  role: "Research Analyst",
                  owner_principal_uid: creator.uid,
                  created_by_principal_uid: String.upcase(creator.uid)
@@ -240,6 +247,7 @@ defmodule Ankole.PrincipalsTest do
                })
 
       assert second.principal.uid == first.principal.uid
+      assert second.identity.id == first.identity.id
       # A message observation must not rename a Principal that already has a
       # display name; the fixture's name survives both observations.
       assert second.principal.display_name == "Human"
@@ -500,32 +508,6 @@ defmodule Ankole.PrincipalsTest do
                })
 
       assert identity.principal_uid == principal.uid
-    end
-
-    test "upsert_external_identity/1 converges on the natural identity key" do
-      first = human_fixture(%{uid: unique_uid("first-owner")})
-      second = human_fixture(%{uid: unique_uid("second-owner")})
-      external_id = unique_uid("actor")
-
-      assert {:ok, inserted} =
-               Principals.upsert_external_identity(%{
-                 principal_uid: first.principal.uid,
-                 provider: "lark-main",
-                 external_id: external_id,
-                 metadata: %{"source" => "first"}
-               })
-
-      assert {:ok, updated} =
-               Principals.upsert_external_identity(%{
-                 principal_uid: String.upcase(second.principal.uid),
-                 provider: "lark-main",
-                 external_id: external_id,
-                 metadata: %{"source" => "second"}
-               })
-
-      assert updated.id == inserted.id
-      assert updated.principal_uid == second.principal.uid
-      assert updated.metadata == %{"source" => "second"}
     end
 
     test "create_external_identity/1 stores UUIDv7 ids for binding rows" do

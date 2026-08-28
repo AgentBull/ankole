@@ -6,8 +6,6 @@ import type { CodexJobOptions, TurnHandlerResult } from '../turns/turn_options'
 import { prepareCodexJobExecution } from './job/setup'
 import { runCodexJobSession } from './job/session'
 
-export { verifiedCodexSkills } from './job/session'
-
 /**
  * Runs one Background Agent Job Turn.
  * `job/` owns one Job attempt. `runtime/` owns the Agent-scoped app server that
@@ -36,8 +34,6 @@ export async function runCodexJob(turnStart: TurnStart, opts: CodexJobOptions): 
 }
 
 function jobIDFromTurn(turnStart: TurnStart): string {
-  const fromContext = turnStart.request_context?.job_id
-  if (typeof fromContext === 'number') return modelIntegerIDToWire(fromContext)
   const sessionID = turnStart.turn.actor.session_id
   if (sessionID.startsWith('job:') && sessionID.length > 'job:'.length) {
     const value = sessionID.slice('job:'.length)

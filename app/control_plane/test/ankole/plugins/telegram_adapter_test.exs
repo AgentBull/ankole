@@ -137,6 +137,25 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
     end
   end
 
+  describe "message chunking" do
+    test "counts astral and ZWJ text in UTF-16 units without splitting graphemes" do
+      prefix = String.duplicate("😀", 1_995)
+      suffix = "👨‍👩‍👧‍👦tail"
+      text = prefix <> suffix
+
+      assert [^prefix, ^suffix] = assert_utf16_chunks(text, 4_000)
+    end
+
+    test "splits an oversized grapheme only between code points" do
+      text = "😀" <> String.duplicate("\u0301", 3_999)
+      assert [^text] = String.graphemes(text)
+
+      assert [first, second] = assert_utf16_chunks(text, 4_000)
+      assert utf16_units(first) == 4_000
+      assert utf16_units(second) == 1
+    end
+  end
+
   describe "Bot API client and polling" do
     test "returns Telegram results and preserves retry_after without exposing transport details" do
       Req.Test.stub(__MODULE__, fn conn ->
@@ -200,6 +219,27 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
                  dispatch: fn _update, _consumer, _bot, _opts ->
                    {:ok, %{status: :ignored_unsupported_update}}
                  end
+               )
+    end
+
+    test "advances past a permanently invalid Telegram message" do
+      updates = [
+        %{
+          "update_id" => 10,
+          "message" => %{
+            "chat" => %{"id" => 501, "type" => "private"},
+            "from" => %{"id" => 7001, "is_bot" => false}
+          }
+        },
+        %{"update_id" => 11}
+      ]
+
+      assert {:ok, 12} =
+               Dispatcher.process_updates(
+                 updates,
+                 consumer("owner-agent", "telegram-main"),
+                 %{id: "77", username: "AnkoleBot"},
+                 nil
                )
     end
 
@@ -657,7 +697,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
       %{principal: local_human} = human_fixture()
 
       assert {:ok, _credential} =
-               Principals.LocalCredentials.set_local_password(
+               Ankole.IdentityProviders.LocalPassword.set_local_password(
                  local_human.uid,
                  "local-secret",
                  false
@@ -1113,7 +1153,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
             %{
               "provider_file_id" => "telegram-file-id",
               "name" => "report.pdf",
-              "mimetype" => "application/pdf"
+              "mime_type" => "application/pdf"
             }
           ]
         },
@@ -1126,6 +1166,31 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
       assert body["document"] == "telegram-file-id"
       assert body["reply_parameters"] == %{"message_id" => 42}
       refute Map.has_key?(body, "caption")
+    end
+
+    test "sends a canonical image attachment as a Telegram photo" do
+      outbox = %OutboxEntry{
+        agent_uid: "agent-a",
+        binding_name: "telegram-main",
+        outbound_key: "attachment-image-1",
+        operation: :post,
+        signal_channel_id: "telegram:77:chat:501",
+        payload: %{
+          "attachments" => [
+            %{
+              "provider_file_id" => "telegram-image-id",
+              "name" => "image.png",
+              "mime_type" => "image/png"
+            }
+          ]
+        },
+        fallback_visible_text: ""
+      }
+
+      assert {:ok, [%{method: "sendPhoto", body: body}]} =
+               Outbox.requests_for_outbox(outbox)
+
+      assert body["photo"] == "telegram-image-id"
     end
 
     test "returns unknown when a non-idempotent provider send has an uncertain result" do
@@ -1261,6 +1326,24 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
       started_at: now,
       metadata: %{"runtime" => "test"}
     })
+  end
+
+  defp assert_utf16_chunks(text, budget) do
+    chunks = Presentation.chunks(text)
+
+    assert Enum.join(chunks) == text
+    assert Enum.all?(chunks, &String.valid?/1)
+    assert Enum.all?(chunks, &(length(String.codepoints(&1)) <= budget))
+    assert Enum.all?(chunks, &(utf16_units(&1) <= budget))
+
+    chunks
+  end
+
+  defp utf16_units(text) do
+    text
+    |> :unicode.characters_to_binary(:utf8, {:utf16, :little})
+    |> byte_size()
+    |> div(2)
   end
 
   defp u64(value), do: <<value::unsigned-big-integer-size(64)>>

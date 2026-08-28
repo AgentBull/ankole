@@ -1,6 +1,6 @@
 ---
 title: 비용 관리
-description: Ankole이 지출하는 금액을 통제하는 레버 — model-profile 계층, reasoning effort, web 도구 게이팅, agent-loop 예산, background-job 재시도 및 슬롯 상한.
+description: Ankole이 지출하는 금액을 통제하는 레버 — model-profile 계층, reasoning effort, web 도구 게이팅, agent-loop 예산, background-job 재시도, Workflow 호출 및 동시성 상한.
 section: Guides
 order: 314
 ---
@@ -31,6 +31,8 @@ Brain에는 Agent profile과 별개인 인스턴스 공용 모델 설정이 5개
 - **기본적으로 `primary`를 낮추지 올리지는 마세요.** “비싸게 느껴지는” agent는 실제로 수행하는 작업에 비해 너무 무겁게 바인딩된 `primary`인 경우가 많습니다. 품질이 요구할 때만 올리세요.
 
 agent가 사용하지 않는 슬롯은 바인딩을 해제하세요. 그러면 `vision_fallback`에서 호출이 발생할 수 없습니다. 비어 있는 `image_generate` profile도 메인 provider가 해당 기능을 선언하면 네이티브 이미지 생성(native image generation)을 계속 사용할 수 있습니다. Background Agent Jobs는 다릅니다. profile이 설정되어 있지 않아도 Job은 AIGateway를 통해 Agent의 `heavy` profile을 폴백으로 사용하여 실행됩니다. Job에 다른 provider나 model이 필요할 때 이 profile을 구성하세요.
+
+Workflow task는 전용 profile을 추가하지 않습니다. 생성 요청에서 사용 가능한 custom model profile을 선택하지 않으면 각 task는 Agent의 `primary` profile을 사용합니다.
 
 ## 레버 2: reasoning effort
 
@@ -73,6 +75,18 @@ Background job은 재시도에 token을 쓸 수 있으며, 그 상한이 레버�
 
 일시적으로 다섯 번 실패하는 job은 다섯 번 실행한 만큼의 token을 소비합니다. 대부분의 경우 상한이 보호해 줍니다. 구성 오류는 빠르게 실패하고 실패 상태로 유지됩니다. 주의할 레버는 세 번째입니다. 동시에 세 개의 job을 실행하는 agent는 한 번에 세 개의 model loop를 돌리는 것입니다. 그런 병렬성이 필요 없다면 persona(“한 번에 한 가지 일을 하라”)가 상한이 허용하는 것보다 더 저렴합니다.
 
+## 레버 6: Workflow 호출 및 동시성 상한
+
+Workflow의 `agent()` 호출은 각 attempt마다 완전한 model turn 하나를 실행합니다. 호출 하나는 재시도 가능한 실패가 지속되면 최대 3번의 attempt를 사용할 수 있습니다. 따라서 대충 나눈 많은 소형 task보다 의미 있는 작업 단위를 주고, 요청에서 `max_agent_calls`를 세울 수 있는 최소 상한으로 설정하세요.
+
+| 설정 | 기본값 | 하드 상한 | 제한 대상 |
+|---|---:|---:|---|
+| `workflow.max_concurrency_per_run` | 8 | 32 | Workflow 하나가 동시에 실행할 task 수 |
+| `workflow.max_running_per_agent` | 8 | 64 | Agent 하나의 모든 Workflow에서 동시에 실행할 task 수 |
+| `workflow.max_agent_calls_per_run` | 256 | 1,024 | Workflow 하나가 만들 수 있는 총 `agent()` 호출 수 |
+
+Workflow 생성 요청의 `concurrency`와 `max_agent_calls`는 배포 상한을 높일 수 없고 더 낮은 값만 요청할 수 있습니다. Workflow v1은 전체 run을 위한 token 또는 금액 예산을 제공하지 않으며, 각 task는 일반 turn의 iteration, output-token, inactivity 상한을 그대로 적용받습니다. 자세한 사용 방법은 [Workflows](../workflows/)를 참조하세요.
+
 ## 지출이 실제로 발생하는 곳
 
 model이나 동시성을 바꾸기 전에 Console을 사용하여 호출을 발생시킨 Agent, conversation 또는 Background Agent Job을 찾으세요:
@@ -99,3 +113,4 @@ deployment instance의 청구 금액이 일주일 만에 두 배가 되었습니
 - agent-loop 노브와 해당 키에 대해서는 [Environment variables](../environment-variables/) 문서를 읽으세요.
 - 관련 conversation 및 Job 엔드포인트에 대해서는 [Console API reference](../console-api/) 문서를 읽으세요.
 - Job 상한에 대해서는 [Background Agent Jobs](../background-jobs/) 문서를 읽으세요.
+- Workflow 분할, 결과, 복구 규칙은 [Workflows](../workflows/) 문서를 읽으세요.

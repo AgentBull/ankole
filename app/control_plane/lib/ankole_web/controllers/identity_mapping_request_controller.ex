@@ -160,6 +160,9 @@ defmodule AnkoleWeb.IdentityMappingRequestController do
   defp error(conn, :principal_disabled),
     do: error(conn, 422, "invalid_principal", "principal is disabled")
 
+  defp error(conn, :platform_subject_already_bound),
+    do: error(conn, 409, "subject_already_bound", "provider subject is already bound")
+
   defp error(conn, {:missing_param, field}),
     do: error(conn, 422, "invalid_request", "#{field} is required")
 

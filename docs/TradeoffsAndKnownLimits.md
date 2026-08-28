@@ -304,7 +304,8 @@ Ankole currently does not provide:
 - a durable ZeroMQ queue
 - automatic discovery of business data from worker files
 - user-defined SignalsGateway routing rules
-- a general workflow engine beyond Schedule and BackgroundAgentJob
+- nested Workflows, script changes after a run starts, or a batch-wide Workflow
+  token budget
 - a public OpenAI Conversations object API
 - Response delete or cancel endpoints
 - named branch views over the AIGateway message graph

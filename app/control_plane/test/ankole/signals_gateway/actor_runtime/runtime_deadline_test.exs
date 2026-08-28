@@ -267,8 +267,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeDeadlineTest do
                  lease_seconds: @long_lease_seconds
                )
 
-      assert_receive {:actor_lane, first_envelope}
-      assert decoded_request_context(turn_start_payload!(first_envelope))["attempts"] == 1
+      assert_receive {:actor_lane, _first_envelope}
 
       assert {:ok, %{job: running}} =
                BackgroundAgentJobs.commit_status_with_wakeup(job.id, agent.uid, %{
@@ -299,8 +298,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeDeadlineTest do
                  lease_seconds: @long_lease_seconds
                )
 
-      assert_receive {:actor_lane, second_envelope}
-      assert decoded_request_context(turn_start_payload!(second_envelope))["attempts"] == 2
+      assert_receive {:actor_lane, _second_envelope}
 
       retried = BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid)
       assert retried.status == "running"
@@ -345,7 +343,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeDeadlineTest do
                )
 
       assert_receive {:actor_lane, first_envelope}
-      assert decoded_request_context(turn_start_payload!(first_envelope))["attempts"] == 1
 
       assert {:ok, first_turn_ref} =
                Ankole.SignalsGateway.ActorRuntime.TurnRef.from_proto(
@@ -378,8 +375,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeDeadlineTest do
                  lease_seconds: @long_lease_seconds
                )
 
-      assert_receive {:actor_lane, second_envelope}
-      assert decoded_request_context(turn_start_payload!(second_envelope))["attempts"] == 2
+      assert_receive {:actor_lane, _second_envelope}
 
       assert {:error, :worker_not_assigned_to_turn} =
                BackgroundAgentJobs.commit_status_with_wakeup(

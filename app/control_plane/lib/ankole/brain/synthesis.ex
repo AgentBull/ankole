@@ -16,6 +16,7 @@ defmodule Ankole.Brain.Synthesis do
   alias Ankole.Brain.Access
   alias Ankole.Brain.Config
   alias Ankole.Brain.Links
+  alias Ankole.Brain.LazySkillVisibility
   alias Ankole.Brain.Markdoc
   alias Ankole.Brain.ModelCalls
   alias Ankole.Brain.Objects
@@ -137,10 +138,12 @@ defmodule Ankole.Brain.Synthesis do
     until_at = params[:until] || DateTime.utc_now()
 
     with {:ok, access} <- Access.for_querier(querier_uid),
-         {:ok, slugs} <- delta_slugs(params[:entity]) do
+         {:ok, visibility} <- LazySkillVisibility.for_querier(querier_uid),
+         {:ok, slugs} <- delta_slugs(params[:entity], visibility) do
       base =
         Claim
         |> Access.filter_claims(access)
+        |> LazySkillVisibility.filter_claims(visibility)
         |> maybe_slugs([:object_slug], slugs)
 
       new_claims =
@@ -163,6 +166,7 @@ defmodule Ankole.Brain.Synthesis do
       timelines =
         Timeline
         |> Access.filter_timelines(access)
+        |> LazySkillVisibility.filter_timelines(visibility)
         |> maybe_slugs([:object_slug], slugs)
         |> where([timeline], timeline.created_at >= ^since and timeline.created_at <= ^until_at)
         |> order_by([timeline], desc: timeline.date)
@@ -252,11 +256,11 @@ defmodule Ankole.Brain.Synthesis do
 
   # An entity that does not resolve is an explicit error, never a silent
   # unfiltered report.
-  defp delta_slugs(nil), do: {:ok, nil}
-  defp delta_slugs(""), do: {:ok, nil}
+  defp delta_slugs(nil, _visibility), do: {:ok, nil}
+  defp delta_slugs("", _visibility), do: {:ok, nil}
 
-  defp delta_slugs(entity) do
-    case Objects.resolve_reference(entity) do
+  defp delta_slugs(entity, visibility) do
+    case Objects.resolve_reference(entity, lazy_skill_visibility: visibility) do
       {:ok, object} -> {:ok, [object.slug]}
       {:ambiguous, candidates} -> {:error, {:ambiguous_entity, candidates}}
       {:error, :not_found} -> {:error, {:entity_not_found, entity}}

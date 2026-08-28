@@ -28,7 +28,7 @@ worker 通过两条路径从控制面接收上下文，各携带一类数据：
 
 ### 已启用 skill
 
-`Library.skills_for_system_prompt/1` 返回 agent 的有效 skill 集——即按覆盖调整默认值之后启用的 skill——连同它们的描述和元数据。worker 用它们构建系统 prompt 的 skill 块，告诉模型它有哪些 skill、各自做什么。
+`Library.runtime_skills_for_agent/1` 把 Agent 的完整有效 Skill 集及其描述和元数据发送给 Worker。Worker 保留完整集合供 `skill_view` 加载；构建模型可见的 Skill 目录时，会省略声明了 `brain-recall-only: true` 的 Skill，使 Brain 能发现这些 Skill，而不必在每个 Prompt 中列出它们。
 
 ### 会话起始 channel
 

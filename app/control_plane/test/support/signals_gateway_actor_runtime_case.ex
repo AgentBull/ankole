@@ -152,8 +152,7 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
           |> Map.put(:max_turns, max_turns)
           |> Map.put(:available_turn_slots, available_turn_slots)
         ),
-        auth,
-        Ankole.Kernel.RuntimeFabric.protocol_version()
+        auth
       )
 
     # The ready message carries no load; a worker reports it through the
@@ -604,7 +603,6 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
 
   def worker_ready_envelope do
     %FabricProto.Envelope{
-      protocol_version: Ankole.Kernel.RuntimeFabric.protocol_version(),
       message_id: "worker-ready-test",
       lane: :LANE_CONTROL,
       durability: :CONTROL_EPHEMERAL,

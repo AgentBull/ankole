@@ -32,7 +32,6 @@ export class ActiveTurn {
   private readonly steeringUpdates: TurnSteerUpdate[] = []
   private readonly steeringWaiters = new Set<() => void>()
   private readonly disabledSkillNames: string[] = []
-  private readonly changedSkillNames: string[] = []
   private readonly abortController = new AbortController()
   private stopRequested = false
   private stopCommand?: string
@@ -109,17 +108,6 @@ export class ActiveTurn {
 
   pollDisabledSkills(): string[] {
     return this.disabledSkillNames.splice(0)
-  }
-
-  addChangedSkills(skillNames: unknown): void {
-    if (!Array.isArray(skillNames)) return
-    for (const name of skillNames) {
-      if (typeof name === 'string' && name.trim()) this.changedSkillNames.push(name.trim())
-    }
-  }
-
-  pollChangedSkills(): string[] {
-    return this.changedSkillNames.splice(0)
   }
 
   requestControlledStop(command: string, reason: string): void {
@@ -246,9 +234,9 @@ export class ActiveTurns {
   }
 
   /**
-   * Queues Skill changes for handlers that support live updates. `retry` and
-   * `stop` cancel only local execution. The control plane owns the next lifecycle
-   * decision, so this path does not call actor_turn.abort.
+   * Applies Skill disablement to active handlers. `retry` and `stop` cancel only
+   * local execution. The control plane owns the next lifecycle decision, so this
+   * path does not call actor_turn.abort.
    */
   async control(envelope: Envelope): Promise<void> {
     const control = turnControlFromEnvelope(envelope)
@@ -259,11 +247,6 @@ export class ActiveTurns {
 
     if (control.command === 'skill_disabled') {
       active.addDisabledSkills(control.payload_json?.skill_names)
-      return
-    }
-
-    if (control.command === 'skill_content_changed') {
-      active.addChangedSkills(control.payload_json?.skill_names)
       return
     }
 

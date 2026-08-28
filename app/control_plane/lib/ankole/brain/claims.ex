@@ -12,9 +12,11 @@ defmodule Ankole.Brain.Claims do
 
   import Ecto.Query, warn: false
 
+  alias Ankole.Brain.Access
   alias Ankole.Brain.Embeddings
   alias Ankole.Brain.Objects
   alias Ankole.Brain.Schemas.Claim
+  alias Ankole.Brain.Schemas.Object
   alias Ankole.Brain.Scope
   alias Ankole.Ecto.UUIDv7
   alias Ankole.Repo
@@ -45,13 +47,33 @@ defmodule Ankole.Brain.Claims do
   def internal_provenance_prefix, do: @internal_provenance_prefix
 
   @doc """
+  Keeps claims attached to a live Object or a signal channel. A missing Object
+  row and a soft-deleted Object both make an Object-parented claim unavailable;
+  a channel-parented claim has no Object slug and stays available.
+  """
+  @spec filter_live_parents(Ecto.Queryable.t()) :: Ecto.Query.t()
+  def filter_live_parents(query) do
+    query
+    |> join(:left, [claim], object in Object,
+      as: :claim_parent_object,
+      on: object.slug == claim.object_slug
+    )
+    |> where(
+      [claim, claim_parent_object: object],
+      is_nil(claim.object_slug) or
+        (not is_nil(object.slug) and is_nil(object.deleted_at))
+    )
+  end
+
+  @doc """
   Narrows a Claim query to current external facts: `claim_type` fact, not
-  expired, not superseded, and provenance outside the internal prefix that
-  extraction terminals use.
+  expired, not superseded, attached to a live Object or a signal channel, and
+  provenance outside the internal prefix that extraction terminals use.
   """
   @spec current_external_facts(Ecto.Queryable.t()) :: Ecto.Query.t()
   def current_external_facts(query) do
     query
+    |> filter_live_parents()
     |> where([claim], claim.claim_type == "fact")
     |> where([claim], is_nil(claim.expired_at) and is_nil(claim.superseded_by))
     |> where([claim], not like(claim.provenance, ^(@internal_provenance_prefix <> "%")))
@@ -60,6 +82,40 @@ defmodule Ankole.Brain.Claims do
   @doc "Closed kind whitelist for facts."
   @spec fact_kinds() :: [String.t()]
   def fact_kinds, do: @fact_kinds
+
+  @doc "Lists Claims for the Console read model."
+  @spec list_for_console(keyword()) :: [Claim.t()]
+  def list_for_console(opts) when is_list(opts) do
+    limit = Keyword.fetch!(opts, :limit)
+
+    Claim
+    |> maybe_console_object(Keyword.get(opts, :object_slug))
+    |> maybe_console_type(Keyword.get(opts, :claim_type))
+    |> maybe_console_status(Keyword.get(opts, :status))
+    |> maybe_console_search(Keyword.get(opts, :search))
+    |> order_by([claim], desc: claim.created_at)
+    |> limit(^limit)
+    |> Repo.all()
+  end
+
+  @doc "Lists Claims related to one Principal for the Console audit read model."
+  @spec list_for_principal_audit(String.t(), keyword()) :: [Claim.t()]
+  def list_for_principal_audit(principal_uid, opts)
+      when is_binary(principal_uid) and is_list(opts) do
+    limit = Keyword.fetch!(opts, :limit)
+    holder_slugs = ["people/#{principal_uid}", "agents/#{principal_uid}"]
+    scope = "principal:#{principal_uid}"
+
+    Claim
+    |> where(
+      [claim],
+      claim.holder in ^holder_slugs or claim.author_uid == ^principal_uid or
+        claim.audience_scope == ^scope
+    )
+    |> order_by([claim], desc: claim.created_at)
+    |> limit(^limit)
+    |> Repo.all()
+  end
 
   @doc """
   Writes one Fact through the shared contract.
@@ -89,7 +145,7 @@ defmodule Ankole.Brain.Claims do
       dedup? = Keyword.get(opts, :dedup, true)
 
       repo.transact(fn repo ->
-        case find_dedup_action(repo, attrs, if(dedup?, do: embedding)) do
+        case find_dedup_action(repo, attrs, if(dedup?, do: {embedding, signature})) do
           {:duplicate, existing} ->
             {:ok, %{claim: existing, status: :duplicate}}
 
@@ -400,11 +456,8 @@ defmodule Ankole.Brain.Claims do
   @spec prepare_embedding(term()) :: {Pgvector.t() | nil, String.t() | nil}
   def prepare_embedding(text) when is_binary(text) do
     case Embeddings.embed_texts([text]) do
-      {:ok, [vector]} ->
-        case Embeddings.signature() do
-          {:ok, signature} -> {vector, signature}
-          {:error, _reason} -> {nil, nil}
-        end
+      {:ok, {[vector], signature}} ->
+        {vector, signature}
 
       {:error, _reason} ->
         {nil, nil}
@@ -430,14 +483,17 @@ defmodule Ankole.Brain.Claims do
   end
 
   defp find_dedup_action(_repo, _attrs, nil), do: :insert
+  defp find_dedup_action(_repo, _attrs, {nil, _signature}), do: :insert
+  defp find_dedup_action(_repo, _attrs, {_embedding, nil}), do: :insert
 
-  defp find_dedup_action(repo, attrs, embedding) do
+  defp find_dedup_action(repo, attrs, {embedding, signature}) do
     candidates =
       Claim
       |> current_external_facts()
       |> where([claim], claim.holder == ^attrs[:holder])
       |> where([claim], claim.audience_scope == ^attrs[:audience_scope])
       |> where([claim], not is_nil(claim.embedding))
+      |> where([claim], claim.embedding_signature == ^signature)
       |> parent_filter(attrs)
       |> order_by([claim], fragment("? <=> ?", claim.embedding, ^embedding))
       |> limit(@dedup_candidate_limit)
@@ -463,6 +519,46 @@ defmodule Ankole.Brain.Claims do
   defp parent_filter(query, %{signal_gateway_channel_id: channel_id})
        when is_binary(channel_id),
        do: where(query, [claim], claim.signal_gateway_channel_id == ^channel_id)
+
+  defp maybe_console_object(query, slug) when is_binary(slug) and slug != "",
+    do: where(query, [claim], claim.object_slug == ^slug)
+
+  defp maybe_console_object(query, _slug), do: query
+
+  defp maybe_console_type(query, type) when type in ["fact", "take"],
+    do: where(query, [claim], claim.claim_type == ^type)
+
+  defp maybe_console_type(query, _type), do: query
+
+  defp maybe_console_status(query, "current"), do: Access.filter_current_claims(query)
+  defp maybe_console_status(query, _status), do: query
+
+  defp maybe_console_search(query, term) when is_binary(term) do
+    case String.trim(term) do
+      "" ->
+        query
+
+      term ->
+        pattern = "%" <> escape_like(term) <> "%"
+
+        where(
+          query,
+          [claim],
+          ilike(claim.claim, ^pattern) or ilike(claim.kind, ^pattern) or
+            ilike(claim.holder, ^pattern) or ilike(claim.object_slug, ^pattern) or
+            ilike(claim.author_uid, ^pattern)
+        )
+    end
+  end
+
+  defp maybe_console_search(query, _term), do: query
+
+  defp escape_like(text) do
+    text
+    |> String.replace("\\", "\\\\")
+    |> String.replace("%", "\\%")
+    |> String.replace("_", "\\_")
+  end
 
   defp normalized_text(text) do
     text

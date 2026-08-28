@@ -390,7 +390,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBrokerTest do
     remaining = binary_part(output_text, next_offset, byte_size(output_text) - next_offset)
 
     assert second.result_output_text ==
-             Ankole.BackgroundAgentJobs.Text.utf8_prefix(remaining, 16_384)
+             Ankole.Text.utf8_prefix(remaining, 16_384)
 
     assert {:ok, invalid_response} =
              RPCLane.handle_request(
@@ -425,35 +425,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBrokerTest do
 
     assert rpc_error(oversized_response)["code"] ==
              "invalid_background_agent_job_result_offset"
-  end
-
-  test "readonly Agent Plugin catalog exposes enabled packages and Skill names" do
-    %{principal: agent} = agent_fixture()
-    binding_fixture(agent.uid, "bot", :ignore)
-    route = unique_route()
-    turn_ref = start_parent_turn!(agent.uid, route)
-
-    assert {:ok, envelope} =
-             RPCLane.handle_request(
-               rpc_request(
-                 "agent-plugin-list",
-                 "agent_plugin.list",
-                 %FabricProto.AgentPluginListRequest{},
-                 turn: turn_ref
-               ),
-               route
-             )
-
-    assert %FabricProto.AgentPluginListResponse{agent_plugins: agent_plugins} =
-             rpc_response_payload!(envelope, FabricProto.AgentPluginListResponse)
-
-    plugin = Enum.find(agent_plugins, &(&1.id == "deep-research"))
-    assert plugin.has_workspace_template
-
-    assert Enum.find(plugin.skills, &(&1.catalog_name == "create-deep-research")) ==
-             %FabricProto.AgentPluginCatalogSkill{
-               catalog_name: "create-deep-research"
-             }
   end
 
   test "RPC authorization rejects an unassigned route and job-turn mutations from a parent turn" do

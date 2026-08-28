@@ -23,8 +23,6 @@ defmodule Ankole.Brain.Sanitize do
     {"role-jailbreak", ~r/you\s+are\s+(?:now|actually|really)\s+(?:a|an)\s+\w+/iu, "[redacted]"},
     {"do-anything-now", ~r/\b(?:DAN|do\s+anything\s+now|developer\s+mode\s+enabled?)\b/iu,
      "[redacted]"},
-    {"close-memory", ~r/<\s*\/\s*memory\s*>/iu, "&lt;/memory&gt;"},
-    {"close-take", ~r/<\s*\/\s*take\s*>/iu, "&lt;/take&gt;"},
     {"open-system", ~r/<\s*system\s*>/iu, "&lt;system&gt;"},
     {"open-instructions", ~r/<\s*instructions?\s*>/iu, "&lt;instructions&gt;"},
     {"xml-attr-inject", ~r/\s+(entity|metric|event_type|kind)\s*=\s*"[^"]*"/iu,

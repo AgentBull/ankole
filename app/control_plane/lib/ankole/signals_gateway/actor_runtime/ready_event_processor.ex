@@ -13,9 +13,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ReadyEventProcessor do
   alias Ankole.BackgroundAgentJobs
   alias Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatch
   alias Ankole.SignalsGateway.ActorRuntime.TurnLifecycle
+  alias Ankole.SignalsGateway.ActorRuntime.WorkflowTaskDispatch
   alias Ankole.Repo
+  alias Ankole.Workflow
 
   require Ankole.BackgroundAgentJobs
+  require Ankole.Workflow
 
   @type actor_key :: %{agent_uid: String.t(), session_id: String.t()}
 
@@ -74,6 +77,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ReadyEventProcessor do
 
         %ActorEvent{type: "im.message.may_intervene"} = event ->
           AmbientIntervention.process(actor_key, event, opts)
+
+        # Runtime commands above keep their generic handling; every other event
+        # for a Workflow task session is a dispatch or a wake and must claim
+        # the durable call before a turn can start.
+        %ActorEvent{session_id: session_id} = event
+        when Workflow.is_workflow_task_session_id(session_id) ->
+          WorkflowTaskDispatch.process(actor_key, event, opts)
 
         %ActorEvent{} = event ->
           TurnLifecycle.start_worker_turn(actor_key, event, opts)

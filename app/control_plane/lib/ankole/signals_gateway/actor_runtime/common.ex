@@ -11,10 +11,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Common do
     %{agent_uid: Ankole.PrincipalKey.canonicalize(agent_uid), session_id: session_id}
   end
 
-  def normalize_actor_key(%{"agent_uid" => agent_uid, "session_id" => session_id}) do
-    %{agent_uid: Ankole.PrincipalKey.canonicalize(agent_uid), session_id: session_id}
-  end
-
   def blank?(nil), do: true
   def blank?(""), do: true
   def blank?(_value), do: false

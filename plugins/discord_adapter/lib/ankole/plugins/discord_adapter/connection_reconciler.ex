@@ -34,7 +34,7 @@ defmodule Ankole.Plugins.DiscordAdapter.ConnectionReconciler do
 
     stopped =
       ConnectionLifecycle.stop_undesired(
-        specs,
+        {:complete, specs},
         ConnectionSupervisor.registered_keys(),
         &ConnectionSupervisor.stop/1
       )
@@ -88,7 +88,11 @@ defmodule Ankole.Plugins.DiscordAdapter.ConnectionReconciler do
         :error ->
           {specs,
            [
-             %{agent_uid: binding.agent_uid, binding_name: binding.name, reason: :config_not_found}
+             %{
+               agent_uid: binding.agent_uid,
+               binding_name: binding.name,
+               reason: :config_not_found
+             }
              | errors
            ]}
 

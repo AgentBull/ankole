@@ -10,7 +10,6 @@ defmodule Ankole.IdentityProviders.LocalPasswordTest do
   alias Ankole.IdentityProviders.LocalPassword.RetryGuard
   alias Ankole.IdentityProviders.Login
   alias Ankole.Principals
-  alias Ankole.Principals.LocalCredentials
   alias Ankole.Principals.LocalCredential
 
   setup do
@@ -27,7 +26,7 @@ defmodule Ankole.IdentityProviders.LocalPasswordTest do
 
   defp local_user(password, must_change \\ false) do
     %{principal: principal, human_user: human_user} = human_fixture()
-    {:ok, _credential} = LocalCredentials.set_local_password(principal.uid, password, must_change)
+    {:ok, _credential} = LocalPassword.set_local_password(principal.uid, password, must_change)
     %{principal: principal, email: human_user.email}
   end
 
@@ -80,6 +79,28 @@ defmodule Ankole.IdentityProviders.LocalPasswordTest do
       assert {:error, :invalid_credentials} = LocalPassword.authenticate(email, "wrong-password")
     end
 
+    test "known and unknown emails receive the same attempt limit" do
+      save_local_provider()
+      %{email: known_email} = local_user("correct-horse")
+
+      for _attempt <- 1..5 do
+        assert {:error, :invalid_credentials} =
+                 LocalPassword.authenticate("missing@example.com", "wrong-password")
+
+        assert {:error, :invalid_credentials} =
+                 LocalPassword.authenticate(known_email, "wrong-password")
+      end
+
+      assert {:error, {:retry_locked, unknown_retry_after}} =
+               LocalPassword.authenticate("missing@example.com", "wrong-password")
+
+      assert {:error, {:retry_locked, known_retry_after}} =
+               LocalPassword.authenticate(known_email, "wrong-password")
+
+      assert unknown_retry_after in 1..(30 * 60)
+      assert known_retry_after in 1..(30 * 60)
+    end
+
     test "verifies a correct password and reports the must-change flag" do
       save_local_provider()
       %{principal: principal, email: email} = local_user("correct-horse")
@@ -88,7 +109,7 @@ defmodule Ankole.IdentityProviders.LocalPasswordTest do
       assert login.principal_uid == principal.uid
       assert login.provider_id == "local-main"
       assert login.email == email
-      assert {:ok, %{credential: credential}} = LocalCredentials.fetch_local_login(email)
+      assert {:ok, %{credential: credential}} = LocalPassword.fetch_local_login(email)
       assert login.credential_version == LocalCredential.version(credential)
       refute login.must_change_password
 
@@ -138,7 +159,7 @@ defmodule Ankole.IdentityProviders.LocalPasswordTest do
       # The reset writes a new credential row; failures against the old
       # password stop counting, including when the reset ran in another OS
       # process (a rescue command) that cannot reach this RetryGuard.
-      assert {:ok, initial_password} = LocalCredentials.reset_local_password(principal.uid, true)
+      assert {:ok, initial_password} = LocalPassword.reset_local_password(principal.uid, true)
 
       assert {:ok, %{must_change_password: true}} =
                LocalPassword.authenticate(email, initial_password)

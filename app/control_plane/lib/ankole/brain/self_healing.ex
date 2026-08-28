@@ -15,12 +15,14 @@ defmodule Ankole.Brain.SelfHealing do
   alias Ankole.Brain.Config
   alias Ankole.Brain.Embeddings
   alias Ankole.Brain.Jobs.ProcessChannelSlice
+  alias Ankole.Brain.LibraryKnowledge
   alias Ankole.Brain.Objects
   alias Ankole.Brain.Schemas.Chunk
   alias Ankole.Brain.Schemas.Claim
   alias Ankole.Brain.Schemas.Object
   alias Ankole.Brain.SearchIndexes
   alias Ankole.Brain.SignalsLearning
+  alias Ankole.Logging
   alias Ankole.Repo
 
   @embed_batch_limit 500
@@ -33,12 +35,22 @@ defmodule Ankole.Brain.SelfHealing do
   @spec sweep() :: {:ok, map()} | {:error, term()}
   def sweep do
     if Config.enabled?() do
+      # Library knowledge first: pages it lands get their chunks and
+      # embeddings in the same sweep instead of one cycle later.
+      library_knowledge = sync_library_knowledge()
       rechunked = rechunk_stale_objects()
       embedded = embed_pending()
       indexes = ensure_indexes()
       slices = sweep_idle_channels()
 
-      {:ok, %{rechunked: rechunked, embedded: embedded, indexes: indexes, slices: slices}}
+      {:ok,
+       %{
+         library_knowledge: library_knowledge,
+         rechunked: rechunked,
+         embedded: embedded,
+         indexes: indexes,
+         slices: slices
+       }}
     else
       {:ok, %{status: :brain_disabled}}
     end
@@ -105,6 +117,7 @@ defmodule Ankole.Brain.SelfHealing do
     internal_prefix = Claims.internal_provenance_prefix() <> "%"
 
     Claim
+    |> Claims.filter_live_parents()
     |> where(
       [claim],
       is_nil(claim.embedded_at) or claim.embedding_signature != ^signature
@@ -124,12 +137,12 @@ defmodule Ankole.Brain.SelfHealing do
     end)
   end
 
-  defp embed_batch(rows, signature, text_fun) do
+  defp embed_batch(rows, target_signature, text_fun) do
     texts = Enum.map(rows, text_fun)
     now = DateTime.utc_now(:microsecond)
 
     case Embeddings.embed_texts(texts) do
-      {:ok, vectors} ->
+      {:ok, {vectors, signature}} ->
         rows
         |> Enum.zip(vectors)
         |> Enum.each(fn {row, vector} ->
@@ -152,7 +165,7 @@ defmodule Ankole.Brain.SelfHealing do
           row
           |> Ecto.Changeset.change(
             embedding: nil,
-            embedding_signature: signature,
+            embedding_signature: target_signature,
             embedding_error: error,
             embedded_at: nil
           )
@@ -167,6 +180,22 @@ defmodule Ankole.Brain.SelfHealing do
     case SearchIndexes.ensure_current() do
       {:ok, actions} -> actions
       {:error, reason} -> [%{error: inspect(reason)}]
+    end
+  end
+
+  defp sync_library_knowledge do
+    case LibraryKnowledge.sync() do
+      {:ok, report} ->
+        report
+
+      {:error, reason} ->
+        Logging.warning(
+          "brain.self_healing.library_knowledge_failed",
+          "library knowledge synchronization failed",
+          %{reason: inspect(reason)}
+        )
+
+        %{status: :error, reason: inspect(reason)}
     end
   end
 

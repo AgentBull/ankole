@@ -47,8 +47,8 @@ export function turnStartForTest() {
     actor_event: {
       actor_event_id: '00000000-0000-0000-0000-000000000001',
       queue_sequence: 1,
-      type: 'check_back_later.wakeup',
-      source_event_id: 'schedule-1',
+      type: 'im.message.addressed',
+      source_event_id: 'message-1',
       payload_json: {}
     },
     model_ref: {

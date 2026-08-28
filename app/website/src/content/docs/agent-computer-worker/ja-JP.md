@@ -51,7 +51,6 @@ worker が生成するすべてのツール結果は、直接コミットされ�
 
 ```text
 /agents/<agent-key>/
-├── .codex/
 ├── SOUL.md
 ├── MISSION.md
 ├── DESIGN.md
@@ -60,11 +59,13 @@ worker が生成するすべてのツール結果は、直接コミットされ�
 ├── sessions/<workspace-id>/
 └── jobs/<job-id>/
     ├── .codex/config.toml
-    ├── .ankole/skills/
+    ├── AGENTS.md
     └── temp/
 ```
 
 モデルはコンテナ内の絶対パスを見ます。Worker はパスを変換しません。`SOUL.md` と `MISSION.md` は Agent の挙動と責任を定義します。`DESIGN.md` は視覚的な作業のためのデザインシステムです。[Agent Library](../agent-library/) がこの 3 つを管理します。`installed-skills/`、`sessions/`、`jobs/` は Skill、会話ワークスペース、Background Agent Job ワークスペースを保持します。PostgreSQL は各 Session に 10000 から始まる安定した数値ワークスペース ID を割り当てます。
+
+現在の Codex Home は `/var/lib/ankole/codex/<agent-key>/.codex` にある再構築可能な Worker ローカルシャードであり、Agent Home の一部ではありません。Background Agent Job は Ankole `skill_view` を通して Skill を読み込み、Skill root を Job ワークスペースへコピーしません。
 
 ## ストリーミングと進捗
 

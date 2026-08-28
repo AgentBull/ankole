@@ -378,7 +378,7 @@ defmodule Ankole.AIAgent.Library.SourceReader do
              "relative_path" => normalized_relative_path,
              "skill_root" => root_label,
              "tags" => metadata.tags,
-             "disable_model_invocation" => metadata.disable_model_invocation
+             "brain_recall_only" => metadata.brain_recall_only
            }
            |> Ankole.Attrs.maybe_put("category", metadata.category)
            |> Ankole.Attrs.maybe_put("ankole-runtime", metadata.ankole_runtime),
@@ -422,8 +422,8 @@ defmodule Ankole.AIAgent.Library.SourceReader do
              {:error, {:skill_name_directory_mismatch, name, directory_name}},
          {:ok, description} <- skill_description(frontmatter),
          {:ok, default_enabled} <- yaml_boolean(frontmatter, "default_enabled", true),
-         {:ok, disable_model_invocation} <-
-           yaml_boolean(frontmatter, "disable-model-invocation", false),
+         {:ok, brain_recall_only} <-
+           yaml_boolean(frontmatter, "brain-recall-only", false),
          {:ok, ankole_runtime} <-
            normalize_ankole_runtime(yaml_scalar(frontmatter, "ankole-runtime")) do
       {:ok,
@@ -433,7 +433,7 @@ defmodule Ankole.AIAgent.Library.SourceReader do
          default_enabled: default_enabled,
          tags: yaml_tags(frontmatter),
          category: yaml_scalar(frontmatter, "category"),
-         disable_model_invocation: disable_model_invocation,
+         brain_recall_only: brain_recall_only,
          ankole_runtime: ankole_runtime
        }}
     else
@@ -583,7 +583,14 @@ defmodule Ankole.AIAgent.Library.SourceReader do
     Application.get_env(:ankole, Ankole.AIAgent.Library, [])
   end
 
-  defp library_root do
+  @doc """
+  The configured product library root. Every reader of shipped library
+  content — skills, templates, the schema-pack vocabulary, and knowledge
+  pages — resolves paths from this one owner, so the `ANKOLE_LIBRARY_ROOT`
+  release override applies to all of them.
+  """
+  @spec library_root() :: String.t()
+  def library_root do
     library_config()
     |> Keyword.get(:library_root, @default_library_root)
     |> Path.expand()

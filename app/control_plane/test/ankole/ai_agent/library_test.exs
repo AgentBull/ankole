@@ -24,14 +24,35 @@ defmodule Ankole.AIAgent.LibraryTest do
     assert research["relative_path"] ==
              "agent-plugins/deep-research/skills/create-deep-research"
 
-    assert {:ok, prompt_skills} = Library.skills_for_system_prompt(agent.uid)
-    prompt_research = Enum.find(prompt_skills, &(&1["skill_name"] == "create-deep-research"))
-    assert prompt_research["source_kind"] == "builtin"
-    assert prompt_research["agent_plugin_id"] == "deep-research"
-    assert prompt_research["skill_root"] == "library"
+    assert {:ok, %{"skills" => runtime_skills, "agent_plugins" => agent_plugins}} =
+             Library.runtime_catalog_for_agent(agent.uid)
+
+    runtime_research = Enum.find(runtime_skills, &(&1["skill_name"] == "create-deep-research"))
+    assert runtime_research["source_kind"] == "builtin"
+    assert runtime_research["agent_plugin_id"] == "deep-research"
+    assert runtime_research["skill_root"] == "library"
+
+    research_plugin = Enum.find(agent_plugins, &(&1["id"] == "deep-research"))
+
+    assert Enum.any?(
+             research_plugin["skills"],
+             &(&1["catalog_name"] == runtime_research["skill_name"])
+           )
+
+    lineage = Enum.find(skills, &(&1["skill_name"] == "idea-lineage"))
+    assert lineage["metadata"]["brain_recall_only"]
+
+    runtime_lineage = Enum.find(runtime_skills, &(&1["skill_name"] == "idea-lineage"))
+    assert runtime_lineage["metadata"]["brain_recall_only"]
+
+    assert {:ok, shipped_sources} = Library.shipped_skill_sources()
+    assert Enum.count(shipped_sources, &(&1.name == "idea-lineage")) == 1
 
     assert {:ok, research_view} = Library.skill_view(agent.uid, "create-deep-research")
     assert research_view["content"] =~ "Deep Research"
+
+    assert {:ok, lineage_view} = Library.skill_view(agent.uid, "idea-lineage")
+    assert lineage_view["content"] =~ "Idea lineage"
 
     for skill_name <- ~w(lark-im lark-office-suite lark-oa) do
       assert %AgentSkill{
@@ -259,8 +280,7 @@ defmodule Ankole.AIAgent.LibraryTest do
                  description: "Agent-installed note-taking skill.",
                  default_enabled: true,
                  tags: ["notes"],
-                 category: "custom",
-                 disable_model_invocation: false
+                 category: "custom"
                }
              ])
 
@@ -270,6 +290,10 @@ defmodule Ankole.AIAgent.LibraryTest do
     assert installed["source_kind"] == "installed"
     assert installed["relative_path"] == "agent-notes"
     assert installed["category"] == "custom"
+
+    assert {:ok, runtime_skills} = Library.runtime_skills_for_agent(agent.uid)
+    runtime_installed = Enum.find(runtime_skills, &(&1["skill_name"] == "agent-notes"))
+    assert runtime_installed["metadata"]["category"] == "custom"
 
     assert {:error, :skill_file_not_found} = Library.skill_view(agent.uid, "agent-notes")
 
@@ -296,8 +320,7 @@ defmodule Ankole.AIAgent.LibraryTest do
                  "description" => "Agent-installed note-taking skill.",
                  "default_enabled" => true,
                  "tags" => ["notes"],
-                 "category" => "custom",
-                 "disable_model_invocation" => false
+                 "category" => "custom"
                }
              ])
 
@@ -322,8 +345,7 @@ defmodule Ankole.AIAgent.LibraryTest do
                  skill_name: "pdf",
                  description: "Conflicting installed Skill.",
                  default_enabled: true,
-                 tags: [],
-                 disable_model_invocation: false
+                 tags: []
                }
              ])
 
@@ -382,6 +404,28 @@ defmodule Ankole.AIAgent.LibraryTest do
 
     assert %AgentSkill{synced_at: ^old_sync} =
              Repo.get_by!(AgentSkill, agent_uid: agent.uid, skill_name: "lark-im")
+  end
+
+  test "Agent Plugin overrides store only explicit choices" do
+    %{principal: agent} = agent_fixture()
+
+    assert [[0]] = Repo.query!("SELECT count(*) FROM agent_plugin_overrides").rows
+
+    assert {:ok, %{agent_plugin_id: "deep-research", enabled: false}} =
+             AgentPlugins.set_agent_override(agent.uid, "deep-research", false)
+
+    assert [["deep-research", false]] =
+             Repo.query!(
+               """
+               SELECT agent_plugin_id, enabled
+               FROM agent_plugin_overrides
+               WHERE agent_uid = $1
+               """,
+               [agent.uid]
+             ).rows
+
+    assert {:ok, nil} = AgentPlugins.set_agent_override(agent.uid, "deep-research", nil)
+    assert [[0]] = Repo.query!("SELECT count(*) FROM agent_plugin_overrides").rows
   end
 
   test "a sync with unchanged sources rewrites no registry rows" do
@@ -503,10 +547,10 @@ defmodule Ankole.AIAgent.LibraryTest do
            ] == "background_job"
 
     %{principal: agent} = agent_fixture()
-    assert {:ok, prompt_skills} = Library.skills_for_system_prompt(agent.uid)
-    prompt_shadowed = Enum.find(prompt_skills, &(&1["skill_name"] == "shadowed"))
-    assert prompt_shadowed["skill_root"] == "internal"
-    assert prompt_shadowed["metadata"]["skill_root"] == "internal"
+    assert {:ok, runtime_skills} = Library.runtime_skills_for_agent(agent.uid)
+    runtime_shadowed = Enum.find(runtime_skills, &(&1["skill_name"] == "shadowed"))
+    assert runtime_shadowed["skill_root"] == "internal"
+    assert runtime_shadowed["metadata"]["skill_root"] == "internal"
 
     with_library_config(
       library_root: Path.join(root, "library"),
@@ -554,7 +598,6 @@ defmodule Ankole.AIAgent.LibraryTest do
       description: "Installed #{name} Skill.",
       default_enabled: true,
       tags: [],
-      disable_model_invocation: false,
       ankole_runtime: runtime
     }
   end

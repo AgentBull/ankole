@@ -19,7 +19,6 @@ defmodule Ankole.IdentityProviders do
 
   @adapter_contract_id "principals.identity_provider"
   @credential_check_capability "credential_check"
-  @legacy_secret_mask "********"
 
   @type adapter :: %{
           adapter_id: String.t(),
@@ -370,7 +369,10 @@ defmodule Ankole.IdentityProviders do
   defp provider_config_for_write(adapter, config_key, config) do
     case AppConfigure.get_by_key(config_key) do
       {:ok, existing} when is_map(existing) ->
-        {:ok, ConfigSecrets.preserve(adapter.fields, config, existing, [@legacy_secret_mask])}
+        {:ok,
+         ConfigSecrets.preserve(adapter.fields, config, existing,
+           placeholders: [nil, "", "********"]
+         )}
 
       :error ->
         {:ok, config}

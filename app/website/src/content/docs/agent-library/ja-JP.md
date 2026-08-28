@@ -29,6 +29,14 @@ Agent の実効的な能力は、2 つの層を持ってカタログを走査す
 
 これが、Console の [Agent Library の能力](../console-api/) ルートが公開するモデルです。全体の既定値を設定し、その後 Agent ごとに狭めたり広げたりします。
 
+## Brain からだけ想起する Skill の発見
+
+同梱の standalone Skill または Agent Plugin member は、`brain-recall-only: true` を宣言できます。同梱 Skill は 1 つのグローバルな名前空間を共有するため、Plugin への所属は Skill 名を変えません。Agent がインストールした Skill はこの mode に参加しません。
+
+Agent Library は完全な実効 Skill セットを Worker に送ります。通常の Skill は model に見える Skill カタログへ入ります。Brain からだけ想起する Skill は `skill_view` の読み込み可能な集合に残りますが、カタログからは除外されます。library sweep は名前、説明、tag だけを、`lazyload-agent-skills/<skill-name>` の軽量な Brain レコードとして projection します。Skill の本文、リソース、Agent 固有の教訓は、それぞれを所有する file と database の経路に残ります。
+
+projection は instance で共有され、1 つの Agent が Skill を無効にしても削除されません。Brain query と `skill_view` は、その Agent の現在の Plugin と Skill の実効状態をどちらも適用します。そのため、無効なレコードは想起枠を消費せず、読み込むこともできません。能力を再び有効にすると、既存の projection がそのまま利用可能になります。
+
 ## Agent の永続ドキュメントと Skill 教訓
 
 能力に加えて、library は Agent 自身の書き込み可能なドキュメントと Agent 固有の Skill 指針を保持します。

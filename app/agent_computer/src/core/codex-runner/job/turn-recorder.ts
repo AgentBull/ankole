@@ -800,7 +800,6 @@ function planStatus(value: unknown): BackgroundAgentJobTurnPlan['steps'][number]
     case 'pending':
       return 'pending'
     case 'inProgress':
-    case 'in_progress':
       return 'in_progress'
     case 'completed':
       return 'completed'

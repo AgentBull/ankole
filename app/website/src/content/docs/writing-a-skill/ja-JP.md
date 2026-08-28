@@ -49,6 +49,25 @@ platforms: [linux]
 
 `description` は具体的な trigger を述べる必要があります。Agent はそれを使って Skill を読み取るかどうかを判断するからです。Job の分離が必要な仕事には `ankole-runtime: background_job` を設定します。Skill が Linux の tool を必要とする場合のみ、`platforms: [linux]` を設定します。
 
+### 同梱 Skill を Brain から発見できるようにする
+
+すべての Prompt に表示する必要はないが、現在の作業と意味的に関連するときに発見すべき SOP や方法論には、`brain-recall-only` を使用します。
+
+```yaml
+---
+name: idea-lineage
+description: Trace how one idea evolved through memory — first mention, best articulation, reversals, and the current live version, each cited from stored evidence.
+tags:
+  - idea lineage
+  - how my thinking evolved
+brain-recall-only: true
+---
+```
+
+このフィールドを使用できるのは、同梱の standalone Skill と Agent Plugin 内の Skill だけです。Agent がインストールした Skill は、この発見 mode を使用しません。同梱 Skill の名前は引き続きグローバルに一意であり、Agent Plugin への所属によって namespace は追加されません。Brain は標準 Skill metadata から `lazyload-agent-skills/<name>` の発見レコードを自動的に派生します。
+
+Skill に `slug`、`type`、`title`、`aliases` などの Object フィールドを追加しないでください。Brain は `name`、`description`、`tags` を検索し、名前と tag を自然言語の解決に使います。Skill の本文、その他すべての Skill file、Agent 固有の教訓は Brain に入りません。発見後も `skill_view` からだけ読み取れます。
+
 ### 本文を書く
 
 あなたのローカルな規則を知らない有能な Agent のために書きましょう。次のことを述べます。
@@ -80,6 +99,8 @@ dependencies:
 ### Skill を検証する
 
 テスト用の Agent で Skill を有効にし、実際の task を与えてください。Agent が Skill を選択し、必要な file を読み取り、完了基準に従うことを確認します。選択に失敗する場合は `description` を改善します。実行が不安定な場合は、順序と制約を明示します。
+
+`brain-recall-only` Skill では、通常の Prompt に表示されないことと、Brain が名前、説明、tag から発見できることも確認してください。`skill_view` が互換性のある実行 surface では完全な Skill を読み込み、互換性のない surface では既存の routing または rejection の動作を保つことを確認します。その後、Skill または親 Agent Plugin を無効にし、同じ Agent が発見も読み込みもできないことを確認します。
 
 ## Control Plane Plugin を開発する
 

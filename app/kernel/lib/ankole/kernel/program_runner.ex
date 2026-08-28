@@ -14,7 +14,14 @@ defmodule Ankole.Kernel.ProgramRunner do
 
   alias Ankole.Kernel
 
+  @run_option_keys [:max_pending_calls, :max_pending_bytes, :max_memo_bytes]
+
   @type run_id :: String.t()
+
+  @type run_option ::
+          {:max_pending_calls, non_neg_integer()}
+          | {:max_pending_bytes, non_neg_integer()}
+          | {:max_memo_bytes, non_neg_integer()}
 
   @type memo_entry :: %{
           required(String.t()) => term()
@@ -53,13 +60,21 @@ defmodule Ankole.Kernel.ProgramRunner do
           {:ok, outcome()} | {:error, String.t()}
   def run(run_id, program, tools, memo)
       when is_binary(run_id) and is_binary(program) and is_list(tools) and is_list(memo) do
-    request = %{
-      "program" => program,
-      "tools" => tools,
-      "memo" => memo
-    }
+    run(run_id, program, tools, memo, [])
+  end
 
-    with {:ok, request_json} <- Torque.encode(request),
+  @doc false
+  @spec run(run_id(), String.t(), [tool_binding()], [memo_entry()], [run_option()]) ::
+          {:ok, outcome()} | {:error, String.t()}
+  def run(run_id, program, tools, memo, options)
+      when is_binary(run_id) and is_binary(program) and is_list(tools) and is_list(memo) and
+             is_list(options) do
+    with {:ok, options} <- validate_run_options(options),
+         request =
+           Enum.reduce(options, %{"program" => program, "tools" => tools, "memo" => memo}, fn
+             {key, value}, request -> Map.put(request, Atom.to_string(key), value)
+           end),
+         {:ok, request_json} <- Torque.encode(request),
          outcome_json when is_binary(outcome_json) <- Kernel.program_run_nif(run_id, request_json),
          {:ok, outcome} <- Torque.decode(outcome_json) do
       {:ok, decode_outcome(outcome)}
@@ -81,6 +96,17 @@ defmodule Ankole.Kernel.ProgramRunner do
       {:error, reason} when is_binary(reason) -> {:error, reason}
       {:error, reason} -> {:error, inspect(reason)}
       result -> {:error, "invalid program cancellation result: #{inspect(result)}"}
+    end
+  end
+
+  defp validate_run_options(options) do
+    case Keyword.validate(options, @run_option_keys) do
+      {:ok, options} ->
+        {:ok, options}
+
+      {:error, unsupported} ->
+        {:error,
+         "unsupported program run options: #{Enum.map_join(unsupported, ", ", &inspect/1)}"}
     end
   end
 

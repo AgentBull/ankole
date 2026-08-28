@@ -89,13 +89,16 @@ import {
   ankoleWebBrainControllerArchiveSource,
   ankoleWebBrainControllerCreateSource,
   ankoleWebBrainControllerDecideContradiction,
+  ankoleWebBrainControllerDecideMergeSuggestion,
   ankoleWebBrainControllerDecideSuggestion,
   ankoleWebBrainControllerForgetClaim,
   ankoleWebBrainControllerForgetObject,
+  ankoleWebBrainControllerForkObject,
   ankoleWebBrainControllerHealth,
   ankoleWebBrainControllerLearnSource,
   ankoleWebBrainControllerListClaims,
   ankoleWebBrainControllerListContradictions,
+  ankoleWebBrainControllerListMergeSuggestions,
   ankoleWebBrainControllerListObjects,
   ankoleWebBrainControllerListSources,
   ankoleWebBrainControllerListSuggestions,
@@ -401,12 +404,16 @@ import type {
   AnkoleWebBrainControllerCreateSourceResponse,
   AnkoleWebBrainControllerDecideContradictionData,
   AnkoleWebBrainControllerDecideContradictionResponse,
+  AnkoleWebBrainControllerDecideMergeSuggestionData,
+  AnkoleWebBrainControllerDecideMergeSuggestionResponse,
   AnkoleWebBrainControllerDecideSuggestionData,
   AnkoleWebBrainControllerDecideSuggestionResponse,
   AnkoleWebBrainControllerForgetClaimData,
   AnkoleWebBrainControllerForgetClaimResponse,
   AnkoleWebBrainControllerForgetObjectData,
   AnkoleWebBrainControllerForgetObjectResponse,
+  AnkoleWebBrainControllerForkObjectData,
+  AnkoleWebBrainControllerForkObjectResponse,
   AnkoleWebBrainControllerHealthData,
   AnkoleWebBrainControllerHealthResponse,
   AnkoleWebBrainControllerLearnSourceData,
@@ -415,6 +422,8 @@ import type {
   AnkoleWebBrainControllerListClaimsResponse,
   AnkoleWebBrainControllerListContradictionsData,
   AnkoleWebBrainControllerListContradictionsResponse,
+  AnkoleWebBrainControllerListMergeSuggestionsData,
+  AnkoleWebBrainControllerListMergeSuggestionsResponse,
   AnkoleWebBrainControllerListObjectsData,
   AnkoleWebBrainControllerListObjectsResponse,
   AnkoleWebBrainControllerListSourcesData,
@@ -973,6 +982,34 @@ export const ankoleWebAiGatewayFilesControllerShowOptions = (
     queryKey: ankoleWebAiGatewayFilesControllerShowQueryKey(options)
   })
 
+export const ankoleWebBrainControllerListMergeSuggestionsQueryKey = (
+  options?: Options<AnkoleWebBrainControllerListMergeSuggestionsData>
+) => createQueryKey('ankoleWebBrainControllerListMergeSuggestions', options)
+
+/**
+ * List duplicate-page merge suggestions
+ */
+export const ankoleWebBrainControllerListMergeSuggestionsOptions = (
+  options?: Options<AnkoleWebBrainControllerListMergeSuggestionsData>
+) =>
+  queryOptions<
+    AnkoleWebBrainControllerListMergeSuggestionsResponse,
+    DefaultError,
+    AnkoleWebBrainControllerListMergeSuggestionsResponse,
+    ReturnType<typeof ankoleWebBrainControllerListMergeSuggestionsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebBrainControllerListMergeSuggestions({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebBrainControllerListMergeSuggestionsQueryKey(options)
+  })
+
 export const ankoleWebAppConfigurationControllerIndexQueryKey = (
   options?: Options<AnkoleWebAppConfigurationControllerIndexData>
 ) => createQueryKey('ankoleWebAppConfigurationControllerIndex', options)
@@ -1431,6 +1468,33 @@ export const ankoleWebBrainControllerListSuggestionsOptions = (
     },
     queryKey: ankoleWebBrainControllerListSuggestionsQueryKey(options)
   })
+
+/**
+ * Fork one library-managed page into instance ownership
+ */
+export const ankoleWebBrainControllerForkObjectMutation = (
+  options?: Partial<Options<AnkoleWebBrainControllerForkObjectData>>
+): UseMutationOptions<
+  AnkoleWebBrainControllerForkObjectResponse,
+  DefaultError,
+  Options<AnkoleWebBrainControllerForkObjectData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebBrainControllerForkObjectResponse,
+    DefaultError,
+    Options<AnkoleWebBrainControllerForkObjectData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebBrainControllerForkObject({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
 
 /**
  * Create a stateless OpenResponses response
@@ -4691,6 +4755,33 @@ export const ankoleWebPermissionGrantControllerUpdateMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await ankoleWebPermissionGrantControllerUpdate({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * Approve or reject one merge suggestion
+ */
+export const ankoleWebBrainControllerDecideMergeSuggestionMutation = (
+  options?: Partial<Options<AnkoleWebBrainControllerDecideMergeSuggestionData>>
+): UseMutationOptions<
+  AnkoleWebBrainControllerDecideMergeSuggestionResponse,
+  DefaultError,
+  Options<AnkoleWebBrainControllerDecideMergeSuggestionData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebBrainControllerDecideMergeSuggestionResponse,
+    DefaultError,
+    Options<AnkoleWebBrainControllerDecideMergeSuggestionData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebBrainControllerDecideMergeSuggestion({
         ...options,
         ...fnOptions,
         throwOnError: true

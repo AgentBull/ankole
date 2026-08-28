@@ -1,6 +1,8 @@
 import {
   Badge,
   Button,
+  buttonVariants,
+  cn,
   Dialog,
   DialogClose,
   DialogContent,
@@ -30,6 +32,7 @@ import { useTranslation } from 'react-i18next'
 import { Link, Outlet, useNavigate, useParams } from 'react-router'
 import {
   ankoleWebBrainControllerForgetObjectMutation,
+  ankoleWebBrainControllerForkObjectMutation,
   ankoleWebBrainControllerListObjectsOptions,
   ankoleWebBrainControllerListObjectsQueryKey,
   ankoleWebBrainControllerObjectVersionsOptions,
@@ -143,7 +146,10 @@ function BrainObjectsList() {
           <TableCell className="max-w-[360px] truncate">{object.title}</TableCell>
           <TableCell className="text-xs text-muted-foreground">{formatConsoleDate(object.updated_at)}</TableCell>
           <TableCell>
-            {object.deleted_at ? <Badge variant="destructive">{t('console.brain.deleted')}</Badge> : null}
+            <div className="flex flex-wrap gap-1">
+              {object.library_managed ? <Badge variant="outline">{t('console.brain.library_managed')}</Badge> : null}
+              {object.deleted_at ? <Badge variant="destructive">{t('console.brain.deleted')}</Badge> : null}
+            </div>
           </TableCell>
           <RowViewAction label={t('common.open')} to={brainObjectPath(object.slug)} />
         </TableRow>
@@ -157,9 +163,10 @@ export function BrainObjectDrawer() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const params = useParams()
-  const slug = (params['*'] ?? '').split('/').map(decodeURIComponent).join('/')
+  const slug = params['*'] ?? ''
   const [forgetOpen, setForgetOpen] = useState(false)
   const [forgetReason, setForgetReason] = useState('')
+  const [forkOpen, setForkOpen] = useState(false)
   const [rollbackVersionID, setRollbackVersionID] = useState<string>()
 
   const detail = useQuery({
@@ -208,8 +215,17 @@ export function BrainObjectDrawer() {
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
+  const fork = useMutation({
+    ...ankoleWebBrainControllerForkObjectMutation(),
+    onSuccess: () => {
+      setForkOpen(false)
+      toast.success(t('console.brain.fork_object_done', { slug }))
+      invalidate()
+    },
+    onError: error => toast.error(requestErrorMessage(error))
+  })
 
-  const busy = rollback.isPending || forget.isPending || restore.isPending
+  const busy = rollback.isPending || forget.isPending || restore.isPending || fork.isPending
   const requestClose = () => {
     if (!busy) navigate('/brain/objects')
   }
@@ -234,6 +250,7 @@ export function BrainObjectDrawer() {
               {page ? (
                 <Badge variant="secondary">{page.subtype ? `${page.type}/${page.subtype}` : page.type}</Badge>
               ) : null}
+              {page?.library_managed ? <Badge variant="outline">{t('console.brain.library_managed')}</Badge> : null}
               {page?.deleted ? <Badge variant="destructive">{t('console.brain.deleted')}</Badge> : null}
               {page?.tags.map(tag => (
                 <Badge key={tag} variant="outline">
@@ -243,14 +260,36 @@ export function BrainObjectDrawer() {
             </div>
             <DrawerTitle className="text-lg tracking-normal normal-case">{page?.title ?? slug}</DrawerTitle>
             <DrawerDescription className="text-left break-all font-mono text-xs">{slug}</DrawerDescription>
-            {page && !page.deleted ? (
+            {/* Ordinary library pages can be forked. Lazy Skill discovery
+                records stay projection-owned and use Agent Library controls. */}
+            {page?.library_managed && page.type !== 'agent-skills' ? (
+              <div className="grid gap-2">
+                <p className="text-xs text-muted-foreground">{t('console.brain.library_managed_hint')}</p>
+                <div>
+                  <Button size="xs" type="button" variant="outline" onClick={() => setForkOpen(true)}>
+                    {t('console.brain.fork_object')}
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+            {page?.library_managed && page.type === 'agent-skills' ? (
+              <div className="grid gap-2">
+                <p className="text-xs text-muted-foreground">{t('console.brain.library_skill_managed_hint')}</p>
+                <div>
+                  <Link className={cn(buttonVariants({ size: 'xs', variant: 'outline' }))} to="/agent-library">
+                    {t('console.brain.manage_skill_in_library')}
+                  </Link>
+                </div>
+              </div>
+            ) : null}
+            {page && !page.deleted && !page.library_managed ? (
               <div>
                 <Button size="xs" type="button" variant="outline" onClick={() => setForgetOpen(true)}>
                   {t('console.brain.forget_object')}
                 </Button>
               </div>
             ) : null}
-            {page?.deleted ? (
+            {page?.deleted && !page.library_managed ? (
               <div>
                 <Button
                   disabled={restore.isPending}
@@ -439,14 +478,16 @@ export function BrainObjectDrawer() {
                                 {version.body}
                               </TableCell>
                               <TableCell className="text-right">
-                                <Button
-                                  disabled={rollback.isPending}
-                                  size="xs"
-                                  type="button"
-                                  variant="outline"
-                                  onClick={() => setRollbackVersionID(version.id)}>
-                                  {t('console.brain.rollback')}
-                                </Button>
+                                {page.library_managed ? null : (
+                                  <Button
+                                    disabled={rollback.isPending}
+                                    size="xs"
+                                    type="button"
+                                    variant="outline"
+                                    onClick={() => setRollbackVersionID(version.id)}>
+                                    {t('console.brain.rollback')}
+                                  </Button>
+                                )}
                               </TableCell>
                             </TableRow>
                           ))}
@@ -483,6 +524,24 @@ export function BrainObjectDrawer() {
               onClick={() => forget.mutate({ body: { slug, reason: forgetReason.trim() } })}>
               {forget.isPending ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
               {t('console.brain.forget_object')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={forkOpen} onOpenChange={open => !fork.isPending && setForkOpen(open)}>
+        <DialogContent closeLabel={t('common.close')} showCloseButton={!fork.isPending}>
+          <DialogHeader>
+            <DialogTitle>{t('console.brain.fork_object_title')}</DialogTitle>
+            <DialogDescription>{t('console.brain.fork_object_description', { slug })}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose render={<Button variant="outline" />} disabled={fork.isPending}>
+              {t('common.cancel')}
+            </DialogClose>
+            <Button disabled={fork.isPending} onClick={() => fork.mutate({ body: { slug } })}>
+              {fork.isPending ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
+              {t('console.brain.fork_object')}
             </Button>
           </DialogFooter>
         </DialogContent>

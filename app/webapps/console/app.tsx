@@ -21,6 +21,7 @@ import { BrainObjectDrawer, BrainObjectsPage } from './pages/brain/objects'
 import { BrainClaimsPage } from './pages/brain/claims'
 import { BrainContradictionsPage } from './pages/brain/contradictions'
 import { BrainSuggestionsPage } from './pages/brain/suggestions'
+import { BrainMergeSuggestionsPage } from './pages/brain/merge-suggestions'
 import { BrainSourcesPage } from './pages/brain/sources'
 import { BrainSearchPreviewPage } from './pages/brain/search-preview'
 import { BrainPrincipalAuditPage } from './pages/brain/principal-audit'
@@ -81,6 +82,7 @@ export function createConsoleRouter(queryClient: QueryClient) {
               { path: 'brain/claims', element: <BrainClaimsPage /> },
               { path: 'brain/contradictions', element: <BrainContradictionsPage /> },
               { path: 'brain/suggestions', element: <BrainSuggestionsPage /> },
+              { path: 'brain/merge-suggestions', element: <BrainMergeSuggestionsPage /> },
               { path: 'brain/sources', element: <BrainSourcesPage /> },
               { path: 'brain/search-preview', element: <BrainSearchPreviewPage /> },
               { path: 'brain/principal-audit', element: <BrainPrincipalAuditPage /> },

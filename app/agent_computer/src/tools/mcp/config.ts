@@ -4,7 +4,7 @@ import { YAML } from 'bun'
 import { z } from 'zod'
 import type { RuntimeSkillSummary } from '../../lanes/rpc_lane'
 import {
-  normalizeEnabledSkill,
+  isValidSkillName,
   resolveSkillFilesystemRoot,
   skillAvailableInRuntime,
   type AnkoleSkillExecutionRuntime,
@@ -102,7 +102,7 @@ export interface StdioMCPServer extends MCPServerBase {
 export type MCPServerConfig = StreamableHTTPMCPServer | StdioMCPServer
 
 export interface LoadEnabledSkillMCPServersInput {
-  enabledSkills: Array<RuntimeSkillSummary | string>
+  enabledSkills: RuntimeSkillSummary[]
   skillRoots?: SkillFileRoots
   runtime?: AnkoleSkillExecutionRuntime
 }
@@ -116,8 +116,7 @@ export interface LoadEnabledSkillMCPServersInput {
  */
 export async function loadEnabledSkillMCPServers(input: LoadEnabledSkillMCPServersInput): Promise<MCPServerConfig[]> {
   const skills = input.enabledSkills
-    .map(normalizeEnabledSkill)
-    .filter((skill): skill is RuntimeSkillSummary => skill !== undefined)
+    .filter(skill => isValidSkillName(skill.skillName))
     .filter(skill => input.runtime === undefined || skillAvailableInRuntime(skill, input.runtime))
     .sort((left, right) => compareCodePointStrings(left.skillName, right.skillName))
 

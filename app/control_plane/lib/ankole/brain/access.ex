@@ -81,13 +81,15 @@ defmodule Ankole.Brain.Access do
 
   @doc """
   Applies the claim knowledge boundary and current-state predicates to a
-  claims query. Internal terminal claims stay out of every read path.
+  claims query. Claims on soft-deleted Objects and internal terminal claims
+  stay out of every read path; signal-channel claims remain reachable.
   """
   @spec filter_claims(Ecto.Query.t(), t()) :: Ecto.Query.t()
   def filter_claims(query, %__MODULE__{} = access) do
     internal_prefix = Claims.internal_provenance_prefix() <> "%"
 
     query
+    |> Claims.filter_live_parents()
     |> where(
       [claim],
       claim.audience_scope in ^access.scopes or
@@ -144,8 +146,9 @@ defmodule Ankole.Brain.Access do
   Disclosure context: who receives the recalled knowledge. Strict mode
   checks the asker and every present member; relaxed mode checks only the
   asker. A private chat carries only the asker, so both modes behave the
-  same there. A missing asker (Console preview, system assembly) protects
-  no recipient beyond the querier's own knowledge boundary.
+  same there. Relaxed mode with no asker is an explicit open read for
+  Console preview and system assembly. Strict mode requires at least one
+  resolved recipient and otherwise discloses nothing.
   """
   @type disclosure :: %{
           mode: :strict | :relaxed,
@@ -164,9 +167,10 @@ defmodule Ankole.Brain.Access do
         :strict -> List.wrap(disclosure[:asker_uid]) ++ (disclosure[:present_uids] || [])
       end
 
-    case Enum.uniq(recipients) do
-      [] -> true
-      recipients -> Scope.satisfied_by_all?(scope, recipients)
+    case {mode, Enum.uniq(recipients)} do
+      {:relaxed, []} -> true
+      {:strict, []} -> false
+      {_mode, recipients} -> Scope.satisfied_by_all?(scope, recipients)
     end
   end
 

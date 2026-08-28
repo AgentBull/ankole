@@ -634,21 +634,39 @@ defmodule AnkoleWeb.AIGatewayProviderController do
   end
 
   defp error(conn, {:invalid_credential_entry, credential_id}) do
-    error(conn, 422, "invalid_value", "a stored credential entry is invalid; sign in again to replace it", [
-      %{credential_id: credential_id}
-    ])
+    error(
+      conn,
+      422,
+      "invalid_value",
+      "a stored credential entry is invalid; sign in again to replace it",
+      [
+        %{credential_id: credential_id}
+      ]
+    )
   end
 
   defp error(conn, {:invalid_credential_payload, credential_id}) do
-    error(conn, 422, "invalid_value", "a stored credential cannot be read; sign in again to replace it", [
-      %{credential_id: credential_id}
-    ])
+    error(
+      conn,
+      422,
+      "invalid_value",
+      "a stored credential cannot be read; sign in again to replace it",
+      [
+        %{credential_id: credential_id}
+      ]
+    )
   end
 
   defp error(conn, {:credential_decrypt_failed, credential_id, _reason}) do
-    error(conn, 422, "invalid_value", "a stored credential cannot be decrypted; sign in again to replace it", [
-      %{credential_id: credential_id}
-    ])
+    error(
+      conn,
+      422,
+      "invalid_value",
+      "a stored credential cannot be decrypted; sign in again to replace it",
+      [
+        %{credential_id: credential_id}
+      ]
+    )
   end
 
   # Known configuration reasons keep the established envelope but name the

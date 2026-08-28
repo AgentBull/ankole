@@ -18,6 +18,7 @@ export function BrainSubNav() {
         { to: '/brain/claims', label: t('console.brain.claims') },
         { to: '/brain/contradictions', label: t('console.brain.contradictions') },
         { to: '/brain/suggestions', label: t('console.brain.suggestions') },
+        { to: '/brain/merge-suggestions', label: t('console.brain.merge_suggestions') },
         { to: '/brain/sources', label: t('console.brain.sources') },
         { to: '/brain/search-preview', label: t('console.brain.search_preview') },
         { to: '/brain/principal-audit', label: t('console.brain.principal_audit') },

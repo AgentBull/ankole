@@ -210,7 +210,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
         properties: %{
           uid: %Schema{type: :string},
           status: %Schema{type: :string, enum: ["active", "disabled"]},
-          display_name: %Schema{type: :string, nullable: true},
+          display_name: %Schema{type: :string},
           avatar_url: %Schema{type: :string, nullable: true},
           type: %Schema{type: :string, enum: ["ai_colleague"]},
           role: %Schema{type: :string},
@@ -224,6 +224,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
         required: [
           :uid,
           :status,
+          :display_name,
           :type,
           :role,
           :options,

@@ -339,6 +339,13 @@ export type ConsoleReadinessProvider = {
 }
 
 /**
+ * BrainMergeSuggestionListResponse
+ */
+export type BrainMergeSuggestionListResponse = {
+  suggestions: Array<BrainMergeSuggestion>
+}
+
+/**
  * BrainSourceArchiveResponse
  */
 export type BrainSourceArchiveResponse = {
@@ -1302,7 +1309,7 @@ export type AgentComputerWorkerItem = {
 export type AgentItem = {
   avatar_url?: string | null
   created_by_principal_uid?: string | null
-  display_name?: string | null
+  display_name: string
   group_memory_disclosure_mode: 'strict' | 'relaxed'
   inserted_at: string
   options: {
@@ -1505,6 +1512,13 @@ export type ConsoleApiError = {
 }
 
 /**
+ * BrainMergeResultResponse
+ */
+export type BrainMergeResultResponse = {
+  result: JsonValue
+}
+
+/**
  * ScheduleCronScheduleListResponse
  */
 export type ScheduleCronScheduleListResponse = {
@@ -1611,6 +1625,13 @@ export type OAuthErrorResponse = {
  */
 export type AiGatewayChatGptLoginResponse = {
   [key: string]: unknown
+}
+
+/**
+ * BrainObjectForkRequest
+ */
+export type BrainObjectForkRequest = {
+  slug: string
 }
 
 /**
@@ -1784,6 +1805,14 @@ export type BrainClaim = {
   valid_from?: string | null
   valid_until?: string | null
   weight?: number | null
+}
+
+/**
+ * BrainMergeSuggestionDecideRequest
+ */
+export type BrainMergeSuggestionDecideRequest = {
+  canonical_slug?: string | null
+  decision: 'approve' | 'reject'
 }
 
 /**
@@ -1962,6 +1991,10 @@ export type BrainObjectSummary = {
   deleted_at?: string | null
   effective_date?: string | null
   emotional_weight?: number | null
+  /**
+   * True for a product-shipped library knowledge page: the body updates with the product and only forking makes it editable.
+   */
+  library_managed?: boolean
   slug: string
   subtype?: string | null
   title: string
@@ -2151,6 +2184,10 @@ export type BrainObjectPage = {
   deleted: boolean
   effective_date?: string | null
   facts: Array<BrainPageFact>
+  /**
+   * True for a product-shipped library knowledge page: the body updates with the product and only forking makes it editable.
+   */
+  library_managed?: boolean
   links: BrainPageLinks
   meta: {
     [key: string]: unknown
@@ -2324,6 +2361,15 @@ export type BrainSourceCreateRequest = {
 }
 
 /**
+ * BrainMergePageSummary
+ */
+export type BrainMergePageSummary = {
+  slug: string
+  title?: string | null
+  type?: string | null
+}
+
+/**
  * ProviderHostedResponse
  */
 export type ProviderHostedResponse = {
@@ -2371,6 +2417,18 @@ export type SignalDeliveryRequeueResponse = {
 export type ConsoleReadinessWorker = {
   complete: boolean
   ready_count: number
+}
+
+/**
+ * BrainMergeSuggestion
+ */
+export type BrainMergeSuggestion = {
+  a: BrainMergePageSummary
+  b: BrainMergePageSummary
+  created_at: string
+  id: string
+  reason: string
+  status: string
 }
 
 /**
@@ -2874,6 +2932,25 @@ export type AnkoleWebAiGatewayFilesControllerShowResponses = {
 
 export type AnkoleWebAiGatewayFilesControllerShowResponse =
   AnkoleWebAiGatewayFilesControllerShowResponses[keyof AnkoleWebAiGatewayFilesControllerShowResponses]
+
+export type AnkoleWebBrainControllerListMergeSuggestionsData = {
+  body?: never
+  path?: never
+  query?: {
+    status?: string
+  }
+  url: '/api/v1/brain/merge-suggestions'
+}
+
+export type AnkoleWebBrainControllerListMergeSuggestionsResponses = {
+  /**
+   * Merge suggestions
+   */
+  200: BrainMergeSuggestionListResponse
+}
+
+export type AnkoleWebBrainControllerListMergeSuggestionsResponse =
+  AnkoleWebBrainControllerListMergeSuggestionsResponses[keyof AnkoleWebBrainControllerListMergeSuggestionsResponses]
 
 export type AnkoleWebAppConfigurationControllerIndexData = {
   body?: never
@@ -3503,6 +3580,26 @@ export type AnkoleWebBrainControllerListSuggestionsResponses = {
 
 export type AnkoleWebBrainControllerListSuggestionsResponse =
   AnkoleWebBrainControllerListSuggestionsResponses[keyof AnkoleWebBrainControllerListSuggestionsResponses]
+
+export type AnkoleWebBrainControllerForkObjectData = {
+  /**
+   * Fork
+   */
+  body: BrainObjectForkRequest
+  path?: never
+  query?: never
+  url: '/api/v1/brain/objects/fork'
+}
+
+export type AnkoleWebBrainControllerForkObjectResponses = {
+  /**
+   * Object
+   */
+  200: BrainObjectSummaryResponse
+}
+
+export type AnkoleWebBrainControllerForkObjectResponse =
+  AnkoleWebBrainControllerForkObjectResponses[keyof AnkoleWebBrainControllerForkObjectResponses]
 
 export type AnkoleWebAiGatewayControllerResponsesData = {
   /**
@@ -6212,6 +6309,7 @@ export type AnkoleWebBrainControllerListClaimsData = {
     object_slug?: string
     claim_type?: string
     status?: string
+    q?: string
   }
   url: '/api/v1/brain/claims'
 }
@@ -7526,6 +7624,28 @@ export type AnkoleWebPermissionGrantControllerUpdateResponses = {
 
 export type AnkoleWebPermissionGrantControllerUpdateResponse =
   AnkoleWebPermissionGrantControllerUpdateResponses[keyof AnkoleWebPermissionGrantControllerUpdateResponses]
+
+export type AnkoleWebBrainControllerDecideMergeSuggestionData = {
+  /**
+   * Decide
+   */
+  body: BrainMergeSuggestionDecideRequest
+  path: {
+    suggestion_id: string
+  }
+  query?: never
+  url: '/api/v1/brain/merge-suggestions/{suggestion_id}/decide'
+}
+
+export type AnkoleWebBrainControllerDecideMergeSuggestionResponses = {
+  /**
+   * Result
+   */
+  200: BrainMergeResultResponse
+}
+
+export type AnkoleWebBrainControllerDecideMergeSuggestionResponse =
+  AnkoleWebBrainControllerDecideMergeSuggestionResponses[keyof AnkoleWebBrainControllerDecideMergeSuggestionResponses]
 
 export type AnkoleWebAppConfigurationControllerDeleteData = {
   body?: never

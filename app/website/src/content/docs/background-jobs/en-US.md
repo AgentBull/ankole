@@ -13,6 +13,17 @@ Ankole calls it a Background Agent Job because the system stores work with a com
 
 The main Agent can send more information. Most Jobs return questions, failure states, and final results to the original conversation. A Job can also stay silent when you do not ask for an update, so you can inspect it later.
 
+## Choose a Workflow or a Background Agent Job
+
+Both features delegate work, but they own different work shapes:
+
+| Use | Choose it when |
+|---|---|
+| [Workflow](../workflows/) | The input is finite, tasks can run independently, and the stages are fixed before the run starts. It can fan out bounded checks in parallel and return one aggregate result. |
+| Background Agent Job | One long task needs a persistent workspace, file or browser work, later messages, a question for you, or a resumable Codex thread. |
+
+A Workflow task cannot receive a later message, create nested work, or use a Job workspace. A Background Agent Job can change direction as new information arrives. Choose the Job when the work must preserve that ongoing context; choose a Workflow when bounded parallelism is the main requirement.
+
 ## Ask the Agent to create a Job
 
 State the goal in chat and explicitly ask for background execution. For example:
@@ -80,4 +91,4 @@ If you only need to correct the goal, first tell the Agent in the original conve
 - **It fails as soon as it starts:** check the saved Background Agent Jobs model profile and the selected provider's credential-pool status.
 - **It is `waiting_on_user`, but no question arrived:** check the signal routing rule and Channel Provider for the original conversation.
 - **It succeeded but did not return to chat:** first confirm that it was not asked to stay silent. If it was not, open the Job and confirm that it has a result, then check the original conversation's routing rule.
-- **An old Job ignores a model-profile change:** the provider binding is fixed when the Job is created. A profile change affects only new Jobs.
+- **An admitted Job ignores a model-profile change:** the provider binding is fixed at first execution admission. A profile change affects Jobs that have not yet been admitted.

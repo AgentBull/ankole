@@ -94,7 +94,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
   assertNoDuplicateTools(config.tools)
 
   const turnState = createPiTurnState()
-  const { streamFn, recordToolResultsEagerly, close } = createPiStreamFn(config, turnState)
+  const { streamFn, recordToolResultsEagerly, replaceHostedTools, close } = createPiStreamFn(config, turnState)
   const emitPresentationEvent = createPresentationEmitter(config)
   const semaphore = createSemaphore(MAX_PARALLEL_TOOL_EXECUTIONS)
 
@@ -437,7 +437,14 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
       // and the repair only examines a round the nudge left alone. Firing
       // both at once would spend the two one-shot budgets on one response.
       const text = piAssistantText(ctx.message)
-      if (sawToolResults && !nudgedEmptyAfterTools && ctx.message.stopReason === 'stop' && text.trim().length === 0) {
+      let nextContext: typeof ctx.context | undefined
+      if (
+        config.nudgeEmptyAfterTools !== false &&
+        sawToolResults &&
+        !nudgedEmptyAfterTools &&
+        ctx.message.stopReason === 'stop' &&
+        text.trim().length === 0
+      ) {
         nudgedEmptyAfterTools = true
         agent.steer(userMessage(EMPTY_AFTER_TOOL_NUDGE_TEXT))
       } else if (!repairedFinalResponse && ctx.message.stopReason === 'stop' && config.repairFinalResponse) {
@@ -445,12 +452,23 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
         if (repair) {
           repairedFinalResponse = true
           agent.steer(toPiUserMessage(repair))
+          if (config.repairTools) {
+            const identities = new Set(config.repairTools.map(tool => toolIdentity(tool.namespace, tool.name)))
+            nextContext = {
+              ...ctx.context,
+              tools: [
+                ...wrappedTools.filter(tool => identities.has(tool.name)),
+                unknownToolSentinel
+              ] as unknown as PiAgentTool[]
+            }
+          }
+          if (config.repairHostedTools) replaceHostedTools(config.repairHostedTools)
         }
       }
 
       for (const message of steeringMessages) agent.steer(toPiUserMessage(message))
 
-      return undefined
+      return nextContext ? { context: nextContext } : undefined
     },
 
     // The round's last hook, and the only place `roundTerminated` is

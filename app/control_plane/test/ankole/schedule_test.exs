@@ -2113,8 +2113,11 @@ defmodule Ankole.ScheduleTest do
 
       cron_turn_start = turn_start_payload!(cron_envelope)
       cron_turn_ref = cron_turn_start.turn
+      cron_context = decoded_request_context(cron_turn_start)
 
-      assert decoded_request_context(cron_turn_start)["turn_mode"] == "cron"
+      refute Map.has_key?(cron_context, "turn_mode")
+      assert is_map(cron_context["schedule_origin"])
+      assert cron_context["silent_success_allowed"] == false
 
       assert {:ok, [_delivery]} =
                ActorRuntime.handle_turn_accepted(turn_accepted_payload(cron_turn_ref))
@@ -2176,8 +2179,10 @@ defmodule Ankole.ScheduleTest do
              ] =
                List.wrap(turn_start.actor_event)
 
-      assert decoded_request_context(turn_start)["turn_mode"] == "check_back_later"
-      assert decoded_request_context(turn_start)["silent_success_allowed"] == true
+      context = decoded_request_context(turn_start)
+      refute Map.has_key?(context, "turn_mode")
+      assert is_map(context["schedule_origin"])
+      assert context["silent_success_allowed"] == true
 
       assert {:ok, [_delivery]} =
                ActorRuntime.handle_turn_accepted(turn_accepted_payload(turn_ref))
@@ -2234,8 +2239,14 @@ defmodule Ankole.ScheduleTest do
       assert_receive {:actor_lane, envelope}
       turn_start = turn_start_payload!(envelope)
       turn_ref = turn_start.turn
+      context = decoded_request_context(turn_start)
 
-      assert decoded_request_context(turn_start)["turn_mode"] == "cron"
+      assert [%FabricProto.ActorEventEnvelope{type: "cron.fire"}] =
+               List.wrap(turn_start.actor_event)
+
+      refute Map.has_key?(context, "turn_mode")
+      assert is_map(context["schedule_origin"])
+      assert context["silent_success_allowed"] == false
 
       assert {:ok, [_delivery]} =
                ActorRuntime.handle_turn_accepted(turn_accepted_payload(turn_ref))
@@ -2326,7 +2337,14 @@ defmodule Ankole.ScheduleTest do
       assert_receive {:actor_lane, cron_envelope}
       cron_turn_start = turn_start_payload!(cron_envelope)
       cron_turn_ref = cron_turn_start.turn
-      assert decoded_request_context(cron_turn_start)["turn_mode"] == "cron"
+      cron_context = decoded_request_context(cron_turn_start)
+
+      assert [%FabricProto.ActorEventEnvelope{type: "cron.fire"}] =
+               List.wrap(cron_turn_start.actor_event)
+
+      refute Map.has_key?(cron_context, "turn_mode")
+      assert is_map(cron_context["schedule_origin"])
+      assert cron_context["silent_success_allowed"] == false
 
       assert {:ok, [_delivery]} =
                ActorRuntime.handle_turn_accepted(turn_accepted_payload(cron_turn_ref))
@@ -2948,8 +2966,7 @@ defmodule Ankole.ScheduleTest do
         |> Map.put(:max_turns, max_turns)
         |> Map.put(:available_turn_slots, available_turn_slots)
       ),
-      %{authenticated?: true, transport_route: route},
-      Ankole.Kernel.RuntimeFabric.protocol_version()
+      %{authenticated?: true, transport_route: route}
     )
   end
 
@@ -2958,7 +2975,7 @@ defmodule Ankole.ScheduleTest do
   end
 
   defp schedule_rpc(action, request, turn, route) do
-    {module, function, scope, _request_mod} =
+    {module, function, scope, _request_mod, _response_mod} =
       Map.fetch!(Ankole.SignalsGateway.ActorRuntime.RPCLane.operations(), "schedule." <> action)
 
     effect = if scope == :turn_read, do: :read, else: :write

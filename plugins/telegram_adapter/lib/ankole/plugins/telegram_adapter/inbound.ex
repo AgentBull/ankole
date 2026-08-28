@@ -148,7 +148,7 @@ defmodule Ankole.Plugins.TelegramAdapter.Inbound do
     case normalize_message_receive(event, consumer) do
       {:ok, input} -> emit_with_materialization(input, consumer)
       {:ignore, reason} -> {:ok, %{status: :ignored, reason: reason}}
-      {:error, _reason} = error -> error
+      {:error, :invalid_telegram_message} -> {:ok, %{status: :ignored, reason: :invalid_message}}
     end
   end
 

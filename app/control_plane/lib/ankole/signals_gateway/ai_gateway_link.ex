@@ -558,19 +558,45 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
   @spec turn_replay_safe_in_tx(module(), actor_key(), String.t()) :: boolean()
   def turn_replay_safe_in_tx(repo, actor_key, actor_event_id)
       when is_binary(actor_event_id) do
+    turn_replay_safe_in_tx(
+      repo,
+      actor_key,
+      actor_event_id,
+      ["generating", "complete"],
+      false
+    )
+  end
+
+  @doc false
+  @spec exact_turn_replay_safe_in_tx(module(), actor_key(), String.t()) :: boolean()
+  def exact_turn_replay_safe_in_tx(repo, actor_key, actor_event_id)
+      when is_binary(actor_event_id) do
+    turn_replay_safe_in_tx(
+      repo,
+      actor_key,
+      actor_event_id,
+      ["generating", "complete", "error"],
+      true
+    )
+  end
+
+  defp turn_replay_safe_in_tx(repo, actor_key, actor_event_id, statuses, exact_actor_event?) do
     case active_conversation_for_update(repo, actor_key.agent_uid, actor_key.session_id) do
       %Conversation{} = conversation ->
         case AIGateway.list_conversation_responses_in_tx(
                repo,
                actor_key.agent_uid,
                conversation.id,
-               statuses: ["generating", "complete"],
+               statuses: statuses,
                lock: true
              ) do
           {:ok, responses} ->
             responses
             |> Enum.filter(&(actor_event_id in response_actor_event_ids(&1)))
-            |> Enum.all?(&response_replay_safe?/1)
+            |> Enum.all?(fn response ->
+              response_replay_safe?(response) and
+                (not exact_actor_event? or exact_response_owner?(response, actor_event_id))
+            end)
 
           {:error, _reason} ->
             false
@@ -959,6 +985,13 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
   end
 
   defp response_replay_safe?(%Message{}), do: false
+
+  defp exact_response_owner?(%Message{} = response, actor_event_id) do
+    metadata = AIGateway.response_metadata(response)
+
+    response_actor_event_id(response) == actor_event_id and
+      request_ref_actor_event_ids(metadata["request_refs"]) == []
+  end
 
   defp runtime_error(reason, stage) do
     %{

@@ -13,6 +13,7 @@ defmodule Ankole.Brain.GetPage do
 
   alias Ankole.Brain.Access
   alias Ankole.Brain.Markdoc
+  alias Ankole.Brain.LazySkillVisibility
   alias Ankole.Brain.Objects
   alias Ankole.Brain.Recall
   alias Ankole.Brain.Sanitize
@@ -38,11 +39,17 @@ defmodule Ankole.Brain.GetPage do
   def get_page(querier_uid, reference, opts \\ []) do
     disclosure = Keyword.get(opts, :disclosure, Access.open_disclosure())
 
-    with {:ok, access} <- Access.for_querier(querier_uid) do
-      case Objects.resolve_reference(reference) do
-        {:ok, object} -> {:ok, render_page(object, access, disclosure)}
-        {:ambiguous, candidates} -> {:ambiguous, candidates}
-        {:error, :not_found} -> {:error, :not_found}
+    with {:ok, access} <- Access.for_querier(querier_uid),
+         {:ok, visibility} <- LazySkillVisibility.for_querier(querier_uid) do
+      case Objects.resolve_reference(reference, lazy_skill_visibility: visibility) do
+        {:ok, object} ->
+          {:ok, render_page(object, access, disclosure, visibility)}
+
+        {:ambiguous, candidates} ->
+          {:ambiguous, candidates}
+
+        {:error, :not_found} ->
+          {:error, :not_found}
       end
     end
   end
@@ -60,12 +67,17 @@ defmodule Ankole.Brain.GetPage do
         takes = admin_takes(object)
 
         {:ok,
-         Map.merge(page_shell(object), %{
+         Map.merge(page_shell(object, %LazySkillVisibility{}), %{
            rendered: render_markdoc(object, object.body),
+           library_managed: object.managed_by_source_id != nil,
            facts: facts,
            takes: takes,
            contradictions:
-             page_contradictions(claim_ids(facts, takes), fn _counterpart -> true end),
+             page_contradictions(
+               claim_ids(facts, takes),
+               fn _counterpart -> true end,
+               %LazySkillVisibility{}
+             ),
            timelines: admin_timelines(object)
          })}
 
@@ -150,7 +162,7 @@ defmodule Ankole.Brain.GetPage do
 
   # Rendering
 
-  defp render_page(%Object{} = object, access, disclosure) do
+  defp render_page(%Object{} = object, access, disclosure, visibility) do
     keep = fn scope ->
       Access.scope_reachable?(access, scope) and Access.disclosable?(scope, disclosure)
     end
@@ -175,18 +187,18 @@ defmodule Ankole.Brain.GetPage do
       }) and Access.disclosable?(counterpart.audience_scope, disclosure)
     end
 
-    Map.merge(page_shell(object), %{
+    Map.merge(page_shell(object, visibility), %{
       rendered: render_markdoc(object, sanitized_body),
       facts: facts,
       takes: takes,
-      contradictions: page_contradictions(claim_ids(facts, takes), keep_counterpart),
+      contradictions: page_contradictions(claim_ids(facts, takes), keep_counterpart, visibility),
       timelines: page_timelines(object, access, disclosure)
     })
   end
 
   # The scope-independent page projection: metadata is instance-visible, so
   # the filtered and the admin page share it.
-  defp page_shell(%Object{} = object) do
+  defp page_shell(%Object{} = object, visibility) do
     %{
       slug: object.slug,
       type: object.type,
@@ -196,7 +208,7 @@ defmodule Ankole.Brain.GetPage do
       effective_date: object.effective_date,
       content_hash: object.content_hash,
       meta: object.meta,
-      links: page_links(object),
+      links: page_links(object, visibility),
       tags: page_tags(object)
     }
   end
@@ -208,15 +220,23 @@ defmodule Ankole.Brain.GetPage do
   # The counterpart claim passes the caller's keep check: the filtered page
   # applies the two-layer filter so a contradiction row cannot leak a claim
   # the querier cannot reach, and the admin page keeps everything.
-  defp page_contradictions(claim_ids, keep_counterpart?) do
+  defp page_contradictions(claim_ids, keep_counterpart?, visibility) do
     if claim_ids == [] do
       []
     else
+      visible_claim_ids =
+        Claim
+        |> LazySkillVisibility.filter_claims(visibility)
+        |> select([claim], claim.id)
+
       Contradiction
       |> where([contradiction], contradiction.status == "open")
       |> where(
         [contradiction],
-        contradiction.a_claim_id in ^claim_ids or contradiction.b_claim_id in ^claim_ids
+        (contradiction.a_claim_id in ^claim_ids and
+           contradiction.b_claim_id in subquery(visible_claim_ids)) or
+          (contradiction.b_claim_id in ^claim_ids and
+             contradiction.a_claim_id in subquery(visible_claim_ids))
       )
       |> order_by([contradiction], desc: contradiction.created_at)
       |> limit(20)
@@ -344,15 +364,17 @@ defmodule Ankole.Brain.GetPage do
     end)
   end
 
-  defp page_links(object) do
+  defp page_links(object, visibility) do
     outgoing =
       Link
       |> where([link], link.from_object_slug == ^object.slug)
+      |> LazySkillVisibility.filter_links(visibility)
       |> Repo.all()
 
     incoming =
       Link
       |> where([link], link.to_object_slug == ^object.slug)
+      |> LazySkillVisibility.filter_links(visibility)
       |> Repo.all()
 
     %{

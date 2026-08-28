@@ -41,6 +41,7 @@ defmodule Ankole.Principals.Principal do
     |> unique_constraint(:uid, name: :principals_pkey)
     |> check_constraint(:uid, name: :principals_uid_present)
     |> check_constraint(:uid, name: :principals_uid_lowercase)
+    |> check_constraint(:display_name, name: :principals_agent_display_name_present)
   end
 
   @doc """
@@ -51,6 +52,7 @@ defmodule Ankole.Principals.Principal do
     principal
     |> cast(attrs, [:display_name, :avatar_url])
     |> normalize_blank([:display_name, :avatar_url])
+    |> check_constraint(:display_name, name: :principals_agent_display_name_present)
   end
 
   @doc """

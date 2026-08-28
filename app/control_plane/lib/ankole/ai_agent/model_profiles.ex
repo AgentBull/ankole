@@ -26,10 +26,6 @@ defmodule Ankole.AIAgent.ModelProfiles do
     primary light heavy coding vision_fallback web_search web_fetch image_generate
   )
 
-  # Retired Agent profile slots. The names stay reserved so a custom LLM
-  # profile cannot shadow the instance-global Brain model configuration.
-  @retired_profiles ~w(embedding rerank)
-
   # Capabilities a language-model Provider can run inside its own turn, so an
   # Agent can choose between its Provider and an Ankole capability profile.
   @provider_hosted_capabilities ~w(web_search image_generate)
@@ -56,9 +52,7 @@ defmodule Ankole.AIAgent.ModelProfiles do
   """
   @spec custom_profile_name?(term()) :: boolean()
   def custom_profile_name?(profile) when is_binary(profile),
-    do:
-      profile not in @profiles and profile not in @retired_profiles and
-        Regex.match?(@custom_profile_name, profile)
+    do: profile not in @profiles and Regex.match?(@custom_profile_name, profile)
 
   def custom_profile_name?(_profile), do: false
 

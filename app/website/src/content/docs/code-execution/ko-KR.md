@@ -40,11 +40,13 @@ Main Agent는 원시 패치를 `custom_tool_call`로 AIGateway를 통해 보냅�
 ├── sessions/<workspace-id>/
 └── jobs/<job-id>/
     ├── .codex/config.toml
-    ├── .ankole/skills/
+    ├── AGENTS.md
     └── temp/
 ```
 
 `SOUL.md`, `MISSION.md`, `DESIGN.md`는 [Agent Library](../agent-library/)의 영구 문서입니다. 처음 두 개는 책임과 동작을 정의합니다. `DESIGN.md`는 시각 작업을 위한 디자인 시스템입니다. `installed-skills/`는 Agent Skills를 보관합니다. `sessions/`는 10000에서 시작하는 안정적인 PostgreSQL 소유 숫자 ID를 가진 대화 워크스페이스를 보관하고, `jobs/`는 별도의 Background Agent Job 워크스페이스를 보관합니다.
+
+Background Agent Job은 Ankole `skill_view`를 통해 Skill을 로드하며 Skill root를 Job workspace에 복사하지 않습니다.
 
 ## 반복 Python을 위한 Jupyter 라이브 커널
 

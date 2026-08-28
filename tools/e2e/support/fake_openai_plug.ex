@@ -37,6 +37,10 @@ defmodule Ankole.E2E.FakeOpenAIPlug do
       {:tool_call, tool_call} ->
         maybe_stream_tool_call(conn, request, tool_call)
 
+      {:delayed_tool_call, tool_call, delay_ms} ->
+        Process.sleep(delay_ms)
+        maybe_stream_tool_call(conn, request, tool_call)
+
       {:completion, text, opts} ->
         maybe_stream_completion(conn, request, text, opts)
     end
@@ -135,6 +139,8 @@ defmodule Ankole.E2E.FakeOpenAIPlug do
     end
   end
 
+  # Chaos scenarios kill the worker mid tool-call stream, so every write must
+  # tolerate a closed connection instead of crashing the Bandit handler.
   defp stream_tool_call(conn, request, tool_call) do
     conn =
       conn
@@ -148,51 +154,41 @@ defmodule Ankole.E2E.FakeOpenAIPlug do
     arguments = JSON.encode!(tool_call.arguments)
     {left, right} = split_binary(arguments)
 
-    conn = emit_event(conn, chunk(id, model, %{"role" => "assistant"}, nil), split?: false)
-
-    conn =
-      emit_event(
-        conn,
-        chunk(
-          id,
-          model,
-          %{
-            "tool_calls" => [
-              %{
-                "index" => 0,
-                "id" => tool_call.id,
-                "type" => "function",
-                "function" => %{"name" => tool_call.name, "arguments" => left}
-              }
-            ]
-          },
-          nil
-        ),
-        split?: true
+    opening =
+      chunk(
+        id,
+        model,
+        %{
+          "tool_calls" => [
+            %{
+              "index" => 0,
+              "id" => tool_call.id,
+              "type" => "function",
+              "function" => %{"name" => tool_call.name, "arguments" => left}
+            }
+          ]
+        },
+        nil
       )
 
-    conn =
-      emit_event(
-        conn,
-        chunk(
-          id,
-          model,
-          %{
-            "tool_calls" => [
-              %{
-                "index" => 0,
-                "function" => %{"arguments" => right}
-              }
-            ]
-          },
-          nil
-        ),
-        split?: true
+    continuation =
+      chunk(
+        id,
+        model,
+        %{"tool_calls" => [%{"index" => 0, "function" => %{"arguments" => right}}]},
+        nil
       )
 
-    conn = emit_event(conn, chunk(id, model, %{}, "tool_calls"), split?: false)
-    {:ok, conn} = Plug.Conn.chunk(conn, "data: [DONE]\n\n")
-    conn
+    with {:ok, conn} <-
+           safe_emit_event(conn, chunk(id, model, %{"role" => "assistant"}, nil), split?: false),
+         {:ok, conn} <- safe_emit_event(conn, opening, split?: true),
+         {:ok, conn} <- safe_emit_event(conn, continuation, split?: true),
+         {:ok, conn} <- safe_emit_event(conn, chunk(id, model, %{}, "tool_calls"), split?: false),
+         {:ok, conn} <- safe_chunk(conn, "data: [DONE]\n\n") do
+      conn
+    else
+      {:error, _reason, conn} -> conn
+    end
   end
 
   defp stream_completion(conn, request, text, opts) do

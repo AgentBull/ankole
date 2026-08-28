@@ -12,6 +12,7 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
   alias Ecto.Adapters.SQL
   alias FeishuOpenAPI.Client
   alias FeishuOpenAPI.TokenStore
+  alias Ankole.AIAgent.Library
   alias Ankole.AIAgent.Library.AgentPlugins
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.AppConfig
@@ -603,7 +604,7 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
 
     assert {:ok, _override} = AgentPlugins.set_agent_override(agent.uid, "lark", true)
 
-    assert {:ok, catalog} = AgentPlugins.enabled_catalog_for_agent(agent.uid)
+    assert {:ok, %{"agent_plugins" => catalog}} = Library.runtime_catalog_for_agent(agent.uid)
     assert %{"skills" => lark_skills} = Enum.find(catalog, &(&1["id"] == "lark"))
 
     # LarkSkillSourcesTest owns the member Skill list. Enablement is what this test proves.
@@ -758,8 +759,8 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
     SQL.query!(
       Repo,
       """
-      INSERT INTO principals (uid, type, status, inserted_at, updated_at)
-      VALUES ($1, 'agent', 'active', NOW(), NOW())
+      INSERT INTO principals (uid, type, status, display_name, inserted_at, updated_at)
+      VALUES ($1, 'agent', 'active', $1, NOW(), NOW())
       """,
       [uid]
     )

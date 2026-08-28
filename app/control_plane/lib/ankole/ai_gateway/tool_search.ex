@@ -276,9 +276,7 @@ defmodule Ankole.AIGateway.ToolSearch do
     end
   end
 
-
   # Request planning
-
 
   defp build_plan(
          request,
@@ -694,9 +692,7 @@ defmodule Ankole.AIGateway.ToolSearch do
     end
   end
 
-
   # Input item rewriting (history replay)
-
 
   defp rewrite_input_items(%ResponseItems.History{input: input}, _tool_name)
        when not is_list(input),
@@ -876,9 +872,7 @@ defmodule Ankole.AIGateway.ToolSearch do
 
   defp flat_public_specs(_specs), do: {:error, :loaded_tools_must_be_a_list}
 
-
   # Synthesized search tool
-
 
   defp synthesized_search_tool(tool_name, declaration, execution, deferred, loaded_tools) do
     %{
@@ -1044,9 +1038,7 @@ defmodule Ankole.AIGateway.ToolSearch do
     end
   end
 
-
   # Wire value helpers
-
 
   defp public_search_call_id(%Plan{execution: :client}, item) do
     case Map.get(item, "call_id") do

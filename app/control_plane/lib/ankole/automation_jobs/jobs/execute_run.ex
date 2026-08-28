@@ -62,7 +62,7 @@ defmodule Ankole.AutomationJobs.Jobs.ExecuteRun do
   defp do_perform(%Oban.Job{}), do: {:cancel, :missing_automation_job_run_id}
 
   defp dispatch_attempt(job, run, oban_attempt, max_attempts) do
-    with {:ok, skills} <- Library.skills_for_system_prompt(job.agent_uid),
+    with {:ok, skills} <- Library.runtime_skills_for_agent(job.agent_uid),
          request = run_request(job, run, skills),
          {:ok, route} <- WorkerPool.file_worker_route(),
          {:ok, payload} <-

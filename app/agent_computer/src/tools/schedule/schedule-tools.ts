@@ -5,6 +5,7 @@ import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import type { TurnStart } from '../../lanes/actor_lane'
 import { defineWorkerTool, type AgentToolResult, type WorkerAgentTool } from '../../core'
 import { currentReplyRoute, type ReplyRoute } from '../../core/turns/reply_route'
+import { scheduleTurnContextFromTurnStart } from '../../core/turns/schedule_turn_context'
 import { ModelIntegerID, modelIntegerIDToWire } from '../../core/model-integer-id'
 import { jsonToolResult } from '../../core/tool-result'
 import { jsonBytes } from '../../fabric/envelope_proto'
@@ -549,7 +550,7 @@ function rejectCronOriginMutation(params: z.output<typeof CronParams>, turnStart
 }
 
 function isCronOriginTurn(turnStart: TurnStart): boolean {
-  return turnStart.request_context?.turn_mode === 'cron'
+  return scheduleTurnContextFromTurnStart(turnStart)?.mode === 'cron'
 }
 
 /**

@@ -1,13 +1,15 @@
 ---
 title: 自动化蓝图
-description: 把触发器与 Agent session、automation job、后台任务和信号路由规则组合成自动化。
+description: 把触发器与 Agent session、Automation Job、后台任务和信号路由规则组合成自动化，并区分 Workflow。
 section: Guides
 order: 309
 ---
 
 Ankole 的自动化由三种触发器之一与两种消费者之一组合。Agent session 处理需要判断、记忆或对话的工作；automation job 用确定性脚本处理机械工作。本页给出常见形态、可以直接套用的蓝图。
 
-Ankole 不增加工作流语言或步骤图。Automation job 是 Agent Home 内普通的 Bun `main.ts`。触发器 owner 继续负责时间或入口，所选消费者处理不变的事件。只有脚本发出事件或失败策略要求唤醒时，Agent 才返回。
+Automation Job 不是工作流语言或步骤图。它是 Agent Home 内普通的 Bun `main.ts`。触发器 owner 继续负责时间或入口，所选消费者处理不变的事件。只有脚本发出事件或失败策略要求唤醒时，Agent 才返回。
+
+[Workflow](../workflows/) 是另一种执行方式。主 Agent 在一个回合中启动一次固定、有界的子 Agent 编排。Workflow 不是调度或 Webhook 消费者，也不会轮询外部状态。一次投递或会话请求包含有限数量、可并行执行的独立判断时，才应使用它。
 
 ## 三种触发器
 
@@ -103,16 +105,20 @@ Agent 必须检查外部对象当前状态并判断事件时，使用默认的�
 - **想让它中途回来某事？** checkback。agent 掌握时机。
 - **想让长工作被钟点踢一脚？** 调度 + 后台任务。
 - **想做频繁机械检查但不启动模型？** 调度或 Checkback + automation job。
+- **想在一个 Agent 回合中并行执行有界判断？** Workflow。它会向发起会话返回一个汇总结果。
 - **想让外部系统继续工作？** Webhook 委托，消费者选择直接 Agent 或 automation job。
 - **想要安静观察加定期综合？** binding 策略 + schedule。
 
 ## Ankole 里的自动化不是什么
 
-它不是工作流语言，没有 YAML 步骤、平台 DAG、隐藏游标或通用事件总线。Automation job 可以运行小脚本，但脚本自行拥有状态并保证重复执行安全。投递仍使用归属 session 的路由规则，自动化也不能绕过权限。判断交给 Agent，只有机械部分交给脚本。
+触发式自动化不是工作流语言，没有 YAML 步骤、平台 DAG、隐藏游标或通用事件总线。Automation Job 可以运行小脚本，但脚本自行拥有状态并保证重复执行安全。投递仍使用归属 session 的路由规则，自动化也不能绕过权限。
+
+产品中名为 Workflow 的功能也不提供这些合同。它只为一次有界的子 Agent fanout 运行固定 JavaScript，没有触发器订阅，也不能等待后续输入。判断交给 Agent，机械触发处理交给 Automation Job，有界并行判断交给 Workflow。
 
 ## 下一步
 
 - 调度界面，读 [调度](../schedules/)。
 - 确定性脚本消费者，读 [Automation Job](../automation-jobs/)。
+- 有界子 Agent 编排，读 [Workflow](../workflows/)。
 - 后台执行与协作方式，读 [后台 Agent 任务](../background-jobs/)。
 - 外部事件 capability，读 [Webhook 委托](../webhook-delegations/)。

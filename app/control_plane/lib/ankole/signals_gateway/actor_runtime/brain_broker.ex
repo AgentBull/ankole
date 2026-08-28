@@ -5,8 +5,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BrainBroker do
   Every operation runs as the Turn's Agent: the Agent is the querier for the
   knowledge boundary, and the current conversation supplies the disclosure
   recipients — the asking human plus, in strict mode on a group channel, the
-  channel member set; a scheduled Turn that has no asker takes its
-  recipients from the channel it delivers into. `remember` commits
+  channel member set; a scheduled Turn that has no asker takes its recipients
+  from every channel it delivers into. An unresolved IM recipient set
+  discloses nothing. `remember` commits
   synchronously inside the tool call; a later Turn failure or retry does not
   revert it.
   """
@@ -20,9 +21,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BrainBroker do
   alias Ankole.Brain.Experts
   alias Ankole.Brain.Forget
   alias Ankole.Brain.GetPage
+  alias Ankole.Brain.LazySkillVisibility
   alias Ankole.Brain.Objects
   alias Ankole.Brain.Recall
   alias Ankole.Brain.Scope
+  alias Ankole.Brain.SourceLearning
+  alias Ankole.Brain.Sources
   alias Ankole.Brain.Synthesis
   alias Ankole.AIGateway.Conversations
   alias Ankole.AIGateway.Schemas.Conversation
@@ -32,6 +36,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BrainBroker do
   alias Ankole.Principals.Principal
   alias Ankole.Repo
   alias Ankole.RuntimeFabric.V1, as: FabricProto
+  alias Ankole.Schedule.Delivery
   alias Ankole.SignalsGateway.AIGatewayLink
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.ActorRuntime.RPCWire
@@ -49,7 +54,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BrainBroker do
            :ok <- ensure_enabled(),
            {:ok, claim_text} <- required(params, "claim"),
            {:ok, scope} <- required(params, "scope"),
-           {:ok, provenance} <- required(params, "provenance") do
+           {:ok, provenance} <- required(params, "provenance"),
+           {:ok, visibility} <- LazySkillVisibility.for_querier(turn_ref.agent_uid) do
         kind = params["kind"] || "fact"
         holder = params["holder"] || "agents/" <> turn_ref.agent_uid
 
@@ -62,7 +68,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BrainBroker do
           provenance: provenance
         }
 
-        attrs = put_parent(base, turn_ref, params["entity"])
+        attrs = put_parent(base, turn_ref, params["entity"], visibility)
 
         result =
           cond do
@@ -110,6 +116,27 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BrainBroker do
              "signal_gateway_channel_id" => claim.signal_gateway_channel_id
            }}
         end
+      end
+    end)
+  end
+
+  @spec handle_learn_source(TurnRef.t(), FabricProto.BrainRequest.t(), ctx()) ::
+          {:ok, map()} | {:error, map()}
+  def handle_learn_source(%TurnRef{} = turn_ref, request, ctx) do
+    respond(ctx, "brain_rpc_failed", fn ->
+      with {:ok, params} <- decode_params(request),
+           :ok <- ensure_enabled(),
+           {:ok, url} <- required(params, "url"),
+           :ok <- validate_learnable_url(url),
+           {:ok, scope} <- learn_source_scope(params["scope"], turn_ref),
+           {:ok, source} <- find_or_register_url_source(url, scope),
+           {:ok, _enqueued} <- SourceLearning.enqueue_learn(source.id) do
+        {:ok,
+         %{
+           "status" => "learning",
+           "source_id" => source.id,
+           "audience_scope" => source.default_audience_scope
+         }}
       end
     end)
   end
@@ -188,10 +215,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BrainBroker do
       with {:ok, params} <- decode_params(request),
            :ok <- ensure_enabled(),
            {:ok, name} <- required(params, "name"),
-           {:ok, access} <- Access.for_querier(turn_ref.agent_uid) do
+           {:ok, access} <- Access.for_querier(turn_ref.agent_uid),
+           {:ok, visibility} <- LazySkillVisibility.for_querier(turn_ref.agent_uid) do
         disclosure = turn_disclosure(turn_ref)
 
-        case Objects.resolve_reference(name) do
+        case Objects.resolve_reference(name, lazy_skill_visibility: visibility) do
           {:ok, object} ->
             card =
               ContextPack.entity_card(
@@ -200,7 +228,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BrainBroker do
                 disclosure,
                 Config.forgetting(),
                 DateTime.utc_now(),
-                turn_channel_id(turn_ref)
+                turn_channel_id(turn_ref),
+                visibility
               )
 
             {:ok, %{"entity" => JSON.plain(card)}}
@@ -425,54 +454,104 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BrainBroker do
 
   # Turn context
 
-  # The disclosure recipients come from the Turn's channel: the asking
-  # sender always, plus every channel-group member in strict mode. Private
-  # chats carry only the asker, so both modes behave the same there.
-  #
-  # A scheduled Turn — a cron fire, a check-back wakeup — has no sender and
-  # still delivers into a channel, so its recipients come from the channel
-  # itself and every one of them is checked. Relaxed mode narrows the check
-  # to the asker because the asker drives the Turn; with no asker there is
-  # nothing to relax to, and the empty recipient set protects nobody. A
-  # channel kind that is not an IM conversation has no recipient to protect
-  # and keeps the empty set.
   defp turn_disclosure(%TurnRef{} = turn_ref) do
-    mode = agent_disclosure_mode(turn_ref.agent_uid)
-    event = actor_event(turn_ref)
-    asker = event && event.sender_key
-    channel = event && event.signal_channel_id && Repo.get(Channel, event.signal_channel_id)
-
-    cond do
-      is_nil(channel) ->
-        %{mode: mode, asker_uid: asker, present_uids: []}
-
-      is_nil(asker) ->
-        %{mode: :strict, asker_uid: nil, present_uids: channel_recipient_uids(channel)}
-
-      mode == :strict ->
-        %{mode: :strict, asker_uid: asker, present_uids: channel_group_member_uids(channel)}
-
-      true ->
-        %{mode: :relaxed, asker_uid: asker, present_uids: []}
+    case actor_event(turn_ref) do
+      nil -> Access.open_disclosure()
+      %ActorEvent{} = event -> event_disclosure(event, agent_disclosure_mode(turn_ref.agent_uid))
     end
   end
 
-  # Who receives what this channel delivers, without an asking sender: the
-  # member group of a group chat, and the humans who have spoken in a
-  # private chat.
-  defp channel_recipient_uids(%Channel{kind: :im_group} = channel),
-    do: channel_group_member_uids(channel)
+  # Relaxed mode is asker-only by contract. A Turn without an asker always
+  # uses strict disclosure because its final text can still go to a channel.
+  defp event_disclosure(%ActorEvent{sender_key: asker}, :relaxed) when is_binary(asker) do
+    %{mode: :relaxed, asker_uid: asker, present_uids: []}
+  end
 
-  defp channel_recipient_uids(%Channel{kind: :im_dm, id: channel_id}),
-    do: human_speaker_uids(channel_id)
+  defp event_disclosure(%ActorEvent{} = event, _mode) do
+    asker = event.sender_key
 
-  defp channel_recipient_uids(%Channel{}), do: []
+    with {:ok, channels} <- disclosure_channels(event),
+         {:ok, present_uids} <- strict_present_uids(channels, asker) do
+      if is_nil(asker) and not Enum.any?(channels, &im_channel?/1) do
+        Access.open_disclosure()
+      else
+        %{mode: :strict, asker_uid: asker, present_uids: present_uids}
+      end
+    else
+      {:error, _unresolved_recipient_set} -> closed_disclosure()
+    end
+  end
+
+  defp disclosure_channels(%ActorEvent{} = event) do
+    with {:ok, channel_ids} <- disclosure_channel_ids(event) do
+      channels =
+        Channel
+        |> where([channel], channel.id in ^channel_ids)
+        |> Repo.all()
+
+      if length(channels) == length(channel_ids),
+        do: {:ok, channels},
+        else: {:error, :disclosure_channel_not_found}
+    end
+  end
+
+  defp disclosure_channel_ids(%ActorEvent{} = event) do
+    case ActorEvent.scheduled_delivery_snapshot(event) do
+      %{} = delivery ->
+        with {:ok, targets} <- Delivery.targets(delivery, event.binding_name) do
+          {:ok, targets |> Enum.map(& &1["signal_channel_id"]) |> Enum.uniq()}
+        end
+
+      _no_scheduled_delivery ->
+        {:ok, List.wrap(event.signal_channel_id)}
+    end
+  end
+
+  defp strict_present_uids(channels, asker) do
+    Enum.reduce_while(channels, {:ok, []}, fn channel, {:ok, acc} ->
+      case strict_channel_recipient_uids(channel, asker) do
+        {:ok, recipients} -> {:cont, {:ok, recipients ++ acc}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+    |> then(fn
+      {:ok, recipients} -> {:ok, Enum.uniq(recipients)}
+      {:error, _reason} = error -> error
+    end)
+  end
+
+  defp strict_channel_recipient_uids(%Channel{kind: :im_group} = channel, _asker) do
+    with {:ok, recipients} <- channel_group_member_uids(channel),
+         true <- recipients != [] do
+      {:ok, recipients}
+    else
+      false -> {:error, :empty_group_recipient_set}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp strict_channel_recipient_uids(%Channel{kind: :im_dm}, asker) when is_binary(asker),
+    do: {:ok, [asker]}
+
+  defp strict_channel_recipient_uids(%Channel{kind: :im_dm, id: channel_id}, nil) do
+    case human_speaker_uids(channel_id) do
+      [] -> {:error, :empty_dm_recipient_set}
+      recipients -> {:ok, recipients}
+    end
+  end
+
+  defp strict_channel_recipient_uids(%Channel{}, _asker), do: {:ok, []}
 
   defp channel_group_member_uids(%Channel{kind: :im_group, principal_group_id: group_id})
        when is_binary(group_id),
        do: group_member_uids(group_id)
 
-  defp channel_group_member_uids(%Channel{}), do: []
+  defp channel_group_member_uids(%Channel{kind: :im_group}),
+    do: {:error, :group_recipient_set_unavailable}
+
+  defp im_channel?(%Channel{kind: kind}), do: kind in [:im_dm, :im_group]
+
+  defp closed_disclosure, do: %{mode: :strict, asker_uid: nil, present_uids: []}
 
   defp human_speaker_uids(channel_id) do
     Entry
@@ -505,8 +584,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BrainBroker do
 
   defp group_member_uids(group_id) do
     case Ankole.AuthZ.list_group_members(group_id) do
-      {:ok, members} -> Enum.map(members, & &1.principal.uid)
-      {:error, _missing_or_computed} -> []
+      {:ok, members} -> {:ok, Enum.map(members, & &1.principal.uid)}
+      {:error, _missing_or_computed} = error -> error
     end
   end
 
@@ -515,11 +594,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BrainBroker do
   # sessions. The channel fallback for an unresolved or ambiguous name is
   # the documented tool behavior, and the response reports the parent it
   # landed on.
-  defp put_parent(attrs, turn_ref, entity) do
+  defp put_parent(attrs, turn_ref, entity, visibility) do
     resolved =
       case entity do
         entity when is_binary(entity) and entity != "" ->
-          case Objects.resolve_reference(entity) do
+          case Objects.resolve_reference(entity, lazy_skill_visibility: visibility) do
             {:ok, object} -> {:object, object.slug}
             _ambiguous_or_missing -> nil
           end
@@ -545,6 +624,71 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BrainBroker do
             {:ok, slug} = Scope.canonical_slug(turn_ref.agent_uid)
             Map.put(attrs, :object_slug, slug)
         end
+    end
+  end
+
+  # learn_source
+
+  defp validate_learnable_url("http://" <> _rest), do: :ok
+  defp validate_learnable_url("https://" <> _rest), do: :ok
+  defp validate_learnable_url(_url), do: {:error, :invalid_url}
+
+  # The conversation's audience is the default learning scope, mirroring the
+  # Signals-processing defaults: a DM learns for its asker, a member-backed
+  # group learns for its member Group. Everything else — scheduled turns,
+  # non-IM channels — falls back to the Agent's own principal scope. `world`
+  # is an explicit model choice, never a default: the derived default also
+  # bounds how far a poisoned or misjudged source can reach.
+  defp learn_source_scope(explicit, %TurnRef{} = turn_ref)
+       when is_binary(explicit) and explicit != "" do
+    with :ok <- Scope.validate_writable(explicit, turn_ref.agent_uid), do: {:ok, explicit}
+  end
+
+  defp learn_source_scope(_missing, %TurnRef{} = turn_ref) do
+    with {:ok, scope} <- derived_learn_scope(actor_event(turn_ref), turn_ref.agent_uid),
+         :ok <- Scope.validate_writable(scope, turn_ref.agent_uid) do
+      {:ok, scope}
+    end
+  end
+
+  defp derived_learn_scope(nil, agent_uid), do: {:ok, Scope.principal(agent_uid)}
+
+  defp derived_learn_scope(%ActorEvent{} = event, agent_uid) do
+    channel = event.signal_channel_id && Repo.get(Channel, event.signal_channel_id)
+
+    case channel do
+      %Channel{kind: :im_group, principal_group_id: group_id} when is_binary(group_id) ->
+        case Ankole.AuthZ.get_principal_group(group_id) do
+          {:ok, group} -> {:ok, Scope.group(group.name)}
+          {:error, :not_found} -> {:error, :im_group_without_member_group}
+        end
+
+      %Channel{kind: :im_group} ->
+        # No member Group means no derivable group audience. An explicit
+        # scope is the way through, so the error names the real blocker.
+        {:error, :im_group_without_member_group}
+
+      %Channel{kind: :im_dm} when is_binary(event.sender_key) ->
+        {:ok, Scope.principal(event.sender_key)}
+
+      _other ->
+        {:ok, Scope.principal(agent_uid)}
+    end
+  end
+
+  # First registration wins the default scope; a later call with another
+  # scope reuses the Source unchanged, and the response reports the scope
+  # that actually applies. Changing it afterwards is a Console decision.
+  defp find_or_register_url_source(url, scope) do
+    case Sources.get_or_create(%{
+           kind: "url",
+           upstream_id: url,
+           name: url,
+           default_audience_scope: scope
+         }) do
+      {:ok, source} -> {:ok, source}
+      {:error, %Ecto.Changeset{}} -> {:error, :source_registration_failed}
+      {:error, _reason} = error -> error
     end
   end
 

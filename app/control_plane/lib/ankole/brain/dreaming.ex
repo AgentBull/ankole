@@ -59,6 +59,7 @@ defmodule Ankole.Brain.Dreaming do
     :calibration_profile,
     :contradictions,
     :schema_suggest,
+    :merge_suggest,
     :purge,
     :skill_lessons
   ]
@@ -98,6 +99,7 @@ defmodule Ankole.Brain.Dreaming do
       :calibration_profile -> Calibration.calibration_profile()
       :contradictions -> phase_contradictions()
       :schema_suggest -> phase_schema_suggest()
+      :merge_suggest -> Ankole.Brain.Merge.run_phase()
       :purge -> phase_purge()
       :skill_lessons -> Ankole.Brain.SkillLessons.run_phase()
     end
@@ -120,23 +122,30 @@ defmodule Ankole.Brain.Dreaming do
     bucket_keys =
       Claim
       |> consolidation_candidates()
-      |> group_by([claim], [claim.object_slug, claim.holder, claim.audience_scope])
+      |> group_by(
+        [claim],
+        [claim.object_slug, claim.holder, claim.audience_scope, claim.embedding_signature]
+      )
       |> having(
         [claim],
         count(claim.id) >= @consolidate_min_bucket and min(claim.created_at) <= ^threshold
       )
-      |> select([claim], {claim.object_slug, claim.holder, claim.audience_scope})
+      |> select(
+        [claim],
+        {claim.object_slug, claim.holder, claim.audience_scope, claim.embedding_signature}
+      )
       |> limit(@consolidate_bucket_limit)
       |> Repo.all()
 
     promoted =
-      Enum.reduce(bucket_keys, 0, fn {object_slug, holder, scope}, count ->
+      Enum.reduce(bucket_keys, 0, fn {object_slug, holder, scope, signature}, count ->
         facts =
           Claim
           |> consolidation_candidates()
           |> where([claim], claim.object_slug == ^object_slug)
           |> where([claim], claim.holder == ^holder)
           |> where([claim], claim.audience_scope == ^scope)
+          |> where([claim], claim.embedding_signature == ^signature)
           |> Repo.all()
 
         facts
@@ -153,12 +162,51 @@ defmodule Ankole.Brain.Dreaming do
     %{status: :ok, promoted: promoted, buckets: length(bucket_keys)}
   end
 
+  @doc "Lists contradiction findings and loads their Claims for the Console read model."
+  @spec list_contradictions_for_console(String.t(), keyword()) :: [map()]
+  def list_contradictions_for_console(status, opts)
+      when is_binary(status) and is_list(opts) do
+    limit = Keyword.fetch!(opts, :limit)
+
+    contradictions =
+      Contradiction
+      |> where([contradiction], contradiction.status == ^status)
+      |> order_by([contradiction], desc: contradiction.created_at)
+      |> limit(^limit)
+      |> Repo.all()
+
+    claims_by_id =
+      contradictions
+      |> Enum.flat_map(&[&1.a_claim_id, &1.b_claim_id])
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+      |> claims_by_id()
+
+    Enum.map(contradictions, fn contradiction ->
+      %{
+        contradiction: contradiction,
+        a_claim: Map.get(claims_by_id, contradiction.a_claim_id),
+        b_claim: Map.get(claims_by_id, contradiction.b_claim_id)
+      }
+    end)
+  end
+
   defp consolidation_candidates(query) do
     query
     |> Claims.current_external_facts()
     |> where([claim], is_nil(claim.consolidated_at))
     |> where([claim], not is_nil(claim.embedding))
+    |> where([claim], not is_nil(claim.embedding_signature))
     |> where([claim], not is_nil(claim.object_slug))
+  end
+
+  defp claims_by_id([]), do: %{}
+
+  defp claims_by_id(ids) do
+    Claim
+    |> where([claim], claim.id in ^ids)
+    |> Repo.all()
+    |> Map.new(&{&1.id, &1})
   end
 
   # Greedy clustering: newest first, each fact joins the first cluster whose
@@ -788,26 +836,7 @@ defmodule Ankole.Brain.Dreaming do
 
   @doc false
   @spec vocabulary_terms() :: [String.t()]
-  def vocabulary_terms do
-    path =
-      Application.get_env(:ankole, :brain, [])
-      |> Keyword.get(
-        :vocabulary_path,
-        Path.expand("../../../../library/schema-pack/vocabulary.yml", __DIR__)
-      )
-
-    with {:ok, raw} <- File.read(path),
-         {:ok, parsed} <- YamlElixir.read_from_string(raw) do
-      parsed
-      |> Map.get("sections", [])
-      |> Enum.flat_map(fn section ->
-        section |> Map.get("entries", []) |> Enum.map(& &1["term"])
-      end)
-      |> Enum.filter(&is_binary/1)
-    else
-      _unavailable -> []
-    end
-  end
+  defdelegate vocabulary_terms, to: Ankole.Brain.Vocabulary, as: :terms
 
   # Phase 9: purge
 
@@ -820,6 +849,10 @@ defmodule Ankole.Brain.Dreaming do
       Object
       |> where([object], not is_nil(object.deleted_at))
       |> where([object], object.deleted_at < ^threshold)
+      # A soft-deleted library-managed page is a withdrawn projection, not a
+      # forgotten memory: purge would destroy the instance periphery attached
+      # to its slug, and re-enabling the shipped set restores the page.
+      |> where([object], is_nil(object.managed_by_source_id))
       |> Repo.delete_all()
 
     # Chunks of soft-deleted objects survive until this hard delete; expired

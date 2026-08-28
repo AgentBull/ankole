@@ -287,6 +287,27 @@ defmodule Ankole.Brain.ObjectsTest do
       assert Enum.map(candidates, & &1.slug) == [object.slug, "companies/minghu-labs"]
     end
 
+    test "excludes soft-deleted targets before deciding alias ambiguity", %{
+      human: human,
+      object: object
+    } do
+      alias_text = "Shared company alias"
+      assert {:ok, _alias} = Ankole.Brain.Links.add_alias(object.slug, alias_text)
+
+      assert {:ok, other} =
+               Objects.create_object(
+                 %{slug: "companies/deleted-alias-target", type: "company", title: "Other"},
+                 human.uid
+               )
+
+      assert {:ok, _alias} = Ankole.Brain.Links.add_alias(other.slug, alias_text)
+      assert {:ambiguous, _candidates} = Objects.resolve_reference(alias_text)
+      assert {:ok, _deleted} = Objects.soft_delete(other.slug)
+
+      assert {:ok, resolved} = Objects.resolve_reference(alias_text)
+      assert resolved.slug == object.slug
+    end
+
     test "falls back to title similarity and reports not found", %{object: object} do
       assert {:ok, resolved} = Objects.resolve_reference("Minghu AI company")
       assert resolved.slug == object.slug

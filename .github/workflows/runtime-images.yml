@@ -253,7 +253,6 @@ jobs:
           build-args: |
             ANKOLE_VERSION=v${{ needs.inspect_existing.outputs.release_version }}
             ANKOLE_RELEASE_REVISION=${{ env.RELEASE_REVISION }}
-            ANKOLE_RUNTIME_FABRIC_PROTOCOL_VERSION=${{ needs.inspect_existing.outputs.protocol_version }}
             ANKOLE_AGENT_COMPUTER_IMAGE=${{ env.WORKER_IMAGE }}:${{ env.RELEASE_REVISION }}
           tags: ${{ env.CONTROL_PLANE_IMAGE }}:${{ env.STAGING_TAG }}-control-plane-${{ matrix.arch }}
           labels: |
@@ -340,7 +339,6 @@ jobs:
           build-args: |
             BASE_IMAGE=${{ env.BASE_IMAGE }}@${{ needs.publish_base.outputs.digest }}
             ANKOLE_RELEASE_REVISION=${{ env.RELEASE_REVISION }}
-            ANKOLE_RUNTIME_FABRIC_PROTOCOL_VERSION=${{ needs.inspect_existing.outputs.protocol_version }}
           tags: ${{ env.WORKER_IMAGE }}:${{ env.STAGING_TAG }}-worker-${{ matrix.arch }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}

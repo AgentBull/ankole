@@ -11,6 +11,7 @@ defmodule Ankole.AppConfigure.Declarations do
   alias Ankole.SignalsGateway.ActorRuntime.DeadLetterNoticeConfig
   alias Ankole.SignalsGateway.ActorRuntime.WorkerAuthKey
   alias Ankole.SignalsGateway.ActorRuntime.WorkerWebFetchConfig
+  alias Ankole.Workflow.WorkerConfig, as: WorkflowWorkerConfig
 
   @spec core_definitions() :: [Definition.t()]
   def core_definitions do
@@ -27,6 +28,7 @@ defmodule Ankole.AppConfigure.Declarations do
       BackgroundAgentJobWorkerConfig.agent_cap_definition(),
       DeadLetterNoticeConfig.definition()
     ] ++
+      WorkflowWorkerConfig.definitions() ++
       Ankole.Brain.Config.definitions() ++
       Ankole.I18n.Config.definitions() ++
       Ankole.Observability.definitions() ++

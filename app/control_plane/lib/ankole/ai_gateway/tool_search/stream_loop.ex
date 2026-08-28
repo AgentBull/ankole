@@ -417,9 +417,7 @@ defmodule Ankole.AIGateway.ToolSearch.StreamLoop do
   @spec bump(t()) :: t()
   def bump(%__MODULE__{} = loop), do: %{loop | sequence: loop.sequence + 1}
 
-
   # Event observation
-
 
   defp observe_item_added(loop, %{"item" => %{} = item} = event) do
     if rewritable_call_item?(loop, item) do
@@ -497,9 +495,7 @@ defmodule Ankole.AIGateway.ToolSearch.StreamLoop do
     end
   end
 
-
   # Server rounds
-
 
   # The public `tool_search_call` and `program` call items were already emitted
   # when their `response.output_item.done` events passed through, so a round
@@ -685,9 +681,7 @@ defmodule Ankole.AIGateway.ToolSearch.StreamLoop do
   defp json_array_size(0, _item_bytes), do: 2
   defp json_array_size(count, item_bytes), do: item_bytes + count + 1
 
-
   # Terminal helpers
-
 
   defp terminal_output(loop, response) do
     case response |> Map.get("output") |> list_of_maps() do

@@ -12,7 +12,6 @@ import { z } from 'zod'
 import type { TurnStart } from '../../lanes/actor_lane'
 import {
   ambientActions,
-  ambientAuthorities,
   buildAmbientRecognizerSystemPrompt,
   buildAmbientRecognizerUserPrompt,
   type AmbientAction,

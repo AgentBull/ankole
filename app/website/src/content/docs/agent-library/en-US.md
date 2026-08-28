@@ -29,6 +29,14 @@ The resolution is the `effective_enabled` field the capability endpoints return:
 
 This is the model the Console's [Agent Library capabilities](../console-api/) routes expose: set the global default, then narrow or widen it per agent.
 
+## Recall-only Skill discovery
+
+A shipped standalone Skill or Agent Plugin member can declare `brain-recall-only: true`. Shipped Skills share one global name space, so Plugin membership does not change the Skill name. Agent-installed Skills do not participate in this mode.
+
+The Agent Library sends the Worker the complete effective Skill set. Ordinary Skills enter the model-visible Skill catalog. Recall-only Skills stay in the loadable set for `skill_view`, but the catalog omits them. A library sweep projects only their name, description, and tags into Brain as lightweight records at `lazyload-agent-skills/<skill-name>`; Skill bodies, resources, and Agent-specific lessons remain in their owning file and database paths.
+
+The projection is shared and remains present when an Agent disables a Skill. Brain queries and `skill_view` both apply that Agent's current effective Plugin and Skill state, so a disabled record cannot consume a retrieval slot or be loaded. Re-enabling the capability restores the existing projection.
+
 ## Durable Agent documents and Skill lessons
 
 Alongside capabilities, the library holds the agent's own writable documents and Agent-specific Skill guidance:

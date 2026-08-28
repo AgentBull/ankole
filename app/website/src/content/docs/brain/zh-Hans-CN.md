@@ -51,6 +51,7 @@ Brain 通过两种方式提供相关记忆。会话开始和上下文压缩后�
 
 | 工具 | 结果 |
 | --- | --- |
+| `learn_source` | 将一个网页 URL 注册为 Source，并在后台开始学习 |
 | `recall` | 在 Token 预算内先返回当前 Fact 和 Take，再返回相关页面片段 |
 | `get_page` | 按 slug 或自然语言名称读取经过裁剪的完整页面；名称有歧义时返回候选，不自行猜测 |
 | `entity` | 返回对象卡，包括精选 Fact、关系和反向链接数量 |
@@ -58,6 +59,14 @@ Brain 通过两种方式提供相关记忆。会话开始和上下文压缩后�
 | `delta` | 报告时间范围内新增或已失效的 Claim 与 Timeline 事件 |
 | `synthesize` | 根据召回证据，为一个问题写入可追溯的持久分析页 |
 | `forget` | 记录原因后，使一个 Fact 失效、一个 Take 退出当前态，或软删除一个页面 |
+
+### 发现只通过 Brain 召回的 Skill
+
+部分随产品发布的 Skill 是 SOP 或方法论，只有与当前工作相关时才需要进入上下文。Skill 可以声明 `brain-recall-only: true`，从每个 Prompt 的 Skill 目录中省略，并保留通过 Brain 发现的能力。
+
+Brain 只把 Skill 的 `name`、`description` 和 `tags` 索引为一条 `world` 范围的发现记录，名称为 `lazyload-agent-skills/<skill-name>`。Skill 正文、其他所有 Skill 文件和 Agent 专属教训仍由原有所有者保存，并通过 `skill_view` 读取。如果 `recall` 返回这类记录，Agent 会调用 `skill_view`；loader 按 `ankole-runtime` 在兼容的执行位置加载说明，主 Agent 遇到仅后台可用的 Skill 时会收到创建 Job 的路由指引，其他不兼容读取会被拒绝。对这类记录调用 `get_page` 时，它也会转交给 `skill_view` 并返回同一结果。
+
+Brain 会在选择候选之前应用当前 Agent 的 Agent Plugin 和 Skill 有效启用状态。关闭后的 Skill 既不能被发现，也不能被加载。共享发现投影不会因关闭而删除，因此重新启用后可以直接恢复访问，不需要重建投影。
 
 配置 Embedding 模型后，召回会合并全文候选和向量候选。配置 Rerank 模型后，系统还可以对融合结果重新排序。没有 Embedding 模型时，全文召回仍可工作；没有 Rerank 模型时，召回保留融合后的顺序。
 

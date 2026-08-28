@@ -28,13 +28,6 @@
     "response_type": "ankole.runtime_fabric.v1.AgentConversationContextResponse"
   },
   {
-    "method": "agent_plugin.list",
-    "scope": "turn",
-    "effect": "read",
-    "request_type": "ankole.runtime_fabric.v1.AgentPluginListRequest",
-    "response_type": "ankole.runtime_fabric.v1.AgentPluginListResponse"
-  },
-  {
     "method": "ai_gateway.api_key_for.create_or_find_by_agent",
     "scope": "worker_agent",
     "request_type": "ankole.runtime_fabric.v1.AIGatewayAPIKeyRequest",
@@ -188,6 +181,13 @@
     "method": "brain.get_page",
     "scope": "turn",
     "effect": "read",
+    "request_type": "ankole.runtime_fabric.v1.BrainRequest",
+    "response_type": "ankole.runtime_fabric.v1.JSONPassthroughResponse"
+  },
+  {
+    "method": "brain.learn_source",
+    "scope": "turn",
+    "effect": "write",
     "request_type": "ankole.runtime_fabric.v1.BrainRequest",
     "response_type": "ankole.runtime_fabric.v1.JSONPassthroughResponse"
   },
@@ -390,5 +390,54 @@
     "scope": "worker_agent",
     "request_type": "ankole.runtime_fabric.v1.WorkerEnvResolveRequest",
     "response_type": "ankole.runtime_fabric.v1.WorkerEnvResolveResponse"
+  },
+  {
+    "method": "workflow.cancel",
+    "scope": "turn",
+    "effect": "write",
+    "request_type": "ankole.runtime_fabric.v1.WorkflowCancelRequest",
+    "response_type": "ankole.runtime_fabric.v1.WorkflowCancelResponse"
+  },
+  {
+    "method": "workflow.create",
+    "scope": "turn",
+    "effect": "write",
+    "request_type": "ankole.runtime_fabric.v1.WorkflowCreateRequest",
+    "response_type": "ankole.runtime_fabric.v1.WorkflowCreateResponse"
+  },
+  {
+    "method": "workflow.get",
+    "scope": "turn",
+    "effect": "read",
+    "request_type": "ankole.runtime_fabric.v1.WorkflowGetRequest",
+    "response_type": "ankole.runtime_fabric.v1.WorkflowGetResponse"
+  },
+  {
+    "method": "workflow.list",
+    "scope": "turn",
+    "effect": "read",
+    "request_type": "ankole.runtime_fabric.v1.WorkflowListRequest",
+    "response_type": "ankole.runtime_fabric.v1.WorkflowListResponse"
+  },
+  {
+    "method": "workflow.task.message.send",
+    "scope": "turn",
+    "effect": "write",
+    "request_type": "ankole.runtime_fabric.v1.WorkflowTaskMessageSendRequest",
+    "response_type": "ankole.runtime_fabric.v1.WorkflowTaskMessageSendResponse"
+  },
+  {
+    "method": "workflow.task.result.submit",
+    "scope": "turn",
+    "effect": "write",
+    "request_type": "ankole.runtime_fabric.v1.WorkflowTaskResultSubmitRequest",
+    "response_type": "ankole.runtime_fabric.v1.WorkflowTaskResultSubmitResponse"
+  },
+  {
+    "method": "workflow.task.sleep",
+    "scope": "turn",
+    "effect": "write",
+    "request_type": "ankole.runtime_fabric.v1.WorkflowTaskSleepRequest",
+    "response_type": "ankole.runtime_fabric.v1.WorkflowTaskSleepResponse"
   }
 ]

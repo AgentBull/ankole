@@ -22,11 +22,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionController do
   # caller-side call timeout is generous (30s) to avoid spurious exits while the
   # actor does real work. The DB fences still bound correctness if it does run long.
   @call_timeout 30_000
+  @type actor_key :: %{agent_uid: String.t(), session_id: String.t()}
 
   @doc """
   Starts a controller for one actor key.
   """
-  @spec start_link(map()) :: GenServer.on_start()
+  @spec start_link(actor_key()) :: GenServer.on_start()
   def start_link(actor_key) do
     actor_key = Common.normalize_actor_key(actor_key)
     GenServer.start_link(__MODULE__, actor_key, name: ActorDirectory.via(actor_key))
@@ -39,7 +40,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionController do
   protect correctness, but this keeps common-path concurrency easy to reason
   about.
   """
-  @spec process_ready(map(), keyword()) :: {:ok, map()} | {:error, term()}
+  @spec process_ready(actor_key(), keyword()) :: {:ok, map()} | {:error, term()}
   def process_ready(actor_key, opts \\ []) do
     actor_key = Common.normalize_actor_key(actor_key)
 
@@ -55,7 +56,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionController do
   uses the RPC or worker-file lane. Messages forwarded by the one inbound
   dispatcher retain their wire order for a given actor controller.
   """
-  @spec dispatch_inbound(map(), String.t(), map()) :: :ok | {:error, term()}
+  @spec dispatch_inbound(actor_key(), String.t(), map()) :: :ok | {:error, term()}
   def dispatch_inbound(actor_key, route, envelope)
       when is_map(actor_key) and is_binary(route) and is_map(envelope) do
     actor_key = Common.normalize_actor_key(actor_key)
@@ -78,9 +79,4 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionController do
     ActorLane.handle(envelope, route)
     {:noreply, state}
   end
-
-  # Accept both atom-keyed (internal) and string-keyed (decoded JSON) actor keys,
-  # and downcase the agent uid so a single actor always maps to one Registry name
-  # and one controller — case differences in the uid must not fork the actor into
-  # two serial processes. Must match ActorDirectory.key/1's normalization exactly.
 end

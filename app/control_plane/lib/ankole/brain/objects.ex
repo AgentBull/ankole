@@ -14,6 +14,7 @@ defmodule Ankole.Brain.Objects do
   alias Ankole.Brain.Chunker
   alias Ankole.Brain.Config
   alias Ankole.Brain.Markdoc
+  alias Ankole.Brain.LazySkillVisibility
   alias Ankole.Brain.Schemas.Chunk
   alias Ankole.Brain.Schemas.Object
   alias Ankole.Brain.Schemas.ObjectVersion
@@ -21,11 +22,14 @@ defmodule Ankole.Brain.Objects do
   alias Ankole.Brain.Schemas.SlugAlias
   alias Ankole.Brain.Schemas.Timeline
   alias Ankole.Brain.Scope
+  alias Ankole.Brain.Vocabulary
   alias Ankole.Ecto.UUIDv7
   alias Ankole.Kernel, as: NativeKernel
   alias Ankole.Repo
 
   @slug_format ~r|\A[^\s/]+(/[^\s/]+)*\z|
+  @library_projection_type "agent-skills"
+  @lazy_skill_prefix "lazyload-agent-skills/"
 
   @type writer :: String.t() | :system
 
@@ -35,10 +39,49 @@ defmodule Ankole.Brain.Objects do
   @spec get_by_slug(String.t(), keyword()) :: {:ok, Object.t()} | {:error, :not_found}
   def get_by_slug(slug, opts \\ []) do
     repo = Keyword.get(opts, :repo, Repo)
+    visibility = Keyword.get(opts, :lazy_skill_visibility, %LazySkillVisibility{})
 
-    case repo.get_by(Object, slug: slug) do
+    object =
+      Object
+      |> where([object], object.slug == ^slug)
+      |> LazySkillVisibility.filter_objects(visibility)
+      |> repo.one()
+
+    case object do
       %Object{} = object -> {:ok, object}
       nil -> {:error, :not_found}
+    end
+  end
+
+  @doc "Lists the Objects for the Console read model."
+  @spec list_for_console(keyword()) :: [Object.t()]
+  def list_for_console(opts) when is_list(opts) do
+    limit = Keyword.fetch!(opts, :limit)
+
+    Object
+    |> maybe_console_prefix(Keyword.get(opts, :prefix))
+    |> maybe_console_search(Keyword.get(opts, :search))
+    |> filter_console_deleted(Keyword.get(opts, :deleted, false))
+    |> order_by([object], asc: object.slug)
+    |> limit(^limit)
+    |> Repo.all()
+  end
+
+  @doc "Lists one Object's stored versions for the Console read model."
+  @spec list_versions_for_console(String.t(), keyword()) ::
+          {:ok, [ObjectVersion.t()]} | {:error, :not_found}
+  def list_versions_for_console(slug, opts) when is_binary(slug) and is_list(opts) do
+    limit = Keyword.fetch!(opts, :limit)
+
+    with {:ok, object} <- resolve_slug(slug) do
+      versions =
+        ObjectVersion
+        |> where([version], version.object_id == ^object.id)
+        |> order_by([version], desc: version.snapshot_at)
+        |> limit(^limit)
+        |> Repo.all()
+
+      {:ok, versions}
     end
   end
 
@@ -85,31 +128,43 @@ defmodule Ankole.Brain.Objects do
 
       {:error, :not_found} ->
         with :alias_miss <- natural_alias(repo, reference, opts) do
-          title_similarity(repo, reference)
+          title_similarity(repo, reference, opts)
         end
     end
   end
 
   defp natural_alias(repo, reference, opts) do
-    case Ankole.Brain.Links.lookup_alias(reference, repo: repo) do
+    slugs = Ankole.Brain.Links.lookup_alias(reference, repo: repo)
+
+    objects =
+      Object
+      |> where([object], is_nil(object.deleted_at))
+      |> where([object], object.slug in ^slugs)
+      |> LazySkillVisibility.filter_objects(
+        Keyword.get(opts, :lazy_skill_visibility, %LazySkillVisibility{})
+      )
+      |> order_by([object], asc: object.slug)
+      |> repo.all()
+
+    case objects do
       [] ->
         :alias_miss
 
-      [slug] ->
-        case get_by_slug(slug, opts) do
-          {:ok, object} -> {:ok, object}
-          {:error, :not_found} -> :alias_miss
-        end
+      [object] ->
+        {:ok, object}
 
-      slugs ->
-        {:ambiguous, candidate_payload(repo, slugs)}
+      objects ->
+        {:ambiguous, Enum.map(objects, &candidate_entry/1)}
     end
   end
 
-  defp title_similarity(repo, reference) do
+  defp title_similarity(repo, reference, opts) do
     matches =
       Object
       |> where([object], is_nil(object.deleted_at))
+      |> LazySkillVisibility.filter_objects(
+        Keyword.get(opts, :lazy_skill_visibility, %LazySkillVisibility{})
+      )
       |> where(
         [object],
         fragment("similarity(?, ?) > ?", object.title, ^reference, @title_similarity_floor)
@@ -123,14 +178,6 @@ defmodule Ankole.Brain.Objects do
       [object] -> {:ok, object}
       objects -> {:ambiguous, Enum.map(objects, &candidate_entry/1)}
     end
-  end
-
-  defp candidate_payload(repo, slugs) do
-    Object
-    |> where([object], object.slug in ^slugs)
-    |> repo.all()
-    |> Enum.sort_by(& &1.slug)
-    |> Enum.map(&candidate_entry/1)
   end
 
   defp candidate_entry(%Object{} = object) do
@@ -207,6 +254,7 @@ defmodule Ankole.Brain.Objects do
 
     repo.transact(fn repo ->
       with {:ok, object} <- lock_object(repo, slug),
+           :ok <- guard_unmanaged(object),
            :ok <- verify_content_hash(object, expected_hash),
            new_title = Map.get(attrs, :title, object.title),
            new_body = Map.get(attrs, :body, object.body),
@@ -243,7 +291,8 @@ defmodule Ankole.Brain.Objects do
     reason = Keyword.get(opts, :reason)
 
     repo.transact(fn repo ->
-      with {:ok, object} <- lock_object(repo, slug) do
+      with {:ok, object} <- lock_object(repo, slug),
+           :ok <- guard_unmanaged(object) do
         meta =
           case reason do
             nil ->
@@ -278,6 +327,7 @@ defmodule Ankole.Brain.Objects do
 
     repo.transact(fn repo ->
       with {:ok, object} <- lock_object(repo, slug),
+           :ok <- guard_unmanaged(object),
            %ObjectVersion{} = version <- repo.get(ObjectVersion, version_id),
            true <- version.object_id == object.id or {:error, :version_object_mismatch},
            {:ok, _snapshot} <- snapshot_version(repo, object, author_uid) do
@@ -299,6 +349,34 @@ defmodule Ankole.Brain.Objects do
   end
 
   @doc """
+  Forks a library-managed page into instance ownership: the marker clears,
+  the page leaves the product upgrade flow, and the ordinary write paths
+  apply from then on. The library sync's shadowing keeps the slug with the
+  instance afterwards.
+  """
+  @spec fork_library_page(String.t(), keyword()) :: {:ok, Object.t()} | {:error, term()}
+  def fork_library_page(slug, opts \\ []) do
+    repo = Keyword.get(opts, :repo, Repo)
+
+    repo.transact(fn repo ->
+      with {:ok, object} <- lock_object(repo, slug) do
+        case object do
+          %Object{managed_by_source_id: nil} ->
+            {:error, :not_library_managed}
+
+          %Object{type: @library_projection_type} ->
+            {:error, {:reserved_object_type, @library_projection_type}}
+
+          %Object{} ->
+            object
+            |> Ecto.Changeset.change(managed_by_source_id: nil)
+            |> repo.update()
+        end
+      end
+    end)
+  end
+
+  @doc """
   Restores a soft-deleted object and removes the forget bookkeeping.
   """
   @spec restore(String.t(), keyword()) :: {:ok, Object.t()} | {:error, term()}
@@ -306,7 +384,8 @@ defmodule Ankole.Brain.Objects do
     repo = Keyword.get(opts, :repo, Repo)
 
     repo.transact(fn repo ->
-      with {:ok, object} <- lock_object(repo, slug) do
+      with {:ok, object} <- lock_object(repo, slug),
+           :ok <- guard_unmanaged(object) do
         meta = Map.drop(object.meta, ["forgotten_reason", "forgotten_by"])
 
         object
@@ -496,6 +575,9 @@ defmodule Ankole.Brain.Objects do
 
   # Validation
 
+  defp validate_slug(@lazy_skill_prefix <> _rest = slug),
+    do: {:error, {:reserved_object_slug, slug}}
+
   defp validate_slug(slug) when is_binary(slug) do
     if Regex.match?(@slug_format, slug), do: :ok, else: {:error, {:invalid_slug, slug}}
   end
@@ -510,23 +592,58 @@ defmodule Ankole.Brain.Objects do
     if exists, do: {:error, {:slug_taken, slug}}, else: :ok
   end
 
+  defp maybe_console_prefix(query, prefix) when is_binary(prefix) and prefix != "" do
+    where(query, [object], like(object.slug, ^(prefix <> "%")))
+  end
+
+  defp maybe_console_prefix(query, _prefix), do: query
+
+  defp maybe_console_search(query, term) when is_binary(term) and term != "" do
+    pattern = "%" <> term <> "%"
+
+    where(
+      query,
+      [object],
+      ilike(object.title, ^pattern) or ilike(object.slug, ^pattern)
+    )
+  end
+
+  defp maybe_console_search(query, _term), do: query
+
+  defp filter_console_deleted(query, true),
+    do: where(query, [object], not is_nil(object.deleted_at))
+
+  defp filter_console_deleted(query, _other),
+    do: where(query, [object], is_nil(object.deleted_at))
+
   # Type is a closed validation against the installed ontology. The error
-  # carries the installed type set so a tool caller can re-choose explicitly
-  # instead of silently degrading.
+  # carries the installed type set and the closest vocabulary terms so a tool
+  # caller can re-choose explicitly at the moment of the mistake instead of
+  # silently degrading or needing a separate vocabulary lookup.
   defp validate_type(type, repo) when is_binary(type) and type != "" do
     case repo.get_by(SchemaType, name: type) do
+      %SchemaType{name: @library_projection_type} ->
+        {:error, {:reserved_object_type, type}}
+
       %SchemaType{} = schema_type ->
         {:ok, schema_type}
 
       nil ->
-        installed = repo.all(SchemaType |> select([t], t.name) |> order_by([t], asc: t.name))
+        installed =
+          repo.all(
+            SchemaType
+            |> where([t], t.name != @library_projection_type)
+            |> select([t], t.name)
+            |> order_by([t], asc: t.name)
+          )
 
         {:error,
          {:unknown_object_type, type,
           %{
             installed_types: installed,
+            vocabulary_terms: Vocabulary.closest_terms(type),
             hint:
-              "Use an installed type. For an unmodeled concept, use type \"note\" with a vocabulary term as tag."
+              "Use an installed type. For an unmodeled concept, use type \"note\" with a vocabulary term as tag; vocabulary_terms lists the canonical terms closest to the rejected type."
           }}}
     end
   end
@@ -550,6 +667,22 @@ defmodule Ankole.Brain.Objects do
         end
       end)
     end
+  end
+
+  # A library-managed page is a projection of a shipped okf file: the file is
+  # the authority, so every instance edit path refuses it. Claims, links,
+  # timelines, and tags on the slug stay open — they are instance periphery,
+  # not the page body. Taking the page over is the explicit fork operation,
+  # which clears the marker.
+  defp guard_unmanaged(%Object{managed_by_source_id: nil}), do: :ok
+
+  defp guard_unmanaged(%Object{slug: slug}) do
+    {:error,
+     {:library_managed, slug,
+      %{
+        hint:
+          "This page is product-shipped library knowledge and updates with the product. Attach claims, links, or timeline entries instead of editing the body, or fork the page in the Console to take it over."
+      }}}
   end
 
   defp verify_content_hash(_object, nil), do: {:error, :missing_expected_content_hash}

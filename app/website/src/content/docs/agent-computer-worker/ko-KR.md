@@ -51,7 +51,6 @@ worker가 생성하는 모든 tool 결과는 직접 commit되지 않고 AIGatewa
 
 ```text
 /agents/<agent-key>/
-├── .codex/
 ├── SOUL.md
 ├── MISSION.md
 ├── DESIGN.md
@@ -60,11 +59,13 @@ worker가 생성하는 모든 tool 결과는 직접 commit되지 않고 AIGatewa
 ├── sessions/<workspace-id>/
 └── jobs/<job-id>/
     ├── .codex/config.toml
-    ├── .ankole/skills/
+    ├── AGENTS.md
     └── temp/
 ```
 
 model은 절대 컨테이너 경로를 봅니다. Worker는 경로를 변환하지 않습니다. `SOUL.md`와 `MISSION.md`는 Agent의 행동과 책임을 정의합니다. `DESIGN.md`는 시각 작업을 위한 디자인 시스템입니다. [Agent Library](../agent-library/)가 세 파일을 모두 관리합니다. `installed-skills/`, `sessions/`, `jobs/`에는 Skill, 대화 workspace, Background Agent Job workspace가 들어 있습니다. PostgreSQL은 각 Session에 10000부터 시작하는 안정적인 숫자 workspace ID를 부여합니다.
+
+현재 Codex Home은 `/var/lib/ankole/codex/<agent-key>/.codex`에 있는 재구축 가능한 Worker 로컬 샤드이며 Agent Home의 일부가 아닙니다. Background Agent Job은 Ankole `skill_view`를 통해 Skill을 로드하며 Skill root를 Job workspace에 복사하지 않습니다.
 
 ## 스트리밍과 진행 상황
 

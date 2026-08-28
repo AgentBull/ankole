@@ -19,6 +19,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
   alias Ankole.SignalsGateway.InboundBatch
   alias Ankole.SignalsGateway.Ingress
   alias Ankole.SignalsGateway.IngressFact
+  alias Ankole.SignalsGateway.OutboxEntry
   alias Ankole.SignalsGateway.Projection
   alias Ankole.SignalsGateway.Entry
 
@@ -1472,6 +1473,147 @@ defmodule Ankole.SignalsGatewayIngressTest do
       refute Map.has_key?(input.payload["data"]["command"], "status")
     end
 
+    test "unmirrored durable reply makes a group reply retry explicit and rebases its session" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+
+      target = append_retry_target!(agent.uid, "bot", "cron:schedule-1")
+      insert_durable_reply_surface!(target, "bot", "dead-letter-card")
+
+      refute Repo.get_by(Entry,
+               signal_channel_id: "lark:chat:group-a",
+               source_entry_id: "dead-letter-card"
+             )
+
+      assert {:ok, %{actor_event: retry_command}} =
+               Ingress.emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{
+                   explicit: false,
+                   source_event_id: "evt-retry-reply",
+                   source_entry_id: "msg-retry-reply",
+                   reply_to_source_entry_id: "dead-letter-card",
+                   text: "/retry"
+                 }),
+                 now: @base_time
+               )
+
+      assert retry_command.type == "command.retry"
+      assert retry_command.session_id == target.session_id
+
+      assert get_in(retry_command.payload, ["data", "command", "targetActorEventId"]) ==
+               target.id
+
+      assert get_in(retry_command.payload, ["data", "session", "session_id"]) ==
+               target.session_id
+    end
+
+    test "explicit actor event retry target takes priority over the reply edge" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+
+      explicit_target = append_retry_target!(agent.uid, "bot", "cron:explicit")
+      reply_target = append_retry_target!(agent.uid, "bot", "cron:reply")
+      insert_durable_reply_surface!(explicit_target, "bot", "explicit-card")
+      insert_durable_reply_surface!(reply_target, "bot", "reply-card")
+
+      assert {:ok, %{actor_event: retry_command}} =
+               Ingress.emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{
+                   explicit: true,
+                   source_event_id: "evt-retry-explicit",
+                   source_entry_id: "msg-retry-explicit",
+                   reply_to_source_entry_id: "reply-card",
+                   text: "/retry actor-event::#{explicit_target.id}"
+                 }),
+                 now: @base_time
+               )
+
+      assert retry_command.session_id == explicit_target.session_id
+
+      assert get_in(retry_command.payload, ["data", "command", "targetActorEventId"]) ==
+               explicit_target.id
+    end
+
+    test "16-byte noncanonical retry target does not fall back to a valid reply edge" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+
+      reply_target = append_retry_target!(agent.uid, "bot", "cron:reply")
+      insert_durable_reply_surface!(reply_target, "bot", "reply-card")
+
+      assert {:ok, %{actor_event: retry_command}} =
+               Ingress.emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{
+                   explicit: true,
+                   source_event_id: "evt-retry-invalid",
+                   source_entry_id: "msg-retry-invalid",
+                   reply_to_source_entry_id: "reply-card",
+                   text: "/retry actor-event::warehouse worker"
+                 }),
+                 now: @base_time
+               )
+
+      assert retry_command.session_id == "signal-channel:lark:chat:group-a"
+
+      assert Map.fetch!(retry_command.payload["data"]["command"], "targetActorEventId") ==
+               nil
+    end
+
+    test "unresolved reply retry remains in the command session with an explicit nil target" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+
+      assert {:ok, %{actor_event: retry_command}} =
+               Ingress.emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{
+                   explicit: true,
+                   source_event_id: "evt-retry-unresolved-reply",
+                   source_entry_id: "msg-retry-unresolved-reply",
+                   reply_to_source_entry_id: "missing-card",
+                   text: "/retry"
+                 }),
+                 now: @base_time
+               )
+
+      assert retry_command.session_id == "signal-channel:lark:chat:group-a"
+
+      assert Map.fetch!(retry_command.payload["data"]["command"], "targetActorEventId") ==
+               nil
+    end
+
+    test "top-level bare retry does not guess from an unrelated durable reply" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+
+      target = append_retry_target!(agent.uid, "bot", "cron:schedule-1")
+      insert_durable_reply_surface!(target, "bot", "dead-letter-card")
+
+      assert {:ok, %{actor_event: retry_command}} =
+               Ingress.emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{
+                   explicit: true,
+                   source_event_id: "evt-retry-bare",
+                   source_entry_id: "msg-retry-bare",
+                   provider_thread_id: nil,
+                   text: "/retry"
+                 }),
+                 now: @base_time
+               )
+
+      assert retry_command.session_id == "signal-channel:lark:chat:group-a"
+      refute Map.has_key?(retry_command.payload["data"]["command"], "targetActorEventId")
+    end
+
     test "unsupported commands and full-width slash remain normal addressed text" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
@@ -2208,6 +2350,52 @@ defmodule Ankole.SignalsGatewayIngressTest do
       last_seen_at: provider_time,
       inserted_at: provider_time,
       updated_at: provider_time
+    })
+  end
+
+  defp append_retry_target!(agent_uid, binding_name, session_id) do
+    unique = System.unique_integer([:positive])
+
+    assert {:ok, target} =
+             SignalsGateway.append_actor_event(%{
+               agent_uid: agent_uid,
+               binding_name: binding_name,
+               session_id: session_id,
+               source_event_id: "retry-target-#{unique}",
+               signal_channel_id: "lark:chat:group-a",
+               provider_thread_id: "target-thread-#{unique}",
+               source_entry_id: "target-source-#{unique}",
+               type: "cron.fire",
+               available_at: @base_time,
+               payload: %{
+                 "type" => "cron.fire",
+                 "data" => %{"wake_payload" => %{"schedule_id" => "schedule-#{unique}"}}
+               }
+             })
+
+    target
+  end
+
+  defp insert_durable_reply_surface!(target, binding_name, provider_source_entry_id) do
+    outbound_key = "retry-surface:#{Ecto.UUID.generate()}"
+
+    Repo.insert!(%OutboxEntry{
+      agent_uid: target.agent_uid,
+      binding_name: binding_name,
+      outbound_key: outbound_key,
+      delivery_class: :durable_ai_reply,
+      operation: :card,
+      status: :succeeded,
+      signal_channel_id: "lark:chat:group-a",
+      created_source_entry_id: provider_source_entry_id,
+      source_actor_event_id: target.id,
+      payload: %{},
+      fallback_visible_text: "retry target",
+      idempotency_key: outbound_key,
+      attempt_count: 1,
+      max_attempts: 10,
+      last_error: %{},
+      recovery_state: %{}
     })
   end
 

@@ -51,7 +51,6 @@ worker 产出的每一次工具结果，都作为 function-call 输出通过 AIG
 
 ```text
 /agents/<agent-key>/
-├── .codex/
 ├── SOUL.md
 ├── MISSION.md
 ├── DESIGN.md
@@ -60,11 +59,13 @@ worker 产出的每一次工具结果，都作为 function-call 输出通过 AIG
 ├── sessions/<workspace-id>/
 └── jobs/<job-id>/
     ├── .codex/config.toml
-    ├── .ankole/skills/
+    ├── AGENTS.md
     └── temp/
 ```
 
 模型可见的绝对路径就是容器路径，worker 不为模型翻译路径。`SOUL.md` 和 `MISSION.md` 定义 Agent 的行为与职责，`DESIGN.md` 是视觉内容使用的设计系统。三者都由 [Agent Library](../agent-library/) 管理。`installed-skills/`、`sessions/` 和 `jobs/` 分别保存 Skill、会话工作区和后台任务工作区。PostgreSQL 为每个 Session 分配从 10000 开始的稳定数字工作区 ID。
+
+当前 Codex Home 是位于 `/var/lib/ankole/codex/<agent-key>/.codex` 的可重建 Worker 本地分片，不属于 Agent Home。后台 Agent Job 通过 Ankole `skill_view` 加载 Skill，不会把 Skill root 复制到 Job 工作区。
 
 ## 流式与进度
 

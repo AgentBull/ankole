@@ -8,8 +8,7 @@ const ReadFileParams = z.object({
   path: z.string().min(1).describe('Text file to read (absolute, relative, or ~/path).'),
   offset: z.number().int().min(1).optional().describe('1-indexed start line (default 1).'),
   limit: z.number().int().min(1).max(2000).optional().describe('Maximum lines to return (default 500, max 2000).'),
-  cwd: z.string().optional().describe('Base directory for a relative path (default current workspace).'),
-  workdir: z.string().optional().describe('Alias for cwd, matching command tool terminology.')
+  workdir: z.string().optional().describe('Base directory for a relative path (default current workspace).')
 })
 
 /** Structured result alongside the text: enough for the runtime to know if a follow-up read is needed. */
@@ -32,7 +31,7 @@ export function createReadFileTool(
   return defineWorkerTool({
     name: 'read_file',
     description:
-      "Read a text file from the computer with line numbers and pagination. Use this instead of cat/head/tail in command. Output format: 'LINE_NUM|CONTENT'. Relative paths resolve from cwd/workdir, defaulting to the current workspace. Use offset and limit for large files; a page stops at about 100K characters and tells you the offset to continue from. Cannot read images or binary files.",
+      "Read a text file from the computer with line numbers and pagination. Use this instead of cat/head/tail in command. Output format: 'LINE_NUM|CONTENT'. Relative paths resolve from workdir, defaulting to the current workspace. Use offset and limit for large files; a page stops at about 100K characters and tells you the offset to continue from. Cannot read images or binary files.",
     schema: ReadFileParams,
     executionMode: 'parallel',
     isReadOnly: true,
@@ -50,7 +49,7 @@ export function createReadFileTool(
       // window plus the binary-sniff prefix, so a huge file never materializes here.
       const start = Math.max(1, params.offset ?? 1)
       const window = await computer.readFileWindow(
-        { path: params.path, cwd: params.cwd ?? params.workdir, offset: start, limit: params.limit ?? 500 },
+        { path: params.path, cwd: params.workdir, offset: start, limit: params.limit ?? 500 },
         { signal }
       )
       // Missing file is a normal outcome, not an exception: report it as text with

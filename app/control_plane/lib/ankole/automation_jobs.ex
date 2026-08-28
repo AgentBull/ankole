@@ -15,6 +15,7 @@ defmodule Ankole.AutomationJobs do
   alias Ankole.Ecto.JSONPayload
   alias Ankole.Repo
   alias Ankole.SignalsGateway
+  alias Ankole.Text
 
   @log_max_bytes 65_536
   @payload_max_bytes 1_048_576
@@ -622,27 +623,9 @@ defmodule Ankole.AutomationJobs do
   defp bounded_nullable_text(nil, _max_bytes), do: nil
   defp bounded_nullable_text(text, max_bytes), do: bounded_text(text, max_bytes)
 
-  defp bounded_text(text, max_bytes) when is_binary(text) and byte_size(text) <= max_bytes,
-    do: text
-
-  defp bounded_text(text, max_bytes) when is_binary(text) do
-    text
-    |> binary_part(byte_size(text) - max_bytes, max_bytes)
-    |> trim_invalid_utf8_prefix()
-  end
+  defp bounded_text(text, max_bytes) when is_binary(text), do: Text.utf8_suffix(text, max_bytes)
 
   defp bounded_text(text, max_bytes), do: text |> inspect() |> bounded_text(max_bytes)
-
-  defp trim_invalid_utf8_prefix(<<>>), do: ""
-
-  defp trim_invalid_utf8_prefix(text) do
-    if String.valid?(text) do
-      text
-    else
-      <<_byte, rest::binary>> = text
-      trim_invalid_utf8_prefix(rest)
-    end
-  end
 
   defp route_text(route, key) when is_map(route) do
     case Map.get(route, key) || Map.get(route, String.to_atom(key)) do

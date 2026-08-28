@@ -11,10 +11,10 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.BackgroundAgentJobs.Schemas.Turn
   alias Ankole.BackgroundAgentJobs.Schemas.TurnItem
-  alias Ankole.BackgroundAgentJobs.Text
   alias Ankole.BackgroundAgentJobs.Trajectory
   alias Ankole.BackgroundAgentJobs.TurnItemProjection
   alias Ankole.BackgroundAgentJobs.TurnWatchdog
+  alias Ankole.Text
 
   @worker_fields ~w(
     attempt

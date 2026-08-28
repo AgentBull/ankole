@@ -26,12 +26,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ScheduledTurn do
   defp scheduled_turn_kind("check_back_later.wakeup"), do: "checkback_generation"
   defp scheduled_turn_kind("cron.fire"), do: "scheduled_task"
 
-  defp scheduled_turn_context(%ActorEvent{type: type} = input) do
+  defp scheduled_turn_context(%ActorEvent{} = input) do
     data = actor_event_data(input)
     wake_payload = map_value(data, "wake_payload") || %{}
 
     context = %{
-      "turn_mode" => scheduled_turn_mode(type),
       "schedule_origin" =>
         reject_nil_values(%{
           "schedule_kind" => map_text(data, "schedule_kind"),
@@ -51,9 +50,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ScheduledTurn do
       _short -> context
     end
   end
-
-  defp scheduled_turn_mode("check_back_later.wakeup"), do: "check_back_later"
-  defp scheduled_turn_mode("cron.fire"), do: "cron"
 
   @spec silent_success_allowed?(ActorEvent.t()) :: boolean()
   def silent_success_allowed?(%ActorEvent{type: "check_back_later.wakeup"} = event) do

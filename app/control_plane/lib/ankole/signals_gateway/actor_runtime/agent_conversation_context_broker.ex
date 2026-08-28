@@ -27,11 +27,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentConversationContextBroker do
     with {:ok, conversation} <- resolve_conversation(turn_ref),
          {:ok, agent} <- agent_profile(turn_ref.agent_uid),
          {:ok, documents} <- Library.list_agent_documents(turn_ref.agent_uid),
-         {:ok, skills} <- Library.skills_for_system_prompt(turn_ref.agent_uid) do
+         {:ok, %{"skills" => skills, "agent_plugins" => agent_plugins}} <-
+           Library.runtime_catalog_for_agent(turn_ref.agent_uid) do
       timezone = installation_timezone()
       soul = Map.fetch!(documents, "soul")
       mission = Map.fetch!(documents, "mission")
       design = Map.fetch!(documents, "design")
+      confidentiality_policy = Map.fetch!(documents, "confidentiality_policy")
 
       {:ok,
        %FabricProto.AgentConversationContextResponse{
@@ -43,7 +45,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentConversationContextBroker do
          soul_content_hash: soul["content_hash"],
          mission_content_hash: mission["content_hash"],
          design_content_hash: design["content_hash"],
-         skills: Enum.map(skills, &RPCWire.runtime_skill_summary/1)
+         confidentiality_policy: confidentiality_policy["content"],
+         confidentiality_policy_content_hash: confidentiality_policy["content_hash"],
+         skills: Enum.map(skills, &RPCWire.runtime_skill_summary/1),
+         agent_plugins: Enum.map(agent_plugins, &agent_plugin_catalog_entry/1)
        }}
     else
       {:error, reason} -> error(ctx.request_id, reason)
@@ -96,6 +101,18 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentConversationContextBroker do
   end
 
   defp origin_channel(_channel), do: nil
+
+  defp agent_plugin_catalog_entry(entry) do
+    %FabricProto.AgentPluginCatalogEntry{
+      id: entry["id"],
+      description: entry["description"],
+      has_workspace_template: entry["has_workspace_template"],
+      skills:
+        Enum.map(entry["skills"], fn skill ->
+          %FabricProto.AgentPluginCatalogSkill{catalog_name: skill["catalog_name"]}
+        end)
+    }
+  end
 
   defp agent_profile(agent_uid) do
     case Repo.get(Principal, agent_uid) do

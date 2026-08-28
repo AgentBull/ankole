@@ -10,7 +10,7 @@ defmodule Ankole.BackgroundAgentJobs.TurnItemProjection do
   scans) rely on.
   """
 
-  alias Ankole.BackgroundAgentJobs.Text
+  alias Ankole.Text
 
   @max_tool_arguments_bytes 64 * 1_024
   @truncation_suffix "...[truncated]"

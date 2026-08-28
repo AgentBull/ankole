@@ -100,6 +100,10 @@ defmodule Ankole.Brain.GetPageTest do
     slugs = Enum.map(candidates, & &1.slug)
     assert "companies/minghu-ai" in slugs
     assert "people/minghu-founder" in slugs
+
+    assert {:ok, _deleted} = Objects.soft_delete("people/minghu-founder")
+    assert {:ok, live} = GetPage.get_page(context.member.uid, "明湖 AI")
+    assert live.slug == "companies/minghu-ai"
   end
 
   test "the admin page shows contradictions across every scope", context do

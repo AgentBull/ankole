@@ -5,12 +5,14 @@ defmodule Ankole.Plugins.ConfigSecrets do
   Plugin field paths can be nested and can use atom or string descriptor keys.
   """
 
-  @spec preserve(list(), map(), map(), [String.t()]) :: map()
-  def preserve(fields, patch, current, preserved_placeholders \\ []) do
+  @spec preserve(list(), map(), map(), keyword()) :: map()
+  def preserve(fields, patch, current, opts \\ []) do
+    placeholders = Keyword.get(opts, :placeholders, [nil, ""])
+
     fields
     |> encrypted_field_paths()
     |> Enum.reduce(patch, fn path, config ->
-      case {placeholder?(get_path(config, path), preserved_placeholders), get_path(current, path)} do
+      case {get_path(config, path) in placeholders, get_path(current, path)} do
         {true, value} when not is_nil(value) -> put_path(config, path, value)
         _value -> config
       end
@@ -44,12 +46,6 @@ defmodule Ankole.Plugins.ConfigSecrets do
   end
 
   defp field_value(_field, _key), do: nil
-
-  defp placeholder?(nil, _preserved_placeholders), do: true
-  defp placeholder?("", _preserved_placeholders), do: true
-
-  defp placeholder?(value, preserved_placeholders),
-    do: value in preserved_placeholders
 
   defp get_path(source, path) when is_map(source) and is_binary(path) do
     path

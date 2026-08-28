@@ -72,6 +72,16 @@ The following AppConfigure keys are built into Ankole. A Control Plane Plugin ca
 | `ai_agent.library.agent_plugin_defaults` | Instance | Default enablement for Agent Plugins |
 | `ai_agent.library.skill_defaults` | Instance | Default enablement for Skills |
 
+### Workflows
+
+| Key | Scope | Purpose |
+|---|---|---|
+| `workflow.max_concurrency_per_run` | Instance | Maximum task concurrency that one Workflow can request; default `8`, valid range `1`–`32` |
+| `workflow.max_running_per_agent` | Instance | Maximum running Workflow tasks across one Agent's runs; default `8`, valid range `1`–`64` |
+| `workflow.max_agent_calls_per_run` | Instance | Maximum subagent calls that one Workflow can create; default `256`, valid range `1`–`1,024` |
+
+These limits apply to later Workflow work. A run can request a lower concurrency or call limit, but it cannot raise the instance limit. Read [Workflows](../workflows/) for task behavior and other size boundaries.
+
 ### Brain
 
 | Key | Scope | Purpose |

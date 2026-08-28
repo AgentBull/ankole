@@ -1640,4 +1640,17 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     |> ActorEvent.changeset(attrs)
     |> Repo.insert!()
   end
+
+  # The owner Session receives the Workflow outcome only through these wakeup
+  # turns; a type missing from the eligibility list silences the whole run.
+  test "Workflow run wakeups are channel-reply eligible like Job wakeups" do
+    base = %ActorEvent{signal_channel_id: "lark:oc_workflow", type: "workflow.run.completed"}
+
+    for type <- ["workflow.run.completed", "workflow.run.failed", "workflow.run.attention"] do
+      assert AIReplyPreview.channel_reply_eligible?(%{base | type: type})
+    end
+
+    refute AIReplyPreview.channel_reply_eligible?(%{base | type: "workflow.task.dispatch"})
+    refute AIReplyPreview.channel_reply_eligible?(%{base | signal_channel_id: nil})
+  end
 end

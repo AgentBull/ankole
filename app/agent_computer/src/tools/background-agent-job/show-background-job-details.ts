@@ -1,8 +1,10 @@
 import { z } from 'zod'
 import { defineWorkerTool, type AgentToolResult, type WorkerAgentTool } from '../../core'
-import { truncateUtf16Safe, utf8ByteLength } from '../../common/text-sanitize'
+import { utf8ByteLength } from '../../common/text-sanitize'
 import { ModelIntegerID, modelIntegerIDFromWire, modelIntegerIDToWire } from '../../core/model-integer-id'
 import { jsonToolResult } from '../../core/tool-result'
+import { fitToolResultTextWindow } from '../../core/tool-result-window'
+import { nonNegativeSafeIntegerFromWire } from '../../core/wire-integer'
 import { jsonObjectFromBytes } from '../../fabric/envelope_proto'
 import type { TurnStart } from '../../lanes/actor_lane'
 import { rpcMethods, type RPCRequester, type RPCRequestInit } from '../../lanes/rpc_lane'
@@ -13,8 +15,6 @@ import {
   type BackgroundAgentJobStatus,
   type BackgroundAgentJobTrajectory
 } from '../../core/background-agent-job-documents'
-
-const RESULT_TOOL_OUTPUT_MAX_BYTES = 8_000
 
 const ShowBackgroundJobDetailsParamsSchema = z
   .object({
@@ -259,34 +259,17 @@ function resultChunk(
     throw new Error('background agent job returned an invalid result output window')
   }
 
-  const complete = resultChunkDetails(
-    title,
-    resultRef,
-    offset,
-    outputWindow,
-    offset + windowBytes < totalBytes ? offset + windowBytes : null
+  const result = fitToolResultTextWindow(outputWindow, (outputText, truncatedForLimit) =>
+    resultChunkDetails(
+      title,
+      resultRef,
+      offset,
+      outputText,
+      truncatedForLimit || offset + windowBytes < totalBytes ? offset + utf8ByteLength(outputText) : null
+    )
   )
-  if (serializedBytes(complete) <= RESULT_TOOL_OUTPUT_MAX_BYTES) return complete
-
-  let low = 1
-  let high = outputWindow.length - 1
-  let outputText = ''
-
-  while (low <= high) {
-    const middle = Math.floor((low + high) / 2)
-    const candidate = truncateUtf16Safe(outputWindow, middle)
-    const nextOffset = offset + utf8ByteLength(candidate)
-    const candidateDetails = resultChunkDetails(title, resultRef, offset, candidate, nextOffset)
-    if (serializedBytes(candidateDetails) <= RESULT_TOOL_OUTPUT_MAX_BYTES) {
-      outputText = candidate
-      low = middle + 1
-    } else {
-      high = middle - 1
-    }
-  }
-
-  if (!outputText) throw new Error('background agent job result metadata exceeds the tool output limit')
-  return resultChunkDetails(title, resultRef, offset, outputText, offset + utf8ByteLength(outputText))
+  if (!result) throw new Error('background agent job result metadata exceeds the tool output limit')
+  return result
 }
 
 function resultChunkDetails(
@@ -304,19 +287,8 @@ function resultChunkDetails(
   }
 }
 
-function serializedBytes(value: ShowBackgroundJobResultChunk): number {
-  return utf8ByteLength(JSON.stringify(value))
-}
-
 function invalidResultOffset(offset: number): Error {
   return new Error(`background agent job result offset ${offset} is invalid`)
-}
-
-function nonNegativeSafeIntegerFromWire(value: string, field: string): number {
-  if (!/^(0|[1-9][0-9]*)$/.test(value)) throw new Error(`${field} is not a non-negative integer`)
-  const parsed = Number(value)
-  if (!Number.isSafeInteger(parsed)) throw new Error(`${field} exceeds the model integer range`)
-  return parsed
 }
 
 type ModelVisibleJobError = {

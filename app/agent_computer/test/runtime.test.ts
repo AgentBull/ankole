@@ -13,12 +13,7 @@ import {
   utimesSync,
   writeFileSync
 } from 'node:fs'
-import {
-  runtimeFabricProtocolVersion,
-  runtimeFabricSealEnvelope,
-  zstdCompressBlock,
-  zstdDecompressBlock
-} from '@ankole/kernel'
+import { runtimeFabricSealEnvelope, zstdCompressBlock, zstdDecompressBlock } from '@ankole/kernel'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createFileTransferLane } from '../src/lanes/file'
@@ -76,8 +71,6 @@ describe('@ankole/agent-computer runtime', () => {
     expect(ready.body.case).toBe('workerReady')
     expect(heartbeat.body.case).toBe('workerHeartbeat')
     expect(capacity.body.case).toBe('workerCapacity')
-    expect(runtimeFabricProtocolVersion()).toBe(4)
-    expect(sealed(ready).protocolVersion).toBe(runtimeFabricProtocolVersion())
     expect(ready.body.value).toMatchObject({ incarnationId: 'incarnation-a' })
     expect(heartbeat.body.value).toMatchObject({ incarnationId: 'incarnation-a' })
     expect(capacity.body.value).toMatchObject({ incarnationId: 'incarnation-a' })
@@ -174,7 +167,6 @@ describe('@ankole/agent-computer runtime', () => {
     })
     expect(envelope.body.value.turn).toMatchObject({ actorEventId: turn.actor_event_id })
     expect(jsonObjectFromBytes(envelope.body.value.refsJson, 'refs_json')).toEqual({ stage: 'llm' })
-    expect(sealed(envelope).protocolVersion).toBe(runtimeFabricProtocolVersion())
   })
 
   it('encodes renderer-safe reply presentation progress for the control plane', () => {
@@ -188,7 +180,6 @@ describe('@ankole/agent-computer runtime', () => {
 
     expect(sealed(envelope).lane).toBe(Lane.PROGRESS)
     expect(sealed(envelope).durability).toBe(DurabilityClass.CONTROL_EPHEMERAL)
-    expect(sealed(envelope).protocolVersion).toBe(runtimeFabricProtocolVersion())
   })
 
   it('reports process drain as ephemeral control traffic', () => {
@@ -198,7 +189,6 @@ describe('@ankole/agent-computer runtime', () => {
     expect(sealed(envelope).durability).toBe(DurabilityClass.CONTROL_EPHEMERAL)
     if (envelope.body.case !== 'controlShutdown') throw new Error('expected controlShutdown body')
     expect(envelope.body.value.reason).toBe('sigterm')
-    expect(sealed(envelope).protocolVersion).toBe(runtimeFabricProtocolVersion())
   })
 
   it('renews a silent BackgroundAgentJob Turn independently of Codex notifications', async () => {
@@ -435,7 +425,6 @@ describe('@ankole/agent-computer runtime', () => {
       code: 'unknown_rpc_method'
     })
     expect(jsonObjectFromBytes(body.value.detailsJson, 'details_json')).toEqual({ method: 'test.probe' })
-    expect(sealed(sent[0]!).protocolVersion).toBe(runtimeFabricProtocolVersion())
   })
 
   it('returns RPC errors for unknown worker methods', async () => {
@@ -459,7 +448,6 @@ describe('@ankole/agent-computer runtime', () => {
       code: 'unknown_rpc_method'
     })
     expect(jsonObjectFromBytes(body.value.detailsJson, 'details_json')).toEqual({ method: 'worker.unknown' })
-    expect(sealed(sent[0]!).protocolVersion).toBe(runtimeFabricProtocolVersion())
   })
 
   it('handles worker file lane WRITE and READ through zstd DATA credit', async () => {

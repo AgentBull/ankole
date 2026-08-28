@@ -41,15 +41,6 @@ export type PreparedAgentPlugins = {
   materializedRoot: string
 }
 
-export type SelectedAgentPluginCapabilities = {
-  availableSkillNames: string[]
-  discoveredSkills: Array<{ name: string; invocationNames: string[]; path: string; enabled: boolean }>
-  selectedCapabilityRoots: Array<{
-    id: string
-    location: { type: 'environment'; environmentId: string; path: string }
-  }>
-}
-
 /**
  * Resolves the current catalog and initializes one selected workspace template.
  */
@@ -113,109 +104,9 @@ export function materializeAgentPluginPackages(prepared: PreparedAgentPlugins, i
 }
 
 /**
- * Builds one Job-owned Plugin view that contains only its currently allowed
- * projected members. Official installation still uses the Agent-owned package.
- */
-export function materializeSelectedAgentPlugins(
-  prepared: PreparedAgentPlugins,
-  selected: AgentPluginCatalogEntry[],
-  input: { materializedRoot: string; skillMaterialsRoot: string }
-): PreparedAgentPlugins {
-  const selections = [...selected].sort((left, right) => compareCodePointStrings(left.id, right.id))
-  assertUniqueAgentPluginIDs(selections)
-  const preparedByID = new Map(prepared.agentPlugins.map(agentPlugin => [agentPlugin.id, agentPlugin]))
-  const parent = dirname(input.materializedRoot)
-  mkdirSync(parent, { recursive: true, mode: 0o700 })
-  const stagedRoot = join(parent, `.agent-plugins-${crypto.randomUUID()}`)
-  const materializedPlugins: PreparedAgentPlugin[] = []
-
-  try {
-    const stagedPluginsRoot = join(stagedRoot, 'plugins')
-    mkdirSync(stagedPluginsRoot, { recursive: true, mode: 0o700 })
-    for (const selection of selections) {
-      const source = preparedByID.get(selection.id)
-      if (!source) throw new Error(`Selected Agent Plugin package is unavailable: ${selection.id}`)
-      const selectedSkillNames = [...new Set(selection.skills.map(skill => skill.catalogName))].sort(
-        compareCodePointStrings
-      )
-      if (selectedSkillNames.length === 0) continue
-      for (const name of selectedSkillNames) {
-        if (!source.memberSkillNames.includes(name)) {
-          throw new Error(`Selected Agent Plugin Skill is unavailable: ${selection.id}/${name}`)
-        }
-      }
-
-      const target = join(stagedPluginsRoot, source.id)
-      copyDirectoryStrict(source.sourceRoot, target)
-      filterMaterializedPluginSkills(source, target, selectedSkillNames, input.skillMaterialsRoot)
-      materializedPlugins.push({
-        ...source,
-        materializedRoot: join(input.materializedRoot, 'plugins', source.id),
-        memberSkillNames: selectedSkillNames
-      })
-    }
-
-    commitStagedDirectory(stagedRoot, input.materializedRoot)
-  } catch (error) {
-    rmSync(stagedRoot, { recursive: true, force: true })
-    throw error
-  }
-
-  return {
-    ...prepared,
-    agentPlugins: materializedPlugins,
-    materializedRoot: input.materializedRoot
-  }
-}
-
-export type JobAgentPluginMaterials = {
-  materialize(): PreparedAgentPlugins
-  disableSkills(skillNames: string[]): boolean
-}
-
-/**
- * Owns the mutable Skill selection of one running Job. `disableSkills` narrows
- * the selection and rebuilds the Job-owned Plugin view when it changes.
- */
-export function createJobAgentPluginMaterials(input: {
-  prepared: PreparedAgentPlugins
-  selected: AgentPluginCatalogEntry[]
-  materializedRoot: string
-  skillMaterialsRoot: string
-}): JobAgentPluginMaterials {
-  const selectableSkillNames = new Set(
-    input.selected.flatMap(agentPlugin => agentPlugin.skills.map(skill => skill.catalogName))
-  )
-  const disabledSkills = new Set<string>()
-  const materialize = (): PreparedAgentPlugins =>
-    materializeSelectedAgentPlugins(
-      input.prepared,
-      input.selected.map(agentPlugin => ({
-        ...agentPlugin,
-        skills: agentPlugin.skills.filter(skill => !disabledSkills.has(skill.catalogName))
-      })),
-      { materializedRoot: input.materializedRoot, skillMaterialsRoot: input.skillMaterialsRoot }
-    )
-
-  return {
-    materialize,
-    disableSkills: skillNames => {
-      let changed = false
-      for (const name of skillNames) {
-        if (!selectableSkillNames.has(name) || disabledSkills.has(name)) continue
-        disabledSkills.add(name)
-        changed = true
-      }
-      if (changed) materialize()
-      return changed
-    }
-  }
-}
-
-/**
  * Installs all same-release packages while no Job thread exists, trusts their
- * hooks, and leaves every global Plugin entry disabled. Jobs select roots on
- * thread/start instead of inheriting the Agent-wide installed set.
+ * hooks, and leaves every global Plugin entry disabled. Job capabilities use
+ * Ankole-owned tool and MCP projections instead of Codex Plugin Skill roots.
  */
 export async function installTrustAndDisableAgentPlugins(
   client: Pick<CodexAppServerClient, 'request'>,
@@ -267,65 +158,6 @@ export async function installTrustAndDisableAgentPlugins(
     reloadUserConfig: true
   })
   await assertInstalledPluginState(client, cwd, prepared, false)
-}
-
-export function selectAgentPluginCapabilities(
-  prepared: PreparedAgentPlugins,
-  selected: AgentPluginCatalogEntry[],
-  projected: Array<{ id: string; skills: string[] }> = selected.map(agentPlugin => ({
-    id: agentPlugin.id,
-    skills: agentPlugin.skills.map(skill => skill.catalogName)
-  }))
-): SelectedAgentPluginCapabilities {
-  const preparedByID = new Map(prepared.agentPlugins.map(agentPlugin => [agentPlugin.id, agentPlugin]))
-  const selectedByID = new Map(selected.map(agentPlugin => [agentPlugin.id, agentPlugin]))
-  const availableSkillNames: string[] = []
-  const discoveredSkills: SelectedAgentPluginCapabilities['discoveredSkills'] = []
-  const selectedCapabilityRoots: SelectedAgentPluginCapabilities['selectedCapabilityRoots'] = []
-
-  const projectedIDs = new Set<string>()
-  for (const projection of [...projected].sort((left, right) => compareCodePointStrings(left.id, right.id))) {
-    if (projectedIDs.has(projection.id)) throw new Error(`Projected Agent Plugin is duplicated: ${projection.id}`)
-    projectedIDs.add(projection.id)
-    const agentPlugin = preparedByID.get(projection.id)
-    if (!agentPlugin) continue
-    const selection = selectedByID.get(projection.id)
-    const projectedSkillNames = new Set(projection.skills)
-    const selectedSkillNames = new Set((selection?.skills ?? []).map(skill => skill.catalogName))
-    for (const name of selectedSkillNames) {
-      if (!agentPlugin.memberSkillNames.includes(name)) {
-        throw new Error(`Selected Agent Plugin Skill is unavailable: ${projection.id}/${name}`)
-      }
-      if (!projectedSkillNames.has(name)) {
-        throw new Error(`Selected Agent Plugin Skill was not projected for this Job: ${projection.id}/${name}`)
-      }
-    }
-
-    if (selectedSkillNames.size > 0) {
-      selectedCapabilityRoots.push({
-        id: pluginKey(agentPlugin, prepared),
-        location: { type: 'environment', environmentId: 'local', path: agentPlugin.materializedRoot }
-      })
-    }
-    for (const name of agentPlugin.memberSkillNames) {
-      const path = join(agentPlugin.materializedRoot, ...agentPlugin.skillsRelativePath.split('/'), name, 'SKILL.md')
-      const enabled = selectedSkillNames.has(name)
-      if (!enabled) continue
-      availableSkillNames.push(name)
-      discoveredSkills.push({
-        name,
-        invocationNames: [`${agentPlugin.manifestName}:${name}`],
-        path,
-        enabled: true
-      })
-    }
-  }
-
-  return {
-    availableSkillNames: availableSkillNames.sort(compareCodePointStrings),
-    discoveredSkills: discoveredSkills.sort((left, right) => compareCodePointStrings(left.name, right.name)),
-    selectedCapabilityRoots
-  }
 }
 
 function validateAgentPluginRef(
@@ -542,28 +374,6 @@ function commitStagedDirectory(stagedRoot: string, targetRoot: string): void {
     throw error
   }
   rmSync(backupRoot, { recursive: true, force: true })
-}
-
-function filterMaterializedPluginSkills(
-  agentPlugin: PreparedAgentPlugin,
-  packageRoot: string,
-  selectedSkillNames: string[],
-  skillMaterialsRoot: string
-): void {
-  const selected = new Set(selectedSkillNames)
-  for (const name of agentPlugin.memberSkillNames) {
-    const target = join(packageRoot, ...agentPlugin.skillsRelativePath.split('/'), name, 'SKILL.md')
-    if (!selected.has(name)) {
-      rmSync(target, { force: true })
-      continue
-    }
-    const materialPath = join(skillMaterialsRoot, name, 'SKILL.md')
-    if (!existsSync(materialPath)) continue
-    const temporary = `${target}.tmp-${process.pid}-${crypto.randomUUID()}`
-    copyFileSync(materialPath, temporary)
-    chmodSync(temporary, 0o600)
-    renameSync(temporary, target)
-  }
 }
 
 function copyDirectoryStrict(sourceRoot: string, targetRoot: string): void {
