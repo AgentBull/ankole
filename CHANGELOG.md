@@ -187,6 +187,14 @@
 - Internal: an AIGateway conversation no longer carries a Brain memory-store scope. The channel or DM label the Console shows now comes from a simpler "origin" fact recorded once when the conversation starts; existing conversations migrate automatically, and a channel's confidentiality no longer starts a fresh conversation when it changes.
 - Internal: the Worker's main agent loop now runs on pi-agent-core's `Agent` class instead of a hand-rolled OpenAI Responses client. AIGateway stays the sole owner of durable conversation state and the wire protocol is unchanged; tool-call validation, activity reporting, structured logging, and parallel-tool concurrency bounds keep their existing behavior.
 
+## Version 0.76.2 (2026-08-20)
+
+- The Console can run a recurring schedule immediately again. A valid `Idempotency-Key` no longer crashes request validation, and a repeated request still returns the same scheduled event.
+
+## Version 0.76.1 (2026-08-19)
+
+- No product behavior changes. Agent Computer integration no longer expects the retired standalone compaction endpoint, and Schedule end-to-end coverage no longer declares an unused context, so the current compaction and scheduling contracts run without false failures or warnings.
+
 ## Version 0.76.0 (2026-08-19)
 
 - Background Agent Jobs and conversations now run on OpenAI-compatible Responses endpoints that accept only plain function tools, such as DeepSeek. AIGateway sends the Codex custom tools to such an endpoint as function tools and restores the answers to their official shape, so the first request no longer fails with an unsupported-tool error.
