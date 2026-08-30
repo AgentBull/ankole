@@ -992,10 +992,20 @@ defmodule Ankole.Repo.Migrations.CreateBrainV3 do
           Ecto.UUID.dump!(Ankole.Ecto.UUIDv7.autogenerate()),
           slug,
           object_type,
-          display_name || uid
+          principal_object_title(display_name, uid)
         ]
       )
     end)
+  end
+
+  # A stored display_name may be nil, empty, or whitespace-only (the baseline
+  # column carries no non-empty check), so fall back to the uid to satisfy the
+  # brain_objects_title_present constraint instead of aborting the upgrade.
+  defp principal_object_title(display_name, uid) do
+    case display_name && String.trim(display_name) do
+      trimmed when is_binary(trimmed) and trimmed != "" -> display_name
+      _blank -> uid
+    end
   end
 
   # SQL helpers

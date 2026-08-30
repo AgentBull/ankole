@@ -5885,7 +5885,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         text_message("user", "latest tail")
       ])
 
-    {:ok, m3} = StatefulResponses.commit_complete(m3, [], usage(260))
+    {:ok, _m3} = StatefulResponses.commit_complete(m3, [], usage(260))
 
     assert {:ok, _request} =
              AIGateway.prepare_websocket_request(agent.uid, %{

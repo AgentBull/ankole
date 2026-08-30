@@ -39,12 +39,6 @@ defmodule Ankole.AIAgent.LibraryTest do
              &(&1["catalog_name"] == runtime_research["skill_name"])
            )
 
-    lineage = Enum.find(skills, &(&1["skill_name"] == "idea-lineage"))
-    assert lineage["metadata"]["brain_recall_only"]
-
-    runtime_lineage = Enum.find(runtime_skills, &(&1["skill_name"] == "idea-lineage"))
-    assert runtime_lineage["metadata"]["brain_recall_only"]
-
     assert {:ok, shipped_sources} = Library.shipped_skill_sources()
     assert Enum.count(shipped_sources, &(&1.name == "idea-lineage")) == 1
 

@@ -12,6 +12,13 @@ export type BrainSuggestionListResponse = {
 }
 
 /**
+ * BrainObjectTypesResponse
+ */
+export type BrainObjectTypesResponse = {
+  types: Array<string>
+}
+
+/**
  * AIGatewayCredentialPoolEntry
  */
 export type AiGatewayCredentialPoolEntry = {
@@ -7238,6 +7245,23 @@ export type AnkoleWebAgentComputerWorkerControllerIndexResponses = {
 
 export type AnkoleWebAgentComputerWorkerControllerIndexResponse =
   AnkoleWebAgentComputerWorkerControllerIndexResponses[keyof AnkoleWebAgentComputerWorkerControllerIndexResponses]
+
+export type AnkoleWebBrainControllerObjectTypesData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v1/brain/object-types'
+}
+
+export type AnkoleWebBrainControllerObjectTypesResponses = {
+  /**
+   * Types
+   */
+  200: BrainObjectTypesResponse
+}
+
+export type AnkoleWebBrainControllerObjectTypesResponse =
+  AnkoleWebBrainControllerObjectTypesResponses[keyof AnkoleWebBrainControllerObjectTypesResponses]
 
 export type AnkoleWebAgentSessionControllerIndexData = {
   body?: never

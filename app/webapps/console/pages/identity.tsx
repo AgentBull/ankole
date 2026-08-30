@@ -19,7 +19,14 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useDeferredValue, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams } from 'react-router'
-import { ConfigFields, defaultConfig, getPath, localizedText, setPath } from '../../common/config-fields'
+import {
+  ConfigFields,
+  configFieldServerError,
+  defaultConfig,
+  getPath,
+  localizedText,
+  setPath
+} from '../../common/config-fields'
 import i18n from '../../common/i18n'
 import { requestErrorMessage } from '../../common/request-errors'
 import {
@@ -203,6 +210,7 @@ export function IdentityProviderEditorPage() {
   )
   const activeFields = activeAdapter?.fields ?? []
   const submitDisabled = mode === 'edit' && !model.dirty.value
+  const writeFieldError = configFieldServerError(saveProvider.error, activeFields, locale)
   // Explain why Save is unavailable when the configured adapter is missing.
   // The operator must restore its plugin before the provider can be edited.
   const adapterUnavailable = mode === 'edit' && adapters.isSuccess && Boolean(selected) && !activeAdapter
@@ -221,9 +229,9 @@ export function IdentityProviderEditorPage() {
       title={mode === 'new' ? t('console.identity.new') : (providerID ?? '')}
       description={t('console.identity.editor_description')}
       backTo="/identity"
+      validationError={model.validationError.value ?? writeFieldError}
       error={
-        model.validationError.value ??
-        saveProvider.error ??
+        (writeFieldError ? undefined : saveProvider.error) ??
         adapters.error ??
         providers.error ??
         (adapterUnavailable ? new Error(t('console.identity.adapter_unavailable')) : undefined)

@@ -34,7 +34,7 @@ defmodule Ankole.Plugins.DiscordAdapter.ConnectionReconciler do
 
     stopped =
       ConnectionLifecycle.stop_undesired(
-        {:complete, specs},
+        ConnectionLifecycle.desired_snapshot(specs, config_errors),
         ConnectionSupervisor.registered_keys(),
         &ConnectionSupervisor.stop/1
       )

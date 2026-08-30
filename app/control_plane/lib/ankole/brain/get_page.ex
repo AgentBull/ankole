@@ -12,6 +12,7 @@ defmodule Ankole.Brain.GetPage do
   import Ecto.Query, warn: false
 
   alias Ankole.Brain.Access
+  alias Ankole.Brain.Claims
   alias Ankole.Brain.Markdoc
   alias Ankole.Brain.LazySkillVisibility
   alias Ankole.Brain.Objects
@@ -42,6 +43,13 @@ defmodule Ankole.Brain.GetPage do
     with {:ok, access} <- Access.for_readers(querier_uid, disclosure),
          {:ok, visibility} <- LazySkillVisibility.for_querier(querier_uid) do
       case Objects.resolve_reference(reference, lazy_skill_visibility: visibility) do
+        # A forgotten (soft-deleted) page leaves ordinary recall, so the model
+        # read must not return its body, timelines, or links either; only the
+        # Console admin path (get_page_admin/1) sees soft-deleted pages so an
+        # operator can restore them inside the purge window.
+        {:ok, %Object{deleted_at: deleted_at}} when not is_nil(deleted_at) ->
+          {:error, :not_found}
+
         {:ok, object} ->
           {:ok, render_page(object, access, disclosure, visibility)}
 
@@ -231,6 +239,7 @@ defmodule Ankole.Brain.GetPage do
       visible_claim_ids =
         Claim
         |> LazySkillVisibility.filter_claims(visibility)
+        |> Claims.filter_live_parents()
         |> select([claim], claim.id)
 
       Contradiction

@@ -100,11 +100,10 @@ export function PrincipalCreatePage() {
       title={t('console.principals.create_title')}
       description={t('console.principals.create_description')}
       backTo="/access/principals"
-      error={
-        model.validationError.value
-          ? principalDraftErrorText(model.validationError.value, t)
-          : principalRequestError(create.error, t)
+      validationError={
+        model.validationError.value ? principalDraftErrorText(model.validationError.value, t) : undefined
       }
+      error={principalRequestError(create.error, t)}
       submitting={create.isPending}
       submitLabel={t('console.principals.create_submit')}
       onSubmit={submit}>

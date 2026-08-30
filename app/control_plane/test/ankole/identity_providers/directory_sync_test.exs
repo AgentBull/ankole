@@ -10,7 +10,6 @@ defmodule Ankole.IdentityProviders.DirectorySyncTest do
   alias Ankole.IdentityProviders.Jobs.EnqueueDirectorySyncs
   alias Ankole.IdentityProviders.Jobs.SyncProvider
   alias Ankole.IdentityProviders.StartupSync
-  alias Ankole.Plugins.LarkAdapter
 
   import Ankole.IdentityProviderTestHelpers
 

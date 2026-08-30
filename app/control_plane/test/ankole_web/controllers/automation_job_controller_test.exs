@@ -13,7 +13,6 @@ defmodule AnkoleWeb.AutomationJobControllerTest do
   alias Ankole.Repo
   alias Ankole.Setup.Config, as: SetupConfig
   alias Ankole.SignalsGateway
-  alias AnkoleWeb.Session, as: WebSession
 
   setup do
     allow_cache_database_access()

@@ -7,7 +7,6 @@ defmodule Ankole.Plugins.WeComAdapterAIStreamTest do
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Cache, as: AppConfigureCache
   alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
-  alias Ankole.Plugins.WeComAdapter
   alias Ankole.Plugins.WeComAdapter.AIStream
   alias Ankole.Plugins.WeComAdapter.Config
   alias Ankole.Plugins.WeComAdapter.ConnectionOwner

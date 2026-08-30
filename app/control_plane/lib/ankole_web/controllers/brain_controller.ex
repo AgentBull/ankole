@@ -57,6 +57,11 @@ defmodule AnkoleWeb.BrainController do
     responses: [ok: {"Objects", "application/json", BrainAPI.BrainObjectListResponse}]
   )
 
+  operation(:object_types,
+    summary: "List installed Brain object types",
+    responses: [ok: {"Types", "application/json", BrainAPI.BrainObjectTypesResponse}]
+  )
+
   operation(:create_object,
     summary: "Create one instance-owned Brain object",
     request_body:
@@ -250,6 +255,14 @@ defmodule AnkoleWeb.BrainController do
         |> Enum.map(&object_summary/1)
 
       json_plain(conn, %{objects: objects})
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  def object_types(conn, _params) do
+    with :ok <- ConsolePolicy.authorize(conn, "brain", "read") do
+      json_plain(conn, %{types: Objects.installed_type_names()})
     else
       {:error, reason} -> error(conn, reason)
     end
@@ -883,10 +896,54 @@ defmodule AnkoleWeb.BrainController do
   defp error(conn, :not_found), do: render_error(conn, 404, "not_found", "resource not found")
 
   defp error(conn, {:missing, key}),
-    do: render_error(conn, 422, "validation_failed", "#{key} is required")
+    do:
+      render_error(conn, 422, "validation_failed", "#{key} is required", [
+        %{path: key, kind: "missing"}
+      ])
 
   defp error(conn, {:invalid, key}),
-    do: render_error(conn, 422, "validation_failed", "#{key} is invalid")
+    do:
+      render_error(conn, 422, "validation_failed", "#{key} is invalid", [
+        %{path: key, kind: "invalid"}
+      ])
+
+  defp error(conn, {:invalid_slug, _slug}),
+    do:
+      render_error(
+        conn,
+        422,
+        "invalid_slug",
+        "the slug must use plain path segments without spaces",
+        [%{path: "slug"}]
+      )
+
+  defp error(conn, {:reserved_object_slug, _slug}),
+    do:
+      render_error(conn, 422, "reserved_slug", "this slug prefix is reserved for the system", [
+        %{path: "slug"}
+      ])
+
+  defp error(conn, {:slug_taken, _slug}),
+    do:
+      render_error(conn, 409, "slug_taken", "an object or alias with this slug already exists", [
+        %{path: "slug"}
+      ])
+
+  defp error(conn, {:unknown_object_type, _type, %{installed_types: installed}}),
+    do:
+      render_error(conn, 422, "unknown_object_type", "this object type is not installed", [
+        %{path: "type", installed_types: installed}
+      ])
+
+  defp error(conn, {:reserved_object_type, _type}),
+    do:
+      render_error(
+        conn,
+        422,
+        "reserved_object_type",
+        "this object type is reserved for Library projections",
+        [%{path: "type"}]
+      )
 
   defp error(conn, reason) do
     render_error(conn, 422, "brain_request_invalid", "brain request failed", [

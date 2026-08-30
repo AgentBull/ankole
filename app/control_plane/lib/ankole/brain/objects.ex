@@ -677,6 +677,21 @@ defmodule Ankole.Brain.Objects do
   defp filter_console_deleted(query, _other),
     do: where(query, [object], is_nil(object.deleted_at))
 
+  @doc """
+  Lists the installed object type names that writes accept, in name order.
+  """
+  @spec installed_type_names(keyword()) :: [String.t()]
+  def installed_type_names(opts \\ []) do
+    repo = Keyword.get(opts, :repo, Repo)
+
+    repo.all(
+      SchemaType
+      |> where([t], t.name != @library_projection_type)
+      |> select([t], t.name)
+      |> order_by([t], asc: t.name)
+    )
+  end
+
   # Type is a closed validation against the installed ontology. The error
   # carries the installed type set and the closest vocabulary terms so a tool
   # caller can re-choose explicitly at the moment of the mistake instead of
@@ -690,18 +705,10 @@ defmodule Ankole.Brain.Objects do
         {:ok, schema_type}
 
       nil ->
-        installed =
-          repo.all(
-            SchemaType
-            |> where([t], t.name != @library_projection_type)
-            |> select([t], t.name)
-            |> order_by([t], asc: t.name)
-          )
-
         {:error,
          {:unknown_object_type, type,
           %{
-            installed_types: installed,
+            installed_types: installed_type_names(repo: repo),
             vocabulary_terms: Vocabulary.closest_terms(type),
             hint:
               "Use an installed type. For an unmodeled concept, use type \"note\" with a vocabulary term as tag; vocabulary_terms lists the canonical terms closest to the rejected type."

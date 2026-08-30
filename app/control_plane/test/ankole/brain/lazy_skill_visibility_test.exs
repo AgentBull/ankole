@@ -4,19 +4,13 @@ defmodule Ankole.Brain.LazySkillVisibilityTest do
   import Ankole.PrincipalsFixtures
 
   alias Ankole.AIAgent.Library
-  alias Ankole.AIAgent.Library.AgentPlugins
   alias Ankole.Brain.Claims
-  alias Ankole.Brain.ContextPack
   alias Ankole.Brain.Dreaming
   alias Ankole.Brain.GetPage
   alias Ankole.Brain.LibraryKnowledge
   alias Ankole.Brain.Objects
-  alias Ankole.Brain.Recall
   alias Ankole.Brain.SchemaPacks
   alias Ankole.Brain.Schemas.Contradiction
-  alias Ankole.Brain.Schemas.Object
-  alias Ankole.Brain.Synthesis
-  alias Ankole.Brain.Timelines
 
   @slug "lazyload-agent-skills/idea-lineage"
 
@@ -44,73 +38,6 @@ defmodule Ankole.Brain.LazySkillVisibilityTest do
     assert {:ok, _sync} = Library.sync_agent_skills(agent.uid)
 
     %{agent: agent}
-  end
-
-  test "Agent enablement hides lazy Skills from every model read without withdrawing projection",
-       %{
-         agent: agent
-       } do
-    assert {:ok, page} = GetPage.get_page(agent.uid, @slug)
-    assert page.type == "agent-skills"
-    assert {:ok, %{slug: @slug}} = GetPage.get_page(agent.uid, "zephyr-lineage")
-
-    assert [%{slug: @slug}] =
-             ContextPack.volunteer_pointers(agent.uid, "Please use zephyr-lineage")
-
-    assert {:ok, before_disable} =
-             Recall.recall(agent.uid, %{query: "zephyr lineage signal", limit: 5})
-
-    assert Enum.any?(before_disable.chunks, &(&1.object_slug == @slug))
-
-    assert {:ok, _timeline} =
-             Timelines.write_timeline(
-               %{
-                 object_slug: @slug,
-                 date: ~D[2026-08-28],
-                 summary: "Lineage method was reviewed",
-                 provenance: "test",
-                 audience_scope: "world"
-               },
-               agent.uid
-             )
-
-    assert {:ok, _skill} =
-             Library.set_agent_skill_override(
-               agent.uid,
-               "brain:idea-lineage",
-               false
-             )
-
-    assert {:error, :not_found} = GetPage.get_page(agent.uid, @slug)
-    assert {:error, :not_found} = GetPage.get_page(agent.uid, "zephyr-lineage")
-    assert ContextPack.volunteer_pointers(agent.uid, "Please use zephyr-lineage") == []
-
-    assert {:error, {:entity_not_found, "zephyr-lineage"}} =
-             Synthesis.delta(agent.uid, %{entity: "zephyr-lineage"})
-
-    assert {:ok, delta} = Synthesis.delta(agent.uid, %{})
-    refute Enum.any?(delta.timeline_events, &(&1.object_slug == @slug))
-
-    assert {:ok, after_disable} =
-             Recall.recall(agent.uid, %{query: "zephyr lineage signal", limit: 5})
-
-    refute Enum.any?(after_disable.chunks, &(&1.object_slug == @slug))
-
-    projected = Repo.get_by!(Object, slug: @slug)
-    assert projected.deleted_at == nil
-    assert {:ok, %{slug: @slug}} = GetPage.get_page_admin(@slug)
-
-    assert {:ok, _skill} =
-             Library.set_agent_skill_override(agent.uid, "brain:idea-lineage", nil)
-
-    assert {:ok, %{slug: @slug}} = GetPage.get_page(agent.uid, @slug)
-
-    assert {:ok, _plugin} = AgentPlugins.set_agent_override(agent.uid, "brain", false)
-    assert {:error, :not_found} = GetPage.get_page(agent.uid, @slug)
-    assert Repo.get_by!(Object, slug: @slug).deleted_at == nil
-
-    assert {:ok, _plugin} = AgentPlugins.set_agent_override(agent.uid, "brain", nil)
-    assert {:ok, %{slug: @slug}} = GetPage.get_page(agent.uid, @slug)
   end
 
   test "get_page filters disabled lazy counterparts before its contradiction limit", %{

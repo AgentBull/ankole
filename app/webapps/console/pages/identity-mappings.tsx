@@ -209,7 +209,8 @@ export function IdentityMappingCreatePage() {
       title={t('console.identity_mappings.new')}
       description={t('console.identity_mappings.new_description')}
       backTo="/identity/mappings"
-      error={validationError ?? create.error ?? principals.error}
+      validationError={validationError}
+      error={create.error ?? principals.error}
       submitting={create.isPending}
       onSubmit={submit}>
       <div className="grid grid-cols-1 gap-5 md:grid-cols-2">

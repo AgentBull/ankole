@@ -6,7 +6,6 @@ defmodule Ankole.IdentityProvidersTest do
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
   alias Ankole.IdentityProviders
-  alias Ankole.IdentityProviders.Config, as: IdentityProviderConfig
   alias Ankole.IdentityProviders.Jobs.SyncProvider
   alias Ankole.PluginFixtures.MissingIdentityCallbackPlugin
   alias Ankole.PluginFixtures.UnknownIdentityCapabilityPlugin

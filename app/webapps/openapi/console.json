@@ -11,6 +11,13 @@
         "title": "BrainSuggestionListResponse",
         "type": "object"
       },
+      "BrainObjectTypesResponse": {
+        "additionalProperties": false,
+        "properties": { "types": { "items": { "type": "string" }, "type": "array" } },
+        "required": ["types"],
+        "title": "BrainObjectTypesResponse",
+        "type": "object"
+      },
       "AIGatewayCredentialPoolEntry": {
         "additionalProperties": false,
         "properties": {
@@ -7547,6 +7554,24 @@
         "security": [{ "consoleBearer": [] }],
         "summary": "List agent computer workers",
         "tags": ["Workers"]
+      }
+    },
+    "/api/v1/brain/object-types": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.BrainController.object_types",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/BrainObjectTypesResponse" } }
+            },
+            "description": "Types"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "List installed Brain object types",
+        "tags": ["Brain"]
       }
     },
     "/api/v1/agents/{agent_uid}/sessions": {

@@ -50,7 +50,7 @@ import {
   ankoleWebControlPlanePluginControllerIndexQueryKey
 } from '../api/generated/@tanstack/react-query.gen'
 import type { AppConfigurationItem, JsonValue as JSONValue } from '../api/generated/types.gen'
-import { DiscardConfirmDialog, SaveButton, useFormCompleteness } from '../console-form'
+import { DiscardConfirmDialog, SaveButton, focusFirstInvalidControl, useFormCompleteness } from '../console-form'
 import { ErrorBlock } from '../../common/error-block'
 import { formatJSON, parseJSON } from '../console-primitives'
 import { ENCRYPTED_VALUE_MASK, isEncryptedValueMask } from '../encrypted-value-input'
@@ -357,8 +357,12 @@ export function SettingEditorDrawer() {
     (list.isSuccess && !item ? t('console.settings.not_found') : undefined) ??
     (item && !item.editable ? t('console.settings.read_only') : undefined)
 
-  const submit = (event: FormEvent) => {
+  const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    if (!event.currentTarget.reportValidity()) {
+      focusFirstInvalidControl(event.currentTarget)
+      return
+    }
     model.clearValidation()
     if (!item?.editable || !initialized) return
     if (item.encrypted && isEncryptedValueMask(model.text.value)) {
@@ -395,6 +399,7 @@ export function SettingEditorDrawer() {
             noValidate
             onChange={formCompleteness.refresh}
             onInput={formCompleteness.refresh}
+            onInvalidCapture={event => event.preventDefault()}
             onSubmit={submit}>
             <DrawerHeader className="relative gap-3 border-b border-border p-5 pr-24">
               <div className="absolute top-3 right-3 flex items-center gap-1">
@@ -654,8 +659,12 @@ export function SettingGroupDrawer() {
     onError: error => toast.error(requestErrorMessage(error))
   })
 
-  const submit = async (event: FormEvent) => {
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    if (!event.currentTarget.reportValidity()) {
+      focusFirstInvalidControl(event.currentTarget)
+      return
+    }
     setEditorError(undefined)
 
     const pending: Array<{ key: string; value: JSONValue }> = []
@@ -757,6 +766,7 @@ export function SettingGroupDrawer() {
             noValidate
             onChange={formCompleteness.refresh}
             onInput={formCompleteness.refresh}
+            onInvalidCapture={event => event.preventDefault()}
             onSubmit={submit}>
             <DrawerHeader className="relative gap-3 border-b border-border p-5 pr-16">
               <div className="absolute top-3 right-3">

@@ -23,7 +23,10 @@ const brainInjectionTimeoutMs = ms('5s')
 // cap what crosses the RPC at a grapheme boundary.
 const injectionTextMaxGraphemes = 4_000
 
-const recalledMemoryTag = /<\s*\/?\s*recalled_memory\s*>/giu
+// Recalled claim text is untrusted. Neutralize both the recalled_memory
+// envelope and the agent_environment_info block the system prompt treats as
+// trusted, so a claim cannot close either wrapper and inject instructions.
+const recalledMemoryTag = /<\s*\/?\s*(?:recalled_memory|agent_environment_info)\s*>/giu
 
 /**
  * Resolves the instance-global `brain.enabled` AppConfigure key for one turn.

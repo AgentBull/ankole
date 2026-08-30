@@ -4,13 +4,11 @@ defmodule AnkoleWeb.IdentityMappingRequestControllerTest do
   import Ecto.Query, only: [from: 2]
   import Ankole.PrincipalsFixtures
 
-  alias Ankole.AuthZ
   alias Ankole.AuthZ.Grant
   alias Ankole.Principals
   alias Ankole.Principals.MappingRequests
   alias Ankole.Repo
   alias Ankole.Setup.Config, as: SetupConfig
-  alias AnkoleWeb.Session, as: WebSession
 
   setup do
     allow_cache_database_access()

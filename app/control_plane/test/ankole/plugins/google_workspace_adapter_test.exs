@@ -1,7 +1,6 @@
 defmodule Ankole.Plugins.GoogleWorkspaceAdapterTest do
   use Ankole.DataCase, async: false
 
-  alias Ankole.AppConfigure
   alias Ankole.AuthZ
   alias Ankole.AuthZ.Membership
   alias Ankole.Plugins.GoogleWorkspaceAdapter

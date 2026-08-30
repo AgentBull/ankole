@@ -5,19 +5,16 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
 
   import Ecto.Query, warn: false
   import Ankole.AIGatewayCase, only: [background_agent_fixture: 0]
-  import Ankole.PrincipalsFixtures
   import OpenAPISpex.TestAssertions
 
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
-  alias Ankole.AuthZ
   alias Ankole.Repo
   alias Ankole.Setup.Config, as: SetupConfig
   alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.BackgroundAgentJobs.Schemas.Turn
   alias Ankole.BackgroundAgentJobs.Schemas.TurnItem
-  alias AnkoleWeb.Session, as: WebSession
 
   setup do
     allow_cache_database_access()

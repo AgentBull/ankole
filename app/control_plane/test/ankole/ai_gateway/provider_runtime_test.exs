@@ -1396,11 +1396,6 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     research_plugin = Enum.find(context_payload.agent_plugins, &(&1.id == "deep-research"))
     assert Enum.any?(research_plugin.skills, &(&1.catalog_name == "create-deep-research"))
 
-    assert %FabricProto.RuntimeSkillSummary{metadata_json: lineage_metadata} =
-             Enum.find(context_payload.skills, &(&1.skill_name == "idea-lineage"))
-
-    assert Torque.decode!(lineage_metadata)["brain_recall_only"]
-
     assert {:ok, _lesson} =
              Library.create_skill_lesson(
                agent.uid,

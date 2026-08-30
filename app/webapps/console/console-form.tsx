@@ -88,7 +88,8 @@ export function ResourceEditorPage({
   submitUnavailable,
   submitLabel,
   submitting,
-  title
+  title,
+  validationError
 }: {
   backTo: string
   children: ReactNode
@@ -98,6 +99,8 @@ export function ResourceEditorPage({
   secondary?: ReactNode
   supplementary?: ReactNode
   title: string
+  /** A page-level draft problem. It renders without the request-failure title. */
+  validationError?: string
 } & ResourceEditorModeProps) {
   const { t } = useTranslation()
   const disabledReasonID = useId()
@@ -106,8 +109,15 @@ export function ResourceEditorPage({
   const saveDisabled = Boolean(submitting || submitUnavailable || disabledForNoChanges)
   const disabledReason = disabledForNoChanges ? (submitDisabledReason ?? t('common.save_disabled')) : undefined
 
-  const handleSubmit = (event: FormEvent) => {
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    const form = event.currentTarget
+    if (!form.reportValidity()) {
+      // The capture handler below cancels every native validation bubble, so
+      // the report cannot move focus on its own.
+      focusFirstInvalidControl(form)
+      return
+    }
     onSubmit?.()
   }
 
@@ -131,7 +141,12 @@ export function ResourceEditorPage({
         noValidate
         onChange={formCompleteness.refresh}
         onInput={formCompleteness.refresh}
+        // The browser bubble carries the browser locale, not the app locale.
+        // Cancel it here once; LabeledField and ConfigField render the message
+        // next to the control instead.
+        onInvalidCapture={event => event.preventDefault()}
         onSubmit={handleSubmit}>
+        {validationError ? <ErrorBlock title={t('common.form_invalid')} error={validationError} /> : null}
         <ErrorBlock error={error} />
         <div className="grid gap-5 border border-border bg-card p-5 md:p-6">
           {readOnly ? (
@@ -250,6 +265,18 @@ export function useFormCompleteness() {
   return { formRef, incomplete, refresh }
 }
 
+/**
+ * Jumps to the first control that failed `reportValidity()`. Forms outside
+ * `ResourceEditorPage` reuse this together with an `onInvalidCapture` that
+ * cancels the browser bubble, so every console form intercepts the same way.
+ */
+export function focusFirstInvalidControl(form: HTMLFormElement) {
+  const control = form.querySelector<HTMLElement>(':invalid:not(fieldset)')
+  if (!control) return
+  control.scrollIntoView({ block: 'center' })
+  control.focus({ preventScroll: true })
+}
+
 export function SaveButton({
   children,
   className,
@@ -305,6 +332,7 @@ export function LabeledField({
   description,
   error,
   htmlFor,
+  invalidError,
   label,
   required
 }: {
@@ -312,6 +340,8 @@ export function LabeledField({
   description?: string
   error?: string
   htmlFor?: string
+  /** Replaces the generic invalid text when the control fails for a page-specific reason such as a pattern. */
+  invalidError?: string
   label: string
   required?: boolean
 }) {
@@ -319,6 +349,15 @@ export function LabeledField({
   const generatedID = useId()
   const describedByID = `${generatedID}-description`
   const errorID = `${generatedID}-error`
+  const [nativeInvalid, setNativeInvalid] = useState<'missing' | 'invalid'>()
+  const clearNativeInvalid = () => setNativeInvalid(undefined)
+  const shownError =
+    error ??
+    (nativeInvalid === 'missing'
+      ? t('common.field_required', { field: label })
+      : nativeInvalid
+        ? (invalidError ?? t('common.field_invalid', { field: label }))
+        : undefined)
 
   // The label rendered next to the control but was tied to nothing: no caller
   // passed `htmlFor`, and the plain `Input` children carried no `id`, so a
@@ -342,10 +381,37 @@ export function LabeledField({
     | undefined
   const adoptable = child !== undefined
   const controlID = htmlFor ?? (adoptable ? generatedID : undefined)
-  const describedBy = [description ? describedByID : null, error ? errorID : null].filter(Boolean).join(' ')
+  const describedBy = [description ? describedByID : null, shownError ? errorID : null].filter(Boolean).join(' ')
 
   return (
-    <Field data-invalid={error ? true : undefined}>
+    // The `invalid` event does not bubble, so only a capture listener sees a
+    // descendant control fail `reportValidity()` — including the hidden input
+    // a composite control such as Select renders for form participation. Blur
+    // re-evaluates the control so a field the user leaves incomplete says so
+    // at once, with a trim check because native `required` accepts blanks.
+    // Any interaction clears the message until the next blur or submit.
+    <Field
+      data-invalid={shownError ? true : undefined}
+      onChangeCapture={clearNativeInvalid}
+      onClickCapture={clearNativeInvalid}
+      onInputCapture={clearNativeInvalid}
+      onKeyDownCapture={clearNativeInvalid}
+      onBlurCapture={event => {
+        const control = event.target
+        if (!(control instanceof HTMLInputElement || control instanceof HTMLTextAreaElement)) return
+        if (!control.willValidate) return
+        if (control.validity.valueMissing || (control.required && !control.value.trim())) {
+          setNativeInvalid('missing')
+        } else if (!control.validity.valid) {
+          setNativeInvalid('invalid')
+        } else {
+          setNativeInvalid(undefined)
+        }
+      }}
+      onInvalidCapture={event => {
+        const control = event.target as HTMLInputElement
+        setNativeInvalid(control.validity?.valueMissing ? 'missing' : 'invalid')
+      }}>
       {/* A bare asterisk is a convention the reader has to already know, and it
           reads as nothing at all to a screen reader. The console's forms are
           mostly optional fields, so the few required ones say the word. */}
@@ -359,14 +425,14 @@ export function LabeledField({
               ? cloneElement(child, {
                   id: generatedID,
                   'aria-describedby': describedBy || undefined,
-                  'aria-invalid': error ? true : child.props['aria-invalid'],
+                  'aria-invalid': shownError ? true : child.props['aria-invalid'],
                   required: required || child.props.required
                 })
               : node
           )
         : children}
       {description ? <FieldDescription id={describedByID}>{description}</FieldDescription> : null}
-      {error ? <FieldError id={errorID}>{error}</FieldError> : null}
+      {shownError ? <FieldError id={errorID}>{shownError}</FieldError> : null}
     </Field>
   )
 }

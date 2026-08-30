@@ -271,6 +271,8 @@ import type {
   AnkoleWebBrainControllerListSourcesResponses,
   AnkoleWebBrainControllerListSuggestionsData,
   AnkoleWebBrainControllerListSuggestionsResponses,
+  AnkoleWebBrainControllerObjectTypesData,
+  AnkoleWebBrainControllerObjectTypesResponses,
   AnkoleWebBrainControllerObjectVersionsData,
   AnkoleWebBrainControllerObjectVersionsResponses,
   AnkoleWebBrainControllerPrincipalKnowledgeData,
@@ -3869,6 +3871,24 @@ export const ankoleWebAgentComputerWorkerControllerIndex = <ThrowOnError extends
       }
     ],
     url: '/api/v1/agent-computer-workers',
+    ...options
+  })
+
+/**
+ * List installed Brain object types
+ */
+export const ankoleWebBrainControllerObjectTypes = <ThrowOnError extends boolean = false>(
+  options?: Options<AnkoleWebBrainControllerObjectTypesData, ThrowOnError>
+): RequestResult<AnkoleWebBrainControllerObjectTypesResponses, unknown, ThrowOnError> =>
+  (options?.client ?? client).get<AnkoleWebBrainControllerObjectTypesResponses, unknown, ThrowOnError>({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/brain/object-types',
     ...options
   })
 

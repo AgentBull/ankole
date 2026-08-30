@@ -334,7 +334,8 @@ export function WorkerEnvEditorPage() {
         title={mode === 'new' ? t('console.worker_envs.new') : (name ?? '')}
         description={item?.description ?? t('console.worker_envs.editor_description')}
         backTo="/worker-envs"
-        error={model.validationError.value ?? update.error ?? decrypt.error}
+        validationError={model.validationError.value}
+        error={update.error ?? decrypt.error}
         submitting={update.isPending}
         submitDisabled={submitDisabled}
         submitUnavailable={mode === 'edit' && !item}

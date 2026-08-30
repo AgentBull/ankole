@@ -438,9 +438,11 @@ defmodule AnkoleWeb.SignalBindingController do
   end
 
   defp error(conn, reason) do
-    error(conn, 422, "invalid_value", "signal binding configuration is invalid", [
-      %{reason: inspect(reason)}
-    ])
+    with :unhandled <- ConsoleErrors.render_config_field_error(conn, reason) do
+      error(conn, 422, "invalid_value", "signal binding configuration is invalid", [
+        %{reason: inspect(reason)}
+      ])
+    end
   end
 
   defp error(conn, status, code, message, details \\ []) do

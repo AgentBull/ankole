@@ -7,7 +7,6 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Cache, as: AppConfigureCache
   alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
-  alias Ankole.Plugins.LarkAdapter
   alias Ankole.Plugins.LarkAdapter.CardKit.CardChain
   alias Ankole.Plugins.LarkAdapter.CardKit.MarkdownSegmenter
   alias Ankole.Plugins.LarkAdapter.Config

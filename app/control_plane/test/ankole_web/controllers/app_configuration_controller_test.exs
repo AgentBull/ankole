@@ -1,17 +1,13 @@
 defmodule AnkoleWeb.AppConfigurationControllerTest do
   use AnkoleWeb.ConnCase, async: false
 
-  import Ankole.PrincipalsFixtures
 
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
   alias Ankole.AppConfigure.Schema
-  alias Ankole.AuthZ
   alias Ankole.IdentityProviders.Config, as: IdentityProvidersConfig
   alias Ankole.Setup.Config, as: SetupConfig
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerAuthKey
-  alias AnkoleWeb.Session, as: WebSession
 
   setup do
     allow_cache_database_access()
@@ -274,6 +270,23 @@ defmodule AnkoleWeb.AppConfigurationControllerTest do
 
     assert %{"app_configurations" => entries} = json_response(conn, 200)
     refute Enum.any?(entries, &(&1["key"] == runtime_key))
+  end
+
+  test "a rejected structured value names the failing field", %{conn: conn} do
+    conn =
+      conn
+      |> bearer_conn()
+      |> put(~p"/api/v1/app-configurations/brain.embedding_model", %{
+        "value" => %{"provider_id" => "", "model" => "text-embedding", "dimensions" => 1024}
+      })
+
+    assert %{
+             "error" => %{
+               "code" => "validation_failed",
+               "message" => "provider_id is invalid",
+               "details" => [%{"path" => "provider_id", "kind" => "invalid"}]
+             }
+           } = json_response(conn, 422)
   end
 
   test "unknown AppConfigure keys are not writable through the console API", %{conn: conn} do

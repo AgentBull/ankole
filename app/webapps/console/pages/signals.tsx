@@ -27,7 +27,13 @@ import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tansta
 import { useDeferredValue, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useSearchParams } from 'react-router'
-import { ConfigField, ConfigFields, defaultConfig, localizedText } from '../../common/config-fields'
+import {
+  ConfigField,
+  ConfigFields,
+  configFieldServerError,
+  defaultConfig,
+  localizedText
+} from '../../common/config-fields'
 import i18n from '../../common/i18n'
 import { requestErrorMessage } from '../../common/request-errors'
 import { formatConsoleDate } from '../console-primitives'
@@ -427,20 +433,16 @@ export function SignalBindingEditorPage() {
   const targetAgentUID = model.agentUID.value || defaultAgentUID
   const activeFields = activeAdapter?.fields ?? []
   const submitDisabled = editing && !model.dirty.value
+  const writeError = createBinding.error ?? updateBinding.error
+  const writeFieldError = configFieldServerError(writeError, activeFields, locale)
 
   return (
     <ResourceEditorPage
       title={editing ? t('common.edit') : t('console.signals.new')}
       description={editing ? t('console.signals.edit_hint') : t('console.signals.editor_description')}
       backTo={returnPath}
-      error={
-        model.validationError.value ??
-        agents.error ??
-        adapters.error ??
-        bindingDetail.error ??
-        createBinding.error ??
-        updateBinding.error
-      }
+      validationError={model.validationError.value ?? writeFieldError}
+      error={agents.error ?? adapters.error ?? bindingDetail.error ?? (writeFieldError ? undefined : writeError)}
       submitting={createBinding.isPending || updateBinding.isPending}
       submitDisabled={submitDisabled}
       submitUnavailable={!ready}

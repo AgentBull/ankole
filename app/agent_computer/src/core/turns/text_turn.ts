@@ -212,7 +212,9 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
       getSteeringMessages: async () =>
         steeringMessagesWithAcknowledgement(turnStart, opts.pollSteering?.() ?? [], opts.onSteeringApplied),
       repairFinalResponse: message =>
-        assistantText(message).trim() === '' ? emptyReplyObligationReminder(turnStart) : undefined
+        lacksVisibleReply(assistantText(message), turnStart)
+          ? emptyReplyObligationReminder(turnStart)
+          : undefined
     })
     if (latest.message.stopReason === 'error' || latest.message.stopReason === 'aborted') {
       throw new Error(
@@ -338,4 +340,15 @@ function skillRootsFromOptions(opts: TextTurnLoopOptions): SkillFileRoots {
 
 function silentSuccessReply(replyText: string): boolean {
   return replyText.trim() === silentSuccessMarker
+}
+
+/**
+ * A reply carries no usable visible content when it is blank, or when it is only
+ * the silent-success sentinel on a turn that did not permit silent success. The
+ * bounded empty-reply reminder then asks for a real visible reply instead of
+ * letting the raw sentinel become the turn output and leak to the channel.
+ */
+function lacksVisibleReply(replyText: string, turnStart: TurnStart): boolean {
+  if (replyText.trim() === '') return true
+  return !silentSuccessAllowed(turnStart) && silentSuccessReply(replyText)
 }

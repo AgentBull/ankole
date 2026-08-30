@@ -12,6 +12,7 @@ defmodule Ankole.SignalsGateway.Outbox do
   alias Ankole.Ecto.JSONPayload
   alias Ankole.SignalsGateway.Adapters
   alias Ankole.SignalsGateway.AIReplyPreview
+  alias Ankole.SignalsGateway.AIReplyText
   alias Ankole.SignalsGateway.OutboxAdapter
   alias Ankole.SignalsGateway.OutboxEntry
   alias Ankole.SignalsGateway.Projection
@@ -1220,14 +1221,7 @@ defmodule Ankole.SignalsGateway.Outbox do
     end
   end
 
-  defp normalize_visible_text(text) when is_binary(text) do
-    case String.trim(text) do
-      "" -> ""
-      text -> text
-    end
-  end
-
-  defp normalize_visible_text(_text), do: ""
+  defp normalize_visible_text(text), do: AIReplyText.normalize_visible_text(text)
 
   defp terminal_reply_presentation(%ActorEvent{} = actor_event, state, text, opts \\ []) do
     presentation =

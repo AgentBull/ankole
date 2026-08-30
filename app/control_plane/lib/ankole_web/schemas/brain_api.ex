@@ -61,6 +61,25 @@ defmodule AnkoleWeb.Schemas.BrainAPI do
     )
   end
 
+  defmodule BrainObjectTypesResponse do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "BrainObjectTypesResponse",
+        type: :object,
+        properties: %{
+          types: %Schema{type: :array, items: %Schema{type: :string}}
+        },
+        required: [:types],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
   defmodule BrainObjectCreateRequest do
     @moduledoc false
 

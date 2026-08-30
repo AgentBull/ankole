@@ -217,7 +217,9 @@ defmodule AnkoleWeb.IdentityProviderController do
   end
 
   defp error(conn, reason) do
-    ConsoleErrors.unexpected(conn, "principals.identity_provider_api.unexpected_error", reason)
+    with :unhandled <- ConsoleErrors.render_config_field_error(conn, reason) do
+      ConsoleErrors.unexpected(conn, "principals.identity_provider_api.unexpected_error", reason)
+    end
   end
 
   defp error(conn, status, code, message, details \\ []) do

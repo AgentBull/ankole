@@ -1,15 +1,12 @@
 defmodule AnkoleWeb.AgentComputerWorkerControllerTest do
   use AnkoleWeb.ConnCase, async: false
 
-  import Ankole.PrincipalsFixtures
 
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
-  alias Ankole.AuthZ
   alias Ankole.Repo
   alias Ankole.Setup.Config, as: SetupConfig
-  alias AnkoleWeb.Session, as: WebSession
 
   setup do
     allow_cache_database_access()

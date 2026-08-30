@@ -2170,7 +2170,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     assert Enum.any?(body["output"], &(&1["phase"] == "final_answer"))
   end
 
-  test "compact endpoint covers OpenResponses standalone compact compliance", %{conn: conn} do
+  test "compact endpoint covers OpenResponses standalone compact compliance", %{conn: _conn} do
     %{principal: agent} = agent_fixture()
 
     base_url =
@@ -2303,7 +2303,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
 
   test "compact endpoint reports no candidate for history that is only opaque provider state",
        %{
-         conn: conn
+         conn: _conn
        } do
     %{principal: agent} = agent_fixture()
 
@@ -2323,7 +2323,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                model: "gpt-test"
              })
 
-    assert {:ok, api_key} = Tokens.mint_for_agent(agent.uid)
+    assert {:ok, _api_key} = Tokens.mint_for_agent(agent.uid)
 
     conn =
       compaction_trigger(agent.uid, %{
@@ -2336,7 +2336,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     assert {:error, 400, "no_compaction_candidate"} = conn
   end
 
-  test "compact endpoint compacts only items after the previous compaction item", %{conn: conn} do
+  test "compact endpoint compacts only items after the previous compaction item", %{conn: _conn} do
     %{principal: agent} = agent_fixture()
 
     base_url =
@@ -2370,7 +2370,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                context_length: 131_072
              })
 
-    assert {:ok, api_key} = Tokens.mint_for_agent(agent.uid)
+    assert {:ok, _api_key} = Tokens.mint_for_agent(agent.uid)
 
     first_conn =
       compaction_trigger(agent.uid, %{
@@ -2426,10 +2426,10 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
   end
 
   test "compact endpoint rejects input with no items after the last compaction item", %{
-    conn: conn
+    conn: _conn
   } do
     %{principal: agent} = agent_fixture()
-    assert {:ok, api_key} = Tokens.mint_for_agent(agent.uid)
+    assert {:ok, _api_key} = Tokens.mint_for_agent(agent.uid)
 
     assert {:ok, artifact} =
              CompactionArtifacts.insert_artifact(%{
@@ -2450,9 +2450,9 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     assert {:error, 400, "no_compaction_candidate"} = conn
   end
 
-  test "compact endpoint rejects standalone compact without model", %{conn: conn} do
+  test "compact endpoint rejects standalone compact without model", %{conn: _conn} do
     %{principal: agent} = agent_fixture()
-    assert {:ok, api_key} = Tokens.mint_for_agent(agent.uid)
+    assert {:ok, _api_key} = Tokens.mint_for_agent(agent.uid)
 
     conn =
       compaction_trigger(agent.uid, %{
@@ -2468,9 +2468,9 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     assert {:error, 400, "missing_model"} = conn
   end
 
-  test "compact endpoint stores artifact and checkpoint when store is true", %{conn: conn} do
+  test "compact endpoint stores artifact and checkpoint when store is true", %{conn: _conn} do
     %{principal: agent} = agent_fixture()
-    assert {:ok, api_key} = Tokens.mint_for_agent(agent.uid)
+    assert {:ok, _api_key} = Tokens.mint_for_agent(agent.uid)
 
     base_url =
       start_recording_upstream(self(), fn request ->

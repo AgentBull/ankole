@@ -321,6 +321,56 @@ defmodule AnkoleWeb.BrainControllerTest do
     |> Enum.map(& &1.audience_scope)
   end
 
+  test "object writes name slug and type problems and the type list is readable", %{conn: conn} do
+    {:ok, _result} = SchemaPacks.install_packs([])
+    {conn, _principal_uid} = bearer_conn_with_principal(conn)
+
+    base = %{
+      "slug" => "notes/valid",
+      "type" => "note",
+      "subtype" => nil,
+      "title" => "Valid",
+      "body" => "Body.",
+      "meta" => %{},
+      "effective_date" => nil
+    }
+
+    assert %{"error" => %{"code" => "invalid_slug", "details" => [%{"path" => "slug"}]}} =
+             conn
+             |> post(~p"/api/v1/brain/objects", %{base | "slug" => "notes/bad slug"})
+             |> json_response(422)
+
+    assert %{"error" => %{"code" => "unknown_object_type", "details" => [type_detail]}} =
+             conn
+             |> recycle_api()
+             |> post(~p"/api/v1/brain/objects", %{base | "type" => "made-up"})
+             |> json_response(422)
+
+    assert type_detail["path"] == "type"
+    assert "note" in type_detail["installed_types"]
+
+    assert %{"object" => _created} =
+             conn
+             |> recycle_api()
+             |> post(~p"/api/v1/brain/objects", base)
+             |> json_response(200)
+
+    assert %{"error" => %{"code" => "slug_taken", "details" => [%{"path" => "slug"}]}} =
+             conn
+             |> recycle_api()
+             |> post(~p"/api/v1/brain/objects", %{base | "title" => "Duplicate"})
+             |> json_response(409)
+
+    assert %{"types" => types} =
+             conn
+             |> recycle_api()
+             |> get(~p"/api/v1/brain/object-types")
+             |> json_response(200)
+
+    assert "note" in types
+    refute "agent-skills" in types
+  end
+
   test "the Object API returns the native Markdoc code and line", %{conn: conn} do
     {:ok, _result} = SchemaPacks.install_packs([])
     {conn, principal_uid} = bearer_conn_with_principal(conn)

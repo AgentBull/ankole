@@ -40,7 +40,7 @@ import { BackLink, PageStack } from '../console-page'
 import { ResourceListPage, ResourceSearch, RowActions } from '../console-list-page'
 import { SinglePrincipalPicker } from '../principal-picker'
 import {
-  agentUIDError,
+  agentUIDInputPattern,
   AgentEditorModel,
   type AgentEditorDraft,
   type AgentMemoryDisclosureMode
@@ -198,7 +198,6 @@ export function AgentEditorPage() {
   const params = useParams()
   const uid = params.uid
   const mode = uid ? 'edit' : 'new'
-  const [touched, setTouched] = useState({ displayName: false, role: false, uid: false })
 
   const agentDetail = useQuery(agentEditorDetailOptions(uid ?? ''))
   const principals = useQuery(ankoleWebPrincipalControllerIndexOptions())
@@ -223,13 +222,6 @@ export function AgentEditorPage() {
     if (mode === 'new') model.initialize('new', emptyAgentForm())
     else if (selectedAgent) model.initialize(`agent:${selectedAgent.uid}`, formFromAgent(selectedAgent))
   }, [mode, model, selectedAgent])
-
-  // Touched flags belong to the route's agent, not to query identity: a
-  // background refetch must not clear blur-driven validation errors while the
-  // operator is still on the same editor.
-  useEffect(() => {
-    setTouched({ displayName: false, role: false, uid: false })
-  }, [uid])
 
   const createAgent = useMutation({
     ...ankoleWebAgentControllerCreateMutation(),
@@ -277,23 +269,23 @@ export function AgentEditorPage() {
     if (selectedAgent) updateAgent.mutate({ body, path: { agent_uid: selectedAgent.uid } })
   }
 
-  const validationMessage = model.validationError.value ? t(`console.agents.${model.validationError.value}`) : undefined
+  // Blur-time required and pattern feedback comes from LabeledField; these
+  // carry only the submit-time decisions of the draft model, which also
+  // covers values the model derives without a keystroke, such as the UID.
+  // Required messages reuse the shared template, so the text never changes
+  // between blur and submit.
+  const draftError = model.validationError.value
+  const requiredText = (labelKey: string) => t('common.field_required', { field: t(labelKey) })
   const displayNameError =
-    model.validationError.value === 'display_name_required' || (touched.displayName && !model.displayName.value.trim())
-      ? (validationMessage ?? t('console.agents.display_name_required'))
-      : undefined
-  const uidDraftError = mode === 'new' ? agentUIDError(model.uid.value) : undefined
+    draftError === 'display_name_required' ? requiredText('console.agents.display_name') : undefined
   const uidError =
-    model.validationError.value === 'uid_required' || model.validationError.value === 'uid_invalid'
-      ? validationMessage
-      : touched.uid && uidDraftError
-        ? t(`console.agents.${uidDraftError}`)
+    draftError === 'uid_required'
+      ? requiredText('console.agents.uid')
+      : draftError === 'uid_invalid'
+        ? t('console.agents.uid_invalid')
         : undefined
-  const roleError =
-    model.validationError.value === 'role_required' || (touched.role && !model.role.value.trim())
-      ? (validationMessage ?? t('console.agents.role_required'))
-      : undefined
-  const ownerError = model.validationError.value === 'owner_required' ? validationMessage : undefined
+  const roleError = draftError === 'role_required' ? requiredText('console.agents.role') : undefined
+  const ownerError = draftError === 'owner_required' ? requiredText('console.agents.owner') : undefined
   const submitDisabledReason =
     mode === 'edit' && !model.dirty.value ? t('console.agents.save_disabled_unchanged') : undefined
 
@@ -371,7 +363,6 @@ export function AgentEditorPage() {
             required
             ref={displayNameInput}
             value={model.displayName.value}
-            onBlur={() => setTouched(current => ({ ...current, displayName: true }))}
             onChange={event => model.setDisplayName(event.target.value, mode === 'new')}
           />
         </LabeledField>
@@ -379,6 +370,7 @@ export function AgentEditorPage() {
           label={t('console.agents.uid')}
           description={t('console.agents.uid_hint')}
           error={uidError}
+          invalidError={t('console.agents.uid_invalid')}
           required={mode === 'new'}>
           {mode === 'edit' ? (
             <ReadOnlyValue mono>{model.uid.value}</ReadOnlyValue>
@@ -390,10 +382,10 @@ export function AgentEditorPage() {
               autoCapitalize="none"
               autoComplete="off"
               maxLength={96}
+              pattern={agentUIDInputPattern}
               ref={uidInput}
               spellCheck={false}
               value={model.uid.value}
-              onBlur={() => setTouched(current => ({ ...current, uid: true }))}
               onChange={event => model.setUID(event.target.value)}
             />
           )}
@@ -409,7 +401,6 @@ export function AgentEditorPage() {
             required
             ref={roleInput}
             value={model.role.value}
-            onBlur={() => setTouched(current => ({ ...current, role: true }))}
             onChange={event => {
               model.role.value = event.target.value
               if (model.validationError.value === 'role_required') model.clearValidation()

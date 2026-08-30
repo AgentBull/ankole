@@ -58,11 +58,10 @@ export function PrincipalEditPage() {
     <ResourceEditorPage
       title={t('console.principals.edit_title')}
       backTo={detailPath}
-      error={
-        (model.validationError.value
-          ? principalDraftErrorText(model.validationError.value, t)
-          : principalRequestError(update.error, t)) ?? principal.error
+      validationError={
+        model.validationError.value ? principalDraftErrorText(model.validationError.value, t) : undefined
       }
+      error={principalRequestError(update.error, t) ?? principal.error}
       submitting={update.isPending}
       submitDisabled={!model.dirty.value}
       onSubmit={submit}>

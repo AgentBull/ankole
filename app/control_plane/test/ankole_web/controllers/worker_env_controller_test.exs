@@ -7,9 +7,7 @@ defmodule AnkoleWeb.WorkerEnvControllerTest do
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
   alias Ankole.AppConfigure.Schema
-  alias Ankole.AuthZ
   alias Ankole.Setup.Config, as: SetupConfig
-  alias AnkoleWeb.Session, as: WebSession
 
   setup do
     allow_cache_database_access()

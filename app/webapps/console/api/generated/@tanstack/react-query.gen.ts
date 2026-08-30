@@ -103,6 +103,7 @@ import {
   ankoleWebBrainControllerListObjects,
   ankoleWebBrainControllerListSources,
   ankoleWebBrainControllerListSuggestions,
+  ankoleWebBrainControllerObjectTypes,
   ankoleWebBrainControllerObjectVersions,
   ankoleWebBrainControllerPrincipalKnowledge,
   ankoleWebBrainControllerResolveTake,
@@ -434,6 +435,8 @@ import type {
   AnkoleWebBrainControllerListSourcesResponse,
   AnkoleWebBrainControllerListSuggestionsData,
   AnkoleWebBrainControllerListSuggestionsResponse,
+  AnkoleWebBrainControllerObjectTypesData,
+  AnkoleWebBrainControllerObjectTypesResponse,
   AnkoleWebBrainControllerObjectVersionsData,
   AnkoleWebBrainControllerObjectVersionsResponse,
   AnkoleWebBrainControllerPrincipalKnowledgeData,
@@ -4417,6 +4420,34 @@ export const ankoleWebAgentComputerWorkerControllerIndexOptions = (
       return data
     },
     queryKey: ankoleWebAgentComputerWorkerControllerIndexQueryKey(options)
+  })
+
+export const ankoleWebBrainControllerObjectTypesQueryKey = (
+  options?: Options<AnkoleWebBrainControllerObjectTypesData>
+) => createQueryKey('ankoleWebBrainControllerObjectTypes', options)
+
+/**
+ * List installed Brain object types
+ */
+export const ankoleWebBrainControllerObjectTypesOptions = (
+  options?: Options<AnkoleWebBrainControllerObjectTypesData>
+) =>
+  queryOptions<
+    AnkoleWebBrainControllerObjectTypesResponse,
+    DefaultError,
+    AnkoleWebBrainControllerObjectTypesResponse,
+    ReturnType<typeof ankoleWebBrainControllerObjectTypesQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebBrainControllerObjectTypes({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebBrainControllerObjectTypesQueryKey(options)
   })
 
 export const ankoleWebAgentSessionControllerIndexQueryKey = (

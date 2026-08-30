@@ -1,4 +1,5 @@
 import {
+  CreatableCombobox,
   CronEditor,
   Input,
   Select,
@@ -10,9 +11,17 @@ import {
   Textarea,
   type CronEditorLabels
 } from '@ankole/uikit'
+import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
+import {
+  ankoleWebAiGatewayControllerModelsOptions,
+  ankoleWebAiGatewayProviderControllerIndexOptions,
+  ankoleWebAiGatewayProviderControllerProviderKindsOptions
+} from '../api/generated/@tanstack/react-query.gen'
 import type { AppConfigurationItem } from '../api/generated/types.gen'
+import { LabeledField } from '../console-form'
+import { modelOptionsForBrainModel, providersWithCapability } from './model-profile-options'
 import {
   BRAIN_CHUNKING_FIELDS,
   BRAIN_CRON_KEYS,
@@ -21,6 +30,7 @@ import {
   BRAIN_MAX_EMBEDDING_DIMENSIONS,
   BRAIN_MODEL_KEYS,
   BRAIN_SEARCH_TOKENIZERS,
+  brainModelCatalogKind,
   brainModelRequiresDimensions,
   brainNumberDraft,
   brainNumberMapDraft,
@@ -81,6 +91,12 @@ export function BrainSettingsEditor({
   const { t } = useTranslation()
   const itemsByKey = new Map(items.map(item => [item.key, item]))
   const cronLabels = cronEditorLabels(t)
+  const providers = useQuery(ankoleWebAiGatewayProviderControllerIndexOptions())
+  const providerKinds = useQuery(ankoleWebAiGatewayProviderControllerProviderKindsOptions())
+  const modelCatalog = useQuery(ankoleWebAiGatewayControllerModelsOptions())
+  const providerList = providers.data?.ai_gateway_providers ?? []
+  const kindList = providerKinds.data?.provider_kinds ?? []
+  const providersLoading = providers.isLoading || providerKinds.isLoading
   const enabled = drafts[BRAIN_KEYS.enabled] === 'true'
   const skillLearningEnabled = drafts[BRAIN_KEYS.skillLearningEnabled] === 'true'
   const tokenizer = brainStringDraft(drafts[BRAIN_KEYS.searchTokenizer])
@@ -122,9 +138,14 @@ export function BrainSettingsEditor({
         models[key] ? (
           <BrainModelFieldGroup
             key={key}
+            catalog={modelCatalog.data}
             configurationKey={key}
             draft={models[key]}
             item={itemsByKey.get(key)}
+            providerIDs={providersWithCapability(providerList, kindList, brainModelCatalogKind(key)).map(
+              provider => provider.provider_id
+            )}
+            providersLoading={providersLoading}
             saving={saving}
             onChange={draft => onModelChange(key, draft)}
             onRestore={onRestore}
@@ -237,23 +258,33 @@ export function BrainSettingsEditor({
 }
 
 function BrainModelFieldGroup({
+  catalog,
   configurationKey,
   draft,
   item,
   onChange,
   onRestore,
+  providerIDs,
+  providersLoading,
   saving
 }: {
+  catalog: unknown
   configurationKey: string
   draft: BrainModelDraft
   item?: AppConfigurationItem
   onChange: (draft: BrainModelDraft) => void
   onRestore: (item: AppConfigurationItem) => void
+  providerIDs: string[]
+  providersLoading: boolean
   saving: boolean
 }) {
   const { t } = useTranslation()
   const label = t(`console.settings.brain_${configurationKey.slice('brain.'.length)}`)
   const requiresDimensions = brainModelRequiresDimensions(configurationKey)
+  // A stored provider that was deleted later must stay visible and selected,
+  // so the operator sees the stale reference instead of a silently blank field.
+  const selectableProviderIDs =
+    draft.providerID && !providerIDs.includes(draft.providerID) ? [...providerIDs, draft.providerID] : providerIDs
 
   return (
     <SettingGroupField
@@ -275,28 +306,52 @@ function BrainModelFieldGroup({
         </div>
 
         {draft.configured ? (
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="grid gap-1.5 text-xs text-muted-foreground">
-              {t('console.settings.brain_model_provider_id')}
-              <Input
+          <div className="grid gap-4 sm:grid-cols-2">
+            <LabeledField label={t('console.settings.brain_model_provider_id')} required>
+              <Select
+                value={draft.providerID || null}
+                onValueChange={value => {
+                  const providerID = String(value)
+                  // Model ids are provider-scoped, so a provider switch clears
+                  // the model instead of carrying a name the new provider
+                  // cannot serve.
+                  onChange(
+                    providerID === draft.providerID ? { ...draft, providerID } : { ...draft, providerID, model: '' }
+                  )
+                }}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder={t('console.settings.brain_model_provider_placeholder')} />
+                </SelectTrigger>
+                <SelectContent emptyLabel={providersLoading ? t('common.loading') : t('common.select_empty')}>
+                  {selectableProviderIDs.map(providerID => (
+                    <SelectItem key={providerID} value={providerID}>
+                      {providerID}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </LabeledField>
+            <LabeledField label={t('console.settings.brain_model_name')} required>
+              <CreatableCombobox
+                ariaLabel={t('console.settings.brain_model_name')}
+                clearLabel={t('common.clear')}
+                createLabel={value => t('console.models.model_use', { model: value })}
+                disabled={!draft.providerID}
+                emptyLabel={t('console.models.model_empty')}
+                options={modelOptionsForBrainModel(catalog, draft.providerID, brainModelCatalogKind(configurationKey))}
+                placeholder={
+                  draft.providerID
+                    ? t('console.models.model_placeholder')
+                    : t('console.models.provider_required_placeholder')
+                }
                 required
-                spellCheck={false}
-                value={draft.providerID}
-                onChange={event => onChange({ ...draft, providerID: event.target.value })}
-              />
-            </label>
-            <label className="grid gap-1.5 text-xs text-muted-foreground">
-              {t('console.settings.brain_model_name')}
-              <Input
-                required
-                spellCheck={false}
+                triggerLabel={t('common.open')}
                 value={draft.model}
-                onChange={event => onChange({ ...draft, model: event.target.value })}
+                onValueChange={value => onChange({ ...draft, model: value })}
               />
-            </label>
+            </LabeledField>
             {requiresDimensions ? (
-              <label className="grid gap-1.5 text-xs text-muted-foreground">
-                {t('console.settings.brain_model_dimensions')}
+              <LabeledField label={t('console.settings.brain_model_dimensions')} required>
                 <Input
                   max={BRAIN_MAX_EMBEDDING_DIMENSIONS}
                   min={1}
@@ -305,18 +360,19 @@ function BrainModelFieldGroup({
                   value={draft.dimensions}
                   onChange={event => onChange({ ...draft, dimensions: event.target.value })}
                 />
-              </label>
+              </LabeledField>
             ) : null}
-            <label className="grid gap-1.5 text-xs text-muted-foreground sm:col-span-2">
-              {t('console.settings.brain_model_provider_options')}
-              <Textarea
-                className="min-h-20 font-mono text-xs"
-                placeholder="{}"
-                spellCheck={false}
-                value={draft.providerOptions}
-                onChange={event => onChange({ ...draft, providerOptions: event.target.value })}
-              />
-            </label>
+            <div className="sm:col-span-2">
+              <LabeledField label={t('console.settings.brain_model_provider_options')}>
+                <Textarea
+                  className="min-h-20 font-mono text-xs"
+                  placeholder="{}"
+                  spellCheck={false}
+                  value={draft.providerOptions}
+                  onChange={event => onChange({ ...draft, providerOptions: event.target.value })}
+                />
+              </LabeledField>
+            </div>
           </div>
         ) : null}
       </div>
@@ -338,10 +394,9 @@ function NumberMapInputs({
   const { t } = useTranslation()
 
   return (
-    <div className="grid gap-3 sm:grid-cols-2">
+    <div className="grid gap-4 sm:grid-cols-2">
       {fields.map(field => (
-        <label key={field} className="grid gap-1.5 text-xs text-muted-foreground">
-          {t(`${labelPrefix}${field}`)}
+        <LabeledField key={field} label={t(`${labelPrefix}${field}`)} required>
           <Input
             min={0}
             required
@@ -349,7 +404,7 @@ function NumberMapInputs({
             value={values[field] ?? ''}
             onChange={event => onChange({ ...values, [field]: event.target.value })}
           />
-        </label>
+        </LabeledField>
       ))}
     </div>
   )

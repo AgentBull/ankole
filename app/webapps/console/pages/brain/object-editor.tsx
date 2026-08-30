@@ -1,4 +1,18 @@
-import { Badge, Button, Input, Skeleton, Textarea, buttonVariants, cn, toast } from '@ankole/uikit'
+import {
+  Badge,
+  Button,
+  Input,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  Skeleton,
+  Textarea,
+  buttonVariants,
+  cn,
+  toast
+} from '@ankole/uikit'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -8,13 +22,14 @@ import { Link, useBlocker, useNavigate, useParams } from 'react-router'
 import {
   ankoleWebBrainControllerCreateObjectMutation,
   ankoleWebBrainControllerListObjectsQueryKey,
+  ankoleWebBrainControllerObjectTypesOptions,
   ankoleWebBrainControllerObjectVersionsQueryKey,
   ankoleWebBrainControllerShowObjectOptions,
   ankoleWebBrainControllerShowObjectQueryKey,
   ankoleWebBrainControllerUpdateObjectMutation
 } from '../../api/generated/@tanstack/react-query.gen'
 import type { BrainObjectPage } from '../../api/generated/types.gen'
-import { requestErrorCode, requestErrorDetails, requestErrorMessage } from '../../../common/request-errors'
+import { requestErrorCode, requestErrorDetails } from '../../../common/request-errors'
 import { ErrorBlock } from '../../../common/error-block'
 import { DiscardConfirmDialog, LabeledField, ReadOnlyValue, ResourceEditorPage } from '../../console-form'
 import { BackLink, PageStack } from '../../console-page'
@@ -55,6 +70,8 @@ export function BrainObjectEditorPage() {
     refetchOnMount: 'always'
   })
   const page = detail.data?.object
+  const types = useQuery({ ...ankoleWebBrainControllerObjectTypesOptions(), enabled: mode === 'new' })
+  const typeNames = types.data?.types ?? []
 
   useEffect(() => {
     if (mode === 'new') model.initialize(sourceKey, emptyBrainObjectSnapshot())
@@ -157,13 +174,10 @@ export function BrainObjectEditorPage() {
     )
   }
 
-  const editorError = model.validationError.value
+  const validationError = model.validationError.value
     ? draftErrorText(model.validationError.value, t)
-    : diagnostic || conflict
-      ? undefined
-      : writeError
-        ? requestErrorMessage(writeError)
-        : undefined
+    : writeErrorText(writeError, t)
+  const editorError = validationError || diagnostic || conflict ? undefined : writeError
   const title = mode === 'new' ? t('console.brain.object_create_title') : t('console.brain.object_edit_title')
   const description = readOnly
     ? editBlockText(page?.edit_block_reason, t)
@@ -171,7 +185,10 @@ export function BrainObjectEditorPage() {
   const fields = (
     <>
       <div className="grid gap-5 sm:grid-cols-2">
-        <LabeledField label={t('console.brain.slug')} required={mode === 'new'}>
+        <LabeledField
+          label={t('console.brain.slug')}
+          description={mode === 'new' ? t('console.brain.slug_hint') : undefined}
+          required={mode === 'new'}>
           {mode === 'new' ? (
             <Input
               className="font-mono text-xs"
@@ -186,13 +203,21 @@ export function BrainObjectEditorPage() {
         </LabeledField>
         <LabeledField label={t('console.brain.type')} required={mode === 'new'}>
           {mode === 'new' ? (
-            <Input
-              className="font-mono text-xs"
+            <Select
               disabled={pending}
-              spellCheck={false}
-              value={model.type.value}
-              onChange={event => (model.type.value = event.target.value)}
-            />
+              value={model.type.value || null}
+              onValueChange={value => (model.type.value = String(value))}>
+              <SelectTrigger className="w-full font-mono text-xs">
+                <SelectValue placeholder={t('console.brain.type_placeholder')} />
+              </SelectTrigger>
+              <SelectContent emptyLabel={types.isLoading ? t('common.loading') : t('common.select_empty')}>
+                {typeNames.map(name => (
+                  <SelectItem key={name} value={name}>
+                    {name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           ) : (
             <ReadOnlyValue mono>{model.type.value}</ReadOnlyValue>
           )}
@@ -317,6 +342,7 @@ export function BrainObjectEditorPage() {
       contentWidth="wide"
       description={description}
       error={editorError}
+      validationError={validationError}
       onSubmit={submit}
       submitDisabled={!model.dirty.value}
       submitUnavailable={mode === 'edit' && !model.contentHash.value}
@@ -377,6 +403,39 @@ function draftErrorText(error: BrainObjectDraftError, t: Translate): string {
       return t('common.field_required', { field: t('console.brain.object_title') })
     case 'meta_invalid':
       return t('console.brain.meta_invalid')
+  }
+}
+
+const WRITE_FIELD_LABEL_KEYS: Record<string, string> = {
+  slug: 'console.brain.slug',
+  type: 'console.brain.type',
+  title: 'console.brain.object_title',
+  meta: 'console.brain.meta'
+}
+
+/** Localizes the coded object-write rejections; other errors render raw. */
+function writeErrorText(error: unknown, t: Translate): string | undefined {
+  const code = requestErrorCode(error)
+  switch (code) {
+    case 'validation_failed': {
+      const details = requestErrorDetails(error)
+      const labelKey = typeof details.path === 'string' ? WRITE_FIELD_LABEL_KEYS[details.path] : undefined
+      if (!labelKey) return undefined
+      const messageKey = details.kind === 'missing' ? 'common.field_required' : 'common.field_invalid'
+      return t(messageKey, { field: t(labelKey) })
+    }
+    case 'invalid_slug':
+      return t('console.brain.slug_invalid')
+    case 'reserved_slug':
+      return t('console.brain.slug_reserved')
+    case 'slug_taken':
+      return t('console.brain.slug_taken')
+    case 'unknown_object_type':
+      return t('console.brain.type_unknown')
+    case 'reserved_object_type':
+      return t('console.brain.type_reserved')
+    default:
+      return undefined
   }
 }
 

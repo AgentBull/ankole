@@ -33,7 +33,11 @@ export type AgentEditorDraftError =
   | 'role_required'
   | 'owner_required'
 
-const agentUIDPattern = /^[a-z0-9][a-z0-9._-]{0,95}$/
+// Shared with the editor's `pattern` attribute, so the browser reports the
+// same rule the model enforces. HTML patterns imply the ^…$ anchors and
+// compile with the `v` flag, which requires the escaped hyphen in the class.
+export const agentUIDInputPattern = '[a-z0-9][a-z0-9._\\-]{0,95}'
+const agentUIDPattern = new RegExp(`^(?:${agentUIDInputPattern})$`)
 
 export function agentUIDError(uid: string): Extract<AgentEditorDraftError, 'uid_invalid' | 'uid_required'> | undefined {
   const normalizedUID = uid.trim()

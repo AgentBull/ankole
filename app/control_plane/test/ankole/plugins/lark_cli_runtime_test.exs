@@ -19,7 +19,6 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
   alias Ankole.AppConfigure.Cache, as: AppConfigureCache
   alias Ankole.AppConfigure.Crypto, as: AppConfigureCrypto
   alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
-  alias Ankole.Plugins.LarkAdapter
   alias Ankole.Plugins.LarkAdapter.Config
   alias Ankole.Plugins.LarkAdapter.RuntimeEnv
   alias Ankole.Plugins.Config, as: PluginsConfig

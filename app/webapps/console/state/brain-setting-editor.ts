@@ -78,6 +78,13 @@ export function brainModelRequiresDimensions(key: string): boolean {
   return key === BRAIN_KEYS.embeddingModel
 }
 
+/** Names the model-catalog class one Brain model slot suggests from. */
+export function brainModelCatalogKind(key: string): 'embedding' | 'rerank' | 'llm' {
+  if (key === BRAIN_KEYS.embeddingModel) return 'embedding'
+  if (key === BRAIN_KEYS.rerankModel) return 'rerank'
+  return 'llm'
+}
+
 /** Reads a stored model value (object or null) into an editable draft. */
 export function brainModelDraft(value: JSONValue | undefined): BrainModelDraft {
   if (!isRecord(value)) {

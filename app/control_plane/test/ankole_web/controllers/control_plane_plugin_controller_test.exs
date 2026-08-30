@@ -1,14 +1,10 @@
 defmodule AnkoleWeb.ControlPlanePluginControllerTest do
   use AnkoleWeb.ConnCase, async: false
 
-  import Ankole.PrincipalsFixtures
 
   alias Ankole.AppConfigure.Cache, as: AppConfigureCache
   alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
-  alias Ankole.AuthZ
-  alias Ankole.Plugins.Config, as: PluginConfig
   alias Ankole.Setup.Config, as: SetupConfig
-  alias AnkoleWeb.Session, as: WebSession
 
   setup do
     allow_cache_database_access()

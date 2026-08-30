@@ -9,11 +9,8 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
   alias Ankole.AppConfigure.AppConfig
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
-  alias Ankole.AuthZ
   alias Ankole.AuthZ.Grant
-  alias Ankole.Plugins.DingTalkAdapter
   alias Ankole.Plugins.DingTalkAdapter.Config, as: DingTalkConfig
-  alias Ankole.Plugins.LarkAdapter
   alias Ankole.Plugins.LarkAdapter.Config, as: LarkConfig
   alias Ankole.Repo
   alias Ankole.Setup.Config, as: SetupConfig
@@ -21,7 +18,6 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
   alias Ankole.SignalsGateway.Binding
   alias Ankole.SignalsGateway.Ingress
   alias Ankole.SignalsGateway.OutboxEntry
-  alias AnkoleWeb.Session, as: WebSession
 
   setup do
     allow_cache_database_access()
@@ -99,6 +95,27 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
              json_response(conn, 200)
 
     assert {:error, :binding_disabled} = SignalsGateway.get_binding(agent.uid, "lark-main")
+  end
+
+  test "a missing required connection field names the field in the error", %{conn: conn} do
+    %{principal: agent} = agent_fixture()
+
+    conn =
+      conn
+      |> bearer_conn()
+      |> put(~p"/api/v1/agents/#{agent.uid}/signal-bindings/lark/lark-main", %{
+        "config" => %{"appSecret" => "secret-lark-main", "domain" => "feishu"}
+      })
+
+    assert %{
+             "error" => %{
+               "code" => "validation_failed",
+               "message" => "appID is required",
+               "details" => [%{"path" => "appID", "kind" => "missing"}]
+             }
+           } = json_response(conn, 422)
+
+    assert {:error, :binding_not_found} = SignalsGateway.get_binding(agent.uid, "lark-main")
   end
 
   test "admin sees and requeues a stopped durable delivery", %{conn: conn} do

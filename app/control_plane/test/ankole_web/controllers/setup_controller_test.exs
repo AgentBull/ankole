@@ -11,10 +11,7 @@ defmodule AnkoleWeb.SetupControllerTest do
   alias Ankole.AuthZ
   alias Ankole.AuthZ.Grant
   alias Ankole.IdentityProviders
-  alias Ankole.IdentityProviders.Config, as: IdentityProviderConfig
   alias Ankole.Plugins.Config, as: PluginsConfig
-  alias Ankole.Plugins.DingTalkAdapter
-  alias Ankole.Plugins.LarkAdapter
   alias Ankole.Repo
   alias Ankole.Setup.Bootstrap
   alias Ankole.Setup.Config, as: SetupConfig

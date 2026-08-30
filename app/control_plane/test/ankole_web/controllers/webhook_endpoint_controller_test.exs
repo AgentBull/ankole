@@ -6,11 +6,9 @@ defmodule AnkoleWeb.WebhookEndpointControllerTest do
 
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
-  alias Ankole.AuthZ
   alias Ankole.Setup.Config, as: SetupConfig
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.Webhooks
-  alias AnkoleWeb.Session, as: WebSession
 
   @token "wh_0123456789abcdefghijklmnopqrstuvwxyzABCDEFG"
   @other_token "wh_ABCDEFGhijklmnopqrstuvwxyz0123456789abcdefg"

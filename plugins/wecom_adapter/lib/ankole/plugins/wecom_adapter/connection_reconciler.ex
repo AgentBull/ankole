@@ -128,7 +128,7 @@ defmodule Ankole.Plugins.WeComAdapter.ConnectionReconciler do
   end
 
   defp start_connections({specs, errors}) do
-    stopped = stop_undesired_connections(specs)
+    stopped = stop_undesired_connections(specs, errors)
 
     {started, start_errors} =
       specs
@@ -147,9 +147,9 @@ defmodule Ankole.Plugins.WeComAdapter.ConnectionReconciler do
 
   # A live connection whose key left the desired spec map is a zombie (for
   # example a disabled binding) and stops.
-  defp stop_undesired_connections(specs) do
+  defp stop_undesired_connections(specs, errors) do
     ConnectionLifecycle.stop_undesired(
-      {:complete, specs},
+      ConnectionLifecycle.desired_snapshot(specs, errors),
       ConnectionSupervisor.registered_keys(),
       &ConnectionSupervisor.stop/1
     )

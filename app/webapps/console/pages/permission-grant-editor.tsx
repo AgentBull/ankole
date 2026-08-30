@@ -266,7 +266,8 @@ export function PermissionGrantEditorPage({ createFor }: { createFor?: 'group' |
       title={mode === 'new' ? t('console.permission_grants.new') : t('console.permission_grants.edit')}
       description={t('console.permission_grants.editor_description')}
       backTo={backTo}
-      error={model.validationError.value ?? mutationError ?? (mode === 'edit' ? grant.error : undefined)}
+      validationError={model.validationError.value}
+      error={mutationError ?? (mode === 'edit' ? grant.error : undefined)}
       submitting={createGrant.isPending || updateGrant.isPending}
       submitDisabled={mode === 'edit' && !model.dirty.value}
       onSubmit={submit}>

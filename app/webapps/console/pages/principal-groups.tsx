@@ -224,9 +224,8 @@ export function PrincipalGroupEditorPage() {
       title={mode === 'new' ? t('console.principal_groups.new') : (name ?? '')}
       description={t('console.principal_groups.editor_description')}
       backTo="/access/groups"
-      error={
-        model.validationError.value ?? createGroup.error ?? updateGroup.error ?? (mode === 'edit' ? group.error : null)
-      }
+      validationError={model.validationError.value}
+      error={createGroup.error ?? updateGroup.error ?? (mode === 'edit' ? group.error : null)}
       submitting={createGroup.isPending || updateGroup.isPending}
       submitDisabled={mode === 'edit' && !model.dirty.value}
       contentWidth={mode === 'edit' ? 'wide' : 'form'}

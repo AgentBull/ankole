@@ -26,6 +26,7 @@ export function SinglePrincipalPicker({
   isLoading,
   onChange,
   placeholder,
+  required = false,
   value
 }: {
   ariaLabel: string
@@ -35,6 +36,8 @@ export function SinglePrincipalPicker({
   isLoading: boolean
   onChange: (id: string) => void
   placeholder: string
+  /** Marks the native input, so an empty picker blocks `reportValidity()` like every other field. */
+  required?: boolean
   value: string
 }) {
   const { t } = useTranslation()
@@ -60,12 +63,18 @@ export function SinglePrincipalPicker({
       isItemEqualToValue={(candidate, current) => candidate.id === current.id}
       onInputValueChange={setInputValue}
       onValueChange={candidate => onChange(candidate?.id ?? '')}>
+      {/* The selection renders as the placeholder while the input value stays
+          the filter text, so `required` must lift once a selection exists —
+          otherwise a filled picker would still report the empty filter input
+          as invalid and block the save. */}
       <ComboboxInput
         aria-label={ariaLabel}
+        aria-required={required || undefined}
         className="w-full"
         clearLabel={t('common.clear')}
         disabled={disabled}
         placeholder={selected ? (selected.label ?? selected.id) : placeholder}
+        required={required && !selected}
         showClear
       />
       <ComboboxContent>

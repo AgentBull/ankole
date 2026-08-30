@@ -7,7 +7,6 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Cache, as: AppConfigureCache
   alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
-  alias Ankole.Plugins.DingTalkAdapter
   alias Ankole.Plugins.DingTalkAdapter.AICard
   alias Ankole.Plugins.DingTalkAdapter.Config
   alias Ankole.Repo

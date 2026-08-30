@@ -1,13 +1,10 @@
 defmodule Ankole.IdentityProviders.LoginTest do
   use Ankole.DataCase, async: false
 
-  alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
   alias Ankole.IdentityProviders
-  alias Ankole.IdentityProviders.Config, as: IdentityProviderConfig
   alias Ankole.IdentityProviders.Login
-  alias Ankole.Plugins.LarkAdapter
 
   import Ankole.IdentityProviderTestHelpers
 

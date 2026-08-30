@@ -579,14 +579,8 @@ export function ScheduleCronEditorPage() {
           ? t('console.schedules.terminal_read_only', { status: scheduleStatusLabel(t, existingRow.status) })
           : undefined
       }
-      error={
-        model.validationError.value ??
-        agents.error ??
-        bindings.error ??
-        existing.error ??
-        saveCron.error ??
-        updateCron.error
-      }
+      validationError={model.validationError.value}
+      error={agents.error ?? bindings.error ?? existing.error ?? saveCron.error ?? updateCron.error}
       {...(terminalReadOnly
         ? { readOnly: true as const }
         : {
