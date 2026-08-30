@@ -122,7 +122,7 @@ function renderAgentEnvironmentInfoBlock(lines: string[]): string {
 
 function environmentInfoLine(line: string): string {
   return line
-    .replace(AGENT_ENVIRONMENT_INFO_TAG, tag => tag.replace('<', '&lt;').replace('>', '&gt;'))
+    .replace(AGENT_ENVIRONMENT_INFO_TAG, tag => tag.replaceAll('<', '&lt;').replaceAll('>', '&gt;'))
     .replace(ENVIRONMENT_INFO_LINE_BREAK, ' ')
     .trim()
 }

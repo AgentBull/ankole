@@ -197,7 +197,7 @@ export function contextPackModelMessages(pack: JSONObject): UserMessage[] {
 }
 
 function escapeRecalledMemoryTags(text: string): string {
-  return text.replace(recalledMemoryTag, tag => tag.replace('<', '&lt;').replace('>', '&gt;'))
+  return text.replace(recalledMemoryTag, tag => tag.replaceAll('<', '&lt;').replaceAll('>', '&gt;'))
 }
 
 function entityCardLines(card: unknown): string[] {
