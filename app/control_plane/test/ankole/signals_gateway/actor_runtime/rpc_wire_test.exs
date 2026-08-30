@@ -8,27 +8,24 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCWireTest do
       RPCWire.runtime_skill_summary(%{
         "skill_name" => "bullx-financial-data",
         "description" => "Use BullX financial data.",
-        "default_enabled" => true,
         "source_kind" => "builtin",
         "relative_path" => "bullx-financial-data",
         "skill_root" => "internal",
-        "metadata" => %{"ankole-runtime" => "any"},
-        "category" => "data",
-        "tags" => ["finance", "mcp"],
-        "skill_uri" => "skill://internal/bullx-financial-data",
-        "has_agent_overlay" => false
+        "metadata" => %{"ankole-runtime" => "any", "brain_recall_only" => true},
+        "category" => "data"
       })
 
     assert summary.skill_name == "bullx-financial-data"
     assert summary.description == "Use BullX financial data."
-    assert summary.default_enabled
     assert summary.source_kind == "builtin"
     assert summary.relative_path == "bullx-financial-data"
     assert summary.skill_root == "internal"
-    assert Torque.decode!(summary.metadata_json) == %{"ankole-runtime" => "any"}
+
+    assert Torque.decode!(summary.metadata_json) == %{
+             "ankole-runtime" => "any",
+             "brain_recall_only" => true
+           }
+
     assert summary.category == "data"
-    assert Torque.decode!(summary.tags_json) == ["finance", "mcp"]
-    assert summary.skill_uri == "skill://internal/bullx-financial-data"
-    refute summary.has_agent_overlay
   end
 end

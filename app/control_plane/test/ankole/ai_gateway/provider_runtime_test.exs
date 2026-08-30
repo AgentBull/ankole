@@ -40,21 +40,11 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     kinds = ProviderConfigs.list_provider_kinds()
     provider_kinds = Enum.map(kinds, & &1["provider_kind"])
 
-    assert "openrouter" in provider_kinds
-    assert "openai" in provider_kinds
-    assert "openai_compatible" in provider_kinds
-    assert "chatgpt_subscription" in provider_kinds
-    assert "google_ai_studio_openai" in provider_kinds
-    assert "jina" in provider_kinds
-    assert "parallel" in provider_kinds
-    assert "bright_data_serp" in provider_kinds
-    assert "agentbull_cloud" in provider_kinds
-    assert "jina_search" in provider_kinds
-    assert "jina_reader" in provider_kinds
-    assert "claude" in provider_kinds
-    assert "azure_openai" in provider_kinds
+    # Gemini reaches the gateway through google_ai_studio_openai; a bare kind
+    # would take a second, untested wire. Every other kind in the catalog is
+    # exercised by the capability and settings assertions below.
     refute "gemini" in provider_kinds
-    refute kinds |> List.first() |> Map.has_key?("provider_family")
+
     openrouter = Enum.find(kinds, &(&1["provider_kind"] == "openrouter"))
     openai = Enum.find(kinds, &(&1["provider_kind"] == "openai"))
     openai_compatible = Enum.find(kinds, &(&1["provider_kind"] == "openai_compatible"))
@@ -130,8 +120,6 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
            ]
 
     assert is_nil(azure_openai["default_base_url"])
-    refute Map.has_key?(openrouter, "default_transport")
-    refute Map.has_key?(azure_openai, "default_transport")
 
     assert Enum.all?(kinds, fn provider ->
              label = provider["label"]
@@ -527,7 +515,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
 
     http_client = fn request ->
       assert request.url ==
-               "https://chatgpt.com/backend-api/codex/models?client_version=0.147.0"
+               "https://chatgpt.com/backend-api/codex/models?client_version=0.150.1"
 
       assert {"Authorization", "Bearer chatgpt-access"} in request.headers
       assert {"ChatGPT-Account-ID", "account-fedramp"} in request.headers
@@ -694,25 +682,6 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     assert coding_runtime_profile["provider_id"] == "openrouter-main"
     assert coding_runtime_profile["model"] == "anthropic/claude-sonnet-4.5"
 
-    assert {:error, {:provider_kind_missing_capability, "embedding"}} =
-             ModelProfiles.put_model_profile(agent.uid, "embedding", %{
-               provider_id: "claude-main",
-               model: "claude-sonnet-4-5"
-             })
-
-    assert {:ok, %{profile: embedding_profile}} =
-             ModelProfiles.put_model_profile(agent.uid, "embedding", %{
-               provider_id: "jina-main",
-               model: "jina-embeddings-v4"
-             })
-
-    assert embedding_profile["provider_id"] == "jina-main"
-
-    assert {:ok, runtime_profile} =
-             ModelProfiles.resolve_runtime_profile(agent.uid, "embedding")
-
-    assert runtime_profile["capability"] == "embedding"
-
     assert {:error, {:provider_kind_missing_capability, "web_search"}} =
              ModelProfiles.put_model_profile(agent.uid, "web_search", %{
                provider_id: "claude-main",
@@ -782,8 +751,10 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     assert ModelProfiles.custom_profile_name?("kimi")
     refute ModelProfiles.custom_profile_name?("primary")
     refute ModelProfiles.custom_profile_name?("Kimi")
+    assert ModelProfiles.custom_profile_name?("embedding")
+    assert ModelProfiles.custom_profile_name?("rerank")
     assert {:ok, "llm"} = ModelProfiles.profile_capability("kimi")
-    assert {:ok, "embedding"} = ModelProfiles.profile_capability("embedding")
+    assert {:ok, "llm"} = ModelProfiles.profile_capability("embedding")
 
     assert {:error, {:missing, "description"}} =
              ModelProfiles.put_model_profile(agent.uid, "kimi", %{
@@ -938,7 +909,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
   test "turn start specs declare image generation when the primary or fallback route supports it" do
     %{principal: agent} = agent_fixture()
 
-    assert {:ok, _provider} =
+    assert {:ok, provider} =
              ProviderConfigs.create_provider(%{
                provider_id: "openrouter-turn-hosted-tools",
                provider_kind: "openrouter",
@@ -953,14 +924,15 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
 
     :ok =
       ModelMetadataCache.put(
-        {:image_model_catalog, "openrouter-turn-hosted-tools", "images/models"},
+        {:image_model_catalog, "openrouter-turn-hosted-tools", provider.updated_at,
+         "images/models"},
         [%{"id" => "openai/gpt-image-1"}],
         60_000
       )
 
     :ok =
       ModelMetadataCache.put(
-        {:image_model_endpoints, "openrouter-turn-hosted-tools",
+        {:image_model_endpoints, "openrouter-turn-hosted-tools", provider.updated_at,
          "images/models/openai/gpt-image-1/endpoints"},
         [
           %{
@@ -1079,7 +1051,6 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
 
   test "turn start specs include scoped agent runtime policy without creating a default output cap" do
     %{principal: agent} = agent_fixture()
-    assert :ok = AgentConfig.ensure_registered()
     max_output_tokens_definition = AgentConfig.max_output_tokens_definition()
     inactivity_timeout_definition = AgentConfig.inactivity_timeout_ms_definition()
     max_iterations_definition = AgentConfig.max_iterations_definition()
@@ -1376,8 +1347,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     |> Repo.get_by!(subject_uid: agent.uid, conversation_key: "signal-channel:#{channel_id}")
     |> Conversation.changeset(%{
       metadata: %{
-        "brain" => %{
-          "visibility" => "shared",
+        "origin" => %{
           "channel_id" => channel_id,
           "channel_kind" => "im_group"
         }
@@ -1423,26 +1393,16 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     assert context_payload.design_content_hash == current_documents["design"]["content_hash"]
     assert Enum.any?(context_payload.skills, &(&1.skill_name == "pdf"))
 
-    assert {:ok, replace_envelope} =
-             RPCLane.handle_request(
-               rpc_request(
-                 "skill-overlay-replace-1",
-                 "skills.overlay.replace",
-                 %FabricProto.SkillOverlayReplaceRequest{
-                   skill_name: "pdf",
-                   content: "Prefer page-by-page verification.",
-                   expected_content_hash: ""
-                 },
-                 turn: mixed_case_turn
-               ),
-               route
+    research_plugin = Enum.find(context_payload.agent_plugins, &(&1.id == "deep-research"))
+    assert Enum.any?(research_plugin.skills, &(&1.catalog_name == "create-deep-research"))
+
+    assert {:ok, _lesson} =
+             Library.create_skill_lesson(
+               agent.uid,
+               "pdf",
+               "Prefer page-by-page verification.",
+               agent.uid
              )
-
-    replace_payload = rpc_response_payload!(replace_envelope, FabricProto.SkillOverlayResponse)
-    assert replace_payload.has_overlay
-
-    assert Torque.decode!(replace_payload.overlay_json) ==
-             %{"text" => "Prefer page-by-page verification."}
 
     assert {:ok, resolve_envelope} =
              RPCLane.handle_request(
@@ -1460,9 +1420,11 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
 
     assert Enum.map(resolve_payload.overlays, & &1.skill_name) == ["pdf", "xlsx"]
 
-    assert Torque.decode!(hd(resolve_payload.overlays).overlay_json) ==
-             %{"text" => "Prefer page-by-page verification."}
-
+    pdf_overlay = hd(resolve_payload.overlays)
+    assert pdf_overlay.has_overlay
+    rendered_lessons = pdf_overlay.text
+    assert rendered_lessons =~ "Field notes (dated; verify against the current environment):"
+    assert rendered_lessons =~ ", human] Prefer page-by-page verification."
     refute List.last(resolve_payload.overlays).has_overlay
   end
 
@@ -1491,11 +1453,9 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     assert envelope_body!(envelope, :rpc_error).code == "worker_not_assigned_to_turn"
   end
 
-  test "runtime RPCLane accepts overlay writes after active steer bumps revision" do
+  test "runtime RPCLane accepts turn writes after active steer bumps revision" do
     %{principal: agent} = agent_fixture()
-    assert {:ok, _defaults} = Ankole.AIAgent.Library.AgentPlugins.Config.defaults()
-    assert {:ok, _sync} = Library.sync_agent_skills(agent.uid)
-    {route, turn} = assign_worker_route(agent.uid, "signal-channel:steered-overlay")
+    {route, turn} = assign_worker_route(agent.uid, "signal-channel:steered-write")
 
     turn.activation_uid
     |> then(&Repo.get_by!(ActorSessionActivation, activation_uid: &1))
@@ -1505,12 +1465,16 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     assert {:ok, envelope} =
              RPCLane.handle_request(
                rpc_request(
-                 "skill-overlay-after-steer",
-                 "skills.overlay.replace",
-                 %FabricProto.SkillOverlayReplaceRequest{
-                   skill_name: "pdf",
-                   content: "Prefer page-by-page verification after steer.",
-                   expected_content_hash: ""
+                 "brain-remember-after-steer",
+                 "brain.remember",
+                 %FabricProto.BrainRequest{
+                   params_json:
+                     Torque.encode!(%{
+                       "claim" => "Steered turns can still write memory.",
+                       "kind" => "fact",
+                       "scope" => "world",
+                       "provenance" => "provider runtime steer test"
+                     })
                  },
                  turn: turn
                ),
@@ -1518,17 +1482,11 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
              )
 
     assert envelope_body_type(envelope) == :rpc_response, inspect(envelope)
-    payload = rpc_response_payload!(envelope, FabricProto.SkillOverlayResponse)
-    assert payload.has_overlay
-
-    assert Torque.decode!(payload.overlay_json) ==
-             %{"text" => "Prefer page-by-page verification after steer."}
   end
 
   test "worker auth key is global AppConfigure state" do
     definition = WorkerAuthKey.definition()
 
-    assert :ok = WorkerAuthKey.ensure_registered()
     assert :ok = AppConfigure.delete_global(definition)
 
     assert {:ok, first} = WorkerAuthKey.ensure()
@@ -1573,7 +1531,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
         id: Ecto.UUID.generate(),
         subject_uid: agent_uid,
         conversation_key: session_id,
-        metadata: %{"brain" => %{"visibility" => "self"}},
+        metadata: %{},
         inserted_at: now,
         updated_at: now
       })

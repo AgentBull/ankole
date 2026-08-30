@@ -7,13 +7,14 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
   alias Ankole.{AuthZ, Logging, Principals, Repo, SignalsGateway}
   alias Ankole.AuthZ.{ExternalBinding, Group, Store}
   alias Ankole.Plugins.MapHelpers
-  alias Ankole.Plugins.SlackAdapter.{Config, Inbound}
+  alias Ankole.Plugins.SlackAdapter.{Config, ConnectionReconciler, Inbound}
 
   alias Ankole.SignalsGateway.{
     AdapterContext,
     Binding,
     BindingMembership,
     Channel,
+    IMGroupMembers,
     Projection
   }
 
@@ -37,7 +38,7 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
            reason: "binding_saved",
            source: "signal_binding"
          ) do
-      {:ok, _job} -> :ok
+      {:ok, _job} -> ConnectionReconciler.reconcile_async()
       {:error, _reason} = error -> error
     end
   end
@@ -144,8 +145,7 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
              with {:ok, group} <- ensure_channel_group(context, config, channel),
                   {:ok, members} <- list_members(config, channel_id),
                   {:ok, principal_uids} <- member_principal_uids(config, members, bot_ids),
-                  {:ok, replace} <-
-                    AuthZ.replace_static_group_members(group.id, :im_group, principal_uids) do
+                  {:ok, replace} <- IMGroupMembers.replace_members(group.id, principal_uids) do
                {:ok,
                 %{
                   channel_id: channel_id,
@@ -241,8 +241,7 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
           with {:ok, group} <- ensure_channel_group(context, config, channel),
                {:ok, members} <- list_members(config, channel["id"]),
                {:ok, uids} <- member_principal_uids(config, members, bot_ids),
-               {:ok, _result} <-
-                 AuthZ.replace_static_group_members(group.id, :im_group, uids) do
+               {:ok, _result} <- IMGroupMembers.replace_members(group.id, uids) do
             {:ok, group}
           end
         end)
@@ -407,8 +406,7 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
   defp upsert_member(config, user_id) when is_binary(user_id) do
     Principals.upsert_platform_subject_human(%{
       provider: namespace(config),
-      external_id: user_id,
-      uid: user_id
+      external_id: user_id
     })
   end
 
@@ -431,7 +429,11 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
             if BindingMembership.all_left?(metadata) do
               clear_group_members(group, :all_participants_left)
             else
-              {:ok, %{status: :participant_marked_left, group_id: group.id}}
+              # A leaving Agent loses its mirrored membership row at once,
+              # the same way a leaving human does.
+              with {:ok, _delta} <- IMGroupMembers.reconcile_agent_members(group.id) do
+                {:ok, %{status: :participant_marked_left, group_id: group.id}}
+              end
             end
           end
 
@@ -464,7 +466,7 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
   end
 
   defp clear_group_members(%Group{} = group, reason) do
-    with {:ok, result} <- AuthZ.replace_static_group_members(group.id, :im_group, []) do
+    with {:ok, result} <- IMGroupMembers.replace_members(group.id, []) do
       {:ok,
        %{
          status: reason,

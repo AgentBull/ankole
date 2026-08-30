@@ -2,754 +2,575 @@ defmodule AnkoleWeb.BrainControllerTest do
   use AnkoleWeb.ConnCase, async: false
 
   import Ankole.PrincipalsFixtures
+  import Ecto.Query
+  import ExUnit.CaptureLog
 
-  alias Ankole.AIAgent.ModelProfiles
-  alias Ankole.AIGateway.ProviderConfigs
+  alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
-  alias Ankole.AuthZ
-  alias Ankole.Brain.Scope
-  alias Ankole.Brain.Sources
+  alias Ankole.Brain.GetPage
+  alias Ankole.Brain.Objects
+  alias Ankole.Brain.SchemaPacks
+  alias Ankole.Brain.Schemas.Chunk
+  alias Ankole.Brain.Schemas.Claim
+  alias Ankole.Brain.Schemas.Object
+  alias Ankole.Brain.Schemas.ObjectVersion
+  alias Ankole.Brain.Schemas.Source
+  alias Ankole.Ecto.UUIDv7
+  alias Ankole.Repo
   alias Ankole.Setup.Config, as: SetupConfig
-  alias AnkoleWeb.Session, as: WebSession
 
-  setup %{conn: conn} do
+  setup do
     allow_cache_database_access()
     Registry.clear_for_test()
     Cache.clear_for_test()
 
-    :ok = SetupConfig.ensure_registered()
     {:ok, false} = SetupConfig.put_completed(false)
     :ok = SetupConfig.delete_bootstrap_activation_code()
 
-    owner = agent_fixture(%{uid: unique_uid("brain-owner")})
-    {conn, admin_uid} = bearer_conn(conn)
-
-    {:ok, conn: conn, owner_uid: owner.principal.uid, admin_uid: admin_uid}
+    :ok
   end
 
-  test "OpenAPI exposes every Brain supervision route and bearer auth runs first", %{
-    owner_uid: owner_uid
-  } do
-    spec_conn = get(build_conn(), ~p"/api/v1/openapi.json")
-    spec = json_response(spec_conn, 200)
-    paths = spec["paths"]
-    schemas = spec["components"]["schemas"]
+  test "claim search filters before the list limit and treats wildcards literally", %{conn: conn} do
+    {conn, principal_uid} = bearer_conn_with_principal(conn)
+    now = DateTime.utc_now(:microsecond)
 
-    assert Map.has_key?(paths, "/api/v1/brain/entries")
-    assert Map.has_key?(paths, "/api/v1/brain/entries/{id}")
-    assert Map.has_key?(paths, "/api/v1/brain/entry-operations")
-    assert Map.has_key?(paths, "/api/v1/brain/audit-log")
-    assert Map.has_key?(paths, "/api/v1/brain/entries/{id}/audit-log")
-    assert Map.has_key?(paths, "/api/v1/brain/sources/{document_id}")
-    assert Map.has_key?(paths, "/api/v1/brain/sources/{document_id}/raw")
-    assert Map.has_key?(paths, "/api/v1/brain/sources/{document_id}/learning-runs")
-    assert Map.has_key?(paths, "/api/v1/brain/sources")
-    assert Map.has_key?(paths, "/api/v1/brain/status")
-    assert Map.has_key?(paths, "/api/v1/brain/audit-log/restorations")
-    assert Map.has_key?(paths, "/api/v1/brain/audit-log/{audit_id}/restorations")
-    assert Map.has_key?(paths, "/api/v1/brain/dreaming-runs")
-    assert Map.has_key?(paths, "/api/v1/brain/dreaming-fitness")
+    object =
+      Repo.insert!(%Object{
+        id: UUIDv7.autogenerate(),
+        slug: "notes/claim-search",
+        type: "note",
+        title: "Claim search",
+        body: "",
+        meta: %{},
+        emotional_weight: 0.0,
+        created_at: now,
+        updated_at: now
+      })
 
-    assert schemas["BrainEntryBlock"]["properties"]["author_kind"]["enum"] ==
-             ["human", "agent", "dreaming"]
+    row = fn claim, created_at ->
+      %{
+        id: UUIDv7.autogenerate(),
+        author_uid: principal_uid,
+        claim_type: "fact",
+        object_slug: object.slug,
+        claim: claim,
+        kind: "fact",
+        holder: "world",
+        audience_scope: "world",
+        notability: "medium",
+        valid_from: now,
+        confidence: 0.75,
+        provenance: "controller test",
+        created_at: created_at,
+        updated_at: created_at
+      }
+    end
 
-    assert schemas["BrainAuditLog"]["properties"]["actor_kind"] == %{
-             "enum" => ["human", "agent", "dreaming"],
-             "nullable" => true,
-             "type" => "string"
-           }
+    target = row.("Rare claim beyond the first page", DateTime.add(now, -1, :day))
 
-    refute "actor_kind" in schemas["BrainAuditLog"]["required"]
+    fillers =
+      for index <- 1..100 do
+        row.("Common claim #{index}", DateTime.add(now, index, :microsecond))
+      end
 
-    conn = get(build_conn(), ~p"/api/v1/brain/entries?owner_uid=#{owner_uid}")
-    assert %{"error" => %{"code" => "invalid_token"}} = json_response(conn, 401)
+    percent_target = row.("Budget is 20% complete", DateTime.add(now, -2, :day))
+    percent_decoy = row.("Budget is 201 complete", DateTime.add(now, -3, :day))
+    underscore_target = row.("part_number", DateTime.add(now, -4, :day))
+    underscore_decoy = row.("partXnumber", DateTime.add(now, -5, :day))
+    backslash_target = row.("path\\segment", DateTime.add(now, -6, :day))
+    backslash_decoy = row.("pathsegment", DateTime.add(now, -7, :day))
+
+    {107, nil} =
+      Repo.insert_all(Claim, [
+        target,
+        percent_target,
+        percent_decoy,
+        underscore_target,
+        underscore_decoy,
+        backslash_target,
+        backslash_decoy
+        | fillers
+      ])
+
+    assert %{"claims" => unfiltered} =
+             conn
+             |> get(~p"/api/v1/brain/claims")
+             |> json_response(200)
+
+    assert length(unfiltered) == 100
+    refute Enum.any?(unfiltered, &(&1["id"] == target.id))
+
+    assert %{"claims" => [%{"id" => target_id}]} =
+             conn
+             |> recycle_api()
+             |> get(~p"/api/v1/brain/claims?q=RARE%20CLAIM")
+             |> json_response(200)
+
+    assert target_id == target.id
+
+    assert %{"claims" => [%{"id" => percent_target_id}]} =
+             conn
+             |> recycle_api()
+             |> get(~p"/api/v1/brain/claims?q=%25")
+             |> json_response(200)
+
+    assert percent_target_id == percent_target.id
+
+    assert %{"claims" => [%{"id" => underscore_target_id}]} =
+             conn
+             |> recycle_api()
+             |> get(~p"/api/v1/brain/claims?q=_")
+             |> json_response(200)
+
+    assert underscore_target_id == underscore_target.id
+
+    assert %{"claims" => [%{"id" => backslash_target_id}]} =
+             conn
+             |> recycle_api()
+             |> get(~p"/api/v1/brain/claims?q=%5C")
+             |> json_response(200)
+
+    assert backslash_target_id == backslash_target.id
   end
 
-  test "console search and cursors expose every entry and exact audit selections restore atomically",
-       %{conn: conn, owner_uid: owner_uid} do
-    {conn, alpha_id} = create_console_entry(conn, owner_uid, "Paged Alpha")
-    {conn, beta_id} = create_console_entry(conn, owner_uid, "Paged Beta")
+  test "object search filters before the list limit and treats wildcards literally", %{conn: conn} do
+    {conn, _principal_uid} = bearer_conn_with_principal(conn)
+    now = DateTime.utc_now(:microsecond)
 
-    conn =
-      conn
-      |> recycle_bearer()
-      |> get(~p"/api/v1/brain/entries?owner_uid=#{owner_uid}&query=Paged&limit=1")
+    row = fn slug, title ->
+      %{
+        id: UUIDv7.autogenerate(),
+        slug: slug,
+        type: "note",
+        title: title,
+        body: "",
+        meta: %{},
+        emotional_weight: 0.0,
+        created_at: now,
+        updated_at: now
+      }
+    end
 
-    assert %{"entries" => [first], "next_cursor" => cursor} = json_response(conn, 200)
-    assert is_binary(cursor)
+    target = row.("zz/rare-object", "Rare object beyond the first page")
+    percent_target = row.("zz/percent-literal", "Budget is 20% complete")
+    percent_decoy = row.("zz/percent-decoy", "Budget is 201 complete")
+    underscore_target = row.("zz/underscore-literal", "part_number")
+    underscore_decoy = row.("zz/underscore-decoy", "partXnumber")
+    backslash_target = row.("zz/backslash-literal", "path\\segment")
+    backslash_decoy = row.("zz/backslash-decoy", "pathsegment")
 
-    conn =
-      conn
-      |> recycle_bearer()
-      |> get(
-        ~p"/api/v1/brain/entries?owner_uid=#{owner_uid}&query=Paged&limit=1&cursor=#{cursor}"
-      )
+    fillers =
+      for index <- 1..100 do
+        row.("notes/object-search-fill-#{index}", "Common object #{index}")
+      end
 
-    assert %{"entries" => [second], "next_cursor" => nil} = json_response(conn, 200)
-    assert MapSet.new([first["id"], second["id"]]) == MapSet.new([alpha_id, beta_id])
+    {107, nil} =
+      Repo.insert_all(Object, [
+        target,
+        percent_target,
+        percent_decoy,
+        underscore_target,
+        underscore_decoy,
+        backslash_target,
+        backslash_decoy
+        | fillers
+      ])
 
-    conn =
-      conn
-      |> recycle_bearer()
-      |> get(
-        ~p"/api/v1/brain/audit-log?owner_uid=#{owner_uid}&actor=human&action=create_entry&limit=1"
-      )
+    assert %{"objects" => unfiltered} =
+             conn
+             |> get(~p"/api/v1/brain/objects")
+             |> json_response(200)
 
-    assert %{"audit_log" => [first_audit], "next_cursor" => audit_cursor} =
-             json_response(conn, 200)
+    assert length(unfiltered) == 100
+    refute Enum.any?(unfiltered, &(&1["slug"] == target.slug))
 
-    assert is_binary(audit_cursor)
+    assert %{"objects" => [%{"slug" => target_slug}]} =
+             conn
+             |> recycle_api()
+             |> get(~p"/api/v1/brain/objects?q=RARE%20OBJECT")
+             |> json_response(200)
 
-    conn =
-      conn
-      |> recycle_bearer()
-      |> get(
-        ~p"/api/v1/brain/audit-log?owner_uid=#{owner_uid}&actor=human&action=create_entry&limit=1&cursor=#{audit_cursor}"
-      )
+    assert target_slug == target.slug
 
-    assert %{"audit_log" => [second_audit]} = json_response(conn, 200)
-    refute second_audit["id"] == first_audit["id"]
+    assert %{"objects" => [%{"slug" => percent_target_slug}]} =
+             conn
+             |> recycle_api()
+             |> get(~p"/api/v1/brain/objects?q=%25")
+             |> json_response(200)
 
-    conn =
-      conn
-      |> recycle_bearer()
-      |> post(~p"/api/v1/brain/audit-log/restorations?owner_uid=#{owner_uid}", %{
-        "audit_ids" => [first_audit["id"]]
-      })
+    assert percent_target_slug == percent_target.slug
 
-    assert %{
-             "restoration" => %{
-               "restored_count" => 1,
-               "batch_restore_id" => batch_restore_id
-             }
-           } = json_response(conn, 200)
+    assert %{"objects" => [%{"slug" => underscore_target_slug}]} =
+             conn
+             |> recycle_api()
+             |> get(~p"/api/v1/brain/objects?q=_")
+             |> json_response(200)
 
-    assert is_binary(batch_restore_id)
+    assert underscore_target_slug == underscore_target.slug
 
-    conn =
-      conn
-      |> recycle_bearer()
-      |> get(~p"/api/v1/brain/entries/#{first_audit["entry_id"]}?owner_uid=#{owner_uid}")
+    assert %{"objects" => [%{"slug" => backslash_target_slug}]} =
+             conn
+             |> recycle_api()
+             |> get(~p"/api/v1/brain/objects?q=%5C")
+             |> json_response(200)
 
-    assert %{"error" => %{"code" => "not_found"}} = json_response(conn, 404)
+    assert backslash_target_slug == backslash_target.slug
   end
 
-  test "human supervisor can manually run the owner's scheduled Stage B path", %{
-    conn: conn,
-    owner_uid: owner_uid
-  } do
-    configure_light_profile!(owner_uid)
-    conn = post(conn, ~p"/api/v1/brain/dreaming-runs?owner_uid=#{owner_uid}", %{})
+  test "the Object API creates, loads, and CAS-updates raw Markdoc bodies", %{conn: conn} do
+    {:ok, _result} = SchemaPacks.install_packs([])
+    {conn, principal_uid} = bearer_conn_with_principal(conn)
+    %{principal: outsider} = human_fixture()
 
-    assert %{
-             "run" => %{
-               "status" => "no_new_material",
-               "material_count" => 0,
-               "operation_count" => 0
-             }
-           } = json_response(conn, 200)
+    body = """
+    Public.
+    {% audience scope="principal:#{principal_uid}" %}
+    Private.
+    {% /audience %}
+    """
+
+    assert %{"object" => created} =
+             conn
+             |> post(~p"/api/v1/brain/objects", %{
+               "slug" => "notes/console-edit",
+               "type" => "note",
+               "subtype" => nil,
+               "title" => "Console edit",
+               "body" => body,
+               "meta" => %{"source" => "console"},
+               "effective_date" => "2026-08-30"
+             })
+             |> json_response(200)
+
+    assert created["body"] == body
+    assert created["editable"] == true
+    assert created["edit_block_reason"] == nil
+    assert created["content_hash"] != nil
+
+    object = Repo.get_by!(Object, slug: "notes/console-edit")
+
+    assert object
+           |> object_chunk_scopes()
+           |> Enum.sort() == ["principal:#{principal_uid}", "world"]
+
+    assert {:ok, owner_page} = GetPage.get_page(principal_uid, object.slug)
+    assert owner_page.rendered =~ "Public."
+    assert owner_page.rendered =~ "Private."
+
+    assert {:ok, outsider_page} = GetPage.get_page(outsider.uid, object.slug)
+    assert outsider_page.rendered =~ "Public."
+    refute outsider_page.rendered =~ "Private."
+
+    assert %{"object" => loaded} =
+             conn
+             |> recycle_api()
+             |> get(~p"/api/v1/brain/objects/show?slug=notes%2Fconsole-edit")
+             |> json_response(200)
+
+    assert loaded["body"] == body
+
+    updated_body = String.replace(body, "Private.", "Revised private.")
+
+    assert %{"object" => updated} =
+             conn
+             |> recycle_api()
+             |> put(~p"/api/v1/brain/objects", %{
+               "slug" => "notes/console-edit",
+               "subtype" => nil,
+               "title" => "Console edit revised",
+               "body" => updated_body,
+               "meta" => %{"source" => "console"},
+               "effective_date" => nil,
+               "expected_content_hash" => created["content_hash"]
+             })
+             |> json_response(200)
+
+    assert updated["body"] == updated_body
+    assert updated["content_hash"] != created["content_hash"]
+
+    assert Repo.aggregate(
+             from(version in ObjectVersion, where: version.object_id == ^object.id),
+             :count
+           ) == 1
+
+    assert object
+           |> object_chunk_scopes()
+           |> Enum.sort() == ["principal:#{principal_uid}", "world"]
+
+    assert %{"error" => %{"code" => "content_hash_conflict"}} =
+             conn
+             |> recycle_api()
+             |> put(~p"/api/v1/brain/objects", %{
+               "slug" => "notes/console-edit",
+               "subtype" => nil,
+               "title" => "Stale edit",
+               "body" => body,
+               "meta" => %{},
+               "effective_date" => nil,
+               "expected_content_hash" => created["content_hash"]
+             })
+             |> json_response(409)
   end
 
-  test "dreaming fitness reads an empty signal and rejects an out-of-range horizon", %{
-    conn: conn,
-    owner_uid: owner_uid
-  } do
-    conn =
-      conn
-      |> recycle_bearer()
-      |> get(~p"/api/v1/brain/dreaming-fitness?owner_uid=#{owner_uid}&horizon_days=14")
-
-    assert %{
-             "fitness" => %{
-               "horizon_days" => 14,
-               "matured_block_writes" => 0,
-               "survival_rate" => nil,
-               "runs" => []
-             }
-           } = json_response(conn, 200)
-
-    conn =
-      conn
-      |> recycle_bearer()
-      |> get(~p"/api/v1/brain/dreaming-fitness?owner_uid=#{owner_uid}&horizon_days=0")
-
-    assert %{"error" => %{"code" => "validation_failed"}} = json_response(conn, 422)
+  defp object_chunk_scopes(object) do
+    Chunk
+    |> where([chunk], chunk.object_id == ^object.id)
+    |> order_by([chunk], asc: chunk.chunk_index)
+    |> Repo.all()
+    |> Enum.map(& &1.audience_scope)
   end
 
-  test "block edits derive store from the block when the HTTP request omits store and entry id",
-       %{
-         conn: conn,
-         owner_uid: owner_uid
-       } do
-    {conn, entry_id} = create_console_entry(conn, owner_uid, "Block-only routing")
+  test "object writes name slug and type problems and the type list is readable", %{conn: conn} do
+    {:ok, _result} = SchemaPacks.install_packs([])
+    {conn, _principal_uid} = bearer_conn_with_principal(conn)
 
-    conn =
-      conn
-      |> recycle_bearer()
-      |> post(~p"/api/v1/brain/entry-operations?owner_uid=#{owner_uid}", %{
-        "operations" => [
-          %{
-            "operation" => "append_block",
-            "entry_id" => entry_id,
-            "body" => "Before",
-            "expected_entry_lock_version" => 1
-          }
-        ]
-      })
-
-    assert %{
-             "results" => [
-               %{
-                 "block_id" => block_id,
-                 "block_lock_version" => block_lock_version
-               }
-             ]
-           } = json_response(conn, 200)
-
-    conn =
-      conn
-      |> recycle_bearer()
-      |> post(~p"/api/v1/brain/entry-operations?owner_uid=#{owner_uid}", %{
-        "operations" => [
-          %{
-            "operation" => "edit_block",
-            "block_id" => block_id,
-            "body" => "After",
-            "expected_block_lock_version" => block_lock_version
-          }
-        ]
-      })
-
-    assert %{"results" => [%{"operation" => "edit_block"}]} = json_response(conn, 200)
-
-    conn =
-      conn
-      |> recycle_bearer()
-      |> get(~p"/api/v1/brain/entries/#{entry_id}?owner_uid=#{owner_uid}")
-
-    assert %{"blocks" => [%{"body" => "After"}]} = json_response(conn, 200)
-  end
-
-  test "human console operations use query scope and bearer actor, then expose projection and audit",
-       %{
-         conn: conn,
-         owner_uid: owner_uid,
-         admin_uid: admin_uid
-       } do
-    conn =
-      post(conn, ~p"/api/v1/brain/entry-operations?owner_uid=#{owner_uid}&store=shared", %{
-        "operations" => [
-          %{
-            "operation" => "create_entry",
-            "name" => "Project Alpha",
-            "type" => "project",
-            "summary" => "Initial summary",
-            "aliases" => ["Alpha"],
-            "properties" => %{"stage" => "draft"}
-          }
-        ]
-      })
-
-    assert %{"results" => [_], "touched_entry_ids" => [_]} = json_response(conn, 200)
-
-    conn =
-      conn
-      |> recycle_bearer()
-      |> post(~p"/api/v1/brain/entry-operations?owner_uid=#{owner_uid}&store=shared", %{
-        "operations" => [
-          %{
-            "operation" => "create_entry",
-            "name" => "Industry One",
-            "type" => "industry"
-          }
-        ]
-      })
-
-    assert %{"results" => [_]} = json_response(conn, 200)
-
-    conn =
-      conn
-      |> recycle_bearer()
-      |> get(~p"/api/v1/brain/entries?owner_uid=#{owner_uid}&type=project&store=shared")
-
-    assert %{"entries" => [entry]} = json_response(conn, 200)
-    assert entry["owner_uid"] == Scope.shared_owner_uid()
-    assert entry["store_key"] == "shared"
-    assert entry["name"] == "Project Alpha"
-
-    conn =
-      conn
-      |> recycle_bearer()
-      |> get(~p"/api/v1/brain/entries?owner_uid=#{owner_uid}")
-
-    assert %{"entries" => entries} = json_response(conn, 200)
-    target = Enum.find(entries, &(&1["name"] == "Industry One")) || flunk("target entry missing")
-
-    {:ok, source_scope} = Scope.for_store(owner_uid, "shared")
-
-    assert {:ok, source} =
-             Sources.capture(
-               source_scope,
-               %{
-                 kind: "file",
-                 title: "Project status",
-                 original_name: "project-status.txt",
-                 media_type: "text/plain",
-                 content: "Current status"
-               },
-               admin_uid
-             )
-
-    expected_source_body = "Current status (src:#{source.document_id})"
-
-    conn =
-      conn
-      |> recycle_bearer()
-      |> post(~p"/api/v1/brain/entry-operations?owner_uid=#{owner_uid}", %{
-        "operations" => [
-          %{
-            "operation" => "append_block",
-            "entry_id" => entry["id"],
-            "body" => expected_source_body,
-            "expected_entry_lock_version" => entry["lock_version"]
-          }
-        ]
-      })
-
-    assert %{"results" => [_]} = json_response(conn, 200)
-
-    conn =
-      conn
-      |> recycle_bearer()
-      |> get(~p"/api/v1/brain/entries/#{entry["id"]}?owner_uid=#{owner_uid}")
-
-    assert %{
-             "entry" => %{"name" => "Project Alpha"} = opened_entry,
-             "blocks" => [
-               %{
-                 "body" => ^expected_source_body,
-                 "author_kind" => "human",
-                 "author_uid" => ^admin_uid
-               }
-             ],
-             "markdown" => markdown
-           } = json_response(conn, 200)
-
-    assert markdown =~ "Project Alpha"
-
-    conn =
-      conn
-      |> recycle_bearer()
-      |> post(~p"/api/v1/brain/entry-operations?owner_uid=#{owner_uid}", %{
-        "operations" => [
-          %{
-            "operation" => "add_relation",
-            "entry_id" => entry["id"],
-            "target_entry_id" => target["id"],
-            "predicate" => "belongs to",
-            "expected_entry_lock_version" => opened_entry["lock_version"]
-          }
-        ]
-      })
-
-    assert %{"results" => [_]} = json_response(conn, 200)
-
-    conn =
-      conn
-      |> recycle_bearer()
-      |> get(~p"/api/v1/brain/entries/#{entry["id"]}?owner_uid=#{owner_uid}")
-
-    assert %{
-             "relations" => [
-               %{
-                 "predicate" => "belongs to",
-                 "target_entry_id" => target_id,
-                 "target_name" => "Industry One"
-               }
-             ],
-             "markdown" => relation_markdown
-           } = json_response(conn, 200)
-
-    assert target_id == target["id"]
-    assert relation_markdown =~ "Industry One"
-
-    conn =
-      conn
-      |> recycle_bearer()
-      |> get(
-        ~p"/api/v1/brain/entries?owner_uid=#{owner_uid}&author=human&updated=2020-01-01T00:00:00Z"
-      )
-
-    assert %{"entries" => [%{"id" => entry_id}]} = json_response(conn, 200)
-    assert entry_id == entry["id"]
-
-    conn =
-      conn
-      |> recycle_bearer()
-      |> get(~p"/api/v1/brain/entries/#{entry["id"]}/audit-log?owner_uid=#{owner_uid}")
-
-    assert %{"audit_log" => audit_rows} = json_response(conn, 200)
-    assert Enum.any?(audit_rows, &(&1["action"] == "create_entry"))
-
-    assert Enum.any?(audit_rows, fn row ->
-             row["action"] == "append_block" and row["actor_kind"] == "human" and
-               row["actor_uid"] == admin_uid
-           end)
-
-    append_audit =
-      Enum.find(audit_rows, &(&1["action"] == "append_block")) ||
-        flunk("append_block audit row was not returned")
-
-    conn =
-      conn
-      |> recycle_bearer()
-      |> post(
-        ~p"/api/v1/brain/audit-log/#{append_audit["id"]}/restorations?owner_uid=#{owner_uid}",
-        %{}
-      )
-
-    assert %{"restoration" => %{"restored" => "append_block"}} = json_response(conn, 200)
-
-    conn =
-      conn
-      |> recycle_bearer()
-      |> get(~p"/api/v1/brain/entries/#{entry["id"]}?owner_uid=#{owner_uid}")
-
-    assert %{
-             "entry" => restored_entry,
-             "blocks" => [],
-             "relations" => [%{"target_name" => "Industry One"}]
-           } = json_response(conn, 200)
-
-    conn =
-      conn
-      |> recycle_bearer()
-      |> post(~p"/api/v1/brain/entry-operations?owner_uid=#{owner_uid}", %{
-        "operations" => [
-          %{
-            "operation" => "delete_entry",
-            "entry_id" => entry["id"],
-            "expected_entry_lock_version" => restored_entry["lock_version"]
-          }
-        ]
-      })
-
-    assert %{"results" => [%{"operation" => "delete_entry"}]} = json_response(conn, 200)
-
-    conn =
-      conn
-      |> recycle_bearer()
-      |> get(~p"/api/v1/brain/entries/#{entry["id"]}/audit-log?owner_uid=#{owner_uid}")
-
-    assert %{"audit_log" => deleted_audit_rows} = json_response(conn, 200)
-
-    delete_audit =
-      Enum.find(deleted_audit_rows, &(&1["action"] == "delete_entry")) ||
-        flunk("delete_entry audit row was not returned")
-
-    conn =
-      conn
-      |> recycle_bearer()
-      |> post(
-        ~p"/api/v1/brain/audit-log/#{delete_audit["id"]}/restorations?owner_uid=#{owner_uid}",
-        %{}
-      )
-
-    assert %{"restoration" => %{"restored" => "delete_entry"}} = json_response(conn, 200)
-
-    conn =
-      conn
-      |> recycle_bearer()
-      |> get(~p"/api/v1/brain/entries/#{entry["id"]}?owner_uid=#{owner_uid}")
-
-    assert %{
-             "entry" => %{"name" => "Project Alpha"},
-             "blocks" => [],
-             "relations" => [%{"target_name" => "Industry One"}]
-           } = json_response(conn, 200)
-  end
-
-  test "operation body cannot choose owner, store, or author", %{
-    conn: conn,
-    owner_uid: owner_uid
-  } do
-    other_owner = agent_fixture(%{uid: unique_uid("other-brain-owner")})
-
-    conn =
-      post(conn, ~p"/api/v1/brain/entry-operations?owner_uid=#{owner_uid}&store=shared", %{
-        "operations" => [
-          %{
-            "operation" => "create_entry",
-            "name" => "Spoofed entry",
-            "type" => "project",
-            "owner_uid" => other_owner.principal.uid,
-            "store_key" => "dm:someone-else",
-            "author_kind" => "dreaming"
-          }
-        ]
-      })
-
-    assert %{"error" => %{"code" => "validation_failed"}} = json_response(conn, 422)
-  end
-
-  test "retained sources resolve by stable scoped document id", %{
-    conn: conn,
-    owner_uid: owner_uid,
-    admin_uid: admin_uid
-  } do
-    source = insert_source!(owner_uid, admin_uid)
-    document_id = source.document_id
-
-    conn = get(conn, ~p"/api/v1/brain/sources/#{document_id}?owner_uid=#{owner_uid}")
-
-    assert %{
-             "source" => %{
-               "document_id" => ^document_id,
-               "text" => "Original source text",
-               "title" => "Original source"
-             }
-           } = json_response(conn, 200)
-
-    conn =
-      conn
-      |> recycle_bearer()
-      |> get(~p"/api/v1/brain/sources?owner_uid=#{owner_uid}")
-
-    assert %{
-             "sources" => [
-               %{
-                 "document_id" => ^document_id,
-                 "kind" => "retained_source",
-                 "learning_status" => "stored"
-               }
-             ]
-           } = json_response(conn, 200)
-
-    conn =
-      conn
-      |> recycle_bearer()
-      |> get(~p"/api/v1/brain/status?owner_uid=#{owner_uid}")
-
-    assert %{
-             "memory_status" => %{
-               "diagnostics" => %{
-                 "unintegrated_sources" => [%{"document_id" => ^document_id}]
-               }
-             }
-           } = json_response(conn, 200)
-
-    conn =
-      conn
-      |> recycle_bearer()
-      |> get(~p"/api/v1/brain/sources/brain-source:missing?owner_uid=#{owner_uid}")
-
-    assert %{"error" => %{"code" => "not_found"}} = json_response(conn, 404)
-  end
-
-  test "file capture stores raw bytes before a separate learning request", %{
-    conn: conn,
-    owner_uid: owner_uid
-  } do
-    path = Path.expand("../../ankole/brain/sources_test.exs", __DIR__)
-    original = File.read!(path)
-
-    upload = %Plug.Upload{
-      path: path,
-      filename: "brain-source.txt",
-      content_type: "text/plain"
+    base = %{
+      "slug" => "notes/valid",
+      "type" => "note",
+      "subtype" => nil,
+      "title" => "Valid",
+      "body" => "Body.",
+      "meta" => %{},
+      "effective_date" => nil
     }
 
-    conn =
-      conn
-      |> multipart(~p"/api/v1/brain/sources?owner_uid=#{owner_uid}&store=shared", [
-        {"kind", "file"},
-        {"title", "Brain source test"},
-        {:file, upload}
-      ])
+    assert %{"error" => %{"code" => "invalid_slug", "details" => [%{"path" => "slug"}]}} =
+             conn
+             |> post(~p"/api/v1/brain/objects", %{base | "slug" => "notes/bad slug"})
+             |> json_response(422)
+
+    assert %{"error" => %{"code" => "unknown_object_type", "details" => [type_detail]}} =
+             conn
+             |> recycle_api()
+             |> post(~p"/api/v1/brain/objects", %{base | "type" => "made-up"})
+             |> json_response(422)
+
+    assert type_detail["path"] == "type"
+    assert "note" in type_detail["installed_types"]
+
+    assert %{"object" => _created} =
+             conn
+             |> recycle_api()
+             |> post(~p"/api/v1/brain/objects", base)
+             |> json_response(200)
+
+    assert %{"error" => %{"code" => "slug_taken", "details" => [%{"path" => "slug"}]}} =
+             conn
+             |> recycle_api()
+             |> post(~p"/api/v1/brain/objects", %{base | "title" => "Duplicate"})
+             |> json_response(409)
+
+    assert %{"types" => types} =
+             conn
+             |> recycle_api()
+             |> get(~p"/api/v1/brain/object-types")
+             |> json_response(200)
+
+    assert "note" in types
+    refute "agent-skills" in types
+  end
+
+  test "the Object API returns the native Markdoc code and line", %{conn: conn} do
+    {:ok, _result} = SchemaPacks.install_packs([])
+    {conn, principal_uid} = bearer_conn_with_principal(conn)
+
+    body = """
+    {% audience scope="principal:#{principal_uid}" %}
+    private
+    ~~~markdoc
+    {% /audience %}
+    ~~~
+    tail
+    """
 
     assert %{
-             "source" => %{
-               "document_id" => document_id,
-               "kind" => "retained_source",
-               "capture_method" => "file",
-               "learning_status" => "stored",
-               "original_name" => "brain-source.txt"
+             "error" => %{
+               "code" => "unclosed_audience_tag",
+               "details" => [%{"line" => 1, "path" => "body"}]
              }
-           } = json_response(conn, 201)
+           } =
+             conn
+             |> post(~p"/api/v1/brain/objects", %{
+               "slug" => "notes/invalid-markdoc",
+               "type" => "note",
+               "subtype" => nil,
+               "title" => "Invalid Markdoc",
+               "body" => body,
+               "meta" => %{},
+               "effective_date" => nil
+             })
+             |> json_response(422)
 
-    conn =
-      conn
-      |> recycle_bearer()
-      |> get(~p"/api/v1/brain/sources/#{document_id}/raw?owner_uid=#{owner_uid}")
-
-    assert response(conn, 200) == original
-
-    conn =
-      conn
-      |> recycle_bearer()
-      |> post(~p"/api/v1/brain/sources/#{document_id}/learning-runs?owner_uid=#{owner_uid}", %{})
-
-    assert %{"error" => %{"code" => "worker_not_ready"}} = json_response(conn, 409)
+    refute Repo.get_by(Object, slug: "notes/invalid-markdoc")
   end
 
-  test "pasted text becomes an ordinary entry instead of a retained source", %{
-    conn: conn,
-    owner_uid: owner_uid
-  } do
-    original = "\n  Preserve leading and trailing whitespace.  \n"
-    expected_body = String.trim(original)
+  test "the Object API exposes and repairs one stored invalid body", %{conn: conn} do
+    {:ok, _result} = SchemaPacks.install_packs([])
+    {conn, principal_uid} = bearer_conn_with_principal(conn)
+    now = DateTime.utc_now(:microsecond)
 
-    conn =
-      conn
-      |> multipart(~p"/api/v1/brain/sources?owner_uid=#{owner_uid}&store=shared", [
-        {"kind", "paste"},
-        {"title", "Exact paste"},
-        {"content", original}
-      ])
+    invalid_body = """
+    {% audience scope="principal:#{principal_uid}" %}
+    private
+    ~~~markdoc
+    {% /audience %}
+    ~~~
+    tail
+    """
 
-    assert %{
-             "resource_kind" => "entry",
-             "entry" => %{
-               "entry" => %{
-                 "id" => entry_id,
-                 "owner_uid" => shared_owner_uid,
-                 "store_key" => "shared"
-               },
-               "blocks" => [%{"body" => ^expected_body}]
-             }
-           } = json_response(conn, 201)
-
-    assert shared_owner_uid == Scope.shared_owner_uid()
-
-    conn =
-      conn
-      |> recycle_bearer()
-      |> get(~p"/api/v1/brain/entries/#{entry_id}?owner_uid=#{owner_uid}")
-
-    assert %{"blocks" => [%{"body" => ^expected_body}]} = json_response(conn, 200)
-
-    conn =
-      conn
-      |> recycle_bearer()
-      |> get(~p"/api/v1/brain/sources?owner_uid=#{owner_uid}")
-
-    assert %{"sources" => []} = json_response(conn, 200)
-  end
-
-  defp multipart(conn, path, fields) do
-    boundary = "ankole-brain-source-test-boundary"
-
-    body =
-      Enum.map(fields, fn
-        {:file, %Plug.Upload{} = upload} ->
-          [
-            "--#{boundary}\r\n",
-            "content-disposition: form-data; name=\"file\"; filename=\"#{upload.filename}\"\r\n",
-            "content-type: #{upload.content_type}\r\n\r\n",
-            File.read!(upload.path),
-            "\r\n"
-          ]
-
-        {name, value} ->
-          [
-            "--#{boundary}\r\n",
-            "content-disposition: form-data; name=\"#{name}\"\r\n\r\n",
-            value,
-            "\r\n"
-          ]
-      end) ++ ["--#{boundary}--\r\n"]
-
-    conn
-    |> put_req_header("content-type", "multipart/form-data; boundary=#{boundary}")
-    |> post(path, IO.iodata_to_binary(body))
-  end
-
-  defp bearer_conn(conn) do
-    {:ok, true} = SetupConfig.put_completed(true)
-    human = human_fixture(%{uid: unique_uid("brain-console-admin")})
-    assert {:ok, _root} = AuthZ.root_init_admin(human.principal.uid)
-
-    access_token =
-      conn
-      |> init_test_session(%{})
-      |> WebSession.put_admin_session(%{
-        principal_uid: human.principal.uid,
-        provider_id: "lark-main",
-        external_id: "external-1"
-      })
-      |> post(~p"/.internal-apis/oauth/token", %{
-        "grant_type" => "urn:ankole:params:oauth:grant-type:browser-session"
-      })
-      |> json_response(200)
-      |> Map.fetch!("access_token")
-
-    bearer =
-      conn
-      |> recycle()
-      |> put_req_header("authorization", "Bearer #{access_token}")
-      |> put_req_header("content-type", "application/json")
-
-    {bearer, human.principal.uid}
-  end
-
-  defp create_console_entry(conn, owner_uid, name) do
-    conn =
-      conn
-      |> recycle_bearer()
-      |> post(~p"/api/v1/brain/entry-operations?owner_uid=#{owner_uid}&store=shared", %{
-        "operations" => [%{"operation" => "create_entry", "name" => name, "type" => "topic"}]
+    object =
+      Repo.insert!(%Object{
+        id: UUIDv7.autogenerate(),
+        slug: "notes/repair-invalid-markdoc",
+        type: "note",
+        title: "Repair invalid Markdoc",
+        body: invalid_body,
+        meta: %{},
+        emotional_weight: 0.0,
+        content_hash: Objects.content_hash("Repair invalid Markdoc", invalid_body, %{}),
+        created_at: now,
+        updated_at: now
       })
 
-    assert %{"results" => [%{"entry_id" => entry_id}]} = json_response(conn, 200)
-    {conn, entry_id}
+    assert %{"object" => %{"body" => ^invalid_body, "content_hash" => content_hash}} =
+             conn
+             |> get(~p"/api/v1/brain/objects/show?slug=notes%2Frepair-invalid-markdoc")
+             |> json_response(200)
+
+    assert %{"error" => %{"code" => "unclosed_audience_tag"}} =
+             conn
+             |> recycle_api()
+             |> put(~p"/api/v1/brain/objects", %{
+               "slug" => object.slug,
+               "subtype" => nil,
+               "title" => object.title,
+               "body" => invalid_body,
+               "meta" => %{},
+               "effective_date" => nil,
+               "expected_content_hash" => content_hash
+             })
+             |> json_response(422)
+
+    repaired_body = """
+    {% audience scope="principal:#{principal_uid}" %}
+    private
+    {% /audience %}
+    """
+
+    assert %{"object" => %{"body" => ^repaired_body}} =
+             conn
+             |> recycle_api()
+             |> put(~p"/api/v1/brain/objects", %{
+               "slug" => object.slug,
+               "subtype" => nil,
+               "title" => object.title,
+               "body" => repaired_body,
+               "meta" => %{},
+               "effective_date" => nil,
+               "expected_content_hash" => content_hash
+             })
+             |> json_response(200)
+
+    assert object_chunk_scopes(object) == ["principal:#{principal_uid}"]
   end
 
-  defp recycle_bearer(conn) do
-    authorization = get_req_header(conn, "authorization") |> List.first()
+  test "archiving a Library Source immediately withdraws its managed pages", %{conn: conn} do
+    {conn, _principal_uid} = bearer_conn_with_principal(conn)
+    now = DateTime.utc_now(:microsecond)
 
-    conn
-    |> recycle()
-    |> put_req_header("authorization", authorization)
-    |> put_req_header("content-type", "application/json")
+    source =
+      Repo.insert!(%Source{
+        upstream_id: "controller-archive-library",
+        kind: "library",
+        name: "Controller archive library",
+        default_audience_scope: "world",
+        config: %{},
+        created_at: now,
+        updated_at: now
+      })
+
+    object =
+      Repo.insert!(%Object{
+        id: UUIDv7.autogenerate(),
+        slug: "concepts/controller-archive-library",
+        type: "concept",
+        title: "Controller archive library",
+        body: "Managed body",
+        meta: %{},
+        emotional_weight: 0.0,
+        managed_by_source_id: source.id,
+        created_at: now,
+        updated_at: now
+      })
+
+    assert %{"source" => %{"id" => source_id, "archived_at" => archived_at}} =
+             conn
+             |> post(~p"/api/v1/brain/sources/#{source.id}/archive")
+             |> json_response(200)
+
+    assert source_id == source.id
+    assert is_binary(archived_at)
+    assert Repo.get!(Object, object.id).deleted_at != nil
   end
 
-  defp insert_source!(owner_uid, admin_uid) do
-    {:ok, scope} = Scope.for_store(owner_uid, "shared")
+  test "health keeps internal embedding failures in server logs", %{conn: conn} do
+    {conn, _principal_uid} = bearer_conn_with_principal(conn)
+    now = DateTime.utc_now(:microsecond)
 
-    {:ok, source} =
-      Sources.capture(
-        scope,
-        %{
-          kind: "file",
-          title: "Original source",
-          original_name: "original-source.txt",
-          media_type: "text/plain",
-          content: "Original source text"
-        },
-        admin_uid
-      )
+    internal_reason =
+      "{:provider_unavailable, credential_id: cred-secret-123, env: OPEN_ROUTER_API_KEY}"
 
-    source
-  end
+    object =
+      Repo.insert!(%Object{
+        id: UUIDv7.autogenerate(),
+        slug: "notes/health-internal-error",
+        type: "note",
+        title: "Health internal error",
+        body: "Projection source",
+        meta: %{},
+        emotional_weight: 0.0,
+        created_at: now,
+        updated_at: now
+      })
 
-  defp configure_light_profile!(owner_uid) do
-    provider_id = "brain-controller-#{System.unique_integer([:positive])}"
+    Repo.insert!(%Chunk{
+      object_id: object.id,
+      chunk_index: 0,
+      content_kind: "body",
+      audience_scope: "world",
+      chunk_text: object.body,
+      token_count: 2,
+      embedding_signature: "failed-signature",
+      embedding_error: internal_reason,
+      created_at: now
+    })
 
-    assert {:ok, _provider} =
-             ProviderConfigs.create_provider(%{
-               provider_id: provider_id,
-               provider_kind: "openai",
-               base_url: "http://127.0.0.1:9/v1",
-               credential_pool: %{
-                 "entries" => [%{"label" => "Default", "api_key" => "sk-brain-controller-test"}]
-               }
+    assert {:ok, _value} =
+             AppConfigure.put_global_by_key("brain.embedding_model", %{
+               "provider_id" => "missing-provider",
+               "model" => "embedding-model",
+               "dimensions" => 8
              })
 
-    assert {:ok, _profile} =
-             ModelProfiles.put_model_profile(owner_uid, "light", %{
-               provider_id: provider_id,
-               model: "brain-controller-test"
-             })
+    test_process = self()
+
+    log =
+      capture_log([metadata: [:reason]], fn ->
+        response =
+          conn
+          |> get(~p"/api/v1/brain/health")
+          |> json_response(200)
+
+        send(test_process, {:health_response, response})
+      end)
+
+    assert_receive {:health_response, %{"health" => health}}
+    assert health["models"]["embedding"]["provider_error"] == "not_found"
+    assert health["embedding_signature"]["error"] == "not_found"
+    assert health["embeddings"]["recent_error"] == "internal_error"
+    refute inspect(health) =~ "cred-secret-123"
+    refute inspect(health) =~ "OPEN_ROUTER_API_KEY"
+    assert log =~ internal_reason
   end
 end

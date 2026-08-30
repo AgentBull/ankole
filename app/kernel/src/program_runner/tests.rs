@@ -472,6 +472,74 @@ fn pending_call_overflow_fails_loudly() {
 }
 
 #[test]
+fn pending_limits_keep_defaults_and_clamp_explicit_requests() {
+    assert_eq!(
+        bounded(None, DEFAULT_MAX_PENDING_CALLS, HARD_MAX_PENDING_CALLS),
+        64
+    );
+    assert_eq!(
+        bounded(None, DEFAULT_MAX_PENDING_BYTES, HARD_MAX_PENDING_BYTES),
+        1024 * 1024
+    );
+    assert_eq!(
+        bounded(
+            Some(1024),
+            DEFAULT_MAX_PENDING_CALLS,
+            HARD_MAX_PENDING_CALLS
+        ),
+        1024
+    );
+    assert_eq!(
+        bounded(
+            Some(8 * 1024 * 1024),
+            DEFAULT_MAX_PENDING_BYTES,
+            HARD_MAX_PENDING_BYTES
+        ),
+        8 * 1024 * 1024
+    );
+    assert_eq!(
+        bounded(
+            Some(2048),
+            DEFAULT_MAX_PENDING_CALLS,
+            HARD_MAX_PENDING_CALLS
+        ),
+        1024
+    );
+    assert_eq!(
+        bounded(
+            Some(16 * 1024 * 1024),
+            DEFAULT_MAX_PENDING_BYTES,
+            HARD_MAX_PENDING_BYTES
+        ),
+        8 * 1024 * 1024
+    );
+}
+
+#[test]
+fn accepts_a_200_call_parallel_batch_when_limits_allow_it() {
+    let outcome = run(RunRequest {
+        program:
+            "await Promise.all(Array.from({ length: 200 }, (_, index) => tools.agent({ index })));"
+                .to_string(),
+        tools: vec![tool(None, "agent", "agent")],
+        memo: Vec::new(),
+        timeout_ms: Some(5_000),
+        heap_limit_bytes: None,
+        max_program_bytes: None,
+        max_output_bytes: None,
+        max_pending_calls: Some(1024),
+        max_pending_bytes: Some(8 * 1024 * 1024),
+        max_memo_entries: None,
+        max_memo_bytes: None,
+    });
+
+    assert_eq!(outcome.status, "pending");
+    assert_eq!(outcome.pending_calls.len(), 200);
+    assert_eq!(outcome.pending_calls[0].arguments, json!({"index": 0}));
+    assert_eq!(outcome.pending_calls[199].arguments, json!({"index": 199}));
+}
+
+#[test]
 fn source_byte_overflow_fails_before_creating_an_isolate() {
     let outcome = run(RunRequest {
         program: "text(\"x\");".to_string(),

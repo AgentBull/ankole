@@ -77,7 +77,7 @@ defmodule Ankole.Plugins.SlackAdapter.BlockKit do
       |> add_interaction_result(presentation)
       |> add_presentation_actions(presentation)
 
-    {:ok, if(blocks == [], do: [section("（无内容）")], else: blocks)}
+    {:ok, if(blocks == [], do: [section(I18n.t("signals_gateway.reply.no_content"))], else: blocks)}
   end
 
   defp add_status(blocks, presentation) do
@@ -444,5 +444,5 @@ defmodule Ankole.Plugins.SlackAdapter.BlockKit do
     text |> String.graphemes() |> Enum.chunk_every(size) |> Enum.map(&Enum.join/1)
   end
 
-  defp truncate(text, size), do: text |> String.graphemes() |> Enum.take(size) |> Enum.join()
+  defp truncate(text, size), do: String.slice(text, 0, size)
 end

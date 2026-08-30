@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { wireItemsFromTurnItems, replayCallID } from '../src/core/codex-runner/thread-replay'
+import { wireItemsFromTurnItems, replayCallID } from '../src/core/codex-runner/job/thread-replay'
 
 describe('@ankole/agent-computer thread replay conversion', () => {
   it('converts user, assistant, and paired tool items to wire response items', () => {

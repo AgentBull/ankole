@@ -5,7 +5,7 @@ import {
   projectWorkerEnv,
   selectProjectedAgentPlugins,
   selectProjectedStandaloneSkills
-} from '../src/core/codex-runner/runtime-projection'
+} from '../src/core/codex-runner/job/runtime-projection'
 import { jsonBytes } from '../src/fabric/envelope_proto'
 import {
   AgentPluginCatalogEntrySchema,

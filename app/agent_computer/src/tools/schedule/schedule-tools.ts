@@ -1,10 +1,11 @@
 import { createHash } from 'node:crypto'
-import { compactRecord, match } from '@agentbull/active-support'
+import { compactRecord, match, ms } from '@agentbull/active-support'
 import { z } from 'zod'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import type { TurnStart } from '../../lanes/actor_lane'
-import type { AgentTool, AgentToolResult } from '../../core'
+import { defineWorkerTool, type AgentToolResult, type WorkerAgentTool } from '../../core'
 import { currentReplyRoute, type ReplyRoute } from '../../core/turns/reply_route'
+import { scheduleTurnContextFromTurnStart } from '../../core/turns/schedule_turn_context'
 import { ModelIntegerID, modelIntegerIDToWire } from '../../core/model-integer-id'
 import { jsonToolResult } from '../../core/tool-result'
 import { jsonBytes } from '../../fabric/envelope_proto'
@@ -241,7 +242,7 @@ const CronOriginReadActions = new Set<z.output<typeof CronParams>['action']>(['l
 /**
  * Creates the scheduling tools over the turn's schedule RPC seam.
  */
-export function createScheduleTools(opts: CreateScheduleToolsOptions): AgentTool<any>[] {
+export function createScheduleTools(opts: CreateScheduleToolsOptions): WorkerAgentTool[] {
   return [createCheckBackLaterTool(opts), createCronTool(opts)]
 }
 
@@ -250,8 +251,8 @@ export function createScheduleTools(opts: CreateScheduleToolsOptions): AgentTool
  */
 function createCheckBackLaterTool(
   opts: CreateScheduleToolsOptions
-): AgentTool<typeof CheckBackLaterParams, ScheduleToolDetails> {
-  return {
+): WorkerAgentTool<typeof CheckBackLaterParams, ScheduleToolDetails> {
+  return defineWorkerTool({
     name: 'check_back_later',
     description: [
       'Manage one-shot delayed self-wakeups for this conversation (create, list, inspect, update, cancel pending checkbacks).',
@@ -313,7 +314,7 @@ function createCheckBackLaterTool(
         presentation: checkBackEffectPresentation(operation)
       })
     }
-  }
+  })
 }
 
 /**
@@ -351,10 +352,10 @@ function defaultCheckBackUpdateIdempotencyKey(turnStart: TurnStart, checkbackID:
  */
 function createCronTool(
   opts: CreateScheduleToolsOptions
-): AgentTool<typeof CronParams | typeof CronOriginReadParams, ScheduleToolDetails> {
+): WorkerAgentTool<typeof CronParams | typeof CronOriginReadParams, ScheduleToolDetails> {
   const cronOrigin = isCronOriginTurn(opts.turnStart)
 
-  return {
+  return defineWorkerTool<typeof CronParams | typeof CronOriginReadParams, ScheduleToolDetails>({
     name: 'cron',
     description: cronOrigin
       ? "Inspect this turn's own recurring schedule. A cron-origin turn sees exactly the schedule that fired it (list/get/runs) and cannot create or change schedules."
@@ -394,7 +395,7 @@ function createCronTool(
         presentation: cronEffectPresentation(params)
       })
     }
-  }
+  })
 }
 
 function checkBackEffectPresentation(
@@ -511,11 +512,11 @@ function cronScheduleScope(
 
 function humanInterval(milliseconds: number): LocalizedPresentationText {
   const units = [
-    { milliseconds: 7 * 24 * 60 * 60 * 1000, unit: 'week' },
-    { milliseconds: 24 * 60 * 60 * 1000, unit: 'day' },
-    { milliseconds: 60 * 60 * 1000, unit: 'hour' },
-    { milliseconds: 60 * 1000, unit: 'minute' },
-    { milliseconds: 1000, unit: 'second' }
+    { milliseconds: ms('7d'), unit: 'week' },
+    { milliseconds: ms('1d'), unit: 'day' },
+    { milliseconds: ms('1h'), unit: 'hour' },
+    { milliseconds: ms('1m'), unit: 'minute' },
+    { milliseconds: ms('1s'), unit: 'second' }
   ]
 
   const exact = units.find(unit => milliseconds >= unit.milliseconds && milliseconds % unit.milliseconds === 0)
@@ -549,7 +550,7 @@ function rejectCronOriginMutation(params: z.output<typeof CronParams>, turnStart
 }
 
 function isCronOriginTurn(turnStart: TurnStart): boolean {
-  return turnStart.request_context?.turn_mode === 'cron'
+  return scheduleTurnContextFromTurnStart(turnStart)?.mode === 'cron'
 }
 
 /**

@@ -54,7 +54,7 @@ boundary is meaningful. Each entry contains an optional `namespace`, the tool
 fact survives trajectory pagination, so the parent Agent does not infer the
 mechanism from tool prose.
 `recent_trajectory` is an `ankole_chatml` trajectory built from the latest three
-stored semantic trajectory groups on the Job root thread. It does not filter
+semantic item groups on the Job root thread. It does not filter
 these groups by the stored Turn kind. It removes stored message IDs, maps
 tool-call correlation to turn-local `call_N` aliases, and contains no cursor. It
 preserves the trajectory-level `metadata.redacted` and
@@ -119,12 +119,20 @@ A ready result returns `job_id`, the current concrete status,
 whether the Job continues running. The parent records that tool result before
 applying queued steering to its next model input.
 
-`last_turn_trajectory` contains at most the latest 20 trajectory groups from
+`last_turn_trajectory` contains at most the latest 20 semantic item groups from
 that one Turn. Its serialized size is at most 24 KiB. The tool states when it
 omits earlier groups. It also preserves `metadata.redacted` and
 `metadata.content_truncated`; the latter remains true when Worker recording or
 control-plane projection reduced message content. If the Job is still running,
 the tool also states that the Job continues in the background.
+
+An ambient channel route can append the same `command.steer` without a model
+tool call. It may target only one live Job from the same Agent, owner Session,
+signal channel, and binding. The control plane rechecks those facts and the
+ambient scene, appends the steer, stores the canonical ambient judgment, and
+advances the channel cursor in one transaction. The steer contains only the
+new channel messages; it does not include earlier context, private memory, or
+the recognizer reason.
 
 `respawn_background_job` starts a new Job from one terminal Job. Its input
 contains only:
@@ -156,8 +164,20 @@ active Turn in the current attempt to `interrupted`. A completed lead Turn stays
 completed, so a successful Job keeps its result trajectory and every terminal
 child trajectory.
 
-The authorized parent turn supplies the Agent, originating conversation, tool
-call, and reply route. The task can use real paths inside that Agent Home.
+The authorized parent turn supplies the Agent, tool call, and reply route. The
+task can use real paths inside that Agent Home. Creation itself pins the
+originating conversation on every path: it resolves the owner session's active
+AIGateway conversation, creates one when none exists, and writes its id into
+`metadata.owner_conversation_id`. The Job runtime reads that field to resolve
+its conversation context, so a control-plane-created Job and the successor Job
+that open steers seed get a conversation without a calling turn.
+
+A Workflow task turn can also create a Job. The Job then records the
+`wf_task:<call_id>` session as its owner, so every lifecycle wakeup —
+completed, failed, or waiting — wakes the sleeping task instead of the main
+Agent's session, and the task shapes the outcome into its Workflow result. A
+run that reaches a terminal status stops the live Jobs its task sessions own.
+See [Workflow](Workflow.md).
 
 When the parent is a cron turn, the Job reply route also freezes that cron
 event's delivery targets. A terminal Job notification keeps this snapshot. The
@@ -194,15 +214,16 @@ Agent Computer:
 - materializes the Job's persisted runtime projection with current non-secret
   materials and credentials
 - acquires the shared per-Agent `AgentCodexRuntime`
-- selects the Job's projected Plugin roots and Background-eligible Skills
+- selects the Job's current Background-eligible Skills and Skill-owned MCP servers
 - starts or resumes the Job's own Codex root thread
 - routes each Codex child thread to the Job that owns its parent
 - reports semantic events for each Turn trajectory
 - waits for routed child Turns before it commits a successful Job
 - returns the final Codex result
 
-Codex manages its thread, Plugins, Skills, hooks, collaboration, and task
-execution. PostgreSQL keeps the Job record that survives process failure.
+Codex manages its thread, collaboration, and task execution. Ankole owns Skill
+selection and loading, and `AgentCodexRuntime` owns Plugin installation and Hook
+trust. PostgreSQL keeps the Job record that survives process failure.
 
 ## What PostgreSQL Stores
 
@@ -239,10 +260,10 @@ metadata.
 A Job does not store provider credentials. Its runtime projection stores the
 resolved provider, model, effort, options, direct input modalities, optional
 directly image-capable vision fallback, Plugin and Skill selection, MCP
-selection, the Codex compaction mode, and non-secret Worker and browser
-parameters. Retry, continuation, and Worker migration use those values instead
-of silently reading a new Agent configuration. A respawn inherits
-`model_profile` but captures a new projection from its current binding.
+selection, and non-secret Worker and browser parameters. Retry, continuation,
+and Worker migration use those values instead of silently reading a new Agent
+configuration. A respawn inherits `model_profile` but captures a new projection
+from its current binding.
 Credentials and mutable Skill content still come from their current owners. A
 Lark tenant token stays out of the Codex thread environment: Agent Computer
 refreshes an execution-local file, and each `lark-cli` command reads the current
@@ -262,13 +283,12 @@ raw app-server frames. Each Turn row stores the trajectory header.
 
 The Worker ships one content stream per Turn: sanitized semantic thread items
 with their positions and item keys. Append-only `background_agent_job_turn_items`
-rows store that stream. The control plane derives the append-only
-trajectory-group rows from each accepted item at write time, so the group
-projection and every read path stay unchanged while the Worker sends the
-content once. An item whose projection is empty stays stored for thread
-replay. Turns recorded before the item stream existed keep only their group
-rows; their threads fall back to the Workspace rebuild below when replay finds
-no items.
+rows store that stream, and they are the one storage and read-path owner of
+Turn content: every trajectory reader projects `ankole_chatml` messages from
+the stored items at read time. An item whose projection is empty stays stored
+for thread replay. A Turn recorded before the item stream existed has no item
+rows: it renders empty, and its thread falls back to the Workspace rebuild
+below when replay finds no items.
 
 A stored tool-result message keeps the stable execution mechanism in metadata.
 `provider_hosted` means that the model Provider executed the tool.
@@ -301,15 +321,16 @@ call was `send_message` or `followup_task`. A matched activity enriches the raw
 call pair and is not stored as a separate display item.
 
 Each Turn also identifies its Job, attempt, Codex thread, and Codex turn. The API
-rebuilds trajectory pages from the header and message groups.
+rebuilds trajectory pages from the header and the messages that the stored
+items project.
 
 The stored Turn `kind` is Worker-to-control-plane metadata. It is not a Responses
 object and does not define a Job type, lead or child ownership, trajectory
 visibility, causal message matching, or recovery. The Job `runtime_thread_id`
 identifies the root thread. Trajectory `item_key` values identify causal inputs.
 Turn status and order control recovery. The control-plane execution projection
-keeps a diagnostic count of rows with `kind=compaction` for compatibility. This
-count overlaps the lead and child counts and is not a count of compaction events.
+keeps a diagnostic count of rows with `kind=compaction`. This count overlaps the
+lead and child counts and is not a count of compaction events.
 
 ## Where a Job Runs
 
@@ -324,8 +345,7 @@ The first Job owns a Workspace at this path:
 ```text
 /agents/<agent-key>/jobs/<workspace-owner-job-id>/
 ├── .codex/config.toml
-├── .agents/skills/
-├── .ankole/agent-plugins/ # Filtered package views selected by this Job
+├── AGENTS.md
 ├── temp/
 └── ...
 ```
@@ -352,12 +372,6 @@ CODEX_HOME=/var/lib/ankole/codex/<agent-key>/.codex
 The Agent Home is shared durable storage. The Codex Home is a rebuildable
 Worker-local shard because SQLite WAL cannot use the shared network filesystem.
 The Bubblewrap runtime mounts both paths and keeps the Codex Home writable.
-Before the first local app-server start after this migration, the Worker makes
-one non-blocking attempt to lock the former shared Codex Home. If no old runtime
-holds its lock, the Worker removes only its obsolete `config.toml`; otherwise it
-leaves all legacy state unchanged and retries at the next cold start. This stops
-Codex from treating the old runtime config as project configuration while a
-rolling deployment can still finish work on the old runtime.
 
 Each `(Agent, Worker)` pair owns one active Codex app-server process through
 `AgentCodexRuntime`. Each Background Agent Job owns one root thread in that
@@ -382,16 +396,11 @@ child tombstones stay closed.
 installation, Hook trust, Plugin cache changes, and Codex user-config changes.
 It installs and trusts all same-release packages before it starts the first Job
 thread, then leaves every global Plugin entry disabled. A Job never mutates
-that Agent-wide state. It selects its persisted Plugin roots through
-`thread/start.selectedCapabilityRoots`. Job turns run concurrently after this
-owner finishes setup.
-
-Each Job atomically rebuilds one stable package view from its persisted
-projection and the current effective member set. This view is not an install,
-cache, Hook trust, or user-config mutation. The view contains only the member
-`SKILL.md` files that the Job can use. This keeps selection thread-local instead
-of mutating Agent-wide `skills.config` while sibling Jobs run. A resume rebuilds
-the same path before it restores the stored root.
+that Agent-wide state or gives Codex a native Skill root. Ankole intersects the
+Job's persisted selection with the current effective catalog, renders the
+ordinary Skill index in `AGENTS.md`, and exposes full Skill content through its
+dynamic `skill_view` tool. MCP servers remain a separate projection. Job turns
+run concurrently after the serialized runtime setup finishes.
 
 The last Job lease closes app-server input, gives the process a bounded clean
 exit period, and reaps it before the runtime owner is removed. It sends a kill
@@ -474,12 +483,11 @@ Codex omits configured hosted search from that private carrier. Standard
 Responses sends the native `web_search` declaration.
 
 For AIGateway, the Agent Codex Home selects the `ankole_aigateway` provider.
-Its configured name is `OpenAI`, which tells Codex 0.147 that this hop can carry
-remote compaction. The provider ID does not change. Every Job uses that one
-protocol: Codex appends `compaction_trigger` to a normal Responses request and
-AIGateway answers it. A Job no longer carries a switch between two compaction
-protocols, and a projection frozen while that switch existed keeps running
-because the retired value is read and discarded.
+Its configured name is `OpenAI`, which tells the pinned Codex runtime that this
+hop can carry remote compaction. The provider ID does not change. Every Job uses
+that one protocol: Codex appends `compaction_trigger` to a normal Responses
+request and AIGateway answers it. A Job no longer carries a switch between two compaction
+protocols.
 
 Whether AIGateway answers with its own summary or forwards the trigger to the
 Provider is the `upstream` field of the instance `ai_gateway.compaction`
@@ -500,11 +508,6 @@ Codex-only `internal_chat_message_metadata_passthrough` and
 provider capability unless Codex marks the request as Responses Lite. It sends
 images to the main model only when the direct modalities permit that input;
 otherwise it uses the frozen fallback to produce untrusted text.
-When a persisted projection predates the modality fields, the next admission
-may complete those fields only when its frozen provider ID still resolves to
-the same provider type and model ID, then persists that completed binding. If
-that identity cannot be proved, the legacy Job remains text-only; it never
-borrows visual capability from a different model.
 
 When the instance leaves compaction to the Provider, AIGateway tries the Job's
 frozen Responses Provider and model before it uses local compaction.
@@ -526,14 +529,16 @@ different Workers run Jobs for the same Agent without sharing SQLite state.
 
 Project initialization writes one `AGENTS.md` at the Job Workspace root. The
 optional workspace template supplies the first part. The runner appends the
-rendered Job context after it: the Agent SOUL and MISSION documents, the
-durable Brain context, and the execution-context facts.
+rendered Job context after it: the Agent SOUL and MISSION documents, and the
+execution-context facts.
 
-The rendered Job context can end with a `Job Guidance` section. Its body is the
-shared template `app/library/templates/AGENT_JOB.md`, read from the builtin
-library root in the Worker image. An empty template omits the section. The
-shipped template is empty. The Codex project config sets the native subagent
-wait minimum to one minute and the default to two minutes. It does not set the
+The rendered Job context includes the ordinary Skill index and can end with a
+`Job Guidance` section. A Skill with `brain-recall-only: true` stays out of the
+index and is discoverable through Brain. The guidance body is the shared
+template `app/library/templates/AGENT_JOB.md`, read from the builtin library
+root in the Worker image. An empty template omits the section. The shipped
+template is empty. The Codex project config sets the native subagent wait
+minimum to one minute and the default to two minutes. It does not set the
 maximum, so Codex keeps its default. This reduces repeated model turns after
 empty waits, as tracked in [openai/codex#35259](https://github.com/openai/codex/issues/35259).
 A resumed thread keeps the existing project `AGENTS.md`; the template applies
@@ -558,17 +563,13 @@ Agent-installed Skill source uses this path:
 /agents/<agent-key>/installed-skills/<skill-name>/
 ```
 
-Before each run, Agent Computer refreshes the selected Skill under the stable
-Agent material root. Its `SKILL.md` combines the source instructions with the
-current database note. The Job projects standalone Skills into
-`.agents/skills`, and Codex discovers them through native project discovery.
-The runner does not use the process-global `skills/extraRoots/set` method.
-
-Initial preparation resolves all selected Skill overlays in one RuntimeFabric
-batch. The control plane synchronizes the Agent Skill registry once, reads the
-selected Skill rows once, and reads the overlay rows once. It rejects the whole
-set when one requested Skill is missing, disabled, invalid, or duplicated.
-Refreshing one changed Skill uses the same batch contract with one name.
+Before each run, Agent Computer derives the loadable Skill set by intersecting
+the frozen Job selection with the Agent's current effective Skills and the
+`ankole-runtime` rule. The Job's Ankole `skill_view` tool reads the selected
+source file through the same confined loader as the main Agent, adds the current
+database lesson to `SKILL.md`, and records the Skill as used. It rejects a
+disabled Skill and any path outside that Skill. Codex native project discovery,
+`.agents/skills`, and `skills/list` do not own Ankole Skills.
 
 ## Prepare Agent Plugins for Each Run
 
@@ -586,14 +587,14 @@ Each Job preparation performs only thread-owned selection:
 
 1. Intersect the persisted Plugin and member selection with the current
    effective catalog.
-2. Atomically rebuild the Job's stable package views with only those members
-   and their current Skill overlays.
-3. Pass those package roots to `thread/start.selectedCapabilityRoots`.
+2. Add the Background-eligible members to the Ankole `skill_view` load set and
+   the non-lazy Skill index.
+3. Project any enabled Skill-owned MCP servers separately.
 
-`thread/resume` restores the selected roots stored with the existing Codex
-thread. The Job rebuilds those paths before resume, so a later disable removes
-the member without a global config write. A Job does not call `plugin/install`,
-trust Hooks, or mutate Plugin cache and user config.
+A Job does not pass Plugin Skill roots to Codex. A later disable removes the
+member from the loader, and an active Job receives the existing disable notice.
+A Job does not call `plugin/install`, trust Hooks, or mutate Plugin cache and
+user config.
 
 Enabling a Plugin does not create another Skill path or Job runner. See
 [Plugins](Plugins.md) for package and enabled-state rules.

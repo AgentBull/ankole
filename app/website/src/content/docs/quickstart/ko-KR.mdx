@@ -1248,24 +1248,20 @@ bullets: [
 ]
 
 export const modelAdvanced = {
-  title: '선택적 모델 프로필과 provider 튜닝',
-  summary: 'Agent가 필요로 할 때까지 선택적 기능 슬롯을 비워 둡니다.',
+  title: '선택적 Agent profile과 Brain 모델',
+  summary: 'Agent 기능 profile은 필요할 때만 설정합니다. Brain 모델은 인스턴스 전체에 적용됩니다.',
   steps: [
     {
-      title: '선택적 기능 프로필 추가',
+      title: '선택적 Agent 기능 profile 추가',
       fields: [
         {
           name: 'Background Agent Jobs',
           description:
-            '내구성이 있는 Background Agent Jobs를 실행합니다. 저장된 프로필 키는 현재 coding입니다. 메시지에 코드가 많이 포함되어 있으므로 일반 대화는 이 프로필로 전환되지 않습니다.'
+            'coding profile로 영속적인 Background Agent Jobs를 실행합니다. 메시지에 코드가 많아도 일반 대화는 이 profile을 선택하지 않습니다.'
         },
         {
           name: 'vision_fallback',
           description: '기본 모델이 이미지를 검사할 수 없을 때의 폴백(fallback)입니다.'
-        },
-        {
-          name: 'embedding / rerank',
-          description: '검색과 결과 정렬을 위한 모델입니다.'
         },
         {
           name: 'web_search / web_fetch',
@@ -1275,6 +1271,38 @@ export const modelAdvanced = {
           name: 'image_generate',
           description: '이미지 생성을 위한 모델입니다.'
         }
+      ]
+    },
+    {
+      title: '인스턴스의 Brain 모델 구성',
+      body: [
+        'Console → AppConfigure → Brain을 여세요. 이 설정은 모든 Agent에 적용되며 Agent profile에 속하지 않습니다.'
+      ],
+      fields: [
+        {
+          name: 'brain.embedding_model',
+          description: '벡터 검색을 활성화합니다. Provider와 모델을 선택하고 embedding 차원 수를 입력합니다.'
+        },
+        {
+          name: 'brain.rerank_model',
+          description: '융합된 검색 결과를 rerank합니다. 비워 두면 융합 결과 순서를 유지합니다.'
+        },
+        {
+          name: 'brain.web_fetch_model',
+          description: 'URL Source에서 읽을 수 있는 본문을 가져옵니다.'
+        },
+        {
+          name: 'brain.extraction_model',
+          description: 'Signal 대화와 Source에서 지식을 추출합니다.'
+        },
+        {
+          name: 'brain.dreaming_model',
+          description: '지식을 통합하고 모델이 필요한 유지 관리 작업을 수행합니다.'
+        }
+      ],
+      links: [
+        { label: 'Brain 가이드', href: '../brain/' },
+        { label: 'AppConfigure 참조', href: '../app-configuration/' }
       ]
     }
   ]
@@ -1854,8 +1882,8 @@ export const channelTabs = [
 ]
 
 export const signalAdvanced = {
-  title: '그룹 동작, 기밀 memory, subject namespace',
-  summary: '안전한 첫 binding은 지명된 경우에만 응답하고 기본 공유 memory scope를 유지합니다.',
+  title: '그룹 동작과 identity 매핑',
+  summary: '첫 설정에서는 Agent를 지명한 메시지에만 응답하게 하세요.',
   steps: [
     {
       title: 'Agent가 지명되지 않은 그룹 메시지를 처리하는 방식 선택',
@@ -1875,12 +1903,6 @@ export const signalAdvanced = {
       ],
       caution:
         'Provider가 해당 메시지를 전달해야 합니다. DingTalk와 WeCom은 addressed_only만 지원합니다. Slack과 Lark는 전체 방을 관찰하려면 추가 이벤트나 scope가 필요합니다.'
-    },
-    {
-      title: '기밀 memory는 민감한 channel에서만 사용',
-      body: [
-        '기본 shared scope는 Agent가 대화를 공유 knowledge로 사용하게 합니다. 기밀 memory는 해당 channel의 회상된 history를 channel scope 안에 유지합니다.'
-      ]
     },
     {
       title: 'namespace를 identity 매핑 키로 취급',
@@ -1975,6 +1997,8 @@ adapter를 처음 활성화했다면 첫 로그인 후 control plane을 재시�
   tabs={identityTabs}
 />
 
+<span id="llm-providers" aria-hidden="true" />
+
 ## 3. LLM Provider 추가 및 Agent 생성
 
 Agent model profile은 모델 참조를 저장하므로 LLM Provider를 먼저 추가하세요. Console에 로그인합니다. **Providers → New provider**를 열고 provider 종류를 선택한 다음 안정적인 Provider ID를 지정하고 endpoint와 credential 필드를 입력한 뒤 저장합니다.
@@ -2018,7 +2042,7 @@ Console에서 채팅 플랫폼의 Control Plane Plugin을 활성화한 다음, �
 
 ### Console에서 연결 완료
 
-현재 릴리스는 직접 연결을 사용합니다. 하나의 라우팅 규칙이 하나의 Channel Provider를 하나의 Agent에 연결합니다. 규칙은 adapter, 앱 자격 증명, 대상 Agent, 그룹 메시지 동작, memory 동작을 기록합니다. bot마다 별도의 규칙을 만드세요.
+현재 릴리스는 직접 연결을 사용합니다. 하나의 라우팅 규칙이 하나의 Channel Provider를 하나의 Agent에 연결합니다. 규칙은 adapter, 앱 자격 증명, 대상 Agent, 그룹 메시지 동작을 기록합니다. bot마다 별도의 규칙을 만드세요.
 
 Console에서 **Signal Routing → New routing rule**을 열고 설정합니다:
 
@@ -2028,7 +2052,6 @@ Console에서 **Signal Routing → New routing rule**을 열고 설정합니다:
 | **Adapter** | Slack, Teams, Lark/Feishu, DingTalk 또는 WeCom |
 | **Rule name** | `slack-main` 또는 `lark-main` 같은 안정적인 이름 |
 | **Group message mode** | `addressed_only`로 시작 |
-| **Confidential memory** | 첫 테스트에서는 끄기 |
 | **Channel settings** | 채널 tab의 자격 증명과 값을 붙여 넣기 |
 
 규칙을 저장합니다. 목록에 활성화된 상태로 표시되어야 합니다. 양식이 credential을 거부하면 IM을 테스트하기 전에 그 오류를 고치세요. adapter가 아직 연결을 열지 않았습니다.
@@ -2051,6 +2074,8 @@ Console에서 **Signal Routing → New routing rule**을 열고 설정합니다:
 > @Ankole 무엇을 할 수 있고, 어떤 팀을 서빙하나요?
 
 첫 실제 모델 답변이 온 뒤, 팀에 맞게 Agent mission, 모델, 그룹 채팅 정책을 조정하세요.
+
+<span id="agent-not-replying" aria-hidden="true" />
 
 ### Agent가 응답하지 않으면
 

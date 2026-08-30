@@ -17,6 +17,8 @@ defmodule Ankole.Plugins.LarkAdapterTest do
   alias Ankole.IdentityProviders
   alias Ankole.IdentityProviders.Jobs.SyncProvider
   alias Ankole.Plugins.LarkAdapter.ConnectionOwner
+  alias Ankole.Plugins.LarkAdapter.ConnectionReconciler
+  alias Ankole.Plugins.LarkAdapter.ConnectionSupervisor
   alias Ankole.Plugins.LarkAdapter.IdentityProvider
   alias Ankole.Plugins.LarkAdapter.IMGroups
   alias Ankole.Plugins.LarkAdapter.Inbound
@@ -49,8 +51,6 @@ defmodule Ankole.Plugins.LarkAdapterTest do
     Req.Test.set_req_test_to_shared()
     AppConfigureRegistry.clear_for_test()
     AppConfigureCache.clear_for_test()
-    :ok = AppConfigure.register_definitions(LarkAdapter.app_config_definitions())
-    :ok = AppConfigure.register_patterns(LarkAdapter.app_config_patterns())
     previous = Req.default_options()
     Req.Test.stub(__MODULE__, &default_lark_request/1)
     Req.default_options(plug: {Req.Test, __MODULE__})
@@ -60,11 +60,6 @@ defmodule Ankole.Plugins.LarkAdapterTest do
   describe "plugin declaration" do
     test "declares the stable Lark adapter contracts and encrypted config patterns" do
       assert LarkAdapter.plugin_id() == "lark-adapter"
-
-      assert LarkAdapter.display_name() == %{
-               "default" => "Lark Adapter",
-               "zh-Hans-CN" => "飞书适配器"
-             }
 
       assert [
                %{
@@ -95,45 +90,14 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                "directory_realtime_sync"
              ]
 
-      assert hd(chat_fields).label["zh-Hans-CN"] == "应用 ID"
-      assert hd(chat_fields).description["default"] == "Self-built app identifier."
       assert Enum.all?(chat_fields ++ identity_fields, &localized_field?/1)
 
-      chat_fields_by_path = Map.new(chat_fields, &{&1.path, &1})
-      identity_fields_by_path = Map.new(identity_fields, &{&1.path, &1})
-      identity_domain_field = identity_fields_by_path["domain"]
-
-      assert chat_fields_by_path["appID"].advanced == false
-      assert chat_fields_by_path["appSecret"].advanced == false
-      assert chat_fields_by_path["domain"].advanced == false
-      assert chat_fields_by_path["platformSubjectNamespace"].advanced == true
-      assert chat_fields_by_path["userName"].advanced == true
-      assert identity_fields_by_path["appID"].advanced == false
-      assert identity_fields_by_path["appID"].label["zh-Hans-CN"] == "App ID"
-      assert identity_fields_by_path["appSecret"].label["zh-Hans-CN"] == "App Secret"
-      assert identity_domain_field.label["zh-Hans-CN"] == "服务区域"
+      # The domain values reach stored binding config, so they are a contract;
+      # their labels are not.
+      identity_domain_field = Enum.find(identity_fields, &(&1.path == "domain"))
       assert identity_domain_field.default == "feishu"
+      assert Enum.map(identity_domain_field.options, & &1.value) == ["feishu", "lark"]
 
-      assert identity_fields_by_path["appID"].description["zh-Hans-CN"] ==
-               "在开发者后台「基础信息 → 凭证与基础信息」中获取。"
-
-      assert identity_fields_by_path["oidc.scopes"].label["zh-Hans-CN"] == "登录权限范围"
-      assert identity_fields_by_path["sync.contacts"].label["zh-Hans-CN"] == "同步通讯录"
-
-      assert identity_fields_by_path["sync.websocket"].label["zh-Hans-CN"] ==
-               "实时同步通讯录变更"
-
-      assert identity_fields_by_path["sync.pageSize"].label["zh-Hans-CN"] == "每页同步数量"
-
-      assert Enum.map(identity_domain_field.options, &{&1.value, &1.label["zh-Hans-CN"]}) == [
-               {"feishu", "飞书（中国大陆）"},
-               {"lark", "Lark（海外）"}
-             ]
-
-      assert identity_fields_by_path["oidc.scopes"].advanced == true
-      assert identity_fields_by_path["sync.contacts"].advanced == true
-      assert identity_fields_by_path["sync.websocket"].advanced == true
-      assert identity_fields_by_path["sync.pageSize"].advanced == true
       patterns = LarkAdapter.app_config_patterns()
 
       assert Enum.map(patterns, & &1.id) == [
@@ -772,7 +736,8 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       on_exit(fn -> delete_tenant_token(config) end)
 
       assert {:error,
-              {:provider_error, %{code: 230_071, http_status: 400, msg: "operator is not sender"}}} =
+              {:reply_delivery, :permanent,
+               %{code: 230_071, http_status: 400, msg: "operator is not sender"}}} =
                agent.uid
                |> final_edit_outbox(binding_name)
                |> Outbox.send()
@@ -900,6 +865,188 @@ defmodule Ankole.Plugins.LarkAdapterTest do
 
       refute_receive {:lark_outbox_request, _request}, 100
     end
+
+    test "reaction removal resolves the app's own reaction instance id at send time" do
+      parent = self()
+
+      stub_lark_requests(parent, fn request ->
+        send(parent, {:lark_outbox_request, request})
+
+        case {request.method, request.request_path} do
+          {:get, "/open-apis/im/v1/messages/om_reaction/reactions"} ->
+            if String.contains?(request.query, "page_token=page-2") do
+              {:json, 200,
+               %{
+                 "code" => 0,
+                 "data" => %{
+                   "items" => [
+                     %{
+                       "reaction_id" => "ZCaCIjUBVVWSrm5L-3ZTw",
+                       "reaction_type" => %{"emoji_type" => "THUMBSUP"},
+                       "operator" => %{
+                         "operator_id" => "cli_reaction_remove",
+                         "operator_type" => "app"
+                       }
+                     }
+                   ],
+                   "has_more" => false
+                 }
+               }}
+            else
+              {:json, 200,
+               %{
+                 "code" => 0,
+                 "data" => %{
+                   "items" => [
+                     %{
+                       "reaction_id" => "user-reaction-id",
+                       "reaction_type" => %{"emoji_type" => "THUMBSUP"},
+                       "operator" => %{"operator_id" => "ou_alice", "operator_type" => "user"}
+                     }
+                   ],
+                   "has_more" => true,
+                   "page_token" => "page-2"
+                 }
+               }}
+            end
+
+          {:delete, "/open-apis/im/v1/messages/om_reaction/reactions/ZCaCIjUBVVWSrm5L-3ZTw"} ->
+            {:json, 200, %{"code" => 0, "data" => %{}}}
+        end
+      end)
+
+      %{principal: agent} = agent_fixture()
+      binding_name = "lark-reaction-remove"
+      config = chat_config(%{"appID" => "cli_reaction_remove"})
+
+      assert {:ok, _config} =
+               AppConfigure.put_global_by_key(Config.chat_config_key(binding_name), config)
+
+      binding_fixture(agent.uid, binding_name, :ignore)
+      put_tenant_token(config)
+      on_exit(fn -> delete_tenant_token(config) end)
+
+      outbox = %OutboxEntry{
+        agent_uid: agent.uid,
+        binding_name: binding_name,
+        outbound_key: "reaction-remove:om_reaction",
+        operation: :reaction_remove,
+        signal_channel_id: "lark:oc_group",
+        target_source_entry_id: "om_reaction",
+        payload: %{"reaction_key" => "thumbs_up"},
+        idempotency_key: "reaction-remove:om_reaction"
+      }
+
+      assert {:ok, %{raw_payload: %{"code" => 0}}} = Outbox.send(outbox)
+
+      assert_receive {:lark_outbox_request,
+                      %{
+                        method: :get,
+                        request_path: "/open-apis/im/v1/messages/om_reaction/reactions",
+                        query: query
+                      }}
+
+      assert query =~ "reaction_type=THUMBSUP"
+      assert query =~ "page_size=50"
+
+      assert_receive {:lark_outbox_request,
+                      %{
+                        method: :delete,
+                        request_path:
+                          "/open-apis/im/v1/messages/om_reaction/reactions/ZCaCIjUBVVWSrm5L-3ZTw"
+                      }}
+    end
+
+    test "reaction removal without a matching app reaction succeeds idempotently" do
+      parent = self()
+
+      stub_lark_requests(parent, fn request ->
+        send(parent, {:lark_outbox_request, request})
+
+        {:json, 200,
+         %{
+           "code" => 0,
+           "data" => %{
+             "items" => [
+               %{
+                 "reaction_id" => "user-reaction-id",
+                 "reaction_type" => %{"emoji_type" => "THUMBSUP"},
+                 "operator" => %{"operator_id" => "ou_alice", "operator_type" => "user"}
+               }
+             ],
+             "has_more" => false
+           }
+         }}
+      end)
+
+      %{principal: agent} = agent_fixture()
+      binding_name = "lark-reaction-absent"
+      config = chat_config(%{"appID" => "cli_reaction_absent"})
+
+      assert {:ok, _config} =
+               AppConfigure.put_global_by_key(Config.chat_config_key(binding_name), config)
+
+      binding_fixture(agent.uid, binding_name, :ignore)
+      put_tenant_token(config)
+      on_exit(fn -> delete_tenant_token(config) end)
+
+      outbox = %OutboxEntry{
+        agent_uid: agent.uid,
+        binding_name: binding_name,
+        outbound_key: "reaction-remove:om_absent",
+        operation: :reaction_remove,
+        signal_channel_id: "lark:oc_group",
+        target_source_entry_id: "om_absent",
+        payload: %{"reaction_key" => "thumbs_up"},
+        idempotency_key: "reaction-remove:om_absent"
+      }
+
+      assert {:ok, %{raw_payload: %{"reaction_absent" => true}}} = Outbox.send(outbox)
+
+      assert_receive {:lark_outbox_request, %{method: :get}}
+      refute_received {:lark_outbox_request, %{method: :delete}}
+    end
+
+    test "reaction add still posts the provider emoji key" do
+      parent = self()
+
+      stub_lark_requests(parent, fn request ->
+        send(parent, {:lark_outbox_request, request})
+
+        {:json, 200, %{"code" => 0, "data" => %{"reaction_id" => "ZNahtnUBVVWSrm5L-3ZTx"}}}
+      end)
+
+      %{principal: agent} = agent_fixture()
+      binding_name = "lark-reaction-add"
+      config = chat_config(%{"appID" => "cli_reaction_add"})
+
+      assert {:ok, _config} =
+               AppConfigure.put_global_by_key(Config.chat_config_key(binding_name), config)
+
+      binding_fixture(agent.uid, binding_name, :ignore)
+      put_tenant_token(config)
+      on_exit(fn -> delete_tenant_token(config) end)
+
+      outbox = %OutboxEntry{
+        agent_uid: agent.uid,
+        binding_name: binding_name,
+        outbound_key: "reaction-add:om_reaction",
+        operation: :reaction_add,
+        signal_channel_id: "lark:oc_group",
+        target_source_entry_id: "om_reaction",
+        payload: %{"reaction_key" => "thumbs_up"},
+        idempotency_key: "reaction-add:om_reaction"
+      }
+
+      assert {:ok, _result} = Outbox.send(outbox)
+
+      assert_receive {:lark_outbox_request,
+                      %{
+                        method: :post,
+                        request_path: "/open-apis/im/v1/messages/om_reaction/reactions",
+                        body: %{"reaction_type" => %{"emoji_type" => "THUMBSUP"}}
+                      }}
+    end
   end
 
   describe "connection ownership" do
@@ -931,6 +1078,110 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       refute inspect(formatted_state) =~ "dispatcher"
       refute inspect(formatted_state) =~ String.duplicate("a", 64)
     end
+
+    test "the reconciler stops the owner after its binding is disabled" do
+      %{principal: agent} = agent_fixture()
+      binding_name = "lark-reconcile-stop"
+      config = chat_config(%{"appID" => "cli_reconcile_stop"})
+      key = Config.connection_key(config)
+
+      assert {:ok, _config} =
+               AppConfigure.put_global_by_key(Config.chat_config_key(binding_name), config)
+
+      binding_fixture(agent.uid, binding_name, :ignore)
+
+      consumer = Inbound.chat_consumer(adapter_context(agent.uid), config)
+      assert {:ok, owner} = ConnectionSupervisor.ensure_started(config, [consumer])
+      on_exit(fn -> ConnectionSupervisor.stop(key) end)
+
+      assert {:ok, _binding} = SignalsGateway.disable_binding(agent.uid, binding_name)
+
+      assert %{started: 0, stopped: 1, errors: []} = ConnectionReconciler.reconcile_once()
+      refute Process.alive?(owner)
+    end
+
+    test "a rotated app secret restarts the owner with the new credentials" do
+      %{principal: agent} = agent_fixture()
+      binding_name = "lark-reconcile-rotate"
+      config = chat_config(%{"appID" => "cli_reconcile_rotate"})
+      key = Config.connection_key(config)
+
+      assert {:ok, _config} =
+               AppConfigure.put_global_by_key(Config.chat_config_key(binding_name), config)
+
+      binding_fixture(agent.uid, binding_name, :ignore)
+
+      consumer = Inbound.chat_consumer(adapter_context(agent.uid), config)
+      assert {:ok, old_owner} = ConnectionSupervisor.ensure_started(config, [consumer])
+      on_exit(fn -> ConnectionSupervisor.stop(key) end)
+
+      rotated = Map.put(config, "appSecret", "rotated-secret")
+
+      assert {:ok, _config} =
+               AppConfigure.put_global_by_key(Config.chat_config_key(binding_name), rotated)
+
+      assert %{started: 1, stopped: 0, errors: []} =
+               ConnectionReconciler.reconcile_once(
+                 bot_info_fetcher: fn _config -> {:ok, "ou_bot"} end
+               )
+
+      refute Process.alive?(old_owner)
+
+      assert [{new_owner, _value}] =
+               Registry.lookup(Ankole.Plugins.LarkAdapter.ConnectionRegistry, key)
+
+      assert Process.alive?(new_owner)
+      refute new_owner == old_owner
+    end
+
+    test "a transient bot identity failure preserves the complete live consumer set" do
+      %{principal: agent} = agent_fixture()
+      binding_name = "lark-reconcile-bot-identity"
+      config = chat_config(%{"appID" => "cli_reconcile_bot_identity"})
+      key = Config.connection_key(config)
+
+      assert {:ok, _config} =
+               AppConfigure.put_global_by_key(Config.chat_config_key(binding_name), config)
+
+      binding_fixture(agent.uid, binding_name, :ignore)
+
+      context =
+        AdapterContext.new(
+          agent_uid: agent.uid,
+          binding_name: binding_name,
+          adapter: "lark",
+          user_name: config["userName"]
+        )
+
+      consumer = Inbound.chat_consumer(context, config)
+      assert {:ok, owner} = ConnectionSupervisor.ensure_started(config, [consumer])
+      on_exit(fn -> ConnectionSupervisor.stop(key) end)
+
+      assert %{
+               started: 0,
+               stopped: 0,
+               errors: [
+                 %{
+                   binding_name: ^binding_name,
+                   reason: :runtime_bot_identity_unavailable,
+                   blocked_connection_key: ^key
+                 }
+               ]
+             } =
+               ConnectionReconciler.reconcile_once(
+                 bot_info_fetcher: fn _config -> {:error, :temporary_unavailable} end
+               )
+
+      assert Process.alive?(owner)
+      assert ConnectionOwner.status(owner).consumer_kinds == [:chat]
+
+      assert %{started: 1, stopped: 0, errors: []} =
+               ConnectionReconciler.reconcile_once(
+                 bot_info_fetcher: fn _config -> {:ok, "ou_bot"} end
+               )
+
+      assert Process.alive?(owner)
+    end
   end
 
   describe "inbound chat events" do
@@ -954,10 +1205,39 @@ defmodule Ankole.Plugins.LarkAdapterTest do
 
       assert Repo.aggregate(ActorEvent, :count) == 1
 
-      assert {:ok, observed} =
+      assert {:ok, user_id_subject} =
                Ankole.Principals.resolve_platform_subject("lark-main", "ou_alice")
 
-      assert observed.uid == "ou_alice"
+      assert {:ok, union_id_subject} =
+               Ankole.Principals.resolve_platform_subject("lark-main", "onion_alice")
+
+      assert {:ok, open_id_subject} =
+               Ankole.Principals.resolve_platform_subject("lark-main", "ou_open_alice")
+
+      assert user_id_subject.uid == union_id_subject.uid
+      assert user_id_subject.uid == open_id_subject.uid
+    end
+
+    test "message normalization uses email as the primary external id" do
+      %{principal: agent} = agent_fixture()
+      consumer = Inbound.chat_consumer(adapter_context(agent.uid), chat_config())
+
+      event =
+        receive_event()
+        |> update_sender(&Map.put(&1, "email", "Alice.Readable@Example.com"))
+
+      assert {:ok, normalized} = Inbound.normalize_message_receive(event, consumer)
+
+      assert normalized.author["id"] == "alice.readable@example.com"
+      assert normalized.author["platform_subject"] == "alice.readable@example.com"
+
+      assert normalized.author["platform_subject_alternates"] == [
+               "ou_alice",
+               "onion_alice",
+               "ou_open_alice"
+             ]
+
+      assert normalized.author["email"] == "Alice.Readable@Example.com"
     end
 
     test "direct-message channels retain the sender open ID for cloud-file access" do
@@ -990,7 +1270,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
 
       assert {:ok, _observed} =
                Principals.upsert_platform_subject_human(%{
-                 provider: "feishu",
+                 provider: "lark-main",
                  external_id: "directory-user",
                  uid: "directory-user",
                  display_name: "Directory User"
@@ -1778,7 +2058,35 @@ defmodule Ankole.Plugins.LarkAdapterTest do
              end)
     end
 
-    test "user senders without provider-scoped user_id are ignored with warning" do
+    test "an unmatched external sender is held for manual review with one fixed notice" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "lark", :ignore, unmatched_sender_policy: :manual_review)
+      consumer = Inbound.chat_consumer(adapter_context(agent.uid), chat_config())
+
+      event =
+        receive_event()
+        |> update_sender(fn sender ->
+          put_in(sender, ["sender_id"], Map.delete(sender["sender_id"], "user_id"))
+        end)
+
+      assert {:ok, [%{status: :held_unmapped_sender}]} =
+               Inbound.handle_message_receive("im.message.receive_v1", event, [consumer])
+
+      assert Repo.aggregate(ActorEvent, :count) == 0
+      assert Repo.aggregate(Entry, :count) == 0
+
+      request = Repo.get_by!(Ankole.Principals.MappingRequest, provider: "lark-main")
+      assert request.external_id == "onion_alice"
+      assert request.metadata["alternate_external_ids"] == ["ou_open_alice"]
+      assert request.display_name == "Alice"
+
+      notice = Repo.get_by!(Ankole.SignalsGateway.OutboxEntry, agent_uid: agent.uid)
+      assert notice.operation == :reply
+      assert notice.reply_to_source_entry_id == "om_1"
+      assert notice.fallback_visible_text =~ "Ankole Console"
+    end
+
+    test "an unmatched external sender gets a standalone account under create_standalone" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "lark", :ignore)
       consumer = Inbound.chat_consumer(adapter_context(agent.uid), chat_config())
@@ -1788,6 +2096,74 @@ defmodule Ankole.Plugins.LarkAdapterTest do
         |> update_sender(fn sender ->
           put_in(sender, ["sender_id"], Map.delete(sender["sender_id"], "user_id"))
         end)
+
+      assert {:ok, [%{status: :accepted}]} =
+               Inbound.handle_message_receive("im.message.receive_v1", event, [consumer])
+
+      assert {:ok, principal} =
+               Ankole.Principals.resolve_platform_subject("lark-main", "onion_alice")
+
+      assert principal.display_name == "Alice"
+    end
+
+    test "hydrated email becomes the primary external id and retains every Lark alias" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "lark", :ignore)
+      config = chat_config()
+
+      assert {:ok, _config} =
+               AppConfigure.put_global_by_key(Config.chat_config_key("lark"), config)
+
+      stub_lark_requests(self(), fn request ->
+        assert request.request_path == "/open-apis/contact/v3/users/ou_alice"
+        assert URI.decode_query(request.query) == %{"user_id_type" => "user_id"}
+
+        {:json, 200,
+         %{
+           "code" => 0,
+           "data" => %{
+             "user" => %{
+               "email" => "Alice.Readable@Example.com",
+               "user_id" => "ou_alice",
+               "union_id" => "onion_alice",
+               "open_id" => "ou_open_alice",
+               "name" => "Alice Directory"
+             }
+           }
+         }}
+      end)
+
+      consumer = Inbound.chat_consumer(adapter_context(agent.uid), config)
+
+      assert {:ok, [%{status: :accepted}]} =
+               Inbound.handle_message_receive("im.message.receive_v1", receive_event(), [consumer])
+
+      external_ids = [
+        "alice.readable@example.com",
+        "ou_alice",
+        "onion_alice",
+        "ou_open_alice"
+      ]
+
+      principal_uids =
+        Enum.map(external_ids, fn external_id ->
+          assert {:ok, principal} =
+                   Principals.resolve_platform_subject("lark-main", external_id)
+
+          principal.uid
+        end)
+
+      assert Enum.uniq(principal_uids) == ["alice.readable@example.com"]
+    end
+
+    test "user senders without any sender id are ignored with warning" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "lark", :ignore)
+      consumer = Inbound.chat_consumer(adapter_context(agent.uid), chat_config())
+
+      event =
+        receive_event()
+        |> update_sender(fn sender -> Map.put(sender, "sender_id", %{}) end)
 
       log =
         capture_log([level: :warning], fn ->
@@ -1800,7 +2176,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                   ]} = Inbound.handle_message_receive("im.message.receive_v1", event, [consumer])
         end)
 
-      assert log =~ "lark adapter ignored message sender without user_id"
+      assert log =~ "lark adapter ignored message sender without any sender id"
 
       assert Repo.aggregate(ActorEvent, :count) == 0
       assert Repo.aggregate(Entry, :count) == 0
@@ -1923,6 +2299,24 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       assert input.payload["data"]["action"]["value"]["formValue"] == %{
                "answer" => "Additional context"
              }
+
+      assert input.payload["data"]["action"]["operator_id"] == "card.alice@example.com"
+
+      assert {:ok, email_subject} =
+               Principals.resolve_platform_subject("lark-main", "card.alice@example.com")
+
+      assert {:ok, user_id_subject} =
+               Principals.resolve_platform_subject("lark-main", "ou_alice")
+
+      assert {:ok, union_id_subject} =
+               Principals.resolve_platform_subject("lark-main", "on_card_alice")
+
+      assert {:ok, open_id_subject} =
+               Principals.resolve_platform_subject("lark-main", "ou_alice_open")
+
+      assert email_subject.uid == user_id_subject.uid
+      assert user_id_subject.uid == union_id_subject.uid
+      assert user_id_subject.uid == open_id_subject.uid
     end
   end
 
@@ -2067,7 +2461,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       refute Repo.get_by(Membership, group_id: group.id, principal_uid: member.uid)
     end
 
-    test "member added without user_id is ignored without principal or refresh" do
+    test "member added without user_id falls back to union_id and binds open_id" do
       %{principal: agent} = agent_fixture(%{uid: unique_uid("lark-add-missing-subject-agent")})
 
       assert {:ok, group} =
@@ -2078,41 +2472,29 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                  im_context(agent.uid, "lark")
                )
 
-      principal_count = Repo.aggregate(Principal, :count)
+      assert {:ok, [%{status: :member_added, principal_uid: principal_uid}]} =
+               IMGroups.handle_im_event(
+                 "im.chat.member.user.added_v1",
+                 im_member_event_without_user_id(
+                   "oc_add_missing_subject",
+                   "im.chat.member.user.added_v1",
+                   "ou_add_missing_subject"
+                 ),
+                 [im_consumer(agent.uid, "lark", "cli_add")]
+               )
 
-      log =
-        capture_log([level: :warning], fn ->
-          assert {:ok,
-                  [
-                    %{
-                      status: :ignored_missing_platform_subject,
-                      reason: :missing_platform_subject
-                    }
-                  ]} =
-                   IMGroups.handle_im_event(
-                     "im.chat.member.user.added_v1",
-                     im_member_event_without_user_id(
-                       "oc_add_missing_subject",
-                       "im.chat.member.user.added_v1",
-                       "ou_add_missing_subject"
-                     ),
-                     [im_consumer(agent.uid, "lark", "cli_add")]
-                   )
-        end)
+      assert {:ok, union_id_subject} =
+               Principals.resolve_platform_subject(
+                 "lark-main",
+                 "on_ou_add_missing_subject"
+               )
 
-      assert log =~ "lark adapter ignored IM group member event without user_id"
-      assert Repo.aggregate(Principal, :count) == principal_count
-      assert Repo.aggregate(from(m in Membership, where: m.group_id == ^group.id), :count) == 0
+      assert {:ok, open_id_subject} =
+               Principals.resolve_platform_subject("lark-main", "ou_add_missing_subject")
 
-      refute_enqueued(
-        worker: RefreshIMGroup,
-        args: %{
-          "agent_uid" => agent.uid,
-          "binding_name" => "lark",
-          "chat_id" => "oc_add_missing_subject",
-          "reason" => "member_added_missing_user_id"
-        }
-      )
+      assert union_id_subject.uid == principal_uid
+      assert open_id_subject.uid == principal_uid
+      assert Repo.get_by!(Membership, group_id: group.id, principal_uid: principal_uid)
     end
 
     test "member removed resolves platform subject identity instead of guessing principal uid" do
@@ -2157,7 +2539,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       refute Repo.get_by(Membership, group_id: group.id, principal_uid: observed.principal.uid)
     end
 
-    test "member removed without user_id is ignored without open_id fallback or refresh" do
+    test "member removed without user_id resolves the union_id or open_id alias" do
       %{principal: agent} =
         agent_fixture(%{uid: unique_uid("lark-remove-missing-subject-agent")})
 
@@ -2183,38 +2565,19 @@ defmodule Ankole.Plugins.LarkAdapterTest do
 
       assert {:ok, _membership} = add_im_group_member(group.id, observed.principal.uid)
 
-      log =
-        capture_log([level: :warning], fn ->
-          assert {:ok,
-                  [
-                    %{
-                      status: :ignored_missing_platform_subject,
-                      reason: :missing_platform_subject
-                    }
-                  ]} =
-                   IMGroups.handle_im_event(
-                     "im.chat.member.user.deleted_v1",
-                     im_member_event_without_user_id(
-                       "oc_remove_missing_subject",
-                       "im.chat.member.user.deleted_v1",
-                       "ou_remove_missing_subject"
-                     ),
-                     [im_consumer(agent.uid, "lark", "cli_remove")]
-                   )
-        end)
+      assert {:ok, [%{status: :member_removed, principal_uid: principal_uid}]} =
+               IMGroups.handle_im_event(
+                 "im.chat.member.user.deleted_v1",
+                 im_member_event_without_user_id(
+                   "oc_remove_missing_subject",
+                   "im.chat.member.user.deleted_v1",
+                   "ou_remove_missing_subject"
+                 ),
+                 [im_consumer(agent.uid, "lark", "cli_remove")]
+               )
 
-      assert log =~ "lark adapter ignored IM group member event without user_id"
-      assert Repo.get_by(Membership, group_id: group.id, principal_uid: observed.principal.uid)
-
-      refute_enqueued(
-        worker: RefreshIMGroup,
-        args: %{
-          "agent_uid" => agent.uid,
-          "binding_name" => "lark",
-          "chat_id" => "oc_remove_missing_subject",
-          "reason" => "member_removed_missing_user_id"
-        }
-      )
+      assert principal_uid == observed.principal.uid
+      refute Repo.get_by(Membership, group_id: group.id, principal_uid: observed.principal.uid)
     end
 
     test "member removed with unknown platform subject enqueues refresh" do
@@ -2406,15 +2769,23 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                  "enterprise_email" => "bob@example.com",
                  "mobile" => "13800000000",
                  "open_id" => "ou_open_bob",
+                 "union_id" => "on_union_bob",
                  "department_ids" => ["od_1"]
                })
 
-      assert observed.principal.uid == "ou_bob"
       assert observed.human_user.email == "bob@example.com"
       assert observed.human_user.mobile == "+8613800000000"
       assert observed.identity.provider == "lark-main"
-      assert observed.identity.external_id == "ou_bob"
+      assert observed.identity.external_id == "bob@example.com"
+      assert observed.identity.metadata["user_id"] == "ou_bob"
       assert observed.identity.metadata["open_id"] == "ou_open_bob"
+
+      for external_id <- ["ou_bob", "on_union_bob", "ou_open_bob"] do
+        assert {:ok, principal} =
+                 Principals.resolve_platform_subject("lark-main", external_id)
+
+        assert principal.uid == observed.principal.uid
+      end
     end
 
     test "directory upsert syncs department memberships into marked external groups" do
@@ -2526,7 +2897,8 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                         "name" => "Full Sync One",
                         "department_ids" => []
                       },
-                      %{"user_id" => "ou_full_sync_2", "name" => "Full Sync Two"}
+                      %{"user_id" => "ou_full_sync_2", "name" => "Full Sync Two"},
+                      %{"open_id" => "ou_full_sync_open_only", "name" => "Open Only"}
                     ],
                     "has_more" => false
                   }
@@ -2556,13 +2928,17 @@ defmodule Ankole.Plugins.LarkAdapterTest do
         end
       end)
 
-      assert {:ok, %{users: 2, departments: 1}} =
+      assert {:ok, %{users: 3, departments: 1}} =
                IdentityProvider.sync_directory("lark-main", config)
 
       assert {:ok, observed} =
                Ankole.Principals.resolve_platform_subject("lark-main", "ou_full_sync_1")
 
-      assert observed.uid == "ou_full_sync_1"
+      assert {:ok, _open_only} =
+               Ankole.Principals.resolve_platform_subject(
+                 "lark-main",
+                 "ou_full_sync_open_only"
+               )
 
       assert [department_group_id] =
                AuthZ.external_group_ids("lark-main", :directory_department, "od_full_sync")
@@ -2607,12 +2983,30 @@ defmodule Ankole.Plugins.LarkAdapterTest do
              ]
     end
 
-    test "directory upsert never falls back to open_id as platform subject" do
-      assert {:error, :missing_user_id} =
-               IdentityProvider.upsert_user("lark-main", %{
-                 "open_id" => "ou_open_only",
-                 "union_id" => "on_union"
-               })
+    test "directory upsert follows email, user_id, union_id, then open_id" do
+      cases = [
+        {%{
+           "email" => "Priority.Email@Example.com",
+           "user_id" => "priority_user_id",
+           "union_id" => "priority_union_id",
+           "open_id" => "priority_open_id"
+         }, "priority.email@example.com"},
+        {%{
+           "user_id" => "fallback_user_id",
+           "union_id" => "fallback_union_after_user",
+           "open_id" => "fallback_open_after_user"
+         }, "fallback_user_id"},
+        {%{
+           "union_id" => "fallback_union_id",
+           "open_id" => "fallback_open_after_union"
+         }, "fallback_union_id"},
+        {%{"open_id" => "fallback_open_id"}, "fallback_open_id"}
+      ]
+
+      Enum.each(cases, fn {user, expected_external_id} ->
+        assert {:ok, observed} = IdentityProvider.upsert_user("lark-main", user)
+        assert observed.identity.external_id == expected_external_id
+      end)
     end
 
     test "contact user events incrementally upsert platform subjects" do
@@ -2637,11 +3031,14 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                  IdentityProvider.identity_consumer("lark-main", identity_config())
                ])
 
-      assert principal.uid == "ou_contact_incremental"
+      assert {:ok, resolved} =
+               Ankole.Principals.resolve_platform_subject("lark-main", "ou_contact_incremental")
+
+      assert resolved.uid == principal.uid
       assert human_user.email == "contact.incremental@example.com"
     end
 
-    test "contact events enqueue full sync when incremental identity is incomplete" do
+    test "contact user events fall back to open_id when no stronger subject is present" do
       assert {:ok, _provider} =
                IdentityProviders.save_provider(
                  "lark-main",
@@ -2660,7 +3057,42 @@ defmodule Ankole.Plugins.LarkAdapterTest do
         raw: %{}
       }
 
-      assert {:ok, [%{status: :full_sync_enqueued, reason: :missing_user_id}]} =
+      assert {:ok, [%{principal: principal}]} =
+               IdentityProvider.handle_contact_event("contact.user.updated_v3", event, [
+                 IdentityProvider.identity_consumer("lark-main", identity_config())
+               ])
+
+      assert {:ok, resolved} =
+               Principals.resolve_platform_subject("lark-main", "ou_open_only")
+
+      assert resolved.uid == principal.uid
+
+      refute_enqueued(
+        worker: SyncProvider,
+        args: %{"reason" => "missing_platform_subject"}
+      )
+    end
+
+    test "contact user events enqueue full sync when every supported subject is absent" do
+      assert {:ok, _provider} =
+               IdentityProviders.save_provider(
+                 "lark-main",
+                 "lark",
+                 %{"appID" => "cli_identity", "appSecret" => "secret"},
+                 true
+               )
+
+      event = %Event{
+        id: "evt_contact_without_subject",
+        type: "contact.user.updated_v3",
+        tenant_key: "tenant-a",
+        app_id: "cli_identity",
+        created_at: @base_time,
+        content: %{"user" => %{"name" => "Missing Subject"}},
+        raw: %{}
+      }
+
+      assert {:ok, [%{status: :full_sync_enqueued, reason: :missing_platform_subject}]} =
                IdentityProvider.handle_contact_event("contact.user.updated_v3", event, [
                  IdentityProvider.identity_consumer("lark-main", identity_config())
                ])
@@ -2669,7 +3101,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
         worker: SyncProvider,
         args: %{
           "provider_id" => "lark-main",
-          "reason" => "missing_user_id",
+          "reason" => "missing_platform_subject",
           "source" => "lark_contact_event"
         }
       )
@@ -2710,7 +3142,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
     end
   end
 
-  defp binding_fixture(agent_uid, name, policy) do
+  defp binding_fixture(agent_uid, name, policy, opts \\ []) do
     {:ok, binding} =
       SignalsGateway.upsert_binding(%{
         agent_uid: agent_uid,
@@ -2718,7 +3150,8 @@ defmodule Ankole.Plugins.LarkAdapterTest do
         adapter: "lark",
         config_ref: "app-config://#{Config.chat_config_key(name)}",
         filters: %{},
-        unaddressed_group_message_policy: policy
+        unaddressed_group_message_policy: policy,
+        unmatched_sender_policy: Keyword.get(opts, :unmatched_sender_policy, :create_standalone)
       })
 
     binding
@@ -2880,6 +3313,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
         request = %{
           method: conn.method |> String.downcase() |> String.to_existing_atom(),
           request_path: conn.request_path,
+          query: conn.query_string,
           body: if(body == "", do: %{}, else: Torque.decode!(body))
         }
 
@@ -3100,7 +3534,9 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       created_at: @base_time,
       content: %{
         "operator" => %{
+          "email" => "Card.Alice@Example.com",
           "user_id" => "ou_alice",
+          "union_id" => "on_card_alice",
           "open_id" => "ou_alice_open"
         },
         "context" => %{

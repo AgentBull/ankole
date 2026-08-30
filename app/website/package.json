@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "astro dev",
-    "build": "astro build && bun run scripts/check-motion-css.mjs",
+    "build": "astro build && bun run scripts/check-motion-css.mjs && bun run scripts/check-internal-links.mjs",
     "preview": "astro preview",
     "type-check": "astro check",
     "lint": "oxlint . --ignore-pattern '.astro/**' --ignore-pattern 'dist/**'",
@@ -15,24 +15,24 @@
   "dependencies": {
     "@ankole/uikit": "workspace:*",
     "@astrojs/check": "^0.9.10",
-    "@astrojs/mdx": "^7.0.5",
-    "@astrojs/react": "^6.0.2",
+    "@astrojs/mdx": "^7.0.8",
+    "@astrojs/react": "^6.0.4",
     "@astrojs/sitemap": "^3.7.3",
     "@remixicon/react": "4.9.0",
     "@tailwindcss/typography": "^0.5.20",
     "@tailwindcss/vite": "^4.3.3",
-    "astro": "^7.2.1",
+    "astro": "^7.2.8",
     "intl-messageformat": "^11.2.13",
-    "motion": "^13.1.0",
+    "motion": "^13.1.1",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "sharp": ">=0.35.0",
+    "sharp": ">=0.35.4",
     "tailwindcss": "^4.3.3"
   },
   "devDependencies": {
     "@types/react": "19.2.18",
-    "@types/react-dom": "19.2.4",
+    "@types/react-dom": "19.2.5",
     "typescript": "6.0.3",
-    "vite": "^8.2.1"
+    "vite": "^8.2.2"
   }
 }

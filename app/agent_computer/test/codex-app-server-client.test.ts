@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test'
-import { CodexAppServerClient } from '../src/core/codex-runner/app-server-client'
+import { CodexAppServerClient } from '../src/core/codex-runner/runtime/app-server-client'
+import { toError } from '../src/common/errors'
 
 describe('Codex app-server client transport', () => {
   it('rejects pending requests immediately when stdin write fails', async () => {
@@ -146,6 +147,21 @@ describe('Codex app-server client transport', () => {
     expect(await settlesWithin(sibling, 250)).toEqual({ data: [] })
     await client.close()
   })
+
+  it('fails the transport instead of buffering an unbounded line', async () => {
+    const transport = fakeTransport()
+    const client = new CodexAppServerClient(clientOptions(), transport.spawn)
+    const pending = rejectionOf(client.request('thread/start', {}, 10_000))
+
+    // 64 MiB of a line that never ends. Buffering it would spend the shared
+    // Worker's memory on one Codex runtime; the bound turns it into an ordinary
+    // transport failure that ends this runtime alone.
+    const chunk = 'x'.repeat(1024 * 1024)
+    for (let sent = 0; sent <= 64; sent++) transport.stdout(chunk)
+
+    expect((await settlesWithin(pending, 5_000)).message).toContain('without a newline')
+    expect(transport.killCount()).toBe(1)
+  })
 })
 
 function clientOptions() {
@@ -217,6 +233,6 @@ async function rejectionOf(promise: Promise<unknown>): Promise<Error> {
     await promise
     throw new Error('expected promise to reject')
   } catch (error) {
-    return error instanceof Error ? error : new Error(String(error))
+    return toError(error)
   }
 }

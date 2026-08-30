@@ -14,13 +14,15 @@ Other agents may work on the same branch. Preserve unrelated diffs and re-read e
 
 ## Changelog
 
+The changelog records the changes that each Git commit made at that time. It is historical information only. It is not a source of truth for product behavior, user stories, architecture, tradeoffs, or design decisions. Never use a changelog entry as evidence that a decision was approved or settled. Use the current owning design document, current authoritative product declaration, or an explicit human decision for those contracts. If a changelog entry conflicts with a current contract, verify the current owner and do not promote the historical entry into a requirement.
+
 The Git commit is the sole changelog and version unit. Every commit must add exactly one root `CHANGELOG.md` version, and that version must describe every retained source, test, documentation, configuration, schema, migration, manifest, lockfile, and required generated-file change in that commit. One version must not span multiple commits, and one commit must not contain multiple versions. Chat-only work, discarded edits, diagnostics without a retained diff, and temporary `HEY.md` coordination do not allocate versions.
 
 A change confined to `internals/` that does not affect the FOSS part of Ankole is the sole exception: omit it from the root `CHANGELOG.md` and record it in `internals/CHANGELOG.md`.
 
 Normally use 1–4 concise bullets for each version. Write for the product's end users: describe the outcomes they observe and any required operator action, and give a change that users do not experience one brief factual bullet. Do not include file or test inventories or implementation narratives. The bullets must still cover every material retained change in the commit.
 
-Versions use Semantic Versioning as `MAJOR.MINOR.PATCH`, with no leading zeroes. Change `MAJOR` only after an explicit human decision. `PATCH` is the default increment. Increment `MINOR`, and then reset `PATCH` to `0`, only when the commit passes one of these two tests:
+Versions use Semantic Versioning as `MAJOR.MINOR.PATCH`, with no leading zeroes, and may add a pre-release suffix `-alpha`, `-beta`, or `-rc`, optionally followed by `.N` for an increasing pre-release number (for example `1.0.0-alpha.1`). Change `MAJOR` only after an explicit human decision, and the same decision sets any pre-release suffix. `PATCH` is the default increment. Increment `MINOR`, and then reset `PATCH` to `0`, only when the commit passes one of these two tests:
 
 1. **New capability.** A user or an operator can now do something with the product that they could not do before. Write that new thing in the bullet. A task that only becomes correct, faster, more reliable, or easier to understand was already possible, so it fails this test.
 2. **Breaking technical change.** The commit removes or alters existing behavior, so something that worked stops working, or a person must change configuration, stored data, or an external caller to keep the current behavior. Write the required action in the bullet. Semantic Versioning puts an incompatible change in `MAJOR`, but `MAJOR` waits for a human decision, so it goes here. A retired option, moved boundary, or renamed field that the upgrade migrates on its own fails this test.
@@ -31,7 +33,7 @@ If one commit contains both classes, increment `MINOR`, but only when one change
 
 Write the entry when you complete the work, not when you commit. `CHANGELOG.md` itself tells you which version to write into: when the file has uncommitted changes, add to the newest version in the file, because that version and your change go into the same next commit; when the file matches `HEAD`, add a new version above the newest one according to these increment rules. Keep the entry correct while the retained diff changes. All uncommitted work belongs to the same next commit and therefore to the one pending version, even when it mixes unrelated tasks from different agents; do not flag that mix as a version violation. Split versions only when you intentionally prepare more than one commit, and then give each planned commit its own consecutive version.
 
-For a `main` push that runs the runtime-image workflow, the newest changelog version is also the release identity. After the control-plane and Worker image pair passes verification, the workflow adds the `MAJOR.MINOR.PATCH` image tags and creates the immutable `vMAJOR.MINOR.PATCH` GitHub Release from that changelog section. It must fail instead of moving an existing version to another commit, replacing an existing image tag with another digest, or publishing release notes that differ from the changelog.
+For a `main` push that runs the runtime-image workflow, the newest changelog version is also the release identity. After the control-plane and Worker image pair passes verification, the workflow adds the version's immutable image tags and creates the matching `vVERSION` GitHub Release from that changelog section; a version with a pre-release suffix publishes as a GitHub pre-release and moves the `canary` image tag instead of `main-latest`. It must fail instead of moving an existing version to another commit, replacing an existing image tag with another digest, or publishing release notes that differ from the changelog.
 
 ## Core discipline
 
@@ -154,23 +156,3 @@ Module-specific schemas, events, storage layouts, and transport mechanics belong
 - Treat the current extension model as trusted and first-party. Do not invent third-party marketplace, hot-loading, or isolation machinery unless the task explicitly changes the product model.
 - Prefer concrete contracts over loose maps and free-form strings.
 - Keep integration and end-to-end tests out of the default fast suite, but do not skip them when the claimed behavior crosses a process, provider, persistence-restart, or user-flow boundary. For implementation changes, run the affected package's targeted tests and normal static check, then the affected dedicated integration or end-to-end command when its environment is available. If a required command cannot run, report the exact command and blocker and do not claim that guarantee as verified. For documentation-only edits, inspect the diff and run the relevant documentation check when one exists.
-
-## Agent skills
-
-For work in the categories below, read the linked document before editing.
-
-### Issue tracker
-
-Issues are tracked in GitHub Issues; external pull requests are not a triage surface. See `docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-The triage guide records the canonical role names and their current availability. See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-This repository uses a single-context domain documentation layout. See `docs/agents/domain.md`.
-
-### Naming
-
-Initialism casing, collection cardinality, and compatibility exceptions are defined in `docs/agents/naming.md`.

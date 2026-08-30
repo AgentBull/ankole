@@ -30,11 +30,26 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionSupervisor do
   end
 
   @doc """
+  Stops the connection owner registered under a key, if any.
+  """
+  @spec stop(term(), keyword()) :: :ok | {:error, term()}
+  def stop(key, opts \\ []) do
+    registry = Keyword.get(opts, :registry, @registry)
+    supervisor = Keyword.get(opts, :supervisor, @supervisor)
+
+    case Registry.lookup(registry, key) do
+      [{pid, _value}] -> DynamicSupervisor.terminate_child(supervisor, pid)
+      [] -> :ok
+    end
+  end
+
+  @doc """
   Lists connection keys currently owned in this BEAM process.
   """
-  @spec registered_keys() :: [term()]
-  def registered_keys do
-    @registry
+  @spec registered_keys(keyword()) :: [term()]
+  def registered_keys(opts \\ []) do
+    opts
+    |> Keyword.get(:registry, @registry)
     |> Registry.select([{{:"$1", :_, :_}, [], [:"$1"]}])
     |> Enum.sort()
   end
@@ -44,7 +59,11 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionSupervisor do
       {:ok, ^pid} ->
         {:ok, pid}
 
-      {:error, :consumer_set_changed} ->
+      # A rotated app secret restarts the owner with the new credentials, the
+      # same way a changed consumer set does. Two configs that disagree about
+      # the secret inside one reconcile pass are still rejected on the desired
+      # side before this call.
+      {:error, reason} when reason in [:consumer_set_changed, :conflicting_app_secret] ->
         restart_owner(pid, config, consumers, opts)
 
       {:error, _reason} = error ->

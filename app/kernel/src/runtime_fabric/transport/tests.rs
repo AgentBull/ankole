@@ -132,7 +132,7 @@ fn router_dealer_round_trip_with_plain_auth_and_mandatory_route() {
     }
 
     router
-        .send_mandatory("worker-instance-a", turn_start_envelope_bytes())
+        .send_mandatory("worker-instance-a", &turn_start_envelope_bytes())
         .expect("turn.start sends");
 
     let payload = wait_for_dealer_payload(&dealer).expect("dealer payload");
@@ -190,12 +190,12 @@ fn router_dealer_round_trip_with_plain_auth_and_mandatory_route() {
     assert_eq!(frames[2], b"transfer-b");
 
     let unknown = router
-        .send_mandatory("missing-worker", turn_start_envelope_bytes())
+        .send_mandatory("missing-worker", &turn_start_envelope_bytes())
         .expect_err("missing route fails");
     assert!(matches!(unknown, TransportError::UnknownRoute));
 
     let invalid = router
-        .send_mandatory("worker-instance-a", vec![0xff, 0xff, 0xff])
+        .send_mandatory("worker-instance-a", &[0xff, 0xff, 0xff])
         .expect_err("invalid envelope bytes fail validation");
     assert!(matches!(invalid, TransportError::InvalidEnvelope(_)));
 

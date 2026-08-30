@@ -68,11 +68,17 @@ defmodule FeishuOpenAPI.Client do
     end
   end
 
+  # Req 0.7 rejects `:finch` together with `:connect_options`, so both default
+  # timeouts live inside `:finch`: `pool_timeout` is the checkout wait and
+  # `conn_opts[:transport_opts][:timeout]` is the socket connect timeout (the
+  # same pool options Req derives from `connect_options: [timeout: ...]`).
   defp default_timeout_options do
     [
       receive_timeout: :timer.seconds(15),
-      pool_timeout: :timer.seconds(5),
-      connect_options: [timeout: :timer.seconds(5)],
+      finch: [
+        pool_timeout: :timer.seconds(5),
+        conn_opts: [transport_opts: [timeout: :timer.seconds(5)]]
+      ],
       retry: default_retry_fun()
     ]
   end
@@ -85,7 +91,9 @@ defmodule FeishuOpenAPI.Client do
   * `:base_url` — overrides the URL derived from `:domain`
   * `:req_options` — extra options passed through to `Req.request/1`; merged on
     top of the SDK's transport-timeout defaults (`receive_timeout: :timer.seconds(15)`,
-    `pool_timeout: :timer.seconds(5)`, `connect_options[:timeout]: :timer.seconds(5)`)
+    `finch[:pool_timeout]: :timer.seconds(5)`, and a five-second socket connect
+    timeout in `finch[:conn_opts]`). Passing `:connect_options` replaces the
+    `:finch` defaults, because Req rejects the two options together
   * `:headers` — additional headers to attach to every request
 
   `app_secret` may be a `String.t()` (auto-wrapped in a closure) or a
@@ -171,10 +179,26 @@ defmodule FeishuOpenAPI.Client do
     String.trim_trailing(base_url, "/")
   end
 
+  # A caller who sets `:connect_options` takes transport ownership: the default
+  # `:finch` entry is dropped, because Req 0.7 raises when both are present.
+  # A caller who names a Finch pool (`finch: [name: ...]`) also takes transport
+  # ownership: Req 0.7 rejects pool-creation options such as `conn_opts`
+  # together with `:name`, so merging the defaults into a named pool would
+  # raise on every request. Pool options without a name still deep-merge.
   defp deep_merge_req_options(defaults, overrides) do
+    defaults =
+      if Keyword.has_key?(overrides, :connect_options) do
+        Keyword.delete(defaults, :finch)
+      else
+        defaults
+      end
+
     Keyword.merge(defaults, overrides, fn
-      :connect_options, d, o when is_list(d) and is_list(o) -> Keyword.merge(d, o)
-      _, _, o -> o
+      :finch, d, o when is_list(d) and is_list(o) ->
+        if Keyword.has_key?(o, :name), do: o, else: Keyword.merge(d, o)
+
+      _, _, o ->
+        o
     end)
   end
 

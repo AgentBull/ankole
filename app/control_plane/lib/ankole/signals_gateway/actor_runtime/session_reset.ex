@@ -276,7 +276,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionReset do
       repo,
       actor_key.agent_uid,
       actor_key.session_id,
-      AIGatewayLink.successor_brain_metadata(previous_conversation)
+      AIGatewayLink.successor_origin_metadata(previous_conversation)
     )
   end
 end

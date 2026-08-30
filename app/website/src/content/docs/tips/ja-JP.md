@@ -36,12 +36,13 @@ kubectl -n ankole logs deployment/ankole-control-plane -c control-plane | grep "
 
 ## model profile スロットをダイヤルとして扱う
 
-10 個の profile スロットは、単なる「primary model とその仲間たち」ではありません。それぞれがダイヤルです：
+8 つの組み込み Agent profile スロット、`primary`、`light`、`heavy`、`coding`、`vision_fallback`、`web_search`、`web_fetch`、`image_generate` は、それぞれがダイヤルです：
 
 - agent が主に短い質問に答えるときは **`primary`** を安い model に下げ、品質が cost より重要なら上げます。
 - **`light`** には本当に安くて速いものをバインドします — これは高頻度・低リスクの経路のために存在します。
 - agent が画像を見る場合にだけ **`vision_fallback`** を設定します。それ以外は未バインドのままにしてスロットを節約します。
 - **`web_search`** と **`web_fetch`** は独立しています — agent が web に触れる必要があるときだけバインドします。
+- Brain の検索モデルは Agent profile ではなく、**AppConfigure** で一度設定します。`brain.embedding_model` はすべての Agent のベクトル検索に適用され、`brain.rerank_model` は rerank に適用されます。embedding モデルが空の場合はベクトル検索が無効になり、rerank モデルが空の場合は融合後の順序を保ちます。詳しくは [Brain](../brain/) を参照してください。
 
 「遅い」と感じる agent は、実際に行っている仕事に対して重すぎる `primary` がバインドされていることがよくあります。
 
@@ -83,7 +84,7 @@ Agent の責任が不明確なときは `MISSION.md` を編集します。コミ
 
 ## DingTalk では agent ごとに 1 つの bot
 
-DingTalk は厳しい制約を強制します。agent ごとに有効な binding は 1 つ、`clientId` ごとに agent は 1 つです。スケールアウトするなら、agent ごとに 1 つの bot を計画してください。同じ agent への 2 つ目の binding は `dingtalk_binding_already_exists` で失敗し、別の agent での `clientId` 再利用は `dingtalk_app_already_bound` で失敗します。セットアップは [Quickstart](../quickstart/#4-connect-a-chat-channel-and-create-its-signal-routing-rule) を参照してください。
+DingTalk は厳しい制約を強制します。agent ごとに有効な binding は 1 つ、`clientId` ごとに agent は 1 つです。スケールアウトするなら、agent ごとに 1 つの bot を計画してください。同じ agent への 2 つ目の binding は `dingtalk_binding_already_exists` で失敗し、別の agent での `clientId` 再利用は `dingtalk_app_already_bound` で失敗します。セットアップは [Quickstart](../quickstart/#chat-channels) を参照してください。
 
 ## Teams は常にパブリックエンドポイントを必要とする
 

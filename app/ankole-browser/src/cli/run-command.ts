@@ -3,7 +3,7 @@ import { createWriteStream } from 'node:fs'
 import { copyFile, mkdir, open, readFile, rename, stat } from 'node:fs/promises'
 import { dirname, isAbsolute, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { BrowserDataError } from '../errors'
+import { BrowserDataError, isFileNotFound } from '../errors'
 import type { BrowserCommand } from '../protocol'
 import { sendBrowserCommand, type BrowserClientContext } from '../client'
 
@@ -89,7 +89,7 @@ export async function runBrowserCode(input: RunInput): Promise<Record<string, un
     const result = await readRunResult(runDir)
     outcome = result.status === 'ok' ? 'ok' : result.status === 'cancelled' ? 'cancelled' : 'error'
     return {
-      run_dir: modelRunDir(input.context, runDir),
+      run_dir: runDir,
       status: result.status,
       value: result.value,
       error: result.error
@@ -131,7 +131,6 @@ function spawnRunner(input: {
 }): ChildProcess {
   const runnerPath =
     process.env.ANKOLE_BROWSER_RUNNER ?? fileURLToPath(new URL('../runner/bootstrap.js', import.meta.url))
-  const nodePath = process.env.ANKOLE_BROWSER_NODE ?? process.execPath
   const env = Object.fromEntries(
     Object.entries(process.env).filter(([key, value]) => value !== undefined && !key.startsWith('ANKOLE_BROWSER_'))
   ) as Record<string, string>
@@ -148,7 +147,6 @@ function spawnRunner(input: {
   const stdout = createWriteStream(resolve(input.runDir, 'runner.stdout.log'), { flags: 'a', mode: 0o600 })
   const stderr = createWriteStream(resolve(input.runDir, 'runner.stderr.log'), { flags: 'a', mode: 0o600 })
   const child = fork(runnerPath, [], {
-    execPath: nodePath,
     cwd: input.scriptCwd,
     env,
     stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
@@ -268,10 +266,6 @@ function resolveRunDir(context: BrowserClientContext, requested?: string): strin
   return path
 }
 
-function modelRunDir(_context: BrowserClientContext, runDir: string): string {
-  return runDir
-}
-
 async function readRunResult(runDir: string): Promise<RunResult> {
   try {
     return JSON.parse(await readFile(resolve(runDir, 'result.json'), 'utf8')) as RunResult
@@ -283,9 +277,11 @@ async function readRunResult(runDir: string): Promise<RunResult> {
 async function ensureRunResult(runDir: string, value: RunResult): Promise<void> {
   try {
     await stat(resolve(runDir, 'result.json'))
-  } catch {
-    await atomicText(resolve(runDir, 'result.json'), `${JSON.stringify(value, null, 2)}\n`)
+    return
+  } catch (error) {
+    if (!isFileNotFound(error)) throw error
   }
+  await atomicText(resolve(runDir, 'result.json'), `${JSON.stringify(value, null, 2)}\n`)
 }
 
 async function atomicText(path: string, value: string): Promise<void> {

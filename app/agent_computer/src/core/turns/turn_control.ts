@@ -1,5 +1,5 @@
 import type { TurnStart, TurnSteerUpdate } from '../../lanes/actor_lane'
-import type { AgentMessage } from '../types'
+import type { Message } from '../types'
 import { userMessage } from '../llm'
 import { actorEventText } from './actor_event_text'
 
@@ -9,12 +9,12 @@ import { actorEventText } from './actor_event_text'
  * The worker only uses mailbox updates that match the current durable turn
  * fence and have a newer revision; unrelated session traffic is ignored.
  */
-export function steeringMessages(turnStart: TurnStart, updates: TurnSteerUpdate[]): AgentMessage[] {
+export function steeringMessages(turnStart: TurnStart, updates: TurnSteerUpdate[]): Message[] {
   const applicable = applicableSteeringUpdates(turnStart, updates)
 
   if (applicable.length === 0) return []
 
-  const messages: AgentMessage[] = applicable.map(update => {
+  const messages: Message[] = applicable.map(update => {
     const steerText = update.actorEvent
       ? actorEventText(update.actorEvent.payload_json, update.actorEvent.type)
       : undefined
@@ -49,7 +49,7 @@ export async function steeringMessagesWithAcknowledgement(
   turnStart: TurnStart,
   updates: TurnSteerUpdate[],
   onSteeringApplied?: (update: TurnSteerUpdate) => Promise<void>
-): Promise<AgentMessage[]> {
+): Promise<Message[]> {
   const applicable = applicableSteeringUpdates(turnStart, updates)
   const messages = steeringMessages(turnStart, applicable)
 

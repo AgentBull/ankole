@@ -1,3 +1,4 @@
+import { SETTLED_WORKERS_REFRESH_MS, WAITING_REFRESH_MS } from '../refresh-intervals'
 import {
   Button,
   buttonVariants,
@@ -65,7 +66,8 @@ export function WorkersListPage() {
   const { t, i18n } = useTranslation()
   const workers = useQuery({
     ...ankoleWebAgentComputerWorkerControllerIndexOptions(),
-    refetchInterval: query => ((query.state.data?.workers.length ?? 0) === 0 ? 2_000 : 10_000)
+    refetchInterval: query =>
+      (query.state.data?.workers.length ?? 0) === 0 ? WAITING_REFRESH_MS : SETTLED_WORKERS_REFRESH_MS
   })
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
@@ -180,7 +182,7 @@ function integerField(map: { [key: string]: unknown } | undefined, key: string):
   return typeof value === 'number' ? value : undefined
 }
 
-// --- Worker files page ---
+// Worker files page
 
 export function WorkerFilesPage() {
   const { t } = useTranslation()
@@ -192,8 +194,11 @@ export function WorkerFilesPage() {
   const root = rootOrDefault(searchParams.get('root'))
   const requestedPath = searchParams.get('path') ?? ''
   const agents = useQuery(ankoleWebAgentControllerIndexOptions())
+  // The browser defaults to and lists agents that can run; a disabled agent's
+  // leftover directory stays reachable through an explicit ?path=.
+  const agentList = (agents.data?.agents ?? []).filter(agent => agent.status === 'active')
   const pathAgentUID = agentUIDFromWorkerFilePath(root, requestedPath)
-  const agentUID = pathAgentUID ?? agents.data?.agents[0]?.uid ?? ''
+  const agentUID = pathAgentUID ?? agentList[0]?.uid ?? ''
   const path = pathAgentUID ? requestedPath : agentUID ? workerFileRootPath(root, agentUID) : ''
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
@@ -282,7 +287,7 @@ export function WorkerFilesPage() {
       <Breadcrumbs
         root={root}
         path={path}
-        agents={agents.data?.agents ?? []}
+        agents={agentList}
         agentUID={agentUID}
         onNavigate={enterPath}
         onAgentChange={setAgent}

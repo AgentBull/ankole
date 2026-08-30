@@ -1,6 +1,6 @@
 ---
 title: Audit trail(감사 기록)
-description: Ankole의 audit 표면 읽는 방법 — Brain audit log, control-plane 구조화 log, 그리고 각 표면이 누가 무엇을 언제 변경했는지를 어떻게 기록하는지 설명합니다.
+description: Ankole의 audit 표면 읽는 방법 — AuthZ grant 기록, control-plane 구조화 log, 그리고 각 표면이 누가 무엇을 언제 변경했는지를 어떻게 기록하는지 설명합니다.
 section: Developer guide
 order: 125
 ---
@@ -8,26 +8,6 @@ order: 125
 audit trail은 누가 무엇을 언제 변경했는지에 대한 내구성 있는 기록입니다. Ankole에는 audit log가 하나만 있는 것이 아닙니다. 여러 표면이 있으며, 각 표면은 서로 다른 subsystem이 소유하고, 각자에게 중요한 결정을 기록합니다. 이 페이지는 운영자를 위한 표면 지도입니다 — 각 표면이 무엇을 기록하는지, 읽는 방법, 함께 사용하는 방법을 다룹니다.
 
 핵심 속성을 먼저 밝히면, 모든 audit 표면은 **내구성 있는 PostgreSQL 상태 또는 구조화된 log**이며, 휘발성 메트릭이 아닙니다. 기록된 행은 이를 기록한 프로세스가 사라져도 남습니다. 기록되지 않은 행은 재구성할 수 없습니다.
-
-## Brain 감사 로그
-
-가장 구조화된 audit 표면입니다. 모든 Brain 지식 쓰기 — 새 항목, 블록 편집, 삭제, 복원 — 는 append-only audit 행을 만듭니다. 읽는 방법은 다음과 같습니다.
-
-```bash
-curl https://ankole.example.com/api/v1/brain/audit-log \
-  -H "Authorization: Bearer $CONSOLE_TOKEN"
-```
-
-또는 하나의 항목으로 좁힐 수 있습니다.
-
-```bash
-curl https://ankole.example.com/api/v1/brain/entries/<id>/audit-log \
-  -H "Authorization: Bearer $CONSOLE_TOKEN"
-```
-
-각 행은 누가 변경했는지(actor), 어떤 종류의 actor인지(human, agent, dreaming, source_learning, mechanical), 어떤 작업이 수행되었는지, 그리고 언제인지를 기록합니다. 복원(restoration) 자체도 감사 대상입니다 — 이전 상태를 복원하면 새 audit 행이 추가되며, 되돌려지는 변경을 만든 행은 지워지지 않습니다.
-
-이것이 “왜 agent가 그렇게 믿는가?”에 대한 표면입니다 — 답은 모델의 현재 출력이 아니라 audit trail에 있습니다.
 
 ## AuthZ grant 기록
 
@@ -58,7 +38,6 @@ log 설정은 [Environment variables](../environment-variables/)를, 진단 방�
 
 | 질문 | 확인할 곳 |
 |---|---|
-| “왜 agent가 X를 믿는가?” | Brain 감사 로그 |
 | “누가 이 agent에게 Y 작업 권한을 주었는가?” | `permission_grants` + `/principals/:uid/grants` |
 | “이 turn에서 agent가 무엇을 했는가?” | `/ai-gateway/conversations/:id/messages` |
 | “schedule이 실행되었는가?” | `/cron-schedules/:id/runs` |
@@ -71,7 +50,6 @@ log 설정은 [Environment variables](../environment-variables/)를, 진단 방�
 
 ## 다음 단계
 
-- Brain audit 표면은 [Brain](../brain/)을 읽으십시오.
 - 권한 모델은 [Principal and AuthZ](../principal-authz/)를 읽으십시오.
 - log 설정과 진단은 [Environment variables](../environment-variables/)와 [Read Ankole logs](../log-reading/)를 읽으십시오.
 - trail을 보호하는 backup은 [Backup and restore](../backup-and-restore/)를 읽으십시오.

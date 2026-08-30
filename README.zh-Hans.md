@@ -31,13 +31,13 @@ Copilot 提高人完成工作的效率，但执行闭环仍在人手里。Ankole
 
 自主工作依赖准确的当前上下文。Ankole 按时间和来源记录规则、决策、纠正与结果，而不是把所有旧消息都当成同样有效的事实。
 
-Brain 会淘汰过时规则、合并同类纠正、裁决矛盾，并用后来的真实结果检验过去的预测。每次执行都从更准确的工作认知开始。
+Brain 会淘汰过时事实、合并同类纠正、呈报矛盾，并用后来的真实结果检验过去的预测。每次执行都从更准确的工作认知开始。
 
 ## 自主劳动力所需的基础设施
 
 - **长任务在后台运行。** 一个 Job 可以连续运行数小时，完成后回到原频道；中途失败时说明步骤并重试，不阻塞主 Agent。
 - **共享上下文成为工作记忆。** 即使没人专门对 Agent 说话，规则、偏好和被否决的方案也能积累进记忆。
-- **记忆跟随世界变化。** Brain 策展知识、淘汰过期条目、基于证据推理，并直接接收外部变化。
+- **记忆跟随世界变化。** Brain 在按主体划定的边界内策展实例共享知识、淘汰过期条目、基于证据推理，并直接从登记的 Source 学习。
 - **Deep Research 沉淀成 playbook。** 扇出检索、分层验证和对立假设检验产出带引证的报告；跑通的方法可以指导下一次执行。
 - **真实浏览器完成真实工作。** Agent 能读取页面、点击、输入、截图、运行 Playwright 脚本，并跨步骤保持登录状态。
 - **技能在人类控制下改进。** Agent 可以提出 skill 更新，经人批准后才对后续会话生效。
@@ -92,7 +92,7 @@ flowchart TB
     Schedule["Schedule<br/>Checkback · Cron"]
     Runtime["Actor Runtime<br/>session 生命周期 · 准入 · 恢复"]
     Jobs["持久工作控制<br/>后台 Agent 任务 · Automation Job"]
-    Brain["Brain<br/>长期记忆 · 召回 · Dreaming"]
+    Brain["Brain<br/>共享知识 · 召回 · Dreaming"]
     AI["AIGateway<br/>模型路由 · conversation · 凭证"]
   end
 
@@ -123,7 +123,7 @@ flowchart TB
 - **触发器的所有者彼此分开。** SignalsGateway 负责渠道与 Webhook 接入，Schedule 负责 Checkback 和 Cron。触发器默认唤醒 Actor session；绑定 Automation Job 后，则创建一条持久的 Automation Job run。
 - **Worker 提供可替换的执行资源。** 一台或多台 Agent Computer Worker 运行主 Agent turn、后台 Job/Codex turn 和 Automation 脚本。RuntimeFabric 承载实时 actor 流量、有界 RPC 和 worker 文件操作，但不是持久队列。
 - **AIGateway 是统一 AI 边界。** 它提供兼容 OpenResponses 的 HTTP、SSE 和 WebSocket API，同时支持无状态请求和按主体隔离的有状态会话。LLM、Embedding、Rerank、Web Search 和 Web Fetch 都通过同一个 Provider 路由面解析，上游凭证始终留在控制面。
-- **Brain 是长期记忆。** 它统一当前知识、原始聊天召回、dreaming 和人工监督。PostgreSQL 关系行才是事实，Markdown 和注入上下文都只是投影。
+- **Brain 是实例共享的知识空间。** Agent、人和后台学习写入同一份页面与断言，每次读取都按查询者的知识边界过滤。PostgreSQL 关系行才是事实，页面渲染和注入上下文都只是投影。
 - **两类 Job 提供不同保证。** 后台 Agent 任务是可恢复、可等待输入的交互式模型工作；Automation Job 是 Agent 拥有的确定性脚本，每次消费触发器都会形成一条持久的运行记录，并可向归属 session 发出事件。
 - **持久性分成两类。** PostgreSQL 拥有语义事实；共享 Agent Home 保存工作区、产物和可恢复文件。RuntimeFabric 和 Worker 进程状态都可以重建。
 
@@ -133,9 +133,9 @@ Ankole 是一个完整、可自托管的 AI Workforce OS，已在生产环境中
 
 - **多家模型提供商。** OpenAI、Azure OpenAI、Claude、Google AI Studio、OpenRouter 以及其它兼容 OpenAI 的端点都是一等公民，配套上下文压缩、有状态会话、reasoning-effort 控制和按提供商计的用量处理。
 - **真实 IM 集成。** 飞书/Lark 和 Slack 作为第一方提供商集成，覆盖生命周期、传输、主流程和真实 LLM 的端到端测试。
-- **Brain。** 策展知识、聊天召回、dreaming（离线整理）、人工复核和恢复统一在一个子系统里，后端是 PostgreSQL 全文检索加向量检索。
+- **Brain。** 带作用域披露的实例共享知识、对话与 Source 学习、dreaming（离线整理）和运维复核统一在一个子系统里，后端是 PostgreSQL 全文检索加向量检索。
 - **长时 actor 运行时。** 会话可以被唤醒、做检查点、流式汇报进度、休眠、带上下文恢复；引导（steering）和取消是实时控制操作，不是请求/响应。
-- **运维控制台。** Agent、Agent Library 全局默认与逐 Agent 覆盖、Control Plane Plugin、模型提供商、模型档案、身份、信号、Worker、Worker 环境、Brain 条目和后台 Agent 任务都可以从内置 Web 控制台管理。
+- **运维控制台。** Agent、Agent Library 全局默认与逐 Agent 覆盖、Control Plane Plugin、模型提供商、模型档案、身份、信号、Worker、Worker 环境、Brain 知识和后台 Agent 任务都可以从内置 Web 控制台管理。
 - **面向真实条件测试。** 单元套件之外，还有覆盖飞书与 Slack 的主流程、传输、生命周期、真实 LLM、调度、worker computer、混沌恢复和并发/性能的专门端到端套件。
 
 Ankole 的公共 API 目前没有兼容性承诺，版本之间会有破坏性变更。
@@ -228,7 +228,6 @@ mix ankole.actor_runtime.worker_bootstrap --endpoint tcp://127.0.0.1:6010 --work
 
 生产引导配置使用 `DATABASE_URL`、`SECRET_KEY_BASE` 这样的通用基础设施名称。运行时应用配置属于 Ankole 的 PostgreSQL-backed AppConfigure 表面，而不是进程本地的环境变量。
 
-Brain 要求 PostgreSQL 18、启动时预加载 `pg_search`，并安装 `pg_search` 与
-`vector`。模型 profile、破坏性重建与增量迁移的边界见
-[Brain 部署与运维手册](docs/operations/Brain.zh-Hans.md)。专用真实模型验收命令是
-`tools/e2e/run --brain-real-llm`；它不进入默认 test gate，也不进入 `--all`。
+Brain 要求 PostgreSQL 预加载 `pg_search`，并提供 `pg_search`、`vector` 与
+`pg_trgm` 扩展；BrainV3 迁移会自动安装它们。`tools/devkit/postgres-for-ankole`
+构建满足要求的镜像。

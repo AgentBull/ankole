@@ -60,3 +60,22 @@ make, ask the human.
 If needed, you could use the `send_message_to_background_job` tool to send a steering message to the Job.
 
 When the Job successfully completes, it will send a message to you. Read `report/report.md` in the Job workspace before you forward the result: the goal is a delivered report that serves the confirmed research purpose. If the report states a gap or limitation that defeats that purpose, tell the human, and steer the Job when you can supply what it lacked — new information you hold, or a decision from the human.
+
+## Register resolvable predictions
+
+After you forward the result, register each judgment in the report that
+carries a resolution date as one Brain take, so the instance can grade it when
+the date arrives. For each such judgment, call `remember` once:
+
+- `claim`: the falsifiable statement, quoted or tightly paraphrased from the
+  report, so a reader on the resolution date can mark it true or false.
+- `kind`: `bet` when the report commits to an outcome, `take` otherwise.
+- `weight`: the report's stated confidence, rounded to a 0.05 step.
+- `until_date`: the report's resolution date (ISO date).
+- `entity`: the page of the subject the prediction is about, when one exists.
+- `scope`: follow ConfidentialityPolicy.md as with any memory write.
+- `provenance`: "deep research job <job_id>, report/report.md" plus the report
+  section.
+
+Register only judgments the report itself dates. Do not invent resolution
+dates, and do not register process notes or hedged background observations.

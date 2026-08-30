@@ -29,14 +29,22 @@ Skill 和 Plugin 本身是文件系统中的 Bundle，不是数据库记录。Po
 
 这就是 [Console](../console-api/) 的 Agent Library 能力路由所暴露的模型：先设全局默认值，再按 agent 收窄或放宽。
 
-## Agent 长期文档与 Skill overlay
+## 只通过 Brain 召回的 Skill 发现
 
-除了能力，库还持有 agent 自己的可写文档和 skill 定制：
+随产品发布的独立 Skill 或 Agent Plugin 成员 Skill 可以声明 `brain-recall-only: true`。所有随产品发布的 Skill 共用一个全局名称空间，Plugin 成员关系不会改变 Skill 名称。安装到 Agent 的 Skill 不参与这种模式。
 
-- **Agent 长期文档**包括 `mission`、`soul` 和 `design`，即容器表接受的三个 `source_kind`。前两项定义职责与行为，`design` 保存视觉内容使用的设计系统。它们存放在 `agent_library_container_entries` 中，并按内容哈希寻址。
-- **skill overlay** 是 `agent_skill_overlays` 里的语义行，每个 `(agent, skill)` 一条。它们让运维者为某一个 agent 定制某个 skill 的行为，而不必 fork 这个 skill bundle。一个 overlay 支持比较并交换（compare-and-swap）替换，所以并发编辑总会得出确定的结果。
+Agent Library 会把完整的有效 Skill 集发送给 Worker。普通 Skill 进入模型可见的 Skill 目录；只通过 Brain 召回的 Skill 保留在 `skill_view` 可加载集合中，但不会进入该目录。Library sweep 只把它们的名称、描述和标签投影为 `lazyload-agent-skills/<skill-name>` 下的轻量 Brain 记录；Skill 正文、资源和 Agent 专属教训仍留在各自的文件与数据库所有者中。
 
-一次 skill 视图读取该 skill 的文件，外加该 agent 对它的任何 overlay，于是 agent 看到的是一个连贯的 skill，而不是一个 bundle 外加一份单独的补丁。
+投影由实例共享，不会因为某个 Agent 关闭 Skill 而删除。Brain 查询和 `skill_view` 都会应用该 Agent 当前的 Plugin 与 Skill 有效状态，因此已关闭的记录不会占用召回名额，也不能被加载。重新启用能力后会直接恢复已有投影。
+
+## Agent 长期文档与技能教训
+
+除了能力，库还持有 Agent 自己的可写文档和 Agent 专属的 Skill 指引：
+
+- **Agent 长期文档**包括 `mission`、`soul`、`design` 和 `confidentiality_policy`，即容器表接受的四个 `source_kind`。前两项定义职责与行为，`design` 保存视觉内容使用的设计系统，`confidentiality_policy` 指导 Agent 向 Brain 写入知识时选择受众范围。它们存放在 `agent_library_container_entries` 中，并按内容哈希寻址。
+- **技能教训**是 `agent_skill_lessons` 中不可原地修改的语义记录。每条记录属于一个 Agent 和一个 Skill，并保存作者、证据、租约状态与退场历史。Dreaming 写入有证据支持的租约教训；运维人员可以新增没有租约的人工教训，也可以让任意教训退场。
+
+Skill 视图读取 Skill 文件，并把符合投递条件的教训渲染到 `Agent-specific additions` 区块。基础 `SKILL.md` 不会改变。证据、复审和投递规则见[技能教训](../skill-lessons/)。
 
 ## 同步：让注册表保持诚实
 
@@ -59,11 +67,11 @@ Skill 和 Plugin 本身是文件系统中的 Bundle，不是数据库记录。Po
 | `GET` | `/agents/:agent_uid/library-capabilities` | 某个 agent 的有效能力 |
 | `PUT` | `/agents/:agent_uid/library-capabilities/agent-plugins/:id` | 为某一个 agent 覆盖一个 plugin |
 | `PUT` | `/agents/:agent_uid/library-capabilities/skills/:id` | 为某一个 agent 覆盖一个 skill |
-| `GET` | `/agents/:agent_uid/library-documents` | 列出该 agent 的 mission/soul/design |
+| `GET` | `/agents/:agent_uid/library-documents` | 列出该 Agent 的 mission/soul/design/confidentiality policy |
 | `PUT` | `/agents/:agent_uid/library-documents/:document_kind` | 设定一份文档 |
-| `GET` | `/agents/:agent_uid/library-skill-overlays` | 列出 skill overlay |
-| `PUT` | `/agents/:agent_uid/library-skill-overlays/:skill_name` | 设定一个 skill overlay |
-| `DELETE` | `/agents/:agent_uid/library-skill-overlays/:skill_name` | 移除一个 skill overlay |
+| `GET` | `/agents/:agent_uid/skill-lessons` | 列出生效和已退场的技能教训 |
+| `POST` | `/agents/:agent_uid/skill-lessons` | 新增一条人工技能教训 |
+| `POST` | `/agents/:agent_uid/skill-lessons/:lesson_id/retire` | 让一条技能教训退场 |
 
 读取 `/agents/:agent_uid/library-capabilities` 会触发一次 agent skill 同步，所以运维者看到的是注册表与当前存储对账后的结果——不是过期的快照。
 
@@ -74,5 +82,6 @@ Skill 和 Plugin 本身是文件系统中的 Bundle，不是数据库记录。Po
 ## 下一步
 
 - 配置库的路由，读 [Console](../console-api/)。
+- Agent 专属的过程指引，见[技能教训](../skill-lessons/)。
 - 在一个回合中运行已启用 skill 的 worker，读 [Actor Runtime](../actor-runtime/)。
 - 能力库所属的 Agent 主体，见 [主体与 AuthZ](../principal-authz/)。

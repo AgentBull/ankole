@@ -17,14 +17,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnPolicy do
          model_ref: model_ref,
          request_context:
            request_context(
-             actor_key,
-             model_ref,
              turn_basis.runtime_policy,
              Keyword.get(opts, :request_context, %{})
              |> Map.put("custom_model_profiles", custom_model_profiles)
            )
        }
-       |> maybe_put(:hosted_tools, turn_basis.hosted_tools)}
+       |> Ankole.Attrs.maybe_put(:hosted_tools, turn_basis.hosted_tools)}
     end
   end
 
@@ -75,21 +73,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnPolicy do
 
   defp frozen_turn_basis(_overrides), do: {:error, :invalid_turn_start_overrides}
 
-  defp request_context(actor_key, model_ref, runtime_policy, extra_context)
-       when is_map(extra_context) do
-    %{
-      "actor_key" => %{
-        "agent_uid" => actor_key.agent_uid,
-        "session_id" => actor_key.session_id
-      },
-      "model_ref" => model_ref
-    }
-    |> Map.merge(extra_context)
-    |> Map.put("ai_agent", runtime_policy)
+  defp request_context(runtime_policy, extra_context) when is_map(extra_context) do
+    Map.put(extra_context, "ai_agent", runtime_policy)
   end
 
-  defp request_context(actor_key, model_ref, runtime_policy, _extra_context) do
-    request_context(actor_key, model_ref, runtime_policy, %{})
+  defp request_context(runtime_policy, _extra_context) do
+    request_context(runtime_policy, %{})
   end
 
   defp turn_model_ref(agent_uid, profile) do
@@ -135,7 +124,4 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnPolicy do
       []
     end
   end
-
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 end

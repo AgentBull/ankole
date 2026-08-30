@@ -1,6 +1,8 @@
 defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
   use Ankole.SignalsGateway.ActorRuntimeCase
 
+  alias Ankole.AIGateway.Conversations
+
   alias Ankole.AIGateway.StatefulResponses
   alias Ankole.PluginFixtures.MockSignalProvider.Outbox, as: MockOutbox
   alias Ankole.PluginFixtures.MockSignalProviderPlugin
@@ -61,7 +63,7 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
 
   describe "durable final reply outbox" do
     test "stopped preview keeps its acknowledged partial answer without duplicating the status" do
-      %{event: event} = start_im_visible_response_run()
+      %{event: event} = start_channel_reply_response_run()
 
       event =
         event
@@ -91,7 +93,7 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
     end
 
     test "stopped preview without partial text stays metadata-only after late checkpoint refresh" do
-      %{event: event} = start_im_visible_response_run()
+      %{event: event} = start_channel_reply_response_run()
 
       assert [{preview_pid, _value}] =
                Registry.lookup(Ankole.SignalsGateway.PreviewRegistry, event.id)
@@ -148,7 +150,7 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
     end
 
     test "turn completion without preview writes a durable reply outbox and mirrors after success" do
-      %{message: message, event: event, turn_ref: turn_ref} = start_im_visible_response_run()
+      %{message: message, event: event, turn_ref: turn_ref} = start_channel_reply_response_run()
       content = assistant_content("final answer")
 
       assert {:ok, completed} = StatefulResponses.commit_complete(message, content)
@@ -181,7 +183,7 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
     end
 
     test "turn completion preserves a failed BackgroundAgentJob trigger in the durable presentation" do
-      %{message: message, event: event, turn_ref: turn_ref} = start_im_visible_response_run()
+      %{message: message, event: event, turn_ref: turn_ref} = start_channel_reply_response_run()
 
       event
       |> ActorEvent.changeset(%{
@@ -215,25 +217,25 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
              }
     end
 
-    test "ordinary turn treats the scheduled silent-success marker as visible text" do
-      %{message: message, turn_ref: turn_ref} = start_im_visible_response_run()
+    test "ordinary turn strips the silent-success sentinel instead of leaking it" do
+      %{message: message, turn_ref: turn_ref} = start_channel_reply_response_run()
 
-      assert {:ok, completed} =
+      assert {:ok, _completed} =
                StatefulResponses.commit_complete(
                  message,
                  assistant_content("<silent_success/>")
                )
 
-      assert_turn_completed(turn_ref, completed)
+      # The sentinel is not a user-visible projection. It is stripped, so the
+      # empty completion is rejected and no marker text reaches the outbox.
+      assert {:error, :turn_completion_has_no_user_visible_projection} =
+               commit_turn_completion(turn_ref, "resp_#{message.id}", "loop_finished")
 
-      assert %OutboxEntry{
-               status: :created,
-               fallback_visible_text: "<silent_success/>"
-             } = Repo.get_by!(OutboxEntry, outbound_key: "ai-reply:#{message.id}")
+      refute Repo.get_by(OutboxEntry, outbound_key: "ai-reply:#{message.id}")
     end
 
     test "turn completion with preview writes a durable edit outbox and upserts final marker" do
-      %{message: message, event: event, turn_ref: turn_ref} = start_im_visible_response_run()
+      %{message: message, event: event, turn_ref: turn_ref} = start_channel_reply_response_run()
 
       event
       |> ActorEvent.changeset(%{reply_preview_source_entry_id: "provider-preview"})
@@ -267,7 +269,7 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
     end
 
     test "dispatch refreshes terminal metadata checkpointed while the preview stops" do
-      %{message: message, event: event, turn_ref: turn_ref} = start_im_visible_response_run()
+      %{message: message, event: event, turn_ref: turn_ref} = start_channel_reply_response_run()
 
       assert [{preview_pid, _value}] =
                Registry.lookup(Ankole.SignalsGateway.PreviewRegistry, event.id)
@@ -386,7 +388,7 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
     end
 
     test "dispatch waits for a late preview id and edits it instead of posting a duplicate reply" do
-      %{message: message, event: event, turn_ref: turn_ref} = start_im_visible_response_run()
+      %{message: message, event: event, turn_ref: turn_ref} = start_channel_reply_response_run()
 
       assert {:ok, completed} =
                StatefulResponses.commit_complete(message, assistant_content("fast final"))
@@ -466,7 +468,7 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
     end
 
     test "startup outbox recovery reclaims an orphan preview before terminal delivery" do
-      %{message: message, event: event, turn_ref: turn_ref} = start_im_visible_response_run()
+      %{message: message, event: event, turn_ref: turn_ref} = start_channel_reply_response_run()
 
       assert {:ok, completed} =
                StatefulResponses.commit_complete(message, assistant_content("recovered final"))
@@ -537,7 +539,7 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
     end
 
     test "a preview settle timeout leaves the final reply untouched and retryable" do
-      %{message: message, event: event, turn_ref: turn_ref} = start_im_visible_response_run()
+      %{message: message, event: event, turn_ref: turn_ref} = start_channel_reply_response_run()
 
       assert {:ok, completed} =
                StatefulResponses.commit_complete(message, assistant_content("retryable final"))
@@ -628,7 +630,7 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
     end
 
     test "an adapter edit fallback persists and mirrors the provider operation that happened" do
-      %{message: message, event: event, turn_ref: turn_ref} = start_im_visible_response_run()
+      %{message: message, event: event, turn_ref: turn_ref} = start_channel_reply_response_run()
 
       event
       |> ActorEvent.changeset(%{reply_preview_source_entry_id: "provider-preview"})
@@ -682,7 +684,7 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
         MockOutbox.delete_recipient()
       end)
 
-      %{message: message, turn_ref: turn_ref} = start_im_visible_response_run()
+      %{message: message, turn_ref: turn_ref} = start_channel_reply_response_run()
 
       assert {:ok, completed} =
                StatefulResponses.commit_complete(message, assistant_content("scheduled final"))
@@ -709,7 +711,7 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
     end
   end
 
-  defp start_im_visible_response_run do
+  defp start_channel_reply_response_run do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "mock", :ignore, adapter: "mock-provider")
     route = unique_route()
@@ -742,7 +744,7 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
              ActorRuntime.handle_turn_accepted(turn_accepted_payload(turn_ref))
 
     assert {:ok, conversation} =
-             StatefulResponses.ensure_conversation(agent.uid, event.session_id)
+             Conversations.ensure_conversation(agent.uid, event.session_id)
 
     assert {:ok, message} =
              StatefulResponses.start_response_run(%{
@@ -756,9 +758,7 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
 
   defp assert_turn_completed(turn_ref, message) do
     assert {:ok, %{status: :turn_completed}} =
-             ActorRuntime.handle_turn_completed(
-               turn_completed_payload(turn_ref, "resp_#{message.id}", "loop_finished")
-             )
+             commit_turn_completion(turn_ref, "resp_#{message.id}", "loop_finished")
   end
 
   defp assistant_content(text) do

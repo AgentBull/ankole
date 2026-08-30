@@ -5,7 +5,7 @@ import {
   initialCodexRecoveryState,
   transitionCodexRecovery,
   type CodexRecoveryState
-} from '../src/core/codex-runner/recovery-policy'
+} from '../src/core/codex-runner/job/recovery-policy'
 
 describe('@ankole/agent-computer Codex recovery policy', () => {
   it('bounds transient turn retries before handing recovery back to the durable Job lease', () => {

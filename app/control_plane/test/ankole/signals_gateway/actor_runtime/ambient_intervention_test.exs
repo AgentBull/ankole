@@ -1,6 +1,8 @@
 defmodule Ankole.SignalsGateway.ActorRuntime.AmbientInterventionTest do
   use Ankole.SignalsGateway.ActorRuntimeCase
 
+  alias Ankole.BackgroundAgentJobs
+
   setup do
     route = unique_route()
     :ok = Broker.register_local_worker(route, self())
@@ -158,5 +160,70 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AmbientInterventionTest do
 
     assert completed_event.id == event.id
     refute_receive {:actor_lane, _envelope}, 50
+  end
+
+  test "injects only bounded live work candidates from the same room session" do
+    %{principal: agent} = agent_fixture()
+    binding_fixture(agent.uid, "bot", :may_intervene)
+
+    assert {:ok, %{actor_event: event}} =
+             emit_entry(
+               agent.uid,
+               "bot",
+               group_entry(%{text: "The deploy has a new database timeout."}),
+               now: @base_time
+             )
+
+    matching = create_job!(agent.uid, event, "matching", %{})
+
+    _other_session =
+      create_job!(agent.uid, event, "other-session", %{owner_session_id: "another-session"})
+
+    _other_channel =
+      create_job!(agent.uid, event, "other-channel", %{signal_channel_id: "lark:chat:other"})
+
+    assert {:ok, %{send_outcome: "sent_or_queued"}} =
+             process_ready_events_once(
+               now: DateTime.add(@base_time, 20, :second),
+               lease_seconds: @long_lease_seconds
+             )
+
+    assert_receive {:actor_lane, envelope}
+    context = envelope |> turn_start_payload!() |> decoded_request_context()
+
+    assert %{
+             "complete" => true,
+             "jobs" => [
+               %{
+                 "job_id" => job_id,
+                 "title" => "Investigate deploy matching",
+                 "status" => "queued",
+                 "task_excerpt" => task_excerpt
+               }
+             ]
+           } = context["ambient_work_candidates"]
+
+    assert job_id == Integer.to_string(matching.id)
+    assert task_excerpt =~ "matching"
+  end
+
+  defp create_job!(agent_uid, event, suffix, overrides) do
+    assert {:ok, %{job: job}} =
+             BackgroundAgentJobs.create_with_dispatch(%{
+               "agent_uid" => agent_uid,
+               "owner_session_id" => Map.get(overrides, :owner_session_id, event.session_id),
+               "source_tool_call_id" => "ambient-candidate-#{suffix}",
+               "title" => "Investigate deploy #{suffix}",
+               "task" => "Find the cause of deploy #{suffix}.",
+               "reply_route" => %{
+                 "binding_name" => event.binding_name,
+                 "signal_channel_id" =>
+                   Map.get(overrides, :signal_channel_id, event.signal_channel_id),
+                 "provider_thread_id" => event.provider_thread_id,
+                 "source_entry_id" => event.source_entry_id
+               }
+             })
+
+    job
   end
 end

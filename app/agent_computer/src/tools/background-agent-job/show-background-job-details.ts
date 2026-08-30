@@ -1,19 +1,20 @@
 import { z } from 'zod'
-import type { AgentTool } from '../../core'
-import { truncateUtf16Safe, utf8ByteLength } from '../../common/text-sanitize'
+import { defineWorkerTool, type AgentToolResult, type WorkerAgentTool } from '../../core'
+import { utf8ByteLength } from '../../common/text-sanitize'
 import { ModelIntegerID, modelIntegerIDFromWire, modelIntegerIDToWire } from '../../core/model-integer-id'
 import { jsonToolResult } from '../../core/tool-result'
+import { fitToolResultTextWindow } from '../../core/tool-result-window'
+import { nonNegativeSafeIntegerFromWire } from '../../core/wire-integer'
 import { jsonObjectFromBytes } from '../../fabric/envelope_proto'
 import type { TurnStart } from '../../lanes/actor_lane'
 import { rpcMethods, type RPCRequester, type RPCRequestInit } from '../../lanes/rpc_lane'
+import { modelVisibleTrajectory } from './model-trajectory'
 import {
+  BackgroundAgentJobStatusSchema,
   BackgroundAgentJobTrajectorySchema,
-  modelVisibleTrajectory,
+  type BackgroundAgentJobStatus,
   type BackgroundAgentJobTrajectory
-} from './model-trajectory'
-import { BackgroundAgentJobStatusSchema, type BackgroundAgentJobStatus } from './status'
-
-const RESULT_TOOL_OUTPUT_MAX_BYTES = 8_000
+} from '../../core/background-agent-job-documents'
 
 const ShowBackgroundJobDetailsParamsSchema = z
   .object({
@@ -151,8 +152,8 @@ export type ShowBackgroundJobDetailsToolOptions = {
 
 export function createShowBackgroundJobDetailsTool(
   opts: ShowBackgroundJobDetailsToolOptions
-): AgentTool<typeof ShowBackgroundJobDetailsParamsSchema, ShowBackgroundJobDetailsResult> {
-  return {
+): WorkerAgentTool<typeof ShowBackgroundJobDetailsParamsSchema, ShowBackgroundJobDetailsResult> {
+  return defineWorkerTool({
     name: 'show_background_job_details',
     description: [
       'Show job status, progress, tool execution mechanisms, usage, attempt history, and the latest trajectory page.',
@@ -164,7 +165,7 @@ export function createShowBackgroundJobDetailsTool(
     isReadOnly: true,
     isDestructive: false,
     describeActivity: () => ({ key: 'signals_gateway.reply.activity.background_job_show' }),
-    async execute(_toolCallID, params) {
+    async execute(_toolCallID, params): Promise<AgentToolResult<ShowBackgroundJobDetailsResult>> {
       const request: RPCRequestInit<'background_agent_job.get'> =
         params.result_offset === undefined
           ? {
@@ -231,7 +232,7 @@ export function createShowBackgroundJobDetailsTool(
         recent_trajectory: modelVisibleTrajectory(execution.trajectory_page)
       })
     }
-  }
+  })
 }
 
 function terminalResultRef(resultRef: { type: string; jobId: string } | undefined, jobID: number): ResultRef {
@@ -258,34 +259,17 @@ function resultChunk(
     throw new Error('background agent job returned an invalid result output window')
   }
 
-  const complete = resultChunkDetails(
-    title,
-    resultRef,
-    offset,
-    outputWindow,
-    offset + windowBytes < totalBytes ? offset + windowBytes : null
+  const result = fitToolResultTextWindow(outputWindow, (outputText, truncatedForLimit) =>
+    resultChunkDetails(
+      title,
+      resultRef,
+      offset,
+      outputText,
+      truncatedForLimit || offset + windowBytes < totalBytes ? offset + utf8ByteLength(outputText) : null
+    )
   )
-  if (serializedBytes(complete) <= RESULT_TOOL_OUTPUT_MAX_BYTES) return complete
-
-  let low = 1
-  let high = outputWindow.length - 1
-  let outputText = ''
-
-  while (low <= high) {
-    const middle = Math.floor((low + high) / 2)
-    const candidate = truncateUtf16Safe(outputWindow, middle)
-    const nextOffset = offset + utf8ByteLength(candidate)
-    const candidateDetails = resultChunkDetails(title, resultRef, offset, candidate, nextOffset)
-    if (serializedBytes(candidateDetails) <= RESULT_TOOL_OUTPUT_MAX_BYTES) {
-      outputText = candidate
-      low = middle + 1
-    } else {
-      high = middle - 1
-    }
-  }
-
-  if (!outputText) throw new Error('background agent job result metadata exceeds the tool output limit')
-  return resultChunkDetails(title, resultRef, offset, outputText, offset + utf8ByteLength(outputText))
+  if (!result) throw new Error('background agent job result metadata exceeds the tool output limit')
+  return result
 }
 
 function resultChunkDetails(
@@ -303,19 +287,8 @@ function resultChunkDetails(
   }
 }
 
-function serializedBytes(value: ShowBackgroundJobResultChunk): number {
-  return utf8ByteLength(JSON.stringify(value))
-}
-
 function invalidResultOffset(offset: number): Error {
   return new Error(`background agent job result offset ${offset} is invalid`)
-}
-
-function nonNegativeSafeIntegerFromWire(value: string, field: string): number {
-  if (!/^(0|[1-9][0-9]*)$/.test(value)) throw new Error(`${field} is not a non-negative integer`)
-  const parsed = Number(value)
-  if (!Number.isSafeInteger(parsed)) throw new Error(`${field} exceeds the model integer range`)
-  return parsed
 }
 
 type ModelVisibleJobError = {

@@ -122,7 +122,6 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
       author = %{
         "id" => user_id,
         "platform_subject" => user_id,
-        "principal_uid" => String.downcase(user_id),
         "metadata" =>
           MapHelpers.compact_map(%{"team_id" => event.team_id, "provider" => namespace})
       }
@@ -155,7 +154,6 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
          explicit:
            channel_kind == :im_dm or Enum.any?(mentions, &(&1["targets_current_agent"] == true)),
          author: author,
-         sender_key: String.downcase(user_id),
          metadata:
            MapHelpers.compact_map(%{
              "provider" => "slack",
@@ -174,8 +172,7 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
       {:ok, input} ->
         observed_at = DateTime.utc_now(:microsecond)
 
-        with :ok <- observe_author(consumer, input),
-             {:ok, input} <- emit_pending_attachments(input, consumer, observed_at),
+        with {:ok, input} <- emit_pending_attachments(input, consumer, observed_at),
              {:ok, attachments} <-
                maybe_materialize_attachments(input.attachments, event.content || %{}, consumer) do
           input
@@ -354,27 +351,10 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
     |> MapHelpers.collect_results()
   end
 
-  defp observe_author(consumer, %{author: author}) do
-    attrs =
-      %{
-        provider: Map.get(consumer.config, "platformSubjectNamespace", "slack-main"),
-        external_id: author["platform_subject"],
-        uid: author["id"],
-        metadata: author["metadata"] || %{}
-      }
-      |> MapHelpers.compact_map()
-
-    case AdapterContext.observe_platform_subject(consumer.context, attrs) do
-      {:ok, _observed} -> :ok
-      {:error, _reason} = error -> error
-    end
-  end
-
   defp observe_action_operator(%{context: context, config: config}, operator_id) do
     attrs = %{
       provider: Map.get(config, "platformSubjectNamespace", "slack-main"),
-      external_id: operator_id,
-      uid: operator_id
+      external_id: operator_id
     }
 
     case AdapterContext.observe_platform_subject(context, attrs) do
@@ -447,7 +427,7 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
     |> String.replace(~r/<(https?:\/\/[^>|]+)\|([^>]+)>/, "\\2 (\\1)")
     |> String.replace(~r/<(https?:\/\/[^>]+)>/, "\\1")
     |> String.trim_leading()
-    |> blank_to_nil()
+    |> MapHelpers.blank_to_nil()
   end
 
   defp strip_current_bot_mentions(text, mentions) do
@@ -573,8 +553,8 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
         Path.join(Ankole.AgentHomePaths.user_files(agent_uid), relative)
       )
       |> Map.put("user_files_relative_path", relative)
-      |> MapHelpers.maybe_put("xxh3_128", result["xxh3_128"])
-      |> MapHelpers.maybe_put("size", result["size"])
+      |> MapHelpers.put_present("xxh3_128", result["xxh3_128"])
+      |> MapHelpers.put_present("size", result["size"])
     else
       reason ->
         Logging.warning(
@@ -600,7 +580,7 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
     Path.join([
       "inbox",
       Integer.to_string(attachment_id),
-      sanitize(downloaded_name || attachment["name"] || "attachment")
+      WorkerFiles.sanitize_path_segment(downloaded_name || attachment["name"] || "attachment")
     ])
   end
 
@@ -610,18 +590,6 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
        do: attachment_id
 
   defp valid_attachment_id(_attachment), do: nil
-
-  defp sanitize(value) when is_binary(value) do
-    case value
-         |> Ankole.Kernel.any_ascii()
-         |> String.replace(~r/[^A-Za-z0-9._-]+/, "_")
-         |> String.trim("_") do
-      "" -> "unnamed"
-      segment -> String.slice(segment, 0, 160)
-    end
-  end
-
-  defp sanitize(_value), do: "unnamed"
 
   defp maybe_backfill_attachments(
          [],
@@ -715,8 +683,6 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
 
   defp material_message?(nil, []), do: {:ignore, :empty_or_unsupported_message}
   defp material_message?(_text, _attachments), do: :ok
-  defp blank_to_nil(""), do: nil
-  defp blank_to_nil(text), do: text
   defp ignored_status(:provider_self_sender), do: :ignored_provider_self_sender
   defp ignored_status(:empty_or_unsupported_message), do: :ignored_empty_or_unsupported_message
   defp ignored_status(reason), do: :"ignored_#{reason}"

@@ -1,16 +1,43 @@
 import { batch, computed, createModel, signal } from '@preact/signals-react'
-import anyAscii from 'any-ascii'
+
+// The transliteration table is ~0.5 MB, so it loads on demand: the editor
+// preloads it on initialize, and UID derivation upgrades from the ASCII-only
+// fallback as soon as the table lands.
+type Transliterate = (value: string) => string
+
+let transliterate: Transliterate | undefined
+let transliterationLoading: Promise<void> | undefined
+
+export function preloadTransliteration(): Promise<void> {
+  transliterationLoading ??= import('any-ascii').then(module => {
+    transliterate = module.default
+  })
+  return transliterationLoading
+}
+
+export type AgentMemoryDisclosureMode = 'strict' | 'relaxed'
 
 export type AgentEditorDraft = {
   uid: string
   displayName: string
   avatarURL: string
   role: string
+  ownerPrincipalUID: string
+  groupMemoryDisclosureMode: AgentMemoryDisclosureMode
 }
 
-export type AgentEditorDraftError = 'display_name_required' | 'uid_invalid' | 'uid_required' | 'role_required'
+export type AgentEditorDraftError =
+  | 'display_name_required'
+  | 'uid_invalid'
+  | 'uid_required'
+  | 'role_required'
+  | 'owner_required'
 
-const agentUIDPattern = /^[a-z0-9][a-z0-9._-]{0,95}$/
+// Shared with the editor's `pattern` attribute, so the browser reports the
+// same rule the model enforces. HTML patterns imply the ^…$ anchors and
+// compile with the `v` flag, which requires the escaped hyphen in the class.
+export const agentUIDInputPattern = '[a-z0-9][a-z0-9._\\-]{0,95}'
+const agentUIDPattern = new RegExp(`^(?:${agentUIDInputPattern})$`)
 
 export function agentUIDError(uid: string): Extract<AgentEditorDraftError, 'uid_invalid' | 'uid_required'> | undefined {
   const normalizedUID = uid.trim()
@@ -20,7 +47,7 @@ export function agentUIDError(uid: string): Extract<AgentEditorDraftError, 'uid_
 }
 
 export function agentUIDFromDisplayName(displayName: string): string {
-  return anyAscii(displayName)
+  return (transliterate?.(displayName) ?? displayName)
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
@@ -34,6 +61,8 @@ export const AgentEditorModel = createModel(() => {
   const displayName = signal('')
   const avatarURL = signal('')
   const role = signal('')
+  const ownerPrincipalUID = signal('')
+  const groupMemoryDisclosureMode = signal<AgentMemoryDisclosureMode>('strict')
   const initialDraft = signal<AgentEditorDraft>()
   const validationError = signal<AgentEditorDraftError>()
   const dirty = computed(() => {
@@ -43,7 +72,9 @@ export const AgentEditorModel = createModel(() => {
       (uid.value !== initial.uid ||
         displayName.value !== initial.displayName ||
         avatarURL.value !== initial.avatarURL ||
-        role.value !== initial.role)
+        role.value !== initial.role ||
+        ownerPrincipalUID.value !== initial.ownerPrincipalUID ||
+        groupMemoryDisclosureMode.value !== initial.groupMemoryDisclosureMode)
     )
   })
   let uidManuallyEdited = false
@@ -54,9 +85,12 @@ export const AgentEditorModel = createModel(() => {
     displayName,
     avatarURL,
     role,
+    ownerPrincipalUID,
+    groupMemoryDisclosureMode,
     dirty,
     validationError,
     initialize(nextSourceKey: string, draft: AgentEditorDraft) {
+      void preloadTransliteration()
       if (sourceKey.value === nextSourceKey) return
       batch(() => {
         sourceKey.value = nextSourceKey
@@ -64,6 +98,8 @@ export const AgentEditorModel = createModel(() => {
         displayName.value = draft.displayName
         avatarURL.value = draft.avatarURL
         role.value = draft.role
+        ownerPrincipalUID.value = draft.ownerPrincipalUID
+        groupMemoryDisclosureMode.value = draft.groupMemoryDisclosureMode
         initialDraft.value = { ...draft }
         validationError.value = undefined
         uidManuallyEdited = false
@@ -75,12 +111,28 @@ export const AgentEditorModel = createModel(() => {
     markSaved(draft?: AgentEditorDraft) {
       initialDraft.value = draft
         ? { ...draft }
-        : { uid: uid.value, displayName: displayName.value, avatarURL: avatarURL.value, role: role.value }
+        : {
+            uid: uid.value,
+            displayName: displayName.value,
+            avatarURL: avatarURL.value,
+            role: role.value,
+            ownerPrincipalUID: ownerPrincipalUID.value,
+            groupMemoryDisclosureMode: groupMemoryDisclosureMode.value
+          }
     },
     setDisplayName(value: string, deriveUID: boolean) {
       batch(() => {
         displayName.value = value
-        if (deriveUID && !uidManuallyEdited) uid.value = agentUIDFromDisplayName(value)
+        if (deriveUID && !uidManuallyEdited) {
+          uid.value = agentUIDFromDisplayName(value)
+          // Before the table lands, non-Latin input derives an empty or
+          // partial UID; re-derive from the current name once it loads.
+          if (!transliterate) {
+            void preloadTransliteration().then(() => {
+              if (!uidManuallyEdited) uid.value = agentUIDFromDisplayName(displayName.value)
+            })
+          }
+        }
         if (
           validationError.value === 'display_name_required' ||
           validationError.value === 'uid_required' ||
@@ -104,6 +156,7 @@ export const AgentEditorModel = createModel(() => {
         if (uidError) return uidError
       }
       if (!role.value.trim()) return 'role_required'
+      if (!ownerPrincipalUID.value.trim()) return 'owner_required'
       return undefined
     }
   }

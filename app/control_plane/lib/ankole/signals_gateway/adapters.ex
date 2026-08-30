@@ -14,6 +14,7 @@ defmodule Ankole.SignalsGateway.Adapters do
   alias Ankole.SignalsGateway.Utils
 
   @contract_id "signals_gateway.adapter"
+  @adapter_categories ["enterprise_im", "consumer_im"]
 
   defmodule Definition do
     @moduledoc """
@@ -23,15 +24,17 @@ defmodule Ankole.SignalsGateway.Adapters do
     alias Ankole.SignalsGateway.OutboxAdapter
     alias Ankole.SignalsGateway.ReplyPreviewAdapter
 
-    @enforce_keys [:id, :display_name, :fields]
+    @enforce_keys [:id, :adapter_category, :display_name, :fields]
     defstruct [
       :id,
+      :adapter_category,
       :plugin_id,
       :display_name,
       :config_key_pattern,
       :config_module,
       :worker_env_module,
       :binding_saved_module,
+      :author_hydrator,
       :supported_group_message_modes,
       :outbox_adapter,
       :reply_preview_adapter,
@@ -40,6 +43,7 @@ defmodule Ankole.SignalsGateway.Adapters do
 
     @type t :: %__MODULE__{
             id: String.t(),
+            adapter_category: String.t(),
             plugin_id: String.t() | nil,
             display_name: %{String.t() => String.t()},
             fields: [map()],
@@ -47,6 +51,7 @@ defmodule Ankole.SignalsGateway.Adapters do
             config_module: module() | nil,
             worker_env_module: module() | nil,
             binding_saved_module: module() | nil,
+            author_hydrator: module() | nil,
             supported_group_message_modes: [String.t()] | nil,
             outbox_adapter: OutboxAdapter.t() | nil,
             reply_preview_adapter: ReplyPreviewAdapter.t() | nil
@@ -145,6 +150,8 @@ defmodule Ankole.SignalsGateway.Adapters do
 
   defp resolve_declaration(declaration) do
     with adapter_id when is_binary(adapter_id) and adapter_id != "" <- value(declaration, :id),
+         {:ok, adapter_category} <-
+           validate_adapter_category(value(declaration, :adapter_category)),
          :ok <- validate_inbound_adapter(declaration),
          {:ok, outbox_adapter} <- resolve_outbox_adapter(declaration),
          :ok <-
@@ -175,10 +182,18 @@ defmodule Ankole.SignalsGateway.Adapters do
              :handle_binding_saved,
              2
            ),
+         :ok <-
+           validate_optional_adapter_module(
+             declaration,
+             :author_hydrator,
+             :hydrate_author,
+             2
+           ),
          {:ok, reply_preview_adapter} <- resolve_reply_preview_adapter(declaration) do
       {:ok,
        %Definition{
          id: adapter_id,
+         adapter_category: adapter_category,
          plugin_id: value(declaration, :plugin_id),
          display_name: value(declaration, :display_name) || %{"default" => adapter_id},
          fields: list_value(declaration, :fields),
@@ -186,6 +201,7 @@ defmodule Ankole.SignalsGateway.Adapters do
          config_module: value(declaration, :config_module),
          worker_env_module: value(declaration, :worker_env_module),
          binding_saved_module: value(declaration, :binding_saved_module),
+         author_hydrator: value(declaration, :author_hydrator),
          supported_group_message_modes:
            optional_list_value(declaration, :supported_group_message_modes),
          outbox_adapter: outbox_adapter,
@@ -196,6 +212,11 @@ defmodule Ankole.SignalsGateway.Adapters do
       _adapter_id -> {:error, {:invalid_signal_adapter_declaration, declaration}}
     end
   end
+
+  defp validate_adapter_category(category) when category in @adapter_categories,
+    do: {:ok, category}
+
+  defp validate_adapter_category(category), do: {:error, {:invalid_adapter_category, category}}
 
   defp validate_inbound_adapter(declaration) do
     capabilities = list_value(declaration, :inbound_capabilities)

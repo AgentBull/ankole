@@ -4,14 +4,15 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { z } from 'zod'
-import { buildCodexJobProjection, type CodexJobProjection } from '../../src/core/codex-runner/projection'
-import type { AgentTool } from '../../src/core/types'
-import { CodexAppServerClient, type JSONRPCMessage } from '../../src/core/codex-runner/app-server-client'
+import { buildCodexJobProjection, type CodexJobProjection } from '../../src/core/codex-runner/job/projection'
+import { defineWorkerTool, type WorkerAgentTool } from '../../src/core'
+import { CodexAppServerClient, type JSONRPCMessage } from '../../src/core/codex-runner/runtime/app-server-client'
 import type { DynamicToolCallParams } from '../../src/core/codex-runner/generated/protocol/v2/DynamicToolCallParams'
 import type { ThreadStartParams } from '../../src/core/codex-runner/generated/protocol/v2/ThreadStartParams'
 import type { ThreadStartResponse } from '../../src/core/codex-runner/generated/protocol/v2/ThreadStartResponse'
 import type { TurnStartParams } from '../../src/core/codex-runner/generated/protocol/v2/TurnStartParams'
 import type { TurnStartResponse } from '../../src/core/codex-runner/generated/protocol/v2/TurnStartResponse'
+import { errorMessage } from '../../src/common/errors'
 
 const searchCallID = 'analysis-search'
 const analysisCallID = 'analysis-inspect-call'
@@ -69,12 +70,12 @@ describe('Codex dynamic namespace integration', () => {
       client = codexClient({ workspace, codexHome, notifications, projection })
 
       const initializeResponse = await client.initialize()
-      expect(initializeResponse.userAgent).toContain('/0.147.0 ')
+      expect(initializeResponse.userAgent).toContain('/0.150.1 ')
       const models = (await client.request('model/list', { includeHidden: true })) as {
         data: Array<{ model: string }>
       }
       expect(manifestRequests.length).toBeGreaterThan(0)
-      expect(manifestRequests.every(url => url.includes('client_version=0.147.0'))).toBe(true)
+      expect(manifestRequests.every(url => url.includes('client_version=0.150.1'))).toBe(true)
       expect(models.data.some(model => model.model === 'gpt-5.4')).toBe(true)
       const started = (await client.request('thread/start', {
         cwd: workspace,
@@ -116,7 +117,7 @@ describe('Codex dynamic namespace integration', () => {
         .flatMap(notification => (isRecord(notification.params) ? [notification.params.text] : []))
         .filter((value): value is string => typeof value === 'string')
         .join('')
-      throw new Error(`${error instanceof Error ? error.message : String(error)}\n${stderr}`)
+      throw new Error(`${errorMessage(error)}\n${stderr}`)
     } finally {
       await client?.close()
       provider.stop(true)
@@ -146,7 +147,7 @@ describe('Codex dynamic namespace integration', () => {
       })
 
       const initializeResponse = await client.initialize()
-      expect(initializeResponse.userAgent).toContain('/0.147.0 ')
+      expect(initializeResponse.userAgent).toContain('/0.150.1 ')
       const started = (await client.request('thread/start', {
         cwd: workspace,
         approvalPolicy: 'never',
@@ -223,7 +224,7 @@ describe('Codex dynamic namespace integration', () => {
         .flatMap(notification => (isRecord(notification.params) ? [notification.params.text] : []))
         .filter((value): value is string => typeof value === 'string')
         .join('')
-      throw new Error(`${error instanceof Error ? error.message : String(error)}\n${stderr}`)
+      throw new Error(`${errorMessage(error)}\n${stderr}`)
     } finally {
       await client?.close()
       provider.stop(true)
@@ -232,8 +233,9 @@ describe('Codex dynamic namespace integration', () => {
   }, 90_000)
 })
 
-function analysisTool(): AgentTool<typeof AnalysisArguments> {
-  return {
+function analysisTool(): WorkerAgentTool<typeof AnalysisArguments> {
+  return defineWorkerTool({
+    executionMode: 'sequential',
     name: 'inspect_data',
     description: 'Inspect one named metric.',
     schema: AnalysisArguments,
@@ -250,7 +252,7 @@ function analysisTool(): AgentTool<typeof AnalysisArguments> {
         details: params
       }
     }
-  }
+  })
 }
 
 function createResponsesCapture(requests: JSONObject[], manifestRequests: string[]) {
@@ -400,7 +402,7 @@ function codexModelsManifest(): JSONObject {
         display_name: 'gpt-5.4',
         description: null,
         supported_reasoning_levels: [],
-        shell_type: 'default',
+        shell_type: 'unified_exec',
         visibility: 'none',
         supported_in_api: true,
         priority: 99,
@@ -413,7 +415,6 @@ function codexModelsManifest(): JSONObject {
         apply_patch_tool_type: 'freeform',
         web_search_tool_type: 'text',
         truncation_policy: { mode: 'tokens', limit: 10_000 },
-        supports_parallel_tool_calls: false,
         context_window: 272_000,
         max_context_window: 272_000,
         effective_context_window_percent: 95,

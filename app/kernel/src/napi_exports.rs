@@ -113,12 +113,6 @@ pub fn js_runtime_fabric_seal_envelope(bytes: Buffer) -> Result<Buffer> {
         .map_err(napi_error)
 }
 
-/// Returns the only RuntimeFabric protocol version this kernel speaks.
-#[napi(js_name = "runtimeFabricProtocolVersion")]
-pub fn js_runtime_fabric_protocol_version() -> u32 {
-    runtime_fabric::PROTOCOL_VERSION
-}
-
 /// Bun/Node DEALER-side RuntimeFabric client.
 #[napi(js_name = "RuntimeFabricDealer")]
 pub struct JsRuntimeFabricDealer {

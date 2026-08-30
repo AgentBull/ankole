@@ -18,7 +18,6 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
   alias Ankole.AIGateway.StatefulResponses
   alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Schemas.Job
-  alias Ankole.Brain.Scope
   alias Ankole.Principals
   alias Ankole.Repo
   alias Ankole.SignalsGateway.ActorEvent
@@ -73,20 +72,13 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
         conversation_key,
         %ActorEvent{} = actor_event
       ) do
-    with {:ok, declaration} <- brain_scope_declaration(repo, actor_event),
-         initial_metadata = initial_brain_metadata(declaration),
-         {:ok, conversation} <-
-           ensure_and_lock_active_conversation(
-             repo,
-             subject_uid,
-             conversation_key,
-             initial_metadata
-           ),
-         {:ok, conversation} <- reconcile_brain_scope(repo, conversation, declaration) do
-      {:ok, conversation}
-    else
-      nil -> {:error, :conversation_not_found}
-      {:error, _reason} = error -> error
+    with {:ok, origin} <- conversation_origin(repo, actor_event) do
+      ensure_and_lock_active_conversation(
+        repo,
+        subject_uid,
+        conversation_key,
+        initial_origin_metadata(origin)
+      )
     end
   end
 
@@ -97,10 +89,10 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
     do: AIGateway.ensure_conversation_in_tx(repo, subject_uid, conversation_key, metadata)
 
   @doc false
-  @spec successor_brain_metadata(Conversation.t()) :: map()
-  def successor_brain_metadata(%Conversation{metadata: metadata}) do
-    case Map.get(metadata || %{}, "brain") do
-      %{} = brain -> %{"brain" => Map.delete(brain, "snapshot")}
+  @spec successor_origin_metadata(Conversation.t()) :: map()
+  def successor_origin_metadata(%Conversation{metadata: metadata}) do
+    case Map.get(metadata || %{}, "origin") do
+      %{} = origin -> %{"origin" => origin}
       _other -> %{}
     end
   end
@@ -362,30 +354,18 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
       else: {:error, :actor_event_handoff_state_mismatch}
   end
 
-  defp brain_scope_declaration(
-         _repo,
-         %ActorEvent{
-           type: "brain.source.learn",
-           payload: %{"data" => %{"brain_scope" => declaration}}
-         } =
-           event
-       )
-       when is_map(declaration) do
-    case Scope.from_metadata(event.agent_uid, %{"brain" => declaration}) do
-      {:ok, _scope} -> {:ok, declaration}
-      {:error, reason} -> {:error, {:invalid_source_learning_brain_scope, reason}}
-    end
-  end
+  # The `signal_channel_id: nil` clause covers a non-channel-triggering event
+  # (for example, an internal command). Its conversation has no channel or DM
+  # to record, so origin stays undeclared rather than forcing a lookup that has
+  # nothing to find.
+  defp conversation_origin(_repo, %ActorEvent{signal_channel_id: nil}), do: {:ok, :undeclared}
 
-  defp brain_scope_declaration(_repo, %ActorEvent{signal_channel_id: nil}), do: {:ok, :undeclared}
-
-  defp brain_scope_declaration(repo, %ActorEvent{} = actor_event) do
+  defp conversation_origin(repo, %ActorEvent{} = actor_event) do
     case repo.get(Channel, actor_event.signal_channel_id) do
       %Channel{kind: :im_dm} = channel ->
         with {:ok, peer_uid} <- dm_peer_uid(actor_event, channel) do
           {:ok,
            %{
-             "visibility" => "dm",
              "peer_uid" => peer_uid,
              "channel_id" => channel.id,
              "channel_kind" => Atom.to_string(channel.kind)
@@ -393,14 +373,8 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
         end
 
       %Channel{} = channel ->
-        visibility =
-          if SignalsGateway.confidential_channel?(actor_event.agent_uid, channel.id, repo: repo),
-            do: "channel",
-            else: "shared"
-
         {:ok,
          %{
-           "visibility" => visibility,
            "channel_id" => channel.id,
            "channel_kind" => Atom.to_string(channel.kind)
          }}
@@ -409,7 +383,7 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
         if actor_event.type in @scheduled_event_types do
           {:ok, :undeclared}
         else
-          {:error, {:brain_scope_channel_not_found, actor_event.signal_channel_id}}
+          {:error, {:conversation_origin_channel_not_found, actor_event.signal_channel_id}}
         end
     end
   end
@@ -421,49 +395,12 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
 
     case Principals.normalize_uid(peer_uid) do
       {:ok, peer_uid} -> {:ok, peer_uid}
-      {:error, _reason} -> {:error, {:brain_scope_dm_peer_missing, channel.id}}
+      {:error, _reason} -> {:error, {:conversation_origin_dm_peer_missing, channel.id}}
     end
   end
 
-  defp initial_brain_metadata(:undeclared),
-    do: %{"brain" => %{"visibility" => "self"}}
-
-  defp initial_brain_metadata(%{} = declaration), do: %{"brain" => declaration}
-
-  defp reconcile_brain_scope(repo, %Conversation{} = conversation, declaration) do
-    metadata = conversation.metadata || %{}
-
-    case Map.get(metadata, "brain") do
-      nil ->
-        brain =
-          case declaration do
-            :undeclared -> %{"visibility" => "self"}
-            %{} = declaration -> declaration
-          end
-
-        AIGateway.update_conversation_metadata_in_tx(
-          repo,
-          conversation,
-          Map.put(metadata, "brain", brain)
-        )
-
-      %{} = brain ->
-        case verify_brain_scope(brain, declaration, conversation.id) do
-          :ok ->
-            {:ok, conversation}
-
-          {:error, _reason} = error ->
-            if group_visibility_transition?(brain, declaration) do
-              rollover_group_brain_scope(repo, conversation, declaration)
-            else
-              error
-            end
-        end
-
-      _invalid ->
-        {:error, {:invalid_conversation_brain_scope, conversation.id}}
-    end
-  end
+  defp initial_origin_metadata(:undeclared), do: %{}
+  defp initial_origin_metadata(%{} = origin), do: %{"origin" => origin}
 
   defp ensure_and_lock_active_conversation(
          repo,
@@ -492,59 +429,6 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
     else
       nil -> {:error, :conversation_not_found}
       {:error, _reason} = error -> error
-    end
-  end
-
-  defp rollover_group_brain_scope(repo, %Conversation{} = conversation, declaration) do
-    now = DateTime.utc_now(:microsecond)
-
-    with {:ok, _ended} <-
-           conversation
-           |> Ecto.Changeset.change(ended_at: now)
-           |> repo.update(),
-         {:ok, successor} <-
-           ensure_and_lock_active_conversation(
-             repo,
-             conversation.subject_uid,
-             conversation.conversation_key,
-             initial_brain_metadata(declaration)
-           ) do
-      {:ok, successor}
-    end
-  end
-
-  defp group_visibility_transition?(brain, declaration)
-       when is_map(brain) and is_map(declaration) do
-    same_group? =
-      Map.take(brain, ["channel_id", "channel_kind"]) ==
-        Map.take(declaration, ["channel_id", "channel_kind"]) and
-        brain["channel_kind"] == "im_group"
-
-    visibility_transition? =
-      MapSet.new([brain["visibility"], declaration["visibility"]]) ==
-        MapSet.new(["shared", "channel"]) or
-        (brain["visibility"] == "public" and
-           declaration["visibility"] in ["shared", "channel"])
-
-    same_group? and visibility_transition?
-  end
-
-  defp group_visibility_transition?(_brain, _declaration), do: false
-
-  defp verify_brain_scope(brain, :undeclared, conversation_id) do
-    case Map.get(brain, "visibility") do
-      visibility when visibility in ["shared", "self", "dm", "channel"] -> :ok
-      _invalid -> {:error, {:invalid_conversation_brain_scope, conversation_id}}
-    end
-  end
-
-  defp verify_brain_scope(brain, declaration, conversation_id) do
-    keys = ["visibility", "peer_uid", "channel_id"]
-
-    if Map.take(brain, keys) == Map.take(declaration, keys) do
-      :ok
-    else
-      {:error, {:conversation_brain_scope_mismatch, conversation_id}}
     end
   end
 
@@ -674,19 +558,45 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
   @spec turn_replay_safe_in_tx(module(), actor_key(), String.t()) :: boolean()
   def turn_replay_safe_in_tx(repo, actor_key, actor_event_id)
       when is_binary(actor_event_id) do
+    turn_replay_safe_in_tx(
+      repo,
+      actor_key,
+      actor_event_id,
+      ["generating", "complete"],
+      false
+    )
+  end
+
+  @doc false
+  @spec exact_turn_replay_safe_in_tx(module(), actor_key(), String.t()) :: boolean()
+  def exact_turn_replay_safe_in_tx(repo, actor_key, actor_event_id)
+      when is_binary(actor_event_id) do
+    turn_replay_safe_in_tx(
+      repo,
+      actor_key,
+      actor_event_id,
+      ["generating", "complete", "error"],
+      true
+    )
+  end
+
+  defp turn_replay_safe_in_tx(repo, actor_key, actor_event_id, statuses, exact_actor_event?) do
     case active_conversation_for_update(repo, actor_key.agent_uid, actor_key.session_id) do
       %Conversation{} = conversation ->
         case AIGateway.list_conversation_responses_in_tx(
                repo,
                actor_key.agent_uid,
                conversation.id,
-               statuses: ["generating", "complete"],
+               statuses: statuses,
                lock: true
              ) do
           {:ok, responses} ->
             responses
             |> Enum.filter(&(actor_event_id in response_actor_event_ids(&1)))
-            |> Enum.all?(&response_replay_safe?/1)
+            |> Enum.all?(fn response ->
+              response_replay_safe?(response) and
+                (not exact_actor_event? or exact_response_owner?(response, actor_event_id))
+            end)
 
           {:error, _reason} ->
             false
@@ -1070,11 +980,20 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
     Enum.all?(content, fn
       %{"type" => type} when type in ["message", "reasoning"] -> true
       %{type: type} when type in ["message", "reasoning"] -> true
+      %{"role" => "user", "content" => _content} -> true
+      %{role: "user", content: _content} -> true
       _item -> false
     end)
   end
 
   defp response_replay_safe?(%Message{}), do: false
+
+  defp exact_response_owner?(%Message{} = response, actor_event_id) do
+    metadata = AIGateway.response_metadata(response)
+
+    response_actor_event_id(response) == actor_event_id and
+      request_ref_actor_event_ids(metadata["request_refs"]) == []
+  end
 
   defp runtime_error(reason, stage) do
     %{

@@ -28,23 +28,44 @@ defmodule FeishuOpenAPI.ClientTest do
     assert_received :resolved
   end
 
-  test "default req_options include transport timeouts" do
+  test "default req_options carry both timeouts inside :finch only" do
     client = Client.new("cli_t", "secret")
 
     assert client.req_options[:receive_timeout] == :timer.seconds(15)
-    assert client.req_options[:pool_timeout] == :timer.seconds(5)
-    assert client.req_options[:connect_options][:timeout] == :timer.seconds(5)
+    assert client.req_options[:finch][:pool_timeout] == :timer.seconds(5)
+    assert client.req_options[:finch][:conn_opts][:transport_opts][:timeout] == :timer.seconds(5)
+
+    # Req 0.7 raises on a request that sets both :finch and :connect_options,
+    # so the defaults must never include :connect_options.
+    refute Keyword.has_key?(client.req_options, :connect_options)
   end
 
-  test "user-supplied req_options override defaults" do
+  test "user-supplied req_options override defaults and deep-merge :finch" do
     client =
       Client.new("cli_t2", "secret",
-        req_options: [receive_timeout: :timer.seconds(99), connect_options: [timeout: 1_234]]
+        req_options: [receive_timeout: :timer.seconds(99), finch: [pool_timeout: 1_234]]
       )
 
     assert client.req_options[:receive_timeout] == :timer.seconds(99)
+    assert client.req_options[:finch][:pool_timeout] == 1_234
+    assert client.req_options[:finch][:conn_opts][:transport_opts][:timeout] == :timer.seconds(5)
+  end
+
+  test "user-supplied :connect_options replaces the :finch defaults" do
+    client =
+      Client.new("cli_t3", "secret", req_options: [connect_options: [timeout: 1_234]])
+
     assert client.req_options[:connect_options][:timeout] == 1_234
-    assert client.req_options[:pool_timeout] == :timer.seconds(5)
+    refute Keyword.has_key?(client.req_options, :finch)
+  end
+
+  test "a named Finch pool replaces the :finch defaults instead of merging" do
+    client =
+      Client.new("cli_t4", "secret", req_options: [finch: [name: MyNamedPool]])
+
+    # Req 0.7 rejects pool-creation options such as :conn_opts together with
+    # :name, so no default pool option may survive the merge.
+    assert client.req_options[:finch] == [name: MyNamedPool]
   end
 
   test "from_env/1 reads Application config" do

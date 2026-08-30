@@ -7,7 +7,6 @@ defmodule Ankole.Plugins.WeComAdapterAIStreamTest do
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Cache, as: AppConfigureCache
   alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
-  alias Ankole.Plugins.WeComAdapter
   alias Ankole.Plugins.WeComAdapter.AIStream
   alias Ankole.Plugins.WeComAdapter.Config
   alias Ankole.Plugins.WeComAdapter.ConnectionOwner
@@ -42,7 +41,6 @@ defmodule Ankole.Plugins.WeComAdapterAIStreamTest do
   defp setup_stream_binding(channel_metadata) do
     AppConfigureRegistry.clear_for_test()
     AppConfigureCache.clear_for_test()
-    :ok = AppConfigure.register_patterns(WeComAdapter.app_config_patterns())
 
     config_id = "wecom-stream-#{System.unique_integer([:positive])}"
     bot_id = "bot-#{System.unique_integer([:positive])}"
@@ -59,7 +57,8 @@ defmodule Ankole.Plugins.WeComAdapterAIStreamTest do
         adapter: "wecom",
         config_ref: "app-config://#{Config.chat_config_key(config_id)}",
         filters: %{},
-        unaddressed_group_message_policy: :ignore
+        unaddressed_group_message_policy: :ignore,
+        unmatched_sender_policy: :create_standalone
       })
 
     %{actor_event: event} =

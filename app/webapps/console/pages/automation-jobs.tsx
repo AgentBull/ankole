@@ -1,3 +1,4 @@
+import { ACTIVITY_REFRESH_MS } from '../refresh-intervals'
 import {
   Sheet,
   SheetContent,
@@ -19,10 +20,9 @@ import {
 } from '../api/generated/@tanstack/react-query.gen'
 import type { AutomationJobItem, AutomationJobRunItem } from '../api/generated/types.gen'
 import { AgentFilter, useAgentScope } from '../console-agent-scope'
-import { resourceID } from '../console-route-loaders'
 import { StatusIndicator } from '../console-form'
 import { ErrorBlock } from '../../common/error-block'
-import { formatConsoleDate, formatJSON } from '../console-primitives'
+import { formatConsoleDate, formatJSON, resourceID } from '../console-primitives'
 import { AgentCell, FilterSwitch, ResourceListPage, ResourceSearch, RowViewAction } from '../console-list-page'
 import { matchesResourceSearch } from '../state/resource-search'
 
@@ -38,7 +38,7 @@ export function AutomationJobsPage() {
     ...ankoleWebAutomationJobControllerIndexOptions({
       query: { agent: scope.agentUID || undefined, limit: 100 }
     }),
-    refetchInterval: 5_000
+    refetchInterval: ACTIVITY_REFRESH_MS
   })
   const allJobs = jobs.data?.automation_jobs ?? []
   const selectedAgentUID = automationJobAgentUID(allJobs, selectedID, scope.agentUID)
@@ -49,7 +49,7 @@ export function AutomationJobsPage() {
       query: { runs: 20 }
     }),
     enabled: Boolean(selectedAgentUID) && selectedID !== undefined,
-    refetchInterval: selectedID !== undefined ? 5_000 : false,
+    refetchInterval: selectedID !== undefined ? ACTIVITY_REFRESH_MS : false,
     retry: false
   })
   const detailNotFound = detail.error?.error?.code === 'not_found'

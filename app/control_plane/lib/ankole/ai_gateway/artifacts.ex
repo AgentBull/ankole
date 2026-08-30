@@ -66,7 +66,7 @@ defmodule Ankole.AIGateway.Artifacts do
           {:ok, Artifact.t()} | {:error, term()}
   def persist_generated_image(subject_uid, public_id, base64, mime_type, opts \\ []) do
     with {:ok, subject_uid} <- normalize_subject(subject_uid),
-         {:ok, id} <- public_uuid(public_id, "ig_"),
+         {:ok, identity} <- generated_image_identity(public_id),
          {:ok, payload} <- Image.decode_base64(base64),
          :ok <- Image.validate_generated_size(payload, @max_image_bytes),
          {:ok, sniffed_type} <- Image.sniff(payload),
@@ -74,7 +74,8 @@ defmodule Ankole.AIGateway.Artifacts do
       message_id = Keyword.get(opts, :message_id)
 
       insert(%{
-        id: id,
+        id: identity.id,
+        provider_item_id: identity.provider_item_id,
         subject_uid: subject_uid,
         message_id: message_id,
         kind: "generated_image",
@@ -88,6 +89,23 @@ defmodule Ankole.AIGateway.Artifacts do
     end
   end
 
+  # The item-id shape selects the identity source. The Kernel hosted executor
+  # mints `ig_<UUIDv7>` item ids, and those stay the Artifact primary key. A
+  # native provider mints an opaque item id, so the Artifact gets a local
+  # primary key and keeps the provider id for reference lookup.
+  defp generated_image_identity(public_id) do
+    case public_uuid(public_id, "ig_") do
+      {:ok, id} ->
+        {:ok, %{id: id, provider_item_id: nil}}
+
+      {:error, _reason} when is_binary(public_id) and public_id != "" ->
+        {:ok, %{id: UUIDv7.autogenerate(), provider_item_id: public_id}}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
   @spec get_file(String.t(), String.t(), keyword()) ::
           {:ok, Artifact.t()} | {:error, OpenAIError.t()}
   def get_file(subject_uid, file_id, opts \\ []) do
@@ -97,7 +115,15 @@ defmodule Ankole.AIGateway.Artifacts do
   @spec get_generated_image(String.t(), String.t(), keyword()) ::
           {:ok, Artifact.t()} | {:error, OpenAIError.t()}
   def get_generated_image(subject_uid, image_id, opts \\ []) do
-    get_for_subject(subject_uid, image_id, "ig_", "generated_image", opts)
+    case public_uuid(image_id, "ig_") do
+      {:ok, _id} ->
+        get_for_subject(subject_uid, image_id, "ig_", "generated_image", opts)
+
+      # A native provider's item id is not a local UUID; the Artifact stored
+      # it in provider_item_id, so the public reference stays resolvable.
+      {:error, _not_castable} ->
+        get_by_provider_item_id(subject_uid, image_id, opts)
+    end
   end
 
   @spec delete_file(String.t(), String.t()) :: {:ok, map()} | {:error, OpenAIError.t()}
@@ -142,7 +168,7 @@ defmodule Ankole.AIGateway.Artifacts do
       "purpose" => artifact.purpose,
       "status" => "processed"
     }
-    |> maybe_put("expires_at", nullable_unix_timestamp(artifact.expires_at))
+    |> Ankole.Attrs.maybe_put("expires_at", nullable_unix_timestamp(artifact.expires_at))
   end
 
   @spec public_id(Artifact.t()) :: String.t()
@@ -154,6 +180,9 @@ defmodule Ankole.AIGateway.Artifacts do
 
   @spec resolve_references(String.t(), map()) :: {:ok, [map()]} | {:error, term()}
   defdelegate resolve_references(subject_uid, request), to: References, as: :resolve
+
+  @spec resolve_native_input(String.t(), map()) :: {:ok, map()} | {:error, term()}
+  defdelegate resolve_native_input(subject_uid, request), to: References
 
   @spec cleanup_expired_and_failed(DateTime.t()) :: non_neg_integer()
   def cleanup_expired_and_failed(now \\ DateTime.utc_now(:microsecond)) do
@@ -192,17 +221,50 @@ defmodule Ankole.AIGateway.Artifacts do
     end
   end
 
+  defp get_by_provider_item_id(subject_uid, provider_item_id, opts)
+       when is_binary(provider_item_id) and provider_item_id != "" do
+    with {:ok, subject_uid} <- normalize_subject(subject_uid),
+         %Artifact{} = artifact <-
+           Repo.one(provider_item_query(subject_uid, provider_item_id, opts)) do
+      {:ok, artifact}
+    else
+      _missing_or_invalid -> {:error, OpenAIError.not_found("file_id")}
+    end
+  end
+
+  defp get_by_provider_item_id(_subject_uid, _provider_item_id, _opts),
+    do: {:error, OpenAIError.not_found("file_id")}
+
   defp artifact_query(subject_uid, id, kind, opts) do
     now = DateTime.utc_now(:microsecond)
 
-    query =
-      from(artifact in Artifact,
-        where:
-          artifact.id == ^id and artifact.subject_uid == ^subject_uid and
-            artifact.kind == ^kind and
-            (is_nil(artifact.expires_at) or artifact.expires_at > ^now)
-      )
+    from(artifact in Artifact,
+      where:
+        artifact.id == ^id and artifact.subject_uid == ^subject_uid and
+          artifact.kind == ^kind and
+          (is_nil(artifact.expires_at) or artifact.expires_at > ^now)
+    )
+    |> maybe_select_payload(opts)
+  end
 
+  # The provider_item_id index is not unique, so the newest matching Artifact
+  # wins deterministically.
+  defp provider_item_query(subject_uid, provider_item_id, opts) do
+    now = DateTime.utc_now(:microsecond)
+
+    from(artifact in Artifact,
+      where:
+        artifact.provider_item_id == ^provider_item_id and
+          artifact.subject_uid == ^subject_uid and
+          artifact.kind == "generated_image" and
+          (is_nil(artifact.expires_at) or artifact.expires_at > ^now),
+      order_by: [desc: artifact.inserted_at, desc: artifact.id],
+      limit: 1
+    )
+    |> maybe_select_payload(opts)
+  end
+
+  defp maybe_select_payload(query, opts) do
     if Keyword.get(opts, :payload?, false) do
       from(artifact in query, select_merge: %{payload: artifact.payload})
     else
@@ -454,7 +516,4 @@ defmodule Ankole.AIGateway.Artifacts do
 
   defp nullable_unix_timestamp(nil), do: nil
   defp nullable_unix_timestamp(datetime), do: unix_timestamp(datetime)
-
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 end

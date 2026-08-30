@@ -1,6 +1,7 @@
-import { describe, expect, test } from 'bun:test'
+import { beforeAll, describe, expect, test } from 'bun:test'
 import { QueryClient, QueryClientProvider, QueryObserver } from '@tanstack/react-query'
 import { renderToStaticMarkup } from 'react-dom/server'
+import { loadLocale } from '../../common/i18n'
 import { MemoryRouter } from 'react-router'
 import type { BackgroundAgentJobListItem } from '../api/generated/types.gen'
 import {
@@ -9,6 +10,9 @@ import {
   backgroundAgentJobSearchParams,
   backgroundAgentJobScopeParams
 } from './background-agent-jobs'
+
+// Catalogs load on demand; these assertions render translated en-US copy.
+beforeAll(() => loadLocale('en-US'))
 
 describe('Background Agent Job scope changes', () => {
   test('renders one ID or name search beside the Agent filter', () => {

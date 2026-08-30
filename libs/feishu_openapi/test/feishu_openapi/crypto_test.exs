@@ -33,6 +33,18 @@ defmodule FeishuOpenAPI.CryptoTest do
     end
   end
 
+  describe "verify_token/2" do
+    test "accepts only the exact binary verification token" do
+      assert :ok = Crypto.verify_token("verification-token", "verification-token")
+
+      assert {:error, :bad_verification_token} =
+               Crypto.verify_token("verification-tokee", "verification-token")
+
+      assert {:error, :bad_verification_token} =
+               Crypto.verify_token(nil, "verification-token")
+    end
+  end
+
   describe "encrypt / decrypt round trip" do
     test "plaintext is recovered exactly" do
       secret = "encrypt_key_example"

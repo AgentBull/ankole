@@ -14,6 +14,14 @@ defmodule Ankole.Plugins.SlackAdapter.ConnectionSupervisor do
     end
   end
 
+  @spec stop(term()) :: :ok | {:error, term()}
+  def stop(key) do
+    case Registry.lookup(@registry, key) do
+      [{pid, _value}] -> DynamicSupervisor.terminate_child(@supervisor, pid)
+      [] -> :ok
+    end
+  end
+
   @spec registered_keys() :: [term()]
   def registered_keys do
     @registry |> Registry.select([{{:"$1", :_, :_}, [], [:"$1"]}]) |> Enum.sort()
@@ -24,7 +32,7 @@ defmodule Ankole.Plugins.SlackAdapter.ConnectionSupervisor do
       {:ok, ^pid} ->
         {:ok, pid}
 
-      {:error, :consumer_set_changed} ->
+      {:error, reason} when reason in [:conflicting_app_secret, :consumer_set_changed] ->
         with :ok <- DynamicSupervisor.terminate_child(@supervisor, pid),
              do: start_owner(config, consumers)
 

@@ -41,7 +41,7 @@ defmodule Ankole.AuthZ.Store do
   end
 
   def add_synced_group_member(repo, group_id, expected_domain, principal_uid)
-      when expected_domain in [:directory, :im_group] do
+      when expected_domain in [:directory, :im_group, :signal_source] do
     with {:ok, group} <- lock_group(repo, group_id),
          :ok <- ensure_static_group(group),
          :ok <- ensure_group_domain(group, expected_domain),
@@ -51,7 +51,7 @@ defmodule Ankole.AuthZ.Store do
   end
 
   def remove_synced_group_member(repo, group_id, expected_domain, principal_uid)
-      when expected_domain in [:directory, :im_group] do
+      when expected_domain in [:directory, :im_group, :signal_source] do
     with {:ok, group} <- lock_group(repo, group_id),
          :ok <- ensure_static_group(group),
          :ok <- ensure_group_domain(group, expected_domain),
@@ -93,7 +93,7 @@ defmodule Ankole.AuthZ.Store do
   end
 
   def replace_static_group_members(repo, group_id, expected_domain, principal_uids)
-      when expected_domain in [:directory, :im_group] and is_list(principal_uids) do
+      when expected_domain in [:directory, :im_group, :signal_source] and is_list(principal_uids) do
     with {:ok, group} <- lock_group(repo, group_id),
          :ok <- ensure_static_group(group),
          :ok <- ensure_group_domain(group, expected_domain),
@@ -118,8 +118,35 @@ defmodule Ankole.AuthZ.Store do
     end
   end
 
+  def apply_static_group_member_delta(
+        repo,
+        group_id,
+        expected_domain,
+        added_uids,
+        removed_uids
+      )
+      when expected_domain in [:directory, :im_group, :signal_source] and is_list(added_uids) and
+             is_list(removed_uids) do
+    with {:ok, group} <- lock_group(repo, group_id),
+         :ok <- ensure_static_group(group),
+         :ok <- ensure_group_domain(group, expected_domain),
+         {:ok, added_uids} <- normalize_principal_uids(added_uids),
+         {:ok, removed_uids} <- normalize_principal_uids(removed_uids),
+         :ok <- lock_principals(repo, added_uids),
+         :ok <- insert_group_memberships(repo, group.id, added_uids) do
+      removed_memberships = delete_group_memberships(repo, group.id, removed_uids)
+
+      {:ok,
+       %{
+         added_principal_uids: added_uids,
+         removed_principal_uids: removed_uids,
+         removed_memberships: removed_memberships
+       }}
+    end
+  end
+
   def clear_static_group_members(repo, group_id, expected_domain)
-      when expected_domain in [:directory, :im_group] do
+      when expected_domain in [:directory, :im_group, :signal_source] do
     with {:ok, group} <- lock_group(repo, group_id),
          :ok <- ensure_static_group(group),
          :ok <- ensure_group_domain(group, expected_domain) do
@@ -167,14 +194,17 @@ defmodule Ankole.AuthZ.Store do
     end
   end
 
+  # The admin group lock comes before the principal lock unconditionally, in
+  # the one installation-wide admin lock order (group, then principal).
   def ensure_can_disable_principal(principal_uid, repo, admin_group_name) do
     with {:ok, principal_uid} <- Principals.normalize_uid(principal_uid),
+         admin_group <- lock_built_in_admin_group_for_update(repo, admin_group_name),
          {:ok, principal} <- fetch_principal_for_update(repo, principal_uid) do
-      case principal do
-        %Principal{type: :human, status: :active} ->
-          ensure_disabling_keeps_active_human_admin(repo, principal.uid, admin_group_name)
+      case {principal, admin_group} do
+        {%Principal{type: :human, status: :active}, %Group{}} ->
+          ensure_disabling_keeps_active_human_admin(repo, principal.uid, admin_group)
 
-        %Principal{} ->
+        {_principal, _no_admin_group_or_not_active_human} ->
           :ok
       end
     end
@@ -184,6 +214,32 @@ defmodule Ankole.AuthZ.Store do
     %Membership{}
     |> Membership.changeset(%{group_id: group_id, principal_uid: principal_uid})
     |> repo.insert(on_conflict: :nothing, conflict_target: [:principal_uid, :group_id])
+  end
+
+  # Fetch-or-create for convention-named synced groups. The re-read after an
+  # insert conflict is deliberate: the app-side UUIDv7 in the conflicting
+  # changeset never matches the winning row.
+  def ensure_synced_group(repo, attrs) when is_map(attrs) do
+    name = attrs |> Map.fetch!(:name) |> String.downcase()
+
+    case repo.get_by(Group, name: name) do
+      %Group{} = group ->
+        {:ok, group}
+
+      nil ->
+        changeset = Group.changeset(%Group{}, Map.put(attrs, :name, name))
+
+        case repo.insert(changeset, on_conflict: :nothing, conflict_target: [:name]) do
+          {:ok, _maybe_stale} ->
+            case repo.get_by(Group, name: name) do
+              %Group{} = group -> {:ok, group}
+              nil -> {:error, :group_not_found}
+            end
+
+          {:error, _reason} = error ->
+            error
+        end
+    end
   end
 
   def fetch_principal(repo, principal_uid) do
@@ -452,6 +508,15 @@ defmodule Ankole.AuthZ.Store do
     end
   end
 
+  defp lock_principals(repo, principal_uids) do
+    Enum.reduce_while(principal_uids, :ok, fn principal_uid, :ok ->
+      case fetch_principal_for_update(repo, principal_uid) do
+        {:ok, _principal} -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
   defp delete_group_memberships(_repo, _group_id, []), do: 0
 
   defp delete_group_memberships(repo, group_id, principal_uids) do
@@ -538,8 +603,8 @@ defmodule Ankole.AuthZ.Store do
          admin_group_name
        )
        when group_name == admin_group_name do
-    with {:ok, principal} <- fetch_principal_for_update(repo, principal_uid),
-         {:ok, locked_group} <- lock_group(repo, group.id),
+    with {:ok, locked_group} <- lock_group(repo, group.id),
+         {:ok, principal} <- fetch_principal_for_update(repo, principal_uid),
          :ok <- ensure_membership_exists_for_update(repo, principal.uid, locked_group.id),
          :ok <- ensure_not_last_admin_member(repo, locked_group.id, principal.uid),
          :ok <- ensure_removing_keeps_active_human_admin(repo, locked_group.id, principal) do
@@ -551,16 +616,10 @@ defmodule Ankole.AuthZ.Store do
     delete_membership(repo, principal_uid, group.id)
   end
 
-  defp ensure_disabling_keeps_active_human_admin(repo, principal_uid, admin_group_name) do
-    case lock_built_in_admin_group_for_update(repo, admin_group_name) do
-      %Group{} = admin_group ->
-        case lock_membership_for_update(repo, principal_uid, admin_group.id) do
-          %Membership{} -> ensure_not_last_active_human_admin(repo, admin_group.id, principal_uid)
-          nil -> :ok
-        end
-
-      nil ->
-        :ok
+  defp ensure_disabling_keeps_active_human_admin(repo, principal_uid, %Group{} = admin_group) do
+    case lock_membership_for_update(repo, principal_uid, admin_group.id) do
+      %Membership{} -> ensure_not_last_active_human_admin(repo, admin_group.id, principal_uid)
+      nil -> :ok
     end
   end
 

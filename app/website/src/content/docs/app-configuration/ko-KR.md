@@ -5,7 +5,7 @@ section: User guide
 order: 43
 ---
 
-**Console → AppConfigure**에는 배포 인스턴스가 서비스 중일 때 관리자가 변경할 수 있는 설정이 있습니다. 예를 들어 영구 memory, Agent 한도, 디렉터리 동기화 간격, 플러그인 스위치가 있습니다.
+**Console → AppConfigure**에는 배포 인스턴스가 서비스 중일 때 관리자가 변경할 수 있는 설정이 있습니다. 예를 들어 대화 히스토리 압축, Agent 한도, 디렉터리 동기화 간격, 플러그인 스위치가 있습니다.
 
 LLM 제공자, Identity Provider, 채팅 채널, 환경 변수는 각자 전용 Console 페이지가 있습니다. 여기에서 다시 구성하지 마세요.
 
@@ -72,7 +72,38 @@ AppConfigure 목록에는 인스턴스 오버라이드 또는 버전 기본값�
 | `ai_agent.library.agent_plugin_defaults` | 인스턴스 | Agent Plugin의 기본 활성화 상태 |
 | `ai_agent.library.skill_defaults` | 인스턴스 | Skill의 기본 활성화 상태 |
 
-### AI Gateway 및 장기 memory
+### Workflow
+
+| 키 | 범위 | 용도 |
+|---|---|---|
+| `workflow.max_concurrency_per_run` | 인스턴스 | Workflow run 하나가 요청할 수 있는 최대 task 동시성. 기본값은 `8`, 범위는 `1`–`32` |
+| `workflow.max_running_per_agent` | 인스턴스 | Agent 하나의 모든 Workflow에서 동시에 실행할 수 있는 task 수. 기본값은 `8`, 범위는 `1`–`64` |
+| `workflow.max_agent_calls_per_run` | 인스턴스 | Workflow run 하나가 만들 수 있는 총 `agent()` 호출 수. 기본값은 `256`, 범위는 `1`–`1,024` |
+
+Workflow 생성 요청은 이 상한을 높일 수 없습니다. 요청한 `concurrency`나 `max_agent_calls`가 더 높으면 Ankole이 배포 상한으로 낮추어 저장합니다. 작업 분할과 결과 확인 방법은 [Workflows](../workflows/)를 참조하세요.
+
+### Brain
+
+| 키 | 범위 | 용도 |
+|---|---|---|
+| `brain.enabled` | 인스턴스 | Brain 검색, 학습, 유지 관리를 활성화합니다. 비활성화해도 저장된 지식은 유지됩니다. |
+| `brain.embedding_model` | 인스턴스 | 벡터 검색에 사용할 Provider, 모델, 차원 수입니다. 비어 있으면 벡터 검색을 비활성화합니다. |
+| `brain.rerank_model` | 인스턴스 | 검색 결과 rerank에 사용할 Provider와 모델입니다. 비어 있으면 융합 결과 순서를 유지합니다. |
+| `brain.web_fetch_model` | 인스턴스 | URL Source 학습에 사용할 Provider와 모델입니다. 비어 있으면 URL Source 학습을 중지합니다. |
+| `brain.extraction_model` | 인스턴스 | Signal 대화와 Source에서 지식을 추출할 모델입니다. 비어 있으면 관련 학습 작업을 중지합니다. |
+| `brain.dreaming_model` | 인스턴스 | 지식을 통합하고 사람이 검토할 모순을 찾는 모델입니다. 비어 있으면 모델이 필요한 유지 관리 작업을 건너뜁니다. |
+| `brain.search_tokenizer` | 인스턴스 | BM25 tokenizer: `icu`, `jieba`, `lindera_japanese`, `lindera_korean`. 변경 후에는 BM25 index를 다시 만들어야 합니다. |
+| `brain.chunking` | 인스턴스 | Source chunk 크기, overlap, 입력 상한입니다. |
+| `brain.forgetting` | 인스턴스 | 지식 종류별 감쇠 반감기와 soft-delete purge 간격입니다. |
+| `brain.dreaming_task_cron` | 인스턴스 | 정기 지식 통합 schedule입니다. |
+| `brain.self_healing_task_cron` | 인스턴스 | 오래된 chunk, embedding, 검색 index projection을 다시 만드는 schedule입니다. |
+| `brain.signal_channel_batch_idle_time` | 인스턴스 | 대기 중인 chat message가 학습에 들어가기 전까지의 idle 초입니다. 대화 종료 시에도 학습을 시작합니다. |
+| `brain.skill_learning_enabled` | 인스턴스 | Skill lesson 학습과 전달을 활성화합니다. 비활성화하면 저장된 lesson은 유지되지만 제공되지 않습니다. |
+| `brain.skill_learning_reflection_threshold` | 인스턴스 | Agent 하나가 Skill lesson reflection을 시작하기 전에 쌓아야 하는, 아직 소비되지 않은 Signal Job 수입니다. 최솟값은 `2`입니다. |
+
+지식 동작과 모델 요구 사항은 [Brain](../brain/)을 참조하십시오. Skill과 함께 제공되는 lesson은 [Skill lessons](../skill-lessons/)를 참조하십시오.
+
+### AI Gateway 및 observability
 
 | 키 | 범위 | 용도 |
 |---|---|---|
@@ -81,11 +112,6 @@ AppConfigure 목록에는 인스턴스 오버라이드 또는 버전 기본값�
 | `observability.traces.provider` | 인스턴스 | `langfuse`, `langsmith` 또는 범용 `opentelemetry` trace의 semantic projection |
 | `observability.traces.otlp_endpoint` | 인스턴스 | optional trace의 base OTLP/HTTP endpoint |
 | `observability.traces.otlp_headers` | 인스턴스 | optional trace의 암호화된 authentication header |
-| `brain.knowledge` | 인스턴스 | 장기 memory 투영 예산 및 결과 한도 |
-| `brain.dreaming` | 인스턴스 또는 Agent | Dreaming 및 지식 큐레이션 정책 |
-| `brain.embedding` | 인스턴스 | 임베딩 모델 및 벡터 차원 |
-| `brain.search` | 인스턴스 | 장기 memory 감쇠 및 재랭킹 정책 |
-| `brain.sources` | 인스턴스 | 외부 소스 동기화 및 보존 정책 |
 
 Langfuse, LangSmith, VictoriaTraces 및 다른 OTLP/HTTP receiver 구성은 [LLM observability](../llm-observability/)를 참조하십시오.
 

@@ -55,26 +55,11 @@ defmodule Ankole.IdentityProviders.Config do
   def definitions, do: [active_definition(), directory_full_sync_interval_hours_definition()]
 
   @doc """
-  Registers identity-provider AppConfigure keys.
-  """
-  @spec ensure_registered() :: :ok | {:error, term()}
-  def ensure_registered do
-    Enum.reduce_while(definitions(), :ok, fn definition, :ok ->
-      case AppConfigure.register_definitions([definition]) do
-        :ok -> {:cont, :ok}
-        {:error, {:duplicate_key, _key}} -> {:cont, :ok}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
-  end
-
-  @doc """
   Returns the configured full-directory-sync interval in seconds.
   """
   @spec directory_full_sync_interval_seconds() :: {:ok, pos_integer()} | {:error, term()} | :error
   def directory_full_sync_interval_seconds do
-    with :ok <- ensure_registered(),
-         {:ok, hours} <- AppConfigure.get(directory_full_sync_interval_hours_definition()) do
+    with {:ok, hours} <- AppConfigure.get(directory_full_sync_interval_hours_definition()) do
       {:ok, hours * 60 * 60}
     end
   end
@@ -84,10 +69,7 @@ defmodule Ankole.IdentityProviders.Config do
   """
   @spec active_providers() :: {:ok, [activation()]} | {:error, term()}
   def active_providers do
-    with :ok <- ensure_registered(),
-         {:ok, providers} <- AppConfigure.get(active_definition()) do
-      {:ok, providers}
-    end
+    AppConfigure.get(active_definition())
   end
 
   @doc """
@@ -108,9 +90,7 @@ defmodule Ankole.IdentityProviders.Config do
   """
   @spec put_active_providers([map()]) :: {:ok, [activation()]} | {:error, term()}
   def put_active_providers(providers) when is_list(providers) do
-    with :ok <- ensure_registered() do
-      AppConfigure.put_global(active_definition(), providers)
-    end
+    AppConfigure.put_global(active_definition(), providers)
   end
 
   @doc """

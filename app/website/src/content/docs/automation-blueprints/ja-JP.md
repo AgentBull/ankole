@@ -1,13 +1,15 @@
 ---
 title: 自動化ブループリント
-description: トリガーを Agent session、automation job、background job、signal ルーティングルールと組み合わせて自動化します。
+description: トリガーを Agent session、automation job、background job、signal ルーティングルールと組み合わせ、Workflow との違いを説明します。
 section: Guides
 order: 309
 ---
 
 Ankole での自動化は、3 種類のトリガーのいずれかと、2 種類のコンシューマのいずれかを組み合わせます。Agent session は判断、memory、または会話を必要とする作業を処理します。automation job は機械的な処理を決定性スクリプトで実行します。このページでは、よくある形にそのまま使えるブループリントを紹介します。
 
-Ankole はワークフロー言語やステップグラフを追加しません。automation job とは、Agent Home 内にある通常の Bun の `main.ts` です。トリガーの owner が時刻または入り口を管理し続け、選択したコンシューマが変わらないイベントを処理します。Agent が戻るのは、スクリプトがイベントを発火したとき、または失敗ポリシーが Agent を起こしたときだけです。
+Automation job は、ワークフロー言語やステップグラフではありません。Agent Home 内にある通常の Bun の `main.ts` です。トリガーの owner が時刻または入り口を管理し続け、選択したコンシューマが変わらないイベントを処理します。Agent が戻るのは、スクリプトがイベントを発火したとき、または失敗ポリシーが Agent を起こしたときだけです。
+
+[Workflow](../workflows/) は別の実行形態です。メイン Agent が Turn の中で、固定された有界のサブエージェント編成を開始します。schedule や webhook のコンシューマではなく、外部状態をポーリングしません。1 回の delivery または会話リクエストに、並行実行できる有限の独立した判断が含まれる場合に使います。
 
 ## 3 種類のトリガー
 
@@ -103,16 +105,20 @@ Agent が現在の外部オブジェクトを検査してイベントを判断�
 - **途中で何かに戻りたい?** Checkback。タイミングは agent が所有します。
 - **長い作業を時計で始めたい?** Schedule + background job。
 - **モデル turn なしで頻繁な機械的チェックをしたい?** Schedule または Checkback + automation job。
+- **1 回の Agent Turn から有界の並行判断を始めたい?** Workflow。開始元の会話に集約結果を 1 つ返します。
 - **外部システムに作業を続けてもらいたい?** Webhook 委譲。コンシューマは直接 Agent か automation job のどちらかです。
 - **静かな観察に加えて定期的な合成が欲しい?** binding ポリシー + schedule。
 
 ## Ankole の自動化とはそうでないもの
 
-それはワークフロー言語ではありません。YAML のステップ一覧も、プラットフォームの DAG も、隠れたカーソルも、汎用イベントバスもありません。automation job は小さなスクリプトを実行できますが、状態と再実行の安全性を所有するのはスクリプト自身です。配信はそれでも owner session のルーティングルールを使い、自動化が権限を迂回することはできません。判断には Agent を、機械的な部分にだけスクリプトを使います。
+トリガーによる自動化はワークフロー言語ではありません。YAML のステップ一覧も、プラットフォームの DAG も、隠れたカーソルも、汎用イベントバスもありません。Automation Job は小さなスクリプトを実行できますが、状態と再実行の安全性を所有するのはスクリプト自身です。配信はそれでも owner session のルーティングルールを使い、自動化が権限を迂回することはできません。
+
+製品機能の Workflow も、これらの契約を追加しません。固定 JavaScript で 1 回の有界のサブエージェント fanout を実行し、トリガー subscription を持たず、後からの入力を待てません。判断には Agent、機械的なトリガー処理には Automation Job、有界の並行判断には Workflow を使います。
 
 ## 次のステップ
 
 - schedule のサーフェスについては [スケジュール](../schedules/) を読んでください。
 - 決定性スクリプトのコンシューマについては [Automation Jobs](../automation-jobs/) を読んでください。
+- 有界のサブエージェント編成については [Workflow](../workflows/) を読んでください。
 - バックグラウンド実行とコラボレーションの選択肢については [Background Agent Jobs](../background-jobs/) を読んでください。
 - 外部イベントの能力については [Webhook 委譲](../webhook-delegations/) を読んでください。

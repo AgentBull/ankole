@@ -1,3 +1,4 @@
+import { recordValue } from '@agentbull/active-support'
 import {
   Badge,
   Button,
@@ -62,7 +63,7 @@ import type {
 } from '../api/generated/types.gen'
 import { localizedText } from '../../common/config-fields'
 import i18n from '../../common/i18n'
-import { requestErrorMessage } from '../../common/request-errors'
+import { requestErrorCode, requestErrorDetails, requestErrorMessage } from '../../common/request-errors'
 import {
   ConfirmDeleteButton,
   DiscardConfirmDialog,
@@ -197,7 +198,16 @@ export function ProvidersListPage() {
                 {provider.provider_id}
               </Link>
             </TableCell>
-            <TableCell>{kind ? providerKindLabel(kind) : provider.provider_kind}</TableCell>
+            <TableCell>
+              {kind ? (
+                providerKindLabel(kind)
+              ) : (
+                <div className="flex flex-wrap items-center gap-2">
+                  <span>{provider.provider_kind}</span>
+                  <Badge variant="warning">{t('console.providers.kind_unavailable')}</Badge>
+                </div>
+              )}
+            </TableCell>
             <TableCell>
               <div className="grid gap-1">
                 <span>
@@ -276,6 +286,16 @@ export function ProviderEditorPage() {
 
   const activeKind = kinds.find(kind => kind.provider_kind === model.providerKind.value)
   const settings = connectionSettings(activeKind)
+  // A disabled plugin removes its kind from the registry while the stored
+  // provider row survives. Detect from the stored row, not the editor model,
+  // so the notice cannot flash before the model seeds.
+  const unavailableKind =
+    mode === 'edit' &&
+    kinds.length > 0 &&
+    selected &&
+    !kinds.some(kind => kind.provider_kind === selected.provider_kind)
+      ? selected.provider_kind
+      : undefined
 
   const ready = kinds.length > 0 && (mode === 'new' ? Boolean(configuredProviders) : Boolean(selected))
   useEffect(() => {
@@ -378,11 +398,18 @@ export function ProviderEditorPage() {
       }
       submitting={saveProvider.isPending}
       submitDisabled={submitDisabled}
-      submitUnavailable={!ready}
+      submitUnavailable={!ready || Boolean(unavailableKind)}
       contentWidth="wide"
       supplementary={
-        mode === 'edit' && selected && activeKind ? (
-          <CredentialPoolEditor provider={selected} providerKind={activeKind} />
+        mode === 'edit' && selected ? (
+          activeKind ? (
+            <CredentialPoolEditor provider={selected} providerKind={activeKind} />
+          ) : unavailableKind ? (
+            <section className="grid gap-1 border border-border bg-card p-5 md:p-6">
+              <h3 className="text-lg font-semibold">{t('console.providers.pool_title')}</h3>
+              <p className="max-w-2xl text-sm text-muted-foreground">{t('console.providers.pool_kind_unavailable')}</p>
+            </section>
+          ) : null
         ) : null
       }
       onSubmit={submit}>
@@ -402,9 +429,25 @@ export function ProviderEditorPage() {
             />
           )}
         </LabeledField>
-        <LabeledField label={t('console.providers.kind')} required={mode === 'new'}>
+        <LabeledField
+          label={t('console.providers.kind')}
+          required={mode === 'new'}
+          description={
+            unavailableKind ? t('console.providers.kind_unavailable_description', { kind: unavailableKind }) : undefined
+          }>
           {mode === 'edit' ? (
-            <ReadOnlyValue>{activeKind ? providerKindLabel(activeKind) : model.providerKind.value}</ReadOnlyValue>
+            <ReadOnlyValue>
+              {unavailableKind ? (
+                <span className="flex flex-wrap items-center gap-2">
+                  {unavailableKind}
+                  <Badge variant="warning">{t('console.providers.kind_unavailable')}</Badge>
+                </span>
+              ) : activeKind ? (
+                providerKindLabel(activeKind)
+              ) : (
+                model.providerKind.value
+              )}
+            </ReadOnlyValue>
           ) : (
             <Select value={model.providerKind.value} onValueChange={value => changeKind(String(value))}>
               <SelectTrigger className="w-full">
@@ -748,11 +791,14 @@ function CredentialEditorDialog({
     if (!open) return
     setLabel(entry?.label ?? '')
     setPriority(String(entry?.priority ?? 0))
-    setValues(Object.fromEntries(settings.map(setting => [setting.key, ''])))
+    // Reset only when a new editing session opens. Rendering falls back to ''
+    // per key, so the cleared map needs no entries — and no `settings`
+    // dependency, whose query-driven identity must not wipe in-progress input.
+    setValues({})
     setValidationError(undefined)
     create.reset()
     update.reset()
-  }, [entry, open, settings])
+  }, [entry, open])
 
   const submit = () => {
     setValidationError(undefined)
@@ -864,6 +910,40 @@ function CredentialEditorDialog({
   )
 }
 
+// Coded ChatGPT sign-in failures and whether their message interpolates the
+// upstream response. Each code's locale key is `console.providers.<code>`.
+const chatGPTLoginErrorCodes: Record<string, { upstream: boolean }> = {
+  chatgpt_login_rejected: { upstream: true },
+  chatgpt_login_unreachable: { upstream: true },
+  chatgpt_refresh_failed: { upstream: true },
+  chatgpt_login_denied: { upstream: false },
+  chatgpt_login_expired: { upstream: false },
+  chatgpt_login_invalid: { upstream: false }
+}
+
+/**
+ * Localizes coded ChatGPT sign-in failures and keeps the real upstream
+ * response visible; unknown failures fall back to the envelope message.
+ */
+function chatGPTLoginErrorText(error: unknown, t: (key: string, values?: Record<string, string>) => string): string {
+  if (typeof error === 'string') return error
+  const code = requestErrorCode(error) ?? ''
+  const entry = chatGPTLoginErrorCodes[code]
+  if (!entry) return requestErrorMessage(error)
+  if (!entry.upstream) return t(`console.providers.${code}`)
+
+  const details = requestErrorDetails(error)
+  const status = details.upstream_status
+  const upstreamCode = details.upstream_code ?? details.transport
+  const upstream = [
+    typeof status === 'number' ? `HTTP ${status}` : undefined,
+    typeof upstreamCode === 'string' ? upstreamCode : undefined
+  ]
+    .filter(Boolean)
+    .join(', ')
+  return upstream ? t(`console.providers.${code}`, { upstream }) : requestErrorMessage(error)
+}
+
 function ChatGPTLoginDialog({
   entry,
   onOpenChange,
@@ -890,12 +970,12 @@ function ChatGPTLoginDialog({
   }
   const start = useMutation({
     ...startChatGPTLoginMutation(),
-    onSuccess: response => setLogin(asRecord(response) ?? undefined)
+    onSuccess: response => setLogin(recordValue(response) ?? undefined)
   })
   const poll = useMutation({
     ...pollChatGPTLoginMutation(),
     onSuccess: response => {
-      const update = asRecord(response) ?? {}
+      const update = recordValue(response) ?? {}
       if (update.status === 'complete') {
         finish()
       } else {
@@ -922,7 +1002,7 @@ function ChatGPTLoginDialog({
 
   const mode = textValue(login?.mode)
   const status = textValue(login?.status)
-  const loginContext = asRecord(login?.login_context)
+  const loginContext = recordValue(login?.login_context)
   const retryAfter = numberValue(login?.retry_after) ?? numberValue(login?.interval) ?? 5
 
   useEffect(() => {
@@ -934,7 +1014,10 @@ function ChatGPTLoginDialog({
       })
     }, retryAfter * 1_000)
     return () => window.clearTimeout(timer)
-  }, [loginContext, mode, open, poll, provider.provider_id, retryAfter, status])
+    // `poll` itself is a fresh object every render; depending on it would clear
+    // and restart the countdown on every re-render. `mutate` and `isPending`
+    // are the stable parts this effect actually uses.
+  }, [loginContext, mode, open, poll.isPending, poll.mutate, provider.provider_id, retryAfter, status])
 
   const startLogin = () => {
     if (!label.trim()) {
@@ -997,7 +1080,7 @@ function ChatGPTLoginDialog({
           <div className="grid gap-4">
             {error ? (
               <p className="text-sm text-destructive" aria-live="assertive">
-                {requestErrorMessage(error)}
+                {chatGPTLoginErrorText(error, t)}
               </p>
             ) : null}
             {!login ? (
@@ -1298,8 +1381,8 @@ function credentialStatusTone(
 
 function formatCredentialUsage(t: TFunction, value: Record<string, unknown>): string | undefined {
   const buckets = [
-    [t('console.providers.usage_model'), asRecord(value.model)],
-    [t('console.providers.usage_image_generation'), asRecord(value.image_gen)]
+    [t('console.providers.usage_model'), recordValue(value.model)],
+    [t('console.providers.usage_image_generation'), recordValue(value.image_gen)]
   ] as const
 
   const parts = buckets.flatMap(([name, usage]) => {
@@ -1329,12 +1412,6 @@ function formatRateLimits(value: Record<string, unknown>): string | undefined {
     .map(([name, limit]) => `${name.replace(/^x-codex-/, '')}: ${limit}`)
 
   return parts.length > 0 ? parts.join('\n') : undefined
-}
-
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined
 }
 
 function textValue(value: unknown): string {

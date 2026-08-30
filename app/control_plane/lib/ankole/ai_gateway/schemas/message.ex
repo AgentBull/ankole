@@ -29,11 +29,6 @@ defmodule Ankole.AIGateway.Schemas.Message do
   @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
   @foreign_key_type :string
   @timestamps_opts [type: :utc_datetime_usec]
-  # `role` is now just a legacy transcript/UI projection hint, NOT the
-  # authoritative Response-item role. It is nullable because client tool calls and
-  # other non-message items do not carry a role. Response.output partitioning is
-  # decided by item provenance (item type + item-level role), not this column.
-  @roles ~w(user assistant tool im_ambient)
   # Row-level type separates ordinary message facts from compaction checkpoints.
   @types ~w(message checkpoint)
   # A message row is `generating` while still in an active Responses loop,
@@ -51,7 +46,6 @@ defmodule Ankole.AIGateway.Schemas.Message do
     belongs_to(:conversation, Conversation, type: :binary_id)
 
     field(:type, :string)
-    field(:role, :string)
     field(:status, :string)
     # Self-reference continuation anchor (renders as `previous_response_id` on the API).
     # `resp_#{id}` always equals `resp_#{ai_gateway_messages.id}` (see plan §1.4).
@@ -75,13 +69,12 @@ defmodule Ankole.AIGateway.Schemas.Message do
       :subject_uid,
       :conversation_id,
       :type,
-      :role,
       :status,
       :previous_message_id,
       :content,
       :metadata
     ])
-    |> normalize_blank([:subject_uid, :type, :status, :role])
+    |> normalize_blank([:subject_uid, :type, :status])
     |> validate_required([
       :subject_uid,
       :conversation_id,
@@ -91,14 +84,12 @@ defmodule Ankole.AIGateway.Schemas.Message do
       :metadata
     ])
     |> validate_inclusion(:type, @types)
-    |> validate_inclusion(:role, @roles)
     |> validate_inclusion(:status, @statuses)
     |> validate_json_array(:content)
     |> JSONPayload.validate_map(:metadata, allow_datetime: true)
     |> validate_type_content_contract()
     |> foreign_key_constraint(:subject_uid)
     |> foreign_key_constraint(:conversation_id)
-    |> check_constraint(:role, name: :ai_gateway_messages_role_check)
     |> check_constraint(:type, name: :ai_gateway_messages_type_check)
     |> check_constraint(:status, name: :ai_gateway_messages_status_check)
     |> check_constraint(:content, name: :ai_gateway_messages_content_array)

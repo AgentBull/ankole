@@ -213,7 +213,7 @@ defmodule AnkoleWeb.BackgroundAgentJobController do
       :turns,
       job.id
       |> BackgroundAgentJobs.list_turns()
-      |> Enum.map(&BackgroundAgentJobs.console_turn_projection/1)
+      |> BackgroundAgentJobs.console_turn_projections()
     )
   end
 

@@ -1,258 +1,192 @@
 defmodule Ankole.Brain.Scope do
   @moduledoc """
-  Brain library routing derived only from the declaration on an AIGateway
-  conversation.
+  Audience scope values for the Brain knowledge space.
 
-  The declaration lives at `conversation.metadata["brain"]`. No channel event,
-  provider metadata, or ambient runtime state is consulted as a fallback.
+  A scope is a normalized text value: `world`, `group:<principal_groups.name>`,
+  or `principal:<principals.uid>`. The prefix is part of the value, so group
+  names and Principal UIDs keep independent namespaces. Group membership is
+  resolved against current relations at check time; memberships are never
+  materialized into memory rows.
   """
 
-  alias Ankole.AIGateway.Schemas.Conversation
+  import Ecto.Query, warn: false
+
+  alias Ankole.AuthZ
   alias Ankole.Principals
+  alias Ankole.Principals.Principal
+  alias Ankole.Repo
 
-  @shared_owner_uid "brain-shared"
+  @type t :: String.t()
 
-  @enforce_keys [:owner_uid, :readable_store_keys, :writable_store_key, :current_channel]
-  defstruct [:owner_uid, :readable_store_keys, :writable_store_key, :current_channel]
+  @doc "The scope every recipient can receive."
+  @spec world() :: t()
+  def world, do: "world"
 
-  @type current_channel :: %{id: String.t(), kind: String.t()}
-  @type t :: %__MODULE__{
-          owner_uid: String.t(),
-          readable_store_keys: [String.t()] | :all,
-          writable_store_key: String.t() | nil,
-          current_channel: current_channel() | nil
-        }
+  @doc "Builds a group scope value."
+  @spec group(String.t()) :: t()
+  def group(name) when is_binary(name), do: "group:" <> name
 
-  @type error_reason ::
-          :missing_brain_scope
-          | :invalid_brain_scope
-          | :invalid_owner_uid
-          | :invalid_peer_uid
+  @doc "Builds a principal scope value."
+  @spec principal(String.t()) :: t()
+  def principal(uid) when is_binary(uid), do: "principal:" <> uid
 
-  @doc "Returns the installation Principal that owns shared long-term memory."
-  @spec shared_owner_uid() :: String.t()
-  def shared_owner_uid, do: @shared_owner_uid
+  @doc """
+  Parses a scope value into its structured form.
+  """
+  @spec parse(term()) ::
+          {:ok, :world | {:group, String.t()} | {:principal, String.t()}}
+          | {:error, :invalid_audience_scope}
+  def parse("world"), do: {:ok, :world}
+  def parse("group:" <> name) when name != "", do: {:ok, {:group, name}}
+  def parse("principal:" <> uid) when uid != "", do: {:ok, {:principal, uid}}
+  def parse(_value), do: {:error, :invalid_audience_scope}
 
-  @doc "Returns the persisted owner for a logical store in this Agent scope."
-  @spec storage_owner_uid(t(), String.t()) :: String.t()
-  def storage_owner_uid(%__MODULE__{}, "shared"), do: @shared_owner_uid
-  def storage_owner_uid(%__MODULE__{owner_uid: owner_uid}, _store_key), do: owner_uid
+  @doc """
+  Validates that a scope is well-formed and refers to an existing Group or
+  Principal. `world` always validates.
+  """
+  @spec validate(term()) :: :ok | {:error, term()}
+  def validate(scope) do
+    case parse(scope) do
+      {:ok, :world} ->
+        :ok
 
-  @doc "Returns each persisted owner and store pair visible through this scope."
-  @spec readable_scopes(t()) :: [{String.t(), String.t()}] | :all
-  def readable_scopes(%__MODULE__{readable_store_keys: :all}), do: :all
+      {:ok, {:group, name}} ->
+        case AuthZ.get_principal_group(name) do
+          {:ok, _group} -> :ok
+          {:error, :not_found} -> {:error, {:unknown_scope_group, name}}
+        end
 
-  def readable_scopes(%__MODULE__{} = scope) do
-    Enum.map(scope.readable_store_keys, &{storage_owner_uid(scope, &1), &1})
-  end
+      {:ok, {:principal, uid}} ->
+        case Principals.get_principal(uid) do
+          {:ok, _principal} -> :ok
+          {:error, _reason} -> {:error, {:unknown_scope_principal, uid}}
+        end
 
-  @doc "Parses a Brain scope from an AIGateway conversation's declared metadata."
-  @spec from_conversation(Conversation.t() | map()) :: {:ok, t()} | {:error, error_reason()}
-  def from_conversation(%{subject_uid: owner_uid, metadata: metadata}) do
-    from_metadata(owner_uid, metadata)
-  end
-
-  def from_conversation(_conversation), do: {:error, :invalid_brain_scope}
-
-  @doc "Parses the exact `metadata[\"brain\"]` declaration for an owner."
-  @spec from_metadata(term(), term()) :: {:ok, t()} | {:error, error_reason()}
-  def from_metadata(owner_uid, metadata) when is_map(metadata) do
-    with {:ok, owner_uid} <- normalize_owner(owner_uid),
-         {:ok, declaration} <- fetch_declaration(metadata) do
-      parse_visibility(owner_uid, declaration)
+      {:error, _reason} = error ->
+        error
     end
   end
 
-  def from_metadata(_owner_uid, _metadata), do: {:error, :missing_brain_scope}
+  @doc """
+  Returns whether one Principal currently satisfies a scope.
 
-  @doc "Builds an explicit console scope after the web authorization boundary."
-  @spec for_console(term(), :all | String.t()) :: {:ok, t()} | {:error, error_reason()}
-  def for_console(owner_uid, :all) do
-    with {:ok, owner_uid} <- normalize_owner(owner_uid),
-         {:ok, readable, writable} <- normalize_console_store(:all) do
-      {:ok,
-       %__MODULE__{
-         owner_uid: owner_uid,
-         readable_store_keys: readable,
-         writable_store_key: writable,
-         current_channel: nil
-       }}
+  The rule is shared by reads and writes: `world` accepts every Principal, a
+  principal scope only its own Principal, and a group scope the current group
+  members resolved at check time.
+  """
+  @spec satisfied_by?(t(), String.t()) :: boolean()
+  def satisfied_by?(scope, principal_uid) when is_binary(principal_uid) do
+    case parse(scope) do
+      {:ok, :world} ->
+        true
+
+      {:ok, {:principal, uid}} ->
+        uid == principal_uid
+
+      {:ok, {:group, name}} ->
+        case AuthZ.get_principal_group(name) do
+          {:ok, group} -> AuthZ.principal_in_group?(principal_uid, group)
+          {:error, :not_found} -> false
+        end
+
+      {:error, _reason} ->
+        false
     end
   end
 
-  def for_console(owner_uid, store_key), do: for_store(owner_uid, store_key)
+  @doc """
+  Validates write eligibility for one scope and writer.
 
-  @doc "Restricts a read capability to one store it already permits."
-  @spec restrict_read_store(t(), String.t()) :: {:ok, t()} | {:error, :brain_store_not_readable}
-  def restrict_read_store(%__MODULE__{readable_store_keys: :all} = scope, store_key)
-      when is_binary(store_key) do
-    {:ok, %{scope | readable_store_keys: [store_key]}}
-  end
+  `world` accepts every writer. A principal scope requires the target
+  Principal to exist; the writer does not have to match it. A group scope
+  requires the writer to currently satisfy it: a Principal can file knowledge
+  into its own organizational ranges but cannot claim a range it does not
+  belong to. Owner read exemptions never extend writes.
+  """
+  @spec validate_writable(term(), String.t()) :: :ok | {:error, term()}
+  def validate_writable(scope, writer_uid) when is_binary(writer_uid) do
+    case parse(scope) do
+      {:ok, :world} ->
+        :ok
 
-  def restrict_read_store(%__MODULE__{readable_store_keys: stores} = scope, store_key)
-      when is_list(stores) and is_binary(store_key) do
-    if store_key in stores,
-      do: {:ok, %{scope | readable_store_keys: [store_key]}},
-      else: {:error, :brain_store_not_readable}
-  end
+      {:ok, {:principal, uid}} ->
+        case Principals.get_principal(uid) do
+          {:ok, _principal} -> :ok
+          {:error, _reason} -> {:error, {:unknown_scope_principal, uid}}
+        end
 
-  @doc "Selects self as the explicit write target when the current scope can read it."
-  @spec select_self_store(t()) :: {:ok, t()} | {:error, :brain_store_not_writable}
-  def select_self_store(%__MODULE__{readable_store_keys: :all} = scope),
-    do: {:ok, %{scope | readable_store_keys: ["self", "shared"], writable_store_key: "self"}}
+      {:ok, {:group, name}} ->
+        case AuthZ.get_principal_group(name) do
+          {:ok, group} ->
+            if AuthZ.principal_in_group?(writer_uid, group),
+              do: :ok,
+              else: {:error, {:writer_not_in_scope_group, name}}
 
-  def select_self_store(%__MODULE__{readable_store_keys: stores} = scope) when is_list(stores) do
-    if "self" in stores do
-      readable = Enum.filter(["self", "shared"], &(&1 in stores))
-      {:ok, %{scope | readable_store_keys: readable, writable_store_key: "self"}}
-    else
-      {:error, :brain_store_not_writable}
+          {:error, :not_found} ->
+            {:error, {:unknown_scope_group, name}}
+        end
+
+      {:error, _reason} = error ->
+        error
     end
   end
 
-  @doc "Builds one explicit library scope for trusted server-side jobs or console writes."
-  @spec for_store(term(), String.t()) :: {:ok, t()} | {:error, error_reason()}
-  def for_store(owner_uid, store_key) do
-    with {:ok, owner_uid} <- normalize_owner(owner_uid),
-         {:ok, readable, writable} <- normalize_console_store(store_key),
-         true <- is_binary(writable) do
-      {:ok,
-       %__MODULE__{
-         owner_uid: owner_uid,
-         readable_store_keys: readable,
-         writable_store_key: writable,
-         current_channel: nil
-       }}
-    else
-      false -> {:error, :invalid_brain_scope}
-      {:error, _reason} = error -> error
+  @doc """
+  Returns the enumerable scope values one querier can reach.
+
+  The set is `world`, `principal:<own uid>`, and one `group:<name>` for every
+  group the querier currently belongs to, including computed groups. The
+  values feed SQL predicates directly, so knowledge-boundary filtering is a
+  prefilter instead of a post-hit filter. Author accessibility is a separate
+  predicate owned by the query layer.
+  """
+  @spec accessible_scopes(String.t()) :: {:ok, [t()]} | {:error, term()}
+  def accessible_scopes(principal_uid) when is_binary(principal_uid) do
+    with {:ok, uid} <- Principals.normalize_uid(principal_uid),
+         {:ok, groups} <- AuthZ.list_current_groups_for_principal(uid) do
+      {:ok, [world(), principal(uid) | Enum.map(groups, &group(&1.name))]}
     end
   end
 
-  defp fetch_declaration(metadata) do
-    case Map.get(metadata, "brain") do
-      nil -> {:error, :missing_brain_scope}
-      declaration when is_map(declaration) -> {:ok, declaration}
-      _invalid -> {:error, :invalid_brain_scope}
+  @doc """
+  Returns whether every listed Principal satisfies one scope. Strict
+  group-chat disclosure asks this over the present-member set; a static
+  group resolves the whole set with one membership query.
+  """
+  @spec satisfied_by_all?(t(), [String.t()]) :: boolean()
+  def satisfied_by_all?(scope, principal_uids) when is_list(principal_uids) do
+    case parse(scope) do
+      {:ok, :world} ->
+        true
+
+      {:ok, {:principal, uid}} ->
+        Enum.all?(principal_uids, &(&1 == uid))
+
+      {:ok, {:group, name}} ->
+        case AuthZ.get_principal_group(name) do
+          {:ok, group} -> AuthZ.all_in_group?(principal_uids, group)
+          {:error, :not_found} -> false
+        end
+
+      {:error, _reason} ->
+        false
     end
   end
 
-  defp parse_channel(%{"channel_id" => channel_id, "channel_kind" => channel_kind})
-       when is_binary(channel_id) and is_binary(channel_kind) do
-    channel_id = String.trim(channel_id)
-    channel_kind = String.trim(channel_kind)
-
-    if channel_id == "" or channel_kind == "" do
-      {:error, :invalid_brain_scope}
-    else
-      {:ok, %{id: channel_id, kind: channel_kind}}
-    end
-  end
-
-  defp parse_channel(_declaration), do: {:error, :invalid_brain_scope}
-
-  defp parse_visibility(owner_uid, %{"visibility" => "shared"} = declaration) do
-    with {:ok, channel} <- parse_optional_channel(declaration) do
-      {:ok,
-       %__MODULE__{
-         owner_uid: owner_uid,
-         readable_store_keys: ["shared", "self"],
-         writable_store_key: "shared",
-         current_channel: channel
-       }}
-    end
-  end
-
-  defp parse_visibility(owner_uid, %{"visibility" => "self"} = declaration) do
-    with {:ok, channel} <- parse_optional_channel(declaration) do
-      {:ok,
-       %__MODULE__{
-         owner_uid: owner_uid,
-         readable_store_keys: ["self", "shared"],
-         writable_store_key: "self",
-         current_channel: channel
-       }}
-    end
-  end
-
-  defp parse_visibility(owner_uid, %{"visibility" => "dm", "peer_uid" => peer_uid} = declaration) do
-    with {:ok, channel} <- parse_optional_channel(declaration) do
-      case Principals.normalize_uid(peer_uid) do
-        {:ok, peer_uid} ->
-          store_key = "dm:#{peer_uid}"
-
-          {:ok,
-           %__MODULE__{
-             owner_uid: owner_uid,
-             readable_store_keys: [store_key, "self", "shared"],
-             writable_store_key: store_key,
-             current_channel: channel
-           }}
-
-        {:error, :invalid_uid} ->
-          {:error, :invalid_peer_uid}
+  @doc """
+  Returns the canonical Object slug of one Principal: `people/<uid>` for
+  humans and `agents/<uid>` for Agents.
+  """
+  @spec canonical_slug(String.t()) :: {:ok, String.t()} | {:error, term()}
+  def canonical_slug(principal_uid) do
+    with {:ok, uid} <- Principals.normalize_uid(principal_uid) do
+      case Repo.one(from p in Principal, where: p.uid == ^uid, select: p.type) do
+        :human -> {:ok, "people/" <> uid}
+        :agent -> {:ok, "agents/" <> uid}
+        :system -> {:error, {:no_canonical_object, uid}}
+        nil -> {:error, {:unknown_principal, uid}}
       end
     end
   end
-
-  defp parse_visibility(owner_uid, %{"visibility" => "channel"} = declaration) do
-    with {:ok, channel} <- parse_channel(declaration) do
-      store_key = "channel:#{channel.id}"
-
-      {:ok,
-       %__MODULE__{
-         owner_uid: owner_uid,
-         readable_store_keys: [store_key, "self", "shared"],
-         writable_store_key: store_key,
-         current_channel: channel
-       }}
-    end
-  end
-
-  defp parse_visibility(_owner_uid, _declaration),
-    do: {:error, :invalid_brain_scope}
-
-  defp parse_optional_channel(declaration) do
-    case {Map.has_key?(declaration, "channel_id"), Map.has_key?(declaration, "channel_kind")} do
-      {false, false} -> {:ok, nil}
-      {true, true} -> parse_channel(declaration)
-      _partial -> {:error, :invalid_brain_scope}
-    end
-  end
-
-  defp normalize_owner(owner_uid) do
-    case Principals.normalize_uid(owner_uid) do
-      {:ok, owner_uid} -> {:ok, owner_uid}
-      {:error, :invalid_uid} -> {:error, :invalid_owner_uid}
-    end
-  end
-
-  defp normalize_console_store(:all), do: {:ok, :all, nil}
-
-  defp normalize_console_store("shared"), do: {:ok, ["shared"], "shared"}
-  defp normalize_console_store("self"), do: {:ok, ["self", "shared"], "self"}
-
-  defp normalize_console_store("dm:" <> peer_uid) do
-    case Principals.normalize_uid(peer_uid) do
-      {:ok, peer_uid} ->
-        store_key = "dm:#{peer_uid}"
-        {:ok, [store_key, "self", "shared"], store_key}
-
-      {:error, :invalid_uid} ->
-        {:error, :invalid_brain_scope}
-    end
-  end
-
-  defp normalize_console_store("channel:" <> channel_id) do
-    case String.trim(channel_id) do
-      "" ->
-        {:error, :invalid_brain_scope}
-
-      channel_id ->
-        store_key = "channel:#{channel_id}"
-        {:ok, [store_key, "self", "shared"], store_key}
-    end
-  end
-
-  defp normalize_console_store(_store_key), do: {:error, :invalid_brain_scope}
 end

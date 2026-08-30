@@ -185,11 +185,11 @@ defmodule Ankole.AIGateway.ToolContract do
 
   defp response_leaf_spec(%Descriptor{} = descriptor) do
     %{"type" => descriptor.type, "name" => descriptor.name}
-    |> maybe_put("description", descriptor.description)
-    |> maybe_put("parameters", descriptor.parameters)
-    |> maybe_put("format", descriptor.format)
+    |> Ankole.Attrs.maybe_put("description", descriptor.description)
+    |> Ankole.Attrs.maybe_put("parameters", descriptor.parameters)
+    |> Ankole.Attrs.maybe_put("format", descriptor.format)
     |> maybe_put_provider_output_schema(descriptor)
-    |> maybe_put("strict", descriptor.strict)
+    |> Ankole.Attrs.maybe_put("strict", descriptor.strict)
   end
 
   @doc """
@@ -205,14 +205,14 @@ defmodule Ankole.AIGateway.ToolContract do
       "name" => descriptor.name,
       "allowed_callers" => descriptor.allowed_callers
     }
-    |> maybe_put("namespace", descriptor.namespace)
-    |> maybe_put("namespace_description", descriptor.namespace_description)
-    |> maybe_put("description", descriptor.description)
-    |> maybe_put("parameters", descriptor.parameters)
-    |> maybe_put("format", descriptor.format)
-    |> maybe_put("output_schema", descriptor.output_schema)
-    |> maybe_put("strict", descriptor.strict)
-    |> maybe_put("__ankole_search_text", descriptor.search_text)
+    |> Ankole.Attrs.maybe_put("namespace", descriptor.namespace)
+    |> Ankole.Attrs.maybe_put("namespace_description", descriptor.namespace_description)
+    |> Ankole.Attrs.maybe_put("description", descriptor.description)
+    |> Ankole.Attrs.maybe_put("parameters", descriptor.parameters)
+    |> Ankole.Attrs.maybe_put("format", descriptor.format)
+    |> Ankole.Attrs.maybe_put("output_schema", descriptor.output_schema)
+    |> Ankole.Attrs.maybe_put("strict", descriptor.strict)
+    |> Ankole.Attrs.maybe_put("__ankole_search_text", descriptor.search_text)
     |> maybe_put_true("defer_loading", descriptor.deferred?)
   end
 
@@ -723,15 +723,12 @@ defmodule Ankole.AIGateway.ToolContract do
     end
   end
 
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
-
   # OpenAI function tools can declare `output_schema` for PTC. Custom tools
   # cannot. Keep the schema in the frozen local descriptor so program replay
   # can decode and validate the result, but do not send it on the provider's
   # custom-tool declaration.
   defp maybe_put_provider_output_schema(map, %Descriptor{type: "function"} = descriptor),
-    do: maybe_put(map, "output_schema", descriptor.output_schema)
+    do: Ankole.Attrs.maybe_put(map, "output_schema", descriptor.output_schema)
 
   defp maybe_put_provider_output_schema(map, %Descriptor{}), do: map
 

@@ -22,7 +22,7 @@ defmodule Ankole.AIGatewayCase do
       alias Ankole.AIGateway.ProviderConfigs, warn: false
       alias Ankole.AIAgent.ModelProfiles, warn: false
       alias Ankole.SignalsGateway.ActorRuntime.RPCLane, warn: false
-      alias AnkoleWeb.AIGatewayTokens, warn: false
+      alias Ankole.AIGateway.Tokens, warn: false
     end
   end
 

@@ -153,8 +153,8 @@ has semantic execution, lifecycle, and outcome, C has semantic execution and
 outcome, and D has outcome only.
 
 Future A1-A4 suites should add Ankole Harness adapters and controlled tasks,
-not behavior to this framework. A1 needs model-visible provider input plus
-Brain lifecycle evidence; A2 needs parent and delegated semantic trajectories
+not behavior to this framework. A1 needs model-visible provider input; A2
+needs parent and delegated semantic trajectories
 plus stance outcome evidence; A3 needs a same-session multi-turn trajectory;
 and A4 needs Job lifecycle plus independently fetched artifact or revision
 evidence. Existing Ankole E2E fixtures remain the owner of product startup,

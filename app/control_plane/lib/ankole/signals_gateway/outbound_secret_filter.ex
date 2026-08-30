@@ -83,13 +83,11 @@ defmodule Ankole.SignalsGateway.OutboundSecretFilter do
   end
 
   defp worker_auth_values do
-    with :ok <- WorkerAuthKey.ensure_registered() do
-      case AppConfigure.get(WorkerAuthKey.definition()) do
-        {:ok, value} when is_binary(value) -> {:ok, [value]}
-        :error -> {:ok, []}
-        {:error, reason} -> {:error, {:worker_auth_key_unavailable, reason}}
-        {:ok, _value} -> {:error, :invalid_worker_auth_key}
-      end
+    case AppConfigure.get(WorkerAuthKey.definition()) do
+      {:ok, value} when is_binary(value) -> {:ok, [value]}
+      :error -> {:ok, []}
+      {:error, reason} -> {:error, {:worker_auth_key_unavailable, reason}}
+      {:ok, _value} -> {:error, :invalid_worker_auth_key}
     end
   end
 

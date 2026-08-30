@@ -215,6 +215,7 @@ defmodule FeishuOpenAPI.TokenManager do
      %{
        client: client,
        fetches: %{},
+       fetch_tasks: %{},
        refresh_timers: %{}
      }}
   end
@@ -255,6 +256,26 @@ defmodule FeishuOpenAPI.TokenManager do
   end
 
   def handle_info({:fetch_done, key, result}, state) do
+    state = drop_fetch_task_monitor(state, key)
+    {:noreply, finish_fetch(state, key, result)}
+  end
+
+  def handle_info({:DOWN, ref, :process, _pid, reason}, state) do
+    case Map.pop(state.fetch_tasks, ref) do
+      {nil, _fetch_tasks} ->
+        {:noreply, state}
+
+      {key, fetch_tasks} ->
+        result = {:error, fetch_crash_error(state.client, key, :exit, reason, [])}
+        {:noreply, finish_fetch(%{state | fetch_tasks: fetch_tasks}, key, result)}
+    end
+  end
+
+  def handle_info(_other, state), do: {:noreply, state}
+
+  # Internal
+
+  defp finish_fetch(state, key, result) do
     {waiters, fetches} = Map.pop(state.fetches, key, [])
     state = %{state | fetches: fetches}
 
@@ -275,12 +296,8 @@ defmodule FeishuOpenAPI.TokenManager do
           state
       end
 
-    {:noreply, state}
+    state
   end
-
-  def handle_info(_other, state), do: {:noreply, state}
-
-  # Internal
 
   defp client_result({:ok, token, expires_at}, min_validity_ms) do
     remaining_ms = expires_at - System.monotonic_time(:millisecond)
@@ -386,16 +403,36 @@ defmodule FeishuOpenAPI.TokenManager do
     parent = self()
     client = state.client
 
-    case Task.Supervisor.start_child(FeishuOpenAPI.EventTaskSupervisor, fn ->
+    case start_fetch_task(fn ->
            result = safe_do_fetch(client, key)
            send(parent, {:fetch_done, key, result})
          end) do
-      {:ok, _pid} ->
-        %{state | fetches: fetches}
+      {:ok, pid} ->
+        ref = Process.monitor(pid)
+        %{state | fetches: fetches, fetch_tasks: Map.put(state.fetch_tasks, ref, key)}
 
       {:error, reason} ->
         send(parent, {:fetch_done, key, {:error, fetch_start_failed_error(client, key, reason)}})
         %{state | fetches: fetches}
+    end
+  end
+
+  defp start_fetch_task(fun) do
+    try do
+      Task.Supervisor.start_child(FeishuOpenAPI.EventTaskSupervisor, fun)
+    catch
+      :exit, reason -> {:error, reason}
+    end
+  end
+
+  defp drop_fetch_task_monitor(state, key) do
+    case Enum.find(state.fetch_tasks, fn {_ref, task_key} -> task_key == key end) do
+      nil ->
+        state
+
+      {ref, ^key} ->
+        Process.demonitor(ref, [:flush])
+        %{state | fetch_tasks: Map.delete(state.fetch_tasks, ref)}
     end
   end
 

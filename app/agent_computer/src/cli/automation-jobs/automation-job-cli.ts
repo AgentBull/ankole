@@ -1,6 +1,8 @@
-import { AUTOMATION_JOB_CLI_SOCKET_ENV } from '../../core/turns/turn_runtime_env'
+import { positiveInteger } from '../primitives'
+import { AUTOMATION_JOB_CLI_SOCKET_ENV } from '../../core/execution/turn_runtime_env'
 import { AutomationJobCLICommand, type AutomationJobCLICommand as Command } from './automation-job-cli-protocol'
 import { requestAutomationJobCLI } from './automation-job-cli-client'
+import { errorMessage } from '../../common/errors'
 
 const usage = `Usage:
   create-automation-job-cli --dir <path> --label <text> [--wake-on-failure]
@@ -86,7 +88,7 @@ if (import.meta.main) {
       process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
     }
   } catch (error) {
-    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n${usage}\n`)
+    process.stderr.write(`${errorMessage(error)}\n${usage}\n`)
     process.exitCode = 1
   }
 }
@@ -177,10 +179,4 @@ function optionalPositiveInteger(
 ): Partial<Record<'limit' | 'runs', number>> {
   if (!options.has(name)) return {}
   return { [field]: positiveInteger(requiredOption(options, name), name) }
-}
-
-function positiveInteger(value: string, name: string): number {
-  const parsed = Number(value)
-  if (!Number.isSafeInteger(parsed) || parsed <= 0) throw new Error(`${name} must be a positive integer`)
-  return parsed
 }

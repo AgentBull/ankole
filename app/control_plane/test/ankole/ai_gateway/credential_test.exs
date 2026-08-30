@@ -16,12 +16,12 @@ defmodule Ankole.AIGateway.CredentialTest do
   test "agent API key JWT carries the AIGateway audience, scope, subject, and 30 day expiry" do
     %{principal: agent} = agent_fixture()
 
-    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+    assert {:ok, api_key} = Tokens.mint_for_agent(agent.uid)
     assert api_key.scope == "ai_gateway"
     assert api_key.token_type == "Bearer"
     assert api_key.expires_in == 30 * 24 * 60 * 60
 
-    assert {:ok, claims} = AIGatewayTokens.verify_api_key(api_key.api_key)
+    assert {:ok, claims} = Tokens.verify_api_key(api_key.api_key)
     assert claims["aud"] == "ankole.ai_gateway"
     assert claims["scope"] == "ai_gateway"
     assert claims["sub"] == agent.uid
@@ -51,7 +51,7 @@ defmodule Ankole.AIGateway.CredentialTest do
     assert response.scope == "ai_gateway"
     assert response.expires_in == 30 * 24 * 60 * 60
     assert String.ends_with?(response.base_url, "/api/v1/ai-gateway")
-    assert {:ok, claims} = AIGatewayTokens.verify_api_key(response.api_key)
+    assert {:ok, claims} = Tokens.verify_api_key(response.api_key)
     assert claims["sub"] == agent.uid
   end
 

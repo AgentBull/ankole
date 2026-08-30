@@ -8,6 +8,8 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
 
   import Ankole.PrincipalsFixtures
 
+  alias Ankole.AIGateway.Conversations
+
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIGateway.Compaction
   alias Ankole.AIGateway.Events
@@ -378,7 +380,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
              })
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(agent.uid, "socket-implicit-admission-conflict")
+      Conversations.ensure_conversation(agent.uid, "socket-implicit-admission-conflict")
 
     {:ok, root} =
       StatefulResponses.start_response_run(%{
@@ -1443,7 +1445,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
              })
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(agent.uid, "socket-native-read-credit")
+      Conversations.ensure_conversation(agent.uid, "socket-native-read-credit")
 
     actor_event =
       actor_event_fixture(agent.uid, conversation.conversation_key, "socket-native-read-credit")
@@ -1526,7 +1528,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
              })
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(agent.uid, "socket-issuer-change")
+      Conversations.ensure_conversation(agent.uid, "socket-issuer-change")
 
     {:ok, root} =
       StatefulResponses.start_response_run(%{
@@ -2082,7 +2084,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     assert StatefulResponses.latest_visible_leaf(conversation.id) == nil
   end
 
-  test "stateful terminal commit failure sends failed frame instead of completed" do
+  test "stateful terminal commit failure closes without a terminal frame" do
     message_id = Ecto.UUID.generate()
     ref = make_ref()
 
@@ -2105,22 +2107,12 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
       }
     }
 
-    assert {{:push, {:text, pushed}, _state}, _log} =
+    assert {{:stop, :stateful_commit_failed, 1011, [], state}, _log} =
              with_log(fn ->
                handle_test_event(%{active_stream: active}, ref, chunk, 3)
              end)
 
-    expected_response_id = "resp_#{message_id}"
-
-    assert %{
-             "type" => "response.failed",
-             "sequence_number" => 3,
-             "response" => %{
-               "id" => ^expected_response_id,
-               "status" => "failed",
-               "error" => %{"code" => "stateful_commit_failed"}
-             }
-           } = Ankole.JSON.decode!(pushed)
+    refute Map.has_key?(state, :active_stream)
   end
 
   test "stateful terminal commit does not project Actor state or attachments" do
@@ -2501,9 +2493,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
   test "stateful overflow sends structured context_overflow error frame" do
     {agent, conversation, _actor_event, message} =
       stateful_message("socket-overflow", [
-        media_message_with_memory_nudge(
-          "https://files.example.test/#{String.duplicate("large", 40)}.png"
-        )
+        media_message("https://files.example.test/#{String.duplicate("large", 40)}.png")
       ])
 
     with_compaction_config(threshold: 0.50, max_threshold_tokens: 10, tail_rows: 1)
@@ -2595,7 +2585,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
              })
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(agent.uid, "socket-conversation-without-actor-event")
+      Conversations.ensure_conversation(agent.uid, "socket-conversation-without-actor-event")
 
     request =
       Ankole.JSON.encode!(%{
@@ -2627,7 +2617,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     %{principal: agent} = agent_fixture()
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(agent.uid, "socket-tool-results-record")
+      Conversations.ensure_conversation(agent.uid, "socket-tool-results-record")
 
     actor_event =
       actor_event_fixture(agent.uid, conversation.conversation_key, "socket-tool-results-record")
@@ -2717,7 +2707,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     %{principal: agent} = agent_fixture()
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(agent.uid, "socket-tool-results-quarantine")
+      Conversations.ensure_conversation(agent.uid, "socket-tool-results-quarantine")
 
     {:ok, anchor} =
       StatefulResponses.start_response_run(%{
@@ -2795,7 +2785,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
              })
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(agent.uid, "socket-duplicate-actor-event")
+      Conversations.ensure_conversation(agent.uid, "socket-duplicate-actor-event")
 
     actor_event =
       actor_event_fixture(agent.uid, conversation.conversation_key, "socket-duplicate-event")
@@ -2973,7 +2963,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
              })
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(agent.uid, "socket-upstream-429")
+      Conversations.ensure_conversation(agent.uid, "socket-upstream-429")
 
     actor_event =
       actor_event_fixture(agent.uid, conversation.conversation_key, "socket-event-upstream-429")
@@ -3082,7 +3072,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
              })
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(agent.uid, "socket-upstream-large-503")
+      Conversations.ensure_conversation(agent.uid, "socket-upstream-large-503")
 
     actor_event =
       actor_event_fixture(
@@ -3165,7 +3155,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     %{principal: agent} = agent_fixture()
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(agent.uid, "socket-test-#{session_suffix}")
+      Conversations.ensure_conversation(agent.uid, "socket-test-#{session_suffix}")
 
     actor_event =
       actor_event_fixture(
@@ -3350,21 +3340,13 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     }
   end
 
-  defp media_message_with_memory_nudge(image_url) do
+  defp media_message(image_url) do
     %{
       "type" => "message",
       "role" => "user",
-      "content" => [
-        %{"type" => "input_image", "image_url" => image_url},
-        %{
-          "type" => "input_text",
-          "text" => "[#{brain_pre_compaction_nudge_marker()}]"
-        }
-      ]
+      "content" => [%{"type" => "input_image", "image_url" => image_url}]
     }
   end
-
-  defp brain_pre_compaction_nudge_marker, do: "ankole.brain.pre_compaction_nudge.v1"
 
   defp with_compaction_config(config) do
     assert {:ok, _config} = Compaction.put_config(Map.new(config))

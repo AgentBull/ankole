@@ -57,7 +57,7 @@ signal ルーティングルールは Signal Binding として保存され、1 �
 | `PATCH` | `/agents/:agent_uid/signal-bindings/:binding_name` | ルーティングルールを更新する |
 | `DELETE` | `/agents/:agent_uid/signal-bindings/:binding_name` | ルーティングルールを削除する |
 
-ルールは、使うアダプタ、設定の参照、フィルタルール、グループメッセージポリシー、`enabled` フラグ、`confidential_memory` フラグを持ちます。ルールを無効にすると、新しい事実がその Actor を起こすのを止めますが、ルール自体は削除しません。利用できないルールは `unavailable_reason` を記録し、運用者が停止の理由を確認できるようにします。
+ルールは、使うアダプタ、設定の参照、フィルタルール、グループメッセージポリシー、`enabled` フラグを持ちます。ルールを無効にすると、新しい事実がその Actor を起こすのを止めますが、ルール自体は削除しません。利用できないルールは `unavailable_reason` を記録し、運用者が停止の理由を確認できるようにします。
 
 アダプタはハードコードされていません。起動時に `signals_gateway.adapter` 契約の下でプラグインレジストリから解決されるため、利用できる provider の集合は、この導入インスタンスのプラグインが宣言するものになります。どの宣言も提供しないアダプタ id へのリクエストは `signal_adapter_not_found` を返します。
 

@@ -1,7 +1,6 @@
 defmodule Ankole.Plugins.GoogleWorkspaceAdapterTest do
   use Ankole.DataCase, async: false
 
-  alias Ankole.AppConfigure
   alias Ankole.AuthZ
   alias Ankole.AuthZ.Membership
   alias Ankole.Plugins.GoogleWorkspaceAdapter
@@ -49,7 +48,6 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapterTest do
     # registries, so config-key writes re-register this plugin's patterns.
     AppConfigureRegistry.clear_for_test()
     AppConfigureCache.clear_for_test()
-    :ok = AppConfigure.register_patterns(GoogleWorkspaceAdapter.app_config_patterns())
     previous = Req.default_options()
     on_exit(fn -> Req.default_options(previous) end)
   end
@@ -79,13 +77,6 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapterTest do
       assert fields["oidc.allowedDomains"].requiredWhen == [%{path: "oidc.enabled", value: true}]
       assert fields["serviceAccountKey"].requiredWhen == [%{path: "sync.contacts", value: true}]
       assert fields["adminEmail"].requiredWhen == [%{path: "sync.contacts", value: true}]
-      assert fields["clientID"].label["zh-Hans-CN"] == "OAuth 客户端 ID"
-      assert fields["clientSecret"].label["zh-Hans-CN"] == "OAuth 客户端密钥"
-      assert fields["oidc.scopes"].label["zh-Hans-CN"] == "登录权限范围"
-      assert fields["serviceAccountKey"].label["zh-Hans-CN"] == "服务账号 JSON 密钥"
-      assert fields["adminEmail"].label["zh-Hans-CN"] == "委派管理员邮箱"
-      assert fields["sync.contacts"].label["zh-Hans-CN"] == "同步通讯录"
-      assert fields["sync.pageSize"].label["zh-Hans-CN"] == "每页同步数量"
 
       assert fields["oidc.allowedDomains"].validation.pattern ==
                "^[A-Za-z0-9][A-Za-z0-9.-]*\\.[A-Za-z]{2,}$"
@@ -195,7 +186,7 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapterTest do
   end
 
   describe "OIDC login" do
-    test "authorization_url respects the oidc gate and hints a single domain" do
+    test "authorization_url hints a single domain" do
       {:ok, config} = Config.validate_identity_config(identity_config())
 
       assert {:ok, url} =
@@ -207,17 +198,6 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapterTest do
       query = url |> URI.parse() |> Map.fetch!(:query) |> URI.decode_query()
       assert query["hd"] == "example.com"
       assert query["client_id"] == "client-1"
-
-      {:ok, disabled} =
-        Config.validate_identity_config(
-          identity_config(%{"oidc" => %{"enabled" => false, "allowedDomains" => []}})
-        )
-
-      assert {:error, :oidc_disabled} =
-               IdentityProvider.authorization_url(disabled,
-                 redirect_uri: "https://ankole.example.com/cb",
-                 state: "state-1"
-               )
     end
 
     test "verify_login_claims fails closed on every gate" do

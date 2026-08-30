@@ -47,14 +47,55 @@ export function stripAnsi(text: string): string {
  * parity.
  */
 export function truncateOutput(text: string, max = MAX_OUTPUT_CHARS): string {
+  return truncateOutputDetailed(text, max).text
+}
+
+/** `truncateOutput` plus the counts a caller needs to decide on persisting the full output. */
+export function truncateOutputDetailed(
+  text: string,
+  max = MAX_OUTPUT_CHARS
+): { text: string; omittedChars: number; totalChars: number } {
   const cleaned = sanitizeBinaryOutput(stripAnsi(text))
-  if (cleaned.length <= max) return cleaned
+  if (cleaned.length <= max) return { text: cleaned, omittedChars: 0, totalChars: cleaned.length }
   const head = Math.floor(max * 0.4)
   const tail = max - head
   const omitted = cleaned.length - max
   const prefix = truncateUtf16Safe(cleaned, head)
   const suffix = truncateUtf16SafeTail(cleaned, tail)
-  return `${prefix}\n... [output truncated — ${omitted} chars omitted of ${cleaned.length} total] ...\n${suffix}`
+  return {
+    text: `${prefix}\n... [output truncated — ${omitted} chars omitted of ${cleaned.length} total] ...\n${suffix}`,
+    omittedChars: omitted,
+    totalChars: cleaned.length
+  }
+}
+
+/**
+ * Clips text to a character budget on line boundaries, keeping the head. The
+ * head is the right end to keep for ranked or numbered output where the most
+ * relevant content comes first. Always keeps at least one line; a first line
+ * longer than the whole budget is clipped mid-line as the only exception.
+ */
+export function clipLinesToBudget(
+  text: string,
+  maxChars: number
+): { text: string; clipped: boolean; keptLines: number; totalLines: number } {
+  const lines = text.split('\n')
+  if (text.length <= maxChars) {
+    return { text, clipped: false, keptLines: lines.length, totalLines: lines.length }
+  }
+
+  const kept: string[] = []
+  let used = 0
+  for (const line of lines) {
+    const cost = line.length + (kept.length > 0 ? 1 : 0)
+    if (used + cost > maxChars) break
+    kept.push(line)
+    used += cost
+  }
+  if (kept.length === 0) {
+    return { text: truncateUtf16Safe(lines[0] ?? '', maxChars), clipped: true, keptLines: 1, totalLines: lines.length }
+  }
+  return { text: kept.join('\n'), clipped: true, keptLines: kept.length, totalLines: lines.length }
 }
 
 export interface NumberedLines {
@@ -66,26 +107,23 @@ export interface NumberedLines {
 }
 
 /**
- * Renders `LINE_NUM|CONTENT` with 1-indexed pagination (the read_file format). Line
+ * Renders `LINE_NUM|CONTENT` for one pre-sliced page (the read_file format). Line
  * numbers are 1-based to match what an editor shows the user, so the model can refer to
- * a line the same way a person would. `offset` is clamped to >= 1 so a 0/negative value
- * does not slice from the wrong place.
+ * a line the same way a person would.
  *
- * @param offset - 1-based first line to emit.
- * @param limit - Maximum lines to emit from `offset`.
+ * @param lines - The window `[startLine, startLine + lines.length)`, already sliced by
+ *          the sandbox reader. Each line arrives clipped to its first 8 KB of bytes,
+ *          which always covers the 2000-char clip below unless sanitization strips
+ *          most of a line's first 8 KB (accepted: such a line renders from its
+ *          retained prefix only).
  * @returns The numbered text, the file's total line count, and whether more lines remain
  *          past this page (so read_file can hint that the model should continue).
  */
-export function numberLines(content: string, offset: number, limit: number): NumberedLines {
-  const lines = content.split('\n')
-  if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop() // trailing newline
-  const totalLines = lines.length
-  const start = Math.max(1, offset)
-  const slice = lines.slice(start - 1, start - 1 + limit)
-  const endLine = slice.length === 0 ? start - 1 : start + slice.length - 1
-  const text = slice
+export function renderNumberedWindow(lines: string[], startLine: number, totalLines: number): NumberedLines {
+  const endLine = lines.length === 0 ? startLine - 1 : startLine + lines.length - 1
+  const text = lines
     .map((line, index) => {
-      const lineNumber = start + index
+      const lineNumber = startLine + index
       const safeLine = sanitizeBinaryOutput(line)
       // Over-long single lines are clipped with a marker so one pathological line can't
       // blow past the read budget while the rest of the page is still useful.
@@ -97,8 +135,8 @@ export function numberLines(content: string, offset: number, limit: number): Num
     })
     .join('\n')
   // `truncated` is true when the page stopped short of the end of file (more to read),
-  // computed from where the slice ended rather than whether `limit` was hit.
-  return { endLine, startLine: start, text, totalLines, truncated: totalLines > start - 1 + slice.length }
+  // computed from where the window ended rather than whether the limit was hit.
+  return { endLine, startLine, text, totalLines, truncated: totalLines > startLine - 1 + lines.length }
 }
 
 /**

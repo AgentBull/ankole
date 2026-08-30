@@ -2,10 +2,11 @@ defmodule Ankole.SignalsGateway.BindingMembership do
   @moduledoc """
   Host-owned projection of a signal binding's current IM-group membership.
 
-  Provider adapters observe whether their bot-backed binding is joined or left,
-  while this module owns the durable metadata shape consumed by
-  `Ankole.SignalsGateway.Visibility`. This is separate from human AuthZ group
-  membership and from provider online-presence APIs.
+  Provider adapters observe whether their bot-backed binding is joined or left
+  and project that observation into a group's metadata; the same adapters read
+  it back through `joined?/2` and `all_left?/1` to decide sync and cleanup
+  behavior. This is separate from human AuthZ group membership and from
+  provider online-presence APIs.
   """
 
   alias Ankole.SignalsGateway.AdapterContext
@@ -77,6 +78,21 @@ defmodule Ankole.SignalsGateway.BindingMembership do
       when is_binary(agent_uid) and is_binary(binding_name) do
     get_in(memberships(metadata), [key(String.downcase(agent_uid), binding_name), "state"]) ==
       "joined"
+  end
+
+  @doc """
+  Returns the distinct Agent UIDs of the currently joined bindings.
+  """
+  @spec joined_agent_uids(map() | nil) :: [String.t()]
+  def joined_agent_uids(metadata) do
+    metadata
+    |> memberships()
+    |> Enum.filter(fn {_key, membership} ->
+      is_map(membership) and Map.get(membership, "state") == "joined"
+    end)
+    |> Enum.map(fn {_key, membership} -> Map.get(membership, "agent_uid") end)
+    |> Enum.filter(&is_binary/1)
+    |> Enum.uniq()
   end
 
   @doc """

@@ -68,6 +68,20 @@ A binding update treats `config` as a patch. It keeps fields that the request
 does not contain, so an operator can change routing without re-entering stored
 provider secrets.
 
+Each `signals_gateway.adapter` declaration must set `adapter_category` to one
+of these values:
+
+- `enterprise_im` identifies an enterprise messaging adapter. Lark, Slack,
+  Microsoft Teams, DingTalk, and WeCom use this category.
+- `consumer_im` identifies a consumer messaging adapter. Telegram and Discord
+  use this category.
+
+The category is catalog metadata. The adapter catalog, documentation, and
+Console use it to group adapters. It does not control identity admission,
+authorization, routing, capabilities, or default policies. A binding does not
+store the category; each catalog read gets it from the current adapter
+declaration. A missing or unknown category makes the declaration invalid.
+
 The Console edit read returns normal configuration values, omits every
 adapter-declared encrypted value, and lists only the paths that already contain
 a secret. A binding update keeps the stored encrypted value when its patch
@@ -78,15 +92,6 @@ Disabling a binding sets its enabled flag to false. It does not remove the
 binding, its configuration, or the `(agent_uid, binding_name)` history key. The
 Console hides disabled bindings by default and lets an operator show, edit, or
 enable them again.
-
-When a binding update changes group memory between shared and confidential,
-the next turn in each affected group starts a new AIGateway conversation. This
-prevents the old transcript and Brain snapshot from crossing the new memory
-boundary.
-
-Each accepted message records its Brain store for every receiving Agent. A
-later binding update does not reclassify messages that are still waiting for
-Dreaming. It changes the route only for later ingress.
 
 An enabled binding can still have an `unavailable_reason`. SignalsGateway then
 rejects new input without deleting the configuration.
@@ -200,13 +205,49 @@ Entry receipt follows this sequence:
 1. Resolve the binding.
 2. Convert the input to `IngressFact`.
 3. Apply the binding filter.
-4. Update the local provider copy when the policy permits it.
-5. Update or finalize an inbound batch when the entry is IM traffic.
-6. Write an ActorEvent when the Agent must do work.
-7. Notify ActorRuntime after the transaction commits.
+4. Admit the author (see "Admit the Author" below).
+5. Update the local provider copy when the policy permits it.
+6. Update or finalize an inbound batch when the entry is IM traffic.
+7. Write an ActorEvent when the Agent must do work.
+8. Notify ActorRuntime after the transaction commits.
 
 A filtered event returns `filtered` successfully. SignalsGateway stores no
 provider copy or ActorEvent for it.
+
+## Admit the Author
+
+`IdentityAdmission` maps the entry author to a Principal before any durable
+write. Adapters supply candidate subject ids in stability order plus a display
+name; they do not resolve or create Principals themselves.
+
+Identification is automatic and best effort. An existing platform-subject
+binding for any candidate id wins, then the owner of the platform-reported
+email, then the owner of the mobile number. When the exact ids miss and the
+adapter declares an `author_hydrator`, the gateway fetches the sender's contact
+profile once to feed the contact match. An identity provider that cannot
+auto-map simply has no matching rows; that case needs no declaration.
+
+What an unmatched sender means is the binding's `unmatched_sender_policy`:
+
+- `manual_review` (default): the sender gets no processing at all — no
+  provider copy, no inbound batch. A message that
+  addresses the Agent records one row in `identity_mapping_requests` and
+  answers with one fixed localized notice that tells the sender to ask an
+  administrator to bind the account. Unaddressed group chatter from an
+  unmatched sender is ignored silently.
+- `create_standalone`: the gateway creates a standalone human Principal for
+  the sender and serves them at once.
+
+A sender whose Principal is disabled is ignored without a notice.
+
+Every admitted sender also joins the binding's `signal_source` AuthZ group
+(`signal_source:<agent_uid>:<binding_name>`), so permission policy can address
+"users of this signal source". Directory sync maintains the matching
+provider-wide group (`<provider_id>:members:all`); the difference between the
+two expresses "third-party users of a source".
+
+Reactions and provider actions do not pass identity admission. A card action
+resolves its operator through the reply-interaction flow instead.
 
 Every direct message gives the Agent explicit input.
 A structured Agent mention makes a group message explicit.
@@ -283,11 +324,25 @@ older event when a newer event covers the same Session and channel.
 
 ### Ambient Judgments and the Channel Cursor
 
-The Worker recognizer reports each `may_intervene` decision through the
-`signal_channel.ambient_judgment.record` RPC operation before the visible turn
-starts or the event completes silently. One transaction stores the judgment
-row, advances the channel `ambient_judged_until` cursor to the batch
-watermark, and applies an accepted `asked_by` attribution.
+The Worker recognizer reports one action through the
+`signal_channel.ambient_judgment.record` RPC operation before a visible turn
+starts or the event completes silently. The action is `NOOP`,
+`FOREGROUND_REPLY`, `NEW_WORK`, or `HANDOFF`. `NEW_WORK` also reports whether a
+direct human request, a standing order, or neither source authorizes the work.
+The recognizer never creates a Job.
+
+The ambient admission transaction gives the recognizer at most eight live Job
+candidates. Every candidate belongs to the same Agent, owner Session, signal
+channel, and binding. If more candidates exist, the list is incomplete and
+`HANDOFF` is unavailable.
+
+The judgment operation rechecks the binding, expiry, and scene hash. One
+transaction stores the first canonical judgment, advances the channel
+`ambient_judged_until` cursor to the batch watermark, and applies an accepted
+`asked_by` attribution. A `HANDOFF` transaction also locks the exact live Job,
+rechecks its owner Session and reply route, and appends one idempotent
+`command.steer` that contains only the new messages. A retry returns the first
+action and target instead of replacing them.
 
 The ambient payload splits observations at the cursor. `observed_messages`
 holds only messages after the cursor, merged with the triggering batch.
@@ -299,6 +354,11 @@ An accepted `asked_by` names one mirrored human message in the judged batch.
 The control plane stores it on the ActorEvent, and outbound replies anchor to
 that entry instead of the batch tail. A failed validation records a degraded
 attribution and the wake stays proactive.
+
+`FOREGROUND_REPLY` cannot create or respawn a Job. `NEW_WORK` without a direct
+request or matching standing order starts a confirmation-only Text Turn with
+no local or provider-hosted tools. An authorized `NEW_WORK` enters the normal
+owner Text Turn, which still applies the standard approval and Job policies.
 
 ### Channel Standing Orders
 
@@ -333,9 +393,46 @@ Common ActorEvent types include:
 - `background_agent_job.completed`
 - `background_agent_job.failed`
 - `background_agent_job.waiting`
+- `workflow.run.completed`
+- `workflow.run.failed`
+- `workflow.run.attention`
+- `workflow.task.dispatch`
+- `workflow.task.wakeup`
+- `workflow.task.message`
 
 `input_state` is `open` or `dead_letter`. Normal completion sets `completed_at`
 and keeps the row as history.
+
+### Async Work Units
+
+BackgroundAgentJobs, Workflow runs, and Workflow tasks are async work units
+that follow one actor contract on top of ActorEvents:
+
+1. **Address and ownership.** The session id is the address. The
+   `owner_session_id` recorded at creation is the parent: a main session owns
+   its Jobs and runs, a run owns its task calls, and a task session owns the
+   Jobs it delegates. Tool access stays Agent-scoped; the tree only routes
+   signals.
+2. **Mail in.** A parent sends asynchronous, idempotent mail
+   (`command.steer` for Jobs, `workflow.task.message` for tasks). Mail wakes a
+   hibernating unit and queues behind a live turn. Bounded synchronous
+   observation (`wait_reply`) is a per-kind capability, not part of the
+   contract.
+3. **Signals up, one level.** Each unit emits exactly one idempotent terminal
+   event to its parent, plus at most one live attention signal
+   (`background_agent_job.waiting`, `workflow.run.attention`) when it cannot
+   proceed without input. An intermediate owner coalesces: a run aggregates
+   task outcomes into one terminal event and rate-limits attention with an
+   hour-bucket source id. Progress is never pushed; parents pull through the
+   show tools.
+4. **Durable handoff.** Terminal payloads carry enough durable fact that the
+   dead-letter notice can deliver the outcome without the Agent runtime that
+   failed to relay it.
+
+Hibernation is state, not process: a sleeping Workflow task is a durable row
+plus a scheduled wake event, and holds no Worker resources. See
+[Workflow](Workflow.md) and [BackgroundAgentJob](BackgroundAgentJob.md) for the
+per-kind lifecycles.
 
 ActorRuntime orders open events with `queue_sequence` for each Session. Each
 delivery row records one worker attempt and its turn fence.
@@ -353,8 +450,7 @@ behind earlier work. It then ends the current conversation and creates the
 successor under the same session key.
 
 A Worker `actor_turn.abort` leaves the ActorEvent open. ActorRuntime tries again
-and invalidates the old turn fence. The legacy `turn_error` envelope delegates
-to the same operation during rolling upgrades.
+and invalidates the old turn fence.
 
 `/llm` creates `command.llm_help`. ActorRuntime returns localized usage plus
 the current Agent's custom model names and descriptions. This command does not
@@ -366,6 +462,34 @@ valid worker Turn. The event queues as normal input when another Turn is live;
 it does not steer or cancel that Turn. ActorRuntime resolves the custom profile
 for this Turn only. The next normal input uses `primary`. `/retry` copies the
 logical profile from the original ActorEvent and resolves its current binding.
+
+A bare `/retry` controls only the live Turn in its current Session. Retrying a
+terminal Turn requires an exact target: the user replies to that Agent message
+with `/retry`, or sends `/retry actor-event::<id>`. Ingress resolves a replied-to
+provider message through its succeeded durable-reply Outbox row. It does not use
+the provider thread root or select a recent channel or Session event. An
+explicit ActorEvent id must have a visible durable reply in the invoking
+binding and channel. If the local Entry mirror is missing after a confirmed
+provider send, the Outbox row also makes an unmentioned group reply explicit.
+Ingress does not invent the missing reply content.
+
+Ingress assigns an exact retry command to the target ActorEvent's Session before
+it appends the command. ActorRuntime therefore serializes the command and the
+replacement under the existing single-Session lock. It revalidates the exact
+terminal target and either replays that ActorEvent or refuses; it never selects
+a substitute. The replacement keeps the target event's input, execution route,
+and frozen scheduled delivery. It takes `sender_key` from the retry command, so
+the user who requested the new execution is its runtime requester; the replayed
+payload still contains the original input author. A target that is no longer
+the Session tail, crosses a conversation reset, or contains unsafe external
+effects cannot be replayed.
+
+When a command does not identify an exact target, the reply explains the two
+supported target forms. When a resolved target can no longer be replayed, the
+reply says to send the original request again. A `command.retry` control row
+does not itself advance the retry tail. A successful terminal retry appends a
+replacement ActorEvent, and that replacement does advance the tail. All other
+intermediate ActorEvents remain retry fences.
 
 After five retryable abort results, ActorRuntime moves the event to `dead_letter`.
 For a visible chat message, the same transaction records a localized failure
@@ -478,10 +602,10 @@ operation.
 After provider success, SignalsGateway updates its copy of the provider message.
 It also links a final reply to `ai_message_id` when available.
 
-When `/retry` supersedes a completed or failed turn, the same actor transaction
-stores one delete outbox intent for each known provider reply. A completed
-Response also becomes `retracted`; a failed Response remains an error audit
-fact. A provider deletion failure does not stop the replacement turn. The
+When an exact `/retry` supersedes a completed or failed turn, the same actor
+transaction stores one delete outbox intent for each known provider reply. A
+completed Response also becomes `retracted`; a failed Response remains an error
+audit fact. A provider deletion failure does not stop the replacement turn. The
 outbox records its retries and final result.
 
 ## Show Progress before the Final Reply

@@ -4,14 +4,15 @@ import { YAML } from 'bun'
 import { z } from 'zod'
 import type { RuntimeSkillSummary } from '../../lanes/rpc_lane'
 import {
-  normalizeEnabledSkill,
+  isValidSkillName,
   resolveSkillFilesystemRoot,
   skillAvailableInRuntime,
   type AnkoleSkillExecutionRuntime,
   type SkillFileRoots
 } from '../../skills/effective-skill'
 import { utf8ByteLength } from '../../common/text-sanitize'
-import { compareCodePointStrings } from './ordering'
+import { compareCodePointStrings } from '../../common/ordering'
+import { errorMessage } from '../../common/errors'
 
 const MAX_METADATA_BYTES = 64 * 1024
 const MAX_ENABLED_SKILLS = 128
@@ -101,7 +102,7 @@ export interface StdioMCPServer extends MCPServerBase {
 export type MCPServerConfig = StreamableHTTPMCPServer | StdioMCPServer
 
 export interface LoadEnabledSkillMCPServersInput {
-  enabledSkills: Array<RuntimeSkillSummary | string>
+  enabledSkills: RuntimeSkillSummary[]
   skillRoots?: SkillFileRoots
   runtime?: AnkoleSkillExecutionRuntime
 }
@@ -115,8 +116,7 @@ export interface LoadEnabledSkillMCPServersInput {
  */
 export async function loadEnabledSkillMCPServers(input: LoadEnabledSkillMCPServersInput): Promise<MCPServerConfig[]> {
   const skills = input.enabledSkills
-    .map(normalizeEnabledSkill)
-    .filter((skill): skill is RuntimeSkillSummary => skill !== undefined)
+    .filter(skill => isValidSkillName(skill.skillName))
     .filter(skill => input.runtime === undefined || skillAvailableInRuntime(skill, input.runtime))
     .sort((left, right) => compareCodePointStrings(left.skillName, right.skillName))
 
@@ -258,8 +258,4 @@ function normalizedToolFilter(tools: string[] | undefined): string[] | null {
 
 function isMissingFileError(error: unknown): boolean {
   return error instanceof Error && 'code' in error && error.code === 'ENOENT'
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }

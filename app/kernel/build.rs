@@ -1,6 +1,7 @@
-/// Configures build hooks that only matter for the N-API flavor of the crate.
+/// Generates RuntimeFabric protobuf types and configures N-API build hooks.
 fn main() {
     println!("cargo:rerun-if-changed=proto/ankole/runtime_fabric/v1/envelope.proto");
+    println!("cargo:rerun-if-changed=proto/ankole/runtime_fabric/v1/rpc.proto");
 
     // The envelope body carries payloads of unequal size, so the generated oneof
     // trips `clippy::large_enum_variant`. Boxing a variant would move an
@@ -12,7 +13,10 @@ fn main() {
             "#[allow(clippy::large_enum_variant, reason = \"boxing a generated envelope variant would allocate on every host call\")]",
         )
         .compile_protos(
-            &["proto/ankole/runtime_fabric/v1/envelope.proto"],
+            &[
+                "proto/ankole/runtime_fabric/v1/envelope.proto",
+                "proto/ankole/runtime_fabric/v1/rpc.proto",
+            ],
             &["proto"],
         )
         .expect("failed to compile runtime fabric protobuf definitions");

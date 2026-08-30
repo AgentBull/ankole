@@ -21,12 +21,11 @@ import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams } from 'react-router'
 import {
   ConfigFields,
+  configFieldServerError,
   defaultConfig,
   getPath,
   localizedText,
-  setPath,
-  type ConfigFieldDefinition,
-  type LocalizedText
+  setPath
 } from '../../common/config-fields'
 import i18n from '../../common/i18n'
 import { requestErrorMessage } from '../../common/request-errors'
@@ -43,6 +42,7 @@ import { BackLink, PageStack } from '../console-page'
 import { ResourceListPage, ResourceSearch, RowActions } from '../console-list-page'
 import { IdentityEditorModel, type IdentityEditorDraft } from '../state/identity-editor-model'
 import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
+import { IdentitySubNav } from './identity-mappings'
 
 export function IdentityProvidersListPage() {
   const { t } = useTranslation()
@@ -83,6 +83,7 @@ export function IdentityProvidersListPage() {
       error={providers.error}
       isFiltered={Boolean(query.trim())}
       onClearFilters={() => setQuery('')}
+      subNav={<IdentitySubNav />}
       toolbar={
         <ResourceSearch
           label={t('console.identity.search')}
@@ -207,8 +208,9 @@ export function IdentityProviderEditorPage() {
     selectedAdapter.capabilities.includes('directory_full_sync') &&
     syncEnabled(selected)
   )
-  const activeFields = asConfigFields(activeAdapter?.fields ?? [])
+  const activeFields = activeAdapter?.fields ?? []
   const submitDisabled = mode === 'edit' && !model.dirty.value
+  const writeFieldError = configFieldServerError(saveProvider.error, activeFields, locale)
   // Explain why Save is unavailable when the configured adapter is missing.
   // The operator must restore its plugin before the provider can be edited.
   const adapterUnavailable = mode === 'edit' && adapters.isSuccess && Boolean(selected) && !activeAdapter
@@ -227,9 +229,9 @@ export function IdentityProviderEditorPage() {
       title={mode === 'new' ? t('console.identity.new') : (providerID ?? '')}
       description={t('console.identity.editor_description')}
       backTo="/identity"
+      validationError={model.validationError.value ?? writeFieldError}
       error={
-        model.validationError.value ??
-        saveProvider.error ??
+        (writeFieldError ? undefined : saveProvider.error) ??
         adapters.error ??
         providers.error ??
         (adapterUnavailable ? new Error(t('console.identity.adapter_unavailable')) : undefined)
@@ -257,7 +259,7 @@ export function IdentityProviderEditorPage() {
           {mode === 'edit' ? (
             <ReadOnlyValue>
               {activeAdapter
-                ? localizedUnknown(activeAdapter.display_name, locale, activeAdapter.adapter_id)
+                ? (localizedText(activeAdapter.display_name, locale) ?? activeAdapter.adapter_id)
                 : model.adapterID.value}
             </ReadOnlyValue>
           ) : (
@@ -270,7 +272,7 @@ export function IdentityProviderEditorPage() {
               <SelectContent emptyLabel={t('common.select_empty')}>
                 {identityAdapters.map(adapter => (
                   <SelectItem key={adapter.adapter_id} value={adapter.adapter_id}>
-                    {localizedUnknown(adapter.display_name, locale, adapter.adapter_id)}
+                    {localizedText(adapter.display_name, locale) ?? adapter.adapter_id}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -320,7 +322,7 @@ function emptyForm(adapter?: IdentityProviderAdapterItem): IdentityEditorDraft {
     adapterID: adapter?.adapter_id ?? '',
     providerID: adapter?.default_provider_id ?? '',
     enabled: true,
-    config: defaultConfig(asConfigFields(adapter?.fields ?? []))
+    config: defaultConfig(adapter?.fields ?? [])
   }
 }
 
@@ -331,14 +333,6 @@ function formFromProvider(provider: IdentityProviderItem): IdentityEditorDraft {
     enabled: provider.enabled,
     config: recordValue(provider.config) ?? {}
   }
-}
-
-function asConfigFields(fields: readonly unknown[]): ConfigFieldDefinition[] {
-  return fields.map(field => field as unknown as ConfigFieldDefinition)
-}
-
-function localizedUnknown(value: unknown, locale: string, fallback: string): string {
-  return localizedText(value as LocalizedText, locale) ?? fallback
 }
 
 function syncEnabled(provider: IdentityProviderItem): boolean {

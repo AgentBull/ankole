@@ -36,6 +36,14 @@ export interface RenderFetchedPagesOptions {
 export interface RenderedFetchedPages {
   text: string
   details: JSONObject
+  /** One rendered block per requested page, in result order, for per-URL reuse. */
+  pages: RenderedPage[]
+}
+
+export interface RenderedPage {
+  url: string
+  text: string
+  details: JSONObject
 }
 
 interface FetchedPage {
@@ -46,10 +54,15 @@ interface FetchedPage {
   text: string
 }
 
-interface RenderedPage {
-  text: string
-  details: JSONObject
-}
+/**
+ * Markers that identify a script-loading shell served in place of content.
+ * Kept to unambiguous phrases so a legitimately short page is never labeled
+ * a shell.
+ */
+const ScriptShellMarkers = [/enable\s+javascript/i, /javascript\s+is\s+(?:required|disabled|not enabled)/i]
+const ScriptShellMaxChars = 1_000
+
+type RenderWarning = 'script_shell' | 'empty_text'
 
 /**
  * Renders web_fetch results for the model inside a fixed character budget.
@@ -64,7 +77,7 @@ export function renderFetchedPages(body: unknown, options: RenderFetchedPagesOpt
   const record = isRecord(body) ? body : {}
   const bodySource = stringField(record, 'source')
   const results = Array.isArray(record.results) ? record.results : []
-  if (results.length === 0) return { text: 'No web fetch results.', details: pageDetails(record, []) }
+  if (results.length === 0) return { text: 'No web fetch results.', details: pageDetails(record, []), pages: [] }
 
   const pages = results.map(result => readFetchedPage(result, bodySource))
   const budgets = allocateBudgets(
@@ -78,7 +91,8 @@ export function renderFetchedPages(body: unknown, options: RenderFetchedPagesOpt
     details: pageDetails(
       record,
       rendered.map(page => page.details)
-    )
+    ),
+    pages: rendered
   }
 }
 
@@ -127,16 +141,21 @@ function renderPage(page: FetchedPage, budget: number, workspaceRoot: string): R
 
   if (page.error) {
     return {
+      url: page.url,
       text: [...heading, `Error: ${page.error}`].filter(Boolean).join('\n'),
       details: { ...identity, error: page.error }
     }
   }
 
+  const warning = renderWarning(page)
+  const warningNote = warning ? renderWarningNote(warning) : undefined
+  const warningDetails: JSONObject = warning ? { render_warning: warning } : {}
   const title = page.title ? `Title: ${page.title}` : undefined
   if (page.text.length <= budget) {
     return {
-      text: [...heading, title, page.text].filter(Boolean).join('\n'),
-      details: { ...identity, text_chars: page.text.length, truncated: false }
+      url: page.url,
+      text: [...heading, title, warningNote, page.text].filter(Boolean).join('\n'),
+      details: { ...identity, text_chars: page.text.length, truncated: false, ...warningDetails }
     }
   }
 
@@ -144,6 +163,7 @@ function renderPage(page: FetchedPage, budget: number, workspaceRoot: string): R
   const storedPath = storeFullPage(workspaceRoot, page.url, page.text)
 
   return {
+    url: page.url,
     text: [...heading, title, ...truncationNote(head, tail, page.text, storedPath), head, MiddleOmittedMarker, tail]
       .filter(Boolean)
       .join('\n'),
@@ -155,6 +175,39 @@ function renderPage(page: FetchedPage, budget: number, workspaceRoot: string): R
       ...(storedPath ? { stored_path: storedPath } : { stored: false })
     }
   }
+}
+
+/**
+ * Flags a successful fetch whose extracted text cannot carry an answer.
+ *
+ * Only two high-confidence shapes are flagged: a script-loading shell that a
+ * page served instead of content, and an extraction that produced no text at
+ * all. Both are annotations, never errors, and a merely short page is left
+ * alone — it is legitimate content often enough that labeling it would teach
+ * the model to distrust real answers.
+ */
+function renderWarning(page: FetchedPage): RenderWarning | undefined {
+  const text = page.text.trim()
+  if (text.length === 0) return 'empty_text'
+  if (text.length <= ScriptShellMaxChars && ScriptShellMarkers.some(marker => marker.test(text))) {
+    return 'script_shell'
+  }
+  return undefined
+}
+
+function renderWarningNote(warning: RenderWarning): string {
+  if (warning === 'script_shell') {
+    return (
+      '[Not rendered: this page served a script-loading shell instead of its content. ' +
+      'Fetching the same URL again usually returns the same shell; find the material at a ' +
+      "different URL — the site's API, a specific article page, an archive copy — or search " +
+      'for the page title.]'
+    )
+  }
+  return (
+    '[No text: this fetch succeeded but extracted no page text. Fetching the same URL again ' +
+    'usually returns the same; switch to a more specific URL or a different source.]'
+  )
 }
 
 /**

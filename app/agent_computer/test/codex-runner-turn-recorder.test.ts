@@ -5,9 +5,9 @@ import { jsonFromBytes } from '../src/fabric/envelope_proto'
 import { BackgroundAgentJobTurnUpsertResponseSchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import type { ActorTurnRef } from '../src/lanes/actor_lane'
 import type { RPCRequestInit } from '../src/lanes/rpc_lane'
-import { CODEX_OPT_OUT_NOTIFICATION_METHODS } from '../src/core/codex-runner/app-server-client'
+import { CODEX_OPT_OUT_NOTIFICATION_METHODS } from '../src/core/codex-runner/runtime/app-server-client'
 import type { ThreadItem } from '../src/core/codex-runner/generated/protocol/v2/ThreadItem'
-import { BackgroundAgentJobTurnRecorder } from '../src/core/codex-runner/turn-recorder'
+import { BackgroundAgentJobTurnRecorder } from '../src/core/codex-runner/job/turn-recorder'
 import { RPCRejectedError } from '../src/lanes/rpc_lane'
 import {
   configureWorkerTracing,
@@ -103,6 +103,49 @@ describe('@ankole/agent-computer durable BackgroundAgentJob Turn recorder', () =
       }
     })
     expect(attempts()).toBe(3)
+  })
+
+  it('commits the same terminal checkpoint after one retryable control-plane handler failure', async () => {
+    const attempts: DecodedUpsert[] = []
+    const persisted: DecodedUpsert[] = []
+    const recorder = new BackgroundAgentJobTurnRecorder({
+      jobID: '1000',
+      attempt: 1,
+      actorTurn,
+      checkpointDelayMs: 0,
+      upsert: async request => {
+        attempts.push(decodedUpsert(request))
+        if (attempts.length === 2) {
+          throw new RPCRejectedError('checkpoint handler failed', {
+            code: 'rpc_handler_failed',
+            details: { failure_id: 'failure-upsert-1', retryable: true }
+          })
+        }
+        persisted.push(decodedUpsert(request))
+        return create(BackgroundAgentJobTurnUpsertResponseSchema, { jobId: request.jobId })
+      }
+    })
+    recorder.recordTurnStarted('thread-1', startedTurn(), '原始任务', 'event-1')
+    await recorder.flush()
+    recorder.handleNotification(
+      notification('turn/completed', {
+        turn: {
+          ...startedTurn(),
+          status: 'completed',
+          items: [{ type: 'agentMessage', id: 'answer-1', text: '任务已完成。' }],
+          completedAt: Date.now() / 1_000
+        }
+      })
+    )
+
+    await recorder.flush()
+
+    expect(attempts).toHaveLength(3)
+    expect(attempts[1]).toEqual(attempts[2])
+    expect(persisted).toHaveLength(2)
+    expect(persisted[0]?.turn_items).toEqual([expect.objectContaining({ position: 0, item_key: 'client:event-1' })])
+    expect(persisted[1]).toMatchObject({ revision: 1, status: 'completed' })
+    expect(persisted[1]?.turn_items).toEqual([expect.objectContaining({ position: 1, item_key: 'answer-1' })])
   })
 
   it('does not retry an authoritative domain checkpoint rejection', async () => {

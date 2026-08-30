@@ -47,7 +47,8 @@ defmodule Ankole.Plugins.WeComAdapterInboundTest do
     assert input.explicit == true
     assert input.text == "hello there"
     assert input.author["id"] == "Alice"
-    assert input.author["principal_uid"] == "alice"
+    assert input.author["platform_subject"] == "Alice"
+    refute Map.has_key?(input.author, "principal_uid")
     assert input.metadata["req_id"] == "req-dm-1"
     assert input.reply_to_source_entry_id == nil
     assert input.provider_thread_id == nil

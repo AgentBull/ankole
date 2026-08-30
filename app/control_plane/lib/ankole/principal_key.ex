@@ -37,6 +37,9 @@ defmodule Ankole.PrincipalKey do
 
   def normalize_optional(_uid), do: {:error, :invalid_uid}
 
+  @doc """
+  Applies the canonical UID form to one binary without validity checks.
+  """
   @spec canonicalize(String.t()) :: String.t()
-  defp canonicalize(uid), do: uid |> String.trim() |> String.downcase()
+  def canonicalize(uid), do: uid |> String.trim() |> String.downcase()
 end

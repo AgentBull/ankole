@@ -11,9 +11,8 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapter.IdentityProvider do
 
   @spec authorization_url(map(), keyword()) :: {:ok, String.t()} | {:error, term()}
   def authorization_url(config, opts) do
-    with true <- get_in(config, ["oidc", "enabled"]) != false || {:error, :oidc_disabled},
-         {:ok, redirect_uri} <- required_opt(opts, :redirect_uri),
-         {:ok, state} <- required_opt(opts, :state) do
+    with {:ok, redirect_uri} <- MapHelpers.required_opt(opts, :redirect_uri),
+         {:ok, state} <- MapHelpers.required_opt(opts, :state) do
       {:ok,
        Auth.authorize_url(
          auth_base_url: "https://accounts.google.com",
@@ -49,7 +48,6 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapter.IdentityProvider do
         %{
           provider: provider_id,
           external_id: user_id,
-          uid: user_id,
           display_name: display_name(user) || user_id,
           email: MapHelpers.optional_text(user, "primaryEmail"),
           job_title: job_title(user),
@@ -297,13 +295,6 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapter.IdentityProvider do
           normalized when is_binary(normalized) -> normalized
           {:error, _reason} -> nil
         end
-    end
-  end
-
-  defp required_opt(opts, key) do
-    case Keyword.get(opts, key) do
-      value when is_binary(value) and value != "" -> {:ok, value}
-      _value -> {:error, {:missing, key}}
     end
   end
 end

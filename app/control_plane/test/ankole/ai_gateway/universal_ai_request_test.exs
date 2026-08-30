@@ -2,7 +2,6 @@ defmodule Ankole.AIGateway.UniversalAIRequestTest do
   use ExUnit.Case, async: true
 
   alias Ankole.AIGateway.PrepareContext
-  alias Ankole.AIGateway.CredentialAttempts
   alias Ankole.AIGateway.Providers
   alias Ankole.AIGateway.Providers.OpenRouter
   alias Ankole.AIGateway.UniversalAIRequest
@@ -188,28 +187,6 @@ defmodule Ankole.AIGateway.UniversalAIRequestTest do
     UniversalAIRequest.new(ctx, "responses", :openai_responses)
   end
 
-  defp provider_runtime(provider_kind, base_url, connection_options) do
-    %{
-      "provider_kind" => provider_kind,
-      "provider_id" => "#{provider_kind}-test",
-      "model" => "provider-model",
-      "connection_options" =>
-        Map.merge(
-          %{
-            "base_url" => base_url,
-            "api_key" => "secret"
-          },
-          connection_options
-        ),
-      "provider_options" => %{},
-      "request_context" => %{
-        "cache_key" => "compact-test-thread",
-        "affinity_key" => "compact-test-thread",
-        "downstream_transport" => "sse",
-        "headers" => %{}
-      }
-    }
-  end
 
   defp stream_spec(url) do
     %{

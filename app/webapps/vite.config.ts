@@ -18,12 +18,82 @@ const entries = {
   setup: path.resolve(dirname, 'entrypoints/setup.tsx')
 }
 
+// The Markdown rendering pipeline behind `console/markdown-renderer.tsx`.
+// These packages have no consumer outside that dynamic import, so grouping
+// them cannot pull the chunk into an eager entry. The list is hand-frozen:
+// after a react-markdown upgrade, rebuild it from the dependency closure
+// (`bun pm ls --all` under the react-markdown subtree) — a package that
+// falls off the list only lands in `vendor-utilities`, so the failure mode
+// is bundle-size drift, not breakage.
+const markdownPipelinePrefixes = [
+  'character-entities',
+  'hast-util-',
+  'mdast-util-',
+  'micromark',
+  'remark-',
+  'unist-util-',
+  'vfile'
+]
+const markdownPipelinePackages = new Set([
+  '@types/hast',
+  '@types/mdast',
+  '@ungap/structured-clone',
+  'bail',
+  'ccount',
+  'comma-separated-tokens',
+  'decode-named-character-reference',
+  'devlop',
+  'estree-util-is-identifier-name',
+  'html-url-attributes',
+  'inline-style-parser',
+  'is-plain-obj',
+  'longest-streak',
+  'markdown-table',
+  'property-information',
+  'react-markdown',
+  'space-separated-tokens',
+  'style-to-js',
+  'style-to-object',
+  'trim-lines',
+  'trough',
+  'unified',
+  'zwitch'
+])
+
+function nodeModulePackageName(moduleID: string): string | undefined {
+  // The last `/node_modules/` segment names the real package even under the
+  // Bun store layout (`node_modules/.bun/<pkg>@<v>/node_modules/<pkg>/…`).
+  const tail = moduleID.split('/node_modules/').at(-1)
+  if (!tail || tail === moduleID) return undefined
+  const [first, second] = tail.split('/')
+  return first?.startsWith('@') ? (second ? `${first}/${second}` : undefined) : first
+}
+
 function manualChunks(moduleID: string): string | undefined {
   if (!moduleID.includes('/node_modules/')) return undefined
   if (moduleID.includes('/react/') || moduleID.includes('/react-dom/') || moduleID.includes('/scheduler/')) {
     return 'vendor-react'
   }
   if (moduleID.includes('/react-router/')) return 'vendor-router'
+
+  // Only a dynamic import reaches the zxcvbn dictionaries, so a chunk of
+  // their own loads lazily. The catch-all would fold their hundreds of
+  // kilobytes into the eagerly loaded utilities bundle.
+  if (moduleID.includes('/@zxcvbn-ts/')) return 'vendor-zxcvbn'
+
+  // The same reasoning covers the other dynamic-import-only heavyweights:
+  // the agents editor's transliteration table, the JSON tree editor, and the
+  // Markdown pipeline.
+  if (moduleID.includes('/any-ascii/')) return 'vendor-transliteration'
+  if (moduleID.includes('/json-edit-react/')) return 'vendor-json-editor'
+  const packageName = nodeModulePackageName(moduleID)
+  if (
+    packageName &&
+    (markdownPipelinePackages.has(packageName) ||
+      markdownPipelinePrefixes.some(prefix => packageName.startsWith(prefix)))
+  ) {
+    return 'vendor-markdown'
+  }
 
   if (
     moduleID.includes('/@tanstack/query-core/') ||
@@ -177,5 +247,5 @@ export default defineConfig(({ command }): UserConfig => ({
       }
     }
   },
-  clearScreen: command === 'serve' ? false : true
+  clearScreen: command !== 'serve'
 }))

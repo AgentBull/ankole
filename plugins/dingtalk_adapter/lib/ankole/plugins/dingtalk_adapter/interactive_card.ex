@@ -30,7 +30,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.InteractiveCard do
 
   @type space :: {:dm, String.t()} | {:group, String.t()}
 
-  # --- card outbox operation ------------------------------------------------
+  # card outbox operation
 
   @doc """
   Delivers one non-streaming `card` outbox operation as a card instance.
@@ -144,7 +144,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.InteractiveCard do
     |> encode_actions()
   end
 
-  # --- presentation actions ---------------------------------------------------
+  # presentation actions
 
   @doc """
   Renders normalized presentation actions into the template's `actions` JSON
@@ -246,7 +246,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.InteractiveCard do
   defp encode_actions([]), do: ""
   defp encode_actions(descriptors), do: Ankole.JSON.encode!(descriptors)
 
-  # --- open space -------------------------------------------------------------
+  # open space
 
   @doc "Create-time open-space model for a card instance."
   @spec create_model(space()) :: map()

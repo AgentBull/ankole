@@ -53,7 +53,7 @@ defmodule Ankole.SignalsGateway.ReplyAttachment do
          "name" => name,
          "size" => size
        }
-       |> maybe_put("mime_type", mime_type)}
+       |> Ankole.Attrs.maybe_put("mime_type", mime_type)}
     end
   end
 
@@ -62,7 +62,7 @@ defmodule Ankole.SignalsGateway.ReplyAttachment do
   def normalize_attachments(attachments) when is_list(attachments) do
     attachments
     |> Enum.map(&normalize_attachment/1)
-    |> collect_results()
+    |> Ankole.Attrs.collect_results()
   end
 
   def normalize_attachments(_attachments), do: {:error, :reply_attachment_attachments_not_list}
@@ -185,20 +185,6 @@ defmodule Ankole.SignalsGateway.ReplyAttachment do
           [_other_path] -> {:error, :reply_attachment_path_mismatch}
           nil -> {:error, :reply_attachment_path_not_under_user_files}
         end
-    end
-  end
-
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
-
-  defp collect_results(results) do
-    Enum.reduce_while(results, {:ok, []}, fn
-      {:ok, value}, {:ok, acc} -> {:cont, {:ok, [value | acc]}}
-      {:error, reason}, _acc -> {:halt, {:error, reason}}
-    end)
-    |> case do
-      {:ok, values} -> {:ok, Enum.reverse(values)}
-      {:error, reason} -> {:error, reason}
     end
   end
 end

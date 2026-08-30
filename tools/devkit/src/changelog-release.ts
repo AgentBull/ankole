@@ -2,7 +2,7 @@ import { dirname } from 'node:path'
 import { mkdir } from 'node:fs/promises'
 
 const versionHeadingPattern =
-  /^## Version ((?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)) \((\d{4}-\d{2}-\d{2})\)$/
+  /^## Version ((?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-(?:alpha|beta|rc)(?:\.(?:0|[1-9][0-9]*))?)?) \((\d{4}-\d{2}-\d{2})\)$/
 
 export type ChangelogRelease = {
   version: string

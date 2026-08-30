@@ -15,20 +15,6 @@ defmodule Ankole.E2E.FakeOpenAISkillScenarios do
   def tool_call_for(:skill_view_all_tool, 1), do: skill_view_tool_call("jupyter-live-kernel")
   def tool_call_for(:skill_view_all_tool, 2), do: skill_view_tool_call("pdf")
 
-  def tool_call_for(:skill_append_tool, 1),
-    do: skill_view_tool_call("brain-review", "call_lark_chaos_skill_append_view")
-
-  def tool_call_for(:skill_append_tool, 2) do
-    %{
-      id: "call_lark_chaos_skill_append",
-      name: "skill_append",
-      arguments: %{
-        "name" => "brain-review",
-        "content" => "Lark fake overlay: CHAOS_SKILL_APPEND_OK"
-      }
-    }
-  end
-
   def tool_call_for(:skill_disabled_tool, 1),
     do: skill_view_tool_call("pdf", "call_lark_chaos_disabled_skill_view")
 

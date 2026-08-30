@@ -1,4 +1,4 @@
-import type { JsonObject as JSONObject } from '@agentbull/active-support'
+import { aiGatewayAPIKeyRefreshSkewMs } from '../core/ai_gateway_transport'
 import {
   RPCRejectedError,
   RuntimeRPCClient,
@@ -12,7 +12,7 @@ import {
   type RPCResponseOf
 } from '../lanes/rpc_lane'
 
-const aiGatewayAPIKeyRefreshSkewMs = 60_000
+/** Agent-scoped key cache shared across Turns in this Worker process. */
 const aiGatewayAPIKeyCache = new Map<string, AIGatewayAPIKeyResponse>()
 
 function isRejection(value: RPCResponseOf<ControlPlaneOwnedRPCMethod> | RPCRejection): value is RPCRejection {
@@ -26,8 +26,13 @@ function isRejection(value: RPCResponseOf<ControlPlaneOwnedRPCMethod> | RPCRejec
  * state.
  */
 export function throwingRPCRequester(rpcClient: RuntimeRPCClient): RPCRequester {
-  return async <M extends ControlPlaneOwnedRPCMethod>(method: M, payload: RPCRequestInit<M>, frame: RPCFrame<M>) => {
-    const response = await rpcClient.request(method, payload, frame)
+  return async <M extends ControlPlaneOwnedRPCMethod>(
+    method: M,
+    payload: RPCRequestInit<M>,
+    frame: RPCFrame<M>,
+    options?: { timeoutMs?: number }
+  ) => {
+    const response = await rpcClient.request(method, payload, frame, options)
     if (isRejection(response)) throw new RPCRejectedError(method, response)
     return response
   }
@@ -57,12 +62,4 @@ export async function requestAIGatewayAPIKey(
 
   aiGatewayAPIKeyCache.set(agentUid, response)
   return response
-}
-
-/**
- * Reads a string from a plain JSON details object.
- */
-export function stringFromDetails(source: JSONObject | undefined, key: string): string | undefined {
-  const value = source?.[key]
-  return typeof value === 'string' ? value : undefined
 }

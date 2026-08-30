@@ -58,7 +58,8 @@ agent 是核心单位，运维者的其它配置都围绕它展开：
 | `POST` | `/agents` | 创建一个 agent |
 | `GET` | `/agents/:agent_uid` | 读取一个 agent |
 | `PATCH` | `/agents/:agent_uid` | 更新一个 agent |
-| `DELETE` | `/agents/:agent_uid` | 移除一个 agent |
+| `POST` | `/agents/:agent_uid/enable` | 重新启用一个已停用的 agent |
+| `DELETE` | `/agents/:agent_uid` | 停用一个运行中的 agent；对已停用的 agent 执行则永久删除 |
 
 ### 信号路由规则
 
@@ -90,11 +91,11 @@ Agent Library 是一个 agent 能做什么——它的 plugin 和 skill。Consol
 | `PUT` | `/agents/:agent_uid/library-capabilities/skills/:id` | 为某一个 agent 覆盖一个 skill |
 | `GET` | `/agents/:agent_uid/library-documents` | 列出某个 agent 的 library 文档 |
 | `PUT` | `/agents/:agent_uid/library-documents/:document_kind` | 设定一份 library 文档 |
-| `GET` | `/agents/:agent_uid/library-skill-overlays` | 列出 skill overlay |
-| `PUT` | `/agents/:agent_uid/library-skill-overlays/:skill_name` | 设定一个 skill overlay |
-| `DELETE` | `/agents/:agent_uid/library-skill-overlays/:skill_name` | 移除一个 skill overlay |
+| `GET` | `/agents/:agent_uid/skill-lessons` | 列出生效和已退场的技能教训 |
+| `POST` | `/agents/:agent_uid/skill-lessons` | 为已启用的 Skill 新增人工教训 |
+| `POST` | `/agents/:agent_uid/skill-lessons/:lesson_id/retire` | 让一条技能教训退场 |
 
-一项能力先在全局启用，再按 agent 收窄或放宽。skill overlay 让运维者为某一个 agent 定制某个 skill 的行为，而不必 fork 它。
+一项能力先在全局启用，再按 Agent 收窄或放宽。技能教训为单个 Agent 提供附加的过程指引，不改动 Skill 来源。列表会保留证据和退场历史。已退场的教训不再投递；人工撤销的内容会留在 Dreaming 的禁止再学习清单中。生命周期与限制见[技能教训](../skill-lessons/)。
 
 ### 环境变量（WorkerEnv）
 
@@ -120,7 +121,7 @@ Agent Computer Worker 运行时可能需要 API key、token 等环境变量。Co
 | `GET` | `/control-plane-plugins` | 列出 Control Plane Plugin 及其状态 |
 | `PUT` | `/control-plane-plugins` | 启用或禁用 plugin |
 
-Control Plane Plugin 是改变控制面自身行为的第一方扩展，例如 signals adapter 或 Brain source connector。
+Control Plane Plugin 是改变控制面自身行为的第一方扩展，例如 signals adapter。
 
 ### 身份源提供商与 AppConfiguration
 
@@ -144,7 +145,6 @@ Control Plane Plugin 是改变控制面自身行为的第一方扩展，例如 s
 - **worker**：`/agent-computer-workers`，按 worker 上传、移动、列出文件。
 - **任务**：`/background-agent-jobs`（列出、读取、取消）。
 - **AI 活动**：`/ai-gateway/conversations`，按会话读取消息。
-- **记忆**：完整的 `/brain/*` 界面——条目、source、审计日志、dreaming 运行与 fitness、还原。
 - **主体与 AuthZ**：`/principals`、`/principal-groups`、`/permission-grants`。权限模型见 [主体与 AuthZ](../principal-authz/)。
 
 ## 关于这里不包含什么

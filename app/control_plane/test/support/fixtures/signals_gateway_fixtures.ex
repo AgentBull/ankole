@@ -69,6 +69,8 @@ defmodule Ankole.SignalsGatewayFixtures do
     |> then(&{:ok, &1})
   end
 
+  # Tests that exercise message mechanics default to :create_standalone so an
+  # unseeded sender still flows; identity-admission tests pass :manual_review.
   def binding_fixture(agent_uid, name, policy, opts \\ []) do
     {:ok, binding} =
       SignalsGateway.upsert_binding(%{
@@ -78,6 +80,7 @@ defmodule Ankole.SignalsGatewayFixtures do
         config_ref: "app-config://#{name}",
         filters: Keyword.get(opts, :filters, %{}),
         unaddressed_group_message_policy: policy,
+        unmatched_sender_policy: Keyword.get(opts, :unmatched_sender_policy, :create_standalone),
         unavailable_reason: Keyword.get(opts, :unavailable_reason)
       })
 

@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { runAgentLoop } from '../../src/core/agent-loop'
 import type { ReplyPresentationEvent } from '../../src/core/types'
 import { createModel } from '../../src/core/llm'
+import { defineWorkerTool } from '../../src/core'
 import { fakeResponseSocket, parallelReadTool, sleep, toolResultsRecordedFrame } from '../support/llm'
 
 describe('@ankole/agent-computer llm helpers: tool execution scheduling and guards', () => {
@@ -50,7 +51,8 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
       },
       hostedTools: [{ type: 'image_generation' }],
       tools: [
-        {
+        defineWorkerTool({
+          executionMode: 'sequential',
           name: 'lookup',
           description: 'Look up facts',
           schema: z.object({ q: z.string() }),
@@ -64,7 +66,7 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
             content: [{ type: 'text', text: 'unused' }],
             details: {}
           })
-        }
+        })
       ]
     })
 
@@ -161,7 +163,8 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
         conversationID: '55555555-5555-5555-5555-555555555555'
       },
       tools: [
-        {
+        defineWorkerTool({
+          executionMode: 'sequential',
           name: 'lookup',
           description: 'Look up facts',
           schema: z.object({ q: z.string() }),
@@ -176,7 +179,7 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
               details: { ok: false }
             }
           }
-        }
+        })
       ],
       onPresentationEvent: event => {
         presentation.push(event)
@@ -206,6 +209,180 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
       previous_response_id: 'resp_bad_args_results',
       input: []
     })
+  })
+
+  it('warns on a failure streak only when the same call fails the same way twice', async () => {
+    const sentPayloads: JSONObject[] = []
+    const model = createModel({
+      apiKey: 'unused',
+      baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
+      selector: 'primary',
+      responseWebSocket: {
+        kind: 'aigateway-websocket',
+        url: 'ws://aigateway.invalid/api/v1/ai-gateway/responses',
+        authorization: () => 'Bearer agent-key',
+        createWebSocket: (_url, init) =>
+          fakeResponseSocket(init, data => {
+            const payload = JSON.parse(data) as JSONObject
+            sentPayloads.push(payload)
+
+            if (payload.type === 'response.tool_results.record') {
+              const count = sentPayloads.filter(sent => sent.type === 'response.tool_results.record').length
+              return [toolResultsRecordedFrame(`resp_streak_results_${count}`)]
+            }
+
+            const round = sentPayloads.filter(sent => sent.type === 'response.create').length
+            const failingCall = (id: string, query: string): JSONObject => ({
+              type: 'response.completed',
+              response: {
+                id: `resp_streak_${id}`,
+                status: 'completed',
+                output: [
+                  {
+                    type: 'function_call',
+                    id: `fc_${id}`,
+                    call_id: `call_${id}`,
+                    name: 'flaky',
+                    arguments: JSON.stringify({ q: query })
+                  }
+                ]
+              }
+            })
+            if (round === 1) return [failingCall('one', 'alpha')]
+            if (round === 2) return [failingCall('two', 'beta')]
+            if (round === 3) return [failingCall('three', 'beta')]
+            return [
+              {
+                type: 'response.completed',
+                response: {
+                  id: 'resp_streak_final',
+                  status: 'completed',
+                  output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'gave up' }] }]
+                }
+              }
+            ]
+          })
+      }
+    })
+
+    await runAgentLoop({
+      model,
+      maxModelIterations: 90,
+      messages: [{ role: 'user', content: 'try the flaky tool' }],
+      stateful: {
+        actorEventID: '00000000-0000-0000-0000-000000000007',
+        conversationID: '77777777-7777-7777-7777-777777777777'
+      },
+      tools: [
+        defineWorkerTool({
+          executionMode: 'sequential',
+          name: 'flaky',
+          description: 'Always fails',
+          schema: z.object({ q: z.string() }),
+          describeActivity: () => null,
+          execute: async () => {
+            throw new Error('backend unavailable')
+          }
+        })
+      ]
+    })
+
+    const records = sentPayloads.filter(sent => sent.type === 'response.tool_results.record')
+    expect(records).toHaveLength(3)
+    // A different argument is progress, not repetition: only the third
+    // failure repeats the second's key, so only its record carries the
+    // warning follow-up.
+    expect(JSON.stringify(records[0]!.input)).not.toContain('Tool loop warning')
+    expect(JSON.stringify(records[1]!.input)).not.toContain('Tool loop warning')
+    expect(JSON.stringify(records[2]!.input)).toContain('Tool loop warning: repeated_tool_failure')
+  })
+
+  it('counts blocked invalid-argument calls toward the failure streak', async () => {
+    const sentPayloads: JSONObject[] = []
+    let toolExecutions = 0
+    const model = createModel({
+      apiKey: 'unused',
+      baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
+      selector: 'primary',
+      responseWebSocket: {
+        kind: 'aigateway-websocket',
+        url: 'ws://aigateway.invalid/api/v1/ai-gateway/responses',
+        authorization: () => 'Bearer agent-key',
+        createWebSocket: (_url, init) =>
+          fakeResponseSocket(init, data => {
+            const payload = JSON.parse(data) as JSONObject
+            sentPayloads.push(payload)
+
+            if (payload.type === 'response.tool_results.record') {
+              const count = sentPayloads.filter(sent => sent.type === 'response.tool_results.record').length
+              return [toolResultsRecordedFrame(`resp_blocked_results_${count}`)]
+            }
+
+            const round = sentPayloads.filter(sent => sent.type === 'response.create').length
+            if (round <= 2) {
+              return [
+                {
+                  type: 'response.completed',
+                  response: {
+                    id: `resp_blocked_${round}`,
+                    status: 'completed',
+                    output: [
+                      {
+                        type: 'function_call',
+                        id: `fc_blocked_${round}`,
+                        call_id: `call_blocked_${round}`,
+                        name: 'lookup',
+                        arguments: '{"q":123}'
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+            return [
+              {
+                type: 'response.completed',
+                response: {
+                  id: 'resp_blocked_final',
+                  status: 'completed',
+                  output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'stopped' }] }]
+                }
+              }
+            ]
+          })
+      }
+    })
+
+    await runAgentLoop({
+      model,
+      maxModelIterations: 90,
+      messages: [{ role: 'user', content: 'look this up' }],
+      stateful: {
+        actorEventID: '00000000-0000-0000-0000-000000000008',
+        conversationID: '88888888-8888-8888-8888-888888888888'
+      },
+      tools: [
+        defineWorkerTool({
+          executionMode: 'sequential',
+          name: 'lookup',
+          description: 'Look up facts',
+          schema: z.object({ q: z.string() }),
+          describeActivity: () => null,
+          execute: async () => {
+            toolExecutions += 1
+            return { content: [{ type: 'text', text: 'unused' }], details: {} }
+          }
+        })
+      ]
+    })
+
+    // A blocked call never executes, so without counting at the block site
+    // the same schema-invalid call could repeat forever without a warning.
+    expect(toolExecutions).toBe(0)
+    const records = sentPayloads.filter(sent => sent.type === 'response.tool_results.record')
+    expect(records).toHaveLength(2)
+    expect(JSON.stringify(records[0]!.input)).not.toContain('Tool loop warning')
+    expect(JSON.stringify(records[1]!.input)).toContain('Tool loop warning: repeated_tool_failure')
   })
 
   it('executes schema-valid arguments recovered by the bounded punctuation repair ladder', async () => {
@@ -280,7 +457,8 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
         conversationID: '22222222-2222-2222-2222-222222222223'
       },
       tools: [
-        {
+        defineWorkerTool({
+          executionMode: 'sequential',
           name: 'lookup',
           description: 'Look up facts.',
           schema: z.object({ q: z.string() }).strict(),
@@ -292,7 +470,7 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
               details: {}
             }
           }
-        }
+        })
       ],
       onActivity: description => {
         if (description) activities.push(description)
@@ -351,7 +529,8 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
         conversationID: '21212121-2121-2121-2121-212121212121'
       },
       tools: [
-        {
+        defineWorkerTool({
+          executionMode: 'sequential',
           name: 'lookup',
           description: 'Look up facts',
           schema: z.object({ q: z.string() }),
@@ -363,7 +542,7 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
               details: { ok: false }
             }
           }
-        }
+        })
       ]
     })
 
@@ -442,7 +621,8 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
         conversationID: '22222222-2222-2222-2222-222222222222'
       },
       tools: [
-        {
+        defineWorkerTool({
+          executionMode: 'sequential',
           name: 'slow_tool',
           description: 'Slow tool',
           schema: z.object({}),
@@ -454,7 +634,7 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
               details: {}
             }
           }
-        }
+        })
       ],
       onActivity: description => {
         if (description) events.push(description)
@@ -544,26 +724,28 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
         actorEventID: '00000000-0000-0000-0000-000000000017',
         conversationID: '17171717-1717-1717-1717-171717171717'
       },
-      tools: toolNames.map((name, index) => ({
-        name,
-        description: `Read ${name}`,
-        schema: z.object({}),
-        executionMode: 'parallel' as const,
-        isReadOnly: true,
-        isDestructive: false,
-        describeActivity: () => `测试工具：${name}`,
-        execute: async () => {
-          active += 1
-          maxActive = Math.max(maxActive, active)
-          try {
-            await sleep(index === 0 ? 20 : 1)
-            completionOrder.push(name)
-            return { content: [{ type: 'text' as const, text: `result-${index}` }], details: {} }
-          } finally {
-            active -= 1
+      tools: toolNames.map((name, index) =>
+        defineWorkerTool({
+          name,
+          description: `Read ${name}`,
+          schema: z.object({}),
+          executionMode: 'parallel' as const,
+          isReadOnly: true,
+          isDestructive: false,
+          describeActivity: () => `测试工具：${name}`,
+          execute: async () => {
+            active += 1
+            maxActive = Math.max(maxActive, active)
+            try {
+              await sleep(index === 0 ? 20 : 1)
+              completionOrder.push(name)
+              return { content: [{ type: 'text' as const, text: `result-${index}` }], details: {} }
+            } finally {
+              active -= 1
+            }
           }
-        }
-      }))
+        })
+      )
     })
 
     expect(final.message.content).toEqual([{ type: 'text', text: 'read results handled' }])
@@ -627,26 +809,28 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
         conversationID: '27272727-2727-2727-2727-272727272727'
       },
       abortSignal: controller.signal,
-      tools: toolNames.map(name => ({
-        name,
-        description: `Read ${name}`,
-        schema: z.object({}),
-        executionMode: 'parallel' as const,
-        isReadOnly: true,
-        isDestructive: false,
-        describeActivity: () => null,
-        execute: async (_toolCallID, _params, signal) => {
-          started.push(name)
-          receivedSignals.push(signal)
-          if (started.length === 4) controller.abort(abortReason)
-          if (!signal) throw new Error('missing abort signal')
-          signal.throwIfAborted()
-          await new Promise<void>((_resolve, reject) => {
-            signal.addEventListener('abort', () => reject(signal.reason), { once: true })
-          })
-          throw new Error('unreachable')
-        }
-      }))
+      tools: toolNames.map(name =>
+        defineWorkerTool({
+          name,
+          description: `Read ${name}`,
+          schema: z.object({}),
+          executionMode: 'parallel' as const,
+          isReadOnly: true,
+          isDestructive: false,
+          describeActivity: () => null,
+          execute: async (_toolCallID, _params, signal) => {
+            started.push(name)
+            receivedSignals.push(signal)
+            if (started.length === 4) controller.abort(abortReason)
+            if (!signal) throw new Error('missing abort signal')
+            signal.throwIfAborted()
+            await new Promise<void>((_resolve, reject) => {
+              signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+            })
+            throw new Error('unreachable')
+          }
+        })
+      )
     })
 
     await expect(run).rejects.toThrow('operator stopped the turn')
@@ -734,7 +918,7 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
       },
       tools: [
         parallelReadTool('read_first', events, 20, 'read'),
-        {
+        defineWorkerTool({
           name: 'write_second',
           description: 'Write something',
           schema: z.object({}),
@@ -747,7 +931,7 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
             events.push('write_second:end')
             return { content: [{ type: 'text', text: 'write' }], details: {} }
           }
-        }
+        })
       ]
     })
 
@@ -828,7 +1012,8 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
         conversationID: '23232323-2323-2323-2323-232323232323'
       },
       tools: [
-        {
+        defineWorkerTool({
+          executionMode: 'sequential',
           name: 'secret_admin_shell',
           description: 'Internal test tool',
           schema: secretAdminSchema,
@@ -852,7 +1037,7 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
               }
             ]
           })
-        }
+        })
       ],
       logger: {
         info: (event, _message, fields) => logs.push({ level: 'info', event, fields }),
@@ -1007,7 +1192,8 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
         conversationID: '24242424-2424-2424-2424-242424242424'
       },
       tools: [
-        {
+        defineWorkerTool({
+          executionMode: 'sequential',
           name: 'quiet_tool',
           description: 'Does not need user-facing progress',
           schema: z.object({}),
@@ -1016,8 +1202,9 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
             executed.push('quiet')
             return { content: [{ type: 'text', text: 'quiet' }], details: {} }
           }
-        },
-        {
+        }),
+        defineWorkerTool({
+          executionMode: 'sequential',
           name: 'fallback_tool',
           description: 'Falls back when its optional summary fails',
           schema: z.object({}),
@@ -1034,7 +1221,7 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
               details: {}
             }
           }
-        }
+        })
       ],
       onPresentationEvent: event => {
         presentation.push(event)
@@ -1074,7 +1261,8 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
           conversationID: '66666666-6666-6666-6666-666666666666'
         },
         tools: [
-          {
+          defineWorkerTool({
+            executionMode: 'sequential',
             name: 'duplicate',
             description: 'first',
             schema: z.object({}),
@@ -1083,8 +1271,9 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
               content: [{ type: 'text', text: 'first' }],
               details: {}
             })
-          },
-          {
+          }),
+          defineWorkerTool({
+            executionMode: 'sequential',
             name: 'duplicate',
             description: 'second',
             schema: z.object({}),
@@ -1093,7 +1282,7 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
               content: [{ type: 'text', text: 'second' }],
               details: {}
             })
-          }
+          })
         ]
       })
     ).rejects.toThrow('duplicate tool name: duplicate')
@@ -1116,21 +1305,23 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
           conversationID: '27272727-2727-2727-2727-272727272727'
         },
         tools: [
-          {
+          defineWorkerTool({
+            executionMode: 'sequential',
             name: 'lookup',
             description: 'Root lookup.',
             schema: z.object({}),
             describeActivity: () => null,
             execute: async () => ({ content: [{ type: 'text', text: 'root' }], details: {} })
-          },
-          {
+          }),
+          defineWorkerTool({
+            executionMode: 'sequential',
             namespace: 'functions',
             name: 'lookup',
             description: 'Default namespace lookup.',
             schema: z.object({}),
             describeActivity: () => null,
             execute: async () => ({ content: [{ type: 'text', text: 'default' }], details: {} })
-          }
+          })
         ]
       })
     ).rejects.toThrow('duplicate tool name: lookup')
@@ -1178,21 +1369,23 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
         conversationID: '26262626-2626-2626-2626-262626262626'
       },
       tools: [
-        {
+        defineWorkerTool({
+          executionMode: 'sequential',
           name: 'a__b',
           description: 'Root tool.',
           schema: z.object({}),
           describeActivity: () => null,
           execute: async () => ({ content: [{ type: 'text', text: 'root' }], details: {} })
-        },
-        {
+        }),
+        defineWorkerTool({
+          executionMode: 'sequential',
           namespace: 'a',
           name: 'b',
           description: 'Namespaced tool.',
           schema: z.object({}),
           describeActivity: () => null,
           execute: async () => ({ content: [{ type: 'text', text: 'child' }], details: {} })
-        }
+        })
       ]
     })
 

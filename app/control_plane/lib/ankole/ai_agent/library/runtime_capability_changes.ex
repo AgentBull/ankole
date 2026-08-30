@@ -47,8 +47,7 @@ defmodule Ankole.AIAgent.Library.RuntimeCapabilityChanges do
         |> dispatch(
           repo,
           agent_uid,
-          Keyword.get(opts, :send, &Broker.send_mandatory/2),
-          "skill_disabled"
+          Keyword.get(opts, :send, &Broker.send_mandatory/2)
         )
 
       {:error, reason} ->
@@ -58,22 +57,6 @@ defmodule Ankole.AIAgent.Library.RuntimeCapabilityChanges do
           %{agent_uid: agent_uid, reason: inspect(reason)}
         )
     end
-
-    :ok
-  end
-
-  @spec notify_skill_content(String.t(), String.t(), keyword()) :: :ok
-  def notify_skill_content(agent_uid, skill_name, opts \\ [])
-      when is_binary(agent_uid) and is_binary(skill_name) do
-    repo = Keyword.get(opts, :repo, Repo)
-
-    dispatch(
-      [skill_name],
-      repo,
-      agent_uid,
-      Keyword.get(opts, :send, &Broker.send_mandatory/2),
-      "skill_content_changed"
-    )
 
     :ok
   end
@@ -123,9 +106,9 @@ defmodule Ankole.AIAgent.Library.RuntimeCapabilityChanges do
     |> repo.all()
   end
 
-  defp dispatch([], _repo, _agent_uid, _send, _command), do: :ok
+  defp dispatch([], _repo, _agent_uid, _send), do: :ok
 
-  defp dispatch(skill_names, repo, agent_uid, send, command) do
+  defp dispatch(skill_names, repo, agent_uid, send) do
     repo
     |> active_deliveries(agent_uid)
     |> Enum.uniq_by(fn delivery ->
@@ -136,7 +119,7 @@ defmodule Ankole.AIAgent.Library.RuntimeCapabilityChanges do
       route = delivery.transport_route || delivery.worker_id
 
       envelope =
-        TurnEnvelope.turn_control(TurnRef.from_delivery(delivery), command, %{
+        TurnEnvelope.turn_control(TurnRef.from_delivery(delivery), "skill_disabled", %{
           "skill_names" => skill_names
         })
 

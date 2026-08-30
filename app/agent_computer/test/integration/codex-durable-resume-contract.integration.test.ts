@@ -1,3 +1,4 @@
+import { sleep } from '../support/llm'
 import { describe, expect, it } from 'bun:test'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -7,7 +8,7 @@ import {
   CODEX_OPT_OUT_NOTIFICATION_METHODS,
   CodexAppServerClient,
   type JSONRPCMessage
-} from '../../src/core/codex-runner/app-server-client'
+} from '../../src/core/codex-runner/runtime/app-server-client'
 import type { DynamicToolCallParams } from '../../src/core/codex-runner/generated/protocol/v2/DynamicToolCallParams'
 import type { DynamicToolCallResponse } from '../../src/core/codex-runner/generated/protocol/v2/DynamicToolCallResponse'
 import type { ThreadResumeParams } from '../../src/core/codex-runner/generated/protocol/v2/ThreadResumeParams'
@@ -17,7 +18,7 @@ import type { ThreadStartResponse } from '../../src/core/codex-runner/generated/
 import type { TurnStartParams } from '../../src/core/codex-runner/generated/protocol/v2/TurnStartParams'
 import type { TurnStartResponse } from '../../src/core/codex-runner/generated/protocol/v2/TurnStartResponse'
 import type { TurnSteerResponse } from '../../src/core/codex-runner/generated/protocol/v2/TurnSteerResponse'
-import { PARENT_INPUT_TOOL_NAME, parentInputToolSpec } from '../../src/core/codex-runner/parent-input'
+import { PARENT_INPUT_TOOL_NAME, parentInputToolSpec } from '../../src/core/codex-runner/job/parent-input'
 
 describe('@ankole/agent-computer Codex durable resume contract', () => {
   it('rejects cross-process resume before a thread has started its first turn', async () => {
@@ -913,10 +914,6 @@ async function waitFor(
     if (Date.now() >= deadline) throw new Error(`timed out waiting for ${description}`)
     await sleep(10)
   }
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms))
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

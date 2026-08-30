@@ -11,11 +11,12 @@ defmodule Ankole.AIGateway.Compaction do
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Definition
   alias Ankole.AppConfigure.Schema
+  alias Ankole.AIGateway.Conversations
   alias Ankole.AIGateway.CompactionArtifacts
   alias Ankole.AIGateway.CompactionPrompt
   alias Ankole.AIGateway.CompactionRender
   alias Ankole.AIGateway.CompactionRetention
-  alias Ankole.AIGateway.MapUtils
+  alias Ankole.Attrs
   alias Ankole.AIGateway.ModelMetadata
   alias Ankole.AIGateway.ProviderConfigs.Provider
   alias Ankole.AIGateway.ProviderSealedContent
@@ -49,7 +50,6 @@ defmodule Ankole.AIGateway.Compaction do
   @summarizer_retry_max_output_tokens 16_384
   @unusable_summary_reasons [:empty_compaction_summary, :invalid_summary_shape]
   @checkpoint_overhead_tokens 1_000
-  @brain_pre_compaction_nudge_marker "ankole.brain.pre_compaction_nudge.v1"
   @stable_tail_summary "Earlier conversation history was omitted because it exceeded the active context budget."
   @opaque_ref_keys ~w(agent_computer_path blob_ref content_type file_id file_url filename id image_url media_type mime_type name path provider_file_id provider_ref provider_uri storage_ref uri url)
   @max_ref_chars 512
@@ -150,27 +150,14 @@ defmodule Ankole.AIGateway.Compaction do
     )
   end
 
-  @spec ensure_registered() :: :ok | {:error, term()}
-  def ensure_registered do
-    case AppConfigure.register_definitions([config_definition()]) do
-      :ok -> :ok
-      {:error, {:duplicate_key, @config_key}} -> :ok
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
   @spec put_config(map()) :: {:ok, map()} | {:error, term()}
   def put_config(config) when is_map(config) do
-    with :ok <- ensure_registered() do
-      AppConfigure.put_global(config_definition(), config)
-    end
+    AppConfigure.put_global(config_definition(), config)
   end
 
   @spec delete_config() :: :ok | {:error, term()}
   def delete_config do
-    with :ok <- ensure_registered() do
-      AppConfigure.delete_global(config_definition())
-    end
+    AppConfigure.delete_global(config_definition())
   end
 
   @doc """
@@ -288,9 +275,6 @@ defmodule Ankole.AIGateway.Compaction do
         total_tokens <= threshold.tokens ->
           {:ok, unchanged(history, request)}
 
-        brain_pre_compaction_nudge_due?(history, total_tokens, threshold) ->
-          {:ok, brain_pre_compaction_nudge(history, request, total_tokens, threshold)}
-
         true ->
           plan_compact_history(context)
       end
@@ -353,21 +337,6 @@ defmodule Ankole.AIGateway.Compaction do
     end
   end
 
-  @doc """
-  Adds the one-time Brain pre-compaction nudge to normal model input when due.
-  """
-  @spec maybe_inject_brain_pre_compaction_nudge([map()], map()) :: [map()]
-  def maybe_inject_brain_pre_compaction_nudge(current_input, %{
-        "brain_pre_compaction_nudge" => %{"status" => "due"}
-      })
-      when is_list(current_input) do
-    [brain_pre_compaction_nudge_input() | current_input]
-  end
-
-  def maybe_inject_brain_pre_compaction_nudge(current_input, _run_metadata)
-      when is_list(current_input),
-      do: current_input
-
   @doc false
   @spec put_checkpoint_response_id(map(), binary() | nil) :: map()
   def put_checkpoint_response_id(%{"auto_compaction" => %{} = metadata} = run_metadata, id) do
@@ -402,7 +371,7 @@ defmodule Ankole.AIGateway.Compaction do
   """
   @spec compact_from_trigger(String.t(), map()) :: {:ok, map()} | {:error, term()}
   def compact_from_trigger(subject_uid, request) when is_map(request) do
-    request = MapUtils.normalize_request_keys(request)
+    request = Attrs.normalize_external_attrs(request)
 
     # What the caller sent decides which history is compacted. A caller that
     # sends only the trigger keeps its history here; a caller that sends history
@@ -579,7 +548,7 @@ defmodule Ankole.AIGateway.Compaction do
   """
   @spec compact_response(String.t(), map()) :: {:ok, map()} | {:error, term()}
   def compact_response(subject_uid, request) when is_map(request) do
-    request = MapUtils.normalize_request_keys(request)
+    request = Attrs.normalize_external_attrs(request)
     upstream_compaction? = upstream_compaction?()
 
     with {:ok, _model} <- standalone_model(request),
@@ -1132,11 +1101,11 @@ defmodule Ankole.AIGateway.Compaction do
           "user_budget_tokens" => user_message_budget_tokens(),
           "user_message_count" => length(candidate.retained_user_originals)
         }
-        |> maybe_put(
+        |> Ankole.Attrs.put_present(
           "previous_summary_discarded",
           if(candidate.previous_summary_discarded, do: true, else: nil)
         )
-        |> maybe_put(
+        |> Ankole.Attrs.put_present(
           "opaque_prefix_items",
           if(candidate.opaque_prefix != [], do: length(candidate.opaque_prefix), else: nil)
         ),
@@ -1217,7 +1186,7 @@ defmodule Ankole.AIGateway.Compaction do
 
         true ->
           with {:ok, conversation} <-
-                 StatefulResponses.create_managed_stateful_responses_conversation(subject_uid,
+                 Conversations.create_managed_stateful_responses_conversation(subject_uid,
                    metadata: request_metadata(request)
                  ) do
             {:ok,
@@ -1249,54 +1218,6 @@ defmodule Ankole.AIGateway.Compaction do
       expected_previous_response_id: previous_response_id,
       compaction: nil,
       run_metadata: %{}
-    }
-  end
-
-  defp brain_pre_compaction_nudge(history, request, total_tokens, threshold) do
-    previous_response_id = previous_response_id_for(history, request)
-
-    %{
-      history: history,
-      previous_response_id: previous_response_id,
-      expected_previous_response_id: previous_response_id,
-      compaction: nil,
-      run_metadata: %{
-        "brain_pre_compaction_nudge" => %{
-          "status" => "due",
-          "marker" => @brain_pre_compaction_nudge_marker,
-          "history_usage_tokens_before" => total_tokens,
-          "token_threshold" => threshold.tokens,
-          "context_length" => threshold.context_length,
-          "threshold" => threshold.threshold,
-          "max_threshold_tokens" => threshold.max_threshold_tokens
-        }
-      }
-    }
-  end
-
-  defp brain_pre_compaction_nudge_due?(history, total_tokens, threshold) do
-    total_tokens < threshold.effective_context_length and
-      not brain_pre_compaction_nudge_seen?(history)
-  end
-
-  defp brain_pre_compaction_nudge_seen?(history) do
-    Enum.any?(history, fn %Message{} = message ->
-      message
-      |> message_content_text()
-      |> String.contains?(@brain_pre_compaction_nudge_marker)
-    end)
-  end
-
-  defp brain_pre_compaction_nudge_input do
-    %{
-      "role" => "system",
-      "content" => [
-        %{
-          "type" => "input_text",
-          "text" =>
-            "[#{@brain_pre_compaction_nudge_marker}] Automatic compaction may run soon. Before continuing, use memory_update to merge durable preferences, corrections, decisions, identifiers, dates, and project facts into the current Brain knowledge entries. Replace stale contradictory content instead of appending another version. Skip this when there is nothing worth retaining."
-        }
-      ]
     }
   end
 
@@ -1486,7 +1407,7 @@ defmodule Ankole.AIGateway.Compaction do
     |> Enum.reject(fn {part, _part_index} -> text_content_part?(part) end)
     |> Enum.map(fn {part, part_index} ->
       opaque_ref(part, item_index, part_index)
-      |> maybe_put("role", item["role"])
+      |> Ankole.Attrs.put_present("role", item["role"])
     end)
   end
 
@@ -1507,7 +1428,7 @@ defmodule Ankole.AIGateway.Compaction do
       "item_index" => item_index,
       "type" => Map.get(value, "type", "unknown")
     }
-    |> maybe_put("part_index", part_index)
+    |> Ankole.Attrs.put_present("part_index", part_index)
     |> put_nonempty("refs", refs)
     |> maybe_mark_missing_ref(refs)
   end
@@ -1537,10 +1458,6 @@ defmodule Ankole.AIGateway.Compaction do
 
   defp text_content_part?(%{"text" => text}) when is_binary(text), do: true
   defp text_content_part?(_part), do: false
-
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, _key, ""), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp put_nonempty(map, _key, []), do: map
   defp put_nonempty(map, _key, value) when is_map(value) and map_size(value) == 0, do: map
@@ -2469,13 +2386,6 @@ defmodule Ankole.AIGateway.Compaction do
     |> CompactionRender.approx_tokens()
   end
 
-  defp message_content_text(%Message{content: content}) when is_list(content) do
-    content
-    |> Enum.map(&CompactionRender.item_text/1)
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.join("\n")
-  end
-
   defp text_compactable_message?(%Message{type: "message", status: "complete", content: content})
        when is_list(content),
        do: Enum.all?(content, &text_compactable_item?/1)
@@ -2589,10 +2499,8 @@ defmodule Ankole.AIGateway.Compaction do
   @doc false
   @spec config() :: map()
   def config do
-    with :ok <- ensure_registered(),
-         {:ok, config} <- AppConfigure.get(config_definition()) do
-      config
-    else
+    case AppConfigure.get(config_definition()) do
+      {:ok, config} -> config
       _reason -> @default_config
     end
   end

@@ -39,10 +39,8 @@ defmodule AnkoleWeb.AgentSessionController do
     end
   end
 
-  defp text_param(params, key) do
-    atom_key = String.to_atom(key)
-
-    value = Map.get(params, key) || Map.get(params, atom_key)
+  defp text_param(params, "agent_uid" = key) do
+    value = Map.get(params, key) || Map.get(params, :agent_uid)
 
     case value do
       value when is_binary(value) ->

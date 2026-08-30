@@ -27,24 +27,51 @@ export function retryAfterMsFromError(error: unknown): number | undefined {
 function parseRetryAfterHeaders(headers: unknown): number | undefined {
   const retryAfterMs = headerValue(headers, 'retry-after-ms')
   if (retryAfterMs) {
-    // Accept only a bare integer/decimal; the regex rejects junk like `30s` so a
-    // malformed value falls through to the standard header instead of being
-    // silently treated as 0 by `Number`.
-    const trimmed = retryAfterMs.trim()
-    const milliseconds = Number(trimmed)
-    if (/^\d+(?:\.\d+)?$/.test(trimmed) && Number.isFinite(milliseconds)) return Math.max(0, milliseconds)
+    const milliseconds = nonNegativeNumber(retryAfterMs)
+    if (milliseconds !== undefined) return milliseconds
   }
 
   const retryAfter = headerValue(headers, 'retry-after')
   if (!retryAfter) return undefined
   // Form 1: delay in seconds. Tried first because it is the common rate-limit case.
-  const seconds = Number.parseFloat(retryAfter)
-  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000
+  const seconds = nonNegativeNumber(retryAfter)
+  if (seconds !== undefined) return seconds * 1000
   // Form 2: absolute HTTP-date. Converted to a delay relative to `now`; a date in
   // the past clamps to 0 rather than asking the caller to retry in the past.
-  const retryAt = Date.parse(retryAfter)
+  return httpDateDelayMs(retryAfter)
+}
+
+/**
+ * Reads a header as an absolute HTTP-date and returns the delay until it.
+ *
+ * `Date.parse` alone is far wider than the header allows: it reads `12junk` and
+ * `-5` as real dates, which would turn a malformed value into a scheduled
+ * sleep. All three date forms RFC 9110 permits start with a weekday name, so
+ * requiring one keeps the accepted set close to the actual header. Anything
+ * else — including an ISO instant, which this header does not carry — falls
+ * back to the caller's own backoff schedule.
+ */
+function httpDateDelayMs(header: string): number | undefined {
+  const trimmed = header.trim()
+  if (!/^[A-Za-z]{3}/.test(trimmed)) return undefined
+  const retryAt = Date.parse(trimmed)
   if (Number.isNaN(retryAt)) return undefined
   return Math.max(0, retryAt - Date.now())
+}
+
+/**
+ * Parses a whole header value as a non-negative number.
+ *
+ * Both header forms must match completely: a prefix parse would turn a
+ * malformed `30s` or `12junk` into a real sleep, and a bare `Number()` would
+ * turn junk into 0. A value that does not match falls through to the next
+ * accepted form, and finally to the caller's own backoff schedule.
+ */
+function nonNegativeNumber(header: string): number | undefined {
+  const trimmed = header.trim()
+  if (!/^\d+(?:\.\d+)?$/.test(trimmed)) return undefined
+  const value = Number(trimmed)
+  return Number.isFinite(value) ? value : undefined
 }
 
 /**

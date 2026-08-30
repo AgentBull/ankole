@@ -26,15 +26,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.DeadLetterNoticeConfig do
     )
   end
 
-  @spec ensure_registered() :: :ok | {:error, term()}
-  def ensure_registered do
-    case AppConfigure.register_definitions([definition()]) do
-      :ok -> :ok
-      {:error, {:duplicate_key, @key}} -> :ok
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
   @doc false
   @spec enabled_in_tx?(module()) :: boolean()
   def enabled_in_tx?(repo) do

@@ -12,6 +12,7 @@ import {
   type RPCResponseOf
 } from '../lanes/rpc_lane'
 
+/** These aliases keep each terminal RPC method as a literal requester type. */
 const completionMethod = rpcMethods.actorTurnComplete
 const noopMethod = rpcMethods.actorTurnNoop
 const abortMethod = rpcMethods.actorTurnAbort
@@ -53,11 +54,6 @@ type CompletionRetryOptions = {
   onRetry?: (attempt: number, error: unknown) => void
 }
 
-/**
- * Repeats the terminal completion RPC until the control plane acknowledges its
- * durable commit. The completion anchor is idempotent, so a response lost
- * after commit returns `already_completed` instead of starting another turn.
- */
 export async function completeTurnWithAck(
   rpcClient: TurnCompletionRequester,
   turn: ActorTurnRef,
@@ -113,6 +109,11 @@ export async function abortTurnWithAck(
   )
 }
 
+/**
+ * Retries a terminal RPC until the control plane confirms its durable commit.
+ * Complete, no-op, and abort operations are idempotent. A lost reply is safe
+ * to retry, but a semantic rejection is terminal.
+ */
 async function terminalTurnWithAck<M extends TerminalMethod>(
   rpcClient: TurnTerminalRequester<M>,
   method: M,

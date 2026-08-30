@@ -41,33 +41,11 @@ defmodule Ankole.Setup.Config do
   end
 
   @doc """
-  Registers setup's AppConfigure keys.
-  """
-  @spec ensure_registered() :: :ok | {:error, term()}
-  def ensure_registered do
-    [completed_definition(), bootstrap_activation_code_definition()]
-    |> Enum.reduce_while(:ok, fn definition, :ok ->
-      case AppConfigure.register_definitions([definition]) do
-        :ok ->
-          {:cont, :ok}
-
-        {:error, {:duplicate_key, key}}
-        when key in [@completed_key, @bootstrap_activation_code_key] ->
-          {:cont, :ok}
-
-        {:error, reason} ->
-          {:halt, {:error, reason}}
-      end
-    end)
-  end
-
-  @doc """
   Returns whether setup has completed.
   """
   @spec completed?() :: {:ok, boolean()} | {:error, term()}
   def completed? do
-    with :ok <- ensure_registered(),
-         {:ok, completed} <- AppConfigure.get(completed_definition()) do
+    with {:ok, completed} <- AppConfigure.get(completed_definition()) do
       {:ok, completed == true}
     end
   end
@@ -77,9 +55,20 @@ defmodule Ankole.Setup.Config do
   """
   @spec put_completed(boolean()) :: {:ok, boolean()} | {:error, term()}
   def put_completed(completed) when is_boolean(completed) do
-    with :ok <- ensure_registered() do
-      AppConfigure.put_global(completed_definition(), completed)
-    end
+    AppConfigure.put_global(completed_definition(), completed)
+  end
+
+  @doc """
+  Writes the setup completion flag inside the caller's open transaction.
+
+  The caller must pass the returned committed write to
+  `AppConfigure.cache_committed_write/1` after the transaction commits, or
+  reads keep serving the stale cached value.
+  """
+  @spec put_completed_in_tx(module(), boolean()) ::
+          {:ok, AppConfigure.committed_write()} | {:error, term()}
+  def put_completed_in_tx(repo, completed) when is_boolean(completed) do
+    AppConfigure.put_global_by_key_in_tx(repo, @completed_key, completed)
   end
 
   @doc """
@@ -87,9 +76,7 @@ defmodule Ankole.Setup.Config do
   """
   @spec bootstrap_activation_code() :: {:ok, String.t()} | :error | {:error, term()}
   def bootstrap_activation_code do
-    with :ok <- ensure_registered() do
-      AppConfigure.get(bootstrap_activation_code_definition())
-    end
+    AppConfigure.get(bootstrap_activation_code_definition())
   end
 
   @doc """
@@ -97,9 +84,7 @@ defmodule Ankole.Setup.Config do
   """
   @spec put_bootstrap_activation_code(String.t()) :: {:ok, String.t()} | {:error, term()}
   def put_bootstrap_activation_code(code) when is_binary(code) do
-    with :ok <- ensure_registered() do
-      AppConfigure.put_global(bootstrap_activation_code_definition(), code)
-    end
+    AppConfigure.put_global(bootstrap_activation_code_definition(), code)
   end
 
   @doc """
@@ -107,9 +92,7 @@ defmodule Ankole.Setup.Config do
   """
   @spec delete_bootstrap_activation_code() :: :ok | {:error, term()}
   def delete_bootstrap_activation_code do
-    with :ok <- ensure_registered() do
-      AppConfigure.delete_global(bootstrap_activation_code_definition())
-    end
+    AppConfigure.delete_global(bootstrap_activation_code_definition())
   end
 
   defp activation_code_schema do

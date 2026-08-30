@@ -1,9 +1,7 @@
 import { rpcMethods, type RPCRequester } from '../../lanes/rpc_lane'
 import { jsonFromBytes } from '../../fabric/envelope_proto'
 import type { TurnStart } from '../../lanes/actor_lane'
-import type { BrowserRuntime, RenderedFetchBrowserMaterializeSettings } from '../../browser-runtime'
-import { createWebTools } from '../../tools/web/web-tools'
-import type { AIGatewayHTTPClient } from '../ai_gateway_transport'
+import type { RenderedFetchBrowserMaterializeSettings } from '../../browser-runtime'
 
 const RenderedFetchIdleTtlMsKey = 'worker.rendered_fetch_idle_ttl_ms'
 const SSRFFilterKey = 'security.ssrf_filter'
@@ -53,29 +51,4 @@ export function renderedFetchBrowserSettings(
     ssrfFilter: config.ssrfFilter,
     ...(typeof config.renderedFetchIdleTtlMs === 'number' ? { idleTtlMs: config.renderedFetchIdleTtlMs } : {})
   }
-}
-
-/**
- * Builds the web tools for one turn, wiring the rendered web_fetch fallback
- * when a browser runtime is present. Shared by the text turn loop and the
- * codex job projection so the recipe cannot drift between the two.
- */
-export function createTurnWebTools(opts: {
-  aiGateway: AIGatewayHTTPClient
-  renderedFetchRuntimeConfig: RenderedFetchRuntimeConfig
-  workerEnv: Record<string, string>
-  workspaceRoot: string
-  browserRuntime?: BrowserRuntime
-}) {
-  return createWebTools({
-    aiGateway: opts.aiGateway,
-    workspaceRoot: opts.workspaceRoot,
-    ...(opts.browserRuntime
-      ? {
-          renderedFallback: opts.browserRuntime.renderedWebFetchFallback(
-            renderedFetchBrowserSettings(opts.renderedFetchRuntimeConfig, opts.workerEnv)
-          )
-        }
-      : {})
-  })
 }

@@ -10,14 +10,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
 
   alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Schemas.Job
-  alias Ankole.BackgroundAgentJobs.Text
   alias Ankole.Repo
   alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.ActorRuntime.Common
   alias Ankole.SignalsGateway.ActorRuntime.RPCWire
   alias Ankole.SignalsGateway.ActorRuntime.TurnRef
-  alias Ankole.SignalsGateway.AIGatewayLink
+  alias Ankole.Text
 
   require Ankole.BackgroundAgentJobs
 
@@ -33,15 +32,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
       ) do
     with :ok <- require_owner_turn(turn_ref),
          {:ok, actor_event} <- fetch_actor_event_for_turn(turn_ref),
-         {:ok, conversation} <- fetch_owner_conversation(turn_ref),
          attrs <-
            create_attrs(request)
            |> Map.put("agent_uid", turn_ref.agent_uid)
            |> Map.put("owner_session_id", turn_ref.session_id)
            |> Map.put("source_actor_event_id", turn_ref.actor_event_id)
            |> Map.put("reply_route", reply_route(actor_event))
-           |> put_worker_route_metadata(ctx.route)
-           |> put_owner_brain_conversation(conversation.id),
+           |> put_worker_route_metadata(ctx.route),
          {:ok, %{job: %Job{} = job}} <-
            BackgroundAgentJobs.create_with_dispatch(attrs) do
       {:ok, job_response(job)}
@@ -63,7 +60,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
            BackgroundAgentJobs.get_job_for_agent(source_job_id, turn_ref.agent_uid),
          :ok <- authorize_job_target(turn_ref, source_job),
          {:ok, actor_event} <- fetch_actor_event_for_turn(turn_ref),
-         {:ok, conversation} <- fetch_owner_conversation(turn_ref),
          attrs <-
            %{
              "agent_uid" => turn_ref.agent_uid,
@@ -73,8 +69,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
              "source_actor_event_id" => turn_ref.actor_event_id,
              "source_tool_call_id" => request.source_tool_call_id
            }
-           |> put_worker_route_metadata(ctx.route)
-           |> put_owner_brain_conversation(conversation.id),
+           |> put_worker_route_metadata(ctx.route),
          {:ok, %{job: %Job{} = job}} <-
            BackgroundAgentJobs.respawn_with_dispatch(source_job.id, attrs) do
       {:ok,
@@ -424,13 +419,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
     end
   end
 
-  defp fetch_owner_conversation(turn_ref) do
-    case AIGatewayLink.active_conversation(turn_ref.agent_uid, turn_ref.session_id) do
-      %{} = conversation -> {:ok, conversation}
-      nil -> {:error, :owner_conversation_not_found}
-    end
-  end
-
   defp reply_route(actor_event) do
     route =
       %{
@@ -668,9 +656,4 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
   end
 
   defp put_worker_route_metadata(map, _route), do: map
-
-  defp put_owner_brain_conversation(map, conversation_id) do
-    metadata = RPCWire.map_value(map, "metadata", %{})
-    Map.put(map, "metadata", Map.put(metadata, "brain_owner_conversation_id", conversation_id))
-  end
 end

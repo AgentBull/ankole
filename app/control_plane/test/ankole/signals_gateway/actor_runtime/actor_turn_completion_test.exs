@@ -1,6 +1,8 @@
 defmodule Ankole.SignalsGateway.ActorRuntime.ActorTurnCompletionTest do
   use Ankole.SignalsGateway.ActorRuntimeCase
 
+  alias Ankole.AIGateway.Conversations
+
   alias Ankole.SignalsGateway.Channel
   alias Ankole.SignalsGateway.InputTombstone
   alias Ankole.SignalsGateway.ReplyInteractionState
@@ -739,7 +741,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorTurnCompletionTest do
 
       event =
         event
-        |> ActorEvent.changeset(%{type: "brain.source.learn", signal_channel_id: nil})
+        |> ActorEvent.changeset(%{type: "internal.no_channel", signal_channel_id: nil})
         |> Repo.update!()
 
       final = complete_response(agent.uid, event, "source learning completed")
@@ -1179,7 +1181,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorTurnCompletionTest do
   defp start_response(subject_uid, event, opts \\ []) do
     conversation_key = Keyword.get(opts, :conversation_key, event.session_id)
     actor_event_id = Keyword.get(opts, :actor_event_id, event.id)
-    {:ok, conversation} = StatefulResponses.ensure_conversation(subject_uid, conversation_key)
+    {:ok, conversation} = Conversations.ensure_conversation(subject_uid, conversation_key)
 
     {:ok, run} =
       StatefulResponses.start_response_run(%{
@@ -1199,9 +1201,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorTurnCompletionTest do
   end
 
   defp complete_turn(turn_ref, final, outcome \\ "loop_finished") do
-    ActorRuntime.handle_turn_completed(
-      turn_completed_payload(turn_ref, "resp_#{final.id}", outcome)
-    )
+    commit_turn_completion(turn_ref, "resp_#{final.id}", outcome)
   end
 
   defp assert_turn_remains_open(event) do

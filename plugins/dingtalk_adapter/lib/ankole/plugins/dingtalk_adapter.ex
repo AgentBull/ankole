@@ -48,6 +48,7 @@ defmodule Ankole.Plugins.DingTalkAdapter do
       %{
         contract_id: "signals_gateway.adapter",
         id: "dingtalk",
+        adapter_category: "enterprise_im",
         plugin_id: plugin_id(),
         display_name: adapter_display_name(),
         config_key_pattern: "signals_gateway.dingtalk.bindings.<agent_uid>",

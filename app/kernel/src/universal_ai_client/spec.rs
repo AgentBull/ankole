@@ -215,9 +215,9 @@ pub struct PreparedHTTPRequestSpec {
 pub struct TimeoutSpec {
     #[serde(default = "default_connect_ms")]
     pub connect_ms: u64,
-    #[serde(default = "default_first_byte_ms")]
+    #[serde(default = "default_model_request_timeout_ms")]
     pub first_byte_ms: u64,
-    #[serde(default = "default_idle_ms")]
+    #[serde(default = "default_model_request_timeout_ms")]
     pub idle_ms: u64,
     #[serde(default)]
     pub total_ms: Option<u64>,
@@ -227,8 +227,8 @@ impl Default for TimeoutSpec {
     fn default() -> Self {
         Self {
             connect_ms: default_connect_ms(),
-            first_byte_ms: default_first_byte_ms(),
-            idle_ms: default_idle_ms(),
+            first_byte_ms: default_model_request_timeout_ms(),
+            idle_ms: default_model_request_timeout_ms(),
             total_ms: None,
         }
     }
@@ -473,7 +473,7 @@ fn normalize_function_call_replay(request: &mut Map<String, Value>) {
 
         let normalized_arguments = match item.get("arguments") {
             Some(Value::String(arguments)) => normalize_function_arguments(arguments),
-            Some(Value::Object(arguments)) => serde_json::to_string(arguments)
+            Some(Value::Object(arguments)) => sonic_rs::to_string(arguments)
                 .ok()
                 .filter(|arguments| arguments.len() <= MAX_FUNCTION_CALL_ARGUMENT_BYTES),
             _invalid_or_missing => None,
@@ -518,14 +518,14 @@ fn normalize_function_arguments(arguments: &str) -> Option<String> {
     ];
 
     candidates.into_iter().flatten().find_map(|candidate| {
-        serde_json::from_str::<Map<String, Value>>(&candidate)
+        sonic_rs::from_str::<Map<String, Value>>(&candidate)
             .ok()
-            .and_then(|value| serde_json::to_string(&value).ok())
+            .and_then(|value| sonic_rs::to_string(&value).ok())
     })
 }
 
 fn valid_function_arguments(arguments: &str) -> bool {
-    serde_json::from_str::<Map<String, Value>>(arguments).is_ok()
+    sonic_rs::from_str::<Map<String, Value>>(arguments).is_ok()
 }
 
 fn strip_json_code_fence(input: &str) -> Option<String> {
@@ -770,14 +770,6 @@ fn default_connect_ms() -> u64 {
     30_000
 }
 
-fn default_first_byte_ms() -> u64 {
-    default_model_request_timeout_ms()
-}
-
-fn default_idle_ms() -> u64 {
-    default_model_request_timeout_ms()
-}
-
 fn default_model_request_timeout_ms() -> u64 {
     1_800_000
 }
@@ -1012,7 +1004,7 @@ mod tests {
         assert_eq!(input[0]["arguments"], json!("{}"));
         assert_eq!(input[1]["call_id"], json!("call_paired"));
         assert!(
-            !serde_json::to_string(input)
+            !sonic_rs::to_string(input)
                 .unwrap()
                 .contains("call_unpaired")
         );

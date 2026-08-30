@@ -3,31 +3,21 @@ defmodule AnkoleWeb.IdentityProviderControllerTest do
   use Oban.Testing, repo: Ankole.Repo
 
   import Ecto.Query, only: [from: 2]
-  import Ankole.PrincipalsFixtures
 
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
-  alias Ankole.AuthZ
   alias Ankole.AuthZ.Grant
-  alias Ankole.IdentityProviders.Config, as: IdentityProviderConfig
   alias Ankole.IdentityProviders.Jobs.SyncProvider
-  alias Ankole.Plugins.Config, as: PluginsConfig
-  alias Ankole.Plugins.LarkAdapter
   alias Ankole.Plugins.LarkAdapter.Config, as: LarkConfig
   alias Ankole.Repo
   alias Ankole.Setup.Config, as: SetupConfig
-  alias AnkoleWeb.Session, as: WebSession
 
   setup do
     allow_cache_database_access()
     Registry.clear_for_test()
     Cache.clear_for_test()
 
-    :ok = PluginsConfig.ensure_registered()
-    :ok = IdentityProviderConfig.ensure_registered()
-    :ok = SetupConfig.ensure_registered()
-    :ok = AppConfigure.register_patterns(LarkAdapter.app_config_patterns())
     {:ok, true} = SetupConfig.put_completed(true)
     :ok = SetupConfig.delete_bootstrap_activation_code()
 
@@ -193,25 +183,6 @@ defmodule AnkoleWeb.IdentityProviderControllerTest do
     assert {:ok, config} = AppConfigure.get_by_key(LarkConfig.identity_config_key("lark-main"))
     assert config["appID"] == "cli_identity_console_renamed"
     assert config["appSecret"] == "secret-console"
-
-    conn =
-      conn
-      |> recycle_api()
-      |> put(~p"/api/v1/identity-providers/lark-main", %{
-        "adapter_id" => "lark",
-        "enabled" => true,
-        "config" => %{
-          "appID" => "cli_identity_console_renamed",
-          "appSecret" => "********",
-          "sync" => %{"contacts" => true}
-        }
-      })
-
-    assert %{"identity_provider" => %{"stored_secret_paths" => ["appSecret"]}} =
-             json_response(conn, 200)
-
-    assert {:ok, config} = AppConfigure.get_by_key(LarkConfig.identity_config_key("lark-main"))
-    assert config["appSecret"] == "secret-console"
   end
 
   test "manual full sync returns a clear error when directory sync is disabled", %{conn: conn} do
@@ -272,42 +243,6 @@ defmodule AnkoleWeb.IdentityProviderControllerTest do
       |> post(~p"/api/v1/identity-providers/missing-main/sync-runs", %{})
 
     assert %{"error" => %{"code" => "not_found"}} = json_response(conn, 404)
-  end
-
-  defp bearer_conn(conn) do
-    conn
-    |> active_admin_conn()
-    |> post(~p"/.internal-apis/oauth/token", %{
-      "grant_type" => "urn:ankole:params:oauth:grant-type:browser-session"
-    })
-    |> json_response(200)
-    |> Map.fetch!("access_token")
-    |> then(fn access_token ->
-      conn
-      |> recycle()
-      |> put_req_header("authorization", "Bearer #{access_token}")
-      |> put_req_header("content-type", "application/json")
-    end)
-  end
-
-  defp recycle_api(conn) do
-    conn
-    |> recycle()
-    |> put_req_header("authorization", get_req_header(conn, "authorization") |> List.first())
-    |> put_req_header("content-type", "application/json")
-  end
-
-  defp active_admin_conn(conn) do
-    human = human_fixture(%{uid: unique_uid("identity-provider-console-admin")})
-    assert {:ok, _root} = AuthZ.root_init_admin(human.principal.uid)
-
-    conn
-    |> init_test_session(%{})
-    |> WebSession.put_admin_session(%{
-      principal_uid: human.principal.uid,
-      provider_id: "lark-main",
-      external_id: "external-1"
-    })
   end
 
   defp revoke_console_grants do

@@ -3,6 +3,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
   import ExUnit.CaptureLog
 
+  alias Ankole.AIGateway.Conversations
+
   alias Ankole.AIGateway.Compaction
   alias Ankole.AIGateway.CompactionArtifacts
   alias Ankole.AIGateway.CredentialAttempts
@@ -2158,7 +2160,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              })
 
     assert {:ok, conversation} =
-             StatefulResponses.ensure_conversation(agent.uid, "openrouter-stateful-session")
+             Conversations.ensure_conversation(agent.uid, "openrouter-stateful-session")
 
     assert {:ok, previous} =
              start_stateful_message(agent.uid, conversation, "openrouter-stateful-anchor", [
@@ -2530,7 +2532,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                "store" => true,
                "metadata" => %{
                  "request_tag" => "kept",
-                 "brain" => %{"visibility" => "public"}
+                 "extra" => %{"visibility" => "public"}
                }
              })
 
@@ -2540,7 +2542,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     assert provider_request["metadata"] == %{
              "request_tag" => "kept",
-             "brain" => %{"visibility" => "public"}
+             "extra" => %{"visibility" => "public"}
            }
 
     refute Map.has_key?(provider_request, "conversation")
@@ -2568,7 +2570,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert conversation.metadata == %{
              "managed_by_stateful_responses_api" => true,
              "request_tag" => "kept",
-             "brain" => %{"visibility" => "public"}
+             "extra" => %{"visibility" => "public"}
            }
   end
 
@@ -2630,7 +2632,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              })
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(agent.uid, "dispatch-previous-only")
+      Conversations.ensure_conversation(agent.uid, "dispatch-previous-only")
 
     image_url = "data:image/png;base64,iVBORw0KGgo="
 
@@ -2771,7 +2773,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              })
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(agent.uid, "dispatch-stateful-replay-ids")
+      Conversations.ensure_conversation(agent.uid, "dispatch-stateful-replay-ids")
 
     {:ok, first} =
       start_stateful_message(agent.uid, conversation, "dispatch-stateful-replay-ids-a", [
@@ -3097,7 +3099,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     )
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(agent.uid, "dispatch-stateful-replay-recovery")
+      Conversations.ensure_conversation(agent.uid, "dispatch-stateful-replay-recovery")
 
     {:ok, m1} =
       start_stateful_message(agent.uid, conversation, "replay-recovery-a", [
@@ -3304,7 +3306,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     )
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(agent.uid, "dispatch-stateful-late-rejection")
+      Conversations.ensure_conversation(agent.uid, "dispatch-stateful-late-rejection")
 
     {:ok, prior} =
       start_stateful_message(agent.uid, conversation, "late-rejection-prior", [
@@ -3380,7 +3382,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     for {label, tool_call, expected_output_type} <- cases do
       {:ok, conversation} =
-        StatefulResponses.ensure_conversation(agent.uid, "dispatch-interrupted-tool-#{label}")
+        Conversations.ensure_conversation(agent.uid, "dispatch-interrupted-tool-#{label}")
 
       original_input = [text_message("user", "run the interrupted #{label} tool")]
 
@@ -3421,7 +3423,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     end
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(agent.uid, "dispatch-interrupted-nested-tool")
+      Conversations.ensure_conversation(agent.uid, "dispatch-interrupted-nested-tool")
 
     nested_call = %{
       "type" => "function_call",
@@ -3485,7 +3487,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              })
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(agent.uid, "dispatch-orphan-projection")
+      Conversations.ensure_conversation(agent.uid, "dispatch-orphan-projection")
 
     {:ok, anchor} =
       start_stateful_message(agent.uid, conversation, "dispatch-orphan-anchor", [
@@ -3560,7 +3562,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              })
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(agent.uid, "dispatch-malformed-call-projection")
+      Conversations.ensure_conversation(agent.uid, "dispatch-malformed-call-projection")
 
     {:ok, legacy_row} =
       start_stateful_message(agent.uid, conversation, "dispatch-malformed-call-row", [
@@ -3659,7 +3661,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              })
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(agent.uid, "dispatch-instructions-scope")
+      Conversations.ensure_conversation(agent.uid, "dispatch-instructions-scope")
 
     actor_event =
       actor_event_fixture(agent.uid, conversation.conversation_key, "instructions-a")
@@ -3699,7 +3701,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     %{principal: agent} = agent_fixture()
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(agent.uid, "dispatch-invalid-max-tool-calls")
+      Conversations.ensure_conversation(agent.uid, "dispatch-invalid-max-tool-calls")
 
     for invalid_value <- [-1, 1.5, "1"] do
       assert {:error, :invalid_max_tool_calls} =
@@ -3737,7 +3739,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              })
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(agent.uid, "dispatch-conversation-anchor")
+      Conversations.ensure_conversation(agent.uid, "dispatch-conversation-anchor")
 
     {:ok, first} =
       start_stateful_message(agent.uid, conversation, "conversation-anchor-a", [
@@ -3778,7 +3780,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     %{principal: agent} = agent_fixture()
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(agent.uid, "dispatch-safe-socket-error")
+      Conversations.ensure_conversation(agent.uid, "dispatch-safe-socket-error")
 
     {:ok, message} =
       start_stateful_message(agent.uid, conversation, "safe-socket-error", [
@@ -3833,7 +3835,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     %{principal: agent} = agent_fixture()
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(agent.uid, "dispatch-legacy-error-projection")
+      Conversations.ensure_conversation(agent.uid, "dispatch-legacy-error-projection")
 
     {:ok, message} =
       start_stateful_message(agent.uid, conversation, "legacy-error-projection", [
@@ -3900,7 +3902,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              })
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(agent.uid, "dispatch-compaction-anchor")
+      Conversations.ensure_conversation(agent.uid, "dispatch-compaction-anchor")
 
     {:ok, m1} =
       start_stateful_message(agent.uid, conversation, "compaction-anchor-a", [
@@ -3998,59 +4000,6 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              Compaction.put_config(%{"prefer_upstream" => true})
   end
 
-  test "websocket stateful memory pre-compaction nudge enters an empty continuation" do
-    %{principal: agent} = agent_fixture()
-
-    with_compaction_config(threshold: 0.50, max_threshold_tokens: 10, tail_rows: 1)
-
-    assert {:ok, _provider} =
-             ProviderConfigs.create_provider(%{
-               provider_id: "openai-memory-nudge-empty-continuation",
-               provider_kind: "openai",
-               base_url: "http://127.0.0.1:1/v1",
-               credential_pool: %{
-                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
-               },
-               connection_options: %{
-                 "upstream_transport" => "websocket"
-               }
-             })
-
-    assert {:ok, _profile} =
-             ModelProfiles.put_model_profile(agent.uid, "primary", %{
-               provider_id: "openai-memory-nudge-empty-continuation",
-               model: "gpt-main"
-             })
-
-    {:ok, conversation} =
-      StatefulResponses.ensure_conversation(agent.uid, "dispatch-memory-nudge-empty-continuation")
-
-    {:ok, message} =
-      start_stateful_message(agent.uid, conversation, "memory-nudge-empty-anchor", [
-        text_message("user", "tool result continuation anchor")
-      ])
-
-    {:ok, message} = StatefulResponses.commit_complete(message, [], usage(20))
-
-    assert {:ok, request, stateful_context} =
-             StatefulLifecycle.prepare_and_start_websocket_provider_request(agent.uid, %{
-               "model" => "primary",
-               "input" => [],
-               "store" => true,
-               "previous_response_id" => "resp_#{message.id}",
-               "metadata" => %{"actor_event_id" => "memory-nudge-empty-continuation-event"}
-             })
-
-    provider_input = request.response_context.request["input"]
-    assert Enum.take(provider_input, length(message.content)) == message.content
-    assert inspect(List.last(provider_input)) =~ brain_pre_compaction_nudge_marker()
-
-    run = stateful_context.message
-    assert inspect(run.content) =~ brain_pre_compaction_nudge_marker()
-    assert run.metadata["brain_pre_compaction_nudge"]["status"] == "due"
-    assert run.previous_message_id == message.id
-  end
-
   test "websocket stateful history auto-compacts through ChatGPT Subscription streaming" do
     %{principal: agent} = agent_fixture()
 
@@ -4122,7 +4071,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     end
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(agent.uid, "dispatch-auto-compaction")
+      Conversations.ensure_conversation(agent.uid, "dispatch-auto-compaction")
 
     {:ok, m1} =
       start_stateful_message(agent.uid, conversation, "compact-a", [
@@ -4268,7 +4217,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     end
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(
+      Conversations.ensure_conversation(
         agent.uid,
         "dispatch-auto-compaction-client-tool-search"
       )
@@ -4393,11 +4342,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     large_tail =
       text_message("assistant", String.duplicate("tail-body ", 1_700))
 
-    tail_marker =
-      text_message(
-        "assistant",
-        "#{brain_pre_compaction_nudge_marker()} latest"
-      )
+    tail_marker = text_message("assistant", "latest")
 
     history =
       [first_pair, second_pair, [large_tail], [tail_marker]]
@@ -4466,11 +4411,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         String.duplicate("contract ", 875)
       )
 
-    large_tail =
-      text_message(
-        "assistant",
-        "#{brain_pre_compaction_nudge_marker()} " <> String.duplicate("tail-body ", 2_400)
-      )
+    large_tail = text_message("assistant", String.duplicate("tail-body ", 2_400))
 
     function_call = %{
       "type" => "function_call",
@@ -4558,7 +4499,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     end
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(agent.uid, "dispatch-auto-compaction-tool-tail")
+      Conversations.ensure_conversation(agent.uid, "dispatch-auto-compaction-tool-tail")
 
     {:ok, m1} =
       start_stateful_message(agent.uid, conversation, "compact-tool-a", [
@@ -4693,7 +4634,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     )
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(agent.uid, "dispatch-program-batch-compaction")
+      Conversations.ensure_conversation(agent.uid, "dispatch-program-batch-compaction")
 
     program_call_id = "call_program_batch"
     nested_call_id = "call_program_batch_market"
@@ -4747,8 +4688,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
       start_linked_stateful_message(agent.uid, conversation, m3, "program-batch-final", [
         text_message(
           "assistant",
-          "FINAL_RESPONSE_SENTINEL #{brain_pre_compaction_nudge_marker()} " <>
-            String.duplicate("final ", 20_000)
+          "FINAL_RESPONSE_SENTINEL " <> String.duplicate("final ", 20_000)
         )
       ])
 
@@ -4815,7 +4755,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     create_openai_compaction_provider!(agent, "openai-compaction-reasoning-redaction", base_url)
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(agent.uid, "dispatch-reasoning-redaction")
+      Conversations.ensure_conversation(agent.uid, "dispatch-reasoning-redaction")
 
     {:ok, m1} =
       start_stateful_message(
@@ -4969,13 +4909,11 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              })
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(agent.uid, "dispatch-overflow-disabled")
+      Conversations.ensure_conversation(agent.uid, "dispatch-overflow-disabled")
 
     {:ok, message} =
       start_stateful_message(agent.uid, conversation, "overflow-disabled", [
-        media_message_with_memory_nudge(
-          "https://files.example.test/#{String.duplicate("large", 40)}.png"
-        )
+        media_message("https://files.example.test/#{String.duplicate("large", 40)}.png")
       ])
 
     {:ok, _message} = StatefulResponses.commit_complete(message, [], usage(24))
@@ -5027,7 +4965,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              })
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(agent.uid, "dispatch-production-usage-shape")
+      Conversations.ensure_conversation(agent.uid, "dispatch-production-usage-shape")
 
     usage_snapshots = [
       {14_289, 177},
@@ -5049,10 +4987,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         response_items =
           if index == 6 do
             [
-              text_message(
-                "assistant",
-                "latest text #{brain_pre_compaction_nudge_marker()}"
-              )
+              text_message("assistant", "latest text")
             ]
           else
             [
@@ -5162,10 +5097,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         type: "message",
         status: "complete",
         content: [
-          text_message(
-            "assistant",
-            "latest response #{brain_pre_compaction_nudge_marker()}"
-          )
+          text_message("assistant", "latest response")
         ],
         metadata: camel_usage(20)
       }
@@ -5230,10 +5162,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         type: "message",
         status: "complete",
         content: [
-          text_message(
-            "assistant",
-            "latest response #{brain_pre_compaction_nudge_marker()}"
-          )
+          text_message("assistant", "latest response")
         ],
         metadata: camel_usage(20)
       }
@@ -5279,7 +5208,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              })
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(agent.uid, "dispatch-truncation-stable-tail")
+      Conversations.ensure_conversation(agent.uid, "dispatch-truncation-stable-tail")
 
     {:ok, call} =
       start_stateful_message(agent.uid, conversation, "stable-tail-call", [
@@ -5295,10 +5224,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     {:ok, tail} =
       start_linked_stateful_message(agent.uid, conversation, call, "stable-tail-latest", [
-        text_message(
-          "assistant",
-          "latest response #{brain_pre_compaction_nudge_marker()}"
-        )
+        text_message("assistant", "latest response")
       ])
 
     {:ok, tail} = StatefulResponses.commit_complete(tail, [], usage(180))
@@ -5358,11 +5284,11 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              })
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(agent.uid, "dispatch-truncation-program-boundary")
+      Conversations.ensure_conversation(agent.uid, "dispatch-truncation-program-boundary")
 
     {:ok, opaque} =
       start_stateful_message(agent.uid, conversation, "program-truncation-opaque", [
-        media_message_with_memory_nudge("https://files.example.test/program-boundary.png")
+        media_message("https://files.example.test/program-boundary.png")
       ])
 
     {:ok, opaque} = StatefulResponses.commit_complete(opaque, [], usage(120))
@@ -5432,7 +5358,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         program_output,
         "program-truncation-tail",
         [
-          text_message("assistant", "program result ready #{brain_pre_compaction_nudge_marker()}")
+          text_message("assistant", "program result ready")
         ]
       )
 
@@ -5502,7 +5428,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              })
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(agent.uid, "dispatch-truncation-checkpoint")
+      Conversations.ensure_conversation(agent.uid, "dispatch-truncation-checkpoint")
 
     {:ok, first} =
       start_stateful_message(agent.uid, conversation, "truncation-checkpoint-first", [
@@ -5527,7 +5453,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         conversation,
         checkpoint,
         "truncation-checkpoint-tail",
-        [text_message("assistant", "latest response #{brain_pre_compaction_nudge_marker()}")]
+        [text_message("assistant", "latest response")]
       )
 
     {:ok, tail} = StatefulResponses.commit_complete(tail, [], usage(180))
@@ -5571,7 +5497,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         conversation,
         first_truncation,
         "truncation-checkpoint-next-tail",
-        [text_message("assistant", "next response #{brain_pre_compaction_nudge_marker()}")]
+        [text_message("assistant", "next response")]
       )
 
     {:ok, next_tail} = StatefulResponses.commit_complete(next_tail, [], usage(190))
@@ -5629,7 +5555,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              })
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(agent.uid, "dispatch-truncation-auto")
+      Conversations.ensure_conversation(agent.uid, "dispatch-truncation-auto")
 
     media_url = "https://files.example.test/#{String.duplicate("large", 80)}.png"
 
@@ -5643,7 +5569,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     {:ok, m2} =
       start_linked_stateful_message(agent.uid, conversation, m1, "truncate-tail", [
         text_message("user", "tail user"),
-        text_message("assistant", "tail assistant #{brain_pre_compaction_nudge_marker()}")
+        text_message("assistant", "tail assistant")
       ])
 
     {:ok, m2} = StatefulResponses.commit_complete(m2, [], usage(200))
@@ -5746,7 +5672,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              })
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(agent.uid, "dispatch-truncation-tool-output")
+      Conversations.ensure_conversation(agent.uid, "dispatch-truncation-tool-output")
 
     {:ok, m1} =
       start_stateful_message(agent.uid, conversation, "tool-truncate-call", [
@@ -5773,7 +5699,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     {:ok, m3} =
       start_linked_stateful_message(agent.uid, conversation, m2, "tool-truncate-tail", [
-        text_message("user", "latest tail #{brain_pre_compaction_nudge_marker()}")
+        text_message("user", "latest tail")
       ])
 
     {:ok, _m3} = StatefulResponses.commit_complete(m3, [], usage(240))
@@ -5837,7 +5763,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              })
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(agent.uid, "dispatch-truncation-summary-fail")
+      Conversations.ensure_conversation(agent.uid, "dispatch-truncation-summary-fail")
 
     {:ok, m1} =
       start_stateful_message(agent.uid, conversation, "summary-fail-a", [
@@ -5855,7 +5781,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     {:ok, m3} =
       start_linked_stateful_message(agent.uid, conversation, m2, "summary-fail-c", [
-        text_message("user", "latest tail #{brain_pre_compaction_nudge_marker()}")
+        text_message("user", "latest tail")
       ])
 
     {:ok, m3} = StatefulResponses.commit_complete(m3, [], usage(260))
@@ -5938,7 +5864,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              })
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(agent.uid, "dispatch-unusable-summary-retry")
+      Conversations.ensure_conversation(agent.uid, "dispatch-unusable-summary-retry")
 
     {:ok, m1} =
       start_stateful_message(agent.uid, conversation, "retry-summary-a", [
@@ -5956,10 +5882,10 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     {:ok, m3} =
       start_linked_stateful_message(agent.uid, conversation, m2, "retry-summary-c", [
-        text_message("user", "latest tail #{brain_pre_compaction_nudge_marker()}")
+        text_message("user", "latest tail")
       ])
 
-    {:ok, m3} = StatefulResponses.commit_complete(m3, [], usage(260))
+    {:ok, _m3} = StatefulResponses.commit_complete(m3, [], usage(260))
 
     assert {:ok, _request} =
              AIGateway.prepare_websocket_request(agent.uid, %{
@@ -6016,7 +5942,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              })
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(agent.uid, "dispatch-stateful-trigger")
+      Conversations.ensure_conversation(agent.uid, "dispatch-stateful-trigger")
 
     conversation_id = conversation.id
 
@@ -6131,7 +6057,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              })
 
     {:ok, conversation} =
-      StatefulResponses.ensure_conversation(agent.uid, "socket-compaction-trigger")
+      Conversations.ensure_conversation(agent.uid, "socket-compaction-trigger")
 
     {:ok, m1} =
       start_stateful_message(agent.uid, conversation, "socket-trigger-a", [
@@ -8304,7 +8230,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
   end
 
   defp compactable_conversation!(agent, conversation_key, extra_text \\ "") do
-    {:ok, conversation} = StatefulResponses.ensure_conversation(agent.uid, conversation_key)
+    {:ok, conversation} = Conversations.ensure_conversation(agent.uid, conversation_key)
 
     {:ok, m1} =
       start_stateful_message(agent.uid, conversation, "#{conversation_key}-a", [
@@ -8407,22 +8333,6 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
       "content" => [%{"type" => "input_image", "image_url" => image_url}]
     }
   end
-
-  defp media_message_with_memory_nudge(image_url) do
-    %{
-      "type" => "message",
-      "role" => "user",
-      "content" => [
-        %{"type" => "input_image", "image_url" => image_url},
-        %{
-          "type" => "input_text",
-          "text" => "[#{brain_pre_compaction_nudge_marker()}]"
-        }
-      ]
-    }
-  end
-
-  defp brain_pre_compaction_nudge_marker, do: "ankole.brain.pre_compaction_nudge.v1"
 
   defp usage(total_tokens), do: %{"usage" => %{"total_tokens" => total_tokens}}
 

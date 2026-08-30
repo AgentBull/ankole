@@ -19,21 +19,16 @@ copilot は次のプロンプトを待ちます。仕事を所有しているの
 - **境界のある権限。** Identity、AuthZ、承認、監査記録、エスカレーションパスが、Agent にできることを定義します。
 - **1 回の request ではなく長時間の作業。** Session は数時間または数日動き、新しい入力を受け、失敗後に復旧し、運用 context を保持できます。
 
-自律的な作業は現在の context に依存します。Ankole は、すべての古いメッセージを同じように真実として扱うのではなく、ルール、決定、修正、成果を時刻と出所とともに記録します。
-
-Brain は古いルールを退役させ、矛盾を解決し、予測を後日の結果と比較します。各実行は、より正確な運用認識から始まります。
-
 ## デプロイインスタンスの構成部品
 
 これらの言葉は以降のドキュメント全体に繰り返し登場するので、ここで一度だけ定義します。
 
 | 部品 | 内容 | 詳細 |
 |---|---|---|
-| **Agent** | 独自のミッション、アクセス、tools、memory、対外 identity を持つ作業 identity。ミッションと配信基準はいつでも編集できるファイルです。1 つのデプロイインスタンスに複数保持できます。 | [Agents](../agents/) |
+| **Agent** | 独自のミッション、アクセス、tools、対外 identity を持つ作業 identity。ミッションと配信基準はいつでも編集できるファイルです。1 つのデプロイインスタンスに複数保持できます。 | [Agents](../agents/) |
 | **Session** | 長時間実行される実行単位であり、context、workspace 状態、steering、キャンセル、回復が交わる場所。 | [Actor runtime](../actor-runtime/) |
 | **Signal routing rule** | Agent を signal ソースに接続し、そこでできることの境界を設定します。 | [Signal routing rules](../signal-bindings/) |
 | **Background job** | Session から送り出される作業で、数時間実行でき、送り出し元の channel に納品して戻ります。 | [Background Agent Jobs](../background-agent-jobs/) |
-| **Memory** | channel ルールと長期 memory。経験から予測し、現実によって修正される world model。 | [Memory](../memory/)、[Brain](../brain/) |
 | **Skill** | ある種の仕事をこなす定まった方法。agent が改善を提案でき、人が次の session 用に承認します。 | [Skills](../skills/) |
 | **Principal** | 人と agent は同じ種類の主体であるため、runtime は両者に権限と監査を適用します。 | [Principal and AuthZ](../principal-authz/) |
 | **Agent Computer Worker** | 実行フロア。LLM loop、tools、files、terminal 状態、streaming 出力がすべてここで実行されます。 | [Agent Computer Worker](../agent-computer-worker/) |

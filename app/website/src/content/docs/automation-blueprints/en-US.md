@@ -1,13 +1,15 @@
 ---
 title: Automation blueprints
-description: Combine triggers with Agent sessions, automation jobs, background jobs, and signal routing rules.
+description: Combine triggers with Agent sessions, automation jobs, background jobs, and signal routing rules, and distinguish them from Workflows.
 section: Guides
 order: 309
 ---
 
 Automation in Ankole combines one of three triggers with one of two consumers. An Agent session handles work that needs judgment, memory, or conversation. An automation job runs a deterministic script for mechanical handling. This page gives ready-to-use blueprints for the common shapes.
 
-Ankole does not add a workflow language or a step graph. An automation job is an ordinary Bun `main.ts` inside the Agent Home. The trigger owner keeps time or ingress, and the selected consumer handles the unchanged event. The Agent returns only when the script emits an event or the failure policy wakes it.
+An Automation Job is not a workflow language or a step graph. It is an ordinary Bun `main.ts` inside the Agent Home. The trigger owner keeps time or ingress, and the selected consumer handles the unchanged event. The Agent returns only when the script emits an event or the failure policy wakes it.
+
+A [Workflow](../workflows/) is a separate execution shape. The main Agent starts one fixed, bounded subagent orchestration during a turn. It is not a schedule or webhook consumer, and it does not poll an external state. Use it when one delivery or conversation request has a finite set of independent judgments that can run in parallel.
 
 ## The three triggers
 
@@ -103,16 +105,20 @@ This separates observation (continuous, quiet) from synthesis (scheduled, loud).
 - **Want it to come back to something mid-flight?** Checkback. The agent owns the timing.
 - **Want long work kicked by a clock?** Schedule + background job.
 - **Want a frequent mechanical check without a model turn?** Schedule or Checkback + automation job.
+- **Want bounded parallel judgments from one Agent turn?** Workflow. It returns one aggregate result to the conversation that started it.
 - **Want an external system to continue the work?** Webhook delegation, with a direct Agent or automation job consumer.
 - **Want quiet observation plus periodic synthesis?** Binding policy + schedule.
 
 ## What automation in Ankole is not
 
-It is not a workflow language. There is no YAML step list, platform DAG, hidden cursor, or general event bus. An automation job can run a small script, but the script owns its state and repeat safety. Delivery still uses the owner session's routing rule, and automation cannot bypass permissions. Use the Agent for judgment and use a script only for the mechanical part.
+Triggered automation is not a workflow language. There is no YAML step list, platform DAG, hidden cursor, or general event bus. An Automation Job can run a small script, but the script owns its state and repeat safety. Delivery still uses the owner session's routing rule, and automation cannot bypass permissions.
+
+The product feature named Workflow also does not add those contracts. It runs fixed JavaScript for one bounded subagent fanout, has no trigger subscription, and cannot wait for later input. Use the Agent for judgment, an Automation Job for mechanical trigger handling, and a Workflow for bounded parallel judgment.
 
 ## Next steps
 
 - For the schedule surface, read [Schedules](../schedules/).
 - For deterministic script consumers, read [Automation Jobs](../automation-jobs/).
+- For bounded subagent orchestration, read [Workflows](../workflows/).
 - For background execution and collaboration choices, read [Background Agent Jobs](../background-jobs/).
 - For an external event capability, read [Webhook delegations](../webhook-delegations/).

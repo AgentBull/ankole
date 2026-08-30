@@ -160,23 +160,12 @@ describe('@ankole/kernel', () => {
   })
 
   it('validates host-encoded envelope bytes as the single semantic checker', () => {
-    kernel.runtimeFabricValidateEnvelope(goldenBytes('turn_start.v4.bin'))
-    kernel.runtimeFabricValidateEnvelope(goldenBytes('worker_ready.v4.bin'))
-
-    expect(() => kernel.runtimeFabricValidateEnvelope(goldenBytes('turn_start.v3.bin'))).toThrow(
-      /unsupported runtime fabric protocol version: 3/
-    )
-
-    expect(() => kernel.runtimeFabricValidateEnvelope(goldenBytes('turn_start.v2.bin'))).toThrow(
-      /unsupported runtime fabric protocol version: 2/
-    )
-
-    expect(() => kernel.runtimeFabricValidateEnvelope(goldenBytes('turn_start.v1.bin'))).toThrow(
-      /unsupported runtime fabric protocol version: 1/
-    )
-    expect(() => kernel.runtimeFabricValidateEnvelope(goldenBytes('worker_ready.v1.bin'))).toThrow(
-      /unsupported runtime fabric protocol version: 1/
-    )
+    kernel.runtimeFabricValidateEnvelope(goldenBytes('turn_start.v5.bin'))
+    kernel.runtimeFabricValidateEnvelope(goldenBytes('worker_ready.v5.bin'))
+    kernel.runtimeFabricValidateEnvelope(goldenBytes('rpc_brain_recall_request.v5.bin'))
+    kernel.runtimeFabricValidateEnvelope(goldenBytes('rpc_brain_recall_response.v5.bin'))
+    kernel.runtimeFabricValidateEnvelope(goldenBytes('rpc_skill_overlay_resolve_request.v5.bin'))
+    kernel.runtimeFabricValidateEnvelope(goldenBytes('rpc_skill_overlay_resolve_response.v5.bin'))
 
     expect(() => kernel.runtimeFabricValidateEnvelope(Buffer.from([0xff, 0xff, 0xff]))).toThrow(
       /failed to decode runtime fabric envelope/
@@ -223,5 +212,5 @@ function goldenBytes(name: string): Buffer {
 }
 
 function goldenWorkerReadyBytes(): Buffer {
-  return goldenBytes('worker_ready.v4.bin')
+  return goldenBytes('worker_ready.v5.bin')
 }

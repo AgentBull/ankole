@@ -50,12 +50,11 @@ import {
   ankoleWebControlPlanePluginControllerIndexQueryKey
 } from '../api/generated/@tanstack/react-query.gen'
 import type { AppConfigurationItem, JsonValue as JSONValue } from '../api/generated/types.gen'
-import { DiscardConfirmDialog, SaveButton, useFormCompleteness } from '../console-form'
+import { DiscardConfirmDialog, SaveButton, focusFirstInvalidControl, useFormCompleteness } from '../console-form'
 import { ErrorBlock } from '../../common/error-block'
 import { formatJSON, parseJSON } from '../console-primitives'
 import { ENCRYPTED_VALUE_MASK, isEncryptedValueMask } from '../encrypted-value-input'
 import { ResourceListPage, ResourceSearch, RowActions } from '../console-list-page'
-import { brainDreamingValidationError, brainEmbeddingValidationError } from '../state/setting-value-editor'
 import {
   groupOverridden,
   settingGroupPrefix,
@@ -76,6 +75,17 @@ import {
   sameObservabilityHeaderRows,
   type ObservabilityHeaderRow
 } from '../state/observability-setting-editor'
+import {
+  brainCanonicalDraft,
+  brainModelDraft,
+  brainModelRequiresDimensions,
+  brainModelValue,
+  brainSettingsValidationError,
+  isBrainModelKey,
+  sameBrainModelDraft,
+  type BrainModelDraft
+} from '../state/brain-setting-editor'
+import { BrainSettingsEditor } from './brain-settings-editor'
 import { ObservabilitySettingsEditor } from './observability-settings-editor'
 import { SettingValueEditor } from './setting-value-editors'
 
@@ -96,22 +106,27 @@ function SettingsList() {
   const deferredQuery = useDeferredValue(query)
   const searchQuery = effectiveResourceSearchQuery(query, deferredQuery)
   // Search every word the row renders and keep the internal tokens for
-  // operators who know the registry vocabulary.
-  const items = (list.data?.app_configurations ?? []).filter(item =>
-    matchesResourceSearch(
-      searchQuery,
-      item.key,
-      settingDescription(t, item),
-      item.kind,
-      t(`console.settings.kind_${item.kind}`),
-      item.source,
-      t(`console.settings.source_${item.source}`),
-      item.encrypted ? 'encrypted' : '',
-      item.encrypted ? t('console.status.encrypted') : '',
-      item.overridden ? 'overridden' : '',
-      item.overridden ? t('console.status.global') : ''
-    )
-  )
+  // operators who know the registry vocabulary. The guard matters: the
+  // haystack arguments run several translation lookups per row, so only an
+  // active search should pay for them.
+  const allItems = list.data?.app_configurations ?? []
+  const items = searchQuery
+    ? allItems.filter(item =>
+        matchesResourceSearch(
+          searchQuery,
+          item.key,
+          settingDescription(t, item),
+          item.kind,
+          t(`console.settings.kind_${item.kind}`),
+          item.source,
+          t(`console.settings.source_${item.source}`),
+          item.encrypted ? 'encrypted' : '',
+          item.encrypted ? t('console.status.encrypted') : '',
+          item.overridden ? 'overridden' : '',
+          item.overridden ? t('console.status.global') : ''
+        )
+      )
+    : allItems
   const rows = settingRows(items)
   const [managedOpen, setManagedOpen] = useState(false)
 
@@ -164,27 +179,6 @@ function SettingsList() {
       {managedOpen ? rows.managed.map(item => <SettingRow key={`${item.kind}:${item.key}`} item={item} />) : null}
     </ResourceListPage>
   )
-}
-
-type Translate = (key: string, options?: Record<string, unknown>) => string
-
-/** Reports what a key-specific editor knows before the server sees the value. */
-function settingValidationMessage(t: Translate, key: string, value: JSONValue): string | undefined {
-  if (key === 'brain.embedding') {
-    const error = brainEmbeddingValidationError(value)
-    return error ? t(`console.settings.brain_embedding_error_${error}`) : undefined
-  }
-
-  if (key === 'brain.dreaming') {
-    const error = brainDreamingValidationError(value)
-    if (!error) return undefined
-    if (error === 'invalid') return t('console.settings.brain_dreaming_error_invalid')
-    return t('console.settings.brain_dreaming_error_field', {
-      field: t(`console.settings.brain_dreaming_field_${error}`)
-    })
-  }
-
-  return undefined
 }
 
 function SettingRow({ item }: { item: AppConfigurationItem }) {
@@ -337,8 +331,12 @@ export function SettingEditorDrawer() {
     onError: error => toast.error(requestErrorMessage(error))
   })
 
+  // The reveal belongs to the setting the drawer edits, so it resets when the
+  // route's key changes — not when a background refetch hands the same setting
+  // back under a new object identity.
+  useEffect(() => decrypt.reset(), [decrypt.reset, key])
+
   useEffect(() => {
-    decrypt.reset()
     if (!item || detail.isLoading) return
     model.initialize(
       sourceKey,
@@ -359,8 +357,12 @@ export function SettingEditorDrawer() {
     (list.isSuccess && !item ? t('console.settings.not_found') : undefined) ??
     (item && !item.editable ? t('console.settings.read_only') : undefined)
 
-  const submit = (event: FormEvent) => {
+  const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    if (!event.currentTarget.reportValidity()) {
+      focusFirstInvalidControl(event.currentTarget)
+      return
+    }
     model.clearValidation()
     if (!item?.editable || !initialized) return
     if (item.encrypted && isEncryptedValueMask(model.text.value)) {
@@ -373,11 +375,6 @@ export function SettingEditorDrawer() {
     }
     if (item.encrypted) {
       const value = encryptedSettingValue(model.text.value)
-      const validationError = settingValidationMessage(t, item.key, value)
-      if (validationError) {
-        model.validationError.value = validationError
-        return
-      }
       update.mutate({ body: { value }, path: { key: item.key } })
       return
     }
@@ -388,11 +385,7 @@ export function SettingEditorDrawer() {
       return
     }
     const value = parsed.value
-    const validationError = settingValidationMessage(t, item.key, value)
-    if (validationError) {
-      model.validationError.value = validationError
-      return
-    }
+
     update.mutate({ body: { value }, path: { key: item.key } })
   }
 
@@ -406,6 +399,7 @@ export function SettingEditorDrawer() {
             noValidate
             onChange={formCompleteness.refresh}
             onInput={formCompleteness.refresh}
+            onInvalidCapture={event => event.preventDefault()}
             onSubmit={submit}>
             <DrawerHeader className="relative gap-3 border-b border-border p-5 pr-24">
               <div className="absolute top-3 right-3 flex items-center gap-1">
@@ -569,6 +563,11 @@ export function SettingGroupDrawer() {
   const [headerRows, setHeaderRows] = useState<ObservabilityHeaderRow[]>()
   const [initialHeaderRows, setInitialHeaderRows] = useState<ObservabilityHeaderRow[]>()
   const [headersEditing, setHeadersEditing] = useState(false)
+  // The brain model keys hold a nullable object; the composed editor edits its
+  // fields plus a raw provider-options text, so the drafts map alone cannot
+  // carry an in-progress edit without losing it or blessing invalid JSON.
+  const [brainModels, setBrainModels] = useState<Record<string, BrainModelDraft>>({})
+  const [initialBrainModels, setInitialBrainModels] = useState<Record<string, BrainModelDraft>>({})
 
   const list = useQuery(ankoleWebAppConfigurationControllerIndexOptions())
   const items = (list.data?.app_configurations ?? []).filter(
@@ -576,10 +575,17 @@ export function SettingGroupDrawer() {
   )
   const signature = items.map(item => item.key).join(',')
   const visualObservabilityEditor = groupID === 'observability'
+  const visualBrainEditor = groupID === 'brain'
   const headersItem = items.find(item => item.key === OBSERVABILITY_TRACE_KEYS.headers)
   const headersDirty =
     visualObservabilityEditor && headersEditing && !sameObservabilityHeaderRows(headerRows, initialHeaderRows)
-  const dirty = items.some(item => drafts[item.key] !== initial[item.key]) || headersDirty
+  const brainModelsDirty =
+    visualBrainEditor &&
+    Object.entries(brainModels).some(([key, draft]) => {
+      const initialDraft = initialBrainModels[key]
+      return !initialDraft || !sameBrainModelDraft(draft, initialDraft)
+    })
+  const dirty = items.some(item => drafts[item.key] !== initial[item.key]) || headersDirty || brainModelsDirty
   const blocker = useBlocker(useCallback(() => !allowNavigation.current && dirty, [dirty]))
 
   useEffect(() => {
@@ -590,7 +596,7 @@ export function SettingGroupDrawer() {
         item.key,
         item.key === OBSERVABILITY_TRACE_KEYS.headers && item.present
           ? ENCRYPTED_VALUE_MASK
-          : formatJSON(item.value ?? null)
+          : (brainCanonicalDraft(item.key, item.value) ?? formatJSON(item.value ?? null))
       ])
     )
     setDrafts(next)
@@ -598,6 +604,11 @@ export function SettingGroupDrawer() {
     setHeaderRows(undefined)
     setInitialHeaderRows(undefined)
     setHeadersEditing(false)
+    const nextModels = Object.fromEntries(
+      items.filter(item => isBrainModelKey(item.key)).map(item => [item.key, brainModelDraft(item.value)])
+    )
+    setBrainModels(nextModels)
+    setInitialBrainModels(nextModels)
   }, [items, signature])
 
   const refresh = () => {
@@ -627,7 +638,8 @@ export function SettingGroupDrawer() {
       // every draft would read the still-stale list cache and discard sibling
       // edits, and the key-only signature would then skip the refetch.
       const restoredKey = response.app_configuration.key
-      const restoredDraft = formatJSON(response.app_configuration.value ?? null)
+      const restoredValue = response.app_configuration.value
+      const restoredDraft = brainCanonicalDraft(restoredKey, restoredValue) ?? formatJSON(restoredValue ?? null)
       setDrafts(current => ({ ...current, [restoredKey]: restoredDraft }))
       setInitial(current => ({ ...current, [restoredKey]: restoredDraft }))
       if (restoredKey === OBSERVABILITY_TRACE_KEYS.headers) {
@@ -636,14 +648,23 @@ export function SettingGroupDrawer() {
         setHeadersEditing(false)
         decrypt.reset()
       }
+      if (isBrainModelKey(restoredKey)) {
+        const restoredModel = brainModelDraft(restoredValue)
+        setBrainModels(current => ({ ...current, [restoredKey]: restoredModel }))
+        setInitialBrainModels(current => ({ ...current, [restoredKey]: restoredModel }))
+      }
       toast.success(t('console.settings.reset_done', { key: restoredKey }))
       refresh()
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
 
-  const submit = async (event: FormEvent) => {
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    if (!event.currentTarget.reportValidity()) {
+      focusFirstInvalidControl(event.currentTarget)
+      return
+    }
     setEditorError(undefined)
 
     const pending: Array<{ key: string; value: JSONValue }> = []
@@ -664,10 +685,28 @@ export function SettingGroupDrawer() {
       }
     }
 
+    if (visualBrainEditor) {
+      const brainError = brainSettingsValidationError(drafts, brainModels)
+      if (brainError) {
+        setEditorError(
+          t(`console.settings.brain_error_${brainError.error}`, { key: brainError.key, field: brainError.field })
+        )
+        return
+      }
+    }
+
     for (const item of items) {
       if (item.key === OBSERVABILITY_TRACE_KEYS.headers && visualObservabilityEditor) {
         if (headersDirty && headerRows) {
           pending.push({ key: item.key, value: observabilityHeadersValue(headerRows) })
+        }
+        continue
+      }
+      if (visualBrainEditor && isBrainModelKey(item.key)) {
+        const model = brainModels[item.key]
+        const initialModel = initialBrainModels[item.key]
+        if (model && (!initialModel || !sameBrainModelDraft(model, initialModel))) {
+          pending.push({ key: item.key, value: brainModelValue(model, brainModelRequiresDimensions(item.key)) })
         }
         continue
       }
@@ -676,12 +715,6 @@ export function SettingGroupDrawer() {
       const parsed = parseJSON(drafts[item.key] ?? '', item.key)
       if (!parsed.ok) {
         setEditorError(parsed.error)
-        return
-      }
-
-      const invalid = settingValidationMessage(t, item.key, parsed.value)
-      if (invalid) {
-        setEditorError(`${item.key}: ${invalid}`)
         return
       }
 
@@ -698,6 +731,10 @@ export function SettingGroupDrawer() {
         setInitial(current => ({ ...current, [entry.key]: drafts[entry.key] ?? '' }))
         if (entry.key === OBSERVABILITY_TRACE_KEYS.headers && headerRows) {
           setInitialHeaderRows(headerRows)
+        }
+        const savedModel = brainModels[entry.key]
+        if (savedModel) {
+          setInitialBrainModels(current => ({ ...current, [entry.key]: savedModel }))
         }
       } catch (error) {
         setSaving(false)
@@ -729,6 +766,7 @@ export function SettingGroupDrawer() {
             noValidate
             onChange={formCompleteness.refresh}
             onInput={formCompleteness.refresh}
+            onInvalidCapture={event => event.preventDefault()}
             onSubmit={submit}>
             <DrawerHeader className="relative gap-3 border-b border-border p-5 pr-16">
               <div className="absolute top-3 right-3">
@@ -760,7 +798,23 @@ export function SettingGroupDrawer() {
                     error={editorError ?? list.error ?? (prefix ? undefined : t('console.settings.not_found'))}
                   />
 
-                  {visualObservabilityEditor ? (
+                  {visualBrainEditor ? (
+                    <BrainSettingsEditor
+                      drafts={drafts}
+                      items={items}
+                      models={brainModels}
+                      saving={saving || restoreDefault.isPending}
+                      onDraftChange={(key, value) => {
+                        setDrafts(current => ({ ...current, [key]: value }))
+                        setEditorError(undefined)
+                      }}
+                      onModelChange={(key, draft) => {
+                        setBrainModels(current => ({ ...current, [key]: draft }))
+                        setEditorError(undefined)
+                      }}
+                      onRestore={setRestoreItem}
+                    />
+                  ) : visualObservabilityEditor ? (
                     <ObservabilitySettingsEditor
                       drafts={drafts}
                       headerRows={headerRows}

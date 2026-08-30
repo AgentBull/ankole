@@ -71,6 +71,12 @@ This field controls where the Skill is visible. It does not create a Background 
 
 The Deep Research entry Skill uses `main` because it confirms the request in the original conversation and creates the Job. The research Skills can then run inside the Background Agent Job.
 
+#### Ankole extension: discover a Skill through Brain
+
+Some SOPs and methods are useful only when the current work matches them, so listing them in every prompt would waste context. A shipped Skill can declare `brain-recall-only: true`. It remains a standard Skill and keeps the same Agent Plugin, Skill enablement, execution-surface, and `skill_view` rules, but Brain discovers it by meaning instead of placing it in the model-visible Skill catalog.
+
+Brain searches the Skill's name, description, and tags. After a match, the Agent calls `skill_view`, which applies `ankole-runtime` and either loads the Skill on a compatible execution surface or returns the correct routing or rejection result. Disabling the Skill, or its parent Agent Plugin, removes it from both Brain discovery and loading for that Agent. Brain must be enabled for this semantic discovery path. This mode is suitable for shipped methods and SOPs that should be available on demand without occupying every prompt.
+
 ### Control Plane Plugin: extend the management platform
 
 A Control Plane Plugin is not an OpenAI Plugin and does not enter the Agent's working context. It extends the Ankole control plane.
@@ -102,13 +108,13 @@ A capability that applies to a small role, needs special credentials, or has mat
 
 An Agent Plugin can contain several Skills. Disabling the parent makes its Skills unavailable but does not rewrite each Skill setting. When you enable the parent again, the Skills return to their own effective states.
 
-### Review Skill experience
+### Review Skill lessons
 
-While it uses a Skill, an Agent can retain Agent-specific cautions, such as an internal-system convention or a verified operating detail. This **Skill experience** appears with the Skill whenever that Agent reads it.
+An Agent can receive dated process cautions with its full Skill instructions. Dreaming derives leased lessons from Job evidence, and an operator can add a human lesson. The shared `SKILL.md` stays unchanged.
 
-Review it from the Agent Plugin detail page or **Knowledge → Skill experience**. For a manual note, state the situation first and then the caution.
+Change the Agent Library scope to the target Agent, then find the Skill card. The card lists active and retired lessons, evidence Jobs, review dates, and retirement reasons. An operator can add a lesson or retire one; the Agent stops reading a retired lesson on its next turn.
 
-Do not copy a general rule into every Agent's experience. Change the Skill source when the rule applies to all Agents.
+Do not copy a general rule into every Agent's lessons. Change the Skill source when the rule applies to all Agents. See [Skill lessons](../skill-lessons/) for the evidence rules, leases, and settings.
 
 ## Manage Control Plane Plugins
 

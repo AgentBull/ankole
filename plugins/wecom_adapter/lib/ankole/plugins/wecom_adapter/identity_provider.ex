@@ -73,9 +73,8 @@ defmodule Ankole.Plugins.WeComAdapter.IdentityProvider do
   @doc "Builds the WWLogin page URL for login."
   @spec authorization_url(map(), keyword()) :: {:ok, String.t()} | {:error, term()}
   def authorization_url(config, opts) when is_map(config) and is_list(opts) do
-    with true <- get_in(config, ["oidc", "enabled"]) != false || {:error, :oidc_disabled},
-         {:ok, redirect_uri} <- required_opt(opts, :redirect_uri),
-         {:ok, state} <- required_opt(opts, :state) do
+    with {:ok, redirect_uri} <- MapHelpers.required_opt(opts, :redirect_uri),
+         {:ok, state} <- MapHelpers.required_opt(opts, :state) do
       {:ok,
        OAuth.authorize_url(
          corp_id: Map.fetch!(config, "corpId"),
@@ -90,8 +89,7 @@ defmodule Ankole.Plugins.WeComAdapter.IdentityProvider do
   @spec exchange_code(map(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def exchange_code(config, code, _opts \\ [])
       when is_map(config) and is_binary(code) do
-    with true <- get_in(config, ["oidc", "enabled"]) != false || {:error, :oidc_disabled},
-         {:ok, %{userid: userid}} <- OAuth.get_user_info(Config.app_client(config), code) do
+    with {:ok, %{userid: userid}} <- OAuth.get_user_info(Config.app_client(config), code) do
       {:ok, %{user: hydrate_user(config, userid)}}
     end
   end
@@ -131,7 +129,6 @@ defmodule Ankole.Plugins.WeComAdapter.IdentityProvider do
         %{
           provider: provider_id,
           external_id: userid,
-          uid: userid,
           display_name: display_name(user),
           avatar_url: optional_text(user, "avatar"),
           email: optional_text(user, "biz_mail") || optional_text(user, "email"),
@@ -170,7 +167,7 @@ defmodule Ankole.Plugins.WeComAdapter.IdentityProvider do
     end
   end
 
-  # --- directory sync -------------------------------------------------------
+  # directory sync
 
   defp ensure_department_groups(provider_id, departments) do
     departments
@@ -230,7 +227,7 @@ defmodule Ankole.Plugins.WeComAdapter.IdentityProvider do
     end)
   end
 
-  # --- department groups ----------------------------------------------------
+  # department groups
 
   defp ensure_department_group(provider_id, department) when is_map(department) do
     with {:ok, department_id} <- department_id(department),
@@ -283,14 +280,7 @@ defmodule Ankole.Plugins.WeComAdapter.IdentityProvider do
     end
   end
 
-  # --- field helpers --------------------------------------------------------
-
-  defp required_opt(opts, key) do
-    case Keyword.get(opts, key) do
-      value when is_binary(value) and value != "" -> {:ok, value}
-      _value -> {:error, {:missing, key}}
-    end
-  end
+  # field helpers
 
   defp user_id(user) do
     case optional_text(user, "userid") do

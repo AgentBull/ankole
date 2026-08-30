@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import {
-  CodexSkillUsageTracker,
-  explicitSkillReference,
-  skillDisabledNotice
-} from '../src/core/codex-runner/skill-usage'
+import { CodexSkillUsageTracker, skillDisabledNotice } from '../src/core/codex-runner/job/skill-usage'
 
 describe('@ankole/agent-computer Codex Skill usage', () => {
   it('separates availability from use and sends one disable notice only after evidence', () => {
@@ -15,7 +11,7 @@ describe('@ankole/agent-computer Codex Skill usage', () => {
     tracker.disable(['pdf'])
     expect(tracker.pendingDisabledNotices()).toEqual([])
 
-    expect(tracker.observeInput('Use $pdf, then summarize the result.')).toEqual(['pdf'])
+    expect(tracker.recordLoaded('pdf')).toEqual(['pdf'])
     expect(tracker.pendingDisabledNotices()).toEqual(['pdf'])
     expect(skillDisabledNotice('pdf')).toBe(
       'Skill `pdf` has been disabled for this Agent. Do not use it again in this Job. Continue with the remaining capabilities. If no valid alternative exists, explain the blocker.'
@@ -23,13 +19,10 @@ describe('@ankole/agent-computer Codex Skill usage', () => {
 
     tracker.markNotified('pdf')
     expect(tracker.pendingDisabledNotices()).toEqual([])
-    expect(tracker.observeInput('Use $pdf again.')).toEqual([])
+    expect(tracker.recordLoaded('pdf')).toEqual([])
   })
 
-  it('recognizes exact Skill references, known paths, and uniquely owned MCP servers', () => {
-    expect(explicitSkillReference('run $deep-research now', 'deep-research')).toBe(true)
-    expect(explicitSkillReference('run $deep-research-extra now', 'deep-research')).toBe(false)
-
+  it('attributes uniquely owned MCP servers without guessing shared ownership', () => {
     const tracker = new CodexSkillUsageTracker({
       availableSkillNames: ['docx', 'pdf'],
       mcpServers: [
@@ -47,18 +40,6 @@ describe('@ankole/agent-computer Codex Skill usage', () => {
         }
       ]
     })
-    tracker.setDiscoveredSkills('/jobs/1000', [
-      { name: 'docx', path: '/jobs/1000/.agents/skills/docx/SKILL.md', enabled: true },
-      { name: 'pdf', path: '/jobs/1000/.agents/skills/pdf/SKILL.md', enabled: true }
-    ])
-
-    expect(
-      tracker.observeItem({
-        type: 'commandExecution',
-        cwd: '/jobs/1000',
-        command: 'sed -n 1,20p .agents/skills/docx/SKILL.md'
-      })
-    ).toEqual(['docx'])
     expect(tracker.observeItem({ type: 'mcpToolCall', server: 'pdf-reader', tool: 'open' })).toEqual(['pdf'])
     expect(tracker.observeItem({ type: 'mcpToolCall', server: 'shared', tool: 'open' })).toEqual([])
   })

@@ -32,13 +32,4 @@ defmodule Ankole.Plugins.ConfigSecretsTest do
 
     assert ConfigSecrets.preserve(@fields, %{}, current) == current
   end
-
-  test "preserve supports an explicit legacy placeholder without changing the default" do
-    current = %{"clientSecret" => "old-secret"}
-    patch = %{"clientSecret" => "********"}
-
-    assert ConfigSecrets.preserve(@fields, patch, current) == patch
-
-    assert ConfigSecrets.preserve(@fields, patch, current, ["********"]) == current
-  end
 end

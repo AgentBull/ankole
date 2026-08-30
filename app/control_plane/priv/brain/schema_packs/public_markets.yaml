@@ -1,0 +1,38 @@
+# Ankole Brain schema pack seed. See docs/design-docs/BrainV3.md.
+api_version: ankole-brain-schema-pack-v1
+name: public_markets
+version: 1.0.0
+description: Public markets ontology increments.
+extends: general
+
+page_types:
+  - name: instrument
+    # The work object of public markets is the tradable instrument; company
+    # covers only the issuer. Futures, rates, and indexes have price series
+    # and position semantics.
+    primitive: entity
+    slug_prefix: instruments/
+    # fund = tradable fund share (ETF, mutual fund, money market fund).
+    subtypes: [equity, credit, commodity, currency, index, fund]
+    extractable: false
+    expert_routing: false
+
+  - name: thesis
+    # Declared identically by pevc; the merge deduplicates it.
+    primitive: concept
+    slug_prefix: theses/
+    extractable: true
+    expert_routing: false
+
+subtype_extensions:
+  # Earnings events anchor instrument research; macro events use general's
+  # event/external.
+  - {type: event, add: [earnings]}
+
+link_types:
+  - {name: issued_by, inverse: issuer_of}
+  - {name: tracks}
+
+calibration_domains:
+  # Declared identically by pevc; the merge deduplicates it.
+  - {name: market_call, aggregator: scalar_brier}

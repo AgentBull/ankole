@@ -15,7 +15,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
 
   import Ecto.Query, warn: false
 
-  alias Ankole.Kernel.RuntimeFabric
   alias Ankole.Repo
   alias Ankole.RuntimeEvents
   alias Ankole.RuntimeFabric.V1, as: FabricProto
@@ -56,17 +55,14 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
   """
   @spec admit_worker_ready(
           FabricProto.AgentComputerWorkerReady.t(),
-          String.t() | map(),
-          non_neg_integer()
+          String.t() | map()
         ) ::
           {:ok, AgentComputerWorker.t()} | {:error, term()}
   def admit_worker_ready(
         %FabricProto.AgentComputerWorkerReady{} = worker_ready,
-        authenticated_route,
-        protocol_version
+        authenticated_route
       ) do
-    with :ok <- supported_protocol_version(protocol_version),
-         {:ok, auth} <- authenticated_route(authenticated_route),
+    with {:ok, auth} <- authenticated_route(authenticated_route),
          {:ok, attrs} <- worker_ready_attrs(worker_ready, auth.route),
          :ok <- authenticated_worker_matches(auth, attrs.worker_id) do
       record_worker_ready(attrs, auth.route)
@@ -93,7 +89,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
       |> Map.put_new(:metadata, %{})
       |> Map.put_new(:started_at, now)
       |> Map.put(:last_worker_heartbeat_at, now)
-      |> maybe_put(:transport_route, route)
+      |> Ankole.Attrs.maybe_put(:transport_route, route)
 
     result =
       Repo.transact(fn repo ->
@@ -269,7 +265,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
         |> lock("FOR UPDATE")
         |> repo.all()
         |> Enum.map(&stale_worker_transition(repo, &1, now, reason))
-        |> collect_results()
+        |> Ankole.Attrs.collect_results()
       end)
 
     case result do
@@ -280,6 +276,29 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
       {:error, _reason} = error ->
         error
     end
+  end
+
+  @doc false
+  @spec renew_worker_leases_for_router_recovery(DateTime.t()) ::
+          {:ok, non_neg_integer()} | {:error, term()}
+  def renew_worker_leases_for_router_recovery(%DateTime{} = now) do
+    Repo.transact(fn repo ->
+      AgentComputerWorker
+      |> where([worker], worker.status in ^@stale_worker_statuses)
+      |> lock("FOR UPDATE")
+      |> repo.all()
+      |> Enum.map(fn worker ->
+        worker
+        |> AgentComputerWorker.changeset(%{last_worker_heartbeat_at: now})
+        |> repo.update()
+        |> notify_worker_stale_deadline(repo)
+      end)
+      |> Ankole.Attrs.collect_results()
+      |> case do
+        {:ok, workers} -> {:ok, length(workers)}
+        {:error, _reason} = error -> error
+      end
+    end)
   end
 
   @doc false
@@ -723,16 +742,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
   defp authenticated_worker_matches(_auth, _worker_id),
     do: {:error, :worker_auth_identity_mismatch}
 
-  defp supported_protocol_version(protocol_version) do
-    expected = RuntimeFabric.protocol_version()
-
-    if protocol_version == expected do
-      :ok
-    else
-      {:error, {:unsupported_runtime_fabric_protocol, protocol_version, expected}}
-    end
-  end
-
   # Extracts only the data needed to place protocol-compatible workers. Runtime
   # and product version stay as observability metadata, not scheduling axes.
   defp worker_ready_attrs(%FabricProto.AgentComputerWorkerReady{} = worker_ready, route) do
@@ -789,9 +798,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
     end
   end
 
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
-
   defp normalize_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
   defp normalize_reason(reason) when is_binary(reason), do: reason
   defp normalize_reason(reason), do: inspect(reason)
@@ -800,17 +806,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
     do: Broker.fail_pending_rpcs(route, reason)
 
   defp fail_pending_rpcs(_route, _reason), do: :ok
-
-  defp collect_results(results) do
-    Enum.reduce_while(results, {:ok, []}, fn
-      {:ok, value}, {:ok, acc} -> {:cont, {:ok, [value | acc]}}
-      {:error, _reason} = error, _acc -> {:halt, error}
-    end)
-    |> case do
-      {:ok, values} -> {:ok, Enum.reverse(values)}
-      {:error, _reason} = error -> error
-    end
-  end
 
   defp collect_notification_results(results) do
     Enum.reduce_while(results, :ok, fn

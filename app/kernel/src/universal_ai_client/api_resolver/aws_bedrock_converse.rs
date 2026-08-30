@@ -92,10 +92,10 @@ impl APIProtocol for AWSBedrockConverseState {
             return Err(provider_body_error(status, body));
         }
         reject_provider_body_error(status, &body)?;
-        Ok(aws_bedrock_converse_body_to_response(
+        aws_bedrock_converse_body_to_response(
             context,
             provider_object_body(status, body, "AWS Bedrock Converse")?,
-        ))
+        )
     }
 
     fn is_terminal(&self) -> bool {
@@ -103,17 +103,55 @@ impl APIProtocol for AWSBedrockConverseState {
     }
 }
 
-fn aws_bedrock_converse_body_to_response(context: &ResponseContext, body: Value) -> Value {
-    let mut state = AWSBedrockConverseState::new(context.model.clone());
-    let mut events = state.ingest(context, body);
-    if !state.inner.is_terminal() {
-        events.extend(state.finish(context, "completed", None));
-    }
-    events
+// Parses the official non-streaming Converse body, which shares no shape with
+// the eventstream frames `ingest` reads. `toolUse` blocks stay unsupported on
+// both paths.
+fn aws_bedrock_converse_body_to_response(
+    context: &ResponseContext,
+    body: Value,
+) -> Result<Value, StreamError> {
+    let stop_reason = body
+        .get("stopReason")
+        .and_then(Value::as_str)
+        .unwrap_or("end_turn");
+    let (status, incomplete_reason) = match bedrock_terminal(stop_reason) {
+        ProviderTerminal::Completed => ("completed", None),
+        ProviderTerminal::Incomplete(reason) => ("incomplete", Some(reason)),
+        ProviderTerminal::Failed(error) => return Err(error),
+    };
+
+    let mut text = String::new();
+    for block in body
+        .pointer("/output/message/content")
+        .and_then(Value::as_array)
         .into_iter()
-        .rev()
-        .find_map(|event| event.get("response").cloned())
-        .unwrap_or_else(|| complete_response_resource(context, json!({ "output": [] })))
+        .flatten()
+    {
+        if let Some(delta) = block.get("text").and_then(Value::as_str) {
+            text.push_str(delta);
+        }
+    }
+    let output = if text.is_empty() {
+        json!([])
+    } else {
+        json!([{
+            "id": generated_id("msg"),
+            "type": "message",
+            "status": "completed",
+            "role": "assistant",
+            "content": [{"type": "output_text", "text": text, "annotations": []}]
+        }])
+    };
+
+    Ok(complete_response_resource(
+        context,
+        json!({
+            "status": status,
+            "incomplete_details": incomplete_reason.map(|reason| json!({"reason": reason})).unwrap_or(Value::Null),
+            "output": output,
+            "usage": normalize_provider_token_usage(body.get("usage").unwrap_or(&Value::Null))
+        }),
+    ))
 }
 
 fn bedrock_terminal(reason: &str) -> ProviderTerminal {
@@ -121,12 +159,6 @@ fn bedrock_terminal(reason: &str) -> ProviderTerminal {
         "end_turn" | "stop_sequence" | "tool_use" => ProviderTerminal::Completed,
         "max_tokens" | "model_context_window_exceeded" => {
             ProviderTerminal::Incomplete("max_output_tokens")
-        }
-        "guardrail_intervened"
-        | "content_filtered"
-        | "malformed_model_output"
-        | "malformed_tool_use" => {
-            ProviderTerminal::Failed(provider_terminal_rejected("AWS Bedrock", reason))
         }
         other => ProviderTerminal::Failed(provider_terminal_rejected("AWS Bedrock", other)),
     }

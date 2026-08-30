@@ -1,13 +1,13 @@
-import { match } from '@agentbull/active-support'
+import { match, ms } from '@agentbull/active-support'
 import { Buffer } from 'node:buffer'
 import type { TurnModelRef } from '../lanes/actor_lane'
 import type { AIGatewayAPIKeyResponse } from '../lanes/rpc_lane'
 import type { TurnTracePropagation } from '../observability/turn-tracing'
 import { createModel, type ModelConfig } from './llm'
 
-const aiGatewayAPIKeyRefreshSkewMs = 60_000
+export const aiGatewayAPIKeyRefreshSkewMs = ms('1m')
 const aiGatewayHTTPMaxAttempts = 3
-const aiGatewayHTTPRefreshedKeyBackoffMs = 5_000
+const aiGatewayHTTPRefreshedKeyBackoffMs = ms('5s')
 const noObservabilityUserID = 'none'
 
 export const AIGATEWAY_OBSERVABILITY_USER_ID_HEADER = 'x-ankole-observability-user-id'

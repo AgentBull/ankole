@@ -56,7 +56,7 @@ agent-loop moduledoc은 명확합니다: worker는 히스토리 확장, 압축, 
 | 방향 | 경계를 넘는 것 |
 |---|---|
 | 제어 플레인 → worker | `TurnStart` 봉투(actor 정체성, 턴 ref, 처리할 이벤트) |
-| worker → 제어 플레인 | 진행 봉투(체크포인트, 활동 요약), 실패 시 `TurnError`, 또는 턴의 자연 완료 |
+| worker → 제어 플레인 | 진행 봉투(체크포인트, 활동 요약), 실패 시 `actor_turn.abort` RPC, 또는 완료 시 `actor_turn.complete` / `actor_turn.noop` RPC |
 | worker → AIGateway | 모델 호출, function-call 출력(제어 플레인을 거치지 않음) |
 
 모든 worker 메시지는 `ActorTurnRef`(`activation_uid`, `actor_epoch`, `actor_event_id`)를 실어 나릅니다. 제어 플레인은 이를 현재 활성화와 대조하며, ref가 더 이상 일치하지 않는 메시지는 오래된 것으로 거부됩니다. 이것은 턴 수준에서 본 [Actor Runtime](../actor-runtime/) 삼중 펜스입니다.

@@ -41,7 +41,7 @@ Agent は `web_search` を使って公開ページを探し、`web_fetch` を使
 
 これらは Provider 専用の profile です。モデルや context 長は不要です。各 Provider 種別が自身の能力を宣言するため、一覧には一致するインスタンスだけが表示されます。
 
-一覧が空の場合は、まず一致する Provider を追加してください。最初の Provider の設定は [クイックスタート](../quickstart/#3-add-an-llm-provider-and-create-an-agent) を参照してください。
+一覧が空の場合は、まず一致する Provider を追加してください。最初の Provider の設定は [クイックスタート](../quickstart/#llm-providers) を参照してください。
 
 ## 現在の組み込み Provider
 

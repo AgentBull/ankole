@@ -33,14 +33,12 @@ defmodule Ankole.PluginsTest do
     allow_cache_database_access()
     AppConfigureRegistry.clear_for_test()
     Cache.clear_for_test()
-    :ok = SetupConfig.ensure_registered()
     {:ok, true} = SetupConfig.put_completed(true)
 
     :ok
   end
 
   test "starts no discovered plugins when the enable list is missing" do
-    :ok = Config.ensure_registered()
     :ok = AppConfigure.delete_global(Config.enabled_ids_definition())
 
     registry = start_registry!()

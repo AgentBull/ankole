@@ -15,11 +15,13 @@ defmodule Ankole.AIAgent.Library.SourceReader do
   @soul_file "SOUL.md"
   @mission_file "MISSION.md"
   @design_file "DESIGN.md"
+  @confidentiality_policy_file "ConfidentialityPolicy.md"
   # Used only if the bundled templates are unreadable, so a fresh agent still
   # gets usable runtime documents rather than failing to seed.
   @fallback_soul "You are an Ankole AI colleague. Reply in plain text."
   @fallback_mission ""
   @fallback_design ""
+  @fallback_confidentiality_policy ""
   @yaml_block_item_regex ~r/^\s+-\s+(.+)\s*$/
   @yaml_block_end_regex ~r/^\S/
   @ankole_runtimes ~w(any main background_job)
@@ -171,6 +173,20 @@ defmodule Ankole.AIAgent.Library.SourceReader do
   end
 
   @doc """
+  Loads the default confidentiality policy template, falling back to an empty document.
+  """
+  @spec load_default_confidentiality_policy_template() :: String.t()
+  def load_default_confidentiality_policy_template do
+    templates_root()
+    |> Path.join(@confidentiality_policy_file)
+    |> File.read()
+    |> case do
+      {:ok, content} -> content
+      {:error, _reason} -> @fallback_confidentiality_policy
+    end
+  end
+
+  @doc """
   Returns a simple media type for a library file path.
   """
   @spec media_type_for_path(String.t()) :: String.t()
@@ -303,7 +319,7 @@ defmodule Ankole.AIAgent.Library.SourceReader do
 
         do_read_skill_source(root, label, relative_path)
       end)
-      |> collect_results()
+      |> Ankole.Attrs.collect_results()
       |> case do
         {:ok, sources} -> {:ok, Enum.sort_by(sources, & &1.name)}
         {:error, _reason} = error -> error
@@ -362,10 +378,10 @@ defmodule Ankole.AIAgent.Library.SourceReader do
              "relative_path" => normalized_relative_path,
              "skill_root" => root_label,
              "tags" => metadata.tags,
-             "disable_model_invocation" => metadata.disable_model_invocation
+             "brain_recall_only" => metadata.brain_recall_only
            }
-           |> maybe_put("category", metadata.category)
-           |> maybe_put("ankole-runtime", metadata.ankole_runtime),
+           |> Ankole.Attrs.maybe_put("category", metadata.category)
+           |> Ankole.Attrs.maybe_put("ankole-runtime", metadata.ankole_runtime),
          source_hash: source_hash,
          relative_path: normalized_relative_path,
          files: files
@@ -406,8 +422,8 @@ defmodule Ankole.AIAgent.Library.SourceReader do
              {:error, {:skill_name_directory_mismatch, name, directory_name}},
          {:ok, description} <- skill_description(frontmatter),
          {:ok, default_enabled} <- yaml_boolean(frontmatter, "default_enabled", true),
-         {:ok, disable_model_invocation} <-
-           yaml_boolean(frontmatter, "disable-model-invocation", false),
+         {:ok, brain_recall_only} <-
+           yaml_boolean(frontmatter, "brain-recall-only", false),
          {:ok, ankole_runtime} <-
            normalize_ankole_runtime(yaml_scalar(frontmatter, "ankole-runtime")) do
       {:ok,
@@ -417,7 +433,7 @@ defmodule Ankole.AIAgent.Library.SourceReader do
          default_enabled: default_enabled,
          tags: yaml_tags(frontmatter),
          category: yaml_scalar(frontmatter, "category"),
-         disable_model_invocation: disable_model_invocation,
+         brain_recall_only: brain_recall_only,
          ankole_runtime: ankole_runtime
        }}
     else
@@ -532,9 +548,6 @@ defmodule Ankole.AIAgent.Library.SourceReader do
     end
   end
 
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
-
   defp stable_hash(parts) when is_list(parts), do: hash(Enum.join(parts, <<0>>))
 
   defp builtin_skill_roots do
@@ -570,7 +583,14 @@ defmodule Ankole.AIAgent.Library.SourceReader do
     Application.get_env(:ankole, Ankole.AIAgent.Library, [])
   end
 
-  defp library_root do
+  @doc """
+  The configured product library root. Every reader of shipped library
+  content — skills, templates, the schema-pack vocabulary, and knowledge
+  pages — resolves paths from this one owner, so the `ANKOLE_LIBRARY_ROOT`
+  release override applies to all of them.
+  """
+  @spec library_root() :: String.t()
+  def library_root do
     library_config()
     |> Keyword.get(:library_root, @default_library_root)
     |> Path.expand()
@@ -591,12 +611,5 @@ defmodule Ankole.AIAgent.Library.SourceReader do
       ttl when is_integer(ttl) and ttl > 0 -> ttl
       _ttl -> 0
     end
-  end
-
-  defp collect_results(results) do
-    Enum.reduce_while(results, {:ok, []}, fn
-      {:ok, value}, {:ok, acc} -> {:cont, {:ok, [value | acc]}}
-      {:error, _reason} = error, _acc -> {:halt, error}
-    end)
   end
 end

@@ -5,7 +5,7 @@ section: Developer guide
 order: 106
 ---
 
-Every action in Ankole — a human signing in, an agent running a turn, a job waking its owner, a Brain write — is done by a Principal, and what that Principal may do is decided by AuthZ at the moment of the action. This page maps that boundary against the real code in `Ankole.Principals` and `Ankole.AuthZ`.
+Every action in Ankole — a human signing in, an agent running a turn, a job waking its owner — is done by a Principal, and what that Principal may do is decided by AuthZ at the moment of the action. This page maps that boundary against the real code in `Ankole.Principals` and `Ankole.AuthZ`.
 
 The decisive property, stated up front: authorization is a runtime fact, enforced at the boundary, not a convention asked of the model. A Principal is a durable, accountable subject; its grants live in PostgreSQL; and every checked action is evaluated against an explicit snapshot by the kernel, with a decision the caller must honor.
 
@@ -60,7 +60,6 @@ AuthZ is not a layer the agent can talk around, because the runtime consults it 
 
 - AIGateway resolves every call's subject from a verified token, and the subject's grants decide which model selectors and providers it can reach.
 - The Actor Runtime fences every turn with an activation owned by the agent Principal; a reply from any other subject fails the fence.
-- Brain scopes every read and write through the conversation declaration and the owner Principal; a write's authority mode is derived from the actor, not from the payload.
 - Console operations run through a verified admin token, and the admin Principal's group membership decides what it may change.
 
 The model never gets to assert "I am allowed." The boundary checks the Principal and the grant, and acts on the decision.
@@ -91,4 +90,3 @@ AuthZ is not a prompt instruction and not a hope. It does not ask the model to b
 
 - For how a verified token resolves to a Principal at the AIGateway edge, read the [AIGateway API](../ai-gateway/).
 - For how the agent Principal's activation fences a turn, read the [Actor Runtime](../actor-runtime/).
-- For how Brain derives its write authority from the actor, read the [Brain](../brain/) page.

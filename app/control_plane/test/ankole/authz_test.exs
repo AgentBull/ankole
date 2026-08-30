@@ -1,5 +1,5 @@
 defmodule Ankole.AuthZTest do
-  use Ankole.DataCase, async: false
+  use Ankole.DataCase, async: true
 
   alias Ankole.AuthZ
   alias Ankole.AuthZ.ExternalBinding
@@ -542,6 +542,113 @@ defmodule Ankole.AuthZTest do
                  external_id: "dept-#{System.unique_integer([:positive])}",
                  group_id: operator_group.id
                })
+    end
+  end
+
+  describe "synced group membership" do
+    test "rejects a same-named group of another domain instead of raising" do
+      %{principal: principal} = human_fixture(%{uid: unique_uid("synced-member")})
+      name = "signal_source_collision_#{System.unique_integer([:positive])}"
+
+      assert {:ok, operator_group} =
+               AuthZ.create_principal_group(%{
+                 name: name,
+                 display_name: "Operator-owned collision",
+                 domain: :operator
+               })
+
+      group_attrs = %{
+        name: name,
+        display_name: "Signal source group",
+        domain: :signal_source,
+        metadata: %{}
+      }
+
+      assert {:error, :group_domain_mismatch} =
+               AuthZ.ensure_synced_group_member(group_attrs, principal.uid)
+
+      # An existing membership in the same-named operator group must not
+      # satisfy the member-exists fast path either — the domain still
+      # mismatches.
+      Repo.insert!(%Membership{group_id: operator_group.id, principal_uid: principal.uid})
+
+      assert {:error, :group_domain_mismatch} =
+               AuthZ.ensure_synced_group_member(group_attrs, principal.uid)
+    end
+
+    test "creates the group and accumulates membership for the requested domain" do
+      %{principal: principal} = human_fixture(%{uid: unique_uid("synced-add")})
+      name = "signal_source_member_#{System.unique_integer([:positive])}"
+
+      group_attrs = %{
+        name: name,
+        display_name: "Signal source group",
+        domain: :signal_source,
+        metadata: %{}
+      }
+
+      assert :ok = AuthZ.ensure_synced_group_member(group_attrs, principal.uid)
+      assert :ok = AuthZ.ensure_synced_group_member(group_attrs, principal.uid)
+
+      group = Repo.get_by!(Group, name: name)
+      assert group.domain == :signal_source
+      assert Repo.get_by(Membership, group_id: group.id, principal_uid: principal.uid)
+    end
+  end
+
+  describe "static group member deltas" do
+    test "applies one add and remove set atomically in stable uid order" do
+      %{principal: added_b} = human_fixture(%{uid: unique_uid("delta-b")})
+      %{principal: added_a} = human_fixture(%{uid: unique_uid("delta-a")})
+      %{principal: removed} = human_fixture(%{uid: unique_uid("delta-removed")})
+
+      assert {:ok, group} =
+               AuthZ.create_principal_group(%{
+                 name: "directory_delta_#{System.unique_integer([:positive])}",
+                 display_name: "Directory Delta",
+                 kind: :static,
+                 domain: :directory
+               })
+
+      assert {:ok, _result} =
+               AuthZ.replace_static_group_members(group.id, :directory, [removed.uid])
+
+      assert {:ok, delta} =
+               AuthZ.apply_static_group_member_delta(
+                 group.id,
+                 :directory,
+                 [added_b.uid, added_a.uid],
+                 [removed.uid]
+               )
+
+      assert delta.added_principal_uids == Enum.sort([added_a.uid, added_b.uid])
+      assert delta.removed_principal_uids == [removed.uid]
+      assert delta.removed_memberships == 1
+
+      assert {:ok, members} = AuthZ.list_group_members(group.id)
+      assert Enum.map(members, & &1.principal.uid) == Enum.sort([added_a.uid, added_b.uid])
+    end
+
+    test "rolls back the complete delta when one added principal is missing" do
+      %{principal: valid} = human_fixture(%{uid: unique_uid("delta-valid")})
+
+      assert {:ok, group} =
+               AuthZ.create_principal_group(%{
+                 name: "directory_delta_rollback_#{System.unique_integer([:positive])}",
+                 display_name: "Directory Delta Rollback",
+                 kind: :static,
+                 domain: :directory
+               })
+
+      assert {:error, :not_found} =
+               AuthZ.apply_static_group_member_delta(
+                 group.id,
+                 :directory,
+                 [valid.uid, "missing-principal"],
+                 []
+               )
+
+      assert {:ok, []} = AuthZ.list_group_members(group.id)
     end
   end
 

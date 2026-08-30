@@ -15,7 +15,6 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitImageResolverTest do
     Req.Test.set_req_test_to_shared()
     Registry.clear_for_test()
     Cache.clear_for_test()
-    :ok = SSRFFilter.ensure_registered()
     :ok = AppConfigure.delete_global(SSRFFilter.definition())
     previous = Req.default_options()
     on_exit(fn -> Req.default_options(previous) end)

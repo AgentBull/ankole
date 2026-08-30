@@ -5,7 +5,7 @@ section: Developer guide
 order: 126
 ---
 
-AIGateway is not just an internal boundary that workers call; it is a REST API external applications, enterprise systems, and SDKs can call directly. This page is the caller's practical guide to using it — the endpoints, the authentication, the two call modes, and worked examples. It complements the [AIGateway](../ai-gateway/) concept page with hands-on usage.
+AIGateway is both the worker boundary and a REST API for external applications, enterprise systems, and SDKs. This page covers its endpoints, authentication, call modes, and worked examples. It complements the [AIGateway](../ai-gateway/) concept page with hands-on usage.
 
 The decisive property, stated up front: the AIGateway API is **OpenResponses-compatible and Principal-scoped**. A caller presents a bearer token (agent or admin), sends an OpenResponses-shaped request, and receives a JSON response or a stream. The caller never sees a provider credential — the control plane owns those.
 

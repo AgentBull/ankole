@@ -1,371 +1,465 @@
 defmodule Ankole.Brain.Config do
-  @moduledoc "Typed AppConfigure ownership for Brain runtime policy."
+  @moduledoc """
+  AppConfigure declarations and typed reads for the `brain.*` key group.
+
+  Brain models are instance-global: learning is a system activity of the
+  instance knowledge space, not a per-Agent call. Agent model profiles serve
+  only the Agent's own conversations, so no `brain.*` key is Agent-scoped.
+  """
 
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Definition
   alias Ankole.AppConfigure.Schema
-  alias Ankole.Principals
-  alias Ankole.Principals.Principal
-  alias Ankole.Repo
+  alias Ankole.Logging
 
-  @knowledge_key "brain.knowledge"
-  @dreaming_key "brain.dreaming"
-  @embedding_key "brain.embedding"
-  @search_key "brain.search"
-  @sources_key "brain.sources"
+  @enabled_key "brain.enabled"
+  @embedding_model_key "brain.embedding_model"
+  @rerank_model_key "brain.rerank_model"
+  @web_fetch_model_key "brain.web_fetch_model"
+  @extraction_model_key "brain.extraction_model"
+  @dreaming_model_key "brain.dreaming_model"
+  @search_tokenizer_key "brain.search_tokenizer"
+  @chunking_key "brain.chunking"
+  @forgetting_key "brain.forgetting"
+  @dreaming_task_cron_key "brain.dreaming_task_cron"
+  @self_healing_task_cron_key "brain.self_healing_task_cron"
+  @signal_channel_batch_idle_time_key "brain.signal_channel_batch_idle_time"
+  @skill_learning_enabled_key "brain.skill_learning_enabled"
+  @skill_learning_reflection_threshold_key "brain.skill_learning_reflection_threshold"
 
-  @default_knowledge %{
-    "pinned_memo_max_tokens" => 1_500,
-    "result_limit" => 10
+  @search_tokenizers ~w(icu jieba lindera_japanese lindera_korean)
+
+  # The vector column is fixed at vector(4096); shorter embeddings are
+  # zero-padded and larger models are rejected at configuration time.
+  @max_embedding_dimensions 4096
+
+  @chunking_defaults %{
+    "chunk_size" => 300,
+    "chunk_overlap" => 50,
+    "max_chars" => 6_000,
+    "max_tokens" => 1_500
   }
 
-  @default_dreaming %{
-    "enabled" => nil,
-    "token_limit" => 0,
-    "mutation_limit" => 0,
-    "curation_silence_minutes" => 30,
-    "curation_backlog_rows" => 50,
-    "episode_silence_minutes" => 30,
-    "episode_backlog_rows" => 200,
-    "episode_window_max_rows" => 200,
-    "episode_window_max_tokens" => 8_000,
-    "episode_tail_guard_rows" => 20,
-    "episode_tail_guard_minutes" => 360,
-    "episode_cold_start_lookback_days" => 5
+  # Defaults copied from GBrain's fact decay and purge constants.
+  @forgetting_defaults %{
+    "event_halflife_days" => 7,
+    "preference_halflife_days" => 90,
+    "commitment_halflife_days" => 90,
+    "belief_halflife_days" => 365,
+    "fact_halflife_days" => 365,
+    "purge_soft_delete_ttl_hours" => 72
   }
 
-  @default_embedding %{
-    "enabled" => false,
-    "model_agent_uid" => nil,
-    "dimensions" => nil
-  }
-
-  @default_search %{
-    "half_life_days" => 30,
-    "knowledge_decay_floor" => 0.5,
-    "rerank_enabled" => false,
-    "rerank_model_agent_uid" => nil
-  }
-
-  @default_sources %{
-    "enabled" => true,
-    "sync_interval_minutes" => 15,
-    "block_max_tokens" => 1_500
-  }
-
-  @spec knowledge_definition() :: Definition.t()
-  def knowledge_definition do
-    AppConfigure.define(
-      key: @knowledge_key,
-      scope: :global,
-      encrypted: false,
-      schema: knowledge_schema(),
-      default_value: @default_knowledge,
-      description: "Long-term memory projection budget and maximum number of retrieval results."
-    )
-  end
-
-  @spec dreaming_definition() :: Definition.t()
-  def dreaming_definition do
-    AppConfigure.define(
-      key: @dreaming_key,
-      scope: :scoped,
-      encrypted: false,
-      schema: dreaming_schema(),
-      default_value: @default_dreaming,
-      description: "Episode generation and Agent knowledge curation policy."
-    )
-  end
-
-  @spec embedding_definition() :: Definition.t()
-  def embedding_definition do
-    AppConfigure.define(
-      key: @embedding_key,
-      scope: :global,
-      encrypted: false,
-      schema: embedding_schema(),
-      default_value: @default_embedding,
-      description: "Installation-wide embedding model owner and output dimensions."
-    )
-  end
-
-  @spec search_definition() :: Definition.t()
-  def search_definition do
-    AppConfigure.define(
-      key: @search_key,
-      scope: :global,
-      encrypted: false,
-      schema: search_schema(),
-      default_value: @default_search,
-      description: "Long-term memory decay and optional global reranking."
-    )
-  end
-
-  @spec sources_definition() :: Definition.t()
-  def sources_definition do
-    AppConfigure.define(
-      key: @sources_key,
-      scope: :global,
-      encrypted: false,
-      schema: sources_schema(),
-      default_value: @default_sources,
-      description: "Retained external source synchronization policy."
-    )
-  end
-
+  @doc """
+  Returns the AppConfigure definitions owned by Brain.
+  """
   @spec definitions() :: [Definition.t()]
   def definitions do
     [
-      knowledge_definition(),
-      dreaming_definition(),
-      embedding_definition(),
-      search_definition(),
-      sources_definition()
+      Definition.new!(
+        key: @enabled_key,
+        encrypted: false,
+        scope: :global,
+        schema: Schema.boolean(),
+        default_value: true,
+        description:
+          "Whether BrainV3 is enabled. Disabling stops memory tools, context injection, and all Brain background tasks; stored data stays unchanged."
+      ),
+      Definition.new!(
+        key: @embedding_model_key,
+        encrypted: false,
+        scope: :global,
+        schema: model_schema(require_dimensions: true),
+        default_value: nil,
+        description:
+          "Instance-global embedding model as {provider_id, model, dimensions, provider_options?}. Empty disables vector retrieval projections."
+      ),
+      Definition.new!(
+        key: @rerank_model_key,
+        encrypted: false,
+        scope: :global,
+        schema: model_schema(),
+        default_value: nil,
+        description:
+          "Instance-global rerank model as {provider_id, model, provider_options?}. Empty skips rerank and keeps the fusion order."
+      ),
+      Definition.new!(
+        key: @web_fetch_model_key,
+        encrypted: false,
+        scope: :global,
+        schema: model_schema(),
+        default_value: nil,
+        description:
+          "Instance-global web-fetch provider as {provider_id, model, provider_options?} for url Source learning. Empty stops url Source learning and reports unhealthy."
+      ),
+      Definition.new!(
+        key: @extraction_model_key,
+        encrypted: false,
+        scope: :global,
+        schema: model_schema(),
+        default_value: nil,
+        description:
+          "Model for Signals processing and Source learning. Empty stops batch learning tasks and reports unhealthy."
+      ),
+      Definition.new!(
+        key: @dreaming_model_key,
+        encrypted: false,
+        scope: :global,
+        schema: model_schema(),
+        default_value: nil,
+        description:
+          "Model for Dreaming consolidation, synthesis, and contradiction verdicts. Empty skips the model-dependent Dreaming phases and reports unhealthy."
+      ),
+      Definition.new!(
+        key: @search_tokenizer_key,
+        encrypted: false,
+        scope: :global,
+        schema: Schema.enum(@search_tokenizers),
+        default_value: "icu",
+        description:
+          "pg_search BM25 tokenizer: icu, jieba, lindera_japanese, or lindera_korean. Changing it requires a BM25 index rebuild."
+      ),
+      Definition.new!(
+        key: @chunking_key,
+        encrypted: false,
+        scope: :global,
+        schema: chunking_schema(),
+        default_value: @chunking_defaults,
+        description:
+          "Chunker settings: chunk_size, chunk_overlap (CJK-aware words), max_chars, and max_tokens (o200k_base). All values enter the chunking signature."
+      ),
+      Definition.new!(
+        key: @forgetting_key,
+        encrypted: false,
+        scope: :global,
+        schema: forgetting_schema(),
+        default_value: @forgetting_defaults,
+        description:
+          "Fact decay halflives in days per kind, plus purge_soft_delete_ttl_hours for hard-deleting soft-deleted Objects."
+      ),
+      Definition.new!(
+        key: @dreaming_task_cron_key,
+        encrypted: false,
+        scope: :global,
+        schema: cron_schema(),
+        default_value: "0 5 * * *",
+        description: "Cron expression for the daily Dreaming maintenance task."
+      ),
+      Definition.new!(
+        key: @self_healing_task_cron_key,
+        encrypted: false,
+        scope: :global,
+        schema: cron_schema(),
+        default_value: "*/15 * * * *",
+        description:
+          "Cron expression for the Self-healing task that rebuilds stale chunk, embedding, and index projections."
+      ),
+      Definition.new!(
+        key: @signal_channel_batch_idle_time_key,
+        encrypted: false,
+        scope: :global,
+        schema: positive_integer_schema(),
+        default_value: 900,
+        description:
+          "Idle seconds after a signal channel's last message before its unprocessed slice enters batch learning. Conversation end also triggers it."
+      ),
+      Definition.new!(
+        key: @skill_learning_enabled_key,
+        encrypted: false,
+        scope: :global,
+        schema: Schema.boolean(),
+        default_value: true,
+        description:
+          "Whether skill lessons are learned from job trajectories and delivered with skills. Disabling skips the Dreaming phase and hides stored lessons; data stays unchanged."
+      ),
+      Definition.new!(
+        key: @skill_learning_reflection_threshold_key,
+        encrypted: false,
+        scope: :global,
+        schema: bounded_integer_schema(2),
+        default_value: 10,
+        description:
+          "Unconsumed signal jobs (mid-run human input or failed calls) an agent must accumulate before one skill-lesson reflection job starts. Minimum 2."
+      )
     ]
   end
 
-  @spec ensure_registered() :: :ok | {:error, term()}
-  def ensure_registered do
-    Enum.reduce_while(definitions(), :ok, fn definition, :ok ->
-      case AppConfigure.register_definitions([definition]) do
-        :ok -> {:cont, :ok}
-        {:error, {:duplicate_key, _key}} -> {:cont, :ok}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
-  end
+  @doc "Returns whether BrainV3 is enabled for this instance."
+  @spec enabled?() :: boolean()
+  def enabled?, do: get_or_default(@enabled_key, true)
 
-  @spec knowledge() :: {:ok, map()} | {:error, term()}
-  def knowledge, do: get(knowledge_definition())
+  @doc "Returns the configured embedding model map or nil."
+  @spec embedding_model() :: map() | nil
+  def embedding_model, do: get_or_default(@embedding_model_key, nil)
 
-  @spec search() :: {:ok, map()} | {:error, term()}
-  def search, do: get(search_definition())
+  @doc "Returns the configured rerank model map or nil."
+  @spec rerank_model() :: map() | nil
+  def rerank_model, do: get_or_default(@rerank_model_key, nil)
 
-  @spec embedding() :: {:ok, map()} | {:error, term()}
-  def embedding, do: get(embedding_definition())
+  @doc "Returns the configured web-fetch provider map or nil."
+  @spec web_fetch_model() :: map() | nil
+  def web_fetch_model, do: get_or_default(@web_fetch_model_key, nil)
 
-  @spec sources() :: {:ok, map()} | {:error, term()}
-  def sources, do: get(sources_definition())
+  @doc "Returns the configured extraction model map or nil."
+  @spec extraction_model() :: map() | nil
+  def extraction_model, do: get_or_default(@extraction_model_key, nil)
 
-  @spec dreaming() :: {:ok, map()} | {:error, term()}
-  def dreaming, do: get(dreaming_definition())
+  @doc "Returns the configured dreaming model map or nil."
+  @spec dreaming_model() :: map() | nil
+  def dreaming_model, do: get_or_default(@dreaming_model_key, nil)
 
-  @spec dreaming(String.t()) :: {:ok, map()} | {:error, term()}
-  def dreaming(agent_uid) when is_binary(agent_uid) do
-    with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
-         :ok <- require_agent_principal(agent_uid),
-         :ok <- ensure_registered(),
-         {:ok, config} <- AppConfigure.get(dreaming_definition(), agent_id: agent_uid) do
-      {:ok, Map.put(config, "enabled", effective_dreaming_enabled(config))}
-    end
-  end
+  @doc "Returns the deployment-level BM25 tokenizer name."
+  @spec search_tokenizer() :: String.t()
+  def search_tokenizer, do: get_or_default(@search_tokenizer_key, "icu")
 
-  defp get(definition) do
-    with :ok <- ensure_registered() do
-      AppConfigure.get(definition)
-    end
-  end
+  @doc "Returns the complete chunking settings map."
+  @spec chunking() :: map()
+  def chunking, do: get_or_default(@chunking_key, @chunking_defaults)
 
-  defp effective_dreaming_enabled(%{"enabled" => enabled}) when is_boolean(enabled), do: enabled
-  defp effective_dreaming_enabled(_config), do: true
+  @doc "Returns the complete forgetting settings map."
+  @spec forgetting() :: map()
+  def forgetting, do: get_or_default(@forgetting_key, @forgetting_defaults)
 
-  defp require_agent_principal(uid) do
-    case Repo.get(Principal, uid) do
-      %Principal{type: :agent} -> :ok
-      %Principal{} -> {:error, :brain_dreaming_requires_agent}
-      nil -> {:error, :not_found}
-    end
-  end
+  @doc "Returns the Dreaming task cron expression."
+  @spec dreaming_task_cron() :: String.t()
+  def dreaming_task_cron, do: get_or_default(@dreaming_task_cron_key, "0 5 * * *")
 
-  defp knowledge_schema do
-    Schema.new(fn
-      value when is_map(value) ->
-        with {:ok, memo_tokens} <- integer(value, "pinned_memo_max_tokens", 1, 100_000),
-             {:ok, result_limit} <- integer(value, "result_limit", 1, 100) do
-          {:ok,
-           %{
-             "pinned_memo_max_tokens" => memo_tokens,
-             "result_limit" => result_limit
-           }}
+  @doc "Returns the Self-healing task cron expression."
+  @spec self_healing_task_cron() :: String.t()
+  def self_healing_task_cron, do: get_or_default(@self_healing_task_cron_key, "*/15 * * * *")
+
+  @doc "Returns the signal channel batch idle time in seconds."
+  @spec signal_channel_batch_idle_time() :: pos_integer()
+  def signal_channel_batch_idle_time, do: get_or_default(@signal_channel_batch_idle_time_key, 900)
+
+  @doc "Returns whether skill-lesson learning is enabled."
+  @spec skill_learning_enabled?() :: boolean()
+  def skill_learning_enabled?, do: get_or_default(@skill_learning_enabled_key, true)
+
+  @doc "Returns the signal-job count that triggers one skill-lesson reflection."
+  @spec skill_learning_reflection_threshold() :: pos_integer()
+  def skill_learning_reflection_threshold,
+    do: get_or_default(@skill_learning_reflection_threshold_key, 10)
+
+  @doc "Returns the allowed BM25 tokenizer names."
+  @spec search_tokenizers() :: [String.t()]
+  def search_tokenizers, do: @search_tokenizers
+
+  @doc "Returns the hard upper bound for embedding dimensions."
+  @spec max_embedding_dimensions() :: pos_integer()
+  def max_embedding_dimensions, do: @max_embedding_dimensions
+
+  @doc """
+  Returns the read status of every `brain.*` key for the health surface:
+  `:ok` (stored or default value), or `{:invalid, reason}` for a stored row
+  that no longer validates. This read never raises, so the health page can
+  report the broken key instead of failing with it.
+  """
+  @spec key_statuses() :: %{
+          String.t() => :ok | {:invalid, String.t()} | {:unavailable, String.t()}
+        }
+  def key_statuses do
+    definitions()
+    |> Map.new(fn definition ->
+      status =
+        case AppConfigure.get_by_key(definition.key) do
+          {:ok, _value} -> :ok
+          :error -> :ok
+          {:error, {:load_failed, _scope, _key, message}} -> {:unavailable, message}
+          {:error, reason} -> {:invalid, inspect(reason)}
         end
 
-      _value ->
-        {:error, :not_brain_knowledge_config}
+      {definition.key, status}
     end)
   end
 
-  defp dreaming_schema do
+  # AppConfigure returns `{:ok, value}` for a stored or default value, bare
+  # `:error` for a key with no value anywhere, and `{:error, reason}` for a
+  # real failure. AppConfiguration.md forbids treating an invalid row as
+  # absent, so an invalid row raises instead of silently running on defaults
+  # that contradict the Console-saved value. A `:load_failed` read is a
+  # different class — the store is unreachable, not the row invalid — and
+  # serves the default with a warning so memory degrades instead of failing
+  # every caller.
+  defp get_or_default(key, default) do
+    case AppConfigure.get_by_key(key) do
+      {:ok, value} ->
+        value
+
+      :error ->
+        default
+
+      {:error, {:load_failed, _scope, _key, message}} ->
+        Logging.warning(
+          "brain.config.load_failed",
+          "AppConfigure read failed; serving the code default",
+          %{key: key, reason: message}
+        )
+
+        default
+
+      {:error, reason} ->
+        raise "invalid stored AppConfigure value for #{key}: #{inspect(reason)}"
+    end
+  end
+
+  defp model_schema(opts \\ []) do
+    require_dimensions? = Keyword.get(opts, :require_dimensions, false)
+
+    allowed_keys =
+      if require_dimensions?,
+        do: ["provider_id", "model", "dimensions", "provider_options"],
+        else: ["provider_id", "model", "provider_options"]
+
     Schema.new(fn
-      value when is_map(value) ->
-        with {:ok, enabled} <- optional_boolean(value, "enabled"),
-             {:ok, token_limit} <- integer(value, "token_limit", 0, 10_000_000),
-             {:ok, mutation_limit} <- integer(value, "mutation_limit", 0, 100_000),
-             {:ok, curation_silence_minutes} <-
-               integer(value, "curation_silence_minutes", 0, 1_440),
-             {:ok, curation_backlog_rows} <-
-               integer(value, "curation_backlog_rows", 1, 10_000),
-             {:ok, silence_minutes} <- integer(value, "episode_silence_minutes", 0, 1_440),
-             {:ok, backlog_rows} <- integer(value, "episode_backlog_rows", 1, 10_000),
-             {:ok, window_rows} <- integer(value, "episode_window_max_rows", 1, 500),
-             {:ok, window_tokens} <-
-               integer(value, "episode_window_max_tokens", 500, 200_000),
-             {:ok, tail_rows} <- integer(value, "episode_tail_guard_rows", 0, 200),
-             {:ok, tail_minutes} <- integer(value, "episode_tail_guard_minutes", 0, 1_440),
-             # `nil` means no cold-start boundary: Stage A summarizes the full retained history of
-             # a channel that has no cursor. A stored value that predates this setting reads as
-             # `nil` and keeps that behaviour, because AppConfigure replaces the default with the
-             # stored map instead of merging the two.
-             {:ok, cold_start_lookback_days} <-
-               optional_integer(value, "episode_cold_start_lookback_days", 0, 36_500) do
-          {:ok,
-           %{
-             "enabled" => enabled,
-             "token_limit" => token_limit,
-             "mutation_limit" => mutation_limit,
-             "curation_silence_minutes" => curation_silence_minutes,
-             "curation_backlog_rows" => curation_backlog_rows,
-             "episode_silence_minutes" => silence_minutes,
-             "episode_backlog_rows" => backlog_rows,
-             "episode_window_max_rows" => window_rows,
-             "episode_window_max_tokens" => window_tokens,
-             "episode_tail_guard_rows" => tail_rows,
-             "episode_tail_guard_minutes" => tail_minutes,
-             "episode_cold_start_lookback_days" => cold_start_lookback_days
-           }}
-        end
-
-      _value ->
-        {:error, :not_brain_dreaming_config}
-    end)
-  end
-
-  defp embedding_schema do
-    Schema.new(fn
-      value when is_map(value) ->
-        with {:ok, enabled} <- required_boolean(value, "enabled"),
-             {:ok, model_agent_uid} <- optional_uid(value, "model_agent_uid"),
-             {:ok, dimensions} <- optional_integer(value, "dimensions", 1, 4_096),
-             :ok <- embedding_configuration_valid(enabled, model_agent_uid, dimensions) do
-          {:ok,
-           %{
-             "enabled" => enabled,
-             "model_agent_uid" => model_agent_uid,
-             "dimensions" => dimensions
-           }}
-        end
-
-      _value ->
-        {:error, :not_brain_embedding_config}
-    end)
-  end
-
-  defp search_schema do
-    Schema.new(fn
-      value when is_map(value) ->
-        with {:ok, half_life_days} <- integer(value, "half_life_days", 0, 36_500),
-             {:ok, knowledge_decay_floor} <-
-               number(value, "knowledge_decay_floor", 0.0, 1.0),
-             {:ok, rerank_enabled} <- required_boolean(value, "rerank_enabled"),
-             {:ok, rerank_model_agent_uid} <- optional_uid(value, "rerank_model_agent_uid") do
-          {:ok,
-           %{
-             "half_life_days" => half_life_days,
-             "knowledge_decay_floor" => knowledge_decay_floor,
-             "rerank_enabled" => rerank_enabled,
-             "rerank_model_agent_uid" => rerank_model_agent_uid
-           }}
-        end
-
-      _value ->
-        {:error, :not_brain_search_config}
-    end)
-  end
-
-  defp sources_schema do
-    Schema.new(fn
-      value when is_map(value) ->
-        with {:ok, enabled} <- required_boolean(value, "enabled"),
-             {:ok, sync_interval_minutes} <-
-               integer(value, "sync_interval_minutes", 1, 10_080),
-             {:ok, block_max_tokens} <- integer(value, "block_max_tokens", 100, 100_000) do
-          {:ok,
-           %{
-             "enabled" => enabled,
-             "sync_interval_minutes" => sync_interval_minutes,
-             "block_max_tokens" => block_max_tokens
-           }}
-        end
-
-      _value ->
-        {:error, :not_brain_sources_config}
-    end)
-  end
-
-  defp integer(value, key, min, max) do
-    case Map.fetch(value, key) do
-      {:ok, number} when is_integer(number) and number >= min and number <= max ->
-        {:ok, number}
-
-      _value ->
-        {:error, {:invalid_integer, key, %{min: min, max: max}}}
-    end
-  end
-
-  defp optional_integer(value, key, min, max) do
-    case Map.get(value, key) do
-      nil -> {:ok, nil}
-      number when is_integer(number) and number >= min and number <= max -> {:ok, number}
-      _value -> {:error, {:invalid_integer, key, %{min: min, max: max}}}
-    end
-  end
-
-  defp number(value, key, min, max) do
-    case Map.fetch(value, key) do
-      {:ok, number} when is_number(number) and number >= min and number <= max ->
-        {:ok, number / 1}
-
-      _value ->
-        {:error, {:invalid_number, key, %{min: min, max: max}}}
-    end
-  end
-
-  defp embedding_configuration_valid(false, _model_agent_uid, _dimensions), do: :ok
-
-  defp embedding_configuration_valid(true, model_agent_uid, dimensions)
-       when is_binary(model_agent_uid) and is_integer(dimensions),
-       do: :ok
-
-  defp embedding_configuration_valid(true, _model_agent_uid, _dimensions),
-    do: {:error, :incomplete_embedding_configuration}
-
-  defp required_boolean(value, key) do
-    case Map.fetch(value, key) do
-      {:ok, boolean} when is_boolean(boolean) -> {:ok, boolean}
-      _value -> {:error, {:invalid_boolean, key}}
-    end
-  end
-
-  defp optional_boolean(value, key) do
-    case Map.get(value, key) do
-      nil -> {:ok, nil}
-      boolean when is_boolean(boolean) -> {:ok, boolean}
-      _value -> {:error, {:invalid_boolean, key}}
-    end
-  end
-
-  defp optional_uid(value, key) do
-    case Map.get(value, key) do
       nil ->
         {:ok, nil}
 
-      uid when is_binary(uid) ->
-        case String.trim(uid) do
-          "" -> {:ok, nil}
-          uid -> {:ok, String.downcase(uid)}
+      value when is_map(value) ->
+        with :ok <- only_keys(value, allowed_keys),
+             :ok <- required_non_empty_string(value, "provider_id"),
+             :ok <- required_non_empty_string(value, "model"),
+             :ok <- optional_object(value, "provider_options"),
+             :ok <- validate_dimensions(value, require_dimensions?) do
+          {:ok, value}
         end
 
       _value ->
-        {:error, {:invalid_uid, key}}
+        {:error, :not_model_config}
+    end)
+  end
+
+  defp validate_dimensions(value, false) do
+    case Map.has_key?(value, "dimensions") do
+      true -> {:error, {:unknown_key, "dimensions"}}
+      false -> :ok
+    end
+  end
+
+  defp validate_dimensions(value, true) do
+    case Map.get(value, "dimensions") do
+      dimensions when is_integer(dimensions) and dimensions > 0 ->
+        if dimensions <= @max_embedding_dimensions,
+          do: :ok,
+          else: {:error, {:dimensions_above_limit, @max_embedding_dimensions}}
+
+      _value ->
+        {:error, {:invalid_field, "dimensions"}}
+    end
+  end
+
+  defp chunking_schema do
+    Schema.new(fn
+      value when is_map(value) ->
+        with :ok <- only_keys(value, Map.keys(@chunking_defaults)) do
+          merged = Map.merge(@chunking_defaults, value)
+
+          with :ok <- positive_int_field(merged, "chunk_size"),
+               :ok <- non_negative_int_field(merged, "chunk_overlap"),
+               :ok <- positive_int_field(merged, "max_chars"),
+               :ok <- positive_int_field(merged, "max_tokens") do
+            if merged["chunk_overlap"] < merged["chunk_size"],
+              do: {:ok, merged},
+              else: {:error, :chunk_overlap_not_below_chunk_size}
+          end
+        end
+
+      _value ->
+        {:error, :not_json_object}
+    end)
+  end
+
+  defp forgetting_schema do
+    Schema.new(fn
+      value when is_map(value) ->
+        with :ok <- only_keys(value, Map.keys(@forgetting_defaults)) do
+          merged = Map.merge(@forgetting_defaults, value)
+
+          Enum.reduce_while(Map.keys(@forgetting_defaults), {:ok, merged}, fn key, acc ->
+            case positive_number_field(merged, key) do
+              :ok -> {:cont, acc}
+              {:error, _reason} = error -> {:halt, error}
+            end
+          end)
+        end
+
+      _value ->
+        {:error, :not_json_object}
+    end)
+  end
+
+  defp cron_schema do
+    Schema.new(fn
+      value when is_binary(value) ->
+        case Crontab.CronExpression.Parser.parse(value) do
+          {:ok, _expression} -> {:ok, value}
+          {:error, _reason} -> {:error, :invalid_cron_expression}
+        end
+
+      _value ->
+        {:error, :not_string}
+    end)
+  end
+
+  defp positive_integer_schema do
+    Schema.new(fn
+      value when is_integer(value) and value > 0 -> {:ok, value}
+      _value -> {:error, :not_positive_integer}
+    end)
+  end
+
+  defp bounded_integer_schema(minimum) do
+    Schema.new(fn
+      value when is_integer(value) and value >= minimum -> {:ok, value}
+      _value -> {:error, {:integer_below_minimum, minimum}}
+    end)
+  end
+
+  defp only_keys(value, allowed_keys) do
+    case Map.keys(value) -- allowed_keys do
+      [] -> :ok
+      [key | _rest] -> {:error, {:unknown_key, key}}
+    end
+  end
+
+  defp required_non_empty_string(value, key) do
+    case Map.get(value, key) do
+      text when is_binary(text) and text != "" -> :ok
+      _value -> {:error, {:invalid_field, key}}
+    end
+  end
+
+  defp optional_object(value, key) do
+    case Map.get(value, key) do
+      nil ->
+        :ok
+
+      options when is_map(options) ->
+        if Schema.json_value?(options), do: :ok, else: {:error, {:invalid_field, key}}
+
+      _value ->
+        {:error, {:invalid_field, key}}
+    end
+  end
+
+  defp positive_int_field(value, key) do
+    case Map.get(value, key) do
+      int when is_integer(int) and int > 0 -> :ok
+      _value -> {:error, {:invalid_field, key}}
+    end
+  end
+
+  defp non_negative_int_field(value, key) do
+    case Map.get(value, key) do
+      int when is_integer(int) and int >= 0 -> :ok
+      _value -> {:error, {:invalid_field, key}}
+    end
+  end
+
+  defp positive_number_field(value, key) do
+    case Map.get(value, key) do
+      number when is_number(number) and number > 0 -> :ok
+      _value -> {:error, {:invalid_field, key}}
     end
   end
 end

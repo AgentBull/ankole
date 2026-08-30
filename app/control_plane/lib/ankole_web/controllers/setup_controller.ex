@@ -10,11 +10,17 @@ defmodule AnkoleWeb.SetupController do
   use AnkoleWeb, :controller
 
   alias Ankole.I18n
+  alias Ankole.IdentityProviders.LocalPassword
+  alias Ankole.Principals
+  alias Ankole.Principals.HumanUser
+  alias Ankole.Brain.SchemaPacks
   alias Ankole.Setup.Bootstrap
   alias Ankole.Plugins
+  alias Ankole.Setup.Completion, as: SetupCompletion
   alias Ankole.Setup.Config, as: SetupConfig
   alias AnkoleWeb.Session, as: WebSession
   alias Ankole.IdentityProviders
+  alias Ankole.IdentityProviders.Login
 
   @doc """
   Returns setup state needed before the SPA can decide which step to show.
@@ -51,11 +57,13 @@ defmodule AnkoleWeb.SetupController do
   """
   def create_session(conn, params) do
     with {:ok, false} <- SetupConfig.completed?(),
-         :ok <- maybe_put_locale(params["locale"]),
          {:ok, expected_code} <- SetupConfig.bootstrap_activation_code(),
          submitted_code <-
            normalize_activation_code(params["activationCode"] || params["activation_code"]),
-         true <- secure_equal?(submitted_code, expected_code) do
+         true <- secure_equal?(submitted_code, expected_code),
+         # The locale write comes after code verification so an unauthenticated
+         # caller cannot change installation state.
+         :ok <- maybe_put_locale(params["locale"]) do
       conn
       |> WebSession.put_setup_session()
       |> json(%{ok: true})
@@ -138,12 +146,12 @@ defmodule AnkoleWeb.SetupController do
   def update_plugins(conn, _params), do: error(conn, 422, "pluginIDs must be an array")
 
   @doc """
-  Lists identity-provider adapters that plugins expose to setup.
+  Lists built-in and plugin identity-provider adapters available to setup.
   """
   def identity_provider_adapters(conn, _params) do
     with :ok <- require_setup_session(conn) do
       json(conn, %{
-        adapters: Enum.map(IdentityProviders.list_active_plugin_adapters(), &adapter_json/1)
+        adapters: Enum.map(IdentityProviders.list_active_adapters(), &adapter_json/1)
       })
     else
       {:error, status, reason} -> error(conn, status, reason)
@@ -178,9 +186,9 @@ defmodule AnkoleWeb.SetupController do
          {:ok, provider_id} <- IdentityProviders.normalize_provider_id(provider_id),
          {:ok, _checked} <- IdentityProviders.check_credentials(provider_id),
          state <- WebSession.opaque_token(),
-         redirect_uri <- IdentityProviders.oidc_redirect_uri(public_base_url(conn), provider_id),
+         redirect_uri <- Login.oidc_redirect_uri(public_base_url(conn), provider_id),
          {:ok, authorization_url} <-
-           IdentityProviders.authorization_url(provider_id,
+           Login.authorization_url(provider_id,
              redirect_uri: redirect_uri,
              state: state
            ) do
@@ -192,6 +200,105 @@ defmodule AnkoleWeb.SetupController do
         return_to: "/console"
       })
       |> json(%{authorizationURL: authorization_url})
+    else
+      {:error, status, reason} -> error(conn, status, reason)
+      {:error, reason} -> error(conn, 400, reason)
+    end
+  end
+
+  @doc """
+  Lists the Brain schema packs a setup can select: the always-installed base
+  pack and the selectable industry packs with their seed descriptions.
+  """
+  def brain_packs(conn, _params) do
+    with :ok <- require_setup_session(conn) do
+      packs =
+        [SchemaPacks.base_pack() | SchemaPacks.industry_packs()]
+        |> Enum.map(fn name ->
+          required = name == SchemaPacks.base_pack()
+
+          case SchemaPacks.load_seed(name) do
+            {:ok, %{manifest: manifest}} ->
+              %{
+                name: name,
+                description: manifest["description"],
+                version: manifest["version"],
+                required: required
+              }
+
+            {:error, _reason} ->
+              %{name: name, description: nil, version: nil, required: required}
+          end
+        end)
+
+      json(conn, %{packs: packs, selected: WebSession.setup_brain_packs(conn)})
+    else
+      {:error, status, reason} -> error(conn, status, reason)
+    end
+  end
+
+  @doc """
+  Stores the industry pack selection in the setup session; completion
+  materializes it whichever identity path finishes the wizard.
+  """
+  def put_brain_packs(conn, params) do
+    with :ok <- require_setup_session(conn),
+         {:ok, packs} <- validate_brain_packs(params["packs"]) do
+      conn
+      |> WebSession.put_setup_brain_packs(packs)
+      |> json(%{packs: packs})
+    else
+      {:error, status, reason} -> error(conn, status, reason)
+      {:error, reason} -> error(conn, 422, reason)
+    end
+  end
+
+  defp validate_brain_packs(packs) when is_list(packs) do
+    with :ok <- ensure_pack_names(packs) do
+      industry = SchemaPacks.industry_packs()
+      packs = packs -- [SchemaPacks.base_pack()]
+
+      case Enum.reject(packs, &(&1 in industry)) do
+        [] -> {:ok, Enum.uniq(packs)}
+        unknown -> {:error, "unknown brain packs: #{Enum.join(unknown, ", ")}"}
+      end
+    end
+  end
+
+  defp validate_brain_packs(_packs), do: {:error, "packs must be a list of pack names"}
+
+  defp ensure_pack_names(packs) do
+    if Enum.all?(packs, &is_binary/1),
+      do: :ok,
+      else: {:error, "packs must be a list of pack names"}
+  end
+
+  @doc """
+  Creates the local administrator account and completes setup.
+
+  This is the local-password twin of the setup OIDC callback: it creates the
+  account, opens the one-time root-admin gate, marks setup complete, and signs
+  the browser in. The account upsert makes a retry after a partial failure
+  land on the same principal instead of a duplicate-email error.
+  """
+  def create_local_admin(conn, params) do
+    with :ok <- require_setup_session(conn),
+         {:ok, email} <- validate_local_admin_email(params["email"]),
+         :ok <- validate_local_admin_password(params["password"]),
+         # The session is the single owner of the pack selection; both
+         # identity paths (this one and the setup OIDC callback) read it.
+         brain_packs = WebSession.setup_brain_packs(conn),
+         {:ok, provider} <- require_local_provider(),
+         {:ok, principal_uid} <- ensure_local_admin_account(email, params["password"]),
+         {:ok, _root} <- SetupCompletion.complete_with_root_admin(principal_uid, brain_packs) do
+      conn
+      |> WebSession.clear_setup_session()
+      |> WebSession.put_admin_session(%{
+        principal_uid: principal_uid,
+        provider_id: provider["provider_id"],
+        external_id: email
+      })
+      |> json(%{returnTo: "/console"})
     else
       {:error, status, reason} -> error(conn, status, reason)
       {:error, reason} -> error(conn, 400, reason)
@@ -211,6 +318,57 @@ defmodule AnkoleWeb.SetupController do
     else
       {:ok, true} -> {:error, 409, "setup already completed"}
       {:error, reason} -> {:error, 500, reason}
+    end
+  end
+
+  defp validate_local_admin_email(email) when is_binary(email) do
+    normalized = Principals.normalize_email(email) || ""
+
+    case Regex.match?(HumanUser.email_format(), normalized) do
+      true -> {:ok, normalized}
+      false -> {:error, 422, "email is invalid"}
+    end
+  end
+
+  defp validate_local_admin_email(_email), do: {:error, 422, "email is invalid"}
+
+  defp validate_local_admin_password(password) when is_binary(password) do
+    case String.length(password) >= LocalPassword.local_password_min_length() do
+      true -> :ok
+      false -> {:error, 422, password_too_short_message()}
+    end
+  end
+
+  defp validate_local_admin_password(_password), do: {:error, 422, password_too_short_message()}
+
+  defp password_too_short_message,
+    do: "password must be at least #{LocalPassword.local_password_min_length()} characters"
+
+  defp require_local_provider do
+    case LocalPassword.fetch_enabled_provider() do
+      {:ok, provider} -> {:ok, provider}
+      {:error, :no_local_provider} -> {:error, 409, "local identity provider is not configured"}
+    end
+  end
+
+  # The setup administrator picks their own password, so the credential never
+  # carries the must-change flag.
+  defp ensure_local_admin_account(email, password) do
+    case LocalPassword.fetch_local_login(email) do
+      {:ok, %{principal: principal}} ->
+        put_local_admin_password(principal.uid, password)
+
+      {:error, :not_found} ->
+        with {:ok, %{principal: principal}} <-
+               Principals.create_human(%{uid: email, email: email}) do
+          put_local_admin_password(principal.uid, password)
+        end
+    end
+  end
+
+  defp put_local_admin_password(principal_uid, password) do
+    with {:ok, _credential} <- LocalPassword.set_local_password(principal_uid, password, false) do
+      {:ok, principal_uid}
     end
   end
 

@@ -76,6 +76,8 @@ defmodule AnkoleWeb.Router do
 
     get "/setup/plugins", SetupController, :plugins
     put "/setup/plugins/enabled", SetupController, :update_plugins
+    get "/setup/brain-packs", SetupController, :brain_packs
+    put "/setup/brain-packs", SetupController, :put_brain_packs
     get "/setup/identity-provider-adapters", SetupController, :identity_provider_adapters
     put "/setup/identity-providers/:provider_id", SetupController, :put_identity_provider
 
@@ -83,10 +85,14 @@ defmodule AnkoleWeb.Router do
          SetupController,
          :oidc_authorization
 
+    post "/setup/local-admin", SetupController, :create_local_admin
+
     get "/session", AuthController, :session
     delete "/session", AuthController, :delete_session
     post "/oauth/token", AuthController, :oauth_token
     get "/identity-providers", AuthController, :identity_providers
+    post "/sessions/local-password", AuthController, :local_password_login
+    post "/sessions/local-password/change", AuthController, :local_password_change
   end
 
   # The spec document is public (no bearer token) so tooling can read it without
@@ -121,9 +127,15 @@ defmodule AnkoleWeb.Router do
          :decrypt_for_agent
 
     get "/principals", PrincipalController, :index
+    post "/principals", PrincipalController, :create
     get "/principals/:uid", PrincipalController, :show
+    patch "/principals/:uid", PrincipalController, :update
     get "/principals/:uid/groups", PrincipalController, :groups
     get "/principals/:uid/grants", PrincipalController, :grants
+
+    post "/principals/:uid/local-password-resets",
+         PrincipalController,
+         :create_local_password_reset
 
     get "/principal-groups", AuthZGroupController, :index
     post "/principal-groups", AuthZGroupController, :create
@@ -145,11 +157,47 @@ defmodule AnkoleWeb.Router do
     patch "/permission-grants/:id", PermissionGrantController, :update
     delete "/permission-grants/:id", PermissionGrantController, :delete
 
+    get "/brain/health", BrainController, :health
+    get "/brain/objects", BrainController, :list_objects
+    get "/brain/object-types", BrainController, :object_types
+    post "/brain/objects", BrainController, :create_object
+    put "/brain/objects", BrainController, :update_object
+    post "/brain/search-preview", BrainController, :search_preview
+    get "/brain/claims", BrainController, :list_claims
+    post "/brain/claims/:claim_id/supersede", BrainController, :supersede_claim
+    post "/brain/claims/:claim_id/forget", BrainController, :forget_claim
+    post "/brain/claims/:claim_id/resolve", BrainController, :resolve_take
+    get "/brain/contradictions", BrainController, :list_contradictions
+    post "/brain/contradictions/:contradiction_id/decide", BrainController, :decide_contradiction
+    get "/brain/suggestions", BrainController, :list_suggestions
+    post "/brain/suggestions/:suggestion_id/decide", BrainController, :decide_suggestion
+    get "/brain/merge-suggestions", BrainController, :list_merge_suggestions
+
+    post "/brain/merge-suggestions/:suggestion_id/decide",
+         BrainController,
+         :decide_merge_suggestion
+
+    get "/brain/sources", BrainController, :list_sources
+    post "/brain/sources", BrainController, :create_source
+    post "/brain/sources/:source_id/learn", BrainController, :learn_source
+    post "/brain/sources/:source_id/archive", BrainController, :archive_source
+    get "/brain/principals/:principal_uid/knowledge", BrainController, :principal_knowledge
+    # Object slugs contain `/`, so these operations carry the slug as a query
+    # parameter or in the body instead of a wildcard path segment, which the
+    # OpenAPI document could not express.
+    get "/brain/objects/show", BrainController, :show_object
+    get "/brain/objects/versions", BrainController, :object_versions
+    post "/brain/objects/rollback", BrainController, :rollback_object
+    post "/brain/objects/forget", BrainController, :forget_object
+    post "/brain/objects/restore", BrainController, :restore_object
+    post "/brain/objects/fork", BrainController, :fork_object
+
     get "/agents", AgentController, :index
     post "/agents", AgentController, :create
     get "/agents/:agent_uid", AgentController, :show
     patch "/agents/:agent_uid", AgentController, :update
     delete "/agents/:agent_uid", AgentController, :delete
+    post "/agents/:agent_uid/enable", AgentController, :enable
 
     get "/agent-library/capabilities", AgentLibraryCapabilityController, :global_index
 
@@ -182,17 +230,17 @@ defmodule AnkoleWeb.Router do
         AgentLibraryController,
         :update
 
-    get "/agents/:agent_uid/library-skill-overlays",
-        AgentLibrarySkillOverlayController,
+    get "/agents/:agent_uid/skill-lessons",
+        AgentSkillLessonController,
         :index
 
-    put "/agents/:agent_uid/library-skill-overlays/:skill_name",
-        AgentLibrarySkillOverlayController,
-        :update
+    post "/agents/:agent_uid/skill-lessons",
+         AgentSkillLessonController,
+         :create
 
-    delete "/agents/:agent_uid/library-skill-overlays/:skill_name",
-           AgentLibrarySkillOverlayController,
-           :delete
+    post "/agents/:agent_uid/skill-lessons/:lesson_id/retire",
+         AgentSkillLessonController,
+         :retire
 
     get "/console-readiness", ConsoleReadinessController, :show
 
@@ -214,22 +262,6 @@ defmodule AnkoleWeb.Router do
     get "/ai-gateway/conversations/:conversation_id/messages",
         AIGatewayConversationController,
         :messages
-
-    get "/brain/entries", BrainController, :index
-    get "/brain/entries/:id", BrainController, :show
-    post "/brain/entry-operations", BrainController, :apply_operations
-    get "/brain/audit-log", BrainController, :audit_index
-    get "/brain/entries/:id/audit-log", BrainController, :audit_log
-    get "/brain/sources", BrainController, :source_index
-    get "/brain/sources/:document_id", BrainController, :source
-    get "/brain/sources/:document_id/raw", BrainController, :source_raw
-    post "/brain/sources", BrainController, :create_source
-    post "/brain/sources/:document_id/learning-runs", BrainController, :learn_source
-    get "/brain/status", BrainController, :status
-    post "/brain/audit-log/restorations", BrainController, :restore_audits
-    post "/brain/audit-log/:audit_id/restorations", BrainController, :restore_audit
-    post "/brain/dreaming-runs", BrainController, :run_dreaming
-    get "/brain/dreaming-fitness", BrainController, :dreaming_fitness
 
     get "/agent-computer-workers/:worker_id/files", WorkerFileController, :index
 
@@ -292,6 +324,11 @@ defmodule AnkoleWeb.Router do
     get "/identity-providers", IdentityProviderController, :index
     put "/identity-providers/:provider_id", IdentityProviderController, :put_provider
     post "/identity-providers/:provider_id/sync-runs", IdentityProviderController, :run_sync
+
+    get "/identity-mapping-requests", IdentityMappingRequestController, :index
+    post "/identity-mapping-requests/:id/bind", IdentityMappingRequestController, :bind
+    delete "/identity-mapping-requests/:id", IdentityMappingRequestController, :delete
+    post "/identity-mappings", IdentityMappingRequestController, :create_mapping
 
     put "/agents/:agent_uid/provider-hosted", AgentController, :put_provider_hosted
 

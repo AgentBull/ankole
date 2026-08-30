@@ -1,24 +1,19 @@
 defmodule AnkoleWeb.AppConfigurationControllerTest do
   use AnkoleWeb.ConnCase, async: false
 
-  import Ankole.PrincipalsFixtures
 
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
   alias Ankole.AppConfigure.Schema
-  alias Ankole.AuthZ
   alias Ankole.IdentityProviders.Config, as: IdentityProvidersConfig
   alias Ankole.Setup.Config, as: SetupConfig
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerAuthKey
-  alias AnkoleWeb.Session, as: WebSession
 
   setup do
     allow_cache_database_access()
     Registry.clear_for_test()
     Cache.clear_for_test()
 
-    :ok = SetupConfig.ensure_registered()
     {:ok, false} = SetupConfig.put_completed(false)
     :ok = SetupConfig.delete_bootstrap_activation_code()
 
@@ -277,6 +272,23 @@ defmodule AnkoleWeb.AppConfigurationControllerTest do
     refute Enum.any?(entries, &(&1["key"] == runtime_key))
   end
 
+  test "a rejected structured value names the failing field", %{conn: conn} do
+    conn =
+      conn
+      |> bearer_conn()
+      |> put(~p"/api/v1/app-configurations/brain.embedding_model", %{
+        "value" => %{"provider_id" => "", "model" => "text-embedding", "dimensions" => 1024}
+      })
+
+    assert %{
+             "error" => %{
+               "code" => "validation_failed",
+               "message" => "provider_id is invalid",
+               "details" => [%{"path" => "provider_id", "kind" => "invalid"}]
+             }
+           } = json_response(conn, 422)
+  end
+
   test "unknown AppConfigure keys are not writable through the console API", %{conn: conn} do
     conn =
       conn
@@ -319,9 +331,6 @@ defmodule AnkoleWeb.AppConfigurationControllerTest do
 
   test "Installation-owned AppConfigure keys stay readable while their owner keeps writing them",
        %{conn: conn} do
-    :ok = WorkerAuthKey.ensure_registered()
-    :ok = IdentityProvidersConfig.ensure_registered()
-
     conn = bearer_conn(conn)
 
     conn = get(conn, ~p"/api/v1/app-configurations")
@@ -351,42 +360,5 @@ defmodule AnkoleWeb.AppConfigurationControllerTest do
 
   defp entry(entries, key) do
     Enum.find(entries, &(&1["key"] == key))
-  end
-
-  defp bearer_conn(conn) do
-    conn
-    |> active_admin_conn()
-    |> post(~p"/.internal-apis/oauth/token", %{
-      "grant_type" => "urn:ankole:params:oauth:grant-type:browser-session"
-    })
-    |> json_response(200)
-    |> Map.fetch!("access_token")
-    |> then(fn access_token ->
-      conn
-      |> recycle()
-      |> put_req_header("authorization", "Bearer #{access_token}")
-      |> put_req_header("content-type", "application/json")
-    end)
-  end
-
-  defp recycle_api(conn) do
-    conn
-    |> recycle()
-    |> put_req_header("authorization", get_req_header(conn, "authorization") |> List.first())
-    |> put_req_header("content-type", "application/json")
-  end
-
-  defp active_admin_conn(conn) do
-    {:ok, true} = SetupConfig.put_completed(true)
-    human = human_fixture(%{uid: unique_uid("console-api-admin")})
-    assert {:ok, _root} = AuthZ.root_init_admin(human.principal.uid)
-
-    conn
-    |> init_test_session(%{})
-    |> WebSession.put_admin_session(%{
-      principal_uid: human.principal.uid,
-      provider_id: "lark-main",
-      external_id: "external-1"
-    })
   end
 end

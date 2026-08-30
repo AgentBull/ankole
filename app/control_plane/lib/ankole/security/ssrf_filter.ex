@@ -27,21 +27,10 @@ defmodule Ankole.Security.SSRFFilter do
     )
   end
 
-  @spec ensure_registered() :: :ok | {:error, term()}
-  def ensure_registered do
-    case AppConfigure.register_definitions([definition()]) do
-      :ok -> :ok
-      {:error, {:duplicate_key, @key}} -> :ok
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
   @spec enabled?(String.t()) :: {:ok, boolean()} | {:error, term()}
   def enabled?(agent_uid) when is_binary(agent_uid) do
-    with :ok <- ensure_registered(),
-         {:ok, resolution} <- AppConfigure.resolve(definition(), agent_id: agent_uid) do
-      {:ok, resolution.value == true}
-    else
+    case AppConfigure.resolve(definition(), agent_id: agent_uid) do
+      {:ok, resolution} -> {:ok, resolution.value == true}
       :error -> {:error, :ssrf_filter_unresolved}
       {:error, reason} -> {:error, reason}
     end

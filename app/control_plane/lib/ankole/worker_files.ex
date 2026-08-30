@@ -43,6 +43,28 @@ defmodule Ankole.WorkerFiles do
   def max_transfer_bytes, do: @max_transfer_bytes
 
   @doc """
+  Makes one provider-supplied value safe as a worker-file path segment.
+
+  Transliterates the value to ASCII, keeps only `[A-Za-z0-9._-]`, trims `_`,
+  and bounds the segment to 160 characters. A value that reduces to `""`,
+  `"."`, or `".."` becomes `"attachment"`.
+  """
+  @spec sanitize_path_segment(term()) :: String.t()
+  def sanitize_path_segment(value) when is_binary(value) do
+    value
+    |> Ankole.Kernel.any_ascii()
+    |> String.replace(~r/[^A-Za-z0-9._-]+/, "_")
+    |> String.trim("_")
+    |> String.slice(0, 160)
+    |> case do
+      segment when segment in ["", ".", ".."] -> "attachment"
+      segment -> segment
+    end
+  end
+
+  def sanitize_path_segment(_value), do: "attachment"
+
+  @doc """
   Writes bytes into a worker filesystem root.
   """
   @spec put(String.t(), String.t(), iodata(), keyword()) :: operation_result()

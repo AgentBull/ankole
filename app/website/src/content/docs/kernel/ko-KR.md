@@ -25,7 +25,7 @@ Ankole은 두 호스트 런타임, 즉 Elixir 제어 플레인과 Bun worker 위
 
 - **`common/`** — 호스트 중립 프리미티브: AEAD 토큰 암호화·복호화, 키 파생, 해싱, 인코딩, UUID 헬퍼(`gen_uuid_v7` 포함, Elixir에는 `gen_uuid_v7/0`, Bun에는 `genUUIDv7()`로 노출), JWT 헬퍼, 전화번호 정규화. 두 런타임이 사용하는 작은 신뢰 연산입니다.
 - **`authz/`** — 스냅샷 전용 인가 평가. `authorize`와 `authorize_all`은 `AuthzSnapshot`을 받아 `AuthzDecision`을 반환하며, CEL 조건 검증과 리소스 패턴 매칭도 여기에 있습니다. [Principal and AuthZ](../principal-authz/) 페이지가 제어 플레인이 스냅샷을 조립해 사용하도록 설명하는 결정적 평가기입니다.
-- **`runtime_fabric/`** — RuntimeFabric v1 봉투 프로토콜: 레인, 지속성 클래스, 상관 규칙, 턴/컨트롤/진행/RPC 본문 의미론을 호스트 인코딩 protobuf 바이트로 검증합니다. 유일한 구조 선언은 `proto/envelope.proto`이며, 각 호스트는 여기서 자체 코덱을 파생합니다 — Rust의 `prost-build`, Elixir의 `protox`, TypeScript의 `protoc-gen-es`. 어떤 호스트도 구조를 새로 만들지 않습니다.
+- **`runtime_fabric/`** — `ankole.runtime_fabric.v1` protobuf 네임스페이스와 현재 wire protocol version 5: 레인, 지속성 클래스, 상관 규칙, 턴/컨트롤/진행/RPC 본문 의미론을 호스트 인코딩 protobuf 바이트로 검증합니다. 유일한 구조 선언은 `proto/envelope.proto`이며, 각 호스트는 여기서 자체 코덱을 파생합니다 — Rust의 `prost-build`, Elixir의 `protox`, TypeScript의 `protoc-gen-es`. 어떤 호스트도 구조를 새로 만들지 않습니다.
 - **`universal_ai_client/`** — 준비된 AI 제공자 요청을 위한 feature-gated 네이티브 비동기 스트리밍 클라이언트: 업스트림 HTTP SSE/EventStream 및 WebSocket 트랜스포트, 제공자 응답 정규화, 다운스트림 SSE/WebSocket 청크 인코딩, 수요 크레딧, 취소. [AIGateway](../ai-gateway/)가 제공자와 통신할 때 사용하는 AI 데이터 플레인 프리미티브입니다.
 
 ## ZeroMQ 트랜스포트

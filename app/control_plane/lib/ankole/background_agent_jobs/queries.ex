@@ -12,6 +12,8 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
   @list_cursor_version "1"
   @list_page_size 32
   @list_query_limit @list_page_size + 1
+  @ambient_candidate_limit 8
+  @ambient_candidate_query_limit @ambient_candidate_limit + 1
   @list_statuses %{
     "live" => ~w(queued running waiting_on_user),
     "stop" => ~w(succeeded failed stopped)
@@ -53,6 +55,50 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
 
       {:ok, %{jobs: jobs, next_cursor: next_cursor}}
     end
+  end
+
+  @doc false
+  @spec ambient_candidates_in_tx(
+          module(),
+          String.t(),
+          String.t(),
+          String.t(),
+          String.t()
+        ) :: %{complete: boolean(), jobs: [map()]}
+  def ambient_candidates_in_tx(
+        repo,
+        agent_uid,
+        owner_session_id,
+        signal_channel_id,
+        binding_name
+      )
+      when is_binary(agent_uid) and is_binary(owner_session_id) and
+             is_binary(signal_channel_id) and is_binary(binding_name) do
+    rows =
+      Job
+      |> where([job], job.agent_uid == ^agent_uid)
+      |> where([job], job.owner_session_id == ^owner_session_id)
+      |> where([job], job.status in ~w(queued running waiting_on_user))
+      |> where(
+        [job],
+        fragment("?->>'signal_channel_id' = ?", job.reply_route, ^signal_channel_id)
+      )
+      |> where([job], fragment("?->>'binding_name' = ?", job.reply_route, ^binding_name))
+      |> excluding_reflection_jobs()
+      |> order_by([job], desc: job.updated_at, desc: job.id)
+      |> limit(@ambient_candidate_query_limit)
+      |> select([job], %{
+        job_id: job.id,
+        title: job.title,
+        status: job.status,
+        task_excerpt: fragment("left(?, 600)", job.task)
+      })
+      |> repo.all()
+
+    %{
+      complete: length(rows) <= @ambient_candidate_limit,
+      jobs: Enum.take(rows, @ambient_candidate_limit)
+    }
   end
 
   # A Console list page holds up to 100 jobs and reloads every few seconds, so it
@@ -107,6 +153,23 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
 
   @spec get(pos_integer()) :: Job.t() | nil
   def get(job_id) when is_integer(job_id) and job_id > 0, do: Repo.get(Job, job_id)
+
+  @doc "Lists live Job ids owned by any of the given actor sessions."
+  @spec live_job_ids_for_owner_sessions([String.t()], String.t()) :: [pos_integer()]
+  def live_job_ids_for_owner_sessions([], _agent_uid), do: []
+
+  def live_job_ids_for_owner_sessions(session_ids, agent_uid)
+      when is_list(session_ids) and is_binary(agent_uid) do
+    Job
+    |> where(
+      [job],
+      job.agent_uid == ^agent_uid and job.owner_session_id in ^session_ids and
+        job.status in ["queued", "running", "waiting_on_user"]
+    )
+    |> order_by([job], asc: job.id)
+    |> select([job], job.id)
+    |> Repo.all()
+  end
 
   @spec get_for_agent(pos_integer() | nil, String.t()) :: Job.t() | nil
   def get_for_agent(nil, _agent_uid), do: nil
@@ -324,7 +387,7 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
   defp maybe_filter_console_search(query, nil), do: query
 
   defp maybe_filter_console_search(query, search) do
-    pattern = "%#{escape_like(search)}%"
+    pattern = "%#{Repo.escape_like(search)}%"
 
     case Integer.parse(search) do
       {id, ""} when id in 1000..9_007_199_254_740_991 ->
@@ -333,13 +396,6 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
       _not_an_id ->
         where(query, [job], ilike(job.title, ^pattern))
     end
-  end
-
-  defp escape_like(text) do
-    text
-    |> String.replace("\\", "\\\\")
-    |> String.replace("%", "\\%")
-    |> String.replace("_", "\\_")
   end
 
   defp maybe_before_console_cursor(query, nil), do: query
@@ -402,4 +458,27 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
   defp maybe_lock(query, nil), do: query
   defp maybe_lock(query, "FOR UPDATE"), do: lock(query, "FOR UPDATE")
   defp now, do: DateTime.utc_now(:microsecond)
+
+  @doc """
+  Keeps only skill-lesson reflection Jobs: the system Jobs the Brain runs to
+  reflect on finished work. The metadata flag at
+  `Ankole.Brain.SkillLessons` is the writer.
+  """
+  @spec reflection_jobs(Ecto.Queryable.t()) :: Ecto.Query.t()
+  def reflection_jobs(query) do
+    where(query, [job], fragment("(? ->> 'skill_lesson_reflection') = 'true'", job.metadata))
+  end
+
+  @doc """
+  Excludes skill-lesson reflection Jobs, so user-facing listings and budgets
+  see only real work.
+  """
+  @spec excluding_reflection_jobs(Ecto.Queryable.t()) :: Ecto.Query.t()
+  def excluding_reflection_jobs(query) do
+    where(
+      query,
+      [job],
+      fragment("coalesce(? ->> 'skill_lesson_reflection', 'false') <> 'true'", job.metadata)
+    )
+  end
 end

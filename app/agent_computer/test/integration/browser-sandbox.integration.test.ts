@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { sendBrowserCommand } from '@ankole/browser'
 import { BrowserRuntime, browserSandboxRuntime, type MaterializedBrowserRuntime } from '../../src/browser-runtime'
-import { bubblewrapArgv } from '../../src/tools/computer/bubblewrap'
+import { bubblewrapArgv } from '../../src/sandbox/bubblewrap'
 
 const enabled = process.env.ANKOLE_BROWSER_BWRAP_INTEGRATION === '1'
 
@@ -26,7 +26,6 @@ describe.skipIf(!enabled)('browser runtime across the real bubblewrap boundary',
     browserRuntime = new BrowserRuntime({
       runtimeRoot: join('/tmp', `ankole-browser-bwrap-${process.pid}`),
       socketPath: join(root, 'socket', 'browser.sock'),
-      nodePath: requiredEnv('ANKOLE_BROWSER_NODE'),
       daemonEntry: requiredEnv('ANKOLE_BROWSER_DAEMON_ENTRY'),
       runnerPath: requiredEnv('ANKOLE_BROWSER_RUNNER'),
       localChromiumExecutable: requiredEnv('ANKOLE_BROWSER_CHROMIUM_EXECUTABLE')

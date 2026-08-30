@@ -30,17 +30,17 @@ AIGateway 拥有实时会话转写。每条消息是 `ai_gateway_messages` 里�
 
 ## 后台 Agent 任务轨迹
 
-后台任务把其按回合执行存为 `background_agent_job_turn_trajectory_groups` 里的轨迹组。每个组属于一个回合，有位置、修订、条目键和内容：
+后台任务把其按回合执行存为 `background_agent_job_turn_items` 里只追加的语义线程条目流。每个条目属于一个回合，有位置、修订、条目键和语义条目本身：
 
 | 字段 | 含义 |
 |---|---|
-| `turn_id` | 该轨迹组所属的任务回合 |
-| `position` | 组在回合内的顺序 |
-| `revision` | 就地更新（steer、nudge）时自增 |
-| `item_key` | 组的稳定键 |
-| `content` | 一条或多条规范 ChatML 消息 |
+| `turn_id` | 该条目所属的任务回合 |
+| `position` | 条目在回合内的顺序 |
+| `revision` | 接受该条目时的回合修订 |
+| `item_key` | 条目的稳定键（`client:` 键标记调用者消息） |
+| `item` | 一个带类型的语义线程条目 |
 
-内容必须是有效的规范 ChatML——结构由 `Trajectory.valid_group_content?/1` 校验，不含规范 ChatML 消息的组会被拒绝。`revision` 让就地 steer 或 nudge 更新同一组的内容而不插新行，使轨迹反映该组的最新状态。
+这些行只追加：steer 或 nudge 追加新条目，而不改写已存条目。所有读者在读取时把每个已存条目投影成规范 ChatML 消息；投影不出消息的条目仍会保存，用于线程重放。条目流启用前记录的 Turn 没有条目行，因此轨迹显示为空。
 
 工具结果消息的 metadata 会记录 `execution_mechanism`。模型 Provider 执行的工具使用 `provider_hosted`，Codex 调用的 Ankole 动态工具使用 `local_dynamic`。即使两个工具的展示名相同，这一稳定事实也能区分它们。
 
@@ -62,7 +62,7 @@ AIGateway 拥有实时会话转写。每条消息是 `ai_gateway_messages` 里�
 |---|---|---|
 | 存储什么 | live 会话转写 | 按回合任务执行记录 |
 | 谁拥有 | AIGateway | 后台 Agent 任务 |
-| 规范格式 | AIGateway 的消息 schema | ChatML 组 |
+| 规范格式 | AIGateway 的消息 schema | 语义条目投影为 ChatML |
 | 模型如何看到 | 有状态 Responses API | `modelVisibleTrajectory` 投影 |
 | Compaction | AIGateway compaction 替换旧消息 | 不压缩（任务受重试预算约束） |
 
@@ -70,7 +70,7 @@ AIGateway 拥有实时会话转写。每条消息是 `ai_gateway_messages` 里�
 
 ## 本指南不是什么
 
-它不是 ChatML 规范——规范 ChatML 格式是一个标准，Ankole 的校验（`valid_group_content?/1`）检查形态，不重新定义它。它不是读取轨迹的消费者面向 API——Console 路由（`/ai-gateway/conversations/:id/messages`、`/background-agent-jobs/:id`）是运维界面，见 [Console API 参考](../console-api/)。它也不是存储页的替代；本页是跨两者的格式层视图。
+它不是 ChatML 规范——规范 ChatML 格式是一个标准，Ankole 的读取投影保持这一形态，不重新定义它。它不是读取轨迹的消费者面向 API——Console 路由（`/ai-gateway/conversations/:id/messages`、`/background-agent-jobs/:id`）是运维界面，见 [Console API 参考](../console-api/)。它也不是存储页的替代；本页是跨两者的格式层视图。
 
 ## 下一步
 

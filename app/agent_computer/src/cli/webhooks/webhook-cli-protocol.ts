@@ -1,11 +1,13 @@
 import { z } from 'zod'
+import { ModelIntegerID } from '../../core/model-integer-id'
+import { CLILabel } from '../primitives'
 
 const CreateWebhookCommand = z.object({
   operation: z.literal('create'),
-  label: z.string().trim().min(1).max(500),
+  label: CLILabel,
   mode: z.enum(['one_shot', 'standing']),
   expires_at: z.string().trim().min(1),
-  automation_job_id: z.number().int().min(1000).max(Number.MAX_SAFE_INTEGER).optional()
+  automation_job_id: ModelIntegerID.optional()
 })
 
 const ListWebhooksCommand = z.object({
@@ -25,5 +27,3 @@ export const WebhookCLICommand = z.discriminatedUnion('operation', [
 ])
 
 export type WebhookCLICommand = z.output<typeof WebhookCLICommand>
-
-export type WebhookCLIResponse = { ok: true; result: Record<string, unknown> } | { ok: false; error: string }

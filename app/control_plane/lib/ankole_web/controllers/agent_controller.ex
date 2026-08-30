@@ -1,4 +1,5 @@
 defmodule AnkoleWeb.AgentController do
+  alias Ankole.Attrs
   alias OpenApiSpex, as: OpenAPISpex
 
   @moduledoc """
@@ -32,7 +33,7 @@ defmodule AnkoleWeb.AgentController do
     render_error: AnkoleWeb.OpenAPIValidationErrorRenderer
 
   operation(:index,
-    summary: "List active agents",
+    summary: "List agents, including disabled agents",
     responses: [
       ok: {"Agents", "application/json", AgentListResponse},
       unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
@@ -76,7 +77,18 @@ defmodule AnkoleWeb.AgentController do
   )
 
   operation(:delete,
-    summary: "Disable one agent",
+    summary: "Disable an active agent, or delete an agent that is already disabled",
+    parameters: [agent_uid: [in: :path, type: :string, required: true]],
+    responses: [
+      ok: {"Agent", "application/json", AgentResponse},
+      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
+      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
+      not_found: {"Not found", "application/json", ErrorEnvelope}
+    ]
+  )
+
+  operation(:enable,
+    summary: "Re-enable one disabled agent",
     parameters: [agent_uid: [in: :path, type: :string, required: true]],
     responses: [
       ok: {"Agent", "application/json", AgentResponse},
@@ -134,7 +146,7 @@ defmodule AnkoleWeb.AgentController do
 
   def index(conn, _params) do
     with :ok <- ConsolePolicy.authorize(conn, "agents", "read") do
-      json(conn, %{agents: Enum.map(Principals.list_active_agents(), &agent_json/1)})
+      json(conn, %{agents: Enum.map(Principals.list_agents(), &agent_json/1)})
     else
       {:error, reason} -> error(conn, reason)
     end
@@ -175,7 +187,18 @@ defmodule AnkoleWeb.AgentController do
     with {:ok, agent_uid} <- agent_uid_param(params),
          :ok <- ConsolePolicy.authorize(conn, "agent:#{agent_uid}", "delete"),
          {:ok, %{agent: agent}} <- Principals.get_agent(agent_uid),
-         {:ok, %Principal{} = principal} <- Principals.disable_principal(agent_uid) do
+         {:ok, %Principal{} = principal} <- Principals.delete_agent(agent_uid) do
+      json(conn, %{agent: agent_json(%{principal: principal, agent: agent})})
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  def enable(conn, params) do
+    with {:ok, agent_uid} <- agent_uid_param(params),
+         :ok <- ConsolePolicy.authorize(conn, "agent:#{agent_uid}", "update"),
+         {:ok, %{agent: agent}} <- Principals.get_agent(agent_uid),
+         {:ok, %Principal{} = principal} <- Principals.enable_agent(agent_uid) do
       json(conn, %{agent: agent_json(%{principal: principal, agent: agent})})
     else
       {:error, reason} -> error(conn, reason)
@@ -249,7 +272,7 @@ defmodule AnkoleWeb.AgentController do
   end
 
   defp create_attrs(attrs, current_principal_uid) when is_map(attrs) do
-    attrs = normalize_external_attrs(attrs)
+    attrs = Attrs.normalize_external_attrs(attrs)
 
     with {:ok, display_name} <- required_text(attrs, "display_name") do
       {:ok,
@@ -264,7 +287,7 @@ defmodule AnkoleWeb.AgentController do
   defp update_attrs(attrs) when is_map(attrs) do
     attrs =
       attrs
-      |> normalize_external_attrs()
+      |> Attrs.normalize_external_attrs()
       |> Map.drop(["uid", "created_by_principal_uid"])
 
     normalize_optional_display_name(attrs)
@@ -319,7 +342,7 @@ defmodule AnkoleWeb.AgentController do
 
   defp model_profile_payload(profile, attrs) do
     attrs
-    |> normalize_external_attrs()
+    |> Attrs.normalize_external_attrs()
     |> Map.put("profile", profile)
     |> Map.put("configured", true)
   end
@@ -333,17 +356,12 @@ defmodule AnkoleWeb.AgentController do
       type: Atom.to_string(agent.type),
       role: agent.role,
       options: agent.options || %{},
+      owner_principal_uid: agent.owner_principal_uid,
+      group_memory_disclosure_mode: Atom.to_string(agent.group_memory_disclosure_mode),
       created_by_principal_uid: agent.created_by_principal_uid,
       inserted_at: DateTime.to_iso8601(agent.inserted_at),
       updated_at: DateTime.to_iso8601(agent.updated_at)
     }
-  end
-
-  defp normalize_external_attrs(attrs) do
-    Map.new(attrs, fn
-      {key, value} when is_atom(key) -> {Atom.to_string(key), value}
-      {key, value} -> {key, value}
-    end)
   end
 
   defp error(conn, :forbidden), do: error(conn, 403, "forbidden", "access denied")

@@ -29,14 +29,22 @@ Agent의 유효 Capability는 두 계층으로 카탈로그를 훑어 해석된�
 
 이것이 Console의 [Agent Library capabilities](../console-api/) 라우트가 노출하는 모델입니다: 전역 기본값을 설정한 다음 Agent별로 좁히거나 넓힙니다.
 
-## 영구 Agent 문서와 Skill 오버레이
+## Brain에서만 검색하는 Skill 발견
 
-Capability와 함께 라이브러리는 Agent 자신이 쓰는 문서와 Skill 커스터마이제이션도 보관합니다:
+배포되는 standalone Skill이나 Agent Plugin member는 `brain-recall-only: true`를 선언할 수 있습니다. 배포되는 Skill은 하나의 전역 이름 공간을 공유하므로 Plugin 소속이 Skill 이름을 바꾸지 않습니다. Agent가 설치한 Skill은 이 모드에 참여하지 않습니다.
 
-- **Durable Agent 문서**는 `mission`, `soul`, `design`이며, 컨테이너 테이블이 받아들이는 세 가지 `source_kind` 값입니다. 처음 두 개는 책임과 행동을 정의합니다. `design`은 시각 작업용 디자인 시스템을 저장합니다. 이 문서들은 `agent_library_container_entries`에 살며 콘텐츠 해시를 사용합니다.
-- **Skill 오버레이**는 `(agent, skill)`당 하나씩 `agent_skill_overlays`의 의미적 행입니다. 운영자가 Skill 번들을 포크하지 않고 한 Agent에 대해 Skill이 동작하는 방식을 커스터마이즈할 수 있게 해줍니다. 오버레이는 비교-후-교체(compare-and-swap) 교체를 지원하므로 동시 편집이 결정적으로 해결됩니다.
+Agent Library는 전체 유효 Skill 집합을 Worker에 전달합니다. 일반 Skill은 모델에 표시되는 Skill 카탈로그에 들어갑니다. Brain에서만 검색하는 Skill은 `skill_view`로 로드할 수 있는 집합에 남지만 카탈로그에서는 제외됩니다. Library sweep은 이름, 설명, 태그만 `lazyload-agent-skills/<skill-name>`의 가벼운 Brain 레코드로 projection합니다. Skill 본문, 리소스, Agent별 교훈은 각각을 소유하는 파일 및 데이터베이스 경로에 남습니다.
 
-Skill 뷰는 Skill의 파일과 Agent가 가진 오버레이를 함께 읽으므로 Agent는 번들과 별도 패치가 아니라 하나의 일관된 Skill을 본다.
+projection은 인스턴스에서 공유되며 한 Agent가 Skill을 비활성화해도 삭제되지 않습니다. Brain query와 `skill_view`는 모두 해당 Agent의 현재 Plugin 및 Skill 유효 상태를 적용합니다. 따라서 비활성화된 레코드는 검색 슬롯을 차지하지 않고 로드할 수도 없습니다. 기능을 다시 활성화하면 기존 projection을 그대로 사용할 수 있습니다.
+
+## 영구 Agent 문서와 Skill 교훈
+
+Capability와 함께 라이브러리는 Agent 자신이 쓰는 문서와 Agent별 Skill 지침도 보관합니다.
+
+- **Durable Agent 문서**는 `mission`, `soul`, `design`, `confidentiality_policy`이며, 컨테이너 테이블이 받아들이는 네 가지 `source_kind` 값입니다. 처음 두 개는 책임과 행동을 정의합니다. `design`은 시각 작업용 디자인 시스템을 저장합니다. `confidentiality_policy`는 Agent가 Brain에 지식을 쓸 때 audience를 선택하는 방법을 안내합니다. 이 문서들은 `agent_library_container_entries`에 살며 콘텐츠 해시를 사용합니다.
+- **Skill 교훈**은 `agent_skill_lessons`의 본문을 직접 변경할 수 없는 의미적 행입니다. 각 행은 Agent 하나와 Skill 하나에 속하며 작성자, 증거, 리스 상태, 폐기 이력을 기록합니다. Dreaming은 증거에 기반한 리스 교훈을 작성합니다. 운영자는 리스가 없는 사람의 교훈을 추가하고 모든 교훈을 폐기할 수 있습니다.
+
+Skill view는 Skill 파일을 읽고 전달 조건을 충족하는 교훈을 `Agent-specific additions` 아래에 표시합니다. 기본 `SKILL.md`는 바뀌지 않습니다. 증거, 재검토, 전달 규칙은 [Skill 교훈](../skill-lessons/)을 참고하십시오.
 
 ## 동기화: 레지스트리 정직성 유지
 
@@ -59,11 +67,11 @@ Skill은 파일시스템 번들이므로 데이터베이스 레지스트리는 �
 | `GET` | `/agents/:agent_uid/library-capabilities` | 한 Agent의 유효 Capability |
 | `PUT` | `/agents/:agent_uid/library-capabilities/agent-plugins/:id` | 한 Agent에 대한 Plugin 재정의 |
 | `PUT` | `/agents/:agent_uid/library-capabilities/skills/:id` | 한 Agent에 대한 Skill 재정의 |
-| `GET` | `/agents/:agent_uid/library-documents` | Agent의 mission/soul/design 나열 |
+| `GET` | `/agents/:agent_uid/library-documents` | Agent의 mission/soul/design/confidentiality policy 나열 |
 | `PUT` | `/agents/:agent_uid/library-documents/:document_kind` | 문서 하나 설정 |
-| `GET` | `/agents/:agent_uid/library-skill-overlays` | Skill 오버레이 나열 |
-| `PUT` | `/agents/:agent_uid/library-skill-overlays/:skill_name` | Skill 오버레이 설정 |
-| `DELETE` | `/agents/:agent_uid/library-skill-overlays/:skill_name` | Skill 오버레이 제거 |
+| `GET` | `/agents/:agent_uid/skill-lessons` | 활성 및 폐기된 Skill 교훈 목록 |
+| `POST` | `/agents/:agent_uid/skill-lessons` | 사람의 Skill 교훈 추가 |
+| `POST` | `/agents/:agent_uid/skill-lessons/:lesson_id/retire` | Skill 교훈 폐기 |
 
 `/agents/:agent_uid/library-capabilities`를 읽으면 Agent Skill 동기화가 트리거되므로 운영자가 보는 것은 현재 스토리지와 조정된 레지스트리이지 오래된 스냅샷이 아닙니다.
 
@@ -74,5 +82,6 @@ Skill은 파일시스템 번들이므로 데이터베이스 레지스트리는 �
 ## 다음 단계
 
 - 라이브러리를 구성하는 라우트는 [Console](../console-api/) 페이지를 읽으세요.
+- Agent별 작업 지침은 [Skill 교훈](../skill-lessons/)을 참고하세요.
 - turn 중에 활성화된 Skill을 실행하는 Worker는 [Actor Runtime](../actor-runtime/) 페이지를 읽으세요.
 - 라이브러리가 범위로 삼는 Agent Principal은 [Principal과 AuthZ](../principal-authz/)를 읽으세요.

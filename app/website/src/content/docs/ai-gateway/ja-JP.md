@@ -79,7 +79,7 @@ compaction は、長く保存された履歴を、流れを失わずに短いも
 
 ## Provider routing
 
-AIGateway は、どの上流呼び出しよりも前に、model selector を実際の provider binding に解決します。selector は呼び出し元が見るものです。たとえば `main` や、provider が所有する明示的な名前です。解決結果は主体に依存します。agent の selector は構成済みの model binding から来て、管理者は明示的な provider エントリを見ます。`GET /models` は現在の主体が解決できるものを一覧表示し、OpenRouter スタイルのフィルタ（`q`、`context`、`min_price`、`max_price`、`sort`、modal フィルタ）をオプションで受け付けます。
+AIGateway は、どの上流呼び出しよりも前に、model selector を実際の provider binding に解決します。Agent には 8 つの組み込み profile があります。`primary`、`light`、`heavy`、`coding`、`vision_fallback`、`web_search`、`web_fetch`、`image_generate` です。最初の 5 つは言語モデルを選び、最後の 3 つは独立した能力を選びます。Agent はカスタムの言語モデル profile も持てます。管理者は明示的な provider entry を使います。`GET /models` は現在の主体が解決できるものを一覧表示し、OpenRouter スタイルのフィルタ（`q`、`context`、`min_price`、`max_price`、`sort`、modal フィルタ）をオプションで受け付けます。
 
 各 provider row は credential pool を所有します。provider kind、base URL、ヘッダ、設定、capability 宣言は、すべてのメンバーで共有されます。model profile は row を指し、pool メンバーを名指しすることはありません。AIGateway は構成済みの `fill_first`、`round_robin`、`least_used`、`random` strategy に従って健全なメンバーを選択します。Console は選択された UI 言語に合わせてこれらの strategy 名を翻訳し、API と保存された値は変わりません。stateful な thread は、可能な限り同じメンバーに留まります。
 
@@ -115,7 +115,9 @@ bind された provider が提供しない capability は、`422 unsupported_cap
 
 ## Web tool、file、その他の能力
 
-同じ主体と token が隣接する能力を駆動します。`POST /web_search` は `query`（長さ制限あり）を受け取り、provider が裏付けする結果を返します。`POST /web_fetch` は 1 つから 5 つの公開 HTTPS URL を受け取り、page content を返します。`POST /embeddings` は text、token 配列、または input block を受け付けます。`POST /rerank` は空でない document 配列を rerank し、正の整数の `top_n` を受け取ります。各 request は、`web_search.default` や `web_fetch.default` のような能力固有の semantic selector を使います。AIGateway は呼び出しの到着時に現在の Agent profile を解決します。
+同じ主体と token が隣接する能力を駆動します。`POST /web_search` は長さ制限のある `query` を受け取り、provider が提供する結果を返します。`POST /web_fetch` は 1 つから 5 つの公開 HTTPS URL を受け取り、page content を返します。これらの呼び出しは `web_search.default` と `web_fetch.default` を使用でき、AIGateway が現在の Agent profile を解決します。
+
+`POST /embeddings` は text、token 配列、input block を受け付けます。`POST /rerank` は空でない document 配列を rerank し、正の整数の `top_n` を受け取ります。この 2 つの endpoint には明示的な `provider_id/model` selector が必要で、Agent profile は解決しません。Brain はこれらの能力を呼び出すとき、[AppConfigure](../app-configuration/) のインスタンス共通設定 `brain.embedding_model` と `brain.rerank_model` を使います。検索の動作については [Brain](../brain/) を参照してください。
 
 file はファーストクラスです。`POST /files` がアップロードし、`GET /files` が一覧表示し、`GET /files/:id` と `GET /files/:id/content` が metadata と bytes を読み取り、`DELETE /files/:id` が 1 つを削除します。これらはすべて主体に限定されます。
 
@@ -127,4 +129,4 @@ file はファーストクラスです。`POST /files` がアップロードし�
 
 - AIGateway がシステム全体のどこに位置するかは、[architecture 概要](../architecture/) をお読みください。
 - これらの route をホストする server の実行方法は、[クイックスタートの deployment セクション](../quickstart/#deployment) をお読みください。
-- 最初の Provider と model profile のセットアップは、[クイックスタート](../quickstart/#3-add-an-llm-provider-and-create-an-agent) をお読みください。
+- 最初の Provider と model profile のセットアップは、[クイックスタート](../quickstart/#llm-providers) をお読みください。

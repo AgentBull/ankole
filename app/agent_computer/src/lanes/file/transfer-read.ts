@@ -1,5 +1,5 @@
 import { zstdCompressBlock } from '@ankole/kernel'
-import { closeSync, existsSync, fstatSync, openSync, readSync, statSync } from 'node:fs'
+import { closeSync, fstatSync, openSync, readSync, statSync } from 'node:fs'
 import type { Stats } from 'node:fs'
 import {
   boolFrame,
@@ -16,6 +16,7 @@ import { FileTransferError, type FileTransferErrorCode } from './errors'
 import { fileFingerprint } from './fingerprint'
 import { assertExistingFileAddress, parseVirtualPathFrame, resolveFileAddress } from './path-security'
 import type { FileAddress, FileTransferContext, GetTransfer } from './types'
+import { errorMessage, nodeErrorCode } from '../../common/errors'
 
 export async function handleReadOpen(
   context: FileTransferContext,
@@ -41,6 +42,8 @@ export async function handleReadOpen(
     nextOffset: 0,
     credit: 0,
     chunksSent: 0,
+    initialDev: stableStat.dev,
+    initialIno: stableStat.ino,
     initialSize: stableStat.size,
     initialMtimeMs: stableStat.mtimeMs,
     draining: false
@@ -102,11 +105,6 @@ function openReadSource(
   }
 }
 
-function nodeErrorCode(error: unknown): string | undefined {
-  if (typeof error !== 'object' || error === null || !('code' in error)) return undefined
-  return typeof error.code === 'string' ? error.code : undefined
-}
-
 export function sendReadData(context: FileTransferContext, transferID: string, frames: Buffer[]): void {
   const transfer = context.state.gets.get(transferID)
   if (!transfer) {
@@ -145,11 +143,7 @@ async function drainReadTransfer(context: FileTransferContext, transfer: GetTran
       try {
         compressed = await zstdCompressBlock(block, zstdLevel)
       } catch (error) {
-        await finishReadTransferWithError(
-          context,
-          transfer,
-          `zstd encode failed: ${error instanceof Error ? error.message : String(error)}`
-        )
+        await finishReadTransferWithError(context, transfer, `zstd encode failed: ${errorMessage(error)}`)
         return
       }
 
@@ -176,7 +170,7 @@ async function drainReadTransfer(context: FileTransferContext, transfer: GetTran
 
     await maybeFinishReadTransfer(context, transfer)
   } catch (error) {
-    await finishReadTransferWithError(context, transfer, error instanceof Error ? error.message : String(error))
+    await finishReadTransferWithError(context, transfer, errorMessage(error))
   } finally {
     transfer.draining = false
     // Credit may have arrived while this drain was in flight (sendReadData would
@@ -235,10 +229,28 @@ async function maybeFinishReadTransfer(context: FileTransferContext, transfer: G
   }
 }
 
+/**
+ * Reports whether the path still names the file the sent bytes came from.
+ *
+ * RuntimeFabric does not accept bytes from a stale descriptor as a successful
+ * read, so this compares the file's identity (`dev`/`ino`), not only its
+ * observable size and mtime: a replacement can reproduce both, but not the
+ * inode the descriptor is bound to.
+ */
 function readSourceStillStable(transfer: GetTransfer): boolean {
-  if (!existsSync(transfer.filePath)) return false
-  const current = statSync(transfer.filePath)
-  return current.isFile() && current.size === transfer.initialSize && current.mtimeMs === transfer.initialMtimeMs
+  let current: Stats
+  try {
+    current = statSync(transfer.filePath)
+  } catch {
+    return false
+  }
+  return (
+    current.isFile() &&
+    current.dev === transfer.initialDev &&
+    current.ino === transfer.initialIno &&
+    current.size === transfer.initialSize &&
+    current.mtimeMs === transfer.initialMtimeMs
+  )
 }
 
 function closeTransferFile(transfer: GetTransfer): void {

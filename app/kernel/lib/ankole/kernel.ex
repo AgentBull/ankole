@@ -64,6 +64,42 @@ defmodule Ankole.Kernel do
   def any_ascii(_input), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
+  Analyzes one Brain body against the canonical CommonMark audience grammar.
+
+  Syntax errors are returned in the decoded map. A native error means the NIF
+  could not analyze or encode the input.
+  """
+  @spec brain_markdoc_analyze(binary()) :: result(map())
+  def brain_markdoc_analyze(body) when is_binary(body) do
+    body
+    |> brain_markdoc_analyze_nif()
+    |> Torque.decode!()
+  end
+
+  @doc false
+  @spec brain_markdoc_analyze_nif(binary()) :: result(String.t())
+  defp brain_markdoc_analyze_nif(_body), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Hashes a password with Argon2id and returns a PHC-format string.
+
+  Each call generates a new random salt, so equal passwords produce different
+  strings. The string embeds the algorithm, version, parameters, salt, and
+  digest, so `argon2id_verify/2` needs no other stored state.
+  """
+  @spec argon2id_hash(String.t()) :: result(String.t())
+  def argon2id_hash(_password), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Verifies a password against a PHC-format hash from `argon2id_hash/1`.
+
+  Returns `false` for a password that does not match. Returns an error for a
+  hash string that is not a valid PHC string.
+  """
+  @spec argon2id_verify(String.t(), String.t()) :: result(boolean())
+  def argon2id_verify(_password, _phc_hash), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
   Authorizes one exact action on one concrete resource.
 
   The snapshot must contain every Principal, group, grant, resource, action, and
@@ -106,10 +142,6 @@ defmodule Ankole.Kernel do
   def runtime_fabric_router_endpoint(_router), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc false
-  @spec runtime_fabric_protocol_version() :: pos_integer()
-  def runtime_fabric_protocol_version, do: :erlang.nif_error(:nif_not_loaded)
-
-  @doc false
   @spec runtime_fabric_router_send_mandatory(runtime_fabric_router(), String.t(), binary()) ::
           result(String.t())
   def runtime_fabric_router_send_mandatory(_router, _transport_route, _envelope_bytes),
@@ -141,12 +173,16 @@ defmodule Ankole.Kernel do
   def universal_ai_client_cancel_nif(_stream), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc false
-  @spec universal_ai_client_model_request_nif(String.t()) :: {:ok, map()} | {:error, map()}
-  def universal_ai_client_model_request_nif(_encoded_spec), do: :erlang.nif_error(:nif_not_loaded)
+  @spec universal_ai_client_model_request_nif(String.t(), pid(), reference()) ::
+          :ok | {:error, map()}
+  def universal_ai_client_model_request_nif(_encoded_spec, _owner_pid, _request_ref),
+    do: :erlang.nif_error(:nif_not_loaded)
 
   @doc false
-  @spec universal_ai_client_raw_request_nif(String.t()) :: {:ok, map()} | {:error, map()}
-  def universal_ai_client_raw_request_nif(_encoded_spec), do: :erlang.nif_error(:nif_not_loaded)
+  @spec universal_ai_client_raw_request_nif(String.t(), pid(), reference()) ::
+          :ok | {:error, map()}
+  def universal_ai_client_raw_request_nif(_encoded_spec, _owner_pid, _request_ref),
+    do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
   Returns `true` when a CEL authorization condition compiles.

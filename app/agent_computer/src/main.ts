@@ -1,113 +1,55 @@
-import { match, type JsonObject as JSONObject } from '@agentbull/active-support'
-import { mailboxUpdatedFromEnvelope, turnControlFromEnvelope, turnStartFromEnvelope } from './lanes/actor_lane'
-import { runTurnHandlers, type ReplyPresentationEvent } from './core'
-import { controlShutdownEnvelope, turnAcceptedEnvelope, workerProgressEnvelope } from './fabric/envelopes'
-import {
-  RuntimeRPCClient,
-  automationJobRPCRequester,
-  handleWorkerRPCRequest,
-  webhookRPCRequester
-} from './lanes/rpc_lane'
-import { loadWorkerConfig, workerCapacityEnvelope, workerHeartbeatEnvelope, workerReadyEnvelope } from './worker/config'
-import type { WorkerConfig } from './worker/config'
-import { connectRuntimeFabric, isRuntimeFabricTransportError, type EnvelopeSender } from './fabric/fabric'
+import { match } from '@agentbull/active-support'
+import { toError } from './common/errors'
+import { controlShutdownEnvelope } from './fabric/envelopes'
+import { connectRuntimeFabric, type EnvelopeSender } from './fabric/fabric'
 import type { Envelope } from './fabric/envelope_proto'
-import { prepareTurnWorkspace, verifyWorkerFilesystem } from './worker/workspace'
 import { createFileTransferLane } from './lanes/file'
-import { resolveBubblewrapSupport } from './tools/computer/bubblewrap'
-import { syncInstalledSkillsForTurn } from './skills/installed_skill_sync'
-import {
-  availableTurnSlots,
-  pushTurnSteering,
-  startTurnProgress,
-  turnFailureDetails,
-  turnFailureLogFields,
-  turnKey,
-  waitForTurnSteering,
-  type ActiveTurn
-} from './worker/active_turns'
-import { turnFailureLogError, workerLogger } from './worker/logging'
-import { requestAIGatewayAPIKey, stringFromDetails, throwingRPCRequester } from './worker/rpc_requests'
-import { BrowserRuntime } from './browser-runtime'
-import { agentHomePaths } from './core/agent-home-paths'
-import {
-  AUTOMATION_JOB_CLI_SOCKET_ENV,
-  buildTurnRuntimeEnv,
-  WEBHOOK_CLI_SOCKET_ENV
-} from './core/turns/turn_runtime_env'
-import { startWebhookCLIBridge } from './cli/webhooks/webhook-cli-bridge'
-import { startAutomationJobCLIBridge } from './cli/automation-jobs/automation-job-cli-bridge'
-import { runAutomationJob } from './automation-jobs/run'
+import { handleWorkerRPCRequest, RuntimeRPCClient, type WorkerRPCHandlers } from './lanes/rpc_lane'
+import { configureRuntimeFabricTracing } from './observability/runtime-fabric-exporter'
+import { forceFlushWorkerTracing } from './observability/turn-tracing'
+import { ActiveTurns } from './worker/active_turns'
+import { createWorkerBrowserRuntime } from './worker/browser'
+import { loadWorkerConfig } from './worker/config'
 import { WorkerDrainState } from './worker/drain'
 import {
-  abortTurnWithAck,
-  completeTurnWithAck,
-  noopTurnWithAck,
-  TurnCompletionRejectedError,
-  TurnTerminalRejectedError
-} from './worker/turn_completion'
-import { deleteCodexLogs2AtDailyReset } from './core/codex-runner/fix-codex-logs2-sqlite-bug'
-import { configureWorkerTracing, forceFlushWorkerTracing } from './observability/turn-tracing'
-
-const heartbeatIntervalMs = 15_000
+  heartbeatIntervalMs,
+  sendWorkerHeartbeat,
+  workerHeartbeatEnvelope,
+  workerReadyEnvelope
+} from './worker/lifecycle_messages'
+import { workerLogger } from './worker/logging'
+import { verifyWorkerReadiness } from './worker/readiness'
+import { createWorkerRPCHandlers } from './worker/rpc_handlers'
 
 try {
   await runWorker()
 } catch (error) {
-  workerLogger.critical('worker.error', 'worker failed', { error: errorValue(error) })
+  workerLogger.critical('worker.error', 'worker failed', { error: toError(error) })
   process.exit(1)
 }
 
 /**
- * Runs the long-lived Agent Computer worker process.
+ * Runs the long-lived Agent Computer Worker process.
  *
- * The process owns live RuntimeFabric receive/send loops and in-memory active
- * turns only. Actor state, scheduling, and final commits remain control-plane
- * and PostgreSQL responsibilities.
+ * The process owns RuntimeFabric transport, readiness, capacity, active Turns,
+ * process drain, and ordered shutdown. Durable state remains in the control
+ * plane and PostgreSQL.
  */
 async function runWorker(): Promise<void> {
   const config = loadWorkerConfig()
-  verifyWorkerFilesystem(config)
-  logBubblewrapSupport(config.agentsRoot)
+  verifyWorkerReadiness(config)
 
   const fabric = connectRuntimeFabric(config)
   const sendEnvelope = fabric.sendEnvelope
-  const sendFileFrame = fabric.sendFileFrame
   const rpcClient = new RuntimeRPCClient(sendEnvelope)
-  configureWorkerTracing(async (payload, agentUID) => {
-    const response = await rpcClient.request(
-      'observability.spans.export',
-      { payload },
-      { agentUid: agentUID },
-      { timeoutMs: 10_000 }
-    )
-    if ('code' in response) throw new Error(`worker span export rejected: ${response.code}`)
-  })
-  const activeTurns = new Map<string, ActiveTurn>()
+  configureRuntimeFabricTracing(rpcClient)
+
   const drain = new WorkerDrainState()
-  const fileLane = createFileTransferLane(config, sendFileFrame)
-  const browserRuntime = new BrowserRuntime({
-    runtimeRoot: '/tmp/ankole-agent-computer',
-    ...(process.env.ANKOLE_BROWSER_DAEMON_SOCKET ? { socketPath: process.env.ANKOLE_BROWSER_DAEMON_SOCKET } : {}),
-    ...(process.env.ANKOLE_BROWSER_NODE ? { nodePath: process.env.ANKOLE_BROWSER_NODE } : {}),
-    ...(process.env.ANKOLE_BROWSER_DAEMON_ENTRY ? { daemonEntry: process.env.ANKOLE_BROWSER_DAEMON_ENTRY } : {}),
-    ...(process.env.ANKOLE_BROWSER_RUNNER ? { runnerPath: process.env.ANKOLE_BROWSER_RUNNER } : {}),
-    ...(process.env.ANKOLE_BROWSER_CHROMIUM_EXECUTABLE
-      ? { localChromiumExecutable: process.env.ANKOLE_BROWSER_CHROMIUM_EXECUTABLE }
-      : {}),
-    onDaemonEvent: event => workerLogger.info(`browser.daemon_${event.kind}`, 'browser daemon lifecycle', event),
-    onWebFetchFailure: event =>
-      workerLogger.warning('browser.rendered_fetch_failed', 'rendered browser fetch failed', {
-        backend_kind: event.backendKind,
-        stage: event.stage,
-        error_code: event.errorCode,
-        error_message: event.errorMessage,
-        retryable: event.retryable,
-        ...(event.urlIndex === undefined ? {} : { url_index: event.urlIndex }),
-        ...(event.urlScheme === undefined ? {} : { url_scheme: event.urlScheme }),
-        ...(event.urlHost === undefined ? {} : { url_host: event.urlHost })
-      })
-  })
+  const fileLane = createFileTransferLane(config, fabric.sendFileFrame)
+  const browserRuntime = createWorkerBrowserRuntime()
+  const activeTurns = new ActiveTurns(config, browserRuntime, sendEnvelope, rpcClient, drain)
+  const workerRPCHandlers = createWorkerRPCHandlers(config, rpcClient)
+
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.once(signal, () => {
       drain.begin(signal.toLowerCase())
@@ -116,8 +58,8 @@ async function runWorker(): Promise<void> {
 
   try {
     await browserRuntime.start()
-    await sendEnvelope(workerReadyEnvelope(config, availableTurnSlots(config, activeTurns)))
-    await sendEnvelope(workerCapacityEnvelope(config, availableTurnSlots(config, activeTurns), activeTurns.size))
+    await sendEnvelope(workerReadyEnvelope(config, activeTurns.availableSlots))
+    await activeTurns.publishCapacity()
     workerLogger.notice('worker.ready_sent', 'worker ready sent', {
       endpoint: config.endpoint,
       worker_id: config.workerID
@@ -125,6 +67,12 @@ async function runWorker(): Promise<void> {
 
     let nextHeartbeatAt = Date.now() + heartbeatIntervalMs
     let shutdownReported = false
+    // Span export is an RPC: it needs a reply, and only this loop delivers
+    // replies. So the flush starts when the loop is otherwise done and the loop
+    // keeps pumping until it settles, instead of running after the loop exits
+    // where every export would wait out its timeout and lose its spans.
+    let tracingFlush: Promise<void> | undefined
+    let tracingFlushed = false
 
     for (;;) {
       if (!drain.acceptsTurns && !shutdownReported) {
@@ -139,15 +87,20 @@ async function runWorker(): Promise<void> {
         } catch (error) {
           workerLogger.warning('worker.drain_report_failed', 'worker drain report failed', {
             reason: drain.reason,
-            error: errorValue(error)
+            error: toError(error)
           })
         }
       }
 
-      if (!drain.shouldContinue) break
+      if (!drain.shouldContinue) {
+        if (tracingFlushed) break
+        tracingFlush ??= forceFlushWorkerTracing().finally(() => {
+          tracingFlushed = true
+        })
+      }
 
       if (Date.now() >= nextHeartbeatAt) {
-        await sendHeartbeat(
+        await sendWorkerHeartbeat(
           sendEnvelope,
           workerHeartbeatEnvelope(config, Math.floor(performance.now()), activeTurns.size)
         )
@@ -167,9 +120,12 @@ async function runWorker(): Promise<void> {
         envelope_type: envelope.body.case,
         message_id: envelope.messageId
       })
-      await handleEnvelope(config, browserRuntime, sendEnvelope, rpcClient, activeTurns, drain, envelope)
+      await handleEnvelope(sendEnvelope, rpcClient, activeTurns, drain, workerRPCHandlers, envelope)
     }
   } finally {
+    // A drained shutdown already flushed its spans inside the loop, where their
+    // export could still be answered. This second flush covers the path that
+    // leaves the loop by throwing; it has nothing to send after a clean drain.
     try {
       await browserRuntime.stop()
     } finally {
@@ -183,68 +139,20 @@ async function runWorker(): Promise<void> {
 }
 
 /**
- * Logs whether command tools can use the stronger bubblewrap isolation mode.
+ * Routes one decoded RuntimeFabric envelope to its concrete Worker owner.
  *
- * Weak mode is allowed because the worker still runs inside the Agent Computer
- * container; the warning tells operators which host/container setting to fix.
- */
-function logBubblewrapSupport(workspaceRoot: string): void {
-  const support = resolveBubblewrapSupport(workspaceRoot)
-  if (support.mode === 'strong') {
-    workerLogger.info('worker.bubblewrap_ready', 'worker bubblewrap ready', { mode: 'strong' })
-    return
-  }
-
-  workerLogger.warning(
-    'worker.bubblewrap_warning',
-    'Strong bubblewrap is unavailable; using weaker nested bubblewrap with the container procfs. Prefer Docker/Kubernetes settings that allow a fresh bwrap /proc mount.',
-    {
-      mode: 'weak',
-      strong_probe_error: support.strong.ok ? undefined : support.strong.reason
-    }
-  )
-}
-
-/**
- * Sends heartbeat as best-effort liveness, not as a worker-fatal control fact.
- *
- * Capacity, ack, and RPC sends still fail loudly after bounded retry. Heartbeat
- * is different: it is periodically refreshed ephemeral state,
- * and killing the worker because one heartbeat hit a full ZeroMQ pipe creates a
- * worse failure mode than letting the control plane expire the lease if the pipe
- * is actually broken.
- */
-async function sendHeartbeat(sendEnvelope: EnvelopeSender, heartbeat: Envelope): Promise<void> {
-  try {
-    await sendEnvelope(heartbeat)
-  } catch (error) {
-    if (!isRuntimeFabricTransportError(error, 'backpressure')) {
-      throw error
-    }
-
-    workerLogger.warning('worker.heartbeat_skipped', 'worker heartbeat skipped', { reason: 'backpressure' })
-  }
-}
-
-/**
- * Routes one decoded RuntimeFabric envelope to the lane-specific handler.
- *
- * Unknown envelope body types are ignored because this worker may share the
- * fabric with newer control-plane senders; durable compatibility checks live at
- * typed lane boundaries instead.
+ * RuntimeFabric validates each envelope before this dispatcher. Each handled
+ * lane validates its own payload.
  */
 async function handleEnvelope(
-  config: WorkerConfig,
-  browserRuntime: BrowserRuntime,
   sendEnvelope: EnvelopeSender,
   rpcClient: RuntimeRPCClient,
-  activeTurns: Map<string, ActiveTurn>,
+  activeTurns: ActiveTurns,
   drain: WorkerDrainState,
+  workerRPCHandlers: WorkerRPCHandlers,
   envelope: Envelope
 ): Promise<void> {
-  const body = envelope.body
-
-  return match(body)
+  return match(envelope.body)
     .with({ case: 'rpcResponse' }, ({ value }) => {
       rpcClient.resolve(value)
     })
@@ -252,404 +160,21 @@ async function handleEnvelope(
       rpcClient.resolve(value)
     })
     .with({ case: 'rpcRequest' }, ({ value }) => {
+      // A handler can call the control plane. Do not await it here because this
+      // receive loop must stay live to receive the matching RPC response.
       drain.track(
-        handleWorkerRPCRequest(sendEnvelope, value, {
-          runAutomationJob: request =>
-            runAutomationJob(request, {
-              config,
-              rpc: throwingRPCRequester(rpcClient)
-            }),
-          maintainCodexLogs2: async request => {
-            const codexHome = agentHomePaths(config.agentsRoot, request.agentUid).codexHome
-            const result = await deleteCodexLogs2AtDailyReset(codexHome)
-            workerLogger.info('worker.codex_logs2_daily_maintenance', 'Codex logs daily maintenance completed', {
-              agent_uid: request.agentUid,
-              status: result.status,
-              deleted_files: result.deletedFiles
-            })
-            return {
-              status: result.status,
-              deletedFiles: result.deletedFiles
-            }
-          }
-        }).catch(error => {
+        handleWorkerRPCRequest(sendEnvelope, value, workerRPCHandlers).catch(error => {
           workerLogger.error('worker.rpc_reply_failed', 'worker RPC reply failed', {
             method: value.method,
-            error: errorValue(error)
+            error: toError(error)
           })
         })
       )
     })
-    .with({ case: 'turnStart' }, () =>
-      startTurn(config, browserRuntime, sendEnvelope, rpcClient, activeTurns, drain, envelope)
-    )
-    .with({ case: 'mailboxUpdated' }, () => handleMailboxUpdated(activeTurns, envelope))
-    .with({ case: 'turnControl' }, () => handleTurnControl(activeTurns, envelope))
-    .otherwise(() => undefined)
-}
-
-/**
- * Accepts and launches one turn if this worker has capacity.
- *
- * The acceptance envelope is sent before the async task starts so the control
- * plane can fence duplicate deliveries and observe that the worker took
- * responsibility for this actor event.
- */
-async function startTurn(
-  config: WorkerConfig,
-  browserRuntime: BrowserRuntime,
-  sendEnvelope: EnvelopeSender,
-  rpcClient: RuntimeRPCClient,
-  activeTurns: Map<string, ActiveTurn>,
-  drain: WorkerDrainState,
-  envelope: Envelope
-): Promise<void> {
-  const turnStart = turnStartFromEnvelope(envelope)
-  const correlationID = envelope.messageId
-  workerLogger.info('worker.turn_start_received', 'worker turn start received', {
-    actor_event_id: turnStart.turn.actor_event_id,
-    input_count: 1,
-    operation: turnOperation(turnStart.turn.actor_event_id, { first: true })
-  })
-
-  const activeKey = turnKey(turnStart.turn)
-
-  if (!drain.acceptsTurns) {
-    await abortTurnWithAck(rpcClient, turnStart.turn, {
-      code: 'worker_draining',
-      message: 'worker is draining',
-      details: { runtime: 'bun', retryable: true }
+    .with({ case: 'turnStart' }, () => activeTurns.start(envelope))
+    .with({ case: 'mailboxUpdated' }, () => activeTurns.mailboxUpdated(envelope))
+    .with({ case: 'turnControl' }, () => activeTurns.control(envelope))
+    .otherwise(body => {
+      throw new Error(`RuntimeFabric protocol error: Worker cannot receive ${body.case ?? 'an empty body'}`)
     })
-    return
-  }
-
-  if (activeTurns.has(activeKey)) {
-    await abortTurnWithAck(rpcClient, turnStart.turn, {
-      code: 'worker_busy',
-      message: 'conversation already has an active turn',
-      details: { runtime: 'bun', retryable: true }
-    })
-    return
-  }
-
-  if (activeTurns.size >= config.maxConcurrentTurns) {
-    await abortTurnWithAck(rpcClient, turnStart.turn, {
-      code: 'worker_busy',
-      message: 'worker has no available turn slots',
-      details: {
-        runtime: 'bun',
-        retryable: true,
-        active_turns: activeTurns.size,
-        max_turns: config.maxConcurrentTurns
-      }
-    })
-    return
-  }
-
-  const active: ActiveTurn = {
-    turnStart,
-    correlationID,
-    steeringUpdates: [],
-    steeringWaiters: new Set(),
-    disabledSkillNames: [],
-    changedSkillNames: [],
-    abortController: new AbortController(),
-    controlledStopRequested: false
-  }
-  activeTurns.set(activeKey, active)
-
-  await sendEnvelope(turnAcceptedEnvelope(turnStart.turn, correlationID))
-  await sendEnvelope(workerCapacityEnvelope(config, availableTurnSlots(config, activeTurns), activeTurns.size))
-
-  drain.track(
-    runActiveTurnTask(config, browserRuntime, sendEnvelope, rpcClient, active, activeTurns).catch(error => {
-      workerLogger.error('worker.turn_completion_error', 'worker turn completion task failed', {
-        actor_event_id: turnStart.turn.actor_event_id,
-        error: errorValue(error),
-        operation: turnOperation(turnStart.turn.actor_event_id, { last: true })
-      })
-    })
-  )
-}
-
-/**
- * Owns the lifecycle wrapper around the actual turn execution.
- *
- * It sends progress, commits ordinary failures through actor_turn.abort, and always
- * publishes updated capacity after the active turn is removed.
- */
-async function runActiveTurnTask(
-  config: WorkerConfig,
-  browserRuntime: BrowserRuntime,
-  sendEnvelope: EnvelopeSender,
-  rpcClient: RuntimeRPCClient,
-  active: ActiveTurn,
-  activeTurns: Map<string, ActiveTurn>
-): Promise<void> {
-  const turnStart = active.turnStart
-  const startedAt = Date.now()
-  const progress = startTurnProgress(sendEnvelope, active)
-
-  try {
-    await runActiveTurn(config, browserRuntime, sendEnvelope, rpcClient, active, progress.touch)
-    if (active.controlledStopRequested) {
-      workerLogger.info('worker.turn_controlled_stop', 'worker turn controlled stop', {
-        actor_event_id: turnStart.turn.actor_event_id,
-        command: active.controlledStopCommand ?? 'unknown',
-        reason: active.controlledStopReason ?? 'controlled_stop',
-        duration_ms: Date.now() - startedAt,
-        operation: turnOperation(turnStart.turn.actor_event_id, { last: true })
-      })
-      return
-    }
-
-    workerLogger.info('worker.turn_completed', 'worker turn completed', {
-      actor_event_id: turnStart.turn.actor_event_id,
-      duration_ms: Date.now() - startedAt,
-      operation: turnOperation(turnStart.turn.actor_event_id, { last: true })
-    })
-  } catch (error) {
-    if (active.controlledStopRequested) {
-      workerLogger.info('worker.turn_controlled_stop', 'worker turn controlled stop', {
-        actor_event_id: turnStart.turn.actor_event_id,
-        command: active.controlledStopCommand ?? 'unknown',
-        reason: active.controlledStopReason ?? 'controlled_stop',
-        duration_ms: Date.now() - startedAt,
-        error: turnFailureLogError(error),
-        operation: turnOperation(turnStart.turn.actor_event_id, { last: true })
-      })
-      return
-    }
-
-    if (error instanceof TurnCompletionRejectedError || error instanceof TurnTerminalRejectedError) {
-      workerLogger.error('worker.turn_completion_rejected', 'worker turn completion was rejected', {
-        actor_event_id: turnStart.turn.actor_event_id,
-        error: errorValue(error),
-        operation: turnOperation(turnStart.turn.actor_event_id, { last: true })
-      })
-      throw error
-    }
-
-    const message = error instanceof Error ? error.message : String(error)
-
-    await abortTurnWithAck(
-      rpcClient,
-      turnStart.turn,
-      {
-        code: 'worker_turn_failed',
-        message,
-        details: turnFailureDetails(error)
-      },
-      {
-        onRetry: (attempt, retryError) => {
-          workerLogger.warning('worker.turn_abort_retry', 'worker turn abort acknowledgement missing', {
-            actor_event_id: turnStart.turn.actor_event_id,
-            attempt,
-            error: errorValue(retryError)
-          })
-        }
-      }
-    )
-    workerLogger.error('worker.turn_failed', 'worker turn failed', {
-      actor_event_id: turnStart.turn.actor_event_id,
-      duration_ms: Date.now() - startedAt,
-      ...turnFailureLogFields(error),
-      error: turnFailureLogError(error),
-      operation: turnOperation(turnStart.turn.actor_event_id, { last: true })
-    })
-  } finally {
-    progress.stop()
-    activeTurns.delete(turnKey(turnStart.turn))
-    await sendEnvelope(workerCapacityEnvelope(config, availableTurnSlots(config, activeTurns), activeTurns.size))
-  }
-}
-
-/**
- * Builds the turn-local runtime surface and runs the registered turn handlers.
- *
- * All control-plane state access is passed in as RPC callbacks so the turn code
- * cannot reach PostgreSQL-owned semantics directly.
- */
-async function runActiveTurn(
-  config: WorkerConfig,
-  browserRuntime: BrowserRuntime,
-  sendEnvelope: EnvelopeSender,
-  rpcClient: RuntimeRPCClient,
-  active: ActiveTurn,
-  onTurnActivity: (description?: string) => void
-): Promise<void> {
-  const turnStart = active.turnStart
-  const workspaceRoot = prepareTurnWorkspace(config, turnStart)
-  const paths = agentHomePaths(config.agentsRoot, turnStart.turn.actor.agent_uid)
-  workerLogger.info('worker.turn_started', 'worker turn started', {
-    actor_event_id: turnStart.turn.actor_event_id,
-    operation: turnOperation(turnStart.turn.actor_event_id)
-  })
-  const rpc = throwingRPCRequester(rpcClient)
-  const webhookCLI = startWebhookCLIBridge({
-    turnStart,
-    requestWebhookRPC: webhookRPCRequester(rpc, turnStart.turn)
-  })
-  const automationJobCLI = startAutomationJobCLIBridge({
-    agentHome: paths.home,
-    requestAutomationJobRPC: automationJobRPCRequester(rpc, turnStart.turn)
-  })
-  const runtimeEnv = {
-    ...buildTurnRuntimeEnv(turnStart, config.workerAuthKey),
-    [WEBHOOK_CLI_SOCKET_ENV]: webhookCLI.socketPath,
-    [AUTOMATION_JOB_CLI_SOCKET_ENV]: automationJobCLI.socketPath
-  }
-
-  try {
-    await syncInstalledSkillsForTurn(turnStart, {
-      agentInstalledSkillsRoot: paths.installedSkills,
-      rpc,
-      abortSignal: active.abortController.signal,
-      logger: workerLogger
-    })
-
-    const result = await runTurnHandlers(turnStart, {
-      agentsRoot: config.agentsRoot,
-      agentHome: paths.home,
-      workspaceRoot,
-      userFilesRoot: paths.userFiles,
-      builtinSkillsRoot: config.builtinSkillsRoot,
-      agentInstalledSkillsRoot: paths.installedSkills,
-      internalSkillsRoot: config.internalSkillsRoot,
-      runtimeEnv,
-      rpc,
-      requestAIGatewayAPIKey: (agentUid, options) => requestAIGatewayAPIKey(rpcClient, agentUid, options),
-      logger: workerLogger,
-      pollSteering: () => active.steeringUpdates.splice(0),
-      waitForSteering: signal => waitForTurnSteering(active, signal),
-      pollDisabledSkills: () => active.disabledSkillNames.splice(0),
-      pollChangedSkills: () => active.changedSkillNames.splice(0),
-      onSteeringApplied: update =>
-        sendEnvelope(turnAcceptedEnvelope(update.turn, update.correlationID ?? active.correlationID)),
-      onTurnActivity,
-      onPresentationEvent: event => sendReplyPresentationProgress(sendEnvelope, active, event),
-      abortSignal: active.abortController.signal,
-      browserRuntime
-    })
-
-    if (active.controlledStopRequested) return
-
-    if (result.kind === 'noop_completed') {
-      await noopTurnWithAck(rpcClient, turnStart.turn, result.reason, {
-        onRetry: (attempt, error) => {
-          workerLogger.warning('worker.turn_noop_retry', 'worker turn no-op acknowledgement missing', {
-            actor_event_id: turnStart.turn.actor_event_id,
-            attempt,
-            error: errorValue(error)
-          })
-        }
-      })
-      return
-    }
-
-    await completeTurnWithAck(rpcClient, turnStart.turn, result.finalResponseID, result.outcome, {
-      onRetry: (attempt, error) => {
-        workerLogger.warning('worker.turn_completion_retry', 'worker turn completion acknowledgement missing', {
-          actor_event_id: turnStart.turn.actor_event_id,
-          attempt,
-          error: errorValue(error)
-        })
-      }
-    })
-  } finally {
-    automationJobCLI.close()
-    webhookCLI.close()
-  }
-}
-
-async function sendReplyPresentationProgress(
-  sendEnvelope: EnvelopeSender,
-  active: ActiveTurn,
-  event: ReplyPresentationEvent
-): Promise<void> {
-  try {
-    await sendEnvelope(
-      workerProgressEnvelope(
-        active.turnStart.turn,
-        'reply_presentation',
-        'reply presentation updated',
-        active.correlationID,
-        { presentation_event: event }
-      )
-    )
-  } catch (error) {
-    workerLogger.warning('worker.reply_presentation_send_failed', 'worker reply presentation event failed', {
-      actor_event_id: active.turnStart.turn.actor_event_id,
-      event_kind: event.kind,
-      error: errorValue(error)
-    })
-  }
-}
-
-function errorValue(error: unknown): unknown {
-  return error instanceof Error ? error : new Error(String(error))
-}
-
-function turnOperation(actorEventID: string, flags: { first?: boolean; last?: boolean } = {}): JSONObject {
-  return {
-    id: actorEventID,
-    producer: 'ankole-worker/turn',
-    ...flags
-  }
-}
-
-/**
- * Adds an active steering update to the matching in-flight turn.
- *
- * The update is accepted only when the mailbox event already contains the
- * journaled actor event; the worker must not synthesize steer text locally.
- */
-async function handleMailboxUpdated(activeTurns: Map<string, ActiveTurn>, envelope: Envelope): Promise<void> {
-  const update = mailboxUpdatedFromEnvelope(envelope)
-  if (!update.turn) return
-
-  const active = activeTurns.get(turnKey(update.turn))
-  if (!active) return
-
-  // Active steer carries the single already-journaled actor event that caused
-  // this revision bump.
-  pushTurnSteering(active, {
-    turn: update.turn,
-    actorEvent: update.actor_event,
-    correlationID: envelope.messageId
-  })
-}
-
-/** Handles runtime controls for one active turn. */
-async function handleTurnControl(activeTurns: Map<string, ActiveTurn>, envelope: Envelope): Promise<void> {
-  const control = turnControlFromEnvelope(envelope)
-  if (!control.turn) return
-
-  const active = activeTurns.get(turnKey(control.turn))
-  if (!active) return
-
-  if (control.command === 'skill_disabled') {
-    const skillNames = Array.isArray(control.payload_json?.skill_names) ? control.payload_json.skill_names : []
-    for (const name of skillNames) {
-      if (typeof name === 'string' && name.trim()) active.disabledSkillNames.push(name.trim())
-    }
-    return
-  }
-
-  if (control.command === 'skill_content_changed') {
-    const skillNames = Array.isArray(control.payload_json?.skill_names) ? control.payload_json.skill_names : []
-    for (const name of skillNames) {
-      if (typeof name === 'string' && name.trim()) active.changedSkillNames.push(name.trim())
-    }
-    return
-  }
-
-  if (control.command !== 'retry' && control.command !== 'stop') return
-
-  const reason = stringFromDetails(control.payload_json, 'reason') ?? control.command
-  active.controlledStopRequested = true
-  active.controlledStopCommand = control.command
-  active.controlledStopReason = reason
-
-  active.abortController.abort(new DOMException(reason, 'AbortError'))
 }

@@ -14,8 +14,8 @@ defmodule Ankole.Plugins.DingTalkAdapter.IdentityProvider do
   """
 
   alias Ankole.AuthZ
-  alias Ankole.IdentityProviders
   alias Ankole.IdentityProviders.Directory
+  alias Ankole.IdentityProviders.DirectorySync
   alias Ankole.Kernel, as: NativeKernel
   alias Ankole.Logging
   alias Ankole.Plugins.DingTalkAdapter.Config
@@ -54,9 +54,8 @@ defmodule Ankole.Plugins.DingTalkAdapter.IdentityProvider do
   @doc "Builds the DingTalk authorization page URL for login."
   @spec authorization_url(map(), keyword()) :: {:ok, String.t()} | {:error, term()}
   def authorization_url(config, opts) when is_map(config) and is_list(opts) do
-    with true <- get_in(config, ["oidc", "enabled"]) != false || {:error, :oidc_disabled},
-         {:ok, redirect_uri} <- required_opt(opts, :redirect_uri),
-         {:ok, state} <- required_opt(opts, :state) do
+    with {:ok, redirect_uri} <- MapHelpers.required_opt(opts, :redirect_uri),
+         {:ok, state} <- MapHelpers.required_opt(opts, :state) do
       {:ok,
        OAuth.authorize_url(
          client_id: Map.fetch!(config, "clientId"),
@@ -93,7 +92,6 @@ defmodule Ankole.Plugins.DingTalkAdapter.IdentityProvider do
         %{
           provider: provider_id,
           external_id: userid,
-          uid: userid,
           display_name: display_name(user),
           avatar_url: optional_text(user, "avatar"),
           email: optional_text(user, "org_email") || optional_text(user, "email"),
@@ -168,7 +166,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.IdentityProvider do
     end
   end
 
-  # --- login helpers -------------------------------------------------------
+  # login helpers
 
   defp fetch_union_id(me) do
     case optional_text(me, "unionId") do
@@ -181,7 +179,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.IdentityProvider do
     base =
       me
       |> Map.put("userid", userid)
-      |> MapHelpers.maybe_put("corp_id", token.corp_id)
+      |> MapHelpers.put_present("corp_id", token.corp_id)
 
     case Contact.get_user(client, userid) do
       {:ok, user} ->
@@ -198,7 +196,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.IdentityProvider do
     end
   end
 
-  # --- directory sync ------------------------------------------------------
+  # directory sync
 
   defp sync_departments(provider_id, client) do
     walk_departments(provider_id, client, [Contact.root_department_id()], [])
@@ -346,7 +344,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.IdentityProvider do
     end
   end
 
-  # --- department groups ---------------------------------------------------
+  # department groups
 
   defp ensure_department_group(provider_id, department) when is_map(department) do
     with {:ok, department_id} <- department_id(department),
@@ -381,7 +379,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.IdentityProvider do
   end
 
   defp enqueue_full_sync(provider_id, reason) do
-    case IdentityProviders.enqueue_sync(provider_id,
+    case DirectorySync.enqueue_sync(provider_id,
            reason: reason,
            source: "dingtalk_contact_event"
          ) do
@@ -390,14 +388,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.IdentityProvider do
     end
   end
 
-  # --- field helpers -------------------------------------------------------
-
-  defp required_opt(opts, key) do
-    case Keyword.get(opts, key) do
-      value when is_binary(value) and value != "" -> {:ok, value}
-      _value -> {:error, {:missing, key}}
-    end
-  end
+  # field helpers
 
   defp user_id(user) do
     case optional_text(user, "userid") || optional_text(user, "userId") do

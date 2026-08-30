@@ -17,17 +17,23 @@ import {
 import { RiChat3Line, RiFunctionLine, RiInboxLine } from '@remixicon/react'
 import { match } from '@agentbull/active-support'
 import { useQuery } from '@tanstack/react-query'
-import { useEffect, useState, type ReactNode } from 'react'
+import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useParams, useSearchParams } from 'react-router'
 import { AgentFilter, useAgentScope } from '../console-agent-scope'
-import { BackLink, PageStack } from '../console-page'
+import { BackLink, DocumentTitle, PageStack } from '../console-page'
 import { ErrorBlock } from '../../common/error-block'
-import { formatConsoleDate } from '../console-primitives'
+import { formatConsoleDate, truncate } from '../console-primitives'
 import { conversationDisplayName } from '../conversation-presentation'
 import { MarkdownBody } from '../markdown-body'
 import { StatusIndicator } from '../console-form'
-import { CursorPagination, ResourceListPage, ResourceSearch, RowViewAction } from '../console-list-page'
+import {
+  CursorPagination,
+  ResourceListPage,
+  ResourceSearch,
+  RowViewAction,
+  useResourceSearchDraft
+} from '../console-list-page'
 import {
   cursorPageNumber,
   hasPreviousCursor,
@@ -35,7 +41,6 @@ import {
   previousCursorParams,
   resetCursorParams
 } from '../state/cursor-pagination'
-import { scheduleResourceSearchCommit } from '../state/resource-search'
 import {
   ankoleWebAiGatewayConversationControllerIndexOptions as ankoleWebAIGatewayConversationControllerIndexOptions,
   ankoleWebAiGatewayConversationControllerMessagesOptions as ankoleWebAIGatewayConversationControllerMessagesOptions,
@@ -63,40 +68,27 @@ export function ConversationsListPage() {
   // Stub conversations (fewer than two messages — no exchange recorded) are
   // hidden by default; `min_messages=0` opts back into the full list.
   const showAll = searchParams.get('min_messages') === '0'
-  // Typing stays local in the draft; the URL — and with it the server query
-  // and the route loader revalidation — commits after a 300 ms pause.
-  const [searchDraft, setSearchDraft] = useState(searchFilter)
+  const [searchDraft, setSearchDraft] = useResourceSearchDraft(searchFilter, draft =>
+    setSearchParams(
+      current => {
+        const next = new URLSearchParams(current)
+        if (draft) next.set('q', draft)
+        else next.delete('q')
+        return resetCursorParams(next)
+      },
+      { replace: true }
+    )
+  )
 
-  useEffect(() => setSearchDraft(searchFilter), [searchFilter])
-
-  useEffect(() => {
-    if (searchDraft === searchFilter) return
-
-    return scheduleResourceSearchCommit(() => {
-      setSearchParams(
-        current => {
-          const next = new URLSearchParams(current)
-          if (searchDraft) next.set('q', searchDraft)
-          else next.delete('q')
-          return resetCursorParams(next)
-        },
-        { replace: true }
-      )
+  const list = useQuery(
+    conversationListOptions({
+      q: searchFilter,
+      subject: scope.agentUID,
+      active: activeFilter,
+      showAll,
+      cursor
     })
-  }, [searchDraft, searchFilter, setSearchParams])
-
-  const list = useQuery({
-    ...ankoleWebAIGatewayConversationControllerIndexOptions({
-      query: {
-        q: searchFilter.trim() || undefined,
-        subject: scope.agentUID || undefined,
-        active: activeFilter === 'true' ? true : activeFilter === 'false' ? false : undefined,
-        min_messages: showAll ? undefined : 2,
-        cursor,
-        limit: 50
-      }
-    })
-  })
+  )
 
   const conversations = list.data?.conversations ?? []
   const nextCursor = list.data?.next_cursor ?? undefined
@@ -376,6 +368,7 @@ export function ConversationDetailPage() {
         <Skeleton className="h-40 w-full" />
       ) : (
         <>
+          <DocumentTitle title={conversationDisplayName(detail)} />
           <ConversationHeader conversation={detail} />
 
           <section className="grid gap-3" aria-label={t('console.conversations.details')}>
@@ -451,18 +444,24 @@ function DetailField({ label, value, mono = false }: { label: string; value: Rea
 }
 
 /**
- * Message stream, Codex-style: user input is a right-aligned bubble, assistant
- * replies flow full-width as Markdown, tool traffic (function_call,
- * function_call_output, reasoning) collapses into one-line tiles that expand
- * to pretty-printed payloads, and checkpoints render as hairline separators.
- * The raw JSON is always reachable via the <RawJSON> fallback so no
- * information is lost for unfamiliar ResponseItem variants.
+ * Each row is one Response run and can contain request and response items, so
+ * item roles do not project to one row role. Text flows as Markdown, tool
+ * traffic (function_call, function_call_output, reasoning) collapses into
+ * one-line tiles that expand to pretty-printed payloads, and checkpoints render
+ * as hairline separators. The raw JSON is always reachable via the <RawJSON>
+ * fallback so no information is lost for unfamiliar ResponseItem variants.
  */
 function MessageThread({ messages }: { messages: AIGatewayMessageItem[] }) {
+  // The thread renders up to 200 rows of markdown and payload blocks;
+  // `content-visibility` lets the browser skip layout and paint for the
+  // off-screen ones, with an estimated placeholder height to keep the
+  // scrollbar stable.
   return (
     <div className="grid gap-5">
       {messages.map(message => (
-        <MessageRow key={message.id} message={message} />
+        <div key={message.id} className="[contain-intrinsic-size:auto_8rem] [content-visibility:auto]">
+          <MessageRow message={message} />
+        </div>
       ))}
     </div>
   )
@@ -489,7 +488,7 @@ function MessageRow({ message }: { message: AIGatewayMessageItem }) {
 
   // Tool traffic collapses to a one-line summary by default; expanding the
   // tile reveals the individual items and their pretty-printed payloads.
-  if (message.role === 'tool' || hasToolItems(message.content)) {
+  if (hasToolItems(message.content)) {
     return (
       <article className="border border-border">
         {text ? (
@@ -502,7 +501,7 @@ function MessageRow({ message }: { message: AIGatewayMessageItem }) {
             <AccordionTrigger className="items-center gap-3 px-4 py-2.5 text-xs font-normal hover:no-underline">
               <span className="flex min-w-0 flex-1 items-center gap-2">
                 <RiFunctionLine className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
-                <ToolSummary content={message.content} role={message.role} />
+                <ToolSummary content={message.content} />
                 <span className="ml-auto flex shrink-0 items-center gap-2 text-muted-foreground">
                   <MessageStatus message={message} />
                   <span>{formatConsoleDate(message.inserted_at)}</span>
@@ -518,28 +517,9 @@ function MessageRow({ message }: { message: AIGatewayMessageItem }) {
     )
   }
 
-  // Conversational text, Codex-style: user input is a right-aligned bubble on
-  // the layer-01 surface; assistant replies flow full-width without a tile.
-  if (message.role === 'user') {
-    return (
-      <article className="flex justify-end">
-        <div className="grid max-w-[85%] gap-1.5 sm:max-w-2xl">
-          <header className="flex items-center justify-end gap-2 px-1 text-xs text-muted-foreground">
-            <MessageStatus message={message} />
-            <span>{formatConsoleDate(message.inserted_at)}</span>
-          </header>
-          <div className="border border-border bg-card px-4 py-3">
-            {text ? <MarkdownBody text={text} /> : <RawJSON value={message.content} />}
-          </div>
-        </div>
-      </article>
-    )
-  }
-
   return (
     <article className="grid gap-1.5">
       <header className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
-        {message.role && message.role !== 'assistant' ? <Badge variant="secondary">{message.role}</Badge> : null}
         <MessageStatus message={message} />
         <span>{formatConsoleDate(message.inserted_at)}</span>
       </header>
@@ -549,12 +529,12 @@ function MessageRow({ message }: { message: AIGatewayMessageItem }) {
 }
 
 /** One-line summary of a collapsed tool tile: first item's name/type plus a count. */
-function ToolSummary({ content, role }: { content: ResponseItem[]; role?: AIGatewayMessageItem['role'] }) {
+function ToolSummary({ content }: { content: ResponseItem[] }) {
   const toolItems = content.filter(isToolItem)
   const first = toolItems[0]
 
   if (!first) {
-    return <Badge variant="secondary">{role ?? 'tool'}</Badge>
+    return <Badge variant="secondary">tool</Badge>
   }
 
   return (
@@ -617,18 +597,17 @@ function ToolItemView({ item }: { item: ResponseItem }) {
     )
   }
 
-  // The runtime stopped writing the untrusted-content envelope in 0.59.0, but
-  // conversation rows stored before that change still carry it. Unwrap those
-  // rows and keep the nonce as provenance instead of dumping the wrapper
-  // markup into the reading column. Remove this unwrap when no stored
-  // conversation carries the envelope.
+  // Stable databases can retain rows written before the runtime stopped using
+  // this envelope. Decode it only at the stored-message presentation edge.
   const envelope = type === 'function_call_output' ? stripUntrustedEnvelope(raw) : null
   const body = envelope ? envelope.body : raw
 
   return (
     <div className="grid gap-2 px-4 py-3">
       <ToolItemHeader item={item} type={type} nonce={envelope?.nonce} />
-      {body ? <CodeBlock>{prettyJSON(truncate(body, 16_000))}</CodeBlock> : null}
+      {/* A truncated JSON document can never parse, so oversized payloads
+          skip the guaranteed-to-fail parse and render the cut raw text. */}
+      {body ? <CodeBlock>{body.length <= 16_000 ? prettyJSON(body) : truncate(body, 16_000)}</CodeBlock> : null}
     </div>
   )
 }
@@ -658,10 +637,6 @@ function CodeBlock({ children }: { children: string }) {
 function RawJSON({ value }: { value: unknown }) {
   const text = typeof value === 'string' ? value : JSON.stringify(value, null, 2)
   return <CodeBlock>{truncate(text, 8_000)}</CodeBlock>
-}
-
-function truncate(value: string, limit: number): string {
-  return value.length <= limit ? value : `${value.slice(0, limit)}…`
 }
 
 /** Re-indents JSON payloads; passes non-JSON text through unchanged. */
@@ -725,4 +700,27 @@ function toolItemText(item: ResponseItem): string {
     return typeof item.content === 'string' ? item.content : JSON.stringify(item.content, null, 2)
   }
   return JSON.stringify(item, null, 2)
+}
+
+/**
+ * URL-backed list query shared by the page and its route loader, so the
+ * prefetch and the rendered query agree on one cache key.
+ */
+export function conversationListOptions(params: {
+  q?: string | null
+  subject?: string | null
+  active?: string | null
+  showAll: boolean
+  cursor?: string | null
+}) {
+  return ankoleWebAIGatewayConversationControllerIndexOptions({
+    query: {
+      q: params.q?.trim() || undefined,
+      subject: params.subject?.trim() || undefined,
+      active: params.active === 'true' ? true : params.active === 'false' ? false : undefined,
+      min_messages: params.showAll ? undefined : 2,
+      cursor: params.cursor || undefined,
+      limit: 50
+    }
+  })
 }

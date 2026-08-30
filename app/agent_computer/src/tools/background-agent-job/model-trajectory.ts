@@ -1,18 +1,4 @@
-import { z } from 'zod'
-
-export const BackgroundAgentJobTrajectorySchema = z.object({
-  format: z.literal('ankole_chatml'),
-  version: z.literal(1),
-  metadata: z
-    .object({
-      redacted: z.boolean().optional(),
-      content_truncated: z.boolean().optional()
-    })
-    .optional(),
-  messages: z.array(z.record(z.string(), z.unknown()))
-})
-
-export type BackgroundAgentJobTrajectory = z.output<typeof BackgroundAgentJobTrajectorySchema>
+import { isRecord } from '@agentbull/active-support'
 
 type Trajectory = {
   messages: Array<Record<string, unknown>>
@@ -52,8 +38,4 @@ export function modelVisibleTrajectory<T extends Trajectory>(trajectory: T): T {
   })
 
   return { ...trajectory, messages } as T
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }

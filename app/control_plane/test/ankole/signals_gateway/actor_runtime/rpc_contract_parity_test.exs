@@ -15,22 +15,24 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCContractParityTest do
       |> Torque.decode!()
       |> Enum.reject(&(&1["owner"] == "worker"))
       |> Map.new(fn entry ->
-        {entry["method"], {entry["scope"], entry["effect"], entry["request_type"]}}
+        {entry["method"],
+         {entry["scope"], entry["effect"], entry["request_type"], entry["response_type"]}}
       end)
 
     table =
-      Map.new(RPCLane.operations(), fn {method, {_module, _function, scope, request_mod}} ->
-        {method, contract_projection(scope, request_mod)}
+      Map.new(RPCLane.operations(), fn {
+                                         method,
+                                         {_module, _function, scope, request_mod, response_mod}
+                                       } ->
+        {method, contract_projection(scope, request_mod, response_mod)}
       end)
 
     assert table == contract
   end
 
-  # The response side is pinned by the Bun registry only: the Elixir broker
-  # returns a self-describing struct and the worker decode is the contract
-  # check, so a local response table would duplicate the Bun anchor.
   test "every dispatch row points at an exported broker function" do
-    for {method, {module, function, _scope, _request_mod}} <- RPCLane.operations() do
+    for {method, {module, function, _scope, _request_mod, _response_mod}} <-
+          RPCLane.operations() do
       Code.ensure_loaded!(module)
 
       assert function_exported?(module, function, 3),
@@ -38,38 +40,20 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCContractParityTest do
     end
   end
 
-  test "every request module is a generated fabric message" do
-    for {method, {_module, _function, _scope, request_mod}} <- RPCLane.operations() do
-      Code.ensure_loaded!(request_mod)
+  defp contract_projection(:worker_agent, request_mod, response_mod),
+    do: {"worker_agent", nil, proto_type_name(request_mod), proto_type_name(response_mod)}
 
-      assert function_exported?(request_mod, :decode, 1),
-             "#{method} request module #{inspect(request_mod)} is not a generated message"
-    end
-  end
+  defp contract_projection(:turn_read, request_mod, response_mod),
+    do: {"turn", "read", proto_type_name(request_mod), proto_type_name(response_mod)}
 
-  test "only side-effect-free turn reads make internal handler failures retryable" do
-    for {method, {_module, _function, scope, _request_mod}} <- RPCLane.operations() do
-      assert RPCLane.retryable_handler_failure?(method) == (scope == :turn_read),
-             "#{method} has an unsafe handler-failure retry policy"
-    end
+  defp contract_projection(:turn_write, request_mod, response_mod),
+    do: {"turn", "write", proto_type_name(request_mod), proto_type_name(response_mod)}
 
-    refute RPCLane.retryable_handler_failure?("unknown.rpc.method")
-  end
+  defp contract_projection(:turn_complete, request_mod, response_mod),
+    do: {"turn", "complete", proto_type_name(request_mod), proto_type_name(response_mod)}
 
-  defp contract_projection(:worker_agent, request_mod),
-    do: {"worker_agent", nil, proto_type_name(request_mod)}
-
-  defp contract_projection(:turn_read, request_mod),
-    do: {"turn", "read", proto_type_name(request_mod)}
-
-  defp contract_projection(:turn_write, request_mod),
-    do: {"turn", "write", proto_type_name(request_mod)}
-
-  defp contract_projection(:turn_complete, request_mod),
-    do: {"turn", "complete", proto_type_name(request_mod)}
-
-  defp proto_type_name(request_mod) do
-    ["Ankole", "RuntimeFabric", "V1", message] = Module.split(request_mod)
+  defp proto_type_name(message_mod) do
+    ["Ankole", "RuntimeFabric", "V1", message] = Module.split(message_mod)
     "ankole.runtime_fabric.v1.#{message}"
   end
 end

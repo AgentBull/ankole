@@ -173,6 +173,9 @@ put provider API keys in Helm values.
 
 ## Image policy and upgrades
 
+Direct upgrades to this release are supported only from v0.70.0 or later.
+Upgrades from an older release are not supported.
+
 The default images are:
 
 ```text

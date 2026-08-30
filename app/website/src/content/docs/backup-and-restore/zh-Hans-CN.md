@@ -5,7 +5,7 @@ section: Guides
 order: 315
 ---
 
-一个 Ankole 实例有两类无法重新生成的数据：PostgreSQL 数据库保存主体、Agent、会话、Brain 知识、任务和审计等控制面持久状态；Agent Home 卷保存每个 Agent 的工作区、角色文档、已安装 Skill、会话文件和任务文件。其他镜像和投影都可以重建。本页说明怎样备份和恢复这两类数据，以及怎样验证备份确实可用。
+一个 Ankole 实例有两类无法重新生成的数据：PostgreSQL 数据库保存主体、Agent、会话、任务和审计等控制面持久状态；Agent Home 卷保存每个 Agent 的工作区、角色文档、已安装 Skill、会话文件和任务文件。其他镜像和投影都可以重建。本页说明怎样备份和恢复这两类数据，以及怎样验证备份确实可用。
 
 先说明最关键的一点：数据库 migration 无法通过回滚镜像来撤销。未经还原测试的备份是期望，不是备份。本页的全部要点是还原这一步——在事故依赖它之前，先在单独主机上测它。
 
@@ -58,7 +58,7 @@ docker compose exec -T postgresql \
   < "ankole-YYYYMMDD.dump"
 ```
 
-然后执行 Migration（本地运行 `bun run control-plane:setup`，或由 Helm Init Container 执行），把 Schema 更新到镜像要求的版本。在确认恢复完成之前，请核对主体、Agent 和一条已知 Brain 记录都符合预期。
+然后执行 Migration（本地运行 `bun run control-plane:setup`，或由 Helm Init Container 执行），把 Schema 更新到镜像要求的版本。在确认恢复完成之前，请核对主体、Agent 和一个已知会话都符合预期。
 
 ## 还原 Agent Home
 

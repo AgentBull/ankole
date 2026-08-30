@@ -12,8 +12,12 @@ use crate::authz::cel::{self, BoolEvalError};
 use crate::common::bounded_cache::BoundedCache;
 use crate::common::{KernelError, KernelResult};
 
+/// Shares compiled filters across Signal bindings without assuming an outbound
+/// route.
 static FILTER_CACHE: OnceLock<BoundedCache<String, Arc<Program>>> = OnceLock::new();
 
+/// Bounds compiled Signal filters without coupling the cache lifetime to an
+/// outbound path.
 const MAX_FILTER_CACHE_ENTRIES: usize = 1024;
 
 /// Compiles a SignalsGateway CEL filter without executing it.
@@ -41,24 +45,14 @@ fn compile_filter(source: &str) -> KernelResult<Program> {
 }
 
 fn cached_filter_program(source: &str) -> KernelResult<Arc<Program>> {
-    if let Some(program) = lookup_cached_filter_program(source) {
+    let cache = FILTER_CACHE.get_or_init(|| BoundedCache::new(MAX_FILTER_CACHE_ENTRIES));
+    if let Some(program) = cache.get_cloned(source) {
         return Ok(program);
     }
 
     let program = Arc::new(compile_filter(source)?);
-    store_cached_filter_program(source, &program);
+    cache.insert(source.to_owned(), Arc::clone(&program));
     Ok(program)
-}
-
-fn lookup_cached_filter_program(source: &str) -> Option<Arc<Program>> {
-    let cache = FILTER_CACHE.get_or_init(|| BoundedCache::new(MAX_FILTER_CACHE_ENTRIES));
-    let source = source.to_owned();
-    cache.get_if(&source, |_cached| true, Arc::clone)
-}
-
-fn store_cached_filter_program(source: &str, program: &Arc<Program>) {
-    let cache = FILTER_CACHE.get_or_init(|| BoundedCache::new(MAX_FILTER_CACHE_ENTRIES));
-    cache.insert(source.to_owned(), Arc::clone(program));
 }
 
 fn build_filter_context(context_json: JSONValue) -> KernelResult<Context<'static>> {

@@ -40,11 +40,13 @@ Agent が読み書きするすべては `/agents` の下に置かれ、Agent キ
 ├── sessions/<workspace-id>/
 └── jobs/<job-id>/
     ├── .codex/config.toml
-    ├── .ankole/skills/
+    ├── AGENTS.md
     └── temp/
 ```
 
 `SOUL.md`、`MISSION.md`、`DESIGN.md` は [Agent Library](../agent-library/) の永続ドキュメントです。最初の 2 つは責任と振る舞いを定義します。`DESIGN.md` はビジュアル作業のためのデザインシステムです。`installed-skills/` は Agent Skill を保持します。`sessions/` は、10000 から始まる PostgreSQL 所有の安定した数値 ID を持つ会話 workspace を保持し、`jobs/` は別の Background Agent Job workspace を保持します。
+
+Background Agent Job は Ankole `skill_view` を通して Skill を読み込み、Skill root を Job ワークスペースへコピーしません。
 
 ## 反復的な Python のための Jupyter live kernel
 
@@ -70,5 +72,5 @@ Console は対応する model profile を **Background Agent Jobs** と表示し
 
 - これらの tool を実行し、`/agents` ファイルシステムを所有する Worker については、[Agent Computer Worker](../agent-computer-worker/) を読んでください。
 - Jupyter Skill の背後にある Skill と有効化モデルについては、[Agent Library](../agent-library/) を読んでください。
-- 内部キーが `coding` のままの Background Agent Jobs profile については、[Background Agent Jobs](../background-jobs/#select-the-runtime) を読んでください。
+- 内部キーが `coding` のままの Background Agent Jobs profile については、[Background Agent Jobs](../background-jobs/#モデル-provider-を選択する) を読んでください。
 - Worker イメージが要求する隔離については、[Quick start](../quickstart/#deployment) を読んでください。

@@ -1,11 +1,11 @@
 ---
 title: Context の圧縮とコンパクション
-description: Ankole が長い会話をモデルのコンテキスト内に保つ仕組み — AIGateway による自動履歴コンパクション、逐語的なユーザー原文の保持、常駐の長期memory用の Brain dreaming の memo compactor。
+description: Ankole が長い会話をモデルのコンテキスト内に保つ仕組み — AIGateway による自動履歴コンパクションと、逐語的なユーザー原文の保持。
 section: Developer guide
 order: 116
 ---
 
-長く続く会話は、やがてモデルのコンテキストウィンドウを超えます。Ankole はこれを 2 つの場所で、2 種類の異なるmemoryについて処理します。AIGateway は turn が見る会話履歴をコンパクト化し、Brain dreaming は agent の常駐の長期 memo をコンパクト化します。このページは、`ai_gateway/compaction*.ex` と `brain/dreaming/memo_compactor.ex` の実際のコードに照らして、両方を文書化します。
+長く続く会話は、やがてモデルのコンテキストウィンドウを超えます。AIGateway は turn が見る会話履歴をコンパクト化し、会話がそのコンテキスト上限を超えても続けられるようにします。このページは、`ai_gateway/compaction*.ex` の実際のコードに照らして、この仕組みを文書化します。
 
 最初に決定的な性質を述べます。コンパクションは*設計上 lossy ですが、沈黙はしません*。コンパクションは古い turn を要約に置き換え、最近の turn を逐語的に保持し、それ自体を会話が指す永続的なアーティファクトとして記録します。元の turn はモデルのコンテキストから消え、要約が新しい参照状態になります。コンパクションは、元に戻せるキャッシュではありません。
 
@@ -45,36 +45,15 @@ AIGateway は、ステートフルな Responses 会話の自動履歴コンパ�
 
 ### コンパクションアーティファクト
 
-各コンパクションは、AIGateway が保存する永続的な `CompactionArtifact` を生成します。会話の履歴は最新のコンパクションをアンカーとして指し、後続の turn はそこから続きます。Brain のコンパクション前ナッジ（マーカー `ankole.brain.pre_compaction_nudge.v1`）はコンパクションの前に発火し、会話履歴が要約されて消える前に、agent に永続的な事実を Brain へ保存する機会を与えます。
-
-## Brain dreaming の memo コンパクション
-
-会話履歴とは別に、agent は**常駐の長期memory** — Brain の中の `pinned_memo` knowledge エントリ — を持つことがあります。`Brain.Dreaming.MemoCompactor` は、その memo を token 予算内に保ち、dreaming の実行をまたいで無限に成長しないようにします。
-
-memo compactor は Brain の knowledge 設定から `pinned_memo_max_tokens` を読み、agent の pinned memo を見つけ、予算を超えたときにコンパクト化します。結果は、永続的な事実を保持するより短い memo で、同じ「参照状態であり指示ではない」という規律の下で要約器が書きます。これは dreaming 型のコンパクションです。ライブな会話ではなく、agent の常駐memoryに対してオフラインで実行されます。
-
-## 2 つがどのように関係するか
-
-これらは異なるmemoryであり、異なるコンパクターを持ちます。
-
-| | AIGateway のコンパクション | Brain の memo コンパクション |
-|---|---|---|
-| 何をコンパクト化するか | 会話履歴（turn） | agent の pinned 長期 memo |
-| いつ実行されるか | token 使用量がしきい値を越えたとき、turn の実行中 | オフライン、dreaming の間 |
-| 何が残るか | 要約 + 最近の turn + ユーザー原文 | より短い memo |
-| 誰が所有するか | AIGateway（会話の真実） | Brain（knowledge の真実） |
-| アーティファクト | `CompactionArtifact` | 改訂された knowledge エントリ |
-
-長い会話は、コンテキストに収まるように AIGateway のコンパクションをトリガーします。長生きする agent は、永続的なmemoryに収まるように Brain の memo コンパクションをトリガーします。2 つは直接相互作用しませんが、コンパクション前ナッジがそれらを橋渡しします。会話が要約される前に、agent に永続的な事実を会話から Brain へ昇格させる機会を与えます。
+各コンパクションは、AIGateway が保存する永続的な `CompactionArtifact` を生成します。会話の履歴は最新のコンパクションをアンカーとして指し、後続の turn はそこから続きます。
 
 ## チューニング
 
 - **`threshold` を上げる** — agent が短い会話で作業し、コンパクションが早すぎる頻度で発火する場合。デフォルト（0.50）は保守的です。
 - **`tail_rows` を上げる** — コンパクション後にモデルが直近のコンテキストを失う場合。逐語的な最近の turn が増えますが、要約のためのスペースが減ります。
 - **`user_message_budget_tokens` を上げる** — コンパクト化された区間からユーザーメッセージが落とされ、モデルが何を求められたかを追えなくなる場合。
-- **`pinned_memo_max_tokens` を上げる**（Brain の knowledge 設定）— agent の常駐 memo が過度に積極的にコンパクト化されている場合。
 
-4 つすべてが AppConfigure キーで、Console を通じて変更され、現在の turn ではなく次のコンパクションで有効になります。
+3 つすべてが AppConfigure キーで、Console を通じて変更され、現在の turn ではなく次のコンパクションで有効になります。
 
 ## このガイドがそうでないもの
 
@@ -83,5 +62,3 @@ memo compactor は Brain の knowledge 設定から `pinned_memo_max_tokens` を
 ## 次のステップ
 
 - AIGateway のコンセプトページについては、[AIGateway](../ai-gateway/)を参照してください。
-- Brain のmemoryモデルについては、[Brain](../brain/)を参照してください。
-- memo compactor を実行する dreaming プロセスについては、[Brain](../brain/)の dreaming のセクションを参照してください。

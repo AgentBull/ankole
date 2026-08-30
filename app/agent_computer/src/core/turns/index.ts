@@ -2,6 +2,7 @@ import type { TurnStart } from '../../lanes/actor_lane'
 import { runAmbientMayInterveneHandler } from './ambient_turn'
 import { runTextTurnLoop } from './text_turn'
 import { runCodexJob } from '../codex-runner'
+import { runWorkflowTaskTurn } from './workflow_task_turn'
 import type { TurnHandlerOptions, TurnHandlerResult } from './turn_options'
 
 /**
@@ -13,6 +14,10 @@ import type { TurnHandlerOptions, TurnHandlerResult } from './turn_options'
 export async function runTurnHandlers(turnStart: TurnStart, opts: TurnHandlerOptions): Promise<TurnHandlerResult> {
   if (turnStart.turn.actor.session_id.startsWith('job:')) {
     return runCodexJob(turnStart, opts)
+  }
+
+  if (turnStart.turn.actor.session_id.startsWith('wf_task:')) {
+    return runWorkflowTaskTurn(turnStart, opts)
   }
 
   if (isAmbientMayInterveneTurn(turnStart)) {

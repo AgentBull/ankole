@@ -13,7 +13,7 @@ order: 320
 
 | 상태 | 복구 가능? | 출처 |
 |---|---|---|
-| Principals, agents, sessions, jobs, Brain 지식, audit, AuthZ grants | 예 | PostgreSQL `pg_dump` 아카이브 |
+| Principals, agents, sessions, jobs, audit, AuthZ grants | 예 | PostgreSQL `pg_dump` 아카이브 |
 | Agent별 workspaces, durable 문서, 설치된 Skills, 대화 및 Job 파일 | 예 | Agent Home 볼륨 스냅샷 |
 | 프로바이더 자격 증명, 채팅 채널 자격 증명, 암호화된 환경 변수 | 예 | PostgreSQL과 Agent Home이 보관하므로 백업이 복원함 |
 | 부트스트랩 시크릿(`ANKOLE_SECRET_BASE`, worker 인증 키) | **수동 재입력** | 백업에 없음. 새로 생성하거나 기록해 둔 것을 재사용 |
@@ -39,7 +39,7 @@ docker compose exec -T postgresql \
   < "ankole-YYYYMMDD.dump"
 ```
 
-그런 다음 마이그레이션을 실행하여(`bun run control-plane:setup`, 로컬에서, 또는 Helm init 컨테이너에 맡김) 복원된 스키마를 이미지 수준으로 끌어올립니다. 복원된 데이터베이스에는 백업을 만든 시점의 Principals, agents, sessions, jobs, Brain 지식, AuthZ grants가 있습니다.
+그런 다음 마이그레이션을 실행하여(`bun run control-plane:setup`, 로컬에서, 또는 Helm init 컨테이너에 맡김) 복원된 스키마를 이미지 수준으로 끌어올립니다. 복원된 데이터베이스에는 백업을 만든 시점의 Principals, agents, sessions, jobs, AuthZ grants가 있습니다.
 
 ### 3단계: Agent Home 복원
 

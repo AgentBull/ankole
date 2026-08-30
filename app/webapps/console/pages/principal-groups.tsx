@@ -130,7 +130,9 @@ export function PrincipalGroupsListPage() {
                 ) : null}
               </div>
             </TableCell>
-            <TableCell className="tabular-nums">{group.member_count}</TableCell>
+            {/* A computed group derives membership per principal at check time;
+                the stored membership count is always 0 and would mislead. */}
+            <TableCell className="tabular-nums">{group.kind === 'computed' ? '—' : group.member_count}</TableCell>
             <TableCell className="tabular-nums">{group.grant_count}</TableCell>
             <TableCell>
               <span className="block max-w-64 truncate" title={group.description ?? undefined}>
@@ -222,9 +224,8 @@ export function PrincipalGroupEditorPage() {
       title={mode === 'new' ? t('console.principal_groups.new') : (name ?? '')}
       description={t('console.principal_groups.editor_description')}
       backTo="/access/groups"
-      error={
-        model.validationError.value ?? createGroup.error ?? updateGroup.error ?? (mode === 'edit' ? group.error : null)
-      }
+      validationError={model.validationError.value}
+      error={createGroup.error ?? updateGroup.error ?? (mode === 'edit' ? group.error : null)}
       submitting={createGroup.isPending || updateGroup.isPending}
       submitDisabled={mode === 'edit' && !model.dirty.value}
       contentWidth={mode === 'edit' ? 'wide' : 'form'}

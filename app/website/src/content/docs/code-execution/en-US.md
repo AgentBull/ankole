@@ -40,11 +40,13 @@ Everything the agent reads and writes lives under `/agents`, laid out per agent 
 ├── sessions/<workspace-id>/
 └── jobs/<job-id>/
     ├── .codex/config.toml
-    ├── .ankole/skills/
+    ├── AGENTS.md
     └── temp/
 ```
 
 `SOUL.md`, `MISSION.md`, and `DESIGN.md` are durable documents in the [Agent Library](../agent-library/). The first two define responsibility and behavior. `DESIGN.md` is the design system for visual work. `installed-skills/` holds Agent Skills. `sessions/` holds conversation workspaces with stable PostgreSQL-owned numeric IDs that start at 10000, and `jobs/` holds separate Background Agent Job workspaces.
+
+Background Agent Jobs load Skills through Ankole `skill_view`; they do not copy Skill roots into the Job workspace.
 
 ## Jupyter live kernel for iterative Python
 
@@ -70,5 +72,5 @@ The operator surface is narrow:
 
 - For the Worker that runs these tools and owns the `/agents` filesystem, read [Agent Computer Worker](../agent-computer-worker/).
 - For the skill and enablement model behind the Jupyter skill, read [Agent Library](../agent-library/).
-- For the Background Agent Jobs profile, whose internal key remains `coding`, read [Background Agent Jobs](../background-jobs/#select-the-runtime).
+- For the Background Agent Jobs profile, whose internal key remains `coding`, read [Background Agent Jobs](../background-jobs/#select-the-model-provider).
 - For the confinement the Worker image requires, read [Quick start](../quickstart/#deployment).

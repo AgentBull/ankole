@@ -1,0 +1,26 @@
+# Ankole Brain schema pack seed. See docs/design-docs/BrainV3.md.
+api_version: ankole-brain-schema-pack-v1
+name: software
+version: 1.0.0
+description: Software, internet, and AI company ontology increments.
+extends: general
+
+page_types:
+  - name: product
+    # Declared with consumer: core declaration identical, subtypes take the
+    # union on merge. model covers AI companies.
+    primitive: entity
+    slug_prefix: products/
+    subtypes: [app, service, api, model]
+    extractable: false
+    expert_routing: false
+
+subtype_extensions:
+  # Releases are the rhythm events of a software company; outages use
+  # general's event/incident.
+  - {type: event, add: [release]}
+
+link_types:
+  - {name: depends_on, inverse: depended_by}
+
+calibration_domains: []

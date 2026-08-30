@@ -14,7 +14,6 @@ export function browserSandboxRuntime(runtime: MaterializedBrowserRuntime): Brow
       ANKOLE_BROWSER_SESSION: runtime.session,
       ANKOLE_BROWSER_MATERIAL: runtime.materialPath,
       ANKOLE_BROWSER_ARTIFACT_ROOT: runtime.artifactRoot,
-      ANKOLE_BROWSER_NODE: runtime.nodePath,
       ANKOLE_BROWSER_RUNNER: runtime.runnerPath
     },
     binds: [

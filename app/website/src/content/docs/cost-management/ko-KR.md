@@ -1,6 +1,6 @@
 ---
 title: 비용 관리
-description: Ankole이 지출하는 금액을 통제하는 레버 — model-profile 계층, reasoning effort, web 도구 게이팅, agent-loop 예산, background-job 재시도 및 슬롯 상한.
+description: Ankole이 지출하는 금액을 통제하는 레버 — model-profile 계층, reasoning effort, web 도구 게이팅, agent-loop 예산, background-job 재시도, Workflow 호출 및 동시성 상한.
 section: Guides
 order: 314
 ---
@@ -11,7 +11,7 @@ Ankole이 지출하는 비용의 대부분은 model token이며, 그중 대부�
 
 ## 레버 1: model-profile 계층
 
-10개의 profile 슬롯이 가장 큰 레버입니다. 각 슬롯은 model 선택이며, model 선택이 token 비용을 좌우합니다.
+8개의 내장 Agent profile은 서로 다른 유료 경로를 제어합니다. 5개는 언어 모델을 선택하고, 3개는 웹 검색, 웹 가져오기, 이미지 생성 기능을 연결합니다.
 
 | 슬롯 | 실행 시점 | 비용 레버 |
 |---|---|---|
@@ -20,9 +20,10 @@ Ankole이 지출하는 비용의 대부분은 model token이며, 그중 대부�
 | `heavy` | 어려운 종합(synthesis) 작업 | 비쌈. `primary`가 잘 조정되면 거의 사용되지 않음 |
 | Background Agent Jobs(내부적으로는 `coding`) | 모든 Background Agent Job | 지속적인 백그라운드 작업의 provider와 model을 선택 |
 | `vision_fallback` | `primary`가 이미지를 처리할 수 없을 때 | agent가 이미지를 볼 때만 바인딩 |
-| `embedding`, `rerank` | memory 및 검색(retrieval) | 호출당 과금, 보통 소액 |
 | `web_search`, `web_fetch` | web 도구 | 레버 3 참조 |
 | `image_generate` | 이미지 생성 | 호출당 비쌈. 사용할 때만 바인딩 |
+
+Brain에는 Agent profile과 별개인 인스턴스 공용 모델 설정이 5개 있습니다. `brain.embedding_model`과 `brain.rerank_model`은 검색을 제어합니다. `brain.web_fetch_model`은 URL Source를 읽고, `brain.extraction_model`은 대화와 Source에서 학습하며, `brain.dreaming_model`은 모델 기반 유지 관리와 Skill 교훈 재검토를 실행합니다. [AppConfigure](../app-configuration/)에서 한 번 설정하십시오. 비어 있는 설정은 관련 작업을 중지하거나 제한하며, **Brain → 상태**에 사용할 수 없는 작업이 표시됩니다. 전체 동작은 [Brain](../brain/)을 참조하십시오.
 
 가장 많이 절약하는 두 가지 조치:
 
@@ -30,6 +31,8 @@ Ankole이 지출하는 비용의 대부분은 model token이며, 그중 대부�
 - **기본적으로 `primary`를 낮추지 올리지는 마세요.** “비싸게 느껴지는” agent는 실제로 수행하는 작업에 비해 너무 무겁게 바인딩된 `primary`인 경우가 많습니다. 품질이 요구할 때만 올리세요.
 
 agent가 사용하지 않는 슬롯은 바인딩을 해제하세요. 그러면 `vision_fallback`에서 호출이 발생할 수 없습니다. 비어 있는 `image_generate` profile도 메인 provider가 해당 기능을 선언하면 네이티브 이미지 생성(native image generation)을 계속 사용할 수 있습니다. Background Agent Jobs는 다릅니다. profile이 설정되어 있지 않아도 Job은 AIGateway를 통해 Agent의 `heavy` profile을 폴백으로 사용하여 실행됩니다. Job에 다른 provider나 model이 필요할 때 이 profile을 구성하세요.
+
+Workflow task는 전용 profile을 추가하지 않습니다. 생성 요청에서 사용 가능한 custom model profile을 선택하지 않으면 각 task는 Agent의 `primary` profile을 사용합니다.
 
 ## 레버 2: reasoning effort
 
@@ -72,6 +75,18 @@ Background job은 재시도에 token을 쓸 수 있으며, 그 상한이 레버�
 
 일시적으로 다섯 번 실패하는 job은 다섯 번 실행한 만큼의 token을 소비합니다. 대부분의 경우 상한이 보호해 줍니다. 구성 오류는 빠르게 실패하고 실패 상태로 유지됩니다. 주의할 레버는 세 번째입니다. 동시에 세 개의 job을 실행하는 agent는 한 번에 세 개의 model loop를 돌리는 것입니다. 그런 병렬성이 필요 없다면 persona(“한 번에 한 가지 일을 하라”)가 상한이 허용하는 것보다 더 저렴합니다.
 
+## 레버 6: Workflow 호출 및 동시성 상한
+
+Workflow의 `agent()` 호출은 각 attempt마다 완전한 model turn 하나를 실행합니다. 호출 하나는 재시도 가능한 실패가 지속되면 최대 3번의 attempt를 사용할 수 있습니다. 따라서 대충 나눈 많은 소형 task보다 의미 있는 작업 단위를 주고, 요청에서 `max_agent_calls`를 세울 수 있는 최소 상한으로 설정하세요.
+
+| 설정 | 기본값 | 하드 상한 | 제한 대상 |
+|---|---:|---:|---|
+| `workflow.max_concurrency_per_run` | 8 | 32 | Workflow 하나가 동시에 실행할 task 수 |
+| `workflow.max_running_per_agent` | 8 | 64 | Agent 하나의 모든 Workflow에서 동시에 실행할 task 수 |
+| `workflow.max_agent_calls_per_run` | 256 | 1,024 | Workflow 하나가 만들 수 있는 총 `agent()` 호출 수 |
+
+Workflow 생성 요청의 `concurrency`와 `max_agent_calls`는 배포 상한을 높일 수 없고 더 낮은 값만 요청할 수 있습니다. Workflow v1은 전체 run을 위한 token 또는 금액 예산을 제공하지 않으며, 각 task는 일반 turn의 iteration, output-token, inactivity 상한을 그대로 적용받습니다. 자세한 사용 방법은 [Workflows](../workflows/)를 참조하세요.
+
 ## 지출이 실제로 발생하는 곳
 
 model이나 동시성을 바꾸기 전에 Console을 사용하여 호출을 발생시킨 Agent, conversation 또는 Background Agent Job을 찾으세요:
@@ -94,7 +109,8 @@ deployment instance의 청구 금액이 일주일 만에 두 배가 되었습니
 
 ## 다음 단계
 
-- Agent의 model profile에 대해서는 [Agents](../agents/#wire-up-its-models) 문서를 읽으세요.
+- Agent의 model profile에 대해서는 [Agents](../agents/#모델-구성) 문서를 읽으세요.
 - agent-loop 노브와 해당 키에 대해서는 [Environment variables](../environment-variables/) 문서를 읽으세요.
 - 관련 conversation 및 Job 엔드포인트에 대해서는 [Console API reference](../console-api/) 문서를 읽으세요.
 - Job 상한에 대해서는 [Background Agent Jobs](../background-jobs/) 문서를 읽으세요.
+- Workflow 분할, 결과, 복구 규칙은 [Workflows](../workflows/) 문서를 읽으세요.

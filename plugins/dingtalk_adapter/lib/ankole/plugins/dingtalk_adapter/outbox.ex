@@ -31,6 +31,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Outbox do
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.Channel
   alias Ankole.SignalsGateway.OutboxEntry
+  alias Ankole.SignalsGateway.ReplyPreviewAdapter
   alias Ankole.SignalsGateway.ReplyPreviewAdapter.Request
   alias Ankole.WorkerFiles
   alias DingTalkOpenAPI.Error
@@ -56,7 +57,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Outbox do
       %ActorEvent{} = event ->
         checkpoint = event.reply_preview_checkpoint || %{}
 
-        AICard.finalize(%Request{
+        ReplyPreviewAdapter.finalize_module(AICard, %Request{
           actor_event: event,
           presentation: presentation,
           checkpoint: checkpoint,
@@ -81,7 +82,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Outbox do
   def send(%OutboxEntry{operation: :card} = outbox), do: deliver_card(outbox)
   def send(%OutboxEntry{}), do: {:error, :unsupported_outbox_operation}
 
-  # --- post ----------------------------------------------------------------
+  # post
 
   defp deliver_post(%OutboxEntry{} = outbox) do
     case fetch_list(outbox.payload, "attachments") do
@@ -105,11 +106,11 @@ defmodule Ankole.Plugins.DingTalkAdapter.Outbox do
         |> Markdown.display_chunks()
 
       send_text_chunks(client, robot_code, target, chunks, outbox, config)
-      |> normalize_delivery_error()
     end
+    |> normalize_delivery_result()
   end
 
-  # --- card ------------------------------------------------------------------
+  # card
 
   # A card row without a configured template still delivers its durable intent:
   # the gateway guarantees `fallback_visible_text` on card operations, so the
@@ -125,10 +126,9 @@ defmodule Ankole.Plugins.DingTalkAdapter.Outbox do
           robot_code = Config.effective_robot_code(config)
 
           with {:ok, target} <- resolve_target(outbox) do
-            client
-            |> InteractiveCard.deliver(template_id, robot_code, target, outbox)
-            |> normalize_delivery_error()
+            InteractiveCard.deliver(client, template_id, robot_code, target, outbox)
           end
+          |> normalize_delivery_result()
       end
     end
   end
@@ -180,7 +180,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Outbox do
     end
   end
 
-  # --- attachment ----------------------------------------------------------
+  # attachment
 
   defp deliver_attachment(%OutboxEntry{} = outbox, attachment) do
     with {:ok, config} <- config_for_outbox(outbox),
@@ -199,8 +199,8 @@ defmodule Ankole.Plugins.DingTalkAdapter.Outbox do
         {:ok, result} -> {:ok, Map.put(result, :payload, outbox.payload)}
         {:error, _reason} = error -> error
       end
-      |> normalize_delivery_error()
     end
+    |> normalize_delivery_result()
   end
 
   defp read_attachment(attachment, agent_uid) do
@@ -247,7 +247,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Outbox do
     end
   end
 
-  # --- delete (recall) -----------------------------------------------------
+  # delete (recall)
 
   defp deliver_delete(%OutboxEntry{target_source_entry_id: nil}),
     do: {:error, :unsupported_target}
@@ -276,12 +276,13 @@ defmodule Ankole.Plugins.DingTalkAdapter.Outbox do
 
       case result do
         {:ok, body} -> {:ok, %{raw_payload: body}}
-        {:error, _reason} = error -> normalize_delivery_error(error)
+        {:error, _reason} = error -> error
       end
     end
+    |> normalize_delivery_result()
   end
 
-  # --- send primitive ------------------------------------------------------
+  # send primitive
 
   defp send_message(client, robot_code, {:dm, user_id}, msg_key, msg_param) do
     client
@@ -327,7 +328,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Outbox do
 
   defp combined_result([], _payload), do: %{raw_payload: %{}}
 
-  # --- helpers -------------------------------------------------------------
+  # helpers
 
   defp resolve_target(%OutboxEntry{signal_channel_id: signal_channel_id}) do
     conversation_id = decode_channel(signal_channel_id)
@@ -379,16 +380,26 @@ defmodule Ankole.Plugins.DingTalkAdapter.Outbox do
     optional_text(attachment, "name") || Path.basename(relative_path)
   end
 
-  defp normalize_delivery_error({:error, %Error{} = error}) do
+  @doc false
+  @spec normalize_delivery_result(term()) :: term()
+  def normalize_delivery_result({:error, %Error{} = error}) do
+    action =
+      cond do
+        Error.retryable?(error) -> :retryable
+        error.reason in [:auth, :quota_exhausted] -> :operator_action_required
+        true -> :permanent
+      end
+
     {:error,
-     {:provider_error,
+     {:reply_delivery, action,
       MapHelpers.compact_map(%{
         reason: error.reason,
         code: error.code,
         message: error.message,
-        http_status: error.http_status
+        http_status: error.http_status,
+        retry_after_seconds: error.retry_after
       })}}
   end
 
-  defp normalize_delivery_error(result), do: result
+  def normalize_delivery_result(result), do: result
 end

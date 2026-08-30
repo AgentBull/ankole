@@ -7,11 +7,9 @@ import type {
 import type { ProfileDraft } from '../state/model-profiles-model'
 import type { SettingValidationError } from './provider-settings'
 
-export type ModelProfileCapability = 'llm' | 'embedding' | 'rerank' | 'web_search' | 'web_fetch' | 'image_generate'
+export type ModelProfileCapability = 'llm' | 'web_search' | 'web_fetch' | 'image_generate'
 
 export function profileCapability(profile: string): ModelProfileCapability {
-  if (profile === 'embedding') return 'embedding'
-  if (profile === 'rerank') return 'rerank'
   if (profile === 'web_search') return 'web_search'
   if (profile === 'web_fetch') return 'web_fetch'
   if (profile === 'image_generate') return 'image_generate'
@@ -52,7 +50,15 @@ export function providersForProfile(
   kinds: AIGatewayProviderKindItem[],
   profile: string
 ): AIGatewayProviderItem[] {
-  const capability = profileCapability(profile)
+  return providersWithCapability(providers, kinds, profileCapability(profile))
+}
+
+/** Keeps only configured providers whose DSL declares the given capability name. */
+export function providersWithCapability(
+  providers: AIGatewayProviderItem[],
+  kinds: AIGatewayProviderKindItem[],
+  capability: string
+): AIGatewayProviderItem[] {
   const capabilitiesByKind = new Map(kinds.map(kind => [kind.provider_kind, kind.capabilities]))
   return providers.filter(provider => capabilitiesByKind.get(provider.provider_kind)?.includes(capability))
 }
@@ -67,16 +73,38 @@ export function modelOptionsForProfile(
   providerID: string,
   profile: string
 ): CreatableComboboxOption[] {
-  if (!providerID) return []
-
-  const prefix = `${providerID}/`
-  const entries = catalogEntries(catalog).filter(entry => entry.id.startsWith(prefix))
   const capability = profileCapability(profile)
-  const visibleEntries = entries.filter(entry => {
+
+  return modelOptions(catalog, providerID, entry => {
     const inferred = inferredCapability(entry)
     const matchesCapability = inferred === capability || inferred === 'unknown'
     return matchesCapability && (profile !== 'vision_fallback' || supportsImageInput(entry) !== false)
   })
+}
+
+export type BrainModelCatalogKind = 'embedding' | 'rerank' | 'llm'
+
+/** Suggests catalog models for one Brain model slot, matched by inferred capability. */
+export function modelOptionsForBrainModel(
+  catalog: unknown,
+  providerID: string,
+  kind: BrainModelCatalogKind
+): CreatableComboboxOption[] {
+  return modelOptions(catalog, providerID, entry => {
+    const inferred = inferredCapability(entry)
+    return inferred === kind || inferred === 'unknown'
+  })
+}
+
+function modelOptions(
+  catalog: unknown,
+  providerID: string,
+  visible: (entry: CatalogEntry) => boolean
+): CreatableComboboxOption[] {
+  if (!providerID) return []
+
+  const prefix = `${providerID}/`
+  const visibleEntries = catalogEntries(catalog).filter(entry => entry.id.startsWith(prefix) && visible(entry))
   const options = new Map<string, CreatableComboboxOption>()
 
   for (const entry of visibleEntries) {
@@ -122,10 +150,13 @@ function catalogEntries(catalog: unknown): CatalogEntry[] {
   })
 }
 
-type CatalogCapability = ModelProfileCapability | 'other' | 'unknown'
+type CatalogCapability = ModelProfileCapability | 'embedding' | 'rerank' | 'other' | 'unknown'
 
 function inferredCapability(entry: CatalogEntry): CatalogCapability {
   const outputModalities = stringArray(entry.architecture?.output_modalities)
+
+  // Embedding and rerank models stay out of every profile list: they fill the
+  // instance-wide Brain model slots, which suggest them by this class.
   if (outputModalities.includes('embeddings') || entry.supportedParameters.includes('encoding_format')) {
     return 'embedding'
   }

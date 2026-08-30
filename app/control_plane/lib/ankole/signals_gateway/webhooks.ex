@@ -14,6 +14,7 @@ defmodule Ankole.SignalsGateway.Webhooks do
   alias Ankole.Ecto.UUIDv7
   alias Ankole.Repo
   alias Ankole.SignalsGateway
+  alias Ankole.SignalsGateway.Utils
   alias Ankole.SignalsGateway.WebhookEndpoint
 
   @active_statuses ~w(armed active)
@@ -231,11 +232,11 @@ defmodule Ankole.SignalsGateway.Webhooks do
       label: endpoint.label,
       mode: endpoint.mode,
       status: endpoint.status,
-      expires_at: iso8601(endpoint.expires_at),
-      fired_at: iso8601(endpoint.fired_at),
-      cancelled_at: iso8601(endpoint.cancelled_at),
-      created_at: iso8601(endpoint.inserted_at),
-      updated_at: iso8601(endpoint.updated_at)
+      expires_at: Utils.datetime_iso8601(endpoint.expires_at),
+      fired_at: Utils.datetime_iso8601(endpoint.fired_at),
+      cancelled_at: Utils.datetime_iso8601(endpoint.cancelled_at),
+      created_at: Utils.datetime_iso8601(endpoint.inserted_at),
+      updated_at: Utils.datetime_iso8601(endpoint.updated_at)
     }
   end
 
@@ -250,8 +251,8 @@ defmodule Ankole.SignalsGateway.Webhooks do
       "mode" => endpoint.mode,
       "status" => endpoint.status,
       "automation_job_id" => endpoint.automation_job_id,
-      "expires_at" => iso8601(endpoint.expires_at),
-      "created_at" => iso8601(endpoint.inserted_at)
+      "expires_at" => Utils.datetime_iso8601(endpoint.expires_at),
+      "created_at" => Utils.datetime_iso8601(endpoint.inserted_at)
     }
   end
 
@@ -266,7 +267,7 @@ defmodule Ankole.SignalsGateway.Webhooks do
   end
 
   defp create_attrs(attrs, token) do
-    attrs = stringify_keys(attrs)
+    attrs = Ankole.Attrs.normalize_external_attrs(attrs)
     mode = Map.get(attrs, "mode")
 
     status =
@@ -278,7 +279,7 @@ defmodule Ankole.SignalsGateway.Webhooks do
 
     {:ok,
      attrs
-     |> Map.put("agent_uid", attrs |> Map.get("agent_uid") |> normalize_agent_uid())
+     |> Map.put("agent_uid", attrs |> Map.get("agent_uid") |> Utils.normalize_uid())
      |> Map.put("token_digest", token_digest(token))
      |> Map.put("status", status)}
   end
@@ -556,18 +557,5 @@ defmodule Ankole.SignalsGateway.Webhooks do
   defp bounded_limit(limit) when is_integer(limit) and limit > 0, do: min(limit, 500)
   defp bounded_limit(_limit), do: 100
 
-  defp stringify_keys(map) do
-    Map.new(map, fn
-      {key, value} when is_atom(key) -> {Atom.to_string(key), value}
-      {key, value} -> {key, value}
-    end)
-  end
-
-  defp normalize_agent_uid(value) when is_binary(value), do: String.downcase(value)
-  defp normalize_agent_uid(value), do: value
-
   defp reject_nil_values(map), do: Map.reject(map, fn {_key, value} -> is_nil(value) end)
-
-  defp iso8601(%DateTime{} = value), do: DateTime.to_iso8601(value)
-  defp iso8601(_value), do: nil
 end

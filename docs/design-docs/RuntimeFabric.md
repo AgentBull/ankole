@@ -226,7 +226,6 @@ The runtimes generate codecs from the same file:
 - TypeScript uses `protoc-gen-es`.
 
 Generate committed TypeScript output with `bun run gen:proto`.
-A sidecar hash pins the source and generator inputs.
 
 The Rust kernel seals every envelope at the send boundary: a host supplies
 only the ids, the send time, and the body, and the kernel writes
@@ -242,8 +241,6 @@ it:
 - Turn and RPC envelopes require a correlation ID.
 - An RPC correlation ID must equal its request ID.
 - A turn reference must contain all turn-fence fields.
-- `turn_completed.final_response_id` must start with `resp_`.
-- `turn_completed.outcome` must be explicit.
 - A `turn_control` steer payload must be empty.
 - Worker progress must use an approved progress class.
 
@@ -265,16 +262,14 @@ without interpreting their business fields.
 
 Golden fixtures live under `app/kernel/proto/golden`.
 Rust, Elixir, and TypeScript decode the same fixture bytes.
-
-Tools can decode version 1 fixtures for diagnosis, but worker admission rejects
-version 1 messages.
+RPC fixtures cover the outer frame and representative typed and JSON payloads.
 
 ## Protocol Lanes and Durability Classes
 
 The Protobuf protocol uses four technical lanes:
 
 - `LANE_CONTROL` carries worker lifecycle and turn control.
-- `LANE_TURN` carries turn start, acceptance, no-op completion, and errors.
+- `LANE_TURN` carries turn start, mailbox updates, and acceptance.
 - `LANE_PROGRESS` carries progress observations.
 - `LANE_RPC` carries RPC requests and results.
 
@@ -297,16 +292,10 @@ The actor lane carries these common messages:
 - `turn_accepted`
 - `turn_control`
 - `worker_progress`
-- `turn_noop_completed`
-- `turn_error`
 
-`turn_completed`, `turn_noop_completed`, and `turn_error` remain accepted as
-rolling-deployment compatibility inputs. Current workers use the
-`actor_turn.complete`, `actor_turn.noop`, and `actor_turn.abort` RPCs. These
-compatibility inputs can be removed after all supported Workers use the three
-RPCs. They do not make mixed runtime versions a supported execution mode. A
-late old-Worker terminal input keeps user input durable, but an old Codex Worker
-can leave an applied steer open for one replay by the matching Worker.
+Workers finish turns through the `actor_turn.complete`, `actor_turn.noop`, and
+`actor_turn.abort` RPCs. A release runs one matching control-plane and Worker
+image pair; RuntimeFabric does not keep former terminal envelope variants.
 
 Worker capacity has one scheduling representation. `worker_ready`,
 `worker_heartbeat`, and `worker_capacity` carry integer `max_turns` and
@@ -349,8 +338,8 @@ supplied raw model.
 
 The Session workspace ID names `/agents/<agent-key>/sessions/<workspace-id>`.
 It starts at 10000 and stays stable for one `{agent_uid, session_id}` pair.
-Protocol version 4 requires this field so a mixed-version worker cannot create
-a different directory.
+The current protocol requires this field so each runtime resolves the same
+directory.
 
 Turn runtime environment names use the `ANKOLE_RUNTIME_` prefix. These values
 are not WorkerEnv configuration. The control plane derives them from the current
@@ -445,9 +434,9 @@ It injects a steer command into a running turn.
 `sent_or_queued` does not complete the command event. A normal text Turn sends
 `turn_accepted` only after the steer enters model input. A Background Agent Job
 sends it only after Codex accepts `turn/steer`. The accepted revision advances
-`R`. For an IM-visible text Turn, that exact acceptance also moves the live reply
-preview to the steer event. Before acceptance, the old preview owner continues
-to receive progress from the current model round.
+`R`. For a reply-eligible text Turn, that exact acceptance also moves the live
+reply preview to the steer event. Before acceptance, the old preview owner
+continues to receive progress from the current model round.
 
 If the Worker finishes first at an older revision, the control plane supersedes
 the newer delivery attempt. Its ActorEvent stays open and gets a new delivery in
@@ -546,10 +535,13 @@ Each contract row defines:
 - the request message type
 - the response message type
 
-Elixir keeps an explicit dispatch table because broker functions and request
-modules are control-plane implementation facts. Package-local tests compare the
-Bun projection and the Elixir table with the committed contract. The control
-plane encodes and decodes all business payloads in one place.
+Elixir keeps an explicit dispatch table because broker functions and generated
+request and response modules are control-plane implementation facts.
+Package-local tests compare the Bun projection and the Elixir table with the
+committed contract. The control plane encodes and decodes all business payloads
+in one place. It rejects a broker response struct whose module differs from the
+declared response module. It accepts a plain map only when the declared response
+module is `JSONPassthroughResponse`.
 
 Turn-scoped frames carry `ActorTurnRef` outside the payload.
 Worker-agent frames carry a trusted `agent_uid` outside the payload.
@@ -561,21 +553,19 @@ identity or request IDs.
 
 The registry currently contains these method families:
 
-- Agent conversation context.
-- Agent Plugin catalog.
+- Agent conversation context with one coherent Agent Plugin and Skill catalog.
 - Actor turn completion.
 - AIGateway API key resolution.
 - AppConfigure and WorkerEnv resolution.
 - Automation job management, execution, and event emission.
 - Best-effort Codex diagnostic log maintenance.
 - Background Agent Job lifecycle and trajectory.
-- Brain memory operations.
 - Schedule operations.
 - Signal channel ambient judgments and standing orders.
 - Installed Skill observations.
-- Skill overlay resolve, append, and replace operations.
+- Skill overlay resolve: the rendered skill-lesson block for a Skill set.
 
-Memory and schedule RPCs use `JSONPassthroughResponse`. The worker passes
+Schedule RPCs use `JSONPassthroughResponse`. The worker passes
 `body_json` to the model without changing its fields.
 
 The RPC lane does not carry conversation history or compaction commits.
@@ -751,15 +741,16 @@ metadata from `SKILL.md`; it does not contain a content hash or file inventory.
 PostgreSQL stores the current registry set. The worker keeps the files in the
 Agent Home and reads them when it prepares a run.
 
-The worker uses these overlay RPC methods:
+The worker reads per-Agent skill additions through one RPC method:
 
-- `skills.overlay.resolve` reads a complete requested Skill set in one batch.
-- `skills.overlay.append` appends one durable note.
-- `skills.overlay.replace` replaces the complete overlay.
+- `skills.overlay.resolve` reads the rendered skill-lesson block for a complete
+  requested Skill set in one batch. Lessons are written by Dreaming and the
+  Console only (see `docs/design-docs/SkillLessons.md`); the worker has no
+  overlay write methods.
 
 The resolve response contains exactly one entry for each unique requested name.
 The control plane synchronizes the Agent registry once and performs set reads
-for the Skill and overlay rows. A missing, disabled, invalid, or duplicate name
+for the Skill and lesson rows. A missing, disabled, invalid, or duplicate name
 rejects the whole request. The worker rejects a partial, duplicate, or
 unexpected response instead of materializing a mixed snapshot.
 

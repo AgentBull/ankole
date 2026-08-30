@@ -128,14 +128,113 @@ defmodule Ankole.AuthZ do
   def list_principal_group_memberships(principal_uid) do
     with {:ok, principal} <- Principals.get_principal(principal_uid) do
       groups =
-        Group
-        |> join(:inner, [group], membership in Membership, on: membership.group_id == group.id)
-        |> where([_group, membership], membership.principal_uid == ^principal.uid)
+        principal.uid
+        |> static_groups_query()
         |> order_by([group, _membership], asc: group.name)
         |> Repo.all()
 
       {:ok, groups}
     end
+  end
+
+  @doc """
+  Lists every group one Principal currently belongs to, including computed
+  groups, ordered by group name.
+
+  Membership is resolved against the current relations at call time: static
+  groups through their membership rows and computed groups through their CEL
+  condition. Brain audience scopes depend on this live resolution instead of
+  write-time snapshots.
+  """
+  @spec list_current_groups_for_principal(String.t()) :: {:ok, [Group.t()]} | {:error, term()}
+  def list_current_groups_for_principal(principal_uid) do
+    with {:ok, principal} <- Principals.get_principal(principal_uid) do
+      static = principal.uid |> static_groups_query() |> Repo.all()
+
+      computed =
+        Group
+        |> where([group], group.kind == :computed)
+        |> Repo.all()
+        |> Enum.filter(&computed_group_member?(principal, &1))
+
+      {:ok, Enum.sort_by(static ++ computed, & &1.name)}
+    end
+  end
+
+  @doc """
+  Returns whether a Principal currently belongs to one group.
+
+  Static groups check their membership rows; computed groups evaluate their
+  CEL condition against the current Principal.
+  """
+  @spec principal_in_group?(String.t(), Group.t()) :: boolean()
+  def principal_in_group?(principal_uid, %Group{kind: :static} = group) do
+    case Principals.normalize_uid(principal_uid) do
+      {:ok, uid} ->
+        Membership
+        |> where([membership], membership.group_id == ^group.id)
+        |> where([membership], membership.principal_uid == ^uid)
+        |> Repo.exists?()
+
+      {:error, _reason} ->
+        false
+    end
+  end
+
+  def principal_in_group?(principal_uid, %Group{kind: :computed} = group) do
+    case Principals.get_principal(principal_uid) do
+      {:ok, principal} -> computed_group_member?(principal, group)
+      {:error, _reason} -> false
+    end
+  end
+
+  @doc """
+  Returns whether every listed Principal currently belongs to one group.
+
+  A static group answers with one membership query over the whole list, so a
+  per-hit disclosure check over a large present-member set stays one round
+  trip; a computed group evaluates its CEL condition per Principal.
+  """
+  @spec all_in_group?([String.t()], Group.t()) :: boolean()
+  def all_in_group?([], %Group{}), do: true
+
+  def all_in_group?(principal_uids, %Group{kind: :static} = group) do
+    normalized =
+      for uid <- principal_uids, {:ok, normalized} <- [Principals.normalize_uid(uid)] do
+        normalized
+      end
+
+    if length(normalized) != length(principal_uids) do
+      false
+    else
+      unique = Enum.uniq(normalized)
+
+      matched =
+        Membership
+        |> where([membership], membership.group_id == ^group.id)
+        |> where([membership], membership.principal_uid in ^unique)
+        |> select([membership], count(membership.principal_uid, :distinct))
+        |> Repo.one()
+
+      matched == length(unique)
+    end
+  end
+
+  def all_in_group?(principal_uids, %Group{} = group) do
+    Enum.all?(principal_uids, &principal_in_group?(&1, group))
+  end
+
+  defp static_groups_query(principal_uid) do
+    Group
+    |> join(:inner, [group], membership in Membership, on: membership.group_id == group.id)
+    |> where([_group, membership], membership.principal_uid == ^principal_uid)
+  end
+
+  defp computed_group_member?(%Principal{} = principal, %Group{} = group) do
+    is_binary(group.computed_condition) and
+      principal
+      |> Snapshot.build_condition_preview_snapshot(group.id, group.computed_condition)
+      |> Decision.preview_computed_membership?(group.id)
   end
 
   @doc """
@@ -278,7 +377,9 @@ defmodule Ankole.AuthZ do
   end
 
   @doc false
-  @spec replace_static_group_members(String.t(), :directory | :im_group, [String.t()]) ::
+  @spec replace_static_group_members(String.t(), :directory | :im_group | :signal_source, [
+          String.t()
+        ]) ::
           {:ok, %{synced_principal_uids: [String.t()], removed_memberships: non_neg_integer()}}
           | {:error, term()}
   def replace_static_group_members(group_id, expected_domain, principal_uids)
@@ -289,12 +390,98 @@ defmodule Ankole.AuthZ do
   end
 
   @doc false
-  @spec clear_static_group_members(String.t(), :directory | :im_group) ::
+  @spec apply_static_group_member_delta(
+          String.t(),
+          :directory | :im_group | :signal_source,
+          [String.t()],
+          [String.t()]
+        ) ::
+          {:ok,
+           %{
+             added_principal_uids: [String.t()],
+             removed_principal_uids: [String.t()],
+             removed_memberships: non_neg_integer()
+           }}
+          | {:error, term()}
+  def apply_static_group_member_delta(group_id, expected_domain, added_uids, removed_uids)
+      when is_binary(group_id) and is_list(added_uids) and is_list(removed_uids) do
+    Repo.transact(fn repo ->
+      Store.apply_static_group_member_delta(
+        repo,
+        group_id,
+        expected_domain,
+        added_uids,
+        removed_uids
+      )
+    end)
+  end
+
+  @doc false
+  @spec clear_static_group_members(String.t(), :directory | :im_group | :signal_source) ::
           {:ok, %{removed_memberships: non_neg_integer()}} | {:error, term()}
   def clear_static_group_members(group_id, expected_domain) when is_binary(group_id) do
     Repo.transact(fn repo ->
       Store.clear_static_group_members(repo, group_id, expected_domain)
     end)
+  end
+
+  @doc """
+  Ensures a convention-named synced group exists and the principal is a member.
+
+  `group_attrs` must carry `:name`, `:display_name`, `:domain`, and optional
+  `:metadata`. Membership only accumulates here; removal stays with the flow
+  that owns the group's lifecycle.
+  """
+  @spec ensure_synced_group_member(map(), String.t()) :: :ok | {:error, term()}
+  def ensure_synced_group_member(group_attrs, principal_uid)
+      when is_map(group_attrs) and is_binary(principal_uid) do
+    with {:ok, uid} <- Principals.normalize_uid(principal_uid) do
+      case synced_member?(Map.fetch!(group_attrs, :name), Map.fetch!(group_attrs, :domain), uid) do
+        true ->
+          :ok
+
+        false ->
+          # The caller's requested domain, not the fetched group's own:
+          # `ensure_synced_group` is fetch-or-create by name, so a
+          # pre-existing same-named group of another domain must fail the
+          # domain check as `{:error, :group_domain_mismatch}` — passing
+          # `group.domain` back in would make that check a tautology (and a
+          # non-synced domain would miss `add_synced_group_member`'s guard
+          # and raise out of the transaction).
+          Repo.transact(fn repo ->
+            with {:ok, group} <- Store.ensure_synced_group(repo, group_attrs),
+                 {:ok, _membership} <-
+                   Store.add_synced_group_member(
+                     repo,
+                     group.id,
+                     Map.fetch!(group_attrs, :domain),
+                     uid
+                   ) do
+              {:ok, :added}
+            end
+          end)
+          |> case do
+            {:ok, :added} -> :ok
+            {:error, _reason} = error -> error
+          end
+      end
+    end
+  end
+
+  # Domain-qualified on purpose: a membership in a same-named group of
+  # another domain must not satisfy this check — it falls through to the
+  # transaction, whose domain assertion rejects the collision.
+  defp synced_member?(group_name, domain, principal_uid) do
+    name = String.downcase(group_name)
+
+    Repo.exists?(
+      from membership in Membership,
+        join: group in Group,
+        on: group.id == membership.group_id,
+        where:
+          group.name == ^name and group.domain == ^domain and
+            membership.principal_uid == ^principal_uid
+    )
   end
 
   @doc """
@@ -334,9 +521,11 @@ defmodule Ankole.AuthZ do
   """
   @spec delete_permission_grant(String.t()) :: {:ok, Grant.t()} | {:error, term()}
   def delete_permission_grant(id) do
-    case Repo.get(Grant, id) do
-      %Grant{} = grant -> Repo.delete(grant)
-      nil -> {:error, :not_found}
+    with {:ok, id} <- Ecto.UUID.cast(id),
+         %Grant{} = grant <- Repo.get(Grant, id) do
+      Repo.delete(grant)
+    else
+      _not_found -> {:error, :not_found}
     end
   end
 
@@ -442,6 +631,12 @@ defmodule Ankole.AuthZ do
   """
   @spec root_init_admin(String.t()) :: {:ok, map()} | {:error, term()}
   defdelegate root_init_admin(principal_uid), to: Root
+
+  @doc false
+  @spec root_init_admin(String.t(), term()) :: {:ok, map()} | {:error, term()}
+  def root_init_admin(principal_uid, repo) do
+    Root.root_init_admin(repo, principal_uid)
+  end
 
   @doc """
   Ensures disabling a Principal will not strand the installation without a root admin.

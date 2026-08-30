@@ -1,4 +1,5 @@
 defmodule AnkoleWeb.AIGatewayProviderController do
+  alias Ankole.Attrs
   alias OpenApiSpex, as: OpenAPISpex
 
   @moduledoc """
@@ -272,7 +273,10 @@ defmodule AnkoleWeb.AIGatewayProviderController do
     with {:ok, provider_id} <- provider_id_param(params),
          :ok <- ConsolePolicy.authorize(conn, "ai_gateway_provider:#{provider_id}", "update"),
          {:ok, provider} <-
-           ProviderConfigs.add_credential(provider_id, normalize_external_attrs(conn.body_params)) do
+           ProviderConfigs.add_credential(
+             provider_id,
+             Attrs.normalize_external_attrs(conn.body_params)
+           ) do
       render_provider(conn, provider)
     else
       {:error, reason} -> error(conn, reason)
@@ -287,7 +291,7 @@ defmodule AnkoleWeb.AIGatewayProviderController do
            ProviderConfigs.update_credential(
              provider_id,
              credential_id,
-             normalize_external_attrs(conn.body_params)
+             Attrs.normalize_external_attrs(conn.body_params)
            ) do
       render_provider(conn, provider)
     else
@@ -322,7 +326,7 @@ defmodule AnkoleWeb.AIGatewayProviderController do
     with {:ok, provider_id} <- provider_id_param(params),
          :ok <- ConsolePolicy.authorize(conn, "ai_gateway_provider:#{provider_id}", "update"),
          {:ok, login} <-
-           ChatGPTAuth.start_login(provider_id, normalize_external_attrs(conn.body_params)) do
+           ChatGPTAuth.start_login(provider_id, Attrs.normalize_external_attrs(conn.body_params)) do
       json(conn, login)
     else
       {:error, reason} -> error(conn, reason)
@@ -359,7 +363,7 @@ defmodule AnkoleWeb.AIGatewayProviderController do
          {:ok, provider} <-
            ChatGPTAuth.add_enterprise_credential(
              provider_id,
-             normalize_external_attrs(conn.body_params)
+             Attrs.normalize_external_attrs(conn.body_params)
            ) do
       render_provider(conn, provider)
     else
@@ -383,7 +387,7 @@ defmodule AnkoleWeb.AIGatewayProviderController do
   # that disagrees with the path is rejected, so a PUT can never silently target a
   # different provider than the one named in its URL.
   defp provider_attrs(provider_id, attrs) when is_map(attrs) do
-    attrs = normalize_external_attrs(attrs)
+    attrs = Attrs.normalize_external_attrs(attrs)
 
     case Map.get(attrs, "provider_id") do
       nil ->
@@ -457,13 +461,6 @@ defmodule AnkoleWeb.AIGatewayProviderController do
 
   defp normalize_provider_id(_value), do: {:error, :blank_id}
 
-  defp normalize_external_attrs(attrs) do
-    Map.new(attrs, fn
-      {key, value} when is_atom(key) -> {Atom.to_string(key), value}
-      {key, value} -> {key, value}
-    end)
-  end
-
   defp render_provider(conn, provider) do
     json(conn, %{ai_gateway_provider: ProviderConfigs.projection(provider)})
   end
@@ -500,11 +497,223 @@ defmodule AnkoleWeb.AIGatewayProviderController do
     error(conn, 422, "provider_id_mismatch", "body provider_id must match the path provider_id")
   end
 
-  defp error(conn, reason) do
-    error(conn, 422, "invalid_value", "AIGateway provider configuration is invalid", [
-      %{reason: inspect(reason)}
+  # ChatGPT sign-in and refresh failures carry the real upstream response, so
+  # the operator sees the actual rejection instead of a configuration message.
+  defp error(conn, {:device_login_failed, status, code}) do
+    error(
+      conn,
+      422,
+      "chatgpt_login_rejected",
+      "ChatGPT sign-in was rejected by the sign-in service (#{upstream_label(status, code)})",
+      [%{upstream_status: status, upstream_code: code}]
+    )
+  end
+
+  defp error(conn, {:token_exchange_failed, status, code}) do
+    error(
+      conn,
+      422,
+      "chatgpt_login_rejected",
+      "ChatGPT token exchange was rejected by the sign-in service (#{upstream_label(status, code)})",
+      [%{upstream_status: status, upstream_code: code}]
+    )
+  end
+
+  defp error(conn, :invalid_device_login_response) do
+    error(
+      conn,
+      422,
+      "chatgpt_login_rejected",
+      "the ChatGPT sign-in service returned an unexpected device-login response"
+    )
+  end
+
+  defp error(conn, {:request_failed, reason}) do
+    error(
+      conn,
+      422,
+      "chatgpt_login_unreachable",
+      "the ChatGPT sign-in service was unreachable (#{transport_label(reason)})",
+      [%{transport: transport_label(reason)}]
+    )
+  end
+
+  defp error(conn, {:oauth_denied, code}) do
+    error(conn, 422, "chatgpt_login_denied", "the ChatGPT account denied the sign-in request", [
+      %{upstream_code: code}
     ])
   end
+
+  defp error(conn, :login_expired) do
+    error(conn, 422, "chatgpt_login_expired", "the ChatGPT sign-in expired; start it again")
+  end
+
+  defp error(conn, :oauth_state_mismatch) do
+    error(
+      conn,
+      422,
+      "chatgpt_login_invalid",
+      "the pasted callback URL belongs to a different sign-in attempt"
+    )
+  end
+
+  defp error(conn, :invalid_device_pkce) do
+    error(conn, 422, "chatgpt_login_invalid", "the device sign-in context failed verification")
+  end
+
+  defp error(conn, :invalid_callback_url) do
+    error(conn, 422, "validation_failed", "callback_url is not a valid URL")
+  end
+
+  defp error(conn, :invalid_login_context) do
+    error(conn, 422, "validation_failed", "login_context is invalid; start the sign-in again")
+  end
+
+  defp error(conn, :credential_not_refreshable) do
+    error(
+      conn,
+      422,
+      "credential_not_refreshable",
+      "this credential holds no refresh token; sign in again to replace it"
+    )
+  end
+
+  defp error(conn, {:chatgpt_refresh_permanent, code}) do
+    error(
+      conn,
+      422,
+      "chatgpt_refresh_failed",
+      "ChatGPT credential refresh was rejected (#{code}); sign in again",
+      [%{upstream_code: code}]
+    )
+  end
+
+  defp error(conn, {:chatgpt_refresh_transient, status, _headers, code}) do
+    error(
+      conn,
+      422,
+      "chatgpt_refresh_failed",
+      "ChatGPT credential refresh failed (#{upstream_label(status, code)}); retry later",
+      [%{upstream_status: status, upstream_code: code}]
+    )
+  end
+
+  defp error(conn, :provider_not_chatgpt_subscription) do
+    error(
+      conn,
+      422,
+      "validation_failed",
+      "this provider is not a ChatGPT subscription provider"
+    )
+  end
+
+  defp error(conn, :login_issuer_changed) do
+    error(
+      conn,
+      422,
+      "chatgpt_login_invalid",
+      "the provider's sign-in issuer changed; start the sign-in again"
+    )
+  end
+
+  defp error(conn, reason) when reason in [:invalid_jwt, :invalid_jwt_expiration] do
+    error(
+      conn,
+      422,
+      "chatgpt_login_rejected",
+      "the ChatGPT sign-in service returned an invalid token"
+    )
+  end
+
+  defp error(conn, :invalid_device_poll_interval) do
+    error(conn, 422, "validation_failed", "login_context is invalid; start the sign-in again")
+  end
+
+  defp error(conn, :blank_id) do
+    error(conn, 422, "validation_failed", "provider_id is required")
+  end
+
+  defp error(conn, {:invalid_credential_entry, credential_id}) do
+    error(
+      conn,
+      422,
+      "invalid_value",
+      "a stored credential entry is invalid; sign in again to replace it",
+      [
+        %{credential_id: credential_id}
+      ]
+    )
+  end
+
+  defp error(conn, {:invalid_credential_payload, credential_id}) do
+    error(
+      conn,
+      422,
+      "invalid_value",
+      "a stored credential cannot be read; sign in again to replace it",
+      [
+        %{credential_id: credential_id}
+      ]
+    )
+  end
+
+  defp error(conn, {:credential_decrypt_failed, credential_id, _reason}) do
+    error(
+      conn,
+      422,
+      "invalid_value",
+      "a stored credential cannot be decrypted; sign in again to replace it",
+      [
+        %{credential_id: credential_id}
+      ]
+    )
+  end
+
+  # Known configuration reasons keep the established envelope but name the
+  # rejected rule; anything unlisted logs as a server-side gap.
+  defp error(conn, reason) do
+    case config_reason_label(reason) do
+      nil ->
+        ConsoleErrors.unexpected(conn, "ai_gateway.provider_api.unexpected_error", reason)
+
+      label ->
+        error(conn, 422, "invalid_value", "AIGateway provider configuration is invalid: #{label}")
+    end
+  end
+
+  defp upstream_label(nil, code), do: "#{code || "unknown error"}"
+  defp upstream_label(status, nil), do: "HTTP #{status}"
+  defp upstream_label(status, code), do: "HTTP #{status}, #{code}"
+
+  defp transport_label(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp transport_label(reason) when is_binary(reason), do: reason
+  defp transport_label(_reason), do: "transport_error"
+
+  @config_reason_labels %{
+    unknown_ai_gateway_provider: "the provider kind is unknown",
+    provider_disabled: "the provider is disabled",
+    invalid_provider_id: "provider_id is invalid",
+    invalid_auth_issuer: "the configured auth issuer is not a valid URL",
+    provider_id_immutable: "provider_id cannot change after creation",
+    invalid_credential_pool: "the credential pool is invalid",
+    invalid_credential_pool_strategy: "the credential selection strategy is unknown",
+    invalid_credential_entry: "a credential entry is invalid",
+    invalid_credential_update: "the credential update is invalid",
+    invalid_credential_disabled_at: "disabled_at is not a valid timestamp",
+    duplicate_credential_id: "a credential with this id already exists",
+    credential_id_immutable: "a credential id cannot change",
+    credential_field_removed: "a stored credential field cannot be removed",
+    credential_fields_required: "the credential is missing required fields",
+    missing_base_url: "the provider has no base URL"
+  }
+
+  defp config_reason_label(reason) when is_atom(reason),
+    do: Map.get(@config_reason_labels, reason)
+
+  defp config_reason_label({:credential_entry_unknown_keys, keys}),
+    do: "a credential entry carries unknown keys: #{Enum.join(keys, ", ")}"
+
+  defp config_reason_label(_reason), do: nil
 
   defp error(conn, status, code, message, details \\ []) do
     ConsoleErrors.render(conn, status, code, message, details)

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { create } from '@bufbuild/protobuf'
 import { createSkillTools } from '../src/tools/library/skill-tools'
-import { jsonBytes, jsonObjectFromBytes } from '../src/fabric/envelope_proto'
+import { jsonBytes } from '../src/fabric/envelope_proto'
 import {
   RuntimeSkillSummarySchema,
   SkillOverlayResolveResponseSchema,
@@ -12,6 +12,7 @@ import {
 } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import { rpcMethods, type RPCRequester } from '../src/lanes/rpc_lane'
 import type { ActorTurnRef } from '../src/lanes/actor_lane'
+import { createSkillLoader } from '../src/skills/skill-loader'
 
 const testTurn: ActorTurnRef = {
   actor: { agent_uid: 'agent-1', session_id: 'session-1' },
@@ -34,7 +35,7 @@ function overlayResolveRPC(text?: string): RPCRequester {
         create(SkillOverlayResponseSchema, {
           skillName,
           hasOverlay: Boolean(text),
-          overlayJson: jsonBytes(text ? { text } : {}),
+          text: text ?? '',
           contentHash: 'overlay-hash'
         })
       )
@@ -43,12 +44,11 @@ function overlayResolveRPC(text?: string): RPCRequester {
 }
 
 describe('@ankole/agent-computer skill tools', () => {
-  it('describes skill work by name without exposing file paths or update content', () => {
-    const tools = createSkillTools('/agents/agent-1/sessions/session-1', { turn: testTurn, rpc: unusedRPC })
-    const view = tools.find(tool => tool.name === 'skill_view')!
-    const append = tools.find(tool => tool.name === 'skill_append')!
-    const replace = tools.find(tool => tool.name === 'skill_replace')!
+  it('exposes only skill_view and describes skill work by name without exposing file paths', () => {
+    const tools = createSkillTools({ turn: testTurn, rpc: unusedRPC })
+    expect(tools.map(tool => tool.name)).toEqual(['skill_view'])
 
+    const view = tools[0]!
     const viewActivity = view.describeActivity(
       view.schema.parse({ name: 'openai-docs', filePath: 'references/private/internal.md' })
     )
@@ -56,14 +56,6 @@ describe('@ankole/agent-computer skill tools', () => {
       key: 'signals_gateway.reply.activity.skill_load',
       bindings: { name: 'openai-docs' }
     })
-
-    for (const tool of [append, replace]) {
-      const activity = tool.describeActivity(tool.schema.parse({ name: 'openai-docs', content: 'do-not-leak' }))
-      expect(activity).toEqual({
-        key: 'signals_gateway.reply.activity.skill_update',
-        bindings: { name: 'openai-docs' }
-      })
-    }
   })
 
   it('skill_view reads internal builtin skills and renders the skill directory attribute', async () => {
@@ -80,7 +72,7 @@ describe('@ankole/agent-computer skill tools', () => {
         ['---', 'name: nano-pdf', 'description: Internal PDF skill.', '---', '', '# Internal nano-pdf', ''].join('\n')
       )
 
-      const tools = createSkillTools('/agents/agent-1/sessions/session-1', {
+      const tools = createSkillTools({
         turn: testTurn,
         rpc: overlayResolveRPC(),
         enabledSkills: [
@@ -125,7 +117,7 @@ describe('@ankole/agent-computer skill tools', () => {
         ['---', 'name: nano-pdf', 'description: Internal PDF skill.', '---', '', '# Internal nano-pdf', ''].join('\n')
       )
 
-      const tools = createSkillTools('/agents/agent-1/sessions/session-1', {
+      const tools = createSkillTools({
         turn: testTurn,
         rpc: overlayResolveRPC(),
         enabledSkills: [
@@ -160,7 +152,6 @@ describe('@ankole/agent-computer skill tools', () => {
     const root = join(tmpdir(), `ankole-skill-tools-long-${Date.now()}-${Math.random()}`)
     const builtinRoot = join(root, 'library')
     let overlayReads = 0
-    let overlayWrites = 0
     try {
       writeFileSyncWithParents(
         join(builtinRoot, 'long-report', 'SKILL.md'),
@@ -168,7 +159,7 @@ describe('@ankole/agent-computer skill tools', () => {
       )
       writeFileSyncWithParents(join(builtinRoot, 'long-report', 'references', 'private.md'), 'private reference')
 
-      const tools = createSkillTools('/agents/agent-1/sessions/session-1', {
+      const tools = createSkillTools({
         turn: testTurn,
         enabledSkills: [
           create(RuntimeSkillSummarySchema, {
@@ -190,14 +181,13 @@ describe('@ankole/agent-computer skill tools', () => {
                 create(SkillOverlayResponseSchema, {
                   skillName: 'long-report',
                   hasOverlay: true,
-                  overlayJson: jsonBytes({ text: 'private overlay' }),
+                  text: 'private overlay',
                   contentHash: 'overlay-hash'
                 })
               ]
             })
           }
-          overlayWrites += 1
-          throw new Error('unexpected background-job Skill overlay write')
+          throw new Error('unexpected background-job Skill RPC')
         }) as RPCRequester
       })
 
@@ -210,22 +200,129 @@ describe('@ankole/agent-computer skill tools', () => {
       expect(text).not.toContain('private overlay')
       expect(text).not.toContain('skill://')
       expect(text).not.toContain('directory=')
-      expect(overlayReads).toBe(0)
+      expect(overlayReads).toBe(1)
 
       await expect(
         tool.execute('call-long-reference', { name: 'long-report', filePath: 'references/private.md' })
       ).rejects.toThrow('available only inside a background agent job')
+      expect(overlayReads).toBe(1)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
 
-      const append = tools.find(candidate => candidate.name === 'skill_append')!
-      const replace = tools.find(candidate => candidate.name === 'skill_replace')!
+  it('Background Job skill_view fully loads a brain-recall-only Skill through the shared loader', async () => {
+    const root = join(tmpdir(), `ankole-skill-tools-background-${Date.now()}-${Math.random()}`)
+    const builtinRoot = join(root, 'library')
+    const loadedNames: string[] = []
+    try {
+      writeFileSyncWithParents(
+        join(builtinRoot, 'voice-drafting-method', 'SKILL.md'),
+        [
+          '---',
+          'name: voice-drafting-method',
+          'description: Draft in a specific voice.',
+          '---',
+          '',
+          '# Full voice drafting method',
+          ''
+        ].join('\n')
+      )
+      writeFileSyncWithParents(
+        join(builtinRoot, 'voice-drafting-method', 'references', 'examples.md'),
+        '# Voice examples'
+      )
+      const skill = create(RuntimeSkillSummarySchema, {
+        skillName: 'voice-drafting-method',
+        sourceKind: 'builtin',
+        relativePath: 'voice-drafting-method',
+        metadataJson: jsonBytes({ 'ankole-runtime': 'background_job', brain_recall_only: true })
+      })
+      const loader = createSkillLoader({
+        turn: testTurn,
+        enabledSkills: [skill],
+        skillRoots: {
+          builtinSkillsRoot: builtinRoot,
+          agentInstalledSkillsRoot: join(root, 'installed')
+        },
+        rpc: overlayResolveRPC('Use the preferred cadence.'),
+        runtime: 'background_job',
+        onSkillLoaded: name => loadedNames.push(name)
+      })
+      const tool = createSkillTools({ turn: testTurn, rpc: unusedRPC, loader })[0]!
+
+      const instructions = await tool.execute('call-background', { name: 'voice-drafting-method' })
+      const reference = await tool.execute('call-background-reference', {
+        name: 'voice-drafting-method',
+        filePath: 'references/examples.md'
+      })
+      const instructionText = instructions.content[0]?.type === 'text' ? instructions.content[0].text : ''
+      const referenceText = reference.content[0]?.type === 'text' ? reference.content[0].text : ''
+
+      expect(instructionText).toContain('# Full voice drafting method')
+      expect(instructionText).toContain('Use the preferred cadence.')
+      expect(instructionText).not.toContain('create_background_job')
+      expect(referenceText).toContain('# Voice examples')
+      expect(loadedNames).toEqual(['voice-drafting-method', 'voice-drafting-method'])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('skill_view rechecks effective enablement before reading a referenced file mid-turn', async () => {
+    const root = join(tmpdir(), `ankole-skill-tools-disable-${Date.now()}-${Math.random()}`)
+    const builtinRoot = join(root, 'library')
+    const referencePath = join(builtinRoot, 'voice-drafting-method', 'references', 'examples.md')
+    let enabled = true
+
+    try {
+      writeFileSyncWithParents(
+        join(builtinRoot, 'voice-drafting-method', 'SKILL.md'),
+        ['---', 'name: voice-drafting-method', 'description: Draft in a specific voice.', '---', ''].join('\n')
+      )
+      writeFileSyncWithParents(referencePath, '# Voice examples')
+
+      const tool = createSkillTools({
+        turn: testTurn,
+        enabledSkills: [
+          create(RuntimeSkillSummarySchema, {
+            skillName: 'voice-drafting-method',
+            sourceKind: 'builtin',
+            relativePath: 'voice-drafting-method'
+          })
+        ],
+        skillRoots: {
+          builtinSkillsRoot: builtinRoot,
+          agentInstalledSkillsRoot: join(root, 'installed')
+        },
+        rpc: (async () => {
+          if (!enabled) throw new Error('skill_not_enabled')
+          return create(SkillOverlayResolveResponseSchema, {
+            overlays: [
+              create(SkillOverlayResponseSchema, {
+                skillName: 'voice-drafting-method',
+                hasOverlay: false
+              })
+            ]
+          })
+        }) as RPCRequester
+      })[0]!
+
+      const first = await tool.execute('call-reference-enabled', {
+        name: 'voice-drafting-method',
+        filePath: 'references/examples.md'
+      })
+      expect(first.content[0]?.type === 'text' ? first.content[0].text : '').toContain('# Voice examples')
+
+      enabled = false
+      rmSync(referencePath)
+
       await expect(
-        append.execute('call-long-append', { name: 'long-report', content: 'blind append' })
-      ).rejects.toThrow('available only inside a background agent job')
-      await expect(
-        replace.execute('call-long-replace', { name: 'long-report', content: 'blind replacement' })
-      ).rejects.toThrow('available only inside a background agent job')
-      expect(overlayReads).toBe(0)
-      expect(overlayWrites).toBe(0)
+        tool.execute('call-reference-disabled', {
+          name: 'voice-drafting-method',
+          filePath: 'references/examples.md'
+        })
+      ).rejects.toThrow('skill_not_enabled')
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
@@ -252,7 +349,7 @@ describe('@ankole/agent-computer skill tools', () => {
       writeFileSync(outsideFile, 'must not be readable')
       symlinkSync(outsideFile, join(skillRoot, 'escaped.txt'))
 
-      const tools = createSkillTools('/agents/agent-1/sessions/session-1', {
+      const tools = createSkillTools({
         turn,
         enabledSkills: [
           create(RuntimeSkillSummarySchema, {
@@ -285,150 +382,6 @@ describe('@ankole/agent-computer skill tools', () => {
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
-  })
-
-  it('skill_append sends one atomic append request to the control plane', async () => {
-    const turn: ActorTurnRef = {
-      actor: { agent_uid: 'agent-1', session_id: 'session-1' },
-      activation_uid: 'activation-1',
-      actor_epoch: 1,
-      actor_event_id: '00000000-0000-0000-0000-000000000001',
-      revision: 0
-    }
-    const writes: unknown[] = []
-
-    const tools = createSkillTools('/agents/agent-1/sessions/session-1', {
-      turn,
-      enabledSkills: [
-        create(RuntimeSkillSummarySchema, { skillName: 'nano-pdf', sourceKind: 'builtin', relativePath: 'nano-pdf' })
-      ],
-      rpc: (async (method: unknown, payload: unknown) => {
-        expect(method).toBe(rpcMethods.skillsOverlayAppend)
-        const request = payload as { skillName: string; content: string }
-        writes.push(request)
-        return create(SkillOverlayResponseSchema, {
-          skillName: request.skillName,
-          hasOverlay: true,
-          overlayJson: jsonBytes({ text: 'Prefer page-by-page verification.\n\nUse render output as final evidence.' }),
-          contentHash: 'hash-2'
-        })
-      }) as RPCRequester
-    })
-
-    const tool = tools.find(candidate => candidate.name === 'skill_append')
-    expect(tool).toBeTruthy()
-
-    await tool!.execute('call-1', {
-      name: 'nano-pdf',
-      content: 'Use render output as final evidence.'
-    })
-
-    expect(writes).toHaveLength(1)
-    expect(writes[0]).toMatchObject({
-      skillName: 'nano-pdf',
-      content: 'Use render output as final evidence.'
-    })
-  })
-
-  it('skill_append creates the overlay text when no overlay exists yet', async () => {
-    const turn: ActorTurnRef = {
-      actor: { agent_uid: 'agent-1', session_id: 'session-1' },
-      activation_uid: 'activation-1',
-      actor_epoch: 1,
-      actor_event_id: '00000000-0000-0000-0000-000000000002',
-      revision: 0
-    }
-    const writes: unknown[] = []
-
-    const tools = createSkillTools('/agents/agent-1/sessions/session-1', {
-      turn,
-      enabledSkills: [
-        create(RuntimeSkillSummarySchema, { skillName: 'nano-pdf', sourceKind: 'builtin', relativePath: 'nano-pdf' })
-      ],
-      rpc: (async (method: unknown, payload: unknown) => {
-        expect(method).toBe(rpcMethods.skillsOverlayAppend)
-        const request = payload as { skillName: string; content: string }
-        writes.push(request)
-        return create(SkillOverlayResponseSchema, {
-          skillName: request.skillName,
-          hasOverlay: true,
-          overlayJson: jsonBytes({ text: request.content }),
-          contentHash: 'hash-1'
-        })
-      }) as RPCRequester
-    })
-
-    const tool = tools.find(candidate => candidate.name === 'skill_append')
-    expect(tool).toBeTruthy()
-
-    await tool!.execute('call-1', {
-      name: 'nano-pdf',
-      content: 'Create the first overlay note.'
-    })
-
-    expect(writes).toHaveLength(1)
-    expect(writes[0]).toMatchObject({
-      skillName: 'nano-pdf',
-      content: 'Create the first overlay note.'
-    })
-  })
-
-  it('skill_replace resolves the latest hash and sends a compare-and-swap replacement', async () => {
-    const turn: ActorTurnRef = {
-      actor: { agent_uid: 'agent-1', session_id: 'session-1' },
-      activation_uid: 'activation-1',
-      actor_epoch: 1,
-      actor_event_id: '00000000-0000-0000-0000-000000000004',
-      revision: 0
-    }
-    const writes: unknown[] = []
-    const tools = createSkillTools('/agents/agent-1/sessions/session-1', {
-      turn,
-      enabledSkills: [
-        create(RuntimeSkillSummarySchema, { skillName: 'nano-pdf', sourceKind: 'builtin', relativePath: 'nano-pdf' })
-      ],
-      rpc: (async (method: unknown, payload: unknown) => {
-        if (method === rpcMethods.skillsOverlayResolve) {
-          const request = payload as { skillNames: string[] }
-          return create(SkillOverlayResolveResponseSchema, {
-            overlays: request.skillNames.map(skillName =>
-              create(SkillOverlayResponseSchema, {
-                skillName,
-                hasOverlay: true,
-                overlayJson: jsonBytes({ text: 'Old duplicated notes.' }),
-                contentHash: 'current-hash'
-              })
-            )
-          })
-        }
-        expect(method).toBe(rpcMethods.skillsOverlayReplace)
-        const request = payload as { skillName: string; overlayJson?: Uint8Array }
-        writes.push(request)
-        return create(SkillOverlayResponseSchema, {
-          skillName: request.skillName,
-          hasOverlay: true,
-          overlayJson: request.overlayJson ?? new Uint8Array(0),
-          contentHash: 'replacement-hash'
-        })
-      }) as RPCRequester
-    })
-
-    const tool = tools.find(candidate => candidate.name === 'skill_replace')!
-    await tool.execute('call-replace', {
-      name: 'nano-pdf',
-      content: 'One concise current lesson.'
-    })
-
-    expect(writes).toHaveLength(1)
-    expect(writes[0]).toMatchObject({
-      skillName: 'nano-pdf',
-      content: 'One concise current lesson.',
-      expectedContentHash: 'current-hash'
-    })
-    const replaceWrite = writes[0] as { overlayJson: Uint8Array }
-    expect(jsonObjectFromBytes(replaceWrite.overlayJson, 'overlay_json')).toEqual({
-      text: 'One concise current lesson.'
-    })
   })
 })
 

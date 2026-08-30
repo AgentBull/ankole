@@ -1,5 +1,5 @@
 defmodule FeishuOpenAPI.UserTokenManagerTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias FeishuOpenAPI.{Client, TokenStore, UserTokenManager}
 
@@ -311,6 +311,66 @@ defmodule FeishuOpenAPI.UserTokenManagerTest do
 
     assert {:error, %FeishuOpenAPI.Error{code: :user_refresh_start_failed}} =
              UserTokenManager.get(client, user_key)
+  end
+
+  test "a killed refresh task releases waiters and permits a retry", %{
+    client: client,
+    user_key: user_key
+  } do
+    parent = self()
+
+    :ok =
+      UserTokenManager.put(client, user_key, %{
+        access_token: "u-old",
+        refresh_token: "refresh-killed-task",
+        token_type: "Bearer",
+        expires_in: 1,
+        refresh_expires_in: 2_592_000,
+        raw: %{}
+      })
+
+    Req.Test.stub(FeishuOpenAPI.UserTokenManagerTest, fn conn ->
+      case conn.request_path do
+        "/open-apis/auth/v3/tenant_access_token/internal" ->
+          tenant_token(conn)
+
+        "/open-apis/authen/v1/oidc/refresh_access_token" ->
+          send(parent, {:user_refresh_started, self()})
+
+          receive do
+            :finish_user_refresh ->
+              Req.Test.json(conn, %{
+                "code" => 0,
+                "data" => %{
+                  "access_token" => "u-after-retry",
+                  "refresh_token" => "refresh-after-retry",
+                  "token_type" => "Bearer",
+                  "expires_in" => 7200,
+                  "refresh_expires_in" => 2_592_000
+                }
+              })
+          end
+      end
+    end)
+
+    :ok =
+      Req.Test.allow(
+        FeishuOpenAPI.UserTokenManagerTest,
+        self(),
+        Process.whereis(UserTokenManager)
+      )
+
+    first = Task.async(fn -> UserTokenManager.get(client, user_key) end)
+    assert_receive {:user_refresh_started, fetch_pid}, 1_000
+    Process.exit(fetch_pid, :kill)
+
+    assert {:error, %FeishuOpenAPI.Error{code: :user_refresh_crashed}} =
+             Task.await(first, 1_000)
+
+    second = Task.async(fn -> UserTokenManager.get(client, user_key) end)
+    assert_receive {:user_refresh_started, retry_pid}, 1_000
+    send(retry_pid, :finish_user_refresh)
+    assert {:ok, "u-after-retry"} = Task.await(second, 1_000)
   end
 
   test "concurrent refreshes on different keys proceed in parallel", %{client: client} do

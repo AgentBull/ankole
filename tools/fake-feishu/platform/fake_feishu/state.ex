@@ -46,7 +46,8 @@ defmodule FakeFeishu.State do
             faults: %{},
             acks: %{},
             ping_count: 0,
-            seq: 0
+            seq: 0,
+            run_token: nil
 
   # -- lifecycle -------------------------------------------------------------
 
@@ -59,6 +60,7 @@ defmodule FakeFeishu.State do
     {:ok,
      %__MODULE__{
        owner: Keyword.fetch!(opts, :owner),
+       run_token: Base.encode16(:crypto.strong_rand_bytes(3), case: :lower),
        auto_register_apps: Keyword.get(opts, :auto_register_apps, false),
        cardkit_enabled: Keyword.get(opts, :cardkit_enabled, false),
        client_config: Map.merge(@default_client_config, Keyword.get(opts, :client_config, %{}))
@@ -209,6 +211,9 @@ defmodule FakeFeishu.State do
   @doc "Invalidates every issued tenant token so the next Bearer check fails."
   def expire_tokens(state), do: GenServer.call(state, :expire_tokens)
 
+  @doc "Returns the per-boot run token that namespaces every generated id."
+  def run_token(state), do: GenServer.call(state, :run_token)
+
   @doc """
   Arms a one-shot fault for one server op. Ops: `:ws_endpoint`, `:tenant_token`,
   `:post_message`, `:reply_message`, `:edit_message`, `:delete_message`,
@@ -250,11 +255,14 @@ defmodule FakeFeishu.State do
   def bot_delete_message(state, target_id),
     do: GenServer.call(state, {:bot_delete_message, target_id})
 
-  def bot_add_reaction(state, target_id, emoji_type),
-    do: GenServer.call(state, {:bot_add_reaction, target_id, emoji_type})
+  def bot_add_reaction(state, target_id, emoji_type, app_id),
+    do: GenServer.call(state, {:bot_add_reaction, target_id, emoji_type, app_id})
 
   def bot_remove_reaction(state, target_id, reaction_id),
     do: GenServer.call(state, {:bot_remove_reaction, target_id, reaction_id})
+
+  def list_reactions(state, message_id, reaction_type),
+    do: GenServer.call(state, {:list_reactions, message_id, reaction_type})
 
   def get_message(state, message_id), do: GenServer.call(state, {:get_message, message_id})
 
@@ -380,7 +388,7 @@ defmodule FakeFeishu.State do
         attrs =
           attrs
           |> Keyword.put(:chat_id, chat_id)
-          |> Keyword.put_new_lazy(:event_id, fn -> generated_event_id() end)
+          |> Keyword.put_new_lazy(:event_id, fn -> generated_event_id(state) end)
           |> Keyword.put(:before_name, before_name)
           |> Keyword.put(:after_name, chat.name)
 
@@ -445,7 +453,7 @@ defmodule FakeFeishu.State do
       emoji_type = Keyword.fetch!(attrs, :emoji_type)
 
       reaction = %{
-        id: "r_fake_#{seq}",
+        id: minted_id(state, "r_fake", seq),
         key: emoji_type,
         operator_open_id: Keyword.get(attrs, :operator_open_id, "ou_open_alice")
       }
@@ -509,7 +517,7 @@ defmodule FakeFeishu.State do
          targets when targets != [] <- target_conns(state, attrs) do
       attrs =
         attrs
-        |> Keyword.put_new_lazy(:event_id, fn -> generated_event_id() end)
+        |> Keyword.put_new_lazy(:event_id, fn -> generated_event_id(state) end)
         |> Keyword.put(:frame_type, "card")
 
       push_event(state, targets, attrs, &card_action_envelope/2)
@@ -584,6 +592,10 @@ defmodule FakeFeishu.State do
   def handle_call(:drop_ws_connections, _from, state) do
     Enum.each(Map.keys(state.conns), fn pid -> send(pid, {:fake_feishu_close, 1000}) end)
     {:reply, :ok, state}
+  end
+
+  def handle_call(:run_token, _from, state) do
+    {:reply, state.run_token, state}
   end
 
   def handle_call(:expire_tokens, _from, state) do
@@ -703,18 +715,23 @@ defmodule FakeFeishu.State do
     end
   end
 
-  def handle_call({:bot_add_reaction, target_id, emoji_type}, _from, state) do
+  def handle_call({:bot_add_reaction, target_id, emoji_type, app_id}, _from, state) do
     case live_message(state, target_id) do
       nil ->
         {:reply, {:error, 23_000, "message not exist"}, state}
 
       _target ->
         {seq, state} = next_seq(state)
-        reaction_id = "r_fake_#{seq}"
+        reaction_id = minted_id(state, "r_fake", seq)
 
         state =
           update_in_message(state, target_id, fn message ->
-            %{message | reactions: message.reactions ++ [%{id: reaction_id, key: emoji_type}]}
+            %{
+              message
+              | reactions:
+                  message.reactions ++
+                    [%{id: reaction_id, key: emoji_type, operator_app_id: app_id}]
+            }
           end)
 
         notify(state, {:bot_reaction, target_id, emoji_type})
@@ -737,6 +754,23 @@ defmodule FakeFeishu.State do
     end
   end
 
+  def handle_call({:list_reactions, message_id, reaction_type}, _from, state) do
+    case live_message(state, message_id) do
+      nil ->
+        {:reply, {:error, 23_000, "message not exist"}, state}
+
+      message ->
+        items =
+          message.reactions
+          |> Enum.filter(fn reaction ->
+            is_nil(reaction_type) or reaction.key == reaction_type
+          end)
+          |> Enum.map(&reaction_item/1)
+
+        {:reply, {:ok, %{"items" => items, "has_more" => false}}, state}
+    end
+  end
+
   def handle_call({:get_message, message_id}, _from, state) do
     case live_message(state, message_id) do
       nil ->
@@ -756,7 +790,7 @@ defmodule FakeFeishu.State do
 
   def handle_call({:store_upload, name, content}, _from, state) do
     {seq, state} = next_seq(state)
-    file_key = "fake_file_#{seq}"
+    file_key = minted_id(state, "fake_file", seq)
     uploads = Map.put(state.uploads, file_key, %{name: name, content: content})
     notify(state, {:file_uploaded, file_key})
     {:reply, {:ok, %{"file_key" => file_key}}, %{state | uploads: uploads}}
@@ -764,7 +798,7 @@ defmodule FakeFeishu.State do
 
   def handle_call({:store_image, name, content}, _from, state) do
     {seq, state} = next_seq(state)
-    image_key = "img_fake_#{seq}"
+    image_key = minted_id(state, "img_fake", seq)
     images = Map.put(state.images, image_key, %{name: name, content: content})
     notify(state, {:image_uploaded, image_key})
     {:reply, {:ok, %{"image_key" => image_key}}, %{state | images: images}}
@@ -824,7 +858,7 @@ defmodule FakeFeishu.State do
 
       true ->
         {seq, state} = next_seq(state)
-        card_id = "crd_fake_#{seq}"
+        card_id = minted_id(state, "crd_fake", seq)
 
         data =
           case JSON.decode(params["data"] || "") do
@@ -929,8 +963,12 @@ defmodule FakeFeishu.State do
     {id, state} =
       case chat_attr(attrs, :id) do
         nil ->
+          # The random token regenerates at every State init, so neither a
+          # fresh OS run nor a restarted State child inside one BEAM can
+          # reuse a chat id that an earlier incarnation already mirrored
+          # into a consumer database.
           {seq, state} = next_seq(state)
-          {"oc_fake_#{seq}", state}
+          {minted_id(state, "oc_fake", seq), state}
 
         id ->
           {id, state}
@@ -1006,7 +1044,7 @@ defmodule FakeFeishu.State do
       |> Keyword.put(:chat_id, chat.id)
       |> Keyword.put(:member, member)
       |> Keyword.put(:event_type, event_type)
-      |> Keyword.put_new_lazy(:event_id, fn -> generated_event_id() end)
+      |> Keyword.put_new_lazy(:event_id, fn -> generated_event_id(state) end)
 
     push_to_chat(state, attrs, &member_envelope/2)
   end
@@ -1124,7 +1162,7 @@ defmodule FakeFeishu.State do
 
       false ->
         {seq, state} = next_seq(state)
-        id = "om_fake_out_#{seq}"
+        id = minted_id(state, "om_fake_out", seq)
 
         chat_id =
           case target do
@@ -1269,6 +1307,22 @@ defmodule FakeFeishu.State do
     end
   end
 
+  defp reaction_item(%{operator_app_id: app_id} = reaction) do
+    %{
+      "reaction_id" => reaction.id,
+      "reaction_type" => %{"emoji_type" => reaction.key},
+      "operator" => %{"operator_id" => app_id, "operator_type" => "app"}
+    }
+  end
+
+  defp reaction_item(%{operator_open_id: open_id} = reaction) do
+    %{
+      "reaction_id" => reaction.id,
+      "reaction_type" => %{"emoji_type" => reaction.key},
+      "operator" => %{"operator_id" => open_id, "operator_type" => "user"}
+    }
+  end
+
   defp reaction_target(state, attrs) do
     message_id = Keyword.fetch!(attrs, :message_id)
 
@@ -1280,7 +1334,7 @@ defmodule FakeFeishu.State do
         attrs =
           attrs
           |> Keyword.put_new(:chat_id, message.chat_id)
-          |> Keyword.put_new_lazy(:event_id, fn -> generated_event_id() end)
+          |> Keyword.put_new_lazy(:event_id, fn -> generated_event_id(state) end)
 
         {:ok, message, attrs}
     end
@@ -1291,7 +1345,13 @@ defmodule FakeFeishu.State do
     {seq, %{state | seq: seq}}
   end
 
-  defp generated_event_id, do: "evt_fake_#{System.unique_integer([:positive])}"
+  # Every generated id carries the per-boot run token: a connected control
+  # plane mirrors ids durably, so a fresh incarnation must never mint an id
+  # an earlier incarnation already used.
+  defp minted_id(state, prefix, seq), do: "#{prefix}_#{state.run_token}_#{seq}"
+
+  defp generated_event_id(state),
+    do: "evt_fake_#{state.run_token}_#{System.unique_integer([:positive])}"
 
   defp notify(state, event), do: send(state.owner, {:fake_feishu, event})
 

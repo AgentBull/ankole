@@ -76,10 +76,15 @@ defmodule Ankole.PluginFixtures.MissingIdentityCallbackPlugin do
       %{
         contract_id: "principals.identity_provider",
         id: "missing-callback",
-        module: __MODULE__
+        module: __MODULE__,
+        capabilities: ["directory_full_sync"]
       }
     ]
   end
+
+  # Declares directory sync but does not export upsert_user, the callback that
+  # capability requires.
+  def sync_directory(_provider_id, _config, _opts), do: {:ok, %{users: 0, departments: 0}}
 end
 
 defmodule Ankole.PluginFixtures.DuplicateAdapterPlugin do
@@ -116,6 +121,7 @@ defmodule Ankole.PluginFixtures.MissingRemovedCallbackPlugin do
       %{
         contract_id: "signals_gateway.adapter",
         id: "missing-removed-callback",
+        adapter_category: "enterprise_im",
         ingress_module: __MODULE__,
         inbound_capabilities: ["entry_removed"]
       }
@@ -139,6 +145,7 @@ defmodule Ankole.PluginFixtures.UnknownSignalsInboundCapabilityPlugin do
       %{
         contract_id: "signals_gateway.adapter",
         id: "unknown-signals-inbound-capability",
+        adapter_category: "enterprise_im",
         ingress_module: __MODULE__,
         inbound_capabilities: ["entry_receive", "made_up"]
       }
@@ -163,6 +170,7 @@ defmodule Ankole.PluginFixtures.UnknownSignalsOutboundCapabilityPlugin do
       %{
         contract_id: "signals_gateway.adapter",
         id: "unknown-signals-outbound-capability",
+        adapter_category: "enterprise_im",
         outbox_module: __MODULE__,
         outbound_capabilities: ["post_entry", "made_up"]
       }
@@ -186,6 +194,7 @@ defmodule Ankole.PluginFixtures.MissingSignalsOutboxSendPlugin do
       %{
         contract_id: "signals_gateway.adapter",
         id: "missing-signals-outbox-send",
+        adapter_category: "enterprise_im",
         outbox_module: __MODULE__,
         outbound_capabilities: ["post_entry"]
       }
@@ -207,6 +216,7 @@ defmodule Ankole.PluginFixtures.MissingSignalsOutboxReconcilePlugin do
       %{
         contract_id: "signals_gateway.adapter",
         id: "missing-signals-outbox-reconcile",
+        adapter_category: "enterprise_im",
         outbox_module: __MODULE__,
         outbound_capabilities: ["post_entry", "outbound_reconciliation"]
       }

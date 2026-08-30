@@ -13,7 +13,7 @@ order: 320
 
 | 状態 | 復旧可能? | 何から |
 |---|---|---|
-| Principals、agent、session、job、Brain の知識、audit、AuthZ の付与 | はい | PostgreSQL の `pg_dump` アーカイブ |
+| Principals、agent、session、job、audit、AuthZ の付与 | はい | PostgreSQL の `pg_dump` アーカイブ |
 | Agent ごとの workspace、永続ドキュメント、インストール済み Skill、会話と Job のファイル | はい | Agent Home ボリュームのスナップショット |
 | Provider の credential、chat channel の credential、暗号化された環境変数 | はい | これらは PostgreSQL と Agent Home に保存されるため、バックアップがそれらを復元します |
 | ブートストラップ secret（`ANKOLE_SECRET_BASE`、worker 認証キー） | **手動で再入力** | バックアップには含まれません。新しいものを生成するか、記録しておいたものを再使用します |
@@ -39,7 +39,7 @@ docker compose exec -T postgresql \
   < "ankole-YYYYMMDD.dump"
 ```
 
-次にマイグレーションを実行し（ローカルでは `bun run control-plane:setup`、または Helm の init コンテナに任せます）、復元した schema をイメージのレベルに合わせます。復元されたデータベースには、バックアップ取得時点の Principals、agent、session、job、Brain の知識、AuthZ の付与が含まれています。
+次にマイグレーションを実行し（ローカルでは `bun run control-plane:setup`、または Helm の init コンテナに任せます）、復元した schema をイメージのレベルに合わせます。復元されたデータベースには、バックアップ取得時点の Principals、agent、session、job、AuthZ の付与が含まれています。
 
 ### 手順 3: Agent Home を復元する
 

@@ -48,6 +48,7 @@ defmodule Ankole.Plugins.SlackAdapter do
       %{
         contract_id: "signals_gateway.adapter",
         id: "slack",
+        adapter_category: "enterprise_im",
         plugin_id: plugin_id(),
         display_name: %{"default" => "Slack"},
         config_key_pattern: "signals_gateway.slack.bindings.<id>",

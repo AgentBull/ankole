@@ -79,6 +79,14 @@ defmodule FeishuOpenAPI.Crypto do
       else: {:error, :bad_signature}
   end
 
+  @doc "Constant-time verification of a webhook verification token."
+  @spec verify_token(term(), String.t()) :: :ok | {:error, :bad_verification_token}
+  def verify_token(received, expected) do
+    if secure_equal?(received, expected),
+      do: :ok,
+      else: {:error, :bad_verification_token}
+  end
+
   # --- internals -----------------------------------------------------------
 
   defp check_len(buf) when byte_size(buf) < @aes_block_size, do: {:error, :cipher_too_short}
@@ -122,4 +130,6 @@ defmodule FeishuOpenAPI.Crypto do
       false
     end
   end
+
+  defp secure_equal?(_a, _b), do: false
 end

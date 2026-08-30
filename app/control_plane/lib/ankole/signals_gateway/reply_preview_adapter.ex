@@ -4,7 +4,7 @@ defmodule Ankole.SignalsGateway.ReplyPreviewAdapter do
 
   SignalsGateway owns the semantic presentation and its PostgreSQL checkpoint;
   adapters own only the provider handle and provider-native mutations. This
-  keeps Slack Block Kit and Lark CardKit data out of worker events while each IM
+  keeps Slack Block Kit and Lark CardKit data out of worker events while each
   adapter implements its own transport rules.
   """
 
@@ -98,6 +98,20 @@ defmodule Ankole.SignalsGateway.ReplyPreviewAdapter do
 
   def refresh(%__MODULE__{refresh_fun: nil}, %Request{}),
     do: {:error, :reply_preview_refresh_unsupported}
+
+  @doc """
+  Finalizes through a reply-preview module a caller already knows by name,
+  instead of a registry-resolved adapter. Goes through the same secret filter
+  and result validation as `finalize/2` — a provider Outbox module that calls
+  its own declared reply-preview module directly for terminal delivery should
+  use this instead of calling the module's `finalize/1` on its own.
+  """
+  @spec finalize_module(module(), Request.t()) :: adapter_result()
+  def finalize_module(module, %Request{} = request) when is_atom(module) do
+    with {:ok, adapter} <- from_module(module) do
+      finalize(adapter, request)
+    end
+  end
 
   defp call_adapter(fun, request) do
     with {:ok, filtered_request} <- OutboundSecretFilter.filter_reply_preview(request) do

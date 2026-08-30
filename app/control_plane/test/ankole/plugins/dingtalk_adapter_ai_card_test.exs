@@ -7,7 +7,6 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Cache, as: AppConfigureCache
   alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
-  alias Ankole.Plugins.DingTalkAdapter
   alias Ankole.Plugins.DingTalkAdapter.AICard
   alias Ankole.Plugins.DingTalkAdapter.Config
   alias Ankole.Repo
@@ -25,7 +24,6 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
   defp setup_binding(chat_config) do
     AppConfigureRegistry.clear_for_test()
     AppConfigureCache.clear_for_test()
-    :ok = AppConfigure.register_patterns(DingTalkAdapter.app_config_patterns())
 
     config_id = "dingtalk-aicard-#{System.unique_integer([:positive])}"
 
@@ -41,7 +39,8 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
         adapter: "dingtalk",
         config_ref: "app-config://#{Config.chat_config_key(config_id)}",
         filters: %{},
-        unaddressed_group_message_policy: :ignore
+        unaddressed_group_message_policy: :ignore,
+        unmatched_sender_policy: :create_standalone
       })
 
     %{actor_event: event} =

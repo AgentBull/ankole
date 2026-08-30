@@ -13,6 +13,29 @@ Principal and AuthZ control access inside that instance. They do not isolate
 organizations that do not trust the same infrastructure. Run a separate
 deployment instance for each organization.
 
+## Provider Subject IDs Share One Principal Namespace
+
+Provider names scope external identity binding rows. They do not partition
+Principal identity. When a provider subject has no existing binding, runtime
+admission first matches its normalized email and mobile data. If those values
+match no Principal, admission matches the normalized primary external ID to an
+installation-wide Principal UID.
+
+After contact matching misses, this rule intentionally makes equal normalized
+subject IDs from different providers share one Principal. The accounts can
+belong to different real people. In that case they also share the Principal's
+permissions, audit identity, and canonical Brain person object. Ankole accepts
+this collision as an explicit cost of the installation-wide Principal identity
+rule.
+
+An operator who needs separate Principals must write an explicit binding for
+the provider subject before automatic admission. An existing provider binding
+always wins.
+
+Do not prepend a provider name to a generated Principal UID. That would replace
+this tradeoff with provider isolation and split one global Principal into
+provider-specific identities. See [Principal](design-docs/Principal.md).
+
 ## The Worker Container Protects the Host
 
 Ankole treats each Agent Computer container or pod as a trusted, first-party
@@ -213,31 +236,6 @@ probe. A protocol that cannot express the marker still has it emulated with
 AIGateway opaque values, which are encoded, not encrypted, and provide no
 secrecy.
 
-## Brain Can Still Store a Wrong Conclusion
-
-Brain stores its records in PostgreSQL. The Markdown from `memory_open` is only
-a view of those records.
-
-The saved conversation tells the control plane which Principal and Brain stores
-to use. A model cannot expand its access by changing tool arguments. Shared
-channels read `shared` and `self`, direct messages also read their `dm:<uid>`
-store, and confidential channels can read their `channel:<id>` store. Each
-conversation writes only to its default store, except that the Agent can select
-its own `self` store.
-
-Brain keeps immutable bytes for a manual file. Pasted text and fetched URL text
-become editable entries. A connector-managed document is one read-only shared
-mirror of the current source revision, so its stored export can change when the
-source changes. Knowledge blocks cite evidence with strict `src:` references.
-
-Dreaming and connector synchronization are the automatic knowledge writers.
-The control plane checks access, citations, budgets, locks, mirror ownership,
-and requested changes before it commits them. These checks cannot prove that a
-conclusion is correct.
-
-The Console status view and `memory_health_check` use the same read-only health
-queries. They show observable faults but do not repair knowledge automatically.
-
 ## Provider Secrets Stay in the Control Plane
 
 The control plane stores provider details and encrypted secrets. It sends a
@@ -324,11 +322,13 @@ live worker, provider, database restart, or network failure.
 
 Ankole currently does not provide:
 
+- long-term memory (the prior Brain module is removed and awaiting a rewrite)
 - public admission for untrusted workers
 - a durable ZeroMQ queue
 - automatic discovery of business data from worker files
 - user-defined SignalsGateway routing rules
-- a general workflow engine beyond Schedule and BackgroundAgentJob
+- nested Workflows, script changes after a run starts, or a batch-wide Workflow
+  token budget
 - a public OpenAI Conversations object API
 - Response delete or cancel endpoints
 - named branch views over the AIGateway message graph

@@ -80,14 +80,6 @@ defmodule Ankole.Schedule.Attrs do
     end
   end
 
-  @spec normalize_external_attrs(map()) :: map()
-  def normalize_external_attrs(attrs) do
-    Map.new(attrs, fn
-      {key, value} when is_atom(key) -> {Atom.to_string(key), value}
-      {key, value} -> {key, value}
-    end)
-  end
-
   @spec reject_nil_values(map()) :: map()
   def reject_nil_values(map) do
     map
@@ -96,21 +88,10 @@ defmodule Ankole.Schedule.Attrs do
   end
 
   @spec maybe_put(map(), atom(), term()) :: map()
-  def maybe_put(map, _key, nil), do: map
-  def maybe_put(map, key, value), do: Map.put(map, key, value)
+  defdelegate maybe_put(map, key, value), to: Ankole.Attrs
 
   @spec collect_results([{:ok, term()} | {:error, term()}]) :: {:ok, [term()]} | {:error, term()}
-  def collect_results(results) do
-    results
-    |> Enum.reduce_while({:ok, []}, fn
-      {:ok, value}, {:ok, acc} -> {:cont, {:ok, [value | acc]}}
-      {:error, _reason} = error, _acc -> {:halt, error}
-    end)
-    |> case do
-      {:ok, values} -> {:ok, Enum.reverse(values)}
-      {:error, _reason} = error -> error
-    end
-  end
+  defdelegate collect_results(results), to: Ankole.Attrs
 
   defp integer_value(map, key) when is_map(map) do
     case Map.get(map, key) || Map.get(map, String.to_atom(key)) do

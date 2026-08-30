@@ -1,3 +1,4 @@
+import { LIST_REFRESH_MS } from '../refresh-intervals'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import {
   Alert,
@@ -6,10 +7,11 @@ import {
   Input,
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
-  Switch,
   Table,
   TableBody,
   TableCell,
@@ -28,10 +30,9 @@ import { Link, useNavigate, useSearchParams } from 'react-router'
 import {
   ConfigField,
   ConfigFields,
+  configFieldServerError,
   defaultConfig,
-  localizedText,
-  type ConfigFieldDefinition,
-  type LocalizedText
+  localizedText
 } from '../../common/config-fields'
 import i18n from '../../common/i18n'
 import { requestErrorMessage } from '../../common/request-errors'
@@ -52,9 +53,11 @@ import { FormSection, LabeledField, ReadOnlyValue, ResourceEditorPage, StatusInd
 import { AgentCell, FilterSwitch, ResourceListPage, ResourceSearch, RowActions } from '../console-list-page'
 import {
   groupMessageModeFromPolicy,
+  groupSignalAdapters,
   SignalBindingEditorModel,
   type GroupMessageMode,
-  type SignalBindingAdapterDraft
+  type SignalBindingAdapterDraft,
+  type UnmatchedSenderPolicy
 } from '../state/signal-binding-editor-model'
 import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
 
@@ -68,7 +71,7 @@ export function SignalsListPage() {
   const scope = useAgentScope()
   const signals = useQuery({
     ...ankoleWebSignalBindingControllerIndexOptions({ query: { agent: scope.agentUID || undefined } }),
-    refetchInterval: 15_000
+    refetchInterval: LIST_REFRESH_MS
   })
   const rows = (signals.data?.signal_bindings ?? [])
     .filter(binding => showDisabled || binding.enabled)
@@ -79,7 +82,6 @@ export function SignalsListPage() {
         binding.agent_uid,
         binding.adapter,
         binding.unaddressed_group_message_policy,
-        binding.confidential_memory,
         binding.enabled
       )
     )
@@ -126,7 +128,6 @@ export function SignalsListPage() {
         t('console.agents.agent'),
         t('console.signals.adapter'),
         t('console.signals.policy'),
-        t('console.signals.memory_scope'),
         t('console.signals.state')
       ]}
       isLoading={signals.isLoading}
@@ -187,11 +188,6 @@ export function SignalsListPage() {
           {/* The stored value is a policy identifier, not a phrase an operator reads. */}
           <TableCell>{t(`console.signals.policy_${binding.unaddressed_group_message_policy}`)}</TableCell>
           <TableCell>
-            {binding.confidential_memory
-              ? t('console.signals.memory_confidential')
-              : t('console.signals.memory_shared')}
-          </TableCell>
-          <TableCell>
             <StatusIndicator tone={binding.enabled ? 'positive' : 'neutral'}>
               {binding.enabled ? t('console.status.enabled') : t('console.status.disabled')}
             </StatusIndicator>
@@ -217,7 +213,7 @@ export function SignalsListPage() {
                           target_agent_uid: binding.agent_uid,
                           config: {},
                           group_message_mode: groupMessageModeFromPolicy(binding.unaddressed_group_message_policy),
-                          confidential_memory: binding.confidential_memory
+                          unmatched_sender_policy: binding.unmatched_sender_policy
                         }
                       })
                   }
@@ -323,10 +319,12 @@ export function SignalBindingEditorPage() {
   const returnPath = signalBindingReturnPath(returnAgentUID)
 
   const agents = useQuery(ankoleWebAgentControllerIndexOptions())
-  const agentList = agents.data?.agents ?? []
+  // A routing rule targets an agent that can run, so disabled agents stay out.
+  const agentList = (agents.data?.agents ?? []).filter(agent => agent.status === 'active')
   const defaultAgentUID = resolveAgentUID(agentList, sourceAgentUID)
   const adapters = useQuery(ankoleWebSignalBindingControllerAdaptersOptions())
   const signalAdapters = adapters.data?.signal_adapters ?? []
+  const adapterGroups = groupSignalAdapters(signalAdapters)
   const bindingDetail = useQuery({
     ...ankoleWebSignalBindingControllerShowOptions({
       path: { agent_uid: sourceAgentUID, binding_name: lockedName ?? '' }
@@ -407,10 +405,17 @@ export function SignalBindingEditorPage() {
       model.validationError.value = t('console.signals.group_message_mode_invalid')
       return
     }
+    const unmatchedSenderPolicy = asUnmatchedSenderPolicy(
+      model.unmatchedSenderPolicy.value || defaultUnmatchedSenderPolicy(activeAdapter)
+    )
+    if (!unmatchedSenderPolicy) {
+      model.validationError.value = t('console.signals.unmatched_sender_policy_invalid')
+      return
+    }
     const body = {
       config: editing ? model.configPatch.value : model.config.value,
       group_message_mode: groupMessageMode,
-      confidential_memory: model.confidentialMemory.value
+      unmatched_sender_policy: unmatchedSenderPolicy
     }
     if (editing) {
       updateBinding.mutate({
@@ -426,22 +431,18 @@ export function SignalBindingEditorPage() {
   }
 
   const targetAgentUID = model.agentUID.value || defaultAgentUID
-  const activeFields = asConfigFields(activeAdapter?.fields ?? [])
+  const activeFields = activeAdapter?.fields ?? []
   const submitDisabled = editing && !model.dirty.value
+  const writeError = createBinding.error ?? updateBinding.error
+  const writeFieldError = configFieldServerError(writeError, activeFields, locale)
 
   return (
     <ResourceEditorPage
       title={editing ? t('common.edit') : t('console.signals.new')}
       description={editing ? t('console.signals.edit_hint') : t('console.signals.editor_description')}
       backTo={returnPath}
-      error={
-        model.validationError.value ??
-        agents.error ??
-        adapters.error ??
-        bindingDetail.error ??
-        createBinding.error ??
-        updateBinding.error
-      }
+      validationError={model.validationError.value ?? writeFieldError}
+      error={agents.error ?? adapters.error ?? bindingDetail.error ?? (writeFieldError ? undefined : writeError)}
       submitting={createBinding.isPending || updateBinding.isPending}
       submitDisabled={submitDisabled}
       submitUnavailable={!ready}
@@ -474,7 +475,7 @@ export function SignalBindingEditorPage() {
             {editing ? (
               <ReadOnlyValue>
                 {activeAdapter
-                  ? localizedUnknown(activeAdapter.display_name, locale, activeAdapter.adapter_id)
+                  ? (localizedText(activeAdapter.display_name, locale) ?? activeAdapter.adapter_id)
                   : model.adapterID.value}
               </ReadOnlyValue>
             ) : (
@@ -488,10 +489,15 @@ export function SignalBindingEditorPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent emptyLabel={adapters.isLoading ? t('common.loading') : t('common.select_empty')}>
-                  {signalAdapters.map(adapter => (
-                    <SelectItem key={adapter.adapter_id} value={adapter.adapter_id}>
-                      {localizedUnknown(adapter.display_name, locale, adapter.adapter_id)}
-                    </SelectItem>
+                  {adapterGroups.map(group => (
+                    <SelectGroup key={group.category}>
+                      <SelectLabel>{t(group.labelKey)}</SelectLabel>
+                      {group.adapters.map(adapter => (
+                        <SelectItem key={adapter.adapter_id} value={adapter.adapter_id}>
+                          {localizedText(adapter.display_name, locale) ?? adapter.adapter_id}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
                   ))}
                 </SelectContent>
               </Select>
@@ -514,27 +520,17 @@ export function SignalBindingEditorPage() {
             description={t('console.signals.section_behavior_hint')}>
             <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
               <ConfigField
-                field={asConfigField(activeAdapter.group_message_mode_field)}
+                field={activeAdapter.group_message_mode_field}
                 locale={locale}
                 value={model.groupMessageMode.value || defaultGroupMessageMode(activeAdapter)}
                 onChange={value => (model.groupMessageMode.value = String(value) as GroupMessageMode)}
               />
-              <LabeledField
-                label={t('console.signals.confidential_memory')}
-                description={t('console.signals.confidential_memory_hint')}>
-                <div className="flex items-center justify-between border border-border p-3">
-                  <span className="text-sm text-muted-foreground">
-                    {model.confidentialMemory.value
-                      ? t('console.signals.memory_confidential')
-                      : t('console.signals.memory_shared')}
-                  </span>
-                  <Switch
-                    aria-label={t('console.signals.confidential_memory')}
-                    checked={model.confidentialMemory.value}
-                    onCheckedChange={checked => (model.confidentialMemory.value = checked)}
-                  />
-                </div>
-              </LabeledField>
+              <ConfigField
+                field={activeAdapter.unmatched_sender_policy_field}
+                locale={locale}
+                value={model.unmatchedSenderPolicy.value || defaultUnmatchedSenderPolicy(activeAdapter)}
+                onChange={value => (model.unmatchedSenderPolicy.value = String(value) as UnmatchedSenderPolicy)}
+              />
             </div>
           </FormSection>
           <FormSection
@@ -589,7 +585,13 @@ export function finishSignalBindingSave(
 }
 
 function emptyForm(): SignalBindingAdapterDraft {
-  return { adapterID: '', name: '', groupMessageMode: '', confidentialMemory: false, config: {} }
+  return {
+    adapterID: '',
+    name: '',
+    groupMessageMode: '',
+    unmatchedSenderPolicy: '',
+    config: {}
+  }
 }
 
 function formFromAdapter(adapter: SignalAdapterItem | undefined): SignalBindingAdapterDraft {
@@ -598,8 +600,8 @@ function formFromAdapter(adapter: SignalAdapterItem | undefined): SignalBindingA
     adapterID: adapter.adapter_id,
     name: `${adapter.adapter_id}-main`,
     groupMessageMode: defaultGroupMessageMode(adapter),
-    confidentialMemory: false,
-    config: defaultConfig(asConfigFields(adapter.fields))
+    unmatchedSenderPolicy: defaultUnmatchedSenderPolicy(adapter),
+    config: defaultConfig(adapter.fields)
   }
 }
 
@@ -608,7 +610,7 @@ function formFromBinding(binding: SignalBindingItem, config: unknown): SignalBin
     adapterID: binding.adapter,
     name: binding.name,
     groupMessageMode: groupMessageModeFromPolicy(binding.unaddressed_group_message_policy),
-    confidentialMemory: binding.confidential_memory,
+    unmatchedSenderPolicy: binding.unmatched_sender_policy,
     config: asJSONObject(config)
   }
 }
@@ -617,16 +619,8 @@ function asJSONObject(value: unknown): JSONObject {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as JSONObject) : {}
 }
 
-function asConfigFields(fields: readonly unknown[]): ConfigFieldDefinition[] {
-  return fields.map(asConfigField)
-}
-
-function asConfigField(field: unknown): ConfigFieldDefinition {
-  return field as unknown as ConfigFieldDefinition
-}
-
 function defaultGroupMessageMode(adapter: SignalAdapterItem): GroupMessageMode | '' {
-  const field = asConfigField(adapter.group_message_mode_field)
+  const field = adapter.group_message_mode_field
   return asGroupMessageMode(typeof field.default === 'string' ? field.default : undefined) ?? ''
 }
 
@@ -635,6 +629,12 @@ function asGroupMessageMode(value: string | undefined): GroupMessageMode | undef
   return undefined
 }
 
-function localizedUnknown(value: unknown, locale: string, fallback: string): string {
-  return localizedText(value as LocalizedText, locale) ?? fallback
+function defaultUnmatchedSenderPolicy(adapter: SignalAdapterItem): UnmatchedSenderPolicy | '' {
+  const field = adapter.unmatched_sender_policy_field
+  return asUnmatchedSenderPolicy(typeof field.default === 'string' ? field.default : undefined) ?? ''
+}
+
+function asUnmatchedSenderPolicy(value: string | undefined): UnmatchedSenderPolicy | undefined {
+  if (value === 'manual_review' || value === 'create_standalone') return value
+  return undefined
 }

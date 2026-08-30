@@ -1,4 +1,6 @@
 defmodule Ankole.SignalsGateway.WebhooksTest do
+  # Serial because the one-shot claim test leaves the sandbox with
+  # `unboxed_run` to prove real row locking.
   use Ankole.DataCase, async: false
 
   import Ankole.PrincipalsFixtures
@@ -95,9 +97,7 @@ defmodule Ankole.SignalsGateway.WebhooksTest do
 
     on_exit(fn ->
       Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
-        Ankole.Principals.Principal
-        |> where([principal], principal.uid == ^agent_uid)
-        |> Repo.delete_all()
+        delete_agent_fixture_rows(agent_uid)
       end)
     end)
 

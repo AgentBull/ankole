@@ -3,10 +3,9 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
   Commits one explicit Agent Computer turn completion into SignalsGateway.
 
   A terminal LLM Response is only immutable input to this operation. The
-  worker's completion RPC is the declaration that the Agent loop has ended;
-  this module then validates runtime fences and atomically commits provider
-  outbox intents plus ActorEvent consumption. The legacy `turn_completed`
-  envelope delegates to the same owner during rolling deployment.
+  worker's completion RPC is the declaration that the Agent loop has ended.
+  This module then validates runtime fences and atomically commits provider
+  outbox intents plus ActorEvent consumption.
   """
 
   import Ecto.Query, warn: false
@@ -21,23 +20,16 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
   alias Ankole.Logging
   alias Ankole.Observability
   alias Ankole.Repo
-  alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.Schedule.Delivery
   alias Ankole.SignalsGateway.AIGatewayLink
   alias Ankole.SignalsGateway.AIReplyPreview
   alias Ankole.SignalsGateway.Outbox
   alias Ankole.SignalsGateway.ReplyInteractions
 
+  # Activation states that can still own the Turn being completed.
   @live_activation_statuses ~w(starting active draining)
 
-  @spec handle(FabricProto.TurnCompleted.t(), keyword()) :: {:ok, map()} | {:error, term()}
-  def handle(%FabricProto.TurnCompleted{} = payload, opts \\ []) do
-    with {:ok, turn_ref} <- TurnRef.from_proto(payload.turn) do
-      handle(turn_ref, payload.final_response_id, payload.outcome, opts)
-    end
-  end
-
-  @spec handle(TurnRef.t(), String.t(), String.t() | atom(), keyword()) ::
+  @spec handle(TurnRef.t(), String.t(), String.t(), keyword()) ::
           {:ok, map()} | {:error, term()}
   def handle(%TurnRef{} = turn_ref, final_response_id, outcome, opts) when is_list(opts) do
     with {:ok, final_response_id} <- required_text(final_response_id),
@@ -157,7 +149,7 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
     |> Enum.find_value(main_event, fn delivery ->
       case Actors.lock_actor_event_in_tx(repo, delivery.actor_event_id) do
         %ActorEvent{} = event ->
-          if AIReplyPreview.im_visible_event?(event), do: event
+          if AIReplyPreview.channel_reply_eligible?(event), do: event
 
         nil ->
           nil
@@ -316,8 +308,8 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
   end
 
   defp commit_outboxes(repo, event, completion, outcome, now) do
-    if AIReplyPreview.im_visible_event?(event) do
-      case commit_im_outboxes(repo, event, completion, outcome, now) do
+    if AIReplyPreview.channel_reply_eligible?(event) do
+      case commit_reply_outboxes(repo, event, completion, outcome, now) do
         {:ok, outboxes} -> {:ok, outboxes}
         {:error, reason} -> skip_unroutable_reply(event, reason)
       end
@@ -358,7 +350,7 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
 
   defp no_outboxes, do: %{attachments: [], clarify: nil, finals: []}
 
-  defp commit_im_outboxes(repo, event, completion, outcome, now) do
+  defp commit_reply_outboxes(repo, event, completion, outcome, now) do
     opts = [turn_completion_outcome: outcome, delivery_targets: delivery_targets(event)]
 
     with {:ok, attachments} <-
@@ -379,7 +371,7 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
     do: {:ok, nil}
 
   defp commit_clarify_outbox(repo, event, completion, opts, now) do
-    if AIReplyPreview.im_visible_event?(event) do
+    if AIReplyPreview.channel_reply_eligible?(event) do
       %{"fallback_visible_text" => fallback, "interactive_output" => interactive_output} =
         completion.clarify_prompt
 
@@ -409,7 +401,7 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
   end
 
   defp commit_final_outboxes(repo, event, completion, opts) do
-    if AIReplyPreview.im_visible_event?(event) and is_nil(completion.clarify_prompt) and
+    if AIReplyPreview.channel_reply_eligible?(event) and is_nil(completion.clarify_prompt) and
          is_binary(completion.final_text) do
       Outbox.commit_final_reply_outboxes_in_tx(
         repo,
@@ -615,13 +607,6 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
          _final_text
        ),
        do: error
-
-  # The proto enum atom becomes the domain outcome string persisted on the
-  # actor event (`turn_outcome`), so downstream rows keep their existing values.
-  defp completion_outcome(:TURN_COMPLETION_OUTCOME_LOOP_FINISHED), do: {:ok, "loop_finished"}
-
-  defp completion_outcome(:TURN_COMPLETION_OUTCOME_ITERATION_EXHAUSTED),
-    do: {:ok, "iteration_exhausted"}
 
   defp completion_outcome("loop_finished"), do: {:ok, "loop_finished"}
   defp completion_outcome("iteration_exhausted"), do: {:ok, "iteration_exhausted"}

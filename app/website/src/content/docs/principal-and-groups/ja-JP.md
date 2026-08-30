@@ -26,7 +26,7 @@ Ankole は Identity Provider を保存すると、最初の完全 sync を開始
 
 結果に期待した人や部門がない場合は、外部アプリケーションのディレクトリ権限と可用性の範囲を確認してください。API アクセスが、アプリケーションに組織全体へのアクセスを与えるとは限りません。
 
-最初の Identity Provider の接続は、[クイックスタート](../quickstart/#2-set-up-the-identity-provider-first) を参照してください。
+最初の Identity Provider の接続は、[クイックスタート](../quickstart/#identity-providers) を参照してください。
 
 ## Principal を表示する
 
@@ -46,6 +46,8 @@ group の source ごとに、メンバーシップの所有者が異なります
 | --- | --- | --- |
 | **Directory group** | 部門やユーザー group が既に企業ディレクトリにある | Identity Provider の sync |
 | **IM group** | アクセスが chat group のメンバーシップに従う必要がある | Chat channel の sync |
+| **Signal source group** | 「このルーティングルール経由で話したことのある全員」を対象にする | SignalsGateway の受け入れ |
+| **Provider members group** | ある Identity Provider が取り込んだ全員を対象にする（`<provider>:members:all`） | Identity Provider の sync |
 | **Static group** | チームが Ankole にしか存在しない、または少数のメンバーシップがめったに変わらない | 管理者 |
 | **Computed group** | Principal の属性でメンバーを確実に識別できる | Ankole が評価する CEL expression |
 

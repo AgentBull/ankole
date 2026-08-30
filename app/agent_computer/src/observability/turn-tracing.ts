@@ -18,6 +18,7 @@ import {
 import { ProtobufTraceSerializer } from '@opentelemetry/otlp-transformer'
 import { resourceFromAttributes } from '@opentelemetry/resources'
 import type { TurnStart } from '../lanes/actor_lane'
+import { toError } from '../common/errors'
 
 const tracerName = 'ankole-worker'
 const traceparentPattern = /^([0-9a-f]{2})-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})$/
@@ -202,7 +203,7 @@ class RuntimeFabricSpanExporter implements SpanExporter {
       })
     ).then(
       () => callback({ code: 0 }),
-      error => callback({ code: 1, error: error instanceof Error ? error : new Error(String(error)) })
+      error => callback({ code: 1, error: toError(error) })
     )
   }
 

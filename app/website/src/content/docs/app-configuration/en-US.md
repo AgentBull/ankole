@@ -5,7 +5,7 @@ section: User guide
 order: 43
 ---
 
-**Console → AppConfigure** contains settings that an administrator can change while the deployment instance is in service. Examples include durable memory, Agent limits, directory synchronization intervals, and plugin switches.
+**Console → AppConfigure** contains settings that an administrator can change while the deployment instance is in service. Examples include conversation-history compaction, Agent limits, directory synchronization intervals, and plugin switches.
 
 LLM Providers, Identity Providers, chat channels, and environment variables have their own Console pages. Do not configure them again here.
 
@@ -72,7 +72,38 @@ The following AppConfigure keys are built into Ankole. A Control Plane Plugin ca
 | `ai_agent.library.agent_plugin_defaults` | Instance | Default enablement for Agent Plugins |
 | `ai_agent.library.skill_defaults` | Instance | Default enablement for Skills |
 
-### AI Gateway and long-term memory
+### Workflows
+
+| Key | Scope | Purpose |
+|---|---|---|
+| `workflow.max_concurrency_per_run` | Instance | Maximum task concurrency that one Workflow can request; default `8`, valid range `1`–`32` |
+| `workflow.max_running_per_agent` | Instance | Maximum running Workflow tasks across one Agent's runs; default `8`, valid range `1`–`64` |
+| `workflow.max_agent_calls_per_run` | Instance | Maximum subagent calls that one Workflow can create; default `256`, valid range `1`–`1,024` |
+
+These limits apply to later Workflow work. A run can request a lower concurrency or call limit, but it cannot raise the instance limit. Read [Workflows](../workflows/) for task behavior and other size boundaries.
+
+### Brain
+
+| Key | Scope | Purpose |
+|---|---|---|
+| `brain.enabled` | Instance | Enable Brain retrieval, learning, and maintenance; stored knowledge remains when disabled |
+| `brain.embedding_model` | Instance | Provider, model, and dimensions for vector retrieval; an empty value disables vector retrieval |
+| `brain.rerank_model` | Instance | Provider and model for reranking search results; an empty value keeps the fusion order |
+| `brain.web_fetch_model` | Instance | Provider and model for learning from URL Sources; an empty value stops URL Source learning |
+| `brain.extraction_model` | Instance | Model that extracts knowledge from Signal conversations and Sources; an empty value stops those learning tasks |
+| `brain.dreaming_model` | Instance | Model that consolidates knowledge and finds contradictions for human review; an empty value skips model-dependent maintenance |
+| `brain.search_tokenizer` | Instance | BM25 tokenizer: `icu`, `jieba`, `lindera_japanese`, or `lindera_korean`; a change requires a BM25 index rebuild |
+| `brain.chunking` | Instance | Source chunk size, overlap, and input limits |
+| `brain.forgetting` | Instance | Knowledge-decay half-lives and the soft-delete purge interval |
+| `brain.dreaming_task_cron` | Instance | Schedule for regular knowledge consolidation |
+| `brain.self_healing_task_cron` | Instance | Schedule for rebuilding stale chunk, embedding, and search-index projections |
+| `brain.signal_channel_batch_idle_time` | Instance | Idle seconds before pending chat messages enter learning; conversation end also triggers learning |
+| `brain.skill_learning_enabled` | Instance | Enable Skill lesson learning and delivery; when disabled, stored lessons remain but are not supplied |
+| `brain.skill_learning_reflection_threshold` | Instance | Unconsumed Signal Jobs one Agent must accumulate before Skill lesson reflection starts; minimum `2` |
+
+Read [Brain](../brain/) for its knowledge behavior and model requirements. Read [Skill lessons](../skill-lessons/) for the lessons that Brain supplies with Skills.
+
+### AI Gateway and observability
 
 | Key | Scope | Purpose |
 |---|---|---|
@@ -81,11 +112,6 @@ The following AppConfigure keys are built into Ankole. A Control Plane Plugin ca
 | `observability.traces.provider` | Instance | Semantic projection for `langfuse`, `langsmith`, or generic `opentelemetry` traces |
 | `observability.traces.otlp_endpoint` | Instance | Base OTLP/HTTP endpoint for optional traces |
 | `observability.traces.otlp_headers` | Instance | Encrypted authentication headers for optional traces |
-| `brain.knowledge` | Instance | Long-term memory projection budget and result limit |
-| `brain.dreaming` | Instance or Agent | Dreaming and knowledge-curation policy |
-| `brain.embedding` | Instance | Embedding model and vector dimensions |
-| `brain.search` | Instance | Long-term memory decay and reranking policy |
-| `brain.sources` | Instance | External-source synchronization and retention policy |
 
 See [LLM observability](../llm-observability/) for Langfuse, LangSmith, VictoriaTraces, and other OTLP/HTTP receivers.
 

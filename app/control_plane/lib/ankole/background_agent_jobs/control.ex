@@ -172,6 +172,78 @@ defmodule Ankole.BackgroundAgentJobs.Control do
     end
   end
 
+  @doc false
+  @spec lock_ambient_handoff_target_in_tx(
+          module(),
+          String.t(),
+          pos_integer()
+        ) :: Job.t() | nil
+  def lock_ambient_handoff_target_in_tx(repo, agent_uid, job_id)
+      when is_binary(agent_uid) and is_integer(job_id) and job_id > 0 do
+    Queries.get_for_agent(repo, job_id, agent_uid, lock: "FOR UPDATE")
+  end
+
+  @doc false
+  @spec handoff_ambient_message_in_tx(
+          module(),
+          ActorEvent.t(),
+          Job.t(),
+          String.t(),
+          DateTime.t()
+        ) :: {:ok, %{job: Job.t(), command_event: ActorEvent.t()}} | {:error, term()}
+  def handoff_ambient_message_in_tx(
+        repo,
+        %ActorEvent{} = source_event,
+        %Job{} = job,
+        message,
+        %DateTime{} = now
+      ) do
+    with {:ok, message} <- require_message(message),
+         :ok <- ensure_ambient_handoff_target(job, source_event),
+         :ok <- ensure_messageable(job),
+         {:ok, job} <- touch_job(repo, job, now),
+         {:ok, command_event} <-
+           append_command(
+             repo,
+             job,
+             "steer",
+             %{
+               "request_id" => "ambient-handoff:#{source_event.id}",
+               "text" => message
+             },
+             now
+           ) do
+      {:ok, %{job: job, command_event: command_event}}
+    else
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp ensure_ambient_handoff_target(%Job{} = job, %ActorEvent{} = event) do
+    reply_route = job.reply_route || %{}
+    metadata = job.metadata || %{}
+
+    cond do
+      job.agent_uid != event.agent_uid ->
+        {:error, :background_agent_job_ambient_agent_mismatch}
+
+      job.owner_session_id != event.session_id ->
+        {:error, :background_agent_job_ambient_session_mismatch}
+
+      Map.get(reply_route, "signal_channel_id") != event.signal_channel_id ->
+        {:error, :background_agent_job_ambient_channel_mismatch}
+
+      Map.get(reply_route, "binding_name") != event.binding_name ->
+        {:error, :background_agent_job_ambient_binding_mismatch}
+
+      Map.get(metadata, "skill_lesson_reflection") == true ->
+        {:error, :background_agent_job_ambient_target_hidden}
+
+      true ->
+        :ok
+    end
+  end
+
   defp stop_without_live_turn(repo, job, attrs, now) do
     metadata =
       job.metadata

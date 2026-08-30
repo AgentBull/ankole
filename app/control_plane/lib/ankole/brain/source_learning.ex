@@ -1,305 +1,376 @@
 defmodule Ankole.Brain.SourceLearning do
   @moduledoc """
-  Admits one explicitly retained source into the ordinary Agent runtime.
+  Learning from registered `file` and `url` Sources.
 
-  Source bytes are durable before this module runs. Admission only materializes
-  a run-local copy and appends a `brain.source.learn` ActorEvent, so a missing
-  worker is a retryable learning failure rather than lost evidence.
+  A learning run fetches the content, keeps one `media` Object per Source,
+  chunks it for retrieval, and extracts Claims when the object type is
+  extractable. Runs execute as one Oban job per Source; model extraction
+  happens before the commit transaction, and the commit re-checks the
+  Source row under lock, so a run that raced an archive or another
+  revision writes nothing. `upstream_revision` advances only after every
+  write of the run succeeded, so a failed run stays learnable instead of
+  being recorded as done.
+
+  Relearning a changed Source expires the current facts of the previous
+  revision (keyed by `provenance_session`) in the same transaction, so the
+  current claims always reflect the current source content; expired rows
+  keep the history. Whole-book absorption is the upper bound of this same
+  path: every window of extractable content enters extraction, not a
+  truncated prefix.
+
+  `url` Sources fetch through the AIGateway web-fetch provider configured
+  in `brain.web_fetch_model`, which extracts readable text; a raw HTTP body
+  would put HTML markup into chunks and claims. `file` Sources accept
+  UTF-8 text only and reject binary content loudly.
   """
 
   import Ecto.Query, warn: false
 
-  alias Ankole.Brain.CurationGuide
-  alias Ankole.AgentHomePaths
+  alias Ankole.AIGateway
+  alias Ankole.Brain.Claims
+  alias Ankole.Brain.Config
+  alias Ankole.Brain.Embeddings
+  alias Ankole.Brain.Markdoc
+  alias Ankole.Brain.ModelCalls
+  alias Ankole.Brain.Objects
+  alias Ankole.Brain.Schemas.SchemaType
+  alias Ankole.Brain.Schemas.Source
   alias Ankole.Brain.Scope
-  alias Ankole.Brain.Schemas.AuditLog
-  alias Ankole.Brain.Schemas.RetainedSource
   alias Ankole.Brain.Sources
-  alias Ankole.Principals
+  alias Ankole.Kernel, as: NativeKernel
+  alias Ankole.Logging
   alias Ankole.Repo
-  alias Ankole.SignalsGateway
-  alias Ankole.SignalsGateway.ActorEvent
-  alias Ankole.SignalsGateway.ActorRuntime.TurnRef
-  alias Ankole.WorkerFiles
 
-  @binding_name "brain-console"
-  @event_type "brain.source.learn"
+  @max_content_bytes 10 * 1024 * 1024
+  @extraction_window_chars 12_000
 
-  @spec enqueue(Scope.t(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
-  def enqueue(scope, document_id, opts \\ [])
-
-  def enqueue(%Scope{writable_store_key: nil}, _document_id, _opts),
-    do: {:error, :read_only_scope}
-
-  def enqueue(%Scope{} = scope, document_id, opts)
-      when is_binary(document_id) and is_list(opts) do
-    with {:ok, %{source: %RetainedSource{} = source, content: content}} <-
-           Sources.retained_with_content(scope, document_id),
-         true <- source.store_key == scope.writable_store_key,
-         true <- source.capture_method == "file",
-         agent_uid when is_binary(agent_uid) <- source.learning_agent_uid,
-         :ok <- ensure_agent_owner(agent_uid),
-         {:ok, curation_guide} <- CurationGuide.load(agent_uid),
-         run_id = Ankole.Ecto.UUIDv7.autogenerate(),
-         session_id = "brain-source:#{source.id}:#{run_id}",
-         filename = source_filename(source),
-         {:ok, workspace} <-
-           SignalsGateway.ensure_actor_session_workspace(agent_uid, session_id),
-         relative_path = workspace_relative_path(agent_uid, workspace.id, filename),
-         :ok <- materialize(content, relative_path, opts),
-         {:ok, actor_event} <-
-           append_event(
-             source,
-             scope,
-             agent_uid,
-             run_id,
-             session_id,
-             workspace.id,
-             filename,
-             curation_guide,
-             opts
-           ) do
-      {:ok,
-       %{
-         status: :queued,
-         actor_event_id: actor_event.id,
-         session_id: session_id,
-         document_id: source.document_id
-       }}
-    else
-      false -> {:error, :source_not_learnable}
-      {:error, _reason} = error -> error
+  @doc """
+  Registers one file or url Source.
+  """
+  @spec register_source(map()) :: {:ok, Source.t()} | {:error, term()}
+  def register_source(attrs) when is_map(attrs) do
+    with :ok <- validate_kind(attrs[:kind]),
+         :ok <- validate_default_scope(attrs[:default_audience_scope]) do
+      Sources.create(%{
+        upstream_id: attrs[:upstream_id],
+        kind: attrs[:kind],
+        name: attrs[:name],
+        default_audience_scope: attrs[:default_audience_scope] || "world",
+        config: attrs[:config] || %{}
+      })
     end
   end
 
-  def enqueue(_scope, _document_id, _opts), do: {:error, :invalid_arguments}
-
-  @doc "Derives the Knowledge write context from the durable actor event."
-  @spec write_context(TurnRef.t()) ::
-          {:ok, :agent | {:source_learning, String.t()}} | {:error, term()}
-  def write_context(%TurnRef{} = turn_ref) do
-    case Repo.get(ActorEvent, turn_ref.actor_event_id) do
-      %ActorEvent{
-        agent_uid: agent_uid,
-        session_id: session_id,
-        type: @event_type,
-        payload: payload
-      }
-      when agent_uid == turn_ref.agent_uid and session_id == turn_ref.session_id ->
-        case get_in(payload, ["data", "retained_source", "document_id"]) do
-          document_id when is_binary(document_id) -> {:ok, {:source_learning, document_id}}
-          _missing -> {:error, :source_learning_descriptor_missing}
-        end
-
-      _ordinary_or_missing_event ->
-        {:ok, :agent}
+  @doc """
+  Validates one Source and enqueues its learning run. Only `file` and `url`
+  Sources have a learning run; other kinds reject before the queue instead
+  of failing inside the job.
+  """
+  @spec enqueue_learn(Ecto.UUID.t()) :: {:ok, map()} | {:error, term()}
+  def enqueue_learn(source_id) do
+    with :ok <- ensure_enabled(),
+         {:ok, source} <- fetch_source(source_id),
+         :ok <- validate_kind(source.kind),
+         :ok <- Sources.ensure_active(source),
+         {:ok, _job} <- Ankole.Brain.Jobs.LearnSource.enqueue(source.id) do
+      {:ok, %{status: :enqueued}}
     end
   end
 
-  @doc "Projects the latest learning run without redefining ActorEvent completion semantics."
-  @spec latest_outcome(RetainedSource.t()) :: %{
-          status: String.t(),
-          actor_event_id: String.t() | nil
-        }
-  def latest_outcome(%RetainedSource{} = source) do
-    event =
-      ActorEvent
-      |> where([event], event.agent_uid == ^source.learning_agent_uid)
-      |> where([event], event.type == @event_type)
-      |> where([event], event.source_entry_id == ^source.document_id)
-      |> order_by([event], desc: event.inserted_at, desc: event.id)
-      |> limit(1)
-      |> Repo.one()
+  @doc """
+  Runs one learning pass for one Source.
+  """
+  @spec learn(Ecto.UUID.t()) :: {:ok, map()} | {:error, term()}
+  def learn(source_id) do
+    with :ok <- ensure_enabled(),
+         {:ok, source} <- fetch_source(source_id),
+         :ok <- Sources.ensure_active(source),
+         {:ok, content} <- fetch_content(source) do
+      fingerprint = NativeKernel.xxh3_128_hex(content)
 
-    project_outcome(event, source.document_id)
-  end
-
-  defp ensure_agent_owner(owner_uid) do
-    case Principals.get_agent(owner_uid) do
-      {:ok, _agent} -> :ok
-      {:error, _reason} -> {:error, :source_owner_not_agent}
+      if source.upstream_revision == fingerprint do
+        {:ok, %{status: :unchanged, fingerprint: fingerprint}}
+      else
+        learn_content(source, content, fingerprint)
+      end
     end
   end
 
-  defp materialize(content, relative_path, opts) do
-    materialize_fun =
-      Keyword.get(opts, :materialize_fun, fn path, content ->
-        case WorkerFiles.put("agent_sessions", path, content) do
-          {:ok, _result} -> :ok
-          {:error, _reason} = error -> error
+  defp learn_content(source, content, fingerprint) do
+    scope = source.default_audience_scope || "world"
+    slug = source_object_slug(source)
+
+    object_attrs = %{
+      slug: slug,
+      subtype: source.config["subtype"] || default_subtype(source.kind),
+      title: source.name,
+      body: Markdoc.wrap(content, scope)
+    }
+
+    # Model extraction is the slow, fallible part and must not hold locks;
+    # any failed window aborts the run with no state change.
+    with {:ok, extraction} <- extract_items(slug, source.name, content) do
+      commit_run(source, object_attrs, extraction, scope, fingerprint)
+    end
+  end
+
+  # One transaction owns every write of the run. The locked re-read fences
+  # two races: an archive during the fetch or extraction (the archived
+  # Source must not gain new memory), and a revision that advanced since
+  # this run read it (the later content must not be overwritten by the
+  # earlier run's late commit).
+  defp commit_run(source, object_attrs, extraction, scope, fingerprint) do
+    session = provenance_session(source)
+
+    result =
+      Repo.transact(fn repo ->
+        with {:ok, current} <- Sources.lock_active(repo, source),
+             :ok <- ensure_same_revision(current, source.upstream_revision),
+             {:ok, object} <- Objects.upsert_source_projection(current, object_attrs, repo: repo),
+             expired = Claims.expire_source_session_facts(repo, object.slug, session),
+             {:ok, written} <- write_claims(repo, object, extraction.items, scope, session),
+             :ok <- ensure_extraction_written(extraction.items, written),
+             {:ok, _source} <- Sources.record_revision(repo, current, fingerprint) do
+          {:ok,
+           %{
+             status: :learned,
+             object_slug: object.slug,
+             windows: extraction.windows,
+             claims: written.claims,
+             claims_expired: expired,
+             rejected: written.rejected,
+             reject_reasons: written.reject_reasons
+           }}
         end
       end)
 
-    materialize_fun.(relative_path, content)
+    with {:ok, %{rejected: rejected} = report} <- result do
+      if rejected > 0 do
+        Logging.warning(
+          "brain.source_learning.items_rejected",
+          "extracted items failed write validation",
+          %{source_id: source.id, rejected: rejected, reasons: report[:reject_reasons] || []}
+        )
+      end
+
+      {:ok, Map.delete(report, :reject_reasons)}
+    end
   end
 
-  defp append_event(
-         source,
-         scope,
-         agent_uid,
-         run_id,
-         session_id,
-         workspace_id,
-         filename,
-         curation_guide,
-         opts
-       ) do
-    now = DateTime.utc_now(:microsecond)
-    source_event_id = "brain-source-learn:#{run_id}"
+  defp ensure_same_revision(%Source{upstream_revision: current}, expected)
+       when current == expected,
+       do: :ok
 
-    virtual_path =
-      Path.join(
-        AgentHomePaths.session_workspace(agent_uid, workspace_id),
-        "source/#{filename}"
-      )
+  defp ensure_same_revision(%Source{}, _expected), do: {:error, :stale_run}
 
-    attrs = %{
-      agent_uid: agent_uid,
-      binding_name: @binding_name,
-      session_id: session_id,
-      source_event_id: source_event_id,
-      source_entry_id: source.document_id,
-      type: @event_type,
-      available_at: now,
-      payload: %{
-        "specversion" => "1.0",
-        "id" => source_event_id,
-        "source" => "console://brain/sources",
-        "subject" => "brain_retained_sources:#{source.id}",
-        "time" => DateTime.to_iso8601(now),
-        "type" => @event_type,
-        "data" => %{
-          "session" => %{
-            "agent_uid" => agent_uid,
-            "session_id" => session_id,
-            "binding_name" => @binding_name
-          },
-          "brain_scope" => brain_scope(scope),
-          "entry" => %{
-            "text" => learning_instruction(source, curation_guide),
-            "document_id" => source.document_id,
-            "attachments" => [
-              %{
-                "name" => filename,
-                "resource_type" => "document",
-                "mime_type" => source.media_type,
-                "size" => source.byte_size,
-                "agent_computer_path" => virtual_path
-              }
-            ]
-          },
-          "retained_source" => %{
-            "document_id" => source.document_id,
-            "title" => source.title,
-            "capture_method" => source.capture_method,
-            "origin_locator" => source.origin_locator,
-            "media_type" => source.media_type,
-            "byte_size" => source.byte_size,
-            "sha256" => source.sha256,
-            "path" => virtual_path
-          }
-        }
-      }
-    }
+  # An extraction whose items all fail write validation is a model-quality
+  # failure, not new knowledge. Committing it would keep the expired old
+  # facts gone and advance the fingerprint, so the loss would read as
+  # `unchanged` forever; the rollback keeps the old memory and a later run
+  # retries the same revision. An extraction with no items stays a commit:
+  # the document really carries nothing to learn.
+  defp ensure_extraction_written(items, %{claims: 0, reject_reasons: reasons}) when items != [],
+    do: {:error, {:all_items_rejected, reasons}}
 
-    append_fun = Keyword.get(opts, :append_fun, &SignalsGateway.append_actor_event/1)
-    append_fun.(attrs)
+  defp ensure_extraction_written(_items, _written), do: :ok
+
+  # Extraction
+
+  # Extraction covers every window of the content when the object type is
+  # extractable. A model failure aborts the run instead of counting as an
+  # empty result: recording `learned` with zero claims would freeze the
+  # fingerprint and skip the content forever.
+  defp extract_items(slug, title, content) do
+    cond do
+      not extractable_type?(slug) ->
+        {:ok, %{windows: 0, items: []}}
+
+      Config.extraction_model() == nil ->
+        {:error, :extraction_model_not_configured}
+
+      true ->
+        model = Config.extraction_model()
+
+        content
+        |> content_windows(@extraction_window_chars)
+        |> Enum.reduce_while({:ok, %{windows: 0, items: []}}, fn window, {:ok, acc} ->
+          case extract_window(model, title, window) do
+            {:ok, items} ->
+              {:cont, {:ok, %{windows: acc.windows + 1, items: acc.items ++ items}}}
+
+            {:error, reason} ->
+              {:halt, {:error, {:extraction_failed, reason}}}
+          end
+        end)
+    end
   end
 
-  defp learning_instruction(source, curation_guide) do
-    base = """
-    The user asked you to learn the retained source “#{source.title}”.
-    The long-term memory system (code name Brain) preserves information an Agent creates or encounters so that it can recover the most relevant items for future work. It contains chat messages, curated current entries, and external materials that a person asked the Agent to learn.
-    Read the entire source with source_read. Call it again until it reports complete=true.
-    Integrate only durable, supported knowledge into one or more relevant long-term memory entries; update an existing entry when it already owns the subject, otherwise create a focused entry.
-    In this run memory_update accepts only create_entry with name, type, and initial_body, or append_block/edit_block against an existing page.
-    For each supported claim, use the source marker that memory_update provides for this run.
-    Do not save tool failures, temporary runtime limitations, task progress, or claims the source does not support.
+  defp extractable_type?(slug) do
+    type =
+      case Objects.get_by_slug(slug) do
+        {:ok, object} -> object.type
+        {:error, :not_found} -> "media"
+      end
+
+    SchemaType
+    |> where([schema_type], schema_type.name == ^type)
+    |> select([schema_type], schema_type.extractable)
+    |> Repo.one() || false
+  end
+
+  # `String.split_at/2` walks only the split-off window, so the whole pass
+  # stays linear in the content size.
+  defp content_windows(content, window) do
+    Stream.unfold(content, fn
+      "" -> nil
+      rest -> String.split_at(rest, window)
+    end)
+    |> Enum.to_list()
+  end
+
+  defp extract_window(model, title, window_text) do
+    prompt = """
+    Extract durable factual claims from this source excerpt. Return one JSON
+    object: {"items":[{"claim":"...","kind":"event|preference|commitment|belief|fact","notability":"high|medium|low","confidence":0.75,"context":"..."}]}
+
+    Rules: one independently changeable assertion per item; multiples of
+    0.05 for confidence; skip anything without long-term value.
+
+    Source: #{title}
+    Excerpt:
+    #{window_text}
     """
 
-    case curation_guide do
-      guide when is_binary(guide) ->
-        String.trim(base) <> "\n\nHuman-maintained long-term memory curation guide:\n\n" <> guide
-
-      nil ->
-        String.trim(base)
+    case ModelCalls.complete_json(model, prompt) do
+      {:ok, %{"items" => items}} when is_list(items) -> {:ok, items}
+      {:ok, _invalid_output} -> {:error, :invalid_extraction_response}
+      {:error, reason} -> {:error, reason}
     end
   end
 
-  defp project_outcome(nil, _document_id), do: %{status: "stored", actor_event_id: nil}
+  # Claims write with deferred embedding: Self-healing embeds them within
+  # its next sweep, and dedup is pointless here because the previous
+  # revision's claims were just expired. Item-level validation rejects are
+  # counted and logged; they must not wedge the source forever.
+  defp write_claims(repo, object, items, scope, session) do
+    now = DateTime.utc_now(:microsecond)
 
-  defp project_outcome(%ActorEvent{input_state: "dead_letter", id: id}, _document_id),
-    do: %{status: "failed", actor_event_id: id}
+    written =
+      Enum.reduce(items, %{claims: 0, rejected: 0, reject_reasons: []}, fn item, acc ->
+        attrs = %{
+          object_slug: object.slug,
+          claim: item["claim"],
+          kind: item["kind"],
+          holder: "world",
+          audience_scope: scope,
+          notability: item["notability"] || "medium",
+          confidence: Claims.snap_to_grid(item["confidence"]),
+          context: item["context"],
+          valid_from: now,
+          provenance: "source: #{object.title}",
+          provenance_session: session
+        }
 
-  defp project_outcome(%ActorEvent{completed_at: nil, id: id}, _document_id),
-    do: %{status: "learning", actor_event_id: id}
+        case Claims.write_fact(attrs, :system, repo: repo, dedup: false, embed: false) do
+          {:ok, _result} ->
+            Map.update!(acc, :claims, &(&1 + 1))
 
-  defp project_outcome(%ActorEvent{turn_outcome: nil, id: id}, _document_id),
-    do: %{status: "failed", actor_event_id: id}
+          {:error, reason} ->
+            acc
+            |> Map.update!(:rejected, &(&1 + 1))
+            |> Map.update!(:reject_reasons, &[inspect(reason) | &1])
+        end
+      end)
 
-  defp project_outcome(%ActorEvent{turn_outcome: "iteration_exhausted", id: id}, _document_id),
-    do: %{status: "incomplete", actor_event_id: id}
-
-  defp project_outcome(%ActorEvent{turn_outcome: "loop_finished", id: id}, document_id) do
-    status = if learning_writes?(id, document_id), do: "integrated", else: "no_change"
-    %{status: status, actor_event_id: id}
+    {:ok,
+     Map.update!(written, :reject_reasons, fn reasons ->
+       reasons |> Enum.reverse() |> Enum.uniq() |> Enum.take(5)
+     end)}
   end
 
-  defp learning_writes?(actor_event_id, document_id) do
-    AuditLog
-    |> where(
-      [audit],
-      fragment("?->>'actor_event_id' = ?", audit.metadata, ^actor_event_id) and
-        fragment("?->>'source_document_id' = ?", audit.metadata, ^document_id)
-    )
-    |> Repo.exists?()
+  defp provenance_session(%Source{id: id}), do: "source:" <> id
+
+  defp source_object_slug(%Source{} = source) do
+    hash = source.id |> NativeKernel.xxh3_128_hex() |> String.slice(0, 12)
+    "media/source-#{hash}"
   end
 
-  defp brain_scope(%Scope{writable_store_key: "shared"}), do: %{"visibility" => "shared"}
+  defp default_subtype("url"), do: "article"
+  defp default_subtype("file"), do: "book"
 
-  defp brain_scope(%Scope{writable_store_key: "self"}), do: %{"visibility" => "self"}
+  # Content fetch
 
-  defp brain_scope(%Scope{writable_store_key: "dm:" <> peer_uid}) do
-    %{"visibility" => "dm", "peer_uid" => peer_uid}
-  end
-
-  defp brain_scope(%Scope{writable_store_key: "channel:" <> channel_id}) do
-    %{"visibility" => "channel", "channel_id" => channel_id, "channel_kind" => "im_group"}
-  end
-
-  defp workspace_relative_path(owner_uid, workspace_id, filename) do
-    AgentHomePaths.session_lane_path(owner_uid, workspace_id, "source/#{filename}")
-  end
-
-  defp source_filename(source) do
-    (source.original_name || source.title)
-    |> Path.basename()
-    |> String.replace(~r/[^\p{L}\p{N}._-]+/u, "-")
-    |> String.trim("-")
-    |> String.slice(0, 180)
-    |> ensure_extension(source.media_type)
-  end
-
-  defp ensure_extension("", media_type), do: ensure_extension("source", media_type)
-
-  defp ensure_extension(filename, media_type) do
-    if Path.extname(filename) == "" do
-      filename <> media_extension(media_type)
+  defp fetch_content(%Source{kind: "file", upstream_id: path}) do
+    with {:ok, %File.Stat{size: size}} <- File.stat(path),
+         true <- size <= @max_content_bytes,
+         {:ok, content} <- File.read(path) do
+      if String.valid?(content),
+        do: {:ok, content},
+        else: {:error, :source_content_not_text}
     else
-      filename
+      false -> {:error, :source_content_too_large}
+      {:error, reason} -> {:error, {:source_unreadable, reason}}
     end
   end
 
-  defp media_extension(media_type) do
-    normalized = String.downcase(media_type || "")
+  defp fetch_content(%Source{kind: "url", upstream_id: url}) do
+    with {:ok, model} <- web_fetch_model() do
+      selector = model["provider_id"] <> "/" <> model["model"]
+
+      case AIGateway.create_web_fetch(
+             Embeddings.subject_uid(),
+             %{"model" => selector, "urls" => [url]}
+           ) do
+        {:ok, %{body: %{"results" => [result | _rest]}}} -> web_fetch_text(result)
+        {:ok, _response} -> {:error, :source_fetch_empty}
+        {:error, reason} -> {:error, {:source_fetch_failed, reason}}
+      end
+    end
+  end
+
+  defp fetch_content(%Source{kind: kind}), do: {:error, {:unsupported_source_kind, kind}}
+
+  defp web_fetch_text(result) do
+    error = result["error"]
+    text = result["text"]
 
     cond do
-      String.contains?(normalized, "pdf") -> ".pdf"
-      String.contains?(normalized, "html") -> ".html"
-      String.contains?(normalized, "json") -> ".json"
-      String.contains?(normalized, "markdown") -> ".md"
-      String.starts_with?(normalized, "text/") -> ".txt"
-      true -> ".bin"
+      is_binary(error) and error != "" ->
+        {:error, {:source_fetch_failed, error}}
+
+      is_binary(text) and String.trim(text) != "" ->
+        if byte_size(text) <= @max_content_bytes,
+          do: {:ok, text},
+          else: {:error, :source_content_too_large}
+
+      true ->
+        {:error, :source_fetch_empty}
+    end
+  end
+
+  defp web_fetch_model do
+    case Config.web_fetch_model() do
+      nil -> {:error, :web_fetch_model_not_configured}
+      model -> {:ok, model}
+    end
+  end
+
+  # Validation and lookups
+
+  defp validate_kind(kind) when kind in ["file", "url"], do: :ok
+  defp validate_kind(kind), do: {:error, {:unsupported_source_kind, kind}}
+
+  defp validate_default_scope(nil), do: :ok
+  defp validate_default_scope(scope), do: Scope.validate(scope)
+
+  defp ensure_enabled do
+    if Config.enabled?(), do: :ok, else: {:error, :brain_disabled}
+  end
+
+  defp fetch_source(source_id) do
+    case Repo.get(Source, source_id) do
+      %Source{} = source -> {:ok, source}
+      nil -> {:error, :not_found}
     end
   end
 end

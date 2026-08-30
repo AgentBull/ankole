@@ -82,11 +82,14 @@ defmodule Ankole.PrincipalsTest do
 
   describe "agents" do
     test "create_agent/1 creates an agent Principal with AI Colleague defaults" do
+      %{principal: owner} = human_fixture(%{uid: unique_uid("agent-owner")})
+
       assert {:ok, %{principal: principal, agent: agent}} =
                Principals.create_agent(%{
                  uid: " Research-Agent ",
                  display_name: "Research Agent",
-                 role: " Research Analyst "
+                 role: " Research Analyst ",
+                 owner_principal_uid: owner.uid
                })
 
       assert principal.uid == "research-agent"
@@ -96,12 +99,58 @@ defmodule Ankole.PrincipalsTest do
       assert agent.type == :ai_colleague
       assert agent.role == "Research Analyst"
       assert agent.options == %{}
+      assert agent.owner_principal_uid == owner.uid
+      assert agent.group_memory_disclosure_mode == :strict
+    end
+
+    test "create_agent/1 requires an owner principal" do
+      assert {:error, changeset} =
+               Principals.create_agent(%{
+                 uid: unique_uid("ownerless-agent"),
+                 display_name: "Ownerless Agent",
+                 role: "Research Analyst"
+               })
+
+      assert %{owner_principal_uid: [_]} = errors_on(changeset)
+    end
+
+    test "create_agent/1 and update_agent/2 require a human owner" do
+      %{principal: owner} = human_fixture(%{uid: unique_uid("agent-owner")})
+      %{principal: other_agent} = agent_fixture()
+
+      assert {:error, :agent_owner_must_be_human} =
+               Principals.create_agent(%{
+                 uid: unique_uid("agent-owned-agent"),
+                 display_name: "Agent-owned Agent",
+                 role: "Research Analyst",
+                 owner_principal_uid: other_agent.uid
+               })
+
+      assert {:error, :agent_owner_not_found} =
+               Principals.create_agent(%{
+                 uid: unique_uid("ghost-owned-agent"),
+                 display_name: "Ghost-owned Agent",
+                 role: "Research Analyst",
+                 owner_principal_uid: "no-such-principal"
+               })
+
+      assert {:ok, %{agent: agent}} =
+               Principals.create_agent(%{
+                 uid: unique_uid("owned-agent"),
+                 display_name: "Owned Agent",
+                 role: "Research Analyst",
+                 owner_principal_uid: owner.uid
+               })
+
+      assert {:error, :agent_owner_must_be_human} =
+               Principals.update_agent(agent.uid, %{owner_principal_uid: other_agent.uid})
     end
 
     test "create_agent/1 requires role and object options" do
       assert {:error, role_changeset} =
                Principals.create_agent(%{
                  uid: unique_uid("roleless-agent"),
+                 display_name: "Roleless Agent",
                  role: " "
                })
 
@@ -110,6 +159,7 @@ defmodule Ankole.PrincipalsTest do
       assert {:error, options_changeset} =
                Principals.create_agent(%{
                  uid: unique_uid("bad-options-agent"),
+                 display_name: "Bad Options Agent",
                  role: "Research Analyst",
                  options: "not-a-map"
                })
@@ -123,7 +173,9 @@ defmodule Ankole.PrincipalsTest do
       assert {:ok, %{agent: agent}} =
                Principals.create_agent(%{
                  uid: unique_uid("created-agent"),
+                 display_name: "Created Agent",
                  role: "Research Analyst",
+                 owner_principal_uid: creator.uid,
                  created_by_principal_uid: String.upcase(creator.uid)
                })
 
@@ -168,18 +220,20 @@ defmodule Ankole.PrincipalsTest do
 
   describe "platform subjects" do
     test "upsert_platform_subject_human/1 converges repeated observations on one Principal" do
+      # The uid attr is the admission-binding path: it points the first-seen
+      # subject at a Principal a human reviewer already matched.
+      %{principal: existing} = human_fixture(%{uid: "alice", email: "alice@example.com"})
+
       assert {:ok, first} =
                Principals.upsert_platform_subject_human(%{
                  provider: "lark-main",
                  external_id: "ou_user_1",
-                 uid: "Alice",
+                 uid: existing.uid,
                  display_name: "Alice",
-                 email: "alice@example.com",
                  metadata: %{"tenant_key" => "tenant_a"}
                })
 
       assert first.principal.uid == "alice"
-      assert first.identity.kind == :platform_subject
       assert first.identity.provider == "lark-main"
       assert first.identity.external_id == "ou_user_1"
 
@@ -193,12 +247,117 @@ defmodule Ankole.PrincipalsTest do
                })
 
       assert second.principal.uid == first.principal.uid
-      assert second.principal.display_name == "Alice Updated"
+      assert second.identity.id == first.identity.id
+      # A message observation must not rename a Principal that already has a
+      # display name; the fixture's name survives both observations.
+      assert second.principal.display_name == "Human"
       assert second.human_user.email == "alice@example.com"
       assert second.identity.metadata["tenant_key"] == "tenant_a"
       assert second.identity.metadata["open_id"] == "open_1"
       assert second.identity.metadata["provider"] == "lark-main"
       assert second.identity.metadata["external_id"] == "ou_user_1"
+
+      # Directory sync stays authoritative for the profile and may rename.
+      assert {:ok, synced} =
+               Principals.upsert_platform_subject_human(%{
+                 provider: "lark-main",
+                 external_id: "ou_user_1",
+                 display_name: "Alice Directory",
+                 authoritative_profile: true
+               })
+
+      assert synced.principal.display_name == "Alice Directory"
+    end
+
+    test "upsert_platform_subject_human/1 binds every ordered subject alias atomically" do
+      external_ids = [
+        "alias.person@example.com",
+        "lark-user-alias",
+        "lark-union-alias",
+        "lark-open-alias"
+      ]
+
+      assert {:ok, observed} =
+               Principals.upsert_platform_subject_human(%{
+                 provider: "lark-main",
+                 external_id: hd(external_ids),
+                 external_ids: tl(external_ids),
+                 email: "Alias.Person@example.com"
+               })
+
+      assert observed.identity.external_id == "alias.person@example.com"
+      assert observed.principal.uid == "alias.person@example.com"
+
+      Enum.each(external_ids, fn external_id ->
+        assert {:ok, principal} =
+                 Principals.resolve_platform_subject("lark-main", external_id)
+
+        assert principal.uid == observed.principal.uid
+      end)
+    end
+
+    test "an existing alias binding wins before contact and keeps all aliases on its Principal" do
+      assert {:ok, first} =
+               Principals.upsert_platform_subject_human(%{
+                 provider: "lark-main",
+                 external_id: "lark-existing-user-id"
+               })
+
+      assert {:ok, observed} =
+               Principals.upsert_platform_subject_human(%{
+                 provider: "lark-main",
+                 external_id: "existing.alias@example.com",
+                 external_ids: ["lark-existing-user-id", "lark-existing-open-id"],
+                 email: "existing.alias@example.com"
+               })
+
+      assert observed.principal.uid == first.principal.uid
+
+      assert {:ok, email_subject} =
+               Principals.resolve_platform_subject("lark-main", "existing.alias@example.com")
+
+      assert {:ok, open_subject} =
+               Principals.resolve_platform_subject("lark-main", "lark-existing-open-id")
+
+      assert email_subject.uid == first.principal.uid
+      assert open_subject.uid == first.principal.uid
+    end
+
+    test "conflicting subject aliases roll back the complete alias write" do
+      assert {:ok, email_owner} =
+               Principals.upsert_platform_subject_human(%{
+                 provider: "lark-main",
+                 external_id: "conflicting.alias@example.com",
+                 email: "conflicting.alias@example.com"
+               })
+
+      assert {:ok, user_id_owner} =
+               Principals.upsert_platform_subject_human(%{
+                 provider: "lark-main",
+                 external_id: "conflicting-lark-user-id"
+               })
+
+      refute email_owner.principal.uid == user_id_owner.principal.uid
+
+      assert {:error, :platform_subject_already_bound} =
+               Principals.upsert_platform_subject_human(%{
+                 provider: "lark-main",
+                 external_id: "conflicting.alias@example.com",
+                 external_ids: ["conflicting-lark-user-id", "unwritten-lark-open-id"],
+                 email: "conflicting.alias@example.com"
+               })
+
+      assert {:error, :not_found} =
+               Principals.resolve_platform_subject("lark-main", "unwritten-lark-open-id")
+
+      assert {:ok, email_subject} =
+               Principals.resolve_platform_subject("lark-main", "conflicting.alias@example.com")
+
+      assert {:ok, user_id_subject} =
+               Principals.resolve_platform_subject("lark-main", "conflicting-lark-user-id")
+
+      assert email_subject.uid == email_owner.principal.uid
+      assert user_id_subject.uid == user_id_owner.principal.uid
     end
 
     test "resolve_platform_subject/2 returns only active humans" do
@@ -229,17 +388,15 @@ defmodule Ankole.PrincipalsTest do
                Principals.upsert_platform_subject_human(%{
                  provider: "slack-main",
                  external_id: "U1000",
-                 uid: "U1000",
                  display_name: "Alice",
                  email: "join.alice@example.com"
                })
 
-      # The uid suggestion loses to the email claim; casing does not matter.
+      # The same verified email converges the two providers; casing does not matter.
       assert {:ok, google} =
                Principals.upsert_platform_subject_human(%{
                  provider: "google-workspace-main",
                  external_id: "103200300400500600700",
-                 uid: "103200300400500600700",
                  display_name: "Alice G",
                  email: "Join.Alice@Example.com",
                  job_title: "Engineer"
@@ -248,11 +405,82 @@ defmodule Ankole.PrincipalsTest do
       assert google.principal.uid == slack.principal.uid
       assert google.identity.provider == "google-workspace-main"
       assert google.identity.external_id == "103200300400500600700"
-      assert google.principal.display_name == "Alice G"
+      # The first observation named the blank Principal; the later provider's
+      # nickname does not rename it.
+      assert google.principal.display_name == "Alice"
       assert google.human_user.job_title == "Engineer"
 
       assert {:ok, resolved} = Principals.resolve_platform_subject("slack-main", "U1000")
       assert resolved.uid == slack.principal.uid
+    end
+
+    test "upsert_platform_subject_human/1 lets the email claim win over a uid suggestion" do
+      %{principal: bystander} = human_fixture(%{uid: unique_uid("bystander")})
+
+      assert {:ok, owner} =
+               Principals.upsert_platform_subject_human(%{
+                 provider: "slack-main",
+                 external_id: "U1500",
+                 email: "claim.owner@example.com"
+               })
+
+      assert {:ok, joined} =
+               Principals.upsert_platform_subject_human(%{
+                 provider: "google-workspace-main",
+                 external_id: "207300400500600700800",
+                 uid: bystander.uid,
+                 email: "claim.owner@example.com"
+               })
+
+      assert joined.principal.uid == owner.principal.uid
+      refute joined.principal.uid == bystander.uid
+    end
+
+    test "upsert_platform_subject_human/1 converges equal external ids across providers" do
+      assert {:ok, first} =
+               Principals.upsert_platform_subject_human(%{
+                 provider: "slack-main",
+                 external_id: "12345",
+                 display_name: "Slack Person"
+               })
+
+      assert {:ok, second} =
+               Principals.upsert_platform_subject_human(%{
+                 provider: "dingtalk-main",
+                 external_id: "12345",
+                 display_name: "DingTalk Person"
+               })
+
+      assert first.principal.uid == "12345"
+      assert second.principal.uid == first.principal.uid
+
+      assert {:ok, slack_resolved} = Principals.resolve_platform_subject("slack-main", "12345")
+      assert {:ok, ding_resolved} = Principals.resolve_platform_subject("dingtalk-main", "12345")
+      assert slack_resolved.uid == first.principal.uid
+      assert ding_resolved.uid == first.principal.uid
+    end
+
+    test "upsert_platform_subject_human/1 uses contacts before a global Principal UID" do
+      %{principal: global_principal} = human_fixture(%{uid: "shared-subject"})
+
+      %{principal: contact_principal, human_user: contact_owner} =
+        human_fixture(%{uid: "first-global-owner", email: "first.global.owner@example.com"})
+
+      assert {:ok, first} =
+               Principals.upsert_platform_subject_human(%{
+                 provider: "slack-main",
+                 external_id: "shared-subject",
+                 email: contact_owner.email
+               })
+
+      assert {:ok, second} =
+               Principals.upsert_platform_subject_human(%{
+                 provider: "dingtalk-main",
+                 external_id: "SHARED-SUBJECT"
+               })
+
+      assert first.principal.uid == contact_principal.uid
+      assert second.principal.uid == global_principal.uid
     end
 
     test "upsert_platform_subject_human/1 drops a conflicting email from a bound subject" do
@@ -266,8 +494,7 @@ defmodule Ankole.PrincipalsTest do
       assert {:ok, slack_first} =
                Principals.upsert_platform_subject_human(%{
                  provider: "slack-main",
-                 external_id: "U2000",
-                 uid: "U2000"
+                 external_id: "U2000"
                })
 
       refute slack_first.principal.uid == google.principal.uid
@@ -287,7 +514,7 @@ defmodule Ankole.PrincipalsTest do
       assert slack_second.human_user.job_title == "Support"
     end
 
-    test "upsert_platform_subject_human/1 drops a conflicting mobile and never joins by it" do
+    test "upsert_platform_subject_human/1 joins a first-seen subject by mobile" do
       assert {:ok, first} =
                Principals.upsert_platform_subject_human(%{
                  provider: "lark-main",
@@ -304,69 +531,104 @@ defmodule Ankole.PrincipalsTest do
                  mobile: "+1 415 555 9999"
                })
 
-      refute second.principal.uid == first.principal.uid
-      assert second.human_user.email == "mobile.other@example.com"
-      assert second.human_user.mobile == nil
+      assert second.principal.uid == first.principal.uid
     end
   end
 
-  describe "channel actors" do
-    test "resolve_channel_actor/3 fails closed until the binding is verified" do
-      %{principal: principal} = human_fixture()
+  describe "match_platform_subject_human/1" do
+    test "matches any candidate external id" do
+      %{principal: principal, identity: identity} =
+        platform_subject_fixture(%{provider: "lark-main"})
 
-      unverified =
-        channel_actor_identity_fixture(%{
-          human: %{principal: principal},
-          adapter: "lark",
-          channel_id: "chat_a",
-          external_id: "user_a"
-        })
-
-      refute Principals.channel_identity_verified?(unverified)
-
-      assert {:error, :identity_unverified} =
-               Principals.resolve_channel_actor("lark", "chat_a", "user_a")
-
-      verified =
-        channel_actor_identity_fixture(%{
-          human: %{principal: principal},
-          adapter: "lark",
-          channel_id: "chat_b",
-          external_id: "user_b",
-          verified_at: DateTime.utc_now(:microsecond)
-        })
-
-      assert Principals.channel_identity_verified?(verified)
-      assert {:ok, ^principal} = Principals.resolve_channel_actor("lark", "chat_b", "user_b")
+      assert {:ok, ^principal} =
+               Principals.match_platform_subject_human(%{
+                 provider: "lark-main",
+                 external_ids: ["unknown_primary", identity.external_id]
+               })
     end
 
-    test "external identity changeset enforces provider and channel shapes" do
+    test "matches by email and then mobile when no candidate id is bound" do
+      %{principal: principal} =
+        platform_subject_fixture(%{
+          provider: "lark-main",
+          email: "match.target@example.com",
+          mobile: "+14155550101"
+        })
+
+      assert {:ok, ^principal} =
+               Principals.match_platform_subject_human(%{
+                 provider: "slack-main",
+                 external_id: "U_UNSEEN",
+                 email: "Match.Target@example.com"
+               })
+
+      assert {:ok, ^principal} =
+               Principals.match_platform_subject_human(%{
+                 provider: "slack-main",
+                 external_id: "U_UNSEEN",
+                 mobile: "+1 415 555 0101"
+               })
+    end
+
+    test "matches contacts before the global Principal namespace" do
+      %{principal: global_principal} =
+        human_fixture(%{uid: "shared-global-subject", email: "global.subject@example.com"})
+
+      %{principal: contact_principal, human_user: contact_owner} =
+        human_fixture(%{uid: "different-contact-owner", email: "other.owner@example.com"})
+
+      assert {:ok, ^contact_principal} =
+               Principals.match_platform_subject_human(%{
+                 provider: "lark-main",
+                 external_id: "SHARED-GLOBAL-SUBJECT",
+                 email: contact_owner.email
+               })
+
+      assert {:ok, ^global_principal} =
+               Principals.match_platform_subject_human(%{
+                 provider: "lark-main",
+                 external_id: "SHARED-GLOBAL-SUBJECT"
+               })
+    end
+
+    test "never creates anything on a miss" do
+      assert {:error, :not_found} =
+               Principals.match_platform_subject_human(%{
+                 provider: "lark-main",
+                 external_id: "ou_total_stranger",
+                 email: "stranger@example.com"
+               })
+
+      assert {:error, :not_found} =
+               Principals.resolve_platform_subject("lark-main", "ou_total_stranger")
+    end
+
+    test "reports a disabled principal instead of falling through" do
+      %{principal: principal, identity: identity} =
+        platform_subject_fixture(%{provider: "lark-main"})
+
+      assert {:ok, _principal} = Principals.disable_principal(principal.uid)
+
+      assert {:error, :principal_disabled} =
+               Principals.match_platform_subject_human(%{
+                 provider: "lark-main",
+                 external_id: identity.external_id
+               })
+    end
+  end
+
+  describe "external identities" do
+    test "external identity changeset requires the provider subject shape" do
       %{principal: principal} = human_fixture()
 
-      assert {:error, provider_subject_changeset} =
+      assert {:error, changeset} =
                Principals.create_external_identity(%{
                  principal_uid: principal.uid,
-                 kind: :platform_subject,
-                 provider: "lark-main",
-                 adapter: "lark",
                  external_id: "ou_bad",
                  metadata: %{}
                })
 
-      assert %{adapter: [_]} = errors_on(provider_subject_changeset)
-
-      assert {:error, channel_actor_changeset} =
-               Principals.create_external_identity(%{
-                 principal_uid: principal.uid,
-                 kind: :channel_actor,
-                 provider: "lark-main",
-                 adapter: "lark",
-                 channel_id: "chat_bad",
-                 external_id: "open_bad",
-                 metadata: %{}
-               })
-
-      assert %{provider: [_]} = errors_on(channel_actor_changeset)
+      assert %{provider: [_]} = errors_on(changeset)
     end
 
     test "external identity writes normalize principal_uid" do
@@ -375,9 +637,7 @@ defmodule Ankole.PrincipalsTest do
       assert {:ok, identity} =
                Principals.create_external_identity(%{
                  principal_uid: String.upcase(principal.uid),
-                 kind: :channel_actor,
-                 adapter: "lark",
-                 channel_id: unique_uid("chat"),
+                 provider: "lark-main",
                  external_id: unique_uid("actor"),
                  metadata: %{}
                })
@@ -385,41 +645,8 @@ defmodule Ankole.PrincipalsTest do
       assert identity.principal_uid == principal.uid
     end
 
-    test "upsert_external_identity/1 converges on the natural identity key" do
-      first = human_fixture(%{uid: unique_uid("first-owner")})
-      second = human_fixture(%{uid: unique_uid("second-owner")})
-      channel_id = unique_uid("chat")
-      external_id = unique_uid("actor")
-
-      assert {:ok, inserted} =
-               Principals.upsert_external_identity(%{
-                 principal_uid: first.principal.uid,
-                 kind: :channel_actor,
-                 adapter: "lark",
-                 channel_id: channel_id,
-                 external_id: external_id,
-                 verified_at: DateTime.utc_now(:microsecond),
-                 metadata: %{"source" => "first"}
-               })
-
-      assert {:ok, updated} =
-               Principals.upsert_external_identity(%{
-                 principal_uid: String.upcase(second.principal.uid),
-                 kind: :channel_actor,
-                 adapter: "lark",
-                 channel_id: channel_id,
-                 external_id: external_id,
-                 verified_at: DateTime.utc_now(:microsecond),
-                 metadata: %{"source" => "second"}
-               })
-
-      assert updated.id == inserted.id
-      assert updated.principal_uid == second.principal.uid
-      assert updated.metadata == %{"source" => "second"}
-    end
-
     test "create_external_identity/1 stores UUIDv7 ids for binding rows" do
-      identity = channel_actor_identity_fixture()
+      identity = external_identity_fixture()
 
       assert %ExternalIdentity{} = identity
 

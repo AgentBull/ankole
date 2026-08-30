@@ -6,9 +6,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorLane do
   module resolves its actor key, checks the worker route against the durable
   turn fence, and invokes the matching ActorRuntime transition with the
   generated payload struct.
-
-  `turn_completed` is a rolling-deployment compatibility input. Current
-  workers use the typed completion RPC, which reaches the same domain owner.
   """
 
   alias Ankole.Logging
@@ -17,12 +14,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorLane do
   alias Ankole.SignalsGateway.ActorRuntime.TurnRef
   alias Ankole.SignalsGateway.ActorRuntime.WorkerRouteAuth
 
+  # Actor lane accepts asynchronous Turn updates. Terminal transitions use
+  # typed RPCs.
   @turn_types ~w(
     turn_accepted
     worker_progress
-    turn_noop_completed
-    turn_completed
-    turn_error
   )a
 
   @spec turn_type?(term()) :: boolean()
@@ -59,15 +55,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorLane do
 
   defp dispatch({:ok, payload}, :worker_progress),
     do: ActorRuntime.handle_worker_progress(payload)
-
-  defp dispatch({:ok, payload}, :turn_noop_completed),
-    do: ActorRuntime.handle_turn_noop_completed(payload)
-
-  defp dispatch({:ok, payload}, :turn_completed),
-    do: ActorRuntime.handle_turn_completed(payload)
-
-  defp dispatch({:ok, payload}, :turn_error),
-    do: ActorRuntime.handle_turn_error(payload)
 
   defp dispatch({:error, _reason} = error, _type), do: error
 

@@ -10,6 +10,8 @@ pub struct SSEEvent {
 pub struct SSEParser {
     buffer: Vec<u8>,
     max_event_bytes: usize,
+    // Start the next scan at a byte that can begin a split boundary.
+    scan_from: usize,
 }
 
 impl SSEParser {
@@ -17,6 +19,7 @@ impl SSEParser {
         Self {
             buffer: Vec::new(),
             max_event_bytes: max_event_bytes.max(1),
+            scan_from: 0,
         }
     }
 
@@ -24,7 +27,7 @@ impl SSEParser {
         self.buffer.extend_from_slice(bytes);
         let mut events = Vec::new();
 
-        while let Some(index) = find_sse_boundary(&self.buffer) {
+        while let Some((index, boundary_len)) = find_sse_boundary(&self.buffer, self.scan_from) {
             if index > self.max_event_bytes {
                 return Err(StreamError::new(
                     "sse_event_too_large",
@@ -34,12 +37,8 @@ impl SSEParser {
             }
 
             let mut raw = self.buffer.drain(..index).collect::<Vec<_>>();
-            let boundary_len = if self.buffer.starts_with(b"\r\n\r\n") {
-                4
-            } else {
-                2
-            };
             self.buffer.drain(..boundary_len);
+            self.scan_from = 0;
 
             while raw.ends_with(b"\n") || raw.ends_with(b"\r") {
                 raw.pop();
@@ -61,12 +60,14 @@ impl SSEParser {
             ));
         }
 
+        self.scan_from = self.buffer.len().saturating_sub(b"\r\n\r\n".len() - 1);
         Ok(events)
     }
 
     pub fn finish(&mut self) -> Result<Vec<SSEEvent>, StreamError> {
         if self.buffer.iter().all(|byte| byte.is_ascii_whitespace()) {
             self.buffer.clear();
+            self.scan_from = 0;
             Ok(Vec::new())
         } else {
             Err(StreamError::new(
@@ -78,11 +79,17 @@ impl SSEParser {
     }
 }
 
-fn find_sse_boundary(buffer: &[u8]) -> Option<usize> {
-    buffer
-        .windows(4)
-        .position(|window| window == b"\r\n\r\n")
-        .or_else(|| buffer.windows(2).position(|window| window == b"\n\n"))
+fn find_sse_boundary(buffer: &[u8], start: usize) -> Option<(usize, usize)> {
+    (start.min(buffer.len())..buffer.len()).find_map(|index| {
+        let remaining = &buffer[index..];
+        if remaining.starts_with(b"\r\n\r\n") {
+            Some((index, b"\r\n\r\n".len()))
+        } else if remaining.starts_with(b"\n\n") {
+            Some((index, b"\n\n".len()))
+        } else {
+            None
+        }
+    })
 }
 
 fn parse_sse_event(raw: &[u8]) -> Option<SSEEvent> {
@@ -359,6 +366,44 @@ mod tests {
             vec![SSEEvent {
                 event: Some("response.output_text.delta".to_string()),
                 data: "{\"type\":\"x\"}".to_string()
+            }]
+        );
+    }
+
+    #[test]
+    fn sse_parser_uses_earliest_mixed_line_ending_boundary() {
+        let mut parser = SSEParser::new(1024);
+
+        let events = parser.push(b"data: first\n\ndata: second\r\n\r\n").unwrap();
+
+        assert_eq!(
+            events,
+            vec![
+                SSEEvent {
+                    event: None,
+                    data: "first".to_string()
+                },
+                SSEEvent {
+                    event: None,
+                    data: "second".to_string()
+                }
+            ]
+        );
+    }
+
+    #[test]
+    fn sse_parser_finds_crlf_boundary_across_chunks() {
+        let mut parser = SSEParser::new(1024);
+
+        assert!(parser.push(b"data: split\r\n").unwrap().is_empty());
+        assert!(parser.push(b"\r").unwrap().is_empty());
+        let events = parser.push(b"\n").unwrap();
+
+        assert_eq!(
+            events,
+            vec![SSEEvent {
+                event: None,
+                data: "split".to_string()
             }]
         );
     }

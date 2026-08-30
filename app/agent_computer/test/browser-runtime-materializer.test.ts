@@ -180,7 +180,6 @@ describe('persistent Codex browser materialization', () => {
     const runtime = await new BrowserRouteMaterializer({
       root: join(root, 'runtime'),
       socketPath: join(root, 'socket', 'browser.sock'),
-      nodePath: '/opt/ankole-browser/node/bin/node',
       runnerPath: '/opt/ankole-browser/dist/runner/bootstrap.js',
       localChromiumExecutable: '/bin/true'
     }).materializePersistent({
@@ -190,11 +189,13 @@ describe('persistent Codex browser materialization', () => {
     })
     const sandbox = browserSandboxRuntime(runtime)
 
-    expect(sandbox.env).toMatchObject({
+    expect(sandbox.env).toEqual({
       ANKOLE_BROWSER_ROUTE: runtime.route,
       ANKOLE_BROWSER_SOCKET: join(root, 'socket', 'browser.sock'),
+      ANKOLE_BROWSER_SESSION: 'default',
       ANKOLE_BROWSER_MATERIAL: runtime.materialPath,
-      ANKOLE_BROWSER_ARTIFACT_ROOT: join(scopeRoot, 'browser')
+      ANKOLE_BROWSER_ARTIFACT_ROOT: join(scopeRoot, 'browser'),
+      ANKOLE_BROWSER_RUNNER: '/opt/ankole-browser/dist/runner/bootstrap.js'
     })
     expect(sandbox.env.BROWSER_BACKEND_JSON).toBeUndefined()
     expect(sandbox.binds).toEqual([

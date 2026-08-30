@@ -6,17 +6,14 @@ defmodule AnkoleWeb.ScheduleControllerTest do
 
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
-  alias Ankole.AuthZ
   alias Ankole.Schedule
   alias Ankole.Setup.Config, as: SetupConfig
-  alias AnkoleWeb.Session, as: WebSession
 
   setup do
     allow_cache_database_access()
     Registry.clear_for_test()
     Cache.clear_for_test()
 
-    :ok = SetupConfig.ensure_registered()
     {:ok, false} = SetupConfig.put_completed(false)
     :ok = SetupConfig.delete_bootstrap_activation_code()
 
@@ -89,7 +86,26 @@ defmodule AnkoleWeb.ScheduleControllerTest do
     assert remaining_id == evening.id
   end
 
-  test "creation carries the owner conversation and normalizes legacy delivery, and update accepts multiple targets",
+  test "a malformed cron schedule id answers not found in the console envelope", %{conn: conn} do
+    %{principal: agent} = agent_fixture()
+    conn = bearer_conn(conn)
+
+    assert %{"error" => %{"code" => "not_found", "message" => message}} =
+             conn
+             |> recycle_bearer()
+             |> get(~p"/api/v1/agents/#{agent.uid}/cron-schedules/not-a-uuid")
+             |> json_response(404)
+
+    assert is_binary(message)
+
+    assert %{"error" => %{"code" => "not_found"}} =
+             conn
+             |> recycle_bearer()
+             |> delete(~p"/api/v1/agents/#{agent.uid}/cron-schedules/not-a-uuid")
+             |> json_response(404)
+  end
+
+  test "creation carries the owner conversation and update accepts multiple targets",
        %{conn: conn} do
     %{principal: agent} = agent_fixture()
     api_spec = AnkoleWeb.APISpec.spec()
@@ -231,7 +247,11 @@ defmodule AnkoleWeb.ScheduleControllerTest do
       "schedule" => %{"kind" => "cron", "expression" => "0 9 * * *"},
       "timezone" => "Asia/Shanghai",
       "payload" => %{"task" => "console test task for #{name}"},
-      "delivery" => %{"signal_channel_id" => "lark:chat:#{name}"},
+      "delivery" => %{
+        "targets" => [
+          %{"binding_name" => "lark", "signal_channel_id" => "lark:chat:#{name}"}
+        ]
+      },
       "idempotency_key" => "console-test-#{name}"
     }
   end
@@ -266,22 +286,6 @@ defmodule AnkoleWeb.ScheduleControllerTest do
     event
   end
 
-  defp bearer_conn(conn) do
-    conn
-    |> active_admin_conn()
-    |> post(~p"/.internal-apis/oauth/token", %{
-      "grant_type" => "urn:ankole:params:oauth:grant-type:browser-session"
-    })
-    |> json_response(200)
-    |> Map.fetch!("access_token")
-    |> then(fn access_token ->
-      conn
-      |> recycle()
-      |> put_req_header("authorization", "Bearer #{access_token}")
-      |> put_req_header("content-type", "application/json")
-    end)
-  end
-
   defp recycle_bearer(conn) do
     authorization = get_req_header(conn, "authorization") |> List.first()
 
@@ -289,19 +293,5 @@ defmodule AnkoleWeb.ScheduleControllerTest do
     |> recycle()
     |> put_req_header("authorization", authorization)
     |> put_req_header("content-type", "application/json")
-  end
-
-  defp active_admin_conn(conn) do
-    {:ok, true} = SetupConfig.put_completed(true)
-    human = human_fixture(%{uid: unique_uid("schedule-console-admin")})
-    assert {:ok, _root} = AuthZ.root_init_admin(human.principal.uid)
-
-    conn
-    |> init_test_session(%{})
-    |> WebSession.put_admin_session(%{
-      principal_uid: human.principal.uid,
-      provider_id: "lark-main",
-      external_id: "external-1"
-    })
   end
 end

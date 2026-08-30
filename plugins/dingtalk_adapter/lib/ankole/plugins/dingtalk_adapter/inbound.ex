@@ -98,7 +98,6 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
          structured_mention_prefixes: [],
          explicit: explicit,
          author: author,
-         sender_key: author["principal_uid"] || author["id"],
          metadata:
            compact_map(%{
              "provider" => "dingtalk",
@@ -117,8 +116,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
   defp emit_message_receive(%{context: %AdapterContext{} = context} = consumer, %Event{} = event) do
     case normalize_message_receive(event, consumer) do
       {:ok, input} ->
-        with {:ok, input} <- maybe_materialize_attachments(input, consumer),
-             :ok <- observe_author(consumer, input) do
+        with {:ok, input} <- maybe_materialize_attachments(input, consumer) do
           Ingress.emit_entry(context.agent_uid, context.binding_name, input)
         end
 
@@ -242,7 +240,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
     |> collect_results()
   end
 
-  # --- author / platform subject -------------------------------------------
+  # author / platform subject
 
   defp author(payload, config) do
     case optional_text(payload, "senderStaffId") do
@@ -251,7 +249,6 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
          %{
            "id" => staff_id,
            "platform_subject" => staff_id,
-           "principal_uid" => String.downcase(staff_id),
            "display_name" => optional_text(payload, "senderNick"),
            "metadata" =>
              compact_map(%{
@@ -267,31 +264,10 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
     end
   end
 
-  defp observe_author(%{context: context, config: config}, %{
-         author: %{"platform_subject" => staff_id} = author
-       })
-       when is_binary(staff_id) do
-    attrs = %{
-      provider: Map.get(config, "platformSubjectNamespace", "dingtalk-main"),
-      external_id: staff_id,
-      uid: staff_id,
-      display_name: author["display_name"],
-      metadata: Map.get(author, "metadata", %{})
-    }
-
-    case AdapterContext.observe_platform_subject(context, attrs) do
-      {:ok, _observed} -> :ok
-      {:error, _reason} = error -> error
-    end
-  end
-
-  defp observe_author(_consumer, _input), do: :ok
-
   defp observe_card_operator(%{context: context, config: config}, operator_id) do
     attrs = %{
       provider: Map.get(config, "platformSubjectNamespace", "dingtalk-main"),
-      external_id: operator_id,
-      uid: operator_id
+      external_id: operator_id
     }
 
     case AdapterContext.observe_platform_subject(context, attrs) do
@@ -300,7 +276,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
     end
   end
 
-  # --- text ----------------------------------------------------------------
+  # text
 
   # Inbound text stays the user's own words. A voice message has no typed text —
   # its platform ASR transcript rides the attachment descriptor (`recognition`)
@@ -326,7 +302,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
     |> Enum.map(&segment_text/1)
     |> Enum.reject(&is_nil/1)
     |> Enum.join("")
-    |> blank_to_nil()
+    |> MapHelpers.blank_to_nil()
   end
 
   defp segment_text(segment) do
@@ -346,10 +322,10 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
   defp visible_text(text, true) when is_binary(text) do
     text
     |> String.replace(~r/\A\s*@\S+\s+/u, "")
-    |> blank_to_nil()
+    |> MapHelpers.blank_to_nil()
   end
 
-  defp visible_text(text, _strip), do: blank_to_nil(text)
+  defp visible_text(text, _strip), do: MapHelpers.blank_to_nil(text)
 
   defp strip_leading_mention?(:im_dm, _payload), do: false
 
@@ -375,7 +351,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
   defp formatted_content(nil), do: %{}
   defp formatted_content(text), do: %{"format" => "markdown", "body" => text}
 
-  # --- attachments ---------------------------------------------------------
+  # attachments
 
   defp attachments(payload) do
     case optional_text(payload, "msgtype") do
@@ -462,8 +438,8 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
               Path.join(Ankole.AgentHomePaths.user_files(agent_uid), relative_path)
             )
             |> Map.put("user_files_relative_path", relative_path)
-            |> MapHelpers.maybe_put("xxh3_128", result["xxh3_128"])
-            |> MapHelpers.maybe_put("size", result["size"])
+            |> MapHelpers.put_present("xxh3_128", result["xxh3_128"])
+            |> MapHelpers.put_present("size", result["size"])
 
           {:error, reason} ->
             log_materialization_skip(attachment, reason)
@@ -494,25 +470,12 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
     Path.join([
       "inbox",
       "dingtalk",
-      sanitize_segment(attachment["provider_ref"]),
-      sanitize_segment(name)
+      WorkerFiles.sanitize_path_segment(attachment["provider_ref"]),
+      WorkerFiles.sanitize_path_segment(name)
     ])
   end
 
-  defp sanitize_segment(value) when is_binary(value) do
-    value
-    |> Ankole.Kernel.any_ascii()
-    |> String.replace(~r/[^A-Za-z0-9._-]+/, "_")
-    |> String.trim("_")
-    |> case do
-      "" -> "unnamed"
-      segment -> String.slice(segment, 0, 160)
-    end
-  end
-
-  defp sanitize_segment(_value), do: "unnamed"
-
-  # --- channel / helpers ---------------------------------------------------
+  # channel / helpers
 
   defp channel_kind(payload) do
     case optional_text(payload, "conversationType") do
@@ -630,7 +593,4 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
       nil -> {:error, {:missing, key}}
     end
   end
-
-  defp blank_to_nil(""), do: nil
-  defp blank_to_nil(value), do: value
 end

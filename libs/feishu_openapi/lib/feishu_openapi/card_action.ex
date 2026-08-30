@@ -153,7 +153,7 @@ defmodule FeishuOpenAPI.CardAction do
   # the signature instead, so they pass this step.
   defp verify_challenge_token(%{verification_token: token}, decoded) do
     if challenge?(decoded) do
-      if Map.get(decoded, "token") == token, do: :ok, else: {:error, :bad_verification_token}
+      Crypto.verify_token(Map.get(decoded, "token"), token)
     else
       :ok
     end

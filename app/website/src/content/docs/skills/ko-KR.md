@@ -71,6 +71,12 @@ ankole-runtime: any
 
 Deep Research 진입 Skill은 원래 대화에서 요청을 확인하고 Job을 만들기 때문에 `main`을 사용합니다. 그러면 조사 Skills는 Background Agent Job 안에서 실행될 수 있습니다.
 
+#### Ankole 확장: Brain을 통해 Skill 발견하기
+
+일부 SOP와 방법론은 현재 작업과 관련될 때만 유용하므로 모든 Prompt에 나열하면 컨텍스트를 낭비합니다. 배포되는 Skill은 `brain-recall-only: true`를 선언할 수 있습니다. 표준 Skill이라는 점과 Agent Plugin, Skill 활성화, 실행 표면, `skill_view` 규칙은 그대로 유지됩니다. 차이는 모델에 표시되는 Skill 카탈로그에 넣지 않고 Brain이 의미에 따라 발견한다는 점입니다.
+
+Brain은 Skill의 이름, 설명, 태그를 검색합니다. 일치하면 Agent는 `skill_view`를 호출합니다. `skill_view`는 `ankole-runtime`에 따라 호환되는 실행 표면에서는 Skill을 로드하고, 그렇지 않으면 올바른 라우팅 또는 거부 결과를 반환합니다. Skill이나 부모 Agent Plugin을 비활성화하면 해당 Agent는 Brain에서 Skill을 발견하거나 로드할 수 없습니다. 이 의미 검색 경로를 사용하려면 Brain이 활성화되어 있어야 합니다. 이 모드는 필요할 때만 사용할 수 있고 모든 Prompt를 계속 차지해서는 안 되는 배포 방법론과 SOP에 적합합니다.
+
 ### Control Plane Plugin: 관리 플랫폼 확장
 
 Control Plane Plugin은 OpenAI Plugin이 아니며 Agent의 작업 컨텍스트에도 들어가지 않습니다. Ankole 컨트롤 플레인을 확장합니다.
@@ -102,13 +108,13 @@ Control Plane Plugin은 Channel Providers, identity 소스, 시스템 설정, �
 
 Agent Plugin은 여러 Skills를 포함할 수 있습니다. 부모를 비활성화하면 그 Skills를 사용할 수 없게 되지만 각 Skill 설정을 다시 쓰지는 않습니다. 부모를 다시 활성화하면 Skills는 각자의 유효 상태로 돌아갑니다.
 
-### Skill 경험 검토
+### Skill 교훈 검토
 
-Skill을 사용하는 동안 Agent는 내부 시스템 관례나 검증된 운영 세부 사항 같은 Agent 고유의 주의 사항을 유지할 수 있습니다. 이 **Skill experience**는 해당 Agent가 Skill을 읽을 때마다 함께 표시됩니다.
+Agent는 전체 Skill 지침과 함께 날짜가 있는 작업상 주의 사항을 받을 수 있습니다. Dreaming은 Job 증거에서 리스가 있는 교훈을 만들고, 운영자는 사람의 교훈을 추가할 수 있습니다. 공유 `SKILL.md`는 바뀌지 않습니다.
 
-Agent Plugin 상세 페이지 또는 **Knowledge → Skill experience**에서 검토합니다. 수동 메모의 경우 상황을 먼저 말한 다음 주의 사항을 말합니다.
+Agent Library 범위를 대상 Agent로 바꾼 다음 Skill 카드를 찾습니다. 카드에는 활성 교훈과 폐기된 교훈, 증거 Job, 재검토 날짜, 폐기 이유가 표시됩니다. 운영자는 교훈을 추가하거나 폐기할 수 있습니다. Agent는 다음 turn부터 폐기된 교훈을 읽지 않습니다.
 
-일반 규칙을 모든 Agent의 경험에 복사하지 마십시오. 규칙이 모든 Agents에 적용되면 Skill 소스를 변경하십시오.
+일반 규칙을 각 Agent의 교훈에 복사하지 마십시오. 모든 Agent에 적용할 규칙은 Skill 소스에 작성합니다. 증거 규칙, 리스, 설정은 [Skill 교훈](../skill-lessons/)을 참고하십시오.
 
 ## Control Plane Plugins 관리
 

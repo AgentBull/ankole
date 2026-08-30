@@ -1,12 +1,26 @@
 import { Progress as ProgressPrimitive } from '@base-ui/react/progress'
+import type { CSSProperties } from 'react'
 
 import { cn } from '../lib/utils'
 
-function Progress({ className, children, value, ...props }: ProgressPrimitive.Root.Props) {
+function progressFraction(value: number | null | undefined, min: number, max: number) {
+  if (value == null || !Number.isFinite(value) || max === min) return 0
+  return Math.min(1, Math.max(0, (value - min) / (max - min)))
+}
+
+function Progress({ className, children, max = 100, min = 0, style, value, ...props }: ProgressPrimitive.Root.Props) {
   return (
     <ProgressPrimitive.Root
       value={value}
+      max={max}
+      min={min}
       data-slot="progress"
+      style={
+        {
+          ...style,
+          '--progress-fraction': String(progressFraction(value, min, max))
+        } as CSSProperties
+      }
       className={cn('flex flex-wrap gap-2', className)}
       {...props}>
       {children}
@@ -30,11 +44,15 @@ function ProgressTrack({ className, ...props }: ProgressPrimitive.Track.Props) {
   )
 }
 
-function ProgressIndicator({ className, ...props }: ProgressPrimitive.Indicator.Props) {
+function ProgressIndicator({ className, style, ...props }: ProgressPrimitive.Indicator.Props) {
   return (
     <ProgressPrimitive.Indicator
       data-slot="progress-indicator"
-      className={cn('h-full bg-primary transition-[width]', className)}
+      className={cn(
+        'h-full w-full origin-left bg-primary transition-transform duration-(--duration-dialog) ease-out',
+        className
+      )}
+      style={{ width: '100%', transform: 'scaleX(var(--progress-fraction))', ...style }}
       {...props}
     />
   )

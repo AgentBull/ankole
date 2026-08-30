@@ -563,7 +563,7 @@ defmodule Ankole.AIGateway.ObservabilityTest do
       AIGatewayObservability.start_response(
         "agent-1",
         %{"input" => "hi"},
-        caller: "brain.dreaming.stage_a"
+        caller: "compaction.summary"
       )
 
     _observation = AIGatewayObservability.finish_response(observation, %{"status" => "completed"})
@@ -571,8 +571,8 @@ defmodule Ankole.AIGateway.ObservabilityTest do
     spans = exported_spans()
     response = span!(spans, "ai_gateway.response")
 
-    assert response.attributes["ankole.ai_gateway.caller"] == "brain.dreaming.stage_a"
-    assert response.attributes["langfuse.trace.metadata.caller"] == "brain.dreaming.stage_a"
+    assert response.attributes["ankole.ai_gateway.caller"] == "compaction.summary"
+    assert response.attributes["langfuse.trace.metadata.caller"] == "compaction.summary"
   end
 
   test "usage attributes keep cache read, cache write, and reasoning buckets" do
@@ -921,7 +921,6 @@ defmodule Ankole.AIGateway.ObservabilityTest do
 
   defp enable_export(test_pid, provider_name) do
     definitions = Map.new(Observability.definitions(), &{&1.key, &1})
-    :ok = Observability.ensure_registered()
 
     assert {:ok, true} =
              AppConfigure.put_global(definitions["observability.traces.enabled"], true)
@@ -986,7 +985,6 @@ defmodule Ankole.AIGateway.ObservabilityTest do
   defp configure_real_exporter(provider_name, path, headers) do
     endpoint = start_otlp_receiver(path)
     definitions = Map.new(Observability.definitions(), &{&1.key, &1})
-    :ok = Observability.ensure_registered()
 
     assert {:ok, true} =
              AppConfigure.put_global(definitions["observability.traces.enabled"], true)

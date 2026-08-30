@@ -41,29 +41,11 @@ defmodule Ankole.I18n.Config do
   def definitions, do: [default_locale_definition()]
 
   @doc """
-  Registers I18n's AppConfigure keys.
-
-  Supervised components may restart, so duplicate registration of the same key
-  is treated as already registered.
-  """
-  @spec ensure_registered() :: :ok | {:error, term()}
-  def ensure_registered do
-    case AppConfigure.register_definitions(definitions()) do
-      :ok -> :ok
-      {:error, {:duplicate_key, @default_locale_key}} -> :ok
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  @doc """
   Reads the effective default locale through AppConfigure.
   """
   @spec default_locale() :: {:ok, String.t()} | {:error, term()}
   def default_locale do
-    with :ok <- ensure_registered(),
-         {:ok, locale} <- AppConfigure.get(default_locale_definition()) do
-      {:ok, locale}
-    end
+    AppConfigure.get(default_locale_definition())
   end
 
   @doc """
@@ -75,10 +57,7 @@ defmodule Ankole.I18n.Config do
   """
   @spec put_default_locale(String.t()) :: {:ok, String.t()} | {:error, term()}
   def put_default_locale(locale) do
-    with :ok <- ensure_registered(),
-         {:ok, persisted} <- AppConfigure.put_global(default_locale_definition(), locale) do
-      {:ok, persisted}
-    end
+    AppConfigure.put_global(default_locale_definition(), locale)
   end
 
   @doc """

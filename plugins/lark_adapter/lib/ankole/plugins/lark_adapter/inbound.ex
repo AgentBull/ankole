@@ -8,6 +8,7 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
   alias Ankole.Plugins.LarkAdapter.Config
   alias Ankole.Plugins.LarkAdapter.Emoji
   alias Ankole.Plugins.LarkAdapter.IMGroups
+  alias Ankole.Plugins.LarkAdapter.SubjectIdentity
   alias Ankole.Plugins.MapHelpers
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.AdapterContext
@@ -23,7 +24,7 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
       fetch_list: 2,
       fetch_map: 3,
       fetch_value: 2,
-      maybe_put: 3,
+      put_present: 3,
       optional_text: 2
     ]
 
@@ -187,7 +188,6 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
              structured_mention_prefixes: mention_prefixes(mentions),
              explicit: explicit?(channel_kind, mentions, consumer),
              author: author,
-             sender_key: author["principal_uid"] || author["id"],
              metadata: %{
                "provider" => "lark",
                "event_type" => event.type,
@@ -225,8 +225,7 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
   end
 
   defp emit_prepared_messages({:ok, prepared}) do
-    with {:ok, prepared} <- observe_prepared_authors(prepared),
-         {:ok, prepared} <- emit_pending_attachments(prepared) do
+    with {:ok, prepared} <- emit_pending_attachments(prepared) do
       prepared
       |> Enum.map(&emit_prepared_message/1)
       |> collect_results()
@@ -234,30 +233,6 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
   end
 
   defp emit_prepared_messages({:error, _reason} = error), do: error
-
-  defp observe_prepared_authors(prepared) do
-    prepared
-    |> Enum.map(fn
-      %{consumer: consumer, input: input} = item ->
-        with {:ok, observed} <- observe_author(consumer, input) do
-          {:ok, put_observed_display_name(item, observed)}
-        end
-
-      %{result: _result} = item ->
-        {:ok, item}
-    end)
-    |> collect_results()
-  end
-
-  defp put_observed_display_name(
-         %{input: %{author: author}} = item,
-         %{principal: %{display_name: display_name}}
-       )
-       when is_binary(display_name) do
-    put_in(item, [:input, :author], Map.put(author, "display_name", display_name))
-  end
-
-  defp put_observed_display_name(item, _observed), do: item
 
   defp emit_pending_attachments(prepared) do
     prepared
@@ -410,8 +385,10 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
          %CardAction{} = action,
          %Event{} = event
        ) do
-    with {:ok, operator_id} <- operator_actor_key(action.user_id || action.open_id),
-         {:ok, operator_principal_uid} <- observe_card_operator(consumer, operator_id),
+    with {:ok, operator_id, operator_aliases, operator_identity} <-
+           card_operator_subject(action, event),
+         {:ok, operator_principal_uid} <-
+           observe_card_operator(consumer, operator_id, operator_aliases, operator_identity),
          {:ok, chat_id} <- required_text_value(action.open_chat_id, "open_chat_id"),
          {:ok, action_id} <- card_action_id(action, event) do
       input = %{
@@ -459,26 +436,6 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
     |> collect_results()
   end
 
-  defp observe_author(%{context: context, config: config}, %{
-         author: %{"platform_subject" => user_id} = author
-       })
-       when is_binary(user_id) do
-    attrs =
-      %{
-        provider: Map.get(config, "platformSubjectNamespace", "lark-main"),
-        external_id: user_id,
-        uid: user_id,
-        metadata: Map.get(author, "metadata", %{})
-      }
-      |> maybe_put(:display_name, author["display_name"])
-
-    # Chat traffic can reveal humans before a full contact sync runs. Observing
-    # the platform subject here keeps future mentions and AuthZ checks convergent.
-    AdapterContext.observe_platform_subject(context, attrs)
-  end
-
-  defp observe_author(_consumer, _input), do: {:ok, nil}
-
   defp ignored_sender?(sender, event), do: sender_type(sender, event) in ["bot", "app"]
 
   defp sender_type(sender, event) do
@@ -490,22 +447,38 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
   defp ignored_status(reason), do: :"ignored_#{reason}"
 
   defp author(sender, sender_ids, event, %{config: config}) do
+    email =
+      optional_text(sender, "email") ||
+        optional_text(sender, "enterprise_email") ||
+        optional_text(sender, "work_email") ||
+        optional_text(sender_ids, "email")
+
     user_id = optional_text(sender_ids, "user_id")
     open_id = optional_text(sender_ids, "open_id")
     union_id = optional_text(sender_ids, "union_id")
     sender_type = sender_type(sender, event)
     display_name = optional_text(sender, "sender_name") || optional_text(sender, "name")
 
-    cond do
-      is_binary(user_id) ->
+    case SubjectIdentity.candidates(%{
+           "email" => email,
+           "user_id" => user_id,
+           "union_id" => union_id,
+           "open_id" => open_id
+         }) do
+      [] ->
+        {:ignore, :missing_platform_subject}
+
+      [primary | alternates] ->
         {:ok,
          %{
-           "id" => user_id,
-           "platform_subject" => user_id,
-           "principal_uid" => String.downcase(user_id),
+           "id" => primary,
+           "platform_subject" => primary,
+           "platform_subject_alternates" => alternates,
            "display_name" => display_name,
+           "email" => email,
            "metadata" =>
              compact_map(%{
+               "user_id" => user_id,
                "open_id" => open_id,
                "union_id" => union_id,
                "tenant_key" => event.tenant_key,
@@ -513,9 +486,6 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
                "provider" => Map.get(config, "platformSubjectNamespace", "lark-main")
              })
          }}
-
-      true ->
-        {:ignore, :missing_platform_subject}
     end
   end
 
@@ -528,7 +498,7 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
 
       Logging.warning(
         "lark_adapter.inbound.missing_platform_subject",
-        "lark adapter ignored message sender without user_id",
+        "lark adapter ignored message sender without any sender id",
         %{
           event_id: event.id,
           event_type: event.type,
@@ -575,7 +545,7 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
     |> strip_leading_current_bot_mentions(mentions)
     |> render_structured_mentions(mentions)
     |> String.trim_leading()
-    |> blank_to_nil()
+    |> MapHelpers.blank_to_nil()
   end
 
   defp strip_leading_current_bot_mentions(text, mentions) do
@@ -653,7 +623,7 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
     |> Enum.map(&post_part_text/1)
     |> Enum.reject(&is_nil/1)
     |> Enum.join("")
-    |> blank_to_nil()
+    |> MapHelpers.blank_to_nil()
   end
 
   defp post_blocks(content) when is_map(content) do
@@ -1100,8 +1070,8 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
         Path.join(Ankole.AgentHomePaths.user_files(agent_uid), relative_path)
       )
       |> Map.put("user_files_relative_path", relative_path)
-      |> maybe_put("xxh3_128", result["xxh3_128"])
-      |> maybe_put("size", result["size"])
+      |> put_present("xxh3_128", result["xxh3_128"])
+      |> put_present("size", result["size"])
     else
       reason ->
         Logging.warning(
@@ -1140,23 +1110,9 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
     Path.join([
       "inbox",
       Integer.to_string(attachment_id),
-      sanitize_filename(filename)
+      WorkerFiles.sanitize_path_segment(filename)
     ])
   end
-
-  defp sanitize_filename(value) when is_binary(value) do
-    value
-    |> Ankole.Kernel.any_ascii()
-    |> String.replace(~r/[^A-Za-z0-9._-]+/, "_")
-    |> String.trim("_")
-    |> String.slice(0, 160)
-    |> case do
-      segment when segment in ["", ".", ".."] -> "attachment"
-      segment -> segment
-    end
-  end
-
-  defp sanitize_filename(_value), do: "attachment"
 
   defp valid_attachment_id(%{"attachment_id" => attachment_id})
        when is_integer(attachment_id) and attachment_id >= @attachment_id_min and
@@ -1308,16 +1264,53 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
   defp operator_actor_key(value) when is_binary(value) and value != "", do: {:ok, value}
   defp operator_actor_key(_value), do: {:error, :missing_operator_id}
 
-  defp observe_card_operator(%{context: context, config: config}, operator_id) do
-    attrs = %{
-      provider: Map.get(config, "platformSubjectNamespace", "lark-main"),
-      external_id: operator_id,
-      uid: operator_id
-    }
+  defp observe_card_operator(
+         %{context: context, config: config},
+         operator_id,
+         operator_aliases,
+         operator_identity
+       ) do
+    attrs =
+      %{
+        provider: Map.get(config, "platformSubjectNamespace", "lark-main"),
+        external_id: operator_id,
+        external_ids: operator_aliases,
+        metadata:
+          compact_map(%{
+            "user_id" => operator_identity["user_id"],
+            "union_id" => operator_identity["union_id"],
+            "open_id" => operator_identity["open_id"]
+          })
+      }
+      |> Ankole.Attrs.maybe_put(:email, operator_identity["email"])
 
     case AdapterContext.observe_platform_subject(context, attrs) do
       {:ok, %{principal: principal}} -> {:ok, principal.uid}
       {:error, _reason} = error -> error
+    end
+  end
+
+  defp card_operator_subject(%CardAction{} = action, %Event{} = event) do
+    content = event.content || action.raw || %{}
+    content = fetch_map(content, "event", content)
+    operator = fetch_map(content, "operator", %{})
+
+    identity = %{
+      "email" =>
+        optional_text(operator, "email") ||
+          optional_text(operator, "enterprise_email") ||
+          optional_text(operator, "work_email") ||
+          optional_text(content, "email"),
+      "user_id" => optional_text(operator, "user_id") || action.user_id,
+      "union_id" => optional_text(operator, "union_id") || optional_text(content, "union_id"),
+      "open_id" => optional_text(operator, "open_id") || action.open_id
+    }
+
+    candidates = SubjectIdentity.candidates(identity)
+
+    case candidates do
+      [primary | aliases] -> {:ok, primary, aliases, identity}
+      [] -> {:error, :missing_operator_id}
     end
   end
 
@@ -1417,7 +1410,4 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
   end
 
   defp required_text_value(_value, key), do: {:error, {:missing, key}}
-
-  defp blank_to_nil(""), do: nil
-  defp blank_to_nil(value), do: value
 end

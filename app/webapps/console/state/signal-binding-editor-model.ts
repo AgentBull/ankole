@@ -1,16 +1,18 @@
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import { batch, computed, createModel, signal } from '@preact/signals-react'
 import { setPath } from '../../common/config-fields'
-import type { SignalBindingItem, SignalBindingWriteRequest } from '../api/generated/types.gen'
+import type { SignalAdapterItem, SignalBindingItem, SignalBindingWriteRequest } from '../api/generated/types.gen'
 
 export type GroupMessageMode = NonNullable<SignalBindingWriteRequest['group_message_mode']>
+
+export type UnmatchedSenderPolicy = NonNullable<SignalBindingWriteRequest['unmatched_sender_policy']>
 
 export type SignalBindingEditorDraft = {
   agentUID: string
   adapterID: string
   name: string
   groupMessageMode: GroupMessageMode | ''
-  confidentialMemory: boolean
+  unmatchedSenderPolicy: UnmatchedSenderPolicy | ''
   config: JSONObject
 }
 
@@ -24,13 +26,31 @@ export function groupMessageModeFromPolicy(
   return 'may_intervene'
 }
 
+const SIGNAL_ADAPTER_GROUPS = [
+  {
+    category: 'enterprise_im',
+    labelKey: 'console.signals.adapter_group_enterprise_im'
+  },
+  {
+    category: 'consumer_im',
+    labelKey: 'console.signals.adapter_group_consumer_im'
+  }
+] as const
+
+export function groupSignalAdapters(signalAdapters: readonly SignalAdapterItem[]) {
+  return SIGNAL_ADAPTER_GROUPS.map(group => ({
+    ...group,
+    adapters: signalAdapters.filter(adapter => adapter.adapter_category === group.category)
+  })).filter(group => group.adapters.length > 0)
+}
+
 export const SignalBindingEditorModel = createModel(() => {
   const sourceKey = signal<string>()
   const agentUID = signal('')
   const adapterID = signal('')
   const name = signal('')
   const groupMessageMode = signal<GroupMessageMode | ''>('')
-  const confidentialMemory = signal(false)
+  const unmatchedSenderPolicy = signal<UnmatchedSenderPolicy | ''>('')
   const config = signal<JSONObject>({})
   const configPatch = signal<JSONObject>({})
   const initialDraft = signal<SignalBindingEditorDraft>()
@@ -43,7 +63,7 @@ export const SignalBindingEditorModel = createModel(() => {
         adapterID.value !== source.adapterID ||
         name.value !== source.name ||
         groupMessageMode.value !== source.groupMessageMode ||
-        confidentialMemory.value !== source.confidentialMemory ||
+        unmatchedSenderPolicy.value !== source.unmatchedSenderPolicy ||
         JSON.stringify(config.value) !== JSON.stringify(source.config))
     )
   })
@@ -54,7 +74,7 @@ export const SignalBindingEditorModel = createModel(() => {
       adapterID.value = draft.adapterID
       name.value = draft.name
       groupMessageMode.value = draft.groupMessageMode
-      confidentialMemory.value = draft.confidentialMemory
+      unmatchedSenderPolicy.value = draft.unmatchedSenderPolicy
       config.value = draft.config
       configPatch.value = {}
       initialDraft.value = { ...draft, config: { ...draft.config } }
@@ -68,7 +88,7 @@ export const SignalBindingEditorModel = createModel(() => {
     adapterID,
     name,
     groupMessageMode,
-    confidentialMemory,
+    unmatchedSenderPolicy,
     config,
     configPatch,
     dirty,

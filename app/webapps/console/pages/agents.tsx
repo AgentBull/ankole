@@ -1,6 +1,17 @@
-import { recordValue } from '@agentbull/active-support'
-import { Input, TableCell, TableRow, cn, toast } from '@ankole/uikit'
-import { RiRobot2Line } from '@remixicon/react'
+import { match, recordValue } from '@agentbull/active-support'
+import {
+  Input,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  TableCell,
+  TableRow,
+  cn,
+  toast
+} from '@ankole/uikit'
+import { RiPauseCircleLine, RiPlayCircleLine, RiRobot2Line } from '@remixicon/react'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -10,13 +21,15 @@ import { Link, useNavigate, useParams } from 'react-router'
 import {
   ankoleWebAgentControllerCreateMutation,
   ankoleWebAgentControllerDeleteMutation,
+  ankoleWebAgentControllerEnableMutation,
   ankoleWebAgentControllerIndexOptions,
   ankoleWebAgentControllerIndexModelProfilesOptions,
   ankoleWebAgentControllerShowOptions,
   ankoleWebAgentControllerUpdateMutation,
   ankoleWebAiGatewayControllerModelsOptions as ankoleWebAIGatewayControllerModelsOptions,
   ankoleWebAiGatewayProviderControllerIndexOptions as ankoleWebAIGatewayProviderControllerIndexOptions,
-  ankoleWebAiGatewayProviderControllerProviderKindsOptions as ankoleWebAIGatewayProviderControllerProviderKindsOptions
+  ankoleWebAiGatewayProviderControllerProviderKindsOptions as ankoleWebAIGatewayProviderControllerProviderKindsOptions,
+  ankoleWebPrincipalControllerIndexOptions
 } from '../api/generated/@tanstack/react-query.gen'
 import type { AgentItem } from '../api/generated/types.gen'
 import { requestErrorMessage } from '../../common/request-errors'
@@ -25,7 +38,13 @@ import { blankToNull } from '../console-primitives'
 import { LabeledField, ReadOnlyValue, ResourceEditorPage, StatusIndicator } from '../console-form'
 import { BackLink, PageStack } from '../console-page'
 import { ResourceListPage, ResourceSearch, RowActions } from '../console-list-page'
-import { agentUIDError, AgentEditorModel, type AgentEditorDraft } from '../state/agent-editor-model'
+import { SinglePrincipalPicker } from '../principal-picker'
+import {
+  agentUIDInputPattern,
+  AgentEditorModel,
+  type AgentEditorDraft,
+  type AgentMemoryDisclosureMode
+} from '../state/agent-editor-model'
 import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
 import { AgentLibraryEditor } from './agent-library-editor'
 import { CustomModelProfilesEditor } from './custom-model-profiles-editor'
@@ -42,10 +61,18 @@ export function AgentsListPage() {
   const rows = (agents.data?.agents ?? []).filter(agent =>
     matchesResourceSearch(searchQuery, agent.uid, agent.display_name, agent.role, agent.status)
   )
+  // The DELETE response reports status "disabled" for both steps, so the
+  // toast keys on the row's status at click time: a disabled row's delete is
+  // the permanent one.
   const deleteAgent = useMutation({
     ...ankoleWebAgentControllerDeleteMutation(),
+    onSuccess: () => void queryClient.invalidateQueries(),
+    onError: error => toast.error(requestErrorMessage(error))
+  })
+  const enableAgent = useMutation({
+    ...ankoleWebAgentControllerEnableMutation(),
     onSuccess: (_data, variables) => {
-      toast.success(t('console.agents.deleted', { id: variables.path.agent_uid }))
+      toast.success(t('console.agents.enabled', { id: variables.path.agent_uid }))
       void queryClient.invalidateQueries()
     },
     onError: error => toast.error(requestErrorMessage(error))
@@ -80,35 +107,73 @@ export function AgentsListPage() {
           onChange={setQuery}
         />
       }>
-      {rows.map(agent => (
-        <TableRow key={agent.uid}>
-          <TableCell className="font-mono text-xs">
-            <Link className="text-foreground hover:text-link hover:underline" to={encodeURIComponent(agent.uid)}>
-              {agent.uid}
-            </Link>
-          </TableCell>
-          <TableCell className={agent.display_name ? undefined : 'text-muted-foreground'}>
-            {agent.display_name || '—'}
-          </TableCell>
-          <TableCell>{agent.role}</TableCell>
-          <TableCell>
-            <StatusIndicator tone={agent.status === 'active' ? 'positive' : 'neutral'}>
-              {t(`console.status.${agent.status}`)}
-            </StatusIndicator>
-          </TableCell>
-          <RowActions
-            editTo={encodeURIComponent(agent.uid)}
-            editLabel={t('common.edit')}
-            deletePending={deleteAgent.isPending}
-            deleteConfirm={{
-              title: t('console.agents.delete_title'),
-              description: t('console.agents.delete_description', { id: agent.uid }),
-              confirmLabel: t('common.disable')
-            }}
-            onDelete={() => deleteAgent.mutate({ path: { agent_uid: agent.uid } })}
-          />
-        </TableRow>
-      ))}
+      {rows.map(agent => {
+        const disabled = agent.status === 'disabled'
+        return (
+          <TableRow key={agent.uid}>
+            <TableCell className="font-mono text-xs">
+              <Link className="text-foreground hover:text-link hover:underline" to={encodeURIComponent(agent.uid)}>
+                {agent.uid}
+              </Link>
+            </TableCell>
+            <TableCell>{agent.display_name}</TableCell>
+            <TableCell>{agent.role}</TableCell>
+            <TableCell>
+              <StatusIndicator tone={disabled ? 'neutral' : 'positive'}>
+                {t(`console.status.${agent.status}`)}
+              </StatusIndicator>
+            </TableCell>
+            <RowActions
+              // The confirmed action changes from disable to delete with the
+              // row status. A new action surface must not inherit a closing
+              // dialog from the prior status.
+              key={`${agent.uid}:${agent.status}`}
+              editTo={encodeURIComponent(agent.uid)}
+              editLabel={t('common.edit')}
+              actions={
+                disabled
+                  ? [
+                      {
+                        icon: <RiPlayCircleLine />,
+                        label: t('common.enable'),
+                        pending: enableAgent.isPending,
+                        onAction: () => enableAgent.mutate({ path: { agent_uid: agent.uid } })
+                      }
+                    ]
+                  : []
+              }
+              deletePending={deleteAgent.isPending}
+              deleteConfirm={
+                disabled
+                  ? {
+                      title: t('console.agents.delete_title'),
+                      description: t('console.agents.delete_description', { id: agent.uid }),
+                      confirmLabel: t('common.delete')
+                    }
+                  : {
+                      title: t('console.agents.disable_title'),
+                      description: t('console.agents.disable_description', { id: agent.uid }),
+                      confirmLabel: t('common.disable'),
+                      icon: <RiPauseCircleLine />
+                    }
+              }
+              onDelete={() =>
+                deleteAgent.mutate(
+                  { path: { agent_uid: agent.uid } },
+                  {
+                    onSuccess: () =>
+                      toast.success(
+                        t(disabled ? 'console.agents.deleted' : 'console.agents.disabled_toast', {
+                          id: agent.uid
+                        })
+                      )
+                  }
+                )
+              }
+            />
+          </TableRow>
+        )
+      })}
     </ResourceListPage>
   )
 }
@@ -133,9 +198,9 @@ export function AgentEditorPage() {
   const params = useParams()
   const uid = params.uid
   const mode = uid ? 'edit' : 'new'
-  const [touched, setTouched] = useState({ displayName: false, role: false, uid: false })
 
   const agentDetail = useQuery(agentEditorDetailOptions(uid ?? ''))
+  const principals = useQuery(ankoleWebPrincipalControllerIndexOptions())
   const providers = useQuery(ankoleWebAIGatewayProviderControllerIndexOptions())
   const providerKinds = useQuery({
     ...ankoleWebAIGatewayProviderControllerProviderKindsOptions(),
@@ -145,8 +210,7 @@ export function AgentEditorPage() {
     ...ankoleWebAIGatewayControllerModelsOptions(),
     enabled: Boolean(uid)
   })
-  const detailAgent = agentDetail.data?.agent
-  const selectedAgent = detailAgent?.status === 'active' ? detailAgent : undefined
+  const selectedAgent = agentDetail.data?.agent
   const modelProfiles = useQuery({
     ...ankoleWebAgentControllerIndexModelProfilesOptions({ path: { agent_uid: selectedAgent?.uid ?? '' } }),
     enabled: Boolean(selectedAgent?.uid)
@@ -157,7 +221,6 @@ export function AgentEditorPage() {
   useEffect(() => {
     if (mode === 'new') model.initialize('new', emptyAgentForm())
     else if (selectedAgent) model.initialize(`agent:${selectedAgent.uid}`, formFromAgent(selectedAgent))
-    setTouched({ displayName: false, role: false, uid: false })
   }, [mode, model, selectedAgent])
 
   const createAgent = useMutation({
@@ -183,15 +246,21 @@ export function AgentEditorPage() {
     const draftError = model.draftError(mode)
     if (draftError) {
       model.validationError.value = draftError
-      if (draftError === 'display_name_required') displayNameInput.current?.focus()
-      else if (draftError === 'uid_required' || draftError === 'uid_invalid') uidInput.current?.focus()
-      else roleInput.current?.focus()
+      match(draftError)
+        .with('display_name_required', () => displayNameInput.current?.focus())
+        .with('uid_required', 'uid_invalid', () => uidInput.current?.focus())
+        .with('role_required', () => roleInput.current?.focus())
+        // The owner picker renders no focusable ref; its inline error is the signal.
+        .with('owner_required', () => undefined)
+        .exhaustive()
       return
     }
     const body = {
       display_name: model.displayName.value.trim(),
       avatar_url: blankToNull(model.avatarURL.value),
-      role: model.role.value.trim()
+      role: model.role.value.trim(),
+      owner_principal_uid: model.ownerPrincipalUID.value.trim(),
+      group_memory_disclosure_mode: model.groupMemoryDisclosureMode.value
     }
     if (mode === 'new') {
       createAgent.mutate({ body: { ...body, uid: model.uid.value.trim() } })
@@ -200,29 +269,29 @@ export function AgentEditorPage() {
     if (selectedAgent) updateAgent.mutate({ body, path: { agent_uid: selectedAgent.uid } })
   }
 
-  const validationMessage = model.validationError.value ? t(`console.agents.${model.validationError.value}`) : undefined
+  // Blur-time required and pattern feedback comes from LabeledField; these
+  // carry only the submit-time decisions of the draft model, which also
+  // covers values the model derives without a keystroke, such as the UID.
+  // Required messages reuse the shared template, so the text never changes
+  // between blur and submit.
+  const draftError = model.validationError.value
+  const requiredText = (labelKey: string) => t('common.field_required', { field: t(labelKey) })
   const displayNameError =
-    model.validationError.value === 'display_name_required' || (touched.displayName && !model.displayName.value.trim())
-      ? (validationMessage ?? t('console.agents.display_name_required'))
-      : undefined
-  const uidDraftError = mode === 'new' ? agentUIDError(model.uid.value) : undefined
+    draftError === 'display_name_required' ? requiredText('console.agents.display_name') : undefined
   const uidError =
-    model.validationError.value === 'uid_required' || model.validationError.value === 'uid_invalid'
-      ? validationMessage
-      : touched.uid && uidDraftError
-        ? t(`console.agents.${uidDraftError}`)
+    draftError === 'uid_required'
+      ? requiredText('console.agents.uid')
+      : draftError === 'uid_invalid'
+        ? t('console.agents.uid_invalid')
         : undefined
-  const roleError =
-    model.validationError.value === 'role_required' || (touched.role && !model.role.value.trim())
-      ? (validationMessage ?? t('console.agents.role_required'))
-      : undefined
+  const roleError = draftError === 'role_required' ? requiredText('console.agents.role') : undefined
+  const ownerError = draftError === 'owner_required' ? requiredText('console.agents.owner') : undefined
   const submitDisabledReason =
     mode === 'edit' && !model.dirty.value ? t('console.agents.save_disabled_unchanged') : undefined
 
-  // The detail endpoint owns absence. A fresh list cache can predate a create,
-  // while deletion keeps a disabled row that must not reopen as an editor.
-  const agentUnavailable =
-    agentDetail.error?.error?.code === 'not_found' || (detailAgent !== undefined && detailAgent.status !== 'active')
+  // The detail endpoint owns absence; disabled agents stay editable so an
+  // operator can inspect them before re-enabling or deleting.
+  const agentUnavailable = agentDetail.error?.error?.code === 'not_found'
   if (mode === 'edit' && agentUnavailable) {
     return (
       <PageStack className="mx-auto w-full max-w-3xl">
@@ -257,7 +326,9 @@ export function AgentEditorPage() {
       supplementary={
         mode === 'edit' && selectedAgent ? (
           <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-10 border-t border-border pt-8 [&>*]:min-w-0">
-            <AgentLibraryEditor agentUID={selectedAgent.uid} />
+            {/* The key remounts the editor per agent, so tab choice, draft
+                model, and in-flight submission bookkeeping reset structurally. */}
+            <AgentLibraryEditor key={selectedAgent.uid} agentUID={selectedAgent.uid} />
             <ModelProfilesEditor
               agent={selectedAgent}
               error={modelProfiles.error}
@@ -292,7 +363,6 @@ export function AgentEditorPage() {
             required
             ref={displayNameInput}
             value={model.displayName.value}
-            onBlur={() => setTouched(current => ({ ...current, displayName: true }))}
             onChange={event => model.setDisplayName(event.target.value, mode === 'new')}
           />
         </LabeledField>
@@ -300,6 +370,7 @@ export function AgentEditorPage() {
           label={t('console.agents.uid')}
           description={t('console.agents.uid_hint')}
           error={uidError}
+          invalidError={t('console.agents.uid_invalid')}
           required={mode === 'new'}>
           {mode === 'edit' ? (
             <ReadOnlyValue mono>{model.uid.value}</ReadOnlyValue>
@@ -311,10 +382,10 @@ export function AgentEditorPage() {
               autoCapitalize="none"
               autoComplete="off"
               maxLength={96}
+              pattern={agentUIDInputPattern}
               ref={uidInput}
               spellCheck={false}
               value={model.uid.value}
-              onBlur={() => setTouched(current => ({ ...current, uid: true }))}
               onChange={event => model.setUID(event.target.value)}
             />
           )}
@@ -330,7 +401,6 @@ export function AgentEditorPage() {
             required
             ref={roleInput}
             value={model.role.value}
-            onBlur={() => setTouched(current => ({ ...current, role: true }))}
             onChange={event => {
               model.role.value = event.target.value
               if (model.validationError.value === 'role_required') model.clearValidation()
@@ -339,6 +409,46 @@ export function AgentEditorPage() {
         </LabeledField>
         <LabeledField label={t('console.agents.avatar_url')}>
           <Input value={model.avatarURL.value} onChange={event => (model.avatarURL.value = event.target.value)} />
+        </LabeledField>
+        <LabeledField
+          label={t('console.agents.owner')}
+          description={t('console.agents.owner_hint')}
+          error={ownerError}
+          required>
+          <SinglePrincipalPicker
+            ariaLabel={t('console.agents.owner')}
+            error={principals.error}
+            isLoading={principals.isLoading}
+            placeholder={t('console.agents.owner_placeholder')}
+            candidates={(principals.data?.principals ?? []).map(principal => ({
+              id: principal.uid,
+              label: principal.display_name
+            }))}
+            value={model.ownerPrincipalUID.value}
+            onChange={ownerUID => {
+              model.ownerPrincipalUID.value = ownerUID
+              if (model.validationError.value === 'owner_required') model.clearValidation()
+            }}
+          />
+        </LabeledField>
+        <LabeledField
+          label={t('console.agents.group_memory_disclosure_mode')}
+          description={t('console.agents.group_memory_disclosure_mode_hint')}>
+          <Select
+            value={model.groupMemoryDisclosureMode.value}
+            onValueChange={value => {
+              if (value === 'strict' || value === 'relaxed') {
+                model.groupMemoryDisclosureMode.value = value satisfies AgentMemoryDisclosureMode
+              }
+            }}>
+            <SelectTrigger aria-label={t('console.agents.group_memory_disclosure_mode')} className="w-full">
+              <SelectValue>{value => t(`console.agents.group_memory_disclosure_mode_${String(value)}`)}</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="strict">{t('console.agents.group_memory_disclosure_mode_strict')}</SelectItem>
+              <SelectItem value="relaxed">{t('console.agents.group_memory_disclosure_mode_relaxed')}</SelectItem>
+            </SelectContent>
+          </Select>
         </LabeledField>
       </div>
     </ResourceEditorPage>
@@ -350,15 +460,19 @@ function emptyAgentForm(): AgentEditorDraft {
     uid: '',
     displayName: '',
     avatarURL: '',
-    role: ''
+    role: '',
+    ownerPrincipalUID: '',
+    groupMemoryDisclosureMode: 'strict'
   }
 }
 
 function formFromAgent(agent: AgentItem): AgentEditorDraft {
   return {
     uid: agent.uid,
-    displayName: agent.display_name ?? '',
+    displayName: agent.display_name,
     avatarURL: agent.avatar_url ?? '',
-    role: agent.role
+    role: agent.role,
+    ownerPrincipalUID: agent.owner_principal_uid,
+    groupMemoryDisclosureMode: agent.group_memory_disclosure_mode
   }
 }

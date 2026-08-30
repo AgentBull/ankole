@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { AgentTool, AgentToolResult } from '../../core'
+import { defineWorkerTool, type AgentToolResult, type WorkerAgentTool } from '../../core'
 import type { ComputerToolContext } from './context'
 
 const ApplyPatchInput = z
@@ -36,8 +36,8 @@ interface ApplyPatchDetails {
  */
 export function createApplyPatchTool(
   context: ComputerToolContext
-): AgentTool<typeof ApplyPatchInput, ApplyPatchDetails> {
-  return {
+): WorkerAgentTool<typeof ApplyPatchInput, ApplyPatchDetails> {
+  return defineWorkerTool({
     name: 'apply_patch',
     description:
       'The `apply_patch` tool can be used to edit files. This is a FREEFORM tool, so do not wrap the patch in JSON.',
@@ -70,5 +70,5 @@ export function createApplyPatchTool(
         details: { exitCode: result.exitCode }
       }
     }
-  }
+  })
 }

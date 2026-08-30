@@ -19,18 +19,21 @@ defmodule Ankole.SignalsGateway.ActorRuntime do
   """
 
   alias Ankole.SignalsGateway.ActorRuntime.ReadyEventProcessor
+  alias Ankole.SignalsGateway.ActorRuntime.AsyncWorkUnit
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionActivation
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionWorkerAssignment
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
   alias Ankole.SignalsGateway.ActorRuntime.SessionReset
   alias Ankole.SignalsGateway.ActorRuntime.TurnLifecycle
+  alias Ankole.SignalsGateway.ActorRuntime.TurnRef
   alias Ankole.SignalsGateway.ActorRuntime.WorkerAdmission
   alias Ankole.SignalsGateway.ActorRuntime.WorkerPool
   alias Ankole.RuntimeFabric.V1, as: FabricProto
-  alias Ankole.SignalsGateway.ActorTurnCompletion
   alias Ankole.SignalsGateway.AIReplyPreview
   alias Ankole.BackgroundAgentJobs
+  alias Ankole.Observability
+  alias Ankole.Workflow
 
   @type actor_key :: %{agent_uid: String.t(), session_id: String.t()}
 
@@ -45,11 +48,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime do
   """
   @spec admit_worker_ready(
           FabricProto.AgentComputerWorkerReady.t(),
-          String.t() | map(),
-          non_neg_integer()
+          String.t() | map()
         ) ::
           {:ok, AgentComputerWorker.t()} | {:error, term()}
-  defdelegate admit_worker_ready(worker_ready, authenticated_route, protocol_version),
+  defdelegate admit_worker_ready(worker_ready, authenticated_route),
     to: WorkerAdmission
 
   @doc """
@@ -90,32 +92,38 @@ defmodule Ankole.SignalsGateway.ActorRuntime do
   @doc """
   Completes a worker turn that deliberately adopts no provider-visible output.
   """
-  @spec handle_turn_noop_completed(FabricProto.TurnNoopCompleted.t()) ::
+  @spec handle_turn_noop_completed(TurnRef.t(), String.t() | nil) ::
           {:ok, map()} | {:error, term()}
-  defdelegate handle_turn_noop_completed(payload), to: TurnLifecycle
+  defdelegate handle_turn_noop_completed(turn_ref, reason), to: TurnLifecycle
 
   @doc """
-  Commits the legacy response-backed completion envelope through SignalsGateway.
+  Handles a worker turn abort and releases the actor event for retry.
   """
-  @spec handle_turn_completed(FabricProto.TurnCompleted.t()) :: {:ok, map()} | {:error, term()}
-  defdelegate handle_turn_completed(payload), to: ActorTurnCompletion, as: :handle
+  @spec handle_turn_error(TurnRef.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
+  def handle_turn_error(%TurnRef{} = turn_ref, %{} = reason, opts \\ []) do
+    async_work_unit = AsyncWorkUnit.for_session(turn_ref.session_id)
 
-  @doc """
-  Handles a worker turn.error envelope and releases the actor event for retry.
-  """
-  @spec handle_turn_error(FabricProto.TurnError.t(), keyword()) :: {:ok, map()} | {:error, term()}
-  def handle_turn_error(payload, opts \\ []) do
     opts =
-      Keyword.put(
-        opts,
-        :compensate_turn_error_in_tx,
-        &BackgroundAgentJobs.compensate_turn_error_in_tx/4
-      )
+      if async_work_unit,
+        do: Keyword.put(opts, :async_work_unit, async_work_unit),
+        else: opts
+
+    result = TurnLifecycle.handle_turn_abort(turn_ref, reason, opts)
 
     result =
-      payload
-      |> TurnLifecycle.handle_turn_error(opts)
-      |> BackgroundAgentJobs.finalize_turn_error()
+      case result do
+        {:ok, _result} = success ->
+          Observability.finish_turn(turn_ref.actor_event_id, error_type: reason["code"])
+          success
+
+        {:error, _reason} = error ->
+          error
+      end
+
+    result =
+      if async_work_unit == Workflow,
+        do: Workflow.cleanup_terminal_transition(result),
+        else: BackgroundAgentJobs.finalize_turn_error(result)
 
     case result do
       {:ok, %{dead_lettered?: true, actor_event: event}} ->

@@ -1,5 +1,7 @@
+import { LIST_REFRESH_MS } from '../refresh-intervals'
 import {
   Button,
+  CreatableCombobox,
   Input,
   Select,
   SelectContent,
@@ -111,23 +113,21 @@ export function SchedulesListPage() {
 
   const crons = useQuery({
     ...ankoleWebScheduleControllerIndexCronOptions({ query: { agent: scope.agentUID || undefined } }),
-    refetchInterval: 15_000
+    refetchInterval: LIST_REFRESH_MS
   })
 
-  const rows = (crons.data?.cron_schedules ?? [])
-    .map(row => row as CronScheduleRow)
-    .filter(row =>
-      matchesResourceSearch(
-        query,
-        row.name,
-        row.binding_name,
-        row.agent_uid,
-        row.owner_session_id,
-        row.status,
-        scheduleStatusLabel(t, row.status),
-        describeSchedule(t, row.schedule)
-      )
+  const rows = ((crons.data?.cron_schedules ?? []) as CronScheduleRow[]).filter(row =>
+    matchesResourceSearch(
+      query,
+      row.name,
+      row.binding_name,
+      row.agent_uid,
+      row.owner_session_id,
+      row.status,
+      scheduleStatusLabel(t, row.status),
+      describeSchedule(t, row.schedule)
     )
+  )
 
   const invalidate = () => void queryClient.invalidateQueries()
 
@@ -287,7 +287,7 @@ export function ScheduleCheckbacksPage() {
 
   const checkbacks = useQuery({
     ...ankoleWebScheduleControllerIndexCheckbacksOptions({ query: { agent: scope.agentUID || undefined } }),
-    refetchInterval: 15_000
+    refetchInterval: LIST_REFRESH_MS
   })
 
   const rows = (checkbacks.data?.schedule_events ?? [])
@@ -423,7 +423,8 @@ export function ScheduleCronEditorPage() {
   const editing = Boolean(cronID)
 
   const agents = useQuery(ankoleWebAgentControllerIndexOptions())
-  const agentList = agents.data?.agents ?? []
+  // A schedule targets an agent that can run, so disabled agents stay out.
+  const agentList = (agents.data?.agents ?? []).filter(agent => agent.status === 'active')
   // An existing schedule is pinned to its agent; a new one starts from the
   // resolved `?agent=` request.
   const agentUID = editing ? routeAgentUID : resolveAgentUID(agentList, routeAgentUID)
@@ -578,20 +579,17 @@ export function ScheduleCronEditorPage() {
           ? t('console.schedules.terminal_read_only', { status: scheduleStatusLabel(t, existingRow.status) })
           : undefined
       }
-      error={
-        model.validationError.value ??
-        agents.error ??
-        bindings.error ??
-        existing.error ??
-        saveCron.error ??
-        updateCron.error
-      }
-      onSubmit={submit}
-      readOnly={terminalReadOnly}
-      submitting={saveCron.isPending || updateCron.isPending}
-      submitDisabled={unchanged}
-      submitDisabledReason={t('common.save_disabled')}
-      submitUnavailable={Boolean(editing && !existingRow)}
+      validationError={model.validationError.value}
+      error={agents.error ?? bindings.error ?? existing.error ?? saveCron.error ?? updateCron.error}
+      {...(terminalReadOnly
+        ? { readOnly: true as const }
+        : {
+            onSubmit: submit,
+            submitting: saveCron.isPending || updateCron.isPending,
+            submitDisabled: unchanged,
+            submitDisabledReason: t('common.save_disabled'),
+            submitUnavailable: Boolean(editing && !existingRow)
+          })}
       secondary={
         editing && existingRow ? (
           <div className="flex flex-wrap items-center gap-2">
@@ -710,20 +708,20 @@ export function ScheduleCronEditorPage() {
             label={t('console.schedules.owner_session')}
             required
             description={t('console.schedules.session_hint')}>
-            <Select
+            <CreatableCombobox
+              ariaLabel={t('console.schedules.owner_session')}
+              clearLabel={t('common.clear')}
               value={model.ownerSessionId.value}
-              onValueChange={value => (model.ownerSessionId.value = String(value))}>
-              <SelectTrigger className="w-full font-mono text-xs">
-                <SelectValue placeholder={t('console.schedules.session_placeholder')} />
-              </SelectTrigger>
-              <SelectContent emptyLabel={sessions.isLoading ? t('common.loading') : t('common.select_empty')}>
-                {sessionList.map(session => (
-                  <SelectItem key={session.session_id} value={session.session_id}>
-                    {session.title ? `${session.title} — ${session.session_id}` : session.session_id}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              options={sessionList.map(session => ({
+                value: session.session_id,
+                label: session.title ? `${session.title} — ${session.session_id}` : session.session_id
+              }))}
+              placeholder={t('console.schedules.session_placeholder')}
+              emptyLabel={sessions.isLoading ? t('common.loading') : t('console.schedules.session_empty')}
+              createLabel={value => t('console.schedules.session_use', { session: value })}
+              triggerLabel={t('common.open')}
+              onValueChange={value => (model.ownerSessionId.value = value)}
+            />
           </LabeledField>
         )}
       </div>
@@ -920,7 +918,7 @@ export function ScheduleCronEditorPage() {
   )
 }
 
-// --- helpers ---
+// helpers
 
 /** Localized status labels; an unknown token renders as itself instead of a raw i18n key. */
 function scheduleStatusLabel(t: TFunction, status: string): string {
@@ -1005,7 +1003,7 @@ function draftFromCron(row: CronScheduleRow, schedule: Record<string, unknown>):
     anchorAt: String(schedule.anchor_at ?? ''),
     timezone: row.timezone ?? '',
     occurrences: scheduleOccurrenceBound(schedule),
-    deliveryTargets: deliveryTargetDrafts(row.delivery, row.binding_name),
+    deliveryTargets: deliveryTargetDrafts(row.delivery),
     task: typeof payload.task === 'string' ? payload.task : '',
     payload: safeStringify(payload),
     hasAutomationJob: row.automation_job_id != null,

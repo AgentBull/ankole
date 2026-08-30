@@ -4,6 +4,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatch do
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.ActorRuntime.RuntimeCommand
   alias Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobTurn
+  alias Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobWorkerConfig
   alias Ankole.SignalsGateway.ActorRuntime.TurnLifecycle
   alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Schemas.Job
@@ -92,6 +93,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatch do
     expected_attempt = job.attempts + 1
     claimed = %{job | attempts: expected_attempt}
 
+    max_running_per_agent = BackgroundAgentJobWorkerConfig.max_running_per_agent()
+
     event
     |> BackgroundAgentJobTurn.opts(claimed, opts)
     |> Keyword.put(:admit_in_tx, fn repo, turn_start_spec ->
@@ -100,7 +103,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatch do
              job.id,
              job.agent_uid,
              expected_attempt,
-             turn_start_spec
+             turn_start_spec,
+             max_running_per_agent
            ) do
         {:ok, %Job{runtime_projection: projection}} ->
           Ankole.BackgroundAgentJobs.RuntimeProjection.turn_start_overrides(projection)
@@ -115,6 +119,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatch do
     expected_attempt = job.attempts + 1
     claimed = %{job | attempts: expected_attempt}
 
+    max_running_per_agent = BackgroundAgentJobWorkerConfig.max_running_per_agent()
+
     event
     |> BackgroundAgentJobTurn.opts(claimed, opts)
     |> Keyword.put(:admit_in_tx, fn repo, turn_start_spec ->
@@ -123,7 +129,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatch do
              job.id,
              job.agent_uid,
              expected_attempt,
-             turn_start_spec
+             turn_start_spec,
+             max_running_per_agent
            ) do
         {:ok, %Job{runtime_projection: projection}} ->
           Ankole.BackgroundAgentJobs.RuntimeProjection.turn_start_overrides(projection)

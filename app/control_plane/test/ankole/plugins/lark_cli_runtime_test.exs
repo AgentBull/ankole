@@ -12,13 +12,13 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
   alias Ecto.Adapters.SQL
   alias FeishuOpenAPI.Client
   alias FeishuOpenAPI.TokenStore
+  alias Ankole.AIAgent.Library
   alias Ankole.AIAgent.Library.AgentPlugins
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.AppConfig
   alias Ankole.AppConfigure.Cache, as: AppConfigureCache
   alias Ankole.AppConfigure.Crypto, as: AppConfigureCrypto
   alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
-  alias Ankole.Plugins.LarkAdapter
   alias Ankole.Plugins.LarkAdapter.Config
   alias Ankole.Plugins.LarkAdapter.RuntimeEnv
   alias Ankole.Plugins.Config, as: PluginsConfig
@@ -51,6 +51,7 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
         %{
           contract_id: "signals_gateway.adapter",
           id: "failing-env",
+          adapter_category: "enterprise_im",
           plugin_id: plugin_id(),
           worker_env_module: Ankole.Plugins.LarkCLIRuntimeTest.FailingWorkerEnv
         }
@@ -61,8 +62,6 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
   setup do
     AppConfigureRegistry.clear_for_test()
     AppConfigureCache.clear_for_test()
-    :ok = AppConfigure.register_definitions(LarkAdapter.app_config_definitions())
-    :ok = AppConfigure.register_patterns(LarkAdapter.app_config_patterns())
 
     on_exit(fn ->
       AppConfigureRegistry.clear_for_test()
@@ -180,6 +179,7 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
                config_ref: "app-config://#{legacy_config_key}",
                filters: %{},
                unaddressed_group_message_policy: :ignore,
+               unmatched_sender_policy: :create_standalone,
                enabled: true
              })
 
@@ -226,6 +226,7 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
                config_ref: "app-config://#{legacy_config_key}",
                filters: %{},
                unaddressed_group_message_policy: :ignore,
+               unmatched_sender_policy: :create_standalone,
                enabled: true
              })
 
@@ -321,7 +322,7 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
     send(first_save.pid, :save)
 
     assert_receive {:trace, ^first_save_pid, :send,
-                    {:"$gen_call", _from, {:load, "global", ^first_config_key}}, ^cache_pid},
+                    {:"$gen_call", _from, {:refresh, "global", ^first_config_key}}, ^cache_pid},
                    1_000
 
     second_save =
@@ -366,6 +367,7 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
                config_ref: "app-config://#{owner_config_key}",
                filters: %{},
                unaddressed_group_message_policy: :ignore,
+               unmatched_sender_policy: :create_standalone,
                enabled: true
              })
 
@@ -601,7 +603,7 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
 
     assert {:ok, _override} = AgentPlugins.set_agent_override(agent.uid, "lark", true)
 
-    assert {:ok, catalog} = AgentPlugins.enabled_catalog_for_agent(agent.uid)
+    assert {:ok, %{"agent_plugins" => catalog}} = Library.runtime_catalog_for_agent(agent.uid)
     assert %{"skills" => lark_skills} = Enum.find(catalog, &(&1["id"] == "lark"))
 
     # LarkSkillSourcesTest owns the member Skill list. Enablement is what this test proves.
@@ -688,6 +690,7 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
                config_ref: "app-config://failing-env",
                filters: %{},
                unaddressed_group_message_policy: :record_only,
+               unmatched_sender_policy: :create_standalone,
                enabled: true
              })
 
@@ -716,6 +719,7 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
                config_ref: "app-config://disabled-env",
                filters: %{},
                unaddressed_group_message_policy: :record_only,
+               unmatched_sender_policy: :create_standalone,
                enabled: true
              })
 
@@ -754,21 +758,23 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
     SQL.query!(
       Repo,
       """
-      INSERT INTO principals (uid, type, status, inserted_at, updated_at)
-      VALUES ($1, 'agent', 'active', NOW(), NOW())
+      INSERT INTO principals (uid, type, status, display_name, inserted_at, updated_at)
+      VALUES ($1, 'agent', 'active', $1, NOW(), NOW())
       """,
       [uid]
     )
+
+    %{principal: owner} = Ankole.PrincipalsFixtures.human_fixture()
 
     SQL.query!(Repo, "ALTER TABLE agents DROP CONSTRAINT agents_uid_agent_home_safe")
 
     SQL.query!(
       Repo,
       """
-      INSERT INTO agents (uid, type, role, options, inserted_at, updated_at)
-      VALUES ($1, 'ai_colleague', 'Legacy Agent', '{}'::jsonb, NOW(), NOW())
+      INSERT INTO agents (uid, type, role, options, owner_principal_uid, inserted_at, updated_at)
+      VALUES ($1, 'ai_colleague', 'Legacy Agent', '{}'::jsonb, $2, NOW(), NOW())
       """,
-      [uid]
+      [uid, owner.uid]
     )
 
     SQL.query!(Repo, """

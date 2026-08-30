@@ -1,5 +1,5 @@
 defmodule Ankole.SignalsGateway.ReplyInteractionsTest do
-  use Ankole.DataCase, async: false
+  use Ankole.DataCase, async: true
 
   import Ecto.Query
   import Ankole.PrincipalsFixtures

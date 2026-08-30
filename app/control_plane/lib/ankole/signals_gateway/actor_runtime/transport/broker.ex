@@ -405,13 +405,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Transport.Broker do
   def terminate(_reason, %{router: nil}), do: :ok
 
   def terminate(_reason, %{router: router}) do
-    # The Rustler resource also monitors this process, but stopping here keeps
-    # graceful and callback-driven exits deterministic. Both paths are
-    # intentionally idempotent so an unexpected Broker failure releases the
-    # bind before its supervisor starts the replacement child.
+    # Losing the control-plane observer is not evidence that a Worker died.
+    # Keep its turn fences intact; the next router gives existing Workers one
+    # normal heartbeat lease to reconnect before the stale-worker path decides.
     try do
       _result = RuntimeFabric.router_stop(router)
-      _result = WorkerAdmission.mark_all_routes_unusable(:router_stopped)
       :ok
     rescue
       _exception -> :ok
@@ -583,8 +581,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Transport.Broker do
   # behind one GenServer makes route failure handling visible to ActorRuntime.
   defp start_router_in_state(endpoint, opts, %{router: nil} = state) do
     opts = put_worker_auth_key(opts)
+    now = DateTime.utc_now(:microsecond)
 
-    with {:ok, router} <- RuntimeFabric.router_start(endpoint, self(), opts),
+    with {:ok, _renewed_workers} <-
+           WorkerAdmission.renew_worker_leases_for_router_recovery(now),
+         {:ok, router} <- RuntimeFabric.router_start(endpoint, self(), opts),
          endpoint when is_binary(endpoint) <- RuntimeFabric.router_endpoint(router) do
       {:ok, %{state | router: router, router_endpoint: endpoint}}
     else

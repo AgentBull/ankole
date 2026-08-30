@@ -5,6 +5,24 @@ type InternalAPIRequestOptions = {
   method?: 'GET' | 'POST' | 'PUT'
 }
 
+/**
+ * A non-2xx response from the internal SPA API. The message keeps the
+ * human-readable text that `requestErrorMessage` renders; `status` and
+ * `payload` let callers branch on specific error contracts, such as the
+ * sign-in endpoint's lockout responses.
+ */
+export class InternalAPIError extends Error {
+  readonly status: number
+  readonly payload: unknown
+
+  constructor(status: number, statusText: string, payload: unknown) {
+    super(errorText(payload) || `${status} ${statusText}`)
+    this.name = 'InternalAPIError'
+    this.status = status
+    this.payload = payload
+  }
+}
+
 /** Sends a same-origin GET request to the session-backed internal SPA API. */
 export async function internalAPIGet<T>(path: string): Promise<T> {
   return internalAPIRequest<T>(path, { method: 'GET' })
@@ -41,7 +59,7 @@ async function internalAPIRequest<T>(path: string, options: InternalAPIRequestOp
   const payload = await readPayload(response)
 
   if (!response.ok) {
-    throw new Error(errorText(payload) || `${response.status} ${response.statusText}`)
+    throw new InternalAPIError(response.status, response.statusText, payload)
   }
 
   return payload as T

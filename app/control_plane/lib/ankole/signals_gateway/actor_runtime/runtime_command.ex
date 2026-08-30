@@ -28,6 +28,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
   alias Ankole.Repo
   alias Ankole.SignalsGateway
 
+  # Bounds the synchronous replay work after one Turn starts.
   @post_start_steer_limit 100
 
   def process_new_command(actor_key, %ActorEvent{} = input, opts) do
@@ -310,9 +311,19 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
   end
 
   defp apply_runtime_command(repo, actor_key, %ActorEvent{type: "command.retry"} = input, now) do
-    case TurnRetry.retry_live_turn_in_tx(repo, actor_key, input, now) do
-      {:ok, :no_live_turn} ->
-        case append_retry_event(repo, actor_key, input, now) do
+    case retry_target(input) do
+      :bare ->
+        case TurnRetry.retry_live_turn_in_tx(repo, actor_key, input, now) do
+          {:ok, :no_live_turn} -> consume_retry_target_required(repo, input, now)
+          {:ok, %{status: :command_consumed} = result} -> {:ok, result}
+          {:error, _reason} = error -> error
+        end
+
+      :unresolved ->
+        consume_retry_target_required(repo, input, now)
+
+      {:target, target_actor_event_id} ->
+        case append_retry_event(repo, actor_key, input, target_actor_event_id, now) do
           {:ok, %ActorEvent{} = retry_event, outbox_intents} ->
             with {:ok, completed_event} <-
                    consume_command_without_feedback(repo, input, now, outbox_intents) do
@@ -325,23 +336,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
                }}
             end
 
-          {:ok, :nothing_to_retry} ->
-            consume_command_feedback(
-              repo,
-              input,
-              I18n.t("signals_gateway.reply.nothing_to_retry"),
-              now
-            )
+          {:ok, :target_unavailable} ->
+            consume_retry_target_unavailable(repo, input, now)
 
           {:error, _reason} = error ->
             error
         end
-
-      {:ok, %{status: :command_consumed} = result} ->
-        {:ok, result}
-
-      {:error, _reason} = error ->
-        error
     end
   end
 
@@ -655,143 +655,70 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
     end
   end
 
-  defp append_retry_event(repo, actor_key, %ActorEvent{} = command_event, now) do
-    aigateway_source =
-      AIGatewayLink.retry_source_in_tx(
-        repo,
-        actor_key.agent_uid,
-        actor_key.session_id
-      )
-
-    actor_source = latest_terminal_retry_source(repo, actor_key, command_event)
-
-    case choose_retry_source(aigateway_source, actor_source) do
-      {:aigateway, retry_source} ->
-        append_aigateway_retry_event(repo, command_event, retry_source, now)
-
-      {:actor_event, source, retry_source} ->
-        append_actor_event_retry(repo, command_event, source, retry_source, now)
-
-      :nothing_to_retry ->
-        {:ok, :nothing_to_retry}
+  defp append_retry_event(
+         repo,
+         actor_key,
+         %ActorEvent{} = command_event,
+         target_actor_event_id,
+         now
+       ) do
+    with %ActorEvent{} = source <-
+           lock_retry_source(repo, actor_key, target_actor_event_id),
+         :ok <- validate_retry_source(repo, command_event, source),
+         true <- AIGatewayLink.exact_turn_replay_safe_in_tx(repo, actor_key, source.id),
+         {:ok, outbox_intents} <- prepare_retry_response_graph(repo, source, now) do
+      append_actor_event_retry(repo, command_event, source, outbox_intents, now)
+    else
+      nil -> {:ok, :target_unavailable}
+      false -> {:ok, :target_unavailable}
+      {:noop, _reason} -> {:ok, :target_unavailable}
+      {:error, :invalid_retry_target} -> {:ok, :target_unavailable}
+      {:error, _reason} = error -> error
     end
   end
 
-  defp choose_retry_source(_aigateway_source, :conversation_boundary),
-    do: :nothing_to_retry
-
-  defp choose_retry_source(
-         {:ok, %{actor_event_id: actor_event_id} = source},
-         %ActorEvent{id: actor_event_id} = event
-       ),
-       do: {:actor_event, event, source}
-
-  defp choose_retry_source(_aigateway_source, %ActorEvent{} = source),
-    do: {:actor_event, source, nil}
-
-  defp choose_retry_source({:ok, source}, nil), do: {:aigateway, source}
-
-  defp choose_retry_source({:error, reason}, nil)
-       when reason in [:conversation_not_found, :retry_source_not_found],
-       do: :nothing_to_retry
-
-  defp append_aigateway_retry_event(repo, command_event, retry_source, now) do
-    case prepare_retry_response_graph(
-           repo,
-           command_event,
-           retry_source.actor_event_id,
-           retry_source,
-           now
-         ) do
-      {:ok, outbox_intents} ->
-        with {:ok, retry_event} <-
-               SignalsGateway.append_actor_event_in_tx(repo, %{
-                 agent_uid: command_event.agent_uid,
-                 binding_name: command_event.binding_name,
-                 session_id: command_event.session_id,
-                 source_event_id: "retry:#{command_event.id}",
-                 signal_channel_id: command_event.signal_channel_id,
-                 provider_thread_id: command_event.provider_thread_id,
-                 source_entry_id: command_event.source_entry_id,
-                 type: "im.message.addressed",
-                 available_at: now,
-                 sender_key: command_event.sender_key,
-                 payload: %{
-                   "type" => "im.message.addressed",
-                   "data" => %{
-                     "entry" => %{
-                       "text" => retry_source.text,
-                       "retry_of_actor_event_id" => retry_source.actor_event_id,
-                       "retry_of_message_id" => retry_source.message_id
-                     }
-                   }
-                 }
-               }) do
-          {:ok, retry_event, outbox_intents}
-        end
-
-      {:noop, _reason} ->
-        {:ok, :nothing_to_retry}
-
-      {:error, _reason} = error ->
-        error
-    end
-  end
-
-  defp append_actor_event_retry(repo, command_event, source, retry_source, now) do
-    retry_metadata =
-      case retry_source do
-        %{message_id: message_id} when is_binary(message_id) ->
-          %{"retry_of_message_id" => message_id}
-
-        _missing ->
-          %{}
-      end
-
+  defp append_actor_event_retry(repo, command_event, source, outbox_intents, now) do
     payload =
       source.payload
-      |> TurnRetry.put_retry_metadata(source.id, "command.retry", retry_metadata)
+      |> TurnRetry.put_retry_metadata(source.id, "command.retry", %{})
       |> Map.put("id", "retry:#{command_event.id}")
       |> Map.put("time", DateTime.to_iso8601(now))
 
-    case prepare_retry_response_graph(repo, command_event, source.id, retry_source, now) do
-      {:ok, outbox_intents} ->
-        with {:ok, retry_event} <-
-               SignalsGateway.append_actor_event_in_tx(repo, %{
-                 agent_uid: command_event.agent_uid,
-                 binding_name: command_event.binding_name,
-                 session_id: command_event.session_id,
-                 source_event_id: "retry:#{command_event.id}",
-                 signal_channel_id: command_event.signal_channel_id,
-                 provider_thread_id: command_event.provider_thread_id,
-                 source_entry_id: command_event.source_entry_id,
-                 type: source.type,
-                 available_at: now,
-                 sender_key: command_event.sender_key,
-                 payload: payload
-               }) do
-          {:ok, retry_event, outbox_intents}
-        end
-
-      {:noop, _reason} ->
-        {:ok, :nothing_to_retry}
-
-      {:error, _reason} = error ->
-        error
+    with {:ok, retry_event} <-
+           SignalsGateway.append_actor_event_in_tx(repo, %{
+             agent_uid: source.agent_uid,
+             binding_name: source.binding_name,
+             session_id: source.session_id,
+             source_event_id: "retry:#{command_event.id}",
+             signal_channel_id: source.signal_channel_id,
+             provider_thread_id: source.provider_thread_id,
+             source_entry_id: source.source_entry_id,
+             ambient_asked_source_entry_id: source.ambient_asked_source_entry_id,
+             type: source.type,
+             available_at: now,
+             sender_key: command_event.sender_key,
+             payload: payload
+           }) do
+      {:ok, retry_event, outbox_intents}
     end
   end
 
   defp prepare_retry_response_graph(
          repo,
-         command_event,
-         actor_event_id,
-         %{actor_event_id: actor_event_id, status: "complete"},
+         %ActorEvent{
+           id: actor_event_id,
+           agent_uid: agent_uid,
+           session_id: session_id,
+           completed_at: %DateTime{},
+           final_response_id: final_response_id
+         },
          now
-       ) do
+       )
+       when is_binary(final_response_id) do
     case AIGatewayLink.retract_visible_turn_suffix_in_tx(
            repo,
-           command_event.agent_uid,
-           command_event.session_id,
+           agent_uid,
+           session_id,
            actor_event_id,
            now
          ) do
@@ -806,58 +733,73 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
     end
   end
 
-  defp prepare_retry_response_graph(
-         repo,
-         _command_event,
-         actor_event_id,
-         _retry_source,
-         _now
-       ) do
-    {:ok, ReplyDeletion.outbox_intents(repo, actor_event_id, [])}
-  end
+  defp prepare_retry_response_graph(repo, %ActorEvent{id: actor_event_id}, _now),
+    do: {:ok, ReplyDeletion.outbox_intents(repo, actor_event_id, [])}
 
-  defp latest_terminal_retry_source(repo, actor_key, command_event) do
-    candidate_types = Enum.uniq(["command.new" | AIReplyPreview.im_visible_event_types()])
-
+  defp lock_retry_source(repo, actor_key, target_actor_event_id) do
     ActorEvent
+    |> where([event], event.id == ^target_actor_event_id)
     |> where([event], event.agent_uid == ^actor_key.agent_uid)
     |> where([event], event.session_id == ^actor_key.session_id)
-    |> where([event], event.queue_sequence < ^command_event.queue_sequence)
-    |> where(
-      [event],
-      (event.input_state == "open" and not is_nil(event.completed_at)) or
-        (event.input_state == "dead_letter" and not is_nil(event.dead_letter_at))
-    )
-    |> where([event], event.type in ^candidate_types)
-    |> where(
-      [event],
-      event.type != "command.steer" or
-        fragment("COALESCE(BTRIM(? #>> '{data,command,argsText}'), '') <> ''", event.payload)
-    )
-    |> order_by([event], desc: event.queue_sequence)
-    |> limit(1)
     |> lock("FOR UPDATE")
     |> repo.one()
-    |> select_retry_source(repo)
   end
 
-  defp select_retry_source(%ActorEvent{type: "command.new"} = event, _repo) do
-    case command_args(event) do
-      "" -> :conversation_boundary
-      _args -> event
+  defp validate_retry_source(repo, command_event, source) do
+    candidate_types = AIReplyPreview.channel_reply_event_types()
+
+    cond do
+      source.queue_sequence >= command_event.queue_sequence ->
+        {:error, :invalid_retry_target}
+
+      source.type not in candidate_types ->
+        {:error, :invalid_retry_target}
+
+      not terminal_retry_source?(source) ->
+        {:error, :invalid_retry_target}
+
+      source.type in ["command.new", "command.steer"] and command_args(source) == "" ->
+        {:error, :invalid_retry_target}
+
+      source.type == "command.steer" and match?(%DateTime{}, source.completed_at) and
+          is_nil(source.final_response_id) ->
+        {:error, :invalid_retry_target}
+
+      intermediate_actor_event?(repo, source, command_event) ->
+        {:error, :invalid_retry_target}
+
+      not retry_source_retained?(repo, source) ->
+        {:error, :invalid_retry_target}
+
+      true ->
+        :ok
     end
   end
 
-  defp select_retry_source(%ActorEvent{input_state: "dead_letter"} = event, repo) do
-    if dead_letter_source_retained?(repo, event), do: event, else: :conversation_boundary
+  defp terminal_retry_source?(%ActorEvent{input_state: "open", completed_at: %DateTime{}}),
+    do: true
+
+  defp terminal_retry_source?(%ActorEvent{
+         input_state: "dead_letter",
+         dead_letter_at: %DateTime{}
+       }),
+       do: true
+
+  defp terminal_retry_source?(%ActorEvent{}), do: false
+
+  defp intermediate_actor_event?(repo, source, command_event) do
+    ActorEvent
+    |> where([event], event.agent_uid == ^source.agent_uid)
+    |> where([event], event.session_id == ^source.session_id)
+    |> where([event], event.queue_sequence > ^source.queue_sequence)
+    |> where([event], event.queue_sequence < ^command_event.queue_sequence)
+    |> where([event], event.type != "command.retry")
+    |> repo.exists?()
   end
 
-  defp select_retry_source(%ActorEvent{} = event, _repo), do: event
-  defp select_retry_source(nil, _repo), do: nil
+  defp retry_source_retained?(_repo, %ActorEvent{signal_channel_id: nil}), do: true
 
-  defp dead_letter_source_retained?(_repo, %ActorEvent{signal_channel_id: nil}), do: true
-
-  defp dead_letter_source_retained?(repo, %ActorEvent{} = event) do
+  defp retry_source_retained?(repo, %ActorEvent{} = event) do
     source_entry_ids = ActorEvent.source_entry_ids(event)
 
     if source_entry_ids == [] do
@@ -873,6 +815,24 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
 
       Enum.all?(source_entry_ids, &MapSet.member?(retained_source_entry_ids, &1))
     end
+  end
+
+  defp consume_retry_target_required(repo, input, now) do
+    consume_command_feedback(
+      repo,
+      input,
+      I18n.t("signals_gateway.reply.retry_target_required"),
+      now
+    )
+  end
+
+  defp consume_retry_target_unavailable(repo, input, now) do
+    consume_command_feedback(
+      repo,
+      input,
+      I18n.t("signals_gateway.reply.retry_target_unavailable"),
+      now
+    )
   end
 
   defp publish_cancelled_turn_event({:ok, %{cancelled_turn: %{} = response}} = result) do
@@ -904,11 +864,21 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
   defp stop_cancelled_previews(result), do: result
 
   defp cancel_live_turn(repo, actor_key, now, reason) do
-    live_deliveries = live_deliveries_for_activation(repo, actor_key)
+    {current_actor_event_id, live_deliveries} = live_deliveries_for_activation(repo, actor_key)
     actor_event_ids = cancellable_actor_event_ids(repo, actor_key, live_deliveries)
 
+    # A steer delivery carries its own actor_event_id under the activation's
+    # turn fence, so the durable cancel must target the fence, not whichever
+    # delivery row comes back first. Without live deliveries the retry-source
+    # fallback already names the generating turn's own event.
+    cancel_actor_event_id =
+      case live_deliveries do
+        [_delivery | _rest] -> current_actor_event_id
+        [] -> List.first(actor_event_ids)
+      end
+
     case actor_event_ids do
-      [actor_event_id | _rest] ->
+      [_actor_event_id | _rest] ->
         stop_controls =
           Enum.map(live_deliveries, &stop_control_for_delivery(actor_key, &1, reason))
 
@@ -916,7 +886,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
                TurnLifecycle.cancel_started_turn_in_tx(
                  repo,
                  actor_key,
-                 actor_event_id,
+                 cancel_actor_event_id,
                  now,
                  reason
                ),
@@ -988,18 +958,23 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
     end
   end
 
+  # Locks the live activation and returns its current turn fence together with
+  # the live deliveries under that fence.
   defp live_deliveries_for_activation(repo, actor_key) do
     case TurnLifecycle.lock_live_activation(repo, actor_key) do
       %ActorSessionActivation{current_actor_event_id: actor_event_id}
       when is_binary(actor_event_id) ->
-        ActorEventDelivery
-        |> where([delivery], delivery.actor_event_id_fence == ^actor_event_id)
-        |> where([delivery], delivery.state in ^ActorEventDelivery.live_states())
-        |> lock("FOR UPDATE")
-        |> repo.all()
+        deliveries =
+          ActorEventDelivery
+          |> where([delivery], delivery.actor_event_id_fence == ^actor_event_id)
+          |> where([delivery], delivery.state in ^ActorEventDelivery.live_states())
+          |> lock("FOR UPDATE")
+          |> repo.all()
+
+        {actor_event_id, deliveries}
 
       _activation ->
-        []
+        {nil, []}
     end
   end
 
@@ -1084,6 +1059,22 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
   end
 
   defp command_args(_input), do: ""
+
+  defp retry_target(%ActorEvent{payload: %{"data" => %{"command" => command}}})
+       when is_map(command) do
+    case Map.fetch(command, "targetActorEventId") do
+      :error ->
+        :bare
+
+      {:ok, actor_event_id} when is_binary(actor_event_id) and actor_event_id != "" ->
+        {:target, actor_event_id}
+
+      {:ok, _unresolved} ->
+        :unresolved
+    end
+  end
+
+  defp retry_target(%ActorEvent{}), do: :bare
 
   defp command_model_profile(%ActorEvent{payload: payload}) when is_map(payload) do
     payload

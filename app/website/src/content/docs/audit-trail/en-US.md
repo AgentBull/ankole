@@ -1,6 +1,6 @@
 ---
 title: Audit trail
-description: How to read Ankole's audit surfaces — the Brain audit log, the control-plane structured logs, and what each records about who changed what and when.
+description: How to read Ankole's audit surfaces — the AuthZ grant record, the control-plane structured logs, and what each records about who changed what and when.
 section: Developer guide
 order: 125
 ---
@@ -8,26 +8,6 @@ order: 125
 An audit trail is the durable record of who changed what, and when. Ankole does not have one audit log; it has several surfaces, each owned by a different subsystem, each recording the decisions that matter to it. This page is the operator's map of those surfaces — what each records, how to read it, and how to use them together.
 
 The decisive property, stated up front: every audit surface is **durable PostgreSQL state or structured logs**, not ephemeral metrics. A record that was written survives the process that wrote it; a record that was never written cannot be reconstructed.
-
-## The Brain audit log
-
-The most structured audit surface. Every Brain knowledge write — a new entry, a block edit, a deletion, a restoration — produces an append-only audit row. Read it through:
-
-```bash
-curl https://ankole.example.com/api/v1/brain/audit-log \
-  -H "Authorization: Bearer $CONSOLE_TOKEN"
-```
-
-Or narrow to one entry:
-
-```bash
-curl https://ankole.example.com/api/v1/brain/entries/<id>/audit-log \
-  -H "Authorization: Bearer $CONSOLE_TOKEN"
-```
-
-Each row records who made the change (the actor), what kind of actor (human, agent, dreaming, source_learning, mechanical), what operation was performed, and when. Restorations are themselves audited — restoring a previous state adds a new audit row, it does not erase the one that made the change being undone.
-
-This is the surface for "why does the agent believe that?" — the answer is in the audit trail, not in the model's current output.
 
 ## The AuthZ grant record
 
@@ -58,7 +38,6 @@ A real audit question usually spans more than one surface:
 
 | Question | Where to look |
 |---|---|
-| "Why does the agent believe X?" | Brain audit log |
 | "Who gave this agent permission to do Y?" | `permission_grants` + `/principals/:uid/grants` |
 | "What did the agent do on this turn?" | `/ai-gateway/conversations/:id/messages` |
 | "Did the schedule fire?" | `/cron-schedules/:id/runs` |
@@ -71,7 +50,6 @@ It is not a compliance framework — Ankole provides the surfaces, and your comp
 
 ## Next steps
 
-- For the Brain audit surface, read [Brain](../brain/).
 - For the permission model, read [Principal and AuthZ](../principal-authz/).
 - For log settings and diagnosis, read [Environment variables](../environment-variables/) and [Read Ankole logs](../log-reading/).
 - For backup that protects the trail, read [Backup and restore](../backup-and-restore/).

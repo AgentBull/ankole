@@ -30,17 +30,17 @@ AIGateway는 실시간 대화 전사를 소유합니다. 각 메시지는 `ai_ga
 
 ## Background Agent Job 궤적
 
-백그라운드 Job은 턴별 실행을 `background_agent_job_turn_trajectory_groups`의 궤적 그룹으로 저장합니다. 각 그룹은 턴에 속하며 위치, 리비전, 항목 키, 내용을 가집니다:
+백그라운드 Job은 턴별 실행을 `background_agent_job_turn_items`의 추가 전용 정제된 시맨틱 스레드 항목 스트림으로 저장합니다. 각 항목은 턴에 속하며 위치, 리비전, 항목 키, 시맨틱 항목 자체를 가집니다:
 
 | 필드 | 의미 |
 |---|---|
-| `turn_id` | 이 궤적 그룹이 속한 Job 턴 |
-| `position` | 턴 내에서 그룹의 순서 |
-| `revision` | 제자리 업데이트(steer, nudge) 시 증가 |
-| `item_key` | 그룹의 안정적인 키 |
-| `content` | 하나 이상의 정규 ChatML 메시지 |
+| `turn_id` | 이 항목이 속한 Job 턴 |
+| `position` | 턴 내에서 항목의 순서 |
+| `revision` | 이 항목을 수락한 턴의 리비전 |
+| `item_key` | 항목의 안정적인 키(`client:` 키는 호출자 메시지를 표시) |
+| `item` | 타입이 있는 시맨틱 스레드 항목 하나 |
 
-내용은 유효한 정규 ChatML이어야 합니다 — 스키마는 `Trajectory.valid_group_content?/1`로 이를 검증하여 정규 ChatML 메시지를 포함하지 않는 그룹을 거부합니다. `revision` 필드는 제자리 steer 또는 nudge가 새 행을 삽입하지 않고 동일한 그룹의 내용을 업데이트할 수 있게 하므로, 궤적은 해당 그룹의 최신 상태를 반영합니다.
+이 행들은 추가 전용입니다. steer 또는 nudge는 저장된 항목을 고쳐 쓰지 않고 새 항목을 추가합니다. 모든 리더는 읽기 시점에 저장된 각 항목을 정규 ChatML 메시지로 투영하며, 메시지를 투영하지 않는 항목도 스레드 재생을 위해 저장된 채로 남습니다. 항목 스트림 이전에 기록된 턴에는 항목 행이 없으므로 궤적이 비어 있는 상태로 표시됩니다.
 
 도구 결과 메시지의 metadata는 `execution_mechanism`을 기록합니다. 모델 Provider가 실행한 도구에는 `provider_hosted`를 사용하고, Codex가 호출한 Ankole 동적 도구에는 `local_dynamic`을 사용합니다. 이 안정적인 사실로 표시 이름이 같은 도구도 구분할 수 있습니다.
 
@@ -63,7 +63,7 @@ moduledoc은 명확합니다: “턴 로컬 호출 별칭은 유일하게 유용
 |---|---|---|
 | 저장 내용 | 실시간 대화 전사 | 턴별 Job 실행 기록 |
 | 소유자 | AIGateway | Background Agent Jobs |
-| 정규 형식 | AIGateway의 메시지 스키마 | ChatML 그룹 |
+| 정규 형식 | AIGateway의 메시지 스키마 | 시맨틱 항목을 ChatML로 투영 |
 | 모델이 보는 경로 | 상태 저장 Responses API | `modelVisibleTrajectory` 투영 |
 | 압축 | AIGateway 압축이 이전 메시지 대체 | 압축 없음(Job은 재시도 예산으로 제한됨) |
 
@@ -71,7 +71,7 @@ moduledoc은 명확합니다: “턴 로컬 호출 별칭은 유일하게 유용
 
 ## 이 가이드가 아닌 것
 
-이 가이드는 ChatML 명세가 아닙니다 — 정규 ChatML 형식은 표준이며, Ankole의 검증(`valid_group_content?/1`)은 그 형태를 재정의하지 않고 확인합니다. 궤적을 읽기 위한 소비자 대상 API도 아닙니다 — Console 라우트(`/ai-gateway/conversations/:id/messages`, `/background-agent-jobs/:id`)는 [Console API reference](../console-api/)에 문서화된 운영자 표면입니다. 그리고 저장 페이지를 대신하는 것도 아닙니다. 이 가이드는 두 저장소에 걸친 형식 수준의 관점입니다.
+이 가이드는 ChatML 명세가 아닙니다 — 정규 ChatML 형식은 표준이며, Ankole의 읽기 시점 투영은 그 형태를 재정의하지 않고 유지합니다. 궤적을 읽기 위한 소비자 대상 API도 아닙니다 — Console 라우트(`/ai-gateway/conversations/:id/messages`, `/background-agent-jobs/:id`)는 [Console API reference](../console-api/)에 문서화된 운영자 표면입니다. 그리고 저장 페이지를 대신하는 것도 아닙니다. 이 가이드는 두 저장소에 걸친 형식 수준의 관점입니다.
 
 ## 다음 단계
 

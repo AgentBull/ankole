@@ -4,8 +4,8 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
 
   This is deliberately a bounded JSON map rather than provider card JSON. The
   worker may describe semantic work, but only this module decides which fields
-  can reach an IM renderer or durable terminal outbox. Transient reasoning is
-  kept only in the live value and is removed from checkpoints and every
+  can reach a provider renderer or durable terminal outbox. Transient reasoning
+  is kept only in the live value and is removed from checkpoints and every
   non-working state. A live phase label stays in working checkpoints for
   recovery, but every non-working state removes it before rendering or durable
   delivery.
@@ -69,16 +69,16 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
     base
     |> Map.put("revision", non_negative_integer(value(presentation, "revision")))
     |> Map.put("answer", answer_text(value(presentation, "answer")))
-    |> maybe_put(
+    |> Ankole.Attrs.maybe_put(
       "thought",
       bounded_optional_text(value(presentation, "thought"), @max_thought_chars)
     )
-    |> maybe_put("plan", normalize_plan(value(presentation, "plan")))
+    |> Ankole.Attrs.maybe_put("plan", normalize_plan(value(presentation, "plan")))
     |> Map.put("activities", normalize_activities(value(presentation, "activities")))
     |> Map.put("results", normalize_results(value(presentation, "results")))
     |> Map.put("receipts", normalize_receipts(value(presentation, "receipts")))
     |> Map.put("actions", normalize_actions(value(presentation, "actions")))
-    |> maybe_put(
+    |> Ankole.Attrs.maybe_put(
       "trigger_context",
       normalize_trigger_context(value(presentation, "trigger_context"))
     )
@@ -125,8 +125,6 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
       "reasoning.delta" -> apply_reasoning_delta(presentation, payload)
       "plan.snapshot" -> apply_plan_snapshot(presentation, payload)
       "tool.activity" -> apply_activity(presentation, payload)
-      "memory.lookup" -> apply_memory_lookup(presentation, payload)
-      "memory.mutation_receipt" -> apply_receipt(presentation, payload, "memory")
       "effect.receipt" -> apply_receipt(presentation, payload, "effect")
       "result.table" -> apply_result(presentation, payload, "table")
       "result.chart" -> apply_result(presentation, payload, "chart")
@@ -157,7 +155,7 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
         "summary" => value(data, "result_summary")
       })
 
-    maybe_put(presentation, "trigger_context", trigger_context)
+    Ankole.Attrs.maybe_put(presentation, "trigger_context", trigger_context)
   end
 
   def project_trigger(presentation, "cron.fire", payload) when is_map(payload) do
@@ -197,6 +195,7 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
     |> Map.put("state", state)
     |> Map.put("answer", terminal_answer(answer))
     |> remove_transient_fields_unless_working()
+    |> terminalize_activities(state)
     |> terminalize_plan()
     |> bump_revision()
   end
@@ -231,11 +230,20 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
     answer = String.trim(presentation["answer"] || "")
 
     cond do
-      answer != "" -> answer
-      presentation["state"] == "awaiting_input" -> text(presentation, "prompt") || "需要补充信息。"
-      presentation["state"] == "failed" -> "任务未能完成。"
-      presentation["state"] == "stopped" -> "任务已停止。"
-      true -> "（无内容）"
+      answer != "" ->
+        answer
+
+      presentation["state"] == "awaiting_input" ->
+        text(presentation, "prompt") || I18n.t("signals_gateway.reply.needs_input")
+
+      presentation["state"] == "failed" ->
+        I18n.t("signals_gateway.reply.task_failed")
+
+      presentation["state"] == "stopped" ->
+        I18n.t("signals_gateway.reply.task_stopped")
+
+      true ->
+        I18n.t("signals_gateway.reply.no_content")
     end
   end
 
@@ -366,28 +374,6 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
     end
   end
 
-  defp apply_memory_lookup(presentation, payload) do
-    operation_id = operation_id(payload) || "memory_lookup"
-    phase = normalize_in(value(payload, "phase"), @activity_phases, "running")
-
-    presentation =
-      apply_activity(presentation, %{
-        "operation_id" => operation_id,
-        "revision" => revision(payload),
-        "phase" => phase,
-        "label" => value(payload, "label"),
-        "label_key" =>
-          value(payload, "label_key") || "signals_gateway.reply.activity.memory_search",
-        "label_bindings" => value(payload, "label_bindings"),
-        "consequential" => false
-      })
-
-    case non_negative_integer(value(payload, "source_count")) do
-      0 -> presentation
-      count -> maybe_put_meta(presentation, "memory_source_count", count)
-    end
-  end
-
   defp apply_receipt(presentation, payload, kind) do
     operation_id = operation_id(payload)
     phase = to_string(value(payload, "phase") || "")
@@ -408,9 +394,9 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
               500
             )
         }
-        |> maybe_put("scope", localized_optional_text(payload, "scope", 160))
-        |> maybe_put("target", bounded_optional_text(value(payload, "target"), 240))
-        |> maybe_put("follow_up", localized_optional_text(payload, "follow_up", 240))
+        |> Ankole.Attrs.maybe_put("scope", localized_optional_text(payload, "scope", 160))
+        |> Ankole.Attrs.maybe_put("target", bounded_optional_text(value(payload, "target"), 240))
+        |> Ankole.Attrs.maybe_put("follow_up", localized_optional_text(payload, "follow_up", 240))
 
       receipts = upsert_by_id(presentation["receipts"], receipt, "operation_id", @max_receipts)
 
@@ -490,7 +476,7 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
         "items" => items,
         "summary" => plan_summary(items)
       }
-      |> maybe_put("folded", optional_boolean(value(plan, "folded")))
+      |> Ankole.Attrs.maybe_put("folded", optional_boolean(value(plan, "folded")))
     end
   end
 
@@ -651,8 +637,8 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
     else
       base_result("chart", result, operation_id)
       |> Map.put("series", series)
-      |> maybe_put("unit", bounded_optional_text(value(result, "unit"), 40))
-      |> maybe_put("takeaway", bounded_optional_text(value(result, "takeaway"), 500))
+      |> Ankole.Attrs.maybe_put("unit", bounded_optional_text(value(result, "unit"), 40))
+      |> Ankole.Attrs.maybe_put("takeaway", bounded_optional_text(value(result, "takeaway"), 500))
     end
   end
 
@@ -664,7 +650,7 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
       base_result("image", result, operation_id)
       |> Map.put("image_key", image_key)
       |> Map.put("alt", alt)
-      |> maybe_put("caption", bounded_optional_text(value(result, "caption"), 300))
+      |> Ankole.Attrs.maybe_put("caption", bounded_optional_text(value(result, "caption"), 300))
     end
   end
 
@@ -676,7 +662,10 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
       base_result("artifact", result, operation_id)
       |> Map.put("name", name)
       |> Map.put("url", url)
-      |> maybe_put("description", bounded_optional_text(value(result, "description"), 500))
+      |> Ankole.Attrs.maybe_put(
+        "description",
+        bounded_optional_text(value(result, "description"), 500)
+      )
     end
   end
 
@@ -707,7 +696,7 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
       "operation_id" => operation_id || "#{kind}-#{revision(result)}",
       "revision" => revision(result)
     }
-    |> maybe_put("title", bounded_optional_text(value(result, "title"), 160))
+    |> Ankole.Attrs.maybe_put("title", bounded_optional_text(value(result, "title"), 160))
   end
 
   defp normalize_receipts(receipts) do
@@ -726,9 +715,18 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
               "revision" => revision(receipt),
               "summary" => summary
             }
-            |> maybe_put("scope", bounded_optional_text(value(receipt, "scope"), 160))
-            |> maybe_put("target", bounded_optional_text(value(receipt, "target"), 240))
-            |> maybe_put("follow_up", bounded_optional_text(value(receipt, "follow_up"), 240))
+            |> Ankole.Attrs.maybe_put(
+              "scope",
+              bounded_optional_text(value(receipt, "scope"), 160)
+            )
+            |> Ankole.Attrs.maybe_put(
+              "target",
+              bounded_optional_text(value(receipt, "target"), 240)
+            )
+            |> Ankole.Attrs.maybe_put(
+              "follow_up",
+              bounded_optional_text(value(receipt, "follow_up"), 240)
+            )
           ]
         else
           []
@@ -759,34 +757,37 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
               "style" =>
                 normalize_in(value(action, "style"), ["primary", "default", "danger"], "default")
             }
-            |> maybe_put(
+            |> Ankole.Attrs.maybe_put(
               "interaction_id",
               bounded_optional_text(value(action, "interaction_id"), 120)
             )
-            |> maybe_put(
+            |> Ankole.Attrs.maybe_put(
               "source_actor_event_id",
               bounded_optional_text(value(action, "source_actor_event_id"), 80)
             )
-            |> maybe_put(
+            |> Ankole.Attrs.maybe_put(
               "control_id",
               bounded_optional_text(value(action, "control_id"), 80)
             )
-            |> maybe_put(
+            |> Ankole.Attrs.maybe_put(
               "selected_option_id",
               bounded_optional_text(value(action, "selected_option_id"), 80)
             )
-            |> maybe_put(
+            |> Ankole.Attrs.maybe_put(
               "option_value",
               bounded_optional_text(value(action, "option_value"), 500)
             )
-            |> maybe_put(
+            |> Ankole.Attrs.maybe_put(
               "description",
               bounded_optional_text(value(action, "description"), 500)
             )
-            |> maybe_put("revision", optional_non_negative_integer(value(action, "revision")))
-            |> maybe_put("disabled", optional_boolean(value(action, "disabled")))
-            |> maybe_put("selected", optional_boolean(value(action, "selected")))
-            |> maybe_put("fields", fields)
+            |> Ankole.Attrs.maybe_put(
+              "revision",
+              optional_non_negative_integer(value(action, "revision"))
+            )
+            |> Ankole.Attrs.maybe_put("disabled", optional_boolean(value(action, "disabled")))
+            |> Ankole.Attrs.maybe_put("selected", optional_boolean(value(action, "selected")))
+            |> Ankole.Attrs.maybe_put("fields", fields)
           ]
         else
           []
@@ -816,12 +817,12 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
               "type" => type,
               "required" => value(field, "required") == true
             }
-            |> maybe_put(
+            |> Ankole.Attrs.maybe_put(
               "placeholder",
               bounded_optional_text(value(field, "placeholder"), 240)
             )
-            |> maybe_put("multiline", optional_boolean(value(field, "multiline")))
-            |> maybe_put(
+            |> Ankole.Attrs.maybe_put("multiline", optional_boolean(value(field, "multiline")))
+            |> Ankole.Attrs.maybe_put(
               "max_length",
               bounded_positive_integer(value(field, "max_length"), 1_000)
             )
@@ -841,14 +842,16 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
 
   defp normalize_meta(meta) when is_map(meta) do
     %{}
-    |> maybe_put("status", bounded_optional_text(value(meta, "status"), 160))
-    |> maybe_put("source_count", optional_non_negative_integer(value(meta, "source_count")))
-    |> maybe_put(
-      "memory_source_count",
-      optional_non_negative_integer(value(meta, "memory_source_count"))
+    |> Ankole.Attrs.maybe_put("status", bounded_optional_text(value(meta, "status"), 160))
+    |> Ankole.Attrs.maybe_put(
+      "source_count",
+      optional_non_negative_integer(value(meta, "source_count"))
     )
-    |> maybe_put("elapsed_ms", optional_non_negative_integer(value(meta, "elapsed_ms")))
-    |> maybe_put(
+    |> Ankole.Attrs.maybe_put(
+      "elapsed_ms",
+      optional_non_negative_integer(value(meta, "elapsed_ms"))
+    )
+    |> Ankole.Attrs.maybe_put(
       "attachment_count",
       optional_non_negative_integer(value(meta, "attachment_count"))
     )
@@ -871,7 +874,7 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
             "kind" => kind,
             "title" => title
           }
-          |> maybe_put(
+          |> Ankole.Attrs.maybe_put(
             "summary",
             bounded_single_line_text(value(context, "summary"), @max_trigger_summary_chars)
           )
@@ -968,6 +971,27 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
   defp optional_boolean(value) when is_boolean(value), do: value
   defp optional_boolean(_value), do: nil
 
+  # A `continued` fragment preserves the same work for its successor. The
+  # interaction owner closes `awaiting_input`; neither state terminalizes activities here.
+  defp terminalize_activities(%{"activities" => activities} = presentation, state)
+       when state in ["completed", "scheduled", "failed", "stopped"] do
+    terminal_phase = if state in ["completed", "scheduled"], do: "completed", else: "failed"
+
+    activities =
+      Map.new(activities, fn {id, activity} ->
+        activity =
+          if activity["phase"] in ["pending", "running"],
+            do: Map.put(activity, "phase", terminal_phase),
+            else: activity
+
+        {id, activity}
+      end)
+
+    Map.put(presentation, "activities", activities)
+  end
+
+  defp terminalize_activities(presentation, _state), do: presentation
+
   defp terminalize_plan(%{"plan" => %{} = plan} = presentation) do
     incomplete? =
       Enum.any?(plan["items"], &(&1["status"] in ["pending", "in_progress", "cancelled"]))
@@ -997,7 +1021,7 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
     in_progress = Enum.find(items, &(&1["status"] == "in_progress"))
 
     %{"total" => total, "completed" => completed}
-    |> maybe_put("current_item_id", if(in_progress, do: in_progress["id"]))
+    |> Ankole.Attrs.maybe_put("current_item_id", if(in_progress, do: in_progress["id"]))
   end
 
   defp upsert_by_id(items, item, key, limit) do
@@ -1030,12 +1054,12 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
 
   defp terminal_answer(answer) when is_binary(answer) do
     case String.trim(answer) do
-      "" -> "（无内容）"
+      "" -> I18n.t("signals_gateway.reply.no_content")
       _text -> answer
     end
   end
 
-  defp terminal_answer(_answer), do: "（无内容）"
+  defp terminal_answer(_answer), do: I18n.t("signals_gateway.reply.no_content")
 
   defp working_state(state) when state in ["debouncing", "working"], do: "working"
   defp working_state(state), do: state
@@ -1132,9 +1156,6 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
   defp answer_text(value) when is_binary(value), do: value
   defp answer_text(nil), do: ""
   defp answer_text(value), do: to_safe_string(value)
-
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp put_or_delete(map, key, nil), do: Map.delete(map, key)
   defp put_or_delete(map, key, value), do: Map.put(map, key, value)

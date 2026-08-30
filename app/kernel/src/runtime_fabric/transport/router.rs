@@ -60,13 +60,14 @@ impl RouterHandle {
     /// The host-encoded payload is sealed before it reaches the socket thread:
     /// the kernel writes lane, durability, and protocol version from the body
     /// and validates the result, so transport code never sees partially valid
-    /// envelopes.
+    /// envelopes. The caller's bytes are borrowed only until sealing creates the
+    /// owned command payload.
     pub fn send_mandatory(
         &self,
         transport_route: impl Into<String>,
-        payload: Vec<u8>,
+        payload: &[u8],
     ) -> Result<SendOutcome, TransportError> {
-        let payload = runtime_fabric::seal_envelope_bytes(&payload)
+        let payload = runtime_fabric::seal_envelope_bytes(payload)
             .map_err(TransportError::invalid_envelope)?;
         let (reply_tx, reply_rx) = mpsc::channel();
 
@@ -281,13 +282,21 @@ fn run_router(
 
         match socket.recv_multipart(zmq::DONTWAIT) {
             Ok(frames) => emit_router_frames(&sink, requires_auth, &auth_routes, frames),
-            Err(zmq::Error::EAGAIN) => thread::sleep(poll_interval),
+            Err(zmq::Error::EAGAIN) => {
+                if !wait_for_router_command(&socket, &commands, poll_interval) {
+                    stop.store(true, Ordering::SeqCst);
+                    break;
+                }
+            }
             Err(zmq::Error::ETERM) => break,
             Err(error) => {
                 sink(RouterEvent::SocketError {
                     reason: error.to_string(),
                 });
-                thread::sleep(poll_interval);
+                if !wait_for_router_command(&socket, &commands, poll_interval) {
+                    stop.store(true, Ordering::SeqCst);
+                    break;
+                }
             }
         }
     }
@@ -296,30 +305,54 @@ fn run_router(
 fn drain_router_commands(socket: &zmq::Socket, commands: &mpsc::Receiver<RouterCommand>) -> bool {
     loop {
         match commands.try_recv() {
-            Ok(command) => match command {
-                RouterCommand::Send {
-                    route,
-                    payload,
-                    reply,
-                } => {
-                    let outcome = send_router_payload(socket, route, payload);
-                    let _ = reply.send(outcome);
-                }
-                RouterCommand::SendFileFrame {
-                    route,
-                    frames,
-                    reply,
-                } => {
-                    let outcome = send_router_file_frame(socket, route, frames);
-                    let _ = reply.send(outcome);
-                }
-                RouterCommand::Stop { reply } => {
-                    let _ = reply.send(Ok(()));
+            Ok(command) => {
+                if !handle_router_command(socket, command) {
                     return false;
                 }
-            },
+            }
             Err(mpsc::TryRecvError::Empty) => return true,
             Err(mpsc::TryRecvError::Disconnected) => return false,
+        }
+    }
+}
+
+// Waits for one command at most. The next loop drains queued commands in order
+// before it polls the socket again.
+fn wait_for_router_command(
+    socket: &zmq::Socket,
+    commands: &mpsc::Receiver<RouterCommand>,
+    timeout: Duration,
+) -> bool {
+    match commands.recv_timeout(timeout) {
+        Ok(command) => handle_router_command(socket, command),
+        Err(mpsc::RecvTimeoutError::Timeout) => true,
+        Err(mpsc::RecvTimeoutError::Disconnected) => false,
+    }
+}
+
+fn handle_router_command(socket: &zmq::Socket, command: RouterCommand) -> bool {
+    match command {
+        RouterCommand::Send {
+            route,
+            payload,
+            reply,
+        } => {
+            let outcome = send_router_payload(socket, route, payload);
+            let _ = reply.send(outcome);
+            true
+        }
+        RouterCommand::SendFileFrame {
+            route,
+            frames,
+            reply,
+        } => {
+            let outcome = send_router_file_frame(socket, route, frames);
+            let _ = reply.send(outcome);
+            true
+        }
+        RouterCommand::Stop { reply } => {
+            let _ = reply.send(Ok(()));
+            false
         }
     }
 }
@@ -491,6 +524,28 @@ mod tests {
         drop(command_tx);
 
         assert!(!drain_router_commands(&socket, &command_rx));
+    }
+
+    #[test]
+    fn idle_command_wait_handles_stop_without_waiting_for_the_poll_timeout() {
+        let context = zmq::Context::new();
+        let socket = context.socket(zmq::ROUTER).expect("router socket");
+        let (command_tx, command_rx) = mpsc::channel();
+        let (reply_tx, reply_rx) = mpsc::channel();
+
+        command_tx
+            .send(RouterCommand::Stop { reply: reply_tx })
+            .expect("queue stop command");
+
+        assert!(!wait_for_router_command(
+            &socket,
+            &command_rx,
+            Duration::from_secs(1)
+        ));
+        reply_rx
+            .recv_timeout(Duration::from_millis(10))
+            .expect("receive stop reply")
+            .expect("stop succeeds");
     }
 
     fn router_config(endpoint: String) -> RouterConfig {

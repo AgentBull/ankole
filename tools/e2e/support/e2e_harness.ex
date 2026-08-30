@@ -14,8 +14,10 @@ defmodule Ankole.E2E.Harness do
 
   alias Ankole.AIAgent.Library
   alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.OpaqueContent
   alias Ankole.AIGateway.Schemas.Message
-  alias Ankole.BackgroundAgentJobs.Schemas.TrajectoryGroup
+  alias Ankole.BackgroundAgentJobs.Schemas.TurnItem
+  alias Ankole.BackgroundAgentJobs.TurnItemProjection
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.ActorRuntime.ReadyEventProcessor
   alias Ankole.SignalsGateway.ActorRuntime.Transport.Broker
@@ -321,6 +323,25 @@ defmodule Ankole.E2E.Harness do
 
   # -- domain setup -----------------------------------------------------------
 
+  @doc """
+  Creates an e2e agent with the human owner every Agent now requires.
+  """
+  def create_e2e_agent!(attrs) do
+    owner_uid = "human-e2e-owner-#{System.unique_integer([:positive])}"
+
+    assert {:ok, %{principal: _owner}} =
+             Principals.create_human(%{
+               uid: owner_uid,
+               display_name: "E2E Agent Owner",
+               email: "#{owner_uid}@example.com"
+             })
+
+    assert {:ok, %{principal: _agent} = result} =
+             Principals.create_agent(Map.put(attrs, :owner_principal_uid, owner_uid))
+
+    result
+  end
+
   def setup_lark_domain!(fake_llm_port, fake_feishu) do
     uid =
       "agent-lark-e2e-#{System.system_time(:nanosecond)}-#{System.unique_integer([:positive])}"
@@ -328,12 +349,12 @@ defmodule Ankole.E2E.Harness do
     provider_id = "fake-openrouter-e2e-#{Ecto.UUID.generate()}"
     assert {:ok, %{skills: _count}} = Library.sync_builtin_skills(force: true)
 
-    assert {:ok, %{principal: agent}} =
-             Principals.create_agent(%{
-               uid: uid,
-               display_name: "Lark Chaos Agent",
-               role: "Reliability test agent"
-             })
+    %{principal: agent} =
+      create_e2e_agent!(%{
+        uid: uid,
+        display_name: "Lark Chaos Agent",
+        role: "Reliability test agent"
+      })
 
     create_fake_llm_provider!(provider_id, fake_llm_port, "sk-fake-chaos")
 
@@ -378,12 +399,12 @@ defmodule Ankole.E2E.Harness do
 
     provider_id = "fake-chaos2-#{Ecto.UUID.generate()}"
 
-    assert {:ok, %{principal: agent}} =
-             Principals.create_agent(%{
-               uid: uid,
-               display_name: "Lark Chaos Secondary Agent",
-               role: "Second reliability test agent"
-             })
+    %{principal: agent} =
+      create_e2e_agent!(%{
+        uid: uid,
+        display_name: "Lark Chaos Secondary Agent",
+        role: "Second reliability test agent"
+      })
 
     create_fake_llm_provider!(provider_id, fake_llm_port, "sk-fake-chaos-secondary")
 
@@ -418,12 +439,12 @@ defmodule Ankole.E2E.Harness do
     provider_id = "openrouter-lark-real-#{Ecto.UUID.generate()}"
     assert {:ok, %{skills: _count}} = Library.sync_builtin_skills(force: true)
 
-    assert {:ok, %{principal: agent}} =
-             Principals.create_agent(%{
-               uid: uid,
-               display_name: "Lark Real LLM Agent",
-               role: "Reliability test agent"
-             })
+    %{principal: agent} =
+      create_e2e_agent!(%{
+        uid: uid,
+        display_name: "Lark Real LLM Agent",
+        role: "Reliability test agent"
+      })
 
     assert {:ok, _provider} =
              ProviderConfigs.create_provider(%{
@@ -436,8 +457,8 @@ defmodule Ankole.E2E.Harness do
              })
 
     for {profile, model} <- [
-          {"primary", "qwen/qwen3.5-flash-02-23"},
-          {"light", "qwen/qwen3.5-flash-02-23"}
+          {"primary", "~deepseek/deepseek-v4-flash-latest"},
+          {"light", "~deepseek/deepseek-v4-flash-latest"}
         ] do
       assert {:ok, _profile} =
                ModelProfiles.put_model_profile(agent.uid, profile, %{
@@ -505,7 +526,8 @@ defmodule Ankole.E2E.Harness do
     assert {:ok, %{binding: binding}} =
              Bindings.put_binding(agent_uid, "lark", name, %{
                "config" => config,
-               "group_message_mode" => Keyword.fetch!(opts, :group_message_mode)
+               "group_message_mode" => Keyword.fetch!(opts, :group_message_mode),
+               "unmatched_sender_policy" => "create_standalone"
              })
 
     assert binding.unaddressed_group_message_policy == policy
@@ -1090,15 +1112,22 @@ defmodule Ankole.E2E.Harness do
   Reads the persisted trajectory messages of one Job Turn in position order.
 
   `Ankole.BackgroundAgentJobs.Turns` stores only the ankole_chatml header on the
-  Turn row and keeps every message in its append-only trajectory group rows, so
-  a raw Turn read never carries `messages`.
+  Turn row and keeps every semantic item in append-only TurnItem rows, so a raw
+  Turn read never carries `messages`.
   """
   def job_turn_trajectory_messages(%{id: turn_id}) when is_binary(turn_id) do
-    TrajectoryGroup
-    |> where([group], group.turn_id == ^turn_id)
-    |> order_by([group], asc: group.position)
+    TurnItem
+    |> where([item], item.turn_id == ^turn_id)
+    |> order_by([item], asc: item.position)
     |> Repo.all()
-    |> Enum.flat_map(&(&1.content["messages"] || []))
+    |> Enum.flat_map(fn item ->
+      {messages, _truncated?} =
+        item.item
+        |> OpaqueContent.reveal()
+        |> TurnItemProjection.project()
+
+      messages
+    end)
   end
 
   def lark_bot_mention(open_id \\ "ou_bot", key \\ "@_user_1", name \\ "Lark Chaos Bot"),

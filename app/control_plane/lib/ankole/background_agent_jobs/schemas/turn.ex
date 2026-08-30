@@ -2,9 +2,9 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Turn do
   @moduledoc """
   One durable, normalized execution trajectory for one runtime turn.
 
-  Streaming protocol frames are assembled by Agent Computer before they cross
-  the control-plane boundary. The Turn row stores the trajectory header, and
-  trajectory group rows store the semantic ChatML messages.
+  Agent Computer assembles streaming protocol frames before they cross the
+  control-plane boundary. The Turn row stores the trajectory header. TurnItem
+  rows store sanitized thread items that are projected to ChatML on read.
   """
 
   use Ecto.Schema

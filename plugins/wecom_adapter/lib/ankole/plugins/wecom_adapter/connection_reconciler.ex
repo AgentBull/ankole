@@ -8,9 +8,8 @@ defmodule Ankole.Plugins.WeComAdapter.ConnectionReconciler do
   bot collapse to a single connection.
   """
 
-  use GenServer
-
   alias Ankole.Logging
+  alias Ankole.Plugins.ConnectionLifecycle
   alias Ankole.Plugins.WeComAdapter.Config
   alias Ankole.Plugins.WeComAdapter.ConnectionSupervisor
   alias Ankole.Plugins.WeComAdapter.Inbound
@@ -19,15 +18,24 @@ defmodule Ankole.Plugins.WeComAdapter.ConnectionReconciler do
   alias Ankole.SignalsGateway.Binding
 
   @default_interval_ms 60_000
-  @call_timeout 30_000
+
+  @spec child_spec(keyword()) :: Supervisor.child_spec()
+  def child_spec(opts) do
+    %{id: __MODULE__, start: {__MODULE__, :start_link, [opts]}, type: :worker}
+  end
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
-    GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
+    ConnectionLifecycle.start_link(opts,
+      name: __MODULE__,
+      default_interval_ms: @default_interval_ms,
+      reconcile_opts: Keyword.take(opts, [:repo]),
+      reconcile: &run_reconcile/1
+    )
   end
 
   @spec reconcile(GenServer.server()) :: map()
-  def reconcile(server \\ __MODULE__), do: GenServer.call(server, :reconcile, @call_timeout)
+  def reconcile(server \\ __MODULE__), do: ConnectionLifecycle.reconcile(server)
 
   @doc """
   Reconciles enabled bindings once. Public so setup flows and tests can force a
@@ -41,41 +49,8 @@ defmodule Ankole.Plugins.WeComAdapter.ConnectionReconciler do
     |> start_connections()
   end
 
-  @impl true
-  def init(opts) do
-    state = {
-      Keyword.get(
-        opts,
-        :interval_ms,
-        Application.get_env(
-          :ankole,
-          :signal_connection_reconcile_interval_ms,
-          @default_interval_ms
-        )
-      ),
-      Keyword.take(opts, [:repo])
-    }
-
-    {:ok, state, {:continue, :reconcile}}
-  end
-
-  @impl true
-  def handle_continue(:reconcile, state) do
-    run_reconcile(state)
-    {:noreply, schedule_next(state)}
-  end
-
-  @impl true
-  def handle_call(:reconcile, _from, state), do: {:reply, run_reconcile(state), state}
-
-  @impl true
-  def handle_info(:reconcile, state) do
-    run_reconcile(state)
-    {:noreply, schedule_next(state)}
-  end
-
-  defp run_reconcile({_interval_ms, reconcile_opts}) do
-    result = reconcile_once(reconcile_opts)
+  defp run_reconcile(opts) do
+    result = reconcile_once(opts)
 
     if result.errors != [] do
       Logging.warning(
@@ -86,13 +61,6 @@ defmodule Ankole.Plugins.WeComAdapter.ConnectionReconciler do
     end
 
     result
-  end
-
-  defp schedule_next({nil, _opts} = state), do: state
-
-  defp schedule_next({interval_ms, _opts} = state) do
-    Process.send_after(self(), :reconcile, interval_ms)
-    state
   end
 
   defp enabled_bindings(opts) do
@@ -160,6 +128,8 @@ defmodule Ankole.Plugins.WeComAdapter.ConnectionReconciler do
   end
 
   defp start_connections({specs, errors}) do
+    stopped = stop_undesired_connections(specs, errors)
+
     {started, start_errors} =
       specs
       |> Map.values()
@@ -168,10 +138,21 @@ defmodule Ankole.Plugins.WeComAdapter.ConnectionReconciler do
 
     %{
       started: length(started),
+      stopped: stopped,
       errors:
         Enum.reverse(errors) ++
           Enum.map(start_errors, fn {:error, reason} -> %{reason: reason} end)
     }
+  end
+
+  # A live connection whose key left the desired spec map is a zombie (for
+  # example a disabled binding) and stops.
+  defp stop_undesired_connections(specs, errors) do
+    ConnectionLifecycle.stop_undesired(
+      ConnectionLifecycle.desired_snapshot(specs, errors),
+      ConnectionSupervisor.registered_keys(),
+      &ConnectionSupervisor.stop/1
+    )
   end
 
   defp binding_error(%Binding{} = binding, reason) do

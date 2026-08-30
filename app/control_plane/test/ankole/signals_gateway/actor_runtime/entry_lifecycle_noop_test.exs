@@ -1,6 +1,8 @@
 defmodule Ankole.SignalsGateway.ActorRuntime.EntryLifecycleNoopTest do
   use Ankole.SignalsGateway.ActorRuntimeCase
 
+  alias Ankole.AIGateway.Conversations
+
   alias Ankole.AIGateway.CompactionArtifacts
   alias Ankole.AIGateway.StatefulResponses
   alias Ankole.SignalsGateway.Projection
@@ -26,7 +28,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.EntryLifecycleNoopTest do
         explicit: true
       })
 
-    {:ok, conversation} = StatefulResponses.ensure_conversation(agent.uid, input.session_id)
+    {:ok, conversation} = Conversations.ensure_conversation(agent.uid, input.session_id)
 
     first =
       start_and_commit_round!(
@@ -101,7 +103,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.EntryLifecycleNoopTest do
         explicit: true
       })
 
-    {:ok, conversation} = StatefulResponses.ensure_conversation(agent.uid, input.session_id)
+    {:ok, conversation} = Conversations.ensure_conversation(agent.uid, input.session_id)
 
     anchor =
       start_and_commit_round!(
@@ -185,7 +187,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.EntryLifecycleNoopTest do
         explicit: true
       })
 
-    {:ok, conversation} = StatefulResponses.ensure_conversation(agent.uid, old_input.session_id)
+    {:ok, conversation} = Conversations.ensure_conversation(agent.uid, old_input.session_id)
 
     old_message =
       start_and_commit_round!(
@@ -261,7 +263,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.EntryLifecycleNoopTest do
         explicit: true
       })
 
-    {:ok, conversation} = StatefulResponses.ensure_conversation(agent.uid, old_input.session_id)
+    {:ok, conversation} = Conversations.ensure_conversation(agent.uid, old_input.session_id)
 
     old_message =
       start_and_commit_round!(
@@ -352,7 +354,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.EntryLifecycleNoopTest do
         explicit: true
       })
 
-    {:ok, conversation} = StatefulResponses.ensure_conversation(agent.uid, input.session_id)
+    {:ok, conversation} = Conversations.ensure_conversation(agent.uid, input.session_id)
 
     _answer =
       start_and_commit_round!(
@@ -391,7 +393,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.EntryLifecycleNoopTest do
         explicit: true
       })
 
-    {:ok, conversation} = StatefulResponses.ensure_conversation(agent.uid, old_input.session_id)
+    {:ok, conversation} = Conversations.ensure_conversation(agent.uid, old_input.session_id)
 
     old_answer =
       start_and_commit_round!(
@@ -470,7 +472,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.EntryLifecycleNoopTest do
         explicit: true
       })
 
-    {:ok, conversation} = StatefulResponses.ensure_conversation(agent.uid, input.session_id)
+    {:ok, conversation} = Conversations.ensure_conversation(agent.uid, input.session_id)
 
     answer =
       start_and_commit_round!(
@@ -655,9 +657,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.EntryLifecycleNoopTest do
       turn_ref = Process.get({__MODULE__, actor_event_id})
 
       assert {:ok, %{status: :turn_completed}} =
-               ActorRuntime.handle_turn_completed(
-                 turn_completed_payload(turn_ref, "resp_#{complete.id}", "loop_finished")
-               )
+               commit_turn_completion(turn_ref, "resp_#{complete.id}", "loop_finished")
     end
 
     complete

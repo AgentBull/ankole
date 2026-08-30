@@ -25,7 +25,7 @@ kernel は、Bun 側と Elixir 側が同じネイティブ振る舞いに対し�
 
 - **`common/`** — ホスト中立のプリミティブ。AEAD token の暗号化と復号、key 導出、ハッシュ化、エンコーディング、UUID ヘルパー（`gen_uuid_v7` を含み、Elixir には `gen_uuid_v7/0`、Bun には `genUUIDv7()` として公開）、JWT ヘルパー、電話番号の正規化。これらは、両方の runtime が手にする小さな信頼された操作です。
 - **`authz/`** — snapshot のみの認可評価。`authorize` と `authorize_all` は `AuthzSnapshot` を受け取り、`AuthzDecision` を返します。CEL 条件の検証とリソースパターンのマッチングもここにあります。これが [Principal and AuthZ](../principal-authz/) ページが、control plane による snapshot の組み立てを説明している決定論的評価器です。
-- **`runtime_fabric/`** — RuntimeFabric v1 エンベローププロトコル。lane、耐久性クラス、相関ルール、turn/control/progress/RPC ボディのセマンティクス。ホストエンコードされた protobuf バイトに対して検証されます。唯一の構造宣言は `proto/envelope.proto` で、各ホストはそこから独自の codec を導出します。Rust では `prost-build`、Elixir では `protox`、TypeScript では `protoc-gen-es`。どのホストも構造を独自に発明しません。
+- **`runtime_fabric/`** — `ankole.runtime_fabric.v1` protobuf 名前空間と、現在の wire protocol version 5。lane、耐久性クラス、相関ルール、turn/control/progress/RPC ボディのセマンティクス。ホストエンコードされた protobuf バイトに対して検証されます。唯一の構造宣言は `proto/envelope.proto` で、各ホストはそこから独自の codec を導出します。Rust では `prost-build`、Elixir では `protox`、TypeScript では `protoc-gen-es`。どのホストも構造を独自に発明しません。
 - **`universal_ai_client/`** — 準備済みの AI provider リクエスト向けの、feature ゲート付きネイティブ非同期 streaming クライアント。アップストリームの HTTP SSE/EventStream と WebSocket トランスポート、provider 応答の正規化、ダウンストリームの SSE/WebSocket チャンクエンコーディング、demand credit、キャンセル。これが [AIGateway](../ai-gateway/) が provider と話すために使う AI データプレーンのプリミティブです。
 
 ## ZeroMQ トランスポート

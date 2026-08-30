@@ -7,7 +7,7 @@ order: 124
 
 `todo` and `clarify` are the agent's structured planning tools. One keeps the plan inside a session; the other asks you a single question when the answer genuinely changes the result. Both ship with the worker in `app/agent_computer/src/tools/`. They are not memory and they are not a chat surface — they are how the agent keeps its own footing and how it asks for one decision.
 
-The decisive property, stated up front: the todo list is ephemeral and per-session, and a `clarify` call ends the turn. The list does not survive across sessions, and once the agent asks, it waits for your reply as the next message. Neither tool is durable truth — that role belongs to [Memory](../memory/).
+The decisive property, stated up front: the todo list is ephemeral and per-session, and a `clarify` call ends the turn. The list does not survive across sessions, and once the agent asks, it waits for your reply as the next message. Neither tool is durable truth — that role belongs to Memory.
 
 ## What each tool is
 
@@ -24,7 +24,7 @@ The agent reaches for `todo` when the work has enough steps that holding them in
 2. **At most one item in progress.** The agent does not start the second step before it finishes or cancels the first.
 3. **Mark items completed immediately.** A step that is done leaves the list as `completed`, not as the current item. A step that fails is `cancelled` and a revised item is added.
 
-What the todo list is not: it is not a durable plan, and it is not a way to hand work to the next session. A fresh session starts with an empty list. If a plan must outlive the session, it goes into [Memory](../memory/), not into `todo`.
+What the todo list is not: it is not a durable plan, and it is not a way to hand work to the next session. A fresh session starts with an empty list. If a plan must outlive the session, it goes into Memory, not into `todo`.
 
 ## When the agent uses clarify
 
@@ -49,6 +49,6 @@ The todo store, the clarify durable record, and the turn-ending behavior are wor
 ## Next steps
 
 - For the persona and capabilities that shape when an agent plans versus asks, read [Agents](../agents/).
-- For durable knowledge that does survive a session, read [Memory](../memory/).
+- Durable knowledge that does survive a session belongs to Memory.
 - For the `waiting_on_user` Job state and how a clarify inside a Job pauses it, read [Background Agent Jobs](../background-jobs/).
 - For the worker that runs these tools during a turn, read the [Agent Computer Worker](../agent-computer-worker/) developer page.

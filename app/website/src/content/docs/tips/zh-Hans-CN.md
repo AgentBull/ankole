@@ -36,12 +36,13 @@ kubectl -n ankole logs deployment/ankole-control-plane -c control-plane | grep "
 
 ## 把 model profile 槽当拨盘
 
-十个 profile 槽不只是"主模型加它的朋友"。每一个都是拨盘：
+八个内置 Agent profile 槽——`primary`、`light`、`heavy`、`coding`、`vision_fallback`、`web_search`、`web_fetch` 和 `image_generate`——都是拨盘：
 
 - agent 主要答快问时，把 **`primary`** 调到更便宜的模型；质量比成本更要紧时调上去。
 - 把 **`light`** 绑到真正廉价、快速的模型——它为高频低风险的路径而存在。
 - 只在 agent 看图像时设 **`vision_fallback`**；否则留空，省下这个槽。
 - **`web_search`** 和 **`web_fetch`** 相互独立——只在 agent 需要联网时绑它们。
+- Brain 的检索模型统一在 **AppConfigure** 中配置，不属于 Agent profile。`brain.embedding_model` 控制所有 Agent 的向量检索，`brain.rerank_model` 控制重排；embedding 模型留空会停用向量检索，rerank 模型留空会保留融合后的顺序。详见 [Brain](../brain/)。
 
 一个“感觉慢”的 agent，常常是 `primary` 相对于它实际做的工作绑得太重。
 

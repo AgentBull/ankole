@@ -135,5 +135,5 @@ defmodule Ankole.Plugins.Microsoft365Adapter.AdaptiveCard do
 
   defp notice_text(_notice), do: ""
 
-  defp truncate(text, size), do: text |> String.graphemes() |> Enum.take(size) |> Enum.join()
+  defp truncate(text, size), do: String.slice(text, 0, size)
 end

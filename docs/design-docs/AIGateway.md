@@ -92,18 +92,18 @@ path can accept an image.
 
 Agent Computer puts the real model in the Job project configuration and selects
 the `ankole_aigateway` Codex provider. The provider name is `OpenAI` because
-Codex 0.147 uses that name to enable its remote-compaction protocol. The
-provider ID remains `ankole_aigateway`. Agent Computer sends the frozen binding
-in the `x-ankole-aigateway-model-binding` header. AIGateway applies this binding
+the pinned Codex runtime uses that name to enable its remote-compaction
+protocol. The provider ID remains `ankole_aigateway`. Agent Computer sends the
+frozen binding in the `x-ankole-aigateway-model-binding` header. AIGateway applies this binding
 before provider resolution. The binding replaces a conflicting Codex model,
 provider option, reasoning effort, or parallel-tool-call choice. It also removes
 the Codex-only `internal_chat_message_metadata_passthrough` and
 `encrypted_function_args` fields before provider dispatch. Responses Lite stays
-serial. AIGateway model cards disable Responses Lite because Codex 0.147 omits
-configured hosted web search from that private carrier. Standard Responses
-keeps the native tool declaration. Thus Codex receives the real model and effort
-that it needs for local execution, but AIGateway remains the authority for the
-upstream request. The runner removes `model_catalog_json` from the Job project
+serial. AIGateway model cards disable Responses Lite because the pinned Codex
+runtime omits configured hosted web search from that private carrier. Standard
+Responses keeps the native tool declaration. Thus Codex receives the real model
+and effort that it needs for local execution, but AIGateway remains the authority
+for the upstream request. The runner removes `model_catalog_json` from the Job project
 configuration, so a workspace template cannot replace the AIGateway-owned
 model cards. The logical profile name never enters Codex as a model.
 
@@ -219,8 +219,7 @@ Thus, a late result from an old credential changes only the old revision's
 health, affinity, and rate-limit state. Enabling an active provider does not
 change the revision or health. Disabled entries also stay out. PostgreSQL
 stores the credential revision, but it does not store these rebuildable health
-facts. An entry without this field uses one stable legacy revision until its
-next credential write.
+facts.
 
 An upstream reset header sets the recovery time when it is available. The
 fallback is five minutes for HTTP 401 and one hour for HTTP 429. A process
@@ -415,6 +414,9 @@ Agent tokens are HS256 JWT credentials.
 They have the audience `ankole.ai_gateway` and the scope `ai_gateway`.
 Their default lifetime is 30 days.
 
+`Ankole.AIGateway.Tokens` owns token minting and verification. The RuntimeFabric
+broker and the Phoenix authentication plug consume that domain service.
+
 The control plane derives the signing key from `SecretKeyBase`.
 The Worker requests an Agent token through an authenticated RuntimeFabric RPC.
 That response also supplies the AIGateway base URL.
@@ -488,11 +490,6 @@ External Response identifiers use the `resp_` prefix.
 
 Implicit continuation stays on one line of history. The start transaction locks
 the conversation and checks its last visible Response.
-
-When the pre-compaction Brain reminder is due, AIGateway adds it to the current
-input before the start transaction. This also applies to an empty continuation.
-The stored Response keeps the reminder marker, so later history detects it and
-does not add the reminder again.
 
 The same transaction rejects another Response that is still generating. The
 WebSocket returns `response_in_progress` with status 409.
@@ -833,7 +830,9 @@ Explicit continuation does not rewrite the caller-selected branch.
 ## Store the Result before Reporting Completion
 
 The stream stores terminal content before it sends a public terminal event. If
-storage fails, AIGateway sends `response.failed` and cancels the provider stream.
+that write fails, AIGateway tries to store a failure instead. It sends
+`response.failed` only when that failure is durable. If both writes fail, it
+cancels the provider stream and closes the transport without a terminal event.
 
 A generating row receives heartbeat updates during a live response.
 RuntimeEvents schedules an orphan check after each heartbeat.
@@ -1072,7 +1071,9 @@ OpenAI and `chatgpt_subscription` declare native image generation. Their native
 path does not resolve or validate a configured fallback, so a stale fallback
 cannot block an ordinary conversation. If neither native nor fallback execution
 is available, request preparation returns an explicit unsupported-value error.
-AIGateway never adds an image tool that the caller did not declare.
+AIGateway never adds an image tool that the caller did not declare. Before a
+native dispatch, it inlines local input-image and mask references because the
+Provider cannot read Ankole artifact IDs.
 
 The hosted tool can run for 30 minutes.
 The prepared streaming limits allow 128 MiB for the generated upstream response.
@@ -1080,13 +1081,15 @@ If the main provider uses a Responses WebSocket, each hosted fallback model
 round uses that WebSocket transport. Other streaming providers use one
 collected non-streaming main-model request for each round.
 Image persistence observes normalized image events from both execution paths.
-It stores the final image and accounts for native image usage. A hosted image
-attempt rotates only the image provider pool, while a main model attempt
-rotates only the main provider pool. Usage stays attributed to the credential
-that ran each attempt. An upstream failure keeps its provider HTTP status in
-safe public error details. When the provider supplies `error.message`, the
-authenticated caller receives a bounded copy. The provider body and metadata
-stay private.
+It stores the final image and accounts for native image usage. A hosted item
+id is a local `ig_` UUID and stays the Artifact primary key; a native
+provider's own item id is stored separately so later references to it resolve.
+A hosted image attempt rotates only the image provider pool, while a main
+model attempt rotates only the main provider pool. Usage stays attributed to
+the credential that ran each attempt. An upstream failure keeps its provider
+HTTP status in safe public error details. When the provider supplies
+`error.message`, the authenticated caller receives a bounded copy. The
+provider body and metadata stay private.
 
 ## Observe the Execution Path
 
@@ -1209,7 +1212,7 @@ and conversation identifiers. `prompt_cache_key` stays a cache routing and
 credential-affinity input and never becomes a trace session. Spans also carry
 the Principal type, the client `originator`,
 `user-agent`, and `version` headers, and an `ankole.ai_gateway.caller` label
-for internal callers such as Brain dreaming and compaction. The exported
+for internal callers such as compaction. The exported
 resource names `service.name`, and adds `service.version` from
 `ANKOLE_VERSION` and `deployment.environment.name` from `ANKOLE_ENV` when
 those variables are set — the same sources that label logs. The common layer

@@ -41,6 +41,15 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
       structured_output_request?(request) ->
         :ambient_decision
 
+      String.contains?(prompt, "CHAOS_WF_KILL_TASK") ->
+        :workflow_kill_task
+
+      String.contains?(prompt, "CHAOS_WF_KILL_RUN") ->
+        :workflow_kill_done
+
+      String.contains?(prompt, "CHAOS_WF_KILL_START") ->
+        :workflow_kill_start
+
       String.contains?(prompt, "CHAOS_MALFORMED_STREAM") ->
         :malformed_stream
 
@@ -82,9 +91,6 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
 
       String.contains?(prompt, "CHAOS_SKILL_VIEW") ->
         :skill_view_tool
-
-      String.contains?(prompt, "CHAOS_SKILL_APPEND") ->
-        :skill_append_tool
 
       String.contains?(prompt, "CHAOS_SKILL_DISABLED") ->
         :skill_disabled_tool
@@ -182,6 +188,7 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
           | :slow_stop_stream
           | {:delayed_completion, String.t(), pos_integer()}
           | {:tool_call, map()}
+          | {:delayed_tool_call, map(), pos_integer()}
           | {:completion, String.t(), keyword()}
   def action_for(kind, count, request \\ %{}) do
     cond do
@@ -196,6 +203,11 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
 
       kind in [:followup_slow, :followup_recall_slow] ->
         {:delayed_completion, reply_for(kind), 1_500}
+
+      # The delay keeps the Workflow task turn provably in flight so a chaos
+      # scenario can kill the worker mid-turn before submit_result commits.
+      kind == :workflow_kill_task ->
+        {:delayed_tool_call, tool_call_for(:workflow_kill_task_submit), 1_500}
 
       tool_call = tool_call_for(kind, count, request) ->
         {:tool_call, tool_call}
@@ -251,7 +263,6 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
       {"CHAOS_TODO_TOOL", "CHAOS_TODO_TOOL"},
       {"CHAOS_SKILL_VIEW_ALL", "CHAOS_SKILL_VIEW_ALL"},
       {"CHAOS_SKILL_VIEW", "CHAOS_SKILL_VIEW"},
-      {"CHAOS_SKILL_APPEND", "CHAOS_SKILL_APPEND"},
       {"CHAOS_SKILL_DISABLED", "CHAOS_SKILL_DISABLED"},
       {"CHAOS_INSTALLED_SKILL_DELETED", "CHAOS_INSTALLED_SKILL_DELETED"},
       {"CHAOS_INSTALLED_SKILL", "CHAOS_INSTALLED_SKILL"},
@@ -356,7 +367,6 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
         "CHAOS_TODO_TOOL",
         "CHAOS_SKILL_VIEW_ALL",
         "CHAOS_SKILL_VIEW",
-        "CHAOS_SKILL_APPEND",
         "CHAOS_SKILL_DISABLED",
         "CHAOS_INSTALLED_SKILL_DELETED",
         "CHAOS_INSTALLED_SKILL",
@@ -387,11 +397,11 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
 
   defp reply_for(:ambient_decision),
     do:
-      ~s({"should_proactively_speak":true,"reason":"fake Feishu chaos handoff needs a visible reply"})
+      ~s({"action":"FOREGROUND_REPLY","authority":"NONE","handoff_job_id":null,"asked_by":null,"reason":"fake Feishu chaos needs a visible reply"})
 
   defp reply_for(:ambient_noop_decision),
     do:
-      ~s({"should_proactively_speak":false,"reason":"fake Feishu chaos says the agent should stay silent"})
+      ~s({"action":"NOOP","authority":"NONE","handoff_job_id":null,"asked_by":null,"reason":"fake Feishu chaos says the agent should stay silent"})
 
   defp reply_for(:after_new_recall), do: "CHAOS_AFTER_NEW_RECALL_OK"
   defp reply_for(:ambient_reply), do: "CHAOS_AMBIENT_OK"
@@ -415,7 +425,6 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
   defp reply_for(:reply_attachment), do: "CHAOS_REPLY_ATTACHMENT_OK"
   defp reply_for(:installed_skill_deleted_tool), do: "CHAOS_INSTALLED_SKILL_DELETED_OK"
   defp reply_for(:installed_skill_tool), do: "CHAOS_INSTALLED_SKILL_OK"
-  defp reply_for(:skill_append_tool), do: "CHAOS_SKILL_APPEND_OK"
   defp reply_for(:skill_disabled_tool), do: "CHAOS_SKILL_DISABLED_OK"
   defp reply_for(:skill_view_all_tool), do: "CHAOS_SKILL_VIEW_ALL_OK"
   defp reply_for(:skill_view_tool), do: "CHAOS_SKILL_VIEW_OK"
@@ -424,6 +433,8 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
   defp reply_for(:todo_tool), do: "CHAOS_TODO_OK"
   defp reply_for(:workspace_read_tool), do: "CHAOS_WORKSPACE_READ_OK"
   defp reply_for(:workspace_write_tool), do: "CHAOS_WORKSPACE_WRITE_OK"
+  defp reply_for(:workflow_kill_start), do: "CHAOS_WF_KILL_STARTED_OK"
+  defp reply_for(:workflow_kill_done), do: "CHAOS_WF_KILL_DONE_OK"
   defp reply_for(:generic), do: "CHAOS_GENERIC_OK"
 
   defp tool_call_for(:reply_attachment, 1), do: tool_call_for(:reply_attachment_command)
@@ -435,7 +446,6 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
        when kind in [
               :skill_view_tool,
               :skill_view_all_tool,
-              :skill_append_tool,
               :skill_disabled_tool,
               :installed_skill_tool,
               :installed_skill_deleted_tool
@@ -453,7 +463,29 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
   defp tool_call_for(kind, 1) when kind in [:checkback_tool, :cron_tool, :steer_tool],
     do: tool_call_for(kind)
 
+  defp tool_call_for(:workflow_kill_start, 1), do: tool_call_for(:workflow_kill_start)
+
   defp tool_call_for(_kind, _count), do: nil
+
+  defp tool_call_for(:workflow_kill_start) do
+    %{
+      id: "call_lark_chaos_workflow_kill",
+      name: "workflow",
+      arguments: %{
+        "title" => "CHAOS_WF_KILL_RUN",
+        "script" =>
+          "return await agent(\"CHAOS_WF_KILL_TASK submit exactly the string killed-and-recovered\", {label: \"killer\"});"
+      }
+    }
+  end
+
+  defp tool_call_for(:workflow_kill_task_submit) do
+    %{
+      id: "call_lark_chaos_wf_submit",
+      name: "submit_result",
+      arguments: %{"result" => "killed-and-recovered"}
+    }
+  end
 
   defp tool_call_for(:checkback_tool) do
     %{

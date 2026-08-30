@@ -7,11 +7,21 @@ order: 20
 
 Background Agent Job은 조사, 대용량 파일 집합, 문서 작성, 데이터 분석, 리포지토리 변경, 그리고 시간이 걸리는 기타 작업을 위한 것입니다. Job은 백그라운드에서 독립적으로 실행되므로 Agent와 계속 대화할 수 있다.
 
-<a href="https://github.com/NousResearch/hermes-agent/blob/main/website/docs/user-guide/features/delegation.md" target="_blank" rel="noreferrer">Hermes Agent</a>나 <a href="https://docs.openclaw.ai/subagents" target="_blank" rel="noreferrer">OpenClaw</a>를 사용한다면 가장 가까운 비교는 서브에이전트다: Main Agent가 독립적인 작업을 다른 실행 컨텍스트에 위임합니다.
+<a href="https://github.com/NousResearch/hermes-agent/blob/main/website/docs/user-guide/features/delegation.md" target="_blank" rel="noreferrer">Hermes Agent</a>나 <a href="https://docs.openclaw.ai/subagents" target="_blank" rel="noreferrer">OpenClaw</a>를 사용한다면 가장 가까운 비교 대상은 서브에이전트입니다. 다만 Ankole은 위임의 수명과 상호작용 방식에 따라 [Workflow](../workflows/)와 Background Agent Job을 구분합니다.
 
 Ankole은 시스템이 임시 호출이 아니라 완전한 수명 주기로 작업을 저장하기 때문에 이를 Background Agent Job이라고 부릅니다. Job은 Worker 중단 후에도 복구할 수 있다.
 
 Main Agent는 추가 정보를 보낼 수 있다. 대부분의 Job은 질문, 실패 상태, 최종 결과를 원래 대화로 돌려보냅니다. 업데이트를 요청하지 않으면 Job이 조용히 있을 수도 있으므로 나중에 검사할 수 있다.
+
+## Workflow와 Background Agent Job 중 선택
+
+| 작업 형태 | 선택 | 이유 |
+|---|---|---|
+| 하나의 짧은 작업 | 현재 turn에서 직접 실행 | 사용자가 기다릴 수 있고 다음 답변에 완료된 결과를 담을 수 있음 |
+| 유한한 배치 또는 여러 단계의 분석 | [Workflow](../workflows/) | 고정된 JavaScript가 독립적인 서브에이전트 turn을 병렬로 실행하고 구조화된 결과를 결합함 |
+| 지속적인 컨텍스트와 후속 메시지가 필요한 하나의 긴 작업 | Background Agent Job | 고유한 Codex thread와 workspace를 유지하고 사용자의 답변을 기다리거나 나중에 재개할 수 있음 |
+
+Workflow task는 다른 Workflow나 Background Agent Job을 시작할 수 없습니다. 작업 중에 추가 자료를 보내거나 사용자의 판단을 받아야 한다면 Background Agent Job을 선택하세요.
 
 ## Agent에게 Job 생성을 요청
 
@@ -80,4 +90,4 @@ Job을 열고 **Cancel**을 선택하세요. 이미 시작한 turn은 멈추는 
 - **시작하자마자 실패함:** 저장된 Background Agent Jobs 모델 프로필과 선택한 provider의 자격 증명 풀 상태를 확인하세요.
 - **`waiting_on_user`인데 질문이 오지 않음:** 원래 대화의 시그널 라우팅 규칙과 Channel Provider를 확인하세요.
 - **성공했는데 채팅으로 돌아오지 않음:** 먼저 조용히 있으라고 요청받지 않았는지 확인하세요. 아니라면 Job을 열고 결과가 있는지 확인한 다음 원래 대화의 라우팅 규칙을 확인하세요.
-- **오래된 Job이 모델 프로필 변경을 무시함:** provider 바인딩은 Job 생성 시 고정됩니다. 프로필 변경은 새 Job에만 영향을 줍니다.
+- **admission된 Job이 모델 프로필 변경을 무시함:** 프로바이더 바인딩은 첫 execution admission에서 고정됩니다. 프로필 변경은 아직 admission되지 않은 Job에만 영향을 줍니다.

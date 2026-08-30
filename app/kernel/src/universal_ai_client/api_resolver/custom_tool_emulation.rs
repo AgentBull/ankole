@@ -65,7 +65,7 @@ pub(super) fn custom_tool_function_fields(tool: &Map<String, Value>) -> (Value, 
 }
 
 pub(super) fn encode_custom_tool_arguments(input: &str) -> Result<String, StreamError> {
-    serde_json::to_string(&json!({ "input": input })).map_err(|error| {
+    sonic_rs::to_string(&json!({ "input": input })).map_err(|error| {
         StreamError::new("custom_tool_encode_failed", "request", error.to_string())
     })
 }

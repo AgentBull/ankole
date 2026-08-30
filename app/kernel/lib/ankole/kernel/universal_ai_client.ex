@@ -93,8 +93,8 @@ defmodule Ankole.Kernel.UniversalAIClient do
   @spec model_request(map(), keyword()) :: {:ok, map()} | {:error, error()}
   def model_request(spec, _opts \\ []) when is_map(spec) do
     with {:ok, encoded_spec} <- encode_spec(spec) do
-      call_request_native(fn ->
-        NativeKernel.universal_ai_client_model_request_nif(encoded_spec)
+      call_request_native(fn ref ->
+        NativeKernel.universal_ai_client_model_request_nif(encoded_spec, self(), ref)
       end)
     end
   end
@@ -162,8 +162,8 @@ defmodule Ankole.Kernel.UniversalAIClient do
   defp raw_request_spec(request) do
     with {:ok, spec} <- raw_spec(request),
          {:ok, encoded_spec} <- encode_spec(spec) do
-      call_request_native(fn ->
-        NativeKernel.universal_ai_client_raw_request_nif(encoded_spec)
+      call_request_native(fn ref ->
+        NativeKernel.universal_ai_client_raw_request_nif(encoded_spec, self(), ref)
       end)
     end
   end
@@ -262,9 +262,15 @@ defmodule Ankole.Kernel.UniversalAIClient do
        }}
   end
 
-  defp call_request_native(fun) do
-    case fun.() do
-      {:ok, response} when is_map(response) -> {:ok, response}
+  # The native request parses, spawns on the shared Tokio runtime, and returns;
+  # the result arrives as one `{:universal_ai_client_request, ref, result}`
+  # message. A native task panic also arrives as an error result, so the
+  # receive needs no timeout of its own.
+  defp call_request_native(start_native) do
+    ref = make_ref()
+
+    case start_native.(ref) do
+      :ok -> await_request_result(ref)
       {:error, _reason} = error -> error
       other -> {:error, invalid_error("native request returned #{inspect(other)}")}
     end
@@ -276,6 +282,19 @@ defmodule Ankole.Kernel.UniversalAIClient do
          "stage" => "beam",
          "message" => Exception.format_banner(kind, reason)
        }}
+  end
+
+  defp await_request_result(ref) do
+    receive do
+      {:universal_ai_client_request, ^ref, {:ok, response}} when is_map(response) ->
+        {:ok, response}
+
+      {:universal_ai_client_request, ^ref, {:error, _reason} = error} ->
+        error
+
+      {:universal_ai_client_request, ^ref, other} ->
+        {:error, invalid_error("native request returned #{inspect(other)}")}
+    end
   end
 
   defp call_native(fun) do

@@ -321,7 +321,7 @@ defmodule AnkoleWeb.SignalBindingController do
       config_ref: binding.config_ref,
       config_key: config_key,
       unaddressed_group_message_policy: Atom.to_string(binding.unaddressed_group_message_policy),
-      confidential_memory: binding.confidential_memory,
+      unmatched_sender_policy: Atom.to_string(binding.unmatched_sender_policy),
       enabled: binding.enabled,
       unavailable_reason: binding.unavailable_reason
     }
@@ -335,7 +335,7 @@ defmodule AnkoleWeb.SignalBindingController do
       config_ref: binding.config_ref,
       config_key: config_key_from_ref(binding.config_ref),
       unaddressed_group_message_policy: Atom.to_string(binding.unaddressed_group_message_policy),
-      confidential_memory: binding.confidential_memory,
+      unmatched_sender_policy: Atom.to_string(binding.unmatched_sender_policy),
       enabled: binding.enabled,
       unavailable_reason: binding.unavailable_reason
     }
@@ -438,9 +438,11 @@ defmodule AnkoleWeb.SignalBindingController do
   end
 
   defp error(conn, reason) do
-    error(conn, 422, "invalid_value", "signal binding configuration is invalid", [
-      %{reason: inspect(reason)}
-    ])
+    with :unhandled <- ConsoleErrors.render_config_field_error(conn, reason) do
+      error(conn, 422, "invalid_value", "signal binding configuration is invalid", [
+        %{reason: inspect(reason)}
+      ])
+    end
   end
 
   defp error(conn, status, code, message, details \\ []) do

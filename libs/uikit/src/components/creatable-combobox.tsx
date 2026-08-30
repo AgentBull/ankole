@@ -87,6 +87,7 @@ export function CreatableCombobox({
   return (
     <Combobox
       items={items}
+      filter={null}
       value={selected}
       inputValue={inputValue}
       disabled={disabled}

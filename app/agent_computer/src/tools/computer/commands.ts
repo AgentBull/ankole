@@ -1,6 +1,6 @@
 import { isAbsolute, join, normalize, resolve } from 'node:path'
-import { bubblewrapArgv } from './bubblewrap'
-import { commandEnv } from './env'
+import { bubblewrapArgv } from '../../sandbox/bubblewrap'
+import { commandEnv } from '../../sandbox/command-env'
 
 export type CommandOutputMode = 'stdout' | 'stderr' | 'both'
 
@@ -35,6 +35,12 @@ interface WorkspaceProcessInput {
   /** Trusted turn variables injected above the caller's `env`. */
   runtimeEnv?: Record<string, string>
   stdin?: string | Buffer
+  /**
+   * Collect stdout/stderr with the bounded head/tail collector instead of the
+   * exact full bytes. Only the model-facing command path sets this; file
+   * transfer paths need every byte.
+   */
+  boundedOutput?: boolean
   signal?: AbortSignal
 }
 
@@ -60,6 +66,7 @@ export async function runWorkspaceCommand(
       workerEnv: input.workerEnv,
       runtimeEnv: input.runtimeEnv,
       stdin: input.stdin,
+      boundedOutput: true,
       signal: input.signal
     },
     agentHome,
@@ -94,14 +101,24 @@ export async function runWorkspaceProcess(
     commandArgv: input.commandArgv
   })
 
-  return runCommandProcess({ argv, cwd: workspaceRoot, env, stdin: input.stdin, signal: input.signal })
+  return runCommandProcess({
+    argv,
+    cwd: workspaceRoot,
+    env,
+    stdin: input.stdin,
+    boundedOutput: input.boundedOutput,
+    signal: input.signal
+  })
 }
 
 export function commandArgvWithOptionalTimeout(input: CommandInput, defaultTimeoutMs?: number): string[] {
   const commandArgv = [input.cmd, ...(input.args ?? [])]
   const timeoutMs = input.timeoutMs ?? defaultTimeoutMs
   if (timeoutMs === undefined) return commandArgv
-  return ['timeout', `${Math.max(1, Math.ceil(timeoutMs / 1000))}s`, ...commandArgv]
+  // `-k 5s` escalates to KILL when the command ignores the initial TERM, so a
+  // signal-immune command cannot outlive its budget. KILL makes `timeout` exit
+  // with 137 instead of 124.
+  return ['timeout', '-k', '5s', `${Math.max(1, Math.ceil(timeoutMs / 1000))}s`, ...commandArgv]
 }
 
 /**
@@ -117,6 +134,7 @@ async function runCommandProcess(input: {
   cwd: string
   env: Record<string, string>
   stdin?: string | Buffer
+  boundedOutput?: boolean
   signal?: AbortSignal
 }): Promise<WorkspaceProcessFinished> {
   const proc = Bun.spawn(input.argv, {
@@ -143,11 +161,8 @@ async function runCommandProcess(input: {
   input.signal?.addEventListener('abort', abort, { once: true })
 
   try {
-    const [exitCode, stdout, stderr] = await Promise.all([
-      proc.exited,
-      readableToBuffer(proc.stdout),
-      readableToBuffer(proc.stderr)
-    ])
+    const collect = input.boundedOutput ? readableToBoundedBuffer : readableToBuffer
+    const [exitCode, stdout, stderr] = await Promise.all([proc.exited, collect(proc.stdout), collect(proc.stderr)])
 
     return {
       exitCode: exitCode ?? 124,
@@ -165,6 +180,57 @@ async function runCommandProcess(input: {
 async function readableToBuffer(stream: ReadableStream<Uint8Array> | null): Promise<Buffer> {
   if (!stream) return Buffer.alloc(0)
   return Buffer.from(await new Response(stream).arrayBuffer())
+}
+
+const BoundedOutputHeadBytes = 1024 * 1024
+const BoundedOutputTailBytes = 1024 * 1024
+
+/**
+ * Reads a stream but retains only the first and last 1 MB. The middle is drained
+ * and dropped, so a runaway command cannot fill worker memory and never blocks on
+ * a full pipe. When bytes are dropped, a marker line with the dropped byte count
+ * replaces the middle.
+ *
+ * Contract note: downstream `truncateOutput` reports "N chars omitted of M total"
+ * against this bounded text. When this collector drops bytes, M undercounts the
+ * true output by the dropped middle, and the marker inserted here usually falls
+ * inside the range `truncateOutput` cuts. Below the 2 MB bound the bytes are
+ * exact, so the model-visible output is unchanged.
+ */
+async function readableToBoundedBuffer(stream: ReadableStream<Uint8Array> | null): Promise<Buffer> {
+  if (!stream) return Buffer.alloc(0)
+  const head: Buffer[] = []
+  let headLength = 0
+  const tail: Buffer[] = []
+  let tailLength = 0
+  let droppedBytes = 0
+  const pushTail = (part: Buffer): void => {
+    tail.push(part)
+    tailLength += part.length
+    while (tail.length > 0 && tailLength - tail[0]!.length >= BoundedOutputTailBytes) {
+      tailLength -= tail[0]!.length
+      droppedBytes += tail[0]!.length
+      tail.shift()
+    }
+  }
+  for await (const part of stream) {
+    // Copy: the stream may reuse its chunk buffers, and retained memory stays bounded.
+    const chunk = Buffer.from(part)
+    const take = Math.min(chunk.length, Math.max(0, BoundedOutputHeadBytes - headLength))
+    if (take > 0) {
+      head.push(chunk.subarray(0, take))
+      headLength += take
+    }
+    if (take < chunk.length) pushTail(chunk.subarray(take))
+  }
+  let tailBuffer = Buffer.concat(tail)
+  if (tailBuffer.length > BoundedOutputTailBytes) {
+    droppedBytes += tailBuffer.length - BoundedOutputTailBytes
+    tailBuffer = tailBuffer.subarray(tailBuffer.length - BoundedOutputTailBytes)
+  }
+  if (droppedBytes === 0) return Buffer.concat([...head, tailBuffer])
+  const marker = Buffer.from(`\n... [${droppedBytes} bytes of output dropped here] ...\n`, 'utf8')
+  return Buffer.concat([...head, marker, tailBuffer])
 }
 
 /**

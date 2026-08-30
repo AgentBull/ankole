@@ -34,12 +34,12 @@ defmodule Ankole.Observability.Trace do
   @spec trace_attributes(Provider.trace_context()) :: map()
   def trace_attributes(context) do
     %{}
-    |> maybe_put("ankole.principal.uid", context.principal_uid)
-    |> maybe_put("user.id", context.user_id)
-    |> maybe_put("ankole.principal.type", context.principal_type)
-    |> maybe_put("session.id", context.session_id)
-    |> maybe_put("gen_ai.conversation.id", context.session_id)
-    |> maybe_put("ankole.actor_event.id", context.actor_event_id)
+    |> put_present("ankole.principal.uid", context.principal_uid)
+    |> put_present("user.id", context.user_id)
+    |> put_present("ankole.principal.type", context.principal_type)
+    |> put_present("session.id", context.session_id)
+    |> put_present("gen_ai.conversation.id", context.session_id)
+    |> put_present("ankole.actor_event.id", context.actor_event_id)
   end
 
   @doc """
@@ -133,10 +133,8 @@ defmodule Ankole.Observability.Trace do
 
   def text(_value), do: nil
 
-  @spec maybe_put(map(), String.t(), term()) :: map()
-  def maybe_put(map, _key, nil), do: map
-  def maybe_put(map, _key, ""), do: map
-  def maybe_put(map, key, value), do: Map.put(map, key, value)
+  @spec put_present(map(), String.t(), term()) :: map()
+  defdelegate put_present(map, key, value), to: Ankole.Attrs
 
   @spec maybe_put_true(map(), String.t(), boolean()) :: map()
   def maybe_put_true(map, key, true), do: Map.put(map, key, true)

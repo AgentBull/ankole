@@ -15,10 +15,15 @@ export interface ValidatedToolArguments {
 }
 
 export function zodToJSONSchema(schema: z.ZodType): JSONObject {
-  const jsonSchema = z.toJSONSchema(schema) as JSONObject
+  const jsonSchema = cleanedJSONSchema(schema)
   if (jsonSchema.type !== 'object') {
     throw new Error('function tool parameters must use a root object schema')
   }
+  return jsonSchema
+}
+
+function cleanedJSONSchema(schema: z.ZodType): JSONObject {
+  const jsonSchema = z.toJSONSchema(schema) as JSONObject
   delete jsonSchema.$schema
   removeSafeIntegerBounds(jsonSchema)
   return jsonSchema
@@ -42,25 +47,23 @@ function removeSafeIntegerBounds(node: unknown): void {
   for (const value of Object.values(record)) removeSafeIntegerBounds(value)
 }
 
-export function validateToolArguments(args: string, schema: z.ZodType): unknown {
-  return validateToolArgumentsWithRepair(args, schema).value
-}
-
 /**
- * Parses model-generated arguments through a bounded, deterministic repair ladder.
- *
- * Repairs may recover transport punctuation, but schema validation still owns the
- * tool's semantic contract. An unterminated string is deliberately not repaired:
- * its missing suffix may contain user-visible content or an unsafe action.
+ * Parses model-generated tool-call arguments through a bounded, deterministic
+ * repair ladder. Recovers transport punctuation (markdown code fences, chatter
+ * around a JSON object, a container left open by output truncation) but does
+ * not interpret or validate the decoded value against any schema — that is a
+ * separate concern owned by the tool-calling runtime. An unterminated string
+ * is deliberately not repaired: its missing suffix may contain user-visible
+ * content or an unsafe action.
  */
-export function validateToolArgumentsWithRepair(args: string, schema: z.ZodType): ValidatedToolArguments {
+export function repairToolArgumentsJSON(args: string): ValidatedToolArguments {
   const argumentBytes = Buffer.byteLength(args, 'utf8')
   if (argumentBytes > MAX_TOOL_ARGUMENT_BYTES) {
     throw new Error(`tool arguments exceed the ${MAX_TOOL_ARGUMENT_BYTES}-byte limit`)
   }
 
   const strict = parseJSON(args)
-  if (strict.ok) return validatedToolArguments(strict.value, args, 'none', schema)
+  if (strict.ok) return repairedToolArguments(strict.value, args, 'none')
 
   if (argumentBytes <= MAX_REPAIRABLE_TOOL_ARGUMENT_BYTES) {
     const base = stripJSONCodeFence(args) ?? args.trim()
@@ -75,22 +78,20 @@ export function validateToolArgumentsWithRepair(args: string, schema: z.ZodType)
       if (!candidate || seen.has(candidate)) continue
       seen.add(candidate)
       const parsed = parseJSON(candidate)
-      if (parsed.ok) return validatedToolArguments(parsed.value, candidate, repair, schema)
+      if (parsed.ok) return repairedToolArguments(parsed.value, candidate, repair)
     }
   }
 
   throw new Error(`tool arguments must be valid JSON: ${errorMessage(strict.error)}`)
 }
 
-function validatedToolArguments(
+function repairedToolArguments(
   decoded: unknown,
   normalizedArguments: string,
-  repair: ToolArgumentRepair,
-  schema: z.ZodType
+  repair: ToolArgumentRepair
 ): ValidatedToolArguments {
-  const value = schema.parse(decoded)
   return {
-    value,
+    value: decoded,
     normalizedArguments: repair === 'none' ? normalizedArguments : JSON.stringify(decoded),
     repair
   }

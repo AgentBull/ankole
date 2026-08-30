@@ -56,7 +56,8 @@ agent は、運用者が他のすべてを構成する際の単位です。
 | `POST` | `/agents` | agent を作成 |
 | `GET` | `/agents/:agent_uid` | 1 つの agent を読み取る |
 | `PATCH` | `/agents/:agent_uid` | agent を更新 |
-| `DELETE` | `/agents/:agent_uid` | agent を削除 |
+| `POST` | `/agents/:agent_uid/enable` | 無効化された agent を再有効化 |
+| `DELETE` | `/agents/:agent_uid` | 有効な agent を無効化し、無効化済みの agent は完全に削除 |
 
 ### signal routing rule
 
@@ -88,11 +89,11 @@ Agent Library は agent ができること、つまり plugin と skill です�
 | `PUT` | `/agents/:agent_uid/library-capabilities/skills/:id` | 1 つの agent に対して skill を override |
 | `GET` | `/agents/:agent_uid/library-documents` | agent の library document を一覧表示 |
 | `PUT` | `/agents/:agent_uid/library-documents/:document_kind` | library document を設定 |
-| `GET` | `/agents/:agent_uid/library-skill-overlays` | skill overlay を一覧表示 |
-| `PUT` | `/agents/:agent_uid/library-skill-overlays/:skill_name` | skill overlay を設定 |
-| `DELETE` | `/agents/:agent_uid/library-skill-overlays/:skill_name` | skill overlay を削除 |
+| `GET` | `/agents/:agent_uid/skill-lessons` | 有効な Skill 教訓と廃止済み教訓を一覧表示 |
+| `POST` | `/agents/:agent_uid/skill-lessons` | 有効な Skill に人の教訓を追加 |
+| `POST` | `/agents/:agent_uid/skill-lessons/:lesson_id/retire` | Skill 教訓を廃止 |
 
-能力はまずグローバルに有効化され、その後 agent ごとに狭めたり広げたりできます。skill overlay を使うと、運用者は skill を fork せずに、1 つの agent に対する skill の振る舞いをカスタマイズできます。
+能力はまずグローバルに有効化され、その後 Agent ごとに狭めたり広げたりできます。Skill 教訓は Skill source を変更せずに、1 つの Agent へ追加の作業指針を渡します。一覧には証拠と廃止履歴も含まれます。廃止された教訓は配信されず、人が取り消した内容は Dreaming の再学習禁止 list に残ります。lifecycle と制限については [Skill 教訓](../skill-lessons/) を参照してください。
 
 ### 環境変数（WorkerEnv）
 
@@ -118,7 +119,7 @@ Agent Computer Worker は、API key や token などの環境変数を必要と�
 | `GET` | `/control-plane-plugins` | Control Plane Plugin とその状態を一覧表示 |
 | `PUT` | `/control-plane-plugins` | plugin を有効化または無効化 |
 
-Control Plane Plugin は、signals adapter や Brain の source connector のように、control plane 自身の動作を変えるファーストパーティ拡張です。
+Control Plane Plugin は、signals adapter のように、control plane 自身の動作を変えるファーストパーティ拡張です。
 
 ### Identity provider と AppConfiguration
 
@@ -142,7 +143,6 @@ configuration に加えて、Console はシステムの残りの部分に対す�
 - **Worker**: `/agent-computer-workers`。worker ごとの file のアップロード、移動、一覧表示。
 - **Job**: `/background-agent-jobs`（一覧表示、読み取り、cancel）。
 - **AI の活動**: `/ai-gateway/conversations`。conversation ごとの message。
-- **Memory**: `/brain/*` の全 surface。エントリ、source、audit log、dreaming の実行と fitness、restoration。
 - **Principal と AuthZ**: `/principals`、`/principal-groups`、`/permission-grants`。[Principal と AuthZ](../principal-authz/) ページの permission model に対応します。
 
 ## ここに含まれないものについて

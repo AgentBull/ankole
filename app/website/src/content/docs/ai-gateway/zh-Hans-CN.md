@@ -79,7 +79,7 @@ curl https://ankole.example.com/api/v1/ai-gateway/responses/resp_4f3c... \
 
 ## provider 路由
 
-AIGateway 在任何上游调用之前，先把模型选择符解析到一个真实的 provider 绑定。选择符是调用方看到的东西——比如 `main`，或一个显式的 provider 自有名称——解析结果取决于主体：agent 的选择符来自它配置的模型绑定，管理员看到的是显式的 provider 条目。`GET /models` 列出当前主体能解析到的东西，支持可选的 OpenRouter 风格过滤（`q`、`context`、`min_price`、`max_price`、`sort`、模态过滤）。
+AIGateway 在任何上游调用之前，先把模型选择符解析到真实的 Provider 绑定。每个 Agent 有八个内置档案：`primary`、`light`、`heavy`、`coding`、`vision_fallback`、`web_search`、`web_fetch` 和 `image_generate`。前五个选择语言模型，后三个选择独立能力。Agent 还可以有自定义语言模型档案。管理员使用显式 Provider 条目。`GET /models` 列出当前主体能够解析的模型，并支持可选的 OpenRouter 风格过滤（`q`、`context`、`min_price`、`max_price`、`sort` 和模态过滤）。
 
 每个 Provider 行拥有一个凭据池。Provider kind、base URL、请求头、设置和能力声明由所有池成员共享。model profile 只指向 Provider 行，从不指定池成员。AIGateway 按该行配置的 `fill_first`、`round_robin`、`least_used` 或 `random` 策略选择健康成员。Console 会根据当前界面语言翻译这些策略名称，API 值和存储值保持不变。AIGateway 会尽量让同一个有状态 thread 使用同一成员。
 
@@ -115,7 +115,9 @@ AIGateway 在任何上游调用之前，先把模型选择符解析到一个真�
 
 ## web 工具、文件，以及其他能力
 
-同一个主体和 token 也驱动相邻的能力。`POST /web_search` 接收一个（有长度上限的）`query`，返回 provider 支持的搜索结果；`POST /web_fetch` 接收一到五个公网 HTTPS URL，返回页面内容。`POST /embeddings` 接受文本、token 数组或输入块；`POST /rerank` 对一个非空文档数组重排，并接收一个正整数 `top_n`。每次调用都使用能力专属的语义选择符，例如 `web_search.default` 或 `web_fetch.default`；请求到达时，AIGateway 再解析当前 Agent 档案。
+同一个主体和 token 也驱动相邻的能力。`POST /web_search` 接收一个有长度上限的 `query`，返回 Provider 支持的搜索结果；`POST /web_fetch` 接收一到五个公网 HTTPS URL，返回页面内容。这两类调用可以使用 `web_search.default` 和 `web_fetch.default`，由 AIGateway 解析当前 Agent 档案。
+
+`POST /embeddings` 接受文本、token 数组或输入块。`POST /rerank` 对一个非空文档数组重排，并接收一个正整数 `top_n`。这两个端点要求显式 `provider_id/model` 选择符，不会解析 Agent 档案。Brain 调用这些能力时，使用 [AppConfigure](../app-configuration/) 中实例级的 `brain.embedding_model` 和 `brain.rerank_model`。[Brain](../brain/) 说明完整检索行为。
 
 文件是一等公民：`POST /files` 上传，`GET /files` 列出，`GET /files/:id` 和 `GET /files/:id/content` 读取元数据和字节，`DELETE /files/:id` 删除。它们都按主体限定范围。
 

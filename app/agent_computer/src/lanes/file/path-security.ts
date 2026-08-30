@@ -48,7 +48,7 @@ export function assertCreatableFileAddress(config: WorkerConfig, address: FileAd
   )
 }
 
-export function scratchDirectoryFor(config: WorkerConfig, transferID: string): string {
+export function scratchDirectoryFor(transferID: string): string {
   const scratchRoot = resolve(transferScratchRoot)
   const tempDir = resolve(scratchRoot, safeTransferID(transferID))
   const rel = relativePathWithin(scratchRoot, tempDir)

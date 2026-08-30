@@ -4,16 +4,14 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
   import Ecto.Query
   import Ankole.PrincipalsFixtures
 
-  alias Ankole.AIGateway.Schemas.{Conversation, Message}
+  alias Ankole.AIGateway.Conversations
+
+  alias Ankole.AIGateway.Schemas.Message
   alias Ankole.AIGateway.StatefulResponses
-  alias Ankole.AuthZ.Group
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.Repo
   alias Ankole.SignalsGateway
-  alias Ankole.SignalsGateway.AdapterContext
   alias Ankole.SignalsGateway.AIGatewayLink
-  alias Ankole.SignalsGateway.Binding
-  alias Ankole.SignalsGateway.BindingMembership
   alias Ankole.SignalsGateway.Channel
 
   test "records a tool result and completes its BackgroundAgentJob lifecycle event atomically" do
@@ -70,7 +68,7 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
 
   test "selects and fails only the explicit actor-correlated generating Response" do
     %{principal: subject} = agent_fixture()
-    {:ok, conversation} = StatefulResponses.ensure_conversation(subject.uid, "link-cancel")
+    {:ok, conversation} = Conversations.ensure_conversation(subject.uid, "link-cancel")
 
     {:ok, selected} =
       start_response(subject.uid, conversation.id, %{
@@ -111,7 +109,7 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
 
   test "finds retry source from opaque request metadata and user input" do
     %{principal: subject} = agent_fixture()
-    {:ok, conversation} = StatefulResponses.ensure_conversation(subject.uid, "link-retry")
+    {:ok, conversation} = Conversations.ensure_conversation(subject.uid, "link-retry")
 
     {:ok, response} =
       StatefulResponses.start_response_run(%{
@@ -147,9 +145,39 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
     assert message_id == response.id
   end
 
+  test "exact replay rejects a composite turn without changing broad live replay safety" do
+    %{principal: subject} = agent_fixture()
+    {:ok, conversation} = Conversations.ensure_conversation(subject.uid, "composite-replay")
+
+    {:ok, response} =
+      start_response(subject.uid, conversation.id, %{
+        "actor_event_id" => "event-main",
+        "request_refs" => [%{"actor_event_id" => "event-steer"}]
+      })
+
+    assert {:ok, _completed} =
+             StatefulResponses.commit_complete(response, [
+               %{
+                 "type" => "message",
+                 "role" => "assistant",
+                 "content" => [%{"type" => "output_text", "text" => "done"}]
+               }
+             ])
+
+    actor_key = %{agent_uid: subject.uid, session_id: conversation.conversation_key}
+
+    assert {:ok, :checked} =
+             Repo.transact(fn repo ->
+               assert AIGatewayLink.turn_replay_safe_in_tx(repo, actor_key, "event-main")
+               refute AIGatewayLink.exact_turn_replay_safe_in_tx(repo, actor_key, "event-main")
+               refute AIGatewayLink.exact_turn_replay_safe_in_tx(repo, actor_key, "event-steer")
+               {:ok, :checked}
+             end)
+  end
+
   test "retracts only the current actor-correlated visible suffix" do
     %{principal: subject} = agent_fixture()
-    {:ok, conversation} = StatefulResponses.ensure_conversation(subject.uid, "link-retry-retract")
+    {:ok, conversation} = Conversations.ensure_conversation(subject.uid, "link-retry-retract")
 
     {:ok, predecessor} =
       start_response(subject.uid, conversation.id, %{"actor_event_id" => "event-before"})
@@ -193,7 +221,7 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
 
   test "selects an actor-correlated visible suffix before calling generic deletion" do
     %{principal: subject} = agent_fixture()
-    {:ok, conversation} = StatefulResponses.ensure_conversation(subject.uid, "link-retraction")
+    {:ok, conversation} = Conversations.ensure_conversation(subject.uid, "link-retraction")
 
     {:ok, first} =
       start_response(subject.uid, conversation.id, %{"actor_event_id" => "event-tail"})
@@ -231,7 +259,7 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
     refute Repo.get(Message, second.id)
   end
 
-  test "declares and freezes a DM Brain scope from the mirrored channel" do
+  test "declares a DM conversation origin from the mirrored channel" do
     %{principal: agent} = agent_fixture()
     %{principal: peer} = human_fixture()
     now = DateTime.utc_now(:microsecond)
@@ -271,180 +299,19 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
                )
              end)
 
-    assert conversation.metadata["brain"] == %{
-             "visibility" => "dm",
+    assert conversation.metadata["origin"] == %{
              "peer_uid" => peer.uid,
              "channel_id" => channel_id,
              "channel_kind" => "im_dm"
            }
 
-    conversation = %{
-      conversation
-      | metadata: put_in(conversation.metadata, ["brain", "snapshot"], %{"pinned_memo" => "old"})
-    }
+    assert %{"origin" => successor_origin} =
+             AIGatewayLink.successor_origin_metadata(conversation)
 
-    assert %{"brain" => successor_scope} =
-             AIGatewayLink.successor_brain_metadata(conversation)
-
-    refute Map.has_key?(successor_scope, "snapshot")
-    assert successor_scope["peer_uid"] == peer.uid
+    assert successor_origin == conversation.metadata["origin"]
   end
 
-  test "starts a successor conversation when a group changes Brain visibility" do
-    %{principal: agent} = agent_fixture()
-    binding_name = "scope-rollover"
-    session_id = "group-scope-rollover"
-    now = DateTime.utc_now(:microsecond)
-
-    assert {:ok, binding} =
-             SignalsGateway.upsert_binding(%{
-               agent_uid: agent.uid,
-               name: binding_name,
-               adapter: "lark",
-               config_ref: "app-config://scope-rollover",
-               unaddressed_group_message_policy: :record_only,
-               confidential_memory: false
-             })
-
-    group =
-      %Group{}
-      |> Group.changeset(%{
-        name: binding_name,
-        display_name: binding_name,
-        domain: :im_group,
-        metadata:
-          BindingMembership.project(
-            %{},
-            AdapterContext.new(
-              agent_uid: agent.uid,
-              binding_name: binding_name,
-              adapter: "lark",
-              user_name: "Lark"
-            ),
-            :joined,
-            now
-          )
-      })
-      |> Repo.insert!()
-
-    channel =
-      %Channel{}
-      |> Channel.changeset(%{
-        id: "lark:chat:scope-rollover",
-        kind: :im_group,
-        reply_mode: :entry,
-        name: binding_name,
-        principal_group_id: group.id,
-        metadata: %{},
-        raw_payload: %{},
-        first_seen_at: now,
-        last_seen_at: now
-      })
-      |> Repo.insert!()
-
-    first_event =
-      append_group_actor_event!(agent.uid, binding_name, channel.id, session_id, "shared", now)
-
-    assert {:ok, shared_conversation} =
-             Repo.transact(fn repo ->
-               AIGatewayLink.ensure_and_lock_conversation_in_tx(
-                 repo,
-                 agent.uid,
-                 session_id,
-                 first_event
-               )
-             end)
-
-    assert shared_conversation.metadata["brain"]["visibility"] == "shared"
-
-    shared_conversation
-    |> Ecto.Changeset.change(
-      metadata:
-        shared_conversation.metadata
-        |> put_in(["brain", "visibility"], "public")
-        |> put_in(["brain", "snapshot"], %{
-          "pinned_memo" => %{"resident_text" => "legacy public snapshot"}
-        })
-    )
-    |> Repo.update!()
-
-    legacy_event =
-      append_group_actor_event!(
-        agent.uid,
-        binding_name,
-        channel.id,
-        session_id,
-        "legacy-public",
-        now
-      )
-
-    assert {:ok, migrated_shared_conversation} =
-             Repo.transact(fn repo ->
-               AIGatewayLink.ensure_and_lock_conversation_in_tx(
-                 repo,
-                 agent.uid,
-                 session_id,
-                 legacy_event
-               )
-             end)
-
-    refute migrated_shared_conversation.id == shared_conversation.id
-    assert %DateTime{} = Repo.get!(Conversation, shared_conversation.id).ended_at
-    assert migrated_shared_conversation.metadata["brain"]["visibility"] == "shared"
-    refute Map.has_key?(migrated_shared_conversation.metadata["brain"], "snapshot")
-
-    binding
-    |> Ecto.Changeset.change(confidential_memory: true)
-    |> Repo.update!()
-
-    second_event =
-      append_group_actor_event!(agent.uid, binding_name, channel.id, session_id, "channel", now)
-
-    assert {:ok, confidential_conversation} =
-             Repo.transact(fn repo ->
-               AIGatewayLink.ensure_and_lock_conversation_in_tx(
-                 repo,
-                 agent.uid,
-                 session_id,
-                 second_event
-               )
-             end)
-
-    refute confidential_conversation.id == migrated_shared_conversation.id
-    assert %DateTime{} = Repo.get!(Conversation, migrated_shared_conversation.id).ended_at
-    assert confidential_conversation.metadata["brain"]["visibility"] == "channel"
-    refute Map.has_key?(confidential_conversation.metadata["brain"], "snapshot")
-
-    Repo.get_by!(Binding, agent_uid: agent.uid, name: binding.name)
-    |> Ecto.Changeset.change(confidential_memory: false)
-    |> Repo.update!()
-
-    third_event =
-      append_group_actor_event!(
-        agent.uid,
-        binding_name,
-        channel.id,
-        session_id,
-        "shared-again",
-        now
-      )
-
-    assert {:ok, next_shared_conversation} =
-             Repo.transact(fn repo ->
-               AIGatewayLink.ensure_and_lock_conversation_in_tx(
-                 repo,
-                 agent.uid,
-                 session_id,
-                 third_event
-               )
-             end)
-
-    refute next_shared_conversation.id == confidential_conversation.id
-    assert %DateTime{} = Repo.get!(Conversation, confidential_conversation.id).ended_at
-    assert next_shared_conversation.metadata["brain"]["visibility"] == "shared"
-  end
-
-  test "missing schedule delivery channels use the principal self Brain scope" do
+  test "missing schedule delivery channels leave the conversation origin undeclared" do
     %{principal: agent} = agent_fixture()
     now = DateTime.utc_now(:microsecond)
 
@@ -473,11 +340,11 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
                  )
                end)
 
-      assert conversation.metadata["brain"] == %{"visibility" => "self"}
+      refute Map.has_key?(conversation.metadata, "origin")
     end
   end
 
-  test "missing ingress channels remain a hard Brain scope error" do
+  test "missing ingress channels remain a hard conversation-origin error" do
     %{principal: agent} = agent_fixture()
     now = DateTime.utc_now(:microsecond)
     channel_id = "missing:ingress:channel"
@@ -496,7 +363,7 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
         payload: %{}
       })
 
-    assert {:error, {:brain_scope_channel_not_found, ^channel_id}} =
+    assert {:error, {:conversation_origin_channel_not_found, ^channel_id}} =
              Repo.transact(fn repo ->
                AIGatewayLink.ensure_and_lock_conversation_in_tx(
                  repo,
@@ -580,7 +447,7 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
   end
 
   defp tool_result_anchor!(subject_uid, session_id, current_event_id) do
-    {:ok, conversation} = StatefulResponses.ensure_conversation(subject_uid, session_id)
+    {:ok, conversation} = Conversations.ensure_conversation(subject_uid, session_id)
 
     {:ok, anchor} =
       start_response(subject_uid, conversation.id, %{"actor_event_id" => current_event_id})
@@ -611,30 +478,5 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
       "metadata" => %{"actor_event_id" => current_event_id},
       "complete_actor_event_ids" => [lifecycle_event_id]
     }
-  end
-
-  defp append_group_actor_event!(
-         agent_uid,
-         binding_name,
-         channel_id,
-         session_id,
-         suffix,
-         now
-       ) do
-    assert {:ok, actor_event} =
-             SignalsGateway.append_actor_event(%{
-               agent_uid: agent_uid,
-               binding_name: binding_name,
-               session_id: session_id,
-               source_event_id: "event-#{suffix}-#{Ecto.UUID.generate()}",
-               signal_channel_id: channel_id,
-               source_entry_id: "message-#{suffix}",
-               type: "im.message.addressed",
-               available_at: now,
-               sender_key: "human-one",
-               payload: %{}
-             })
-
-    actor_event
   end
 end

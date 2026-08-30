@@ -563,6 +563,79 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SteerStopCommandTest do
                )
     end
 
+    test "stop during an active steer cancels the fenced turn and supersedes both deliveries" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
+      route = unique_route()
+
+      :ok = Broker.register_local_worker(route, self())
+      on_exit(fn -> Broker.unregister_local_worker(route) end)
+
+      assert {:ok, _worker} = admit_worker(route)
+
+      assert {:ok, %{actor_event: input}} =
+               emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "PING", explicit: true}),
+                 now: @base_time
+               )
+
+      assert {:ok, %{send_outcome: "sent_or_queued"}} =
+               process_ready_events_once(
+                 now: DateTime.add(@base_time, 1, :second),
+                 lease_seconds: @long_lease_seconds
+               )
+
+      assert_receive {:actor_lane, envelope}
+      turn_ref = turn_start_payload!(envelope).turn
+      assert turn_ref.actor_event_id == input.id
+
+      assert {:ok, [_delivery]} =
+               ActorRuntime.handle_turn_accepted(turn_accepted_payload(turn_ref))
+
+      generating = start_aigateway_run_for_turn!(turn_ref)
+
+      assert {:ok, %{actor_event: steer_event}} =
+               emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "/steer change course", explicit: true}),
+                 now: DateTime.add(@base_time, 2, :second)
+               )
+
+      assert {:ok, %{status: :active_steer_nudged, send_outcome: "sent_or_queued"}} =
+               process_ready_events_once(now: DateTime.add(@base_time, 3, :second))
+
+      assert_receive {:actor_lane, mailbox_envelope}
+      assert envelope_body_type(mailbox_envelope) == :mailbox_updated
+
+      assert {:ok, %{actor_event: stop_event}} =
+               emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "/stop", explicit: true}),
+                 now: DateTime.add(@base_time, 4, :second)
+               )
+
+      assert {:ok, %{status: :command_consumed, feedback: "Stopped."}} =
+               process_ready_events_once(now: DateTime.add(@base_time, 5, :second))
+
+      assert %Message{status: "error", metadata: metadata} = Repo.get!(Message, generating.id)
+      assert metadata["error"]["code"] == "command.stop"
+      assert metadata["error"]["stage"] == "actor_runtime_cancel"
+
+      assert %DateTime{} = Repo.get!(ActorEvent, input.id).completed_at
+      assert %DateTime{} = Repo.get!(ActorEvent, steer_event.id).completed_at
+      assert %DateTime{} = Repo.get!(ActorEvent, stop_event.id).completed_at
+
+      assert %ActorEventDelivery{state: "superseded"} =
+               Repo.get_by!(ActorEventDelivery, actor_event_id: input.id)
+
+      assert %ActorEventDelivery{state: "superseded"} =
+               Repo.get_by!(ActorEventDelivery, actor_event_id: steer_event.id)
+    end
+
     test "stop command bypasses a reset barrier while a turn is running" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")

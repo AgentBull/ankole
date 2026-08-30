@@ -11,9 +11,11 @@ resolver, provider 모듈, kernel은 각각 한 단계를 소유합니다. resol
 
 ## 1단계: 해석(Resolver)
 
-`Ankole.AIGateway.Resolver`는 요청의 `model` 필드를 구체적인 provider 런타임 맵으로 바꿉니다. subject에게 보이는 selector — `primary`, `light`, `embedding.default`, 또는 명시적인 `provider_id/model` — 가 provider id, provider kind, 업스트림 모델 이름, 해석된 런타임 설정이 되는 곳이 바로 resolver입니다.
+`Ankole.AIGateway.Resolver`는 요청의 `model` 필드를 구체적인 provider 런타임 맵으로 바꿉니다. 여기서 `primary`, `web_search.default`, 명시적인 `provider_id/model` 같은 subject용 selector가 provider id, provider kind, 업스트림 모델 이름, 해석된 런타임 설정이 됩니다.
 
-LLM 별칭(`primary`, `light`, `heavy`, `coding`, `vision_fallback`)은 agent의 모델 프로필을 통해 해석됩니다. `coding`은 사용자 대상 Background Agent Jobs 프로필의 지속된, 그리고 API 별칭입니다. embedding과 rerank는 `default`, 명시적 기본 바인딩(`embedding.default`), 또는 명시적 selector를 받습니다. subject identity와 모델 프로필이 참조되는 유일한 지점이 resolver입니다.
+Agent에는 8개의 내장 모델 프로필이 있습니다. `primary`, `light`, `heavy`, `coding`, `vision_fallback`, `web_search`, `web_fetch`, `image_generate`입니다. `coding`은 사용자에게 Background Agent Jobs로 보이는 프로필의 API 및 저장 이름입니다. 처음 5개 프로필은 언어 모델을 선택하고, 마지막 3개는 각각 웹 검색, 웹 가져오기, 이미지 생성 기능을 선택합니다.
+
+Embedding과 rerank는 Agent 프로필이 아닙니다. 이 기능을 AIGateway에서 직접 호출하려면 명시적인 `provider_id/model` selector가 필요합니다. Brain은 [AppConfigure](../app-configuration/)의 `brain.embedding_model`과 `brain.rerank_model`에서 인스턴스 공용 모델을 읽습니다. 검색에 미치는 영향은 [Brain](../brain/)을 참조하십시오.
 
 provider 행을 해석한 후 resolver는 사용 가능한 credential 하나를 선택합니다. thread affinity가 행의 `fill_first`, `round_robin`, `least_used`, `random` 전략보다 우선합니다. 런타임 맵은 정확한 credential ID를 이후의 모든 실패 경로에 전달합니다. ChatGPT 구독 OAuth 멤버의 경우 resolver는 provider 행 잠금 아래에서 만료 임박 또는 오래된 token을 refresh합니다. 영구적 refresh 실패는 그 멤버를 `dead`로 표시하고, 일시적 실패는 `exhausted`로 표시합니다. 둘 다 다음 사용 가능한 멤버를 선택합니다.
 
@@ -87,4 +89,4 @@ provider 작성 튜토리얼이 아닙니다 — DSL, 정의, prepare 함수는 
 - provider 작성 방법은 [provider 추가](../adding-a-provider/)를 읽으세요.
 - AIGateway 개념 페이지(엔드포인트, 오류 형태)는 [AIGateway](../ai-gateway/)를 읽으세요.
 - 요청을 실행하는 kernel은 [Kernel](../kernel/)을 읽으세요.
-- 첫 모델 프로필 설정은 [Quick start](../quickstart/#3-add-an-llm-provider-and-create-an-agent)를 읽으세요.
+- 첫 모델 프로필 설정은 [Quick start](../quickstart/#llm-providers)를 읽으세요.

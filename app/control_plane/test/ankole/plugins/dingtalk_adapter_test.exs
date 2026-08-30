@@ -11,14 +11,19 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
   alias Ankole.AuthZ
   alias Ankole.Plugins.DingTalkAdapter
   alias Ankole.Plugins.DingTalkAdapter.Config
+  alias Ankole.Plugins.DingTalkAdapter.ConnectionReconciler
+  alias Ankole.Plugins.DingTalkAdapter.ConnectionSupervisor
   alias Ankole.Plugins.DingTalkAdapter.IdentityProvider
+  alias Ankole.Plugins.DingTalkAdapter.Inbound
   alias Ankole.Plugins.DingTalkAdapter.Outbox
   alias Ankole.Principals
   alias Ankole.Repo
   alias Ankole.SignalsGateway
+  alias Ankole.SignalsGateway.AdapterContext
   alias Ankole.SignalsGateway.Binding
   alias Ankole.SignalsGateway.Bindings
   alias Ankole.SignalsGateway.OutboxEntry
+  alias DingTalkOpenAPI.Error
   alias DingTalkOpenAPI.Event
 
   setup do
@@ -40,15 +45,6 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
       assert chat.supported_group_message_modes == ["addressed_only"]
       assert chat.inbound_capabilities == ["entry_receive", "action_event"]
       assert chat.outbound_capabilities == ["post_entry", "delete_entry", "card"]
-      assert chat.reply_preview_module == Ankole.Plugins.DingTalkAdapter.AICard
-
-      chat_fields = Map.new(chat.fields, &{&1.path, &1})
-      assert chat_fields["clientId"].advanced == false
-      assert chat_fields["clientSecret"].advanced == false
-      assert chat_fields["robotCode"].advanced == true
-      assert chat_fields["cardTemplateId"].advanced == true
-      assert chat_fields["platformSubjectNamespace"].advanced == true
-      assert chat_fields["userName"].advanced == true
 
       assert identity.contract_id == "principals.identity_provider"
 
@@ -59,15 +55,6 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
                "directory_full_sync",
                "directory_realtime_sync"
              ]
-
-      fields = Map.new(identity.fields, &{&1.path, &1})
-
-      assert fields["clientId"].label["zh-Hans-CN"] == "Client ID（原 AppKey）"
-      assert fields["clientSecret"].label["zh-Hans-CN"] == "Client Secret（原 AppSecret）"
-      assert fields["oidc.scope"].label["zh-Hans-CN"] == "登录权限范围"
-      assert fields["sync.contacts"].label["zh-Hans-CN"] == "同步通讯录"
-      assert fields["sync.websocket"].label["zh-Hans-CN"] == "实时同步通讯录变更"
-      assert fields["sync.pageSize"].label["zh-Hans-CN"] == "每页同步数量"
     end
   end
 
@@ -117,7 +104,7 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
     send(first_save.pid, :save)
 
     assert_receive {:trace, ^first_save_pid, :send,
-                    {:"$gen_call", _from, {:load, "global", ^first_config_key}}, ^cache_pid},
+                    {:"$gen_call", _from, {:refresh, "global", ^first_config_key}}, ^cache_pid},
                    1_000
 
     second_save =
@@ -161,6 +148,7 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
                config_ref: "app-config://#{owner_config_key}",
                filters: %{},
                unaddressed_group_message_policy: :ignore,
+               unmatched_sender_policy: :create_standalone,
                enabled: true
              })
 
@@ -210,6 +198,45 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
     refute Repo.get_by(Binding, agent_uid: claimant.uid, name: "dingtalk-main")
   end
 
+  describe "connection reconciliation" do
+    test "the reconciler stops the owner after its binding is disabled" do
+      Req.Test.set_req_test_to_shared()
+
+      Req.Test.stub(DingTalkReconcilerStub, fn conn ->
+        # An empty body is an unexpected registration shape, so the Stream
+        # client backs off instead of dialing the real gateway.
+        Req.Test.json(conn, %{})
+      end)
+
+      Req.default_options(plug: {Req.Test, DingTalkReconcilerStub})
+
+      client_id = "cli_reconcile_stop_#{unique_suffix()}"
+      binding = setup_chat_binding(%{"clientId" => client_id})
+      config = dingtalk_config(client_id)
+      key = Config.connection_key(config)
+
+      context =
+        AdapterContext.new(
+          agent_uid: binding.agent_uid,
+          binding_name: binding.name,
+          adapter: "dingtalk",
+          user_name: "DingTalk"
+        )
+
+      assert {:ok, owner} =
+               ConnectionSupervisor.ensure_started(config, [
+                 Inbound.chat_consumer(context, config)
+               ])
+
+      on_exit(fn -> ConnectionSupervisor.stop(key) end)
+
+      assert {:ok, _binding} = SignalsGateway.disable_binding(binding.agent_uid, binding.name)
+
+      assert %{started: 0, stopped: 1, errors: []} = ConnectionReconciler.reconcile_once()
+      refute Process.alive?(owner)
+    end
+  end
+
   # --- outbox ----------------------------------------------------------------
 
   defp setup_chat_binding(extra_config \\ %{}) do
@@ -231,7 +258,8 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
         adapter: "dingtalk",
         config_ref: "app-config://#{Config.chat_config_key(config_id)}",
         filters: %{},
-        unaddressed_group_message_policy: :ignore
+        unaddressed_group_message_policy: :ignore,
+        unmatched_sender_policy: :create_standalone
       })
 
     binding
@@ -240,7 +268,6 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
   defp setup_dingtalk_config_registry do
     AppConfigureRegistry.clear_for_test()
     AppConfigureCache.clear_for_test()
-    :ok = AppConfigure.register_patterns(DingTalkAdapter.app_config_patterns())
   end
 
   defp dingtalk_binding_attrs(config) do
@@ -334,7 +361,7 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
 
     stub_outbox_requests(self(), responder)
 
-    assert {:error, {:provider_error, %{reason: :rate_limited}}} = Outbox.send(entry)
+    assert {:error, {:reply_delivery, :retryable, %{reason: :rate_limited}}} = Outbox.send(entry)
   end
 
   test "a disbanded group classifies as target_gone" do
@@ -352,7 +379,8 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
 
     stub_outbox_requests(self(), responder)
 
-    assert {:error, {:provider_error, %{reason: :target_gone, code: "group.disbanded"}}} =
+    assert {:error,
+            {:reply_delivery, :permanent, %{reason: :target_gone, code: "group.disbanded"}}} =
              Outbox.send(entry)
   end
 
@@ -462,7 +490,8 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
 
     stub_outbox_requests(self(), responder)
 
-    assert {:error, {:provider_error, %{reason: "internal.error"}}} = Outbox.send(entry)
+    assert {:error, {:reply_delivery, :retryable, %{reason: "internal.error"}}} =
+             Outbox.send(entry)
 
     assert_receive {:api_call, "POST", "/v1.0/card/instances/createAndDeliver", first_create}
     assert_receive {:api_call, "PUT", "/v1.0/card/streaming", first_stream}
@@ -619,7 +648,7 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
              IdentityProvider.exchange_code(@identity_config, "outsider-code")
   end
 
-  test "authorization_url carries the configured scope and fails closed when disabled" do
+  test "authorization_url carries the configured scope" do
     assert {:ok, url} =
              IdentityProvider.authorization_url(@identity_config,
                redirect_uri: "https://ankole.example/auth/callback",
@@ -629,14 +658,6 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
     assert url =~ "https://login.dingtalk.com/oauth2/auth?"
     assert url =~ "scope=openid+corpid"
     assert url =~ "state=state-1"
-
-    disabled = put_in(@identity_config, ["oidc", "enabled"], false)
-
-    assert {:error, :oidc_disabled} =
-             IdentityProvider.authorization_url(disabled,
-               redirect_uri: "https://ankole.example/auth/callback",
-               state: "state-1"
-             )
   end
 
   test "credential check separates a rejected Client ID from an accepted one" do
@@ -737,5 +758,45 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
     # would have left the Principal active forever.
     assert {:error, _disabled} = Principals.resolve_platform_subject(provider_id, "staff-2")
     assert Repo.get!(Ankole.Principals.Principal, principal.uid).status == :disabled
+  end
+
+  describe "normalize_delivery_result/1" do
+    test "classifies a rate limit as retryable and keeps the retry hint" do
+      error = %Error{
+        reason: :rate_limited,
+        code: 90_018,
+        message: "too many requests",
+        retry_after: 5
+      }
+
+      assert {:error, {:reply_delivery, :retryable, detail}} =
+               Outbox.normalize_delivery_result({:error, error})
+
+      assert detail.reason == :rate_limited
+      assert detail.retry_after_seconds == 5
+    end
+
+    test "classifies an auth failure as operator_action_required, not retryable" do
+      error = %Error{reason: :auth, code: "token.notExisted", message: "invalid token"}
+
+      assert {:error, {:reply_delivery, :operator_action_required, detail}} =
+               Outbox.normalize_delivery_result({:error, error})
+
+      assert detail.reason == :auth
+    end
+
+    test "classifies a gone target as permanent, not retried forever" do
+      error = %Error{reason: :target_gone, code: "group.disbanded", message: "chat gone"}
+
+      assert {:error, {:reply_delivery, :permanent, detail}} =
+               Outbox.normalize_delivery_result({:error, error})
+
+      assert detail.reason == :target_gone
+    end
+
+    test "passes through a non-Error reason unchanged" do
+      assert {:error, :actor_event_not_found} =
+               Outbox.normalize_delivery_result({:error, :actor_event_not_found})
+    end
   end
 end

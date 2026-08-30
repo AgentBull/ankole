@@ -3,13 +3,9 @@ import { describe, expect, it } from 'bun:test'
 import { create } from '@bufbuild/protobuf'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import { estimateO200kBaseTokens } from '@ankole/kernel'
-import { jsonBytes } from '../../src/fabric/envelope_proto'
 import {
   AIGatewayAPIKeyResponseSchema,
-  AgentPluginCatalogEntrySchema,
-  RuntimeSkillSummarySchema,
-  SkillOverlayResolveResponseSchema,
-  SkillOverlayResponseSchema
+  AgentPluginCatalogEntrySchema
 } from '../../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import {
   chmodSync,
@@ -24,8 +20,8 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
-import { CodexAppServerClient, type JSONRPCMessage } from '../../src/core/codex-runner/app-server-client'
-import { codexHomeRuntimeLockPath } from '../../src/core/codex-runner/codex-home-lock'
+import { CodexAppServerClient, type JSONRPCMessage } from '../../src/core/codex-runner/runtime/app-server-client'
+import { codexHomeRuntimeLockPath } from '../../src/core/codex-runner/runtime/codex-home-lock'
 import type { ListMcpServerStatusResponse } from '../../src/core/codex-runner/generated/protocol/v2/ListMcpServerStatusResponse'
 import type { McpServerToolCallResponse } from '../../src/core/codex-runner/generated/protocol/v2/McpServerToolCallResponse'
 import type { ThreadStartResponse } from '../../src/core/codex-runner/generated/protocol/v2/ThreadStartResponse'
@@ -33,26 +29,27 @@ import {
   materializeCodexConfig,
   refreshCodexAgentRuntimeCredential,
   resetCodexAgentRuntimeConfig
-} from '../../src/core/codex-runner/agent-home-config'
-import { codexAgentRuntimeSandboxSpec, codexJobThreadEnv } from '../../src/core/codex-runner/sandbox'
-import { materializeCodexJobRuntimeFiles, renderCodexJobAgents } from '../../src/core/codex-runner/runtime-files'
-import { prepareCodexJobProject } from '../../src/core/codex-runner/job-project'
-import { materializeCodexJobProjectConfig, readCodexJobProjectConfig } from '../../src/core/codex-runner/project-config'
-import { codexJobThreadConfig } from '../../src/core/codex-runner/thread-config'
+} from '../../src/core/codex-runner/runtime/agent-home-config'
+import { codexAgentRuntimeSandboxSpec, codexJobThreadEnv } from '../../src/core/codex-runner/runtime/sandbox'
+import { renderCodexJobAgents } from '../../src/core/codex-runner/job/runtime-files'
+import { prepareCodexJobProject } from '../../src/core/codex-runner/job/job-project'
+import {
+  materializeCodexJobProjectConfig,
+  readCodexJobProjectConfig
+} from '../../src/core/codex-runner/job/project-config'
+import { codexJobThreadConfig } from '../../src/core/codex-runner/job/thread-config'
 import {
   materializeAgentPluginPackages,
-  materializeSelectedAgentPlugins,
-  prepareAgentPlugins,
-  selectAgentPluginCapabilities
-} from '../../src/core/codex-runner/agent-plugin-materializer'
+  prepareAgentPlugins
+} from '../../src/core/codex-runner/runtime/agent-plugin-materializer'
 import {
   AgentCodexRuntime,
   AgentCodexRuntimeManager,
   type AgentCodexRuntimeLease,
   type AgentCodexRuntimeSession
-} from '../../src/core/codex-runner/agent-runtime-manager'
-import { rpcMethods, type RPCRequester } from '../../src/lanes/rpc_lane'
+} from '../../src/core/codex-runner/runtime/agent-runtime-manager'
 import type { CodexRuntimeConfig } from '../../src/core/codex-runner/runtime-config'
+import { errorMessage } from '../../src/common/errors'
 
 const checkedInProtocolRoot = join(import.meta.dir, '../../src/core/codex-runner/generated/protocol')
 
@@ -66,7 +63,7 @@ describe('@ankole/agent-computer Codex app-server protocol contract', () => {
     ])
 
     expect(exitCode).toBe(0)
-    expect(`${stdout}${stderr}`.trim()).toBe('codex-cli 0.147.0')
+    expect(`${stdout}${stderr}`.trim()).toBe('codex-cli 0.150.1')
   })
 
   it('does not retry a canonical Provider validation failure', async () => {
@@ -395,9 +392,7 @@ describe('@ankole/agent-computer Codex app-server protocol contract', () => {
             : []
         )
         .join('')
-      throw new Error(
-        `${error instanceof Error ? error.message : String(error)}\nrequests=${requestKinds.join(',')}\n${stderr}`
-      )
+      throw new Error(`${errorMessage(error)}\nrequests=${requestKinds.join(',')}\n${stderr}`)
     } finally {
       await client?.close()
       provider.stop(true)
@@ -479,7 +474,7 @@ describe('@ankole/agent-computer Codex app-server protocol contract', () => {
             : []
         )
         .join('')
-      throw new Error(`${error instanceof Error ? error.message : String(error)}\n${stderr}`)
+      throw new Error(`${errorMessage(error)}\n${stderr}`)
     } finally {
       await client?.close()
       provider.stop(true)
@@ -566,57 +561,12 @@ describe('@ankole/agent-computer Codex app-server protocol contract', () => {
     }
   })
 
-  it('discovers standalone Skills through the native project root', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'ankole-codex-native-skills-'))
-    const workspace = join(root, 'workspace')
-    const codexHome = join(root, 'codex-home')
-    const skillsRoot = join(workspace, '.agents', 'skills')
-    const skillRoot = join(skillsRoot, 'pptx')
-    mkdirSync(workspace, { recursive: true })
-    mkdirSync(codexHome, { recursive: true })
-    mkdirSync(skillRoot, { recursive: true })
-    writeFileSync(
-      join(skillRoot, 'SKILL.md'),
-      ['---', 'name: pptx', 'description: Create PowerPoint presentations.', '---', '', '# PPTX', ''].join('\n')
-    )
-
-    const client = new CodexAppServerClient({
-      cwd: workspace,
-      env: {
-        PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin',
-        HOME: workspace,
-        CODEX_HOME: codexHome,
-        CODEX_UNSAFE_ALLOW_NO_SANDBOX: '1',
-        LANG: 'C.UTF-8'
-      }
-    })
-
-    try {
-      await client.initialize()
-      const response = (await client.request('skills/list', {
-        cwds: [workspace],
-        forceReload: true
-      })) as { data: Array<{ skills: Array<{ name: string; path: string; enabled: boolean }> }> }
-
-      expect(response.data[0]?.skills.find(skill => skill.name === 'pptx')).toMatchObject({
-        name: 'pptx',
-        path: join(skillRoot, 'SKILL.md'),
-        enabled: true
-      })
-    } finally {
-      await client.close()
-      rmSync(root, { recursive: true, force: true })
-    }
-  })
-
-  it('officially installs Agent-owned Plugins and isolates selected roots between threads', async () => {
+  it('officially installs Agent-owned Plugins and keeps them globally disabled', async () => {
     const root = mkdtempSync(join(tmpdir(), 'ankole-codex-agent-plugin-runtime-'))
     const libraryRoot = join(root, 'library')
     const agentHome = join(root, 'agent-home')
     const codexHome = join(agentHome, '.codex')
     const alphaProject = join(agentHome, 'jobs', 'alpha')
-    const betaProject = join(agentHome, 'jobs', 'beta')
-    const skillMaterialsRoot = join(agentHome, 'runtime-materials', 'skills')
     const notifications: JSONRPCMessage[] = []
     const requests: JSONObject[] = []
     const provider = createPluginResponsesProvider(requests)
@@ -634,8 +584,6 @@ describe('@ankole/agent-computer Codex app-server protocol contract', () => {
       )
       createAgentPluginFixture(libraryRoot, 'beta', 'BETA_SELECTED_BODY', false)
       mkdirSync(codexHome, { recursive: true })
-      mkdirSync(betaProject, { recursive: true })
-      writeFileSync(join(betaProject, 'AGENTS.md'), '# Beta Job\n')
       const catalog = [
         create(AgentPluginCatalogEntrySchema, {
           id: 'alpha',
@@ -683,176 +631,6 @@ describe('@ankole/agent-computer Codex app-server protocol contract', () => {
       expect(config.plugins['alpha@ankole-agent-runtime'].enabled).toBe(false)
       expect(config.plugins['beta@ankole-agent-runtime'].enabled).toBe(false)
       expect(Object.keys(config.hooks.state)).not.toHaveLength(0)
-
-      const alphaSelection = create(AgentPluginCatalogEntrySchema, {
-        id: 'alpha',
-        description: 'alpha Plugin',
-        skills: [{ catalogName: 'alpha-skill' }]
-      })
-      const alphaPackages = materializeSelectedAgentPlugins(prepared, [alphaSelection], {
-        materializedRoot: join(alphaProject, '.ankole', 'agent-plugins'),
-        skillMaterialsRoot
-      })
-      const betaPackages = materializeSelectedAgentPlugins(prepared, [catalog[1]!], {
-        materializedRoot: join(betaProject, '.ankole', 'agent-plugins'),
-        skillMaterialsRoot
-      })
-      const alphaCapabilities = selectAgentPluginCapabilities(alphaPackages, [alphaSelection])
-      const betaCapabilities = selectAgentPluginCapabilities(betaPackages, [catalog[1]!])
-      const alphaRuntime = pluginTestRuntime(baseURL, 'gpt-5.4', 'high')
-      const betaRuntime = pluginTestRuntime(baseURL, 'gpt-5.4-mini', 'low')
-      const alphaThreadConfig = codexJobThreadConfig({
-        cwd: alphaProject,
-        codexHome,
-        env: {},
-        runtime: alphaRuntime
-      }) as Record<string, any>
-      const betaThreadConfig = codexJobThreadConfig({
-        cwd: betaProject,
-        codexHome,
-        env: {},
-        runtime: betaRuntime
-      }) as Record<string, any>
-      alphaThreadConfig.model_providers.ankole_aigateway.supports_websockets = false
-      betaThreadConfig.model_providers.ankole_aigateway.supports_websockets = false
-
-      const alphaThread = (await pluginStage(
-        client.request('thread/start', {
-          cwd: alphaProject,
-          model: alphaRuntime.modelProfile.model,
-          modelProvider: 'ankole_aigateway',
-          approvalPolicy: 'never',
-          sandbox: 'danger-full-access',
-          config: alphaThreadConfig,
-          selectedCapabilityRoots: alphaCapabilities.selectedCapabilityRoots
-        }),
-        'alpha thread/start'
-      )) as ThreadStartResponse
-      const betaThread = (await pluginStage(
-        client.request('thread/start', {
-          cwd: betaProject,
-          model: betaRuntime.modelProfile.model,
-          modelProvider: 'ankole_aigateway',
-          approvalPolicy: 'never',
-          sandbox: 'danger-full-access',
-          config: betaThreadConfig,
-          selectedCapabilityRoots: betaCapabilities.selectedCapabilityRoots
-        }),
-        'beta thread/start'
-      )) as ThreadStartResponse
-
-      expect(alphaThread.model).toBe('gpt-5.4')
-      expect(alphaThread.reasoningEffort).toBe('high')
-      expect(betaThread.model).toBe('gpt-5.4-mini')
-      expect(betaThread.reasoningEffort).toBe('low')
-
-      const [alphaTurn, betaTurn] = (await Promise.all([
-        pluginStage(
-          client.request('turn/start', {
-            threadId: alphaThread.thread.id,
-            input: [{ type: 'text', text: 'Use $alpha:alpha-skill.', text_elements: [] }],
-            cwd: alphaProject,
-            approvalPolicy: 'never',
-            sandboxPolicy: { type: 'dangerFullAccess' },
-            model: alphaRuntime.modelProfile.model,
-            effort: alphaRuntime.modelProfile.modelReasoningEffort
-          }),
-          'alpha turn/start'
-        ),
-        pluginStage(
-          client.request('turn/start', {
-            threadId: betaThread.thread.id,
-            input: [{ type: 'text', text: 'Use $beta:beta-skill.', text_elements: [] }],
-            cwd: betaProject,
-            approvalPolicy: 'never',
-            sandboxPolicy: { type: 'dangerFullAccess' },
-            model: betaRuntime.modelProfile.model,
-            effort: betaRuntime.modelProfile.modelReasoningEffort
-          }),
-          'beta turn/start'
-        )
-      ])) as Array<{ turn: { id: string } }>
-      await Promise.all([
-        waitForPluginTurn(notifications, alphaTurn.turn.id),
-        waitForPluginTurn(notifications, betaTurn.turn.id)
-      ])
-
-      expect(requests).toHaveLength(2)
-      const alphaRequestBody = requests.find(request => request.model === 'gpt-5.4')
-      const betaRequestBody = requests.find(request => request.model === 'gpt-5.4-mini')
-      expect(alphaRequestBody).toBeDefined()
-      expect(betaRequestBody).toBeDefined()
-      const alphaRequest = JSON.stringify(alphaRequestBody)
-      const betaRequest = JSON.stringify(betaRequestBody)
-      expect(alphaRequest).toContain('ALPHA_SELECTED_BODY')
-      expect(alphaRequest).not.toContain('BETA_SELECTED_BODY')
-      expect(alphaRequest).not.toContain('ALPHA_UNSELECTED_DESCRIPTION')
-      expect(betaRequest).toContain('BETA_SELECTED_BODY')
-      expect(betaRequest).not.toContain('ALPHA_SELECTED_BODY')
-      expect(alphaRequestBody?.reasoning).toMatchObject({ effort: 'high' })
-      expect(betaRequestBody?.reasoning).toMatchObject({ effort: 'low' })
-
-      const resumeThread = (await pluginStage(
-        client.request('thread/start', {
-          cwd: alphaProject,
-          model: alphaRuntime.modelProfile.model,
-          modelProvider: 'ankole_aigateway',
-          approvalPolicy: 'never',
-          sandbox: 'danger-full-access',
-          config: alphaThreadConfig,
-          selectedCapabilityRoots: alphaCapabilities.selectedCapabilityRoots
-        }),
-        'resume fixture thread/start'
-      )) as ThreadStartResponse
-      const resumeWarmupTurn = (await pluginStage(
-        client.request('turn/start', {
-          threadId: resumeThread.thread.id,
-          input: [{ type: 'text', text: 'Reply ready. Do not use any Skill.', text_elements: [] }],
-          cwd: alphaProject,
-          approvalPolicy: 'never',
-          sandboxPolicy: { type: 'dangerFullAccess' }
-        }),
-        'resume fixture warmup turn/start'
-      )) as { turn: { id: string } }
-      await waitForPluginTurn(notifications, resumeWarmupTurn.turn.id)
-      expect(requests).toHaveLength(3)
-      expect(JSON.stringify(requests[2])).not.toContain('ALPHA_SELECTED_BODY')
-      materializeSelectedAgentPlugins(prepared, [], {
-        materializedRoot: join(alphaProject, '.ankole', 'agent-plugins'),
-        skillMaterialsRoot
-      })
-      const disabledAlphaConfig = codexJobThreadConfig({
-        cwd: alphaProject,
-        codexHome,
-        env: {},
-        runtime: alphaRuntime
-      }) as Record<string, any>
-      disabledAlphaConfig.model_providers.ankole_aigateway.supports_websockets = false
-      await pluginStage(
-        client.request('thread/resume', {
-          threadId: resumeThread.thread.id,
-          cwd: alphaProject,
-          model: alphaRuntime.modelProfile.model,
-          modelProvider: 'ankole_aigateway',
-          approvalPolicy: 'never',
-          sandbox: 'danger-full-access',
-          config: disabledAlphaConfig
-        }),
-        'resume fixture thread/resume with current disable'
-      )
-      const disabledAlphaTurn = (await pluginStage(
-        client.request('turn/start', {
-          threadId: resumeThread.thread.id,
-          input: [{ type: 'text', text: 'Use $alpha:alpha-skill.', text_elements: [] }],
-          cwd: alphaProject,
-          approvalPolicy: 'never',
-          sandboxPolicy: { type: 'dangerFullAccess' }
-        }),
-        'disabled alpha turn/start'
-      )) as { turn: { id: string } }
-      await waitForPluginTurn(notifications, disabledAlphaTurn.turn.id)
-      expect(requests).toHaveLength(4)
-      expect(JSON.stringify(requests[3])).not.toContain('ALPHA_SELECTED_BODY')
     } catch (error) {
       const stderr = notifications
         .filter(notification => notification.method === '$stderr' && isObject(notification.params))
@@ -862,7 +640,7 @@ describe('@ankole/agent-computer Codex app-server protocol contract', () => {
             : []
         )
         .join('')
-      throw new Error(`${error instanceof Error ? error.message : String(error)}\n${stderr}`)
+      throw new Error(`${errorMessage(error)}\n${stderr}`)
     } finally {
       await client?.close()
       provider.stop(true)
@@ -870,33 +648,17 @@ describe('@ankole/agent-computer Codex app-server protocol contract', () => {
     }
   }, 90_000)
 
-  it('uses real Job and Skill paths inside the bubblewrap sandbox', async () => {
+  it('uses real Job and MCP paths inside the bubblewrap sandbox', async () => {
     const root = mkdtempSync('/agents/ankole-codex-contract-')
     const jobProjectRoot = join(root, 'agent-1', 'jobs', '1000')
-    const builtinSkillsRoot = join(root, 'skills')
-    const skillRoot = join(builtinSkillsRoot, 'pptx')
-    const plainSkillRoot = join(builtinSkillsRoot, 'plain-skill')
     const fakeCodex = join(jobProjectRoot, 'fake-codex')
     const previousCodexBinary = process.env.ANKOLE_CODEX_BINARY
     mkdirSync(jobProjectRoot, { recursive: true })
-    mkdirSync(skillRoot, { recursive: true })
-    mkdirSync(plainSkillRoot, { recursive: true })
-    writeFileSync(
-      join(skillRoot, 'SKILL.md'),
-      ['---', 'name: pptx', 'description: Create PowerPoint presentations.', '---', '', '# PPTX', ''].join('\n')
-    )
-    writeFileSync(
-      join(plainSkillRoot, 'SKILL.md'),
-      ['---', 'name: plain-skill', 'description: Verify native Skill discovery.', '---', '', '# Plain', ''].join('\n')
-    )
     writeFileSync(
       fakeCodex,
       `#!/bin/sh
 set -eu
 grep -q 'TASK_AGENTS_MARKER' ${jobProjectRoot}/AGENTS.md
-grep -q '# PPTX' ${jobProjectRoot}/.agents/skills/pptx/SKILL.md
-grep -q 'PG_OVERLAY_MARKER' ${jobProjectRoot}/.agents/skills/pptx/SKILL.md
-grep -q '# Plain' ${jobProjectRoot}/.agents/skills/plain-skill/SKILL.md
 grep -q '^name: pdf$' /repo/app/library/skills/pdf/SKILL.md
 ! grep -q '^model = ' ${jobProjectRoot}/.codex/config.toml
 grep -q 'native-fixture' ${jobProjectRoot}/.codex/config.toml
@@ -917,52 +679,6 @@ test ! -e ./AGENTS.override.md
       mission: 'Verify runtime mounts.'
     })
     writeFileSync(join(jobProjectRoot, 'AGENTS.md'), renderedAgents.content)
-    const runtimeInput: Parameters<typeof materializeCodexJobRuntimeFiles>[0] = {
-      turn: {
-        actor: { agent_uid: 'agent-1', session_id: 'job:1000' },
-        activation_uid: 'activation-1',
-        actor_epoch: 1,
-        actor_event_id: '00000000-0000-0000-0000-000000000001',
-        revision: 0
-      },
-      jobRoot: project.root,
-      agentSkillsRoot: join(root, 'agent-1', 'runtime-materials', 'skills'),
-      enabledSkills: [
-        create(RuntimeSkillSummarySchema, {
-          skillName: 'pptx',
-          sourceKind: 'builtin',
-          relativePath: 'pptx',
-          hasAgentOverlay: true
-        }),
-        create(RuntimeSkillSummarySchema, {
-          skillName: 'plain-skill',
-          sourceKind: 'builtin',
-          relativePath: 'plain-skill',
-          hasAgentOverlay: false
-        })
-      ],
-      projectSkillNames: ['plain-skill', 'pptx'],
-      skillRoots: {
-        builtinSkillsRoot,
-        agentInstalledSkillsRoot: join(root, 'installed-skills')
-      },
-      rpc: (async (method: unknown, payload: unknown) => {
-        if (method !== rpcMethods.skillsOverlayResolve) throw new Error(`unexpected RPC method: ${String(method)}`)
-        const request = payload as { skillNames: string[] }
-        return create(SkillOverlayResolveResponseSchema, {
-          overlays: request.skillNames.map(skillName =>
-            create(SkillOverlayResponseSchema, {
-              skillName,
-              hasOverlay: skillName === 'pptx',
-              ...(skillName === 'pptx'
-                ? { overlayJson: jsonBytes({ text: 'PG_OVERLAY_MARKER' }), contentHash: 'overlay-hash' }
-                : {})
-            })
-          )
-        })
-      }) as RPCRequester
-    }
-    const runtimeFiles = await materializeCodexJobRuntimeFiles(runtimeInput)
     const runtimeConfig: CodexRuntimeConfig = {
       modelProfile: {
         model: 'gpt-5.6-sol',
@@ -1015,7 +731,6 @@ test ! -e ./AGENTS.override.md
       if (exitCode !== 0) throw new Error(`fake Codex sandbox probe exited with ${exitCode}: ${stderr}`)
       expect(readFileSync(join(jobProjectRoot, 'command-probe.txt'), 'utf8')).toBe('command path works\n')
       expect(existsSync(join(jobProjectRoot, 'AGENTS.override.md'))).toBe(false)
-      expect(readFileSync(join(skillRoot, 'SKILL.md'), 'utf8')).not.toContain('PG_OVERLAY_MARKER')
 
       if (previousCodexBinary === undefined) delete process.env.ANKOLE_CODEX_BINARY
       else process.env.ANKOLE_CODEX_BINARY = previousCodexBinary
@@ -1040,22 +755,7 @@ test ! -e ./AGENTS.override.md
       let stage = 'initialize'
       try {
         const initializeResponse = await realClient.initialize()
-        expect(initializeResponse.userAgent).toStartWith('codex_cli_rs/0.147.0 ')
-        stage = 'skills/list'
-        const response = (await realClient.request('skills/list', {
-          cwds: [project.codexCwd],
-          forceReload: true
-        })) as { data: Array<{ skills: Array<{ name: string; path: string; enabled: boolean }> }> }
-        expect(response.data[0]?.skills.find(skill => skill.name === 'pptx')).toMatchObject({
-          name: 'pptx',
-          path: `${runtimeInput.agentSkillsRoot}/pptx/SKILL.md`,
-          enabled: true
-        })
-        expect(response.data[0]?.skills.find(skill => skill.name === 'plain-skill')).toMatchObject({
-          name: 'plain-skill',
-          path: `${runtimeInput.agentSkillsRoot}/plain-skill/SKILL.md`,
-          enabled: true
-        })
+        expect(initializeResponse.userAgent).toStartWith('codex_cli_rs/0.150.1 ')
         const threadEnv = codexJobThreadEnv({ materialized, workerEnv: { ANKOLE_JOB_SCOPE: 'job-1000' } })
         const threadConfig = codexJobThreadConfig({
           cwd: project.codexCwd,
@@ -1114,15 +814,12 @@ test ! -e ./AGENTS.override.md
         expect(echo.isError).not.toBe(true)
         expect(echo.content).toEqual([{ type: 'text', text: 'stdio response' }])
       } catch (error) {
-        throw new Error(
-          `[${stage}] ${error instanceof Error ? error.message : String(error)}\n${stderrChunks.join('')}`
-        )
+        throw new Error(`[${stage}] ${errorMessage(error)}\n${stderrChunks.join('')}`)
       }
     } finally {
       await realClient?.close()
       if (previousCodexBinary === undefined) delete process.env.ANKOLE_CODEX_BINARY
       else process.env.ANKOLE_CODEX_BINARY = previousCodexBinary
-      runtimeFiles.cleanup()
       rmSync(root, { recursive: true, force: true })
     }
   }, 60_000)
@@ -1544,7 +1241,7 @@ function execOutputModelCard(model: string): JSONObject {
     display_name: model,
     description: null,
     supported_reasoning_levels: [],
-    shell_type: 'default',
+    shell_type: 'unified_exec',
     visibility: 'none',
     supported_in_api: true,
     priority: 99,
@@ -1558,7 +1255,6 @@ function execOutputModelCard(model: string): JSONObject {
     apply_patch_tool_type: 'freeform',
     web_search_tool_type: 'text',
     truncation_policy: { mode: 'tokens', limit: 10_000 },
-    supports_parallel_tool_calls: false,
     context_window: 272_000,
     max_context_window: 272_000,
     effective_context_window_percent: 95,
@@ -1635,7 +1331,7 @@ function createPluginResponsesProvider(requests: JSONObject[]) {
             display_name: model,
             description: null,
             supported_reasoning_levels: [],
-            shell_type: 'default',
+            shell_type: 'unified_exec',
             visibility: 'none',
             supported_in_api: true,
             priority: 99,
@@ -1648,7 +1344,6 @@ function createPluginResponsesProvider(requests: JSONObject[]) {
             apply_patch_tool_type: 'freeform',
             web_search_tool_type: 'text',
             truncation_policy: { mode: 'tokens', limit: 10_000 },
-            supports_parallel_tool_calls: false,
             context_window: 272_000,
             max_context_window: 272_000,
             effective_context_window_percent: 95,

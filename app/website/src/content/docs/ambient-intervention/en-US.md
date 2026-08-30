@@ -5,7 +5,7 @@ section: User guide
 order: 17
 ---
 
-When a [signal binding](../signal-bindings/) sets the group message mode to **May intervene**, the Agent sees group messages that do not address it, and it first makes one cheap judgment on each batch of new messages: does speaking help right now? Silence is the default — most group chatter needs no reply. Only when the judgment says a reply is worth it does a real reply turn start.
+When a [signal binding](../signal-bindings/) sets the group message mode to **May intervene**, the Agent sees group messages that do not address it and routes each batch of new messages. Silence is the default. A useful batch can instead start a bounded reply, identify new work, or update one active background job.
 
 This page explains how that judgment behaves and the two controls you have over it: channel standing orders and the binding itself.
 
@@ -13,7 +13,16 @@ This page explains how that judgment behaves and the two controls you have over 
 
 The Agent keeps a judgment cursor per channel. Each check judges only the messages that arrived after the last check; older messages appear only as background and are never re-evaluated. A message the Agent decided to leave alone does not suddenly get answered several rounds later.
 
-Every judgment is recorded together with its reason. When the Agent seems too quiet or too eager, operators can read why it decided to speak or stay silent each time instead of guessing.
+Every judgment records its action, authorization source, and reason. A background handoff also records its exact target. When the Agent seems too quiet or too eager, operators can inspect the selected route instead of guessing.
+
+## Four routes
+
+- **No action (`NOOP`)** keeps the Agent silent. This is the usual result for chatter, acknowledgements, duplicated answers, or work already handled by a person.
+- **Foreground reply (`FOREGROUND_REPLY`)** starts one concise visible turn for an answer, clarification, coordination, status report, or small bounded lookup. This route cannot create or respawn a background job.
+- **New work (`NEW_WORK`)** identifies a distinct, substantive task. A direct human request or a matching standing order authorizes the normal owner turn. Without either source, the Agent can only ask whether it should take the work on; it gets no tools and cannot start a job in that confirmation turn.
+- **Handoff (`HANDOFF`)** silently sends the new messages to exactly one matching live background job from the same Agent, owner session, channel, and binding. An ambiguous or incomplete candidate set cannot produce a handoff.
+
+The recognizer never creates a background job. It only selects the route and authorization source. The normal owner turn still applies the usual approval and background-work rules.
 
 ## Replies attach to the person who asked
 
@@ -34,7 +43,7 @@ Standing orders are one durable policy text attached to a channel. They tell the
 
 **You set them by telling the Agent in the channel.** Any channel member can say "from now on, only speak here when CI turns red"; the Agent stores it as this channel's standing orders and records who asked. A change is a full replacement: when you ask it to amend the orders, it stores the complete new text. Say "clear this channel's standing orders" to remove them.
 
-Standing orders reach two places: the speak-or-stay-silent judgment treats them as the operator policy of the room (a match is a reason to speak, judged by meaning rather than keywords), and the real reply turn also sees them in its context.
+Standing orders reach two places: the route judgment treats them as the operator policy of the room and can use a semantic match to authorize `NEW_WORK`, while a visible owner turn also sees them in its context.
 
 Two boundaries:
 

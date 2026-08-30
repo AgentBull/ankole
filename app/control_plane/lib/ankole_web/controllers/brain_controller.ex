@@ -1,709 +1,753 @@
 defmodule AnkoleWeb.BrainController do
   alias OpenApiSpex, as: OpenAPISpex
 
-  @moduledoc "Console REST API for human supervision of Brain knowledge."
+  @moduledoc """
+  Console REST API for the Brain knowledge space: object browsing with
+  version history, claim management, take resolution, contradiction triage,
+  promotion review, source management, per-principal audit, search preview,
+  and the health surface.
+
+  Console edits run the same write contracts as every other writer; the
+  operating Principal enters `author_uid`.
+  """
 
   use AnkoleWeb, :controller
   use OpenAPISpex.ControllerSpecs
 
-  alias Ankole.Brain
-  alias Ankole.WorkerFiles
+  alias Ankole.Brain.Claims
+  alias Ankole.Brain.Dreaming
+  alias Ankole.Brain.Forget
+  alias Ankole.Brain.GetPage
+  alias Ankole.Brain.Health
+  alias Ankole.Brain.Markdoc
+  alias Ankole.Brain.Merge
+  alias Ankole.Brain.Objects
+  alias Ankole.Brain.Promotion
+  alias Ankole.Brain.Recall
+  alias Ankole.Brain.Schemas.Claim
+  alias Ankole.Brain.Schemas.Object
+  alias Ankole.Brain.SourceLearning
+  alias Ankole.Brain.Sources
   alias AnkoleWeb.ConsoleErrors
   alias AnkoleWeb.ConsolePolicy
-  alias AnkoleWeb.Schemas.BrainConsoleAPI.AuditLogResponse
-  alias AnkoleWeb.Schemas.BrainConsoleAPI.AuditRestorationResponse
-  alias AnkoleWeb.Schemas.BrainConsoleAPI.AuditRestorationsRequest
-  alias AnkoleWeb.Schemas.BrainConsoleAPI.EntryListResponse
-  alias AnkoleWeb.Schemas.BrainConsoleAPI.EntryOperationsRequest
-  alias AnkoleWeb.Schemas.BrainConsoleAPI.EntryOperationsResponse
-  alias AnkoleWeb.Schemas.BrainConsoleAPI.EntryResponse
-  alias AnkoleWeb.Schemas.BrainConsoleAPI.DreamingFitnessResponse
-  alias AnkoleWeb.Schemas.BrainConsoleAPI.DreamingRunResponse
-  alias AnkoleWeb.Schemas.BrainConsoleAPI.SourceEntryResponse
-  alias AnkoleWeb.Schemas.BrainConsoleAPI.SourceListResponse
-  alias AnkoleWeb.Schemas.BrainConsoleAPI.SourceCaptureRequest
-  alias AnkoleWeb.Schemas.BrainConsoleAPI.SourceCaptureResponse
-  alias AnkoleWeb.Schemas.BrainConsoleAPI.StatusResponse
-  alias AnkoleWeb.Schemas.ConsoleAPI.ErrorEnvelope
-  alias OpenAPISpex.Schema
+  alias AnkoleWeb.Schemas.BrainAPI
 
-  @owner_parameter [
-    owner_uid: [
-      in: :query,
-      type: :string,
-      required: true,
-      description: "Principal whose Brain library is being supervised"
-    ]
-  ]
-
-  @page_parameters [
-    cursor: [in: :query, type: :string, required: false],
-    limit: [
-      in: :query,
-      schema: %Schema{type: :integer, minimum: 1, maximum: 100},
-      required: false
-    ]
-  ]
-
-  @audit_filter_parameters [
-    store: [in: :query, type: :string, required: false],
-    action: [in: :query, type: :string, required: false],
-    actor: [in: :query, type: :string, required: false],
-    run_id: [in: :query, schema: %Schema{type: :string, format: :uuid}, required: false],
-    inserted_after: [
-      in: :query,
-      schema: %Schema{type: :string, format: :"date-time"},
-      required: false
-    ],
-    inserted_before: [
-      in: :query,
-      schema: %Schema{type: :string, format: :"date-time"},
-      required: false
-    ]
-  ]
+  @list_limit 100
 
   tags(["Brain"])
   security([%{"consoleBearer" => []}])
 
-  plug OpenAPISpex.Plug.CastAndValidate,
-    render_error: AnkoleWeb.OpenAPIValidationErrorRenderer
+  # Object slugs contain `/`, which OpenAPI path templates cannot express,
+  # so every object operation carries the slug as a query parameter or in
+  # the request body instead of a wildcard path segment.
+  @slug_parameter [slug: [in: :query, type: :string, required: true]]
 
-  operation(:index,
-    summary: "List Brain entries for one owner",
-    parameters:
-      @owner_parameter ++
-        [
-          type: [in: :query, type: :string, required: false],
-          query: [in: :query, type: :string, required: false],
-          store: [in: :query, type: :string, required: false],
-          author: [
-            in: :query,
-            type: :string,
-            required: false,
-            description: "An author kind (human/agent/dreaming) or exact author UID"
-          ],
-          updated: [
-            in: :query,
-            schema: %Schema{type: :string, format: :"date-time"},
-            required: false,
-            description: "ISO-8601 lower bound for entry updated_at"
-          ]
-        ] ++ @page_parameters,
-    responses: [
-      ok: {"Brain entries", "application/json", EntryListResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Invalid filters", "application/json", ErrorEnvelope}
-    ]
+  operation(:health,
+    summary: "Read the Brain health snapshot",
+    responses: [ok: {"Health", "application/json", BrainAPI.BrainHealthResponse}]
   )
 
-  operation(:show,
-    summary: "Open one current Brain entry projection",
-    parameters: @owner_parameter ++ [id: [in: :path, type: :string, required: true]],
-    responses: [
-      ok: {"Brain entry", "application/json", EntryResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope}
-    ]
+  operation(:list_objects,
+    summary: "List Brain objects by prefix or search",
+    parameters: [
+      prefix: [in: :query, type: :string, required: false],
+      q: [in: :query, type: :string, required: false],
+      deleted: [in: :query, type: :boolean, required: false]
+    ],
+    responses: [ok: {"Objects", "application/json", BrainAPI.BrainObjectListResponse}]
   )
 
-  operation(:apply_operations,
-    summary: "Apply structured human Brain entry operations",
-    parameters:
-      @owner_parameter ++
-        [
-          store: [
-            in: :query,
-            type: :string,
-            required: false,
-            description: "Required for create-only batches; existing entries derive their store"
-          ]
-        ],
+  operation(:object_types,
+    summary: "List installed Brain object types",
+    responses: [ok: {"Types", "application/json", BrainAPI.BrainObjectTypesResponse}]
+  )
+
+  operation(:create_object,
+    summary: "Create one instance-owned Brain object",
     request_body:
-      {"Structured Brain operations", "application/json", EntryOperationsRequest, required: true},
+      {"Object", "application/json", BrainAPI.BrainObjectCreateRequest, required: true},
+    responses: [ok: {"Object", "application/json", BrainAPI.BrainObjectShowResponse}]
+  )
+
+  operation(:update_object,
+    summary: "Update one instance-owned Brain object with content-hash compare-and-swap",
+    request_body:
+      {"Object", "application/json", BrainAPI.BrainObjectUpdateRequest, required: true},
+    responses: [ok: {"Object", "application/json", BrainAPI.BrainObjectShowResponse}]
+  )
+
+  operation(:show_object,
+    summary: "Read one Brain object with full admin detail",
+    parameters: @slug_parameter,
+    responses: [ok: {"Object", "application/json", BrainAPI.BrainObjectShowResponse}]
+  )
+
+  operation(:object_versions,
+    summary: "List one object's version history",
+    parameters: @slug_parameter,
+    responses: [ok: {"Versions", "application/json", BrainAPI.BrainObjectVersionsResponse}]
+  )
+
+  operation(:rollback_object,
+    summary: "Roll one object back to a stored version",
+    request_body:
+      {"Rollback", "application/json", BrainAPI.BrainObjectRollbackRequest, required: true},
+    responses: [ok: {"Object", "application/json", BrainAPI.BrainObjectSummaryResponse}]
+  )
+
+  operation(:forget_object,
+    summary: "Soft-delete one object with a reason",
+    request_body:
+      {"Forget", "application/json", BrainAPI.BrainObjectForgetRequest, required: true},
+    responses: [ok: {"Object", "application/json", BrainAPI.BrainObjectSummaryResponse}]
+  )
+
+  operation(:restore_object,
+    summary: "Restore one soft-deleted object inside its purge window",
+    request_body:
+      {"Restore", "application/json", BrainAPI.BrainObjectRestoreRequest, required: true},
+    responses: [ok: {"Object", "application/json", BrainAPI.BrainObjectSummaryResponse}]
+  )
+
+  operation(:fork_object,
+    summary: "Fork one library-managed page into instance ownership",
+    request_body: {"Fork", "application/json", BrainAPI.BrainObjectForkRequest, required: true},
+    responses: [ok: {"Object", "application/json", BrainAPI.BrainObjectSummaryResponse}]
+  )
+
+  operation(:list_claims,
+    summary: "List claims with filters",
+    parameters: [
+      object_slug: [in: :query, type: :string, required: false],
+      claim_type: [in: :query, type: :string, required: false],
+      status: [in: :query, type: :string, required: false],
+      q: [in: :query, type: :string, required: false]
+    ],
+    responses: [ok: {"Claims", "application/json", BrainAPI.BrainClaimListResponse}]
+  )
+
+  operation(:supersede_claim,
+    summary: "Supersede one claim with corrected content",
+    parameters: [claim_id: [in: :path, type: :string, required: true]],
+    request_body:
+      {"Supersede", "application/json", BrainAPI.BrainClaimSupersedeRequest, required: true},
+    responses: [ok: {"Claim", "application/json", BrainAPI.BrainClaimResponse}]
+  )
+
+  operation(:forget_claim,
+    summary: "Expire a fact or deactivate a take with a reason",
+    parameters: [claim_id: [in: :path, type: :string, required: true]],
+    request_body:
+      {"Forget", "application/json", BrainAPI.BrainClaimForgetRequest, required: true},
+    responses: [ok: {"Claim", "application/json", BrainAPI.BrainClaimResponse}]
+  )
+
+  operation(:resolve_take,
+    summary: "Resolve one take; resolution is immutable",
+    parameters: [claim_id: [in: :path, type: :string, required: true]],
+    request_body:
+      {"Resolve", "application/json", BrainAPI.BrainTakeResolveRequest, required: true},
+    responses: [ok: {"Claim", "application/json", BrainAPI.BrainClaimResponse}]
+  )
+
+  operation(:list_contradictions,
+    summary: "List contradiction findings",
+    parameters: [status: [in: :query, type: :string, required: false]],
     responses: [
-      ok: {"Operation results", "application/json", EntryOperationsResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope},
-      conflict: {"Optimistic lock conflict", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Invalid operations", "application/json", ErrorEnvelope}
+      ok: {"Contradictions", "application/json", BrainAPI.BrainContradictionListResponse}
     ]
   )
 
-  operation(:audit_log,
-    summary: "List the audit trail for one Brain entry",
-    parameters:
-      @owner_parameter ++
-        [id: [in: :path, type: :string, required: true]] ++
-        @audit_filter_parameters ++ @page_parameters,
+  operation(:decide_contradiction,
+    summary: "Resolve or dismiss one contradiction",
+    parameters: [contradiction_id: [in: :path, type: :string, required: true]],
+    request_body:
+      {"Decide", "application/json", BrainAPI.BrainContradictionDecideRequest, required: true},
     responses: [
-      ok: {"Brain audit log", "application/json", AuditLogResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope}
+      ok: {"Decision", "application/json", BrainAPI.BrainContradictionDecisionResponse}
     ]
   )
 
-  operation(:audit_index,
-    summary: "Preview filtered Brain audit records for supervision or batch recovery",
-    parameters: @owner_parameter ++ @audit_filter_parameters ++ @page_parameters,
+  operation(:list_suggestions,
+    summary: "List schema promotion suggestions",
+    parameters: [status: [in: :query, type: :string, required: false]],
+    responses: [ok: {"Suggestions", "application/json", BrainAPI.BrainSuggestionListResponse}]
+  )
+
+  operation(:decide_suggestion,
+    summary: "Approve or reject one promotion suggestion",
+    parameters: [suggestion_id: [in: :path, type: :string, required: true]],
+    request_body:
+      {"Decide", "application/json", BrainAPI.BrainSuggestionDecideRequest, required: true},
+    responses: [ok: {"Result", "application/json", BrainAPI.BrainPromotionResultResponse}]
+  )
+
+  operation(:list_merge_suggestions,
+    summary: "List duplicate-page merge suggestions",
+    parameters: [status: [in: :query, type: :string, required: false]],
     responses: [
-      ok: {"Brain audit log", "application/json", AuditLogResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Invalid filters", "application/json", ErrorEnvelope}
+      ok: {"Merge suggestions", "application/json", BrainAPI.BrainMergeSuggestionListResponse}
     ]
   )
 
-  operation(:source,
-    summary: "Resolve a Brain source inside one owner's visible stores",
-    parameters: @owner_parameter ++ [document_id: [in: :path, type: :string, required: true]],
-    responses: [
-      ok: {"Brain source", "application/json", SourceEntryResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope}
-    ]
+  operation(:decide_merge_suggestion,
+    summary: "Approve or reject one merge suggestion",
+    parameters: [suggestion_id: [in: :path, type: :string, required: true]],
+    request_body:
+      {"Decide", "application/json", BrainAPI.BrainMergeSuggestionDecideRequest, required: true},
+    responses: [ok: {"Result", "application/json", BrainAPI.BrainMergeResultResponse}]
   )
 
-  operation(:source_index,
-    summary: "List retained Brain sources for one owner",
-    parameters: @owner_parameter,
-    responses: [
-      ok: {"Retained sources", "application/json", SourceListResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope}
-    ]
-  )
-
-  operation(:source_raw,
-    summary: "Download the immutable bytes of one explicitly retained Brain source",
-    parameters: @owner_parameter ++ [document_id: [in: :path, type: :string, required: true]],
-    responses: [
-      ok: {"Source bytes", "application/octet-stream", %Schema{type: :string, format: :binary}},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope}
-    ]
+  operation(:list_sources,
+    summary: "List learning sources",
+    responses: [ok: {"Sources", "application/json", BrainAPI.BrainSourceListResponse}]
   )
 
   operation(:create_source,
-    summary: "Save manual text as knowledge or retain binary source bytes",
-    parameters:
-      @owner_parameter ++
-        [
-          store: [
-            in: :query,
-            type: :string,
-            required: true,
-            description: "Exact Brain store that may cite this source"
-          ]
-        ],
-    request_body: {"Source", "multipart/form-data", SourceCaptureRequest, required: true},
-    responses: [
-      created: {"Saved material", "application/json", SourceCaptureResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Invalid source", "application/json", ErrorEnvelope}
-    ]
+    summary: "Register one file or url learning source",
+    request_body:
+      {"Source", "application/json", BrainAPI.BrainSourceCreateRequest, required: true},
+    responses: [ok: {"Source", "application/json", BrainAPI.BrainSourceCreateResponse}]
   )
 
   operation(:learn_source,
-    summary: "Start one Agent learning run for an already retained source",
-    parameters: @owner_parameter ++ [document_id: [in: :path, type: :string, required: true]],
-    responses: [
-      ok: {"Learning run queued", "application/json", SourceEntryResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope},
-      conflict: {"No worker is ready", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Learning could not start", "application/json", ErrorEnvelope}
-    ]
+    summary: "Enqueue one learning run for a source",
+    parameters: [source_id: [in: :path, type: :string, required: true]],
+    responses: [ok: {"Result", "application/json", BrainAPI.BrainSourceLearnResponse}]
   )
 
-  operation(:status,
-    summary: "Read the single long-term memory health surface",
-    parameters: @owner_parameter,
-    responses: [
-      ok: {"Long-term memory status", "application/json", StatusResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope}
-    ]
+  operation(:archive_source,
+    summary: "Archive one source; stored memory stays",
+    parameters: [source_id: [in: :path, type: :string, required: true]],
+    responses: [ok: {"Source", "application/json", BrainAPI.BrainSourceArchiveResponse}]
   )
 
-  operation(:restore_audit,
-    summary: "Restore the state captured by one Brain audit record",
-    parameters: @owner_parameter ++ [audit_id: [in: :path, type: :string, required: true]],
-    responses: [
-      ok: {"Restoration result", "application/json", AuditRestorationResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      not_found: {"Not found", "application/json", ErrorEnvelope},
-      conflict: {"Optimistic lock conflict", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Audit record cannot be restored", "application/json", ErrorEnvelope}
-    ]
-  )
-
-  operation(:restore_audits,
-    summary: "Atomically restore an explicit Brain audit selection",
-    description:
-      "The caller previews audit records first, submits their exact ids, and the server restores them newest-first in one transaction.",
-    parameters: @owner_parameter,
+  operation(:search_preview,
+    summary: "Run recall as any Principal for diagnosis",
     request_body:
-      {"Exact audit selection", "application/json", AuditRestorationsRequest, required: true},
-    responses: [
-      ok: {"Batch restoration result", "application/json", AuditRestorationResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      conflict: {"Audit selection or current state changed", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Invalid audit selection", "application/json", ErrorEnvelope}
-    ]
+      {"Preview", "application/json", BrainAPI.BrainSearchPreviewRequest, required: true},
+    responses: [ok: {"Result", "application/json", BrainAPI.BrainSearchPreviewResponse}]
   )
 
-  operation(:run_dreaming,
-    summary: "Run Agent-level Brain curation now",
-    description:
-      "Manually starts the same Agent-only Stage B path used by the scheduled Brain curation job.",
-    parameters: @owner_parameter,
-    responses: [
-      ok: {"Dreaming run result", "application/json", DreamingRunResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Dreaming run failed", "application/json", ErrorEnvelope}
-    ]
+  operation(:principal_knowledge,
+    summary: "Audit all knowledge related to one Principal",
+    parameters: [principal_uid: [in: :path, type: :string, required: true]],
+    responses: [ok: {"Claims", "application/json", BrainAPI.BrainClaimListResponse}]
   )
 
-  operation(:dreaming_fitness,
-    summary: "Read dreaming output survival as a selection-pressure signal",
-    description:
-      "Reads the audit log for the share of dreaming block writes that survived human review (no human edit or delete within the horizon), overall and per run. Writes younger than the horizon are reported as pending, not survivors.",
-    parameters:
-      @owner_parameter ++
-        [
-          horizon_days: [
-            in: :query,
-            schema: %Schema{type: :integer, minimum: 1, maximum: 90},
-            required: false,
-            description:
-              "Days a dreaming write must survive human review to count as survived (default 7)"
-          ],
-          lookback_days: [
-            in: :query,
-            schema: %Schema{type: :integer, minimum: 1, maximum: 365},
-            required: false,
-            description: "How far back to read dreaming writes (default 90)"
-          ]
-        ],
-    responses: [
-      ok: {"Dreaming fitness signal", "application/json", DreamingFitnessResponse},
-      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
-      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
-      unprocessable_entity: {"Invalid filters", "application/json", ErrorEnvelope}
-    ]
-  )
-
-  def index(conn, params) do
-    with {:ok, owner_uid} <- required_text(params, "owner_uid"),
-         :ok <- ConsolePolicy.authorize(conn, brain_resource(owner_uid), "read"),
-         {:ok, cursor} <- page_cursor(params),
-         {:ok, page} <- Brain.list_entries(owner_uid, entry_list_opts(params, cursor)) do
-      json(conn, %{entries: page.entries, next_cursor: encode_cursor(page.next_cursor)})
+  def health(conn, _params) do
+    with :ok <- ConsolePolicy.authorize(conn, "brain", "read") do
+      json_plain(conn, %{health: Health.snapshot()})
     else
       {:error, reason} -> error(conn, reason)
     end
   end
 
-  def show(conn, params) do
-    with {:ok, owner_uid} <- required_text(params, "owner_uid"),
-         {:ok, entry_id} <- required_text(params, "id"),
-         :ok <- ConsolePolicy.authorize(conn, brain_resource(owner_uid), "read"),
-         {:ok, payload} <- Brain.open_entry(owner_uid, entry_id) do
-      json(conn, payload)
+  def list_objects(conn, params) do
+    with :ok <- ConsolePolicy.authorize(conn, "brain", "read") do
+      objects =
+        Objects.list_for_console(
+          prefix: params["prefix"],
+          search: params["q"],
+          deleted: params["deleted"] == "true",
+          limit: @list_limit
+        )
+        |> Enum.map(&object_summary/1)
+
+      json_plain(conn, %{objects: objects})
     else
       {:error, reason} -> error(conn, reason)
     end
   end
 
-  def apply_operations(conn, params) do
-    with {:ok, owner_uid} <- required_text(params, "owner_uid"),
-         :ok <- ConsolePolicy.authorize(conn, brain_resource(owner_uid), "update"),
-         {:ok, actor_uid} <- current_principal_uid(conn),
-         {:ok, operations} <- operations(conn.body_params),
-         {:ok, result} <-
-           Brain.apply_human_operations(
-             owner_uid,
-             operations,
-             actor_uid,
-             store_key: optional_text(params, "store"),
-             reason: optional_text(conn.body_params, "reason")
-           ) do
-      json(conn, json_safe(result))
+  def object_types(conn, _params) do
+    with :ok <- ConsolePolicy.authorize(conn, "brain", "read") do
+      json_plain(conn, %{types: Objects.installed_type_names()})
     else
       {:error, reason} -> error(conn, reason)
     end
   end
 
-  def audit_log(conn, params) do
-    with {:ok, owner_uid} <- required_text(params, "owner_uid"),
-         {:ok, entry_id} <- required_text(params, "id"),
-         :ok <- ConsolePolicy.authorize(conn, brain_resource(owner_uid), "read"),
-         {:ok, payload} <- audit_page(owner_uid, params, entry_id) do
-      json(conn, payload)
+  def show_object(conn, %{"slug" => slug}) do
+    with :ok <- ConsolePolicy.authorize(conn, "brain", "read") do
+      case GetPage.get_page_admin(slug) do
+        {:ok, page} -> json_plain(conn, %{object: page})
+        {:ambiguous, candidates} -> json_plain(conn, %{candidates: candidates})
+        {:error, :not_found} -> error(conn, :not_found)
+      end
     else
       {:error, reason} -> error(conn, reason)
     end
   end
 
-  def audit_index(conn, params) do
-    with {:ok, owner_uid} <- required_text(params, "owner_uid"),
-         :ok <- ConsolePolicy.authorize(conn, brain_resource(owner_uid), "read"),
-         {:ok, payload} <- audit_page(owner_uid, params, nil) do
-      json(conn, payload)
+  def create_object(conn, _params) do
+    with :ok <- ConsolePolicy.authorize(conn, "brain", "update"),
+         {:ok, attrs} <- object_create_attrs(conn.body_params) do
+      case Objects.create_object(attrs, conn.assigns.current_principal_uid) do
+        {:ok, object} -> render_object_page(conn, object.slug)
+        {:error, reason} -> object_write_error(conn, reason, attrs.body)
+      end
     else
       {:error, reason} -> error(conn, reason)
     end
   end
 
-  def source(conn, params) do
-    with {:ok, owner_uid} <- required_text(params, "owner_uid"),
-         {:ok, document_id} <- required_text(params, "document_id"),
-         :ok <- ConsolePolicy.authorize(conn, brain_resource(owner_uid), "read"),
-         {:ok, source} <- Brain.resolve_source(owner_uid, document_id) do
-      json(conn, %{source: source})
+  def update_object(conn, _params) do
+    with :ok <- ConsolePolicy.authorize(conn, "brain", "update"),
+         {:ok, slug, attrs} <- object_update_attrs(conn.body_params) do
+      case Objects.update_object(slug, attrs, conn.assigns.current_principal_uid) do
+        {:ok, object} -> render_object_page(conn, object.slug)
+        {:error, reason} -> object_write_error(conn, reason, attrs.body)
+      end
     else
       {:error, reason} -> error(conn, reason)
     end
   end
 
-  def source_index(conn, params) do
-    with {:ok, owner_uid} <- required_text(params, "owner_uid"),
-         :ok <- ConsolePolicy.authorize(conn, brain_resource(owner_uid), "read"),
-         {:ok, sources} <- Brain.list_sources(owner_uid) do
-      json(conn, %{sources: sources})
+  def object_versions(conn, %{"slug" => slug}) do
+    with :ok <- ConsolePolicy.authorize(conn, "brain", "read"),
+         {:ok, stored_versions} <-
+           Objects.list_versions_for_console(slug, limit: @list_limit) do
+      versions =
+        stored_versions
+        |> Enum.map(fn version ->
+          %{
+            id: version.id,
+            author_uid: version.author_uid,
+            body: version.body,
+            meta: version.meta,
+            snapshot_at: version.snapshot_at
+          }
+        end)
+
+      json_plain(conn, %{versions: versions})
     else
       {:error, reason} -> error(conn, reason)
     end
   end
 
-  def status(conn, params) do
-    with {:ok, owner_uid} <- required_text(params, "owner_uid"),
-         :ok <- ConsolePolicy.authorize(conn, brain_resource(owner_uid), "read"),
-         {:ok, status} <- Brain.status(owner_uid) do
-      json(conn, %{memory_status: status})
+  def rollback_object(conn, %{"slug" => slug, "version_id" => version_id}) do
+    with :ok <- ConsolePolicy.authorize(conn, "brain", "update"),
+         {:ok, object} <-
+           Objects.rollback(slug, version_id, conn.assigns.current_principal_uid) do
+      json_plain(conn, %{object: object_summary(object)})
     else
       {:error, reason} -> error(conn, reason)
     end
   end
 
-  def source_raw(conn, params) do
-    with {:ok, owner_uid} <- required_text(params, "owner_uid"),
-         {:ok, document_id} <- required_text(params, "document_id"),
-         :ok <- ConsolePolicy.authorize(conn, brain_resource(owner_uid), "read"),
-         {:ok, raw} <- Brain.source_raw(owner_uid, document_id) do
-      conn
-      |> put_resp_content_type(raw.media_type)
-      |> put_resp_header(
-        "content-disposition",
-        "attachment; filename*=UTF-8''" <> URI.encode(raw.filename, &URI.char_unreserved?/1)
-      )
-      |> send_resp(200, raw.content)
+  def forget_object(conn, %{"slug" => slug} = params) do
+    with :ok <- ConsolePolicy.authorize(conn, "brain", "update"),
+         {:ok, object} <- Forget.forget_object(slug, params["reason"] || "", :admin) do
+      json_plain(conn, %{object: object_summary(object)})
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  # Fork moves a library-managed page into instance ownership: the body
+  # becomes editable and stops receiving product upgrades. The library sync
+  # then shadows the slug instead of reprojecting it.
+  def fork_object(conn, %{"slug" => slug}) do
+    with :ok <- ConsolePolicy.authorize(conn, "brain", "update"),
+         {:ok, object} <- Objects.fork_library_page(slug) do
+      json_plain(conn, %{object: object_summary(object)})
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  # Restore closes the soft-delete recovery loop: without it the purge TTL
+  # would only be a delay, not a recovery window.
+  def restore_object(conn, %{"slug" => slug}) do
+    with :ok <- ConsolePolicy.authorize(conn, "brain", "update"),
+         {:ok, object} <- Objects.restore(slug) do
+      json_plain(conn, %{object: object_summary(object)})
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  def list_claims(conn, params) do
+    with :ok <- ConsolePolicy.authorize(conn, "brain", "read") do
+      claims =
+        Claims.list_for_console(
+          object_slug: params["object_slug"],
+          claim_type: params["claim_type"],
+          status: params["status"],
+          search: params["q"],
+          limit: @list_limit
+        )
+        |> Enum.map(&claim_detail/1)
+
+      json_plain(conn, %{claims: claims})
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  def supersede_claim(conn, %{"claim_id" => claim_id} = params) do
+    attrs =
+      %{claim: params["claim"]}
+      |> maybe_put(:kind, params["kind"])
+      |> maybe_put(:confidence, params["confidence"])
+      |> maybe_put(:weight, params["weight"])
+      |> maybe_put(:notability, params["notability"])
+      |> maybe_put(:audience_scope, params["audience_scope"])
+      |> maybe_put(:provenance, params["provenance"])
+
+    with :ok <- ConsolePolicy.authorize(conn, "brain", "update"),
+         {:ok, claim} <-
+           Claims.supersede_claim(claim_id, attrs, conn.assigns.current_principal_uid) do
+      json_plain(conn, %{claim: claim_detail(claim)})
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  def forget_claim(conn, %{"claim_id" => claim_id} = params) do
+    with :ok <- ConsolePolicy.authorize(conn, "brain", "update"),
+         {:ok, claim} <- Forget.forget_claim(claim_id, params["reason"] || "", :admin) do
+      json_plain(conn, %{claim: claim_detail(claim)})
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  def resolve_take(conn, %{"claim_id" => claim_id} = params) do
+    resolution = %{
+      resolved_quality: params["resolved_quality"],
+      resolved_outcome: params["resolved_outcome"],
+      resolved_value: params["resolved_value"],
+      resolved_unit: params["resolved_unit"],
+      resolution_provenance: params["resolution_provenance"]
+    }
+
+    with :ok <- ConsolePolicy.authorize(conn, "brain", "update"),
+         {:ok, claim} <-
+           Claims.resolve_take(claim_id, resolution, conn.assigns.current_principal_uid) do
+      json_plain(conn, %{claim: claim_detail(claim)})
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  def list_contradictions(conn, params) do
+    with :ok <- ConsolePolicy.authorize(conn, "brain", "read") do
+      status = params["status"] || "open"
+
+      contradictions =
+        status
+        |> Dreaming.list_contradictions_for_console(limit: @list_limit)
+        |> Enum.map(fn %{
+                         contradiction: contradiction,
+                         a_claim: a_claim,
+                         b_claim: b_claim
+                       } ->
+          %{
+            id: contradiction.id,
+            a_claim: claim_detail(a_claim),
+            b_claim: claim_detail(b_claim),
+            verdict: contradiction.verdict,
+            axis: contradiction.axis,
+            severity: contradiction.severity,
+            confidence: contradiction.confidence,
+            status: contradiction.status,
+            created_at: contradiction.created_at
+          }
+        end)
+
+      json_plain(conn, %{contradictions: contradictions})
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  def decide_contradiction(conn, %{"contradiction_id" => id} = params) do
+    status = params["status"]
+
+    with :ok <- ConsolePolicy.authorize(conn, "brain", "update"),
+         true <- status in ["resolved", "dismissed"] || {:error, :invalid_status},
+         {:ok, updated} <- Dreaming.decide_contradiction(id, status, params["resolution_note"]) do
+      json_plain(conn, %{contradiction: %{id: updated.id, status: updated.status}})
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  def list_suggestions(conn, params) do
+    with :ok <- ConsolePolicy.authorize(conn, "brain", "read") do
+      status = params["status"] || "pending"
+
+      suggestions =
+        status
+        |> Promotion.list_for_console(limit: @list_limit)
+        |> Enum.map(fn suggestion ->
+          %{
+            id: suggestion.id,
+            kind: suggestion.kind,
+            term: suggestion.term,
+            target_type: suggestion.target_type,
+            evidence_count: suggestion.evidence_count,
+            rationale: suggestion.rationale,
+            status: suggestion.status,
+            created_at: suggestion.created_at
+          }
+        end)
+
+      json_plain(conn, %{suggestions: suggestions})
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  def decide_suggestion(conn, %{"suggestion_id" => id} = params) do
+    decision = params["decision"]
+    operator = conn.assigns.current_principal_uid
+
+    with :ok <- ConsolePolicy.authorize(conn, "brain", "update") do
+      result =
+        case decision do
+          "approve" ->
+            Promotion.approve(id, operator, %{
+              primitive: params["primitive"],
+              slug_prefix: params["slug_prefix"],
+              target_type: params["target_type"],
+              extractable: params["extractable"]
+            })
+
+          "reject" ->
+            Promotion.reject(id, operator)
+
+          _invalid ->
+            {:error, :invalid_decision}
+        end
+
+      case result do
+        {:ok, outcome} -> json_plain(conn, %{result: outcome})
+        {:error, reason} -> error(conn, reason)
+      end
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  def list_merge_suggestions(conn, params) do
+    with :ok <- ConsolePolicy.authorize(conn, "brain", "read") do
+      status = params["status"] || "pending"
+
+      suggestions =
+        status
+        |> Merge.list_for_console(limit: @list_limit)
+        |> Enum.map(fn suggestion ->
+          %{
+            id: suggestion.id,
+            a: merge_page_summary(suggestion.a_slug),
+            b: merge_page_summary(suggestion.b_slug),
+            reason: suggestion.reason,
+            status: suggestion.status,
+            created_at: suggestion.created_at
+          }
+        end)
+
+      json_plain(conn, %{suggestions: suggestions})
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  def decide_merge_suggestion(conn, %{"suggestion_id" => id} = params) do
+    operator = conn.assigns.current_principal_uid
+
+    with :ok <- ConsolePolicy.authorize(conn, "brain", "update") do
+      result =
+        case params["decision"] do
+          "approve" ->
+            Merge.approve(id, operator, %{canonical_slug: params["canonical_slug"]})
+
+          "reject" ->
+            with {:ok, suggestion} <- Merge.reject(id, operator) do
+              {:ok, %{id: suggestion.id, status: suggestion.status}}
+            end
+
+          _invalid ->
+            {:error, :invalid_decision}
+        end
+
+      case result do
+        {:ok, outcome} -> json_plain(conn, %{result: outcome})
+        {:error, reason} -> error(conn, reason)
+      end
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  def list_sources(conn, _params) do
+    with :ok <- ConsolePolicy.authorize(conn, "brain", "read") do
+      sources =
+        Sources.list_for_console(limit: @list_limit)
+        |> Enum.map(fn source ->
+          %{
+            id: source.id,
+            upstream_id: source.upstream_id,
+            kind: source.kind,
+            name: source.name,
+            default_audience_scope: source.default_audience_scope,
+            upstream_revision: source.upstream_revision,
+            last_sync_at: source.last_sync_at,
+            archived_at: source.archived_at
+          }
+        end)
+
+      json_plain(conn, %{sources: sources})
     else
       {:error, reason} -> error(conn, reason)
     end
   end
 
   def create_source(conn, params) do
-    with {:ok, owner_uid} <- required_text(params, "owner_uid"),
-         {:ok, store_key} <- required_text(params, "store"),
-         :ok <- ConsolePolicy.authorize(conn, brain_resource(owner_uid), "update"),
-         {:ok, actor_uid} <- current_principal_uid(conn),
-         {:ok, attrs} <- source_attrs(conn.body_params || %{}),
-         {:ok, material} <- Brain.capture_source(owner_uid, store_key, attrs, actor_uid) do
-      conn |> put_status(:created) |> json(material)
+    with :ok <- ConsolePolicy.authorize(conn, "brain", "update"),
+         {:ok, source} <-
+           SourceLearning.register_source(%{
+             upstream_id: params["upstream_id"],
+             kind: params["kind"],
+             name: params["name"],
+             default_audience_scope: params["default_audience_scope"],
+             config: params["config"] || %{}
+           }) do
+      json_plain(conn, %{source: %{id: source.id, kind: source.kind, name: source.name}})
     else
       {:error, reason} -> error(conn, reason)
     end
   end
 
-  def learn_source(conn, params) do
-    with {:ok, owner_uid} <- required_text(params, "owner_uid"),
-         {:ok, document_id} <- required_text(params, "document_id"),
-         :ok <- ConsolePolicy.authorize(conn, brain_resource(owner_uid), "update"),
-         {:ok, source} <- Brain.learn_source(owner_uid, document_id) do
-      json(conn, %{source: source})
+  def learn_source(conn, %{"source_id" => source_id}) do
+    with :ok <- ConsolePolicy.authorize(conn, "brain", "update"),
+         {:ok, result} <- SourceLearning.enqueue_learn(source_id) do
+      json_plain(conn, %{result: result})
     else
       {:error, reason} -> error(conn, reason)
     end
   end
 
-  def restore_audit(conn, params) do
-    with {:ok, owner_uid} <- required_text(params, "owner_uid"),
-         {:ok, audit_id} <- required_text(params, "audit_id"),
-         :ok <- ConsolePolicy.authorize(conn, brain_resource(owner_uid), "update"),
-         {:ok, actor_uid} <- current_principal_uid(conn),
-         {:ok, restoration} <- Brain.restore_audit(owner_uid, audit_id, actor_uid) do
-      json(conn, %{restoration: json_safe(restoration)})
+  def archive_source(conn, %{"source_id" => source_id}) do
+    with :ok <- ConsolePolicy.authorize(conn, "brain", "update"),
+         {:ok, archived} <- Sources.archive(source_id) do
+      json_plain(conn, %{source: %{id: archived.id, archived_at: archived.archived_at}})
     else
       {:error, reason} -> error(conn, reason)
     end
   end
 
-  def restore_audits(conn, params) do
-    with {:ok, owner_uid} <- required_text(params, "owner_uid"),
-         :ok <- ConsolePolicy.authorize(conn, brain_resource(owner_uid), "update"),
-         {:ok, actor_uid} <- current_principal_uid(conn),
-         {:ok, audit_ids} <- audit_ids(conn.body_params),
-         {:ok, restoration} <- Brain.restore_audits(owner_uid, audit_ids, actor_uid) do
-      json(conn, %{restoration: json_safe(restoration)})
+  # Search preview executes recall as any Principal to diagnose knowledge
+  # boundaries and disclosure behavior.
+  def search_preview(conn, params) do
+    with :ok <- ConsolePolicy.authorize(conn, "brain", "read"),
+         {:ok, principal_uid} <- required_text(params, "principal_uid"),
+         {:ok, query} <- required_text(params, "query") do
+      disclosure = %{
+        mode: parse_mode(params["disclosure_mode"]),
+        asker_uid: params["asker_uid"],
+        present_uids: List.wrap(params["present_uids"] || [])
+      }
+
+      case Recall.recall(principal_uid, %{query: query}, disclosure: disclosure) do
+        {:ok, result} -> json_plain(conn, %{result: result})
+        {:error, reason} -> error(conn, reason)
+      end
     else
       {:error, reason} -> error(conn, reason)
     end
   end
 
-  def run_dreaming(conn, params) do
-    with {:ok, owner_uid} <- required_text(params, "owner_uid"),
-         :ok <- ConsolePolicy.authorize(conn, brain_resource(owner_uid), "update"),
-         {:ok, result} <- Brain.run_dreaming(owner_uid) do
-      json(conn, %{run: json_safe(result)})
+  # Per-principal audit: everything where the Principal is holder, author,
+  # or the audience.
+  def principal_knowledge(conn, %{"principal_uid" => principal_uid}) do
+    with :ok <- ConsolePolicy.authorize(conn, "brain", "read") do
+      claims =
+        principal_uid
+        |> Claims.list_for_principal_audit(limit: @list_limit)
+        |> Enum.map(&claim_detail/1)
+
+      json_plain(conn, %{claims: claims})
     else
       {:error, reason} -> error(conn, reason)
     end
   end
 
-  def dreaming_fitness(conn, params) do
-    opts =
-      [
-        horizon_days: param(params, "horizon_days"),
-        lookback_days: param(params, "lookback_days")
-      ]
-      |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+  # Helpers
 
-    with {:ok, owner_uid} <- required_text(params, "owner_uid"),
-         :ok <- ConsolePolicy.authorize(conn, brain_resource(owner_uid), "read"),
-         {:ok, fitness} <- Brain.dreaming_fitness(owner_uid, opts) do
-      json(conn, %{fitness: json_safe(fitness)})
-    else
-      {:error, reason} -> error(conn, reason)
+  # Brain payloads carry DateTime and Date values in many nested shapes, and
+  # Torque cannot encode calendar structs, so every response passes through
+  # the JSON-plain transform instead of per-field ISO conversion.
+  defp json_plain(conn, payload), do: json(conn, Ankole.JSON.plain(payload))
+
+  defp object_summary(%Object{} = object) do
+    %{
+      slug: object.slug,
+      type: object.type,
+      subtype: object.subtype,
+      title: object.title,
+      effective_date: object.effective_date,
+      emotional_weight: object.emotional_weight,
+      library_managed: object.managed_by_source_id != nil,
+      deleted_at: object.deleted_at,
+      updated_at: object.updated_at
+    }
+  end
+
+  # The merge queue survives its own approvals: a decided row can name a
+  # page that no longer exists, so the summary resolves through the redirect
+  # ladder and degrades to the bare slug.
+  defp merge_page_summary(slug) do
+    case Objects.resolve_slug(slug) do
+      {:ok, object} -> %{slug: object.slug, title: object.title, type: object.type}
+      {:error, :not_found} -> %{slug: slug, title: nil, type: nil}
     end
   end
 
-  defp current_principal_uid(%Plug.Conn{assigns: %{current_principal_uid: uid}})
-       when is_binary(uid),
-       do: {:ok, uid}
+  defp claim_detail(nil), do: nil
 
-  defp brain_resource(owner_uid), do: "brain:#{owner_uid}"
-
-  @author_kinds ~w(human agent dreaming)
-  @server_owned_operation_keys ~w(
-    owner_uid store_key author_kind author_uid actor_kind actor_uid
-  )
-
-  defp audit_page(owner_uid, params, entry_id) do
-    with {:ok, cursor} <- page_cursor(params),
-         {:ok, page} <- Brain.list_audit(owner_uid, audit_list_opts(params, entry_id, cursor)) do
-      {:ok, %{audit_log: page.audit_log, next_cursor: encode_cursor(page.next_cursor)}}
-    end
+  defp claim_detail(%Claim{} = claim) do
+    %{
+      id: claim.id,
+      claim_type: claim.claim_type,
+      claim: claim.claim,
+      kind: claim.kind,
+      holder: claim.holder,
+      audience_scope: claim.audience_scope,
+      author_uid: claim.author_uid,
+      object_slug: claim.object_slug,
+      signal_gateway_channel_id: claim.signal_gateway_channel_id,
+      notability: claim.notability,
+      confidence: claim.confidence,
+      valid_from: claim.valid_from,
+      valid_until: claim.valid_until,
+      expired_at: claim.expired_at,
+      weight: claim.weight,
+      active: claim.active,
+      since_date: claim.since_date,
+      until_date: claim.until_date,
+      graded_quality: claim.graded_quality,
+      graded_confidence: claim.graded_confidence,
+      resolved_quality: claim.resolved_quality,
+      resolved_outcome: claim.resolved_outcome,
+      resolved_at: claim.resolved_at,
+      superseded_by: claim.superseded_by,
+      provenance: claim.provenance,
+      created_at: claim.created_at
+    }
   end
 
-  defp entry_list_opts(params, cursor) do
-    author = optional_text(params, "author")
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
-    [
-      query: optional_text(params, "query"),
-      type: optional_text(params, "type"),
-      store_key: optional_text(params, "store"),
-      author_kind: author_kind(author),
-      author_uid: author_uid(author),
-      updated_after: param(params, "updated"),
-      cursor: cursor,
-      limit: page_limit(params)
-    ]
-    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
-  end
-
-  defp audit_list_opts(params, entry_id, cursor) do
-    actor = optional_text(params, "actor")
-
-    [
-      entry_id: entry_id,
-      store_key: optional_text(params, "store"),
-      action: optional_text(params, "action"),
-      actor_kind: author_kind(actor),
-      actor_uid: author_uid(actor),
-      run_id: optional_text(params, "run_id"),
-      inserted_after: param(params, "inserted_after"),
-      inserted_before: param(params, "inserted_before"),
-      cursor: cursor,
-      limit: page_limit(params)
-    ]
-    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
-  end
-
-  defp author_kind("human"), do: :human
-  defp author_kind("agent"), do: :agent
-  defp author_kind("dreaming"), do: :dreaming
-  defp author_kind(_author), do: nil
-
-  defp author_uid(author) when is_binary(author) and author not in @author_kinds, do: author
-  defp author_uid(_author), do: nil
-
-  # CastAndValidate already rejects a non-integer or out-of-range limit, and
-  # it casts the `date-time` parameters to DateTime structs before the action.
-  defp page_limit(params), do: param(params, "limit") || 50
-
-  defp page_cursor(params) do
-    case optional_text(params, "cursor") do
-      nil ->
-        {:ok, nil}
-
-      cursor ->
-        with {:ok, decoded} <- Base.url_decode64(cursor, padding: false),
-             [iso, id] <- String.split(decoded, "|", parts: 2),
-             {:ok, datetime, _offset} <- DateTime.from_iso8601(iso),
-             {:ok, id} <- Ecto.UUID.cast(id) do
-          {:ok, {datetime, id}}
-        else
-          _invalid -> {:error, :invalid_page_cursor}
-        end
-    end
-  end
-
-  defp encode_cursor(nil), do: nil
-
-  defp encode_cursor({datetime, id}) do
-    Base.url_encode64("#{DateTime.to_iso8601(datetime)}|#{id}", padding: false)
-  end
-
-  defp operations(body) when is_map(body) do
-    case param(body, "operations") do
-      operations when is_list(operations) and operations != [] ->
-        operations
-        |> Enum.reduce_while({:ok, []}, fn
-          operation, {:ok, acc} when is_map(operation) ->
-            sanitized =
-              operation
-              |> stringify_keys()
-              |> Map.drop(@server_owned_operation_keys)
-              |> drop_create_nil_defaults()
-
-            {:cont, {:ok, [sanitized | acc]}}
-
-          _operation, _acc ->
-            {:halt, {:error, :invalid_operations}}
-        end)
-        |> case do
-          {:ok, sanitized} -> {:ok, Enum.reverse(sanitized)}
-          {:error, reason} -> {:error, reason}
-        end
-
-      _value ->
-        {:error, :invalid_operations}
-    end
-  end
-
-  defp operations(_body), do: {:error, :invalid_operations}
-
-  defp source_attrs(body) when is_map(body) do
-    case optional_text(body, "kind") do
-      "file" -> source_file_attrs(body)
-      "paste" -> source_text_attrs(body)
-      "url" -> source_url_attrs(body)
-      _invalid -> {:error, :invalid_source_kind}
-    end
-  end
-
-  defp source_attrs(_body), do: {:error, :invalid_source}
-
-  defp source_file_attrs(body) do
-    case param(body, "file") do
-      %Plug.Upload{} = upload ->
-        max_bytes = WorkerFiles.max_transfer_bytes()
-
-        with {:ok, %{size: size}} <- File.stat(upload.path),
-             true <- size > 0 and size <= max_bytes,
-             {:ok, content} <- File.read(upload.path) do
-          {:ok,
-           %{
-             kind: "file",
-             title: optional_text(body, "title") || upload.filename,
-             original_name: upload.filename,
-             media_type: upload.content_type || "application/octet-stream",
-             content: content
-           }}
-        else
-          false -> {:error, {:invalid_source_file_size, max_bytes}}
-          {:error, reason} -> {:error, {:source_file_read_failed, reason}}
-        end
-
-      _missing ->
-        {:error, {:missing, "file"}}
-    end
-  end
-
-  defp source_text_attrs(body) do
-    with {:ok, title} <- required_text(body, "title"),
-         {:ok, content} <- required_source_content(body, "content") do
-      {:ok, %{kind: "paste", title: title, content: content}}
-    end
-  end
-
-  defp source_url_attrs(body) do
-    with {:ok, url} <- required_text(body, "url") do
-      {:ok, %{kind: "url", title: optional_text(body, "title"), url: url}}
-    end
-  end
-
-  defp required_source_content(params, key) do
-    case param(params, key) do
-      value when is_binary(value) ->
-        if String.trim(value) == "", do: {:error, {:missing, key}}, else: {:ok, value}
-
-      _missing ->
-        {:error, {:missing, key}}
-    end
-  end
-
-  defp audit_ids(body) when is_map(body) do
-    case param(body, "audit_ids") do
-      ids when is_list(ids) and ids != [] ->
-        if Enum.all?(ids, &is_binary/1), do: {:ok, ids}, else: {:error, :invalid_audit_selection}
-
-      _invalid ->
-        {:error, :invalid_audit_selection}
-    end
-  end
-
-  defp audit_ids(_body), do: {:error, :invalid_audit_selection}
-
-  defp drop_create_nil_defaults(%{"operation" => operation_name} = operation)
-       when operation_name in ["create_entry", :create_entry] do
-    Enum.reduce(["summary", "aliases", "properties"], operation, fn key, acc ->
-      if Map.get(acc, key) == nil, do: Map.delete(acc, key), else: acc
-    end)
-  end
-
-  defp drop_create_nil_defaults(operation), do: operation
-
-  defp json_safe(nil), do: nil
-  defp json_safe(value) when is_binary(value) or is_number(value) or is_boolean(value), do: value
-  defp json_safe(%DateTime{} = value), do: DateTime.to_iso8601(value)
-  defp json_safe(%NaiveDateTime{} = value), do: NaiveDateTime.to_iso8601(value)
-  defp json_safe(value) when is_atom(value), do: Atom.to_string(value)
-  defp json_safe(value) when is_list(value), do: Enum.map(value, &json_safe/1)
-
-  defp json_safe(value) when is_map(value) do
-    Map.new(value, fn {key, item} -> {string_key(key), json_safe(item)} end)
-  end
-
-  defp json_safe(value), do: inspect(value)
-
-  defp stringify_keys(value) do
-    Map.new(value, fn {key, item} -> {string_key(key), item} end)
-  end
+  defp parse_mode("strict"), do: :strict
+  defp parse_mode(_mode), do: :relaxed
 
   defp required_text(params, key) do
-    case param(params, key) do
+    case map_value(params, key) do
       value when is_binary(value) ->
         case String.trim(value) do
           "" -> {:error, {:missing, key}}
@@ -715,116 +759,199 @@ defmodule AnkoleWeb.BrainController do
     end
   end
 
+  defp object_create_attrs(params) when is_map(params) do
+    with {:ok, slug} <- required_text(params, "slug"),
+         {:ok, type} <- required_text(params, "type"),
+         {:ok, title} <- required_text(params, "title"),
+         {:ok, body} <- required_binary(params, "body"),
+         {:ok, meta} <- required_map(params, "meta"),
+         {:ok, subtype} <- optional_text(params, "subtype"),
+         {:ok, effective_date} <- optional_date(params, "effective_date") do
+      {:ok,
+       %{
+         slug: slug,
+         type: type,
+         subtype: subtype,
+         title: title,
+         body: body,
+         meta: meta,
+         effective_date: effective_date
+       }}
+    end
+  end
+
+  defp object_create_attrs(_params), do: {:error, {:missing, "object"}}
+
+  defp object_update_attrs(params) when is_map(params) do
+    with {:ok, slug} <- required_text(params, "slug"),
+         {:ok, title} <- required_text(params, "title"),
+         {:ok, body} <- required_binary(params, "body"),
+         {:ok, meta} <- required_map(params, "meta"),
+         {:ok, subtype} <- optional_text(params, "subtype"),
+         {:ok, effective_date} <- optional_date(params, "effective_date"),
+         {:ok, expected_content_hash} <- required_text(params, "expected_content_hash") do
+      {:ok, slug,
+       %{
+         subtype: subtype,
+         title: title,
+         body: body,
+         meta: meta,
+         effective_date: effective_date,
+         expected_content_hash: expected_content_hash
+       }}
+    end
+  end
+
+  defp object_update_attrs(_params), do: {:error, {:missing, "object"}}
+
+  defp required_binary(params, key) do
+    case map_value(params, key) do
+      value when is_binary(value) -> {:ok, value}
+      _value -> {:error, {:missing, key}}
+    end
+  end
+
+  defp required_map(params, key) do
+    case map_value(params, key) do
+      value when is_map(value) -> {:ok, value}
+      _value -> {:error, {:missing, key}}
+    end
+  end
+
   defp optional_text(params, key) do
-    case param(params, key) do
+    case map_value(params, key) do
+      nil -> {:ok, nil}
+      "" -> {:ok, nil}
+      value when is_binary(value) -> {:ok, value}
+      _value -> {:error, {:invalid, key}}
+    end
+  end
+
+  defp optional_date(params, key) do
+    case map_value(params, key) do
+      nil ->
+        {:ok, nil}
+
+      "" ->
+        {:ok, nil}
+
+      %Date{} = date ->
+        {:ok, date}
+
       value when is_binary(value) ->
-        case String.trim(value) do
-          "" -> nil
-          text -> text
+        case Date.from_iso8601(value) do
+          {:ok, date} -> {:ok, date}
+          {:error, _reason} -> {:error, {:invalid, key}}
         end
 
       _value ->
-        nil
+        {:error, {:invalid, key}}
     end
   end
 
-  # Cast params carry atom keys and multipart bodies carry string keys; one
-  # reader accepts both so every call site stays shape-agnostic.
-  defp param(params, key) do
-    case Map.fetch(params, key) do
-      {:ok, value} ->
-        value
+  defp map_value(map, key) when is_map(map) and is_binary(key) do
+    Map.get(map, key, Map.get(map, String.to_existing_atom(key)))
+  rescue
+    ArgumentError -> Map.get(map, key)
+  end
 
-      :error ->
-        Enum.find_value(params, fn {candidate, value} ->
-          if string_key(candidate) == key, do: {:found, value}
-        end)
-        |> case do
-          {:found, value} -> value
-          nil -> nil
-        end
+  defp render_object_page(conn, slug) do
+    case GetPage.get_page_admin(slug) do
+      {:ok, page} -> json_plain(conn, %{object: page})
+      {:error, reason} -> error(conn, reason)
+      {:ambiguous, _candidates} -> error(conn, :not_found)
     end
   end
 
-  defp string_key(key) when is_atom(key), do: Atom.to_string(key)
-  defp string_key(key), do: to_string(key)
-
-  defp error(conn, :forbidden), do: ConsoleErrors.render(conn, 403, "forbidden", "access denied")
-
-  defp error(conn, reason)
-       when reason in [:not_found, :entry_not_found, :audit_not_found] do
-    ConsoleErrors.render(conn, 404, "not_found", "Brain record was not found")
-  end
-
-  defp error(conn, reason)
-       when reason in [:no_ready_file_worker, :no_worker_available, :worker_not_ready] do
-    ConsoleErrors.render(
+  defp object_write_error(conn, :content_hash_conflict, _body) do
+    render_error(
       conn,
       409,
-      "worker_not_ready",
-      "No Agent Computer worker is ready; retry learning later"
+      "content_hash_conflict",
+      "the object changed after this editor loaded it"
     )
   end
 
-  defp error(conn, {:not_found, _kind}) do
-    ConsoleErrors.render(conn, 404, "not_found", "Brain record was not found")
+  defp object_write_error(conn, reason, body)
+       when reason in [
+              :nested_audience_tag,
+              :unopened_audience_tag,
+              :unclosed_audience_tag,
+              :misplaced_audience_tag
+            ] do
+    case Markdoc.diagnostic(body) do
+      %{code: code, line: line} ->
+        render_error(conn, 422, code, "the Brain body syntax is invalid", [
+          %{path: "body", line: line}
+        ])
+
+      nil ->
+        error(conn, reason)
+    end
   end
 
-  defp error(conn, reason)
-       when reason in [:stale, :stale_entry, :lock_version_mismatch, :optimistic_lock_conflict] do
-    optimistic_lock_error(conn)
-  end
+  defp object_write_error(conn, reason, _body), do: error(conn, reason)
 
-  defp error(conn, {:stale, _details}), do: optimistic_lock_error(conn)
+  defp error(conn, :forbidden), do: render_error(conn, 403, "forbidden", "access denied")
+  defp error(conn, :not_found), do: render_error(conn, 404, "not_found", "resource not found")
 
-  defp error(conn, {:audit_restore_conflict, _details}) do
-    ConsoleErrors.render(
-      conn,
-      409,
-      "audit_restore_conflict",
-      "The audited change is no longer the current state; reopen the entry before deciding"
-    )
-  end
+  defp error(conn, {:missing, key}),
+    do:
+      render_error(conn, 422, "validation_failed", "#{key} is required", [
+        %{path: key, kind: "missing"}
+      ])
 
-  defp error(conn, :audit_selection_changed) do
-    ConsoleErrors.render(
-      conn,
-      409,
-      "audit_selection_changed",
-      "The selected audit records changed; preview and select them again"
-    )
-  end
+  defp error(conn, {:invalid, key}),
+    do:
+      render_error(conn, 422, "validation_failed", "#{key} is invalid", [
+        %{path: key, kind: "invalid"}
+      ])
 
-  defp error(conn, {:missing, key}) do
-    ConsoleErrors.render(conn, 422, "validation_failed", "#{key} is required")
-  end
+  defp error(conn, {:invalid_slug, _slug}),
+    do:
+      render_error(
+        conn,
+        422,
+        "invalid_slug",
+        "the slug must use plain path segments without spaces",
+        [%{path: "slug"}]
+      )
 
-  defp error(conn, reason) when reason in [:invalid_horizon_days, :invalid_lookback_days] do
-    ConsoleErrors.render(conn, 422, "validation_failed", "#{reason} is out of range")
-  end
+  defp error(conn, {:reserved_object_slug, _slug}),
+    do:
+      render_error(conn, 422, "reserved_slug", "this slug prefix is reserved for the system", [
+        %{path: "slug"}
+      ])
 
-  defp error(conn, %Ecto.Changeset{} = changeset) do
-    ConsoleErrors.render(
-      conn,
-      422,
-      "validation_failed",
-      "request validation failed",
-      ConsoleErrors.changeset_details(changeset)
-    )
-  end
+  defp error(conn, {:slug_taken, _slug}),
+    do:
+      render_error(conn, 409, "slug_taken", "an object or alias with this slug already exists", [
+        %{path: "slug"}
+      ])
+
+  defp error(conn, {:unknown_object_type, _type, %{installed_types: installed}}),
+    do:
+      render_error(conn, 422, "unknown_object_type", "this object type is not installed", [
+        %{path: "type", installed_types: installed}
+      ])
+
+  defp error(conn, {:reserved_object_type, _type}),
+    do:
+      render_error(
+        conn,
+        422,
+        "reserved_object_type",
+        "this object type is reserved for Library projections",
+        [%{path: "type"}]
+      )
 
   defp error(conn, reason) do
-    ConsoleErrors.render(conn, 422, "invalid_brain_operation", "Brain request is invalid", [
+    render_error(conn, 422, "brain_request_invalid", "brain request failed", [
       %{reason: inspect(reason)}
     ])
   end
 
-  defp optimistic_lock_error(conn) do
-    ConsoleErrors.render(
-      conn,
-      409,
-      "optimistic_lock_conflict",
-      "Brain content changed; reload before applying this operation"
-    )
+  defp render_error(conn, status, code, message, details \\ []) do
+    ConsoleErrors.render(conn, status, code, message, details)
   end
 end

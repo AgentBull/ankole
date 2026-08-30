@@ -19,22 +19,10 @@ defmodule Ankole.AIAgent.Library.AgentPlugins.Config do
     [agent_plugin_defaults_definition(), skill_defaults_definition()]
   end
 
-  @spec ensure_registered() :: :ok | {:error, term()}
-  def ensure_registered do
-    Enum.reduce_while(definitions(), :ok, fn definition, :ok ->
-      case AppConfigure.register_definitions([definition]) do
-        :ok -> {:cont, :ok}
-        {:error, {:duplicate_key, key}} when key == definition.key -> {:cont, :ok}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
-  end
-
   @spec defaults(keyword()) ::
           {:ok, %{agent_plugins: map(), skills: map()}} | {:error, term()}
   def defaults(opts \\ []) do
-    with :ok <- ensure_registered(),
-         {:ok, agent_plugins} <- get(agent_plugin_defaults_definition(), opts),
+    with {:ok, agent_plugins} <- get(agent_plugin_defaults_definition(), opts),
          {:ok, skills} <- get(skill_defaults_definition(), opts) do
       {:ok, %{agent_plugins: agent_plugins, skills: skills}}
     end
@@ -56,11 +44,9 @@ defmodule Ankole.AIAgent.Library.AgentPlugins.Config do
   def put_skill_default(_skill_id, _enabled), do: {:error, :invalid_skill_default}
 
   defp update_default(definition, id, enabled) do
-    with :ok <- ensure_registered() do
-      AppConfigure.update_global(definition, fn values ->
-        {:ok, Map.put(values, id, enabled)}
-      end)
-    end
+    AppConfigure.update_global(definition, fn values ->
+      {:ok, Map.put(values, id, enabled)}
+    end)
   end
 
   defp get(definition, opts) do

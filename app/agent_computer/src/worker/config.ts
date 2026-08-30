@@ -1,13 +1,4 @@
 import { existsSync } from 'node:fs'
-import { create } from '@bufbuild/protobuf'
-import {
-  AgentComputerWorkerCapacitySchema,
-  AgentComputerWorkerHeartbeatSchema,
-  AgentComputerWorkerReadySchema,
-  createEnvelope,
-  envelopeHeader,
-  type Envelope
-} from '../fabric/envelope_proto'
 import { AGENTS_ROOT, BUILTIN_SKILLS_ROOT } from '../core/agent-home-paths'
 
 export type WorkerConfig = {
@@ -21,11 +12,12 @@ export type WorkerConfig = {
   maxConcurrentTurns: number
 }
 
+/** Default admission limit for one Worker when the operator sets no override. */
 const defaultMaxConcurrentTurns = 9
+/** Actor-scoped variables that a pooled Worker process must not inherit. */
 const actorSpecificEnv = ['ANKOLE_AGENT_UID', 'ANKOLE_SESSION_ID', 'ANKOLE_ACTOR_EPOCH']
+/** Marker that identifies the packaged Agent Computer runtime. */
 const defaultContainerMarkerPath = '/etc/ankole-agent-computer-container'
-const workerRuntime = 'bun'
-const workerVersion = '0.1.0'
 
 /**
  * Parses the worker process environment into the stable computer-worker config.
@@ -68,14 +60,11 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
 }
 
 /**
- * Enforces the Agent Computer deployment invariant at process startup.
+ * Rejects execution outside the Worker image.
  *
- * Mounting TS source into the image is allowed, but the worker itself must run
- * in the Linux Docker image that provides bubblewrap, Chromium/Python runtime
- * dependencies, the native kernel, and the `/agents` filesystem contract. This turns
- * host-Bun/non-Linux execution from an accidental partial mode into a startup
- * error. Chromium is image-owned only for the internal rendered web_fetch
- * fallback; it is not a model-visible browser surface.
+ * The image supplies the native kernel, sandbox tools, browser runtime,
+ * Chromium, and the Agent Home filesystem contract. A source mount does not
+ * relax this boundary.
  */
 function assertContainerRuntime(containerMarkerPath: string): void {
   if (process.platform !== 'linux') {
@@ -87,9 +76,6 @@ function assertContainerRuntime(containerMarkerPath: string): void {
   }
 }
 
-/**
- * Reads an optional string environment variable.
- */
 function optionalEnv(env: Record<string, string | undefined>, key: string, fallback: string): string
 function optionalEnv(env: Record<string, string | undefined>, key: string, fallback?: undefined): string | undefined
 function optionalEnv(env: Record<string, string | undefined>, key: string, fallback?: string): string | undefined {
@@ -124,93 +110,6 @@ export function parseRuntimeFabricEndpoint(value: string): string {
   return `tcp://${url.host}`
 }
 
-/**
- * Builds the first lifecycle envelope sent after the DEALER connects.
- *
- * Runtime and product version are observability metadata. Protocol compatibility
- * is enforced by the envelope header before this worker can enter the ready pool.
- */
-export function workerReadyEnvelope(config: WorkerConfig, availableTurnSlots = config.maxConcurrentTurns): Envelope {
-  const available = clampAvailableSlots(config, availableTurnSlots)
-
-  return createEnvelope({
-    ...envelopeHeader(`worker-ready-${crypto.randomUUID()}`),
-    body: {
-      case: 'workerReady',
-      value: create(AgentComputerWorkerReadySchema, {
-        workerId: config.workerID,
-        incarnationId: config.incarnationID,
-        runtime: workerRuntime,
-        version: workerVersion,
-        maxTurns: config.maxConcurrentTurns,
-        availableTurnSlots: available
-      })
-    }
-  })
-}
-
-/**
- * Builds the periodic liveness envelope for the admitted worker process.
- *
- * The control plane fences heartbeats by worker id and transport route, so an
- * old process cannot keep a replaced worker projection alive.
- */
-export function workerHeartbeatEnvelope(
-  config: WorkerConfig,
-  monotonicMs = Math.floor(performance.now()),
-  activeTurns = 0
-): Envelope {
-  const available = clampAvailableSlots(config, config.maxConcurrentTurns - activeTurns)
-
-  return createEnvelope({
-    ...envelopeHeader(`worker-heartbeat-${crypto.randomUUID()}`),
-    body: {
-      case: 'workerHeartbeat',
-      value: create(AgentComputerWorkerHeartbeatSchema, {
-        workerId: config.workerID,
-        incarnationId: config.incarnationID,
-        monotonicMs: BigInt(monotonicMs),
-        activeTurns,
-        runtime: workerRuntime,
-        version: workerVersion,
-        maxTurns: config.maxConcurrentTurns,
-        availableTurnSlots: available
-      })
-    }
-  })
-}
-
-/**
- * Builds the capacity projection used by the simple worker scheduler.
- *
- * Capacity is intentionally small here: it answers whether the worker can take
- * more turns, not which actor or tool classes it supports.
- */
-export function workerCapacityEnvelope(
-  config: WorkerConfig,
-  availableTurnSlots = config.maxConcurrentTurns,
-  activeTurns = 0
-): Envelope {
-  const available = clampAvailableSlots(config, availableTurnSlots)
-
-  return createEnvelope({
-    ...envelopeHeader(`worker-capacity-${crypto.randomUUID()}`),
-    body: {
-      case: 'workerCapacity',
-      value: create(AgentComputerWorkerCapacitySchema, {
-        workerId: config.workerID,
-        incarnationId: config.incarnationID,
-        maxTurns: config.maxConcurrentTurns,
-        activeTurns,
-        availableTurnSlots: available
-      })
-    }
-  })
-}
-
-/**
- * Reads a required string environment variable.
- */
 function requiredEnv(env: Record<string, string | undefined>, key: string): string {
   const value = env[key]?.trim()
   if (!value) {
@@ -232,9 +131,6 @@ function requiredRawEnv(env: Record<string, string | undefined>, key: string): s
   return value
 }
 
-/**
- * Parses a positive integer environment override.
- */
 function optionalPositiveIntegerEnv(env: Record<string, string | undefined>, key: string, fallback: number): number {
   const raw = env[key]?.trim()
   if (!raw) return fallback
@@ -245,15 +141,4 @@ function optionalPositiveIntegerEnv(env: Record<string, string | undefined>, key
   }
 
   return value
-}
-
-/**
- * Clamps capacity before it is projected to the control plane.
- *
- * A bad local counter should degrade to zero capacity instead of advertising a
- * number the scheduler cannot safely interpret.
- */
-function clampAvailableSlots(config: WorkerConfig, availableTurnSlots: number): number {
-  if (!Number.isInteger(availableTurnSlots)) return 0
-  return Math.max(0, Math.min(config.maxConcurrentTurns, availableTurnSlots))
 }

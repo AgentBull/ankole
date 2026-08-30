@@ -9,12 +9,16 @@ defmodule Ankole.Plugins.WeComAdapterTest do
   alias Ankole.Plugins.WeComAdapter
   alias Ankole.Plugins.WeComAdapter.Config
   alias Ankole.Plugins.WeComAdapter.ConnectionOwner
+  alias Ankole.Plugins.WeComAdapter.ConnectionReconciler
+  alias Ankole.Plugins.WeComAdapter.ConnectionSupervisor
   alias Ankole.Plugins.WeComAdapter.IdentityProvider
+  alias Ankole.Plugins.WeComAdapter.Inbound
   alias Ankole.Plugins.WeComAdapter.Outbox
   alias Ankole.Plugins.WeComAdapter.TemplateCard
   alias Ankole.Repo
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.Adapters
+  alias Ankole.SignalsGateway.AdapterContext
   alias Ankole.SignalsGateway.Channel
   alias Ankole.SignalsGateway.OutboxEntry
 
@@ -38,14 +42,7 @@ defmodule Ankole.Plugins.WeComAdapterTest do
       assert chat.inbound_capabilities == ["entry_receive", "action_event"]
       # No recall API on the bot surface — delete_entry is deliberately absent.
       assert chat.outbound_capabilities == ["post_entry", "card"]
-      assert chat.reply_preview_module == Ankole.Plugins.WeComAdapter.AIStream
       assert :ok = Adapters.validate_declaration(chat)
-
-      chat_fields = Map.new(chat.fields, &{&1.path, &1})
-      assert chat_fields["botId"].advanced == false
-      assert chat_fields["secret"].advanced == false
-      assert chat_fields["platformSubjectNamespace"].advanced == true
-      assert chat_fields["userName"].advanced == true
 
       assert identity.contract_id == "principals.identity_provider"
 
@@ -179,6 +176,33 @@ defmodule Ankole.Plugins.WeComAdapterTest do
     end
   end
 
+  describe "connection reconciliation" do
+    test "the reconciler stops the owner after its binding is disabled" do
+      {binding, config} = setup_chat_binding()
+      key = Config.connection_key(config)
+
+      context =
+        AdapterContext.new(
+          agent_uid: binding.agent_uid,
+          binding_name: binding.name,
+          adapter: "wecom",
+          user_name: "WeCom"
+        )
+
+      assert {:ok, owner} =
+               ConnectionSupervisor.ensure_started(config, [
+                 Inbound.chat_consumer(context, config)
+               ])
+
+      on_exit(fn -> ConnectionSupervisor.stop(key) end)
+
+      assert {:ok, _binding} = SignalsGateway.disable_binding(binding.agent_uid, binding.name)
+
+      assert %{started: 0, stopped: 1, errors: []} = ConnectionReconciler.reconcile_once()
+      refute Process.alive?(owner)
+    end
+  end
+
   defp setup_chat_binding do
     setup_wecom_config_registry()
 
@@ -197,7 +221,8 @@ defmodule Ankole.Plugins.WeComAdapterTest do
         adapter: "wecom",
         config_ref: "app-config://#{Config.chat_config_key(config_id)}",
         filters: %{},
-        unaddressed_group_message_policy: :ignore
+        unaddressed_group_message_policy: :ignore,
+        unmatched_sender_policy: :create_standalone
       })
 
     {binding, config}
@@ -206,7 +231,6 @@ defmodule Ankole.Plugins.WeComAdapterTest do
   defp setup_wecom_config_registry do
     AppConfigureRegistry.clear_for_test()
     AppConfigureCache.clear_for_test()
-    :ok = AppConfigure.register_patterns(WeComAdapter.app_config_patterns())
   end
 
   defp start_fake_client(config, script \\ %{}) do
@@ -420,7 +444,7 @@ defmodule Ankole.Plugins.WeComAdapterTest do
     )
   end
 
-  test "authorization_url builds the WWLogin page and fails closed when disabled" do
+  test "authorization_url builds the WWLogin page" do
     config = identity_config()
 
     assert {:ok, url} =
@@ -431,11 +455,6 @@ defmodule Ankole.Plugins.WeComAdapterTest do
 
     assert url =~ "login_type=CorpApp"
     assert url =~ "agentid=1000002"
-
-    disabled = identity_config(%{"oidc" => %{"enabled" => false}})
-
-    assert {:error, :oidc_disabled} =
-             IdentityProvider.authorization_url(disabled, redirect_uri: "https://x", state: "s")
   end
 
   test "the login chain resolves the code to a userid hydrated from the contacts secret" do

@@ -104,7 +104,7 @@ remain Skill semantics.
 ## Runtime behavior
 
 The main Agent has foreground `command`, `read_file`, `replace`, `patch`, and
-`reply_attachment` tools plus the allowlisted Brain, web, schedule, Skill, MCP,
+`reply_attachment` tools plus the allowlisted web, schedule, Skill, MCP,
 and BackgroundAgentJob surfaces. Host execution is never exposed; model-facing
 commands run through bubblewrap.
 

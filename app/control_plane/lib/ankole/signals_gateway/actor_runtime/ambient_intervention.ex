@@ -4,6 +4,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AmbientIntervention do
   import Ecto.Query, warn: false
 
   alias Ankole.Repo
+  alias Ankole.BackgroundAgentJobs.Queries, as: BackgroundAgentJobQueries
   alias Ankole.SignalsGateway.Actors
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery
@@ -154,9 +155,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AmbientIntervention do
 
     opts
     |> Keyword.put_new(:profile, "light")
-    |> Keyword.put(:admit_in_tx, fn repo ->
-      with :ok <- admit_fresh_in_tx(repo, event, now) do
-        run_downstream_admission(repo, downstream_admission)
+    |> Keyword.put(:admit_in_tx, fn repo, turn_start_spec ->
+      with {:ok, locked_event} <- admit_fresh_in_tx(repo, event, now),
+           {:ok, downstream_overrides} <-
+             run_downstream_admission(repo, turn_start_spec, downstream_admission) do
+        {:ok, put_work_candidates(repo, locked_event, downstream_overrides)}
       end
     end)
   end
@@ -166,9 +169,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AmbientIntervention do
 
     case Actors.lock_actor_event_in_tx(repo, event.id) do
       %ActorEvent{completed_at: nil, input_state: "open"} = locked_event ->
-        case stale_reason(repo, locked_event, now) do
-          nil -> :ok
-          reason -> {:error, {:ambient_stale, reason}}
+        case ensure_fresh_in_tx(repo, locked_event, now) do
+          :ok -> {:ok, locked_event}
+          {:error, _reason} = error -> error
         end
 
       %ActorEvent{} ->
@@ -179,11 +182,57 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AmbientIntervention do
     end
   end
 
-  defp run_downstream_admission(_repo, nil), do: :ok
-  defp run_downstream_admission(repo, callback) when is_function(callback, 1), do: callback.(repo)
+  defp run_downstream_admission(_repo, _turn_start_spec, nil), do: {:ok, %{}}
 
-  defp run_downstream_admission(_repo, callback),
+  defp run_downstream_admission(repo, turn_start_spec, callback) when is_function(callback, 2),
+    do: normalize_downstream_admission(callback.(repo, turn_start_spec))
+
+  defp run_downstream_admission(repo, _turn_start_spec, callback) when is_function(callback, 1),
+    do: normalize_downstream_admission(callback.(repo))
+
+  defp run_downstream_admission(_repo, _turn_start_spec, callback),
     do: {:error, {:invalid_turn_admission_callback, callback}}
+
+  defp normalize_downstream_admission(:ok), do: {:ok, %{}}
+  defp normalize_downstream_admission({:ok, %{} = overrides}), do: {:ok, overrides}
+  defp normalize_downstream_admission({:error, _reason} = error), do: error
+
+  defp normalize_downstream_admission(other),
+    do: {:error, {:invalid_turn_admission_result, other}}
+
+  defp put_work_candidates(repo, %ActorEvent{} = event, overrides) do
+    candidates =
+      BackgroundAgentJobQueries.ambient_candidates_in_tx(
+        repo,
+        event.agent_uid,
+        event.session_id,
+        event.signal_channel_id,
+        event.binding_name
+      )
+      |> work_candidates_payload()
+
+    request_context =
+      overrides
+      |> Map.get(:request_context, %{})
+      |> Map.put("ambient_work_candidates", candidates)
+
+    Map.put(overrides, :request_context, request_context)
+  end
+
+  defp work_candidates_payload(%{complete: complete, jobs: jobs}) do
+    %{
+      "complete" => complete,
+      "jobs" =>
+        Enum.map(jobs, fn job ->
+          %{
+            "job_id" => Integer.to_string(job.job_id),
+            "title" => job.title,
+            "status" => job.status,
+            "task_excerpt" => job.task_excerpt
+          }
+        end)
+    }
+  end
 
   defp finalize_admission_race({:error, {:ambient_stale, _reason}}, event, now),
     do: resolve(event, now)
@@ -196,6 +245,16 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AmbientIntervention do
   defp stale_reason(repo, %ActorEvent{} = event, now) do
     current_scene_fingerprint = current_scene_fingerprint(repo, event.signal_channel_id)
     stale_reason(repo, event, now, current_scene_fingerprint)
+  end
+
+  @doc false
+  @spec ensure_fresh_in_tx(module(), ActorEvent.t(), DateTime.t()) ::
+          :ok | {:error, {:ambient_stale, atom()}}
+  def ensure_fresh_in_tx(repo, %ActorEvent{} = event, %DateTime{} = now) do
+    case stale_reason(repo, event, now) do
+      nil -> :ok
+      reason -> {:error, {:ambient_stale, reason}}
+    end
   end
 
   defp stale_reason(repo, %ActorEvent{} = event, now, current_scene_fingerprint) do

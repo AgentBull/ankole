@@ -135,4 +135,4 @@ Plugin の登録は [Skill と Control Plane Plugin の開発](../writing-a-skil
 
 - AIGateway の概念（routing、resolution、統一 boundary）については、[AIGateway](../ai-gateway/) をお読みください。
 - Plugin の登録については、[Skill と Control Plane Plugin の開発](../writing-a-skill/) をお読みください。
-- 最初の Provider のセットアップについては、[クイックスタート](../quickstart/#3-add-an-llm-provider-and-create-an-agent) をお読みください。
+- 最初の Provider のセットアップについては、[クイックスタート](../quickstart/#llm-providers) をお読みください。

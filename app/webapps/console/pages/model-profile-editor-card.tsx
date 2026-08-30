@@ -15,7 +15,7 @@ import {
 } from '@ankole/uikit'
 import { RiArrowDownSLine } from '@remixicon/react'
 import type { TFunction } from 'i18next'
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import type {
   AiGatewayProviderItem as AIGatewayProviderItem,
@@ -122,16 +122,15 @@ export function ModelProfileEditorCard({
   const incomplete = Boolean(saveIncomplete || requiredConfigurationMissing || changedDraftIncomplete)
   const disableSave = persistencePending || (!dirty && !requiredConfigurationMissing)
   const hostedActive = providerHosted?.checked === true && providerHosted.replacesProfile
-  const [open, setOpen] = useState(needsAttention)
-  const manuallyToggled = useRef(false)
+  // `undefined` means the operator never toggled the card, so it follows
+  // `needsAttention`. A card needing attention stays open regardless — the
+  // manual choice applies once the attention state clears.
+  const [manualOpen, setManualOpen] = useState<boolean>()
+  const open = needsAttention || (manualOpen ?? false)
   const providerError = draft.error && !providerID.trim() ? draft.error : undefined
   const modelError =
     draft.error && providerID.trim() && configurableModel && !draft.model.trim() ? draft.error : undefined
   const formError = draft.error && !providerError && !modelError ? draft.error : undefined
-
-  useEffect(() => {
-    if (draft.error || !manuallyToggled.current || needsAttention) setOpen(needsAttention)
-  }, [draft.error, needsAttention])
 
   const renderOptionSetting = (setting: ProviderSetting) => (
     <div key={setting.key} className={setting.type === 'map' ? 'md:col-span-2' : undefined}>
@@ -155,13 +154,7 @@ export function ModelProfileEditorCard({
         event.preventDefault()
         onSave()
       }}>
-      <Collapsible
-        className="border border-border bg-card"
-        open={open}
-        onOpenChange={nextOpen => {
-          manuallyToggled.current = true
-          setOpen(nextOpen)
-        }}>
+      <Collapsible className="border border-border bg-card" open={open} onOpenChange={setManualOpen}>
         <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
           <CollapsibleTrigger className="group flex min-w-0 flex-1 basis-64 items-center gap-3 px-4 py-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
             <Badge className="shrink-0" variant={required ? 'default' : 'outline'}>
@@ -314,7 +307,7 @@ export function ModelProfileEditorCard({
               ) : !providerID ? (
                 <p className="text-xs text-muted-foreground">{t('console.models.provider_options_select')}</p>
               ) : !selectedKind ? (
-                <p className="text-xs text-muted-foreground">{t('common.loading')}</p>
+                <p className="text-xs text-muted-foreground">{t('console.models.provider_options_kind_unavailable')}</p>
               ) : optionSettings.length === 0 ? (
                 <p className="text-xs text-muted-foreground">{t('console.models.provider_options_empty')}</p>
               ) : (

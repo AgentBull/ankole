@@ -66,8 +66,8 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
   alias Ankole.AIGateway
   alias Ankole.AIGateway.CredentialPool
   alias Ankole.AIGateway.ProviderConfigs
+  alias Ankole.AIGateway.Tokens
   alias Ankole.Principals
-  alias AnkoleWeb.AIGatewayTokens
 
   def run(argv \\ System.argv()) do
     argv = normalize_argv(argv)
@@ -1619,11 +1619,23 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
   end
 
   defp create_agent!(uid, options) do
+    owner_uid = "human-e2e-owner-#{System.unique_integer([:positive])}"
+
+    case Principals.create_human(%{
+           uid: owner_uid,
+           display_name: "E2E Agent Owner",
+           email: "#{owner_uid}@example.com"
+         }) do
+      {:ok, _owner} -> :ok
+      {:error, reason} -> raise "create owner failed: #{inspect(reason)}"
+    end
+
     case Principals.create_agent(%{
            uid: uid,
            display_name: uid,
            role: "AIGateway E2E Agent",
-           options: options
+           options: options,
+           owner_principal_uid: owner_uid
          }) do
       {:ok, %{principal: principal}} -> principal
       {:error, reason} -> raise "create agent failed: #{inspect(reason)}"
@@ -1638,7 +1650,7 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
   end
 
   defp mint_agent_token!(agent_uid) do
-    case AIGatewayTokens.mint_for_agent(agent_uid) do
+    case Tokens.mint_for_agent(agent_uid) do
       {:ok, token} -> token.api_key
       {:error, reason} -> raise "mint token failed: #{inspect(reason)}"
     end

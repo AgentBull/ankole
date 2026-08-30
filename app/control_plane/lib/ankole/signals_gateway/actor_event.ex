@@ -154,7 +154,12 @@ defmodule Ankole.SignalsGateway.ActorEvent do
       do: get_in(payload, ["data", "wake_payload", "delivery"])
 
   def scheduled_delivery_snapshot(%__MODULE__{type: type, payload: payload})
-      when type in ["background_agent_job.completed", "background_agent_job.failed"] and
+      when type in [
+             "background_agent_job.completed",
+             "background_agent_job.failed",
+             "workflow.run.completed",
+             "workflow.run.failed"
+           ] and
              is_map(payload),
       do: get_in(payload, ["data", "reply_route", "delivery"])
 

@@ -36,12 +36,13 @@ Do not guess the code from the database — read it from the source the setup fl
 
 ## Treat model-profile slots as dials
 
-The ten profile slots are not just "primary model and friends." Each one is a dial:
+The eight built-in Agent profile slots — `primary`, `light`, `heavy`, `coding`, `vision_fallback`, `web_search`, `web_fetch`, and `image_generate` — are dials:
 
 - Turn **`primary`** down to a cheaper model when the agent mostly answers quick questions; turn it up when quality matters more than cost.
 - Bind **`light`** to something genuinely cheap and fast — it exists for the high-volume, low-stakes path.
 - Set **`vision_fallback`** only if the agent sees images; otherwise leave it unbound and save the slot.
 - **`web_search`** and **`web_fetch`** are independent — bind them only when the agent needs to reach the web.
+- Configure Brain retrieval once in **AppConfigure**, not in an Agent profile. `brain.embedding_model` applies to vector retrieval for every Agent, and `brain.rerank_model` applies to reranking. An empty embedding model disables vector retrieval; an empty rerank model keeps the fusion order. See [Brain](../brain/).
 
 An agent that "feels slow" is often a `primary` bound too heavy for the work it actually does.
 

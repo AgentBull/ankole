@@ -2,7 +2,7 @@ import { describe, expect, it } from 'bun:test'
 import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { codexJobProjectLocation, prepareCodexJobProject } from '../src/core/codex-runner/job-project'
+import { codexJobProjectLocation, prepareCodexJobProject } from '../src/core/codex-runner/job/job-project'
 
 describe('@ankole/agent-computer Codex Job workspace', () => {
   it('uses one stable real path as host path, cwd, and model-visible path', () => {

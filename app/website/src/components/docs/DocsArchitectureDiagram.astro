@@ -124,7 +124,7 @@ const copy = ko
 				'The control plane stores state and decides how work must run. Workers provide the compute environment. This split keeps Agent work independent of one process or machine.'
 		}
 
-const controlNodes = [
+const controlNodes: { copy: string[]; href?: string }[] = [
 	{ copy: copy.signals, href: docs('signals-gateway') },
 	{ copy: copy.identity, href: docs('principal-authz') },
 	{ copy: copy.ai, href: docs('ai-gateway') },
@@ -281,12 +281,19 @@ const controlNodes = [
 			<p class="mobile-layer-label mb-3">{copy.control}</p>
 			<div class="grid grid-cols-2 gap-2">
 				{
-					controlNodes.map(node => (
-						<a href={node.href} class="mobile-node border border-border">
-							<strong>{node.copy[0]}</strong>
-							<span>{node.copy[1]}</span>
-						</a>
-					))
+					controlNodes.map(node =>
+						node.href ? (
+							<a href={node.href} class="mobile-node border border-border">
+								<strong>{node.copy[0]}</strong>
+								<span>{node.copy[1]}</span>
+							</a>
+						) : (
+							<div class="mobile-node border border-border">
+								<strong>{node.copy[0]}</strong>
+								<span>{node.copy[1]}</span>
+							</div>
+						)
+					)
 				}
 			</div>
 		</section>

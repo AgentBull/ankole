@@ -8,7 +8,7 @@ import {
 } from '../../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import { jsonBytes, jsonObjectFromBytes } from '../../src/fabric/envelope_proto'
 import { runAutomationJob } from '../../src/automation-jobs/run'
-import { LARK_TENANT_TOKEN_ENV } from '../../src/core/turns/lark-credential'
+import { LARK_TENANT_TOKEN_ENV } from '../../src/core/execution/lark-credential'
 import { rpcMethods, type RPCRequester } from '../../src/lanes/rpc_lane'
 import type { WorkerConfig } from '../../src/worker/config'
 

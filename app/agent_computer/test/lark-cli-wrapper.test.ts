@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'bun:test'
 import { chmodSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { LARK_TENANT_TOKEN_FILE_ENV } from '../src/core/turns/lark-credential'
+import { LARK_TENANT_TOKEN_FILE_ENV } from '../src/core/execution/lark-credential'
 
 const sourceWrapper = join(import.meta.dir, '../scripts/lark-cli.sh')
 const roots: string[] = []

@@ -57,7 +57,7 @@ SignalsGateway 是共享工作的入口。一条聊天消息、一个 webhook、
 | `PATCH` | `/agents/:agent_uid/signal-bindings/:binding_name` | 更新路由规则 |
 | `DELETE` | `/agents/:agent_uid/signal-bindings/:binding_name` | 删除路由规则 |
 
-一条规则包含适配器、配置引用、过滤条件、群消息策略、`enabled` 开关和 `confidential_memory` 开关。停用规则后，新信息不会再唤醒对应的 Actor，但规则本身仍会保留。不可用的规则会记录 `unavailable_reason`，运维者可以据此判断停止原因。
+一条规则包含适配器、配置引用、过滤条件、群消息策略和 `enabled` 开关。停用规则后，新信息不会再唤醒对应的 Actor，但规则本身仍会保留。不可用的规则会记录 `unavailable_reason`，运维者可以据此判断停止原因。
 
 适配器不是写死的。它们在启动时从插件注册表中按 `signals_gateway.adapter` 契约解析，所以可用的 Provider 集合就是本实例的插件所声明的集合。请求一个没有任何声明提供的适配器 ID，会返回 `signal_adapter_not_found`。
 

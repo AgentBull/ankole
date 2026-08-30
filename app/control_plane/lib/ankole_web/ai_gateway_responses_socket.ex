@@ -20,16 +20,12 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
 
   @socket_response_history_limit 32
 
-  # ─────────────────────────────────────────────────────────────────
   # Connection lifecycle
-  # ─────────────────────────────────────────────────────────────────
 
   @impl WebSock
   def init(%{subject_uid: _subject_uid, subject_type: _subject_type} = state), do: {:ok, state}
 
-  # ─────────────────────────────────────────────────────────────────
   # Incoming: response.create
-  # ─────────────────────────────────────────────────────────────────
 
   @impl WebSock
   def handle_in({payload, [opcode: :text]}, state) do
@@ -348,9 +344,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
     end
   end
 
-  # ─────────────────────────────────────────────────────────────────
   # AIGateway response stream
-  # ─────────────────────────────────────────────────────────────────
 
   @impl WebSock
   def handle_info(
@@ -375,6 +369,15 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
 
         push_text_chunks(chunks ++ [Ankole.JSON.encode!(event)], clear_active_stream(state))
     end
+  end
+
+  def handle_info(
+        {:ai_gateway_response_stream, ref, :events, events, {:terminal, nil}},
+        %{active_stream: %{ref: ref}} = state
+      ) do
+    state = clear_active_stream(state)
+    chunks = Enum.map(events, &{:text, Ankole.JSON.encode!(&1)})
+    {:stop, :stateful_commit_failed, 1011, chunks, state}
   end
 
   def handle_info(
@@ -457,9 +460,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
       {:error, {:exit, reason}}
   end
 
-  # ─────────────────────────────────────────────────────────────────
   # Validation helpers
-  # ─────────────────────────────────────────────────────────────────
 
   defp ensure_no_active_stream(%{active_stream: _stream} = state) do
     {:error,

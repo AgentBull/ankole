@@ -1,6 +1,7 @@
-import { describe, expect, test } from 'bun:test'
+import { beforeAll, describe, expect, test } from 'bun:test'
 import { QueryClient, QueryClientProvider, QueryObserver } from '@tanstack/react-query'
 import { renderToStaticMarkup } from 'react-dom/server'
+import { loadLocale } from '../../common/i18n'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import {
   ankoleWebAgentControllerIndexQueryKey,
@@ -10,6 +11,9 @@ import {
 import { agentEditorDetailOptions, AgentEditorPage } from './agents'
 import { IdentityProviderEditorPage } from './identity'
 import { permissionGrantDetailOptions } from './permission-grant-editor'
+
+// Catalogs load on demand; these assertions render translated en-US copy.
+beforeAll(() => loadLocale('en-US'))
 
 describe('resource editor lookup with fresh caches', () => {
   test('does not declare a newly created Agent missing before its show request answers', () => {
@@ -22,14 +26,16 @@ describe('resource editor lookup with fresh caches', () => {
     expect(html).not.toContain('Agent newly-created was not found.')
   })
 
-  test('treats a disabled Agent as deleted instead of reopening its editor', () => {
+  test('opens a disabled Agent in the editor so it can be inspected before re-enabling or deleting', () => {
     const queryClient = freshQueryClient()
     queryClient.setQueryData(ankoleWebAgentControllerShowQueryKey({ path: { agent_uid: 'disabled-agent' } }), {
       agent: {
         avatar_url: null,
         created_by_principal_uid: null,
         display_name: 'Disabled Agent',
+        group_memory_disclosure_mode: 'strict' as const,
         inserted_at: '2026-08-14T00:00:00Z',
+        owner_principal_uid: 'operator',
         options: {},
         role: 'assistant',
         status: 'disabled',
@@ -41,10 +47,9 @@ describe('resource editor lookup with fresh caches', () => {
 
     const html = renderEditor(queryClient, '/agents/disabled-agent', 'agents/:uid', <AgentEditorPage />)
 
-    expect(html).toContain('Page not found')
+    expect(html).not.toContain('Page not found')
+    expect(html).toContain('<form')
     expect(html).toContain('disabled-agent')
-    expect(html).toContain('was not found.')
-    expect(html).not.toContain('<form')
   })
 
   test('refreshes a fresh Agent detail cache when the editor mounts', async () => {
@@ -133,7 +138,9 @@ function agentResponse(uid: string, status: 'active' | 'disabled') {
       avatar_url: null,
       created_by_principal_uid: null,
       display_name: 'Cached Agent',
+      group_memory_disclosure_mode: 'strict' as const,
       inserted_at: '2026-08-14T00:00:00Z',
+      owner_principal_uid: 'operator',
       options: {},
       role: 'assistant',
       status,

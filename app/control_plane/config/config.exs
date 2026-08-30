@@ -1,10 +1,3 @@
-# This file is responsible for configuring your application
-# and its dependencies with the aid of the Config module.
-#
-# This configuration file is loaded before any dependency and
-# is restricted to this project.
-
-# General application configuration
 import Config
 
 Code.require_file("support/bootstrap.exs", __DIR__)
@@ -20,14 +13,15 @@ config :ankole, Ankole.Repo, types: Ankole.PostgrexTypes
 config :ankole, :control_plane_plugin_modules, [
   Ankole.Plugins.ChinaMarketAIProviders,
   Ankole.Plugins.DingTalkAdapter,
+  Ankole.Plugins.DiscordAdapter,
   Ankole.Plugins.GoogleWorkspaceAdapter,
   Ankole.Plugins.LarkAdapter,
   Ankole.Plugins.Microsoft365Adapter,
   Ankole.Plugins.SlackAdapter,
+  Ankole.Plugins.TelegramAdapter,
   Ankole.Plugins.WeComAdapter
 ]
 
-# Configure the endpoint
 config :ankole, AnkoleWeb.Endpoint,
   url: [host: "localhost"],
   adapter: Bandit.PhoenixAdapter,
@@ -69,17 +63,11 @@ config :ankole, Oban,
     {Oban.Plugins.Cron,
      crontab: [
        {"* * * * *", Ankole.SignalsGateway.ActorRuntime.Jobs.EnqueueDailySessionResets},
+       {"* * * * *", Ankole.Brain.Jobs.Tick},
        {"0 * * * *", Ankole.IdentityProviders.Jobs.EnqueueDirectorySyncs},
-       {"*/5 * * * *", Ankole.Brain.Jobs.EnqueueEpisodeSummaries},
-       {"*/5 * * * *", Ankole.Brain.Jobs.EmbedPendingEpisodes},
-       {"*/5 * * * *", Ankole.Brain.Jobs.EmbedPendingBlocks},
-       {"* * * * *", Ankole.Brain.Jobs.EnqueuePrincipalDreaming},
-       {"* * * * *", Ankole.Brain.Jobs.EnqueueSourceSyncs},
        {"*/15 * * * *", Ankole.SignalsGateway.Jobs.CleanupExpiredState},
        {"41 * * * *", Ankole.AIGateway.Jobs.CleanupExpiredArtifacts}
      ]}
   ]
 
-# Import environment specific config. This must remain at the bottom
-# of this file so it overrides the configuration defined above.
 import_config "#{config_env()}.exs"

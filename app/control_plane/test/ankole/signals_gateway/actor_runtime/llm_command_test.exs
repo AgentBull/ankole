@@ -70,9 +70,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.LLMCommandTest do
     refute_receive {:actor_lane, _envelope}, 100
 
     assert {:ok, %{status: :noop_completed}} =
-             ActorRuntime.handle_turn_noop_completed(
-               turn_noop_completed_payload(active_turn, "test_complete")
-             )
+             complete_turn_noop(active_turn, "test_complete")
   end
 
   test "/llm profile without a body applies to one turn and the next normal message returns to primary" do
@@ -111,9 +109,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.LLMCommandTest do
              ActorRuntime.handle_turn_accepted(turn_accepted_payload(custom_start.turn))
 
     assert {:ok, %{status: :noop_completed}} =
-             ActorRuntime.handle_turn_noop_completed(
-               turn_noop_completed_payload(custom_start.turn, "test_complete")
-             )
+             complete_turn_noop(custom_start.turn, "test_complete")
 
     assert {:ok, %{actor_event: normal_input}} =
              emit_entry(
@@ -184,9 +180,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.LLMCommandTest do
     refute_receive {:actor_lane, _envelope}, 100
 
     assert {:ok, %{status: :noop_completed}} =
-             ActorRuntime.handle_turn_noop_completed(
-               turn_noop_completed_payload(active_turn, "test_complete")
-             )
+             complete_turn_noop(active_turn, "test_complete")
 
     assert {:ok, %{send_outcome: "sent_or_queued"}} =
              process_ready_events_once(
@@ -247,18 +241,30 @@ defmodule Ankole.SignalsGateway.ActorRuntime.LLMCommandTest do
              ActorRuntime.handle_turn_accepted(turn_accepted_payload(first_start.turn))
 
     assert {:ok, %{status: :noop_completed}} =
-             ActorRuntime.handle_turn_noop_completed(
-               turn_noop_completed_payload(first_start.turn, "test_complete")
-             )
+             complete_turn_noop(first_start.turn, "test_complete")
 
     configure_custom_profile(agent.uid, "kimi", "moonshotai/kimi-k3-code", "max")
+
+    Repo.insert!(%OutboxEntry{
+      agent_uid: agent.uid,
+      binding_name: "bot",
+      outbound_key: "llm-retry-surface",
+      delivery_class: :durable_ai_reply,
+      operation: :post,
+      status: :succeeded,
+      signal_channel_id: original.signal_channel_id,
+      created_source_entry_id: "provider-llm-reply",
+      source_actor_event_id: original.id,
+      payload: %{},
+      attempt_count: 1
+    })
 
     assert {:ok, %{actor_event: retry_command}} =
              emit_entry(
                agent.uid,
                "bot",
                group_entry(%{
-                 text: "/retry",
+                 text: "/retry actor-event::#{original.id}",
                  explicit: true,
                  source_event_id: "evt-retry-llm",
                  source_entry_id: "msg-retry-llm"

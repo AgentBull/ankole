@@ -40,6 +40,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
   alias Ankole.Plugins.DingTalkAdapter.Config
   alias Ankole.Plugins.DingTalkAdapter.InteractiveCard
   alias Ankole.Plugins.DingTalkAdapter.Markdown
+  alias Ankole.Plugins.DingTalkAdapter.Outbox
   alias Ankole.Repo
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.ActorEvent
@@ -80,7 +81,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
     request |> reconcile(final?, true) |> normalize_result()
   end
 
-  # --- core reconcile ------------------------------------------------------
+  # core reconcile
 
   defp reconcile(%Request{} = request, final?, repaint?) do
     with {:ok, event} <- fresh_event(request.actor_event),
@@ -149,7 +150,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
     |> then(&Actors.put_reply_preview_checkpoint(event.id, &1))
   end
 
-  # --- card path -----------------------------------------------------------
+  # card path
 
   defp reconcile_card(
          event,
@@ -467,7 +468,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
     end
   end
 
-  # --- rendering -----------------------------------------------------------
+  # rendering
 
   defp card_param_map(presentation, display_answer, card) do
     %{
@@ -579,7 +580,6 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
     [
       trigger_note(presentation["trigger_context"], card),
       page_note(card),
-      count_note(meta["memory_source_count"], &"#{&1} 条记忆来源"),
       count_note(meta["attachment_count"], &"已附上 #{&1} 个文件"),
       elapsed_note(meta["elapsed_ms"])
     ]
@@ -633,7 +633,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
   defp text_or_empty(text) when is_binary(text), do: text
   defp text_or_empty(_other), do: ""
 
-  # --- space (group / DM) --------------------------------------------------
+  # space (group / DM)
 
   defp resolve_space(%ActorEvent{signal_channel_id: signal_channel_id}) do
     conversation_id = decode_channel(signal_channel_id)
@@ -653,7 +653,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
   defp decode_channel("dingtalk:" <> encoded), do: URI.decode(encoded)
   defp decode_channel(value), do: value
 
-  # --- checkpoint ----------------------------------------------------------
+  # checkpoint
 
   defp current_checkpoint(%ActorEvent{reply_preview_checkpoint: checkpoint}, _request)
        when is_map(checkpoint),
@@ -730,12 +730,12 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
          conversation_id: conversation_id
        }) do
     checkpoint
-    |> maybe_put("subject_uid", subject_uid)
-    |> maybe_put("conversation_id", conversation_id)
+    |> put_text("subject_uid", subject_uid)
+    |> put_text("conversation_id", conversation_id)
   end
 
-  defp maybe_put(map, _key, value) when not is_binary(value), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
+  defp put_text(map, _key, value) when not is_binary(value), do: map
+  defp put_text(map, key, value), do: Map.put(map, key, value)
 
   defp put_thought_lease(checkpoint, presentation, false) do
     case presentation["thought"] do
@@ -769,7 +769,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
     }
   end
 
-  # --- degraded plain delivery ----------------------------------------------
+  # degraded plain delivery
 
   # Terminal-only fallback: the durable reply intent is still delivered, just
   # without a card. Chunks ride the same Markdown split budget as Outbox text,
@@ -896,7 +896,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
     end)
   end
 
-  # --- helpers -------------------------------------------------------------
+  # helpers
 
   defp card_template_id(config) do
     case Map.get(config, "cardTemplateId") do
@@ -932,9 +932,12 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
     end
   end
 
-  # Provider errors surface with their classified reason for the gateway's retry
-  # budget; deterministic degrades already returned the non-retryable
-  # cardkit_plain_text_fallback shape from inside reconcile.
-  defp normalize_result({:error, %Error{} = error}), do: {:error, {:reply_delivery, error.reason}}
+  # Provider errors surface classified (retryable / operator_action_required /
+  # permanent) so the gateway can retry, block, or stop; deterministic degrades
+  # already returned the non-retryable cardkit_plain_text_fallback shape from
+  # inside reconcile.
+  defp normalize_result({:error, %Error{} = error}),
+    do: Outbox.normalize_delivery_result({:error, error})
+
   defp normalize_result(result), do: result
 end

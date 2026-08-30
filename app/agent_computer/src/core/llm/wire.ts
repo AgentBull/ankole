@@ -159,7 +159,7 @@ function localToolSpec(tool: NonNullable<CallModelOptions['tools']>[string]) {
     description: tool.description,
     parameters: tool.jsonSchema ?? zodToJSONSchema(tool.parameters),
     ...(tool.outputSchema ? { output_schema: tool.outputSchema } : {}),
-    strict: false,
+    strict: tool.strict ?? false,
     ...(tool.deferLoading ? { defer_loading: true } : {}),
     ...(tool.toolSearchText ? { __ankole_search_text: tool.toolSearchText } : {}),
     ...(tool.allowedCallers?.length ? { allowed_callers: tool.allowedCallers } : {})
@@ -181,16 +181,14 @@ export function statefulResponseParams(
     metadata
   } as ResponseCreateParams & JSONObject
 
-  match([stateful.previousResponseID, stateful.conversationID] as const)
-    .with([P.string, P._], ([previousResponseID]) => {
+  match(stateful)
+    .with({ previousResponseID: P.string }, ({ previousResponseID }) => {
       request.previous_response_id = previousResponseID
     })
-    .with([P._, P.string], ([, conversationID]) => {
+    .with({ conversationID: P.string }, ({ conversationID }) => {
       request.conversation = `conv_${conversationID}`
     })
-    .otherwise(() => {
-      throw new Error('stateful response.create requires a conversationID or previousResponseID')
-    })
+    .exhaustive()
 
   if (stateful.truncation) {
     request.truncation = stateful.truncation
@@ -204,7 +202,9 @@ export function statefulToolResultsRecordParams(
   input: ResponseInputItem[],
   stateful: StatefulResponseContext
 ): ResponseCreateParams {
-  if (!stateful.previousResponseID) {
+  // Narrower than `response.create`: results attach to the response that asked
+  // for them, so a context still anchored on its conversation cannot record any.
+  if (!('previousResponseID' in stateful)) {
     throw new Error('stateful tool result recording requires a previousResponseID')
   }
 

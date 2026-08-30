@@ -8,10 +8,19 @@ import {
   stringArg,
   type JsonObject as JSONObject
 } from '@agentbull/active-support'
+import { z } from 'zod'
 import type { TurnStart } from '../../lanes/actor_lane'
-import { buildAmbientRecognizerSystemPrompt, buildAmbientRecognizerUserPrompt } from '../../prompts/ambient_prompt'
+import {
+  ambientActions,
+  buildAmbientRecognizerSystemPrompt,
+  buildAmbientRecognizerUserPrompt,
+  type AmbientAction,
+  type AmbientAuthority,
+  type AmbientWorkCandidates
+} from '../../prompts/ambient_prompt'
 import { formatZonedDate, formatZonedDateTime, zonedDateTimeParts } from '../../prompts/zoned_time'
-import { assistantText, callModel, type Message, type ModelConfig, userMessage } from '../llm'
+import { assistantText, callModel, type ModelConfig, userMessage } from '../llm'
+import { zodToJSONSchema } from '../llm/tool-schema'
 import type { AgentConversationContextResponse } from '../../lanes/rpc_lane'
 
 export interface AmbientRecognizerInput {
@@ -32,18 +41,19 @@ export type AskedByResolution =
   | { state: 'degraded'; sourceEntryID: string }
 
 export interface AmbientRecognizerDecision {
-  intervene: boolean
+  action: AmbientAction
+  authority: AmbientAuthority
   reason: string
   askedBy: AskedByResolution
+  handoffJobID?: string
 }
 
 export interface AmbientRecognizerResult {
   decision: AmbientRecognizerDecision
-  messages: Message[]
 }
 
 /**
- * Decides whether an ambient observation should become a visible reply.
+ * Routes one ambient observation without taking the selected action.
  *
  * The recognizer is intentionally a separate structured-output call so the main
  * text turn only runs when there is a clear intervention decision.
@@ -59,6 +69,14 @@ export async function recognizeAmbientIntervention(
   const displayName = context.agent?.displayName ?? turnStart.turn.actor.agent_uid
   const currentTime = (opts?.currentTime ?? new Date()).toISOString()
   const window = ambientObservationWindow(input, timezone, currentTime)
+  const workCandidates = ambientWorkCandidates(turnStart)
+  const standingOrders = standingOrdersFromPayload(turnStart)
+  const decisionSchema = ambientDecisionSchema(workCandidates, {
+    standingOrdersPresent: Boolean(standingOrders),
+    askedByIDs: window.delta.flatMap(message =>
+      message.role === 'human' && message.sourceEntryID ? [message.sourceEntryID] : []
+    )
+  })
 
   const result = await callModel(input.model, {
     instructions: buildAmbientRecognizerSystemPrompt({
@@ -69,11 +87,10 @@ export async function recognizeAmbientIntervention(
     messages: [
       userMessage(
         buildAmbientRecognizerUserPrompt({
-          brainSnapshot: context.brainSnapshot,
-          standingOrders: standingOrdersFromPayload(turnStart),
+          standingOrders,
           backdrop: window.backdrop.map(transcriptLine),
           newMessages: window.delta.map(deltaTranscriptLine),
-          unrepliedCount: unrepliedCountFromPayload(turnStart),
+          workCandidates,
           currentTime: formatZonedDateTime(currentTime, timezone) ?? currentTime,
           groupName: originChannel?.label || undefined,
           adapter: originChannel?.adapter || undefined,
@@ -83,21 +100,26 @@ export async function recognizeAmbientIntervention(
     ],
     maxOutputTokens: 300,
     temperature: 0,
-    text: ambientDecisionTextFormat,
+    text: ambientDecisionTextFormat(decisionSchema),
     abortSignal: opts?.abortSignal
   })
 
-  const parsed = parseAmbientDecision(assistantText(result.message))
-  const askedBy = parsed.intervene ? resolveAskedBy(parsed.askedBy, window.delta) : { state: 'none' as const }
+  const parsed = parseAmbientDecision(assistantText(result.message), decisionSchema)
+  const acceptsAskedBy = parsed.action === 'FOREGROUND_REPLY' || parsed.action === 'NEW_WORK'
+  const askedBy = acceptsAskedBy ? resolveAskedBy(parsed.askedBy, window.delta) : { state: 'none' as const }
+  const authority = corroboratedAuthority(parsed, askedBy, Boolean(standingOrders))
   const decision: AmbientRecognizerDecision = {
-    intervene: parsed.intervene,
-    reason: parsed.reason,
-    askedBy
+    action: parsed.action,
+    authority,
+    reason:
+      authority === parsed.authority
+        ? parsed.reason
+        : 'The proposed authorization source was not present in the current ambient observation.',
+    askedBy,
+    ...(parsed.handoffJobID ? { handoffJobID: parsed.handoffJobID } : {})
   }
 
-  if (!decision.intervene) return { decision, messages: [] }
-
-  return { decision, messages: [userMessage(interventionFraming(decision))] }
+  return { decision }
 }
 
 /**
@@ -126,56 +148,64 @@ export function resolveAskedBy(proposed: string | undefined, delta: TranscriptMe
   return { state: 'accepted', sourceEntryID, speaker: asking.speaker, text: asking.text }
 }
 
-function interventionFraming(decision: AmbientRecognizerDecision): string {
-  const lines = [
-    'Ambient recognizer decision: intervene.',
-    `Reason: ${decision.reason || 'The current observed messages need a visible reply.'}`
-  ]
-
-  if (decision.askedBy.state === 'accepted') {
-    lines.push(
-      `You are answering ${decision.askedBy.speaker}, who asked: ${truncateQuote(decision.askedBy.text)}`,
-      'The platform anchors your visible reply to that message; answer it directly.'
-    )
-  } else {
-    lines.push('Use the group conversation from this ambient turn as the task and write the visible group reply now.')
-  }
-
-  return lines.join('\n')
+type AmbientDecisionWire = {
+  action: AmbientAction
+  authority: AmbientAuthority
+  handoff_job_id: string | null
+  asked_by: string | null
+  reason: string
 }
 
-function truncateQuote(text: string): string {
-  const trimmed = text.trim()
-  return trimmed.length > 500 ? `${trimmed.slice(0, 500)}…` : trimmed
+type AmbientDecisionEvidence = {
+  standingOrdersPresent: boolean
+  askedByIDs: string[]
 }
 
-const ambientDecisionTextFormat = {
-  format: {
-    type: 'json_schema',
-    name: 'ambient_intervention_decision',
-    strict: true,
-    schema: {
-      type: 'object',
-      properties: {
-        reason: {
-          type: 'string',
-          description: 'One sentence explaining why the agent should or should not speak now.'
-        },
-        should_proactively_speak: {
-          type: 'boolean',
-          description: 'True when the agent should proactively speak in the group; false when it should stay silent.'
-        },
-        asked_by: {
-          type: ['string', 'null'],
-          description:
-            'When speaking because one NEW message directly asks or addresses the agent, the id tag of that message. Null for proactive wakes.'
-        }
-      },
-      required: ['reason', 'should_proactively_speak', 'asked_by'],
-      additionalProperties: false
+function ambientDecisionSchema(
+  workCandidates: AmbientWorkCandidates,
+  evidence: AmbientDecisionEvidence
+): z.ZodType<AmbientDecisionWire> {
+  const handoffJobIDs = workCandidates.complete ? workCandidates.jobs.map(candidate => candidate.jobID) : []
+  const askedByIDs = [...new Set(evidence.askedByIDs)]
+  const authorities: [AmbientAuthority, ...AmbientAuthority[]] = ['NONE']
+  if (askedByIDs.length > 0) authorities.push('EXPLICIT_REQUEST')
+  if (evidence.standingOrdersPresent) authorities.push('STANDING_ORDER')
+
+  return z
+    .object({
+      action: (handoffJobIDs.length > 0
+        ? z.enum(ambientActions)
+        : z.enum(['NOOP', 'FOREGROUND_REPLY', 'NEW_WORK'] as const)
+      ).describe('The one host route selected for the New Messages.'),
+      authority: z.enum(authorities).describe('Authorization for NEW_WORK; NONE for every other action.'),
+      handoff_job_id: nullableExactID(handoffJobIDs).describe(
+        handoffJobIDs.length > 0
+          ? 'An exact listed Job ID for HANDOFF; null otherwise.'
+          : 'HANDOFF is unavailable, so this must be null.'
+      ),
+      asked_by: nullableExactID(askedByIDs).describe(
+        'A directly asking New Message id for a visible route; null otherwise.'
+      ),
+      reason: z.string().trim().min(1).max(300).describe('One short sentence explaining the selected route.')
+    })
+    .strict()
+}
+
+function nullableExactID(values: string[]) {
+  if (values.length === 0) return z.null()
+  return z.enum(values as [string, ...string[]]).nullable()
+}
+
+function ambientDecisionTextFormat(schema: z.ZodType<AmbientDecisionWire>) {
+  return {
+    format: {
+      type: 'json_schema',
+      name: 'ambient_intent_route',
+      strict: true,
+      schema: zodToJSONSchema(schema)
     }
-  }
-} as const
+  } as const
+}
 
 /**
  * The judged observation window: `delta` holds not-yet-judged messages and
@@ -216,10 +246,6 @@ function standingOrdersFromPayload(turnStart: TurnStart): string | undefined {
   const channel = recordValue(recordValue(payload?.data)?.channel)
   const orders = firstString(channel ?? {}, ['standing_orders'])?.trim()
   return orders ? orders : undefined
-}
-
-function unrepliedCountFromPayload(turnStart: TurnStart): number {
-  return arrayPath(turnStart.actor_event.payload_json, ['data', 'unreplied_messages']).length
 }
 
 export type TranscriptMessage = {
@@ -305,14 +331,82 @@ function formatTranscriptTime(value: string, timezone: string, currentDate: stri
 /**
  * Parses the recognizer's structured JSON decision.
  */
-function parseAmbientDecision(text: string): { intervene: boolean; reason: string; askedBy?: string } {
-  const parsed = parseJSONObject(text)
-  const askedBy = stringArg(parsed, 'asked_by')
+function parseAmbientDecision(
+  text: string,
+  schema: z.ZodType<AmbientDecisionWire>
+): {
+  action: AmbientAction
+  authority: AmbientAuthority
+  reason: string
+  askedBy?: string
+  handoffJobID?: string
+} {
+  const result = schema.safeParse(parseJSONObject(text))
+  if (!result.success) return invalidAmbientDecision()
+
+  const parsed = result.data
+  const askedBy = parsed.asked_by ?? undefined
+  const handoffJobID = parsed.handoff_job_id ?? undefined
+
+  // Authority affects only NEW_WORK. Some structured-output providers still
+  // attach request authority to a visible reply, so discard that irrelevant
+  // value instead of losing an otherwise valid route.
+  const authority = parsed.action === 'NEW_WORK' ? parsed.authority : 'NONE'
+  if ((parsed.action === 'HANDOFF') !== Boolean(handoffJobID)) return invalidAmbientDecision()
+
   return {
-    intervene: parsed.should_proactively_speak === true,
-    reason: stringArg(parsed, 'reason') ?? '',
-    ...(askedBy ? { askedBy } : {})
+    action: parsed.action,
+    authority,
+    reason: parsed.reason,
+    ...(askedBy ? { askedBy } : {}),
+    ...(handoffJobID ? { handoffJobID } : {})
   }
+}
+
+function corroboratedAuthority(
+  parsed: { action: AmbientAction; authority: AmbientAuthority },
+  askedBy: AskedByResolution,
+  standingOrdersPresent: boolean
+): AmbientAuthority {
+  if (parsed.action !== 'NEW_WORK') return parsed.authority
+  if (parsed.authority === 'EXPLICIT_REQUEST' && askedBy.state === 'accepted') return parsed.authority
+  if (parsed.authority === 'STANDING_ORDER' && standingOrdersPresent) return parsed.authority
+  return 'NONE'
+}
+
+function invalidAmbientDecision(): {
+  action: 'NOOP'
+  authority: 'NONE'
+  reason: string
+} {
+  return {
+    action: 'NOOP',
+    authority: 'NONE',
+    reason: 'The structured ambient route was invalid, so the Agent stayed silent.'
+  }
+}
+
+function ambientWorkCandidates(turnStart: TurnStart): AmbientWorkCandidates {
+  const payload = recordValue(turnStart.request_context?.ambient_work_candidates)
+  const handoffMessagesPresent = arrayPath(turnStart.actor_event.payload_json, ['data', 'observed_messages']).some(
+    value => {
+      const message = recordValue(value)
+      return typeof message?.text === 'string' && message.text !== ''
+    }
+  )
+  const jobs = arrayPath(payload, ['jobs'])
+    .flatMap(value => {
+      if (!isRecord(value)) return []
+      const jobID = firstString(value, ['job_id'])
+      const title = firstString(value, ['title'])
+      const status = firstString(value, ['status'])
+      if (!jobID || !title || !status) return []
+      const taskExcerpt = firstString(value, ['task_excerpt'])
+      return [{ jobID, title, status, ...(taskExcerpt ? { taskExcerpt } : {}) }]
+    })
+    .slice(0, 8)
+
+  return { complete: payload?.complete === true && handoffMessagesPresent, jobs }
 }
 
 /**

@@ -202,7 +202,7 @@ describe('@ankole/agent-computer show background job details tool', () => {
 
     while (offset !== null) {
       const tool = createShowBackgroundJobDetailsTool({ turnStart: turnStartForTest(), rpc })
-      const result = await tool.execute(
+      const result: Awaited<ReturnType<typeof tool.execute>> = await tool.execute(
         `call-show-result-${offset}`,
         { job_id: jobID, result_offset: offset },
         abortSignal()

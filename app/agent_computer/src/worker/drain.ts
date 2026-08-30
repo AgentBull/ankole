@@ -30,6 +30,11 @@ export class WorkerDrainState {
     return true
   }
 
+  /**
+   * Adds a task to drain accounting without consuming its result.
+   * The detached chain suppresses only its own rejection; callers keep the
+   * original Promise.
+   */
   track<T>(task: Promise<T>): Promise<T> {
     this.activeTasks.add(task)
     void task

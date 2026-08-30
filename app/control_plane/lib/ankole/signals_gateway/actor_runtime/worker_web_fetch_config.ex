@@ -31,20 +31,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerWebFetchConfig do
     )
   end
 
-  @spec ensure_registered() :: :ok | {:error, term()}
-  def ensure_registered do
-    case AppConfigure.register_definitions([definition()]) do
-      :ok -> :ok
-      {:error, {:duplicate_key, _key}} -> :ok
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
   @spec resolve(String.t()) :: {:ok, Resolution.t()} | {:error, term()} | :error
   def resolve(agent_uid) when is_binary(agent_uid) do
-    with :ok <- ensure_registered() do
-      AppConfigure.resolve(definition(), agent_id: agent_uid)
-    end
+    AppConfigure.resolve(definition(), agent_id: agent_uid)
   end
 
   defp schema do

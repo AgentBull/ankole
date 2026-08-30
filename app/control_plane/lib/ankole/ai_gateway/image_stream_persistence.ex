@@ -74,7 +74,8 @@ defmodule Ankole.AIGateway.ImageStreamPersistence do
             "status" => "completed",
             "result" => nil
           },
-          :invalid_completed_image
+          :invalid_completed_image,
+          event["output_index"]
         )
 
       %{
@@ -98,9 +99,9 @@ defmodule Ankole.AIGateway.ImageStreamPersistence do
             "id" => item_id,
             "status" => "completed"
           } = item
-      }
+      } = event
       when is_binary(item_id) ->
-        fail_completed_item(state, item, :missing_completed_image_bytes)
+        fail_completed_item(state, item, :missing_completed_image_bytes, event["output_index"])
 
       %{
         "type" => "response.output_item.done",
@@ -109,8 +110,8 @@ defmodule Ankole.AIGateway.ImageStreamPersistence do
             "type" => "image_generation_call",
             "status" => "completed"
           } = item
-      } ->
-        fail_completed_item(state, item, :invalid_completed_image)
+      } = event ->
+        fail_completed_item(state, item, :invalid_completed_image, event["output_index"])
 
       %{"type" => type}
       when type in ["response.completed", "response.failed", "response.incomplete"] ->
@@ -206,7 +207,7 @@ defmodule Ankole.AIGateway.ImageStreamPersistence do
         {:ok, state, events}
 
       {:error, reason} ->
-        fail_completed_item(state, item, reason)
+        fail_completed_item(state, item, reason, event["output_index"])
     end
   end
 
@@ -228,9 +229,9 @@ defmodule Ankole.AIGateway.ImageStreamPersistence do
     )
   end
 
-  defp fail_completed_item(state, item, reason) do
+  defp fail_completed_item(state, item, reason, output_index \\ nil) do
     error = Error.normalize_persistence(reason)
-    events = failure_events(state, item, error)
+    events = failure_events(state, item, error, output_index)
     state = %{remember_public_events(state, events) | pending_completed: %{}}
     {:error, state, events, error}
   end
@@ -290,8 +291,14 @@ defmodule Ankole.AIGateway.ImageStreamPersistence do
 
   defp remember_public_sequence(state, _event), do: state
 
-  defp failure_events(state, item, error) do
-    output_index = output_index_for(state, item["id"])
+  # The failing event's own output_index wins; pending_completed covers the
+  # events that carry none, such as a terminal-driven failure.
+  defp failure_events(state, item, error, event_output_index) do
+    output_index =
+      if is_integer(event_output_index) and event_output_index >= 0,
+        do: event_output_index,
+        else: output_index_for(state, item["id"])
+
     first_sequence = state.last_public_sequence + 1
 
     failed_item =

@@ -7,11 +7,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   materializeAgentPluginPackages,
-  materializeSelectedAgentPlugins,
-  prepareAgentPlugins,
-  selectAgentPluginCapabilities
-} from '../src/core/codex-runner/agent-plugin-materializer'
-import { assertCodexJobProjectResumeState } from '../src/core/codex-runner/job-project'
+  prepareAgentPlugins
+} from '../src/core/codex-runner/runtime/agent-plugin-materializer'
+import { assertCodexJobProjectResumeState } from '../src/core/codex-runner/job/job-project'
 import type { AgentPluginCatalogEntry } from '../src/lanes/rpc_lane'
 
 describe('@ankole/agent-computer Agent Plugin materializer', () => {
@@ -229,14 +227,11 @@ describe('@ankole/agent-computer Agent Plugin materializer', () => {
     }
   })
 
-  it('keeps the installed package stable and rebuilds a filtered Job Plugin view from current Skill material', () => {
+  it('keeps the installed Agent Plugin package stable and removes stale packages', () => {
     const root = mkdtempSync(join(tmpdir(), 'ankole-agent-plugin-live-skill-'))
     const libraryRoot = join(root, 'library')
     const agentHome = join(root, 'agent-home')
-    const skillMaterialsRoot = join(agentHome, 'runtime-materials', 'skills')
     createPlugin(libraryRoot, 'alpha', {})
-    mkdirSync(join(skillMaterialsRoot, 'alpha-skill'), { recursive: true })
-    writeFileSync(join(skillMaterialsRoot, 'alpha-skill', 'SKILL.md'), 'overlay-v1\n')
 
     try {
       const prepared = prepareAgentPlugins({
@@ -247,61 +242,15 @@ describe('@ankole/agent-computer Agent Plugin materializer', () => {
         initializeProject: false
       })
       const installedSkill = join(prepared.agentPlugins[0]!.materializedRoot, 'skills', 'alpha-skill', 'SKILL.md')
-      const selectionRoot = join(agentHome, 'jobs', '1000', '.ankole', 'agent-plugins')
 
       materializeAgentPluginPackages(prepared, { rebuild: true })
       expect(readFileSync(installedSkill, 'utf8')).toContain('alpha skill')
-      const selected = materializeSelectedAgentPlugins(prepared, agentPluginCatalog(libraryRoot, ['alpha']), {
-        materializedRoot: selectionRoot,
-        skillMaterialsRoot
-      })
-      const selectedSkill = join(selected.agentPlugins[0]!.materializedRoot, 'skills', 'alpha-skill', 'SKILL.md')
-      expect(readFileSync(selectedSkill, 'utf8')).toBe('overlay-v1\n')
 
       const stalePlugin = join(prepared.materializedRoot, 'plugins', 'removed-plugin')
       mkdirSync(stalePlugin)
       writeFileSync(join(stalePlugin, 'stale'), 'old release\n')
       materializeAgentPluginPackages(prepared, { rebuild: true })
       expect(existsSync(stalePlugin)).toBe(false)
-
-      writeFileSync(join(skillMaterialsRoot, 'alpha-skill', 'SKILL.md'), 'overlay-v2\n')
-      materializeSelectedAgentPlugins(prepared, agentPluginCatalog(libraryRoot, ['alpha']), {
-        materializedRoot: selectionRoot,
-        skillMaterialsRoot
-      })
-      expect(readFileSync(selectedSkill, 'utf8')).toBe('overlay-v2\n')
-
-      materializeSelectedAgentPlugins(prepared, [], { materializedRoot: selectionRoot, skillMaterialsRoot })
-      expect(existsSync(selectedSkill)).toBe(false)
-      expect(readFileSync(installedSkill, 'utf8')).toContain('alpha skill')
-    } finally {
-      rmSync(root, { recursive: true, force: true })
-    }
-  })
-
-  it('keeps projected Plugin members disabled when current Agent settings remove them', () => {
-    const root = mkdtempSync(join(tmpdir(), 'ankole-agent-plugin-current-disable-'))
-    const libraryRoot = join(root, 'library')
-    const agentHome = join(root, 'agent-home')
-    createPlugin(libraryRoot, 'alpha', {})
-
-    try {
-      const prepared = prepareAgentPlugins({
-        projectRoot: join(agentHome, 'jobs', '1000'),
-        agentPlugins: [],
-        agentHome,
-        libraryRoot,
-        initializeProject: false
-      })
-      const selected = materializeSelectedAgentPlugins(prepared, [], {
-        materializedRoot: join(agentHome, 'jobs', '1000', '.ankole', 'agent-plugins'),
-        skillMaterialsRoot: join(agentHome, 'runtime-materials', 'skills')
-      })
-      const capabilities = selectAgentPluginCapabilities(selected, [], [{ id: 'alpha', skills: ['alpha-skill'] }])
-
-      expect(selected.agentPlugins).toEqual([])
-      expect(capabilities.selectedCapabilityRoots).toEqual([])
-      expect(capabilities.availableSkillNames).toEqual([])
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

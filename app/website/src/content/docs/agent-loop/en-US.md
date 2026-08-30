@@ -56,7 +56,7 @@ This is the split that makes a worker replaceable: the worker runs the loop, AIG
 | Direction | What crosses the boundary |
 |---|---|
 | Control plane → worker | a `TurnStart` envelope (actor identity, turn ref, the event to process) |
-| Worker → control plane | progress envelopes (checkpoints, activity summaries), a `TurnError` if the turn fails, or the turn's natural completion |
+| Worker → control plane | progress envelopes (checkpoints and activity summaries), an `actor_turn.abort` RPC for a failure, or an `actor_turn.complete` or `actor_turn.noop` RPC for completion |
 | Worker → AIGateway | model calls, function-call outputs (these do not go through the control plane) |
 
 Every worker message carries the `ActorTurnRef` (`activation_uid`, `actor_epoch`, `actor_event_id`). The control plane checks it against the current activation; a message whose ref no longer matches is rejected as stale. This is the [Actor Runtime](../actor-runtime/) triple fence, seen from the turn level.

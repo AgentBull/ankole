@@ -79,7 +79,7 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
         raw_text
         |> strip_leading_mention(channel_kind)
         |> prepend_quote(payload)
-        |> blank_to_nil()
+        |> MapHelpers.blank_to_nil()
 
       {:ok,
        %{
@@ -116,7 +116,6 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
          # nothing else), so every inbound message is explicit.
          explicit: true,
          author: author,
-         sender_key: author["principal_uid"] || author["id"],
          metadata:
            compact_map(%{
              "provider" => "wecom",
@@ -135,8 +134,7 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
   defp emit_message_receive(%{context: %AdapterContext{} = context} = consumer, %Event{} = event) do
     case normalize_message_receive(event, consumer) do
       {:ok, input} ->
-        with {:ok, input} <- materialize_attachments(input, consumer),
-             :ok <- observe_author(consumer, input) do
+        with {:ok, input} <- materialize_attachments(input, consumer) do
           Ingress.emit_entry(context.agent_uid, context.binding_name, input)
         end
 
@@ -148,7 +146,7 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
     end
   end
 
-  # --- card events ----------------------------------------------------------
+  # card events
 
   @doc "Normalizes a template-card event without observing or submitting it. Test seam."
   @spec normalize_card_action(Event.t()) :: {:ok, map()} | {:error, term()}
@@ -326,7 +324,7 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
     |> collect_results()
   end
 
-  # --- author / platform subject -------------------------------------------
+  # author / platform subject
 
   defp sender(payload), do: fetch_value(payload, "from") || %{}
 
@@ -341,7 +339,6 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
          %{
            "id" => userid,
            "platform_subject" => userid,
-           "principal_uid" => String.downcase(userid),
            "display_name" => nil,
            "metadata" =>
              compact_map(%{
@@ -355,33 +352,12 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
     end
   end
 
-  defp observe_author(%{context: context, config: config}, %{
-         author: %{"platform_subject" => userid} = author
-       })
-       when is_binary(userid) do
-    attrs = %{
-      provider: Map.get(config, "platformSubjectNamespace", "wecom-main"),
-      external_id: userid,
-      uid: userid,
-      display_name: author["display_name"],
-      metadata: Map.get(author, "metadata", %{})
-    }
-
-    case AdapterContext.observe_platform_subject(context, attrs) do
-      {:ok, _observed} -> :ok
-      {:error, _reason} = error -> error
-    end
-  end
-
-  defp observe_author(_consumer, _input), do: :ok
-
   defp observe_card_operator(_consumer, "sys"), do: {:error, :missing_operator_id}
 
   defp observe_card_operator(%{context: context, config: config}, operator_id) do
     attrs = %{
       provider: Map.get(config, "platformSubjectNamespace", "wecom-main"),
-      external_id: operator_id,
-      uid: operator_id
+      external_id: operator_id
     }
 
     case AdapterContext.observe_platform_subject(context, attrs) do
@@ -390,7 +366,7 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
     end
   end
 
-  # --- channel --------------------------------------------------------------
+  # channel
 
   defp channel_target(payload) do
     case optional_text(payload, "chattype") do
@@ -414,7 +390,7 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
 
   defp encode_id(id), do: URI.encode(id, &URI.char_unreserved?/1)
 
-  # --- text -----------------------------------------------------------------
+  # text
 
   # Inbound text stays the user's own words. A voice message arrives as its
   # platform transcript only (no audio file exists in the callback), so the
@@ -439,7 +415,7 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
     end)
     |> Enum.reject(&is_nil/1)
     |> Enum.join("")
-    |> blank_to_nil()
+    |> MapHelpers.blank_to_nil()
   end
 
   defp mixed_items(payload) do
@@ -506,7 +482,7 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
   defp formatted_content(nil), do: %{}
   defp formatted_content(text), do: %{"format" => "markdown", "body" => text}
 
-  # --- attachments ----------------------------------------------------------
+  # attachments
 
   defp attachments(payload) do
     own =
@@ -607,8 +583,8 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
             )
             |> Map.put("user_files_relative_path", relative_path)
             |> Map.put("name", name)
-            |> MapHelpers.maybe_put("xxh3_128", result["xxh3_128"])
-            |> MapHelpers.maybe_put("size", result["size"])
+            |> MapHelpers.put_present("xxh3_128", result["xxh3_128"])
+            |> MapHelpers.put_present("size", result["size"])
 
           {:error, reason} ->
             log_materialization_skip(attachment, reason)
@@ -639,25 +615,12 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
     Path.join([
       "inbox",
       "wecom",
-      sanitize_segment(attachment["provider_ref"]),
-      sanitize_segment(name)
+      WorkerFiles.sanitize_path_segment(attachment["provider_ref"]),
+      WorkerFiles.sanitize_path_segment(name)
     ])
   end
 
-  defp sanitize_segment(value) when is_binary(value) do
-    value
-    |> Ankole.Kernel.any_ascii()
-    |> String.replace(~r/[^A-Za-z0-9._-]+/, "_")
-    |> String.trim("_")
-    |> case do
-      "" -> "unnamed"
-      segment -> String.slice(segment, 0, 160)
-    end
-  end
-
-  defp sanitize_segment(_value), do: "unnamed"
-
-  # --- helpers --------------------------------------------------------------
+  # helpers
 
   defp provider_time(payload) do
     case fetch_value(payload, "create_time") do
@@ -696,7 +659,4 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
       nil -> {:error, {:missing, key}}
     end
   end
-
-  defp blank_to_nil(""), do: nil
-  defp blank_to_nil(value), do: value
 end

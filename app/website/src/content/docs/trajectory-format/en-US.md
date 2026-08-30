@@ -30,17 +30,17 @@ A compaction (see [Context compression](../context-compression-and-caching/)) re
 
 ## Background Agent Job trajectories
 
-A background job stores its per-turn execution as trajectory groups in `background_agent_job_turn_trajectory_groups`. Each group belongs to a turn, has a position, a revision, an item key, and content:
+A background job stores its per-turn execution as an append-only stream of sanitized semantic thread items in `background_agent_job_turn_items`. Each item belongs to a turn, has a position, a revision, an item key, and the semantic item itself:
 
 | Field | Meaning |
 |---|---|
-| `turn_id` | the job turn this trajectory group belongs to |
-| `position` | the group's order within the turn |
-| `revision` | bumped on in-place updates (steer, nudge) |
-| `item_key` | a stable key for the group |
-| `content` | one or more canonical ChatML messages |
+| `turn_id` | the job turn this item belongs to |
+| `position` | the item's order within the turn |
+| `revision` | the turn revision that accepted the item |
+| `item_key` | a stable key for the item (a `client:` key marks a caller message) |
+| `item` | one typed semantic thread item |
 
-The content must be valid canonical ChatML — the schema validates it with `Trajectory.valid_group_content?/1`, rejecting a group that does not contain canonical ChatML messages. The `revision` field lets an in-place steer or nudge update the same group's content without inserting a new row, so the trajectory reflects the latest state of that group.
+The rows are append-only: a steer or nudge appends new items instead of rewriting stored ones. Every reader projects each stored item into canonical ChatML messages at read time, and an item that projects no messages stays stored for thread replay. A turn recorded before the item stream existed has no item rows, so its trajectory renders empty.
 
 Tool-result message metadata records `execution_mechanism` as `provider_hosted` when the model Provider executes the tool, or `local_dynamic` when Codex invokes a dynamic tool implemented by Ankole. This stable fact distinguishes tools that use the same display name.
 
@@ -63,7 +63,7 @@ The moduledoc is explicit: "Turn-local call aliases preserve the only useful rel
 |---|---|---|
 | What it stores | live conversation transcript | per-turn job execution record |
 | Who owns it | AIGateway | Background Agent Jobs |
-| Canonical format | AIGateway's message schema | ChatML groups |
+| Canonical format | AIGateway's message schema | semantic items projected to ChatML |
 | Model sees it through | the stateful Responses API | `modelVisibleTrajectory` projection |
 | Compaction | AIGateway compaction replaces old messages | not compacted (jobs are bounded by retry budget) |
 
@@ -71,7 +71,7 @@ The two do not mix. A conversation's messages are AIGateway's; a job's trajector
 
 ## What this guide is not
 
-It is not a ChatML specification — the canonical ChatML format is a standard, and Ankole's validation (`valid_group_content?/1`) checks the shape, not redefines it. It is not a consumer-facing API for reading trajectories — the Console routes (`/ai-gateway/conversations/:id/messages`, `/background-agent-jobs/:id`) are the operator surface, documented in the [Console API reference](../console-api/). And it is not a substitute for the storage pages; this is the format-level view across both.
+It is not a ChatML specification — the canonical ChatML format is a standard, and Ankole's read-time projection keeps that shape, not redefines it. It is not a consumer-facing API for reading trajectories — the Console routes (`/ai-gateway/conversations/:id/messages`, `/background-agent-jobs/:id`) are the operator surface, documented in the [Console API reference](../console-api/). And it is not a substitute for the storage pages; this is the format-level view across both.
 
 ## Next steps
 

@@ -70,14 +70,12 @@ defmodule Ankole.AIAgent.Library.AgentPlugins do
     end
   end
 
-  @spec enabled_catalog_for_agent(String.t(), keyword()) :: {:ok, [map()]} | {:error, term()}
-  def enabled_catalog_for_agent(agent_uid, opts \\ []) do
-    with {:ok, capabilities} <- capabilities_for_agent(agent_uid, opts) do
-      {:ok,
-       capabilities
-       |> Enum.filter(& &1["effective_enabled"])
-       |> Enum.map(&catalog_entry/1)}
-    end
+  @doc false
+  @spec enabled_catalog([map()]) :: [map()]
+  def enabled_catalog(capabilities) when is_list(capabilities) do
+    capabilities
+    |> Enum.filter(& &1["effective_enabled"])
+    |> Enum.map(&catalog_entry/1)
   end
 
   @spec validate_workspace_template_for_agent(String.t(), String.t() | nil, keyword()) ::

@@ -1234,24 +1234,20 @@ export const identityTabs = [
 ]
 
 export const modelAdvanced = {
-  title: '其他模型能力和 Provider 调优',
-  summary: '暂时用不到的能力先不要配置。',
+  title: '可选 Agent 档案和 Brain 模型',
+  summary: 'Agent 能力按需配置；Brain 模型对整个实例生效。',
   steps: [
     {
-      title: '按需配置其他 profile',
+      title: '按需配置 Agent 能力档案',
       fields: [
         {
           name: '后台 Agent 任务',
           description:
-            '用于运行持久的后台 Agent 任务。当前内部存储键仍为 coding；普通对话不会因为代码较多而自动切换到这个模型。'
+            '使用 coding 档案运行持久的后台 Agent 任务。普通对话不会因为代码较多而选择这个档案。'
         },
         {
           name: 'vision_fallback',
           description: '主模型无法读取图像时改用的模型。'
-        },
-        {
-          name: 'embedding / rerank',
-          description: '负责检索和结果排序的模型。'
         },
         {
           name: 'web_search / web_fetch',
@@ -1261,6 +1257,36 @@ export const modelAdvanced = {
           name: 'image_generate',
           description: '负责生成图像的模型。'
         }
+      ]
+    },
+    {
+      title: '为实例配置 Brain 模型',
+      body: ['打开 Console → 系统配置 → Brain。这些设置对所有 Agent 生效，不属于 Agent 档案。'],
+      fields: [
+        {
+          name: 'brain.embedding_model',
+          description: '启用向量检索。请选择 Provider 和模型，并填写 embedding 维度。'
+        },
+        {
+          name: 'brain.rerank_model',
+          description: '对融合后的搜索结果重新排序；留空会保留融合顺序。'
+        },
+        {
+          name: 'brain.web_fetch_model',
+          description: '为 URL Source 抓取可读正文。'
+        },
+        {
+          name: 'brain.extraction_model',
+          description: '从 Signal 会话和 Source 中提取知识。'
+        },
+        {
+          name: 'brain.dreaming_model',
+          description: '汇总知识，并支持依赖模型的维护任务。'
+        }
+      ],
+      links: [
+        { label: 'Brain 指南', href: '../brain/' },
+        { label: 'AppConfigure 配置键', href: '../app-configuration/' }
       ]
     }
   ]
@@ -1833,8 +1859,8 @@ export const channelTabs = [
 ]
 
 export const signalAdvanced = {
-  title: '群聊处理方式、机密记忆和身份映射',
-  summary: '第一次配置时，建议只响应明确 @ Agent 的消息，并沿用默认的共享记忆。',
+  title: '群聊处理方式和身份映射',
+  summary: '第一次配置时，建议只响应明确 @ Agent 的消息。',
   steps: [
     {
       title: '选择如何处理没有 @ Agent 的群消息',
@@ -1854,12 +1880,6 @@ export const signalAdvanced = {
       ],
       caution:
         '聊天平台必须先把群消息发给 Ankole，这些模式才会生效。钉钉和企业微信只支持 addressed_only；Slack 和飞书还要添加额外的事件或权限，才能读取群里所有消息。'
-    },
-    {
-      title: '只有敏感会话才启用机密记忆',
-      body: [
-        '默认设置会把对话纳入共享知识。打开 Confidential memory 后，这段会话的历史只会在对应的 Channel 中召回。'
-      ]
     },
     {
       title: '用命名空间区分平台身份',
@@ -1954,6 +1974,8 @@ Ankole 的核心设计目标是服务企业内部的私有化部署。每家企�
   tabs={identityTabs}
 />
 
+<span id="llm-providers" aria-hidden="true" />
+
 ## 3. 添加模型提供商，并创建 Agent
 
 Agent 的模型档案只保存模型引用，因此要先添加模型提供商。登录 Console，打开 **模型提供商 → 新增提供商**，选择 Provider 类型，填写固定的 Provider ID、服务地址和凭证，然后保存。
@@ -1997,7 +2019,7 @@ Agent 的模型档案只保存模型引用，因此要先添加模型提供商�
 
 ### 在 Console 中完成连接
 
-当前版本使用直连：一条路由规则把一个聊天渠道连接到一个 Agent。它记录使用哪个适配器、哪套应用凭证、由哪个 Agent 回复，以及怎样处理群聊消息和记忆。多个机器人要分别创建多条路由规则。
+当前版本使用直连：一条路由规则把一个聊天渠道连接到一个 Agent。它记录使用哪个适配器、哪套应用凭证、由哪个 Agent 回复，以及怎样处理群聊消息。多个机器人要分别创建多条路由规则。
 
 打开 **Console → 信号路由 → 新增路由规则**，依次设置：
 
@@ -2007,7 +2029,6 @@ Agent 的模型档案只保存模型引用，因此要先添加模型提供商�
 | **Adapter** | Slack、Teams、飞书 / Lark、钉钉或企业微信 |
 | **规则名称** | 起一个固定的名称，例如 `slack-main` 或 `lark-main` |
 | **Group message mode** | 第一次测试选择 `addressed_only` |
-| **Confidential memory** | 第一次测试先关闭 |
 | **聊天渠道配置** | 填入对应平台 Tab 中准备好的凭证和字段 |
 
 保存后，应能在列表中看到启用状态。如果表单提示凭证有误，先改正再去 IM 测试；凭证没有通过检查，adapter 就不会建立连接。
@@ -2030,6 +2051,8 @@ Agent 的模型档案只保存模型引用，因此要先添加模型提供商�
 > @Ankole 你能做什么？你现在服务哪个团队？
 
 收到真实模型生成的回复后，就可以继续调整 Agent 的 mission、模型和群聊策略。
+
+<span id="agent-not-replying" aria-hidden="true" />
 
 ### Agent 没有回复时
 

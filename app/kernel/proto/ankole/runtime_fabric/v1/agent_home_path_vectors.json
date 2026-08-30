@@ -18,25 +18,7 @@
       "job_workspace": "/agents/a.b_c-9/jobs/9007199254740991"
     }
   ],
-  "invalid_agent_uids": [
-    "",
-    "Agent-1",
-    "agent/1",
-    "agent 1",
-    ".agent",
-    "-agent",
-    "agent:1"
-  ],
-  "invalid_workspace_ids": [
-    9999,
-    9007199254740992,
-    "10000",
-    "workspace-10000"
-  ],
-  "invalid_job_ids": [
-    999,
-    9007199254740992,
-    "019f7a43-22ad-7000-8000-000000000001",
-    "job_1.test"
-  ]
+  "invalid_agent_uids": ["", "Agent-1", "agent/1", "agent 1", ".agent", "-agent", "agent:1"],
+  "invalid_workspace_ids": [9999, 9007199254740992, "10000", "workspace-10000"],
+  "invalid_job_ids": [999, 9007199254740992, "019f7a43-22ad-7000-8000-000000000001", "job_1.test"]
 }

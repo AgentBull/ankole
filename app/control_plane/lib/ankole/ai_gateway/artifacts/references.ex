@@ -6,6 +6,7 @@ defmodule Ankole.AIGateway.Artifacts.References do
   alias Ankole.AIGateway.Artifacts.ReferenceBudget
   alias Ankole.AIGateway.OpenAIError
   alias Ankole.AIGateway.Schemas.Artifact
+  alias Ankole.Ecto.UUIDv7
 
   @max_image_bytes 50 * 1024 * 1024
 
@@ -23,6 +24,25 @@ defmodule Ankole.AIGateway.Artifacts.References do
     end
   end
 
+  defp hydrate_generated_images(subject_uid, items, bytes) do
+    map_within_budget(items, bytes, &hydrate_generated_image(subject_uid, &1, &2))
+  end
+
+  # The budgeted hydration walks share one shape: each element transforms
+  # under the running byte budget, and the first failure fails the walk.
+  defp map_within_budget(elements, bytes, fun) do
+    Enum.reduce_while(elements, {:ok, [], bytes}, fn element, {:ok, acc, bytes} ->
+      case fun.(element, bytes) do
+        {:ok, element, bytes} -> {:cont, {:ok, [element | acc], bytes}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, elements, bytes} -> {:ok, Enum.reverse(elements), bytes}
+      {:error, _reason} = error -> error
+    end
+  end
+
   @spec resolve(String.t(), map()) :: {:ok, [map()]} | {:error, term()}
   def resolve(subject_uid, request) when is_map(request) do
     with :ok <- validate_reference_shapes(request) do
@@ -36,18 +56,12 @@ defmodule Ankole.AIGateway.Artifacts.References do
                 do: Map.put(resolved, "mask", true),
                 else: resolved
 
-            case ReferenceBudget.consume(bytes, size) do
+            case consume_reference_bytes(bytes, size) do
               {:ok, total} ->
                 {:cont, {:ok, [resolved | acc], total}}
 
-              {:error, :request_too_large} ->
-                {:halt,
-                 {:error,
-                  OpenAIError.invalid(
-                    "input",
-                    "request_too_large",
-                    "Referenced images exceed the 100 MiB request limit."
-                  )}}
+              {:error, _reason} = error ->
+                {:halt, error}
             end
 
           {:error, _reason} = error ->
@@ -60,6 +74,138 @@ defmodule Ankole.AIGateway.Artifacts.References do
       end
     end
   end
+
+  @doc """
+  Rewrites local image references in `input` and image masks for a native-image
+  dispatch.
+
+  A native provider cannot read Ankole artifact ids, so a local `file_` or
+  `ig_` reference in an `input_image` part becomes an inline data URL, and a
+  replayed `image_generation_call` gets its stored result back. A reference
+  the provider owns (its own file id, an HTTP URL, or a data URL) passes
+  through unchanged.
+  """
+  @spec resolve_native_input(String.t(), map()) :: {:ok, map()} | {:error, term()}
+  def resolve_native_input(subject_uid, request) when is_map(request) do
+    with {:ok, request, bytes} <- resolve_native_items(subject_uid, request, 0),
+         {:ok, request, _bytes} <- inline_local_image_masks(subject_uid, request, bytes) do
+      {:ok, request}
+    end
+  end
+
+  defp resolve_native_items(subject_uid, request, bytes) do
+    case Map.get(request, "input") do
+      items when is_list(items) ->
+        with {:ok, items, bytes} <- hydrate_generated_images(subject_uid, items, bytes),
+             {:ok, items, bytes} <- inline_local_image_parts(subject_uid, items, bytes) do
+          {:ok, Map.put(request, "input", items), bytes}
+        end
+
+      _input ->
+        {:ok, request, bytes}
+    end
+  end
+
+  defp inline_local_image_masks(_subject_uid, %{"max_tool_calls" => 0} = request, bytes),
+    do: {:ok, request, bytes}
+
+  defp inline_local_image_masks(subject_uid, request, bytes) do
+    case Map.get(request, "tools") do
+      tools when is_list(tools) ->
+        with {:ok, tools, bytes} <-
+               map_within_budget(tools, bytes, &inline_local_image_mask(subject_uid, &1, &2)) do
+          {:ok, Map.put(request, "tools", tools), bytes}
+        end
+
+      _tools ->
+        {:ok, request, bytes}
+    end
+  end
+
+  defp inline_local_image_mask(
+         subject_uid,
+         %{"type" => "image_generation", "input_image_mask" => %{} = mask} = tool,
+         bytes
+       ) do
+    with {:ok, mask, bytes} <-
+           inline_local_image_part(
+             subject_uid,
+             Map.put(mask, "type", "input_image"),
+             bytes
+           ) do
+      {:ok, Map.put(tool, "input_image_mask", Map.delete(mask, "type")), bytes}
+    end
+  end
+
+  defp inline_local_image_mask(_subject_uid, tool, bytes), do: {:ok, tool, bytes}
+
+  defp inline_local_image_parts(subject_uid, items, bytes) do
+    map_within_budget(items, bytes, &inline_local_item(subject_uid, &1, &2))
+  end
+
+  defp inline_local_item(subject_uid, %{"content" => content} = item, bytes)
+       when is_list(content) do
+    with {:ok, parts, bytes} <-
+           map_within_budget(content, bytes, &inline_local_image_part(subject_uid, &1, &2)) do
+      {:ok, Map.put(item, "content", parts), bytes}
+    end
+  end
+
+  defp inline_local_item(_subject_uid, item, bytes), do: {:ok, item, bytes}
+
+  # A castable `file_`/`ig_` id is Ankole's own namespace, so a dangling one
+  # fails loudly. A non-castable `ig_` id belongs to a native provider; when a
+  # stored copy exists it inlines, and otherwise the provider judges its own
+  # id.
+  defp inline_local_image_part(subject_uid, %{"type" => "input_image"} = part, bytes) do
+    case Map.get(part, "file_id") do
+      "file_" <> uuid = file_id ->
+        if castable?(uuid),
+          do: inline_artifact(subject_uid, part, &Artifacts.get_file/3, file_id, bytes),
+          else: {:ok, part, bytes}
+
+      "ig_" <> uuid = file_id ->
+        if castable?(uuid) do
+          inline_artifact(
+            subject_uid,
+            part,
+            &Artifacts.get_generated_image/3,
+            file_id,
+            bytes
+          )
+        else
+          case Artifacts.get_generated_image(subject_uid, file_id, payload?: true) do
+            {:ok, artifact} -> inline_artifact(part, artifact, bytes)
+            {:error, _missing} -> {:ok, part, bytes}
+          end
+        end
+
+      _other ->
+        {:ok, part, bytes}
+    end
+  end
+
+  defp inline_local_image_part(_subject_uid, part, bytes), do: {:ok, part, bytes}
+
+  defp inline_artifact(subject_uid, part, getter, file_id, bytes) do
+    with {:ok, artifact} <- getter.(subject_uid, file_id, payload?: true) do
+      inline_artifact(part, artifact, bytes)
+    end
+  end
+
+  defp inline_artifact(part, %Artifact{} = artifact, bytes) do
+    with {:ok, bytes} <- consume_reference_bytes(bytes, artifact.byte_size) do
+      {:ok, inline_part(part, artifact), bytes}
+    end
+  end
+
+  defp inline_part(part, %Artifact{} = artifact) do
+    part
+    |> Map.delete("file_id")
+    |> Map.put("image_url", data_url(artifact))
+  end
+
+  defp castable?(uuid), do: match?({:ok, _id}, UUIDv7.cast(uuid))
 
   defp collect_reference_specs(request) do
     input_references(value(request, "input")) ++ mask_references(value(request, "tools") || [])
@@ -161,23 +307,28 @@ defmodule Ankole.AIGateway.Artifacts.References do
 
   defp resolve_reference(subject_uid, %{kind: :file, id: id}) do
     with {:ok, artifact} <- Artifacts.get_file(subject_uid, id, payload?: true) do
-      {:ok, reference(artifact), artifact.byte_size}
+      {:ok, reference(artifact, id), artifact.byte_size}
     end
   end
 
   defp resolve_reference(subject_uid, %{kind: :generated, id: id}) do
     with {:ok, artifact} <- Artifacts.get_generated_image(subject_uid, id, payload?: true) do
-      {:ok, reference(artifact), artifact.byte_size}
+      {:ok, reference(artifact, id), artifact.byte_size}
     end
   end
 
-  defp reference(%Artifact{} = artifact) do
+  # The caller's reference id stays the downstream correlation key, including
+  # when a native provider id resolved through provider_item_id.
+  defp reference(%Artifact{} = artifact, id) do
     %{
-      "id" => Artifacts.public_id(artifact),
-      "image_url" => "data:#{artifact.mime_type};base64,#{Base.encode64(artifact.payload)}",
+      "id" => id,
+      "image_url" => data_url(artifact),
       "source" => "artifact"
     }
   end
+
+  defp data_url(%Artifact{} = artifact),
+    do: "data:#{artifact.mime_type};base64,#{Base.encode64(artifact.payload)}"
 
   defp hydrate_generated_image(
          subject_uid,
@@ -190,6 +341,35 @@ defmodule Ankole.AIGateway.Artifacts.References do
   end
 
   defp hydrate_generated_image(_subject_uid, item), do: {:ok, item}
+
+  defp hydrate_generated_image(
+         subject_uid,
+         %{"type" => "image_generation_call", "id" => id, "result" => nil} = item,
+         bytes
+       )
+       when is_binary(id) do
+    with {:ok, artifact} <- Artifacts.get_generated_image(subject_uid, id, payload?: true),
+         {:ok, bytes} <- consume_reference_bytes(bytes, artifact.byte_size) do
+      {:ok, Map.put(item, "result", Base.encode64(artifact.payload)), bytes}
+    end
+  end
+
+  defp hydrate_generated_image(_subject_uid, item, bytes), do: {:ok, item, bytes}
+
+  defp consume_reference_bytes(bytes, size) do
+    case ReferenceBudget.consume(bytes, size) do
+      {:ok, total} ->
+        {:ok, total}
+
+      {:error, :request_too_large} ->
+        {:error,
+         OpenAIError.invalid(
+           "input",
+           "request_too_large",
+           "Referenced images exceed the 100 MiB request limit."
+         )}
+    end
+  end
 
   defp validate_reference_shapes(request) do
     request

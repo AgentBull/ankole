@@ -5,12 +5,13 @@ defmodule Ankole.AIGateway.CodexModels do
   Codex fetches `GET {base_url}/models?client_version=…` when its provider uses
   command auth, and applies each returned card with full-card replacement
   semantics (`construct_model_info_from_candidates`, codex
-  rust-v0.147.0). Every card therefore supplies the complete pinned card shape.
+  rust-v0.150.1). Every card therefore supplies the complete pinned card shape.
   AIGateway owns selector-specific modalities, the native search gate, and one
   model-visible tool-output limit. Base instructions contain the prompt vendored
   from the same codex pin and the readable form of that output limit. Cards keep
-  Responses Lite disabled because Codex 0.147 omits configured hosted web search
-  from that private carrier; standard Responses preserves the native tool.
+  Responses Lite disabled because the pinned Codex runtime omits configured
+  hosted web search from that private carrier; standard Responses preserves the
+  native tool.
 
   Cards must stay in lockstep with the pinned codex version. Re-vendor
   `priv/codex/base_instructions.md` and re-check the card baseline when the
@@ -73,7 +74,7 @@ defmodule Ankole.AIGateway.CodexModels do
       "display_name" => slug,
       "description" => nil,
       "supported_reasoning_levels" => [],
-      "shell_type" => "default",
+      "shell_type" => "unified_exec",
       "visibility" => "none",
       "supported_in_api" => true,
       "priority" => 99,
@@ -96,7 +97,6 @@ defmodule Ankole.AIGateway.CodexModels do
         "mode" => "tokens",
         "limit" => @tool_output_limit_tokens
       },
-      "supports_parallel_tool_calls" => false,
       "context_window" => 272_000,
       "max_context_window" => 272_000,
       "effective_context_window_percent" => 95,

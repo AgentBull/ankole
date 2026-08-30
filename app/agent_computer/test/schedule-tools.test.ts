@@ -478,11 +478,12 @@ describe('schedule tools', () => {
 
   it('keeps recurring schedule mutations available after a one-shot checkback wakes', () => {
     const turnStart = turnStartForScheduleTool()
+    turnStart.actor_event.type = 'check_back_later.wakeup'
     turnStart.request_context = {
-      turn_mode: 'check_back_later',
+      silent_success_allowed: false,
       schedule_origin: {
-        kind: 'check_back_later',
-        scheduled_event_id: 'scheduled-event-1'
+        schedule_kind: 'check_back_later',
+        payload: {}
       }
     }
     const cron = createScheduleTools({
@@ -515,7 +516,7 @@ function turnStartForScheduleTool(opts: { cronOrigin?: boolean } = {}): TurnStar
     actor_event: {
       actor_event_id: '00000000-0000-0000-0000-000000000123',
       queue_sequence: 1,
-      type: 'im.message.addressed',
+      type: opts.cronOrigin ? 'cron.fire' : 'im.message.addressed',
       source_event_id: 'source-1',
       binding_name: 'mock',
       signal_channel_id: 'mock:chat:schedule',
@@ -526,10 +527,10 @@ function turnStartForScheduleTool(opts: { cronOrigin?: boolean } = {}): TurnStar
     ...(opts.cronOrigin
       ? {
           request_context: {
-            turn_mode: 'cron',
+            silent_success_allowed: false,
             schedule_origin: {
-              kind: 'cron_fire',
-              scheduled_event_id: 'scheduled-event-1'
+              schedule_kind: 'cron_fire',
+              payload: {}
             }
           }
         }

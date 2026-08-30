@@ -7,12 +7,13 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   semantics to remain in one place.
   """
 
+  alias Ankole.AIGateway.Conversations
   alias Ankole.AIGateway.Artifacts
   alias Ankole.AIGateway.Compaction
   alias Ankole.AIGateway.CompactionArtifacts
   alias Ankole.AIGateway.CodexVision
   alias Ankole.AIGateway.FailureDiagnostics
-  alias Ankole.AIGateway.MapUtils
+  alias Ankole.Attrs
   alias Ankole.AIGateway.ModelMetadata
   alias Ankole.AIGateway.Providers
   alias Ankole.AIGateway.Resolver
@@ -85,7 +86,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   @spec prepare_websocket_provider_request(String.t(), map(), keyword()) ::
           {:ok, UniversalAIRequest.t(), map() | nil} | {:error, term()}
   def prepare_websocket_provider_request(subject_uid, request, opts \\ []) do
-    normalized_request = normalize_request_keys(request)
+    normalized_request = Attrs.normalize_external_attrs(request)
     request_context = websocket_request_context(opts, normalized_request)
 
     with :ok <- validate_websocket_stateful_shape(request),
@@ -120,7 +121,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   @spec prepare_and_start_websocket_provider_request(String.t(), map(), keyword()) ::
           {:ok, UniversalAIRequest.t(), map() | nil} | {:error, term()}
   def prepare_and_start_websocket_provider_request(subject_uid, request, opts \\ []) do
-    request = normalize_request_keys(request)
+    request = Attrs.normalize_external_attrs(request)
     request_context = websocket_request_context(opts, request)
     resolver_request = Map.put(request, "__ankole_request_context", request_context)
 
@@ -256,7 +257,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   #   - store (Ankole stateful switch; provider dispatch disables upstream storage)
   #   - conversation (internal correlation)
   defp provider_websocket_request(subject_uid, request, runtime) do
-    request = normalize_request_keys(request)
+    request = Attrs.normalize_external_attrs(request)
 
     if request["store"] == true do
       expand_and_inject_history(subject_uid, request, runtime)
@@ -388,12 +389,6 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
              request,
              runtime
            ) do
-      current_input =
-        Compaction.maybe_inject_brain_pre_compaction_nudge(
-          current_input,
-          compaction.run_metadata
-        )
-
       {:ok,
        %{
          subject_uid: subject_uid,
@@ -471,12 +466,12 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
              context.request,
              context.compaction.run_metadata
            )
-           |> maybe_put(
+           |> put_when(
              "recovered_interrupted_tool_call_ids",
              context.recovered_call_ids,
              context.recovered_call_ids != []
            )
-           |> maybe_put(
+           |> put_when(
              "provider_projection_tool_result_quarantine",
              tool_result_quarantine,
              map_size(tool_result_quarantine) > 0
@@ -488,7 +483,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   defp planned_run_attrs(context) do
     metadata =
       stateful_run_metadata(context.request, context.compaction.run_metadata)
-      |> maybe_put(
+      |> put_when(
         "recovered_interrupted_tool_call_ids",
         context.recovered_call_ids,
         context.recovered_call_ids != []
@@ -560,7 +555,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   defp stateful_run_metadata(request, compaction_metadata) do
     %{"request_metadata" => public_request_metadata(request)}
     |> Map.merge(Map.take(request, @stateful_request_metadata_fields))
-    |> maybe_put("request_model", Map.get(request, "model"), true)
+    |> put_when("request_model", Map.get(request, "model"), true)
     |> Map.merge(compaction_metadata)
   end
 
@@ -799,7 +794,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
 
   defp resolve_stateful_request_conversation(subject_uid, nil, nil, metadata),
     do:
-      StatefulResponses.create_managed_stateful_responses_conversation(subject_uid,
+      Conversations.create_managed_stateful_responses_conversation(subject_uid,
         metadata: metadata
       )
 
@@ -849,9 +844,9 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   defp request_with_effective_previous_response_id(request, previous_response_id),
     do: Map.put(request, "previous_response_id", previous_response_id)
 
-  defp maybe_put(map, _key, _value, false), do: map
-  defp maybe_put(map, _key, nil, true), do: map
-  defp maybe_put(map, key, value, true), do: Map.put(map, key, value)
+  defp put_when(map, _key, _value, false), do: map
+  defp put_when(map, _key, nil, true), do: map
+  defp put_when(map, key, value, true), do: Map.put(map, key, value)
 
   defp socket_open_error_details(reason) do
     classification = FailureDiagnostics.classify(reason)
@@ -1290,7 +1285,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   defp validate_external_conversation_id(_value), do: {:error, :invalid_conversation}
 
   defp validate_websocket_stateful_shape(request) do
-    request = normalize_request_keys(request)
+    request = Attrs.normalize_external_attrs(request)
     previous_response_id = Map.get(request, "previous_response_id")
     conversation_id = Map.get(request, "conversation")
 
@@ -1323,7 +1318,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   end
 
   defp validate_tool_results_record_shape(request) do
-    request = normalize_request_keys(request)
+    request = Attrs.normalize_external_attrs(request)
     previous_response_id = Map.get(request, "previous_response_id")
 
     cond do
@@ -1367,7 +1362,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   defp normalize_stateful_input(_input), do: {:error, :invalid_input}
 
   defp tool_result_record_attrs(subject_uid, request, internal_metadata) do
-    request = normalize_request_keys(request)
+    request = Attrs.normalize_external_attrs(request)
     previous_response_id = request["previous_response_id"]
 
     with :ok <- validate_tool_results_record_shape(request),
@@ -1420,6 +1415,4 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
     String.contains?(message, "could not checkout the connection") and
       String.contains?(message, "connection not available")
   end
-
-  defp normalize_request_keys(map), do: MapUtils.normalize_request_keys(map)
 end

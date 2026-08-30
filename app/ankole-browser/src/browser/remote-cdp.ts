@@ -2,7 +2,7 @@ import { mkdir, open, readFile, rename, rm } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { chromium, type Browser } from 'playwright-core'
 import type { BrowserMaterial, RemoteSessionRequestBackendSchema } from '../protocol'
-import { BrowserDataError } from '../errors'
+import { BrowserDataError, isFileNotFound } from '../errors'
 import type { z } from 'zod'
 
 type RemoteSessionRequestBackend = z.infer<typeof RemoteSessionRequestBackendSchema>
@@ -70,8 +70,8 @@ async function resolveOrCreateRemoteSession(
     if (persisted.session_identity === backend.session_identity && persisted.endpoint) {
       return { endpoint: persisted.endpoint, created: false }
     }
-  } catch {
-    // Create below.
+  } catch (error) {
+    if (!isFileNotFound(error)) throw error
   }
 
   const response = await executeRequest(backend.request, backend.connect_timeout_ms)
@@ -98,8 +98,9 @@ async function cleanupPersistedRemoteSession(path: string, backend: RemoteSessio
   let persisted: PersistedRemote
   try {
     persisted = JSON.parse(await readFile(path, 'utf8')) as PersistedRemote
-  } catch {
-    return
+  } catch (error) {
+    if (isFileNotFound(error)) return
+    throw error
   }
   if (persisted.session_identity !== backend.session_identity || !persisted.endpoint) return
   if (backend.cleanup_request) await executeRequest(backend.cleanup_request, backend.connect_timeout_ms)

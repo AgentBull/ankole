@@ -36,11 +36,12 @@ import {
   RiPencilLine,
   RiSearchLine
 } from '@remixicon/react'
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useEffectEvent, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, NavLink } from 'react-router'
 import { PageHeader, PageStack, RefreshButton } from './console-page'
 import { ErrorBlock } from '../common/error-block'
+import { scheduleResourceSearchCommit } from './state/resource-search'
 
 /**
  * List-page frame: title, optional create action, and a data table with
@@ -64,7 +65,6 @@ export function ResourceListPage({
   isEmpty,
   isLoading,
   onClearFilters,
-  refreshable = true,
   subNav,
   title,
   toolbar,
@@ -88,11 +88,6 @@ export function ResourceListPage({
   isEmpty: boolean
   isLoading: boolean
   onClearFilters?: () => void
-  /**
-   * Refresh refetches every active query, so a route that stacks two of these
-   * frames would otherwise show the same button twice doing the same thing.
-   */
-  refreshable?: boolean
   /** Sibling views of the same nav area, for sections the side nav lists once. */
   subNav?: ReactNode
   title: string
@@ -136,7 +131,7 @@ export function ResourceListPage({
         description={description}
         actions={
           <>
-            {refreshable ? <RefreshButton /> : null}
+            <RefreshButton />
             {showHeaderCreate && createTo ? (
               <Link to={createTo} className={cn(buttonVariants({ size: 'sm' }))}>
                 {createLabel ?? t('common.new')}
@@ -188,7 +183,7 @@ export function ResourceListPage({
           <p className="text-xs text-muted-foreground sm:hidden">{t('console.table.scroll_hint')}</p>
           <Table
             aria-busy={isLoading}
-            className="min-w-[640px] [&_td:last-child]:sticky [&_td:last-child]:right-0 [&_td:last-child]:bg-card [&_td:last-child]:transition-colors [&_tbody_tr:hover_td:last-child]:bg-accent [&_tbody_tr:has([aria-expanded=true])_td:last-child]:bg-accent [&_tbody_tr[data-state=selected]_td:last-child]:bg-muted [&_th:last-child]:sticky [&_th:last-child]:right-0 [&_th:last-child]:z-10 [&_th:last-child]:bg-muted"
+            className="min-w-[640px] [&_td:last-child]:sticky [&_td:last-child]:right-0 [&_td:last-child]:bg-card [&_td:last-child]:transition-colors fine-hover:[&_tbody_tr:hover_td:last-child]:bg-accent [&_tbody_tr:has([aria-expanded=true])_td:last-child]:bg-accent [&_tbody_tr[data-state=selected]_td:last-child]:bg-muted [&_th:last-child]:sticky [&_th:last-child]:right-0 [&_th:last-child]:z-10 [&_th:last-child]:bg-muted"
             containerClassName="border border-border bg-card"
             containerLabel={t('console.table.region_label', { title })}>
             <TableHeader>
@@ -252,10 +247,11 @@ export function SubNav({
           to={item.to}
           className={({ isActive }) =>
             cn(
-              '-mb-px border-b-2 px-4 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+              'relative -mb-px border-b-2 border-transparent px-4 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+              'after:absolute after:inset-x-0 after:bottom-[-1px] after:h-0.5 after:bg-primary after:opacity-0 after:transition-opacity after:duration-(--duration-feedback) after:ease-productive',
               (item.active ?? isActive)
-                ? 'border-primary font-medium text-foreground'
-                : 'border-transparent text-muted-foreground hover:border-border hover:text-foreground'
+                ? 'font-medium text-foreground after:opacity-100'
+                : 'text-muted-foreground fine-hover:hover:text-foreground'
             )
           }>
           {item.label}
@@ -360,6 +356,42 @@ export function ResourceSearch({
       {filters ? <div className="flex min-w-0 flex-wrap items-center gap-3">{filters}</div> : null}
     </div>
   )
+}
+
+/**
+ * Local draft for a URL-backed search filter.
+ *
+ * Typing stays in the draft; `commit` runs after a short pause so the URL —
+ * and any loader revalidation behind it — sees one write per pause instead of
+ * one per keystroke. The URL mirrors back into the draft only when it changed
+ * outside this hook (Back button, clear-filters), never for the echo of the
+ * hook's own commit, so a commit that lands mid-typing cannot revert the
+ * keystrokes typed after the debounce snapshot.
+ */
+export function useResourceSearchDraft(
+  searchFilter: string,
+  commit: (draft: string) => void
+): [string, (value: string) => void] {
+  const [draft, setDraft] = useState(searchFilter)
+  const lastCommitted = useRef(searchFilter)
+  const commitDraft = useEffectEvent(commit)
+
+  useEffect(() => {
+    if (searchFilter === lastCommitted.current) return
+    lastCommitted.current = searchFilter
+    setDraft(searchFilter)
+  }, [searchFilter])
+
+  useEffect(() => {
+    if (draft === searchFilter) return
+
+    return scheduleResourceSearchCommit(() => {
+      lastCommitted.current = draft
+      commitDraft(draft)
+    })
+  }, [draft, searchFilter])
+
+  return [draft, setDraft]
 }
 
 /** One searchable text field with a browser-independent visible hint. */

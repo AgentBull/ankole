@@ -1,7 +1,8 @@
+import { LIST_REFRESH_MS } from '../refresh-intervals'
 import { TableCell, TableRow, toast } from '@ankole/uikit'
 import { RiCloseCircleLine, RiWebhookLine } from '@remixicon/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useDeferredValue, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { requestErrorMessage } from '../../common/request-errors'
 import {
@@ -13,7 +14,7 @@ import { AgentFilter, useAgentScope } from '../console-agent-scope'
 import { ConfirmDeleteButton, StatusIndicator } from '../console-form'
 import { formatConsoleDate } from '../console-primitives'
 import { AgentCell, FilterSwitch, ResourceListPage, ResourceSearch } from '../console-list-page'
-import { matchesResourceSearch } from '../state/resource-search'
+import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
 
 /** A live endpoint can still receive a callback; the rest are history. */
 function live(endpoint: WebhookEndpointItem): boolean {
@@ -24,19 +25,21 @@ export function WebhooksPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [query, setQuery] = useState('')
+  const deferredQuery = useDeferredValue(query)
+  const searchQuery = effectiveResourceSearchQuery(query, deferredQuery)
   const [includeFinished, setIncludeFinished] = useState(false)
   const scope = useAgentScope()
 
   const endpoints = useQuery({
     ...ankoleWebWebhookEndpointControllerIndexOptions({ query: { agent: scope.agentUID || undefined } }),
-    refetchInterval: 15_000
+    refetchInterval: LIST_REFRESH_MS
   })
 
   const rows = (endpoints.data?.webhook_endpoints ?? [])
     .filter(endpoint => includeFinished || live(endpoint))
     .filter(endpoint =>
       matchesResourceSearch(
-        query,
+        searchQuery,
         endpoint.label,
         endpoint.mode,
         endpoint.status,

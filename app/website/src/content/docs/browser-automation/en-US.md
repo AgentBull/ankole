@@ -68,7 +68,7 @@ That last point matters: `run` does not open a second browser. It reuses the run
 
 ## What the operator does not touch
 
-The worker image sets the browser environment variables. They include `ANKOLE_BROWSER_CHROMIUM_EXECUTABLE`, `ANKOLE_BROWSER_CHROMIUM_ARGS_JSON`, `ANKOLE_BROWSER_DAEMON_SOCKET`, `ANKOLE_BROWSER_DAEMON_ENTRY`, `ANKOLE_BROWSER_CLI`, `ANKOLE_BROWSER_NODE`, and `ANKOLE_BROWSER_RUNNER`. You cannot override these names in **Environment variables** in the Console. Change the Skill if you need different browser behavior.
+The worker image sets the browser environment variables. They include `ANKOLE_BROWSER_CHROMIUM_EXECUTABLE`, `ANKOLE_BROWSER_CHROMIUM_ARGS_JSON`, `ANKOLE_BROWSER_DAEMON_SOCKET`, `ANKOLE_BROWSER_DAEMON_ENTRY`, `ANKOLE_BROWSER_CLI`, and `ANKOLE_BROWSER_RUNNER`. You cannot override these names in **Environment variables** in the Console. Change the Skill if you need different browser behavior.
 
 ## Next steps
 

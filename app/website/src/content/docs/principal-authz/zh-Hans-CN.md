@@ -5,7 +5,7 @@ section: Developer guide
 order: 106
 ---
 
-Ankole 中的每个动作都有明确的主体：人员登录、Agent 运行一个回合、任务唤醒所有者，或 Brain 写入知识。主体能做什么，由 AuthZ 在动作发生时决定。本页以 `Ankole.Principals` 和 `Ankole.AuthZ` 的实际代码为准说明这条边界。
+Ankole 中的每个动作都有明确的主体：人员登录、Agent 运行一个回合、任务唤醒所有者。主体能做什么，由 AuthZ 在动作发生时决定。本页以 `Ankole.Principals` 和 `Ankole.AuthZ` 的实际代码为准说明这条边界。
 
 授权是运行时事实，由系统边界强制执行，不是写给模型的一条约定。主体（Principal）是持久、可问责的身份；授权规则存储在 PostgreSQL 中。每个受检查的动作都由 Kernel 根据明确的快照求值，调用方必须服从求值结果。
 
@@ -60,7 +60,6 @@ AuthZ 不是 agent 能绕开的一层，因为运行时在关键边界上都会�
 
 - AIGateway 从一个经验证的 token 解析出每次调用的主体，而该主体的 grant 决定它能触及哪些 model 选择符和 provider。
 - Actor Runtime 使用 Agent 主体拥有的 Activation 为每个回合设置隔离栏；来自其他主体的回复会被拒绝。
-- Brain 根据会话声明和所有者主体为每次读写划定范围；写入权限从 Actor 推导，不从请求载荷推导。
 - Console 操作使用已经验证的管理员 Token，管理员主体所在的权限组决定它可以修改什么。
 
 模型没有机会自行声明“我有权限”。系统边界会核对主体和授权规则，并落实求值结果。
@@ -91,4 +90,3 @@ AuthZ 不是 Prompt 指令，也不是对模型的期望。它核对主体并强
 
 - 经过验证的 Token 怎样在 AIGateway 边缘解析成主体，见 [AIGateway API](../ai-gateway/)。
 - Agent 主体的 Activation 怎样为一个回合设置隔离栏，见 [Actor Runtime](../actor-runtime/)。
-- Brain 如何从 actor 推导写入权限，读 [Brain](../brain/)。

@@ -1,3 +1,6 @@
+import { ms } from '@agentbull/active-support'
+import { compareCodePointStrings } from '../common/ordering'
+import { errorMessage } from '../common/errors'
 import { createHash } from 'node:crypto'
 import { createReadStream } from 'node:fs'
 import { chmod, lstat, mkdir, open, readFile, readdir, realpath, rename, rm, stat } from 'node:fs/promises'
@@ -44,7 +47,6 @@ export type MaterializedBrowserRuntime = {
   materialPath: string
   material: BrowserMaterial
   artifactRoot: string
-  nodePath: string
   runnerPath: string
   cleanup(): Promise<void>
 }
@@ -52,20 +54,12 @@ export type MaterializedBrowserRuntime = {
 export class BrowserRouteMaterializer {
   readonly root: string
   readonly socketPath: string
-  readonly nodePath: string
   readonly runnerPath: string
   readonly localChromiumExecutable: string
 
-  constructor(options: {
-    root: string
-    socketPath?: string
-    nodePath?: string
-    runnerPath?: string
-    localChromiumExecutable?: string
-  }) {
+  constructor(options: { root: string; socketPath?: string; runnerPath?: string; localChromiumExecutable?: string }) {
     this.root = resolve(options.root)
     this.socketPath = options.socketPath ?? '/run/ankole-browser/socket/browser.sock'
-    this.nodePath = options.nodePath ?? '/opt/ankole-browser/node/bin/node'
     this.runnerPath = options.runnerPath ?? '/opt/ankole-browser/dist/runner/bootstrap.js'
     this.localChromiumExecutable =
       options.localChromiumExecutable ?? '/opt/ankole-browser/browsers/chromium/chrome-headless-shell'
@@ -96,7 +90,7 @@ export class BrowserRouteMaterializer {
       profile,
       backend,
       navigation: { ssrf_filter: input.settings.ssrfFilter, allow_file_urls: false },
-      idle_ttl_ms: 30 * 60 * 1_000
+      idle_ttl_ms: ms('30m')
     }
     const nextMaterialHash = materialHash(materialBase)
     const generation =
@@ -138,7 +132,7 @@ export class BrowserRouteMaterializer {
       profile,
       backend,
       navigation: { ssrf_filter: input.settings.ssrfFilter, allow_file_urls: false },
-      idle_ttl_ms: input.settings.idleTtlMs ?? 30 * 60 * 1_000
+      idle_ttl_ms: input.settings.idleTtlMs ?? ms('30m')
     })
     return await this.writeMaterial(material, artifactRoot)
   }
@@ -160,7 +154,6 @@ export class BrowserRouteMaterializer {
       materialPath,
       material,
       artifactRoot,
-      nodePath: this.nodePath,
       runnerPath: this.runnerPath,
       cleanup: async () => rm(materialPath, { force: true })
     }
@@ -240,7 +233,7 @@ function canonicalJSON(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonicalJSON).join(',')}]`
   if (value && typeof value === 'object') {
     return `{${Object.entries(value)
-      .sort(([left], [right]) => compareCodePoints(left, right))
+      .sort(([left], [right]) => compareCodePointStrings(left, right))
       .map(([key, item]) => `${JSON.stringify(key)}:${canonicalJSON(item)}`)
       .join(',')}}`
   }
@@ -254,7 +247,7 @@ async function fingerprintDirectory(root: string): Promise<string> {
 
   const visit = async (directory: string): Promise<void> => {
     const entries = (await readdir(directory, { withFileTypes: true })).sort((left, right) =>
-      compareCodePoints(left.name, right.name)
+      compareCodePointStrings(left.name, right.name)
     )
     for (const entry of entries) {
       const path = join(directory, entry.name)
@@ -299,12 +292,4 @@ function browserArgsFromEnv(value: string | undefined): string[] {
     throw new Error('ANKOLE_BROWSER_CHROMIUM_ARGS_JSON must be a JSON string array')
   }
   return parsed
-}
-
-function compareCodePoints(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }

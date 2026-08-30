@@ -185,6 +185,50 @@ defmodule FeishuOpenAPI.TokenManagerTest do
     end
   end
 
+  test "a killed fetch task releases every waiter and permits a retry", %{app_id: app_id} do
+    parent = self()
+
+    Req.Test.stub(FeishuOpenAPI.TokenManagerTest, fn conn ->
+      send(parent, {:token_fetch_started, self()})
+
+      receive do
+        :finish_token_fetch ->
+          Req.Test.json(conn, %{
+            "code" => 0,
+            "tenant_access_token" => "t-after-retry",
+            "expire" => 7200
+          })
+      end
+    end)
+
+    client =
+      Client.new(app_id, "secret",
+        req_options: [plug: {Req.Test, FeishuOpenAPI.TokenManagerTest}]
+      )
+
+    on_exit(fn -> cleanup_client_entries(client) end)
+
+    {:ok, manager_pid} =
+      DynamicSupervisor.start_child(
+        FeishuOpenAPI.TokenManager.Supervisor,
+        {TokenManager, client}
+      )
+
+    Req.Test.allow(FeishuOpenAPI.TokenManagerTest, self(), manager_pid)
+
+    first = Task.async(fn -> TokenManager.get_tenant_token(client) end)
+    assert_receive {:token_fetch_started, fetch_pid}, 1_000
+    Process.exit(fetch_pid, :kill)
+
+    assert {:error, %FeishuOpenAPI.Error{code: :token_fetch_crashed}} =
+             Task.await(first, 1_000)
+
+    second = Task.async(fn -> TokenManager.get_tenant_token(client) end)
+    assert_receive {:token_fetch_started, retry_pid}, 1_000
+    send(retry_pid, :finish_token_fetch)
+    assert {:ok, "t-after-retry"} = Task.await(second, 1_000)
+  end
+
   test "clients with the same app_id but different cache namespaces do not share cached tokens",
        %{
          app_id: app_id

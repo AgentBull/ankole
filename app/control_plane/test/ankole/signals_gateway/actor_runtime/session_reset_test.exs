@@ -79,7 +79,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionResetTest do
 
     test "daily reset never enumerates AIGateway conversations without actor session identity" do
       %{principal: agent} = agent_fixture()
-      conversation_key = "brain.dreaming:#{Ecto.UUID.generate()}:self"
+      conversation_key = "stateful-responses-api:#{Ecto.UUID.generate()}"
 
       assert {:ok, conversation} =
                Ankole.AIGateway.Conversations.ensure_conversation(agent.uid, conversation_key)
@@ -235,12 +235,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionResetTest do
         )
 
       assert {:ok, %{status: :turn_completed, outboxes: %{clarify: clarify_outbox}}} =
-               ActorRuntime.handle_turn_completed(
-                 turn_completed_payload(
-                   source_turn_ref,
-                   "resp_#{response.id}",
-                   "loop_finished"
-                 )
+               commit_turn_completion(
+                 source_turn_ref,
+                 "resp_#{response.id}",
+                 "loop_finished"
                )
 
       assert clarify_outbox.payload["metadata"]["source"] == "ai_gateway_clarify"
@@ -404,8 +402,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionResetTest do
                    },
                    "payload" => %{"task" => "continue after reset"},
                    "delivery" => %{
-                     "signal_channel_id" => "lark:chat:reset-barrier",
-                     "provider_thread_id" => "thread-reset-barrier"
+                     "targets" => [
+                       %{
+                         "binding_name" => "bot",
+                         "signal_channel_id" => "lark:chat:reset-barrier",
+                         "provider_thread_id" => "thread-reset-barrier"
+                       }
+                     ]
                    },
                    "idempotency_key" => "reset-boundary-cron"
                  },
@@ -467,7 +470,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionResetTest do
       cron_start = turn_start_payload!(cron_envelope)
       cron_turn_ref = cron_start.turn
       assert cron_start.actor_event.actor_event_id == cron_input.id
-      assert decoded_request_context(cron_start)["turn_mode"] == "cron"
+      assert cron_start.actor_event.type == "cron.fire"
+      refute Map.has_key?(decoded_request_context(cron_start), "turn_mode")
 
       assert {:ok, [_delivery]} =
                ActorRuntime.handle_turn_accepted(turn_accepted_payload(cron_turn_ref))
@@ -475,9 +479,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionResetTest do
       committed = complete_aigateway_turn!(cron_turn_ref, "scheduled work completed")
 
       assert {:ok, %{status: :turn_completed}} =
-               ActorRuntime.handle_turn_completed(
-                 turn_completed_payload(cron_turn_ref, "resp_#{committed.id}", "loop_finished")
-               )
+               commit_turn_completion(cron_turn_ref, "resp_#{committed.id}", "loop_finished")
 
       assert %DateTime{} = Repo.get!(ActorEvent, cron_input.id).completed_at
 

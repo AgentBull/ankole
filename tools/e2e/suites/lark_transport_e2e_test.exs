@@ -376,11 +376,13 @@ defmodule Ankole.E2E.LarkTransportE2ETest do
     assert [%{id: ^reaction_id, key: "THUMBSUP"}] =
              platform_message!(fake_feishu, target_id).reactions
 
+    # The adapter resolves its own reaction instance id through the provider
+    # list endpoint; the outbox payload carries the emoji key, never the id.
     reaction_remove =
       agent.uid
       |> transport_outbox(binding.name, :reaction_remove, "")
       |> Map.put(:target_source_entry_id, target_id)
-      |> Map.put(:payload, %{"reaction_key" => reaction_id})
+      |> Map.put(:payload, %{"reaction_key" => "thumbs_up"})
 
     assert {:ok, %{raw_payload: %{"data" => %{}}}} = LarkOutbox.send(reaction_remove)
     assert platform_message!(fake_feishu, target_id).reactions == []
@@ -534,12 +536,12 @@ defmodule Ankole.E2E.LarkTransportE2ETest do
     uid =
       "agent-lark-transport-#{System.system_time(:nanosecond)}-#{System.unique_integer([:positive])}"
 
-    assert {:ok, %{principal: agent}} =
-             Principals.create_agent(%{
-               uid: uid,
-               display_name: "Lark Transport Agent",
-               role: "Transport test agent"
-             })
+    %{principal: agent} =
+      create_e2e_agent!(%{
+        uid: uid,
+        display_name: "Lark Transport Agent",
+        role: "Transport test agent"
+      })
 
     binding =
       upsert_lark_binding!(agent.uid, "lark-transport-primary", :ignore, fake_feishu,

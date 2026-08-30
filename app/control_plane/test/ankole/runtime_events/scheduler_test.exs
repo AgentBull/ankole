@@ -1,6 +1,8 @@
 defmodule Ankole.RuntimeEvents.SchedulerTest do
   use Ankole.SignalsGateway.ActorRuntimeCase
 
+  alias Ankole.AIGateway.Conversations
+
   alias Ankole.AIGateway.StatefulResponses
   alias Ankole.PluginFixtures.MockSignalProvider.Outbox, as: MockOutbox
   alias Ankole.PluginFixtures.MockSignalProviderPlugin
@@ -17,7 +19,7 @@ defmodule Ankole.RuntimeEvents.SchedulerTest do
   describe "steady-state sweep" do
     test "dispatches a due outbox that missed its notification" do
       capture_mock_outbox()
-      %{message: message, turn_ref: turn_ref} = start_im_visible_response_run()
+      %{message: message, turn_ref: turn_ref} = start_channel_reply_response_run()
 
       assert {:ok, completed} =
                StatefulResponses.commit_complete(message, assistant_content("sweep final"))
@@ -39,7 +41,7 @@ defmodule Ankole.RuntimeEvents.SchedulerTest do
     test "keeps existing deadline timers alive when sweep snapshot fails" do
       capture_mock_outbox()
       parent = self()
-      %{message: message, turn_ref: turn_ref} = start_im_visible_response_run()
+      %{message: message, turn_ref: turn_ref} = start_channel_reply_response_run()
 
       assert {:ok, _completed} =
                StatefulResponses.commit_complete(message, assistant_content("deadline final"))
@@ -77,7 +79,7 @@ defmodule Ankole.RuntimeEvents.SchedulerTest do
 
     test "does not redeliver an outbox already dispatched by notification" do
       capture_mock_outbox()
-      %{message: message, turn_ref: turn_ref} = start_im_visible_response_run()
+      %{message: message, turn_ref: turn_ref} = start_channel_reply_response_run()
 
       assert {:ok, _completed} =
                StatefulResponses.commit_complete(message, assistant_content("single delivery"))
@@ -239,7 +241,7 @@ defmodule Ankole.RuntimeEvents.SchedulerTest do
     scheduler
   end
 
-  defp start_im_visible_response_run do
+  defp start_channel_reply_response_run do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "mock", :ignore, adapter: "mock-provider")
     route = unique_route()
@@ -272,7 +274,7 @@ defmodule Ankole.RuntimeEvents.SchedulerTest do
              ActorRuntime.handle_turn_accepted(turn_accepted_payload(turn_ref))
 
     assert {:ok, conversation} =
-             StatefulResponses.ensure_conversation(agent.uid, event.session_id)
+             Conversations.ensure_conversation(agent.uid, event.session_id)
 
     assert {:ok, message} =
              StatefulResponses.start_response_run(%{
@@ -286,9 +288,7 @@ defmodule Ankole.RuntimeEvents.SchedulerTest do
 
   defp assert_turn_completed(turn_ref, message) do
     assert {:ok, %{status: :turn_completed}} =
-             ActorRuntime.handle_turn_completed(
-               turn_completed_payload(turn_ref, "resp_#{message.id}", "loop_finished")
-             )
+             commit_turn_completion(turn_ref, "resp_#{message.id}", "loop_finished")
   end
 
   defp assistant_content(text) do

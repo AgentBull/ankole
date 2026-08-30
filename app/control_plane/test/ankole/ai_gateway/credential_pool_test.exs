@@ -267,7 +267,7 @@ defmodule Ankole.AIGateway.CredentialPoolTest do
     :ok =
       CredentialPool.mark_exhausted(
         "removed-entry",
-        %{"id" => "removed"},
+        %{"id" => "removed", "health_revision" => "removed-revision"},
         429,
         %{"x-codex-primary-reset-at" => unix(retry_at)}
       )
@@ -373,9 +373,27 @@ defmodule Ankole.AIGateway.CredentialPoolTest do
 
   defp entries do
     [
-      %{"id" => "first", "label" => "First", "priority" => 0, "disabled_at" => nil},
-      %{"id" => "second", "label" => "Second", "priority" => 1, "disabled_at" => nil},
-      %{"id" => "third", "label" => "Third", "priority" => 2, "disabled_at" => nil}
+      %{
+        "id" => "first",
+        "label" => "First",
+        "priority" => 0,
+        "disabled_at" => nil,
+        "health_revision" => "first-revision"
+      },
+      %{
+        "id" => "second",
+        "label" => "Second",
+        "priority" => 1,
+        "disabled_at" => nil,
+        "health_revision" => "second-revision"
+      },
+      %{
+        "id" => "third",
+        "label" => "Third",
+        "priority" => 2,
+        "disabled_at" => nil,
+        "health_revision" => "third-revision"
+      }
     ]
   end
 

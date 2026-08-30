@@ -53,11 +53,11 @@ defmodule Ankole.Plugins.MapHelpersTest do
              %{"c" => "", "d" => %{}}
   end
 
-  test "maybe_put skips nil and empty-string values" do
-    assert MapHelpers.maybe_put(%{}, "a", nil) == %{}
-    assert MapHelpers.maybe_put(%{}, "a", "") == %{}
-    assert MapHelpers.maybe_put(%{}, "a", false) == %{"a" => false}
-    assert MapHelpers.maybe_put(%{}, "a", 0) == %{"a" => 0}
+  test "put_present skips nil and empty-string values" do
+    assert MapHelpers.put_present(%{}, "a", nil) == %{}
+    assert MapHelpers.put_present(%{}, "a", "") == %{}
+    assert MapHelpers.put_present(%{}, "a", false) == %{"a" => false}
+    assert MapHelpers.put_present(%{}, "a", 0) == %{"a" => 0}
   end
 
   test "maybe_put_nonempty_map skips nil and empty maps" do

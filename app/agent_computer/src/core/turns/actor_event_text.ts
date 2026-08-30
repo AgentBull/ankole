@@ -15,6 +15,8 @@ const REPLY_REFERENCE_TEXT_MAX_CHARS = 24_000
 const REPLY_REFERENCE_TEXT_TAIL_CHARS = 6_000
 const BACKGROUND_AGENT_JOB_SUMMARY_MAX_BYTES = 16_384
 const BACKGROUND_AGENT_JOB_TRUNCATION_SUFFIX = '...[truncated]'
+const WORKFLOW_RESULT_PREVIEW_MAX_BYTES = 2_048
+const WORKFLOW_TEXT_TRUNCATION_SUFFIX = '...[truncated]'
 const WEBHOOK_BODY_MAX_BYTES = 32_768
 const WEBHOOK_HEADERS_MAX_BYTES = 8_192
 const WEBHOOK_TRUNCATION_SUFFIX = '\n...[truncated]'
@@ -49,6 +51,18 @@ export function actorEventText(payload: JSONObject | undefined, fallbackType: st
   }
   if (fallbackType.startsWith('background_agent_job.')) {
     return backgroundAgentJobWakeupInputText(payload, fallbackType)
+  }
+  if (fallbackType === 'workflow.run.completed' || fallbackType === 'workflow.run.failed') {
+    return workflowRunWakeupInputText(payload, fallbackType)
+  }
+  if (fallbackType === 'workflow.run.attention') {
+    return workflowRunAttentionInputText(payload)
+  }
+  if (fallbackType === 'workflow.task.wakeup') {
+    return workflowTaskWakeupInputText(payload)
+  }
+  if (fallbackType === 'workflow.task.message') {
+    return workflowTaskMessageInputText(payload)
   }
 
   const text = fallbackType.startsWith('command.')
@@ -294,14 +308,103 @@ function boundedBackgroundAgentJobSummary(summary: string | undefined): string |
   )}${BACKGROUND_AGENT_JOB_TRUNCATION_SUFFIX}`
 }
 
-/**
- * Enables AIGateway truncation only for the overflow-retry path.
- */
-export function statefulTruncationFromActorEventPayload(payload: JSONObject | undefined): 'auto' | undefined {
-  const retryReason =
-    deepString(payload, ['data', 'entry', 'retry_reason']) || deepString(payload, ['data', 'internal', 'retry_reason'])
+function workflowRunWakeupInputText(payload: JSONObject | undefined, type: string): string {
+  const data = objectPath(payload, ['data'])
+  const runID = firstNumber(data, ['run_id'])
+  const title = stringArg(data, 'title')
+  const counts = workflowCounts(data)
+  const failureSummaries = workflowFailureSummaries(data)
+  const resultPreview = boundedWorkflowText(stringArg(data, 'result_preview'), WORKFLOW_RESULT_PREVIEW_MAX_BYTES)
+  const completed = type === 'workflow.run.completed'
 
-  return retryReason === 'overflow_retry' ? 'auto' : undefined
+  return [
+    completed ? 'A Workflow completed.' : 'A Workflow failed.',
+    runID !== undefined ? `Workflow run: ${runID}` : undefined,
+    title ? `Title: ${title}` : undefined,
+    Object.keys(counts).length > 0 ? `Task counts: ${JSON.stringify(counts)}` : undefined,
+    failureSummaries.length > 0 ? `Failure summaries: ${JSON.stringify(failureSummaries)}` : undefined,
+    resultPreview ? `Result preview: ${resultPreview}` : undefined,
+    completed && runID !== undefined
+      ? `Use show_workflow with Workflow run ${runID} and result_offset 0 to read the complete persisted result. Concatenate result.output_text and pass result.next_offset to the next call until it is null.`
+      : undefined,
+    !completed && runID !== undefined
+      ? `Use show_workflow with Workflow run ${runID} to inspect its durable error and task failures before deciding whether to start another run.`
+      : undefined
+  ]
+    .filter((line): line is string => line !== undefined)
+    .join('\n')
+}
+
+function workflowRunAttentionInputText(payload: JSONObject | undefined): string {
+  const data = objectPath(payload, ['data'])
+  const runID = firstNumber(data, ['run_id'])
+  const title = stringArg(data, 'title')
+  const note = boundedWorkflowText(stringArg(data, 'attention_note'), WORKFLOW_RESULT_PREVIEW_MAX_BYTES)
+
+  return [
+    'A Workflow task is waiting for your input.',
+    runID !== undefined ? `Workflow run: ${runID}` : undefined,
+    title ? `Title: ${title}` : undefined,
+    note ? `First waiting note: ${note}` : undefined,
+    runID !== undefined
+      ? `Use show_workflow with Workflow run ${runID} to see every waiting task and its note, then answer with send_message_to_workflow_task. More tasks may have started waiting since this notification.`
+      : undefined
+  ]
+    .filter((line): line is string => line !== undefined)
+    .join('\n')
+}
+
+function workflowTaskWakeupInputText(payload: JSONObject | undefined): string {
+  const data = objectPath(payload, ['data'])
+  const note = boundedWorkflowText(stringArg(data, 'note'), WORKFLOW_RESULT_PREVIEW_MAX_BYTES)
+
+  return [
+    'Your sleep deadline passed and no other event woke you earlier.',
+    note ? `Your sleep note: ${note}` : undefined,
+    'Check the state you were waiting for, then submit_result, or sleep again if the wait legitimately continues.'
+  ]
+    .filter((line): line is string => line !== undefined)
+    .join('\n')
+}
+
+function workflowTaskMessageInputText(payload: JSONObject | undefined): string {
+  const data = objectPath(payload, ['data'])
+  const message = stringArg(data, 'message') ?? ''
+
+  return ['A message from the main Agent that owns this Workflow:', message].filter(line => line !== '').join('\n')
+}
+
+function workflowCounts(data: JSONObject): JSONObject {
+  const source = objectPath(data, ['counts'])
+  return ['total', 'succeeded', 'failed'].reduce<JSONObject>((counts, key) => {
+    const value = firstNumber(source, [key])
+    if (value !== undefined) counts[key] = value
+    return counts
+  }, {})
+}
+
+function workflowFailureSummaries(data: JSONObject): JSONObject[] {
+  return arrayPath(data, ['failure_summaries'])
+    .slice(0, 10)
+    .flatMap(value => {
+      if (!isRecord(value)) return []
+
+      const callSequence = firstNumber(value, ['call_seq'])
+      const label = stringArg(value, 'label')
+      const code = stringArg(value, 'code')
+      const summary = boundedWorkflowText(stringArg(value, 'summary'), 2_000)
+      if (callSequence === undefined || !code || !summary) return []
+
+      return [{ call_seq: callSequence, ...(label ? { label } : {}), code, summary }]
+    })
+}
+
+function boundedWorkflowText(text: string | undefined, maxBytes: number): string | undefined {
+  if (!text || utf8ByteLength(text) <= maxBytes) return text
+  return `${truncateUTF8Safe(
+    text,
+    maxBytes - utf8ByteLength(WORKFLOW_TEXT_TRUNCATION_SUFFIX)
+  )}${WORKFLOW_TEXT_TRUNCATION_SUFFIX}`
 }
 
 /**

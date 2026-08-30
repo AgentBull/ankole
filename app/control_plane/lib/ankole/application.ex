@@ -1,6 +1,4 @@
 defmodule Ankole.Application do
-  # See https://hexdocs.pm/elixir/Application.html
-  # for more information on OTP Applications
   @moduledoc false
 
   use Application
@@ -26,9 +24,8 @@ defmodule Ankole.Application do
     #   - Setup.Bootstrap before Plugins.Registry: the registry reads the durable
     #     setup state to decide whether the installation still needs every
     #     compiled plugin during first-run configuration.
-    #   - Plugins.Registry before Plugins.Supervisor: the registry discovers and
-    #     activates plugins, then the supervisor reads that active set to know
-    #     which plugin-contributed children to start (snapshot taken once at boot).
+    #   - Plugins.Cohort after setup: it resolves one immutable activation snapshot,
+    #     starts Plugins.Registry, then starts every child that consumes that snapshot.
     #   - IdentityProviders.StartupSync after Oban + Plugins: full-sync enqueue
     #     needs the queue, active provider config, and adapter declarations.
     #   - PubSub + AIGateway credential and response-stream processes before
@@ -36,30 +33,32 @@ defmodule Ankole.Application do
     #     provider stream.
     #   - SignalsGateway owns both preview and ActorRuntime supervision, keeping
     #     their restart escalation inside the SignalsGateway failure domain.
-    #   - RuntimeEvents after SignalsGateway: LISTEN is followed by a snapshot of
-    #     durable rows into exact per-key timers.
+    #   - Workflow after SignalsGateway: recovered runs can enqueue durable Actor
+    #     work only after the ActorRuntime supervision tree exists.
+    #   - RuntimeEvents after Workflow: LISTEN is followed by a snapshot of
+    #     durable rows into exact per-key timers, including active Workflow runs.
     #   - Endpoint last: accept web traffic only after every subsystem it serves
     #     (auth, config, plugins, actors, i18n) is ready.
     children =
       [
         AnkoleWeb.Telemetry,
         Ankole.Repo,
-        {Task.Supervisor, name: Ankole.Brain.TaskSupervisor},
         Ankole.AppConfigure.Registry,
         Ankole.AppConfigure.Cache,
         Ankole.Observability,
         Ankole.I18n.Catalog,
         Ankole.Setup.Bootstrap,
         {Oban, Application.fetch_env!(:ankole, Oban)},
-        {Ankole.Plugins.Registry, name: Ankole.Plugins.Registry},
-        {Ankole.Plugins.Supervisor, registry: Ankole.Plugins.Registry},
+        Ankole.Plugins.Cohort,
         {Phoenix.PubSub, name: Ankole.PubSub},
+        Ankole.IdentityProviders.LocalPassword.RetryGuard,
         Ankole.AIGateway.CredentialPool,
         {Task.Supervisor, name: Ankole.AIGateway.ProgramTaskSupervisor, max_children: 4},
         {Task.Supervisor,
          name: Ankole.AIGateway.ResponseRecoveryTaskSupervisor, max_children: 16},
         Ankole.AIGateway.ResponseStream.Supervisor,
-        Ankole.SignalsGateway.Supervisor
+        Ankole.SignalsGateway.Supervisor,
+        Ankole.Workflow.Supervisor
       ]
 
     children =
@@ -84,14 +83,10 @@ defmodule Ankole.Application do
           AnkoleWeb.Endpoint
         ]
 
-    # See https://hexdocs.pm/elixir/Supervisor.html
-    # for other strategies and supported options
     opts = [strategy: :one_for_one, name: Ankole.Supervisor]
     Supervisor.start_link(children, opts)
   end
 
-  # Tell Phoenix to update the endpoint configuration
-  # whenever the application is updated.
   @impl true
   def config_change(changed, _new, removed) do
     AnkoleWeb.Endpoint.config_change(changed, removed)

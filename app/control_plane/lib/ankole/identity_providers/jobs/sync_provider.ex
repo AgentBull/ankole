@@ -5,7 +5,7 @@ defmodule Ankole.IdentityProviders.Jobs.SyncProvider do
 
   use Oban.Worker, queue: :default, max_attempts: 3
 
-  alias Ankole.IdentityProviders
+  alias Ankole.IdentityProviders.DirectorySync
 
   @impl Oban.Worker
   @spec perform(Oban.Job.t()) :: {:ok, term()} | {:error, term()}
@@ -19,7 +19,7 @@ defmodule Ankole.IdentityProviders.Jobs.SyncProvider do
   end
 
   defp do_perform(%Oban.Job{args: %{"provider_id" => provider_id}}) when is_binary(provider_id) do
-    IdentityProviders.sync_provider(provider_id)
+    DirectorySync.sync_provider(provider_id)
   end
 
   defp job_metadata(%Oban.Job{} = job) do

@@ -71,6 +71,12 @@ ankole-runtime: any
 
 Deep Research のエントリ Skill は `main` を使用します。元の会話で依頼を確認し、Job を作成するからです。調査用の Skill は Background Agent Job 内で実行できます。
 
+#### Ankole 拡張: Brain から Skill を発見する
+
+一部の SOP や方法論は、現在の作業に関連するときだけ役立ちます。すべての Prompt に表示すると context を浪費します。同梱 Skill は `brain-recall-only: true` を宣言できます。これは標準 Skill のままであり、Agent Plugin、Skill の有効化、実行 surface、`skill_view` の規則も変わりません。違いは、model に見える Skill カタログへ入れず、Brain が意味に基づいて発見することです。
+
+Brain は Skill の名前、説明、tag を検索します。一致した後、Agent は `skill_view` を呼び出します。`skill_view` は `ankole-runtime` に従い、互換性のある実行 surface では Skill を読み込み、それ以外では正しい routing または rejection の結果を返します。Skill または親 Agent Plugin を無効にすると、その Agent は Brain から発見することも読み込むこともできません。この意味検索の経路には、有効な Brain が必要です。この mode は、必要なときだけ利用でき、すべての Prompt を常に占有すべきではない同梱の方法論や SOP に適しています。
+
 ### Control Plane Plugin: 管理 platform を拡張する
 
 Control Plane Plugin は OpenAI Plugin ではなく、Agent の作業 context に入りません。Ankole control plane を拡張します。
@@ -102,13 +108,13 @@ Control Plane Plugin は Channel Provider、identity source、システム設定
 
 Agent Plugin は複数の Skill を含むことができます。親を無効にするとその Skill は利用できなくなりますが、各 Skill の設定は書き換えられません。親を再度有効にすると、Skill はそれぞれの実効状態に戻ります。
 
-### Skill experience を確認する
+### Skill 教訓を確認する
 
-Skill を使用している間、Agent は Agent 固有の注意事項を保持できます。たとえば、内部システムの慣例や検証済みの運用詳細などです。この **Skill experience** は、その Agent が Skill を読み取るたびに Skill と共に表示されます。
+Agent は、完全な Skill 手順と共に、日付付きの作業上の注意事項を受け取れます。Dreaming は Job の証拠からリース付きの教訓を作り、運用者は人の教訓を追加できます。共有の `SKILL.md` は変わりません。
 
-Agent Plugin の詳細ページ、または **知識 → Skill experience** から確認できます。手動で記録を追加するときは、まず状況を述べ、次に注意事項を述べます。
+Agent Library の scope を対象の Agent に変更し、Skill card を見つけます。card には、有効な教訓と廃止済みの教訓、証拠 Job、再確認日、廃止理由が表示されます。運用者は教訓を追加または廃止できます。Agent は次の turn から廃止済み教訓を読みません。
 
-一般的な規則をすべての Agent の experience にコピーしないでください。規則がすべての Agent に適用される場合は、Skill の source を変更します。
+一般的な規則を各 Agent の教訓にコピーしないでください。すべての Agent に適用する規則は、Skill の source に記述します。証拠の規則、リース、設定については [Skill 教訓](../skill-lessons/) を参照してください。
 
 ## Control Plane Plugin を管理する
 

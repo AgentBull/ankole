@@ -1,3 +1,5 @@
+import { ms } from '@agentbull/active-support'
+import { errorMessage } from '../common/errors'
 import {
   create,
   fromBinary,
@@ -25,8 +27,6 @@ import {
 import {
   AgentConversationContextRequestSchema,
   AgentConversationContextResponseSchema,
-  AgentPluginListRequestSchema,
-  AgentPluginListResponseSchema,
   AIGatewayAPIKeyRequestSchema,
   AIGatewayAPIKeyResponseSchema,
   ActorTurnAbortRequestSchema,
@@ -63,16 +63,12 @@ import {
   BackgroundAgentJobTurnItemsListResponseSchema,
   BackgroundAgentJobTurnUpsertRequestSchema,
   BackgroundAgentJobTurnUpsertResponseSchema,
+  BrainRequestSchema,
   CodexLogs2DailyMaintenanceRequestSchema,
   CodexLogs2DailyMaintenanceResponseSchema,
   InstalledSkillReplaceRequestSchema,
   InstalledSkillReplaceResponseSchema,
   JSONPassthroughResponseSchema,
-  MemoryBrowseRequestSchema,
-  MemoryHealthCheckRequestSchema,
-  MemoryOpenRequestSchema,
-  MemorySearchRequestSchema,
-  MemoryUpdateRequestSchema,
   ObservabilitySpansExportRequestSchema,
   ObservabilitySpansExportResponseSchema,
   ScheduleCheckBackLaterCreateRequestSchema,
@@ -87,14 +83,25 @@ import {
   ScheduleCronTargetRequestSchema,
   ScheduleCronUpdateRequestSchema,
   SignalChannelStandingOrdersSetRequestSchema,
-  SkillOverlayAppendRequestSchema,
-  SkillOverlayReplaceRequestSchema,
   SkillOverlayResolveRequestSchema,
   SkillOverlayResolveResponseSchema,
-  SkillOverlayResponseSchema,
   WebhookEndpointCreateRequestSchema,
   WebhookEndpointListRequestSchema,
   WebhookEndpointTargetRequestSchema,
+  WorkflowCancelRequestSchema,
+  WorkflowCancelResponseSchema,
+  WorkflowCreateRequestSchema,
+  WorkflowCreateResponseSchema,
+  WorkflowGetRequestSchema,
+  WorkflowGetResponseSchema,
+  WorkflowListRequestSchema,
+  WorkflowListResponseSchema,
+  WorkflowTaskMessageSendRequestSchema,
+  WorkflowTaskMessageSendResponseSchema,
+  WorkflowTaskResultSubmitRequestSchema,
+  WorkflowTaskResultSubmitResponseSchema,
+  WorkflowTaskSleepRequestSchema,
+  WorkflowTaskSleepResponseSchema,
   WorkerEnvResolveRequestSchema,
   WorkerEnvResolveResponseSchema
 } from '../fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
@@ -114,11 +121,21 @@ import {
 export const rpcMethods = {
   aiGatewayAPIKeyForCreateOrFindByAgent: 'ai_gateway.api_key_for.create_or_find_by_agent',
   agentConversationContextResolve: 'agent_conversation.context.resolve',
+  brainRemember: 'brain.remember',
+  brainLearnSource: 'brain.learn_source',
+  brainRecall: 'brain.recall',
+  brainGetPage: 'brain.get_page',
+  brainForget: 'brain.forget',
+  brainEntity: 'brain.entity',
+  brainWhoknows: 'brain.whoknows',
+  brainSynthesize: 'brain.synthesize',
+  brainDelta: 'brain.delta',
+  brainContextPack: 'brain.context_pack',
+  brainVolunteerPointers: 'brain.volunteer_pointers',
   actorTurnAbort: 'actor_turn.abort',
   actorTurnComplete: 'actor_turn.complete',
   actorTurnNoop: 'actor_turn.noop',
   appConfigureResolve: 'app_configure.resolve',
-  agentPluginList: 'agent_plugin.list',
   automationJobCreate: 'automation_job.create',
   automationJobList: 'automation_job.list',
   automationJobShow: 'automation_job.show',
@@ -136,11 +153,13 @@ export const rpcMethods = {
   backgroundAgentJobTurnUpsert: 'background_agent_job.turn.upsert',
   backgroundAgentJobTurnItemsList: 'background_agent_job.turn_items.list',
   backgroundAgentJobStatusUpdate: 'background_agent_job.status.update',
-  memorySearch: 'memory_search',
-  memoryBrowse: 'memory_browse',
-  memoryOpen: 'memory_open',
-  memoryUpdate: 'memory_update',
-  memoryHealthCheck: 'memory_health_check',
+  workflowCreate: 'workflow.create',
+  workflowGet: 'workflow.get',
+  workflowList: 'workflow.list',
+  workflowCancel: 'workflow.cancel',
+  workflowTaskResultSubmit: 'workflow.task.result.submit',
+  workflowTaskSleep: 'workflow.task.sleep',
+  workflowTaskMessageSend: 'workflow.task.message.send',
   observabilitySpansExport: 'observability.spans.export',
   scheduleCheckBackLaterCreate: 'schedule.check_back_later.create',
   scheduleCheckBackLaterList: 'schedule.check_back_later.list',
@@ -162,9 +181,7 @@ export const rpcMethods = {
   webhookEndpointList: 'webhook.endpoint.list',
   webhookEndpointCancel: 'webhook.endpoint.cancel',
   skillsInstalledReplace: 'skills.installed.replace',
-  skillsOverlayAppend: 'skills.overlay.append',
   skillsOverlayResolve: 'skills.overlay.resolve',
-  skillsOverlayReplace: 'skills.overlay.replace',
   workerEnvResolve: 'worker_env.resolve'
 } as const
 
@@ -187,11 +204,21 @@ export type RPCOperationMeta =
 export const rpcOperationMeta = {
   [rpcMethods.aiGatewayAPIKeyForCreateOrFindByAgent]: { scope: 'worker_agent' },
   [rpcMethods.agentConversationContextResolve]: { scope: 'turn', effect: 'read' },
+  [rpcMethods.brainRemember]: { scope: 'turn', effect: 'write' },
+  [rpcMethods.brainLearnSource]: { scope: 'turn', effect: 'write' },
+  [rpcMethods.brainRecall]: { scope: 'turn', effect: 'read' },
+  [rpcMethods.brainGetPage]: { scope: 'turn', effect: 'read' },
+  [rpcMethods.brainForget]: { scope: 'turn', effect: 'write' },
+  [rpcMethods.brainEntity]: { scope: 'turn', effect: 'read' },
+  [rpcMethods.brainWhoknows]: { scope: 'turn', effect: 'read' },
+  [rpcMethods.brainSynthesize]: { scope: 'turn', effect: 'write' },
+  [rpcMethods.brainDelta]: { scope: 'turn', effect: 'read' },
+  [rpcMethods.brainContextPack]: { scope: 'turn', effect: 'read' },
+  [rpcMethods.brainVolunteerPointers]: { scope: 'turn', effect: 'read' },
   [rpcMethods.actorTurnAbort]: { scope: 'turn', effect: 'complete' },
   [rpcMethods.actorTurnComplete]: { scope: 'turn', effect: 'complete' },
   [rpcMethods.actorTurnNoop]: { scope: 'turn', effect: 'complete' },
   [rpcMethods.appConfigureResolve]: { scope: 'worker_agent' },
-  [rpcMethods.agentPluginList]: { scope: 'turn', effect: 'read' },
   [rpcMethods.automationJobCreate]: { scope: 'turn', effect: 'write' },
   [rpcMethods.automationJobList]: { scope: 'turn', effect: 'read' },
   [rpcMethods.automationJobShow]: { scope: 'turn', effect: 'read' },
@@ -209,11 +236,13 @@ export const rpcOperationMeta = {
   [rpcMethods.backgroundAgentJobTurnUpsert]: { scope: 'turn', effect: 'write' },
   [rpcMethods.backgroundAgentJobTurnItemsList]: { scope: 'turn', effect: 'read' },
   [rpcMethods.backgroundAgentJobStatusUpdate]: { scope: 'turn', effect: 'write' },
-  [rpcMethods.memorySearch]: { scope: 'turn', effect: 'read' },
-  [rpcMethods.memoryBrowse]: { scope: 'turn', effect: 'read' },
-  [rpcMethods.memoryOpen]: { scope: 'turn', effect: 'read' },
-  [rpcMethods.memoryUpdate]: { scope: 'turn', effect: 'write' },
-  [rpcMethods.memoryHealthCheck]: { scope: 'turn', effect: 'read' },
+  [rpcMethods.workflowCreate]: { scope: 'turn', effect: 'write' },
+  [rpcMethods.workflowGet]: { scope: 'turn', effect: 'read' },
+  [rpcMethods.workflowList]: { scope: 'turn', effect: 'read' },
+  [rpcMethods.workflowCancel]: { scope: 'turn', effect: 'write' },
+  [rpcMethods.workflowTaskResultSubmit]: { scope: 'turn', effect: 'write' },
+  [rpcMethods.workflowTaskSleep]: { scope: 'turn', effect: 'write' },
+  [rpcMethods.workflowTaskMessageSend]: { scope: 'turn', effect: 'write' },
   [rpcMethods.observabilitySpansExport]: { scope: 'worker_agent' },
   [rpcMethods.scheduleCheckBackLaterCreate]: { scope: 'turn', effect: 'write' },
   [rpcMethods.scheduleCheckBackLaterList]: { scope: 'turn', effect: 'read' },
@@ -235,15 +264,13 @@ export const rpcOperationMeta = {
   [rpcMethods.webhookEndpointList]: { scope: 'turn', effect: 'read' },
   [rpcMethods.webhookEndpointCancel]: { scope: 'turn', effect: 'write' },
   [rpcMethods.skillsInstalledReplace]: { scope: 'turn', effect: 'write' },
-  [rpcMethods.skillsOverlayAppend]: { scope: 'turn', effect: 'write' },
   [rpcMethods.skillsOverlayResolve]: { scope: 'turn', effect: 'read' },
-  [rpcMethods.skillsOverlayReplace]: { scope: 'turn', effect: 'write' },
   [rpcMethods.workerEnvResolve]: { scope: 'worker_agent' }
 } as const satisfies Record<RPCMethod, RPCOperationMeta>
 
 /**
  * Request and response message schema bound to each operation. Model-facing
- * passthrough families (memory, schedule) share `JSONPassthroughResponse`.
+ * passthrough families (schedule) share `JSONPassthroughResponse`.
  */
 export const rpcSchemas = {
   [rpcMethods.aiGatewayAPIKeyForCreateOrFindByAgent]: {
@@ -253,6 +280,20 @@ export const rpcSchemas = {
   [rpcMethods.agentConversationContextResolve]: {
     request: AgentConversationContextRequestSchema,
     response: AgentConversationContextResponseSchema
+  },
+  [rpcMethods.brainRemember]: { request: BrainRequestSchema, response: JSONPassthroughResponseSchema },
+  [rpcMethods.brainLearnSource]: { request: BrainRequestSchema, response: JSONPassthroughResponseSchema },
+  [rpcMethods.brainRecall]: { request: BrainRequestSchema, response: JSONPassthroughResponseSchema },
+  [rpcMethods.brainGetPage]: { request: BrainRequestSchema, response: JSONPassthroughResponseSchema },
+  [rpcMethods.brainForget]: { request: BrainRequestSchema, response: JSONPassthroughResponseSchema },
+  [rpcMethods.brainEntity]: { request: BrainRequestSchema, response: JSONPassthroughResponseSchema },
+  [rpcMethods.brainWhoknows]: { request: BrainRequestSchema, response: JSONPassthroughResponseSchema },
+  [rpcMethods.brainSynthesize]: { request: BrainRequestSchema, response: JSONPassthroughResponseSchema },
+  [rpcMethods.brainDelta]: { request: BrainRequestSchema, response: JSONPassthroughResponseSchema },
+  [rpcMethods.brainContextPack]: { request: BrainRequestSchema, response: JSONPassthroughResponseSchema },
+  [rpcMethods.brainVolunteerPointers]: {
+    request: BrainRequestSchema,
+    response: JSONPassthroughResponseSchema
   },
   [rpcMethods.actorTurnAbort]: {
     request: ActorTurnAbortRequestSchema,
@@ -269,10 +310,6 @@ export const rpcSchemas = {
   [rpcMethods.appConfigureResolve]: {
     request: AppConfigureResolveRequestSchema,
     response: AppConfigureResolveResponseSchema
-  },
-  [rpcMethods.agentPluginList]: {
-    request: AgentPluginListRequestSchema,
-    response: AgentPluginListResponseSchema
   },
   [rpcMethods.automationJobCreate]: {
     request: AutomationJobCreateRequestSchema,
@@ -342,13 +379,33 @@ export const rpcSchemas = {
     request: BackgroundAgentJobStatusUpdateRequestSchema,
     response: BackgroundAgentJobResponseSchema
   },
-  [rpcMethods.memorySearch]: { request: MemorySearchRequestSchema, response: JSONPassthroughResponseSchema },
-  [rpcMethods.memoryBrowse]: { request: MemoryBrowseRequestSchema, response: JSONPassthroughResponseSchema },
-  [rpcMethods.memoryOpen]: { request: MemoryOpenRequestSchema, response: JSONPassthroughResponseSchema },
-  [rpcMethods.memoryUpdate]: { request: MemoryUpdateRequestSchema, response: JSONPassthroughResponseSchema },
-  [rpcMethods.memoryHealthCheck]: {
-    request: MemoryHealthCheckRequestSchema,
-    response: JSONPassthroughResponseSchema
+  [rpcMethods.workflowCreate]: {
+    request: WorkflowCreateRequestSchema,
+    response: WorkflowCreateResponseSchema
+  },
+  [rpcMethods.workflowGet]: {
+    request: WorkflowGetRequestSchema,
+    response: WorkflowGetResponseSchema
+  },
+  [rpcMethods.workflowList]: {
+    request: WorkflowListRequestSchema,
+    response: WorkflowListResponseSchema
+  },
+  [rpcMethods.workflowCancel]: {
+    request: WorkflowCancelRequestSchema,
+    response: WorkflowCancelResponseSchema
+  },
+  [rpcMethods.workflowTaskResultSubmit]: {
+    request: WorkflowTaskResultSubmitRequestSchema,
+    response: WorkflowTaskResultSubmitResponseSchema
+  },
+  [rpcMethods.workflowTaskSleep]: {
+    request: WorkflowTaskSleepRequestSchema,
+    response: WorkflowTaskSleepResponseSchema
+  },
+  [rpcMethods.workflowTaskMessageSend]: {
+    request: WorkflowTaskMessageSendRequestSchema,
+    response: WorkflowTaskMessageSendResponseSchema
   },
   [rpcMethods.observabilitySpansExport]: {
     request: ObservabilitySpansExportRequestSchema,
@@ -419,14 +476,9 @@ export const rpcSchemas = {
     request: InstalledSkillReplaceRequestSchema,
     response: InstalledSkillReplaceResponseSchema
   },
-  [rpcMethods.skillsOverlayAppend]: { request: SkillOverlayAppendRequestSchema, response: SkillOverlayResponseSchema },
   [rpcMethods.skillsOverlayResolve]: {
     request: SkillOverlayResolveRequestSchema,
     response: SkillOverlayResolveResponseSchema
-  },
-  [rpcMethods.skillsOverlayReplace]: {
-    request: SkillOverlayReplaceRequestSchema,
-    response: SkillOverlayResponseSchema
   },
   [rpcMethods.workerEnvResolve]: {
     request: WorkerEnvResolveRequestSchema,
@@ -456,13 +508,14 @@ export type RPCFrame<M extends ControlPlaneOwnedRPCMethod> = (typeof rpcOperatio
 export type RPCRequester = <M extends ControlPlaneOwnedRPCMethod>(
   method: M,
   payload: RPCRequestInit<M>,
-  frame: RPCFrame<M>
+  frame: RPCFrame<M>,
+  options?: { timeoutMs?: number }
 ) => Promise<RPCResponseOf<M>>
 
 export type ScheduleRPCMethod = Extract<RPCMethod, `schedule.${string}`>
-export type MemoryRPCMethod = Extract<RPCMethod, `memory${string}`>
 export type WebhookRPCMethod = Extract<RPCMethod, `webhook.${string}`>
 export type SignalChannelRPCMethod = Extract<RPCMethod, `signal_channel.${string}`>
+export type BrainRPCMethod = Extract<RPCMethod, `brain.${string}`>
 export type AutomationJobManagementRPCMethod =
   | typeof rpcMethods.automationJobCreate
   | typeof rpcMethods.automationJobList
@@ -470,16 +523,11 @@ export type AutomationJobManagementRPCMethod =
   | typeof rpcMethods.automationJobCancel
 
 /**
- * Family-scoped requesters injected into schedule and memory tools. The turn
- * fence is bound at construction; responses in these families are
- * model-facing passthrough JSON.
+ * Family-scoped requesters injected into schedule tools. The turn fence is
+ * bound at construction; responses in these families are model-facing
+ * passthrough JSON.
  */
 export type ScheduleRPCRequester = <M extends ScheduleRPCMethod>(
-  method: M,
-  payload: RPCRequestInit<M>
-) => Promise<JSONObject>
-
-export type MemoryRPCRequester = <M extends MemoryRPCMethod>(
   method: M,
   payload: RPCRequestInit<M>
 ) => Promise<JSONObject>
@@ -499,15 +547,21 @@ export type AutomationJobRPCRequester = <M extends AutomationJobManagementRPCMet
   payload: RPCRequestInit<M>
 ) => Promise<JSONObject>
 
+/**
+ * Every brain method carries one free-form JSON params document
+ * (`BrainRequest`), so this requester owns both codec directions and the
+ * params keys are the control-plane BrainBroker contract. The optional
+ * timeout serves the short-deadline context injections.
+ */
+export type BrainRPCRequester = (
+  method: BrainRPCMethod,
+  params: JSONObject,
+  options?: { timeoutMs?: number }
+) => Promise<JSONObject>
+
 export function scheduleRPCRequester(rpc: RPCRequester, turn: ActorTurnRef): ScheduleRPCRequester {
   // Every schedule method is turn-scoped; the conditional frame type cannot
   // be discharged over a generic method union.
-  return async (method, payload) =>
-    passthroughJSON(await rpc(method, payload, { turn } as RPCFrame<typeof method>), method)
-}
-
-export function memoryRPCRequester(rpc: RPCRequester, turn: ActorTurnRef): MemoryRPCRequester {
-  // Every memory method is turn-scoped; same discharge limit as above.
   return async (method, payload) =>
     passthroughJSON(await rpc(method, payload, { turn } as RPCFrame<typeof method>), method)
 }
@@ -527,6 +581,11 @@ export function signalChannelRPCRequester(rpc: RPCRequester, turn: ActorTurnRef)
 export function automationJobRPCRequester(rpc: RPCRequester, turn: ActorTurnRef): AutomationJobRPCRequester {
   return async (method, payload) =>
     passthroughJSON(await rpc(method, payload, { turn } as RPCFrame<typeof method>), method)
+}
+
+export function brainRPCRequester(rpc: RPCRequester, turn: ActorTurnRef): BrainRPCRequester {
+  return async (method, params, options) =>
+    passthroughJSON(await rpc(method, { paramsJson: jsonBytes(params) }, { turn }, options), method)
 }
 
 function passthroughJSON(response: { bodyJson: Uint8Array }, method: string): JSONObject {
@@ -581,7 +640,7 @@ export class RPCTimeoutError extends Error {
   }
 }
 
-const defaultRPCTimeoutMs = 300_000
+const defaultRPCTimeoutMs = ms('5m')
 
 type RPCWaiter = {
   resolve: (reply: RPCResponseMessage | RPCErrorMessage) => void
@@ -791,10 +850,6 @@ async function sendWorkerRPCError(
   )
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
-
 /**
  * Generated payload message types re-exported under the lane contract so
  * consumers do not import the generated module path directly.
@@ -804,7 +859,6 @@ export type {
   AgentConversationContextResponse,
   AgentPluginCatalogEntry,
   AgentPluginCatalogSkill,
-  AgentPluginListResponse,
   AIGatewayAPIKeyResponse,
   AppConfigureResolution,
   AppConfigureResolveResponse,
@@ -825,161 +879,10 @@ export type {
   BackgroundAgentJobTurnItemsListResponse,
   BackgroundAgentJobTurnUpsertRequest,
   BackgroundAgentJobTurnUpsertResponse,
-  BrainSnapshot,
-  BrainSnapshotEntry,
   InstalledSkillObservation,
   InstalledSkillReplaceResponse,
-  MemoryUpdateRequest,
   RuntimeSkillSummary,
   SkillOverlayResolveResponse,
   SkillOverlayResponse,
   WorkerEnvResolveResponse
 } from '../fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
-
-/**
- * Hand-written shapes of the deliberately free-form `*_json` documents the
- * worker produces or consumes inside the generated messages. They are
- * documentation-grade contracts: the control plane persists them as JSON and
- * the model reads their rendered form.
- */
-export type BackgroundAgentJobStatus = 'queued' | 'running' | 'waiting_on_user' | 'succeeded' | 'failed' | 'stopped'
-
-export type BackgroundAgentJobTurnStatus = 'in_progress' | 'completed' | 'failed' | 'interrupted'
-export type BackgroundAgentJobTurnKind = 'agent' | 'compaction'
-
-export type BackgroundAgentJobTurnTrajectoryContentPart = JSONObject & {
-  type: string
-}
-
-export type BackgroundAgentJobTurnTrajectoryToolCall = JSONObject & {
-  id: string
-  type: 'function'
-  function: JSONObject & {
-    name: string
-    arguments: string
-  }
-}
-
-export type BackgroundAgentJobTurnTrajectoryMessage =
-  | (JSONObject & {
-      id?: string
-      role: 'user' | 'developer'
-      content: string | BackgroundAgentJobTurnTrajectoryContentPart[]
-      metadata?: JSONObject
-    })
-  | (JSONObject & {
-      id?: string
-      role: 'assistant'
-      content: string
-      tool_calls?: BackgroundAgentJobTurnTrajectoryToolCall[]
-      metadata?: JSONObject
-    })
-  | (JSONObject & {
-      id?: string
-      role: 'tool'
-      tool_call_id: string
-      name: string
-      content: string
-      metadata?: JSONObject
-    })
-
-export type BackgroundAgentJobTurnTrajectoryMetadata = JSONObject & {
-  redacted?: boolean
-  content_truncated?: boolean
-}
-
-export type BackgroundAgentJobTurnTrajectory = JSONObject & {
-  format: 'ankole_chatml'
-  version: 1
-  messages: BackgroundAgentJobTurnTrajectoryMessage[]
-  metadata?: BackgroundAgentJobTurnTrajectoryMetadata
-}
-
-export type BackgroundAgentJobTurnTrajectoryHeader = JSONObject & {
-  format: 'ankole_chatml'
-  version: 1
-  metadata?: BackgroundAgentJobTurnTrajectoryMetadata
-}
-
-/**
- * One sanitized semantic thread item pending checkpoint. The control plane
- * stores the item stream verbatim and derives the trajectory-group
- * projection from it.
- */
-export type BackgroundAgentJobTurnItemEntry = JSONObject & {
-  position: number
-  item_key: string
-  item: JSONObject
-}
-
-export type BackgroundAgentJobTurnUsageBreakdown = JSONObject & {
-  total_tokens: number
-  input_tokens: number
-  cached_input_tokens: number
-  output_tokens: number
-  reasoning_output_tokens: number
-}
-
-export type BackgroundAgentJobTurnUsage = JSONObject & {
-  thread_total: BackgroundAgentJobTurnUsageBreakdown
-  last_model_call: BackgroundAgentJobTurnUsageBreakdown
-  model_context_window?: number
-}
-
-export type BackgroundAgentJobTurnPlan = JSONObject & {
-  explanation?: string
-  steps: Array<
-    JSONObject & {
-      step: string
-      status: 'pending' | 'in_progress' | 'completed'
-    }
-  >
-}
-
-export type BackgroundAgentJobTurnToolUsage = JSONObject & {
-  namespace?: string
-  name: string
-  calls: number
-}
-
-export type BackgroundAgentJobTurnToolExecutionMechanism = JSONObject & {
-  namespace?: string
-  name: string
-  execution_mechanism: 'provider_hosted' | 'local_dynamic'
-  calls: number
-}
-
-export type BackgroundAgentJobTurnActiveItem = JSONObject & {
-  id: string
-  namespace?: string
-  name: string
-}
-
-export type BackgroundAgentJobTurnProgress = JSONObject & {
-  completed_items: number
-  tool_calls: number
-  tools_used: BackgroundAgentJobTurnToolUsage[]
-  tool_execution_mechanisms?: BackgroundAgentJobTurnToolExecutionMechanism[]
-  files_changed: string[]
-  skills_used?: string[]
-  plan?: BackgroundAgentJobTurnPlan
-  active_item?: BackgroundAgentJobTurnActiveItem
-}
-
-export type BackgroundAgentJobExecution = {
-  attempt: number
-  current?: {
-    runtime_turn_id: string
-    kind: BackgroundAgentJobTurnKind
-    status: BackgroundAgentJobTurnStatus
-  }
-  lead_turn_number: number
-  threads: { total: number; child: number }
-  turns: { lead: number; child: number; compaction: number; active: number }
-  progress: Omit<BackgroundAgentJobTurnProgress, 'active_item'> & {
-    active_items: Array<{ scope: 'lead' | 'child'; namespace?: string; name: string }>
-  }
-  usage?: BackgroundAgentJobTurnUsage
-  trajectory_page: BackgroundAgentJobTurnTrajectory & { next_cursor?: string }
-  updated_at: string
-}

@@ -56,7 +56,8 @@ order: 203
 | `POST` | `/agents` | 에이전트 생성 |
 | `GET` | `/agents/:agent_uid` | 에이전트 하나 읽기 |
 | `PATCH` | `/agents/:agent_uid` | 에이전트 갱신 |
-| `DELETE` | `/agents/:agent_uid` | 에이전트 제거 |
+| `POST` | `/agents/:agent_uid/enable` | 비활성화된 에이전트 다시 활성화 |
+| `DELETE` | `/agents/:agent_uid` | 활성 에이전트는 비활성화하고, 이미 비활성화된 에이전트는 영구 삭제 |
 
 ### 시그널 라우팅 규칙
 
@@ -88,11 +89,11 @@ Agent Library는 에이전트가 할 수 있는 일, 즉 플러그인과 스킬�
 | `PUT` | `/agents/:agent_uid/library-capabilities/skills/:id` | 에이전트 하나의 스킬 재정의 |
 | `GET` | `/agents/:agent_uid/library-documents` | 에이전트의 라이브러리 문서 목록 |
 | `PUT` | `/agents/:agent_uid/library-documents/:document_kind` | 라이브러리 문서 설정 |
-| `GET` | `/agents/:agent_uid/library-skill-overlays` | 스킬 오버레이 목록 |
-| `PUT` | `/agents/:agent_uid/library-skill-overlays/:skill_name` | 스킬 오버레이 설정 |
-| `DELETE` | `/agents/:agent_uid/library-skill-overlays/:skill_name` | 스킬 오버레이 제거 |
+| `GET` | `/agents/:agent_uid/skill-lessons` | 활성 및 폐기된 Skill 교훈 목록 |
+| `POST` | `/agents/:agent_uid/skill-lessons` | 활성화된 Skill에 사람의 교훈 추가 |
+| `POST` | `/agents/:agent_uid/skill-lessons/:lesson_id/retire` | Skill 교훈 폐기 |
 
-능력은 전역으로 활성화된 다음 에이전트별로 좁히거나 넓힐 수 있습니다. 스킬 오버레이는 운영자가 스킬을 포크하지 않고 에이전트 하나에 대해 그 스킬의 동작을 사용자 지정할 수 있게 해 줍니다.
+능력은 전역으로 활성화된 다음 Agent별로 좁히거나 넓힐 수 있습니다. Skill 교훈은 Skill 소스를 변경하지 않고 Agent 하나에 추가 작업 지침을 제공합니다. 목록에는 증거와 폐기 이력도 포함됩니다. 폐기된 교훈은 더 이상 전달되지 않으며, 사람이 취소한 내용은 Dreaming의 재학습 금지 목록에 남습니다. 수명 주기와 제한은 [Skill 교훈](../skill-lessons/)을 참고하십시오.
 
 ### 환경 변수(WorkerEnv)
 
@@ -118,7 +119,7 @@ Agent Computer Worker는 API 키나 토큰 같은 환경 변수가 필요할 수
 | `GET` | `/control-plane-plugins` | Control Plane Plugins와 그 상태 목록 |
 | `PUT` | `/control-plane-plugins` | 플러그인 활성화 또는 비활성화 |
 
-Control Plane Plugins는 컨트롤 플레인 자체가 하는 일을 바꾸는 퍼스트파티 확장입니다. 시그널 어댑터나 Brain 소스 커넥터가 그 예입니다.
+Control Plane Plugins는 컨트롤 플레인 자체가 하는 일을 바꾸는 퍼스트파티 확장입니다. 시그널 어댑터가 그 예입니다.
 
 ### Identity providers와 AppConfiguration
 
@@ -142,7 +143,6 @@ Control Plane Plugins는 컨트롤 플레인 자체가 하는 일을 바꾸는 �
 - **Workers**: `/agent-computer-workers`, Worker별 파일 업로드, 이동, 목록.
 - **Jobs**: `/background-agent-jobs`(목록, 읽기, 취소).
 - **AI 활동**: `/ai-gateway/conversations`, 대화별 메시지.
-- **Memory**: 전체 `/brain/*` 표면 — 항목, 소스, 감사 로그, dreaming 실행과 적합도(fitness), 복원(restoration).
 - **Principals 및 AuthZ**: `/principals`, `/principal-groups`, `/permission-grants` — [Principal 및 AuthZ](../principal-authz/) 페이지의 권한 모델.
 
 ## 여기에 없는 것에 대한 참고

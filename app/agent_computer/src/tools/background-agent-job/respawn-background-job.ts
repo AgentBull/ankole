@@ -1,11 +1,14 @@
 import { z } from 'zod'
-import type { AgentTool } from '../../core'
+import { defineWorkerTool, type WorkerAgentTool } from '../../core'
 import { ModelIntegerID, modelIntegerIDFromWire, modelIntegerIDToWire } from '../../core/model-integer-id'
 import { jsonToolResult } from '../../core/tool-result'
-import { assertCodexJobProjectResumeState, codexJobProjectLocation } from '../../core/codex-runner/job-project'
+import { assertCodexJobProjectResumeState, codexJobProjectLocation } from '../../core/codex-runner/job/job-project'
 import type { TurnStart } from '../../lanes/actor_lane'
 import { rpcMethods, type RPCRequester, type RPCRequestInit } from '../../lanes/rpc_lane'
-import { BackgroundAgentJobStatusSchema, type BackgroundAgentJobStatus } from './status'
+import {
+  BackgroundAgentJobStatusSchema,
+  type BackgroundAgentJobStatus
+} from '../../core/background-agent-job-documents'
 
 const RespawnBackgroundJobParamsSchema = z
   .object({
@@ -36,8 +39,8 @@ export type RespawnBackgroundJobToolOptions = {
 
 export function createRespawnBackgroundJobTool(
   opts: RespawnBackgroundJobToolOptions
-): AgentTool<typeof RespawnBackgroundJobParamsSchema, RespawnBackgroundJobResult> {
-  return {
+): WorkerAgentTool<typeof RespawnBackgroundJobParamsSchema, RespawnBackgroundJobResult> {
+  return defineWorkerTool({
     name: 'respawn_background_job',
     description: [
       'Respawn one non-running background agent job as a new one.',
@@ -84,5 +87,5 @@ export function createRespawnBackgroundJobTool(
         status: BackgroundAgentJobStatusSchema.parse(response.status)
       })
     }
-  }
+  })
 }

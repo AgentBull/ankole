@@ -28,6 +28,36 @@ defmodule Ankole.KernelTest do
     assert NativeKernel.any_ascii("report-2026_07.pdf") == "report-2026_07.pdf"
   end
 
+  test "brain_markdoc_analyze/1 crosses the JSON NIF boundary" do
+    body =
+      "public\n{% audience scope=\"principal:alice\" %}\n" <>
+        "private [[people/alice]]\n{% /audience %}"
+
+    assert %{
+             "segments" => [
+               %{"scope" => "world", "text" => "public\n"},
+               %{
+                 "scope" => "principal:alice",
+                 "text" => "\nprivate [[people/alice]]\n"
+               },
+               %{"scope" => "world", "text" => ""}
+             ],
+             "wikilinks" => ["people/alice"]
+           } =
+             NativeKernel.brain_markdoc_analyze(body)
+
+    assert %{
+             "error" => %{
+               "code" => "unclosed_audience_tag",
+               "line" => 1
+             }
+           } =
+             NativeKernel.brain_markdoc_analyze(
+               "{% audience scope=\"principal:alice\" %}\n" <>
+                 "~~~markdoc\n{% /audience %}\n~~~\n"
+             )
+  end
+
   test "web_url_facts/1 parses and classifies web URLs" do
     assert %{scheme: "https", host: "example.com", host_class: :public} =
              NativeKernel.web_url_facts("https://Example.COM/page")
@@ -104,6 +134,18 @@ defmodule Ankole.KernelTest do
     refute String.contains?(encrypted, "=")
     assert NativeKernel.aead_decrypt(encrypted, @aead_key) == "secret"
     assert NativeKernel.aead_decrypt(@aead_ciphertext, @aead_key) == "secret"
+  end
+
+  test "argon2id helpers hash and verify passwords" do
+    hash = NativeKernel.argon2id_hash("correct horse battery staple")
+
+    assert String.starts_with?(hash, "$argon2id$v=19$")
+    assert NativeKernel.argon2id_verify("correct horse battery staple", hash)
+    refute NativeKernel.argon2id_verify("wrong password", hash)
+    assert NativeKernel.argon2id_hash("correct horse battery staple") != hash
+
+    assert {:error, reason} = NativeKernel.argon2id_verify("password", "not a phc string")
+    assert reason =~ "invalid password hash"
   end
 
   test "jwt helpers sign and verify claims" do
@@ -244,7 +286,6 @@ defmodule Ankole.KernelTest do
 
   test "runtime fabric envelope structs round trip through the generated codec" do
     envelope = %V1.Envelope{
-      protocol_version: RuntimeFabric.protocol_version(),
       message_id: "turn-start-1",
       correlation_id: "corr-1",
       lane: :LANE_TURN,
@@ -283,7 +324,6 @@ defmodule Ankole.KernelTest do
     on_exit(fn -> RuntimeFabric.router_stop(router) end)
 
     inline_steer = %V1.Envelope{
-      protocol_version: RuntimeFabric.protocol_version(),
       message_id: "steer-1",
       correlation_id: "steer-1",
       lane: :LANE_CONTROL,
@@ -324,7 +364,6 @@ defmodule Ankole.KernelTest do
              RuntimeFabric.router_send_mandatory(router, "missing-worker", wrong_lane)
 
     missing_event = %V1.Envelope{
-      protocol_version: RuntimeFabric.protocol_version(),
       message_id: "mailbox-updated-missing-event",
       correlation_id: "mailbox-updated-missing-event",
       lane: :LANE_TURN,
@@ -341,54 +380,41 @@ defmodule Ankole.KernelTest do
              RuntimeFabric.router_send_mandatory(router, "missing-worker", missing_event)
 
     assert reason =~ "mailbox_updated.actor_event is required"
-
-    # The seal stamps the current protocol version on every send, so a sender
-    # cannot emit an unsupported version; the receive path owns that
-    # rejection. A legacy envelope fails the send on its real semantic gap.
-    legacy_v1 =
-      Path.expand("../../proto/golden", __DIR__)
-      |> Path.join("worker_ready.v1.bin")
-      |> File.read!()
-      |> V1.Envelope.decode!()
-
-    assert {:error, reason} =
-             RuntimeFabric.router_send_mandatory(router, "missing-worker", legacy_v1)
-
-    assert reason =~ "worker_ready.max_turns must be positive"
   end
 
   test "runtime fabric golden bytes decode to the same structs across runtimes" do
     golden_dir = Path.expand("../../proto/golden", __DIR__)
 
     with_field =
-      golden_dir |> Path.join("turn_start.v4.bin") |> File.read!() |> V1.Envelope.decode!()
+      golden_dir |> Path.join("turn_start.v5.bin") |> File.read!() |> V1.Envelope.decode!()
 
     assert {:turn_start, %V1.TurnStart{} = turn_start} = with_field.body
     assert turn_start.workspace_id == 10_000
     assert turn_start.model_ref.max_completion_tokens == 32_000
     assert turn_start.turn.actor.agent_uid == "agent-1"
-    assert Torque.decode!(turn_start.actor_event.payload_json) == %{"text" => "PING"}
+    assert turn_start.actor_event.type == "cron.fire"
 
-    assert with_field.protocol_version == RuntimeFabric.protocol_version()
+    assert Torque.decode!(turn_start.actor_event.payload_json) == %{
+             "data" => %{
+               "wake_payload" => %{
+                 "cron_schedule_name" => "golden",
+                 "payload" => %{}
+               }
+             }
+           }
 
-    # Older bytes remain structurally decodable, but the native transport
-    # rejects them before an old worker can be admitted against typed RPC v4.
-    legacy =
-      golden_dir |> Path.join("turn_start.v1.bin") |> File.read!() |> V1.Envelope.decode!()
+    assert Torque.decode!(turn_start.request_context_json) == %{
+             "schedule_origin" => %{
+               "cron_schedule_name" => "golden",
+               "payload" => %{}
+             },
+             "silent_success_allowed" => true
+           }
 
-    assert legacy.protocol_version == 1
-
-    pre_field =
-      golden_dir
-      |> Path.join("turn_start.pre_max_completion_tokens.v1.bin")
-      |> File.read!()
-      |> V1.Envelope.decode!()
-
-    assert {:turn_start, %V1.TurnStart{} = pre_field_start} = pre_field.body
-    assert pre_field_start.model_ref.max_completion_tokens == nil
+    assert with_field.protocol_version == 5
 
     worker_ready =
-      golden_dir |> Path.join("worker_ready.v4.bin") |> File.read!() |> V1.Envelope.decode!()
+      golden_dir |> Path.join("worker_ready.v5.bin") |> File.read!() |> V1.Envelope.decode!()
 
     assert {:worker_ready,
             %V1.AgentComputerWorkerReady{
@@ -398,7 +424,89 @@ defmodule Ankole.KernelTest do
             }} =
              worker_ready.body
 
-    assert worker_ready.protocol_version == RuntimeFabric.protocol_version()
+    assert worker_ready.protocol_version == 5
+
+    brain_request =
+      golden_dir
+      |> Path.join("rpc_brain_recall_request.v5.bin")
+      |> File.read!()
+      |> V1.Envelope.decode!()
+
+    assert {:rpc_request,
+            %V1.RPCRequest{
+              request_id: "golden-rpc-brain-recall-1",
+              method: "brain.recall"
+            } = brain_request_frame} = brain_request.body
+
+    assert brain_request_frame.turn.actor.agent_uid == "agent-1"
+
+    assert %{"budget_tokens" => 512, "query" => "golden memory"} ==
+             brain_request_frame.payload
+             |> V1.BrainRequest.decode!()
+             |> Map.fetch!(:params_json)
+             |> Torque.decode!()
+
+    brain_response =
+      golden_dir
+      |> Path.join("rpc_brain_recall_response.v5.bin")
+      |> File.read!()
+      |> V1.Envelope.decode!()
+
+    assert {:rpc_response,
+            %V1.RPCResponse{request_id: "golden-rpc-brain-recall-1"} =
+              brain_response_frame} = brain_response.body
+
+    assert %{
+             "chunks" => [
+               %{"object_slug" => "concepts/golden", "text" => "Golden memory."}
+             ]
+           } ==
+             brain_response_frame.payload
+             |> V1.JSONPassthroughResponse.decode!()
+             |> Map.fetch!(:body_json)
+             |> Torque.decode!()
+
+    overlay_request =
+      golden_dir
+      |> Path.join("rpc_skill_overlay_resolve_request.v5.bin")
+      |> File.read!()
+      |> V1.Envelope.decode!()
+
+    assert {:rpc_request,
+            %V1.RPCRequest{
+              request_id: "golden-rpc-skill-overlay-resolve-1",
+              method: "skills.overlay.resolve"
+            } = overlay_request_frame} = overlay_request.body
+
+    assert %V1.SkillOverlayResolveRequest{skill_names: ["pdf", "xlsx"]} =
+             V1.SkillOverlayResolveRequest.decode!(overlay_request_frame.payload)
+
+    overlay_response =
+      golden_dir
+      |> Path.join("rpc_skill_overlay_resolve_response.v5.bin")
+      |> File.read!()
+      |> V1.Envelope.decode!()
+
+    assert {:rpc_response,
+            %V1.RPCResponse{request_id: "golden-rpc-skill-overlay-resolve-1"} =
+              overlay_response_frame} = overlay_response.body
+
+    assert %V1.SkillOverlayResolveResponse{
+             overlays: [
+               %V1.SkillOverlayResponse{
+                 skill_name: "pdf",
+                 has_overlay: true,
+                 text: "Prefer page-by-page verification.",
+                 content_hash: "overlay-hash-pdf"
+               },
+               %V1.SkillOverlayResponse{
+                 skill_name: "xlsx",
+                 has_overlay: false,
+                 text: "",
+                 content_hash: "overlay-hash-xlsx"
+               }
+             ]
+           } = V1.SkillOverlayResolveResponse.decode!(overlay_response_frame.payload)
   end
 
   test "runtime fabric router maps mandatory unknown routes" do
@@ -1017,7 +1125,6 @@ defmodule Ankole.KernelTest do
 
   defp turn_start_envelope do
     %V1.Envelope{
-      protocol_version: RuntimeFabric.protocol_version(),
       message_id: "turn-start-route-test",
       correlation_id: "turn-start-route-test",
       lane: :LANE_TURN,

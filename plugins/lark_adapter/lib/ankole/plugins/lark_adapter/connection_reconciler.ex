@@ -3,8 +3,7 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionReconciler do
   Reconciles enabled Lark signal bindings into supervised long connections.
   """
 
-  use GenServer
-
+  alias Ankole.Plugins.ConnectionLifecycle
   alias Ankole.Plugins.LarkAdapter.Config
   alias Ankole.Plugins.LarkAdapter.ConnectionSupervisor
   alias Ankole.Plugins.LarkAdapter.IdentityProvider
@@ -16,28 +15,37 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionReconciler do
   alias Ankole.SignalsGateway.Binding
 
   # Background cadence for re-deriving live connections from the database. It is
-  # intentionally relaxed because connection startup is a live transport concern:
-  # setup/e2e helpers may call reconcile_once/1, while normal runtime edits are
-  # allowed to converge on the next tick.
+  # intentionally relaxed because saved bindings also request an immediate
+  # asynchronous pass. This tick repairs missed notifications and external drift.
   @default_interval_ms 60_000
-  # A reconcile pass reads bindings and starts supervised connections (DB plus
-  # supervisor calls), so the synchronous reconcile/1 uses a long timeout well
-  # above the 5s GenServer default.
-  @call_timeout 30_000
+
+  @spec child_spec(keyword()) :: Supervisor.child_spec()
+  def child_spec(opts) do
+    %{id: __MODULE__, start: {__MODULE__, :start_link, [opts]}, type: :worker}
+  end
 
   @doc """
   Starts the periodic connection reconciler.
   """
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
-    GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
+    ConnectionLifecycle.start_link(opts,
+      name: __MODULE__,
+      default_interval_ms: @default_interval_ms,
+      reconcile_opts: Keyword.drop(opts, [:name, :interval_ms]),
+      reconcile: &run_reconcile/1
+    )
   end
 
   @doc """
   Reconciles immediately through the supervised process.
   """
   @spec reconcile(GenServer.server()) :: map()
-  def reconcile(server \\ __MODULE__), do: GenServer.call(server, :reconcile, @call_timeout)
+  def reconcile(server \\ __MODULE__), do: ConnectionLifecycle.reconcile(server)
+
+  @doc "Requests an immediate reconciliation without delaying the caller."
+  @spec reconcile_async(GenServer.server()) :: :ok
+  def reconcile_async(server \\ __MODULE__), do: ConnectionLifecycle.reconcile_async(server)
 
   @doc """
   Reconciles enabled bindings once.
@@ -53,46 +61,8 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionReconciler do
     |> start_connections(opts)
   end
 
-  @impl true
-  def init(opts) do
-    state = %{
-      interval_ms:
-        Keyword.get(
-          opts,
-          :interval_ms,
-          Application.get_env(
-            :ankole,
-            :signal_connection_reconcile_interval_ms,
-            @default_interval_ms
-          )
-        ),
-      reconcile_opts: Keyword.drop(opts, [:name, :interval_ms])
-    }
-
-    {:ok, state, {:continue, :reconcile}}
-  end
-
-  @impl true
-  def handle_continue(:reconcile, state) do
-    # Reconcile once on startup so connections come up immediately, before the
-    # first periodic tick, then fall into the timer-driven schedule.
-    run_reconcile(state)
-    {:noreply, schedule_next(state)}
-  end
-
-  @impl true
-  def handle_call(:reconcile, _from, state) do
-    {:reply, run_reconcile(state), state}
-  end
-
-  @impl true
-  def handle_info(:reconcile, state) do
-    run_reconcile(state)
-    {:noreply, schedule_next(state)}
-  end
-
-  defp run_reconcile(state) do
-    result = reconcile_once(state.reconcile_opts)
+  defp run_reconcile(opts) do
+    result = reconcile_once(opts)
 
     if result.errors != [] do
       Logging.warning(
@@ -105,13 +75,6 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionReconciler do
     end
 
     result
-  end
-
-  defp schedule_next(%{interval_ms: nil} = state), do: state
-
-  defp schedule_next(%{interval_ms: interval_ms} = state) do
-    Process.send_after(self(), :reconcile, interval_ms)
-    state
   end
 
   # Loads the bindings that should currently have a live connection: this adapter
@@ -144,6 +107,10 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionReconciler do
 
       {:error, reason} ->
         {specs, [binding_error(binding, reason) | errors]}
+
+      {:blocked, connection_key, reason} ->
+        error = binding_error(binding, reason) |> Map.put(:blocked_connection_key, connection_key)
+        {specs, [error | errors]}
     end
   end
 
@@ -178,30 +145,40 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionReconciler do
   end
 
   defp binding_connection_spec(%Binding{} = binding, opts) do
-    with {:ok, config} <- Config.load_chat_config_ref(binding.config_ref) do
-      config =
-        Config.resolve_runtime_bot_identity(
-          config,
-          Keyword.take(opts, [:bot_info_fetcher])
-        )
+    case Config.load_chat_config_ref(binding.config_ref) do
+      {:ok, config} ->
+        connection_key = Config.connection_key(config)
 
-      context =
-        AdapterContext.new(
-          agent_uid: binding.agent_uid,
-          binding_name: binding.name,
-          adapter: binding.adapter,
-          user_name: Map.get(config, "userName", "Lark / Feishu")
-        )
+        config =
+          Config.resolve_runtime_bot_identity(
+            config,
+            Keyword.take(opts, [:bot_info_fetcher])
+          )
 
-      {:ok, Config.connection_key(config),
-       %{
-         config: config,
-         secret_fingerprint: Config.secret_fingerprint(config),
-         consumers: [Inbound.chat_consumer(context, config)]
-       }}
-    else
-      :error -> {:error, :chat_config_not_found}
-      {:error, reason} -> {:error, reason}
+        if is_binary(Map.get(config, "runtimeBotOpenID")) do
+          context =
+            AdapterContext.new(
+              agent_uid: binding.agent_uid,
+              binding_name: binding.name,
+              adapter: binding.adapter,
+              user_name: Map.get(config, "userName", "Lark / Feishu")
+            )
+
+          {:ok, connection_key,
+           %{
+             config: config,
+             secret_fingerprint: Config.secret_fingerprint(config),
+             consumers: [Inbound.chat_consumer(context, config)]
+           }}
+        else
+          {:blocked, connection_key, :runtime_bot_identity_unavailable}
+        end
+
+      :error ->
+        {:error, :chat_config_not_found}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -252,20 +229,44 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionReconciler do
 
   defp start_connections({specs, errors}, opts) do
     supervisor_opts = Keyword.take(opts, [:registry, :supervisor, :client_opts])
+    snapshot = ConnectionLifecycle.desired_snapshot(specs, errors)
+    stopped = stop_undesired_connections(snapshot, supervisor_opts)
+
+    blocked_connection_keys =
+      errors
+      |> Enum.flat_map(fn
+        %{blocked_connection_key: key} -> [key]
+        _error -> []
+      end)
+      |> MapSet.new()
 
     # Start each deduplicated connection, then partition successes from failures
     # so the caller receives a started-count plus a flat list of per-binding and
     # per-start errors.
     {started, start_errors} =
       specs
+      # A blocked binding can share this key with an identity provider. Starting
+      # that partial spec would replace the live connection without its chat consumer.
+      |> Map.reject(fn {key, _spec} -> MapSet.member?(blocked_connection_keys, key) end)
       |> Map.values()
       |> Enum.map(&start_connection(&1, supervisor_opts))
       |> Enum.split_with(&match?({:ok, _pid}, &1))
 
     %{
       started: length(started),
+      stopped: stopped,
       errors: Enum.reverse(errors) ++ Enum.map(start_errors, &start_error/1)
     }
+  end
+
+  # Only a complete snapshot can prove that a registered connection is no
+  # longer desired. A read error keeps the last live connection until recovery.
+  defp stop_undesired_connections(snapshot, supervisor_opts) do
+    ConnectionLifecycle.stop_undesired(
+      snapshot,
+      ConnectionSupervisor.registered_keys(supervisor_opts),
+      &ConnectionSupervisor.stop(&1, supervisor_opts)
+    )
   end
 
   defp start_connection(spec, supervisor_opts) do

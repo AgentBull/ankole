@@ -1,6 +1,7 @@
 defmodule Ankole.SignalsGateway.AIReplyPreview do
   @moduledoc """
-  Subscribes to one generic AIGateway conversation and renders IM previews.
+  Subscribes to one generic AIGateway conversation and renders live reply
+  previews for a Signal channel.
 
   Lifecycle:
     1. `maybe_start_for/3` is called immediately before a real worker turn is
@@ -8,17 +9,18 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
     2. The handler subscribes to generic conversation-scoped AIGateway events
        and filters opaque metadata in SignalsGateway.
     3. On first `:output_text_delta` or tool activity event, it sends an
-       initial IM preview message.
-    4. On subsequent deltas, it throttles IM edits (~1s flush); tool activity
-       updates are edited immediately.
+       initial provider preview message.
+    4. On subsequent deltas, it throttles provider edits (~1s flush); tool
+       activity updates are edited immediately.
     5. On `:response_started`, clear the per-round delta buffer while keeping
        the existing provider preview handle.
     6. Response terminal events never imply that the Agent turn is terminal.
        Only explicit Actor lifecycle handlers stop the preview.
     7. Durable terminal delivery is owned by outbox; the transient handler
        remains available across long model calls and retryable execution loss.
-    8. A lifecycle stop checkpoints the latest renderer-safe semantic projection
-       before outbox takes over, even when the last provider update is still dirty.
+    8. A lifecycle stop checkpoints the latest renderer-safe semantic
+       projection before outbox takes over, even when the last provider update
+       is still dirty.
   """
 
   use GenServer, restart: :temporary
@@ -38,22 +40,44 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   alias Ankole.SignalsGateway.OutboxAdapter
   alias Ankole.SignalsGateway.OutboxEntry
   alias Ankole.SignalsGateway.ReplyPresentation
+  alias Ankole.SignalsGateway.Sanitizer
+  alias Ankole.SignalsGateway.Utils
   alias Ankole.SignalsGateway.ReplyPreviewAdapter
   alias Ankole.SignalsGateway.ReplyPreviewAdapter.Request
   alias Ankole.Repo
 
-  # How long to wait between IM edit flushes (milliseconds).
+  # Throttle plain-text edits to avoid provider rate limits.
   @edit_flush_interval_ms 1_000
-  # Coalesce rich reply changes so one turn starts at most one provider sync per second.
+  # Throttle rich updates because they use slower provider-native APIs.
   @rich_flush_interval_ms 1_000
+  # Avoid an empty provider message while the first rich content takes shape.
   @rich_creation_debounce_ms 350
+  # Keep rich-preview recovery responsive after repeated temporary failures.
   @rich_retry_max_ms 30_000
 
-  @im_visible_event_types ~w(im.message.addressed im.message.may_intervene signal.action.invoked command.new command.steer command.llm check_back_later.wakeup cron.fire webhook.received automation_job.emitted automation_job.run_failed background_agent_job.completed background_agent_job.failed background_agent_job.waiting)
+  # These event types can use a Turn's AI output as a reply to a Signal channel.
+  # Other provider-visible effects have separate lifecycle owners.
+  @channel_reply_event_types ~w(
+    im.message.addressed
+    im.message.may_intervene
+    signal.action.invoked
+    command.new
+    command.steer
+    command.llm
+    check_back_later.wakeup
+    cron.fire
+    webhook.received
+    automation_job.emitted
+    automation_job.run_failed
+    background_agent_job.completed
+    background_agent_job.failed
+    background_agent_job.waiting
+    workflow.run.completed
+    workflow.run.failed
+    workflow.run.attention
+  )
 
-  # ─────────────────────────────────────────────────────────────────
   # Public API
-  # ─────────────────────────────────────────────────────────────────
 
   @doc """
   Starts one preview handler for a dispatched Actor turn.
@@ -61,7 +85,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   @spec maybe_start_for(ActorEvent.t(), String.t(), Ecto.UUID.t()) :: :ok | {:error, term()}
   def maybe_start_for(%ActorEvent{} = event, subject_uid, conversation_id)
       when is_binary(subject_uid) and is_binary(conversation_id) do
-    if im_visible_event?(event) do
+    if channel_reply_eligible?(event) do
       with {:ok, event} <- rebase_dispatched_owner(event) do
         start_preview(event, subject_uid, conversation_id, event.id)
       end
@@ -105,20 +129,21 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   end
 
   @doc """
-  Returns true when an actor event can produce an IM-visible AI reply.
+  Returns true when an ActorEvent can use its Turn's AI output as a reply to a
+  Signal channel.
 
-  This predicate keeps preview/final-reply delivery narrower than generic actor
-  events: explicit command feedback and other provider-visible side effects
-  continue to use the outbox path instead.
+  A true result does not guarantee an OutboxEntry or a provider send. The reply
+  mode and route are checked later. Command feedback and other provider effects
+  have separate owners.
   """
-  @spec im_visible_event?(ActorEvent.t()) :: boolean()
-  def im_visible_event?(%ActorEvent{} = event) do
+  @spec channel_reply_eligible?(ActorEvent.t()) :: boolean()
+  def channel_reply_eligible?(%ActorEvent{} = event) do
     not is_nil(event.signal_channel_id) and
-      event.type in @im_visible_event_types
+      event.type in @channel_reply_event_types
   end
 
   @doc false
-  def im_visible_event_types, do: @im_visible_event_types
+  def channel_reply_event_types, do: @channel_reply_event_types
 
   @doc false
   def start_link(
@@ -635,7 +660,9 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
             |> Map.put("recovery_state", %{
               "state" => "delegated",
               "reason" => "plain_text_fallback",
-              "detail" => detail,
+              # Sanitize before the JSONPayload checkpoint gate: adapter
+              # details may carry atom reasons, which JSONPayload rejects.
+              "detail" => Sanitizer.transport(detail),
               "delegated_at" => delegated_at
             })
 
@@ -723,14 +750,14 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
     %{
       "state" => state,
       "reason" => class,
-      "detail" => detail,
+      # Sanitize before the JSONPayload checkpoint gate: adapter details may
+      # carry atom reasons, which JSONPayload rejects.
+      "detail" => Sanitizer.transport(detail),
       "blocked_at" => DateTime.utc_now(:microsecond) |> DateTime.to_iso8601()
     }
   end
 
-  # ─────────────────────────────────────────────────────────────────
   # GenServer callbacks
-  # ─────────────────────────────────────────────────────────────────
 
   @impl GenServer
   def init({%ActorEvent{} = event, subject_uid, conversation_id, stream_actor_event_id}) do
@@ -774,7 +801,6 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
       tool_calls: %{},
       # The provider message id for the current preview (nil = no preview sent yet).
       preview_entry_id: nil,
-      # Whether the preview has been established (first delta → send IM).
       preview_established: false,
       # A provider rejection while establishing or editing disables this
       # best-effort preview for the rest of the turn. Durable terminal output
@@ -782,7 +808,6 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
       preview_disabled: false,
       # Monotonic key segment for best-effort preview edits.
       edit_sequence: 0,
-      # Dirty flag for edit flush.
       dirty: rich? and map_size(checkpoint) > 0,
       reply_preview_adapter: rich_adapter,
       presentation: presentation,
@@ -1458,6 +1483,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
     )
 
     if retry? do
+      retry_delay_ms = max(state.rich_retry_ms, rich_retry_after_ms(reason))
       retry_ms = min(state.rich_retry_ms * 2, @rich_retry_max_ms)
 
       %{
@@ -1467,7 +1493,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
           rich_task_generation: nil,
           rich_task_presentation: nil,
           dirty: true,
-          rich_retry_at: System.monotonic_time(:millisecond) + state.rich_retry_ms,
+          rich_retry_at: System.monotonic_time(:millisecond) + retry_delay_ms,
           rich_retry_ms: retry_ms
       }
     else
@@ -1530,6 +1556,12 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   defp rich_retryable?({:reply_delivery, :permanent, _error}), do: false
   defp rich_retryable?({:cardkit_plain_text_fallback, _error}), do: false
   defp rich_retryable?(_reason), do: true
+
+  defp rich_retry_after_ms({:reply_delivery, :retryable, detail}) when is_map(detail) do
+    Utils.reply_delivery_retry_after_seconds(detail) * 1_000
+  end
+
+  defp rich_retry_after_ms(_reason), do: 0
 
   defp rich_retry_due?(nil), do: true
 
@@ -1733,11 +1765,6 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
     end
   end
 
-  # ─────────────────────────────────────────────────────────────────
-  # IM interaction helpers (reuse OutboxAdapter)
-  # ─────────────────────────────────────────────────────────────────
-
-  # Sends the initial preview message to the provider.
   defp establish_preview(%ActorEvent{} = event, text) do
     with {:ok, result} <- send_new_reply(event, text, nil, "ai-preview:#{event.id}"),
          entry_id when is_binary(entry_id) <- created_source_entry_id(result),
@@ -1751,7 +1778,6 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
     end
   end
 
-  # Edits the existing preview message with updated text.
   defp edit_preview(%ActorEvent{} = event, entry_id, text, edit_key) do
     key = "ai-preview:#{event.id}:edit:#{entry_id}:#{edit_key}"
 
@@ -1793,9 +1819,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
     |> Map.merge(extra)
   end
 
-  # ─────────────────────────────────────────────────────────────────
   # Adapter resolution
-  # ─────────────────────────────────────────────────────────────────
 
   defp send_new_reply(%ActorEvent{} = event, text, ai_message_id, idempotency_key) do
     with text when is_binary(text) and text != "" <- normalize_text(text),

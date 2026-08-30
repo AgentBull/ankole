@@ -1,0 +1,43 @@
+THIRD-PARTY NOTICES
+
+The Brain Agent Plugin includes modified documentation from GBrain.
+
+Upstream project: GBrain
+Upstream URL: https://github.com/garrytan/gbrain
+Upstream commit: 1fec58e5fe2fd77314857619ed171b60f3efecd8
+License: MIT
+License URL: https://github.com/garrytan/gbrain/blob/1fec58e5fe2fd77314857619ed171b60f3efecd8/LICENSE
+
+Imported source files:
+- skills/resolve-before-asking/SKILL.md <= skills/resolve-before-asking/SKILL.md (upstream sha256: 1882c45b2e603bbb1e251d388cc2682270ee7eae99211d5a5322430f4667fb39)
+- skills/idea-lineage/SKILL.md <= skills/idea-lineage/SKILL.md (upstream sha256: bbf37781d93b71ddc7909ecc5ab635872c874fb8591995dbf88b45ffeac6b1de)
+- skills/applied-reading/SKILL.md <= skills/book-mirror/SKILL.md (upstream sha256: 214ba954958e1eaf07caebbdcd9ca4de21091e79f2384183d89342e6d75ff6b6) and skills/strategic-reading/SKILL.md (upstream sha256: 5be656c39c830153ec7c2f328dc8bdeac05c1412b01b3415de6b5b008926e7a2)
+- skills/brain-learning/SKILL.md (routing, verbatim-capture, write, and repair sections) <= skills/ingest/SKILL.md (upstream sha256: dc40ecc0072806fb8c7bb6ab9cf1f103842e05653eb55d67632d7e3ffc4dd7d2), skills/media-ingest/SKILL.md (upstream sha256: 4cb0dee1011dce0d5a65dfa4610820511ed6e2da005c7ba15500c79f0b9bcb2f), skills/idea-ingest/SKILL.md (upstream sha256: 01ef449b7d5df52553cfd7c05d1365085058eda32de4fad3e67a22311ccd49f5), skills/blog-ingest/SKILL.md (upstream sha256: 8fad548e780b56a8e79dd08f0bc7a79eb84aa03447798983acef949e4abefd3f), skills/voice-note-ingest/SKILL.md (upstream sha256: 145c02e636430abba5648e026aef77606d6ba2594285fbfee4f4dd4253cf833a), skills/meeting-ingestion/SKILL.md (upstream sha256: 949a491b98e7dabe51e3d1640f49a7dbfacb543703d22619a1aed36611eb383b), skills/brain-ingest-gate/SKILL.md (upstream sha256: 61a47001723d9b44998114ca5c3edee306606077d097061663bae22e86926cb7), and skills/correction-pipeline/SKILL.md (upstream sha256: caf1264b7afec46569d30f6d92b07f37ae375e3f4e6aeddd58866aec327053de)
+
+Modifications:
+- Rewrote every Skill for the Ankole Brain tool surface: entity, recall, get_page, delta, synthesize, remember, learn_source, and forget replace the upstream page-writing operations (put_page, add_link, add_timeline_entry, put_raw_data, file_upload) and CLI commands. Background learning, conversation auto-learning, native claim dedup, and Console merge review own the pipeline work the upstream skills performed in the agent.
+- Merged the upstream ingestion skills into the brain-learning routing table and its write and repair discipline; merged book-mirror and strategic-reading into applied-reading with the Mirror and Playbook lenses.
+- Removed upstream frontmatter (version, triggers, tools, mutating, writes_to, upstream), routing-eval fixtures, conformance-test sections, and cross-references to unported skills and conventions.
+- Dropped upstream mechanisms without an Ankole owner: placeholder resolution at ingest, feed pagination walking, tier and cull scoring, transcript sidecar pages, and rendered-identity-file repair.
+
+MIT License
+
+Copyright (c) 2026 Garry Tan
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

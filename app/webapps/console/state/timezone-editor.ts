@@ -9,13 +9,13 @@ const UTC_TIME_ZONE = 'Etc/UTC'
 export function timeZoneOptions(locale: string, current: string, at = new Date()): TimeZoneOption[] {
   const zones = new Set([UTC_TIME_ZONE, current, ...supportedTimeZones()].filter(Boolean))
 
+  // One formatter per zone: the offset label doubles as the validity probe,
+  // because `Intl.DateTimeFormat` rejects the same zones it cannot label.
   return [...zones]
-    .filter(timeZone => timeZoneCurrentTime(timeZone, locale, at) !== undefined)
-    .map(timeZone => ({
-      value: timeZone,
-      label: timeZone,
-      description: timeZoneOffsetLabel(timeZone, locale, at)
-    }))
+    .flatMap(timeZone => {
+      const description = timeZoneOffsetLabel(timeZone, locale, at)
+      return description === undefined ? [] : [{ value: timeZone, label: timeZone, description }]
+    })
     .sort((left, right) => {
       const priority = timeZonePriority(left.value, current) - timeZonePriority(right.value, current)
       return priority || left.value.localeCompare(right.value)

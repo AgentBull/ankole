@@ -38,8 +38,7 @@ Tools are the local actions the model can drive during a loop. The worker ships 
 
 - **Computer** — shell commands (under bubblewrap confinement), file read and patch, apply-patch, and the v4a computer-use tool that drives a real browser desktop. This is where terminal state and file edits live.
 - **Web** — web search and web fetch, routed through the worker.
-- **Brain** — the recall and knowledge tools that reach back into long-term memory.
-- **Memory, schedule, todo, clarify** — the smaller structured tools an agent uses to plan, defer, and ask.
+- **Schedule, todo, clarify** — the smaller structured tools an agent uses to plan, defer, and ask.
 - **Codex** — the CodexRunner job tools, for work delegated to a Background Agent Job.
 - **Library and mcporter** — access to enabled Skills and invocation-scoped MCP dependency configs.
 - **Background Agent Job** — the handoff tools that create or continue durable jobs.
@@ -52,7 +51,6 @@ The durable shared writable runtime mount is `/agents`, laid out per actor key:
 
 ```text
 /agents/<agent-key>/
-├── .codex/
 ├── SOUL.md
 ├── MISSION.md
 ├── DESIGN.md
@@ -61,11 +59,13 @@ The durable shared writable runtime mount is `/agents`, laid out per actor key:
 ├── sessions/<workspace-id>/
 └── jobs/<job-id>/
     ├── .codex/config.toml
-    ├── .ankole/skills/
+    ├── AGENTS.md
     └── temp/
 ```
 
 The model sees the absolute container path. The Worker does not translate paths. `SOUL.md` and `MISSION.md` define Agent behavior and responsibility. `DESIGN.md` is the design system for visual work. The [Agent Library](../agent-library/) manages all three. `installed-skills/`, `sessions/`, and `jobs/` hold Skills, conversation workspaces, and Background Agent Job workspaces. PostgreSQL assigns each Session a stable numeric workspace ID that starts at 10000.
+
+The active Codex Home is a rebuildable Worker-local shard at `/var/lib/ankole/codex/<agent-key>/.codex`; it is not part of the Agent Home. Background Agent Jobs load Skills through Ankole `skill_view` and do not copy Skill roots into the Job workspace.
 
 ## Streaming and progress
 

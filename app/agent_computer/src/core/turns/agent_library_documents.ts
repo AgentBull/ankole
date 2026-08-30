@@ -14,17 +14,29 @@ export function materializeAgentLibraryDocuments(
   verifyProjectionContent('SOUL.md', context.soul, context.soulContentHash)
   verifyProjectionContent('MISSION.md', context.mission, context.missionContentHash)
   verifyProjectionContent('DESIGN.md', context.design, context.designContentHash)
+  verifyProjectionContent(
+    'ConfidentialityPolicy.md',
+    context.confidentialityPolicy,
+    context.confidentialityPolicyContentHash
+  )
   atomicProjection(paths.soul, context.soul)
   atomicProjection(paths.mission, context.mission)
   atomicProjection(paths.design, context.design)
+  atomicProjection(paths.confidentialityPolicy, context.confidentialityPolicy)
   const soul = readVerifiedProjection('SOUL.md', paths.soul, context.soulContentHash)
   const mission = readVerifiedProjection('MISSION.md', paths.mission, context.missionContentHash)
   const design = readVerifiedProjection('DESIGN.md', paths.design, context.designContentHash)
+  const confidentialityPolicy = readVerifiedProjection(
+    'ConfidentialityPolicy.md',
+    paths.confidentialityPolicy,
+    context.confidentialityPolicyContentHash
+  )
   return {
     ...context,
     soul,
     mission,
-    design
+    design,
+    confidentialityPolicy
   }
 }
 

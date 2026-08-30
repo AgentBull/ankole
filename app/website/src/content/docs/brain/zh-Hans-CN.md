@@ -1,81 +1,148 @@
 ---
 title: Brain
-description: Ankole 实例的长期记忆，包括整理后的知识、原始聊天召回、Dreaming 和人工审核；PostgreSQL 记录是事实，Markdown 是投影。
-section: Developer guide
-order: 104
+description: 让 Agent 从对话、文件和网页中积累可追溯的组织知识，并在明确的披露边界内召回、修正和遗忘。
+section: User guide
+order: 18
 ---
 
-Brain 是一个有归属主体的长期记忆。它同时持有三样东西：agent 据以工作的策展知识、回溯到源聊天里真正说过什么的召回路径，以及把原始历史转成已索引情景与待定知识的梦境过程。在待定知识成为事实之前，由人复核。本页对照 `Ankole.Brain` 里的真实代码，画出这套模型。
+Brain 是一个受 GBrain 启发的长期记忆系统。它把对话、文件和网页中具有长期价值的信息整理为可追溯的组织知识，让 Agent 在明确的披露边界内召回、修正和遗忘。
 
-先说明最关键的一点：结构化知识是持久事实，Markdown 是它的投影——而不是反过来。Brain 协调证据、策展、当前知识和人工复核。聊天证据仍归 SignalsGateway；Brain 拥有留存 source 的字节、策展知识、dreaming 状态和恢复记录。
+Brain 不会把不断增长的聊天记录直接当成记忆。它维护人物、组织、事件、判断及其关系的当前投影。新证据可以支持、修正或取代已有 Claim，也可以暴露矛盾；证据和旧状态仍可供人复核。
 
-## scope：谁能看到什么
+同一 Ankole 实例中的所有 Agent 共用一个知识空间。系统不会为每个 Agent 复制一套私有数据库。每条记忆都有自己的披露范围，因此，共享存储不等于无限制披露。
 
-Brain 的每一次读写都流经一个 `Brain.Scope`，而这个 scope 只从 AIGateway 会话上的声明推导出来——具体是 `conversation.metadata["brain"]`。任何 channel 事件、provider 元数据或运行时环境状态都不会被当作后备来源查阅。一个 scope 带着一个 `owner_uid`、一组 `readable_store_keys`、一个 `writable_store_key`，以及 `current_channel`。跨主体共享的知识有一个专门的所有者 `brain-shared`。
+## Brain 可以学习什么
 
-这种路由选择是刻意的。它把权限边界放在会话声明上——运维者看得见、改得了的地方——而不是让记忆漂移到最近一次说话的人那边。
+当前有三条学习路径：
 
-## 持久事实与投影
+| 路径 | 结果 | 条件 |
+| --- | --- | --- |
+| Agent 调用 `remember` | 一条事实或判断立即成为持久记忆 | Agent 必须提交一条原子 Claim，注明出处，并选择有效的披露范围 |
+| Signals 学习处理对话 | 系统可以在没有显式 `remember` 调用时学习有长期价值的事实、判断和未决承诺 | Channel 必须是私聊或 IM 群聊，并且必须配置 `brain.extraction_model`；群聊还必须关联已同步的成员权限组 |
+| 管理员注册 Source | 文件或网页进入检索，并可以产出抽取后的 Claim | 抽取 Claim 必须配置 `brain.extraction_model`；文件必须可由部署读取，文件和抓取后的网页正文都必须是有效的 UTF-8 文本且不超过 10 MiB；URL 还需要 Web Fetch Provider |
 
-整套模型建立在一道清晰的划分上：
+符合条件的 Channel 空闲或相关对话结束后，Signals 学习会处理消息切片。它读取 Channel 的原始消息镜像，不读取 Agent 私有的模型对话记录。私聊产物默认面向对端人员；群聊产物默认面向该 Channel 的成员权限组。
 
-- **结构化知识**——条目、块、关系、引用——是持久事实，通过带追加式审计的事务性操作写入。一个批次要么把它的变更和审计一起提交，要么不留任何局部状态。
-- **Markdown 投影、搜索结果、注入的上下文**是从事实重建出来的更廉价的视图。丢一个投影只是不便；丢一行知识，意味着 agent 相信的东西变了。
+`remember` 一旦成功，写入就已经持久化。之后即使当前回合失败、取消或重试，这条记忆也不会撤回。已确认的记忆是一项持久结果，不依赖最终回复是否成功。
 
-所有读操作都在 SQL 里应用 owner 和可读 store 的判定，所以 scope 在数据库边界处就得到强制，而不是在调用方可以绕开的应用代码里。
+每个注册 Source 都有默认披露范围。应选择仍能满足目标读者的最窄范围。归档 Source 只停止后续学习，不会删除已经形成的知识。
 
-## 召回：三个通道，一个结果
+## Brain 怎样表示知识
 
-agent 回合需要记忆时，召回并行跑向两个证据来源，再合并结果：
+Brain 用不同形式回答不同问题：
 
-- **聊天召回**读取 SignalsGateway 镜像下来的不可变条目，范围限定在该会话能看见的 channel。它把召回的消息当作不可信的历史数据，绝不当作指令——每一份结果集都带着这样一条提示。
-- **知识召回**读取策展过的 Brain 条目和块，既用 BM25 关键词候选，也用其 embedding 上的向量候选，再在一个结果 token 预算内合并并重排。
-- **search** 是合并后的入口：它并行跑两个通道，应用时间衰减以偏向较新的证据，返回一份带来源标注的排序结果集。
+- **页面**保存一个稳定对象的当前描述，例如人物、公司、事件、项目、文档或概念。
+- **Fact**保存一条可以核验或更新的观察，并记录置信度、时间、出处、持有者和披露范围。
+- **Take**保存某个人、Agent 或 Brain 持有的判断、预测、赌注或猜测，并记录权重，供之后判分或结算。
+- **Timeline**保存某个对象在什么时间发生了什么。
+- **Link**保存两个页面之间的关系。
 
-情景是聊天与知识之间的桥。一个情景是叠在不可变聊天事实之上、可按时间寻址的摘要索引——主题、摘要、它所覆盖的源条目 ID、一段时间范围，以及一个 embedding。它明确是一个导航索引；伴随它的提示会告诉模型，原始消息才是权威。
+`holder` 表示谁持有一条 Claim，不表示这句话在谈论谁。例如，张三说某供应商不可靠，这是一条由张三持有的 Take，不是由该供应商持有的 Fact。
 
-## dreaming：把历史转成已索引的记忆
+一条 Claim 只包含一个可以独立变化的断言。Brain 保存每条 Claim 的出处，也保留页面旧版本和被取代的 Claim。纠正会改变当前认识，但不会抹去它的形成过程。
 
-dreaming 是离线过程，把原始聊天历史转成情景和待定知识，而在模型这一步里没有人在场。它分两个阶段运行，频率不同，任务也不同。
+## Agent 怎样使用记忆
 
-**阶段 A** 是 channel 级的摘要器。它扫描含有未处理条目的 channel，并把情景摘要任务排队，每个任务让一个轻量 model profile 把一段聊天摘要成一个情景。当没有任何能看见该 channel 的 agent 有可解析的轻量 profile 时，这个情景会被报告为不可用，而不是被悄悄跳过；配置禁用了 dreaming 时，这个阶段会干净地停下。
+Brain 通过两种方式提供相关记忆。会话开始和上下文压缩后，它会提供一份有预算上限的上下文包，包含参与者、最近提及的对象、重要的当前 Fact 和未决承诺。每个文本回合还可以提示与新消息名称匹配的页面。
 
-**阶段 B** 是频率更低、主体级的知识策展。它在事务之外跑模型推理，然后把经验证的小操作、skill-overlay 更新和两个实质性高水位标记一起提交——所以一次只跑了一部分的运行会被重试，而不是被悄悄跳过。产出是带着证据的待定知识，而不是对知识库的一次悄悄改动。
+这两种注入本身不调用模型。组装超时或失败时，它们返回空结果，当前回合继续执行。召回内容是背景数据，不是指令，也可能过时或不完整。
 
-之所以分两阶段，是因为这两类任务的成本和风险不同。阶段 A 廉价、频繁，产出的是导航辅助；阶段 B 昂贵、不频繁，产出的是待定事实。把它们分开，昂贵的那一类才不会卡住廉价的那一类。
+任务需要显式操作记忆时，Agent 可以使用这些工具：
 
-## 写入权限：谁能写什么
+| 工具 | 结果 |
+| --- | --- |
+| `learn_source` | 将一个网页 URL 注册为 Source，并在后台开始学习 |
+| `recall` | 在 Token 预算内先返回当前 Fact 和 Take，再返回相关页面片段 |
+| `get_page` | 按 slug 或自然语言名称读取经过裁剪的完整页面；名称有歧义时返回候选，不自行猜测 |
+| `entity` | 返回对象卡，包括精选 Fact、关系和反向链接数量 |
+| `whoknows` | 根据当前可见知识，对了解某个主题的人员、Agent 和公司排序 |
+| `delta` | 报告时间范围内新增或已失效的 Claim 与 Timeline 事件 |
+| `synthesize` | 根据召回证据，为一个问题写入可追溯的持久分析页 |
+| `forget` | 记录原因后，使一个 Fact 失效、一个 Take 退出当前态，或软删除一个页面 |
 
-一次知识写入带着一份显式的 `WriteAuthority`，取五种模式之一：`:human`、`:agent`、`:dreaming`、`:source_learning` 或 `:mechanical`。模式决定这次写入可以引用什么、可以触碰哪些 document id。带署名的写入从受信的 scope 和 actor 推导出 owner、store 和 author；操作载荷无法覆盖它们。两种无主体的机械操作——`create_entry` 和 `delete_block`——不能署名撰写内容，并且要求一个显式的因果来源。
+### 发现只通过 Brain 召回的 Skill
 
-Brain 就是这么阻止 dreaming 与 source-learning 的产出冒充人类决定的。一份 dreaming 提案就是一次 dreaming 写入，它会如此标注，并附上自己的证据——绝不是悄悄把自己升格为权威知识的途径。
+部分随产品发布的 Skill 是 SOP 或方法论，只有与当前工作相关时才需要进入上下文。Skill 可以声明 `brain-recall-only: true`，从每个 Prompt 的 Skill 目录中省略，并保留通过 Brain 发现的能力。
 
-## 人工监督
+Brain 只把 Skill 的 `name`、`description` 和 `tags` 索引为一条 `world` 范围的发现记录，名称为 `lazyload-agent-skills/<skill-name>`。Skill 正文、其他所有 Skill 文件和 Agent 专属教训仍由原有所有者保存，并通过 `skill_view` 读取。如果 `recall` 返回这类记录，Agent 会调用 `skill_view`；loader 按 `ankole-runtime` 在兼容的执行位置加载说明，主 Agent 遇到仅后台可用的 Skill 时会收到创建 Job 的路由指引，其他不兼容读取会被拒绝。对这类记录调用 `get_page` 时，它也会转交给 `skill_view` 并返回同一结果。
 
-模型从不在无人监督的情况下编辑知识，也从不把自己的产出当作事实呈现。监督界面在 console 范围的路由背后：
+Brain 会在选择候选之前应用当前 Agent 的 Agent Plugin 和 Skill 有效启用状态。关闭后的 Skill 既不能被发现，也不能被加载。共享发现投影不会因关闭而删除，因此重新启用后可以直接恢复访问，不需要重建投影。
 
-| 方法 | 路径 | 用途 |
-|---|---|---|
-| `GET` | `/brain/entries` | 列出策展知识条目 |
-| `GET` | `/brain/entries/:id` | 读取一个条目 |
-| `POST` | `/brain/entry-operations` | 应用一批知识操作 |
-| `GET` | `/brain/sources` | 列出留存的 source |
-| `POST` | `/brain/sources` | 新增一个 source |
-| `POST` | `/brain/sources/:document_id/learning-runs` | 运行 source 学习 |
-| `GET` | `/brain/audit-log` | 读取追加式审计轨迹 |
-| `POST` | `/brain/audit-log/:audit_id/restorations` | 还原一次被审计的变更 |
-| `POST` | `/brain/dreaming-runs` | 触发一次 dreaming |
-| `GET` | `/brain/dreaming-fitness` | 查看 dreaming 是否具备运行条件 |
-| `GET` | `/brain/status` | Brain 的健康与配置状态 |
+配置 Embedding 模型后，召回会合并全文候选和向量候选。配置 Rerank 模型后，系统还可以对融合结果重新排序。没有 Embedding 模型时，全文召回仍可工作；没有 Rerank 模型时，召回保留融合后的顺序。
 
-审计日志是追加式的，而每一次还原本身也被审计，所以 agent 相信过什么、谁改过它——这段历史是可以重建的。撤回一个 source 会干净地移除它；不会出现 agent 引用着它再也读不到的字节。
+## 知识边界与披露边界
 
-## Brain 不是什么
+每个受保护的正文段落、Fact、Take 和 Timeline 事件使用一种披露范围：
 
-它不是一个挂着聊天日志的向量库。行才是事实，向量和 Markdown 只是叠在行之上的便捷视图。它不是模型想写什么就写什么的地方——写入带着权限、证据和审计。它也不是聊天证据的所有者；那归 SignalsGateway。Brain 的边界是持久的、经过复核的、按 owner 限定范围的记忆，再加上那套提议往里写什么的离线机器。
+| 范围 | 谁可以取得内容 |
+| --- | --- |
+| `world` | 实例中的任何 Principal |
+| `group:<name>` | 对应权限组的当前成员 |
+| `principal:<uid>` | 只有对应 Principal |
 
-## 下一步
+Brain 在读写时检查当前权限组成员关系。因此，人员之后转岗或离组会影响后续召回，不需要改写每条记忆。
 
-- Brain 从中召回的聊天证据，读 [SignalsGateway](../signals-gateway/)。
-- 给 Brain 划定 scope 的会话声明，读 [AIGateway API](../ai-gateway/)。
-- 召回出的记忆如何到达一个正在跑的回合，读 [Actor Runtime](../actor-runtime/)。
+作者始终可以取得自己写入的 Claim 和 Timeline 事件。Agent owner 可以审计该 Agent 的私有范围，以及由该 Agent 写入或持有的知识。owner 不能因为拥有这个 Agent 而读取 Agent 所在权限组的共享知识；owner 本人仍须属于对应权限组。
+
+群聊还会执行第二层披露检查：
+
+- **严格模式**是默认值。只有纳入检查的所有在场成员原本都能取得一条群组记忆时，Agent 才能披露它。
+- **宽松模式**只检查本次提问者，其他在场成员不会收窄结果。
+
+两种模式在私聊中的行为相同。
+
+Source 或 Channel 只记录证据来自哪里，不授予学习产物的访问权。披露范围属于知识本身。页面的 slug、标题、类型和存在性在实例内可见；受保护的正文段落和结构化 Claim 会按范围裁剪。
+
+Agent 主动调用 `remember` 时，会根据保密准则尽力选择披露范围。这是模型判断，可能分类不当。应用会确定性地执行已经选定的范围，但不能证明模型的分类一定正确。需要合规级隔离时，应通过[主体与权限组](../principal-and-groups/)限制谁可以访问 Agent，而不能只依赖记忆分类。
+
+## 知识怎样保持当前
+
+Dreaming 是需要判断的知识维护窗口。它可以：
+
+- 把相关 Fact 归纳为一条由 Brain 持有、保持谨慎的 Take；
+- 发现跨页面模式，并写入带证据链接的分析；
+- 抽取对象关系和 Timeline 事件；
+- 为到期 Take 判分，并更新校准摘要；
+- 发现可能存在的矛盾；
+- 在重复证据需要更清楚的类型时提出 Schema 建议。
+
+Dreaming 不会静默解决矛盾，也不会直接改写相关 Claim。它把发现记录下来，由人在 Console 中解决或忽略。Schema 建议也必须经过批准，才会改变实例词表。
+
+Fact 会按种类和时间降低召回排序权重。衰减不会改写存储的置信度或历史。显式遗忘才会改变当前态：Fact 失效、Take 退出当前态，或页面进入软删除。软删除页面可以在清除时限内恢复；失效和被取代的 Claim 继续保留，供审计与校准使用。
+
+Self-healing 维护可搜索投影。它修复过期的分块和向量、检查搜索索引，并找出仍需学习的 Channel 切片。这项维护不调用推理模型。
+
+## 在 Console 中管理 Brain
+
+Console 的 **Brain** 区域按结果展示知识空间：
+
+- **Objects**展示页面、渲染正文、Fact、Timeline、关系、Tag、版本、回滚、删除和恢复操作。
+- **Claims**展示 Fact 与 Take 的出处和当前状态，并提供纠正、遗忘和结算操作。
+- **Contradictions**保存待人工复核的矛盾发现。
+- **Suggestions**保存待批准或拒绝的词表建议。
+- **Sources**用于注册文件和 URL、启动学习及归档 Source。
+- **Search preview**以指定 Principal 和披露模式运行召回。
+- **Principal audit**列出某个 Principal 作为持有者、作者或受众的知识。
+- **Health**展示模型就绪状态、学习积压、向量错误、Channel 前置条件和投影状态。
+
+Brain 设置为各类系统活动选择实例级模型：
+
+| 设置 | 启用的结果 |
+| --- | --- |
+| Embedding 模型 | 向量召回和 Fact 语义判重 |
+| Rerank 模型 | 对检索融合结果执行交叉编码重排 |
+| Web Fetch Provider | 从 URL Source 提取可读正文 |
+| Extraction 模型 | Signals 学习和 Source 的 Claim 抽取 |
+| Dreaming 模型 | 需要模型的 Dreaming 阶段和 `synthesize` |
+
+缺少可选模型时，系统只收窄相关能力，不隐藏状态。Health 页面会说明哪些能力不可用。关闭 Brain 会移除记忆工具和上下文注入，并停止后台任务；已存知识保持不变。
+
+每个实例都会安装 `general` Schema Pack，提供通用词表。首次设置还可以选择私募股权与风险投资、公开市场、消费、法律、软件和咨询行业包。所有 Agent 共用已安装词表。反复出现的新概念会成为等待审批的 Schema 建议，而不是不受控地增加类型。
+
+## 当前支持范围
+
+Brain 当前只从私聊和 IM 群聊 Channel 自动学习消息切片。注册 Source 当前只支持文件和 URL。Brain 不会直接从 Connector、Webhook 或 Alert Source 学习。
+
+Brain 保存证据，不保证每条内容都正确或完整。需要作出重要判断时，应同时查看出处、时间、置信度、持有者和矛盾状态。
+
+Brain 在系统中的边界见[架构](../architecture/)。运行时设置见[系统配置](../app-configuration/)。从工作轨迹中学习过程护栏的机制见 [Skill Lessons](../skill-lessons/)。

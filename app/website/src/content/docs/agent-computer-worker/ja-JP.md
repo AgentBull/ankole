@@ -38,8 +38,7 @@ worker はループの終了とローカルの反復予算を所有します。�
 
 - **Computer** — シェルコマンド（bubblewrap の制約下）、ファイル読み取りとパッチ、apply-patch、実ブラウザのデスクトップを駆動する v4a computer-use ツール。ターミナル状態とファイル編集はここにあります。
 - **Web** — Web 検索と Web 取得。worker 経由でルーティングされます。
-- **Brain** — 長期記憶に遡る recall と知識ツール。
-- **Memory、schedule、todo、clarify** — Agent が計画、延期、質問に使う、より小さな構造化ツール。
+- **schedule、todo、clarify** — Agent が計画、延期、質問に使う、より小さな構造化ツール。
 - **Codex** — Background Agent Job に委任する作業のための CodexRunner Job ツール。
 - **Library と mcporter** — 有効な Skill と呼び出しスコープの MCP 依存関係設定へのアクセス。
 - **Background Agent Job** — 永続的な Job を作成または継続するハンドオフツール。
@@ -52,7 +51,6 @@ worker が生成するすべてのツール結果は、直接コミットされ�
 
 ```text
 /agents/<agent-key>/
-├── .codex/
 ├── SOUL.md
 ├── MISSION.md
 ├── DESIGN.md
@@ -61,11 +59,13 @@ worker が生成するすべてのツール結果は、直接コミットされ�
 ├── sessions/<workspace-id>/
 └── jobs/<job-id>/
     ├── .codex/config.toml
-    ├── .ankole/skills/
+    ├── AGENTS.md
     └── temp/
 ```
 
 モデルはコンテナ内の絶対パスを見ます。Worker はパスを変換しません。`SOUL.md` と `MISSION.md` は Agent の挙動と責任を定義します。`DESIGN.md` は視覚的な作業のためのデザインシステムです。[Agent Library](../agent-library/) がこの 3 つを管理します。`installed-skills/`、`sessions/`、`jobs/` は Skill、会話ワークスペース、Background Agent Job ワークスペースを保持します。PostgreSQL は各 Session に 10000 から始まる安定した数値ワークスペース ID を割り当てます。
+
+現在の Codex Home は `/var/lib/ankole/codex/<agent-key>/.codex` にある再構築可能な Worker ローカルシャードであり、Agent Home の一部ではありません。Background Agent Job は Ankole `skill_view` を通して Skill を読み込み、Skill root を Job ワークスペースへコピーしません。
 
 ## ストリーミングと進捗
 

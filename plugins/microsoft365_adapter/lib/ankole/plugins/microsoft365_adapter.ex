@@ -55,6 +55,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter do
       %{
         contract_id: "signals_gateway.adapter",
         id: "teams",
+        adapter_category: "enterprise_im",
         plugin_id: plugin_id(),
         display_name: %{"default" => "Microsoft Teams"},
         config_key_pattern: "signals_gateway.teams.bindings.<id>",

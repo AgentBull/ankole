@@ -135,4 +135,4 @@ Plugin 등록은 [Skill 및 Control Plane Plugin 개발](../writing-a-skill/)을
 
 - AIGateway 개념 (라우팅, 해석, 통합 경계)은 [AIGateway](../ai-gateway/)를 읽으세요.
 - Plugin 등록은 [Skill 및 Control Plane Plugin 개발](../writing-a-skill/)을 읽으세요.
-- 첫 Provider 설정은 [빠른 시작](../quickstart/#3-add-an-llm-provider-and-create-an-agent)을 읽으세요.
+- 첫 Provider 설정은 [빠른 시작](../quickstart/#llm-providers)을 읽으세요.

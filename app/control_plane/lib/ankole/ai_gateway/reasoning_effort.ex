@@ -6,7 +6,7 @@ defmodule Ankole.AIGateway.ReasoningEffort do
   not accept the full OpenAI set pass a small value map from their own module.
   """
 
-  alias Ankole.AIGateway.MapUtils
+  alias Ankole.Attrs
   alias Ankole.AIGateway.UniversalAIRequest
 
   @openai_values ~w(none minimal low medium high xhigh max ultra)
@@ -67,7 +67,7 @@ defmodule Ankole.AIGateway.ReasoningEffort do
   """
   @spec provider_options(map(), keyword()) :: {:ok, map()} | {:error, term()}
   def provider_options(ctx, opts) when is_map(ctx) do
-    options = ctx |> Map.get(:provider_options, %{}) |> MapUtils.normalize_request_keys()
+    options = ctx |> Map.get(:provider_options, %{}) |> Attrs.normalize_external_attrs()
     public_value = request_effort(ctx) || Map.get(options, "reasoningEffort")
     target = Keyword.fetch!(opts, :target)
 

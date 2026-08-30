@@ -1,17 +1,17 @@
 ---
 title: 成本管理
-description: 控制 Ankole 花费的杠杆——model profile 档位、reasoning effort、web 工具按需、agent 循环预算、后台任务重试与槽位上限。
+description: 控制 Ankole 花费的杠杆——模型档案、reasoning effort、Web 工具、回合预算、Workflow fanout 和后台任务上限。
 section: Guides
 order: 314
 ---
 
 Ankole 花的大部分是模型 token，而其中大部分由一小撮配置杠杆决定，不是你无法塑造的用量。本页命名这些杠杆，说明各自的花费与节省，并给出账单太高时拉它们的顺序。这里的每一样都是控制面里真实的旋钮；没有一条是"少用 agent"。
 
-先说明最关键的一点：成本是*哪个模型跑、跑几次、跑多久*的函数。杠杆映射到这三件：model profile 档位选模型、agent 循环预算限迭代、任务重试与槽位上限约束失控情形。拉动匹配花费所在的那一个。
+先说明最关键的一点：成本取决于*哪个模型运行、运行多少次、每次运行多久*。模型档案决定使用哪个模型，Agent 循环预算限制迭代次数，Workflow 和后台任务上限则约束 fanout 与重试。应调整与实际花费来源对应的那一项。
 
 ## 杠杆 1：model profile 档位
 
-十个 profile 槽是最大的杠杆。每个槽是一次模型选择，而模型选择主导 token 成本。
+八个内置 Agent profile 分别控制不同的付费路径。五个选择语言模型，三个绑定网页搜索、网页抓取和图像生成能力。
 
 | 槽 | 何时跑 | 成本杠杆 |
 |---|---|---|
@@ -20,9 +20,10 @@ Ankole 花的大部分是模型 token，而其中大部分由一小撮配置杠�
 | `heavy` | 硬综合 | 昂贵；`primary` 调好时很少用到 |
 | 后台 Agent 任务（内部键为 `coding`） | 每个后台 Agent 任务 | 决定持久后台任务使用哪个 Provider 和模型 |
 | `vision_fallback` | `primary` 处理不了图像时 | 仅在 agent 看图像时绑定 |
-| `embedding`、`rerank` | 记忆与检索 | 按调用计价，通常小 |
 | `web_search`、`web_fetch` | web 工具 | 见杠杆 3 |
 | `image_generate` | 图像生成 | 按次昂贵；仅在用时绑定 |
+
+Brain 另有五个实例级模型设置，不属于 Agent profile。`brain.embedding_model` 和 `brain.rerank_model` 控制检索，`brain.web_fetch_model` 读取 URL Source，`brain.extraction_model` 从对话和 Source 中学习，`brain.dreaming_model` 执行依赖模型的维护与技能教训复审。请在 [AppConfigure](../app-configuration/) 中统一配置。留空会停止或收窄对应工作，**Brain → 健康**会说明哪些能力不可用。完整行为见 [Brain](../brain/)。
 
 两招最省：
 
@@ -58,7 +59,21 @@ Agent 用不到 `vision_fallback` 时，可以把它留空，避免产生相应�
 
 `max_iterations` 限制单个 Agent 回合的模型迭代次数，避免本可用两次工具调用完成的任务反复调用模型。`max_output_tokens` 限制单次响应大小。两项都是实例级默认值，应按常见回合设置；复杂回合达到上限时，Agent 会基于已有内容给出最终回答。
 
-## 杠杆 5：后台任务重试与槽位上限
+## 杠杆 5：Workflow fanout 与任务尝试
+
+Workflow 中每次 `agent()` 尝试都是一个完整模型回合。一次调用最多进行三次尝试，因此即使主会话只发起一次 Workflow，大量子 Agent 调用仍会放大模型与 Web 工具用量。
+
+| AppConfigure 键 | 默认值 | 最大值 | 控制内容 |
+|---|---:|---:|---|
+| `workflow.max_concurrency_per_run` | 8 | 32 | 单次运行可以同时执行的任务数 |
+| `workflow.max_running_per_agent` | 8 | 64 | 单个 Agent 的所有 Workflow 中正在运行的任务总数 |
+| `workflow.max_agent_calls_per_run` | 256 | 1,024 | 单次运行可以创建的子 Agent 调用总数 |
+
+并发数只改变完成时间，不会减少模型调用总数。应根据有限输入设置调用上限，并且只申请实例确实需要的并发数。单次运行可以申请更低的 `concurrency` 和 `max_agent_calls`，但不能修改跨运行的 `max_running_per_agent`，也不能抬高任何 AppConfigure 上限。
+
+Workflow 没有覆盖整批任务的 token 或金额预算。每个任务仍受普通回合的迭代次数、输出 token 和无活动超时限制。应让每个任务使用窄提示和精简的结构化结果，显式处理 `null` 失败；单次汇总过大时，把集合拆成多个运行。任务与结果边界见 [Workflow](../workflows/)。
+
+## 杠杆 6：后台任务重试与槽位上限
 
 后台任务能在重试上花 token，上限就是杠杆：
 
@@ -74,9 +89,10 @@ Agent 用不到 `vision_fallback` 时，可以把它留空，避免产生相应�
 
 ## 花费到底在哪
 
-调整模型或并发之前，先在 Console 找到产生调用的 Agent、会话或后台任务：
+调整模型或并发之前，先找到产生调用的 Agent、会话、Workflow 或后台任务：
 
 - `GET /ai-gateway/conversations` 显示近期回合做过的模型调用——哪些 profile 解析了、多少次调用、哪些 provider。这是看花费是在 `primary`（量）、`heavy`（少数昂贵调用）、还是 `web_search`（许多小调用）的最快途径。
+- 让主 Agent 查看 Workflow。任务计数可以说明 fanout 和失败调用；当前版本没有 Workflow Console 页面，也不提供单次运行的费用汇总。
 - `GET /background-agent-jobs` 显示任务 `attempts`——一个 `attempts: 5` 的任务花了五次运行。
 - 结构化控制面日志带着 provider 调用的事件名和字段；你的日志摄入器可按 provider 和 agent 聚合。
 
@@ -94,7 +110,8 @@ Agent 用不到 `vision_fallback` 时，可以把它留空，避免产生相应�
 
 ## 下一步
 
-- Agent 的模型档案，读 [Agent](../agents/#接上它的模型)。
+- Agent 的模型档案，读 [Agent](../agents/#配置模型)。
 - agent 循环旋钮及其键，读 [环境变量](../environment-variables/)。
 - 相关会话与后台任务接口，读 [Console API 参考](../console-api/)。
+- 有界子 Agent fanout 及其限制，读 [Workflow](../workflows/)。
 - 任务上限，读 [后台 Agent 任务](../background-jobs/)。

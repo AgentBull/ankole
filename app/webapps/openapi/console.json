@@ -2,6 +2,22 @@
   "components": {
     "responses": {},
     "schemas": {
+      "BrainSuggestionListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "suggestions": { "items": { "$ref": "#/components/schemas/BrainSuggestion" }, "type": "array" }
+        },
+        "required": ["suggestions"],
+        "title": "BrainSuggestionListResponse",
+        "type": "object"
+      },
+      "BrainObjectTypesResponse": {
+        "additionalProperties": false,
+        "properties": { "types": { "items": { "type": "string" }, "type": "array" } },
+        "required": ["types"],
+        "title": "BrainObjectTypesResponse",
+        "type": "object"
+      },
       "AIGatewayCredentialPoolEntry": {
         "additionalProperties": false,
         "properties": {
@@ -49,7 +65,7 @@
         "properties": {
           "content": { "type": "string" },
           "content_hash": { "type": "string" },
-          "kind": { "enum": ["mission", "soul", "design"], "type": "string" }
+          "kind": { "enum": ["mission", "soul", "design", "confidentiality_policy"], "type": "string" }
         },
         "required": ["kind", "content", "content_hash"],
         "title": "AgentLibraryDocumentItem",
@@ -67,27 +83,15 @@
       "ProviderHostedWriteRequest": {
         "additionalProperties": false,
         "description": "Sets any of the capability switches. Omitted keys stay unchanged.",
-        "properties": {
-          "compaction": { "type": "boolean" },
-          "image_generate": { "type": "boolean" },
-          "web_search": { "type": "boolean" }
-        },
+        "properties": { "image_generate": { "type": "boolean" }, "web_search": { "type": "boolean" } },
         "title": "ProviderHostedWriteRequest",
         "type": "object"
       },
-      "BrainEntryRelation": {
+      "BrainClaimForgetRequest": {
         "additionalProperties": false,
-        "properties": {
-          "id": { "format": "uuid", "type": "string" },
-          "inserted_at": { "format": "date-time", "type": "string" },
-          "predicate": { "type": "string" },
-          "source_entry_id": { "format": "uuid", "type": "string" },
-          "source_name": { "nullable": true, "type": "string" },
-          "target_entry_id": { "format": "uuid", "type": "string" },
-          "target_name": { "nullable": true, "type": "string" }
-        },
-        "required": ["id", "source_entry_id", "predicate", "target_entry_id", "inserted_at"],
-        "title": "BrainEntryRelation",
+        "properties": { "reason": { "type": "string" } },
+        "required": ["reason"],
+        "title": "BrainClaimForgetRequest",
         "type": "object"
       },
       "AIGatewayChatGPTBrowserLoginRequest": {
@@ -98,6 +102,34 @@
         },
         "required": ["login_context", "callback_url"],
         "title": "AIGatewayChatGPTBrowserLoginRequest",
+        "type": "object"
+      },
+      "BrainObjectUpdateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "body": { "type": "string" },
+          "effective_date": { "format": "date", "nullable": true, "type": "string" },
+          "expected_content_hash": { "type": "string" },
+          "meta": { "additionalProperties": true, "type": "object" },
+          "slug": { "type": "string" },
+          "subtype": { "nullable": true, "type": "string" },
+          "title": { "type": "string" }
+        },
+        "required": ["slug", "title", "body", "meta", "expected_content_hash"],
+        "title": "BrainObjectUpdateRequest",
+        "type": "object"
+      },
+      "BrainTakeResolveRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "resolution_provenance": { "nullable": true, "type": "string" },
+          "resolved_outcome": { "nullable": true, "type": "boolean" },
+          "resolved_quality": { "enum": ["correct", "incorrect", "partial", "unresolvable"], "type": "string" },
+          "resolved_unit": { "nullable": true, "type": "string" },
+          "resolved_value": { "nullable": true, "type": "number" }
+        },
+        "required": ["resolved_quality"],
+        "title": "BrainTakeResolveRequest",
         "type": "object"
       },
       "WorkerFileListData": {
@@ -155,21 +187,31 @@
         "title": "AIGatewayCredentialStrategyWriteRequest",
         "type": "object"
       },
-      "BrainEntryOperationsRequest": {
+      "BrainClaimSupersedeRequest": {
         "additionalProperties": false,
         "properties": {
-          "operations": {
-            "items": { "$ref": "#/components/schemas/BrainEntryOperation" },
-            "minItems": 1,
-            "type": "array"
-          },
-          "reason": {
-            "description": "Optional human reason retained in each audit record in this batch",
-            "type": "string"
-          }
+          "audience_scope": { "nullable": true, "type": "string" },
+          "claim": { "type": "string" },
+          "confidence": { "nullable": true, "type": "number" },
+          "kind": { "nullable": true, "type": "string" },
+          "notability": { "nullable": true, "type": "string" },
+          "provenance": { "nullable": true, "type": "string" },
+          "weight": { "nullable": true, "type": "number" }
         },
-        "required": ["operations"],
-        "title": "BrainEntryOperationsRequest",
+        "required": ["claim"],
+        "title": "BrainClaimSupersedeRequest",
+        "type": "object"
+      },
+      "BrainObjectCandidate": {
+        "additionalProperties": false,
+        "properties": {
+          "slug": { "type": "string" },
+          "subtype": { "nullable": true, "type": "string" },
+          "title": { "type": "string" },
+          "type": { "type": "string" }
+        },
+        "required": ["slug", "title", "type"],
+        "title": "BrainObjectCandidate",
         "type": "object"
       },
       "LocalizedText": {
@@ -208,13 +250,6 @@
         "nullable": true,
         "title": "JSONValue"
       },
-      "BrainAuditRestorationResponse": {
-        "additionalProperties": false,
-        "properties": { "restoration": { "$ref": "#/components/schemas/JSONValue" } },
-        "required": ["restoration"],
-        "title": "BrainAuditRestorationResponse",
-        "type": "object"
-      },
       "AIGatewayConversationResponse": {
         "additionalProperties": false,
         "properties": { "conversation": { "$ref": "#/components/schemas/AIGatewayConversationItem" } },
@@ -227,17 +262,12 @@
         "properties": {
           "avatar_url": { "nullable": true, "type": "string" },
           "display_name": { "type": "string" },
+          "group_memory_disclosure_mode": { "enum": ["strict", "relaxed"], "type": "string" },
           "options": { "additionalProperties": true, "type": "object" },
+          "owner_principal_uid": { "type": "string" },
           "role": { "type": "string" }
         },
         "title": "AgentUpdateRequest",
-        "type": "object"
-      },
-      "BrainDreamingFitnessResponse": {
-        "additionalProperties": false,
-        "properties": { "fitness": { "$ref": "#/components/schemas/BrainDreamingFitness" } },
-        "required": ["fitness"],
-        "title": "BrainDreamingFitnessResponse",
         "type": "object"
       },
       "BackgroundAgentJobHealthResponse": {
@@ -273,6 +303,20 @@
           "window_seconds"
         ],
         "title": "BackgroundAgentJobHealthResponse",
+        "type": "object"
+      },
+      "BrainSourceLearnResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "result": {
+            "additionalProperties": false,
+            "properties": { "status": { "enum": ["enqueued"], "type": "string" } },
+            "required": ["status"],
+            "type": "object"
+          }
+        },
+        "required": ["result"],
+        "title": "BrainSourceLearnResponse",
         "type": "object"
       },
       "AutomationJobRunItem": {
@@ -316,6 +360,13 @@
         "properties": { "error": { "$ref": "#/components/schemas/ConsoleApiError" } },
         "required": ["error"],
         "title": "ConsoleApiErrorEnvelope",
+        "type": "object"
+      },
+      "LocalPasswordResetResponse": {
+        "additionalProperties": false,
+        "properties": { "initial_password": { "type": "string" } },
+        "required": ["initial_password"],
+        "title": "LocalPasswordResetResponse",
         "type": "object"
       },
       "AIGatewayConversationListResponse": {
@@ -362,6 +413,36 @@
         "properties": { "complete": { "type": "boolean" }, "provider_id": { "nullable": true, "type": "string" } },
         "required": ["complete", "provider_id"],
         "title": "ConsoleReadinessProvider",
+        "type": "object"
+      },
+      "BrainMergeSuggestionListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "suggestions": { "items": { "$ref": "#/components/schemas/BrainMergeSuggestion" }, "type": "array" }
+        },
+        "required": ["suggestions"],
+        "title": "BrainMergeSuggestionListResponse",
+        "type": "object"
+      },
+      "BrainSourceArchiveResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "source": {
+            "additionalProperties": false,
+            "properties": { "archived_at": { "type": "string" }, "id": { "type": "string" } },
+            "required": ["id", "archived_at"],
+            "type": "object"
+          }
+        },
+        "required": ["source"],
+        "title": "BrainSourceArchiveResponse",
+        "type": "object"
+      },
+      "BrainClaimResponse": {
+        "additionalProperties": false,
+        "properties": { "claim": { "$ref": "#/components/schemas/BrainClaim" } },
+        "required": ["claim"],
+        "title": "BrainClaimResponse",
         "type": "object"
       },
       "BackgroundAgentJobTurnItem": {
@@ -499,21 +580,106 @@
         "title": "BackgroundAgentJobTurnItem",
         "type": "object"
       },
+      "BrainHealth": {
+        "additionalProperties": false,
+        "properties": {
+          "channels_without_member_group": { "items": { "type": "string" }, "type": "array" },
+          "config": {
+            "additionalProperties": { "$ref": "#/components/schemas/JSONValue" },
+            "description": "Per brain.* key: \"ok\", or {invalid: reason} for a broken stored row.",
+            "type": "object"
+          },
+          "context_pack": {
+            "additionalProperties": false,
+            "description": "Injection counters since this node booted.",
+            "properties": { "degraded": { "type": "integer" }, "served": { "type": "integer" } },
+            "required": ["served", "degraded"],
+            "type": "object"
+          },
+          "embedding_signature": { "$ref": "#/components/schemas/JSONValue" },
+          "embeddings": {
+            "additionalProperties": false,
+            "properties": {
+              "failed_chunks": { "type": "integer" },
+              "failed_claims": { "type": "integer" },
+              "pending_chunks": { "type": "integer" },
+              "recent_error": { "nullable": true, "type": "string" }
+            },
+            "required": ["failed_chunks", "failed_claims", "pending_chunks"],
+            "type": "object"
+          },
+          "enabled": { "type": "boolean" },
+          "models": {
+            "additionalProperties": false,
+            "properties": {
+              "dreaming": { "$ref": "#/components/schemas/BrainModelStatus" },
+              "embedding": { "$ref": "#/components/schemas/BrainModelStatus" },
+              "extraction": { "$ref": "#/components/schemas/BrainModelStatus" },
+              "rerank": { "$ref": "#/components/schemas/BrainModelStatus" },
+              "web_fetch": { "$ref": "#/components/schemas/BrainModelStatus" }
+            },
+            "required": ["embedding", "rerank", "web_fetch", "extraction", "dreaming"],
+            "type": "object"
+          },
+          "signals": {
+            "additionalProperties": false,
+            "properties": {
+              "oldest_pending_age_seconds": { "nullable": true, "type": "integer" },
+              "pending_channels": { "type": "integer" }
+            },
+            "required": ["pending_channels"],
+            "type": "object"
+          },
+          "skill_lessons": {
+            "additionalProperties": false,
+            "description": "Skill-lesson drift signals, all read from agent_skill_lessons.",
+            "properties": {
+              "active_per_agent": { "additionalProperties": { "type": "integer" }, "type": "object" },
+              "added_last_7d": { "type": "integer" },
+              "enabled": { "type": "boolean" },
+              "oldest_active_days": { "nullable": true, "type": "integer" },
+              "retired_last_7d": { "additionalProperties": { "type": "integer" }, "type": "object" }
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "enabled",
+          "config",
+          "models",
+          "signals",
+          "embeddings",
+          "context_pack",
+          "channels_without_member_group",
+          "skill_lessons"
+        ],
+        "title": "BrainHealth",
+        "type": "object"
+      },
+      "BrainObjectListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "objects": { "items": { "$ref": "#/components/schemas/BrainObjectSummary" }, "type": "array" }
+        },
+        "required": ["objects"],
+        "title": "BrainObjectListResponse",
+        "type": "object"
+      },
+      "PrincipalCreateResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "initial_password": { "type": "string" },
+          "principal": { "$ref": "#/components/schemas/PrincipalItem" }
+        },
+        "required": ["principal", "initial_password"],
+        "title": "PrincipalCreateResponse",
+        "type": "object"
+      },
       "ModelProfileResponse": {
         "additionalProperties": false,
         "properties": { "model_profile": { "additionalProperties": true, "type": "object" } },
         "required": ["model_profile"],
         "title": "ModelProfileResponse",
-        "type": "object"
-      },
-      "BrainEntryListResponse": {
-        "additionalProperties": false,
-        "properties": {
-          "entries": { "items": { "$ref": "#/components/schemas/BrainEntry" }, "type": "array" },
-          "next_cursor": { "nullable": true, "type": "string" }
-        },
-        "required": ["entries"],
-        "title": "BrainEntryListResponse",
         "type": "object"
       },
       "IdentityProviderListResponse": {
@@ -523,37 +689,6 @@
         },
         "required": ["identity_providers"],
         "title": "IdentityProviderListResponse",
-        "type": "object"
-      },
-      "BrainEntry": {
-        "additionalProperties": false,
-        "properties": {
-          "aliases": { "items": { "type": "string" }, "type": "array" },
-          "id": { "format": "uuid", "type": "string" },
-          "inserted_at": { "format": "date-time", "type": "string" },
-          "lock_version": { "minimum": 1, "type": "integer" },
-          "name": { "type": "string" },
-          "owner_uid": { "type": "string" },
-          "properties": { "additionalProperties": true, "type": "object" },
-          "store_key": { "type": "string" },
-          "summary": { "type": "string" },
-          "type": { "type": "string" },
-          "updated_at": { "format": "date-time", "type": "string" }
-        },
-        "required": [
-          "id",
-          "owner_uid",
-          "store_key",
-          "name",
-          "type",
-          "summary",
-          "aliases",
-          "properties",
-          "lock_version",
-          "inserted_at",
-          "updated_at"
-        ],
-        "title": "BrainEntry",
         "type": "object"
       },
       "AIGatewayProviderItem": {
@@ -579,14 +714,27 @@
         "title": "AIGatewayProviderItem",
         "type": "object"
       },
-      "BrainAuditLogResponse": {
+      "BrainPageContradiction": {
         "additionalProperties": false,
         "properties": {
-          "audit_log": { "items": { "$ref": "#/components/schemas/BrainAuditLog" }, "type": "array" },
-          "next_cursor": { "nullable": true, "type": "string" }
+          "axis": { "nullable": true, "type": "string" },
+          "claim_id": { "type": "string" },
+          "counterpart": {
+            "additionalProperties": false,
+            "properties": {
+              "claim": { "type": "string" },
+              "holder": { "nullable": true, "type": "string" },
+              "id": { "type": "string" }
+            },
+            "required": ["id", "claim"],
+            "type": "object"
+          },
+          "id": { "type": "string" },
+          "severity": { "type": "string" },
+          "verdict": { "type": "string" }
         },
-        "required": ["audit_log"],
-        "title": "BrainAuditLogResponse",
+        "required": ["id", "verdict", "severity", "claim_id", "counterpart"],
+        "title": "BrainPageContradiction",
         "type": "object"
       },
       "ConsoleReadinessModelProfiles": {
@@ -621,13 +769,16 @@
         "properties": {
           "avatar_url": { "nullable": true, "type": "string" },
           "display_name": { "nullable": true, "type": "string" },
+          "email": { "nullable": true, "type": "string" },
+          "has_external_identity": { "type": "boolean" },
           "inserted_at": { "type": "string" },
+          "local_credential": { "$ref": "#/components/schemas/PrincipalLocalCredential" },
           "status": { "enum": ["active", "disabled"], "type": "string" },
           "type": { "enum": ["human", "agent", "system"], "type": "string" },
           "uid": { "type": "string" },
           "updated_at": { "type": "string" }
         },
-        "required": ["uid", "type", "status", "inserted_at", "updated_at"],
+        "required": ["uid", "type", "status", "has_external_identity", "inserted_at", "updated_at"],
         "title": "PrincipalItem",
         "type": "object"
       },
@@ -636,6 +787,24 @@
         "properties": { "content": { "type": "string" }, "expected_content_hash": { "type": "string" } },
         "required": ["content", "expected_content_hash"],
         "title": "AgentLibraryDocumentWriteRequest",
+        "type": "object"
+      },
+      "BrainPromotionResultResponse": {
+        "additionalProperties": false,
+        "properties": { "result": { "$ref": "#/components/schemas/JSONValue" } },
+        "required": ["result"],
+        "title": "BrainPromotionResultResponse",
+        "type": "object"
+      },
+      "PrincipalCreateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "display_name": { "nullable": true, "type": "string" },
+          "email": { "type": "string" },
+          "must_change_password": { "default": true, "type": "boolean" }
+        },
+        "required": ["email"],
+        "title": "PrincipalCreateRequest",
         "type": "object"
       },
       "AIGatewayMessageItem": {
@@ -647,7 +816,6 @@
           "inserted_at": { "type": "string" },
           "metadata": { "additionalProperties": true, "type": "object" },
           "previous_message_id": { "nullable": true, "type": "string" },
-          "role": { "enum": ["user", "assistant", "tool", "im_ambient"], "nullable": true, "type": "string" },
           "status": { "enum": ["generating", "complete", "error", "retracted"], "type": "string" },
           "subject_uid": { "type": "string" },
           "type": { "enum": ["message", "checkpoint"], "type": "string" },
@@ -665,6 +833,13 @@
           "updated_at"
         ],
         "title": "AIGatewayMessageItem",
+        "type": "object"
+      },
+      "BrainObjectForgetRequest": {
+        "additionalProperties": false,
+        "properties": { "reason": { "type": "string" }, "slug": { "type": "string" } },
+        "required": ["slug", "reason"],
+        "title": "BrainObjectForgetRequest",
         "type": "object"
       },
       "AIGatewayConversationItem": {
@@ -701,6 +876,27 @@
           "updated_at"
         ],
         "title": "AIGatewayConversationItem",
+        "type": "object"
+      },
+      "BrainPageFact": {
+        "additionalProperties": false,
+        "properties": {
+          "audience_scope": { "type": "string" },
+          "author_uid": { "nullable": true, "type": "string" },
+          "claim": { "type": "string" },
+          "confidence": { "nullable": true, "type": "number" },
+          "expired_at": { "nullable": true, "type": "string" },
+          "holder": { "nullable": true, "type": "string" },
+          "id": { "type": "string" },
+          "kind": { "nullable": true, "type": "string" },
+          "notability": { "nullable": true, "type": "string" },
+          "provenance": { "nullable": true, "type": "string" },
+          "superseded_by": { "nullable": true, "type": "string" },
+          "valid_from": { "nullable": true, "type": "string" },
+          "valid_until": { "nullable": true, "type": "string" }
+        },
+        "required": ["id", "claim", "audience_scope"],
+        "title": "BrainPageFact",
         "type": "object"
       },
       "BackgroundAgentJobTurnActiveItem": {
@@ -760,6 +956,12 @@
         "properties": { "agent": { "$ref": "#/components/schemas/AgentItem" } },
         "required": ["agent"],
         "title": "AgentResponse",
+        "type": "object"
+      },
+      "PrincipalUpdateRequest": {
+        "additionalProperties": false,
+        "properties": { "display_name": { "nullable": true, "type": "string" }, "email": { "type": "string" } },
+        "title": "PrincipalUpdateRequest",
         "type": "object"
       },
       "AgentLibraryCapabilitiesResponse": {
@@ -829,25 +1031,41 @@
         "title": "AIGatewayCredentialPool",
         "type": "object"
       },
-      "BrainAuditLog": {
+      "AgentSkillLessonItem": {
         "additionalProperties": false,
         "properties": {
-          "action": { "type": "string" },
-          "actor_kind": { "enum": ["human", "agent", "dreaming"], "nullable": true, "type": "string" },
-          "actor_uid": { "nullable": true, "type": "string" },
-          "after": { "additionalProperties": true, "nullable": true, "type": "object" },
-          "before": { "additionalProperties": true, "nullable": true, "type": "object" },
-          "block_id": { "format": "uuid", "nullable": true, "type": "string" },
-          "entry_id": { "format": "uuid", "nullable": true, "type": "string" },
-          "id": { "format": "uuid", "type": "string" },
-          "inserted_at": { "format": "date-time", "type": "string" },
-          "metadata": { "additionalProperties": true, "type": "object" },
-          "owner_uid": { "type": "string" },
-          "relation_id": { "format": "uuid", "nullable": true, "type": "string" },
-          "store_key": { "type": "string" }
+          "agent_plugin_id": { "nullable": true, "type": "string" },
+          "author_kind": { "enum": ["dreaming", "human"], "type": "string" },
+          "author_uid": { "nullable": true, "type": "string" },
+          "checked_release": { "nullable": true, "type": "string" },
+          "content": { "type": "string" },
+          "created_at": { "format": "date-time", "type": "string" },
+          "description": { "nullable": true, "type": "string" },
+          "effective_enabled": { "type": "boolean" },
+          "evidence_job_ids": { "items": { "type": "integer" }, "type": "array" },
+          "id": { "type": "string" },
+          "retire_reason": { "enum": ["human_revoked", "lapsed", "obsolete"], "nullable": true, "type": "string" },
+          "retired_at": { "format": "date-time", "nullable": true, "type": "string" },
+          "review_after": { "format": "date-time", "nullable": true, "type": "string" },
+          "skill_name": { "type": "string" }
         },
-        "required": ["id", "owner_uid", "store_key", "action", "metadata", "inserted_at"],
-        "title": "BrainAuditLog",
+        "required": [
+          "id",
+          "skill_name",
+          "agent_plugin_id",
+          "description",
+          "effective_enabled",
+          "content",
+          "author_kind",
+          "author_uid",
+          "evidence_job_ids",
+          "checked_release",
+          "review_after",
+          "retired_at",
+          "retire_reason",
+          "created_at"
+        ],
+        "title": "AgentSkillLessonItem",
         "type": "object"
       },
       "PrincipalResponse": {
@@ -871,6 +1089,30 @@
         },
         "required": ["key", "type", "default", "options", "required", "encrypted", "advanced", "scope"],
         "title": "AIGatewayProviderSetting",
+        "type": "object"
+      },
+      "BrainObjectSummaryResponse": {
+        "additionalProperties": false,
+        "properties": { "object": { "$ref": "#/components/schemas/BrainObjectSummary" } },
+        "required": ["object"],
+        "title": "BrainObjectSummaryResponse",
+        "type": "object"
+      },
+      "BrainContradiction": {
+        "additionalProperties": false,
+        "properties": {
+          "a_claim": { "allOf": [{ "$ref": "#/components/schemas/BrainClaim" }], "nullable": true },
+          "axis": { "nullable": true, "type": "string" },
+          "b_claim": { "allOf": [{ "$ref": "#/components/schemas/BrainClaim" }], "nullable": true },
+          "confidence": { "type": "number" },
+          "created_at": { "type": "string" },
+          "id": { "type": "string" },
+          "severity": { "type": "string" },
+          "status": { "type": "string" },
+          "verdict": { "type": "string" }
+        },
+        "required": ["id", "verdict", "severity", "confidence", "status", "created_at"],
+        "title": "BrainContradiction",
         "type": "object"
       },
       "AutomationJobResponse": {
@@ -951,6 +1193,30 @@
         "title": "BackgroundAgentJobItem",
         "type": "object"
       },
+      "BrainRecallResult": {
+        "additionalProperties": false,
+        "properties": {
+          "chunks": { "items": { "$ref": "#/components/schemas/BrainRecallChunk" }, "type": "array" },
+          "claims": { "items": { "$ref": "#/components/schemas/BrainRecallClaim" }, "type": "array" },
+          "sanitized_count": { "type": "integer" }
+        },
+        "required": ["claims", "chunks", "sanitized_count"],
+        "title": "BrainRecallResult",
+        "type": "object"
+      },
+      "BrainSearchPreviewRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "asker_uid": { "nullable": true, "type": "string" },
+          "disclosure_mode": { "enum": ["strict", "relaxed"], "nullable": true, "type": "string" },
+          "present_uids": { "items": { "type": "string" }, "nullable": true, "type": "array" },
+          "principal_uid": { "type": "string" },
+          "query": { "type": "string" }
+        },
+        "required": ["principal_uid", "query"],
+        "title": "BrainSearchPreviewRequest",
+        "type": "object"
+      },
       "AppConfigurationItem": {
         "additionalProperties": false,
         "properties": {
@@ -986,14 +1252,18 @@
       "SignalBindingUpdateRequest": {
         "additionalProperties": false,
         "properties": {
-          "confidential_memory": { "nullable": true, "type": "boolean" },
           "config": { "$ref": "#/components/schemas/JSONValue" },
           "group_message_mode": {
             "enum": ["addressed_only", "observe_all", "may_intervene"],
             "nullable": true,
             "type": "string"
           },
-          "target_agent_uid": { "type": "string" }
+          "target_agent_uid": { "type": "string" },
+          "unmatched_sender_policy": {
+            "enum": ["manual_review", "create_standalone"],
+            "nullable": true,
+            "type": "string"
+          }
         },
         "required": ["target_agent_uid", "config"],
         "title": "SignalBindingUpdateRequest",
@@ -1008,17 +1278,50 @@
         "title": "SignalAdapterListResponse",
         "type": "object"
       },
-      "BrainSourceCaptureRequest": {
+      "IdentityMappingRequestListResponse": {
         "additionalProperties": false,
         "properties": {
-          "content": { "type": "string" },
-          "file": { "format": "binary", "type": "string" },
-          "kind": { "enum": ["paste", "url", "file"], "type": "string" },
-          "title": { "type": "string" },
-          "url": { "type": "string" }
+          "identity_mapping_requests": {
+            "items": { "$ref": "#/components/schemas/IdentityMappingRequestItem" },
+            "type": "array"
+          }
         },
-        "required": ["kind"],
-        "title": "BrainSourceCaptureRequest",
+        "required": ["identity_mapping_requests"],
+        "title": "IdentityMappingRequestListResponse",
+        "type": "object"
+      },
+      "BrainPageLinks": {
+        "additionalProperties": false,
+        "properties": {
+          "incoming": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "context": { "nullable": true, "type": "string" },
+                "from": { "type": "string" },
+                "link_type": { "type": "string" }
+              },
+              "required": ["from", "link_type", "context"],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "outgoing": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "context": { "nullable": true, "type": "string" },
+                "link_type": { "type": "string" },
+                "to": { "type": "string" }
+              },
+              "required": ["to", "link_type", "context"],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": ["outgoing", "incoming"],
+        "title": "BrainPageLinks",
         "type": "object"
       },
       "SignalChannelStandingOrdersWriteRequest": {
@@ -1142,6 +1445,28 @@
         "title": "BackgroundAgentJobTurnProgress",
         "type": "object"
       },
+      "PrincipalLocalCredential": {
+        "additionalProperties": false,
+        "nullable": true,
+        "properties": { "status": { "enum": ["active", "must_change"], "type": "string" } },
+        "required": ["status"],
+        "title": "PrincipalLocalCredential",
+        "type": "object"
+      },
+      "BrainContradictionDecisionResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "contradiction": {
+            "additionalProperties": false,
+            "properties": { "id": { "type": "string" }, "status": { "type": "string" } },
+            "required": ["id", "status"],
+            "type": "object"
+          }
+        },
+        "required": ["contradiction"],
+        "title": "BrainContradictionDecisionResponse",
+        "type": "object"
+      },
       "ScheduleCronUpdateRequest": {
         "additionalProperties": false,
         "minProperties": 1,
@@ -1176,13 +1501,21 @@
       "SignalAdapterItem": {
         "additionalProperties": false,
         "properties": {
+          "adapter_category": { "enum": ["enterprise_im", "consumer_im"], "type": "string" },
           "adapter_id": { "type": "string" },
           "display_name": { "$ref": "#/components/schemas/LocalizedText" },
           "fields": { "items": { "$ref": "#/components/schemas/SignalAdapterField" }, "type": "array" },
           "group_message_mode_field": { "$ref": "#/components/schemas/SignalAdapterField" },
-          "plugin_id": { "nullable": true, "type": "string" }
+          "plugin_id": { "nullable": true, "type": "string" },
+          "unmatched_sender_policy_field": { "$ref": "#/components/schemas/SignalAdapterField" }
         },
-        "required": ["adapter_id", "fields", "group_message_mode_field"],
+        "required": [
+          "adapter_id",
+          "adapter_category",
+          "fields",
+          "group_message_mode_field",
+          "unmatched_sender_policy_field"
+        ],
         "title": "SignalAdapterItem",
         "type": "object"
       },
@@ -1192,18 +1525,24 @@
           "advanced": { "type": "boolean" },
           "default": { "$ref": "#/components/schemas/JSONValue" },
           "description": { "$ref": "#/components/schemas/LocalizedText" },
-          "encrypted": { "nullable": true, "type": "boolean" },
+          "encrypted": { "type": "boolean" },
           "label": { "$ref": "#/components/schemas/LocalizedText" },
-          "max": { "nullable": true, "type": "integer" },
-          "min": { "nullable": true, "type": "integer" },
-          "options": {
-            "items": { "$ref": "#/components/schemas/SignalAdapterFieldOption" },
-            "nullable": true,
+          "max": { "type": "integer" },
+          "min": { "type": "integer" },
+          "options": { "items": { "$ref": "#/components/schemas/SignalAdapterFieldOption" }, "type": "array" },
+          "path": { "type": "string" },
+          "required": { "type": "boolean" },
+          "requiredWhen": {
+            "items": { "$ref": "#/components/schemas/SignalAdapterFieldRequirement" },
             "type": "array"
           },
-          "path": { "type": "string" },
-          "required": { "nullable": true, "type": "boolean" },
-          "type": { "type": "string" }
+          "type": { "type": "string" },
+          "validation": {
+            "oneOf": [
+              { "$ref": "#/components/schemas/SignalAdapterPatternValidation" },
+              { "$ref": "#/components/schemas/SignalAdapterJSONObjectValidation" }
+            ]
+          }
         },
         "required": ["path", "type"],
         "title": "SignalAdapterField",
@@ -1214,6 +1553,13 @@
         "properties": { "grant_type": { "type": "string" }, "refresh_token": { "type": "string" } },
         "required": ["grant_type"],
         "title": "ConsoleTokenRequest",
+        "type": "object"
+      },
+      "IdentityMappingResponse": {
+        "additionalProperties": false,
+        "properties": { "identity_mapping": { "$ref": "#/components/schemas/IdentityMappingItem" } },
+        "required": ["identity_mapping"],
+        "title": "IdentityMappingResponse",
         "type": "object"
       },
       "BackgroundAgentJobTurnToolUsage": {
@@ -1245,6 +1591,13 @@
         "title": "ScheduleEventListResponse",
         "type": "object"
       },
+      "BrainClaimListResponse": {
+        "additionalProperties": false,
+        "properties": { "claims": { "items": { "$ref": "#/components/schemas/BrainClaim" }, "type": "array" } },
+        "required": ["claims"],
+        "title": "BrainClaimListResponse",
+        "type": "object"
+      },
       "SignalAdapterFieldOption": {
         "additionalProperties": true,
         "properties": {
@@ -1254,13 +1607,6 @@
         },
         "required": ["value"],
         "title": "SignalAdapterFieldOption",
-        "type": "object"
-      },
-      "BrainStatusResponse": {
-        "additionalProperties": false,
-        "properties": { "memory_status": { "$ref": "#/components/schemas/JSONValue" } },
-        "required": ["memory_status"],
-        "title": "BrainStatusResponse",
         "type": "object"
       },
       "AgentLibrarySkillCapabilityItem": {
@@ -1307,6 +1653,29 @@
         "title": "WorkerFileUploadResponse",
         "type": "object"
       },
+      "SignalAdapterFieldRequirement": {
+        "additionalProperties": false,
+        "properties": { "path": { "type": "string" }, "value": { "$ref": "#/components/schemas/JSONValue" } },
+        "required": ["path", "value"],
+        "title": "SignalAdapterFieldRequirement",
+        "type": "object"
+      },
+      "BrainSuggestion": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": { "type": "string" },
+          "evidence_count": { "type": "integer" },
+          "id": { "type": "string" },
+          "kind": { "type": "string" },
+          "rationale": { "nullable": true, "type": "string" },
+          "status": { "type": "string" },
+          "target_type": { "nullable": true, "type": "string" },
+          "term": { "type": "string" }
+        },
+        "required": ["id", "kind", "term", "evidence_count", "status", "created_at"],
+        "title": "BrainSuggestion",
+        "type": "object"
+      },
       "PermissionGrantUpdateRequest": {
         "additionalProperties": false,
         "properties": {
@@ -1316,6 +1685,15 @@
           "resource_pattern": { "nullable": true, "type": "string" }
         },
         "title": "PermissionGrantUpdateRequest",
+        "type": "object"
+      },
+      "BrainObjectShowResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "candidates": { "items": { "$ref": "#/components/schemas/BrainObjectCandidate" }, "type": "array" },
+          "object": { "$ref": "#/components/schemas/BrainObjectPage" }
+        },
+        "title": "BrainObjectShowResponse",
         "type": "object"
       },
       "AgentComputerWorkerItem": {
@@ -1342,17 +1720,39 @@
         "properties": {
           "avatar_url": { "nullable": true, "type": "string" },
           "created_by_principal_uid": { "nullable": true, "type": "string" },
-          "display_name": { "nullable": true, "type": "string" },
+          "display_name": { "type": "string" },
+          "group_memory_disclosure_mode": { "enum": ["strict", "relaxed"], "type": "string" },
           "inserted_at": { "type": "string" },
           "options": { "additionalProperties": true, "type": "object" },
+          "owner_principal_uid": { "type": "string" },
           "role": { "type": "string" },
           "status": { "enum": ["active", "disabled"], "type": "string" },
           "type": { "enum": ["ai_colleague"], "type": "string" },
           "uid": { "type": "string" },
           "updated_at": { "type": "string" }
         },
-        "required": ["uid", "status", "type", "role", "options", "inserted_at", "updated_at"],
+        "required": [
+          "uid",
+          "status",
+          "display_name",
+          "type",
+          "role",
+          "options",
+          "owner_principal_uid",
+          "group_memory_disclosure_mode",
+          "inserted_at",
+          "updated_at"
+        ],
         "title": "AgentItem",
+        "type": "object"
+      },
+      "BrainContradictionListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "contradictions": { "items": { "$ref": "#/components/schemas/BrainContradiction" }, "type": "array" }
+        },
+        "required": ["contradictions"],
+        "title": "BrainContradictionListResponse",
         "type": "object"
       },
       "AIGatewayChatGPTLoginPollRequest": {
@@ -1369,6 +1769,13 @@
         "title": "AgentSessionListResponse",
         "type": "object"
       },
+      "BrainObjectRestoreRequest": {
+        "additionalProperties": false,
+        "properties": { "slug": { "type": "string" } },
+        "required": ["slug"],
+        "title": "BrainObjectRestoreRequest",
+        "type": "object"
+      },
       "SignalBindingListResponse": {
         "additionalProperties": false,
         "properties": {
@@ -1381,6 +1788,13 @@
         },
         "required": ["signal_bindings", "delivery_failures"],
         "title": "SignalBindingListResponse",
+        "type": "object"
+      },
+      "IdentityMappingBindRequest": {
+        "additionalProperties": false,
+        "properties": { "principal_uid": { "type": "string" } },
+        "required": ["principal_uid"],
+        "title": "IdentityMappingBindRequest",
         "type": "object"
       },
       "WebhookEndpointItem": {
@@ -1423,16 +1837,31 @@
       "SignalBindingWriteRequest": {
         "additionalProperties": false,
         "properties": {
-          "confidential_memory": { "default": false, "type": "boolean" },
           "config": { "$ref": "#/components/schemas/JSONValue" },
           "group_message_mode": {
             "enum": ["addressed_only", "observe_all", "may_intervene"],
+            "nullable": true,
+            "type": "string"
+          },
+          "unmatched_sender_policy": {
+            "enum": ["manual_review", "create_standalone"],
             "nullable": true,
             "type": "string"
           }
         },
         "required": ["config"],
         "title": "SignalBindingWriteRequest",
+        "type": "object"
+      },
+      "IdentityMappingWriteRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "external_id": { "type": "string" },
+          "principal_uid": { "type": "string" },
+          "provider": { "type": "string" }
+        },
+        "required": ["principal_uid", "provider", "external_id"],
+        "title": "IdentityMappingWriteRequest",
         "type": "object"
       },
       "ConsoleReadinessAgent": {
@@ -1448,7 +1877,7 @@
       },
       "BrainSourceListResponse": {
         "additionalProperties": false,
-        "properties": { "sources": { "items": { "$ref": "#/components/schemas/BrainSourceEntry" }, "type": "array" } },
+        "properties": { "sources": { "items": { "$ref": "#/components/schemas/BrainSource" }, "type": "array" } },
         "required": ["sources"],
         "title": "BrainSourceListResponse",
         "type": "object"
@@ -1495,22 +1924,40 @@
         "title": "ControlPlanePluginListResponse",
         "type": "object"
       },
+      "AgentSkillLessonsResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "skill_lessons": { "items": { "$ref": "#/components/schemas/AgentSkillLessonItem" }, "type": "array" }
+        },
+        "required": ["skill_lessons"],
+        "title": "AgentSkillLessonsResponse",
+        "type": "object"
+      },
+      "BrainSuggestionDecideRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "decision": { "enum": ["approve", "reject"], "type": "string" },
+          "extractable": { "nullable": true, "type": "boolean" },
+          "primitive": { "nullable": true, "type": "string" },
+          "slug_prefix": { "nullable": true, "type": "string" },
+          "target_type": { "nullable": true, "type": "string" }
+        },
+        "required": ["decision"],
+        "title": "BrainSuggestionDecideRequest",
+        "type": "object"
+      },
+      "BrainHealthResponse": {
+        "additionalProperties": false,
+        "properties": { "health": { "$ref": "#/components/schemas/BrainHealth" } },
+        "required": ["health"],
+        "title": "BrainHealthResponse",
+        "type": "object"
+      },
       "WorkerFileListResponse": {
         "additionalProperties": false,
         "properties": { "file_listing": { "$ref": "#/components/schemas/WorkerFileListData" } },
         "required": ["file_listing"],
         "title": "WorkerFileListResponse",
-        "type": "object"
-      },
-      "BrainCitation": {
-        "additionalProperties": false,
-        "properties": {
-          "block_id": { "format": "uuid", "type": "string" },
-          "document_id": { "type": "string" },
-          "source_kind": { "enum": ["signal_message", "retained_source"], "type": "string" }
-        },
-        "required": ["block_id", "document_id", "source_kind"],
-        "title": "BrainCitation",
         "type": "object"
       },
       "WorkerFileMoveRequest": {
@@ -1547,11 +1994,29 @@
         "title": "ConsoleApiError",
         "type": "object"
       },
+      "BrainMergeResultResponse": {
+        "additionalProperties": false,
+        "properties": { "result": { "$ref": "#/components/schemas/JSONValue" } },
+        "required": ["result"],
+        "title": "BrainMergeResultResponse",
+        "type": "object"
+      },
       "ScheduleCronScheduleListResponse": {
         "additionalProperties": false,
         "properties": { "cron_schedules": { "items": { "$ref": "#/components/schemas/JSONValue" }, "type": "array" } },
         "required": ["cron_schedules"],
         "title": "ScheduleCronScheduleListResponse",
+        "type": "object"
+      },
+      "IdentityMappingItem": {
+        "additionalProperties": false,
+        "properties": {
+          "external_id": { "type": "string" },
+          "principal_uid": { "type": "string" },
+          "provider": { "type": "string" }
+        },
+        "required": ["principal_uid", "provider", "external_id"],
+        "title": "IdentityMappingItem",
         "type": "object"
       },
       "ModelProfileWriteRequest": {
@@ -1564,35 +2029,6 @@
           "provider_options": { "additionalProperties": true, "type": "object" }
         },
         "title": "ModelProfileWriteRequest",
-        "type": "object"
-      },
-      "BrainDreamingFitness": {
-        "additionalProperties": false,
-        "description": "Share of dreaming block writes that survived human review, overall and per run. Survival is judged only on writes older than the horizon; younger writes are pending.",
-        "properties": {
-          "corrected_block_writes": { "minimum": 0, "type": "integer" },
-          "generated_at": { "format": "date-time", "type": "string" },
-          "horizon_days": { "minimum": 1, "type": "integer" },
-          "lookback_days": { "minimum": 1, "type": "integer" },
-          "matured_block_writes": { "minimum": 0, "type": "integer" },
-          "pending_block_writes": { "minimum": 0, "type": "integer" },
-          "produced_block_writes": { "minimum": 0, "type": "integer" },
-          "runs": { "items": { "$ref": "#/components/schemas/BrainDreamingFitnessRun" }, "type": "array" },
-          "survival_rate": { "maximum": 1, "minimum": 0, "nullable": true, "type": "number" },
-          "survived_block_writes": { "minimum": 0, "type": "integer" }
-        },
-        "required": [
-          "horizon_days",
-          "lookback_days",
-          "generated_at",
-          "produced_block_writes",
-          "matured_block_writes",
-          "pending_block_writes",
-          "corrected_block_writes",
-          "survived_block_writes",
-          "runs"
-        ],
-        "title": "BrainDreamingFitness",
         "type": "object"
       },
       "ScheduleCronWriteRequest": {
@@ -1616,20 +2052,6 @@
         "title": "ScheduleCronWriteRequest",
         "type": "object"
       },
-      "BrainEntryResponse": {
-        "additionalProperties": false,
-        "properties": {
-          "backlinks": { "items": { "$ref": "#/components/schemas/BrainEntryRelation" }, "type": "array" },
-          "blocks": { "items": { "$ref": "#/components/schemas/BrainEntryBlock" }, "type": "array" },
-          "citations": { "items": { "$ref": "#/components/schemas/BrainCitation" }, "type": "array" },
-          "entry": { "$ref": "#/components/schemas/BrainEntry" },
-          "markdown": { "type": "string" },
-          "relations": { "items": { "$ref": "#/components/schemas/BrainEntryRelation" }, "type": "array" }
-        },
-        "required": ["entry", "blocks", "citations", "relations", "backlinks", "markdown"],
-        "title": "BrainEntryResponse",
-        "type": "object"
-      },
       "WorkerEnvResponse": {
         "additionalProperties": false,
         "properties": { "worker_env": { "$ref": "#/components/schemas/WorkerEnvItem" } },
@@ -1637,24 +2059,39 @@
         "title": "WorkerEnvResponse",
         "type": "object"
       },
-      "BrainEntryOperationsResponse": {
+      "IdentityMappingRequestItem": {
         "additionalProperties": false,
         "properties": {
-          "results": { "items": { "$ref": "#/components/schemas/JSONValue" }, "type": "array" },
-          "touched_entry_ids": { "items": { "format": "uuid", "type": "string" }, "type": "array" }
+          "display_name": { "nullable": true, "type": "string" },
+          "email": { "nullable": true, "type": "string" },
+          "external_id": { "type": "string" },
+          "first_seen_at": { "format": "date-time", "type": "string" },
+          "id": { "type": "string" },
+          "last_seen_at": { "format": "date-time", "type": "string" },
+          "metadata": { "$ref": "#/components/schemas/JSONValue" },
+          "mobile": { "nullable": true, "type": "string" },
+          "provider": { "type": "string" }
         },
-        "required": ["results", "touched_entry_ids"],
-        "title": "BrainEntryOperationsResponse",
+        "required": ["id", "provider", "external_id", "first_seen_at", "last_seen_at"],
+        "title": "IdentityMappingRequestItem",
+        "type": "object"
+      },
+      "AgentSkillLessonCreateRequest": {
+        "additionalProperties": false,
+        "properties": { "content": { "type": "string" }, "skill_name": { "type": "string" } },
+        "required": ["skill_name", "content"],
+        "title": "AgentSkillLessonCreateRequest",
         "type": "object"
       },
       "AgentLibraryDocuments": {
         "additionalProperties": false,
         "properties": {
+          "confidentiality_policy": { "$ref": "#/components/schemas/AgentLibraryDocumentItem" },
           "design": { "$ref": "#/components/schemas/AgentLibraryDocumentItem" },
           "mission": { "$ref": "#/components/schemas/AgentLibraryDocumentItem" },
           "soul": { "$ref": "#/components/schemas/AgentLibraryDocumentItem" }
         },
-        "required": ["mission", "soul", "design"],
+        "required": ["mission", "soul", "design", "confidentiality_policy"],
         "title": "AgentLibraryDocuments",
         "type": "object"
       },
@@ -1667,17 +2104,6 @@
         "title": "AgentComputerWorkerListResponse",
         "type": "object"
       },
-      "BrainSourceCaptureResponse": {
-        "additionalProperties": false,
-        "properties": {
-          "entry": { "$ref": "#/components/schemas/BrainEntryResponse" },
-          "resource_kind": { "enum": ["entry", "retained_source"], "type": "string" },
-          "source": { "$ref": "#/components/schemas/BrainSourceEntry" }
-        },
-        "required": ["resource_kind"],
-        "title": "BrainSourceCaptureResponse",
-        "type": "object"
-      },
       "OAuthErrorResponse": {
         "additionalProperties": false,
         "properties": { "error": { "type": "string" }, "error_description": { "type": "string" } },
@@ -1688,6 +2114,35 @@
       "AIGatewayChatGPTLoginResponse": {
         "additionalProperties": true,
         "title": "AIGatewayChatGPTLoginResponse",
+        "type": "object"
+      },
+      "BrainObjectForkRequest": {
+        "additionalProperties": false,
+        "properties": { "slug": { "type": "string" } },
+        "required": ["slug"],
+        "title": "BrainObjectForkRequest",
+        "type": "object"
+      },
+      "BrainObjectVersion": {
+        "additionalProperties": false,
+        "properties": {
+          "author_uid": { "nullable": true, "type": "string" },
+          "body": { "type": "string" },
+          "id": { "type": "string" },
+          "meta": { "additionalProperties": true, "type": "object" },
+          "snapshot_at": { "type": "string" }
+        },
+        "required": ["id", "body", "meta", "snapshot_at"],
+        "title": "BrainObjectVersion",
+        "type": "object"
+      },
+      "BrainObjectVersionsResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "versions": { "items": { "$ref": "#/components/schemas/BrainObjectVersion" }, "type": "array" }
+        },
+        "required": ["versions"],
+        "title": "BrainObjectVersionsResponse",
         "type": "object"
       },
       "PrincipalGroupMemberListResponse": {
@@ -1708,31 +2163,82 @@
         "title": "AppConfigurationUpdateRequest",
         "type": "object"
       },
-      "AgentLibrarySkillOverlayWriteRequest": {
-        "additionalProperties": false,
-        "properties": { "expected_content_hash": { "type": "string" }, "text": { "type": "string" } },
-        "required": ["text", "expected_content_hash"],
-        "title": "AgentLibrarySkillOverlayWriteRequest",
-        "type": "object"
-      },
-      "BrainDreamingRun": {
+      "BrainRecallChunk": {
         "additionalProperties": false,
         "properties": {
-          "material_count": { "minimum": 0, "type": "integer" },
-          "operation_count": { "minimum": 0, "type": "integer" },
-          "run_id": { "format": "uuid", "type": "string" },
-          "skill_update_count": { "minimum": 0, "type": "integer" },
-          "status": { "enum": ["completed", "no_new_material", "already_running", "disabled"], "type": "string" },
-          "touched_entry_ids": { "items": { "format": "uuid", "type": "string" }, "type": "array" }
+          "audience_scope": { "type": "string" },
+          "chunk_index": { "type": "integer" },
+          "content_kind": { "nullable": true, "type": "string" },
+          "object_slug": { "type": "string" },
+          "text": { "type": "string" },
+          "title": { "type": "string" },
+          "type": { "type": "string" }
         },
-        "required": ["status"],
-        "title": "BrainDreamingRun",
+        "required": ["object_slug", "title", "type", "chunk_index", "text", "audience_scope"],
+        "title": "BrainRecallChunk",
         "type": "object"
       },
       "AIGatewayChatGPTLoginStartRequest": {
         "additionalProperties": false,
         "properties": { "id": { "type": "string" }, "label": { "type": "string" }, "priority": { "type": "integer" } },
         "title": "AIGatewayChatGPTLoginStartRequest",
+        "type": "object"
+      },
+      "BrainContradictionDecideRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "resolution_note": { "nullable": true, "type": "string" },
+          "status": { "enum": ["resolved", "dismissed"], "type": "string" }
+        },
+        "required": ["status"],
+        "title": "BrainContradictionDecideRequest",
+        "type": "object"
+      },
+      "BrainPageTimeline": {
+        "additionalProperties": false,
+        "properties": {
+          "audience_scope": { "type": "string" },
+          "author_uid": { "nullable": true, "type": "string" },
+          "date": { "type": "string" },
+          "detail": { "nullable": true, "type": "string" },
+          "event_object_slug": { "nullable": true, "type": "string" },
+          "id": { "type": "string" },
+          "provenance": { "nullable": true, "type": "string" },
+          "summary": { "type": "string" }
+        },
+        "required": ["id", "date", "summary", "audience_scope"],
+        "title": "BrainPageTimeline",
+        "type": "object"
+      },
+      "BrainRecallClaim": {
+        "additionalProperties": false,
+        "properties": {
+          "audience_scope": { "type": "string" },
+          "claim": { "type": "string" },
+          "claim_type": { "type": "string" },
+          "confidence": { "nullable": true, "type": "number" },
+          "holder": { "nullable": true, "type": "string" },
+          "id": { "type": "string" },
+          "kind": { "nullable": true, "type": "string" },
+          "notability": { "nullable": true, "type": "string" },
+          "object_slug": { "nullable": true, "type": "string" },
+          "provenance": { "nullable": true, "type": "string" },
+          "signal_gateway_channel_id": { "nullable": true, "type": "string" },
+          "since_date": { "nullable": true, "type": "string" },
+          "until_date": { "nullable": true, "type": "string" },
+          "valid_from": { "nullable": true, "type": "string" },
+          "valid_until": { "nullable": true, "type": "string" },
+          "weight": { "nullable": true, "type": "number" }
+        },
+        "required": ["id", "claim_type", "claim", "audience_scope"],
+        "title": "BrainRecallClaim",
+        "type": "object"
+      },
+      "BrainSearchPreviewResponse": {
+        "additionalProperties": false,
+        "properties": { "result": { "$ref": "#/components/schemas/BrainRecallResult" } },
+        "required": ["result"],
+        "title": "BrainSearchPreviewResponse",
         "type": "object"
       },
       "ControlPlanePluginWriteRequest": {
@@ -1774,6 +2280,50 @@
         "properties": { "schedule_event": { "$ref": "#/components/schemas/JSONValue" } },
         "required": ["schedule_event"],
         "title": "ScheduleEventResponse",
+        "type": "object"
+      },
+      "BrainClaim": {
+        "additionalProperties": false,
+        "properties": {
+          "active": { "nullable": true, "type": "boolean" },
+          "audience_scope": { "type": "string" },
+          "author_uid": { "nullable": true, "type": "string" },
+          "claim": { "type": "string" },
+          "claim_type": { "enum": ["fact", "take"], "type": "string" },
+          "confidence": { "nullable": true, "type": "number" },
+          "created_at": { "type": "string" },
+          "expired_at": { "nullable": true, "type": "string" },
+          "graded_confidence": { "nullable": true, "type": "number" },
+          "graded_quality": { "nullable": true, "type": "string" },
+          "holder": { "nullable": true, "type": "string" },
+          "id": { "type": "string" },
+          "kind": { "nullable": true, "type": "string" },
+          "notability": { "nullable": true, "type": "string" },
+          "object_slug": { "nullable": true, "type": "string" },
+          "provenance": { "nullable": true, "type": "string" },
+          "resolved_at": { "nullable": true, "type": "string" },
+          "resolved_outcome": { "nullable": true, "type": "boolean" },
+          "resolved_quality": { "nullable": true, "type": "string" },
+          "signal_gateway_channel_id": { "nullable": true, "type": "string" },
+          "since_date": { "nullable": true, "type": "string" },
+          "superseded_by": { "nullable": true, "type": "string" },
+          "until_date": { "nullable": true, "type": "string" },
+          "valid_from": { "nullable": true, "type": "string" },
+          "valid_until": { "nullable": true, "type": "string" },
+          "weight": { "nullable": true, "type": "number" }
+        },
+        "required": ["id", "claim_type", "claim", "audience_scope", "created_at"],
+        "title": "BrainClaim",
+        "type": "object"
+      },
+      "BrainMergeSuggestionDecideRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "canonical_slug": { "nullable": true, "type": "string" },
+          "decision": { "enum": ["approve", "reject"], "type": "string" }
+        },
+        "required": ["decision"],
+        "title": "BrainMergeSuggestionDecideRequest",
         "type": "object"
       },
       "IdentityProviderSyncRunResponse": {
@@ -1820,57 +2370,30 @@
         "title": "AutomationJobItem",
         "type": "object"
       },
-      "BrainSourceEntry": {
+      "BrainPageTake": {
         "additionalProperties": false,
         "properties": {
-          "attachments": { "items": { "$ref": "#/components/schemas/JSONValue" }, "type": "array" },
-          "author": { "additionalProperties": true, "type": "object" },
-          "byte_size": { "nullable": true, "type": "integer" },
-          "capture_method": { "nullable": true, "type": "string" },
-          "captured_at": { "format": "date-time", "nullable": true, "type": "string" },
-          "captured_by_uid": { "nullable": true, "type": "string" },
-          "connector_id": { "nullable": true, "type": "string" },
-          "document_id": { "type": "string" },
-          "integrated_entries": {
-            "items": {
-              "additionalProperties": false,
-              "properties": {
-                "id": { "format": "uuid", "type": "string" },
-                "name": { "type": "string" },
-                "store_key": { "type": "string" },
-                "type": { "type": "string" }
-              },
-              "required": ["id", "name", "type", "store_key"],
-              "type": "object"
-            },
-            "type": "array"
-          },
-          "kind": { "enum": ["retained_source", "signal_message"], "type": "string" },
-          "last_synced_at": { "format": "date-time", "nullable": true, "type": "string" },
-          "learning_actor_event_id": { "format": "uuid", "nullable": true, "type": "string" },
-          "learning_status": {
-            "enum": ["stored", "learning", "integrated", "no_change", "incomplete", "failed"],
-            "nullable": true,
-            "type": "string"
-          },
-          "links": { "items": { "$ref": "#/components/schemas/JSONValue" }, "type": "array" },
-          "media_type": { "type": "string" },
-          "metadata": { "additionalProperties": true, "type": "object" },
-          "origin_locator": { "nullable": true, "type": "string" },
-          "original_name": { "nullable": true, "type": "string" },
-          "revision": { "nullable": true, "type": "string" },
-          "rich_content": { "additionalProperties": true, "nullable": true, "type": "object" },
-          "sha256": { "nullable": true, "type": "string" },
-          "signal_channel_id": { "nullable": true, "type": "string" },
-          "source_entry_id": { "nullable": true, "type": "string" },
-          "source_url": { "nullable": true, "type": "string" },
-          "store_key": { "type": "string" },
-          "sync_state": { "enum": ["current", "deleted", "access_lost", "failed"], "nullable": true, "type": "string" },
-          "text": { "nullable": true, "type": "string" },
-          "title": { "type": "string" }
+          "active": { "nullable": true, "type": "boolean" },
+          "audience_scope": { "type": "string" },
+          "author_uid": { "nullable": true, "type": "string" },
+          "claim": { "type": "string" },
+          "graded_at": { "nullable": true, "type": "string" },
+          "graded_confidence": { "nullable": true, "type": "number" },
+          "graded_quality": { "nullable": true, "type": "string" },
+          "holder": { "nullable": true, "type": "string" },
+          "id": { "type": "string" },
+          "kind": { "nullable": true, "type": "string" },
+          "provenance": { "nullable": true, "type": "string" },
+          "resolved_at": { "nullable": true, "type": "string" },
+          "resolved_outcome": { "nullable": true, "type": "boolean" },
+          "resolved_quality": { "nullable": true, "type": "string" },
+          "since_date": { "nullable": true, "type": "string" },
+          "superseded_by": { "nullable": true, "type": "string" },
+          "until_date": { "nullable": true, "type": "string" },
+          "weight": { "nullable": true, "type": "number" }
         },
-        "required": ["document_id", "kind", "title", "store_key", "media_type", "integrated_entries"],
-        "title": "BrainSourceEntry",
+        "required": ["id", "claim", "audience_scope"],
+        "title": "BrainPageTake",
         "type": "object"
       },
       "WorkerEnvItem": {
@@ -1896,6 +2419,13 @@
         "properties": { "agents": { "items": { "$ref": "#/components/schemas/AgentItem" }, "type": "array" } },
         "required": ["agents"],
         "title": "AgentListResponse",
+        "type": "object"
+      },
+      "BrainObjectRollbackRequest": {
+        "additionalProperties": false,
+        "properties": { "slug": { "type": "string" }, "version_id": { "type": "string" } },
+        "required": ["slug", "version_id"],
+        "title": "BrainObjectRollbackRequest",
         "type": "object"
       },
       "WorkerEnvDecryptionValue": {
@@ -1964,11 +2494,13 @@
         "properties": {
           "avatar_url": { "nullable": true, "type": "string" },
           "display_name": { "type": "string" },
+          "group_memory_disclosure_mode": { "enum": ["strict", "relaxed"], "type": "string" },
           "options": { "additionalProperties": true, "type": "object" },
+          "owner_principal_uid": { "type": "string" },
           "role": { "type": "string" },
           "uid": { "type": "string" }
         },
-        "required": ["uid", "display_name", "role"],
+        "required": ["uid", "display_name", "role", "owner_principal_uid"],
         "title": "AgentCreateRequest",
         "type": "object"
       },
@@ -2002,6 +2534,26 @@
         "title": "SignalChannelStandingOrdersResponse",
         "type": "object"
       },
+      "BrainObjectSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "deleted_at": { "nullable": true, "type": "string" },
+          "effective_date": { "nullable": true, "type": "string" },
+          "emotional_weight": { "nullable": true, "type": "number" },
+          "library_managed": {
+            "description": "True when a Brain Source owns the body projection. The detail endpoint gives the exact edit block reason.",
+            "type": "boolean"
+          },
+          "slug": { "type": "string" },
+          "subtype": { "nullable": true, "type": "string" },
+          "title": { "type": "string" },
+          "type": { "type": "string" },
+          "updated_at": { "type": "string" }
+        },
+        "required": ["slug", "type", "title", "updated_at"],
+        "title": "BrainObjectSummary",
+        "type": "object"
+      },
       "BackgroundAgentJobTurnUsageBreakdown": {
         "additionalProperties": false,
         "properties": {
@@ -2033,6 +2585,22 @@
         "title": "AIGatewayProviderKindListResponse",
         "type": "object"
       },
+      "BrainSource": {
+        "additionalProperties": false,
+        "properties": {
+          "archived_at": { "nullable": true, "type": "string" },
+          "default_audience_scope": { "nullable": true, "type": "string" },
+          "id": { "type": "string" },
+          "kind": { "type": "string" },
+          "last_sync_at": { "nullable": true, "type": "string" },
+          "name": { "type": "string" },
+          "upstream_id": { "type": "string" },
+          "upstream_revision": { "nullable": true, "type": "string" }
+        },
+        "required": ["id", "upstream_id", "kind", "name"],
+        "title": "BrainSource",
+        "type": "object"
+      },
       "WorkerFileMoveResponse": {
         "additionalProperties": false,
         "properties": {
@@ -2050,13 +2618,6 @@
         },
         "required": ["moved_file"],
         "title": "WorkerFileMoveResponse",
-        "type": "object"
-      },
-      "BrainDreamingRunResponse": {
-        "additionalProperties": false,
-        "properties": { "run": { "$ref": "#/components/schemas/BrainDreamingRun" } },
-        "required": ["run"],
-        "title": "BrainDreamingRunResponse",
         "type": "object"
       },
       "SignalDeliveryRequeueRequest": {
@@ -2083,6 +2644,19 @@
         "title": "ScheduleRunListResponse",
         "type": "object"
       },
+      "BrainModelStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "configured": { "type": "boolean" },
+          "model": { "nullable": true, "type": "string" },
+          "provider_available": { "nullable": true, "type": "boolean" },
+          "provider_error": { "nullable": true, "type": "string" },
+          "provider_id": { "nullable": true, "type": "string" }
+        },
+        "required": ["configured"],
+        "title": "BrainModelStatus",
+        "type": "object"
+      },
       "AgentLibraryDocumentsResponse": {
         "additionalProperties": false,
         "properties": { "library_documents": { "$ref": "#/components/schemas/AgentLibraryDocuments" } },
@@ -2104,18 +2678,6 @@
         "title": "IdentityProviderAdapterItem",
         "type": "object"
       },
-      "AgentLibrarySkillOverlaysResponse": {
-        "additionalProperties": false,
-        "properties": {
-          "skill_overlays": {
-            "items": { "$ref": "#/components/schemas/AgentLibrarySkillOverlayItem" },
-            "type": "array"
-          }
-        },
-        "required": ["skill_overlays"],
-        "title": "AgentLibrarySkillOverlaysResponse",
-        "type": "object"
-      },
       "SignalBindingDetailResponse": {
         "additionalProperties": false,
         "properties": {
@@ -2125,55 +2687,6 @@
         },
         "required": ["signal_binding", "config", "stored_secret_paths"],
         "title": "SignalBindingDetailResponse",
-        "type": "object"
-      },
-      "BrainSourceEntryResponse": {
-        "additionalProperties": false,
-        "properties": { "source": { "$ref": "#/components/schemas/BrainSourceEntry" } },
-        "required": ["source"],
-        "title": "BrainSourceEntryResponse",
-        "type": "object"
-      },
-      "BrainEntryOperation": {
-        "additionalProperties": false,
-        "description": "One structured Brain mutation. owner/store/author are intentionally absent and are derived by the server.",
-        "properties": {
-          "aliases": { "items": { "type": "string" }, "type": "array" },
-          "block_id": { "format": "uuid", "type": "string" },
-          "body": { "type": "string" },
-          "entry_id": { "format": "uuid", "type": "string" },
-          "expected_block_lock_version": { "minimum": 1, "type": "integer" },
-          "expected_entry_lock_version": { "minimum": 1, "type": "integer" },
-          "initial_body": { "type": "string" },
-          "key": { "type": "string" },
-          "name": { "type": "string" },
-          "operation": {
-            "enum": [
-              "create_entry",
-              "delete_entry",
-              "append_block",
-              "edit_block",
-              "delete_block",
-              "set_property",
-              "add_relation",
-              "remove_relation",
-              "set_summary",
-              "set_aliases",
-              "set_name",
-              "set_type"
-            ],
-            "type": "string"
-          },
-          "predicate": { "type": "string" },
-          "properties": { "additionalProperties": true, "type": "object" },
-          "relation_id": { "format": "uuid", "type": "string" },
-          "summary": { "type": "string" },
-          "target_entry_id": { "format": "uuid", "type": "string" },
-          "type": { "type": "string" },
-          "value": { "$ref": "#/components/schemas/JSONValue" }
-        },
-        "required": ["operation"],
-        "title": "BrainEntryOperation",
         "type": "object"
       },
       "BackgroundAgentJobResponse": {
@@ -2233,18 +2746,51 @@
         "title": "ComputedMemberPreviewRequest",
         "type": "object"
       },
-      "BrainAuditRestorationsRequest": {
+      "BrainObjectPage": {
         "additionalProperties": false,
         "properties": {
-          "audit_ids": {
-            "items": { "format": "uuid", "type": "string" },
-            "maxItems": 10000,
-            "minItems": 1,
-            "type": "array"
-          }
+          "body": { "type": "string" },
+          "content_hash": { "nullable": true, "type": "string" },
+          "contradictions": { "items": { "$ref": "#/components/schemas/BrainPageContradiction" }, "type": "array" },
+          "deleted": { "type": "boolean" },
+          "edit_block_reason": { "nullable": true, "type": "string" },
+          "editable": { "type": "boolean" },
+          "effective_date": { "nullable": true, "type": "string" },
+          "facts": { "items": { "$ref": "#/components/schemas/BrainPageFact" }, "type": "array" },
+          "library_managed": {
+            "description": "True when a Brain Source owns the body projection. Use edit_block_reason to select the supported management action.",
+            "type": "boolean"
+          },
+          "links": { "$ref": "#/components/schemas/BrainPageLinks" },
+          "meta": { "additionalProperties": true, "type": "object" },
+          "rendered": { "type": "string" },
+          "slug": { "type": "string" },
+          "subtype": { "nullable": true, "type": "string" },
+          "tags": { "items": { "type": "string" }, "type": "array" },
+          "takes": { "items": { "$ref": "#/components/schemas/BrainPageTake" }, "type": "array" },
+          "timelines": { "items": { "$ref": "#/components/schemas/BrainPageTimeline" }, "type": "array" },
+          "title": { "type": "string" },
+          "type": { "type": "string" }
         },
-        "required": ["audit_ids"],
-        "title": "BrainAuditRestorationsRequest",
+        "required": [
+          "slug",
+          "type",
+          "title",
+          "deleted",
+          "content_hash",
+          "body",
+          "rendered",
+          "editable",
+          "edit_block_reason",
+          "meta",
+          "facts",
+          "takes",
+          "contradictions",
+          "timelines",
+          "links",
+          "tags"
+        ],
+        "title": "BrainObjectPage",
         "type": "object"
       },
       "ConsoleTokenResponse": {
@@ -2261,6 +2807,12 @@
         "title": "ConsoleTokenResponse",
         "type": "object"
       },
+      "LocalPasswordResetRequest": {
+        "additionalProperties": false,
+        "properties": { "must_change_password": { "default": true, "type": "boolean" } },
+        "title": "LocalPasswordResetRequest",
+        "type": "object"
+      },
       "PrincipalListResponse": {
         "additionalProperties": false,
         "properties": { "principals": { "items": { "$ref": "#/components/schemas/PrincipalItem" }, "type": "array" } },
@@ -2273,13 +2825,13 @@
         "properties": {
           "adapter": { "type": "string" },
           "agent_uid": { "type": "string" },
-          "confidential_memory": { "type": "boolean" },
           "config_key": { "type": "string" },
           "config_ref": { "type": "string" },
           "enabled": { "type": "boolean" },
           "name": { "type": "string" },
           "unaddressed_group_message_policy": { "enum": ["ignore", "record_only", "may_intervene"], "type": "string" },
-          "unavailable_reason": { "nullable": true, "type": "string" }
+          "unavailable_reason": { "nullable": true, "type": "string" },
+          "unmatched_sender_policy": { "enum": ["manual_review", "create_standalone"], "type": "string" }
         },
         "required": [
           "agent_uid",
@@ -2288,7 +2840,7 @@
           "config_ref",
           "config_key",
           "unaddressed_group_message_policy",
-          "confidential_memory",
+          "unmatched_sender_policy",
           "enabled"
         ],
         "title": "SignalBindingItem",
@@ -2299,6 +2851,20 @@
         "properties": { "decrypted_value": { "$ref": "#/components/schemas/AppConfigurationDecryptionValue" } },
         "required": ["decrypted_value"],
         "title": "AppConfigurationDecryptionResponse",
+        "type": "object"
+      },
+      "BrainSourceCreateResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "source": {
+            "additionalProperties": false,
+            "properties": { "id": { "type": "string" }, "kind": { "type": "string" }, "name": { "type": "string" } },
+            "required": ["id", "kind", "name"],
+            "type": "object"
+          }
+        },
+        "required": ["source"],
+        "title": "BrainSourceCreateResponse",
         "type": "object"
       },
       "WebhookEndpointListResponse": {
@@ -2328,33 +2894,19 @@
         "title": "AgentSession",
         "type": "object"
       },
-      "BrainEntryBlock": {
+      "BrainObjectCreateRequest": {
         "additionalProperties": false,
         "properties": {
-          "author_kind": { "enum": ["human", "agent", "dreaming"], "type": "string" },
-          "author_uid": { "nullable": true, "type": "string" },
           "body": { "type": "string" },
-          "embedding_error": { "nullable": true, "type": "string" },
-          "embedding_state": { "enum": ["pending", "synced", "failed"], "type": "string" },
-          "entry_id": { "format": "uuid", "type": "string" },
-          "id": { "format": "uuid", "type": "string" },
-          "inserted_at": { "format": "date-time", "type": "string" },
-          "lock_version": { "minimum": 1, "type": "integer" },
-          "position": { "minimum": 0, "type": "integer" },
-          "updated_at": { "format": "date-time", "type": "string" }
+          "effective_date": { "format": "date", "nullable": true, "type": "string" },
+          "meta": { "additionalProperties": true, "type": "object" },
+          "slug": { "type": "string" },
+          "subtype": { "nullable": true, "type": "string" },
+          "title": { "type": "string" },
+          "type": { "type": "string" }
         },
-        "required": [
-          "id",
-          "entry_id",
-          "position",
-          "body",
-          "author_kind",
-          "embedding_state",
-          "lock_version",
-          "inserted_at",
-          "updated_at"
-        ],
-        "title": "BrainEntryBlock",
+        "required": ["slug", "type", "title", "body", "meta"],
+        "title": "BrainObjectCreateRequest",
         "type": "object"
       },
       "BackgroundAgentJobTurnPlan": {
@@ -2441,11 +2993,47 @@
         "title": "PermissionGrantCreateRequest",
         "type": "object"
       },
+      "BrainSourceCreateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "config": { "additionalProperties": true, "nullable": true, "type": "object" },
+          "default_audience_scope": { "nullable": true, "type": "string" },
+          "kind": { "enum": ["file", "url"], "type": "string" },
+          "name": { "type": "string" },
+          "upstream_id": { "type": "string" }
+        },
+        "required": ["upstream_id", "kind", "name"],
+        "title": "BrainSourceCreateRequest",
+        "type": "object"
+      },
+      "BrainMergePageSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "slug": { "type": "string" },
+          "title": { "nullable": true, "type": "string" },
+          "type": { "nullable": true, "type": "string" }
+        },
+        "required": ["slug"],
+        "title": "BrainMergePageSummary",
+        "type": "object"
+      },
       "ProviderHostedResponse": {
         "additionalProperties": false,
         "properties": { "provider_hosted": { "$ref": "#/components/schemas/ProviderHostedCapabilities" } },
         "required": ["provider_hosted"],
         "title": "ProviderHostedResponse",
+        "type": "object"
+      },
+      "SignalAdapterJSONObjectValidation": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": { "enum": ["json_object"], "type": "string" },
+          "message": { "$ref": "#/components/schemas/LocalizedText" },
+          "requiredStringProperties": { "items": { "type": "string" }, "type": "array" },
+          "stringPrefixes": { "additionalProperties": { "type": "string" }, "type": "object" }
+        },
+        "required": ["kind", "message"],
+        "title": "SignalAdapterJSONObjectValidation",
         "type": "object"
       },
       "PermissionGrantResponse": {
@@ -2480,29 +3068,18 @@
         "title": "ConsoleReadinessWorker",
         "type": "object"
       },
-      "AgentLibrarySkillOverlayItem": {
+      "BrainMergeSuggestion": {
         "additionalProperties": false,
         "properties": {
-          "agent_plugin_id": { "nullable": true, "type": "string" },
-          "content_hash": { "type": "string" },
-          "description": { "nullable": true, "type": "string" },
-          "effective_enabled": { "type": "boolean" },
-          "skill_id": { "nullable": true, "type": "string" },
-          "skill_name": { "type": "string" },
-          "text": { "type": "string" },
-          "updated_at": { "format": "date-time", "type": "string" }
+          "a": { "$ref": "#/components/schemas/BrainMergePageSummary" },
+          "b": { "$ref": "#/components/schemas/BrainMergePageSummary" },
+          "created_at": { "type": "string" },
+          "id": { "type": "string" },
+          "reason": { "type": "string" },
+          "status": { "type": "string" }
         },
-        "required": [
-          "skill_name",
-          "skill_id",
-          "agent_plugin_id",
-          "description",
-          "effective_enabled",
-          "text",
-          "content_hash",
-          "updated_at"
-        ],
-        "title": "AgentLibrarySkillOverlayItem",
+        "required": ["id", "a", "b", "reason", "status", "created_at"],
+        "title": "BrainMergeSuggestion",
         "type": "object"
       },
       "PrincipalGroupMemberItem": {
@@ -2530,28 +3107,15 @@
         "title": "AppConfigurationDecryptionValue",
         "type": "object"
       },
-      "BrainDreamingFitnessRun": {
+      "SignalAdapterPatternValidation": {
         "additionalProperties": false,
-        "description": "One dreaming run's block writes and how they fared under human review.",
         "properties": {
-          "corrected_block_writes": { "minimum": 0, "type": "integer" },
-          "first_written_at": { "format": "date-time", "nullable": true, "type": "string" },
-          "last_written_at": { "format": "date-time", "nullable": true, "type": "string" },
-          "matured_block_writes": { "minimum": 0, "type": "integer" },
-          "pending_block_writes": { "minimum": 0, "type": "integer" },
-          "produced_block_writes": { "minimum": 0, "type": "integer" },
-          "run_id": { "format": "uuid", "nullable": true, "type": "string" },
-          "survival_rate": { "maximum": 1, "minimum": 0, "nullable": true, "type": "number" },
-          "survived_block_writes": { "minimum": 0, "type": "integer" }
+          "kind": { "enum": ["pattern"], "type": "string" },
+          "message": { "$ref": "#/components/schemas/LocalizedText" },
+          "pattern": { "type": "string" }
         },
-        "required": [
-          "produced_block_writes",
-          "matured_block_writes",
-          "pending_block_writes",
-          "corrected_block_writes",
-          "survived_block_writes"
-        ],
-        "title": "BrainDreamingFitnessRun",
+        "required": ["kind", "message", "pattern"],
+        "title": "SignalAdapterPatternValidation",
         "type": "object"
       }
     },
@@ -2741,59 +3305,6 @@
         "security": [{ "consoleBearer": [] }],
         "summary": "Pause one recurring schedule",
         "tags": ["Schedule"]
-      }
-    },
-    "/api/v1/brain/dreaming-fitness": {
-      "get": {
-        "callbacks": {},
-        "description": "Reads the audit log for the share of dreaming block writes that survived human review (no human edit or delete within the horizon), overall and per run. Writes younger than the horizon are reported as pending, not survivors.",
-        "operationId": "AnkoleWeb.BrainController.dreaming_fitness",
-        "parameters": [
-          {
-            "description": "Principal whose Brain library is being supervised",
-            "in": "query",
-            "name": "owner_uid",
-            "required": true,
-            "schema": { "type": "string" }
-          },
-          {
-            "description": "Days a dreaming write must survive human review to count as survived (default 7)",
-            "in": "query",
-            "name": "horizon_days",
-            "required": false,
-            "schema": { "maximum": 90, "minimum": 1, "type": "integer" }
-          },
-          {
-            "description": "How far back to read dreaming writes (default 90)",
-            "in": "query",
-            "name": "lookback_days",
-            "required": false,
-            "schema": { "maximum": 365, "minimum": 1, "type": "integer" }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/BrainDreamingFitnessResponse" } }
-            },
-            "description": "Dreaming fitness signal"
-          },
-          "401": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Forbidden"
-          },
-          "422": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Invalid filters"
-          }
-        },
-        "security": [{ "consoleBearer": [] }],
-        "summary": "Read dreaming output survival as a selection-pressure signal",
-        "tags": ["Brain"]
       }
     },
     "/api/v1/identity-providers": {
@@ -3043,100 +3554,23 @@
         "tags": ["AIGateway Files"]
       }
     },
-    "/api/v1/brain/status": {
+    "/api/v1/brain/merge-suggestions": {
       "get": {
         "callbacks": {},
-        "operationId": "AnkoleWeb.BrainController.status",
+        "operationId": "AnkoleWeb.BrainController.list_merge_suggestions",
         "parameters": [
-          {
-            "description": "Principal whose Brain library is being supervised",
-            "in": "query",
-            "name": "owner_uid",
-            "required": true,
-            "schema": { "type": "string" }
-          }
+          { "description": "", "in": "query", "name": "status", "required": false, "schema": { "type": "string" } }
         ],
         "responses": {
           "200": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BrainStatusResponse" } } },
-            "description": "Long-term memory status"
-          },
-          "401": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Forbidden"
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/BrainMergeSuggestionListResponse" } }
+            },
+            "description": "Merge suggestions"
           }
         },
         "security": [{ "consoleBearer": [] }],
-        "summary": "Read the single long-term memory health surface",
-        "tags": ["Brain"]
-      }
-    },
-    "/api/v1/brain/entries/{id}/audit-log": {
-      "get": {
-        "callbacks": {},
-        "operationId": "AnkoleWeb.BrainController.audit_log",
-        "parameters": [
-          {
-            "description": "Principal whose Brain library is being supervised",
-            "in": "query",
-            "name": "owner_uid",
-            "required": true,
-            "schema": { "type": "string" }
-          },
-          { "description": "", "in": "path", "name": "id", "required": true, "schema": { "type": "string" } },
-          { "description": "", "in": "query", "name": "store", "required": false, "schema": { "type": "string" } },
-          { "description": "", "in": "query", "name": "action", "required": false, "schema": { "type": "string" } },
-          { "description": "", "in": "query", "name": "actor", "required": false, "schema": { "type": "string" } },
-          {
-            "description": "",
-            "in": "query",
-            "name": "run_id",
-            "required": false,
-            "schema": { "format": "uuid", "type": "string" }
-          },
-          {
-            "description": "",
-            "in": "query",
-            "name": "inserted_after",
-            "required": false,
-            "schema": { "format": "date-time", "type": "string" }
-          },
-          {
-            "description": "",
-            "in": "query",
-            "name": "inserted_before",
-            "required": false,
-            "schema": { "format": "date-time", "type": "string" }
-          },
-          { "description": "", "in": "query", "name": "cursor", "required": false, "schema": { "type": "string" } },
-          {
-            "description": "",
-            "in": "query",
-            "name": "limit",
-            "required": false,
-            "schema": { "maximum": 100, "minimum": 1, "type": "integer" }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BrainAuditLogResponse" } } },
-            "description": "Brain audit log"
-          },
-          "401": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Forbidden"
-          }
-        },
-        "security": [{ "consoleBearer": [] }],
-        "summary": "List the audit trail for one Brain entry",
+        "summary": "List duplicate-page merge suggestions",
         "tags": ["Brain"]
       }
     },
@@ -3248,6 +3682,51 @@
         "security": [{ "consoleBearer": [] }],
         "summary": "Create one operator Principal group",
         "tags": ["AuthZ"]
+      }
+    },
+    "/api/v1/principals/{uid}/local-password-resets": {
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.PrincipalController.create_local_password_reset",
+        "parameters": [
+          { "description": "", "in": "path", "name": "uid", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LocalPasswordResetRequest" } } },
+          "description": "Reset options",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/LocalPasswordResetResponse" } }
+            },
+            "description": "New one-time password"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Not found"
+          },
+          "409": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Local sign-in disabled"
+          },
+          "422": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Invalid reset"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Replace one user's local password with a new one-time password",
+        "tags": ["Principals"]
       }
     },
     "/api/v1/principal-groups/computed-member-previews": {
@@ -3395,53 +3874,6 @@
         "tags": ["Signal Bindings"]
       }
     },
-    "/api/v1/brain/audit-log/{audit_id}/restorations": {
-      "post": {
-        "callbacks": {},
-        "operationId": "AnkoleWeb.BrainController.restore_audit",
-        "parameters": [
-          {
-            "description": "Principal whose Brain library is being supervised",
-            "in": "query",
-            "name": "owner_uid",
-            "required": true,
-            "schema": { "type": "string" }
-          },
-          { "description": "", "in": "path", "name": "audit_id", "required": true, "schema": { "type": "string" } }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/BrainAuditRestorationResponse" } }
-            },
-            "description": "Restoration result"
-          },
-          "401": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Forbidden"
-          },
-          "404": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Not found"
-          },
-          "409": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Optimistic lock conflict"
-          },
-          "422": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Audit record cannot be restored"
-          }
-        },
-        "security": [{ "consoleBearer": [] }],
-        "summary": "Restore the state captured by one Brain audit record",
-        "tags": ["Brain"]
-      }
-    },
     "/api/v1/ai-gateway/providers/{provider_id}/credentials": {
       "post": {
         "callbacks": {},
@@ -3525,77 +3957,49 @@
         "tags": ["Agent Library"]
       }
     },
-    "/api/v1/brain/entries/{id}": {
-      "get": {
+    "/api/v1/brain/claims/{claim_id}/resolve": {
+      "post": {
         "callbacks": {},
-        "operationId": "AnkoleWeb.BrainController.show",
+        "operationId": "AnkoleWeb.BrainController.resolve_take",
         "parameters": [
-          {
-            "description": "Principal whose Brain library is being supervised",
-            "in": "query",
-            "name": "owner_uid",
-            "required": true,
-            "schema": { "type": "string" }
-          },
-          { "description": "", "in": "path", "name": "id", "required": true, "schema": { "type": "string" } }
+          { "description": "", "in": "path", "name": "claim_id", "required": true, "schema": { "type": "string" } }
         ],
+        "requestBody": {
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BrainTakeResolveRequest" } } },
+          "description": "Resolve",
+          "required": true
+        },
         "responses": {
           "200": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BrainEntryResponse" } } },
-            "description": "Brain entry"
-          },
-          "401": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Forbidden"
-          },
-          "404": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Not found"
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BrainClaimResponse" } } },
+            "description": "Claim"
           }
         },
         "security": [{ "consoleBearer": [] }],
-        "summary": "Open one current Brain entry projection",
+        "summary": "Resolve one take; resolution is immutable",
         "tags": ["Brain"]
       }
     },
-    "/api/v1/brain/sources/{document_id}/raw": {
-      "get": {
+    "/api/v1/brain/claims/{claim_id}/forget": {
+      "post": {
         "callbacks": {},
-        "operationId": "AnkoleWeb.BrainController.source_raw",
+        "operationId": "AnkoleWeb.BrainController.forget_claim",
         "parameters": [
-          {
-            "description": "Principal whose Brain library is being supervised",
-            "in": "query",
-            "name": "owner_uid",
-            "required": true,
-            "schema": { "type": "string" }
-          },
-          { "description": "", "in": "path", "name": "document_id", "required": true, "schema": { "type": "string" } }
+          { "description": "", "in": "path", "name": "claim_id", "required": true, "schema": { "type": "string" } }
         ],
+        "requestBody": {
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BrainClaimForgetRequest" } } },
+          "description": "Forget",
+          "required": true
+        },
         "responses": {
           "200": {
-            "content": { "application/octet-stream": { "schema": { "format": "binary", "type": "string" } } },
-            "description": "Source bytes"
-          },
-          "401": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Forbidden"
-          },
-          "404": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Not found"
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BrainClaimResponse" } } },
+            "description": "Claim"
           }
         },
         "security": [{ "consoleBearer": [] }],
-        "summary": "Download the immutable bytes of one explicitly retained Brain source",
+        "summary": "Expire a fact or deactivate a take with a reason",
         "tags": ["Brain"]
       }
     },
@@ -3755,50 +4159,46 @@
         "tags": ["Workers"]
       }
     },
-    "/api/v1/brain/sources/{document_id}/learning-runs": {
-      "post": {
+    "/api/v1/brain/suggestions": {
+      "get": {
         "callbacks": {},
-        "operationId": "AnkoleWeb.BrainController.learn_source",
+        "operationId": "AnkoleWeb.BrainController.list_suggestions",
         "parameters": [
-          {
-            "description": "Principal whose Brain library is being supervised",
-            "in": "query",
-            "name": "owner_uid",
-            "required": true,
-            "schema": { "type": "string" }
-          },
-          { "description": "", "in": "path", "name": "document_id", "required": true, "schema": { "type": "string" } }
+          { "description": "", "in": "query", "name": "status", "required": false, "schema": { "type": "string" } }
         ],
         "responses": {
           "200": {
             "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/BrainSourceEntryResponse" } }
+              "application/json": { "schema": { "$ref": "#/components/schemas/BrainSuggestionListResponse" } }
             },
-            "description": "Learning run queued"
-          },
-          "401": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Forbidden"
-          },
-          "404": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Not found"
-          },
-          "409": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "No worker is ready"
-          },
-          "422": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Learning could not start"
+            "description": "Suggestions"
           }
         },
         "security": [{ "consoleBearer": [] }],
-        "summary": "Start one Agent learning run for an already retained source",
+        "summary": "List schema promotion suggestions",
+        "tags": ["Brain"]
+      }
+    },
+    "/api/v1/brain/objects/fork": {
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.BrainController.fork_object",
+        "parameters": [],
+        "requestBody": {
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BrainObjectForkRequest" } } },
+          "description": "Fork",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/BrainObjectSummaryResponse" } }
+            },
+            "description": "Object"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Fork one library-managed page into instance ownership",
         "tags": ["Brain"]
       }
     },
@@ -3825,56 +4225,6 @@
         "security": [{ "aiGatewayBearer": [] }, { "consoleBearer": [] }],
         "summary": "Create a stateless OpenResponses response",
         "tags": ["AIGateway"]
-      }
-    },
-    "/api/v1/brain/audit-log/restorations": {
-      "post": {
-        "callbacks": {},
-        "description": "The caller previews audit records first, submits their exact ids, and the server restores them newest-first in one transaction.",
-        "operationId": "AnkoleWeb.BrainController.restore_audits",
-        "parameters": [
-          {
-            "description": "Principal whose Brain library is being supervised",
-            "in": "query",
-            "name": "owner_uid",
-            "required": true,
-            "schema": { "type": "string" }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": { "schema": { "$ref": "#/components/schemas/BrainAuditRestorationsRequest" } }
-          },
-          "description": "Exact audit selection",
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/BrainAuditRestorationResponse" } }
-            },
-            "description": "Batch restoration result"
-          },
-          "401": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Forbidden"
-          },
-          "409": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Audit selection or current state changed"
-          },
-          "422": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Invalid audit selection"
-          }
-        },
-        "security": [{ "consoleBearer": [] }],
-        "summary": "Atomically restore an explicit Brain audit selection",
-        "tags": ["Brain"]
       }
     },
     "/api/v1/ai-gateway/provider-kinds": {
@@ -4009,6 +4359,29 @@
         "security": [{ "consoleBearer": [] }],
         "summary": "Add one Principal to a static operator group",
         "tags": ["AuthZ"]
+      }
+    },
+    "/api/v1/brain/objects/forget": {
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.BrainController.forget_object",
+        "parameters": [],
+        "requestBody": {
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BrainObjectForgetRequest" } } },
+          "description": "Forget",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/BrainObjectSummaryResponse" } }
+            },
+            "description": "Object"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Soft-delete one object with a reason",
+        "tags": ["Brain"]
       }
     },
     "/api/v1/webhook-endpoints": {
@@ -4212,6 +4585,41 @@
         "tags": ["AIGateway"]
       }
     },
+    "/api/v1/identity-mappings": {
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.IdentityMappingRequestController.create_mapping",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/IdentityMappingWriteRequest" } }
+          },
+          "description": "Identity mapping",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/IdentityMappingResponse" } } },
+            "description": "Bound identity"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Invalid mapping"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Map a provider subject to a principal proactively",
+        "tags": ["Identity Mappings"]
+      }
+    },
     "/api/v1/ai-gateway/providers/{provider_id}": {
       "delete": {
         "callbacks": {},
@@ -4392,6 +4800,29 @@
         "tags": ["AIGateway"]
       }
     },
+    "/api/v1/brain/search-preview": {
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.BrainController.search_preview",
+        "parameters": [],
+        "requestBody": {
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BrainSearchPreviewRequest" } } },
+          "description": "Preview",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/BrainSearchPreviewResponse" } }
+            },
+            "description": "Result"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Run recall as any Principal for diagnosis",
+        "tags": ["Brain"]
+      }
+    },
     "/api/v1/background-agent-jobs": {
       "get": {
         "callbacks": {},
@@ -4492,6 +4923,47 @@
         "tags": ["Agent Library"]
       }
     },
+    "/api/v1/identity-mapping-requests/{id}/bind": {
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.IdentityMappingRequestController.bind",
+        "parameters": [
+          { "description": "", "in": "path", "name": "id", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/IdentityMappingBindRequest" } }
+          },
+          "description": "Bind target",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/IdentityMappingResponse" } } },
+            "description": "Bound identity"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Not found"
+          },
+          "422": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Invalid bind target"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Bind one pending mapping request to a principal",
+        "tags": ["Identity Mappings"]
+      }
+    },
     "/api/v1/ai-gateway/web_fetch": {
       "post": {
         "callbacks": {},
@@ -4562,6 +5034,32 @@
         "security": [{ "consoleBearer": [] }],
         "summary": "Create or update one identity provider",
         "tags": ["Identity Providers"]
+      }
+    },
+    "/api/v1/identity-mapping-requests": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.IdentityMappingRequestController.index",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/IdentityMappingRequestListResponse" } }
+            },
+            "description": "Pending mapping requests"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "List pending identity mapping requests",
+        "tags": ["Identity Mappings"]
       }
     },
     "/api/v1/principal-groups/{name}": {
@@ -4786,82 +5284,37 @@
     "/api/v1/brain/sources": {
       "get": {
         "callbacks": {},
-        "operationId": "AnkoleWeb.BrainController.source_index",
-        "parameters": [
-          {
-            "description": "Principal whose Brain library is being supervised",
-            "in": "query",
-            "name": "owner_uid",
-            "required": true,
-            "schema": { "type": "string" }
-          }
-        ],
+        "operationId": "AnkoleWeb.BrainController.list_sources",
+        "parameters": [],
         "responses": {
           "200": {
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BrainSourceListResponse" } } },
-            "description": "Retained sources"
-          },
-          "401": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Forbidden"
+            "description": "Sources"
           }
         },
         "security": [{ "consoleBearer": [] }],
-        "summary": "List retained Brain sources for one owner",
+        "summary": "List learning sources",
         "tags": ["Brain"]
       },
       "post": {
         "callbacks": {},
         "operationId": "AnkoleWeb.BrainController.create_source",
-        "parameters": [
-          {
-            "description": "Principal whose Brain library is being supervised",
-            "in": "query",
-            "name": "owner_uid",
-            "required": true,
-            "schema": { "type": "string" }
-          },
-          {
-            "description": "Exact Brain store that may cite this source",
-            "in": "query",
-            "name": "store",
-            "required": true,
-            "schema": { "type": "string" }
-          }
-        ],
+        "parameters": [],
         "requestBody": {
-          "content": {
-            "multipart/form-data": { "schema": { "$ref": "#/components/schemas/BrainSourceCaptureRequest" } }
-          },
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BrainSourceCreateRequest" } } },
           "description": "Source",
           "required": true
         },
         "responses": {
-          "201": {
+          "200": {
             "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/BrainSourceCaptureResponse" } }
+              "application/json": { "schema": { "$ref": "#/components/schemas/BrainSourceCreateResponse" } }
             },
-            "description": "Saved material"
-          },
-          "401": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Forbidden"
-          },
-          "422": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Invalid source"
+            "description": "Source"
           }
         },
         "security": [{ "consoleBearer": [] }],
-        "summary": "Save manual text as knowledge or retain binary source bytes",
+        "summary": "Register one file or url learning source",
         "tags": ["Brain"]
       }
     },
@@ -4961,7 +5414,7 @@
           }
         },
         "security": [{ "consoleBearer": [] }],
-        "summary": "Disable one agent",
+        "summary": "Disable an active agent, or delete an agent that is already disabled",
         "tags": ["Agents"]
       },
       "get": {
@@ -5254,6 +5707,43 @@
         "tags": ["Signal Bindings"]
       }
     },
+    "/api/v1/agents/{agent_uid}/skill-lessons/{lesson_id}/retire": {
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AgentSkillLessonController.retire",
+        "parameters": [
+          { "description": "", "in": "path", "name": "agent_uid", "required": true, "schema": { "type": "string" } },
+          { "description": "", "in": "path", "name": "lesson_id", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/AgentSkillLessonsResponse" } }
+            },
+            "description": "Agent skill lessons"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Not found"
+          },
+          "422": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Invalid skill lesson"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Retire one skill lesson",
+        "tags": ["Agents"]
+      }
+    },
     "/api/v1/principals/{uid}/grants": {
       "get": {
         "callbacks": {},
@@ -5344,7 +5834,7 @@
           }
         },
         "security": [{ "consoleBearer": [] }],
-        "summary": "List active agents",
+        "summary": "List agents, including disabled agents",
         "tags": ["Agents"]
       },
       "post": {
@@ -5403,6 +5893,45 @@
         "security": [{ "consoleBearer": [] }],
         "summary": "List configured AIGateway providers",
         "tags": ["AIGateway"]
+      }
+    },
+    "/api/v1/brain/objects/restore": {
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.BrainController.restore_object",
+        "parameters": [],
+        "requestBody": {
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BrainObjectRestoreRequest" } } },
+          "description": "Restore",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/BrainObjectSummaryResponse" } }
+            },
+            "description": "Object"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Restore one soft-deleted object inside its purge window",
+        "tags": ["Brain"]
+      }
+    },
+    "/api/v1/brain/health": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.BrainController.health",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BrainHealthResponse" } } },
+            "description": "Health"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Read the Brain health snapshot",
+        "tags": ["Brain"]
       }
     },
     "/api/v1/agents/{agent_uid}/cron-schedules/{cron_schedule_id}/resume": {
@@ -5469,6 +5998,31 @@
         "security": [{ "consoleBearer": [] }],
         "summary": "List automation jobs",
         "tags": ["Automation Jobs"]
+      }
+    },
+    "/api/v1/brain/claims/{claim_id}/supersede": {
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.BrainController.supersede_claim",
+        "parameters": [
+          { "description": "", "in": "path", "name": "claim_id", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/BrainClaimSupersedeRequest" } }
+          },
+          "description": "Supersede",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BrainClaimResponse" } } },
+            "description": "Claim"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Supersede one claim with corrected content",
+        "tags": ["Brain"]
       }
     },
     "/api/v1/agents/{agent_uid}/model-profiles": {
@@ -5544,6 +6098,41 @@
         },
         "security": [{ "consoleBearer": [] }],
         "summary": "List active principals",
+        "tags": ["Principals"]
+      },
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.PrincipalController.create",
+        "parameters": [],
+        "requestBody": {
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PrincipalCreateRequest" } } },
+          "description": "User",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PrincipalCreateResponse" } } },
+            "description": "Created user"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Local sign-in disabled"
+          },
+          "422": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Invalid user"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Create a human user with a local sign-in password",
         "tags": ["Principals"]
       }
     },
@@ -5777,42 +6366,30 @@
         "tags": ["Agent Library"]
       }
     },
-    "/api/v1/brain/sources/{document_id}": {
-      "get": {
+    "/api/v1/brain/suggestions/{suggestion_id}/decide": {
+      "post": {
         "callbacks": {},
-        "operationId": "AnkoleWeb.BrainController.source",
+        "operationId": "AnkoleWeb.BrainController.decide_suggestion",
         "parameters": [
-          {
-            "description": "Principal whose Brain library is being supervised",
-            "in": "query",
-            "name": "owner_uid",
-            "required": true,
-            "schema": { "type": "string" }
-          },
-          { "description": "", "in": "path", "name": "document_id", "required": true, "schema": { "type": "string" } }
+          { "description": "", "in": "path", "name": "suggestion_id", "required": true, "schema": { "type": "string" } }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/BrainSuggestionDecideRequest" } }
+          },
+          "description": "Decide",
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/BrainSourceEntryResponse" } }
+              "application/json": { "schema": { "$ref": "#/components/schemas/BrainPromotionResultResponse" } }
             },
-            "description": "Brain source"
-          },
-          "401": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Forbidden"
-          },
-          "404": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Not found"
+            "description": "Result"
           }
         },
         "security": [{ "consoleBearer": [] }],
-        "summary": "Resolve a Brain source inside one owner's visible stores",
+        "summary": "Approve or reject one promotion suggestion",
         "tags": ["Brain"]
       }
     },
@@ -5845,6 +6422,24 @@
         "tags": ["AIGateway"]
       }
     },
+    "/api/v1/brain/principals/{principal_uid}/knowledge": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.BrainController.principal_knowledge",
+        "parameters": [
+          { "description": "", "in": "path", "name": "principal_uid", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BrainClaimListResponse" } } },
+            "description": "Claims"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Audit all knowledge related to one Principal",
+        "tags": ["Brain"]
+      }
+    },
     "/api/v1/cron-schedules": {
       "get": {
         "callbacks": {},
@@ -5871,6 +6466,38 @@
         "security": [{ "consoleBearer": [] }],
         "summary": "List recurring schedules",
         "tags": ["Schedule"]
+      }
+    },
+    "/api/v1/identity-mapping-requests/{id}": {
+      "delete": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.IdentityMappingRequestController.delete",
+        "parameters": [
+          { "description": "", "in": "path", "name": "id", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/IdentityMappingRequestListResponse" } }
+            },
+            "description": "Dismissed"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Not found"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Dismiss one pending mapping request",
+        "tags": ["Identity Mappings"]
       }
     },
     "/api/v1/agents/{agent_uid}/signal-bindings/{adapter_id}/{binding_name}": {
@@ -6084,40 +6711,31 @@
         "tags": ["AI Gateway Conversations"]
       }
     },
-    "/api/v1/agents/{agent_uid}/library-skill-overlays": {
+    "/api/v1/brain/claims": {
       "get": {
         "callbacks": {},
-        "operationId": "AnkoleWeb.AgentLibrarySkillOverlayController.index",
+        "operationId": "AnkoleWeb.BrainController.list_claims",
         "parameters": [
-          { "description": "", "in": "path", "name": "agent_uid", "required": true, "schema": { "type": "string" } }
+          {
+            "description": "",
+            "in": "query",
+            "name": "object_slug",
+            "required": false,
+            "schema": { "type": "string" }
+          },
+          { "description": "", "in": "query", "name": "claim_type", "required": false, "schema": { "type": "string" } },
+          { "description": "", "in": "query", "name": "status", "required": false, "schema": { "type": "string" } },
+          { "description": "", "in": "query", "name": "q", "required": false, "schema": { "type": "string" } }
         ],
         "responses": {
           "200": {
-            "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/AgentLibrarySkillOverlaysResponse" } }
-            },
-            "description": "Agent skill overlays"
-          },
-          "401": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Forbidden"
-          },
-          "404": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Not found"
-          },
-          "422": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Invalid skill overlay"
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BrainClaimListResponse" } } },
+            "description": "Claims"
           }
         },
         "security": [{ "consoleBearer": [] }],
-        "summary": "Read the skill overlays of one agent",
-        "tags": ["Agents"]
+        "summary": "List claims with filters",
+        "tags": ["Brain"]
       }
     },
     "/api/v1/principals/{uid}": {
@@ -6148,6 +6766,157 @@
         "security": [{ "consoleBearer": [] }],
         "summary": "Read one principal",
         "tags": ["Principals"]
+      },
+      "patch": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.PrincipalController.update",
+        "parameters": [
+          { "description": "", "in": "path", "name": "uid", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PrincipalUpdateRequest" } } },
+          "description": "User changes",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PrincipalResponse" } } },
+            "description": "Principal"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Not found"
+          },
+          "409": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Local sign-in disabled"
+          },
+          "422": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Invalid change"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Update the display name or email of one human user",
+        "tags": ["Principals"]
+      }
+    },
+    "/api/v1/agents/{agent_uid}/skill-lessons": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AgentSkillLessonController.index",
+        "parameters": [
+          { "description": "", "in": "path", "name": "agent_uid", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/AgentSkillLessonsResponse" } }
+            },
+            "description": "Agent skill lessons"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Not found"
+          },
+          "422": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Invalid skill lesson"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Read the skill lessons of one agent",
+        "tags": ["Agents"]
+      },
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AgentSkillLessonController.create",
+        "parameters": [
+          { "description": "", "in": "path", "name": "agent_uid", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/AgentSkillLessonCreateRequest" } }
+          },
+          "description": "Agent skill lesson",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/AgentSkillLessonsResponse" } }
+            },
+            "description": "Agent skill lessons"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Not found"
+          },
+          "422": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Invalid skill lesson"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Add one human skill lesson",
+        "tags": ["Agents"]
+      }
+    },
+    "/api/v1/brain/contradictions/{contradiction_id}/decide": {
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.BrainController.decide_contradiction",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "contradiction_id",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/BrainContradictionDecideRequest" } }
+          },
+          "description": "Decide",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/BrainContradictionDecisionResponse" } }
+            },
+            "description": "Decision"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Resolve or dismiss one contradiction",
+        "tags": ["Brain"]
       }
     },
     "/api/v1/agents/{agent_uid}/webhook-endpoints/{webhook_endpoint_id}": {
@@ -6187,64 +6956,81 @@
         "tags": ["Webhooks"]
       }
     },
-    "/api/v1/brain/entries": {
+    "/api/v1/brain/objects": {
       "get": {
         "callbacks": {},
-        "operationId": "AnkoleWeb.BrainController.index",
+        "operationId": "AnkoleWeb.BrainController.list_objects",
         "parameters": [
-          {
-            "description": "Principal whose Brain library is being supervised",
-            "in": "query",
-            "name": "owner_uid",
-            "required": true,
-            "schema": { "type": "string" }
-          },
-          { "description": "", "in": "query", "name": "type", "required": false, "schema": { "type": "string" } },
-          { "description": "", "in": "query", "name": "query", "required": false, "schema": { "type": "string" } },
-          { "description": "", "in": "query", "name": "store", "required": false, "schema": { "type": "string" } },
-          {
-            "description": "An author kind (human/agent/dreaming) or exact author UID",
-            "in": "query",
-            "name": "author",
-            "required": false,
-            "schema": { "type": "string" }
-          },
-          {
-            "description": "ISO-8601 lower bound for entry updated_at",
-            "in": "query",
-            "name": "updated",
-            "required": false,
-            "schema": { "format": "date-time", "type": "string" }
-          },
-          { "description": "", "in": "query", "name": "cursor", "required": false, "schema": { "type": "string" } },
-          {
-            "description": "",
-            "in": "query",
-            "name": "limit",
-            "required": false,
-            "schema": { "maximum": 100, "minimum": 1, "type": "integer" }
-          }
+          { "description": "", "in": "query", "name": "prefix", "required": false, "schema": { "type": "string" } },
+          { "description": "", "in": "query", "name": "q", "required": false, "schema": { "type": "string" } },
+          { "description": "", "in": "query", "name": "deleted", "required": false, "schema": { "type": "boolean" } }
         ],
         "responses": {
           "200": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BrainEntryListResponse" } } },
-            "description": "Brain entries"
-          },
-          "401": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Forbidden"
-          },
-          "422": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Invalid filters"
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BrainObjectListResponse" } } },
+            "description": "Objects"
           }
         },
         "security": [{ "consoleBearer": [] }],
-        "summary": "List Brain entries for one owner",
+        "summary": "List Brain objects by prefix or search",
+        "tags": ["Brain"]
+      },
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.BrainController.create_object",
+        "parameters": [],
+        "requestBody": {
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BrainObjectCreateRequest" } } },
+          "description": "Object",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BrainObjectShowResponse" } } },
+            "description": "Object"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Create one instance-owned Brain object",
+        "tags": ["Brain"]
+      },
+      "put": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.BrainController.update_object",
+        "parameters": [],
+        "requestBody": {
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BrainObjectUpdateRequest" } } },
+          "description": "Object",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BrainObjectShowResponse" } } },
+            "description": "Object"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Update one instance-owned Brain object with content-hash compare-and-swap",
+        "tags": ["Brain"]
+      }
+    },
+    "/api/v1/brain/contradictions": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.BrainController.list_contradictions",
+        "parameters": [
+          { "description": "", "in": "query", "name": "status", "required": false, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/BrainContradictionListResponse" } }
+            },
+            "description": "Contradictions"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "List contradiction findings",
         "tags": ["Brain"]
       }
     },
@@ -6524,6 +7310,26 @@
         "tags": ["AIGateway"]
       }
     },
+    "/api/v1/brain/objects/versions": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.BrainController.object_versions",
+        "parameters": [
+          { "description": "", "in": "query", "name": "slug", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/BrainObjectVersionsResponse" } }
+            },
+            "description": "Versions"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "List one object's version history",
+        "tags": ["Brain"]
+      }
+    },
     "/api/v1/worker-envs": {
       "get": {
         "callbacks": {},
@@ -6622,6 +7428,51 @@
         "tags": ["AppConfigure"]
       }
     },
+    "/api/v1/brain/objects/rollback": {
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.BrainController.rollback_object",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/BrainObjectRollbackRequest" } }
+          },
+          "description": "Rollback",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/BrainObjectSummaryResponse" } }
+            },
+            "description": "Object"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Roll one object back to a stored version",
+        "tags": ["Brain"]
+      }
+    },
+    "/api/v1/brain/sources/{source_id}/archive": {
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.BrainController.archive_source",
+        "parameters": [
+          { "description": "", "in": "path", "name": "source_id", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/BrainSourceArchiveResponse" } }
+            },
+            "description": "Source"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Archive one source; stored memory stays",
+        "tags": ["Brain"]
+      }
+    },
     "/api/v1/ai-gateway/embeddings": {
       "post": {
         "callbacks": {},
@@ -6675,7 +7526,7 @@
           }
         },
         "security": [{ "consoleBearer": [] }],
-        "summary": "Read the MISSION, SOUL, and DESIGN documents for one agent",
+        "summary": "Read the MISSION, SOUL, DESIGN, and ConfidentialityPolicy documents for one agent",
         "tags": ["Agents"]
       }
     },
@@ -6705,42 +7556,21 @@
         "tags": ["Workers"]
       }
     },
-    "/api/v1/brain/dreaming-runs": {
-      "post": {
+    "/api/v1/brain/object-types": {
+      "get": {
         "callbacks": {},
-        "description": "Manually starts the same Agent-only Stage B path used by the scheduled Brain curation job.",
-        "operationId": "AnkoleWeb.BrainController.run_dreaming",
-        "parameters": [
-          {
-            "description": "Principal whose Brain library is being supervised",
-            "in": "query",
-            "name": "owner_uid",
-            "required": true,
-            "schema": { "type": "string" }
-          }
-        ],
+        "operationId": "AnkoleWeb.BrainController.object_types",
+        "parameters": [],
         "responses": {
           "200": {
             "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/BrainDreamingRunResponse" } }
+              "application/json": { "schema": { "$ref": "#/components/schemas/BrainObjectTypesResponse" } }
             },
-            "description": "Dreaming run result"
-          },
-          "401": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Forbidden"
-          },
-          "422": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Dreaming run failed"
+            "description": "Types"
           }
         },
         "security": [{ "consoleBearer": [] }],
-        "summary": "Run Agent-level Brain curation now",
+        "summary": "List installed Brain object types",
         "tags": ["Brain"]
       }
     },
@@ -6924,7 +7754,7 @@
             "in": "path",
             "name": "document_kind",
             "required": true,
-            "schema": { "enum": ["mission", "soul", "design"], "type": "string" }
+            "schema": { "enum": ["mission", "soul", "design", "confidentiality_policy"], "type": "string" }
           }
         ],
         "requestBody": {
@@ -6963,7 +7793,7 @@
           }
         },
         "security": [{ "consoleBearer": [] }],
-        "summary": "Replace one agent MISSION, SOUL, or DESIGN document",
+        "summary": "Replace one agent MISSION, SOUL, DESIGN, or ConfidentialityPolicy document",
         "tags": ["Agents"]
       }
     },
@@ -6994,6 +7824,24 @@
         "security": [{ "consoleBearer": [] }],
         "summary": "Set which capabilities an agent leaves to its language-model provider",
         "tags": ["Agents"]
+      }
+    },
+    "/api/v1/brain/objects/show": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.BrainController.show_object",
+        "parameters": [
+          { "description": "", "in": "query", "name": "slug", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BrainObjectShowResponse" } } },
+            "description": "Object"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Read one Brain object with full admin detail",
+        "tags": ["Brain"]
       }
     },
     "/api/v1/ai-gateway/providers/{provider_id}/enable": {
@@ -7030,6 +7878,26 @@
         "security": [{ "consoleBearer": [] }],
         "summary": "Re-enable one disabled AIGateway provider",
         "tags": ["AIGateway"]
+      }
+    },
+    "/api/v1/brain/sources/{source_id}/learn": {
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.BrainController.learn_source",
+        "parameters": [
+          { "description": "", "in": "path", "name": "source_id", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/BrainSourceLearnResponse" } }
+            },
+            "description": "Result"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Enqueue one learning run for a source",
+        "tags": ["Brain"]
       }
     },
     "/api/v1/permission-grants/{id}": {
@@ -7129,155 +7997,31 @@
         "tags": ["AuthZ"]
       }
     },
-    "/api/v1/brain/audit-log": {
-      "get": {
+    "/api/v1/brain/merge-suggestions/{suggestion_id}/decide": {
+      "post": {
         "callbacks": {},
-        "operationId": "AnkoleWeb.BrainController.audit_index",
+        "operationId": "AnkoleWeb.BrainController.decide_merge_suggestion",
         "parameters": [
-          {
-            "description": "Principal whose Brain library is being supervised",
-            "in": "query",
-            "name": "owner_uid",
-            "required": true,
-            "schema": { "type": "string" }
-          },
-          { "description": "", "in": "query", "name": "store", "required": false, "schema": { "type": "string" } },
-          { "description": "", "in": "query", "name": "action", "required": false, "schema": { "type": "string" } },
-          { "description": "", "in": "query", "name": "actor", "required": false, "schema": { "type": "string" } },
-          {
-            "description": "",
-            "in": "query",
-            "name": "run_id",
-            "required": false,
-            "schema": { "format": "uuid", "type": "string" }
-          },
-          {
-            "description": "",
-            "in": "query",
-            "name": "inserted_after",
-            "required": false,
-            "schema": { "format": "date-time", "type": "string" }
-          },
-          {
-            "description": "",
-            "in": "query",
-            "name": "inserted_before",
-            "required": false,
-            "schema": { "format": "date-time", "type": "string" }
-          },
-          { "description": "", "in": "query", "name": "cursor", "required": false, "schema": { "type": "string" } },
-          {
-            "description": "",
-            "in": "query",
-            "name": "limit",
-            "required": false,
-            "schema": { "maximum": 100, "minimum": 1, "type": "integer" }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BrainAuditLogResponse" } } },
-            "description": "Brain audit log"
-          },
-          "401": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Forbidden"
-          },
-          "422": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Invalid filters"
-          }
-        },
-        "security": [{ "consoleBearer": [] }],
-        "summary": "Preview filtered Brain audit records for supervision or batch recovery",
-        "tags": ["Brain"]
-      }
-    },
-    "/api/v1/agents/{agent_uid}/library-skill-overlays/{skill_name}": {
-      "delete": {
-        "callbacks": {},
-        "operationId": "AnkoleWeb.AgentLibrarySkillOverlayController.delete",
-        "parameters": [
-          { "description": "", "in": "path", "name": "agent_uid", "required": true, "schema": { "type": "string" } },
-          { "description": "", "in": "path", "name": "skill_name", "required": true, "schema": { "type": "string" } }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/AgentLibrarySkillOverlaysResponse" } }
-            },
-            "description": "Agent skill overlays"
-          },
-          "401": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Forbidden"
-          },
-          "404": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Not found"
-          },
-          "422": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Invalid skill overlay"
-          }
-        },
-        "security": [{ "consoleBearer": [] }],
-        "summary": "Delete one agent skill overlay",
-        "tags": ["Agents"]
-      },
-      "put": {
-        "callbacks": {},
-        "operationId": "AnkoleWeb.AgentLibrarySkillOverlayController.update",
-        "parameters": [
-          { "description": "", "in": "path", "name": "agent_uid", "required": true, "schema": { "type": "string" } },
-          { "description": "", "in": "path", "name": "skill_name", "required": true, "schema": { "type": "string" } }
+          { "description": "", "in": "path", "name": "suggestion_id", "required": true, "schema": { "type": "string" } }
         ],
         "requestBody": {
           "content": {
-            "application/json": { "schema": { "$ref": "#/components/schemas/AgentLibrarySkillOverlayWriteRequest" } }
+            "application/json": { "schema": { "$ref": "#/components/schemas/BrainMergeSuggestionDecideRequest" } }
           },
-          "description": "Agent skill overlay",
+          "description": "Decide",
           "required": true
         },
         "responses": {
           "200": {
             "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/AgentLibrarySkillOverlaysResponse" } }
+              "application/json": { "schema": { "$ref": "#/components/schemas/BrainMergeResultResponse" } }
             },
-            "description": "Agent skill overlays"
-          },
-          "401": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Forbidden"
-          },
-          "404": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Not found"
-          },
-          "409": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Skill overlay changed"
-          },
-          "422": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Invalid skill overlay"
+            "description": "Result"
           }
         },
         "security": [{ "consoleBearer": [] }],
-        "summary": "Replace one agent skill overlay",
-        "tags": ["Agents"]
+        "summary": "Approve or reject one merge suggestion",
+        "tags": ["Brain"]
       }
     },
     "/api/v1/app-configurations/{key}": {
@@ -7391,39 +8135,17 @@
         "tags": ["AppConfigure"]
       }
     },
-    "/api/v1/brain/entry-operations": {
+    "/api/v1/agents/{agent_uid}/enable": {
       "post": {
         "callbacks": {},
-        "operationId": "AnkoleWeb.BrainController.apply_operations",
+        "operationId": "AnkoleWeb.AgentController.enable",
         "parameters": [
-          {
-            "description": "Principal whose Brain library is being supervised",
-            "in": "query",
-            "name": "owner_uid",
-            "required": true,
-            "schema": { "type": "string" }
-          },
-          {
-            "description": "Required for create-only batches; existing entries derive their store",
-            "in": "query",
-            "name": "store",
-            "required": false,
-            "schema": { "type": "string" }
-          }
+          { "description": "", "in": "path", "name": "agent_uid", "required": true, "schema": { "type": "string" } }
         ],
-        "requestBody": {
-          "content": {
-            "application/json": { "schema": { "$ref": "#/components/schemas/BrainEntryOperationsRequest" } }
-          },
-          "description": "Structured Brain operations",
-          "required": true
-        },
         "responses": {
           "200": {
-            "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/BrainEntryOperationsResponse" } }
-            },
-            "description": "Operation results"
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AgentResponse" } } },
+            "description": "Agent"
           },
           "401": {
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
@@ -7436,19 +8158,11 @@
           "404": {
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
             "description": "Not found"
-          },
-          "409": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Optimistic lock conflict"
-          },
-          "422": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Invalid operations"
           }
         },
         "security": [{ "consoleBearer": [] }],
-        "summary": "Apply structured human Brain entry operations",
-        "tags": ["Brain"]
+        "summary": "Re-enable one disabled agent",
+        "tags": ["Agents"]
       }
     },
     "/api/v1/agents/{agent_uid}/cron-schedules/{cron_schedule_id}/runs": {
@@ -7814,7 +8528,6 @@
     { "description": "Operator-visible webhook endpoint state and cancellation", "name": "Webhooks" },
     { "description": "Operator-visible actor sessions for one agent", "name": "Sessions" },
     { "description": "Agent computer worker registry and worker filesystem management", "name": "Workers" },
-    { "description": "Durable background Agent work executed by CodexRunner", "name": "Background Agent Jobs" },
-    { "description": "Human supervision of current knowledge, provenance, and audit recovery", "name": "Brain" }
+    { "description": "Durable background Agent work executed by CodexRunner", "name": "Background Agent Jobs" }
   ]
 }

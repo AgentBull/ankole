@@ -26,6 +26,7 @@ export type AgentHomePaths = {
   soul: string
   mission: string
   design: string
+  confidentialityPolicy: string
   userFiles: string
   installedSkills: string
   sessions: string
@@ -49,6 +50,7 @@ export function agentHomePaths(agentsRoot: string, agentUID: string): AgentHomeP
     soul: join(home, 'SOUL.md'),
     mission: join(home, 'MISSION.md'),
     design: join(home, 'DESIGN.md'),
+    confidentialityPolicy: join(home, 'ConfidentialityPolicy.md'),
     userFiles: join(home, 'user-files'),
     installedSkills: join(home, 'installed-skills'),
     sessions: join(home, 'sessions'),

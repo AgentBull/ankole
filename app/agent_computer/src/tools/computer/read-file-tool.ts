@@ -1,15 +1,14 @@
 import { z } from 'zod'
-import type { AgentTool, AgentToolResult } from '../../core'
+import { defineWorkerTool, type AgentToolResult, type WorkerAgentTool } from '../../core'
 import { compactActivityPath } from '../activity-summary'
 import type { ComputerToolContext } from './context'
-import { MAX_READ_CHARS, looksBinary, numberLines } from './format'
+import { MAX_READ_CHARS, clipLinesToBudget, looksBinary, renderNumberedWindow } from './format'
 
 const ReadFileParams = z.object({
   path: z.string().min(1).describe('Text file to read (absolute, relative, or ~/path).'),
   offset: z.number().int().min(1).optional().describe('1-indexed start line (default 1).'),
   limit: z.number().int().min(1).max(2000).optional().describe('Maximum lines to return (default 500, max 2000).'),
-  cwd: z.string().optional().describe('Base directory for a relative path (default current workspace).'),
-  workdir: z.string().optional().describe('Alias for cwd, matching command tool terminology.')
+  workdir: z.string().optional().describe('Base directory for a relative path (default current workspace).')
 })
 
 /** Structured result alongside the text: enough for the runtime to know if a follow-up read is needed. */
@@ -26,11 +25,13 @@ interface ReadFileDetails {
  * numbered, length-capped output is both easier for the model to cite and bounded so it
  * cannot flood the context window.
  */
-export function createReadFileTool(context: ComputerToolContext): AgentTool<typeof ReadFileParams, ReadFileDetails> {
-  return {
+export function createReadFileTool(
+  context: ComputerToolContext
+): WorkerAgentTool<typeof ReadFileParams, ReadFileDetails> {
+  return defineWorkerTool({
     name: 'read_file',
     description:
-      "Read a text file from the computer with line numbers and pagination. Use this instead of cat/head/tail in command. Output format: 'LINE_NUM|CONTENT'. Relative paths resolve from cwd/workdir, defaulting to the current workspace. Use offset and limit for large files; reads over about 100K characters are rejected so you can narrow the range. Cannot read images or binary files.",
+      "Read a text file from the computer with line numbers and pagination. Use this instead of cat/head/tail in command. Output format: 'LINE_NUM|CONTENT'. Relative paths resolve from workdir, defaulting to the current workspace. Use offset and limit for large files; a page stops at about 100K characters and tells you the offset to continue from. Cannot read images or binary files.",
     schema: ReadFileParams,
     executionMode: 'parallel',
     isReadOnly: true,
@@ -43,13 +44,17 @@ export function createReadFileTool(context: ComputerToolContext): AgentTool<type
     },
     async execute(_toolCallId, params, signal): Promise<AgentToolResult<ReadFileDetails>> {
       const computer = await context.getComputer(signal)
-      const buffer = await computer.readFileToBuffer(
-        { path: params.path, cwd: params.cwd ?? params.workdir },
+      // Default window is the first 500 lines from line 1; the model widens or moves it
+      // via offset/limit. The sandbox reader streams the file and returns only this
+      // window plus the binary-sniff prefix, so a huge file never materializes here.
+      const start = Math.max(1, params.offset ?? 1)
+      const window = await computer.readFileWindow(
+        { path: params.path, cwd: params.workdir, offset: start, limit: params.limit ?? 500 },
         { signal }
       )
       // Missing file is a normal outcome, not an exception: report it as text with
       // found:false so the model can react instead of the whole tool call erroring out.
-      if (!buffer) {
+      if (!window) {
         return {
           content: [{ type: 'text', text: `File not found: ${params.path}` }],
           details: { path: params.path, found: false, totalLines: 0, truncated: false }
@@ -57,7 +62,7 @@ export function createReadFileTool(context: ComputerToolContext): AgentTool<type
       }
       // Refuse binaries up front: feeding raw bytes to the model is useless and pollutes
       // context. The model is told to use an image/binary-aware tool instead.
-      if (looksBinary(buffer)) {
+      if (looksBinary(window.sniff)) {
         return {
           content: [
             {
@@ -69,27 +74,21 @@ export function createReadFileTool(context: ComputerToolContext): AgentTool<type
         }
       }
 
-      // Default window is the first 500 lines from line 1; the model widens or moves it
-      // via offset/limit. Line numbering happens here, before the size check, because the
-      // rendered (numbered) text is what counts against the budget.
-      const { endLine, startLine, text, totalLines, truncated } = numberLines(
-        buffer.toString('utf-8'),
-        params.offset ?? 1,
-        params.limit ?? 500
-      )
+      // Line numbering happens here, before the size check, because the rendered
+      // (numbered) text is what counts against the budget.
+      const window_ = renderNumberedWindow(window.lines, start, window.totalLines)
+      const { startLine, totalLines } = window_
+      let { endLine, text, truncated } = window_
       // Even within the line limit the rendered text can be huge (very long lines).
-      // Rather than truncate and risk hiding the part the model wanted, reject the read
-      // and ask it to narrow the range — an explicit retry beats a silently clipped result.
+      // Return the complete lines that fit the budget with an exact continuation
+      // offset — the model loses nothing and saves the retry round trip.
+      let clipNote = ''
       if (text.length > MAX_READ_CHARS) {
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `Read produced ${text.length} characters which exceeds the ${MAX_READ_CHARS}-char limit; narrow the range with offset and limit.`
-            }
-          ],
-          details: { path: params.path, found: true, totalLines, truncated: true }
-        }
+        const clipped = clipLinesToBudget(text, MAX_READ_CHARS)
+        text = clipped.text
+        endLine = startLine + clipped.keptLines - 1
+        truncated = true
+        clipNote = ` (${MAX_READ_CHARS}-char budget)`
       }
 
       // When more lines remain past this page, append a hint so the model knows to
@@ -98,12 +97,12 @@ export function createReadFileTool(context: ComputerToolContext): AgentTool<type
         text.length === 0 && totalLines > 0
           ? `\n[showing lines ${startLine}-${endLine} of ${totalLines}; offset is past end of file]`
           : truncated
-            ? `\n... [showing lines ${startLine}-${endLine} of ${totalLines} — continue with offset=${endLine + 1}] ...`
+            ? `\n... [showing lines ${startLine}-${endLine} of ${totalLines}${clipNote} — continue with offset=${endLine + 1}] ...`
             : `\n[${totalLines} lines total]`
       return {
         content: [{ type: 'text', text: text + hint }],
         details: { path: params.path, found: true, totalLines, truncated }
       }
     }
-  }
+  })
 }

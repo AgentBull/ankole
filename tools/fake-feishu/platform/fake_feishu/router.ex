@@ -190,10 +190,23 @@ defmodule FakeFeishu.Router do
   end
 
   post "/open-apis/im/v1/messages/:message_id/reactions" do
-    authed(conn, fn conn ->
+    authed_app(conn, fn conn, app_id ->
       with_fault(conn, :add_reaction, fn conn ->
         emoji_type = get_in(conn.params, ["reaction_type", "emoji_type"])
-        reply_data(conn, State.bot_add_reaction(state(conn), message_id, emoji_type))
+        reply_data(conn, State.bot_add_reaction(state(conn), message_id, emoji_type, app_id))
+      end)
+    end)
+  end
+
+  get "/open-apis/im/v1/messages/:message_id/reactions" do
+    authed(conn, fn conn ->
+      with_fault(conn, :list_reactions, fn conn ->
+        conn = fetch_query_params(conn)
+
+        reply_data(
+          conn,
+          State.list_reactions(state(conn), message_id, conn.query_params["reaction_type"])
+        )
       end)
     end)
   end

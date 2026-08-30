@@ -1,26 +1,32 @@
 /**
  * Ambient may-intervene handler.
  *
- * Runs the ambient recognizer, reports the judgment to the control plane, and
- * only when intervention is recommended starts a text turn with the
- * intervention prompt.
+ * Runs the ambient recognizer, commits the route to the control plane, and
+ * applies the first canonical route returned for this event.
  */
 
 import type { TurnStart } from '../../lanes/actor_lane'
 import { createCombinedAbortSignal } from '../../common/async'
-import { arrayPath } from '@agentbull/active-support'
+import { arrayPath, ms, stringArg, type JsonObject as JSONObject } from '@agentbull/active-support'
 import { recognizeAmbientIntervention, type AmbientRecognizerDecision } from './ambient_recognizer'
 import { acquireTurnAIGatewayAccess } from './turn_ai_gateway_access'
 import { runTextTurnLoop } from './text_turn'
 import { resolveAgentConversationContext } from './turn_context'
-import { rpcMethods } from '../../lanes/rpc_lane'
+import { rpcMethods, signalChannelRPCRequester } from '../../lanes/rpc_lane'
 import type { TextTurnLoopOptions, TurnHandlerResult } from './turn_options'
+import {
+  ambientActions,
+  ambientAuthorities,
+  type AmbientAction,
+  type AmbientAuthority
+} from '../../prompts/ambient_prompt'
 
-const AMBIENT_RECOGNIZER_TIMEOUT_MS = 30_000
+const AMBIENT_RECOGNIZER_TIMEOUT_MS = ms('30s')
 
 /**
- * Runs the ambient recognizer and, only when it chooses to intervene, delegates
- * to the normal text-turn path with extra context.
+ * Runs the ambient recognizer, commits its canonical route, and then applies
+ * that route. HANDOFF commits its Job steer with the judgment in the control
+ * plane, so the Worker never performs the side effect separately.
  *
  * Silent ambient observations complete as no-ops so normal chat traffic does not
  * force the agent to speak. Every decision is reported to the control plane,
@@ -52,54 +58,69 @@ export async function runAmbientMayInterveneHandler(
     { abortSignal: recognizerTimeout.signal }
   ).finally(() => recognizerTimeout.cleanup())
 
-  await recordAmbientJudgment(turnStart, opts, recognition.decision)
+  const committed = await recordAmbientJudgment(turnStart, opts, recognition.decision)
+  const action = committed.action
 
-  if (recognition.messages.length === 0) {
-    return { kind: 'noop_completed', reason: 'ambient_silent' }
+  if (action === 'NOOP') {
+    return { kind: 'noop_completed', reason: 'ambient_noop' }
   }
 
-  // Feed intervention messages as extra context and run a text turn.
+  if (action === 'HANDOFF') {
+    return { kind: 'noop_completed', reason: 'ambient_handoff' }
+  }
+
   const result = await runTextTurnLoop(turnStart, {
     ...opts,
     agentConversationContext,
-    extraMessages: recognition.messages
+    ambientRoute: { action, authority: committed.authority }
   })
 
   return result
 }
 
 /**
- * Reports the recognizer decision over the RPC lane.
- *
- * The judgment write also advances the channel cursor and sets the reply
- * anchor, but a failed report must not consume or block the turn: the cursor
- * heals on the next judgment and the anchor merely falls back to the batch
- * tail, so the failure is logged and the turn continues.
+ * Atomically commits the route, cursor, reply anchor, and optional HANDOFF.
+ * The first committed route is canonical across Worker retries. A failure must
+ * fail the turn because continuing could duplicate a visible reply or lose a
+ * HANDOFF while advancing no cursor.
  */
 async function recordAmbientJudgment(
   turnStart: TurnStart,
   opts: TextTurnLoopOptions,
   decision: AmbientRecognizerDecision
-): Promise<void> {
+): Promise<{ action: AmbientAction; authority: AmbientAuthority }> {
   const askedBy = decision.askedBy
+  const requestSignalChannelRPC = signalChannelRPCRequester(opts.rpc, turnStart.turn)
+  const response = await requestSignalChannelRPC(rpcMethods.signalChannelAmbientJudgmentRecord, {
+    reason: decision.reason,
+    askedBySourceEntryId: askedBy.state === 'none' ? '' : askedBy.sourceEntryID,
+    askedByDegraded: askedBy.state === 'degraded',
+    action: decision.action,
+    authority: decision.authority,
+    handoffJobId: decision.handoffJobID ?? ''
+  })
 
-  try {
-    await opts.rpc(
-      rpcMethods.signalChannelAmbientJudgmentRecord,
-      {
-        decision: decision.intervene ? 'intervene' : 'silent',
-        reason: decision.reason,
-        askedBySourceEntryId: askedBy.state === 'none' ? '' : askedBy.sourceEntryID,
-        askedByDegraded: askedBy.state === 'degraded'
-      },
-      { turn: turnStart.turn }
-    )
-  } catch (error) {
-    opts.logger?.warning('worker.ambient_judgment_record_failed', 'ambient judgment record failed', {
-      actor_event_id: turnStart.turn.actor_event_id,
-      error: error instanceof Error ? error.message : String(error)
-    })
+  return canonicalAmbientRoute(response)
+}
+
+/** Reads the route that the control plane actually committed. */
+export function canonicalAmbientRoute(response: JSONObject): {
+  action: AmbientAction
+  authority: AmbientAuthority
+} {
+  const action = stringArg(response, 'action')
+  const authority = stringArg(response, 'authority')
+  if (
+    !ambientActions.includes(action as AmbientAction) ||
+    !ambientAuthorities.includes(authority as AmbientAuthority)
+  ) {
+    throw new Error('ambient judgment response is missing a canonical action or authority')
   }
+  if (action !== 'NEW_WORK' && authority !== 'NONE') {
+    throw new Error('ambient judgment response returned authority for a non-NEW_WORK action')
+  }
+
+  return { action: action as AmbientAction, authority: authority as AmbientAuthority }
 }
 
 /**

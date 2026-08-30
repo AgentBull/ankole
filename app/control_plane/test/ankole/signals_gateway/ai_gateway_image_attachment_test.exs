@@ -3,6 +3,8 @@ defmodule Ankole.SignalsGateway.AIGatewayImageAttachmentTest do
 
   import Ankole.PrincipalsFixtures
 
+  alias Ankole.AIGateway.Conversations
+
   alias Ankole.AIGateway.Artifacts
   alias Ankole.AIGateway.StatefulResponses
   alias Ankole.Ecto.UUIDv7
@@ -42,7 +44,7 @@ defmodule Ankole.SignalsGateway.AIGatewayImageAttachmentTest do
     %{principal: agent} = agent_fixture()
     actor_event_id = Ecto.UUID.generate()
     session_id = "hosted-image-attachment"
-    {:ok, conversation} = StatefulResponses.ensure_conversation(agent.uid, session_id)
+    {:ok, conversation} = Conversations.ensure_conversation(agent.uid, session_id)
 
     prior_image_id = image_id()
 
@@ -126,7 +128,7 @@ defmodule Ankole.SignalsGateway.AIGatewayImageAttachmentTest do
     %{principal: other_agent} = agent_fixture()
     actor_event_id = Ecto.UUID.generate()
     session_id = "cross-subject-hosted-image"
-    {:ok, conversation} = StatefulResponses.ensure_conversation(agent.uid, session_id)
+    {:ok, conversation} = Conversations.ensure_conversation(agent.uid, session_id)
     id = image_id()
 
     assert {:ok, _artifact} =
@@ -159,7 +161,7 @@ defmodule Ankole.SignalsGateway.AIGatewayImageAttachmentTest do
     %{principal: agent} = agent_fixture()
     actor_event_id = Ecto.UUID.generate()
     session_id = "hosted-image-worker-failure"
-    {:ok, conversation} = StatefulResponses.ensure_conversation(agent.uid, session_id)
+    {:ok, conversation} = Conversations.ensure_conversation(agent.uid, session_id)
 
     {:ok, response} =
       StatefulResponses.start_response_run(%{

@@ -9,11 +9,8 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
   alias Ankole.AppConfigure.AppConfig
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
-  alias Ankole.AuthZ
   alias Ankole.AuthZ.Grant
-  alias Ankole.Plugins.DingTalkAdapter
   alias Ankole.Plugins.DingTalkAdapter.Config, as: DingTalkConfig
-  alias Ankole.Plugins.LarkAdapter
   alias Ankole.Plugins.LarkAdapter.Config, as: LarkConfig
   alias Ankole.Repo
   alias Ankole.Setup.Config, as: SetupConfig
@@ -21,16 +18,12 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
   alias Ankole.SignalsGateway.Binding
   alias Ankole.SignalsGateway.Ingress
   alias Ankole.SignalsGateway.OutboxEntry
-  alias AnkoleWeb.Session, as: WebSession
 
   setup do
     allow_cache_database_access()
     Registry.clear_for_test()
     Cache.clear_for_test()
 
-    :ok = SetupConfig.ensure_registered()
-    :ok = AppConfigure.register_patterns(LarkAdapter.app_config_patterns())
-    :ok = AppConfigure.register_patterns(DingTalkAdapter.app_config_patterns())
     {:ok, true} = SetupConfig.put_completed(true)
     :ok = SetupConfig.delete_bootstrap_activation_code()
 
@@ -102,6 +95,27 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
              json_response(conn, 200)
 
     assert {:error, :binding_disabled} = SignalsGateway.get_binding(agent.uid, "lark-main")
+  end
+
+  test "a missing required connection field names the field in the error", %{conn: conn} do
+    %{principal: agent} = agent_fixture()
+
+    conn =
+      conn
+      |> bearer_conn()
+      |> put(~p"/api/v1/agents/#{agent.uid}/signal-bindings/lark/lark-main", %{
+        "config" => %{"appSecret" => "secret-lark-main", "domain" => "feishu"}
+      })
+
+    assert %{
+             "error" => %{
+               "code" => "validation_failed",
+               "message" => "appID is required",
+               "details" => [%{"path" => "appID", "kind" => "missing"}]
+             }
+           } = json_response(conn, 422)
+
+    assert {:error, :binding_not_found} = SignalsGateway.get_binding(agent.uid, "lark-main")
   end
 
   test "admin sees and requeues a stopped durable delivery", %{conn: conn} do
@@ -248,14 +262,12 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
       |> patch(~p"/api/v1/agents/#{agent.uid}/signal-bindings/lark-main", %{
         "target_agent_uid" => agent.uid,
         "config" => %{"appSecret" => "", "domain" => "lark"},
-        "group_message_mode" => "observe_all",
-        "confidential_memory" => true
+        "group_message_mode" => "observe_all"
       })
 
     assert %{
              "signal_binding" => %{
                "enabled" => true,
-               "confidential_memory" => true,
                "unaddressed_group_message_policy" => "record_only"
              }
            } = json_response(conn, 200)
@@ -339,14 +351,12 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
       |> patch(~p"/api/v1/agents/#{agent.uid}/signal-bindings/lark-main", %{
         "target_agent_uid" => agent.uid,
         "config" => %{},
-        "group_message_mode" => "observe_all",
-        "confidential_memory" => true
+        "group_message_mode" => "observe_all"
       })
 
     assert %{
              "signal_binding" => %{
                "agent_uid" => agent_uid,
-               "confidential_memory" => true,
                "unaddressed_group_message_policy" => "record_only"
              }
            } = json_response(conn, 200)
@@ -408,6 +418,67 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
 
     assert {:ok, %{"appID" => "cli_move"}} =
              LarkConfig.load_chat_config_ref(source_binding.config_ref)
+  end
+
+  test "moving a binding keeps the group-message mode when the request omits it", %{conn: conn} do
+    %{principal: source_agent} = agent_fixture()
+    %{principal: target_agent} = agent_fixture()
+
+    conn =
+      conn
+      |> bearer_conn()
+      |> put(~p"/api/v1/agents/#{source_agent.uid}/signal-bindings/lark/lark-main", %{
+        "config" => lark_config("group-mode-keep"),
+        "group_message_mode" => "may_intervene"
+      })
+
+    assert response(conn, 200)
+    assert {:ok, source_binding} = SignalsGateway.get_binding(source_agent.uid, "lark-main")
+    assert source_binding.unaddressed_group_message_policy == :may_intervene
+
+    conn =
+      conn
+      |> recycle_api()
+      |> patch(~p"/api/v1/agents/#{source_agent.uid}/signal-bindings/lark-main", %{
+        "target_agent_uid" => target_agent.uid,
+        "config" => lark_config("group-mode-keep")
+      })
+
+    assert response(conn, 200)
+    assert {:ok, target_binding} = SignalsGateway.get_binding(target_agent.uid, "lark-main")
+    assert target_binding.unaddressed_group_message_policy == :may_intervene
+  end
+
+  test "moving a binding keeps the unmatched-sender policy when the request omits it", %{
+    conn: conn
+  } do
+    %{principal: source_agent} = agent_fixture()
+    %{principal: target_agent} = agent_fixture()
+
+    conn =
+      conn
+      |> bearer_conn()
+      |> put(~p"/api/v1/agents/#{source_agent.uid}/signal-bindings/lark/lark-main", %{
+        "config" => lark_config("policy-keep"),
+        "unmatched_sender_policy" => "create_standalone"
+      })
+
+    assert response(conn, 200)
+    assert {:ok, source_binding} = SignalsGateway.get_binding(source_agent.uid, "lark-main")
+    assert source_binding.unmatched_sender_policy == :create_standalone
+
+    conn =
+      conn
+      |> recycle_api()
+      |> patch(~p"/api/v1/agents/#{source_agent.uid}/signal-bindings/lark-main", %{
+        "target_agent_uid" => target_agent.uid,
+        "config" => lark_config("policy-keep"),
+        "group_message_mode" => "may_intervene"
+      })
+
+    assert response(conn, 200)
+    assert {:ok, target_binding} = SignalsGateway.get_binding(target_agent.uid, "lark-main")
+    assert target_binding.unmatched_sender_policy == :create_standalone
   end
 
   test "moving a binding rejects an enabled target conflict without disabling the source", %{
@@ -753,14 +824,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
 
     adapter = Enum.find(adapters, &(&1["adapter_id"] == "lark"))
     assert adapter["adapter_id"] == "lark"
-    assert adapter["display_name"]["default"] == "Lark"
-
-    fields = Map.new(adapter["fields"], &{&1["path"], &1})
-    assert fields["appID"]["advanced"] == false
-    assert fields["appSecret"]["advanced"] == false
-    assert fields["domain"]["advanced"] == false
-    assert fields["platformSubjectNamespace"]["advanced"] == true
-    assert fields["userName"]["advanced"] == true
+    assert adapter["adapter_category"] == "enterprise_im"
 
     assert adapter["group_message_mode_field"]["path"] == "group_message_mode"
     assert adapter["group_message_mode_field"]["advanced"] == false
@@ -773,15 +837,17 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
            ]
 
     slack = Enum.find(adapters, &(&1["adapter_id"] == "slack"))
-    assert slack["display_name"]["default"] == "Slack"
-
-    slack_fields = Map.new(slack["fields"], &{&1["path"], &1})
-    assert slack_fields["botToken"]["advanced"] == false
-    assert slack_fields["appToken"]["advanced"] == false
-    assert slack_fields["platformSubjectNamespace"]["advanced"] == true
-    assert slack_fields["userName"]["advanced"] == true
-
     assert slack["group_message_mode_field"] == adapter["group_message_mode_field"]
+
+    assert Enum.all?(
+             Enum.filter(adapters, &(&1["adapter_id"] in ~w(dingtalk lark slack teams wecom))),
+             &(&1["adapter_category"] == "enterprise_im")
+           )
+
+    telegram = Enum.find(adapters, &(&1["adapter_id"] == "telegram"))
+    assert telegram["adapter_category"] == "consumer_im"
+    assert telegram["display_name"]["default"] == "Telegram"
+    assert Enum.map(telegram["fields"], & &1["path"]) == ["botToken"]
   end
 
   test "signal adapter catalog returns 503 while the plugin registry is unavailable", %{
@@ -875,41 +941,5 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     %AppConfig{}
     |> AppConfig.changeset(%{scope: "global", key: key, value: envelope})
     |> Repo.insert!()
-  end
-
-  defp bearer_conn(conn) do
-    conn
-    |> active_admin_conn()
-    |> post(~p"/.internal-apis/oauth/token", %{
-      "grant_type" => "urn:ankole:params:oauth:grant-type:browser-session"
-    })
-    |> json_response(200)
-    |> Map.fetch!("access_token")
-    |> then(fn access_token ->
-      conn
-      |> recycle()
-      |> put_req_header("authorization", "Bearer #{access_token}")
-      |> put_req_header("content-type", "application/json")
-    end)
-  end
-
-  defp recycle_api(conn) do
-    conn
-    |> recycle()
-    |> put_req_header("authorization", get_req_header(conn, "authorization") |> List.first())
-    |> put_req_header("content-type", "application/json")
-  end
-
-  defp active_admin_conn(conn) do
-    human = human_fixture(%{uid: unique_uid("signal-binding-console-admin")})
-    assert {:ok, _root} = AuthZ.root_init_admin(human.principal.uid)
-
-    conn
-    |> init_test_session(%{})
-    |> WebSession.put_admin_session(%{
-      principal_uid: human.principal.uid,
-      provider_id: "lark-main",
-      external_id: "external-1"
-    })
   end
 end

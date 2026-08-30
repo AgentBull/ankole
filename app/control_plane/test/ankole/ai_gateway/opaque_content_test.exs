@@ -10,11 +10,6 @@ defmodule Ankole.AIGateway.OpaqueContentTest do
     assert OpaqueContent.reveal(@opaque_value) == "history secret"
   end
 
-  test "reveals the legacy chat prefix" do
-    legacy = "ankole-chat-encoded-v1:" <> Base.url_encode64("legacy", padding: false)
-    assert OpaqueContent.reveal(legacy) == "legacy"
-  end
-
   test "reveals opaque values inside tool-call arguments JSON" do
     message = %{
       "role" => "assistant",

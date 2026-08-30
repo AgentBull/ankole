@@ -1,5 +1,5 @@
 defmodule Ankole.Plugins.Microsoft365AdapterMentionRoutingTest do
-  use Ankole.DataCase, async: false
+  use Ankole.DataCase, async: true
 
   alias Ankole.Plugins.Microsoft365Adapter.Inbound
   alias Ankole.SignalsGateway.AdapterContext

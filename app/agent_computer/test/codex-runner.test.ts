@@ -20,7 +20,6 @@ import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import { jsonBytes, jsonObjectFromBytes } from '../src/fabric/envelope_proto'
 import {
   AgentConversationContextResponseSchema,
-  AgentPluginListResponseSchema,
   AIGatewayAPIKeyResponseSchema,
   AppConfigureResolveResponseSchema,
   BackgroundAgentJobResponseSchema,
@@ -61,8 +60,8 @@ type FakeCodexBehavior = {
   usageBurstThreadID?: string
   multiAgentChildDelayMs?: number
   initializeDelayMs?: number
-  dynamicToolCall?: boolean
-  discoveredSkills?: string[]
+  dynamicToolCall?: boolean | { tool: string; arguments: Record<string, unknown> }
+  dynamicToolCompletionDelayMs?: number
   successfulSteer?: boolean
   steerCompletionRace?: boolean
   interruptCompletionRace?: boolean
@@ -107,19 +106,10 @@ describe('@ankole/agent-computer Codex job runner', () => {
       expect(result).toEqual({ kind: 'noop_completed', reason: 'background_agent_job_committed' })
       expect(statusUpdates.map(update => update.status)).toEqual(['running', 'succeeded'])
       expect(parsedJSON(statusUpdates[0]?.metadataJson)).toMatchObject({
-        codex_user_agent: 'codex-cli 0.147.0',
+        codex_user_agent: 'codex-cli 0.150.1',
         job_project_cwd: jobProjectFor(fixture.root),
         job_workspace: jobProjectFor(fixture.root),
-        projected_tool_names: [
-          'web_search',
-          'web_fetch',
-          'memory_search',
-          'memory_open',
-          'memory_update',
-          'memory_browse',
-          'memory_health_check',
-          'request_parent_input'
-        ],
+        projected_tool_names: ['web_search', 'web_fetch', 'skill_view', 'request_parent_input'],
         mcp_server_names: []
       })
       expect(parsedJSON(statusUpdates[0]?.metadataJson)).not.toHaveProperty('agent_plugins')
@@ -200,11 +190,7 @@ describe('@ankole/agent-computer Codex job runner', () => {
       expect(result).toEqual({ kind: 'noop_completed', reason: 'background_agent_job_committed' })
       expect(parsedJSON(statusUpdates[0]?.metadataJson)?.projected_tool_names).toEqual([
         'web_fetch',
-        'memory_search',
-        'memory_open',
-        'memory_update',
-        'memory_browse',
-        'memory_health_check',
+        'skill_view',
         'request_parent_input'
       ])
       expect(readFileSync(join(jobProjectFor(fixture.root), '.codex', 'config.toml'), 'utf8')).toContain(
@@ -353,16 +339,18 @@ describe('@ankole/agent-computer Codex job runner', () => {
   })
 
   it('prepares every current compatible standalone Skill and skips main-only Skills', async () => {
-    const fixture = prepareFixture('done without the main-only Skill', { discoveredSkills: ['job-any'] })
+    const fixture = prepareFixture('done without the main-only Skill')
     const statusUpdates: RecordedStatusUpdate[] = []
     const jobAny = create(RuntimeSkillSummarySchema, {
       skillName: 'job-any',
+      description: 'Runs in a Background Job.',
       sourceKind: 'builtin',
       relativePath: 'job-any',
       metadataJson: jsonBytes({ 'ankole-runtime': 'any' })
     })
     const mainOnly = create(RuntimeSkillSummarySchema, {
       skillName: 'main-only',
+      description: 'Runs only in the main Agent.',
       sourceKind: 'builtin',
       relativePath: 'main-only',
       metadataJson: jsonBytes({ 'ankole-runtime': 'main' })
@@ -384,8 +372,10 @@ describe('@ankole/agent-computer Codex job runner', () => {
 
       expect(statusUpdates.at(-1)?.status).toBe('succeeded')
       expect(parsedJSON(statusUpdates[0]?.metadataJson)?.mcp_server_names).toEqual(['job-data'])
-      expect(existsSync(join(jobProjectFor(fixture.root), '.agents', 'skills', 'job-any'))).toBe(true)
-      expect(existsSync(join(jobProjectFor(fixture.root), '.agents', 'skills', 'main-only'))).toBe(false)
+      const agents = readFileSync(join(jobProjectFor(fixture.root), 'AGENTS.md'), 'utf8')
+      expect(agents).toContain('job-any')
+      expect(agents).not.toContain('main-only')
+      expect(existsSync(join(jobProjectFor(fixture.root), '.agents', 'skills'))).toBe(false)
       const runtimeEnv = JSON.parse(
         readFileSync(join(jobProjectFor(fixture.root), 'browser-env.json'), 'utf8')
       ) as Record<string, string>
@@ -844,28 +834,30 @@ describe('@ankole/agent-computer Codex job runner', () => {
     }
   })
 
-  it('notifies an active Job once when a Skill becomes disabled after explicit use', async () => {
+  it('loads a prompt-hidden Skill and notifies the active Job once after it becomes disabled', async () => {
     const fixture = prepareFixture('done after Skill disable', {
-      discoveredSkills: ['pdf'],
+      dynamicToolCall: { tool: 'skill_view', arguments: { name: 'pdf' } },
+      dynamicToolCompletionDelayMs: 400,
       successfulSteer: true
     })
     const statusUpdates: RecordedStatusUpdate[] = []
     const turnUpserts: RecordedTurnUpsert[] = []
     const pdf = create(RuntimeSkillSummarySchema, {
       skillName: 'pdf',
+      description: 'Test PDF Skill.',
       sourceKind: 'builtin',
       relativePath: 'pdf',
-      metadataJson: jsonBytes({ 'ankole-runtime': 'any' })
+      metadataJson: jsonBytes({ 'ankole-runtime': 'any', brain_recall_only: true })
     })
     const skillRoot = join(fixture.root, 'builtin-skills', 'pdf')
     mkdirSync(skillRoot, { recursive: true })
     writeFileSync(join(skillRoot, 'SKILL.md'), '---\nname: pdf\ndescription: Test PDF Skill.\n---\n')
-    let overlay = 'Overlay v1.'
+    const overlay = 'Overlay v1.'
     const opts = options(
       fixture.root,
       statusUpdates,
       turnUpserts,
-      () => create(BackgroundAgentJobResponseSchema, { ...response([pdf]), task: 'Use $pdf for this Job.' }),
+      () => create(BackgroundAgentJobResponseSchema, { ...response([pdf]), task: 'Load the pdf Skill for this Job.' }),
       undefined,
       undefined,
       [pdf],
@@ -877,17 +869,10 @@ describe('@ankole/agent-computer Codex job runner', () => {
       polled = true
       return ['pdf']
     }
-    let contentPolled = false
-    opts.pollChangedSkills = () => {
-      if (contentPolled) return []
-      contentPolled = true
-      overlay = 'Overlay v2.'
-      return ['pdf']
-    }
-
     try {
       await runCodexJob(turnStart(), opts)
 
+      expect(readFileSync(join(jobProjectFor(fixture.root), 'AGENTS.md'), 'utf8')).not.toContain('Test PDF Skill.')
       expect(readFileSync(join(codexHomeFor(fixture.root), 'steer-input.txt'), 'utf8')).toBe(
         'Skill `pdf` has been disabled for this Agent. Do not use it again in this Job. Continue with the remaining capabilities. If no valid alternative exists, explain the blocker.'
       )
@@ -901,9 +886,72 @@ describe('@ankole/agent-computer Codex job runner', () => {
         new TextDecoder().decode(update.turnItemsJson ?? new Uint8Array()).includes('skill-disabled:pdf')
       )
       expect(skillDisableItems).toHaveLength(1)
-      expect(
-        readFileSync(join(fixture.root, 'agents', 'agent-1', 'runtime-materials', 'skills', 'pdf', 'SKILL.md'), 'utf8')
-      ).toContain('Overlay v2.')
+      const toolResponse = JSON.parse(readFileSync(join(codexHomeFor(fixture.root), 'tool-response.json'), 'utf8')) as {
+        result?: { contentItems?: Array<{ text?: string }> }
+      }
+      expect(toolResponse.result?.contentItems?.[0]?.text).toContain('Overlay v1.')
+      expect(statusUpdates.map(update => update.status)).toEqual(['running', 'succeeded'])
+    } finally {
+      fixture.cleanup()
+    }
+  })
+
+  it('migrates a pre-upgrade Job to skill_view and rejects its now-disabled Skill', async () => {
+    const fixture = prepareFixture('done after legacy Skill migration', {
+      dynamicToolCall: { tool: 'skill_view', arguments: { name: 'pdf' } }
+    })
+    const statusUpdates: RecordedStatusUpdate[] = []
+    const pdf = create(RuntimeSkillSummarySchema, {
+      skillName: 'pdf',
+      description: 'Disabled PDF Skill.',
+      sourceKind: 'builtin',
+      relativePath: 'pdf',
+      metadataJson: jsonBytes({ 'ankole-runtime': 'any' })
+    })
+    const ordinary = create(RuntimeSkillSummarySchema, {
+      skillName: 'ordinary',
+      description: 'Current Background Job Skill.',
+      sourceKind: 'builtin',
+      relativePath: 'ordinary',
+      metadataJson: jsonBytes({ 'ankole-runtime': 'any' })
+    })
+    const jobProject = jobProjectFor(fixture.root)
+    const originalAgents = '# Existing Job guidance\n\nKeep this operator constraint.\n'
+    writeFileSync(join(jobProject, 'AGENTS.md'), originalAgents)
+    mkdirSync(join(jobProject, '.agents', 'skills', 'pdf'), { recursive: true })
+    writeFileSync(join(jobProject, '.agents', 'skills', 'pdf', 'SKILL.md'), '# Stale PDF Skill\n')
+    mkdirSync(join(jobProject, '.ankole', 'agent-plugins', 'legacy'), { recursive: true })
+    writeFileSync(join(jobProject, '.ankole', 'agent-plugins', 'legacy', 'plugin.json'), '{}\n')
+    const ordinaryRoot = join(fixture.root, 'builtin-skills', 'ordinary')
+    mkdirSync(ordinaryRoot, { recursive: true })
+    writeFileSync(join(ordinaryRoot, 'SKILL.md'), '# Ordinary Skill\n')
+    const persisted = create(BackgroundAgentJobResponseSchema, {
+      ...response([pdf, ordinary]),
+      status: 'running',
+      attempts: 2,
+      runtimeThreadId: 'legacy-thread'
+    })
+    const opts = options(fixture.root, statusUpdates, [], () => persisted, undefined, undefined, [ordinary])
+
+    try {
+      await runCodexJob(turnStart(), opts)
+
+      const agents = readFileSync(join(jobProject, 'AGENTS.md'), 'utf8')
+      expect(agents.startsWith(originalAgents)).toBe(true)
+      expect(agents).toContain('ankole-background-job-skill-view-v1=legacy-thread')
+      expect(agents).toContain('    - ordinary:')
+      expect(agents).toContain('Current Background Job Skill.')
+      expect(agents).not.toContain('Disabled PDF Skill.')
+      expect(existsSync(join(jobProject, '.agents', 'skills'))).toBe(false)
+      expect(existsSync(join(jobProject, '.ankole', 'agent-plugins'))).toBe(false)
+      expect(existsSync(join(codexHomeFor(fixture.root), 'thread-start.json'))).toBe(true)
+      expect(parsedJSON(statusUpdates[0]?.metadataJson)?.runtime_checkpoint_recreated).toBe(true)
+      expect(statusUpdates[0]?.runtimeThreadId).toBe('thread-1')
+      const toolResponse = JSON.parse(readFileSync(join(codexHomeFor(fixture.root), 'tool-response.json'), 'utf8')) as {
+        result?: { success?: boolean; contentItems?: Array<{ text?: string }> }
+      }
+      expect(toolResponse.result?.success).toBe(false)
+      expect(toolResponse.result?.contentItems?.[0]?.text).toBe('skill is not enabled for this turn: pdf')
       expect(statusUpdates.map(update => update.status)).toEqual(['running', 'succeeded'])
     } finally {
       fixture.cleanup()
@@ -953,7 +1001,9 @@ describe('@ankole/agent-computer Codex job runner', () => {
     const statusUpdates: RecordedStatusUpdate[] = []
     const controller = new AbortController()
     const opts = options(fixture.root, statusUpdates, [], undefined, undefined, method => {
-      if (method === rpcMethods.agentPluginList) controller.abort(new Error('operator stopped during preparation'))
+      if (method === rpcMethods.agentConversationContextResolve) {
+        controller.abort(new Error('operator stopped during preparation'))
+      }
     })
     opts.abortSignal = controller.signal
 
@@ -1081,13 +1131,13 @@ function options(
             soul: 'SOUL',
             mission: 'MISSION',
             design: '',
+            confidentialityPolicy: '',
             soulContentHash: xxh3String128Hex('SOUL'),
             missionContentHash: xxh3String128Hex('MISSION'),
             designContentHash: xxh3String128Hex(''),
+            confidentialityPolicyContentHash: xxh3String128Hex(''),
             skills: contextSkills
           })
-        case rpcMethods.agentPluginList:
-          return create(AgentPluginListResponseSchema, { agentPlugins: [] })
         case rpcMethods.skillsOverlayResolve:
           return create(SkillOverlayResolveResponseSchema, {
             overlays: (payload as { skillNames: string[] }).skillNames.map(skillName =>
@@ -1096,7 +1146,7 @@ function options(
                 ...(overlayText
                   ? {
                       hasOverlay: true,
-                      overlayJson: jsonBytes({ text: overlayText() }),
+                      text: overlayText(),
                       contentHash: 'overlay-hash'
                     }
                   : {})
@@ -1175,12 +1225,7 @@ function turnStart(): TurnStart {
       provider_options: { reasoningEffort: 'xhigh' },
       supports_parallel_tool_calls: true
     },
-    request_context: {
-      turn_mode: 'background_agent_job',
-      job_id: Number(jobID),
-      owner_session_id: 'parent-session',
-      attempts: 1
-    }
+    request_context: {}
   }
 }
 
@@ -1199,7 +1244,7 @@ function messageTurnStart(): TurnStart {
       payload_json: { data: { command: { argsText: 'The audience is operators.' } } }
     },
     model_ref: base.model_ref,
-    request_context: { ...base.request_context, attempts: 2 }
+    request_context: base.request_context
   }
 }
 
@@ -1276,7 +1321,7 @@ function writeFakeCodex(path: string, firstResponse: string, behavior: FakeCodex
     `#!/usr/bin/env bun
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 if (process.argv.includes('--version')) {
-  console.log('codex-cli 0.147.0')
+  console.log('codex-cli 0.150.1')
   process.exit(0)
 }
 let buffer = ''
@@ -1292,7 +1337,7 @@ const usageBurstThreadID = ${JSON.stringify(behavior.usageBurstThreadID)}
 const multiAgentChildDelayMs = ${JSON.stringify(behavior.multiAgentChildDelayMs)}
 const initializeDelayMs = ${JSON.stringify(behavior.initializeDelayMs)}
 const dynamicToolCall = ${JSON.stringify(behavior.dynamicToolCall)}
-const discoveredSkills = ${JSON.stringify(behavior.discoveredSkills ?? [])}
+const dynamicToolCompletionDelayMs = ${JSON.stringify(behavior.dynamicToolCompletionDelayMs ?? 0)}
 const successfulSteer = ${JSON.stringify(behavior.successfulSteer)}
 const steerCompletionRace = ${JSON.stringify(behavior.steerCompletionRace)}
 const interruptCompletionRace = ${JSON.stringify(behavior.interruptCompletionRace)}
@@ -1303,20 +1348,19 @@ function write(message) { process.stdout.write(JSON.stringify(message) + '\\n') 
 function handle(message) {
   if (message.id === 101 && Object.hasOwn(message, 'result')) {
     writeFileSync(process.env.CODEX_HOME + '/tool-response.json', JSON.stringify(message))
-    write({ method: 'item/completed', params: { threadId: 'thread-1', turnId: 'turn-1', item: { type: 'agentMessage', id: 'message-tool', text: firstResponse } } })
-    write({ method: 'turn/completed', params: { threadId: 'thread-1', turn: { id: 'turn-1', status: 'completed' } } })
+    setTimeout(() => {
+      write({ method: 'item/completed', params: { threadId: 'thread-1', turnId: 'turn-1', item: { type: 'agentMessage', id: 'message-tool', text: firstResponse } } })
+      write({ method: 'turn/completed', params: { threadId: 'thread-1', turn: { id: 'turn-1', status: 'completed' } } })
+    }, dynamicToolCompletionDelayMs)
     return
   }
   if (message.method === 'initialize') {
     writeFileSync(process.env.CODEX_HOME + '/initialize-started.txt', 'started')
-    const response = { id: message.id, result: { userAgent: 'codex-cli 0.147.0' } }
+    const response = { id: message.id, result: { userAgent: 'codex-cli 0.150.1' } }
     if (initializeDelayMs) return setTimeout(() => write(response), initializeDelayMs)
     return write(response)
   }
   if (message.method === 'initialized') return
-  if (message.method === 'skills/list') {
-    return write({ id: message.id, result: { data: [{ cwd: message.params.cwds[0], skills: discoveredSkills.map(name => ({ name, path: '/skills/' + name, enabled: true })), errors: [] }] } })
-  }
   if (message.method === 'thread/start') {
     if (exitOnThreadStart) return process.exit(51)
     threadCwd = message.params.cwd
@@ -1379,7 +1423,8 @@ function handle(message) {
       return
     }
     if (dynamicToolCall) {
-      write({ id: 101, method: 'item/tool/call', params: { tool: 'unavailable_tool', callId: 'call-101', threadId: 'thread-1', turnId: turnID, arguments: {} } })
+      const call = dynamicToolCall === true ? { tool: 'unavailable_tool', arguments: {} } : dynamicToolCall
+      write({ id: 101, method: 'item/tool/call', params: { tool: call.tool, callId: 'call-101', threadId: 'thread-1', turnId: turnID, arguments: call.arguments } })
       return
     }
     if (successfulSteer || steerCompletionRace) return

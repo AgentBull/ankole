@@ -13,7 +13,7 @@ export type SkillPromptEntry = {
   name: string
   description: string
   category?: string
-  disableModelInvocation?: boolean
+  brainRecallOnly?: boolean
   backgroundJobOnly?: boolean
 }
 
@@ -33,13 +33,12 @@ type SkillsPromptFormat = { kind: 'full' } | { kind: 'compact'; descriptionMaxCh
 /**
  * Builds the model-visible skill index as a compact catalog under a `## Skills` heading.
  *
- * Skills flagged `disableModelInvocation` are dropped because those are invocable
- * only by applications, never chosen by the model. Returning an empty string lets
- * the caller omit the section entirely.
+ * Brain-recall-only Skills stay loadable but are omitted from this prompt
+ * index. Returning an empty string lets the caller omit the section entirely.
  */
 export function formatSkillsForSystemPrompt(skills: SkillPromptEntry[]): string {
   const visibleSkills = skills
-    .filter(skill => !skill.disableModelInvocation)
+    .filter(skill => !skill.brainRecallOnly)
     .flatMap(skill => sanitizeSkillEntry(skill) ?? [])
     .toSorted(compareSkills)
   if (visibleSkills.length === 0) return ''

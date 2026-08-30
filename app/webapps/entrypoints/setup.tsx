@@ -3,7 +3,7 @@ import { mountApp } from '../common/mount'
 
 const SetupApp = lazy(() => import('../setup/app').then(module => ({ default: module.SetupApp })))
 
-mountApp(
+void mountApp(
   <Suspense fallback={null}>
     <SetupApp />
   </Suspense>

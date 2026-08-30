@@ -3,6 +3,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorDirectory do
   Registry naming for per-actor session controllers.
   """
 
+  @type actor_key :: %{agent_uid: String.t(), session_id: String.t()}
+
   @doc """
   Returns the Registry child spec for actor session names.
   """
@@ -14,20 +16,16 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorDirectory do
   @doc """
   Returns the Registry via tuple for an actor key.
   """
-  @spec via(map()) :: {:via, Registry, {module(), {String.t(), String.t()}}}
+  @spec via(actor_key()) :: {:via, Registry, {module(), {String.t(), String.t()}}}
   def via(actor_key), do: {:via, Registry, {__MODULE__, key(actor_key)}}
 
   @doc """
   Normalizes an actor key to the runtime registry key.
   """
-  @spec key(map()) :: {String.t(), String.t()}
+  @spec key(actor_key()) :: {String.t(), String.t()}
   def key(%{agent_uid: agent_uid, session_id: session_id}) do
     {normalize_uid(agent_uid), session_id}
   end
 
-  def key(%{"agent_uid" => agent_uid, "session_id" => session_id}) do
-    {normalize_uid(agent_uid), session_id}
-  end
-
-  defp normalize_uid(value) when is_binary(value), do: String.downcase(value)
+  defp normalize_uid(value) when is_binary(value), do: Ankole.PrincipalKey.canonicalize(value)
 end

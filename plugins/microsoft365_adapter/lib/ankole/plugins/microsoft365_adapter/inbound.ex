@@ -89,7 +89,6 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
       author = %{
         "id" => external_id,
         "platform_subject" => external_id,
-        "principal_uid" => String.downcase(external_id),
         "display_name" => MapHelpers.optional_text(from, "name"),
         "metadata" =>
           MapHelpers.compact_map(%{
@@ -117,7 +116,8 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
                "conversation_type" => conversation_type,
                "service_url" => MapHelpers.optional_text(activity, "serviceUrl"),
                "tenant_id" => tenant_id(activity),
-               "team_id" => team_id(activity)
+               "team_id" => team_id(activity),
+               "app_id" => config["appID"]
              }),
            raw_payload:
              MapHelpers.compact_map(MapHelpers.fetch_map(activity, "conversation", %{}))
@@ -131,7 +131,6 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
            conversation_type == "personal" or
              Enum.any?(mentions, &(&1["targets_current_agent"] == true)),
          author: author,
-         sender_key: String.downcase(external_id),
          metadata:
            MapHelpers.compact_map(%{
              "provider" => "teams",
@@ -149,9 +148,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
   defp emit_message(consumer, activity) do
     case normalize_message_receive(activity, consumer) do
       {:ok, input} ->
-        with :ok <- observe_author(consumer, input) do
-          Ingress.emit_entry(consumer.context.agent_uid, consumer.context.binding_name, input)
-        end
+        Ingress.emit_entry(consumer.context.agent_uid, consumer.context.binding_name, input)
 
       {:ignore, reason} ->
         {:ok, %{status: :"ignored_#{reason}", reason: reason}}
@@ -304,23 +301,6 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
     |> MapHelpers.collect_results()
   end
 
-  defp observe_author(consumer, %{author: author}) do
-    attrs =
-      %{
-        provider: Config.namespace(consumer.config),
-        external_id: author["platform_subject"],
-        uid: author["id"],
-        display_name: author["display_name"],
-        metadata: author["metadata"] || %{}
-      }
-      |> MapHelpers.compact_map()
-
-    case AdapterContext.observe_platform_subject(consumer.context, attrs) do
-      {:ok, _observed} -> :ok
-      {:error, _reason} = error -> error
-    end
-  end
-
   # `29:` ids are Teams-encrypted user ids, `28:` ids are bot/connector
   # senders. The bot's own messages echo back with from.id == recipient.id on
   # activities the connector redelivers, but the stable self check is the
@@ -403,7 +383,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
     end)
     |> String.replace(@mention_regex, "@\\1")
     |> String.trim_leading()
-    |> blank_to_nil()
+    |> MapHelpers.blank_to_nil()
   end
 
   defp strip_current_bot_mentions(text, mentions) do
@@ -495,8 +475,8 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
         Path.join(Ankole.AgentHomePaths.user_files(agent_uid), relative)
       )
       |> Map.put("user_files_relative_path", relative)
-      |> MapHelpers.maybe_put("xxh3_128", result["xxh3_128"])
-      |> MapHelpers.maybe_put("size", result["size"])
+      |> MapHelpers.put_present("xxh3_128", result["xxh3_128"])
+      |> MapHelpers.put_present("size", result["size"])
     else
       reason ->
         Logging.warning(
@@ -539,23 +519,11 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
     Path.join([
       "inbox",
       "teams",
-      sanitize(attachment["source_message_id"]),
-      sanitize(attachment["file_id"] || "attachment"),
-      sanitize(downloaded_name || attachment["name"] || "attachment")
+      WorkerFiles.sanitize_path_segment(attachment["source_message_id"]),
+      WorkerFiles.sanitize_path_segment(attachment["file_id"] || "attachment"),
+      WorkerFiles.sanitize_path_segment(downloaded_name || attachment["name"] || "attachment")
     ])
   end
-
-  defp sanitize(value) when is_binary(value) do
-    case value
-         |> Ankole.Kernel.any_ascii()
-         |> String.replace(~r/[^A-Za-z0-9._-]+/, "_")
-         |> String.trim("_") do
-      "" -> "unnamed"
-      segment -> String.slice(segment, 0, 160)
-    end
-  end
-
-  defp sanitize(_value), do: "unnamed"
 
   defp reaction_target(activity) do
     case MapHelpers.optional_text(activity, "replyToId") ||
@@ -625,6 +593,4 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
 
   defp material_message?(nil, []), do: {:ignore, :empty_or_unsupported_message}
   defp material_message?(_text, _attachments), do: :ok
-  defp blank_to_nil(""), do: nil
-  defp blank_to_nil(text), do: text
 end

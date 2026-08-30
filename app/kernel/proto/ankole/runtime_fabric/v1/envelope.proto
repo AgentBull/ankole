@@ -37,9 +37,9 @@ enum DurabilityClass {
 }
 
 message Envelope {
-  // Version 3 introduced typed worker capacity fields. Additive fields keep the
-  // current version; changing an existing field's wire meaning requires another
-  // bump so mixed worker/control-plane versions fail before admission.
+  // Additive fields keep the current version. Changing an existing field's
+  // wire meaning requires another bump so the kernel rejects a mismatched
+  // image before host dispatch.
   uint32 protocol_version = 1;
   string message_id = 2;
   string correlation_id = 3;
@@ -48,7 +48,6 @@ message Envelope {
   // fence.
   int64 sent_at_unix_ms = 6;
   DurabilityClass durability = 7;
-
   oneof body {
     // Worker lifecycle messages describe homogeneous computer workers. They do
     // not negotiate per-worker features.
@@ -61,15 +60,11 @@ message Envelope {
     TurnAccepted turn_accepted = 33;
     TurnControl turn_control = 34;
     WorkerProgress worker_progress = 35;
-    TurnError turn_error = 41;
-    TurnNoopCompleted turn_noop_completed = 42;
-    TurnCompleted turn_completed = 43;
     ControlShutdown control_shutdown = 50;
     RPCRequest rpc_request = 70;
     RPCResponse rpc_response = 71;
     RPCError rpc_error = 72;
   }
-
 }
 
 message AgentComputerWorkerReady {
@@ -78,8 +73,6 @@ message AgentComputerWorkerReady {
   // are equivalent because they boot from the same image.
   string runtime = 2;
   string version = 3;
-  // Version 2 used field 4 for capacity_json.
-  reserved 4;
   // Identifies one concrete process lifetime behind the stable worker id.
   string incarnation_id = 5;
   uint32 max_turns = 6;
@@ -91,8 +84,6 @@ message AgentComputerWorkerHeartbeat {
   // Worker-local monotonic timestamp for observability only. It must not be
   // compared across workers or process restarts.
   int64 monotonic_ms = 2;
-  // Version 2 used field 3 for load_json.
-  reserved 3;
   string incarnation_id = 4;
   uint32 active_turns = 5;
   // A heartbeat is a complete worker snapshot so the control plane can rebuild
@@ -105,8 +96,6 @@ message AgentComputerWorkerHeartbeat {
 
 message AgentComputerWorkerCapacity {
   string worker_id = 1;
-  // Version 2 used fields 2 and 3 for capacity_json and load_json.
-  reserved 2, 3;
   uint32 available_turn_slots = 4;
   string incarnation_id = 5;
   uint32 max_turns = 6;
@@ -183,30 +172,6 @@ message WorkerProgress {
   string kind = 2;
   string summary = 3;
   bytes refs_json = 4;
-}
-
-message TurnError {
-  ActorTurnRef turn = 1;
-  string code = 2;
-  string message = 3;
-  bytes details_json = 4;
-}
-
-message TurnNoopCompleted {
-  ActorTurnRef turn = 1;
-  string reason = 2;
-}
-
-enum TurnCompletionOutcome {
-  TURN_COMPLETION_OUTCOME_UNSPECIFIED = 0;
-  TURN_COMPLETION_OUTCOME_LOOP_FINISHED = 1;
-  TURN_COMPLETION_OUTCOME_ITERATION_EXHAUSTED = 2;
-}
-
-message TurnCompleted {
-  ActorTurnRef turn = 1;
-  string final_response_id = 2;
-  TurnCompletionOutcome outcome = 3;
 }
 
 message ControlShutdown {

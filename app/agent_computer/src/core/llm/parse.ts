@@ -6,8 +6,7 @@ import type {
   ResponseOutputMessage,
   Response as OpenAIResponse
 } from 'openai/resources/responses/responses'
-import { readTruncatedToolCall, type TruncatedToolCall } from './partial-tool-input'
-import type { AssistantMessage, ModelCallResult, ModelUsage, ResponseToolCall, StopReason } from './types'
+import type { AssistantMessage, ModelCallResult, ModelUsage, ResponseToolCall, StopReason, ToolCall } from './types'
 
 export class AIGatewayWebSocketError extends Error {
   readonly code?: string
@@ -95,22 +94,14 @@ export function parseOutputItems(
       ? 'AIGateway response ended with an incomplete tool call'
       : undefined)
   // Calls that the output limit discarded. They are never executable; they
-  // only tell the model where its previous attempt stopped.
-  const truncatedToolCalls = stopReason === 'length' ? observedToolCalls.map(truncatedToolCallOf) : []
+  // survive only as the record of the attempt, so a fragment without a call
+  // id or name — nothing to pair a result against — is dropped.
+  const truncatedToolCalls =
+    stopReason === 'length' ? observedToolCalls.filter(identifiableToolCall).map(wireToolCall) : []
   const message: AssistantMessage = {
     role: 'assistant',
     content: text ? [{ type: 'text', text }] : [],
-    toolCalls:
-      toolCalls.length > 0
-        ? toolCalls.map(call => ({
-            id: responseToolCallID(call) || '',
-            type: call.type === 'custom_tool_call' ? ('custom' as const) : ('function' as const),
-            name: call.name,
-            ...(call.namespace ? { namespace: call.namespace } : {}),
-            arguments: call.type === 'custom_tool_call' ? call.input : call.arguments,
-            ...(call.caller ? { caller: call.caller } : {})
-          }))
-        : undefined,
+    toolCalls: toolCalls.length > 0 ? toolCalls.map(wireToolCall) : undefined,
     usage,
     stopReason,
     model: modelName,
@@ -118,7 +109,7 @@ export function parseOutputItems(
     ...(truncatedToolCalls.length > 0 ? { truncatedToolCalls } : {})
   }
 
-  return { message, toolCalls, hasToolCalls: toolCalls.length > 0 }
+  return { message, toolCalls }
 }
 
 function responseTerminalProjection(response: OpenAIResponse): {
@@ -146,14 +137,22 @@ function responseTerminalProjection(response: OpenAIResponse): {
   return {}
 }
 
-function truncatedToolCallOf(call: ResponseToolCall): TruncatedToolCall {
+function wireToolCall(call: ResponseToolCall): ToolCall {
   const value = call as unknown as JSONObject
   const args = call.type === 'custom_tool_call' ? value.input : value.arguments
-  return readTruncatedToolCall({
-    name: stringValue(value.name) ?? 'unknown',
+  return {
+    id: responseToolCallID(call) || '',
+    type: call.type === 'custom_tool_call' ? 'custom' : 'function',
+    name: call.name,
     ...(call.namespace ? { namespace: call.namespace } : {}),
-    arguments: stringValue(args) ?? ''
-  })
+    arguments: stringValue(args) ?? '',
+    ...(call.caller ? { caller: call.caller } : {})
+  }
+}
+
+function identifiableToolCall(call: ResponseToolCall): boolean {
+  const value = call as unknown as JSONObject
+  return Boolean(responseToolCallID(call)) && typeof value.name === 'string' && value.name.length > 0
 }
 
 function completedToolCall(call: ResponseToolCall): boolean {

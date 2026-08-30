@@ -57,7 +57,7 @@ A signal routing rule, stored as a Signal Binding, connects one provider adapter
 | `PATCH` | `/agents/:agent_uid/signal-bindings/:binding_name` | Update a routing rule |
 | `DELETE` | `/agents/:agent_uid/signal-bindings/:binding_name` | Remove a routing rule |
 
-A rule carries the adapter it uses, a configuration reference, filter rules, a group-message policy, an `enabled` flag, and a `confidential_memory` flag. Disabling a rule stops new facts from waking its Actor without deleting the rule. An unavailable rule records `unavailable_reason` so the operator can see why it stopped.
+A rule carries the adapter it uses, a configuration reference, filter rules, a group-message policy, and an `enabled` flag. Disabling a rule stops new facts from waking its Actor without deleting the rule. An unavailable rule records `unavailable_reason` so the operator can see why it stopped.
 
 Adapters are not hard-coded. They are resolved at boot from the plugin registry under the `signals_gateway.adapter` contract, so the set of available providers is whatever this deployment instance's plugins declare. A request against an adapter id that no declaration provides returns `signal_adapter_not_found`.
 

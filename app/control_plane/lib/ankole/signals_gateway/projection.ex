@@ -12,7 +12,6 @@ defmodule Ankole.SignalsGateway.Projection do
   import Ankole.SignalsGateway.Utils, only: [thread_key: 1]
 
   @tombstone_ttl_seconds 24 * 60 * 60
-  @entry_brain_store_routes_key "_ankole_brain_store_routes"
   @attachment_id_sequence "signal_gateway_attachment_id_seq"
   @attachment_id_min 10_000
   @attachment_id_max 9_007_199_254_740_991
@@ -36,7 +35,7 @@ defmodule Ankole.SignalsGateway.Projection do
       last_seen_at: now
     }
 
-    case repo.get(Channel, fact.signal_channel_id) do
+    case lock_channel(repo, fact.signal_channel_id) do
       %Channel{} = channel ->
         channel
         |> Channel.changeset(merge_channel_attrs(channel, attrs))
@@ -60,7 +59,7 @@ defmodule Ankole.SignalsGateway.Projection do
   end
 
   defp update_existing_channel(repo, signal_channel_id, attrs) do
-    case repo.get(Channel, signal_channel_id) do
+    case lock_channel(repo, signal_channel_id) do
       %Channel{} = channel ->
         channel
         |> Channel.changeset(merge_channel_attrs(channel, attrs))
@@ -88,7 +87,8 @@ defmodule Ankole.SignalsGateway.Projection do
         principal_group_id: merged_principal_group_id(kind, attrs, channel),
         metadata: merge_metadata(channel.metadata, attrs.metadata),
         raw_payload: preserve_empty_map(attrs.raw_payload, channel.raw_payload),
-        first_seen_at: channel.first_seen_at
+        first_seen_at: channel.first_seen_at,
+        last_seen_at: latest_seen_at(channel.last_seen_at, attrs.last_seen_at)
     }
   end
 
@@ -120,6 +120,23 @@ defmodule Ankole.SignalsGateway.Projection do
   end
 
   defp merge_metadata(_existing, incoming) when is_map(incoming), do: incoming
+
+  defp latest_seen_at(%DateTime{} = existing, %DateTime{} = incoming) do
+    case DateTime.compare(existing, incoming) do
+      :gt -> existing
+      _not_later -> incoming
+    end
+  end
+
+  defp latest_seen_at(_existing, incoming), do: incoming
+
+  defp lock_channel(repo, signal_channel_id) do
+    repo.one(
+      from channel in Channel,
+        where: channel.id == ^signal_channel_id,
+        lock: "FOR UPDATE"
+    )
+  end
 
   # Upsert the entry mirror, but never let an out-of-order (older) provider event
   # overwrite a newer stored state: if the incoming provider_time predates what's
@@ -253,7 +270,6 @@ defmodule Ankole.SignalsGateway.Projection do
   def receive_entry_attrs(fact, now) do
     rich_content = rich_content(fact.text, fact.formatted_content)
     metadata = signal_entry_metadata(fact)
-    content_metadata = Map.delete(metadata, @entry_brain_store_routes_key)
 
     %{
       signal_channel_id: fact.signal_channel_id,
@@ -280,7 +296,7 @@ defmodule Ankole.SignalsGateway.Projection do
           fact.links,
           fact.author,
           fact.mentions,
-          content_metadata,
+          metadata,
           Map.get(fact, :reply_to_source_entry_id),
           Map.get(fact, :provider_thread_id)
         ]),
@@ -296,48 +312,7 @@ defmodule Ankole.SignalsGateway.Projection do
     |> Map.new()
   end
 
-  @doc false
-  def put_entry_brain_store_route(metadata, principal_uid, store_key)
-      when is_map(metadata) and is_binary(principal_uid) and is_binary(store_key) do
-    routes = entry_brain_store_routes(metadata)
-
-    Map.put(
-      metadata,
-      @entry_brain_store_routes_key,
-      Map.put(routes, principal_uid, store_key)
-    )
-  end
-
-  @doc false
-  def entry_brain_store_route(%Entry{metadata: metadata}, principal_uid)
-      when is_binary(principal_uid) do
-    case Map.get(entry_brain_store_routes(metadata), principal_uid) do
-      store_key when is_binary(store_key) and store_key != "" -> store_key
-      _missing_or_invalid -> nil
-    end
-  end
-
-  defp merge_entry_metadata(existing, incoming) when is_map(incoming) do
-    routes =
-      existing
-      |> entry_brain_store_routes()
-      |> Map.merge(entry_brain_store_routes(incoming))
-
-    incoming = Map.delete(incoming, @entry_brain_store_routes_key)
-
-    if map_size(routes) == 0,
-      do: incoming,
-      else: Map.put(incoming, @entry_brain_store_routes_key, routes)
-  end
-
-  defp entry_brain_store_routes(metadata) when is_map(metadata) do
-    case Map.get(metadata, @entry_brain_store_routes_key) do
-      %{} = routes -> routes
-      _missing_or_invalid -> %{}
-    end
-  end
-
-  defp entry_brain_store_routes(_metadata), do: %{}
+  defp merge_entry_metadata(_existing, incoming) when is_map(incoming), do: incoming
 
   # `formatted_content` is an ingress representation. Store only structure that
   # adds information beyond the canonical plain text instead of persisting the
@@ -418,13 +393,16 @@ defmodule Ankole.SignalsGateway.Projection do
     entry_limit = Keyword.get(opts, :entry_limit, max(20, max_attachments))
     since = DateTime.add(provider_time, -window_seconds, :second)
 
+    # The author predicate runs in SQL before the window limit; filtering
+    # after the limit let a busy channel push the author's entries out of the
+    # window.
     Entry
     |> where([entry], entry.signal_channel_id == ^signal_channel_id)
+    |> where([entry], fragment("?->>'id' = ?", entry.author, ^author_id))
     |> where([entry], entry.provider_time >= ^since and entry.provider_time <= ^provider_time)
     |> order_by([entry], desc: entry.provider_time)
     |> limit(^entry_limit)
     |> repo.all()
-    |> Enum.filter(&(get_in(&1.author || %{}, ["id"]) == author_id))
     |> Enum.flat_map(&(&1.attachments || []))
     |> Enum.take(max_attachments)
   end

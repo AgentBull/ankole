@@ -32,6 +32,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerPool do
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionWorkerAssignment
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
   alias Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobWorkerConfig
+  alias Ankole.SignalsGateway.ActorRuntime.Common
   alias Ankole.Repo
 
   require Ankole.BackgroundAgentJobs
@@ -46,23 +47,36 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerPool do
   Placement only needs liveness and capacity because all workers run the same
   image. A future heterogeneous pool is not a requirement of this runtime path.
   """
-  @spec assign_worker(actor_key() | map()) ::
+  @spec assign_worker(actor_key()) ::
           {:ok, ActorSessionWorkerAssignment.t()} | {:error, term()}
   def assign_worker(actor_key) do
-    actor_key = normalize_actor_key(actor_key)
+    actor_key = Common.normalize_actor_key(actor_key)
     now = DateTime.utc_now(:microsecond)
 
-    Repo.transact(fn repo -> assign_worker_in_tx(repo, actor_key, now) end)
+    job_limit = job_turn_limit(actor_key)
+
+    Repo.transact(fn repo -> assign_worker_in_tx(repo, actor_key, now, job_limit) end)
   end
 
+  @doc """
+  Resolves how many BackgroundAgentJob turns one worker may hold, or `nil` for a
+  session that does not consume Job placement capacity.
+
+  Callers resolve this before they open the placement transaction. AppConfigure
+  reads reach a separate process and a separate connection, which a transaction
+  must not wait on.
+  """
+  @spec job_turn_limit(actor_key()) :: pos_integer() | nil
+  def job_turn_limit(actor_key), do: actor_key |> Common.normalize_actor_key() |> job_limit()
+
   @doc false
-  @spec assign_worker_in_tx(module(), actor_key() | map(), DateTime.t()) ::
+  @spec assign_worker_in_tx(module(), actor_key(), DateTime.t(), pos_integer() | nil) ::
           {:ok, ActorSessionWorkerAssignment.t()} | {:error, term()}
-  def assign_worker_in_tx(repo, actor_key, %DateTime{} = now) do
-    actor_key = normalize_actor_key(actor_key)
+  def assign_worker_in_tx(repo, actor_key, %DateTime{} = now, job_limit) do
+    actor_key = Common.normalize_actor_key(actor_key)
 
     with :ok <- lock_actor_assignment_in_tx(repo, actor_key) do
-      do_assign_worker_in_tx(repo, actor_key, now, job_limit(actor_key))
+      do_assign_worker_in_tx(repo, actor_key, now, job_limit)
     end
   end
 
@@ -177,11 +191,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerPool do
   A source without a live assignment returns `:ok`. There is then no thread host
   to inherit and ordinary placement is already correct.
   """
-  @spec inherit_assignment_in_tx(module(), actor_key() | map(), actor_key() | map(), DateTime.t()) ::
+  @spec inherit_assignment_in_tx(module(), actor_key(), actor_key(), DateTime.t()) ::
           :ok | {:error, term()}
   def inherit_assignment_in_tx(repo, source_actor_key, target_actor_key, %DateTime{} = now) do
-    source_actor_key = normalize_actor_key(source_actor_key)
-    target_actor_key = normalize_actor_key(target_actor_key)
+    source_actor_key = Common.normalize_actor_key(source_actor_key)
+    target_actor_key = Common.normalize_actor_key(target_actor_key)
 
     case live_assignment_snapshot(repo, source_actor_key) do
       %ActorSessionWorkerAssignment{} = assignment ->
@@ -398,20 +412,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerPool do
     worker.transport_route || worker.worker_id
   end
 
-  defp normalize_actor_key(%{agent_uid: agent_uid, session_id: session_id}) do
-    %{agent_uid: normalize_uid(agent_uid), session_id: session_id}
-  end
-
-  defp normalize_actor_key(%{"agent_uid" => agent_uid, "session_id" => session_id}) do
-    %{agent_uid: normalize_uid(agent_uid), session_id: session_id}
-  end
-
-  defp normalize_uid(value) when is_binary(value), do: String.downcase(value)
-
   @doc false
-  @spec lock_actor_assignment_in_tx(module(), actor_key() | map()) :: :ok | {:error, term()}
+  @spec lock_actor_assignment_in_tx(module(), actor_key()) :: :ok | {:error, term()}
   def lock_actor_assignment_in_tx(repo, actor_key) do
-    actor_key = normalize_actor_key(actor_key)
+    actor_key = Common.normalize_actor_key(actor_key)
 
     case SQL.query(
            repo,

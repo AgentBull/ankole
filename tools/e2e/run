@@ -32,7 +32,7 @@ load_e2e_dotenv
 
 usage() {
   cat <<'EOF'
-Usage: tools/e2e/run [--gate|--perf|--chaos|--real-provider|--real-llm|--brain-real-llm|--all]
+Usage: tools/e2e/run [--gate|--perf|--chaos|--real-provider|--real-llm|--all]
                      [--providers=name[,name]] [--only=<mix test filter>]
                      [--no-build] [--no-services]
 
@@ -49,9 +49,6 @@ Modes:
                    provider-send failures).
   --real-provider  AI Gateway real-provider smoke checks (needs API keys).
   --real-llm       Docker worker + real OpenRouter LLM suite (needs API key).
-  --brain-real-llm Dedicated Brain acceptance suite through fake Feishu, the
-                   real worker/OpenRouter, Brain RPC, PostgreSQL, and outbox.
-                   It is intentionally not included in --all.
   --all            Gate + perf + chaos, then real-provider/real-llm for the
                    providers whose API keys are present.
 
@@ -67,7 +64,6 @@ Examples:
   tools/e2e/run --all
   tools/e2e/run --chaos
   tools/e2e/run --real-provider --providers=openrouter,jina
-  tools/e2e/run --brain-real-llm
 EOF
 }
 
@@ -84,7 +80,6 @@ while [[ $# -gt 0 ]]; do
     --chaos) mode="chaos"; shift ;;
     --real-provider) mode="real-provider"; shift ;;
     --real-llm) mode="real-llm"; shift ;;
-    --brain-real-llm) mode="brain-real-llm"; shift ;;
     --all) mode="all"; shift ;;
     --providers=*) providers="${1#--providers=}"; shift ;;
     --providers) providers="${2:?--providers requires a value}"; shift 2 ;;
@@ -175,37 +170,6 @@ run_real_llm() {
   (cd "$CONTROL_PLANE_DIR" && ANKOLE_REAL_LLM_E2E=1 mix e2e.real_llm "${suite_args[@]:+${suite_args[@]}}")
 }
 
-run_brain_real_llm() {
-  (
-    local brain_test_database="ankole_test_brain_real_llm_$$"
-
-    if [[ "$DATABASE_URL" =~ ^(.*/)[^/?]+(\?.*)?$ ]]; then
-      export DATABASE_URL="${BASH_REMATCH[1]}${brain_test_database}${BASH_REMATCH[2]-}"
-    else
-      echo "[e2e] DATABASE_URL must include a database path for --brain-real-llm." >&2
-      exit 1
-    fi
-
-    cd "$CONTROL_PLANE_DIR"
-    trap 'MIX_ENV=test mix ecto.drop --quiet >/dev/null 2>&1 || true' EXIT
-
-    MIX_ENV=test mix ecto.create --quiet
-    MIX_ENV=test mix ecto.migrate --quiet
-    MIX_ENV=test mix run -e '
-      case Ankole.Plugins.Config.put_configured_enabled("lark-adapter", true) do
-        {:ok, _enabled_ids} -> :ok
-        {:error, reason} -> raise "failed to enable the Brain e2e Lark plugin: #{inspect(reason)}"
-      end
-    '
-
-    MIX_ENV=test \
-      ANKOLE_REAL_LLM_E2E=1 \
-      mix test ../../tools/e2e/suites/lark_brain_real_llm_e2e_test.exs \
-        --trace \
-        "${suite_args[@]:+${suite_args[@]}}"
-  )
-}
-
 run_real_provider() {
   run_mix e2e.ai_gateway_real_provider -- --providers="$providers"
 }
@@ -219,13 +183,6 @@ has_real_provider_env() {
     has_openrouter_key ||
     [[ -n "${JINA_API_KEY:-}" ]] ||
     [[ -n "${GOOGLE_AI_STUDIO_API_KEY:-}" ]]
-}
-
-require_openrouter_key() {
-  if ! has_openrouter_key; then
-    echo "[e2e] OPENROUTER_API_KEY or OPEN_ROUTER_API_KEY is required for $1." >&2
-    exit 1
-  fi
 }
 
 case "$mode" in
@@ -252,12 +209,6 @@ case "$mode" in
     preflight_docker
     preflight_postgres
     run_real_llm
-    ;;
-  brain-real-llm)
-    require_openrouter_key "--brain-real-llm"
-    preflight_docker
-    preflight_postgres
-    run_brain_real_llm
     ;;
   all)
     preflight_docker

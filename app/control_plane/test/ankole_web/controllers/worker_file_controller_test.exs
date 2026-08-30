@@ -1,17 +1,14 @@
 defmodule AnkoleWeb.WorkerFileControllerTest do
   use AnkoleWeb.ConnCase, async: false
 
-  import Ankole.PrincipalsFixtures
 
   alias Ankole.SignalsGateway.ActorRuntime.FileTransferLane
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
   alias Ankole.SignalsGateway.ActorRuntime.Transport.Broker
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
-  alias Ankole.AuthZ
   alias Ankole.Repo
   alias Ankole.Setup.Config, as: SetupConfig
-  alias AnkoleWeb.Session, as: WebSession
 
   @credit_window 4 * 1024 * 1024
 
@@ -20,7 +17,6 @@ defmodule AnkoleWeb.WorkerFileControllerTest do
     Registry.clear_for_test()
     Cache.clear_for_test()
 
-    :ok = SetupConfig.ensure_registered()
     {:ok, false} = SetupConfig.put_completed(false)
     :ok = SetupConfig.delete_bootstrap_activation_code()
 
@@ -554,35 +550,5 @@ defmodule AnkoleWeb.WorkerFileControllerTest do
     conn
     |> put_req_header("content-type", "multipart/form-data; boundary=#{boundary}")
     |> post(path, IO.iodata_to_binary(body))
-  end
-
-  defp bearer_conn(conn) do
-    conn
-    |> active_admin_conn()
-    |> post(~p"/.internal-apis/oauth/token", %{
-      "grant_type" => "urn:ankole:params:oauth:grant-type:browser-session"
-    })
-    |> json_response(200)
-    |> Map.fetch!("access_token")
-    |> then(fn access_token ->
-      conn
-      |> recycle()
-      |> put_req_header("authorization", "Bearer #{access_token}")
-      |> put_req_header("content-type", "application/json")
-    end)
-  end
-
-  defp active_admin_conn(conn) do
-    {:ok, true} = SetupConfig.put_completed(true)
-    human = human_fixture(%{uid: unique_uid("worker-file-admin")})
-    assert {:ok, _root} = AuthZ.root_init_admin(human.principal.uid)
-
-    conn
-    |> init_test_session(%{})
-    |> WebSession.put_admin_session(%{
-      principal_uid: human.principal.uid,
-      provider_id: "lark-main",
-      external_id: "external-1"
-    })
   end
 end

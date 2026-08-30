@@ -8,7 +8,7 @@ defmodule Ankole.AIGateway.PrepareContext do
   making provider code query model profiles or decrypt secrets by itself.
   """
 
-  import Ankole.AIGateway.MapUtils, only: [normalize_request_keys: 1]
+  import Ankole.Attrs, only: [normalize_external_attrs: 1]
 
   alias Ankole.AIGateway.ProviderDefinition
   alias Ankole.AIGateway.ProviderDefinition.Capability
@@ -74,7 +74,7 @@ defmodule Ankole.AIGateway.PrepareContext do
          provider: provider,
          capability: capability,
          runtime: runtime,
-         request: normalize_request_keys(request),
+         request: normalize_external_attrs(request),
          provider_options: provider_options(runtime),
          settings: settings(provider, runtime),
          model: runtime["model"],
@@ -90,13 +90,13 @@ defmodule Ankole.AIGateway.PrepareContext do
   defp settings(%ProviderDefinition{} = provider, runtime) do
     defaults =
       Map.new(provider.settings, fn setting -> {setting.key, setting.default} end)
-      |> maybe_put(:base_url, provider.base_url)
+      |> Ankole.Attrs.put_present(:base_url, provider.base_url)
 
     runtime_settings =
       %{}
       |> Map.merge(atomize_keys(Map.get(runtime, "connection_options", %{})))
       |> Map.merge(atomize_keys(Map.get(runtime, "provider_options", %{})))
-      |> maybe_put(:base_url, get_in(runtime, ["connection_options", "base_url"]))
+      |> Ankole.Attrs.put_present(:base_url, get_in(runtime, ["connection_options", "base_url"]))
 
     Map.merge(defaults, runtime_settings)
   end
@@ -106,7 +106,7 @@ defmodule Ankole.AIGateway.PrepareContext do
   # rows while still giving provider code one normalized shape.
   defp provider_options(runtime) do
     case Map.get(runtime, "provider_options") do
-      value when is_map(value) -> normalize_request_keys(value)
+      value when is_map(value) -> normalize_external_attrs(value)
       _value -> %{}
     end
   end
@@ -120,8 +120,4 @@ defmodule Ankole.AIGateway.PrepareContext do
   end
 
   defp atomize_keys(_value), do: %{}
-
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, _key, ""), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 end

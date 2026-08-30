@@ -41,7 +41,7 @@ Agent는 `web_search`로 공개 페이지를 찾고 `web_fetch`로 선택한 페
 
 이 프로필은 Provider 전용입니다. 모델이나 컨텍스트 길이는 필요하지 않다. 각 Provider 종류는 자신의 Capability를 선언하므로 목록에는 일치하는 인스턴스만 들어 있다.
 
-목록이 비어 있으면 먼저 일치하는 Provider를 추가하세요. 첫 Provider 설정은 [빠른 시작](../quickstart/#3-add-an-llm-provider-and-create-an-agent)을 보라.
+목록이 비어 있으면 먼저 일치하는 Provider를 추가하세요. 첫 Provider 설정은 [빠른 시작](../quickstart/#llm-providers)을 보라.
 
 ## 현재 내장 Provider
 

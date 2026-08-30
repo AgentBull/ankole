@@ -26,6 +26,9 @@ pub mod common;
 #[cfg(any(test, feature = "napi", feature = "nif_dev", feature = "nif_prod"))]
 pub mod authz;
 
+#[cfg(feature = "brain_markdoc")]
+pub mod brain_markdoc;
+
 #[cfg(any(test, feature = "napi", feature = "nif_dev", feature = "nif_prod"))]
 pub mod runtime_fabric;
 

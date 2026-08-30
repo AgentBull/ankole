@@ -3,7 +3,7 @@ defmodule AnkoleWeb.AIGatewayFilesControllerTest do
 
   import Ankole.PrincipalsFixtures
 
-  alias AnkoleWeb.AIGatewayTokens
+  alias Ankole.AIGateway.Tokens
 
   @png Base.decode64!(
          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
@@ -11,7 +11,7 @@ defmodule AnkoleWeb.AIGatewayFilesControllerTest do
 
   test "official Files API create/list/retrieve/content/delete contract", %{conn: conn} do
     agent = agent_fixture()
-    assert {:ok, token} = AIGatewayTokens.mint_for_agent(agent.principal.uid)
+    assert {:ok, token} = Tokens.mint_for_agent(agent.principal.uid)
     upload = upload_fixture("sdk-image.png", @png, "image/png")
 
     created_conn =
@@ -86,8 +86,8 @@ defmodule AnkoleWeb.AIGatewayFilesControllerTest do
   test "files are indistinguishable from missing across subjects", %{conn: conn} do
     owner = agent_fixture()
     other = agent_fixture()
-    assert {:ok, owner_token} = AIGatewayTokens.mint_for_agent(owner.principal.uid)
-    assert {:ok, other_token} = AIGatewayTokens.mint_for_agent(other.principal.uid)
+    assert {:ok, owner_token} = Tokens.mint_for_agent(owner.principal.uid)
+    assert {:ok, other_token} = Tokens.mint_for_agent(other.principal.uid)
 
     created_conn =
       conn
@@ -113,7 +113,7 @@ defmodule AnkoleWeb.AIGatewayFilesControllerTest do
     conn: conn
   } do
     agent = agent_fixture()
-    assert {:ok, token} = AIGatewayTokens.mint_for_agent(agent.principal.uid)
+    assert {:ok, token} = Tokens.mint_for_agent(agent.principal.uid)
 
     for {params, expected_param, expected_code} <- [
           {%{

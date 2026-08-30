@@ -9,16 +9,22 @@ defmodule AnkoleWeb.PrincipalController do
   use OpenAPISpex.ControllerSpecs
 
   alias Ankole.AuthZ
+  alias Ankole.IdentityProviders.LocalPassword
   alias Ankole.Principals
   alias Ankole.Principals.Principal
   alias AnkoleWeb.AuthZJSON
   alias AnkoleWeb.ConsoleErrors
   alias AnkoleWeb.ConsolePolicy
   alias AnkoleWeb.Schemas.ConsoleAPI.ErrorEnvelope
+  alias AnkoleWeb.Schemas.ConsoleAPI.LocalPasswordResetRequest
+  alias AnkoleWeb.Schemas.ConsoleAPI.LocalPasswordResetResponse
   alias AnkoleWeb.Schemas.ConsoleAPI.PermissionGrantListResponse
+  alias AnkoleWeb.Schemas.ConsoleAPI.PrincipalCreateRequest
+  alias AnkoleWeb.Schemas.ConsoleAPI.PrincipalCreateResponse
   alias AnkoleWeb.Schemas.ConsoleAPI.PrincipalGroupListResponse
   alias AnkoleWeb.Schemas.ConsoleAPI.PrincipalListResponse
   alias AnkoleWeb.Schemas.ConsoleAPI.PrincipalResponse
+  alias AnkoleWeb.Schemas.ConsoleAPI.PrincipalUpdateRequest
 
   tags(["Principals"])
   security([%{"consoleBearer" => []}])
@@ -46,6 +52,47 @@ defmodule AnkoleWeb.PrincipalController do
     ]
   )
 
+  operation(:create,
+    summary: "Create a human user with a local sign-in password",
+    request_body: {"User", "application/json", PrincipalCreateRequest, required: true},
+    responses: [
+      ok: {"Created user", "application/json", PrincipalCreateResponse},
+      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
+      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
+      conflict: {"Local sign-in disabled", "application/json", ErrorEnvelope},
+      unprocessable_entity: {"Invalid user", "application/json", ErrorEnvelope}
+    ]
+  )
+
+  operation(:update,
+    summary: "Update the display name or email of one human user",
+    parameters: [uid: [in: :path, type: :string, required: true]],
+    request_body: {"User changes", "application/json", PrincipalUpdateRequest, required: true},
+    responses: [
+      ok: {"Principal", "application/json", PrincipalResponse},
+      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
+      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
+      not_found: {"Not found", "application/json", ErrorEnvelope},
+      conflict: {"Local sign-in disabled", "application/json", ErrorEnvelope},
+      unprocessable_entity: {"Invalid change", "application/json", ErrorEnvelope}
+    ]
+  )
+
+  operation(:create_local_password_reset,
+    summary: "Replace one user's local password with a new one-time password",
+    parameters: [uid: [in: :path, type: :string, required: true]],
+    request_body:
+      {"Reset options", "application/json", LocalPasswordResetRequest, required: true},
+    responses: [
+      ok: {"New one-time password", "application/json", LocalPasswordResetResponse},
+      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
+      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
+      not_found: {"Not found", "application/json", ErrorEnvelope},
+      conflict: {"Local sign-in disabled", "application/json", ErrorEnvelope},
+      unprocessable_entity: {"Invalid reset", "application/json", ErrorEnvelope}
+    ]
+  )
+
   operation(:groups,
     summary: "List the static Principal groups one Principal belongs to",
     parameters: [uid: [in: :path, type: :string, required: true]],
@@ -70,7 +117,9 @@ defmodule AnkoleWeb.PrincipalController do
 
   def index(conn, _params) do
     with :ok <- ConsolePolicy.authorize(conn, "principals", "read") do
-      json(conn, %{principals: Enum.map(Principals.list_active_principals(), &principal_json/1)})
+      json(conn, %{
+        principals: Enum.map(Principals.list_active_principal_accounts(), &account_json/1)
+      })
     else
       {:error, reason} -> error(conn, reason)
     end
@@ -79,8 +128,55 @@ defmodule AnkoleWeb.PrincipalController do
   def show(conn, params) do
     with {:ok, uid} <- uid_param(params),
          :ok <- ConsolePolicy.authorize(conn, "principal:#{uid}", "read"),
-         {:ok, principal} <- Principals.get_principal(uid) do
-      json(conn, %{principal: principal_json(principal)})
+         {:ok, account} <- Principals.get_principal_account(uid) do
+      json(conn, %{principal: account_json(account)})
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  def create(conn, _params) do
+    body = conn.body_params
+
+    with :ok <- ConsolePolicy.authorize(conn, "principals", "update"),
+         :ok <- require_local_identity_provider(),
+         {:ok, email} <- email_attr(Map.get(body, :email)),
+         {:ok, result} <-
+           Principals.create_local_user(
+             %{uid: email, email: email, display_name: Map.get(body, :display_name)},
+             Map.get(body, :must_change_password, true)
+           ),
+         {:ok, account} <- Principals.get_principal_account(result.principal.uid) do
+      json(conn, %{principal: account_json(account), initial_password: result.initial_password})
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  def update(conn, params) do
+    body = conn.body_params
+
+    with {:ok, uid} <- uid_param(params),
+         :ok <- ConsolePolicy.authorize(conn, "principal:#{uid}", "update"),
+         :ok <- require_local_identity_provider(),
+         {:ok, attrs} <- update_attrs(body),
+         {:ok, _updated} <- Principals.update_human(uid, attrs),
+         {:ok, account} <- Principals.get_principal_account(uid) do
+      json(conn, %{principal: account_json(account)})
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  def create_local_password_reset(conn, params) do
+    body = conn.body_params
+
+    with {:ok, uid} <- uid_param(params),
+         :ok <- ConsolePolicy.authorize(conn, "principal:#{uid}", "reset"),
+         :ok <- require_local_identity_provider(),
+         {:ok, initial_password} <-
+           LocalPassword.reset_local_password(uid, Map.get(body, :must_change_password, true)) do
+      json(conn, %{initial_password: initial_password})
     else
       {:error, reason} -> error(conn, reason)
     end
@@ -117,17 +213,56 @@ defmodule AnkoleWeb.PrincipalController do
     end
   end
 
-  defp principal_json(%Principal{} = principal) do
+  # Every local-account write requires an enabled local identity provider so
+  # the console cannot mint credentials that no login path accepts.
+  defp require_local_identity_provider do
+    case LocalPassword.enabled?() do
+      true -> :ok
+      false -> {:error, :local_identity_provider_disabled}
+    end
+  end
+
+  defp email_attr(email) do
+    case Principals.normalize_email(email) do
+      nil -> {:error, {:missing, "email"}}
+      normalized -> {:ok, normalized}
+    end
+  end
+
+  defp update_attrs(body) do
+    attrs =
+      body
+      |> Map.take([:display_name, :email])
+      |> Map.new(fn {key, value} -> {key, value} end)
+
+    case Map.fetch(attrs, :email) do
+      :error ->
+        {:ok, attrs}
+
+      {:ok, email} ->
+        with {:ok, normalized} <- email_attr(email) do
+          {:ok, Map.put(attrs, :email, normalized)}
+        end
+    end
+  end
+
+  defp account_json(%{principal: %Principal{} = principal} = account) do
     %{
       uid: principal.uid,
       type: Atom.to_string(principal.type),
       status: Atom.to_string(principal.status),
       display_name: principal.display_name,
       avatar_url: principal.avatar_url,
+      email: account.email,
+      has_external_identity: account.has_external_identity,
+      local_credential: local_credential_json(account.local_credential_status),
       inserted_at: DateTime.to_iso8601(principal.inserted_at),
       updated_at: DateTime.to_iso8601(principal.updated_at)
     }
   end
+
+  defp local_credential_json(nil), do: nil
+  defp local_credential_json(status), do: %{status: Atom.to_string(status)}
 
   defp error(conn, :forbidden), do: ConsoleErrors.render(conn, 403, "forbidden", "access denied")
 
@@ -136,6 +271,53 @@ defmodule AnkoleWeb.PrincipalController do
 
   defp error(conn, {:missing, key}),
     do: ConsoleErrors.render(conn, 422, "validation_failed", "#{key} is required")
+
+  defp error(conn, :local_identity_provider_disabled),
+    do:
+      ConsoleErrors.render(
+        conn,
+        409,
+        "local_identity_provider_disabled",
+        "local account sign-in is not enabled"
+      )
+
+  defp error(conn, :email_missing),
+    do:
+      ConsoleErrors.render(
+        conn,
+        422,
+        "email_missing",
+        "this user has no email address, which local sign-in requires"
+      )
+
+  defp error(conn, :not_human),
+    do: ConsoleErrors.render(conn, 422, "not_human", "local passwords apply to human users only")
+
+  defp error(conn, %Ecto.Changeset{} = changeset) do
+    details = ConsoleErrors.changeset_details(changeset)
+
+    # The create path derives the principal uid from the email, so a duplicate
+    # uid means the same thing to the operator as a duplicate email.
+    case Enum.any?(details, &(&1.path in ["email", "uid"] and &1.message =~ "taken")) do
+      true ->
+        ConsoleErrors.render(
+          conn,
+          422,
+          "email_taken",
+          "another user already uses this email",
+          details
+        )
+
+      false ->
+        ConsoleErrors.render(
+          conn,
+          422,
+          "validation_failed",
+          "user attributes are invalid",
+          details
+        )
+    end
+  end
 
   defp error(conn, reason),
     do:

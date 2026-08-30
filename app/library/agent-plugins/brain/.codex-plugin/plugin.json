@@ -1,0 +1,6 @@
+{
+  "name": "brain",
+  "version": "1.0.0",
+  "description": "Learn durable external knowledge and discover Brain-recalled working methods.",
+  "skills": "./skills/"
+}

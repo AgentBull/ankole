@@ -1,0 +1,238 @@
+defmodule Ankole.Brain.Access do
+  @moduledoc """
+  Knowledge-boundary context of one querier, applied as SQL prefilters.
+
+  The reachable set is the querier's enumerable scope values plus the
+  author-always-accessible rule, plus the narrowed Agent-owner exemption:
+  an owner reads its Agents' `principal:<agent_uid>` scope and the rows its
+  Agents wrote or hold, but never the Agents' group-shared knowledge.
+  Disclosure filtering is a second, post-hit stage owned by the caller.
+  """
+
+  import Ecto.Query, warn: false
+
+  alias Ankole.Brain.Claims
+  alias Ankole.Brain.Scope
+  alias Ankole.Principals.Agent
+  alias Ankole.Repo
+
+  defstruct querier_uid: nil, scopes: [], owned_agent_uids: [], owned_holder_slugs: []
+
+  @type t :: %__MODULE__{
+          querier_uid: String.t(),
+          scopes: [String.t()],
+          owned_agent_uids: [String.t()],
+          owned_holder_slugs: [String.t()]
+        }
+
+  @doc """
+  Builds the access context of one querier from current relations.
+  """
+  @spec for_querier(String.t()) :: {:ok, t()} | {:error, term()}
+  def for_querier(querier_uid) when is_binary(querier_uid) do
+    with {:ok, scopes} <- Scope.accessible_scopes(querier_uid) do
+      owned_agent_uids =
+        Agent
+        |> where([agent], agent.owner_principal_uid == ^querier_uid)
+        |> select([agent], agent.uid)
+        |> Repo.all()
+
+      {:ok,
+       %__MODULE__{
+         querier_uid: querier_uid,
+         scopes: Enum.uniq(scopes ++ Enum.map(owned_agent_uids, &Scope.principal/1)),
+         owned_agent_uids: owned_agent_uids,
+         owned_holder_slugs: Enum.map(owned_agent_uids, &("agents/" <> &1))
+       }}
+    end
+  end
+
+  @doc """
+  Builds the access context for an Agent and the readers of its current Turn.
+
+  The Agent remains the accountable querier. A resolved conversation reader
+  adds only scopes that every disclosure recipient can receive. An open or
+  unresolved disclosure adds nothing, so background work and failed recipient
+  resolution keep the ordinary querier boundary.
+  """
+  @spec for_readers(String.t(), disclosure()) :: {:ok, t()} | {:error, term()}
+  def for_readers(querier_uid, disclosure) when is_binary(querier_uid) do
+    with {:ok, access} <- for_querier(querier_uid),
+         {:ok, reader_scopes} <- reader_scopes(disclosure) do
+      {:ok, %{access | scopes: Enum.uniq(access.scopes ++ reader_scopes)}}
+    end
+  end
+
+  @doc """
+  Returns whether one bare scope is reachable for this querier. A body
+  segment carries no author or holder, so the owned-Agent exemptions of
+  `reachable?/2` do not apply; membership in the accessible scopes is the
+  whole rule, and `world` is always a member.
+  """
+  @spec scope_reachable?(t(), String.t()) :: boolean()
+  def scope_reachable?(%__MODULE__{} = access, scope), do: scope in access.scopes
+
+  @doc """
+  Returns whether one already-loaded row is reachable for this querier.
+
+  Reachable rows satisfy an accessible scope, were written by the querier
+  (authors always reach their own writes), or fall under the narrowed owner
+  exemption: rows an owned Agent wrote or holds, except group-scoped
+  organizational knowledge, which an owner cannot reach through its Agent.
+  """
+  @spec reachable?(t(), %{
+          required(:audience_scope) => String.t(),
+          optional(:author_uid) => String.t() | nil,
+          optional(:holder) => String.t() | nil
+        }) :: boolean()
+  def reachable?(%__MODULE__{} = access, row) do
+    scope = row.audience_scope
+    author = Map.get(row, :author_uid)
+    holder = Map.get(row, :holder)
+
+    scope in access.scopes or author == access.querier_uid or
+      ((author in access.owned_agent_uids or holder in access.owned_holder_slugs) and
+         not String.starts_with?(scope, "group:"))
+  end
+
+  @doc """
+  Applies the claim knowledge boundary and current-state predicates to a
+  claims query. Claims on soft-deleted Objects and internal terminal claims
+  stay out of every read path; signal-channel claims remain reachable.
+  """
+  @spec filter_claims(Ecto.Query.t(), t()) :: Ecto.Query.t()
+  def filter_claims(query, %__MODULE__{} = access) do
+    internal_prefix = Claims.internal_provenance_prefix() <> "%"
+
+    query
+    |> Claims.filter_live_parents()
+    |> where(
+      [claim],
+      claim.audience_scope in ^access.scopes or
+        claim.author_uid == ^access.querier_uid or
+        ((claim.author_uid in ^access.owned_agent_uids or
+            claim.holder in ^access.owned_holder_slugs) and
+           not like(claim.audience_scope, "group:%"))
+    )
+    |> where([claim], not like(claim.provenance, ^internal_prefix))
+  end
+
+  @doc """
+  Restricts a claims query to the current state: unexpired facts and active
+  takes.
+  """
+  @spec filter_current_claims(Ecto.Query.t()) :: Ecto.Query.t()
+  def filter_current_claims(query) do
+    where(
+      query,
+      [claim],
+      (claim.claim_type == "fact" and is_nil(claim.expired_at)) or
+        (claim.claim_type == "take" and claim.active == true)
+    )
+  end
+
+  @doc """
+  Applies the chunk knowledge boundary. Chunks carry no author, so scope is
+  the only reachability rule; the join keeps soft-deleted hosts out.
+  """
+  @spec filter_chunks(Ecto.Query.t(), t()) :: Ecto.Query.t()
+  def filter_chunks(query, %__MODULE__{} = access) do
+    where(query, [chunk, ...], chunk.audience_scope in ^access.scopes)
+  end
+
+  @doc """
+  Applies the timeline knowledge boundary as a SQL prefilter, so a `limit`
+  never spends its budget on unreachable rows. Timelines carry no holder;
+  reachability is scope, author, or the narrowed owner exemption over the
+  author.
+  """
+  @spec filter_timelines(Ecto.Query.t(), t()) :: Ecto.Query.t()
+  def filter_timelines(query, %__MODULE__{} = access) do
+    where(
+      query,
+      [timeline],
+      timeline.audience_scope in ^access.scopes or
+        timeline.author_uid == ^access.querier_uid or
+        (timeline.author_uid in ^access.owned_agent_uids and
+           not like(timeline.audience_scope, "group:%"))
+    )
+  end
+
+  @typedoc """
+  Disclosure context: who receives the recalled knowledge. Strict mode
+  checks the asker and every present member; relaxed mode checks only the
+  asker. A private chat carries only the asker, so both modes behave the
+  same there. Relaxed mode with no asker is an explicit open read for
+  Console preview and system assembly. Strict mode requires at least one
+  resolved recipient and otherwise discloses nothing.
+  """
+  @type disclosure :: %{
+          mode: :strict | :relaxed,
+          asker_uid: String.t() | nil,
+          present_uids: [String.t()]
+        }
+
+  @doc """
+  Post-hit disclosure check for one scope against the current recipients.
+  """
+  @spec disclosable?(String.t(), disclosure()) :: boolean()
+  def disclosable?(scope, %{mode: mode} = disclosure) do
+    recipients =
+      case mode do
+        :relaxed -> List.wrap(disclosure[:asker_uid])
+        :strict -> List.wrap(disclosure[:asker_uid]) ++ (disclosure[:present_uids] || [])
+      end
+
+    case {mode, Enum.uniq(recipients)} do
+      {:relaxed, []} -> true
+      {:strict, []} -> false
+      {_mode, recipients} -> Scope.satisfied_by_all?(scope, recipients)
+    end
+  end
+
+  @doc """
+  Keeps the rows whose scope is disclosable to the current recipients.
+
+  One call evaluates each distinct scope once, so a result set full of hits
+  from the same few scopes costs a handful of membership resolutions instead
+  of one per row.
+  """
+  @spec filter_disclosable([row], (row -> String.t()), disclosure()) :: [row] when row: term()
+  def filter_disclosable(rows, scope_fun, disclosure) when is_function(scope_fun, 1) do
+    verdicts =
+      rows
+      |> Enum.map(scope_fun)
+      |> Enum.uniq()
+      |> Map.new(&{&1, disclosable?(&1, disclosure)})
+
+    Enum.filter(rows, &Map.fetch!(verdicts, scope_fun.(&1)))
+  end
+
+  @doc """
+  The empty disclosure context: no recipients beyond the querier.
+  """
+  @spec open_disclosure() :: disclosure()
+  def open_disclosure, do: %{mode: :relaxed, asker_uid: nil, present_uids: []}
+
+  defp reader_scopes(%{mode: :relaxed, asker_uid: asker}) when is_binary(asker),
+    do: Scope.accessible_scopes(asker)
+
+  defp reader_scopes(%{mode: :strict} = disclosure) do
+    recipients =
+      [disclosure[:asker_uid] | List.wrap(disclosure[:present_uids])]
+      |> Enum.filter(&is_binary/1)
+      |> Enum.uniq()
+
+    case recipients do
+      [first | _rest] ->
+        with {:ok, scopes} <- Scope.accessible_scopes(first) do
+          {:ok, Enum.filter(scopes, &Scope.satisfied_by_all?(&1, recipients))}
+        end
+
+      [] ->
+        {:ok, []}
+    end
+  end
+
+  defp reader_scopes(_open_or_invalid), do: {:ok, []}
+end

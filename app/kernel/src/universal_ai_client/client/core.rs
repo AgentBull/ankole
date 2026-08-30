@@ -1,6 +1,9 @@
+use std::future::Future;
+use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
+use futures_util::FutureExt;
 use futures_util::future::{AbortHandle, Abortable};
 use serde_json::{Value, json};
 use tokio::sync::mpsc;
@@ -114,22 +117,57 @@ pub fn start_stream(encoded_spec: &str, sink: EventSink) -> KernelResult<StreamH
     })
 }
 
-pub fn send_model_request(encoded_spec: &str) -> Result<Value, StreamError> {
+pub type RequestResultSink = Box<dyn FnOnce(Result<Value, StreamError>) + Send + 'static>;
+
+pub fn start_model_request(
+    encoded_spec: &str,
+    deliver: RequestResultSink,
+) -> Result<(), StreamError> {
     let spec = ModelRequestSpec::from_json(encoded_spec)
         .map_err(|reason| StreamError::new("invalid_spec", "spec", reason.to_string()))?;
     let runtime = runtime::runtime()
         .map_err(|reason| StreamError::new("runtime_unavailable", "runtime", reason.to_string()))?;
 
-    runtime.block_on(async move { run_model_request(spec).await })
+    runtime.spawn(deliver_request_result(run_model_request(spec), deliver));
+    Ok(())
 }
 
-pub fn send_raw_request(encoded_spec: &str) -> Result<Value, StreamError> {
+pub fn start_raw_request(
+    encoded_spec: &str,
+    deliver: RequestResultSink,
+) -> Result<(), StreamError> {
     let spec = RawRequestSpec::from_json(encoded_spec)
         .map_err(|reason| StreamError::new("invalid_spec", "spec", reason.to_string()))?;
     let runtime = runtime::runtime()
         .map_err(|reason| StreamError::new("runtime_unavailable", "runtime", reason.to_string()))?;
 
-    runtime.block_on(async move { run_raw_request(spec).await })
+    runtime.spawn(deliver_request_result(run_raw_request(spec), deliver));
+    Ok(())
+}
+
+// A panic inside the request future becomes an error result, so the owner that
+// waits for the delivery message always receives exactly one message.
+async fn deliver_request_result(
+    request: impl Future<Output = Result<Value, StreamError>>,
+    deliver: RequestResultSink,
+) {
+    let result = AssertUnwindSafe(request)
+        .catch_unwind()
+        .await
+        .unwrap_or_else(|panic| {
+            let message = panic
+                .downcast_ref::<&'static str>()
+                .copied()
+                .or_else(|| panic.downcast_ref::<String>().map(String::as_str))
+                .unwrap_or("unknown panic");
+            Err(StreamError::new(
+                "native_request_panicked",
+                "runtime",
+                format!("universal AI client request panicked: {message}"),
+            ))
+        });
+
+    deliver(result);
 }
 
 async fn run_model_request(spec: ModelRequestSpec) -> Result<Value, StreamError> {
@@ -184,4 +222,29 @@ async fn run_raw_request(spec: RawRequestSpec) -> Result<Value, StreamError> {
         "http_version": response.version,
         "http_negotiation": response.negotiation
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn a_panicking_request_future_delivers_an_error_result() {
+        let (result_tx, result_rx) = std::sync::mpsc::channel();
+        let deliver: RequestResultSink = Box::new(move |result| {
+            result_tx.send(result).unwrap();
+        });
+
+        deliver_request_result(
+            async {
+                panic!("request task exploded");
+            },
+            deliver,
+        )
+        .await;
+
+        let error = result_rx.recv().unwrap().unwrap_err();
+        assert_eq!(error.code, "native_request_panicked");
+        assert!(error.message.contains("request task exploded"));
+    }
 }

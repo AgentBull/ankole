@@ -57,6 +57,7 @@ Ankole includes these Agent Plugins:
 | `lark` | `lark-im`, `lark-oa`, `lark-office-suite` | Disabled |
 | `office` | `docx`, `xlsx`, `pptx` | Enabled |
 | `deep-research` | `create-deep-research` | Enabled |
+| `brain` | `brain-learning`, `resolve-before-asking`, `idea-lineage`, `applied-reading` | Enabled |
 | `github` | `github-auth`, `github-issues`, `github-pr-workflow`, `github-repo-management`, `github-webhooks` | Disabled |
 
 Member Skills exist only inside their Agent Plugin.
@@ -115,6 +116,13 @@ Skill discovery and execution do not depend on a special source kind.
 The Agent Library keeps all member Skill records current, including members of
 disabled Plugins. This keeps saved choices and the Console catalog intact.
 
+A shipped standalone or Plugin member Skill can declare
+`brain-recall-only: true`. It keeps the same global Skill name and all normal
+enablement rules, but it is omitted from the prompt catalog. Brain indexes its
+name, description, and tags as a small discovery record; `skill_view` remains
+the only loader for its full body and resources. Agent-installed Skills do not
+use this discovery mode.
+
 ### What a Job Saves and Loads
 
 The Job stores one optional `workspace_template_id`. At first execution
@@ -142,26 +150,20 @@ Each Job then performs only thread-owned selection:
 
 1. Resolve its projected Plugin IDs and Background-eligible members against the
    current catalog.
-2. Atomically rebuild a stable Job package view that contains only those
-   members and their current database-backed overlays. Initial overlay
-   resolution uses one complete RuntimeFabric batch.
-3. Pass the Job package roots through
-   `thread/start.selectedCapabilityRoots` with environment ID `local`.
+2. Render the ordinary members in the Job Skill index and keep all selected
+   members in the Ankole `skill_view` load set.
+3. Project enabled Skill-owned MCP servers separately.
 
-`thread/resume` restores the selected roots stored in the existing Codex
-thread; that method does not accept a new root list. The Job rebuilds the same
-view path before resume, so current disables still remove members from the
-stored root. Ankole does not mutate Agent-wide `skills.config` as a
-member-selection guarantee because sibling Jobs can select different members.
-Standalone Skills use project discovery under `.agents/skills`. Plugin member
-Skills stay inside the native Plugin package and are not projected as
-standalone project Skills.
+The Job does not pass Ankole Skill roots to Codex, use `.agents/skills`, or
+depend on Codex `skills/list`. This keeps Plugin and Skill selection inside the
+same Ankole enablement owner for the main Agent and Background Agent Jobs.
 
 Only enabled members that permit Background Agent Jobs add MCP settings. The
 optional workspace template is copied once and does not change runtime Plugin
 selection.
 
-RuntimeFabric exposes the catalog through `agent_plugin.list`.
+RuntimeFabric carries the enabled Agent Plugin catalog and Skill summaries in
+one Agent conversation context response.
 See [Background Agent Job](BackgroundAgentJob.md) for the complete Job contract.
 
 ### Change Capability Settings through the Console
@@ -213,8 +215,8 @@ The Registry keeps the active list in memory for the current process.
 The global AppConfigure key `plugins.enabled_ids` lists active Plugins. A
 missing or empty list enables none. An operator must enable each new Plugin.
 
-The Registry reads the list during startup. A later change takes effect only
-after a restart.
+The Plugin cohort reads the list during startup and resolves one immutable boot
+snapshot. A later change takes effect only after a restart.
 
 First-run setup is the only exception. While `setup.completed` is false, the
 Registry activates every discovered Control Plane Plugin. This keeps all
@@ -238,6 +240,20 @@ Each response row includes these fields:
 
 The Console can still list an inactive Plugin, and its old settings can remain
 in PostgreSQL. It adds no definitions, adapters, or processes until activation.
+
+### Recover the Boot Snapshot
+
+`Ankole.Plugins.Cohort` supervises the Registry before the Plugin runtime
+supervisor with `rest_for_one`. A Registry crash restarts both processes from
+the same immutable boot snapshot, so a later configuration edit cannot change
+the active set during fault recovery. A failure inside one Plugin child stays
+inside the runtime supervisor and does not restart the Registry.
+
+The AppConfigure Registry can read the active Plugin declarations from the
+live Plugin Registry when it recovers. If the Plugin Registry recovers, it
+replaces the complete Plugin declaration source before the runtime supervisor
+starts. These two paths keep the active snapshot, declarations, and supervised
+children consistent without restarting the rest of the control plane.
 
 ### Keep Plugin Code inside Control-Plane Contracts
 

@@ -1,5 +1,9 @@
-import { describe, expect, test } from 'bun:test'
-import { AgentEditorModel, agentUIDError, agentUIDFromDisplayName } from './agent-editor-model'
+import { beforeAll, describe, expect, test } from 'bun:test'
+import { AgentEditorModel, agentUIDError, agentUIDFromDisplayName, preloadTransliteration } from './agent-editor-model'
+
+// UID derivation upgrades from an ASCII-only fallback once the on-demand
+// transliteration table loads; the assertions cover the loaded behavior.
+beforeAll(() => preloadTransliteration())
 
 describe('AgentEditorModel', () => {
   test('keeps edits during refetch and resets when the route selects another agent', () => {
@@ -9,6 +13,8 @@ describe('AgentEditorModel', () => {
       uid: 'alpha',
       displayName: 'Alpha',
       avatarURL: '',
+      ownerPrincipalUID: 'operator',
+      groupMemoryDisclosureMode: 'strict' as const,
       role: 'Research Analyst'
     })
     expect(model.dirty.value).toBe(false)
@@ -18,6 +24,8 @@ describe('AgentEditorModel', () => {
       uid: 'alpha',
       displayName: 'Refetched Alpha',
       avatarURL: '',
+      ownerPrincipalUID: 'operator',
+      groupMemoryDisclosureMode: 'strict' as const,
       role: 'Research Analyst'
     })
 
@@ -27,6 +35,8 @@ describe('AgentEditorModel', () => {
       uid: 'beta',
       displayName: 'Beta',
       avatarURL: '',
+      ownerPrincipalUID: 'operator',
+      groupMemoryDisclosureMode: 'strict' as const,
       role: 'Operator'
     })
 
@@ -37,13 +47,15 @@ describe('AgentEditorModel', () => {
     model[Symbol.dispose]()
   })
 
-  test('reports the required display name, UID, and role before submission', () => {
+  test('reports the required display name, UID, role, and owner before submission', () => {
     const model = new AgentEditorModel()
 
     model.initialize('new', {
       uid: '',
       displayName: '',
       avatarURL: '',
+      ownerPrincipalUID: '',
+      groupMemoryDisclosureMode: 'strict' as const,
       role: ''
     })
     expect(model.draftError('new')).toBe('display_name_required')
@@ -56,26 +68,11 @@ describe('AgentEditorModel', () => {
     expect(model.draftError('edit')).toBe('role_required')
 
     model.role.value = 'Research Analyst'
+    expect(model.draftError('new')).toBe('owner_required')
+    expect(model.draftError('edit')).toBe('owner_required')
+
+    model.ownerPrincipalUID.value = 'operator'
     expect(model.draftError('new')).toBeUndefined()
-    model[Symbol.dispose]()
-  })
-
-  test('loads a legacy agent without a display name and requires it on the next edit', () => {
-    const model = new AgentEditorModel()
-
-    model.initialize('agent:legacy-agent', {
-      uid: 'legacy-agent',
-      displayName: '',
-      avatarURL: '',
-      role: 'Legacy Operator'
-    })
-
-    expect(model.uid.value).toBe('legacy-agent')
-    expect(model.draftError('edit')).toBe('display_name_required')
-
-    model.setDisplayName('Legacy Agent', false)
-    expect(model.uid.value).toBe('legacy-agent')
-    expect(model.draftError('edit')).toBeUndefined()
     model[Symbol.dispose]()
   })
 
@@ -85,6 +82,8 @@ describe('AgentEditorModel', () => {
       uid: '',
       displayName: '',
       avatarURL: '',
+      ownerPrincipalUID: 'operator',
+      groupMemoryDisclosureMode: 'strict' as const,
       role: 'Research Analyst'
     })
 
@@ -117,6 +116,8 @@ describe('AgentEditorModel', () => {
       uid: '',
       displayName: 'Invalid UID Agent',
       avatarURL: '',
+      ownerPrincipalUID: 'operator',
+      groupMemoryDisclosureMode: 'strict' as const,
       role: 'Research Analyst'
     })
     model.setUID('Invalid UID')

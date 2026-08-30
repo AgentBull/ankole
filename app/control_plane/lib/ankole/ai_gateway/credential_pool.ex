@@ -597,13 +597,8 @@ defmodule Ankole.AIGateway.CredentialPool do
   defp fallback_cooldown_ms(401), do: @unauthorized_cooldown_ms
   defp fallback_cooldown_ms(_provider_status), do: @default_cooldown_ms
 
-  defp credential_key(%{"id" => credential_id} = entry) do
-    revision =
-      case Map.get(entry, "health_revision") do
-        value when is_binary(value) and value != "" -> value
-        _missing -> "legacy"
-      end
-
+  defp credential_key(%{"id" => credential_id, "health_revision" => revision})
+       when is_binary(revision) and revision != "" do
     {credential_id, revision}
   end
 

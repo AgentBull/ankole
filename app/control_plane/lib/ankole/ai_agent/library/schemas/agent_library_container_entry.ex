@@ -15,8 +15,8 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentLibraryContainerEntry do
   @foreign_key_type :string
   @timestamps_opts [type: :utc_datetime_usec]
   # The only agent-owned files implemented by this table are the runtime docs
-  # seeded per agent. Skill overlays are semantic rows in `agent_skill_overlays`.
-  @source_kinds ~w(soul mission design)
+  # seeded per agent. Skill lessons are semantic rows in `agent_skill_lessons`.
+  @source_kinds ~w(soul mission design confidentiality_policy)
 
   schema "agent_library_container_entries" do
     belongs_to(:agent, Principal,

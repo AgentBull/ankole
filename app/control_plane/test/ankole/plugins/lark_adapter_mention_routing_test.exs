@@ -524,7 +524,8 @@ defmodule Ankole.Plugins.LarkAdapterMentionRoutingTest do
         adapter: "lark",
         config_ref: "app-config://#{Config.chat_config_key(name)}",
         filters: %{},
-        unaddressed_group_message_policy: policy
+        unaddressed_group_message_policy: policy,
+        unmatched_sender_policy: :create_standalone
       })
 
     binding

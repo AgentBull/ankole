@@ -95,30 +95,31 @@ defmodule Ankole.MixProject do
   defp deps do
     [
       {:archdo, ">= 0.0.0", github: "BadBeta/archdo", only: :dev, runtime: false},
-      {:phoenix, "~> 1.8.9"},
+      {:phoenix, "~> 1.8.13"},
       {:phoenix_ecto, "~> 4.7"},
       {:ecto_sql, "~> 3.14"},
-      {:postgrex, ">= 0.22.2"},
-      {:pgvector, "~> 0.4.0"},
+      {:postgrex, ">= 0.22.4"},
       {:phoenix_html, "~> 4.3"},
       {:phoenix_live_reload, "~> 1.7.0", only: :dev},
       {:opentelemetry_api, "~> 1.5"},
       {:opentelemetry, "~> 1.7"},
       {:opentelemetry_exporter, "~> 1.10"},
-      {:req, "~> 0.6"},
-      {:telemetry_metrics, "~> 1.1"},
-      {:telemetry_poller, "~> 1.3"},
-      {:localize, "~> 0.50"},
-      {:oban, "~> 2.23"},
+      {:req, "~> 0.7"},
+      {:mint_web_socket, "~> 1.0"},
+      {:telemetry_metrics, "~> 1.2"},
+      {:localize, "~> 1.2"},
+      {:oban, "~> 2.24"},
       {:crontab, "~> 1.2"},
       {:open_api_spex, "~> 3.22"},
       {:toml_elixir, "~> 3.1"},
+      {:yaml_elixir, "~> 2.12"},
+      {:pgvector, "~> 0.4"},
       {:tzdata, "~> 1.1"},
       {:hackney, "~> 4.7", override: true},
-      {:h2, "~> 0.11", override: true},
+      {:h2, "~> 0.12", override: true},
       {:dotenvy, "~> 1.1"},
-      {:torque, "~> 0.2.4"},
-      {:llm_db, "~> 2026.7"},
+      {:torque, "~> 0.2.7"},
+      {:llm_db, "~> 2026.8"},
       {:ankole_kernel, path: "../kernel"},
       {:feishu_openapi, path: "../../libs/feishu_openapi"},
       {:slack_openapi, path: "../../libs/slack_openapi"},
@@ -126,7 +127,7 @@ defmodule Ankole.MixProject do
       {:microsoft_openapi, path: "../../libs/microsoft_openapi"},
       {:google_openapi, path: "../../libs/google_openapi"},
       {:wecom_openapi, path: "../../libs/wecom_openapi"},
-      {:dns_cluster, "~> 0.2"},
+      {:dns_cluster, "~> 0.3"},
       {:bandit, "~> 1.12"}
     ]
   end
@@ -169,7 +170,8 @@ defmodule Ankole.MixProject do
       "e2e.real_llm": [
         "ecto.create --quiet",
         "ecto.migrate --quiet",
-        "test ../../tools/e2e/suites/lark_real_llm_e2e_test.exs --trace"
+        "test ../../tools/e2e/suites/lark_real_llm_e2e_test.exs " <>
+          "../../tools/e2e/suites/lark_workflow_real_llm_e2e_test.exs --trace"
       ],
       "e2e.ai_gateway_real_provider": [
         "ecto.create --quiet",

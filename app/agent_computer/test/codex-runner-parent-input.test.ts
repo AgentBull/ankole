@@ -4,7 +4,7 @@ import {
   pendingParentInputFromDynamicTool,
   PARENT_INPUT_TOOL_NAME,
   parentInputToolSpec
-} from '../src/core/codex-runner/parent-input'
+} from '../src/core/codex-runner/job/parent-input'
 
 describe('@ankole/agent-computer BackgroundAgentJob parent-input bridge', () => {
   it('publishes a bounded concrete tool contract for Default-mode background execution', () => {

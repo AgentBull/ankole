@@ -49,6 +49,25 @@ platforms: [linux]
 
 The `description` must state a specific trigger because the Agent uses it to decide whether to read the Skill. Set `ankole-runtime: background_job` when the work needs Job isolation. Set `platforms: [linux]` only when the Skill needs Linux tools.
 
+### Make a shipped Skill discoverable through Brain
+
+Use `brain-recall-only` for an SOP or method that should not appear in every prompt but should be found when the current work is semantically related:
+
+```yaml
+---
+name: idea-lineage
+description: Trace how one idea evolved through memory — first mention, best articulation, reversals, and the current live version, each cited from stored evidence.
+tags:
+  - idea lineage
+  - how my thinking evolved
+brain-recall-only: true
+---
+```
+
+This field is supported only for shipped standalone Skills and Skills in an Agent Plugin. Agent-installed Skills do not use this discovery mode. A shipped Skill name remains globally unique; Agent Plugin membership does not add a namespace. Brain derives the discovery record as `lazyload-agent-skills/<name>` from the standard Skill metadata.
+
+Do not add Object fields such as `slug`, `type`, `title`, or `aliases` to the Skill. Brain searches `name`, `description`, and `tags`, and uses the name and tags for natural-language resolution. The Skill body, all other Skill files, and Agent-specific lessons do not enter Brain. They remain available only through `skill_view` after discovery.
+
 ### Write the body
 
 Write for a capable Agent that does not know your local rules. State:
@@ -80,6 +99,8 @@ The dependency is available only while the Skill is enabled. It is not registere
 ### Verify the Skill
 
 Enable the Skill on a test Agent and give it a real task. Confirm that the Agent selects the Skill, reads the required files, and follows the completion criteria. If selection fails, improve `description`. If execution is unstable, make the order and constraints explicit.
+
+For a `brain-recall-only` Skill, also confirm that the normal Prompt does not list it and Brain can find it by its name, description, and tags. Confirm that `skill_view` loads the full Skill on a compatible execution surface and preserves the existing routing or rejection behavior on an incompatible surface. Then disable the Skill or its parent Agent Plugin and confirm that the same Agent can neither discover nor load it.
 
 ## Develop a Control Plane Plugin
 

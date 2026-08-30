@@ -6,7 +6,7 @@ test('the worker image init reaps orphaned descendants', async () => {
 
   const helper = Bun.spawn(
     [
-      requiredEnv('ANKOLE_BROWSER_NODE'),
+      process.execPath,
       '-e',
       `const child = require('node:child_process').spawn('/bin/sleep', ['0.2'], { detached: true, stdio: 'ignore' }); child.unref(); process.stdout.write(String(child.pid));`
     ],
@@ -41,10 +41,4 @@ async function processState(pid: number): Promise<string | undefined> {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
     throw error
   }
-}
-
-function requiredEnv(name: string): string {
-  const value = process.env[name]
-  if (!value) throw new Error(`${name} is required`)
-  return value
 }

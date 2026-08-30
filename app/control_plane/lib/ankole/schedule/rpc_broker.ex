@@ -450,8 +450,7 @@ defmodule Ankole.Schedule.RPCBroker do
   end
 
   defp cron_delivery_route_update?(delivery) when is_map(delivery) do
-    not is_nil(RPCWire.value(delivery, "targets")) or
-      not is_nil(RPCWire.value(delivery, "signal_channel_id"))
+    not is_nil(RPCWire.value(delivery, "targets"))
   end
 
   defp cron_delivery_route_update?(_delivery), do: false

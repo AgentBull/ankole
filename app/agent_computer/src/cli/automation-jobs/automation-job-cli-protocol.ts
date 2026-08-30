@@ -1,12 +1,12 @@
 import { z } from 'zod'
-
-const ModelIntegerID = z.number().int().min(1000).max(Number.MAX_SAFE_INTEGER)
+import { ModelIntegerID } from '../../core/model-integer-id'
+import { CLILabel } from '../primitives'
 
 const CreateAutomationJobCommand = z.object({
   operation: z.literal('create'),
   directory_path: z.string().trim().min(1).max(4096),
   cwd: z.string().trim().min(1).max(4096),
-  label: z.string().trim().min(1).max(500),
+  label: CLILabel,
   wake_on_failure: z.boolean()
 })
 
@@ -34,5 +34,3 @@ export const AutomationJobCLICommand = z.discriminatedUnion('operation', [
 ])
 
 export type AutomationJobCLICommand = z.output<typeof AutomationJobCLICommand>
-
-export type AutomationJobCLIResponse = { ok: true; result: Record<string, unknown> } | { ok: false; error: string }

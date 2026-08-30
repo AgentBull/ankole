@@ -42,31 +42,18 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobWorkerConfig do
     )
   end
 
-  @spec ensure_registered() :: :ok | {:error, term()}
-  def ensure_registered do
-    case AppConfigure.register_definitions([definition(), agent_cap_definition()]) do
-      :ok -> :ok
-      {:error, {:duplicate_key, _key}} -> :ok
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
   @spec max_turns_per_worker() :: pos_integer()
   def max_turns_per_worker do
-    with :ok <- ensure_registered(),
-         {:ok, value} <- AppConfigure.get(definition()) do
-      value
-    else
+    case AppConfigure.get(definition()) do
+      {:ok, value} -> value
       _error -> @default
     end
   end
 
   @spec max_running_per_agent() :: pos_integer()
   def max_running_per_agent do
-    with :ok <- ensure_registered(),
-         {:ok, value} <- AppConfigure.get(agent_cap_definition()) do
-      value
-    else
+    case AppConfigure.get(agent_cap_definition()) do
+      {:ok, value} -> value
       _error -> @agent_cap_default
     end
   end

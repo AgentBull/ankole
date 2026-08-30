@@ -6,6 +6,7 @@ defmodule Ankole.AppConfigure.Registry do
   use GenServer
 
   alias Ankole.AppConfigure.Definition
+  alias Ankole.AppConfigure.Declarations
   alias Ankole.AppConfigure.PatternDefinition
 
   @type registered_definition :: Definition.t() | PatternDefinition.t()
@@ -32,6 +33,14 @@ defmodule Ankole.AppConfigure.Registry do
   @spec register_patterns([PatternDefinition.t()]) :: :ok | {:error, term()}
   def register_patterns(patterns) when is_list(patterns) do
     GenServer.call(__MODULE__, {:register_patterns, patterns})
+  end
+
+  @doc false
+  @spec replace_declarations(atom(), [Definition.t()], [PatternDefinition.t()]) ::
+          :ok | {:error, term()}
+  def replace_declarations(source, definitions, patterns)
+      when is_atom(source) and is_list(definitions) and is_list(patterns) do
+    GenServer.call(__MODULE__, {:replace_declarations, source, definitions, patterns})
   end
 
   @doc """
@@ -79,7 +88,7 @@ defmodule Ankole.AppConfigure.Registry do
   end
 
   @doc """
-  Clears registered AppConfigure metadata for tests.
+  Resets registered AppConfigure metadata to the boot state for tests.
   """
   @spec clear_for_test() :: :ok
   def clear_for_test do
@@ -88,7 +97,10 @@ defmodule Ankole.AppConfigure.Registry do
 
   @impl true
   def init(_opts) do
-    {:ok, %{definitions: %{}, patterns: %{}}}
+    case boot_state() do
+      {:ok, state} -> {:ok, state}
+      {:error, reason} -> {:stop, reason}
+    end
   end
 
   @impl true
@@ -102,6 +114,14 @@ defmodule Ankole.AppConfigure.Registry do
   @impl true
   def handle_call({:register_patterns, patterns}, _from, state) do
     case put_patterns(state, patterns) do
+      {:ok, next_state} -> {:reply, :ok, next_state}
+      {:error, reason} -> {:reply, {:error, reason}, state}
+    end
+  end
+
+  @impl true
+  def handle_call({:replace_declarations, source, definitions, patterns}, _from, state) do
+    case replace_source(state, source, definitions, patterns) do
       {:ok, next_state} -> {:reply, :ok, next_state}
       {:error, reason} -> {:reply, {:error, reason}, state}
     end
@@ -134,20 +154,36 @@ defmodule Ankole.AppConfigure.Registry do
 
   @impl true
   def handle_call(:clear_for_test, _from, _state) do
-    {:reply, :ok, %{definitions: %{}, patterns: %{}}}
+    {:ok, state} = boot_state()
+    {:reply, :ok, state}
   end
 
-  defp put_definitions(state, definitions) do
+  defp boot_state do
+    with {:ok, state} <- put_definitions(empty_state(), Declarations.core_definitions(), :core),
+         {:ok, state} <- put_patterns(state, Declarations.core_patterns(), :core) do
+      restore_plugin_declarations(state)
+    end
+  end
+
+  defp empty_state do
+    %{definitions: %{}, definition_sources: %{}, patterns: %{}, pattern_sources: %{}}
+  end
+
+  defp put_definitions(state, definitions, source \\ :runtime) do
     Enum.reduce_while(definitions, {:ok, state}, fn
       %Definition{} = definition, {:ok, acc} ->
-        put_definition(acc, definition)
+        put_definition(acc, definition, source)
 
       definition, _acc ->
         {:halt, {:error, {:invalid_definition, definition}}}
     end)
   end
 
-  defp put_definition(%{definitions: definitions} = state, %Definition{key: key} = definition) do
+  defp put_definition(
+         %{definitions: definitions} = state,
+         %Definition{key: key} = definition,
+         source
+       ) do
     cond do
       Map.has_key?(definitions, key) ->
         {:halt, {:error, {:duplicate_key, key}}}
@@ -156,7 +192,13 @@ defmodule Ankole.AppConfigure.Registry do
         {:halt, {:error, {:duplicate_worker_env_name, definition.worker_env_name}}}
 
       true ->
-        {:cont, {:ok, %{state | definitions: Map.put(definitions, key, definition)}}}
+        {:cont,
+         {:ok,
+          %{
+            state
+            | definitions: Map.put(definitions, key, definition),
+              definition_sources: Map.put(state.definition_sources, key, source)
+          }}}
     end
   end
 
@@ -168,21 +210,76 @@ defmodule Ankole.AppConfigure.Registry do
     Enum.any?(Map.values(definitions), &(&1.worker_env_name == name))
   end
 
-  defp put_patterns(state, patterns) do
+  defp put_patterns(state, patterns, source \\ :runtime) do
     Enum.reduce_while(patterns, {:ok, state}, fn
       %PatternDefinition{} = pattern, {:ok, acc} ->
-        put_pattern(acc, pattern)
+        put_pattern(acc, pattern, source)
 
       pattern, _acc ->
         {:halt, {:error, {:invalid_pattern, pattern}}}
     end)
   end
 
-  defp put_pattern(%{patterns: patterns} = state, %PatternDefinition{id: id} = pattern) do
+  defp put_pattern(%{patterns: patterns} = state, %PatternDefinition{id: id} = pattern, source) do
     case Map.has_key?(patterns, id) do
-      true -> {:halt, {:error, {:duplicate_pattern, id}}}
-      false -> {:cont, {:ok, %{state | patterns: Map.put(patterns, id, pattern)}}}
+      true ->
+        {:halt, {:error, {:duplicate_pattern, id}}}
+
+      false ->
+        {:cont,
+         {:ok,
+          %{
+            state
+            | patterns: Map.put(patterns, id, pattern),
+              pattern_sources: Map.put(state.pattern_sources, id, source)
+          }}}
     end
+  end
+
+  defp restore_plugin_declarations(state) do
+    case Process.whereis(Ankole.Plugins.Registry) do
+      nil ->
+        {:ok, state}
+
+      registry ->
+        try do
+          {definitions, patterns} =
+            Ankole.Plugins.Registry.app_config_declarations(registry)
+
+          replace_source(state, :plugins, definitions, patterns)
+        catch
+          :exit, reason -> {:error, {:plugin_declaration_restore_failed, reason}}
+        end
+    end
+  end
+
+  defp replace_source(state, source, definitions, patterns) do
+    state = drop_source(state, source)
+
+    with {:ok, state} <- put_definitions(state, definitions, source),
+         {:ok, state} <- put_patterns(state, patterns, source) do
+      {:ok, state}
+    end
+  end
+
+  defp drop_source(state, source) do
+    definition_keys =
+      for {key, registered_source} <- state.definition_sources,
+          registered_source == source,
+          do: key
+
+    pattern_ids =
+      for {id, registered_source} <- state.pattern_sources,
+          registered_source == source,
+          do: id
+
+    %{
+      state
+      | definitions: Map.drop(state.definitions, definition_keys),
+        definition_sources: Map.drop(state.definition_sources, definition_keys),
+        patterns: Map.drop(state.patterns, pattern_ids),
+        pattern_sources: Map.drop(state.pattern_sources, pattern_ids)
+    }
   end
 
   defp require_exact(definitions, key) do

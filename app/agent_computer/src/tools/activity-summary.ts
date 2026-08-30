@@ -31,30 +31,53 @@ type CommandInvocation = {
 
 const SKIPPED_SEGMENT_COMMANDS = new Set(['.', 'cd', 'export', 'source'])
 const COMMAND_WRAPPERS = new Set(['command', 'env', 'exec', 'nice', 'nohup', 'sudo', 'timeout'])
+
+/** Subcommand vocabularies whose activity family is `<program> <subcommand>`. */
+const SUBCOMMAND_ACTIONS: Record<string, Record<string, CommandActivity['action']>> = {
+  mix: { test: 'test', compile: 'compile', format: 'check_format', 'deps.get': 'install' },
+  cargo: { test: 'test', build: 'build', check: 'check_project', fetch: 'install' },
+  go: { test: 'test', build: 'build' },
+  deno: { test: 'test' },
+  git: {
+    diff: 'check_changes',
+    status: 'check_changes',
+    log: 'view_history',
+    add: 'stage',
+    commit: 'commit',
+    push: 'push',
+    fetch: 'sync',
+    merge: 'sync',
+    pull: 'sync',
+    rebase: 'sync'
+  }
+}
+
+/** Package runners that share the `run`-unwrapping subcommand shape. */
+const PACKAGE_MANAGERS = new Set(['bun', 'npm', 'pnpm', 'yarn'])
+
+/** Programs whose activity does not depend on a subcommand. */
+const PROGRAM_ACTIVITIES: Record<string, CommandActivity> = {
+  pytest: { action: 'test', family: 'pytest' },
+  rg: { action: 'search_code', family: 'rg' },
+  ripgrep: { action: 'search_code', family: 'rg' },
+  grep: { action: 'search_code', family: 'grep' },
+  find: { action: 'find_files', family: 'find' },
+  fd: { action: 'find_files', family: 'fd' },
+  tsc: { action: 'check_types', family: 'TypeScript' },
+  tsgo: { action: 'check_types', family: 'TypeScript' },
+  oxfmt: { action: 'check_format', family: 'formatter' },
+  prettier: { action: 'check_format', family: 'formatter' },
+  oxlint: { action: 'check_code', family: 'linter' },
+  eslint: { action: 'check_code', family: 'linter' }
+}
+
+/** The full recognized vocabulary, used to unwrap `sudo`/`env`-style wrappers. */
 const KNOWN_PROGRAMS = new Set([
-  'bun',
-  'cargo',
-  'deno',
-  'eslint',
-  'fd',
-  'find',
-  'git',
-  'go',
-  'grep',
-  'mix',
-  'npm',
-  'oxfmt',
-  'oxlint',
-  'pnpm',
-  'prettier',
-  'pytest',
+  ...Object.keys(SUBCOMMAND_ACTIONS),
+  ...PACKAGE_MANAGERS,
+  ...Object.keys(PROGRAM_ACTIVITIES),
   'python',
-  'python3',
-  'rg',
-  'ripgrep',
-  'tsc',
-  'tsgo',
-  'yarn'
+  'python3'
 ])
 
 /** Keeps at most the nearest parent directory and basename for user-visible activity. */
@@ -122,46 +145,15 @@ function commandInvocations(command: string): CommandInvocation[] {
 
 function knownCommandActivity({ program, args }: CommandInvocation): CommandActivity | undefined {
   const subcommand = firstPositional(args)
+  const subcommandAction = subcommand ? SUBCOMMAND_ACTIONS[program]?.[subcommand] : undefined
+  if (subcommandAction) return { action: subcommandAction, family: `${program} ${subcommand}` }
 
-  if (program === 'mix') {
-    if (subcommand === 'test') return { action: 'test', family: 'mix test' }
-    if (subcommand === 'compile') return { action: 'compile', family: 'mix compile' }
-    if (subcommand === 'format') return { action: 'check_format', family: 'mix format' }
-    if (subcommand === 'deps.get') return { action: 'install', family: 'mix deps.get' }
-  }
-
-  if (program === 'bun') return packageCommandActivity('bun', args)
-  if (['npm', 'pnpm', 'yarn'].includes(program)) return packageCommandActivity(program, args)
-
-  if (program === 'cargo') {
-    if (subcommand === 'test') return { action: 'test', family: 'cargo test' }
-    if (subcommand === 'build') return { action: 'build', family: 'cargo build' }
-    if (subcommand === 'check') return { action: 'check_project', family: 'cargo check' }
-    if (subcommand === 'fetch') return { action: 'install', family: 'cargo fetch' }
-  }
-
-  if (program === 'go') {
-    if (subcommand === 'test') return { action: 'test', family: 'go test' }
-    if (subcommand === 'build') return { action: 'build', family: 'go build' }
-  }
-
-  if (program === 'deno' && subcommand === 'test') return { action: 'test', family: 'deno test' }
-  if (program === 'pytest') return { action: 'test', family: 'pytest' }
+  if (PACKAGE_MANAGERS.has(program)) return packageCommandActivity(program, args)
   if (['python', 'python3'].includes(program) && args[0] === '-m' && args[1] === 'pytest') {
     return { action: 'test', family: 'pytest' }
   }
 
-  if (['rg', 'ripgrep', 'grep'].includes(program)) {
-    return { action: 'search_code', family: program === 'ripgrep' ? 'rg' : program }
-  }
-  if (['find', 'fd'].includes(program)) return { action: 'find_files', family: program }
-
-  if (program === 'git') return gitCommandActivity(subcommand)
-  if (['tsc', 'tsgo'].includes(program)) return { action: 'check_types', family: 'TypeScript' }
-  if (['oxfmt', 'prettier'].includes(program)) return { action: 'check_format', family: 'formatter' }
-  if (['oxlint', 'eslint'].includes(program)) return { action: 'check_code', family: 'linter' }
-
-  return undefined
+  return PROGRAM_ACTIVITIES[program]
 }
 
 function packageCommandActivity(program: string, args: string[]): CommandActivity | undefined {
@@ -172,20 +164,6 @@ function packageCommandActivity(program: string, args: string[]): CommandActivit
   if (subcommand === 'build') return { action: 'build', family: `${program} build` }
   if (subcommand === 'lint') return { action: 'check_code', family: `${program} lint` }
   if (subcommand === 'install' || first === 'install') return { action: 'install', family: `${program} install` }
-  return undefined
-}
-
-function gitCommandActivity(subcommand: string | undefined): CommandActivity | undefined {
-  if (subcommand === 'diff' || subcommand === 'status') {
-    return { action: 'check_changes', family: `git ${subcommand}` }
-  }
-  if (subcommand === 'log') return { action: 'view_history', family: 'git log' }
-  if (subcommand === 'add') return { action: 'stage', family: 'git add' }
-  if (subcommand === 'commit') return { action: 'commit', family: 'git commit' }
-  if (subcommand === 'push') return { action: 'push', family: 'git push' }
-  if (['fetch', 'merge', 'pull', 'rebase'].includes(subcommand ?? '')) {
-    return { action: 'sync', family: `git ${subcommand}` }
-  }
   return undefined
 }
 

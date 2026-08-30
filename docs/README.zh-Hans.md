@@ -35,7 +35,7 @@ SignalsGateway ---- PostgreSQL ---- AIGateway ---- 模型提供商
 | --- | --- | --- |
 | SignalsGateway | 接收外部平台事件、启动 Agent 回合并发送回复 | [SignalsGateway](design-docs/SignalsGateway.md) |
 | AIGateway | 选择模型提供商，并为每个主体保存 Response | [AIGateway](design-docs/AIGateway.md) |
-| Brain | 保存有用知识，并在 Agent 需要时找出这些知识 | [Brain](design-docs/Brain.md) |
+| Brain | 保存实例共享知识，并在 Agent 需要时找出这些知识 | [BrainV3](design-docs/BrainV3.md) |
 | RuntimeFabric | 在进程之间传送实时消息、RPC 调用和文件 | [RuntimeFabric](design-docs/RuntimeFabric.md) |
 | Agent Computer | 运行模型循环、Codex 和工具 | `app/agent_computer/` |
 | PostgreSQL | 保存重启后仍然需要的事实 | `app/control_plane/priv/repo/migrations/` 下的迁移 |
@@ -97,7 +97,7 @@ Workspace。中国市场模型 Plugin 为 AIGateway 增加模型提供商。
 
 `Ankole.Application` 按以下顺序启动子进程：
 
-1. Telemetry、Repo 和 Brain 任务监督进程
+1. Telemetry 和 Repo
 2. AppConfigure 注册表与缓存
 3. I18n 翻译表与安装引导
 4. Oban
@@ -106,7 +106,7 @@ Workspace。中国市场模型 Plugin 为 AIGateway 增加模型提供商。
 7. SignalsGateway 监督进程
 8. 可选的身份启动同步与 RuntimeEvents
 9. AIGateway 模型信息缓存
-10. DNSCluster 与 Phoenix 请求入口
+10. Phoenix 请求入口
 
 这个顺序是契约。后启动的进程可以使用前面已经启动的服务。Phoenix 请求入口最后启动，
 避免请求到达时所需服务尚未就绪。
@@ -120,7 +120,7 @@ PostgreSQL 保存以下数据，因为 Ankole 重启后仍然需要它们：
 - 消息连接、频道、消息、删除标记、ActorEvent 和待发回复
 - 定时规则和每次计划执行
 - AIGateway 对话、消息、压缩结果和模型提供商
-- Brain 词条、正文、关系、资料、引用、聊天摘要、游标和审计记录
+- Brain 页面、版本、chunk、claim、时间线、链接、Source、schema pack、矛盾与 skill lesson
 - BackgroundAgentJob 及其回合记录
 
 系统可以重新生成投递、激活、执行进程分配和在线执行进程记录。即使这些记录丢失，
@@ -205,18 +205,15 @@ bun run e2e
 tools/e2e/run --chaos
 tools/e2e/run --real-provider --providers=available
 tools/e2e/run --real-llm
-tools/e2e/run --brain-real-llm
 ```
 
-默认 E2E 模式运行门控测试套件。真实平台测试需要运维人员提供凭据。Brain 真实模型
-测试不会随 `--all` 运行。
+默认 E2E 模式运行门控测试套件。真实平台测试需要运维人员提供凭据。
 
 ## 阅读顺序
 
 1. 先读本文，确认各模块负责什么，以及数据怎样流动。
 2. 阅读 [Tradeoffs and Known Limits](TradeoffsAndKnownLimits.md)。
 3. 阅读将要修改的子系统设计文档。
-4. Brain 部署前阅读 [Brain 运维文档](operations/Brain.zh-Hans.md)。
 
 ## 文档索引
 
@@ -224,8 +221,8 @@ tools/e2e/run --brain-real-llm
 | --- | --- |
 | [AIGateway](design-docs/AIGateway.md) | 模型提供商、Response 历史、上下文压缩和生成文件 |
 | [SignalsGateway](design-docs/SignalsGateway.md) | 接收平台消息、运行 Agent、预览和发送回复 |
-| [Brain](design-docs/Brain.md) | 知识、检索、保存的资料和 Dreaming |
-| [Brain 运维](operations/Brain.zh-Hans.md) | PostgreSQL 要求与运维恢复 |
+| [BrainV3](design-docs/BrainV3.md) | 实例共享知识、作用域披露、学习与 Dreaming |
+| [Skill Lessons](design-docs/SkillLessons.md) | 来自已完成工作的租约制逐 skill 现场笔记 |
 | [RuntimeFabric](design-docs/RuntimeFabric.md) | ZeroMQ 消息、RPC 和文件传输 |
 | [Schedule](design-docs/Schedule.md) | 单次唤醒、周期任务和 ActorEvent |
 | [BackgroundAgentJob](design-docs/BackgroundAgentJob.md) | 进程失败后仍可继续的后台工作与 Codex 执行 |

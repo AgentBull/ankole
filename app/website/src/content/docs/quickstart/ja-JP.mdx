@@ -1248,24 +1248,20 @@ export const identityTabs = [
 ]
 
 export const modelAdvanced = {
-  title: '任意のモデルプロファイルと provider の調整',
-  summary: 'Agent が必要になるまで、任意の能力スロットは空のままにしてください。',
+  title: '任意の Agent profile と Brain モデル',
+  summary: 'Agent の能力 profile は必要な場合だけ設定します。Brain モデルはインスタンス全体に適用されます。',
   steps: [
     {
-      title: '任意の能力プロファイルを追加する',
+      title: '任意の Agent 能力 profile を追加する',
       fields: [
         {
           name: 'Background Agent Jobs',
           description:
-            '永続的な Background Agent Jobs を実行します。保存されるプロファイルキーは現在 coding です。メッセージにはコードが多く含まれるため、通常の会話はこれに切り替わりません。'
+            'coding profile を使って、永続的な Background Agent Jobs を実行します。メッセージにコードが多くても、通常の会話はこの profile を選びません。'
         },
         {
           name: 'vision_fallback',
           description: 'プライマリモデルが画像を検査できないときのフォールバック。'
-        },
-        {
-          name: 'embedding / rerank',
-          description: '取得と結果の順序付け用のモデル。'
         },
         {
           name: 'web_search / web_fetch',
@@ -1275,6 +1271,38 @@ export const modelAdvanced = {
           name: 'image_generate',
           description: '画像生成用のモデル。'
         }
+      ]
+    },
+    {
+      title: 'インスタンスの Brain モデルを設定する',
+      body: [
+        'Console → AppConfigure → Brain を開きます。これらの設定はすべての Agent に適用され、Agent profile には含まれません。'
+      ],
+      fields: [
+        {
+          name: 'brain.embedding_model',
+          description: 'ベクトル検索を有効にします。Provider とモデルを選び、embedding の次元数を入力します。'
+        },
+        {
+          name: 'brain.rerank_model',
+          description: '融合した検索結果を rerank します。空の場合は融合後の順序を保ちます。'
+        },
+        {
+          name: 'brain.web_fetch_model',
+          description: 'URL Source の読み取り可能な本文を取得します。'
+        },
+        {
+          name: 'brain.extraction_model',
+          description: 'Signal の会話と Source から知識を抽出します。'
+        },
+        {
+          name: 'brain.dreaming_model',
+          description: '知識を統合し、モデルが必要な保守タスクを実行します。'
+        }
+      ],
+      links: [
+        { label: 'Brain ガイド', href: '../brain/' },
+        { label: 'AppConfigure リファレンス', href: '../app-configuration/' }
       ]
     }
   ]
@@ -1853,8 +1881,8 @@ export const channelTabs = [
 ]
 
 export const signalAdvanced = {
-  title: 'グループ動作、秘密 memory、主体 namespace',
-  summary: '安全な最初の binding は、アドレス指定された場合にのみ返信し、デフォルトの共有 memory スコープを維持します。',
+  title: 'グループでの動作と identity mapping',
+  summary: '最初の設定では、Agent 宛のメッセージだけに返信させてください。',
   steps: [
     {
       title: 'Agent がアドレス指定されていないグループメッセージをどう処理するかを選択する',
@@ -1874,12 +1902,6 @@ export const signalAdvanced = {
       ],
       caution:
         'provider がそれらのメッセージを配信する必要があります。DingTalk と WeCom は addressed_only のみをサポートします。Slack と Lark は、部屋全体を観察できるようになる前に追加のイベントまたは scope が必要です。'
-    },
-    {
-      title: '秘密 memory は機密性の高いチャンネルにのみ使用する',
-      body: [
-        'デフォルトの共有スコープにより、Agent は会話を共有知識として使用できます。秘密 memory は、そのチャンネルの呼び出された履歴をチャンネルのスコープ内に保ちます。'
-      ]
     },
     {
       title: 'namespace を identity マッピングのキーとして扱う',
@@ -1974,6 +1996,8 @@ identity ソースとチャットチャンネルには異なるプラットフ�
   tabs={identityTabs}
 />
 
+<span id="llm-providers" aria-hidden="true" />
+
 ## 3. LLM Provider を追加して Agent を作成する
 
 Agent のモデルプロファイルはモデル参照を保存するため、最初に LLM Provider を追加してください。Console にサインインし、**Providers → New provider** を開いて、provider の種類を選択し、安定した Provider ID を付け、エンドポイントと credential のフィールドを入力して保存してください。
@@ -2017,7 +2041,7 @@ Console でチャットプラットフォームの Control Plane Plugin を有�
 
 ### Console で接続を完了する
 
-現在のリリースは直接接続を使用します。1 つの routing ルールが 1 つの Channel Provider を 1 つの Agent に接続します。これは、アダプタ、アプリの credential、ターゲット Agent、グループメッセージの動作、memory の動作を記録します。bot ごとに別のルールを作成してください。
+現在のリリースは直接接続を使用します。1 つの routing ルールが 1 つの Channel Provider を 1 つの Agent に接続します。これは、アダプタ、アプリの credential、ターゲット Agent、グループメッセージの動作を記録します。bot ごとに別のルールを作成してください。
 
 Console で、**Signal Routing → New routing rule** を開き、設定してください：
 
@@ -2027,7 +2051,6 @@ Console で、**Signal Routing → New routing rule** を開き、設定して�
 | **Adapter** | Slack、Teams、Lark/Feishu、DingTalk、または WeCom |
 | **Rule name** | `slack-main` や `lark-main` などの安定した名前 |
 | **Group message mode** | `addressed_only` から始める |
-| **Confidential memory** | 最初のテストではオフのままにする |
 | **Channel settings** | チャンネルタブの credential と値を貼り付ける |
 
 ルールを保存してください。リストに enabled として表示される必要があります。フォームが credential を拒否した場合は、IM をテストする前にそのエラーを修正してください。アダプタはまだ接続を開いていません。
@@ -2050,6 +2073,8 @@ bot をテスト用の会話に追加してください。グループチャッ�
 > @Ankole 何ができますか。どのチームにサービスを提供していますか？
 
 最初の実際のモデル返信の後、Agent の mission、モデル、グループチャットポリシーをチーム用に調整してください。
+
+<span id="agent-not-replying" aria-hidden="true" />
 
 ### Agent が返信しない場合
 

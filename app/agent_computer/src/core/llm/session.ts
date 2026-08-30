@@ -1,6 +1,6 @@
 import OpenAI from 'openai'
 import { Buffer } from 'node:buffer'
-import { recordValue, type JsonObject as JSONObject } from '@agentbull/active-support'
+import { ms, recordValue, type JsonObject as JSONObject } from '@agentbull/active-support'
 import { ResponsesWS } from 'openai/resources/responses/ws'
 import { ResponsesWSBase } from 'openai/resources/responses/ws-base'
 import type { ResponseCreateParams, ResponseOutputItem } from 'openai/resources/responses/responses'
@@ -63,9 +63,9 @@ type AIGatewayToolResultsRecordedFrame = {
   response?: { id?: string }
 }
 
-const firstResponseEventDiagnosticMs = 300_000
-const standardResponseEventStaleMs = 180_000
-const largeResponseEventStaleMs = 300_000
+const firstResponseEventDiagnosticMs = ms('5m')
+const standardResponseEventStaleMs = ms('3m')
+const largeResponseEventStaleMs = ms('5m')
 const largeResponseRequestTokenThreshold = 100_000
 const responseAdmissionFrameTypes = new Set(['response.created', 'response.queued', 'response.in_progress'])
 
@@ -95,8 +95,9 @@ class AIGatewayResponsesTurn implements ModelTurn {
     const result = await this.withSingleFlight(() => this.callOverWebSocket(params))
     // A response that holds a truncated tool call must not become the anchor:
     // the stored thread would end on a function call without an output, and
-    // upstream providers reject that on continuation. The salvage message
-    // continues from the previous anchor, on the same path as an error retry.
+    // upstream providers reject that on continuation. The cut calls and their
+    // error results replay instead as input items from the previous anchor,
+    // on the same path as an error retry.
     const anchorable = result.message.stopReason !== 'error' && !result.message.truncatedToolCalls?.length
     if (result.responseID && anchorable) this.advanceAnchor(result.responseID)
     return result
@@ -375,12 +376,12 @@ class AIGatewayResponsesTurn implements ModelTurn {
     }
   }
 
+  // The conversation anchor holds for the first call only. Every later call
+  // continues the response this one produced, so the anchor is replaced rather
+  // than extended.
   private advanceAnchor(responseID: string): void {
-    this.stateful = {
-      ...this.stateful,
-      conversationID: undefined,
-      previousResponseID: responseID
-    }
+    const { actorEventID, truncation, metadata } = this.stateful
+    this.stateful = { actorEventID, truncation, metadata, previousResponseID: responseID }
   }
 
   private discardSocket(): void {

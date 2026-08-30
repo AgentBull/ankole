@@ -7,14 +7,12 @@ defmodule AnkoleWeb.PermissionGrantControllerTest do
   alias Ankole.AppConfigure.Registry
   alias Ankole.AuthZ
   alias Ankole.Setup.Config, as: SetupConfig
-  alias AnkoleWeb.Session, as: WebSession
 
   setup do
     allow_cache_database_access()
     Registry.clear_for_test()
     Cache.clear_for_test()
 
-    :ok = SetupConfig.ensure_registered()
     {:ok, false} = SetupConfig.put_completed(false)
     :ok = SetupConfig.delete_bootstrap_activation_code()
 
@@ -161,35 +159,14 @@ defmodule AnkoleWeb.PermissionGrantControllerTest do
     assert %{"error" => %{"code" => "not_found"}} = json_response(conn, 404)
   end
 
-  defp bearer_conn(conn) do
-    {:ok, true} = SetupConfig.put_completed(true)
-    admin = human_fixture(%{uid: unique_uid("permission-grant-admin")})
-    assert {:ok, _root} = AuthZ.root_init_admin(admin.principal.uid)
-
-    access_token =
+  test "deleting a malformed grant id answers not found in the console envelope", %{conn: conn} do
+    conn =
       conn
-      |> init_test_session(%{})
-      |> WebSession.put_admin_session(%{
-        principal_uid: admin.principal.uid,
-        provider_id: "lark-main",
-        external_id: "external-1"
-      })
-      |> post(~p"/.internal-apis/oauth/token", %{
-        "grant_type" => "urn:ankole:params:oauth:grant-type:browser-session"
-      })
-      |> json_response(200)
-      |> Map.fetch!("access_token")
+      |> bearer_conn()
+      |> recycle_api()
+      |> delete(~p"/api/v1/permission-grants/not-a-uuid")
 
-    conn
-    |> recycle()
-    |> put_req_header("authorization", "Bearer #{access_token}")
-    |> put_req_header("content-type", "application/json")
-  end
-
-  defp recycle_api(conn) do
-    conn
-    |> recycle()
-    |> put_req_header("authorization", get_req_header(conn, "authorization") |> List.first())
-    |> put_req_header("content-type", "application/json")
+    assert %{"error" => %{"code" => "not_found", "message" => message}} = json_response(conn, 404)
+    assert is_binary(message)
   end
 end

@@ -89,7 +89,7 @@ names.
 - A key with `console_writable: false` moves into one collapsed group. An
   operator can open the group and read the current value, and a key that another
   page writes also links to that page.
-- A declared key prefix, such as `brain.`, replaces its member rows with one row
+- A declared key prefix, such as `observability.traces.`, replaces its member rows with one row
   and edits every member on one page. The key stays the save unit: the page
   writes each changed key separately, and it checks every changed value before
   the first write, so one rejected value does not leave the group part written.
@@ -248,6 +248,20 @@ namespace.
 ## Startup Order
 
 The registry and cache start after `Ankole.Repo`. Boot-time consumers start after the AppConfigure processes.
+
+The registry rebuilds all core declarations from one code catalog when it
+starts. If the Control Plane Plugin Registry is running, AppConfigure also
+restores the exact definitions and patterns from its active boot snapshot.
+Thus, an AppConfigure Registry crash does not restart unrelated consumers or
+leave the Console with a partial declaration set.
+
+The catalog is the only registration path for core declarations. A config
+owner reads and writes through its declared definition and does not register
+at call time; a definition missing from the catalog fails its callers loudly.
+
+Plugin declarations form one replaceable source. A new Plugin boot snapshot
+replaces that complete source in one Registry call. This operation removes
+declarations from inactive Plugins and does not change core declarations.
 
 If a committed setting changes a live process, the subsystem that uses the
 setting must apply it after the write.

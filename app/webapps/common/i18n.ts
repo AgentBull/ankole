@@ -1,43 +1,67 @@
-import i18n, { type Resource } from 'i18next'
+import { isRecord } from '@agentbull/active-support'
+import i18n from 'i18next'
 import MF2 from 'i18next-mf2'
 import { initReactI18next } from 'react-i18next'
-import enUS from '../../locales/en-US.toml'
-import jaJP from '../../locales/ja-JP.toml'
-import koKR from '../../locales/ko-KR.toml'
-import zhHansCN from '../../locales/zh-Hans-CN.toml'
 
-const catalogs = {
-  'en-US': enUS,
-  'zh-Hans-CN': zhHansCN,
-  'ja-JP': jaJP,
-  'ko-KR': koKR
-} as const
+// Each catalog loads through a dynamic import so a session only pays for the
+// active locale plus the en-US fallback, not all four catalogs.
+const catalogLoaders: Record<string, () => Promise<{ default: unknown }>> = {
+  'en-US': () => import('../../locales/en-US.toml'),
+  'ja-JP': () => import('../../locales/ja-JP.toml'),
+  'ko-KR': () => import('../../locales/ko-KR.toml'),
+  'zh-Hans-CN': () => import('../../locales/zh-Hans-CN.toml')
+}
 
-const resources = Object.fromEntries(
-  Object.entries(catalogs).map(([locale, catalog]) => [locale, { translation: clientCatalog(catalog) }])
-) as Resource
+// Native labels are locale-invariant constants of the locale itself, so a
+// picker can name every choice without loading the other catalogs.
+const nativeLocaleLabels: Record<string, string> = {
+  'en-US': 'English',
+  'ja-JP': '日本語',
+  'ko-KR': '한국어',
+  'zh-Hans-CN': '简体中文'
+}
 
-const supportedLngs = Object.keys(catalogs)
+const supportedLngs = Object.keys(catalogLoaders)
+const loadedLocales = new Map<string, Promise<void>>()
 
-i18n
-  .use(MF2)
-  .use(initReactI18next)
-  .init({
-    fallbackLng: 'en-US',
-    i18nFormat: {
-      parseErrorHandler: (_err: Error, _key: string, source: string) => source
-    },
-    initAsync: false,
-    interpolation: { escapeValue: false },
-    load: 'currentOnly',
-    // The Phoenix shell writes the server-selected locale to `<html lang>`, so
-    // the SPA starts with the same locale before it fetches any user state.
-    lng: activeLocale(),
-    ns: ['translation'],
-    react: { useSuspense: false },
-    resources,
-    supportedLngs
-  })
+/**
+ * Loads one catalog and makes it available to `t`. The first call also
+ * initializes i18next synchronously with that catalog, so rendering after the
+ * returned promise settles never shows untranslated keys. `mountApp` awaits
+ * the active locale and the en-US fallback before the first render.
+ */
+export function loadLocale(locale: string): Promise<void> {
+  const supported = supportedLngs.includes(locale) ? locale : 'en-US'
+  let loading = loadedLocales.get(supported)
+  if (!loading) {
+    loading = catalogLoaders[supported]!().then(module => {
+      const catalog = clientCatalog(module.default)
+      if (i18n.isInitialized) {
+        i18n.addResourceBundle(supported, 'translation', catalog)
+        return
+      }
+      i18n
+        .use(MF2)
+        .use(initReactI18next)
+        .init({
+          fallbackLng: 'en-US',
+          i18nFormat: {
+            parseErrorHandler: (_err: Error, _key: string, source: string) => source
+          },
+          initAsync: false,
+          interpolation: { escapeValue: false },
+          load: 'currentOnly',
+          lng: activeLocale(),
+          ns: ['translation'],
+          react: { useSuspense: false },
+          resources: { [supported]: { translation: catalog } },
+          supportedLngs
+        })
+    })
+    loadedLocales.set(supported, loading)
+  }
+  return loading
+}
 
 export default i18n
 
@@ -48,15 +72,14 @@ export function availableLocaleIDs(): string[] {
 
 /** Returns a short native-language label for locale pickers. */
 export function nativeLocaleLabel(locale: string): string {
-  if (!supportedLngs.includes(locale)) return locale
-
-  const fixedT = i18n.getFixedT(locale)
-  const label = fixedT('locale.native_label')
-
-  return label === 'locale.native_label' ? locale : label
+  return nativeLocaleLabels[locale] ?? locale
 }
 
-function activeLocale() {
+/**
+ * The Phoenix shell writes the server-selected locale to `<html lang>`, so
+ * the SPA starts with the same locale before it fetches any user state.
+ */
+export function activeLocale(): string {
   if (typeof document === 'undefined') return 'en-US'
   return document.documentElement.lang || 'en-US'
 }
@@ -96,8 +119,4 @@ function normalizeCatalogNode(node: unknown, path: string[]): unknown {
   return Object.fromEntries(
     Object.entries(node).map(([key, value]) => [key, normalizeCatalogNode(value, [...path, key])])
   )
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }

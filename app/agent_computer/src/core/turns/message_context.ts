@@ -2,9 +2,12 @@ import { recordValue, type JsonObject as JSONObject } from '@agentbull/active-su
 import type { TurnStart } from '../../lanes/actor_lane'
 import { formatZonedDateTime } from '../../prompts/zoned_time'
 import type { TextContent, UserMessage } from '../llm'
+import { scheduleTurnContextFromTurnStart } from './schedule_turn_context'
 
 const AGENT_ENVIRONMENT_INFO_OPEN = '<agent_environment_info>'
 const AGENT_ENVIRONMENT_INFO_CLOSE = '</agent_environment_info>'
+const AGENT_ENVIRONMENT_INFO_TAG = /<\s*\/?\s*agent_environment_info\s*>/giu
+const ENVIRONMENT_INFO_LINE_BREAK = /[\r\n\u2028\u2029]+/gu
 
 /**
  * Prepends actor-event environment facts to a user message.
@@ -58,28 +61,28 @@ export function actorEventEnvironmentInfoLines(
  * only values that can legitimately change between turns in one conversation.
  */
 export function turnRequestEnvironmentInfoLines(turnStart: TurnStart): string[] {
-  const context = recordValue(turnStart.request_context)
-  const origin = recordValue(context?.schedule_origin)
-  if (!origin) return []
+  const context = scheduleTurnContextFromTurnStart(turnStart)
+  if (!context) return []
+
+  const origin = context.origin
 
   const lines = [
-    `schedule_turn_mode: ${stringValue(context?.turn_mode) ?? 'unknown'}`,
-    `schedule_due_at: ${stringValue(origin.due_at) ?? 'unknown'}`,
-    `schedule_fired_at: ${stringValue(origin.fired_at) ?? 'unknown'}`,
-    `schedule_timezone: ${stringValue(origin.timezone) ?? 'unknown'}`,
-    `schedule_silent_success_allowed: ${context?.silent_success_allowed === true}`
+    `schedule_turn_mode: ${context.mode}`,
+    `schedule_due_at: ${origin.dueAt ?? 'unknown'}`,
+    `schedule_fired_at: ${origin.firedAt ?? 'unknown'}`,
+    `schedule_timezone: ${origin.timezone ?? 'unknown'}`,
+    `schedule_silent_success_allowed: ${context.silentSuccessAllowed}`
   ]
 
-  const cronScheduleName = stringValue(origin.cron_schedule_name)
+  const cronScheduleName = origin.cronScheduleName
   if (cronScheduleName) lines.push(`cron_schedule_name: ${cronScheduleName}`)
 
-  const identicalReplies = context?.consecutive_identical_replies
-  if (typeof identicalReplies === 'number' && identicalReplies >= 2) {
+  const identicalReplies = context.consecutiveIdenticalReplies
+  if (identicalReplies !== undefined) {
     lines.push(`schedule_consecutive_identical_replies: ${identicalReplies}`)
   }
 
-  const payload = recordValue(origin.payload)
-  if (payload && Object.keys(payload).length > 0) lines.push(`schedule_payload: ${JSON.stringify(payload)}`)
+  if (Object.keys(origin.payload).length > 0) lines.push(`schedule_payload: ${JSON.stringify(origin.payload)}`)
 
   return lines
 }
@@ -113,7 +116,15 @@ function upsertEnvironmentInfoPart(message: UserMessage, lines: string[]): UserM
  * provider but easy for the model to distinguish from user prose.
  */
 function renderAgentEnvironmentInfoBlock(lines: string[]): string {
-  return `${AGENT_ENVIRONMENT_INFO_OPEN}\n${lines.join('\n')}\n${AGENT_ENVIRONMENT_INFO_CLOSE}`
+  const safeLines = lines.map(environmentInfoLine).filter(line => line.length > 0)
+  return `${AGENT_ENVIRONMENT_INFO_OPEN}\n${safeLines.join('\n')}\n${AGENT_ENVIRONMENT_INFO_CLOSE}`
+}
+
+function environmentInfoLine(line: string): string {
+  return line
+    .replace(AGENT_ENVIRONMENT_INFO_TAG, tag => tag.replaceAll('<', '&lt;').replaceAll('>', '&gt;'))
+    .replace(ENVIRONMENT_INFO_LINE_BREAK, ' ')
+    .trim()
 }
 
 /**

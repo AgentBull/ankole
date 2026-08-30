@@ -44,7 +44,8 @@ defmodule Ankole.E2E.FakeOpenAIScenariosTest do
       assert {:completion, decision_json, []} =
                FakeOpenAIScenarios.action_for(:ambient_decision, 1, request)
 
-      assert %{"should_proactively_speak" => true} = Ankole.JSON.decode!(decision_json)
+      assert %{"action" => "FOREGROUND_REPLY", "authority" => "NONE"} =
+               Ankole.JSON.decode!(decision_json)
     end
 
     test "keeps the latest ignore-only ambient observation silent" do
@@ -58,7 +59,8 @@ defmodule Ankole.E2E.FakeOpenAIScenariosTest do
       assert {:completion, decision_json, [split_text?: false]} =
                FakeOpenAIScenarios.action_for(:ambient_noop_decision, 1, request)
 
-      assert %{"should_proactively_speak" => false} = Ankole.JSON.decode!(decision_json)
+      assert %{"action" => "NOOP", "authority" => "NONE"} =
+               Ankole.JSON.decode!(decision_json)
     end
   end
 

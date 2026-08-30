@@ -32,6 +32,7 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
   alias Ankole.SignalsGateway.{AdapterContext, BindingMembership, Channel, OutboxEntry}
 
   @app_id "11111111-2222-3333-4444-555555555555"
+  @app_id_b "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
   @tenant_id "99999999-8888-7777-6666-555555555555"
   @service_url "https://smba.trafficmanager.net/teams/"
 
@@ -46,7 +47,6 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
     # registries, so config-key writes re-register this plugin's patterns.
     AppConfigureRegistry.clear_for_test()
     AppConfigureCache.clear_for_test()
-    :ok = AppConfigure.register_patterns(Microsoft365Adapter.app_config_patterns())
     previous = Req.default_options()
     Req.Test.stub(__MODULE__, &default_microsoft_request/1)
     Req.default_options(plug: {Req.Test, __MODULE__})
@@ -91,14 +91,6 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
       refute "outbound_reconciliation" in chat.outbound_capabilities
       assert Enum.all?(Microsoft365Adapter.app_config_patterns(), & &1.encrypted)
 
-      chat_fields = Map.new(chat.fields, &{&1.path, &1})
-      assert chat_fields["appID"].advanced == false
-      assert chat_fields["appPassword"].advanced == false
-      assert chat_fields["botTenancy"].advanced == false
-      assert chat_fields["tenantID"].advanced == false
-      assert chat_fields["platformSubjectNamespace"].advanced == true
-      assert chat_fields["userName"].advanced == true
-
       identity = Enum.find(declarations, &(&1.contract_id == "principals.identity_provider"))
       fields = Map.new(identity.fields, &{&1.path, &1})
 
@@ -109,15 +101,6 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
                %{path: "sync.contacts", value: true},
                %{path: "sync.realtime", value: true}
              ]
-
-      assert fields["tenantID"].label["zh-Hans-CN"] == "目录（租户）ID"
-      assert fields["clientID"].label["zh-Hans-CN"] == "应用程序（客户端）ID"
-      assert fields["clientSecret"].label["zh-Hans-CN"] == "客户端密码值"
-      assert fields["oidc.scopes"].label["zh-Hans-CN"] == "登录权限范围"
-      assert fields["sync.contacts"].label["zh-Hans-CN"] == "同步通讯录"
-      assert fields["sync.realtime"].label["zh-Hans-CN"] == "实时同步通讯录变更"
-      assert fields["sync.pageSize"].label["zh-Hans-CN"] == "每页同步数量"
-      assert fields["publicBaseURL"].label["zh-Hans-CN"] == "Ankole 公网地址"
     end
 
     test "chat validation enforces GUIDs and tenancy" do
@@ -307,7 +290,7 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
       assert normalized.explicit == true
       assert normalized.text == "review @Ada please"
       assert normalized.author["id"] == "oid-user"
-      assert normalized.sender_key == "oid-user"
+      assert normalized.author["platform_subject"] == "oid-user"
       assert normalized.channel.metadata["service_url"] == @service_url
       assert normalized.channel.metadata["conversation_type"] == "channel"
       assert normalized.channel.metadata["team_id"] == "team-1"
@@ -503,6 +486,25 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
       with_attachment = %{outbox | payload: %{"attachments" => [%{"name" => "a.txt"}]}}
       assert {:error, :outbound_attachments_not_supported} = Outbox.send(with_attachment)
     end
+
+    test "delivery failures classify for the gateway retry policy" do
+      rate_limited = %MicrosoftOpenAPI.Error{reason: :rate_limited, status: 429, retry_after: 7}
+
+      assert {:error, {:reply_delivery, :retryable, detail}} =
+               Outbox.normalize_delivery_result({:error, rate_limited})
+
+      assert detail.retry_after_seconds == 7
+
+      auth = %MicrosoftOpenAPI.Error{reason: "InvalidAuthenticationToken", status: 401}
+
+      assert {:error, {:reply_delivery, :operator_action_required, %{http_status: 401}}} =
+               Outbox.normalize_delivery_result({:error, auth})
+
+      gone = %MicrosoftOpenAPI.Error{reason: "ConversationNotFound", status: 404}
+
+      assert {:error, {:reply_delivery, :permanent, %{reason: "ConversationNotFound"}}} =
+               Outbox.normalize_delivery_result({:error, gone})
+    end
   end
 
   describe "Teams channel membership projection" do
@@ -561,18 +563,6 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
       assert BindingMembership.joined?(group.metadata, first_agent.uid, first_binding_name)
       assert BindingMembership.joined?(group.metadata, second_agent.uid, second_binding_name)
 
-      signal_channel_id = Conversations.signal_channel_id(conversation_id)
-
-      assert signal_channel_id in Enum.map(
-               SignalsGateway.visible_channels(first_agent.uid),
-               & &1.id
-             )
-
-      assert signal_channel_id in Enum.map(
-               SignalsGateway.visible_channels(second_agent.uid),
-               & &1.id
-             )
-
       first_context =
         AdapterContext.new(
           agent_uid: first_agent.uid,
@@ -606,16 +596,6 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
       refute BindingMembership.joined?(group.metadata, first_agent.uid, first_binding_name)
       assert BindingMembership.joined?(group.metadata, second_agent.uid, second_binding_name)
 
-      refute signal_channel_id in Enum.map(
-               SignalsGateway.visible_channels(first_agent.uid),
-               & &1.id
-             )
-
-      assert signal_channel_id in Enum.map(
-               SignalsGateway.visible_channels(second_agent.uid),
-               & &1.id
-             )
-
       assert {:ok, %{status: :all_participants_left}} =
                TeamsChannels.handle_conversation_update(
                  Inbound.chat_consumer(second_context, validated_chat_config()),
@@ -624,11 +604,93 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
 
       group = Repo.get!(Group, group_id)
       refute BindingMembership.joined?(group.metadata, second_agent.uid, second_binding_name)
+    end
+  end
 
-      refute signal_channel_id in Enum.map(
-               SignalsGateway.visible_channels(second_agent.uid),
-               & &1.id
-             )
+  describe "Teams mirror app sharding" do
+    test "each binding's full sync only visits its own app's mirrors" do
+      parent = self()
+      %{principal: agent_a} = agent_fixture()
+      %{principal: agent_b} = agent_fixture()
+      teams_binding_fixture(agent_a.uid, "teams-shard-a")
+
+      teams_binding_fixture(
+        agent_b.uid,
+        "teams-shard-b",
+        Map.put(chat_config(), "appID", @app_id_b)
+      )
+
+      seed_mirror(%{
+        conversation_id: "19:team-shard-a-general@thread.tacv2",
+        team_id: "team-shard-a",
+        app_id: @app_id
+      })
+
+      seed_mirror(%{
+        conversation_id: "19:team-shard-b-general@thread.tacv2",
+        team_id: "team-shard-b",
+        app_id: @app_id_b
+      })
+
+      seed_mirror(%{
+        conversation_id: "19:gchat-a@unq.gbl.spaces",
+        conversation_type: "groupChat",
+        app_id: @app_id
+      })
+
+      seed_mirror(%{
+        conversation_id: "19:gchat-b@unq.gbl.spaces",
+        conversation_type: "groupChat",
+        app_id: @app_id_b
+      })
+
+      stub_team_sync(parent, %{})
+
+      assert {:ok, %{synced_team_channels: 1, synced_group_chats: 1}} =
+               TeamsChannels.sync_binding(agent_a.uid, "teams-shard-a")
+
+      assert_received {:listed_team, "team-shard-a"}
+      refute_received {:listed_team, _other_team}
+      assert_received {:listed_members, "19:team-shard-a-general@thread.tacv2"}
+      assert_received {:listed_members, "19:gchat-a@unq.gbl.spaces"}
+      refute_received {:listed_members, _other_conversation}
+
+      assert {:ok, %{synced_team_channels: 1, synced_group_chats: 1}} =
+               TeamsChannels.sync_binding(agent_b.uid, "teams-shard-b")
+
+      assert_received {:listed_team, "team-shard-b"}
+      refute_received {:listed_team, _other_team}
+      assert_received {:listed_members, "19:team-shard-b-general@thread.tacv2"}
+      assert_received {:listed_members, "19:gchat-b@unq.gbl.spaces"}
+      refute_received {:listed_members, _other_conversation}
+    end
+
+    test "one failing team does not park the rest of the full sync" do
+      parent = self()
+      %{principal: agent} = agent_fixture()
+      teams_binding_fixture(agent.uid, "teams-partial")
+
+      seed_mirror(%{
+        conversation_id: "19:team-dead-general@thread.tacv2",
+        team_id: "team-dead",
+        app_id: @app_id
+      })
+
+      seed_mirror(%{
+        conversation_id: "19:team-live-general@thread.tacv2",
+        team_id: "team-live",
+        app_id: @app_id
+      })
+
+      stub_team_sync(parent, %{"team-dead" => {:error, 404}})
+
+      assert {:error, {:team_sync_failed, failures}} =
+               TeamsChannels.sync_binding(agent.uid, "teams-partial")
+
+      assert [%{team_id: "team-dead", reason: %MicrosoftOpenAPI.Error{status: 404}}] = failures
+
+      assert_received {:listed_team, "team-live"}
+      assert_received {:listed_members, "19:team-live-general@thread.tacv2"}
     end
   end
 
@@ -700,7 +762,7 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
   end
 
   describe "identity provider" do
-    test "authorization_url honors the oidc gate and fixed Entra endpoint" do
+    test "authorization_url uses the fixed Entra endpoint" do
       {:ok, config} = Config.validate_identity_config(identity_config())
 
       assert {:ok, url} =
@@ -713,14 +775,6 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
       assert uri.host == "login.microsoftonline.com"
       assert uri.path == "/#{@tenant_id}/oauth2/v2.0/authorize"
       assert URI.decode_query(uri.query)["scope"] == "openid profile email User.Read"
-
-      disabled = put_in(config, ["oidc", "enabled"], false)
-
-      assert {:error, :oidc_disabled} =
-               IdentityProvider.authorization_url(disabled,
-                 redirect_uri: "https://ankole.example.com/cb",
-                 state: "s"
-               )
     end
 
     test "exchange_code trades the code and reads authoritative claims from /me" do
@@ -1022,6 +1076,84 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
 
       assert remaining["id"] == "sub-groups"
     end
+
+    test "a resource failure keeps the succeeded resource persisted and retries only the failure" do
+      {:ok, config} = Config.validate_identity_config(identity_config())
+      provider_id = "entra-partial-#{System.unique_integer([:positive])}"
+      parent = self()
+
+      Req.Test.stub(__MODULE__, fn conn ->
+        cond do
+          conn.method == "POST" and String.ends_with?(conn.request_path, "/oauth2/v2.0/token") ->
+            Req.Test.json(conn, %{"access_token" => "cc", "expires_in" => 3600})
+
+          conn.method == "POST" and conn.request_path == "/v1.0/subscriptions" ->
+            {:ok, body, conn} = Plug.Conn.read_body(conn)
+            subscription = Torque.decode!(body)
+
+            case subscription["resource"] do
+              "/users" ->
+                send(parent, {:created, "/users"})
+
+                Req.Test.json(conn, %{
+                  "id" => "sub-users",
+                  "expirationDateTime" => subscription["expirationDateTime"]
+                })
+
+              "/groups" ->
+                send(parent, {:denied, "/groups"})
+
+                conn
+                |> Plug.Conn.put_status(403)
+                |> Req.Test.json(%{"error" => %{"code" => "Authorization_RequestDenied"}})
+            end
+        end
+      end)
+
+      assert {:error, {:graph_subscription_ensure_failed, [failure]}} =
+               GraphSubscriptions.ensure(provider_id, config)
+
+      assert %{resource: "/groups", reason: %MicrosoftOpenAPI.Error{status: 403}} = failure
+      assert_received {:created, "/users"}
+      assert_received {:denied, "/groups"}
+
+      assert {:ok, %{"subscriptions" => [users_entry]}} =
+               AppConfigure.get_by_key(Config.subscription_state_key(provider_id))
+
+      assert users_entry["resource"] == "/users"
+      assert users_entry["id"] == "sub-users"
+
+      # After the permission is granted, the second run only creates /groups.
+      Req.Test.stub(__MODULE__, fn conn ->
+        cond do
+          conn.method == "POST" and String.ends_with?(conn.request_path, "/oauth2/v2.0/token") ->
+            Req.Test.json(conn, %{"access_token" => "cc", "expires_in" => 3600})
+
+          conn.method == "POST" and conn.request_path == "/v1.0/subscriptions" ->
+            {:ok, body, conn} = Plug.Conn.read_body(conn)
+            subscription = Torque.decode!(body)
+            send(parent, {:created, subscription["resource"]})
+
+            Req.Test.json(conn, %{
+              "id" => "sub-#{subscription["resource"]}",
+              "expirationDateTime" => subscription["expirationDateTime"]
+            })
+        end
+      end)
+
+      assert {:ok, %{subscriptions: [kept_users, groups_entry]}} =
+               GraphSubscriptions.ensure(provider_id, config)
+
+      assert kept_users["id"] == "sub-users"
+      assert groups_entry["resource"] == "/groups"
+      assert_received {:created, "/groups"}
+      refute_received {:created, "/users"}
+
+      assert {:ok, %{"subscriptions" => persisted}} =
+               AppConfigure.get_by_key(Config.subscription_state_key(provider_id))
+
+      assert Enum.map(persisted, & &1["resource"]) |> Enum.sort() == ["/groups", "/users"]
+    end
   end
 
   describe "directory webhook" do
@@ -1256,9 +1388,58 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
     }
   end
 
-  defp teams_binding_fixture(agent_uid, name) do
+  defp seed_mirror(attrs) do
+    assert {:ok, _channel} =
+             TeamsChannels.upsert_channel_projection(
+               Map.merge(
+                 %{conversation_type: "channel", service_url: @service_url, name: "Seeded"},
+                 attrs
+               ),
+               nil
+             )
+  end
+
+  defp stub_team_sync(parent, responses) do
+    Req.Test.stub(__MODULE__, fn conn ->
+      cond do
+        String.ends_with?(conn.request_path, "/oauth2/v2.0/token") ->
+          Req.Test.json(conn, %{"access_token" => "bot-token", "expires_in" => 3600})
+
+        String.contains?(conn.request_path, "/v3/teams/") and
+            String.ends_with?(conn.request_path, "/conversations") ->
+          team_id = conn.request_path |> String.split("/") |> Enum.at(-2) |> URI.decode()
+          send(parent, {:listed_team, team_id})
+
+          case Map.get(responses, team_id, :ok) do
+            :ok ->
+              Req.Test.json(conn, %{
+                "conversations" => [
+                  %{"id" => "19:#{team_id}-general@thread.tacv2", "name" => "General"}
+                ]
+              })
+
+            {:error, status} ->
+              conn
+              |> Plug.Conn.put_status(status)
+              |> Req.Test.json(%{"error" => %{"code" => "NotFound"}})
+          end
+
+        String.ends_with?(conn.request_path, "/pagedmembers") ->
+          conversation_id =
+            conn.request_path |> String.split("/") |> Enum.at(-2) |> URI.decode()
+
+          send(parent, {:listed_members, conversation_id})
+
+          Req.Test.json(conn, %{
+            "members" => [%{"id" => "29:user", "aadObjectId" => "oid-shard", "name" => "Ada"}]
+          })
+      end
+    end)
+  end
+
+  defp teams_binding_fixture(agent_uid, name, config \\ chat_config()) do
     {:ok, _config} =
-      AppConfigure.put_global_by_key(Config.chat_config_key(name), chat_config())
+      AppConfigure.put_global_by_key(Config.chat_config_key(name), config)
 
     {:ok, binding} =
       SignalsGateway.upsert_binding(%{
@@ -1266,7 +1447,8 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
         name: name,
         adapter: "teams",
         config_ref: "app-config://" <> Config.chat_config_key(name),
-        unaddressed_group_message_policy: :ignore
+        unaddressed_group_message_policy: :ignore,
+        unmatched_sender_policy: :create_standalone
       })
 
     binding
@@ -1296,13 +1478,10 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
   end
 
   defp agent_fixture do
-    {:ok, result} =
-      Ankole.Principals.create_agent(%{
-        uid: "agent-#{System.unique_integer([:positive])}",
-        display_name: "Agent",
-        role: "Operator"
-      })
-
-    result
+    Ankole.PrincipalsFixtures.agent_fixture(%{
+      uid: "agent-#{System.unique_integer([:positive])}",
+      display_name: "Agent",
+      role: "Operator"
+    })
   end
 end

@@ -4,11 +4,12 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
   """
 
   alias Ankole.AuthZ
-  alias Ankole.IdentityProviders
   alias Ankole.IdentityProviders.Directory
+  alias Ankole.IdentityProviders.DirectorySync
   alias Ankole.Kernel, as: NativeKernel
   alias Ankole.Logging
   alias Ankole.Plugins.LarkAdapter.Config
+  alias Ankole.Plugins.LarkAdapter.SubjectIdentity
   alias Ankole.Plugins.MapHelpers
   alias FeishuOpenAPI.Auth
   alias FeishuOpenAPI.Event
@@ -36,9 +37,8 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
   """
   @spec authorization_url(map(), keyword()) :: {:ok, String.t()} | {:error, term()}
   def authorization_url(config, opts) when is_map(config) and is_list(opts) do
-    with true <- get_in(config, ["oidc", "enabled"]) != false || {:error, :oidc_disabled},
-         {:ok, redirect_uri} <- required_opt(opts, :redirect_uri),
-         {:ok, state} <- required_opt(opts, :state) do
+    with {:ok, redirect_uri} <- MapHelpers.required_opt(opts, :redirect_uri),
+         {:ok, state} <- MapHelpers.required_opt(opts, :state) do
       query =
         [
           app_id: Map.fetch!(config, "appID"),
@@ -73,22 +73,25 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
   """
   @spec upsert_user(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   def upsert_user(provider_id, user, opts \\ []) when is_binary(provider_id) and is_map(user) do
-    with {:ok, user_id} <- user_id(user) do
+    email = identity_email(user)
+
+    with [external_id | external_ids] <- subject_candidates(user, email) do
       department_ids = fetch_list(user, "department_ids")
 
       Directory.upsert_user(
         provider_id,
         %{
           provider: provider_id,
-          external_id: user_id,
-          uid: user_id,
+          external_id: external_id,
+          external_ids: external_ids,
           display_name: display_name(user),
           avatar_url: avatar_url(user),
-          email: enterprise_email(user) || optional_text(user, "email"),
+          email: email,
           mobile: normalized_mobile(user),
           job_title: optional_text(user, "job_title"),
           metadata:
             compact_metadata_map(%{
+              "user_id" => optional_text(user, "user_id") || optional_text(user, "id"),
               "open_id" => optional_text(user, "open_id"),
               "union_id" => optional_text(user, "union_id"),
               "tenant_key" => optional_text(user, "tenant_key"),
@@ -98,6 +101,8 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
         },
         [group_external_ids: department_ids] ++ Keyword.take(opts, [:directory_group_index])
       )
+    else
+      [] -> {:error, :missing_platform_subject}
     end
   end
 
@@ -208,9 +213,12 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
     )
     |> Enum.reduce_while({:ok, users}, fn
       {:ok, user}, {:ok, acc} ->
-        case user_id(user) do
-          {:ok, user_id} -> {:cont, {:ok, Map.update(acc, user_id, user, &merge_user(&1, user))}}
-          {:error, reason} -> {:halt, {:error, reason}}
+        case directory_user_key(user) do
+          {:ok, user_key} ->
+            {:cont, {:ok, Map.update(acc, user_key, user, &merge_user(&1, user))}}
+
+          {:error, reason} ->
+            {:halt, {:error, reason}}
         end
 
       {:error, reason}, _acc ->
@@ -256,12 +264,12 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
       String.starts_with?(event_type, "contact.user.") ->
         user = fetch_map(content, "user", content)
 
-        case user_id(user) do
-          {:ok, _id} -> upsert_user(provider_id, user)
+        case subject_candidates(user, identity_email(user)) do
+          [_external_id | _external_ids] -> upsert_user(provider_id, user)
           # Some contact events omit enough user fields that an incremental merge
           # would risk writing a low-quality Principal. Asking for a full sync is
           # safer than guessing which identifier the event meant.
-          {:error, _reason} -> enqueue_full_sync(provider_id, :missing_user_id)
+          [] -> enqueue_full_sync(provider_id, :missing_platform_subject)
         end
 
       String.starts_with?(event_type, "contact.department.") ->
@@ -312,12 +320,81 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
   end
 
   defp enqueue_full_sync(provider_id, reason) do
-    case IdentityProviders.enqueue_sync(provider_id,
+    case DirectorySync.enqueue_sync(provider_id,
            reason: reason,
            source: "lark_contact_event"
          ) do
       {:ok, _job} -> {:ok, %{status: :full_sync_enqueued, reason: reason}}
       {:error, error} -> {:error, {:full_sync_enqueue_failed, reason, error}}
+    end
+  end
+
+  @doc """
+  Fetches contact email, mobile, and name for one inbound author, best effort.
+
+  SignalsGateway calls this only when an unmatched sender needs a contact
+  match or a pending-list entry. Cross-tenant senders and missing contact
+  scopes fail soft with an error the gateway logs and ignores.
+  """
+  @spec hydrate_author(map(), map()) :: {:ok, map()} | {:error, term()}
+  def hydrate_author(config, author) when is_map(config) and is_map(author) do
+    with {:ok, subject_id, id_type} <- hydration_subject(author) do
+      case FeishuOpenAPI.get(Config.client(config), "contact/v3/users/:user_id",
+             path_params: %{user_id: subject_id},
+             query: [user_id_type: id_type]
+           ) do
+        {:ok, %{"data" => %{"user" => user}}} when is_map(user) ->
+          hydrated_author(user, author)
+
+        {:ok, _body} ->
+          {:ok, %{}}
+
+        {:error, _reason} = error ->
+          error
+      end
+    end
+  end
+
+  defp hydration_subject(author) do
+    metadata = fetch_map(author, "metadata", %{})
+
+    cond do
+      id = optional_text(metadata, "user_id") -> {:ok, id, "user_id"}
+      id = optional_text(metadata, "union_id") -> {:ok, id, "union_id"}
+      id = optional_text(metadata, "open_id") -> {:ok, id, "open_id"}
+      true -> {:error, :missing_author_subject}
+    end
+  end
+
+  defp hydrated_author(user, author) do
+    metadata = fetch_map(author, "metadata", %{})
+    email = identity_email(user)
+
+    candidates =
+      SubjectIdentity.candidates(%{
+        "email" => email,
+        "user_id" =>
+          optional_text(user, "user_id") ||
+            optional_text(user, "id") || optional_text(metadata, "user_id"),
+        "union_id" => optional_text(user, "union_id") || optional_text(metadata, "union_id"),
+        "open_id" => optional_text(user, "open_id") || optional_text(metadata, "open_id")
+      })
+
+    extra = %{
+      "email" => email,
+      "mobile" => normalized_mobile(user),
+      "display_name" => display_name(user)
+    }
+
+    case candidates do
+      [primary | alternates] ->
+        {:ok,
+         extra
+         |> Map.put("platform_subject", primary)
+         |> Map.put("platform_subject_alternates", alternates)}
+
+      [] ->
+        {:ok, extra}
     end
   end
 
@@ -358,17 +435,12 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
     end
   end
 
-  defp required_opt(opts, key) do
-    case Keyword.get(opts, key) do
-      value when is_binary(value) and value != "" -> {:ok, value}
-      _value -> {:error, {:missing, key}}
-    end
-  end
-
-  defp user_id(user) do
-    case optional_text(user, "user_id") || optional_text(user, "id") do
+  defp directory_user_key(user) do
+    case optional_text(user, "user_id") ||
+           optional_text(user, "id") ||
+           List.first(subject_candidates(user, identity_email(user))) do
       value when is_binary(value) -> {:ok, value}
-      nil -> {:error, :missing_user_id}
+      nil -> {:error, :missing_platform_subject}
     end
   end
 
@@ -393,6 +465,19 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
 
   defp enterprise_email(user) do
     optional_text(user, "enterprise_email") || optional_text(user, "work_email")
+  end
+
+  defp identity_email(user) do
+    enterprise_email(user) || optional_text(user, "email")
+  end
+
+  defp subject_candidates(user, email) do
+    SubjectIdentity.candidates(%{
+      "email" => email,
+      "user_id" => optional_text(user, "user_id") || optional_text(user, "id"),
+      "union_id" => optional_text(user, "union_id"),
+      "open_id" => optional_text(user, "open_id")
+    })
   end
 
   defp normalized_mobile(user) do

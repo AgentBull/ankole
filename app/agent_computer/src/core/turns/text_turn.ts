@@ -1,25 +1,12 @@
 import type { TurnStart } from '../../lanes/actor_lane'
 import { runAgentLoop } from '../agent-loop'
 import { buildAgentSystemPrompt } from '../../prompts/system_prompt'
-import { createComputerTools } from '../../tools/computer'
-import { createSkillTools, type SkillFileRoots } from '../../tools/library/skill-tools'
-import { createMemoryTools } from '../../tools/memory/memory-tools'
-import { createScheduleTools } from '../../tools/schedule/schedule-tools'
-import { createStandingOrdersTools } from '../../tools/channel/standing-orders-tool'
-import { createTodoTool, TodoStore } from '../../tools/todo/todo-tool'
-import { createCreateBackgroundJobTool } from '../../tools/background-agent-job/create-background-job'
-import { createListBackgroundJobsTool } from '../../tools/background-agent-job/list-background-jobs'
-import { createRespawnBackgroundJobTool } from '../../tools/background-agent-job/respawn-background-job'
-import { createSendMessageToBackgroundJobTool } from '../../tools/background-agent-job/send-message-to-background-job'
-import { createShowBackgroundJobDetailsTool } from '../../tools/background-agent-job/show-background-job-details'
-import { createStopBackgroundJobTool } from '../../tools/background-agent-job/stop-background-job'
-import { createClarifyTool } from '../../tools/clarify/clarify-tool'
-import { createSourceLearningTurnTools } from '../../tools/brain/source-learning-turn'
+import type { SkillFileRoots } from '../../tools/library/skill-tools'
 import { loadEnabledSkillMCPServers, materializeMCPorterConfig, type MaterializedMCPorterConfig } from '../../tools/mcp'
-import type { AgentTool } from '../types'
 import { assistantText, userMessage, type UserMessage } from '../llm'
-import { statefulTruncationFromActorEventPayload } from './actor_event_text'
 import { actorEventUserContent } from './actor_event_content'
+import { actorEventText } from './actor_event_text'
+import { brainTurnInjections, resolveBrainEnabled, type BrainTurnInjections } from './brain_context'
 import { channelContextModelMessages } from './channel_context'
 import { acquireTurnAIGatewayAccess } from './turn_ai_gateway_access'
 import { workerTurnTrace } from '../../observability/turn-tracing'
@@ -31,14 +18,18 @@ import {
 import { steeringMessagesWithAcknowledgement } from './turn_control'
 import { createTurnActivity } from './turn_activity'
 import { resolveAgentConversationContext } from './turn_context'
-import { agentRuntimePolicyFromTurnStart, webSearchIsProviderHosted } from './turn_runtime_policy'
-import { createTurnWebTools, resolveRenderedFetchRuntimeConfig } from './rendered_fetch_runtime_config'
-import { materializeLarkCredential, type MaterializedLarkCredential } from './lark-credential'
-import { resolveAgentWorkerEnvParts } from './worker_env'
+import { agentRuntimePolicyFromTurnStart, statefulTruncationFromActorEventPayload } from './turn_runtime_policy'
+import { resolveRenderedFetchRuntimeConfig } from './rendered_fetch_runtime_config'
+import { scheduleTurnContextFromTurnStart } from './schedule_turn_context'
+import { createTurnWebTools } from './turn_web_tools'
+import { createTextTurnTools } from './text_turn_tools'
+import { materializeLarkCredential, type MaterializedLarkCredential } from '../execution/lark-credential'
+import { resolveAgentWorkerEnvParts } from '../execution/worker_env'
 import type { TextTurnLoopOptions, TurnHandlerResult } from './turn_options'
-import { memoryRPCRequester, rpcMethods, scheduleRPCRequester, signalChannelRPCRequester } from '../../lanes/rpc_lane'
 import { withoutBrowserMaterialSourceEnv } from '../../browser-runtime'
 
+// The Worker converts this exact reply to a scheduled no-op only when the
+// request permits silent success.
 const silentSuccessMarker = '<silent_success/>'
 
 /**
@@ -78,15 +69,6 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
     }
     const conversationTimezone = agentConversationContext.conversation?.timezone || 'UTC'
     const actorEvent = turnStart.actor_event
-    const learningTurn =
-      actorEvent.type === 'brain.source.learn'
-        ? createSourceLearningTurnTools({
-            turnStart,
-            agentHome: opts.agentHome,
-            workspaceRoot: opts.workspaceRoot,
-            requestMemoryRPC: memoryRPCRequester(opts.rpc, turnStart.turn)
-          })
-        : undefined
     const userPrompt = userMessage(
       await actorEventUserContent(actorEvent.payload_json, actorEvent.type, modelRef, {
         agentHome: opts.agentHome,
@@ -96,91 +78,70 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
       })
     )
 
-    let tools: AgentTool[]
-
-    if (learningTurn) {
-      tools = learningTurn.tools
-    } else {
-      const renderedFetchRuntimeConfig = await turnActivity.runStep(
-        resolveRenderedFetchRuntimeConfig(turnStart, opts.rpc),
-        'rendered fetch runtime config'
-      )
-      const currentWorkerEnv = await turnActivity.runStep(
-        resolveAgentWorkerEnvParts(turnStart.turn.actor.agent_uid, opts.rpc, turnStart.actor_event.binding_name),
-        'worker env'
-      )
-      larkCredential = materializeLarkCredential({
-        agentUID: turnStart.turn.actor.agent_uid,
-        agentHome: opts.agentHome,
-        rpc: opts.rpc,
-        workerEnv: currentWorkerEnv,
-        bindingName: turnStart.actor_event.binding_name
-      })
-      const workerEnv = larkCredential.workerEnv.vars
-      const runtimeEnv = { ...opts.runtimeEnv, ...larkCredential.runtimeEnv }
-      const skillRoots = skillRootsFromOptions(opts)
-      const mcpServers = await turnActivity.runStep(
-        loadEnabledSkillMCPServers({
-          enabledSkills: agentConversationContext.skills ?? [],
-          skillRoots,
-          runtime: 'main'
-        }),
-        'Skill MCP dependencies'
-      )
-      mcporterConfig = materializeMCPorterConfig(mcpServers)
-      const toolWorkerEnv = { ...withoutBrowserMaterialSourceEnv(workerEnv), ...mcporterConfig.env }
-      const webTools = await turnActivity.runStep(
-        createTurnWebTools({
-          aiGateway,
-          renderedFetchRuntimeConfig,
-          workerEnv,
-          workspaceRoot: opts.workspaceRoot,
-          browserRuntime: opts.browserRuntime
-        }),
-        'web tools'
-      )
-      const computerTools = createComputerTools({
-        agentUID: turnStart.turn.actor.agent_uid,
-        conversationID: turnStart.turn.actor.session_id,
-        agentHome: opts.agentHome,
+    const renderedFetchRuntimeConfig = await turnActivity.runStep(
+      resolveRenderedFetchRuntimeConfig(turnStart, opts.rpc),
+      'rendered fetch runtime config'
+    )
+    // Resolved once and reused for tool registration and both memory
+    // injections; a failed read leaves Brain off for this turn.
+    const confirmationOnly = opts.ambientRoute?.action === 'NEW_WORK' && opts.ambientRoute.authority === 'NONE'
+    const brainEnabled = confirmationOnly
+      ? false
+      : await turnActivity.runStep(resolveBrainEnabled(turnStart, opts.rpc, opts.logger), 'brain runtime config')
+    const currentWorkerEnv = await turnActivity.runStep(
+      resolveAgentWorkerEnvParts(turnStart.turn.actor.agent_uid, opts.rpc, turnStart.actor_event.binding_name),
+      'worker env'
+    )
+    larkCredential = materializeLarkCredential({
+      agentUID: turnStart.turn.actor.agent_uid,
+      agentHome: opts.agentHome,
+      rpc: opts.rpc,
+      workerEnv: currentWorkerEnv,
+      bindingName: turnStart.actor_event.binding_name
+    })
+    const workerEnv = larkCredential.workerEnv.vars
+    const runtimeEnv = { ...opts.runtimeEnv, ...larkCredential.runtimeEnv }
+    const skillRoots = skillRootsFromOptions(opts)
+    const mcpServers = await turnActivity.runStep(
+      loadEnabledSkillMCPServers({
+        enabledSkills: agentConversationContext.skills ?? [],
+        skillRoots,
+        runtime: 'main'
+      }),
+      'Skill MCP dependencies'
+    )
+    mcporterConfig = materializeMCPorterConfig(mcpServers)
+    const toolWorkerEnv = { ...withoutBrowserMaterialSourceEnv(workerEnv), ...mcporterConfig.env }
+    const webTools = await turnActivity.runStep(
+      createTurnWebTools({
+        aiGateway,
+        renderedFetchRuntimeConfig,
+        workerEnv,
         workspaceRoot: opts.workspaceRoot,
-        userFilesRoot: opts.userFilesRoot,
-        workerEnv: toolWorkerEnv,
-        runtimeEnv
-      })
-      const backgroundAgentJobTools = await turnActivity.runStep(
-        resolveBackgroundAgentJobTools(turnStart, opts),
-        'background agent job tool availability'
-      )
+        repeatFetchSessionKey: aiGatewayConversationID,
+        browserRuntime: opts.browserRuntime
+      }),
+      'web tools'
+    )
+    const resolvedTools = createTextTurnTools({
+      turnStart,
+      agentsRoot: opts.agentsRoot,
+      agentHome: opts.agentHome,
+      workspaceRoot: opts.workspaceRoot,
+      userFilesRoot: opts.userFilesRoot,
+      enabledSkills: agentConversationContext.skills ?? [],
+      agentPluginCatalog: agentConversationContext.agentPlugins ?? [],
+      skillRoots,
+      brainEnabled,
+      rpc: opts.rpc,
+      waitForSteering: opts.waitForSteering,
+      workerEnv: toolWorkerEnv,
+      runtimeEnv,
+      webTools
+    })
+    const tools = toolsForAmbientRoute(resolvedTools, opts.ambientRoute)
 
-      tools = [
-        createTodoTool(new TodoStore()),
-        ...computerTools,
-        ...createScheduleTools({
-          turnStart,
-          requestScheduleRPC: scheduleRPCRequester(opts.rpc, turnStart.turn)
-        }),
-        ...createStandingOrdersTools({
-          turnStart,
-          requestSignalChannelRPC: signalChannelRPCRequester(opts.rpc, turnStart.turn)
-        }),
-        ...createMemoryTools({
-          turnStart,
-          requestMemoryRPC: memoryRPCRequester(opts.rpc, turnStart.turn)
-        }),
-        ...webTools.filter(tool => !webSearchIsProviderHosted(turnStart) || tool.name !== 'web_search'),
-        createClarifyTool(),
-        ...backgroundAgentJobTools,
-        ...createSkillTools(opts.workspaceRoot, {
-          turn: turnStart.turn,
-          enabledSkills: agentConversationContext.skills ?? [],
-          skillRoots,
-          rpc: opts.rpc
-        })
-      ]
-    }
-
-    const hostedTools = turnStart.hosted_tools ?? []
+    const hostedTools = hostedToolsForAmbientRoute(turnStart.hosted_tools ?? [], opts.ambientRoute)
 
     opts.logger?.info('worker.turn_tools_resolved', 'worker turn tools resolved', {
       actor_event_id: turnStart.turn.actor_event_id,
@@ -193,16 +154,33 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
     const promptOptions = {
       userFilesRoot: opts.userFilesRoot,
       workspaceRoot: opts.workspaceRoot,
-      turnStart,
+      turnStart: { ...turnStart, hosted_tools: hostedTools },
       agentConversationContext,
-      availableToolNames: tools.map(tool => tool.name)
+      availableToolNames: tools.map(tool => tool.name),
+      ambientRoute: opts.ambientRoute
     }
     const systemPrompt = buildAgentSystemPrompt(promptOptions)
+    // Both memory injections run in parallel, stay zero-model, and degrade
+    // silently to nothing. The control plane owns the context-pack slot
+    // (conversation start and after each compaction); every other turn
+    // returns an empty pack.
+    const memoryInjections: BrainTurnInjections = brainEnabled
+      ? await turnActivity.runStep(
+          brainTurnInjections(
+            opts.rpc,
+            turnStart,
+            actorEventText(actorEvent.payload_json, actorEvent.type),
+            opts.logger
+          ),
+          'brain memory injections'
+        )
+      : { pointerLines: [], packMessages: [] }
     const prompt = prependEnvironmentInfoLinesToUserMessage(userPrompt, [
       ...actorEventEnvironmentInfoLines(actorEvent.payload_json, {
         timezone: conversationTimezone
       }),
-      ...turnRequestEnvironmentInfoLines(turnStart)
+      ...turnRequestEnvironmentInfoLines(turnStart),
+      ...memoryInjections.pointerLines
     ])
 
     const latest = await runAgentLoop({
@@ -211,6 +189,7 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
       systemPrompt,
       messages: [
         ...channelContextModelMessages(actorEvent.payload_json, { timezone: conversationTimezone }),
+        ...memoryInjections.packMessages,
         prompt,
         ...(opts.extraMessages ?? [])
       ],
@@ -233,7 +212,9 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
       getSteeringMessages: async () =>
         steeringMessagesWithAcknowledgement(turnStart, opts.pollSteering?.() ?? [], opts.onSteeringApplied),
       repairFinalResponse: message =>
-        assistantText(message).trim() === '' ? emptyReplyObligationReminder(turnStart) : undefined
+        lacksVisibleReply(assistantText(message), turnStart)
+          ? emptyReplyObligationReminder(turnStart)
+          : undefined
     })
     if (latest.message.stopReason === 'error' || latest.message.stopReason === 'aborted') {
       throw new Error(
@@ -241,7 +222,6 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
           (latest.message.stopReason === 'aborted' ? 'LLM provider call aborted' : 'LLM provider returned an error')
       )
     }
-    learningTurn?.assertCompleted()
     const replyText = assistantText(latest.message)
     return textTurnResultFromAssistantReply(turnStart, replyText, latest.responseID, latest.outcome)
   } finally {
@@ -255,6 +235,28 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
       }
     }
   }
+}
+
+export function toolsForAmbientRoute<T extends { isReadOnly?: boolean }>(
+  tools: T[],
+  route: TextTurnLoopOptions['ambientRoute']
+): T[] {
+  if (!route) return tools
+  if (route.action === 'NEW_WORK' && route.authority === 'NONE') return []
+  if (route.action !== 'FOREGROUND_REPLY') return tools
+
+  return tools.filter(tool => tool.isReadOnly === true)
+}
+
+export function hostedToolsForAmbientRoute<T extends { type: string }>(
+  tools: T[],
+  route: TextTurnLoopOptions['ambientRoute']
+): T[] {
+  if (!route) return tools
+  if (route.action === 'NEW_WORK' && route.authority === 'NONE') return []
+  if (route.action !== 'FOREGROUND_REPLY') return tools
+
+  return tools.filter(tool => tool.type === 'web_search')
 }
 
 function logAIGatewayRoute(
@@ -285,27 +287,8 @@ function safeAIGatewayRoute(baseURL: string): Record<string, string> {
   }
 }
 
-async function resolveBackgroundAgentJobTools(turnStart: TurnStart, opts: TextTurnLoopOptions): Promise<AgentTool[]> {
-  const response = await opts.rpc(rpcMethods.agentPluginList, {}, { turn: turnStart.turn })
-
-  return [
-    createCreateBackgroundJobTool({ turnStart, agentPluginCatalog: response.agentPlugins, rpc: opts.rpc }),
-    createListBackgroundJobsTool({ turnStart, rpc: opts.rpc }),
-    createShowBackgroundJobDetailsTool({ turnStart, rpc: opts.rpc }),
-    createSendMessageToBackgroundJobTool({
-      turnStart,
-      rpc: opts.rpc,
-      waitForSteering: opts.waitForSteering
-    }),
-    createRespawnBackgroundJobTool({ turnStart, agentsRoot: opts.agentsRoot, rpc: opts.rpc }),
-    createStopBackgroundJobTool({ turnStart, rpc: opts.rpc })
-  ]
-}
-
 /**
- * Converts final assistant text into the worker's turn result contract.
- *
- * The worker does not decide whether an adopted Response chain has a visible
+ * The Worker does not decide whether an adopted Response chain has a visible
  * projection. SignalsGateway may find clarify or attachment output even when
  * the final assistant text is empty, and rejects an actually empty chain at
  * the durable completion boundary.
@@ -323,16 +306,11 @@ export function textTurnResultFromAssistantReply(
   return { kind: 'turn_completed', finalResponseID, outcome }
 }
 
-/**
- * Reads the per-turn flag that permits a no-visible-text completion.
- */
 function silentSuccessAllowed(turnStart: TurnStart): boolean {
-  return turnStart.request_context?.silent_success_allowed === true
+  return scheduleTurnContextFromTurnStart(turnStart)?.silentSuccessAllowed === true
 }
 
 /**
- * Names the turn's outstanding obligation after an empty final response.
- *
  * The control plane rejects a completion with no user-visible projection, and
  * that rejection surfaces only after the turn has ended, as a full turn retry.
  * This one bounded reminder settles the obligation inside the turn instead:
@@ -360,9 +338,17 @@ function skillRootsFromOptions(opts: TextTurnLoopOptions): SkillFileRoots {
   }
 }
 
-/**
- * Detects the explicit silent-success marker used by schedule wakeups.
- */
 function silentSuccessReply(replyText: string): boolean {
   return replyText.trim() === silentSuccessMarker
+}
+
+/**
+ * A reply carries no usable visible content when it is blank, or when it is only
+ * the silent-success sentinel on a turn that did not permit silent success. The
+ * bounded empty-reply reminder then asks for a real visible reply instead of
+ * letting the raw sentinel become the turn output and leak to the channel.
+ */
+function lacksVisibleReply(replyText: string, turnStart: TurnStart): boolean {
+  if (replyText.trim() === '') return true
+  return !silentSuccessAllowed(turnStart) && silentSuccessReply(replyText)
 }

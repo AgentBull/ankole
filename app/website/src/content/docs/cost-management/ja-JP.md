@@ -1,17 +1,17 @@
 ---
 title: コスト管理
-description: Ankole の支出を制御するレバー——model profile の階層、reasoning effort、web ツールのゲーティング、agent ループ予算、background job の再試行とスロット上限。
+description: Ankole の支出を制御するレバー——model profile、reasoning effort、web ツール、agent ループ予算、Workflow の fanout、background job の再試行とスロット上限。
 section: Guides
 order: 314
 ---
 
 Ankole が使うコストの大半はモデル token であり、その大部分は、自分では形作れない利用量ではなく、少数の設定レバーで決まります。このページはレバーの名前を挙げ、それぞれが何を消費し何を節約するかを述べ、請求が高すぎるときに引く順序を示します。ここにあるレバーはすべて control plane の実際のノブであり、「Agent の使用を減らす」という類のものはありません。
 
-決定的な性質を先に述べます。コストは*どのモデルが、何回、どのくらいの時間実行するか*の関数です。レバーはその 3 つに対応します。model profile の階層がモデルを選び、agent ループの予算が反復回数を制限し、job の再試行とスロット上限が暴走ケースを縛ります。消費が発生している場所に合うレバーを引いてください。
+決定的な性質を先に述べます。コストは*どのモデルが、何回、どのくらいの時間実行するか*の関数です。レバーはその 3 つに対応します。model profile の階層がモデルを選び、agent ループの予算が反復回数を制限し、Workflow と job の上限が fanout と再試行を縛ります。消費が発生している場所に合うレバーを引いてください。
 
 ## レバー 1: model profile の階層
 
-10 個の profile スロットが最大のレバーです。それぞれがモデルの選択であり、モデルの選択が token コストを支配します。
+8 つの組み込み Agent profile は、それぞれ別の有料経路を制御します。5 つは言語モデルを選び、3 つは web 検索、web fetch、画像生成の能力をバインドします。
 
 | スロット | 実行される場面 | コストのレバー |
 |---|---|---|
@@ -20,9 +20,10 @@ Ankole が使うコストの大半はモデル token であり、その大部分
 | `heavy` | 困難な合成作業 | 高価。`primary` がうまく調整されていれば滅多に使われない |
 | Background Agent Jobs（内部では `coding`） | すべての Background Agent Job | 永続的なバックグラウンド作業の Provider とモデルを選ぶ |
 | `vision_fallback` | `primary` が画像を処理できないとき | agent が画像を見る場合にだけバインドする |
-| `embedding`、`rerank` | memory と検索（retrieval） | 呼び出しごとに課金され、通常は小さい |
 | `web_search`、`web_fetch` | web ツール | レバー 3 を参照 |
 | `image_generate` | 画像生成 | 呼び出しごとに高価。使用時にのみバインドする |
+
+Brain には、Agent profile とは別に 5 つのインスタンス共通モデル設定があります。`brain.embedding_model` と `brain.rerank_model` は検索を制御します。`brain.web_fetch_model` は URL Source を読み、`brain.extraction_model` は会話と Source から学習し、`brain.dreaming_model` はモデルを使う保守と Skill 教訓の再確認を実行します。[AppConfigure](../app-configuration/) で一度設定してください。空の設定は該当する処理を停止または制限し、**Brain → Health** が利用できない処理を示します。全体の動作は [Brain](../brain/) を参照してください。
 
 最も節約できる 2 つの動き:
 
@@ -58,7 +59,21 @@ Codex reasoning effort をサポートする Provider では、`model_reasoning_
 
 `max_iterations` は、多弁な agent ループを縛るものです。2 つで足りる場面で 10 個のツールを呼ぶループは、モデルに 10 回当たります。より低い上限は agent に収束を強制します。`max_output_tokens` は各応答の大きさを縛ります。これらはインスタンス全体のデフォルトであり、通常の turn の形に設定してください。本当に難しい turn が上限に当たって「今あるものを合成した最終回答」を生むことは受け入れてください。
 
-## レバー 5: background job の再試行とスロット上限
+## レバー 5: Workflow の fanout とタスク試行
+
+Workflow の各 `agent()` 試行は 1 回の完全なモデル Turn です。1 つの call は最大 3 回試行できるため、多数の call を作る run は、メインの会話が Workflow を 1 回しか要求していなくても、モデルと Web tool の利用を増幅できます。
+
+| AppConfigure キー | デフォルト | 最大値 | 何を制限するか |
+|---|---:|---:|---|
+| `workflow.max_concurrency_per_run` | 8 | 32 | 1 つの run から同時に実行できるタスク数 |
+| `workflow.max_running_per_agent` | 8 | 64 | 1 つの Agent の複数 run にまたがって実行中の Workflow タスク数 |
+| `workflow.max_agent_calls_per_run` | 256 | 1,024 | 1 つの run が作成できるサブエージェント call の総数 |
+
+同時実行数が変えるのは所要時間であり、モデル call の総数は減りません。有限の入力サイズから call 上限を決め、デプロイメントに必要な同時実行数だけを要求します。run は `concurrency` と `max_agent_calls` に低い値を要求できますが、複数 run にまたがる `max_running_per_agent` は変更できず、AppConfigure の上限も引き上げられません。
+
+Workflow には batch 全体の token または通貨予算がありません。各タスクには通常の Turn ごとの反復、出力 token、非アクティブ時間の上限が適用されます。各タスクには狭い prompt と小さな構造化結果を使い、`null` の失敗を処理し、集約結果が大きくなりすぎる場合は collection を複数の run に分けます。タスクと結果の上限は [Workflow](../workflows/) を参照してください。
+
+## レバー 6: background job の再試行とスロット上限
 
 background job は再試行で token を使えます。上限がレバーです。
 
@@ -74,9 +89,10 @@ background job は再試行で token を使えます。上限がレバーです�
 
 ## 消費が実際にある場所
 
-モデルや並列性を変える前に、Console で呼び出しを行った Agent、会話、または Background Agent Job を見つけてください。
+モデルや並列性を変える前に、呼び出しを行った Agent、会話、Workflow、または Background Agent Job を確認してください。
 
 - `GET /ai-gateway/conversations` は、直近の turn が行ったモデル呼び出しを表示します。どの profile が解決したか、呼び出し回数、どの provider か。これが、消費が `primary`（量）、`heavy`（少数の高価な呼び出し）、`web_search`（多数の小さな呼び出し）のどれかを確認する最速の方法です。
+- メイン Agent に Workflow の表示を依頼します。タスク数から fanout と失敗した call がわかります。現在のバージョンには Workflow 用の Console ページも run ごとのコスト合計もありません。
 - `GET /background-agent-jobs` は job の `attempts` を表示します。`attempts: 5` の job は 5 回分の run を費やしました。
 - 構造化された control plane ログは、provider 呼び出しのイベント名とフィールドを持ちます。ログの取り込み先で、provider と agent ごとに集計できます。
 
@@ -94,7 +110,8 @@ background job は再試行で token を使えます。上限がレバーです�
 
 ## 次のステップ
 
-- Agent の model profile は [Agents](../agents/#wire-up-its-models) を読んでください。
+- Agent の model profile は [Agents](../agents/#モデルを設定する) を読んでください。
 - agent ループのノブとそのキーは [環境変数](../environment-variables/) を読んでください。
 - 関連する会話と Job のエンドポイントは [Console API リファレンス](../console-api/) を読んでください。
+- 有界のサブエージェント fanout とその上限は [Workflow](../workflows/) を読んでください。
 - Job の上限は [Background Agent Jobs](../background-jobs/) を読んでください。

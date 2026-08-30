@@ -21,17 +21,22 @@ describe('Agent Home document projection', () => {
           soul: 'SOUL',
           mission: 'MISSION',
           design: 'DESIGN',
+          confidentialityPolicy: 'POLICY',
           soulContentHash: xxh3String128Hex('SOUL'),
           missionContentHash: xxh3String128Hex('MISSION'),
-          designContentHash: xxh3String128Hex('DESIGN')
+          designContentHash: xxh3String128Hex('DESIGN'),
+          confidentialityPolicyContentHash: xxh3String128Hex('POLICY')
         })
       )
 
       expect(readFileSync(paths.soul, 'utf8')).toBe('SOUL')
       expect(readFileSync(paths.mission, 'utf8')).toBe('MISSION')
       expect(readFileSync(paths.design, 'utf8')).toBe('DESIGN')
+      expect(readFileSync(paths.confidentialityPolicy, 'utf8')).toBe('POLICY')
       expect(statSync(paths.design).mode & 0o222).toBe(0)
+      expect(statSync(paths.confidentialityPolicy).mode & 0o222).toBe(0)
       expect(projected.design).toBe('DESIGN')
+      expect(projected.confidentialityPolicy).toBe('POLICY')
     } finally {
       rmSync(agentsRoot, { recursive: true, force: true })
     }
@@ -50,9 +55,11 @@ describe('Agent Home document projection', () => {
             soul: 'SOUL',
             mission: 'MISSION',
             design: 'DESIGN',
+            confidentialityPolicy: 'POLICY',
             soulContentHash: xxh3String128Hex('different'),
             missionContentHash: xxh3String128Hex('MISSION'),
-            designContentHash: xxh3String128Hex('DESIGN')
+            designContentHash: xxh3String128Hex('DESIGN'),
+            confidentialityPolicyContentHash: xxh3String128Hex('POLICY')
           })
         )
       ).toThrow('SOUL.md projection content hash mismatch')

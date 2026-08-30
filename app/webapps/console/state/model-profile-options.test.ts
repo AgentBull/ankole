@@ -93,7 +93,6 @@ describe('model profile options', () => {
       'openai-main',
       'openrouter-images'
     ])
-    expect(providersForProfile(providers, kinds, 'embedding').map(item => item.provider_id)).toEqual(['jina-main'])
     expect(providersForProfile(providers, kinds, 'web_search').map(item => item.provider_id)).toEqual([
       'jina-search-main',
       'parallel-main'
@@ -163,12 +162,7 @@ describe('model profile options', () => {
     expect(modelOptionsForProfile(catalog, 'openai-main', 'vision_fallback')).toEqual([
       { value: 'gpt-5-vision', label: 'GPT-5 Vision', description: 'gpt-5-vision' }
     ])
-    expect(modelOptionsForProfile(catalog, 'jina-main', 'embedding')).toEqual([
-      { value: 'jina-embeddings-v3', label: 'Jina Embeddings v3', description: 'jina-embeddings-v3' }
-    ])
-    expect(modelOptionsForProfile(catalog, 'jina-main', 'rerank')).toEqual([
-      { value: 'jina-reranker-v2', label: 'Jina Reranker v2', description: 'jina-reranker-v2' }
-    ])
+    expect(modelOptionsForProfile(catalog, 'jina-main', 'primary')).toEqual([])
     expect(modelOptionsForProfile(catalog, 'openrouter-images', 'image_generate')).toEqual([
       { value: 'openai/gpt-image-2', label: 'GPT Image 2', description: 'openai/gpt-image-2' }
     ])
@@ -177,7 +171,7 @@ describe('model profile options', () => {
   test('falls back to known provider models when upstream capability metadata is incomplete', () => {
     const catalog = { data: [{ id: 'custom-main/private-model', name: 'Private model' }] }
 
-    expect(modelOptionsForProfile(catalog, 'custom-main', 'embedding')).toEqual([
+    expect(modelOptionsForProfile(catalog, 'custom-main', 'primary')).toEqual([
       { value: 'private-model', label: 'Private model', description: 'private-model' }
     ])
   })

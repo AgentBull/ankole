@@ -44,6 +44,7 @@ jobs:
       worker_exists: ${{ steps.inspect.outputs.worker_exists }}
       protocol_version: ${{ steps.protocol.outputs.value }}
       release_version: ${{ steps.version.outputs.value }}
+      release_is_prerelease: ${{ steps.version.outputs.is_prerelease }}
 
     steps:
       - name: Checkout
@@ -65,6 +66,12 @@ jobs:
               extract CHANGELOG.md "${RUNNER_TEMP}/release-notes.md"
           )"
           echo "value=${release_version}" >> "${GITHUB_OUTPUT}"
+
+          is_prerelease=false
+          if [[ "${release_version}" =~ -(alpha|beta|rc)(\.[0-9]+)?$ ]]; then
+            is_prerelease=true
+          fi
+          echo "is_prerelease=${is_prerelease}" >> "${GITHUB_OUTPUT}"
 
       - name: Read RuntimeFabric protocol version
         id: protocol
@@ -246,7 +253,6 @@ jobs:
           build-args: |
             ANKOLE_VERSION=v${{ needs.inspect_existing.outputs.release_version }}
             ANKOLE_RELEASE_REVISION=${{ env.RELEASE_REVISION }}
-            ANKOLE_RUNTIME_FABRIC_PROTOCOL_VERSION=${{ needs.inspect_existing.outputs.protocol_version }}
             ANKOLE_AGENT_COMPUTER_IMAGE=${{ env.WORKER_IMAGE }}:${{ env.RELEASE_REVISION }}
           tags: ${{ env.CONTROL_PLANE_IMAGE }}:${{ env.STAGING_TAG }}-control-plane-${{ matrix.arch }}
           labels: |
@@ -333,7 +339,6 @@ jobs:
           build-args: |
             BASE_IMAGE=${{ env.BASE_IMAGE }}@${{ needs.publish_base.outputs.digest }}
             ANKOLE_RELEASE_REVISION=${{ env.RELEASE_REVISION }}
-            ANKOLE_RUNTIME_FABRIC_PROTOCOL_VERSION=${{ needs.inspect_existing.outputs.protocol_version }}
           tags: ${{ env.WORKER_IMAGE }}:${{ env.STAGING_TAG }}-worker-${{ matrix.arch }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
@@ -444,18 +449,25 @@ jobs:
       - name: Publish latest RuntimeFabric image pair
         if: ${{ github.ref == 'refs/heads/main' }}
         shell: bash
+        env:
+          RELEASE_IS_PRERELEASE: ${{ needs.inspect_existing.outputs.release_is_prerelease }}
         run: |
           set -euo pipefail
 
+          moving_tag="${LATEST_TAG}"
+          if [[ "${RELEASE_IS_PRERELEASE}" == "true" ]]; then
+            moving_tag="canary"
+          fi
+
           docker buildx imagetools create \
-            --tag "${CONTROL_PLANE_IMAGE}:${LATEST_TAG}" \
+            --tag "${CONTROL_PLANE_IMAGE}:${moving_tag}" \
             "${CONTROL_PLANE_IMAGE}:${RELEASE_REVISION}"
           docker buildx imagetools create \
-            --tag "${WORKER_IMAGE}:${LATEST_TAG}" \
+            --tag "${WORKER_IMAGE}:${moving_tag}" \
             "${WORKER_IMAGE}:${RELEASE_REVISION}"
 
-          docker buildx imagetools inspect "${CONTROL_PLANE_IMAGE}:${LATEST_TAG}"
-          docker buildx imagetools inspect "${WORKER_IMAGE}:${LATEST_TAG}"
+          docker buildx imagetools inspect "${CONTROL_PLANE_IMAGE}:${moving_tag}"
+          docker buildx imagetools inspect "${WORKER_IMAGE}:${moving_tag}"
 
   publish_release:
     name: Publish versioned RuntimeFabric images and GitHub Release
@@ -471,6 +483,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       RELEASE_VERSION: ${{ needs.inspect_existing.outputs.release_version }}
       RELEASE_TAG: v${{ needs.inspect_existing.outputs.release_version }}
+      RELEASE_IS_PRERELEASE: ${{ needs.inspect_existing.outputs.release_is_prerelease }}
 
     steps:
       - name: Checkout
@@ -534,8 +547,12 @@ jobs:
               echo "GitHub Release ${RELEASE_TAG} has an unexpected title" >&2
               exit 1
             fi
-            if [[ "$(jq -r '.isDraft or .isPrerelease' "${RUNNER_TEMP}/existing-release.json")" != "false" ]]; then
-              echo "GitHub Release ${RELEASE_TAG} must be a published stable release" >&2
+            if [[ "$(jq -r '.isDraft' "${RUNNER_TEMP}/existing-release.json")" != "false" ]]; then
+              echo "GitHub Release ${RELEASE_TAG} must be a published release, not a draft" >&2
+              exit 1
+            fi
+            if [[ "$(jq -r '.isPrerelease' "${RUNNER_TEMP}/existing-release.json")" != "${RELEASE_IS_PRERELEASE}" ]]; then
+              echo "GitHub Release ${RELEASE_TAG} pre-release status does not match the changelog version" >&2
               exit 1
             fi
           fi
@@ -596,8 +613,13 @@ jobs:
             tag_option=(--verify-tag)
           fi
 
+          channel_option=(--latest)
+          if [[ "${RELEASE_IS_PRERELEASE}" == "true" ]]; then
+            channel_option=(--prerelease)
+          fi
+
           gh release create "${RELEASE_TAG}" \
             "${tag_option[@]}" \
             --title "Version ${RELEASE_VERSION}" \
             --notes-file "${RUNNER_TEMP}/release-notes.md" \
-            --latest
+            "${channel_option[@]}"

@@ -32,12 +32,12 @@ defmodule FeishuOpenAPI.MixProject do
 
   defp deps do
     [
-      {:req, "~> 0.6.2"},
-      {:torque, "~> 0.2.3"},
+      {:req, "~> 0.7.3"},
+      {:torque, "~> 0.2.7"},
       {:telemetry, "~> 1.4.2"},
       {:mint_web_socket, "~> 1.0"},
-      {:plug, "~> 1.19", optional: true},
-      {:ex_doc, "~> 0.40", only: :dev, runtime: false}
+      {:plug, "~> 1.20", optional: true},
+      {:ex_doc, "~>0.40", only: :dev, runtime: false}
     ]
   end
 

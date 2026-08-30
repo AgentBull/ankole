@@ -7,7 +7,6 @@ import type {
   ResponseCustomToolCall,
   ResponseFunctionToolCall
 } from 'openai/resources/responses/responses'
-import type { TruncatedToolCall } from './partial-tool-input'
 
 export interface TextContent {
   type: 'text'
@@ -45,10 +44,11 @@ export interface AssistantMessage {
   toolCalls?: ToolCall[]
   /**
    * Calls the output-token limit discarded, present only when `stopReason` is
-   * `length`. They record where the model stopped writing arguments and are
-   * never executable.
+   * `length`. Their `arguments` hold the raw partial text as it arrived; they
+   * are never executable and exist only so the failed attempt can re-enter
+   * the thread as a call/error-result pair.
    */
-  truncatedToolCalls?: TruncatedToolCall[]
+  truncatedToolCalls?: ToolCall[]
   usage?: ModelUsage
   stopReason?: StopReason
   model?: string
@@ -115,6 +115,7 @@ export interface ToolDefinition<TSchema extends z.ZodType = z.ZodType> {
   inputFormat?: CustomToolInputFormat
   jsonSchema?: Record<string, unknown>
   outputSchema?: Record<string, unknown>
+  strict?: boolean
   namespace?: string
   namespaceDescription?: string
   deferLoading?: boolean
@@ -138,17 +139,18 @@ export interface CallModelOptions {
   text?: ResponseCreateParams['text']
   abortSignal?: AbortSignal
   beforeCall?: (payload: ResponseCreateParams) => void | Promise<void>
-  onTextDelta?: (delta: string) => void
-  onActivity?: (description?: string) => void
-  stateful?: StatefulResponseContext
 }
 
-export type ModelTurnCallOptions = Omit<CallModelOptions, 'stateful' | 'abortSignal' | 'onActivity' | 'onTextDelta'>
+export type ModelTurnCallOptions = Omit<CallModelOptions, 'abortSignal'>
 
-export type StatefulResponseContext = {
+// A stateful call continues exactly one anchor: the conversation it opens in,
+// or the response it continues from. The union makes both illegal combinations
+// unrepresentable — no anchor at all, and two competing anchors — so no caller
+// has to clear one field while setting the other.
+export type StatefulResponseAnchor = { conversationID: string } | { previousResponseID: string }
+
+export type StatefulResponseContext = StatefulResponseAnchor & {
   actorEventID: string
-  conversationID?: string
-  previousResponseID?: string
   truncation?: 'auto' | 'disabled'
   metadata?: JSONObject
 }
@@ -156,7 +158,6 @@ export type StatefulResponseContext = {
 export interface ModelCallResult {
   message: AssistantMessage
   toolCalls: ResponseToolCall[]
-  hasToolCalls: boolean
   responseID?: string
   errorRetryable?: boolean
 }

@@ -45,23 +45,24 @@ export class SnapshotStore {
   async capture(page: Page, options: SnapshotOptions = {}): Promise<string> {
     this.refs.clear()
     this.generation += 1
+    const budget = 16 * 1024
     const lines: string[] = []
+    // Length of `lines.join('\n')`, kept incrementally so traversal can stop as
+    // soon as the joined text strictly exceeds the budget. Because the stop
+    // happens only after the budget is exceeded, the first `budget` characters —
+    // all the final slice keeps — are identical to a full traversal.
+    let joinedLength = 0
+    const append = (line: string): void => {
+      joinedLength += (lines.length === 0 ? 0 : 1) + line.length
+      lines.push(line)
+    }
+    const withinBudget = (): boolean => joinedLength <= budget
     let nextRef = 1
     const frames = page.frames()
-    for (let frameIndex = 0; frameIndex < frames.length; frameIndex += 1) {
+    for (let frameIndex = 0; frameIndex < frames.length && withinBudget(); frameIndex += 1) {
       const frame = frames[frameIndex]!
-      let nodes: SnapshotNode[]
-      try {
-        nodes =
-          frameIndex === 0 && !options.selector
-            ? await collectAXNodes(page, options).catch(() => collectFrameNodes(frame, options))
-            : await collectFrameNodes(frame, options)
-      } catch (error) {
-        lines.push(`[frame ${frameIndex} ${frame.url() || 'about:blank'} unavailable: ${errorMessage(error)}]`)
-        continue
-      }
-      if (frame !== page.mainFrame()) lines.push(`[frame ${frameIndex} ${frame.url() || 'about:blank'}]`)
-      for (const node of nodes) {
+      // Formats one node, registers its ref, and reports whether traversal may continue.
+      const emit = (node: SnapshotNode): boolean => {
         let refText = ''
         if (node.interactive && node.selector) {
           const ref = `e${nextRef++}`
@@ -85,12 +86,30 @@ export class SnapshotStore {
         const value = node.value && node.value !== node.name ? ` [value=${JSON.stringify(node.value)}]` : ''
         const indent = options.compact ? '' : '  '.repeat(Math.min(node.depth, 8))
         const name = node.name ? ` ${JSON.stringify(node.name)}` : ''
-        lines.push(`${indent}- ${node.role}${name}${refText}${state}${value}${href}`)
+        append(`${indent}- ${node.role}${name}${refText}${state}${value}${href}`)
+        return withinBudget()
+      }
+      try {
+        if (frameIndex === 0 && !options.selector) {
+          try {
+            // collectAXNodes throws only before its first emit, so the fallback
+            // cannot duplicate emitted nodes.
+            await collectAXNodes(page, options, emit)
+          } catch {
+            for (const node of await collectFrameNodes(frame, options)) if (!emit(node)) break
+          }
+        } else {
+          const nodes = await collectFrameNodes(frame, options)
+          if (frame !== page.mainFrame()) append(`[frame ${frameIndex} ${frame.url() || 'about:blank'}]`)
+          for (const node of nodes) if (!emit(node)) break
+        }
+      } catch (error) {
+        append(`[frame ${frameIndex} ${frame.url() || 'about:blank'} unavailable: ${errorMessage(error)}]`)
+        continue
       }
     }
     if (lines.length === 0) return '(empty page)'
     const text = lines.join('\n')
-    const budget = 16 * 1024
     return text.length <= budget ? text : `${text.slice(0, budget)}\n… [snapshot truncated]`
   }
 
@@ -184,14 +203,29 @@ type AXNodeLike = {
   backendDOMNodeId?: number
 }
 
-async function collectAXNodes(page: Page, options: SnapshotOptions): Promise<SnapshotNode[]> {
+/**
+ * Streams main-frame nodes through `emit` in traversal order. When `emit`
+ * returns false (text budget exceeded), collection stops before the next node's
+ * per-node CDP round trips. All operations that can throw run before the first
+ * emit, so a caller may fall back to `collectFrameNodes` on failure without
+ * duplicating nodes.
+ */
+async function collectAXNodes(
+  page: Page,
+  options: SnapshotOptions,
+  emit: (node: SnapshotNode) => boolean
+): Promise<void> {
   const session = await page.context().newCDPSession(page)
   try {
     await Promise.all([session.send('Accessibility.enable'), session.send('DOM.enable')])
     const tree = await session.send('Accessibility.getFullAXTree')
     const nodes = tree.nodes as AXNodeLike[]
     const byID = new Map(nodes.map(node => [node.nodeId, node]))
-    const output: SnapshotNode[] = []
+    // AX trees can omit pointer/click handlers and other DOM-only interactive
+    // affordances. Collect those with the same selectors used by command refs;
+    // they are emitted after the AX nodes, deduplicated by selector.
+    const extras = await collectFrameNodes(page.mainFrame(), { ...options, interactive: true })
+    const selectors = new Set<string>()
 
     for (const node of nodes) {
       if (node.ignored) continue
@@ -210,10 +244,11 @@ async function collectAXNodes(page: Page, options: SnapshotOptions): Promise<Sna
         selector = await selectorForBackendNode(session, node.backendDOMNodeId).catch(() => undefined)
         box = await boxForBackendNode(session, node.backendDOMNodeId).catch(() => undefined)
       }
+      if (selector) selectors.add(selector)
       const checked = axProperty(node, 'checked')
       const value = stringValue(node.value?.value)
       const url = stringValue(axProperty(node, 'url'))
-      output.push({
+      const more = emit({
         role,
         name,
         ...(selector ? { selector } : {}),
@@ -226,16 +261,12 @@ async function collectAXNodes(page: Page, options: SnapshotOptions): Promise<Sna
         depth,
         ...(box ? { box } : {})
       })
+      if (!more) return
     }
 
-    // AX trees can omit pointer/click handlers and other DOM-only interactive
-    // affordances. Add those with the same selectors used by command refs.
-    const extras = await collectFrameNodes(page.mainFrame(), { ...options, interactive: true })
-    const selectors = new Set(output.map(node => node.selector).filter((value): value is string => Boolean(value)))
     for (const extra of extras) {
-      if (extra.selector && !selectors.has(extra.selector)) output.push(extra)
+      if (extra.selector && !selectors.has(extra.selector) && !emit(extra)) return
     }
-    return output
   } finally {
     await session.send('Accessibility.disable').catch(() => undefined)
     await session.detach().catch(() => undefined)

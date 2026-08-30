@@ -1,13 +1,8 @@
 # syntax=docker/dockerfile:1.7
 
 ARG BASE_IMAGE
-ARG BROWSER_NODE_VERSION=26.5.0
-
-FROM node:${BROWSER_NODE_VERSION}-bookworm-slim AS browser-node
 
 FROM ${BASE_IMAGE} AS build
-
-ARG BROWSER_NODE_VERSION
 
 WORKDIR /repo
 
@@ -18,8 +13,6 @@ COPY package.json bun.lock ./
 COPY app/kernel/package.json app/kernel/Cargo.toml app/kernel/Cargo.lock ./app/kernel/
 COPY app/agent_computer/package.json ./app/agent_computer/package.json
 COPY app/ankole-browser/package.json ./app/ankole-browser/package.json
-
-COPY --from=browser-node /usr/local/bin/node /opt/ankole-browser/node/bin/node
 
 RUN --mount=type=cache,target=/root/.bun/install/cache \
   set -eux; \
@@ -44,28 +37,24 @@ RUN --mount=type=cache,target=/root/.cargo/git \
 WORKDIR /repo/app/ankole-browser
 
 RUN bun run build \
-  && mkdir -p /tmp/ankole-browser-runtime/node/bin /tmp/ankole-browser-runtime/node_modules \
-  && cp /opt/ankole-browser/node/bin/node /tmp/ankole-browser-runtime/node/bin/node \
+  && mkdir -p /tmp/ankole-browser-runtime/node_modules \
   && cp package.json /tmp/ankole-browser-runtime/package.json \
   && cp -R dist /tmp/ankole-browser-runtime/dist \
   && cp -RL node_modules/playwright-core /tmp/ankole-browser-runtime/node_modules/playwright-core \
   && PLAYWRIGHT_BROWSERS_PATH=/tmp/ankole-browser-runtime/browsers \
-    /opt/ankole-browser/node/bin/node node_modules/playwright-core/cli.js install chromium-headless-shell \
+    bun node_modules/playwright-core/cli.js install chromium-headless-shell \
   && browser_bin="$(find /tmp/ankole-browser-runtime/browsers -type f \
     \( -name headless_shell -o -name chrome-headless-shell \) -perm /111 -print -quit)" \
   && test -n "${browser_bin}" \
   && mkdir -p /tmp/ankole-browser-runtime/browsers/chromium \
   && ln -s "$(realpath --relative-to=/tmp/ankole-browser-runtime/browsers/chromium "${browser_bin}")" \
-    /tmp/ankole-browser-runtime/browsers/chromium/chrome-headless-shell \
-  && test "$(/tmp/ankole-browser-runtime/node/bin/node --version)" = "v${BROWSER_NODE_VERSION}"
+    /tmp/ankole-browser-runtime/browsers/chromium/chrome-headless-shell
 
 FROM ${BASE_IMAGE}
 
 ARG LARK_CLI_VERSION=v1.0.86
-ARG BROWSER_NODE_VERSION
 ARG TARGETARCH
 ARG ANKOLE_RELEASE_REVISION=development
-ARG ANKOLE_RUNTIME_FABRIC_PROTOCOL_VERSION=4
 
 WORKDIR /repo
 
@@ -108,7 +97,7 @@ COPY app/library ./app/library
 
 RUN set -eux; \
   PLAYWRIGHT_BROWSERS_PATH=/opt/ankole-browser/browsers \
-    /opt/ankole-browser/node/bin/node \
+    bun \
     /opt/ankole-browser/node_modules/playwright-core/cli.js \
     install-deps chromium-headless-shell; \
   rm -rf /var/lib/apt/lists/*
@@ -146,8 +135,8 @@ RUN set -eux; \
     '[ -r /etc/profile.d/ankole-agent-computer.sh ] && . /etc/profile.d/ankole-agent-computer.sh' \
     >> /root/.profile; \
   rm -f /usr/local/bin/node /usr/local/bun-node-fallback-bin/node; \
-  printf '%s\n' '#!/usr/bin/env sh' 'exec /opt/ankole-browser/node/bin/node /opt/ankole-browser/dist/cli/main.js "$@"' > /usr/local/bin/ankole-browser; \
-  printf '%s\n' '#!/usr/bin/env sh' 'exec /opt/ankole-browser/node/bin/node /opt/ankole-browser/dist/daemon/main.js "$@"' > /usr/local/bin/ankole-browserd; \
+  printf '%s\n' '#!/usr/bin/env sh' 'exec bun /opt/ankole-browser/dist/cli/main.js "$@"' > /usr/local/bin/ankole-browser; \
+  printf '%s\n' '#!/usr/bin/env sh' 'exec bun /opt/ankole-browser/dist/daemon/main.js "$@"' > /usr/local/bin/ankole-browserd; \
   printf '%s\n' '#!/usr/bin/env sh' 'exec bun /repo/app/agent_computer/src/cli/webhooks/webhook-cli.ts create "$@"' > /usr/local/bin/create-webhook-cli; \
   printf '%s\n' '#!/usr/bin/env sh' 'exec bun /repo/app/agent_computer/src/cli/webhooks/webhook-cli.ts list "$@"' > /usr/local/bin/list-webhooks-cli; \
   printf '%s\n' '#!/usr/bin/env sh' 'exec bun /repo/app/agent_computer/src/cli/webhooks/webhook-cli.ts cancel "$@"' > /usr/local/bin/cancel-webhook-cli; \
@@ -161,7 +150,6 @@ RUN set -eux; \
   chmod +x /usr/local/bin/ankole-browser /usr/local/bin/ankole-browserd /usr/local/bin/create-webhook-cli /usr/local/bin/list-webhooks-cli /usr/local/bin/cancel-webhook-cli /usr/local/bin/create-automation-job-cli /usr/local/bin/list-automation-jobs-cli /usr/local/bin/show-automation-job-cli /usr/local/bin/cancel-automation-job-cli; \
   ! command -v node; \
   bun -e 'if (typeof Bun.TOML.stringify !== "function") throw new Error("Bun.TOML.stringify is required")'; \
-  test "$(/opt/ankole-browser/node/bin/node --version)" = "v${BROWSER_NODE_VERSION}"; \
   /opt/ankole-browser/browsers/chromium/chrome-headless-shell --version >/dev/null; \
   ankole-browser --help >/dev/null; \
   patch_probe="$(mktemp -d)"; \
@@ -174,7 +162,6 @@ WORKDIR /repo/app/agent_computer
 
 ENV NODE_ENV=production
 ENV ANKOLE_RELEASE_REVISION=${ANKOLE_RELEASE_REVISION}
-ENV ANKOLE_RUNTIME_FABRIC_PROTOCOL_VERSION=${ANKOLE_RUNTIME_FABRIC_PROTOCOL_VERSION}
 ENV CODEX_UNSAFE_ALLOW_NO_SANDBOX=1
 ENV LARKSUITE_CLI_NO_UPDATE_NOTIFIER=1
 ENV LARKSUITE_CLI_NO_SKILLS_NOTIFIER=1
@@ -184,7 +171,6 @@ ENV SHELL=/bin/bash
 ENV ANKOLE_AGENTS_ROOT=/agents
 ENV ANKOLE_BUILTIN_SKILLS_ROOT=/repo/app/library
 ENV ANKOLE_AGENT_COMPUTER_BUN_WORKDIR=/repo/app/agent_computer
-ENV ANKOLE_BROWSER_NODE=/opt/ankole-browser/node/bin/node
 ENV ANKOLE_BROWSER_DAEMON_ENTRY=/opt/ankole-browser/dist/daemon/main.js
 ENV ANKOLE_BROWSER_RUNNER=/opt/ankole-browser/dist/runner/bootstrap.js
 ENV ANKOLE_BROWSER_CHROMIUM_EXECUTABLE=/opt/ankole-browser/browsers/chromium/chrome-headless-shell

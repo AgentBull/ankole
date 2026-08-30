@@ -17,9 +17,10 @@ defmodule Ankole.RuntimeEvents.Supervisor do
       {Ankole.RuntimeEvents.Listener, Keyword.get(opts, :listener, [])}
     ]
 
-    # The notification connection owns LISTEN registrations. If it restarts,
-    # the listener and scheduler must restart behind it so boot repeats the
-    # required LISTEN -> snapshot sequence.
+    # The notification connection owns LISTEN registrations. Postgrex restores
+    # them after a database reconnect, and the scheduler sweep recovers durable
+    # events missed during the disconnect. If the process itself restarts, the
+    # listener and scheduler restart behind it and repeat LISTEN -> snapshot.
     Supervisor.init(children, strategy: :rest_for_one)
   end
 
@@ -45,7 +46,7 @@ defmodule Ankole.RuntimeEvents.Supervisor do
     |> Keyword.merge(
       Keyword.get(opts, :notifications, [])
       |> Keyword.put_new(:name, Ankole.RuntimeEvents.Notifications)
-      |> Keyword.put(:auto_reconnect, false)
+      |> Keyword.put(:auto_reconnect, true)
     )
   end
 end

@@ -1,7 +1,9 @@
+import { ms } from '@agentbull/active-support'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import type { TurnStart } from '../lanes/actor_lane'
 import { rpcMethods, type RPCRequester } from '../lanes/rpc_lane'
 import { scanInstalledSkills } from './installed_skills'
+import { toError } from '../common/errors'
 
 export type InstalledSkillSyncLogger = {
   warning(event: string, message: string, fields?: JSONObject): void
@@ -22,7 +24,7 @@ type InstalledSkillSyncMemo = {
 }
 
 const installedSkillSyncMemo = new Map<string, InstalledSkillSyncMemo>()
-const defaultInstalledSkillSyncMemoTtlMs = 60_000
+const defaultInstalledSkillSyncMemoTtlMs = ms('1m')
 
 export async function syncInstalledSkillsForTurn(turnStart: TurnStart, opts: InstalledSkillSyncOptions): Promise<void> {
   const agentUID = turnStart.turn.actor.agent_uid
@@ -59,7 +61,6 @@ export async function syncInstalledSkillsForTurn(turnStart: TurnStart, opts: Ins
               defaultEnabled: observation.default_enabled,
               tags: observation.tags,
               category: observation.category ?? '',
-              disableModelInvocation: observation.disable_model_invocation,
               ankoleRuntime: observation.ankole_runtime ?? ''
             }))
           },
@@ -74,7 +75,7 @@ export async function syncInstalledSkillsForTurn(turnStart: TurnStart, opts: Ins
 
     opts.logger?.warning('worker.installed_skill_sync_failed', 'worker installed skill sync failed', {
       agent_uid: agentUID,
-      error: error instanceof Error ? error : new Error(String(error))
+      error: toError(error)
     })
   }
 }

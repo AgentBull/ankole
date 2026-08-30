@@ -14,6 +14,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionWorkerAssignment
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
   alias Ankole.SignalsGateway.ActorRuntime.DeadLetterNoticeConfig
+  alias Ankole.SignalsGateway.ActorRuntime.AsyncWorkUnit
   alias Ankole.SignalsGateway.ActorRuntime.SessionWorkspaces
   alias Ankole.SignalsGateway.ActorRuntime.TurnEnvelope
   alias Ankole.SignalsGateway.ActorRuntime.TurnRuntimeEnv
@@ -33,13 +34,18 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
   alias Ankole.SignalsGateway.Sanitizer
   alias Ankole.BackgroundAgentJobs
 
-  require Ankole.BackgroundAgentJobs
-
+  # Activation states that still own an actor session.
   @live_activation_statuses ~w(starting active draining)
+  # Keep a responsive Worker activation through long model or tool work.
   @activation_progress_lease_seconds 2_100
+  # Prevent scheduler delay from expiring an activation at its exact deadline.
   @activation_lease_grace_seconds 120
+  # Stop retry loops after repeated recoverable Worker failures.
   @worker_turn_error_dead_letter_attempts 5
+  # Give a transient Worker failure a short recovery window before redispatch.
   @worker_turn_error_retry_base_seconds 5
+  # Prevent repeated Worker failures from increasing one retry delay without
+  # limit.
   @worker_turn_error_retry_max_seconds 120
 
   @type actor_key :: %{agent_uid: String.t(), session_id: String.t()}
@@ -63,9 +69,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
     actor_key = normalize_actor_key(actor_key)
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
     turn_start_spec_result = prepare_turn_start_spec(actor_key, actor_event, opts)
+    job_limit = WorkerPool.job_turn_limit(actor_key)
 
     Repo.transact(fn repo ->
-      with {:ok, assignment} <- WorkerPool.assign_worker_in_tx(repo, actor_key, now),
+      with {:ok, assignment} <- WorkerPool.assign_worker_in_tx(repo, actor_key, now, job_limit),
            {:ok, turn_start_spec} <- turn_start_spec_result,
            {:ok, turn_start_overrides} <- run_admission_in_tx(repo, turn_start_spec, opts),
            turn_start_spec <- merge_turn_start_spec(turn_start_spec, turn_start_overrides),
@@ -293,7 +300,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
     |> Repo.preload(:actor_event)
     |> Enum.each(fn
       %ActorEventDelivery{actor_event: %ActorEvent{type: "command.steer"} = event} ->
-        if AIReplyPreview.im_visible_event?(event) do
+        if AIReplyPreview.channel_reply_eligible?(event) do
           continue_fun.(stream_actor_event_id, event)
         end
 
@@ -352,62 +359,60 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
   provider-visible output, such as ambient silence. Normal text turns complete
   through an explicit completion RPC carrying the adopted Response ID.
   """
-  @spec handle_turn_noop_completed(FabricProto.TurnNoopCompleted.t()) ::
+  @spec handle_turn_noop_completed(TurnRef.t(), String.t() | nil) ::
           {:ok, map()} | {:error, term()}
-  def handle_turn_noop_completed(%FabricProto.TurnNoopCompleted{} = payload) do
-    with {:ok, turn_ref} <- TurnRef.from_proto(payload.turn) do
-      reason = presence(payload.reason) || "noop_completed"
-      now = DateTime.utc_now(:microsecond)
+  def handle_turn_noop_completed(%TurnRef{} = turn_ref, reason) do
+    reason = presence(reason) || "noop_completed"
+    now = DateTime.utc_now(:microsecond)
 
-      Repo.transact(fn repo ->
-        case lock_actor_event_for_turn_ref(repo, turn_ref) do
-          %ActorEvent{completed_at: %DateTime{}} = event ->
+    Repo.transact(fn repo ->
+      case lock_actor_event_for_turn_ref(repo, turn_ref) do
+        %ActorEvent{completed_at: %DateTime{}} = event ->
+          {:ok,
+           %{
+             status: :already_completed,
+             reason: reason,
+             actor_event: event,
+             activation: activation_snapshot_for_turn_ref(repo, turn_ref),
+             delivery_count: 0,
+             deleted_deliveries: 0,
+             superseded_deliveries: 0
+           }}
+
+        %ActorEvent{} = event ->
+          with %ActorSessionActivation{} = activation <-
+                 activation_for_turn_ref(repo, turn_ref),
+               :ok <- activation_accepts_progress(activation, turn_ref, now),
+               {:ok, deliveries} <- live_deliveries_for_noop(repo, event, turn_ref),
+               {:ok, _completed_events} <-
+                 mark_noop_delivery_events_completed(repo, deliveries, turn_ref, now),
+               {:ok, event} <- mark_noop_event_completed(repo, event, now),
+               {deleted_count, superseded_count} <-
+                 cleanup_noop_deliveries(repo, turn_ref.actor_event_id, now, reason),
+               :ok <-
+                 BackgroundAgentJobs.finalize_worker_turn_in_tx(repo, turn_ref, now),
+               {:ok, activation} <- mark_activation_idle_in_tx(repo, activation, now) do
             {:ok,
              %{
-               status: :already_completed,
+               status: :noop_completed,
                reason: reason,
                actor_event: event,
-               activation: activation_snapshot_for_turn_ref(repo, turn_ref),
-               delivery_count: 0,
-               deleted_deliveries: 0,
-               superseded_deliveries: 0
+               activation: activation,
+               delivery_count: length(deliveries),
+               deleted_deliveries: deleted_count,
+               superseded_deliveries: superseded_count
              }}
+          else
+            nil -> {:error, :actor_runtime_fence_not_found}
+            {:error, _reason} = error -> error
+          end
 
-          %ActorEvent{} = event ->
-            with %ActorSessionActivation{} = activation <-
-                   activation_for_turn_ref(repo, turn_ref),
-                 :ok <- activation_accepts_progress(activation, turn_ref, now),
-                 {:ok, deliveries} <- live_deliveries_for_noop(repo, event, turn_ref),
-                 {:ok, _completed_events} <-
-                   mark_noop_delivery_events_completed(repo, deliveries, turn_ref, now),
-                 {:ok, event} <- mark_noop_event_completed(repo, event, now),
-                 {deleted_count, superseded_count} <-
-                   cleanup_noop_deliveries(repo, turn_ref.actor_event_id, now, reason),
-                 :ok <-
-                   BackgroundAgentJobs.finalize_worker_turn_in_tx(repo, turn_ref, now),
-                 {:ok, activation} <- mark_activation_idle_in_tx(repo, activation, now) do
-              {:ok,
-               %{
-                 status: :noop_completed,
-                 reason: reason,
-                 actor_event: event,
-                 activation: activation,
-                 delivery_count: length(deliveries),
-                 deleted_deliveries: deleted_count,
-                 superseded_deliveries: superseded_count
-               }}
-            else
-              nil -> {:error, :actor_runtime_fence_not_found}
-              {:error, _reason} = error -> error
-            end
-
-          nil ->
-            {:error, :actor_runtime_fence_not_found}
-        end
-      end)
-      |> stop_preview_after_terminal(turn_ref.actor_event_id)
-      |> finish_turn_after_terminal(turn_ref.actor_event_id)
-    end
+        nil ->
+          {:error, :actor_runtime_fence_not_found}
+      end
+    end)
+    |> stop_preview_after_terminal(turn_ref.actor_event_id)
+    |> finish_turn_after_terminal(turn_ref.actor_event_id)
   end
 
   defp stop_preview_after_terminal({:ok, _result} = success, actor_event_id) do
@@ -424,35 +429,14 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
 
   defp finish_turn_after_terminal({:error, _reason} = error, _actor_event_id), do: error
 
-  @doc """
-  Handles a worker turn error without consuming the actor event.
-
-  The event stays `open` for retry until repeated worker failures cross the
-  dead-letter threshold. Runtime fences are superseded and the activation is
-  failed so late replies from the failed attempt cannot match a later retry.
-  """
-  @spec handle_turn_error(FabricProto.TurnError.t(), keyword()) ::
-          {:ok, map()} | {:error, term()}
-  def handle_turn_error(%FabricProto.TurnError{} = payload, opts \\ []) do
-    with {:ok, turn_ref} <- TurnRef.from_proto(payload.turn) do
-      reason = turn_error_reason(payload)
-
-      case handle_turn_abort(turn_ref, reason, opts) do
-        {:ok, _result} = success ->
-          Observability.finish_turn(turn_ref.actor_event_id, error_type: reason["code"])
-          success
-
-        {:error, _reason} = error ->
-          error
-      end
-    end
-  end
-
   @doc false
   @spec handle_turn_abort(TurnRef.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   def handle_turn_abort(%TurnRef{} = turn_ref, %{} = reason, opts \\ []) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
-    compensate_in_tx = Keyword.get(opts, :compensate_turn_error_in_tx)
+    async_work_unit = Keyword.get(opts, :async_work_unit)
+
+    compensate_in_tx =
+      Keyword.get(opts, :compensate_turn_error_in_tx, async_work_unit)
 
     Repo.transact(fn repo ->
       with %ActorEvent{} = event <- lock_actor_event_for_turn_ref(repo, turn_ref),
@@ -469,6 +453,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
               turn_ref,
               reason,
               now,
+              async_work_unit,
               compensate_in_tx
             )
 
@@ -489,12 +474,14 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
          turn_ref,
          reason,
          now,
+         async_work_unit,
          compensate_in_tx
        ) do
     with :ok <- activation_accepts_abort(activation, turn_ref),
          {:ok, deliveries} <- live_deliveries_for_turn_ref(repo, turn_ref),
          {:ok, event} <- maybe_mark_overflow_retry(repo, event, reason),
-         dead_letter? = dead_letter_after_turn_error?(event, deliveries, reason),
+         dead_letter? =
+           dead_letter_after_turn_error?(event, deliveries, reason, async_work_unit),
          {superseded_count, _rows} <- supersede_live_deliveries(repo, turn_ref, now, reason),
          {:ok, event} <- maybe_mark_event_dead_letter(repo, event, dead_letter?, now),
          {:ok, event} <-
@@ -504,7 +491,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
              deliveries,
              reason,
              now,
-             dead_letter?
+             dead_letter?,
+             async_work_unit
            ),
          {:ok, _dead_letter_notice} <-
            maybe_commit_dead_letter_notice(repo, event, dead_letter?, reason),
@@ -1252,20 +1240,26 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
     |> repo.update()
   end
 
-  # A durable Job owns the retry budget for its wake events: recoverable worker
-  # errors keep the event open until `BackgroundAgentJobs` exhausts the job
-  # attempts, fails the Job, and wakes the owner. The delivery-attempt
-  # dead-letter threshold only bounds ordinary actor events.
   defp dead_letter_after_turn_error?(
-         %ActorEvent{session_id: session_id},
+         %ActorEvent{} = event,
          _deliveries,
-         reason
+         reason,
+         async_work_unit
        )
-       when BackgroundAgentJobs.is_job_session_id(session_id) do
-    not recoverable_turn_error?(reason)
+       when is_atom(async_work_unit) and not is_nil(async_work_unit) do
+    async_work_unit.dead_letter_after_turn_error?(
+      event,
+      reason,
+      recoverable_turn_error?(reason)
+    )
   end
 
-  defp dead_letter_after_turn_error?(%ActorEvent{}, deliveries, reason) do
+  defp dead_letter_after_turn_error?(
+         %ActorEvent{},
+         deliveries,
+         reason,
+         nil
+       ) do
     not recoverable_turn_error?(reason) or
       max_delivery_attempt_no(deliveries) >= @worker_turn_error_dead_letter_attempts
   end
@@ -1282,8 +1276,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
   # The dead-letter row and its provider-visible terminal intent are one durable
   # fact. Committing them in separate transactions leaves an accepted message
   # permanently silent if the control plane exits between the two writes.
-  defp maybe_commit_dead_letter_notice(repo, %ActorEvent{} = event, true, reason) do
-    if AIReplyPreview.im_visible_event?(event) do
+  defp maybe_commit_dead_letter_notice(
+         repo,
+         %ActorEvent{} = event,
+         true,
+         reason
+       ) do
+    if AIReplyPreview.channel_reply_eligible?(event) do
       text = dead_letter_notice_text(repo, event, reason)
 
       case Outbox.commit_dead_letter_notice_outbox_in_tx(repo, event, text) do
@@ -1295,46 +1294,14 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
     end
   end
 
-  defp maybe_commit_dead_letter_notice(_repo, %ActorEvent{}, false, _reason), do: {:ok, nil}
-
-  # A dead-lettered Job lifecycle wakeup still owes the user the outcome. The
-  # wakeup payload already carries the durable facts, so the notice renders
-  # them directly instead of the generic retry text: the terminal result must
-  # not depend on the same Agent runtime that just failed to relay it.
-  @background_job_wakeup_notice_keys %{
-    "background_agent_job.completed" => "background_agent_job_dead_letter_succeeded",
-    "background_agent_job.failed" => "background_agent_job_dead_letter_failed",
-    "background_agent_job.waiting" => "background_agent_job_dead_letter_waiting"
-  }
-
-  defp dead_letter_notice_text(%ActorEvent{type: type} = event)
-       when is_map_key(@background_job_wakeup_notice_keys, type) do
-    data = get_in(event.payload || %{}, ["data"]) || %{}
-
-    detail =
-      [
-        text_value(data["result_summary"]),
-        artifacts_notice_line(data["artifacts"]),
-        successor_notice_line(data["successor_job_id"])
-      ]
-      |> Enum.reject(&is_nil/1)
-      |> Enum.join("\n")
-
-    I18n.t(
-      "signals_gateway.reply.#{Map.fetch!(@background_job_wakeup_notice_keys, type)}",
-      %{
-        "job_id" => data["job_id"] || 0,
-        "title" => text_value(data["title"]) || "",
-        "detail" => detail
-      }
-    )
-  end
+  defp maybe_commit_dead_letter_notice(_repo, %ActorEvent{}, false, _reason),
+    do: {:ok, nil}
 
   defp dead_letter_notice_text(%ActorEvent{} = event),
     do: I18n.t("signals_gateway.reply.dead_letter", %{"ref" => event.id})
 
   defp dead_letter_notice_text(repo, %ActorEvent{} = event, reason) do
-    text = dead_letter_notice_text(event)
+    text = AsyncWorkUnit.dead_letter_notice_text(event) || dead_letter_notice_text(event)
 
     if DeadLetterNoticeConfig.enabled_in_tx?(repo) do
       detail = Sanitizer.preview(reason)
@@ -1346,25 +1313,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
       text
     end
   end
-
-  defp text_value(value) when is_binary(value) and value != "", do: value
-  defp text_value(_value), do: nil
-
-  defp artifacts_notice_line(%{"paths" => paths}) when is_list(paths) and paths != [] do
-    I18n.t("signals_gateway.reply.background_agent_job_dead_letter_artifacts", %{
-      "paths" => Enum.join(paths, ", ")
-    })
-  end
-
-  defp artifacts_notice_line(_artifacts), do: nil
-
-  defp successor_notice_line(successor_job_id) when is_integer(successor_job_id) do
-    I18n.t("signals_gateway.reply.background_agent_job_dead_letter_successor", %{
-      "successor_job_id" => successor_job_id
-    })
-  end
-
-  defp successor_notice_line(_successor), do: nil
 
   # A deleted route, or a channel that never accepts replies, has nowhere to put
   # this notice. Failing here would roll back whichever transaction decided the
@@ -1396,7 +1344,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
          _deliveries,
          _reason,
          _now,
-         true
+         true,
+         _async_work_unit
        ),
        do: {:ok, event}
 
@@ -1406,10 +1355,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
          deliveries,
          reason,
          now,
-         false
+         false,
+         async_work_unit
        ) do
     if retryable_turn_error?(reason) do
-      retry_available_at = turn_error_retry_at(event, deliveries, reason, now)
+      retry_available_at =
+        turn_error_retry_at(deliveries, reason, now, async_work_unit)
 
       event
       |> ActorEvent.changeset(%{available_at: retry_available_at})
@@ -1432,13 +1383,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
 
   defp retryable_turn_error?(_reason), do: false
 
-  defp turn_error_retry_at(%ActorEvent{session_id: session_id}, deliveries, reason, now)
-       when BackgroundAgentJobs.is_job_session_id(session_id) do
+  defp turn_error_retry_at(deliveries, reason, now, async_work_unit)
+       when is_atom(async_work_unit) and not is_nil(async_work_unit) do
     attempt_no = max(max_delivery_attempt_no(deliveries), 1)
-    BackgroundAgentJobs.turn_error_retry_at(reason, attempt_no, now)
+    async_work_unit.turn_error_retry_at(reason, attempt_no, now)
   end
 
-  defp turn_error_retry_at(%ActorEvent{}, deliveries, _reason, now) do
+  defp turn_error_retry_at(deliveries, _reason, now, nil) do
     attempt_no = max(max_delivery_attempt_no(deliveries), 1)
     exponential = round(@worker_turn_error_retry_base_seconds * :math.pow(2, attempt_no - 1))
     DateTime.add(now, min(exponential, @worker_turn_error_retry_max_seconds), :second)
@@ -1449,14 +1400,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
       [] -> 0
       attempt_numbers -> Enum.max(attempt_numbers)
     end
-  end
-
-  defp turn_error_reason(%FabricProto.TurnError{} = payload) do
-    %{
-      "code" => presence(payload.code) || "worker_turn_error",
-      "message" => presence(payload.message) || "worker turn failed",
-      "details_json" => decode_json_bytes(payload.details_json) || %{}
-    }
   end
 
   defp presence(value) when is_binary(value) do
@@ -1471,6 +1414,15 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
   defp compensate_turn_error_in_tx(callback, repo, %ActorEvent{} = event, reason, now)
        when is_function(callback, 4) do
     case callback.(repo, event, reason, now) do
+      {:ok, _compensation} = success -> success
+      {:error, _reason} = error -> error
+      other -> {:error, {:invalid_turn_error_compensation_result, other}}
+    end
+  end
+
+  defp compensate_turn_error_in_tx(module, repo, %ActorEvent{} = event, reason, now)
+       when is_atom(module) and not is_nil(module) do
+    case module.compensate_turn_error_in_tx(repo, event, reason, now) do
       {:ok, _compensation} = success -> success
       {:error, _reason} = error -> error
       other -> {:error, {:invalid_turn_error_compensation_result, other}}

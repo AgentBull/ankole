@@ -22,7 +22,7 @@ It does not store:
 
 - AuthZ groups, grants, or decisions
 - SignalsGateway messages, deliveries, or outbox rows
-- conversations, Brain knowledge, model profiles, or schedules
+- conversations, model profiles, or schedules
 - AppConfigure values or Plugin settings
 - startup variables, setup sessions, or web sessions
 
@@ -74,6 +74,10 @@ It validates mobile numbers as E.164 values through the native kernel.
 
 Unique indexes protect non-null email and mobile values.
 
+A human user can also hold a local sign-in password in
+`human_user_local_credentials`. See
+[Local Password Identity Provider](LocalPasswordIdentityProvider.md).
+
 ### `agents`
 
 The table extends an agent Principal with these fields:
@@ -95,94 +99,98 @@ state. It has no `human_users` or `agents` row. It cannot sign in, own an Agent
 runtime, or act as a human through an external identity.
 
 The owning subsystem creates and manages each system Principal. The Principal
-subsystem does not provide a general public creation API for this type. Brain
-V2 creates the fixed active Principal `brain-shared` in its storage migration.
-That Principal owns the shared long-term-memory store. See
-[Brain](Brain.md#ownership-and-stores) for that contract.
+subsystem does not provide a general public creation API for this type.
 
 ### `principal_external_identities`
 
-The table binds an external subject to one Principal.
+The table binds one provider-scoped external subject to one Principal.
 It stores these fields:
 
 - A UUIDv7 binding `id`.
 - `principal_uid`.
-- `kind`.
-- Provider or channel addressing fields.
-- Optional `verified_at`.
-- A JSON `metadata` object.
+- `provider` as the platform-subject namespace, normally an identity-provider
+  `provider_id` such as `lark-main`.
+- `external_id` as the provider-scoped subject id.
+- A JSON `metadata` object. Alternate provider ids for the same subject, for
+  example a Lark `open_id` next to a `union_id`, live here.
 - Timestamps.
+
+Its uniqueness key is:
+
+```text
+provider + external_id
+```
 
 The binding ID identifies only that external link. The Principal UID still
 identifies the responsible human or Agent.
 
-## Link External Identities to a Principal
+Provider names scope binding rows, not Principal identity. When no binding
+already exists for a provider subject, Ankole first matches known contact data.
+If no contact matches, it matches the normalized primary external ID to a
+Principal UID. Equal IDs then intentionally resolve to one Principal.
 
-The `kind` field accepts four values.
+There is one identity shape. Login, directory sync, SignalsGateway admission,
+and manual console mappings all write this same row.
 
-### `platform_subject`
+### `identity_mapping_requests`
 
-This kind identifies a person across one provider.
-It requires `provider` and `external_id`.
-It cannot contain `adapter` or `channel_id`.
-
-Its uniqueness key is:
-
-```text
-kind + provider + external_id
-```
-
-Prefer this kind when you link provider records for the same human.
-
-### `channel_actor`
-
-This kind identifies a person only inside one provider channel.
-It requires `adapter`, `channel_id`, and `external_id`.
-It cannot contain `provider`.
-
-Its uniqueness key is:
-
-```text
-adapter + channel_id + external_id
-```
-
-Work that relies on this channel identity requires a nonnull `verified_at`
-value.
-
-### `login_subject`
-
-This kind identifies a provider account used for web login. It uses the same
-fields and unique key as `platform_subject`.
-
-### `outbound_actor`
-
-This kind identifies a provider account that Ankole can address in outbound
-work. It also uses the provider identity fields and unique key.
+The table holds signal senders that resolved to no Principal while their
+binding uses the `manual_review` policy. One row exists per
+`provider + external_id`. It stores the sender display name, email, and
+mobile when the platform reveals them, plus observation metadata such as
+alternate ids and the binding that saw the sender. The operator console lists
+these rows; binding one to a Principal writes the identity row and deletes the
+request. Any automatic or proactive identity write deletes requests for all
+provider subject candidates in that write, so a mapped alias cannot remain
+pending.
 
 ## Link First-Seen Provider Users to Existing Humans
 
 When `upsert_platform_subject_human` sees a provider user for the first time, it
 tries these identities in order:
 
-1. Use the Principal from an existing provider binding.
+1. Use the Principal from an existing binding for any supplied provider subject
+   candidate.
 2. Use the Principal that owns the normalized email.
-3. Use the caller-supplied UID.
-4. Use the external subject ID as the UID.
+3. Use the Principal that owns the normalized mobile number.
+4. Use the Principal whose UID matches the normalized primary external ID.
+5. Use the caller-supplied UID.
+6. Use the normalized primary external ID as the UID.
 
-The email lookup includes disabled Principals. This can link accounts from
-different providers when they share one email.
+The contact lookups include disabled Principals. This can link accounts from
+different providers when they share one email or mobile number.
 
-The transaction locks the provider identity and email keys, so two concurrent
-observations cannot create duplicate Principals.
+The transaction locks every supplied provider subject candidate, the primary
+global subject, the email, and the mobile keys. It then writes every candidate
+as an alias for the selected Principal. Concurrent observations serialize the
+same identity decisions. If one candidate already belongs to a different
+Principal, the complete alias write fails and rolls back.
 
 An existing provider link stays with its current Principal. New contact data
 does not move it.
+
+Ankole does not prepend the provider name to a generated Principal UID. See
+[Provider Subject IDs Share One Principal Namespace](../TradeoffsAndKnownLimits.md#provider-subject-ids-share-one-principal-namespace)
+for the intentional collision tradeoff and the explicit-binding escape hatch.
 
 If another Principal owns the supplied email or mobile number, Ankole ignores
 that field and logs `principals.platform_subject.contact_conflict`. It still
 stores the remaining identity data.
 
-A mobile number never decides which Principal to use.
+## Match Without Creating
+
+`match_platform_subject_human` is the read side of the same ladder. An existing
+binding for any provider-specific candidate ID wins. Otherwise, the optional
+email and mobile values match before the primary ID matches in the
+installation-wide Principal UID namespace. The function returns the matched
+active human Principal or `{:error, :not_found}`. It never creates or re-points
+anything. SignalsGateway identity admission uses it to decide whether a sender
+is known before the binding's unmatched-sender policy applies.
+
+Manual mappings bypass the ladder on purpose: `MappingRequests.bind_request`
+and `MappingRequests.bind_subject` write the identity to exactly the Principal
+the operator chose. This explicit provider binding stays authoritative even
+when another provider uses the same external ID.
 
 ## Create and Update Humans
 
@@ -196,8 +204,6 @@ A UID that belongs to an agent cannot become a human.
 
 `resolve_platform_subject` returns only an active human Principal.
 `resolve_platform_subject_uid` also supports cleanup for a disabled Principal.
-
-`resolve_channel_actor` requires a verified binding and an active human Principal.
 
 ## Create and Update Agents
 
@@ -233,7 +239,6 @@ Authorization fails closed for these cases:
 
 - A missing or disabled Principal.
 - A wrong Principal type.
-- An unverified channel actor.
 - Invalid group conditions.
 - Malformed resource or action input.
 

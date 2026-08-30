@@ -210,11 +210,13 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
         properties: %{
           uid: %Schema{type: :string},
           status: %Schema{type: :string, enum: ["active", "disabled"]},
-          display_name: %Schema{type: :string, nullable: true},
+          display_name: %Schema{type: :string},
           avatar_url: %Schema{type: :string, nullable: true},
           type: %Schema{type: :string, enum: ["ai_colleague"]},
           role: %Schema{type: :string},
           options: %Schema{type: :object, additionalProperties: true},
+          owner_principal_uid: %Schema{type: :string},
+          group_memory_disclosure_mode: %Schema{type: :string, enum: ["strict", "relaxed"]},
           created_by_principal_uid: %Schema{type: :string, nullable: true},
           inserted_at: %Schema{type: :string},
           updated_at: %Schema{type: :string}
@@ -222,12 +224,35 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
         required: [
           :uid,
           :status,
+          :display_name,
           :type,
           :role,
           :options,
+          :owner_principal_uid,
+          :group_memory_disclosure_mode,
           :inserted_at,
           :updated_at
         ],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule PrincipalLocalCredential do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "PrincipalLocalCredential",
+        type: :object,
+        nullable: true,
+        properties: %{
+          status: %Schema{type: :string, enum: ["active", "must_change"]}
+        },
+        required: [:status],
         additionalProperties: false
       },
       struct?: false
@@ -249,10 +274,117 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           status: %Schema{type: :string, enum: ["active", "disabled"]},
           display_name: %Schema{type: :string, nullable: true},
           avatar_url: %Schema{type: :string, nullable: true},
+          email: %Schema{type: :string, nullable: true},
+          has_external_identity: %Schema{type: :boolean},
+          local_credential: PrincipalLocalCredential,
           inserted_at: %Schema{type: :string},
           updated_at: %Schema{type: :string}
         },
-        required: [:uid, :type, :status, :inserted_at, :updated_at],
+        required: [
+          :uid,
+          :type,
+          :status,
+          :has_external_identity,
+          :inserted_at,
+          :updated_at
+        ],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule PrincipalCreateRequest do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "PrincipalCreateRequest",
+        type: :object,
+        properties: %{
+          email: %Schema{type: :string},
+          display_name: %Schema{type: :string, nullable: true},
+          must_change_password: %Schema{type: :boolean, default: true}
+        },
+        required: [:email],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule PrincipalCreateResponse do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "PrincipalCreateResponse",
+        type: :object,
+        properties: %{
+          principal: PrincipalItem,
+          initial_password: %Schema{type: :string}
+        },
+        required: [:principal, :initial_password],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule PrincipalUpdateRequest do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "PrincipalUpdateRequest",
+        type: :object,
+        properties: %{
+          display_name: %Schema{type: :string, nullable: true},
+          email: %Schema{type: :string}
+        },
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule LocalPasswordResetRequest do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "LocalPasswordResetRequest",
+        type: :object,
+        properties: %{
+          must_change_password: %Schema{type: :boolean, default: true}
+        },
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule LocalPasswordResetResponse do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "LocalPasswordResetResponse",
+        type: :object,
+        properties: %{
+          initial_password: %Schema{type: :string}
+        },
+        required: [:initial_password],
         additionalProperties: false
       },
       struct?: false
@@ -667,9 +799,11 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           display_name: %Schema{type: :string},
           avatar_url: %Schema{type: :string, nullable: true},
           role: %Schema{type: :string},
-          options: %Schema{type: :object, additionalProperties: true}
+          options: %Schema{type: :object, additionalProperties: true},
+          owner_principal_uid: %Schema{type: :string},
+          group_memory_disclosure_mode: %Schema{type: :string, enum: ["strict", "relaxed"]}
         },
-        required: [:uid, :display_name, :role],
+        required: [:uid, :display_name, :role, :owner_principal_uid],
         additionalProperties: false
       },
       struct?: false
@@ -689,7 +823,9 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           display_name: %Schema{type: :string},
           avatar_url: %Schema{type: :string, nullable: true},
           role: %Schema{type: :string},
-          options: %Schema{type: :object, additionalProperties: true}
+          options: %Schema{type: :object, additionalProperties: true},
+          owner_principal_uid: %Schema{type: :string},
+          group_memory_disclosure_mode: %Schema{type: :string, enum: ["strict", "relaxed"]}
         },
         additionalProperties: false
       },
@@ -707,7 +843,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
         title: "AgentLibraryDocumentItem",
         type: :object,
         properties: %{
-          kind: %Schema{type: :string, enum: ~w(mission soul design)},
+          kind: %Schema{type: :string, enum: ~w(mission soul design confidentiality_policy)},
           content: %Schema{type: :string},
           content_hash: %Schema{type: :string}
         },
@@ -730,9 +866,10 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
         properties: %{
           mission: AgentLibraryDocumentItem,
           soul: AgentLibraryDocumentItem,
-          design: AgentLibraryDocumentItem
+          design: AgentLibraryDocumentItem,
+          confidentiality_policy: AgentLibraryDocumentItem
         },
-        required: [:mission, :soul, :design],
+        required: [:mission, :soul, :design, :confidentiality_policy],
         additionalProperties: false
       },
       struct?: false
@@ -797,34 +934,50 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
     )
   end
 
-  defmodule AgentLibrarySkillOverlayItem do
+  defmodule AgentSkillLessonItem do
     @moduledoc false
 
     require OpenAPISpex
 
     OpenAPISpex.schema(
       %{
-        title: "AgentLibrarySkillOverlayItem",
+        title: "AgentSkillLessonItem",
         type: :object,
         properties: %{
+          id: %Schema{type: :string},
           skill_name: %Schema{type: :string},
-          skill_id: %Schema{type: :string, nullable: true},
           agent_plugin_id: %Schema{type: :string, nullable: true},
           description: %Schema{type: :string, nullable: true},
           effective_enabled: %Schema{type: :boolean},
-          text: %Schema{type: :string},
-          content_hash: %Schema{type: :string},
-          updated_at: %Schema{type: :string, format: :"date-time"}
+          content: %Schema{type: :string},
+          author_kind: %Schema{type: :string, enum: ["dreaming", "human"]},
+          author_uid: %Schema{type: :string, nullable: true},
+          evidence_job_ids: %Schema{type: :array, items: %Schema{type: :integer}},
+          checked_release: %Schema{type: :string, nullable: true},
+          review_after: %Schema{type: :string, format: :"date-time", nullable: true},
+          retired_at: %Schema{type: :string, format: :"date-time", nullable: true},
+          retire_reason: %Schema{
+            type: :string,
+            enum: ["human_revoked", "lapsed", "obsolete"],
+            nullable: true
+          },
+          created_at: %Schema{type: :string, format: :"date-time"}
         },
         required: [
+          :id,
           :skill_name,
-          :skill_id,
           :agent_plugin_id,
           :description,
           :effective_enabled,
-          :text,
-          :content_hash,
-          :updated_at
+          :content,
+          :author_kind,
+          :author_uid,
+          :evidence_job_ids,
+          :checked_release,
+          :review_after,
+          :retired_at,
+          :retire_reason,
+          :created_at
         ],
         additionalProperties: false
       },
@@ -832,39 +985,39 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
     )
   end
 
-  defmodule AgentLibrarySkillOverlaysResponse do
+  defmodule AgentSkillLessonsResponse do
     @moduledoc false
 
     require OpenAPISpex
 
     OpenAPISpex.schema(
       %{
-        title: "AgentLibrarySkillOverlaysResponse",
+        title: "AgentSkillLessonsResponse",
         type: :object,
         properties: %{
-          skill_overlays: %Schema{type: :array, items: AgentLibrarySkillOverlayItem}
+          skill_lessons: %Schema{type: :array, items: AgentSkillLessonItem}
         },
-        required: [:skill_overlays],
+        required: [:skill_lessons],
         additionalProperties: false
       },
       struct?: false
     )
   end
 
-  defmodule AgentLibrarySkillOverlayWriteRequest do
+  defmodule AgentSkillLessonCreateRequest do
     @moduledoc false
 
     require OpenAPISpex
 
     OpenAPISpex.schema(
       %{
-        title: "AgentLibrarySkillOverlayWriteRequest",
+        title: "AgentSkillLessonCreateRequest",
         type: :object,
         properties: %{
-          text: %Schema{type: :string},
-          expected_content_hash: %Schema{type: :string}
+          skill_name: %Schema{type: :string},
+          content: %Schema{type: :string}
         },
-        required: [:text, :expected_content_hash],
+        required: [:skill_name, :content],
         additionalProperties: false
       },
       struct?: false
@@ -1371,6 +1524,69 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
     )
   end
 
+  defmodule SignalAdapterFieldRequirement do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "SignalAdapterFieldRequirement",
+        type: :object,
+        properties: %{
+          path: %Schema{type: :string},
+          value: JSONValue
+        },
+        required: [:path, :value],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule SignalAdapterPatternValidation do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "SignalAdapterPatternValidation",
+        type: :object,
+        properties: %{
+          kind: %Schema{type: :string, enum: ["pattern"]},
+          message: LocalizedText,
+          pattern: %Schema{type: :string}
+        },
+        required: [:kind, :message, :pattern],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule SignalAdapterJSONObjectValidation do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "SignalAdapterJSONObjectValidation",
+        type: :object,
+        properties: %{
+          kind: %Schema{type: :string, enum: ["json_object"]},
+          message: LocalizedText,
+          requiredStringProperties: %Schema{type: :array, items: %Schema{type: :string}},
+          stringPrefixes: %Schema{type: :object, additionalProperties: %Schema{type: :string}}
+        },
+        required: [:kind, :message],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
   defmodule SignalAdapterField do
     @moduledoc false
 
@@ -1387,11 +1603,15 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           description: LocalizedText,
           default: JSONValue,
           advanced: %Schema{type: :boolean},
-          required: %Schema{type: :boolean, nullable: true},
-          encrypted: %Schema{type: :boolean, nullable: true},
-          min: %Schema{type: :integer, nullable: true},
-          max: %Schema{type: :integer, nullable: true},
-          options: %Schema{type: :array, items: SignalAdapterFieldOption, nullable: true}
+          required: %Schema{type: :boolean},
+          requiredWhen: %Schema{type: :array, items: SignalAdapterFieldRequirement},
+          encrypted: %Schema{type: :boolean},
+          min: %Schema{type: :integer},
+          max: %Schema{type: :integer},
+          options: %Schema{type: :array, items: SignalAdapterFieldOption},
+          validation: %Schema{
+            oneOf: [SignalAdapterPatternValidation, SignalAdapterJSONObjectValidation]
+          }
         },
         required: [:path, :type],
         additionalProperties: true
@@ -1411,12 +1631,23 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
         type: :object,
         properties: %{
           adapter_id: %Schema{type: :string},
+          adapter_category: %Schema{
+            type: :string,
+            enum: ["enterprise_im", "consumer_im"]
+          },
           plugin_id: %Schema{type: :string, nullable: true},
           display_name: LocalizedText,
           fields: %Schema{type: :array, items: SignalAdapterField},
-          group_message_mode_field: SignalAdapterField
+          group_message_mode_field: SignalAdapterField,
+          unmatched_sender_policy_field: SignalAdapterField
         },
-        required: [:adapter_id, :fields, :group_message_mode_field],
+        required: [
+          :adapter_id,
+          :adapter_category,
+          :fields,
+          :group_message_mode_field,
+          :unmatched_sender_policy_field
+        ],
         additionalProperties: false
       },
       struct?: false
@@ -1617,6 +1848,132 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
     )
   end
 
+  defmodule IdentityMappingRequestItem do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "IdentityMappingRequestItem",
+        type: :object,
+        properties: %{
+          id: %Schema{type: :string},
+          provider: %Schema{type: :string},
+          external_id: %Schema{type: :string},
+          display_name: %Schema{type: :string, nullable: true},
+          email: %Schema{type: :string, nullable: true},
+          mobile: %Schema{type: :string, nullable: true},
+          metadata: JSONValue,
+          first_seen_at: %Schema{type: :string, format: :"date-time"},
+          last_seen_at: %Schema{type: :string, format: :"date-time"}
+        },
+        required: [:id, :provider, :external_id, :first_seen_at, :last_seen_at],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule IdentityMappingRequestListResponse do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "IdentityMappingRequestListResponse",
+        type: :object,
+        properties: %{
+          identity_mapping_requests: %Schema{type: :array, items: IdentityMappingRequestItem}
+        },
+        required: [:identity_mapping_requests],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule IdentityMappingBindRequest do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "IdentityMappingBindRequest",
+        type: :object,
+        properties: %{
+          principal_uid: %Schema{type: :string}
+        },
+        required: [:principal_uid],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule IdentityMappingWriteRequest do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "IdentityMappingWriteRequest",
+        type: :object,
+        properties: %{
+          principal_uid: %Schema{type: :string},
+          provider: %Schema{type: :string},
+          external_id: %Schema{type: :string}
+        },
+        required: [:principal_uid, :provider, :external_id],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule IdentityMappingItem do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "IdentityMappingItem",
+        type: :object,
+        properties: %{
+          principal_uid: %Schema{type: :string},
+          provider: %Schema{type: :string},
+          external_id: %Schema{type: :string}
+        },
+        required: [:principal_uid, :provider, :external_id],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule IdentityMappingResponse do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "IdentityMappingResponse",
+        type: :object,
+        properties: %{
+          identity_mapping: IdentityMappingItem
+        },
+        required: [:identity_mapping],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
   defmodule SignalBindingWriteRequest do
     @moduledoc false
 
@@ -1633,7 +1990,11 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
             enum: ["addressed_only", "observe_all", "may_intervene"],
             nullable: true
           },
-          confidential_memory: %Schema{type: :boolean, default: false}
+          unmatched_sender_policy: %Schema{
+            type: :string,
+            enum: ["manual_review", "create_standalone"],
+            nullable: true
+          }
         },
         required: [:config],
         additionalProperties: false
@@ -1659,7 +2020,11 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
             enum: ["addressed_only", "observe_all", "may_intervene"],
             nullable: true
           },
-          confidential_memory: %Schema{type: :boolean, nullable: true}
+          unmatched_sender_policy: %Schema{
+            type: :string,
+            enum: ["manual_review", "create_standalone"],
+            nullable: true
+          }
         },
         required: [:target_agent_uid, :config],
         additionalProperties: false
@@ -1766,7 +2131,10 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
             type: :string,
             enum: ["ignore", "record_only", "may_intervene"]
           },
-          confidential_memory: %Schema{type: :boolean},
+          unmatched_sender_policy: %Schema{
+            type: :string,
+            enum: ["manual_review", "create_standalone"]
+          },
           enabled: %Schema{type: :boolean},
           unavailable_reason: %Schema{type: :string, nullable: true}
         },
@@ -1777,7 +2145,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           :config_ref,
           :config_key,
           :unaddressed_group_message_policy,
-          :confidential_memory,
+          :unmatched_sender_policy,
           :enabled
         ],
         additionalProperties: false
@@ -2750,8 +3118,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
         type: :object,
         properties: %{
           web_search: %Schema{type: :boolean},
-          image_generate: %Schema{type: :boolean},
-          compaction: %Schema{type: :boolean}
+          image_generate: %Schema{type: :boolean}
         },
         additionalProperties: false
       },
@@ -3872,7 +4239,6 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
     require OpenAPISpex
 
     @types ~w(message checkpoint)
-    @roles ~w(user assistant tool im_ambient)
     @statuses ~w(generating complete error retracted)
 
     OpenAPISpex.schema(
@@ -3884,7 +4250,6 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           subject_uid: %Schema{type: :string},
           conversation_id: %Schema{type: :string},
           type: %Schema{type: :string, enum: @types},
-          role: %Schema{type: :string, enum: @roles, nullable: true},
           status: %Schema{type: :string, enum: @statuses},
           previous_message_id: %Schema{type: :string, nullable: true},
           content: %Schema{

@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path'
 import { YAML } from 'bun'
 import type { AnkoleSkillRuntime } from './effective-skill'
 import type { InstalledSkillObservation } from './types'
+import { errorMessage } from '../common/errors'
 
 export type InstalledSkillDiagnostic = {
   code: string
@@ -125,17 +126,6 @@ function validateSkillMetadata(
     return null
   }
 
-  const disableModelInvocation = booleanScalar(
-    frontmatter['disable-model-invocation'] ?? frontmatter.disable_model_invocation,
-    false
-  )
-  if (disableModelInvocation === null) {
-    diagnostics.push(
-      diagnostic('invalid_disable_model_invocation', 'disable-model-invocation must be true or false', skillPath)
-    )
-    return null
-  }
-
   const ankoleRuntime = optionalStringScalar(frontmatter['ankole-runtime'])
   if (ankoleRuntime === null || (ankoleRuntime !== undefined && !isAnkoleSkillRuntime(ankoleRuntime))) {
     diagnostics.push(
@@ -150,7 +140,6 @@ function validateSkillMetadata(
     default_enabled: defaultEnabled,
     tags,
     ...(category ? { category } : {}),
-    disable_model_invocation: disableModelInvocation,
     ...(ankoleRuntime ? { ankole_runtime: ankoleRuntime } : {})
   }
 }
@@ -174,11 +163,7 @@ function skillFrontmatter(
     if (typeof value === 'object' && !Array.isArray(value)) return value as SkillFrontmatter
   } catch (error) {
     diagnostics.push(
-      diagnostic(
-        'invalid_skill_frontmatter',
-        `SKILL.md frontmatter is invalid YAML: ${error instanceof Error ? error.message : String(error)}`,
-        skillPath
-      )
+      diagnostic('invalid_skill_frontmatter', `SKILL.md frontmatter is invalid YAML: ${errorMessage(error)}`, skillPath)
     )
     return null
   }

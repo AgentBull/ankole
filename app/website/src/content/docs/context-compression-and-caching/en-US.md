@@ -1,11 +1,11 @@
 ---
 title: Context compression and compaction
-description: How Ankole keeps long conversations within a model's context — AIGateway automatic history compaction, verbatim user-original retention, and the Brain dreaming memo compactor for resident long-term memory.
+description: How Ankole keeps long conversations within a model's context — AIGateway automatic history compaction and verbatim user-original retention.
 section: Developer guide
 order: 116
 ---
 
-A conversation that runs long eventually exceeds the model's context window. Ankole handles this in two places, for two different kinds of memory: AIGateway compacts the conversation history a turn sees, and Brain dreaming compacts the agent's resident long-term memo. This page documents both, against the real code in `ai_gateway/compaction*.ex` and `brain/dreaming/memo_compactor.ex`.
+A conversation that runs long eventually exceeds the model's context window. AIGateway compacts the conversation history a turn sees, so the conversation can continue past that limit. This page documents that mechanism, against the real code in `ai_gateway/compaction*.ex`.
 
 The decisive property, stated up front: compaction is *lossy by design, but not silent*. A compaction replaces older turns with a summary, preserves recent turns verbatim, and records itself as a durable artifact the conversation points at. The original turns are gone from the model's context; the summary is the new reference state. A compaction is not a cache you can invalidate back to the originals.
 
@@ -45,36 +45,15 @@ The combination — a summary of old assistant work, verbatim recent turns, verb
 
 ### The compaction artifact
 
-Each compaction produces a durable `CompactionArtifact`, stored by AIGateway. The conversation's history points at the most recent compaction as its anchor; subsequent turns continue from there. A Brain pre-compaction nudge (marker `ankole.brain.pre_compaction_nudge.v1`) fires before compaction, giving the agent a chance to save durable facts to Brain before the conversation history is summarized away.
-
-## Brain dreaming memo compaction
-
-Separately from conversation history, an agent may carry a **resident long-term memo** — a `pinned_memo` knowledge entry in Brain. `Brain.Dreaming.MemoCompactor` keeps that memo within its token budget, so it does not grow unbounded across dreaming runs.
-
-The memo compactor reads `pinned_memo_max_tokens` from Brain knowledge config, finds the agent's pinned memo, and compacts it when it exceeds the budget. The result is a shorter memo that preserves the durable facts, written by the summarizer under the same "reference state, not instructions" discipline. This is dreaming-shaped compaction — it runs offline, on the agent's resident memory, not on the live conversation.
-
-## How the two relate
-
-They are different memories with different compactors:
-
-| | AIGateway compaction | Brain memo compaction |
-|---|---|---|
-| What it compacts | conversation history (turns) | agent's pinned long-term memo |
-| When it runs | when token usage crosses the threshold, during a turn | offline, during dreaming |
-| What survives | summary + recent turns + user originals | a shorter memo |
-| Who owns it | AIGateway (conversation truth) | Brain (knowledge truth) |
-| Artifact | `CompactionArtifact` | a revised knowledge entry |
-
-A long conversation triggers AIGateway compaction to fit the context. A long-lived agent triggers Brain memo compaction to fit its durable memory. They do not interact directly, but the pre-compaction nudge bridges them — giving the agent a chance to promote durable facts from the conversation into Brain before the conversation is summarized.
+Each compaction produces a durable `CompactionArtifact`, stored by AIGateway. The conversation's history points at the most recent compaction as its anchor; subsequent turns continue from there.
 
 ## Tuning
 
 - **Raise `threshold`** if your agents work with short conversations and compaction fires too eagerly. The default (0.50) is conservative.
 - **Raise `tail_rows`** if the model loses immediate context after a compaction — more verbatim recent turns, at the cost of less room for the summary.
 - **Raise `user_message_budget_tokens`** if user messages are being dropped from the compacted span and the model loses track of what was asked.
-- **Raise `pinned_memo_max_tokens`** (Brain knowledge config) if the agent's resident memo is being compacted too aggressively.
 
-All four are AppConfigure keys, changed through the Console, taking effect on the next compaction — not on the current turn.
+All three are AppConfigure keys, changed through the Console, taking effect on the next compaction — not on the current turn.
 
 ## What this guide is not
 
@@ -83,5 +62,3 @@ It is not a prompt-caching guide — AIGateway does not implement provider-side 
 ## Next steps
 
 - For the AIGateway concept page, read [AIGateway](../ai-gateway/).
-- For the Brain memory model, read [Brain](../brain/).
-- For the dreaming process that runs the memo compactor, read the dreaming section of [Brain](../brain/).

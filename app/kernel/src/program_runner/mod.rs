@@ -26,37 +26,69 @@ use deno_core::{JsRuntime, OpState, PollEventLoopOptions, RuntimeOptions, op2};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
+/// Limits the wall-clock time of one replay attempt.
 const DEFAULT_TIMEOUT_MS: u64 = 30_000;
+/// Keeps one V8 isolate inside the Worker memory budget.
 const DEFAULT_HEAP_LIMIT_BYTES: usize = 256 * 1024 * 1024;
+/// Prevents one model-produced program from dominating compile work.
 const DEFAULT_MAX_PROGRAM_BYTES: usize = 256 * 1024;
+/// Bounds all output that one program can return to AIGateway.
 const DEFAULT_MAX_OUTPUT_BYTES: usize = 1024 * 1024;
+/// Keeps one runtime failure safe to store and send.
 const DEFAULT_MAX_ERROR_BYTES: usize = 16 * 1024;
+/// Bounds one text output before it enters the shared output budget.
 const DEFAULT_MAX_TEXT_BYTES: usize = 64 * 1024;
+/// Bounds one image reference before it enters the shared output budget.
 const DEFAULT_MAX_IMAGE_BYTES: usize = 16 * 1024;
+/// Sets the default size of the first tool-call batch that can pause a program.
 const DEFAULT_MAX_PENDING_CALLS: usize = 64;
+/// Caps the first tool-call batch when a caller requests a larger limit.
+const HARD_MAX_PENDING_CALLS: usize = 1024;
+/// Sets the default byte limit for one unanswered tool-call batch.
 const DEFAULT_MAX_PENDING_BYTES: usize = 1024 * 1024;
+/// Caps pending argument bytes when a caller requests a larger limit.
+const HARD_MAX_PENDING_BYTES: usize = 8 * 1024 * 1024;
+/// Prevents one call from consuming the complete pending-call budget.
 const DEFAULT_MAX_PENDING_ARGUMENT_BYTES: usize = 256 * 1024;
+/// Bounds the replay steps that one request can supply.
 const DEFAULT_MAX_MEMO_ENTRIES: usize = 1024;
+/// Bounds the retained replay state that enters a fresh isolate.
 const DEFAULT_MAX_MEMO_BYTES: usize = 8 * 1024 * 1024;
+/// Bounds the bindings that the generated JavaScript prelude installs.
 const DEFAULT_MAX_TOOLS: usize = 128;
+/// Keeps one generated JavaScript binding name bounded.
 const DEFAULT_MAX_TOOL_NAME_BYTES: usize = 256;
+/// Bounds all names copied into the generated JavaScript prelude.
 const DEFAULT_MAX_TOOL_NAMES_BYTES: usize = 16 * 1024;
+/// Rejects an oversized request before it creates runner state.
 const MAX_RUN_REQUEST_BYTES: usize = 16 * 1024 * 1024;
+/// Keeps process-local cancellation registry keys bounded.
 const MAX_RUN_ID_BYTES: usize = 128;
+/// Bounds the number of output values even when each value is small.
 const MAX_OUTPUT_PARTS: usize = 256;
+/// Marks an isolate that can still accept one termination reason.
 const EXECUTION_RUNNING: u8 = 0;
+/// Records that the watchdog ended the run.
 const TERMINATION_TIMEOUT: u8 = 1;
+/// Records that the V8 heap limit ended the run.
 const TERMINATION_HEAP: u8 = 2;
+/// Records that the caller ended the run.
 const TERMINATION_CANCELLED: u8 = 3;
+/// Prevents termination while the host reads the final state.
 const EXECUTION_FINISHING: u8 = 4;
+/// Marks a run whose final state is no longer mutable.
 const EXECUTION_DONE: u8 = 5;
 
 #[cfg(not(test))]
+/// Bounds simultaneous V8 heap reservations inside one Worker.
 const MAX_CONCURRENT_RUNS: usize = 4;
 #[cfg(test)]
+/// Lets concurrency tests exceed the production admission limit.
 const MAX_CONCURRENT_RUNS: usize = 64;
 
+/// Applies the process-wide V8 admission limit before an isolate is created.
 static ACTIVE_RUNS: AtomicUsize = AtomicUsize::new(0);
+/// Lets cancellation find only the isolate that owns the current run ID.
 static RUN_REGISTRY: OnceLock<Mutex<HashMap<String, Arc<RunControl>>>> = OnceLock::new();
 
 /// One cancellation authority for the V8 isolate that is currently running.
@@ -220,12 +252,10 @@ struct ProgramState {
 }
 
 impl ProgramState {
-    fn new(request: &RunRequest) -> Result<Self, ProgramFailure> {
-        let allowed_tools = validate_tools(&request.tools)?;
-
-        Ok(Self {
+    fn new(request: &mut RunRequest, allowed_tools: HashMap<String, ToolIdentity>) -> Self {
+        Self {
             allowed_tools,
-            memo: request.memo.clone(),
+            memo: std::mem::take(&mut request.memo),
             memo_cursor: 0,
             pending_calls: Vec::new(),
             pending_bytes: 0,
@@ -236,10 +266,18 @@ impl ProgramState {
             failure: None,
             status: ProgramStatus::Running,
             max_output_bytes: capped(request.max_output_bytes, DEFAULT_MAX_OUTPUT_BYTES),
-            max_pending_calls: capped(request.max_pending_calls, DEFAULT_MAX_PENDING_CALLS),
-            max_pending_bytes: capped(request.max_pending_bytes, DEFAULT_MAX_PENDING_BYTES),
+            max_pending_calls: bounded(
+                request.max_pending_calls,
+                DEFAULT_MAX_PENDING_CALLS,
+                HARD_MAX_PENDING_CALLS,
+            ),
+            max_pending_bytes: bounded(
+                request.max_pending_bytes,
+                DEFAULT_MAX_PENDING_BYTES,
+                HARD_MAX_PENDING_BYTES,
+            ),
             max_pending_argument_bytes: DEFAULT_MAX_PENDING_ARGUMENT_BYTES,
-        })
+        }
     }
 
     fn fail(&mut self, code: &str, message: String) {
@@ -406,14 +444,11 @@ deno_core::extension!(
 
 /// Runs one program to completion or to its first unanswered tool-call batch.
 pub fn run(request: RunRequest) -> RunOutcome {
-    let _permit = match RunPermit::acquire() {
-        Some(permit) => permit,
-        None => {
-            return failed(
-                "program_runtime_busy",
-                "program runtime concurrency limit reached",
-            );
-        }
+    let Some(_permit) = RunPermit::acquire() else {
+        return failed(
+            "program_runtime_busy",
+            "program runtime concurrency limit reached",
+        );
     };
 
     guarded_execute(request, Arc::new(RunControl::new()))
@@ -421,14 +456,11 @@ pub fn run(request: RunRequest) -> RunOutcome {
 
 /// Registers and runs one cancellable native execution.
 pub fn run_registered(run_id: &str, request: RunRequest) -> RunOutcome {
-    let _permit = match RunPermit::acquire() {
-        Some(permit) => permit,
-        None => {
-            return failed(
-                "program_runtime_busy",
-                "program runtime concurrency limit reached",
-            );
-        }
+    let Some(_permit) = RunPermit::acquire() else {
+        return failed(
+            "program_runtime_busy",
+            "program runtime concurrency limit reached",
+        );
     };
 
     let running = match RunningRun::begin(run_id) {
@@ -456,10 +488,11 @@ fn failed(code: &str, message: &str) -> RunOutcome {
     }
 }
 
-fn execute(request: RunRequest, control: Arc<RunControl>) -> RunOutcome {
-    if let Err(failure) = validate_request(&request) {
-        return failed(&failure.code, &failure.message);
-    }
+fn execute(mut request: RunRequest, control: Arc<RunControl>) -> RunOutcome {
+    let allowed_tools = match validate_request(&request) {
+        Ok(allowed_tools) => allowed_tools,
+        Err(failure) => return failed(&failure.code, &failure.message),
+    };
 
     if let Some(outcome) = termination_outcome(&control.execution_phase) {
         return outcome;
@@ -509,10 +542,7 @@ fn execute(request: RunRequest, control: Arc<RunControl>) -> RunOutcome {
         current * 2
     });
 
-    let program_state = match ProgramState::new(&request) {
-        Ok(state) => state,
-        Err(failure) => return failed(&failure.code, &failure.message),
-    };
+    let program_state = ProgramState::new(&mut request, allowed_tools);
     js_runtime.op_state().borrow_mut().put(program_state);
 
     let watchdog_control = Arc::clone(&control);
@@ -811,7 +841,7 @@ fn finish(js_runtime: &mut JsRuntime, event_loop_failure: Option<ProgramFailure>
     }
 }
 
-fn validate_request(request: &RunRequest) -> Result<(), ProgramFailure> {
+fn validate_request(request: &RunRequest) -> Result<HashMap<String, ToolIdentity>, ProgramFailure> {
     let max_program_bytes = capped(request.max_program_bytes, DEFAULT_MAX_PROGRAM_BYTES);
     if request.program.len() > max_program_bytes {
         return Err(ProgramFailure {
@@ -852,7 +882,7 @@ fn validate_request(request: &RunRequest) -> Result<(), ProgramFailure> {
         });
     }
 
-    Ok(())
+    Ok(allowed_tools)
 }
 
 fn validate_tools(
@@ -909,6 +939,10 @@ fn qualified_name(namespace: Option<&str>, name: &str) -> String {
 
 fn capped(requested: Option<usize>, hard_max: usize) -> usize {
     requested.unwrap_or(hard_max).min(hard_max)
+}
+
+fn bounded(requested: Option<usize>, default: usize, hard_max: usize) -> usize {
+    requested.unwrap_or(default).min(hard_max)
 }
 
 fn bounded_message(message: &str) -> String {

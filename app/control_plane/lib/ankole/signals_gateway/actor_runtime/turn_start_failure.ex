@@ -63,7 +63,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnStartFailure do
     do: {:ok, nil}
 
   defp maybe_commit_notice(repo, %ActorEvent{} = actor_event, profile) do
-    if AIReplyPreview.im_visible_event?(actor_event) do
+    if AIReplyPreview.channel_reply_eligible?(actor_event) do
       text =
         I18n.t("signals_gateway.reply.model_profile_unavailable", %{
           "profile" => profile,

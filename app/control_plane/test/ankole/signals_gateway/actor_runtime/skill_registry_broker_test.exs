@@ -34,7 +34,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SkillRegistryBrokerTest do
                          default_enabled: true,
                          tags: ["notes"],
                          category: "custom",
-                         disable_model_invocation: false,
                          ankole_runtime: "background_job"
                        }
                      ]
@@ -48,7 +47,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SkillRegistryBrokerTest do
       assert envelope_body!(envelope, :rpc_response).request_id == "installed-skills-1"
       assert %FabricProto.InstalledSkillReplaceResponse{} = payload
 
-      assert %AgentSkill{source_kind: "installed", enabled_override: nil, default_enabled: true} =
+      assert %AgentSkill{
+               source_kind: "installed",
+               enabled_override: nil,
+               default_enabled: true,
+               metadata: %{"category" => "custom", "tags" => ["notes"]}
+             } =
                Repo.get_by!(AgentSkill, agent_uid: agent.uid, skill_name: "agent-notes")
 
       assert {:ok, enabled_skills} = Library.enabled_skills_for_agent(agent.uid)

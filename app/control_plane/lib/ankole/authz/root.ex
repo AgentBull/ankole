@@ -48,22 +48,26 @@ defmodule Ankole.AuthZ.Root do
   end
 
   def root_init_admin(principal_uid) do
-    Repo.transact(fn repo ->
-      with {:ok, principal} <- Store.fetch_principal_for_update(repo, principal_uid),
-           :ok <- Store.ensure_active_human(principal),
-           {:ok, built_ins} <- ensure_builtin_groups(repo),
-           {:ok, admin_group} <- Store.lock_group(repo, built_ins.admin_group.id),
-           {:ok, membership} <- ensure_root_membership(repo, admin_group, principal.uid),
-           {:ok, console_grants} <- Grants.upsert_console_admin_grants(repo, admin_group) do
-        {:ok,
-         %{
-           admin_group: admin_group,
-           all_humans_group: built_ins.all_humans_group,
-           console_grants: console_grants,
-           membership: membership
-         }}
-      end
-    end)
+    Repo.transact(fn repo -> root_init_admin(repo, principal_uid) end)
+  end
+
+  # Runs inside the caller's transaction. Admin writes take the group lock
+  # before the principal lock, in that one installation-wide order.
+  def root_init_admin(repo, principal_uid) do
+    with {:ok, built_ins} <- ensure_builtin_groups(repo),
+         {:ok, admin_group} <- Store.lock_group(repo, built_ins.admin_group.id),
+         {:ok, principal} <- Store.fetch_principal_for_update(repo, principal_uid),
+         :ok <- Store.ensure_active_human(principal),
+         {:ok, membership} <- ensure_root_membership(repo, admin_group, principal.uid),
+         {:ok, console_grants} <- Grants.upsert_console_admin_grants(repo, admin_group) do
+      {:ok,
+       %{
+         admin_group: admin_group,
+         all_humans_group: built_ins.all_humans_group,
+         console_grants: console_grants,
+         membership: membership
+       }}
+    end
   end
 
   def ensure_builtin_groups(repo) do

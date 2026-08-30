@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import { z } from 'zod'
+import { defineWorkerTool } from '../../src/core'
 import { runAgentLoop } from '../../src/core/agent-loop'
 import { createModel } from '../../src/core/llm'
 import { createClarifyTool } from '../../src/tools/clarify/clarify-tool'
@@ -79,7 +80,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
       },
       tools: [
         createClarifyTool(),
-        {
+        defineWorkerTool({
           name: 'side_effect',
           description: 'A side effect that must not run after a turn-ending result.',
           schema: z.object({}),
@@ -91,18 +92,25 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
             sideEffectCalls += 1
             return { content: [{ type: 'text' as const, text: 'changed' }], details: { ok: true } }
           }
-        }
+        })
       ]
     })
 
     expect(final.responseID).toBe('resp_clarify_result')
     expect(sideEffectCalls).toBe(0)
     expect(sentPayloads.map(payload => payload.type)).toEqual(['response.create', 'response.tool_results.record'])
+    // The model requested both calls in the same round; clarify's own result
+    // pairs with call_clarify, and call_after_clarify still gets a paired
+    // result (an immediate "turn already ended" one) rather than actually
+    // running side_effect or being left as a dangling tool call.
     expect(sentPayloads[1]).toMatchObject({
       previous_response_id: 'resp_clarify_call',
-      input: [{ type: 'function_call_output', call_id: 'call_clarify' }]
+      input: [
+        { type: 'function_call_output', call_id: 'call_clarify' },
+        { type: 'function_call_output', call_id: 'call_after_clarify' }
+      ]
     })
-    expect(sentPayloads[1]!.input).toHaveLength(1)
+    expect(sentPayloads[1]!.input).toHaveLength(2)
   })
 
   it('settles every sequential program call before it resumes the program to a final answer', async () => {
@@ -186,7 +194,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
         conversationID: '13131313-1313-1313-1313-131313131313'
       },
       tools: [
-        {
+        defineWorkerTool({
           name: 'stock_price',
           namespace: 'mcp__finance',
           namespaceDescription: 'Financial market data',
@@ -206,8 +214,8 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
               terminate: true
             }
           }
-        },
-        {
+        }),
+        defineWorkerTool({
           name: 'company_name',
           namespace: 'mcp__finance',
           namespaceDescription: 'Financial market data',
@@ -226,7 +234,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
               details: { ok: true }
             }
           }
-        }
+        })
       ]
     })
 
@@ -346,7 +354,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
         conversationID: '27272727-2727-2727-2727-272727272727'
       },
       tools: [
-        {
+        defineWorkerTool({
           name: 'write_record',
           description: 'Write one record.',
           schema: z.object({ value: z.string() }),
@@ -359,7 +367,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
             executions += 1
             return { content: [{ type: 'text', text: 'changed' }], details: {} }
           }
-        }
+        })
       ]
     })
 
@@ -438,7 +446,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
         conversationID: '22222222-2222-2222-2222-222222222222'
       },
       tools: [
-        {
+        defineWorkerTool({
           name: 'apply_patch',
           description: 'Apply one patch.',
           schema: z.string(),
@@ -459,7 +467,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
               terminate: true
             }
           }
-        }
+        })
       ]
     })
 
@@ -567,7 +575,8 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
         conversationID: '22222222-2222-2222-2222-222222222222'
       },
       tools: [
-        {
+        defineWorkerTool({
+          executionMode: 'sequential',
           name: 'lookup',
           description: 'Look up facts',
           schema: z.object({ q: z.string() }),
@@ -576,7 +585,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
             content: [{ type: 'text', text: 'sunny' }],
             details: { ok: true }
           })
-        }
+        })
       ]
     })
 
@@ -680,7 +689,8 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
         conversationID: '33333333-3333-3333-3333-333333333333'
       },
       tools: [
-        {
+        defineWorkerTool({
+          executionMode: 'sequential',
           name: 'handoff',
           description: 'Return a background job result.',
           schema: z.object({}),
@@ -690,7 +700,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
             details: { ok: true },
             completeActorEventIDs: [completedActorEventID, completedActorEventID]
           })
-        }
+        })
       ]
     })
 
@@ -774,7 +784,8 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
       },
       modelInputModalities: ['text', 'image'],
       tools: [
-        {
+        defineWorkerTool({
+          executionMode: 'sequential',
           name: 'screenshot',
           description: 'Capture a screenshot',
           schema: z.object({}),
@@ -786,7 +797,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
             ],
             details: { ok: true }
           })
-        }
+        })
       ]
     })
 
@@ -888,7 +899,8 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
       modelInputModalities: ['text'],
       visionFallbackModel: fallbackModel,
       tools: [
-        {
+        defineWorkerTool({
+          executionMode: 'sequential',
           name: 'screenshot',
           description: 'Capture a screenshot',
           schema: z.object({}),
@@ -900,7 +912,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
             ],
             details: { ok: true }
           })
-        }
+        })
       ]
     })
 
@@ -997,7 +1009,8 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
         conversationID: '66666666-6666-6666-6666-666666666666'
       },
       tools: [
-        {
+        defineWorkerTool({
+          executionMode: 'sequential',
           name: 'lookup',
           description: 'Look up facts',
           schema: z.object({ q: z.string() }),
@@ -1006,7 +1019,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
             content: [],
             details: 1n
           })
-        }
+        })
       ]
     })
 
@@ -1111,7 +1124,8 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
       },
       maxModelIterations: 3,
       tools: [
-        {
+        defineWorkerTool({
+          executionMode: 'sequential',
           name: 'loop',
           description: 'Loop forever',
           schema: z.object({}),
@@ -1120,7 +1134,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
             toolExecutions += 1
             return { content: [{ type: 'text', text: `again ${toolExecutions}` }], details: {} }
           }
-        }
+        })
       ]
     })
 
@@ -1142,7 +1156,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
     expect(JSON.stringify(responseCreates[3]!.input)).toContain('maximum number of tool-calling iterations')
   })
 
-  it('salvages a tool call cut by the output limit with one described continuation', async () => {
+  it('replays a cut tool call with its error result from the previous anchor', async () => {
     const sentPayloads: JSONObject[] = []
     let toolExecutions = 0
     const model = createModel({
@@ -1211,7 +1225,8 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
       },
       maxModelIterations: 90,
       tools: [
-        {
+        defineWorkerTool({
+          executionMode: 'sequential',
           name: 'write_file',
           description: 'Write one file',
           schema: z.object({ path: z.string(), content: z.string() }),
@@ -1220,7 +1235,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
             toolExecutions += 1
             return { content: [{ type: 'text', text: 'written' }], details: {} }
           }
-        }
+        })
       ]
     })
 
@@ -1231,20 +1246,31 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
     expect(toolExecutions).toBe(0)
     expect(responseCreates).toHaveLength(2)
 
-    // The truncated response is not the anchor: the salvage continuation keeps
-    // the conversation anchor, so the stored thread never ends on a function
-    // call without an output.
+    // The cut response is not the anchor: the recovery continuation keeps the
+    // conversation anchor and replays the cut call with pi's error result as
+    // ordinary input items. The call re-enters under a derived id because the
+    // provider id's pair key belongs to the stored partial call, and its
+    // partial arguments re-enter through pi's streaming-JSON salvage, so the
+    // thread holds valid JSON that shows how far the model got.
     expect(responseCreates[1]!.previous_response_id).toBeUndefined()
     expect(responseCreates[1]!.conversation).toBe('conv_21212121-2121-2121-2121-212121212121')
-
-    const salvageText = JSON.stringify(responseCreates[1]!.input)
-    expect(salvageText).toContain('did not run')
-    expect(salvageText).toContain('write_file')
-    expect(salvageText).toContain('completed fields: path')
-    expect(salvageText).toContain('stopped inside the value of')
+    expect(responseCreates[1]!.input).toEqual([
+      {
+        type: 'function_call',
+        call_id: 'call_cut_r',
+        name: 'write_file',
+        arguments: '{"path":"report.md","content":"# Report\\nThe first"}'
+      },
+      {
+        type: 'function_call_output',
+        call_id: 'call_cut_r',
+        output: expect.stringContaining('output token limit')
+      }
+    ])
+    expect(JSON.stringify(responseCreates[1]!.input)).toContain('write_file')
   })
 
-  it('breaks after a second output-limit cut instead of describing it again', async () => {
+  it('breaks after a second output-limit cut instead of retrying again', async () => {
     const sentPayloads: JSONObject[] = []
     const cutFrame = (id: string) => ({
       type: 'response.incomplete',
@@ -1291,13 +1317,14 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
       },
       maxModelIterations: 90,
       tools: [
-        {
+        defineWorkerTool({
+          executionMode: 'sequential',
           name: 'write_file',
           description: 'Write one file',
           schema: z.object({ path: z.string(), content: z.string() }),
           describeActivity: () => '测试写文件',
           execute: async () => ({ content: [{ type: 'text', text: 'written' }], details: {} })
-        }
+        })
       ]
     })
 
@@ -1484,7 +1511,8 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
         conversationID: '88888888-8888-8888-8888-888888888888'
       },
       tools: [
-        {
+        defineWorkerTool({
+          executionMode: 'sequential',
           name: 'lookup',
           description: 'Look up facts',
           schema: z.object({ q: z.string() }),
@@ -1493,7 +1521,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
             content: [{ type: 'text', text: 'tool complete' }],
             details: { ok: true }
           })
-        }
+        })
       ],
       getSteeringMessages: async () => {
         if (steeringDrained) return []
@@ -1649,7 +1677,8 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
         conversationID: '30303030-3030-3030-3030-303030303030'
       },
       tools: [
-        {
+        defineWorkerTool({
+          executionMode: 'sequential',
           name: 'create_background_job',
           description: 'Create a background job',
           schema: z.object({ task: z.string() }),
@@ -1661,7 +1690,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
               details: { jobID: 'job-42' }
             }
           }
-        }
+        })
       ],
       getSteeringMessages: async () => {
         drainCalls += 1
@@ -1685,5 +1714,639 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
       previous_response_id: 'resp_background_job_results',
       input: [{ role: 'user', content: 'Runtime note: steer after the background job starts' }]
     })
+  })
+
+  it('ends the turn when a terminating call runs after an ordinary call in the same round', async () => {
+    // pi's own batch check ends a round only when every call terminated;
+    // here the ordinary call runs first (terminate: false), so only the
+    // loop's `shouldStopAfterTurn` bridge ends the turn.
+    const sentPayloads: JSONObject[] = []
+    let sideEffectCalls = 0
+    const model = createModel({
+      apiKey: 'unused',
+      baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
+      selector: 'primary',
+      responseWebSocket: {
+        kind: 'aigateway-websocket',
+        url: 'ws://aigateway.invalid/api/v1/ai-gateway/responses',
+        authorization: () => 'Bearer agent-key',
+        createWebSocket: (_url, init) =>
+          fakeResponseSocket(init, data => {
+            const payload = JSON.parse(data) as JSONObject
+            sentPayloads.push(payload)
+
+            if (payload.type === 'response.tool_results.record') {
+              return [toolResultsRecordedFrame('resp_mixed_batch_result')]
+            }
+
+            if (sentPayloads.filter(sent => sent.type === 'response.create').length > 1) {
+              throw new Error('a terminated round must not trigger another model call')
+            }
+
+            return [
+              {
+                type: 'response.completed',
+                response: {
+                  id: 'resp_mixed_batch_call',
+                  status: 'completed',
+                  output: [
+                    {
+                      type: 'function_call',
+                      id: 'fc_before_clarify',
+                      call_id: 'call_before_clarify',
+                      name: 'side_effect',
+                      arguments: '{}'
+                    },
+                    {
+                      type: 'function_call',
+                      id: 'fc_clarify_last',
+                      call_id: 'call_clarify_last',
+                      name: 'clarify',
+                      arguments: '{"question":"Which market?","choices":["A shares","US stocks"]}'
+                    }
+                  ]
+                }
+              }
+            ]
+          })
+      }
+    })
+
+    const final = await runAgentLoop({
+      model,
+      maxModelIterations: 90,
+      messages: [{ role: 'user', content: 'analyze the market' }],
+      stateful: {
+        actorEventID: '00000000-0000-0000-0000-000000000031',
+        conversationID: '31313131-3131-3131-3131-313131313131'
+      },
+      tools: [
+        createClarifyTool(),
+        defineWorkerTool({
+          name: 'side_effect',
+          description: 'An ordinary call that legitimately runs before the terminating one.',
+          schema: z.object({}),
+          executionMode: 'sequential',
+          isReadOnly: false,
+          isDestructive: true,
+          describeActivity: () => '测试副作用',
+          execute: async () => {
+            sideEffectCalls += 1
+            return { content: [{ type: 'text' as const, text: 'changed' }], details: { ok: true } }
+          }
+        })
+      ]
+    })
+
+    expect(final.responseID).toBe('resp_mixed_batch_result')
+    expect(sideEffectCalls).toBe(1)
+    expect(sentPayloads.map(payload => payload.type)).toEqual(['response.create', 'response.tool_results.record'])
+    expect(sentPayloads[1]).toMatchObject({
+      previous_response_id: 'resp_mixed_batch_call',
+      input: [
+        { type: 'function_call_output', call_id: 'call_before_clarify' },
+        { type: 'function_call_output', call_id: 'call_clarify_last' }
+      ]
+    })
+  })
+
+  it('holds queued steering for the next turn instead of restarting a terminated one', async () => {
+    const sentPayloads: JSONObject[] = []
+    let steeringPolls = 0
+    const model = createModel({
+      apiKey: 'unused',
+      baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
+      selector: 'primary',
+      responseWebSocket: {
+        kind: 'aigateway-websocket',
+        url: 'ws://aigateway.invalid/api/v1/ai-gateway/responses',
+        authorization: () => 'Bearer agent-key',
+        createWebSocket: (_url, init) =>
+          fakeResponseSocket(init, data => {
+            const payload = JSON.parse(data) as JSONObject
+            sentPayloads.push(payload)
+
+            if (payload.type === 'response.tool_results.record') {
+              return [toolResultsRecordedFrame('resp_steer_terminated_result')]
+            }
+
+            if (sentPayloads.filter(sent => sent.type === 'response.create').length > 1) {
+              throw new Error('queued steering must not restart a terminated turn')
+            }
+
+            return [
+              {
+                type: 'response.completed',
+                response: {
+                  id: 'resp_steer_terminated_call',
+                  status: 'completed',
+                  output: [
+                    {
+                      type: 'function_call',
+                      id: 'fc_clarify_steer',
+                      call_id: 'call_clarify_steer',
+                      name: 'clarify',
+                      arguments: '{"question":"Which market?","choices":["A shares","US stocks"]}'
+                    }
+                  ]
+                }
+              }
+            ]
+          })
+      }
+    })
+
+    const final = await runAgentLoop({
+      model,
+      maxModelIterations: 90,
+      messages: [{ role: 'user', content: 'analyze the market' }],
+      stateful: {
+        actorEventID: '00000000-0000-0000-0000-000000000032',
+        conversationID: '32323232-3232-3232-3232-323232323232'
+      },
+      tools: [createClarifyTool()],
+      getSteeringMessages: async () => {
+        steeringPolls += 1
+        return [{ role: 'user', content: 'answered while clarify was ending the turn' }]
+      }
+    })
+
+    expect(final.responseID).toBe('resp_steer_terminated_result')
+    // Draining acknowledges the messages as applied, so a terminated round
+    // must not even poll — the queue belongs to the next turn.
+    expect(steeringPolls).toBe(0)
+    expect(sentPayloads.map(payload => payload.type)).toEqual(['response.create', 'response.tool_results.record'])
+  })
+
+  it('marks a thrown tool failure with the Error prefix and recovery hint', async () => {
+    const sentPayloads: JSONObject[] = []
+    const model = createModel({
+      apiKey: 'unused',
+      baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
+      selector: 'primary',
+      responseWebSocket: {
+        kind: 'aigateway-websocket',
+        url: 'ws://aigateway.invalid/api/v1/ai-gateway/responses',
+        authorization: () => 'Bearer agent-key',
+        createWebSocket: (_url, init) =>
+          fakeResponseSocket(init, data => {
+            const payload = JSON.parse(data) as JSONObject
+            sentPayloads.push(payload)
+
+            if (payload.type === 'response.tool_results.record') {
+              return [toolResultsRecordedFrame('resp_boom_results')]
+            }
+
+            if (sentPayloads.filter(sent => sent.type === 'response.create').length > 1) {
+              return [
+                {
+                  type: 'response.completed',
+                  response: {
+                    id: 'resp_boom_final',
+                    status: 'completed',
+                    output: [
+                      { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'recovered' }] }
+                    ]
+                  }
+                }
+              ]
+            }
+
+            return [
+              {
+                type: 'response.completed',
+                response: {
+                  id: 'resp_boom_call',
+                  status: 'completed',
+                  output: [
+                    {
+                      type: 'function_call',
+                      id: 'fc_boom',
+                      call_id: 'call_boom',
+                      name: 'boom',
+                      arguments: '{}'
+                    }
+                  ]
+                }
+              }
+            ]
+          })
+      }
+    })
+
+    const final = await runAgentLoop({
+      model,
+      maxModelIterations: 90,
+      messages: [{ role: 'user', content: 'trigger the failure' }],
+      stateful: {
+        actorEventID: '00000000-0000-0000-0000-000000000033',
+        conversationID: '33333333-3333-3333-3333-333333333333'
+      },
+      tools: [
+        defineWorkerTool({
+          name: 'boom',
+          description: 'Always fails.',
+          schema: z.object({}),
+          executionMode: 'sequential',
+          isReadOnly: true,
+          isDestructive: false,
+          describeActivity: () => 'boom',
+          execute: async () => {
+            throw new Error('boom detail')
+          }
+        })
+      ]
+    })
+
+    expect(final.message.content).toEqual([{ type: 'text', text: 'recovered' }])
+    const recorded = sentPayloads[1] as { input: Array<{ call_id: string; output: string }> }
+    expect(recorded.input[0]!.call_id).toBe('call_boom')
+    expect(recorded.input[0]!.output.startsWith('Error: boom detail')).toBeTrue()
+    expect(recorded.input[0]!.output).toContain('Analyze the error above and try a different approach.')
+  })
+
+  it('fails one unparseable tool call recoverably instead of failing the whole turn', async () => {
+    const sentPayloads: JSONObject[] = []
+    let executions = 0
+    const model = createModel({
+      apiKey: 'unused',
+      baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
+      selector: 'primary',
+      responseWebSocket: {
+        kind: 'aigateway-websocket',
+        url: 'ws://aigateway.invalid/api/v1/ai-gateway/responses',
+        authorization: () => 'Bearer agent-key',
+        createWebSocket: (_url, init) =>
+          fakeResponseSocket(init, data => {
+            const payload = JSON.parse(data) as JSONObject
+            sentPayloads.push(payload)
+
+            if (payload.type === 'response.tool_results.record') {
+              return [toolResultsRecordedFrame('resp_bad_args_results')]
+            }
+
+            if (sentPayloads.filter(sent => sent.type === 'response.create').length > 1) {
+              return [
+                {
+                  type: 'response.completed',
+                  response: {
+                    id: 'resp_bad_args_final',
+                    status: 'completed',
+                    output: [
+                      { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'retried fine' }] }
+                    ]
+                  }
+                }
+              ]
+            }
+
+            return [
+              {
+                type: 'response.completed',
+                response: {
+                  id: 'resp_bad_args_call',
+                  status: 'completed',
+                  output: [
+                    {
+                      type: 'function_call',
+                      id: 'fc_bad_args',
+                      call_id: 'call_bad_args',
+                      name: 'echo',
+                      // An unterminated string is deliberately unrepairable —
+                      // see `repairToolArgumentsJSON`.
+                      arguments: '{"value":"unterminated'
+                    }
+                  ]
+                }
+              }
+            ]
+          })
+      }
+    })
+
+    const final = await runAgentLoop({
+      model,
+      maxModelIterations: 90,
+      messages: [{ role: 'user', content: 'echo something' }],
+      stateful: {
+        actorEventID: '00000000-0000-0000-0000-000000000034',
+        conversationID: '34343434-3434-3434-3434-343434343434'
+      },
+      tools: [
+        defineWorkerTool({
+          name: 'echo',
+          description: 'Echoes its argument.',
+          // Required on purpose: pi's own schema gate runs before
+          // `beforeToolCall`, so the recovery must not depend on the
+          // substituted marker object passing the tool's schema.
+          schema: z.object({ value: z.string() }),
+          executionMode: 'sequential',
+          isReadOnly: true,
+          isDestructive: false,
+          describeActivity: () => 'echo',
+          execute: async () => {
+            executions += 1
+            return { content: [{ type: 'text' as const, text: 'echoed' }], details: {} }
+          }
+        })
+      ]
+    })
+
+    expect(final.message.content).toEqual([{ type: 'text', text: 'retried fine' }])
+    expect(executions).toBe(0)
+    const recorded = sentPayloads[1] as { input: Array<{ call_id: string; output: string }> }
+    expect(recorded.input[0]!.call_id).toBe('call_bad_args')
+    expect(recorded.input[0]!.output.startsWith('Error: Invalid arguments for tool echo:')).toBeTrue()
+    expect(recorded.input[0]!.output).toContain('Analyze the error above and try a different approach.')
+  })
+
+  it('routes a namespaced call to its own tool when two namespaces share a bare name', async () => {
+    // The model-visible tool identity is the `{namespace, name}` pair (see
+    // MCPBackedSkills.md) — two MCP servers may both expose `search`. pi has
+    // one local name slot, so the loop registers each under a reversible
+    // identity alias; a call carrying `namespace` must execute its own tool,
+    // not whichever registered first.
+    const sentPayloads: JSONObject[] = []
+    const executed: string[] = []
+    const model = createModel({
+      apiKey: 'unused',
+      baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
+      selector: 'primary',
+      responseWebSocket: {
+        kind: 'aigateway-websocket',
+        url: 'ws://aigateway.invalid/api/v1/ai-gateway/responses',
+        authorization: () => 'Bearer agent-key',
+        createWebSocket: (_url, init) =>
+          fakeResponseSocket(init, data => {
+            const payload = JSON.parse(data) as JSONObject
+            sentPayloads.push(payload)
+
+            if (payload.type === 'response.tool_results.record') {
+              return [toolResultsRecordedFrame('resp_namespaced_search_results')]
+            }
+
+            if (sentPayloads.filter(sent => sent.type === 'response.create').length > 1) {
+              return [
+                {
+                  type: 'response.completed',
+                  response: {
+                    id: 'resp_namespaced_search_final',
+                    status: 'completed',
+                    output: [
+                      {
+                        type: 'message',
+                        role: 'assistant',
+                        content: [{ type: 'output_text', text: 'searched' }]
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+
+            return [
+              {
+                type: 'response.completed',
+                response: {
+                  id: 'resp_namespaced_search_call',
+                  status: 'completed',
+                  output: [
+                    {
+                      type: 'function_call',
+                      id: 'fc_namespaced_search',
+                      call_id: 'call_namespaced_search',
+                      name: 'search',
+                      namespace: 'mcp__b',
+                      arguments: '{}'
+                    }
+                  ]
+                }
+              }
+            ]
+          })
+      }
+    })
+
+    const searchTool = (namespace: string) =>
+      defineWorkerTool({
+        name: 'search',
+        namespace,
+        description: `Searches via ${namespace}.`,
+        schema: z.object({}),
+        executionMode: 'sequential',
+        isReadOnly: true,
+        isDestructive: false,
+        describeActivity: () => 'search',
+        execute: async () => {
+          executed.push(namespace)
+          return { content: [{ type: 'text' as const, text: `hit from ${namespace}` }], details: {} }
+        }
+      })
+
+    const final = await runAgentLoop({
+      model,
+      maxModelIterations: 90,
+      messages: [{ role: 'user', content: 'search twice' }],
+      stateful: {
+        actorEventID: '00000000-0000-0000-0000-000000000035',
+        conversationID: '35353535-3535-3535-3535-353535353535'
+      },
+      tools: [searchTool('mcp__a'), searchTool('mcp__b')]
+    })
+
+    expect(final.message.content).toEqual([{ type: 'text', text: 'searched' }])
+    expect(executed).toEqual(['mcp__b'])
+    const recorded = sentPayloads[1] as { input: Array<{ call_id: string; output: string }> }
+    expect(recorded.input[0]!.call_id).toBe('call_namespaced_search')
+    expect(recorded.input[0]!.output).toBe('hit from mcp__b')
+  })
+
+  it('pairs a call to an undeclared tool with a marked failure that never leaks the internal alias', async () => {
+    const sentPayloads: JSONObject[] = []
+    const model = createModel({
+      apiKey: 'unused',
+      baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
+      selector: 'primary',
+      responseWebSocket: {
+        kind: 'aigateway-websocket',
+        url: 'ws://aigateway.invalid/api/v1/ai-gateway/responses',
+        authorization: () => 'Bearer agent-key',
+        createWebSocket: (_url, init) =>
+          fakeResponseSocket(init, data => {
+            const payload = JSON.parse(data) as JSONObject
+            sentPayloads.push(payload)
+
+            if (payload.type === 'response.tool_results.record') {
+              return [toolResultsRecordedFrame('resp_unknown_tool_results')]
+            }
+
+            if (sentPayloads.filter(sent => sent.type === 'response.create').length > 1) {
+              return [
+                {
+                  type: 'response.completed',
+                  response: {
+                    id: 'resp_unknown_tool_final',
+                    status: 'completed',
+                    output: [
+                      {
+                        type: 'message',
+                        role: 'assistant',
+                        content: [{ type: 'output_text', text: 'used a declared tool instead' }]
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+
+            return [
+              {
+                type: 'response.completed',
+                response: {
+                  id: 'resp_unknown_tool_call',
+                  status: 'completed',
+                  output: [
+                    {
+                      type: 'function_call',
+                      id: 'fc_unknown_tool',
+                      call_id: 'call_unknown_tool',
+                      name: 'hallucinated_tool',
+                      arguments: '{}'
+                    }
+                  ]
+                }
+              }
+            ]
+          })
+      }
+    })
+
+    const final = await runAgentLoop({
+      model,
+      maxModelIterations: 90,
+      messages: [{ role: 'user', content: 'call something that does not exist' }],
+      stateful: {
+        actorEventID: '00000000-0000-0000-0000-000000000036',
+        conversationID: '36363636-3636-3636-3636-363636363636'
+      },
+      tools: [
+        defineWorkerTool({
+          name: 'real_tool',
+          description: 'Exists.',
+          schema: z.object({}),
+          executionMode: 'sequential',
+          isReadOnly: true,
+          isDestructive: false,
+          describeActivity: () => 'real',
+          execute: async () => ({ content: [{ type: 'text' as const, text: 'ok' }], details: {} })
+        })
+      ]
+    })
+
+    expect(final.message.content).toEqual([{ type: 'text', text: 'used a declared tool instead' }])
+    const recorded = sentPayloads[1] as { input: Array<{ call_id: string; output: string }> }
+    expect(recorded.input[0]!.call_id).toBe('call_unknown_tool')
+    expect(recorded.input[0]!.output.startsWith('Error: Unknown tool: hallucinated_tool')).toBeTrue()
+    expect(recorded.input[0]!.output).toContain('Analyze the error above and try a different approach.')
+    expect(recorded.input[0]!.output).not.toContain('\u0000')
+  })
+
+  it('rejects schema-invalid arguments through the zod gate with the wire tool name', async () => {
+    // pi's own pre-execute gate is always-passing by construction — a type
+    // mismatch must reach `beforeToolCall`'s zod gate and come back marked,
+    // with the wire name, never pi's message naming the registered alias.
+    const sentPayloads: JSONObject[] = []
+    let executions = 0
+    const model = createModel({
+      apiKey: 'unused',
+      baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
+      selector: 'primary',
+      responseWebSocket: {
+        kind: 'aigateway-websocket',
+        url: 'ws://aigateway.invalid/api/v1/ai-gateway/responses',
+        authorization: () => 'Bearer agent-key',
+        createWebSocket: (_url, init) =>
+          fakeResponseSocket(init, data => {
+            const payload = JSON.parse(data) as JSONObject
+            sentPayloads.push(payload)
+
+            if (payload.type === 'response.tool_results.record') {
+              return [toolResultsRecordedFrame('resp_zod_reject_results')]
+            }
+
+            if (sentPayloads.filter(sent => sent.type === 'response.create').length > 1) {
+              return [
+                {
+                  type: 'response.completed',
+                  response: {
+                    id: 'resp_zod_reject_final',
+                    status: 'completed',
+                    output: [
+                      {
+                        type: 'message',
+                        role: 'assistant',
+                        content: [{ type: 'output_text', text: 'fixed the arguments' }]
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+
+            return [
+              {
+                type: 'response.completed',
+                response: {
+                  id: 'resp_zod_reject_call',
+                  status: 'completed',
+                  output: [
+                    {
+                      type: 'function_call',
+                      id: 'fc_zod_reject',
+                      call_id: 'call_zod_reject',
+                      name: 'echo',
+                      namespace: 'mcp__tools',
+                      arguments: '{"value":123}'
+                    }
+                  ]
+                }
+              }
+            ]
+          })
+      }
+    })
+
+    const final = await runAgentLoop({
+      model,
+      maxModelIterations: 90,
+      messages: [{ role: 'user', content: 'echo a number' }],
+      stateful: {
+        actorEventID: '00000000-0000-0000-0000-000000000037',
+        conversationID: '37373737-3737-3737-3737-373737373737'
+      },
+      tools: [
+        defineWorkerTool({
+          name: 'echo',
+          namespace: 'mcp__tools',
+          description: 'Echoes a string.',
+          schema: z.object({ value: z.string() }),
+          executionMode: 'sequential',
+          isReadOnly: true,
+          isDestructive: false,
+          describeActivity: () => 'echo',
+          execute: async () => {
+            executions += 1
+            return { content: [{ type: 'text' as const, text: 'echoed' }], details: {} }
+          }
+        })
+      ]
+    })
+
+    expect(final.message.content).toEqual([{ type: 'text', text: 'fixed the arguments' }])
+    expect(executions).toBe(0)
+    const recorded = sentPayloads[1] as { input: Array<{ call_id: string; output: string }> }
+    expect(recorded.input[0]!.call_id).toBe('call_zod_reject')
+    expect(recorded.input[0]!.output.startsWith('Error: Invalid arguments for tool mcp__tools.echo:')).toBeTrue()
+    expect(recorded.input[0]!.output).not.toContain('\u0000')
   })
 })

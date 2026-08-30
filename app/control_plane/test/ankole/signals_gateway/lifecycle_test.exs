@@ -1,5 +1,5 @@
 defmodule Ankole.SignalsGatewayLifecycleTest do
-  use Ankole.DataCase, async: false
+  use Ankole.DataCase, async: true
 
   alias Ecto.Adapters.SQL
   alias Ankole.BackgroundAgentJobs
@@ -52,7 +52,14 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
 
-      lock_key = Enum.join(["lark:chat:group-a", "msg-1"], "|")
+      # PostgreSQL advisory locks are database-global, so they cross the SQL
+      # Sandbox, and a savepoint rollback does not release them. This test must
+      # use identifiers that no concurrent test module shares, or the fixture
+      # default key stays locked until an unrelated test ends and the 1s
+      # budgets below fail.
+      signal_channel_id = "lark:chat:advisory-lock"
+      source_entry_id = "msg-advisory-lock"
+      lock_key = Enum.join([signal_channel_id, source_entry_id], "|")
       parent = self()
 
       task =
@@ -70,7 +77,14 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
       started_at = System.monotonic_time(:millisecond)
 
       assert {:ok, %{status: :accepted}} =
-               Ingress.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+               Ingress.emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{
+                   explicit: true,
+                   signal_channel_id: signal_channel_id,
+                   source_entry_id: source_entry_id
+                 }),
                  now: @base_time
                )
 

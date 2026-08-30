@@ -185,7 +185,7 @@ defmodule Ankole.E2E.WaitHelpers do
   Waits until the actor event is complete and returns its latest AI message.
 
   A tool loop can commit an earlier function_call row with status `complete`
-  while the actor event remains live. The final IM-visible answer is the latest
+  while the actor event remains live. The adopted final answer is the latest
   complete message after `actor_events.completed_at` is written.
   """
   @spec wait_for_completed_actor_event_message(map() | port(), Ecto.UUID.t(), integer()) ::
@@ -259,7 +259,7 @@ defmodule Ankole.E2E.WaitHelpers do
   end
 
   @doc """
-  Waits for the final IM mirror row associated with an AI message.
+  Waits for the final Signal channel mirror row associated with an AI message.
   """
   @spec wait_for_final_mirror(map() | port(), Ecto.UUID.t(), integer()) ::
           {:ok, Entry.t()}
@@ -276,7 +276,7 @@ defmodule Ankole.E2E.WaitHelpers do
   end
 
   @doc """
-  Waits for the latest final IM mirror of one completed actor event.
+  Waits for the latest final Signal channel mirror of one completed actor event.
 
   Ordinary streamed AI replies commit one final outbox row. Cron replies can
   commit one target-scoped row for each delivery target. This helper selects

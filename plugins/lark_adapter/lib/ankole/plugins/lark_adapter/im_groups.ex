@@ -6,13 +6,14 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
   import Ecto.Query, warn: false
 
   alias Ecto.Adapters.SQL
-  alias Ankole.AuthZ
   alias Ankole.AuthZ.ExternalBinding
   alias Ankole.AuthZ.Group
   alias Ankole.AuthZ.Store, as: AuthZStore
   alias Ankole.Logging
   alias Ankole.Plugins.LarkAdapter.Config
+  alias Ankole.Plugins.LarkAdapter.ConnectionReconciler
   alias Ankole.Plugins.LarkAdapter.Inbound
+  alias Ankole.Plugins.LarkAdapter.SubjectIdentity
   alias Ankole.Plugins.MapHelpers
   alias Ankole.Principals
   alias Ankole.Repo
@@ -21,6 +22,7 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
   alias Ankole.SignalsGateway.Binding
   alias Ankole.SignalsGateway.BindingMembership
   alias Ankole.SignalsGateway.Channel
+  alias Ankole.SignalsGateway.IMGroupMembers
   alias Ankole.SignalsGateway.Projection
   alias FeishuOpenAPI.Event
   alias FeishuOpenAPI.Pagination
@@ -64,7 +66,7 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
            reason: "binding_saved",
            source: "signal_binding"
          ) do
-      {:ok, _job} -> :ok
+      {:ok, _job} -> ConnectionReconciler.reconcile_async()
       {:error, _reason} = error -> error
     end
   end
@@ -209,7 +211,7 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
          # The API snapshot can be older than a just-arrived member event. The
          # per-chat lock keeps writes ordered; later events or refreshes converge
          # stale snapshots.
-         {:ok, replace} <- AuthZ.replace_static_group_members(group.id, :im_group, principal_uids) do
+         {:ok, replace} <- IMGroupMembers.replace_members(group.id, principal_uids) do
       {:ok,
        %{
          group_id: group.id,
@@ -282,10 +284,10 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
   end
 
   defp dispatch_im_event(_consumer, context, config, @user_added, _event, content, chat_id) do
-    case member_user_id(content) do
-      {:ok, user_id} ->
+    case member_subject_candidates(content) do
+      [_primary | _aliases] ->
         with {:ok, group} <- fetch_im_group(namespace(config), chat_id),
-             {:ok, observed} <- upsert_member_principal(config, member_payload(content, user_id)),
+             {:ok, observed} <- upsert_member_principal(config, content),
              {:ok, _membership} <-
                Repo.transact(fn repo ->
                  AuthZStore.add_synced_group_member(
@@ -306,17 +308,17 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
             error
         end
 
-      {:error, _reason} ->
+      [] ->
         ignored_missing_platform_subject()
     end
   end
 
   defp dispatch_im_event(_consumer, context, config, @user_deleted, _event, content, chat_id) do
-    case member_user_id(content) do
-      {:ok, user_id} ->
-        remove_member_from_group(context, config, chat_id, user_id)
+    case member_subject_candidates(content) do
+      [_primary | _aliases] = external_ids ->
+        remove_member_from_group(context, config, chat_id, external_ids)
 
-      {:error, _reason} ->
+      [] ->
         ignored_missing_platform_subject()
     end
   end
@@ -333,18 +335,18 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
     if Enum.any?(results, &(Map.get(&1, :reason) == :missing_platform_subject)) do
       content = event.content || %{}
       member = fetch_map(content, "member", content)
-      member_ids = fetch_map(member, "member_id", member)
+      identity = member_identity(content)
 
       Logging.warning(
         "lark_adapter.im_groups.missing_platform_subject",
-        "lark adapter ignored IM group member event without user_id",
+        "lark adapter ignored IM group member event without email or a supported user id",
         %{
           event_id: event.id,
           event_type: event_type,
           chat_id: chat_id(content) |> chat_id_for_log(),
           member_type: member_type(member),
-          open_id: optional_text(member_ids, "open_id"),
-          union_id: optional_text(member_ids, "union_id"),
+          open_id: identity["open_id"],
+          union_id: identity["union_id"],
           tenant_key: event.tenant_key
         }
       )
@@ -374,8 +376,7 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
            # Writes are serialized per chat, but the provider snapshot can still
            # be older than a just-arrived member event. Later member events or
            # refresh jobs converge the group again.
-           {:ok, _replace} <-
-             AuthZ.replace_static_group_members(group.id, :im_group, principal_uids) do
+           {:ok, _replace} <- IMGroupMembers.replace_members(group.id, principal_uids) do
         {:cont, {:ok, count + 1}}
       else
         {:error, reason} -> {:halt, {:error, reason}}
@@ -421,17 +422,17 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
               {:cont, {:ok, acc}}
 
             true ->
-              case member_user_id(member) do
-                {:ok, user_id} ->
-                  case upsert_member_principal(config, Map.put(member, "user_id", user_id)) do
+              case member_subject_candidates(member) do
+                [_primary | _aliases] ->
+                  case upsert_member_principal(config, member) do
                     {:ok, observed} -> {:cont, {:ok, [observed.principal.uid | acc]}}
                     {:error, reason} -> {:halt, {:error, reason}}
                   end
 
-                {:error, _reason} ->
+                [] ->
                   Logging.warning(
-                    "lark_adapter.im_groups.member_missing_user_id",
-                    "lark adapter skipped IM group member without user_id",
+                    "lark_adapter.im_groups.member_missing_platform_subject",
+                    "lark adapter skipped IM group member without email or a supported user id",
                     %{
                       chat_id: chat_id,
                       member: inspect(member)
@@ -710,15 +711,19 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
     end)
   end
 
-  defp maybe_clear_all_left_members(repo, %Group{} = group) do
+  defp maybe_clear_all_left_members(_repo, %Group{} = group) do
     if BindingMembership.all_left?(group.metadata) do
-      AuthZStore.clear_static_group_members(repo, group.id, :im_group)
+      IMGroupMembers.replace_members(group.id, [])
       |> case do
         {:ok, result} -> {:ok, Map.put(result, :status, :all_left_members_cleared)}
         {:error, _reason} = error -> error
       end
     else
-      {:ok, %{status: :participant_marked_left, removed_memberships: 0}}
+      # A leaving Agent loses its mirrored membership row at once, the same
+      # way a leaving human does.
+      with {:ok, delta} <- IMGroupMembers.reconcile_agent_members(group.id) do
+        {:ok, %{status: :participant_marked_left, removed_memberships: delta.removed_memberships}}
+      end
     end
   end
 
@@ -758,10 +763,10 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
     end
   end
 
-  defp remove_member_from_group(context, config, chat_id, user_id) do
+  defp remove_member_from_group(context, config, chat_id, external_ids) do
     case fetch_im_group(namespace(config), chat_id) do
       {:ok, group} ->
-        remove_member_from_existing_group(context, config, chat_id, group, user_id)
+        remove_member_from_existing_group(context, config, chat_id, group, external_ids)
 
       {:error, :not_found} ->
         enqueue_chat_refresh(context, config, chat_id, reason: "member_removed_missing_group")
@@ -769,9 +774,9 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
     end
   end
 
-  defp remove_member_from_existing_group(context, config, chat_id, group, user_id) do
+  defp remove_member_from_existing_group(context, config, chat_id, group, external_ids) do
     with {:ok, principal_uid} <-
-           Principals.resolve_platform_subject_uid(namespace(config), user_id) do
+           resolve_member_principal_uid(namespace(config), external_ids) do
       case Repo.transact(fn repo ->
              AuthZStore.remove_synced_group_member(repo, group.id, :im_group, principal_uid)
            end) do
@@ -793,61 +798,94 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
   end
 
   defp upsert_member_principal(config, member) do
-    with {:ok, user_id} <- member_user_id(member) do
-      Principals.upsert_platform_subject_human(%{
-        provider: namespace(config),
-        external_id: user_id,
-        uid: user_id,
-        display_name: member_display_name(member),
-        metadata:
-          compact_metadata_map(%{
-            "open_id" => member_open_id(member),
-            "union_id" => optional_text(member, "union_id"),
-            "member_type" => member_type(member)
-          })
-      })
+    identity = member_identity(member)
+
+    case SubjectIdentity.candidates(identity) do
+      [external_id | external_ids] ->
+        %{
+          provider: namespace(config),
+          external_id: external_id,
+          external_ids: external_ids,
+          display_name: member_display_name(member),
+          metadata:
+            compact_metadata_map(%{
+              "user_id" => identity["user_id"],
+              "open_id" => identity["open_id"],
+              "union_id" => identity["union_id"],
+              "member_type" => member_type(member)
+            })
+        }
+        |> Ankole.Attrs.maybe_put(:email, identity["email"])
+        |> Principals.upsert_platform_subject_human()
+
+      [] ->
+        {:error, :missing_platform_subject}
     end
   end
 
-  defp member_payload(content, user_id) do
-    content
-    |> fetch_map("member", content)
-    |> Map.put_new("user_id", user_id)
+  defp resolve_member_principal_uid(provider, external_ids) do
+    Enum.reduce_while(external_ids, {:error, :not_found}, fn external_id, _not_found ->
+      case Principals.resolve_platform_subject_uid(provider, external_id) do
+        {:ok, _principal_uid} = resolved -> {:halt, resolved}
+        {:error, :not_found} -> {:cont, {:error, :not_found}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
   end
 
-  defp member_user_id(map) when is_map(map) do
-    value =
-      optional_text(map, "user_id") ||
-        typed_member_user_id(map) ||
-        get_in(fetch_map(map, "member_id", %{}), ["user_id"]) ||
-        get_in(fetch_map(map, "member", %{}), ["user_id"]) ||
-        get_in(fetch_map(fetch_map(map, "member", %{}), "member_id", %{}), ["user_id"])
-
-    case value do
-      user_id when is_binary(user_id) -> {:ok, user_id}
-      nil -> {:error, :missing_user_id}
-    end
+  defp member_subject_candidates(member) do
+    member
+    |> member_identity()
+    |> SubjectIdentity.candidates()
   end
 
-  defp member_user_id(_map), do: {:error, :missing_user_id}
+  defp member_identity(member) do
+    nodes = member_identity_nodes(member)
 
-  defp typed_member_user_id(map) do
-    case {optional_text(map, "member_id_type"), optional_text(map, "member_id")} do
-      {"user_id", user_id} -> user_id
-      _other -> nil
-    end
-  end
-
-  defp member_open_id(member) do
-    optional_text(member, "open_id") ||
-      get_in(fetch_map(member, "member_id", %{}), ["open_id"])
+    %{
+      "email" =>
+        member_identity_value(nodes, "email") ||
+          member_identity_value(nodes, "enterprise_email") ||
+          member_identity_value(nodes, "work_email"),
+      "user_id" => member_identity_value(nodes, "user_id"),
+      "union_id" => member_identity_value(nodes, "union_id"),
+      "open_id" => member_identity_value(nodes, "open_id")
+    }
   end
 
   defp member_display_name(member) do
-    optional_text(member, "name") ||
-      optional_text(member, "member_name") ||
-      optional_text(member, "display_name") ||
-      optional_text(member, "user_id")
+    nodes = member_identity_nodes(member)
+
+    member_identity_value(nodes, "name") ||
+      member_identity_value(nodes, "member_name") ||
+      member_identity_value(nodes, "display_name") ||
+      member_identity_value(nodes, "user_id")
+  end
+
+  defp member_identity_nodes(member) when is_map(member) do
+    nested_member = fetch_map(member, "member", %{})
+
+    [
+      member,
+      fetch_map(member, "member_id", %{}),
+      nested_member,
+      fetch_map(nested_member, "member_id", %{})
+    ]
+  end
+
+  defp member_identity_nodes(_member), do: []
+
+  defp member_identity_value(nodes, key) do
+    Enum.find_value(nodes, fn node ->
+      optional_text(node, key) || typed_member_id(node, key)
+    end)
+  end
+
+  defp typed_member_id(node, key) do
+    case {optional_text(node, "member_id_type"), optional_text(node, "member_id")} do
+      {^key, value} -> value
+      _other -> nil
+    end
   end
 
   defp ignored_member?(member), do: member_type(member) in ["bot", "app"]

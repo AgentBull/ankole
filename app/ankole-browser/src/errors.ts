@@ -27,6 +27,10 @@ export class BrowserDataError extends Error {
   }
 }
 
+export function isFileNotFound(error: unknown): boolean {
+  return error instanceof Error && 'code' in error && error.code === 'ENOENT'
+}
+
 export function browserError(error: unknown): BrowserError {
   if (error instanceof BrowserDataError) return error.toBrowserError()
   if (error instanceof DOMException && error.name === 'AbortError') {

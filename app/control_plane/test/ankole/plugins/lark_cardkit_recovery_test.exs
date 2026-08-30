@@ -7,7 +7,6 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Cache, as: AppConfigureCache
   alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
-  alias Ankole.Plugins.LarkAdapter
   alias Ankole.Plugins.LarkAdapter.CardKit.CardChain
   alias Ankole.Plugins.LarkAdapter.CardKit.MarkdownSegmenter
   alias Ankole.Plugins.LarkAdapter.Config
@@ -114,7 +113,6 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     Req.Test.set_req_test_to_shared()
     AppConfigureRegistry.clear_for_test()
     AppConfigureCache.clear_for_test()
-    :ok = AppConfigure.register_patterns(LarkAdapter.app_config_patterns())
     previous = Req.default_options()
     on_exit(fn -> Req.default_options(previous) end)
 
@@ -135,7 +133,8 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
                adapter: "lark",
                config_ref: "app-config://#{Config.chat_config_key(config_id)}",
                filters: %{},
-               unaddressed_group_message_policy: :ignore
+               unaddressed_group_message_policy: :ignore,
+               unmatched_sender_policy: :create_standalone
              })
 
     %{actor_event: event} =

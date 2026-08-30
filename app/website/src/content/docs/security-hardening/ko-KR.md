@@ -58,10 +58,9 @@ Ankole은 어느 정도의 인그레스가 필요하며, 전부가 필요한 경
 
 ## 감사 자세
 
-강화는 일회성 작업이 아니라 자세(posture)입니다. 세 가지 습관이 그것을 유지합니다:
+강화는 일회성 작업이 아니라 자세(posture)입니다. 두 가지 습관이 그것을 유지합니다:
 
 - **grant를 주기적으로 읽으세요.** `/permission-grants`와 `/principals/:uid/grants`는 모든 Principal이 무엇을 할 수 있는지 보여 줍니다. 어긋남(drift)은 생기기 마련입니다.
-- **Brain audit log를 읽으세요.** `GET /brain/audit-log`는 agent에게 무엇을 믿으라고 지시했는지, 누가 그것을 바꿨는지 보여 줍니다. memory는 그것에 따라 행동하는 agent에게 보안 표면입니다.
 - **복원을 테스트하세요.** [backup-and-restore](../backup-and-restore/) 규율은 보안 통제입니다. 복원할 수 없는 백업은 침해로부터의 복구가 아닙니다.
 
 ## 이 가이드가 아닌 것

@@ -14,7 +14,7 @@ defmodule Ankole.Observability do
       encode_content: 1,
       map_value: 2,
       mark_error: 2,
-      maybe_put: 3,
+      put_present: 3,
       maybe_put_true: 3,
       release: 0,
       safe: 2,
@@ -141,25 +141,10 @@ defmodule Ankole.Observability do
     [enabled_definition(), provider_definition(), endpoint_definition(), headers_definition()]
   end
 
-  @doc """
-  Registers the observability AppConfigure keys.
-  """
-  @spec ensure_registered() :: :ok | {:error, term()}
-  def ensure_registered do
-    Enum.reduce_while(definitions(), :ok, fn definition, :ok ->
-      case AppConfigure.register_definitions([definition]) do
-        :ok -> {:cont, :ok}
-        {:error, {:duplicate_key, key}} when key == definition.key -> {:cont, :ok}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
-  end
-
   @doc false
   @spec runtime_config() :: {:ok, runtime_config()} | {:error, term()}
   def runtime_config do
-    with :ok <- ensure_registered(),
-         {:ok, enabled?} <- AppConfigure.get(enabled_definition()) do
+    with {:ok, enabled?} <- AppConfigure.get(enabled_definition()) do
       if enabled? do
         load_enabled_config()
       else
@@ -403,8 +388,8 @@ defmodule Ankole.Observability do
   defp turn_trace_attributes(context) do
     context
     |> trace_attributes()
-    |> maybe_put("ankole.background_agent_job.id", context.job_id)
-    |> maybe_put("ankole.background_agent_job.attempts", context.attempts)
+    |> put_present("ankole.background_agent_job.id", context.job_id)
+    |> put_present("ankole.background_agent_job.attempts", context.attempts)
   end
 
   defp turn_span_name(type) when is_binary(type) and type != "", do: "turn #{type}"

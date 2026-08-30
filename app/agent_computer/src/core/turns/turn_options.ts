@@ -1,7 +1,8 @@
-import type { AgentLoopLogger, AgentMessage, ReplyPresentationEvent } from '../types'
+import type { AgentLoopLogger, Message, ReplyPresentationEvent } from '../types'
 import type { AgentConversationContextResponse, AIGatewayAPIKeyResponse, RPCRequester } from '../../lanes/rpc_lane'
 import type { TurnSteerUpdate } from '../../lanes/actor_lane'
 import type { BrowserRuntime } from '../../browser-runtime'
+import type { AmbientTextTurnRoute } from '../../prompts/ambient_prompt'
 
 export type AIGatewayAPIKeyRequestOptions = {
   forceRefresh?: boolean
@@ -48,14 +49,15 @@ type SharedTurnOptions = {
   waitForSteering?: (signal?: AbortSignal) => Promise<void>
   onSteeringApplied?: (update: TurnSteerUpdate) => Promise<void>
   pollDisabledSkills?: () => string[]
-  pollChangedSkills?: () => string[]
   abortSignal?: AbortSignal
   browserRuntime?: BrowserRuntime
 }
 
 export type TextTurnLoopOptions = SharedTurnOptions & {
   onPresentationEvent?: (event: ReplyPresentationEvent) => void | Promise<void>
-  extraMessages?: AgentMessage[]
+  extraMessages?: Message[]
+  /** Trusted ambient route committed by the control plane before this Text Turn. */
+  ambientRoute?: AmbientTextTurnRoute
 }
 
 export type CodexJobOptions = SharedTurnOptions & {

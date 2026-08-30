@@ -80,10 +80,10 @@ defmodule Ankole.AIGateway.ConsoleQueries do
           | {:error, :invalid_cursor}
   def list_messages(conversation_id, opts \\ [])
       when is_binary(conversation_id) and is_list(opts) do
-    # No existence or UUID-shape check: a malformed or unknown id simply yields
-    # an empty page (the query filters by value), so the read-only browser keeps
-    # rendering on stale links.
-    with {:ok, cursor} <- decode_cursor(Keyword.get(opts, :cursor)) do
+    # No existence check: a malformed or unknown id simply yields an empty page,
+    # so the read-only browser keeps rendering on stale links.
+    with {:ok, conversation_id} <- Ecto.UUID.cast(conversation_id),
+         {:ok, cursor} <- decode_cursor(Keyword.get(opts, :cursor)) do
       limit = clamp(Keyword.get(opts, :limit, @message_limit_default), @message_limit_max)
 
       rows =
@@ -102,6 +102,9 @@ defmodule Ankole.AIGateway.ConsoleQueries do
         end
 
       {:ok, %{messages: page, next_cursor: next_cursor}}
+    else
+      :error -> {:ok, %{messages: [], next_cursor: nil}}
+      {:error, :invalid_cursor} = error -> error
     end
   end
 
@@ -122,7 +125,6 @@ defmodule Ankole.AIGateway.ConsoleQueries do
       subject_uid: message.subject_uid,
       conversation_id: message.conversation_id,
       type: message.type,
-      role: message.role,
       status: message.status,
       previous_message_id: message.previous_message_id,
       content: message.content || [],
@@ -187,13 +189,12 @@ defmodule Ankole.AIGateway.ConsoleQueries do
   end
 
   # Display kind derived from the key constructors (signal ingress, background
-  # jobs, cron execution sessions, dreaming runs, managed Responses
-  # conversations). Custom adapter session ids for channel-backed chats still
-  # read as "signal" through the brain scope declaration.
+  # jobs, cron execution sessions, managed Responses conversations). Custom
+  # adapter session ids for channel-backed chats still read as "signal"
+  # through the recorded conversation origin.
   defp conversation_kind(%Conversation{} = conversation, decoration) do
     case conversation.conversation_key do
       "signal-channel:" <> _rest -> "signal"
-      "brain.dreaming:" <> _rest -> "dreaming"
       key when BackgroundAgentJobs.is_job_session_id(key) -> "job"
       key when Cron.is_execution_session_id(key) -> "cron"
       "stateful-responses-api:" <> _rest -> "responses_api"
@@ -213,7 +214,11 @@ defmodule Ankole.AIGateway.ConsoleQueries do
 
   defp maybe_filter_conversation_key(query, conversation_key),
     do:
-      where(query, [conversation], ilike(conversation.conversation_key, ^"%#{conversation_key}%"))
+      where(
+        query,
+        [conversation],
+        ilike(conversation.conversation_key, ^("%" <> Repo.escape_like(conversation_key) <> "%"))
+      )
 
   defp maybe_filter_search(query, nil), do: query
 
@@ -223,7 +228,7 @@ defmodule Ankole.AIGateway.ConsoleQueries do
   # filter matches them as a disjunction. It does not copy the display
   # precedence.
   defp maybe_filter_search(query, search) do
-    pattern = "%#{escape_like(search)}%"
+    pattern = "%#{Repo.escape_like(search)}%"
     # Stored subject UIDs are canonical lowercase.
     subject = String.downcase(search)
 
@@ -234,7 +239,7 @@ defmodule Ankole.AIGateway.ConsoleQueries do
             (parent_as(:conversation).conversation_key ==
                fragment("'signal-channel:' || ?", channel.id) or
                fragment(
-                 "? -> 'brain' ->> 'channel_id' = ?",
+                 "? -> 'origin' ->> 'channel_id' = ?",
                  parent_as(:conversation).metadata,
                  channel.id
                ))
@@ -244,7 +249,7 @@ defmodule Ankole.AIGateway.ConsoleQueries do
         where:
           ilike(principal.display_name, ^pattern) and
             principal.uid ==
-              fragment("? -> 'brain' ->> 'peer_uid'", parent_as(:conversation).metadata)
+              fragment("? -> 'origin' ->> 'peer_uid'", parent_as(:conversation).metadata)
 
     where(
       query,
@@ -254,12 +259,6 @@ defmodule Ankole.AIGateway.ConsoleQueries do
         exists(channel_match) or
         exists(peer_match)
     )
-  end
-
-  # Session keys use `_` often, so a raw ILIKE pattern would read it as a
-  # single-character wildcard.
-  defp escape_like(text) do
-    String.replace(text, ~r/([\\%_])/, "\\\\\\1")
   end
 
   defp maybe_filter_active(query, nil), do: query

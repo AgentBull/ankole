@@ -1,10 +1,13 @@
 import { z } from 'zod'
-import type { AgentTool } from '../../core'
+import { defineWorkerTool, type WorkerAgentTool } from '../../core'
 import { ModelIntegerID, modelIntegerIDFromWire, modelIntegerIDToWire } from '../../core/model-integer-id'
 import { jsonToolResult } from '../../core/tool-result'
 import type { TurnStart } from '../../lanes/actor_lane'
 import { rpcMethods, type RPCRequester, type RPCRequestInit } from '../../lanes/rpc_lane'
-import { BackgroundAgentJobStatusSchema, type BackgroundAgentJobStatus } from './status'
+import {
+  BackgroundAgentJobStatusSchema,
+  type BackgroundAgentJobStatus
+} from '../../core/background-agent-job-documents'
 
 const StopBackgroundJobParamsSchema = z
   .object({
@@ -24,8 +27,8 @@ export type StopBackgroundJobToolOptions = {
 
 export function createStopBackgroundJobTool(
   opts: StopBackgroundJobToolOptions
-): AgentTool<typeof StopBackgroundJobParamsSchema, StopBackgroundJobResult> {
-  return {
+): WorkerAgentTool<typeof StopBackgroundJobParamsSchema, StopBackgroundJobResult> {
+  return defineWorkerTool({
     name: 'stop_background_job',
     description: 'Stop running job. A terminal job is an idempotent no-op.',
     schema: StopBackgroundJobParamsSchema,
@@ -42,5 +45,5 @@ export function createStopBackgroundJobTool(
         status: BackgroundAgentJobStatusSchema.parse(response.status)
       })
     }
-  }
+  })
 }

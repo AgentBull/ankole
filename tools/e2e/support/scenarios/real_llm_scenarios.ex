@@ -23,7 +23,6 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
       ai_messages_for_actor_event: 1
     ]
 
-  alias Ankole.AIAgent.Library.Schemas.AgentSkillOverlay
   alias Ankole.SignalsGateway.ActorRuntime.AgentConfig
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.SignalsGateway.ActorEvent
@@ -97,9 +96,9 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
                message_id: "om_real_skill_1",
                chat_id: "oc_real_llm",
                text: """
-               @_user_1 This is a two-step skill_append test.
-               Step 1: If you have not yet received a skill_append tool result in this conversation, call skill_append exactly once with name exactly "brain-review" and content exactly "Lark real overlay: ANKOLE_LARK_REAL_SKILL_OK".
-               Step 2: After the first successful skill_append tool result is visible, do not call any more tools. Reply exactly ANKOLE_LARK_REAL_SKILL_OK.
+               @_user_1 This is a two-step skill_view test.
+               Step 1: If you have not yet received a skill_view tool result in this conversation, call skill_view exactly once with name exactly "brainstorming".
+               Step 2: After the first successful skill_view tool result is visible, do not call any more tools. Reply exactly ANKOLE_LARK_REAL_SKILL_OK.
                """,
                mentions: [mention],
                create_time_ms:
@@ -117,16 +116,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
     assert reply.text =~ "ANKOLE_LARK_REAL_SKILL_OK"
 
     messages = ai_messages_for_actor_event(input.id)
-    assert tool_result_succeeded?(messages, "skill_append")
-
-    assert %AgentSkillOverlay{overlay_json: %{"text" => content}} =
-             AgentSkillOverlay
-             |> where([overlay], overlay.agent_uid == ^agent.uid)
-             |> where([overlay], overlay.skill_name == "brain-review")
-             |> where([overlay], is_nil(overlay.deleted_at))
-             |> Repo.one()
-
-    assert content == "Lark real overlay: ANKOLE_LARK_REAL_SKILL_OK"
+    assert tool_result_succeeded?(messages, "skill_view")
 
     assert_actor_event_completed!(input.id)
     %{input: input, reply: reply, message: message}
@@ -444,7 +434,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
            """
 
     assert get_in(job.metadata, ["codex_user_agent"]) =~
-             "codex_cli_rs/0.147.0 "
+             "codex_cli_rs/0.150.1 "
 
     turns =
       Repo.all(
@@ -489,10 +479,10 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
       docker_exec!(container, [
         "sh",
         "-lc",
-        "rg -n --glob '*.jsonl' '\"cli_version\":\"0.147.0\"|\"name\":\"exec\"|tool_search_call|tool_search_output|lookup_ptc_marker' #{shell_quote(session_root)}"
+        "rg -n --glob '*.jsonl' '\"cli_version\":\"0.150.1\"|\"name\":\"exec\"|tool_search_call|tool_search_output|lookup_ptc_marker' #{shell_quote(session_root)}"
       ])
 
-    assert session_evidence =~ ~s("cli_version":"0.147.0")
+    assert session_evidence =~ ~s("cli_version":"0.150.1")
     assert session_evidence =~ ~s("name":"exec")
     assert session_evidence =~ "tool_search_call"
     assert session_evidence =~ "tool_search_output"
@@ -729,7 +719,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
 
     wakeup_messages = ai_messages_for_actor_event(wakeup_event.id)
     assert [details_result] = tool_results(wakeup_messages, "show_background_job_details")
-    assert details_result.arguments == %{"job_id" => job.id}
+    assert details_result.arguments == %{"job_id" => job.id, "result_offset" => 0}
     refute tool_result_error?(details_result)
     assert command_tool_succeeded?(wakeup_messages)
     assert tool_result_succeeded?(wakeup_messages, "reply_attachment")

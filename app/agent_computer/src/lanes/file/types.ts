@@ -41,6 +41,14 @@ export type GetTransfer = {
   nextOffset: number
   credit: number
   chunksSent: number
+  /**
+   * Identity of the file the descriptor was opened on, taken from the open
+   * descriptor itself. `dev`/`ino` are what make the completion check an
+   * identity check: size and mtime alone cannot tell the original file from a
+   * replacement that happens to match both.
+   */
+  initialDev: number
+  initialIno: number
   initialSize: number
   initialMtimeMs: number
   draining: boolean

@@ -121,6 +121,8 @@ defmodule Ankole.Plugins.SlackAdapter.ConnectionOwner do
     {:stop, reason, %{state | ws_pid: nil}}
   end
 
+  def handle_info({:EXIT, _pid, reason}, state), do: {:stop, reason, state}
+
   def handle_info(_message, state), do: {:noreply, state}
 
   defp maybe_start_ws(state) do

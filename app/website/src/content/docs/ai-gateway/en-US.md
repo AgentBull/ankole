@@ -79,7 +79,7 @@ Compaction is the one tool that trades a long stored history for a shorter one w
 
 ## Provider routing
 
-AIGateway resolves a model selector to a real provider binding before any upstream call. The selector is what the caller sees — for example `main`, or an explicit provider-owned name — and the resolution depends on the subject: an agent's selectors come from its configured model bindings, while an admin sees the explicit provider entries. `GET /models` lists what the current subject can resolve, with optional OpenRouter-style filters (`q`, `context`, `min_price`, `max_price`, `sort`, modality filters).
+AIGateway resolves a model selector to a real provider binding before any upstream call. An Agent has eight built-in profiles: `primary`, `light`, `heavy`, `coding`, `vision_fallback`, `web_search`, `web_fetch`, and `image_generate`. The first five select language models. The last three select separate capabilities. An Agent can also have custom language-model profiles. An admin uses explicit provider entries. `GET /models` lists what the current subject can resolve, with optional OpenRouter-style filters (`q`, `context`, `min_price`, `max_price`, `sort`, modality filters).
 
 Each provider row owns a credential pool. Provider kind, base URL, headers, settings, and capability declarations are shared by all members. A model profile points to the row and never names a pool member. AIGateway selects a healthy member by the configured `fill_first`, `round_robin`, `least_used`, or `random` strategy. The Console translates these strategy names for the selected UI language, while the API and stored values stay unchanged. A stateful thread stays on the same member when possible.
 
@@ -115,7 +115,9 @@ Both paths use the same public stream events and generated-image persistence. Mo
 
 ## Web tools, files, and the other capabilities
 
-The same subject and token drive the adjacent capabilities. `POST /web_search` takes a `query` (length-bounded) and returns provider-backed results; `POST /web_fetch` takes one to five public HTTPS URLs and returns page content. `POST /embeddings` accepts text, token arrays, or input blocks; `POST /rerank` reranks a non-empty document array and takes a positive integer `top_n`. Each request uses its capability-specific semantic selector, such as `web_search.default` or `web_fetch.default`; AIGateway resolves the current Agent profile when the call arrives.
+The same subject and token drive the adjacent capabilities. `POST /web_search` takes a length-bounded `query` and returns provider-backed results; `POST /web_fetch` takes one to five public HTTPS URLs and returns page content. These calls can use `web_search.default` and `web_fetch.default`, which resolve the current Agent profiles.
+
+`POST /embeddings` accepts text, token arrays, or input blocks. `POST /rerank` reranks a non-empty document array and takes a positive integer `top_n`. These two endpoints require an explicit `provider_id/model` selector; they do not resolve Agent profiles. Brain uses the instance-wide `brain.embedding_model` and `brain.rerank_model` settings from [AppConfigure](../app-configuration/) when it calls these capabilities. See [Brain](../brain/) for the retrieval behavior.
 
 Files are first-class: `POST /files` uploads, `GET /files` lists, `GET /files/:id` and `GET /files/:id/content` read metadata and bytes, and `DELETE /files/:id` removes one. All are scoped to the subject.
 

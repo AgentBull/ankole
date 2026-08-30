@@ -20,6 +20,7 @@ import { RiArrowDownSLine } from '@remixicon/react'
 import { useEffect, useId, useRef, useState } from 'react'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import i18n from './i18n'
+import { requestErrorCode, requestErrorDetails } from './request-errors'
 
 export type LocalizedText = Record<string, string> | null | undefined
 
@@ -146,8 +147,11 @@ export function ConfigField({
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [showValidationError, setShowValidationError] = useState(false)
   const secret = field.encrypted === true || field.type === 'secret'
+  const requiredError =
+    required && configFieldValueEmpty(value) ? i18n.t('common.field_required', { field: label }) : undefined
   const validationError =
-    required || !field.requiredWhen?.length ? configFieldValidationMessage(field, value, locale) : undefined
+    requiredError ??
+    (required || !field.requiredWhen?.length ? configFieldValidationMessage(field, value, locale) : undefined)
   const describedBy = [
     description ? descriptionID : undefined,
     showValidationError && validationError ? errorID : undefined
@@ -324,6 +328,25 @@ export function configFieldsValid(fields: ConfigFieldDefinition[], config: JSONO
     if (configFieldRequired(field, config) && configFieldValueEmpty(value)) return false
     return !configFieldValidationMessage(field, value, locale)
   })
+}
+
+/**
+ * Localizes a server-side `validation_failed` error that names one config
+ * field, using the adapter's own field labels. Returns undefined for every
+ * other error, so the caller keeps the raw error surface.
+ */
+export function configFieldServerError(
+  error: unknown,
+  fields: ConfigFieldDefinition[],
+  locale: string
+): string | undefined {
+  if (requestErrorCode(error) !== 'validation_failed') return undefined
+  const details = requestErrorDetails(error)
+  if (typeof details.path !== 'string') return undefined
+  const field = fields.find(item => item.path === details.path)
+  const label = field ? (localizedText(field.label, locale) ?? field.path) : details.path
+  const key = details.kind === 'missing' ? 'common.field_required' : 'common.field_invalid'
+  return i18n.t(key, { field: label })
 }
 
 function configFieldValueEmpty(value: unknown): boolean {

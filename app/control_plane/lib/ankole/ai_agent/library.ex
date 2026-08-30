@@ -12,12 +12,15 @@ defmodule Ankole.AIAgent.Library do
 
   alias Ankole.AIAgent.Library.AgentPlugins
   alias Ankole.AIAgent.Library.AgentPlugins.Config, as: AgentPluginConfig
-  alias Ankole.AIAgent.Library.RuntimeCapabilityChanges
   alias Ankole.AIAgent.Library.Schemas.AgentLibraryContainerEntry
   alias Ankole.AIAgent.Library.Schemas.AgentSkill
-  alias Ankole.AIAgent.Library.Schemas.AgentSkillOverlay
+  alias Ankole.AIAgent.Library.Schemas.AgentSkillLesson
   alias Ankole.AIAgent.Library.Schemas.LibraryBuiltinSyncState
   alias Ankole.AIAgent.Library.SourceReader
+  alias Ankole.Brain.Config, as: BrainConfig
+  alias Ankole.Brain.Sanitize
+  alias Ankole.Ecto.UUIDv7
+  alias Ankole.Kernel, as: NativeKernel
   alias Ankole.Principals
   alias Ankole.Principals.Agent
   alias Ankole.Repo
@@ -27,7 +30,8 @@ defmodule Ankole.AIAgent.Library do
   @soul_file "SOUL.md"
   @mission_file "MISSION.md"
   @design_file "DESIGN.md"
-  @agent_document_kinds ~w(mission soul design)
+  @confidentiality_policy_file "ConfidentialityPolicy.md"
+  @agent_document_kinds ~w(mission soul design confidentiality_policy)
 
   @type agent_document_kind :: String.t()
   @type agent_document :: %{
@@ -47,9 +51,17 @@ defmodule Ankole.AIAgent.Library do
           optional(:default_enabled) => boolean(),
           optional(:tags) => [String.t()],
           optional(:category) => String.t(),
-          optional(:disable_model_invocation) => boolean(),
           optional(:ankole_runtime) => String.t()
         }
+
+  @doc "Returns the globally unique union of every shipped standalone and Agent Plugin Skill."
+  @spec shipped_skill_sources(keyword()) :: {:ok, [map()]} | {:error, term()}
+  def shipped_skill_sources(opts \\ []) do
+    with {:ok, builtin_sources} <- SourceReader.read_builtin_skill_sources(),
+         {:ok, agent_plugin_sources} <- AgentPlugins.skill_sources(opts) do
+      reject_skill_source_conflicts(builtin_sources ++ agent_plugin_sources)
+    end
+  end
 
   @doc """
   Scans first-party builtin skill files and updates the global sync cursor.
@@ -63,10 +75,7 @@ defmodule Ankole.AIAgent.Library do
     force? = Keyword.get(opts, :force, false)
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
-    with {:ok, builtin_sources} <- SourceReader.read_builtin_skill_sources(),
-         {:ok, agent_plugin_sources} <- AgentPlugins.skill_sources(),
-         {:ok, sources} <-
-           reject_skill_source_conflicts(builtin_sources ++ agent_plugin_sources) do
+    with {:ok, sources} <- shipped_skill_sources() do
       content_hash = SourceReader.catalog_hash(sources)
       current_state = repo.get(LibraryBuiltinSyncState, @sync_name)
 
@@ -131,15 +140,14 @@ defmodule Ankole.AIAgent.Library do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
     with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
-         {:ok, builtin_sources} <- SourceReader.read_builtin_skill_sources(),
-         {:ok, agent_plugin_sources} <- AgentPlugins.skill_sources(opts),
+         {:ok, shipped_sources} <- shipped_skill_sources(opts),
          {:ok, installed_sources} <- installed_sources_from_observations(observations) do
       repo.transact(fn repo ->
         sync_agent_skills_in_tx(
           repo,
           agent_uid,
           %{
-            builtin: builtin_sources ++ agent_plugin_sources,
+            builtin: shipped_sources,
             installed: installed_sources,
             installed_authoritative?: true
           },
@@ -188,11 +196,11 @@ defmodule Ankole.AIAgent.Library do
   @spec global_capabilities(keyword()) :: {:ok, map()} | {:error, term()}
   def global_capabilities(opts \\ []) do
     with {:ok, agent_plugins} <- AgentPlugins.global_capabilities(opts),
-         {:ok, builtin_sources} <- SourceReader.read_builtin_skill_sources(),
-         {:ok, agent_plugin_sources} <- AgentPlugins.skill_sources(opts),
-         {:ok, _sources} <-
-           reject_skill_source_conflicts(builtin_sources ++ agent_plugin_sources),
+         {:ok, shipped_sources} <- shipped_skill_sources(opts),
          {:ok, defaults} <- library_defaults(opts) do
+      builtin_sources =
+        Enum.reject(shipped_sources, &is_binary(&1.metadata["agent_plugin_id"]))
+
       skills =
         Enum.map(builtin_sources, fn source ->
           global_default = Map.get(defaults.skills, source.name, source.default_enabled)
@@ -276,6 +284,7 @@ defmodule Ankole.AIAgent.Library do
          {:ok, _soul} <- seed_agent_document_in_tx(repo, agent_uid, "soul"),
          {:ok, _mission} <- seed_agent_document_in_tx(repo, agent_uid, "mission"),
          {:ok, _design} <- seed_agent_document_in_tx(repo, agent_uid, "design"),
+         {:ok, _policy} <- seed_agent_document_in_tx(repo, agent_uid, "confidentiality_policy"),
          {:ok, _result} <- sync_agent_skills_in_tx(repo, agent_uid, sources, now) do
       :ok
     end
@@ -286,37 +295,8 @@ defmodule Ankole.AIAgent.Library do
   """
   @spec enabled_skills_for_agent(String.t(), keyword()) :: {:ok, [map()]} | {:error, term()}
   def enabled_skills_for_agent(agent_uid, opts \\ []) do
-    repo = Keyword.get(opts, :repo, Repo)
-
-    with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
-         {:ok, agent_plugins} <- AgentPlugins.capabilities_for_agent(agent_uid, opts),
-         {:ok, defaults} <- library_defaults(opts) do
-      overlay_skills =
-        AgentSkillOverlay
-        |> where([overlay], overlay.agent_uid == ^agent_uid)
-        |> where([overlay], is_nil(overlay.deleted_at))
-        |> select([overlay], overlay.skill_name)
-        |> repo.all()
-        |> MapSet.new()
-
-      all_skills =
-        AgentSkill
-        |> where([skill], skill.agent_uid == ^agent_uid)
-        |> order_by([skill], asc: skill.skill_name)
-        |> repo.all()
-
-      parent_enabled = Map.new(agent_plugins, &{&1["id"], &1["effective_enabled"]})
-
-      {:ok,
-       all_skills
-       |> Enum.map(fn skill ->
-         effective = effective_skill_enabled?(skill, defaults, parent_enabled)
-         {skill, effective}
-       end)
-       |> Enum.filter(&elem(&1, 1))
-       |> Enum.map(fn {skill, effective} ->
-         skill_summary(skill, overlay_skills, effective, defaults)
-       end)}
+    with {:ok, runtime_state} <- enabled_runtime_state(agent_uid, opts) do
+      {:ok, runtime_state.skills}
     end
   end
 
@@ -339,142 +319,18 @@ defmodule Ankole.AIAgent.Library do
   end
 
   @doc """
-  Replaces an agent-specific skill overlay for an enabled skill.
+  Returns the rendered skill-lesson block for an enabled Skill set.
+
+  Validation is all-or-nothing: an invalid, missing, or disabled Skill rejects
+  the whole set instead of returning a partial materialization. With
+  `brain.skill_learning_enabled = false` every Skill renders empty while the
+  stored rows stay unchanged.
   """
-  @spec replace_skill_overlay(String.t(), String.t(), map(), keyword()) ::
-          {:ok, AgentSkillOverlay.t()} | {:error, term()}
-  def replace_skill_overlay(agent_uid, skill_name, overlay_json, opts \\ [])
+  @spec rendered_skill_lessons(String.t(), [String.t()], keyword()) ::
+          {:ok, %{optional(String.t()) => map()}} | {:error, term()}
+  def rendered_skill_lessons(agent_uid, skill_names, opts \\ [])
 
-  def replace_skill_overlay(agent_uid, skill_name, overlay_json, opts)
-      when is_map(overlay_json) do
-    repo = Keyword.get(opts, :repo, Repo)
-
-    with {:ok, agent_uid, sources, opts} <- prepare_skill_overlay_write(agent_uid, opts) do
-      repo.transact(fn repo ->
-        with {:ok, _result} <-
-               sync_agent_skills_in_tx(repo, agent_uid, sources, DateTime.utc_now(:microsecond)),
-             {:ok, skill_name} <- SourceReader.normalize_skill_name(skill_name),
-             {:ok, _skill} <- enabled_skill(repo, agent_uid, skill_name, opts) do
-          replace_skill_overlay_in_tx(repo, agent_uid, skill_name, overlay_json)
-        end
-      end)
-      |> notify_skill_content_change(agent_uid, repo)
-    end
-  end
-
-  def replace_skill_overlay(_agent_uid, _skill_name, _overlay_json, _opts),
-    do: {:error, :invalid_overlay}
-
-  @doc """
-  Replaces an enabled skill overlay only when its current content hash matches.
-
-  An absent overlay has the empty-string hash at this boundary. This is the
-  whole-overlay model-facing write path; stale callers must resolve and retry
-  instead of silently overwriting a concurrent addition.
-  """
-  @spec replace_skill_overlay_cas(String.t(), String.t(), String.t(), map(), keyword()) ::
-          {:ok, AgentSkillOverlay.t()} | {:error, term()}
-  def replace_skill_overlay_cas(
-        agent_uid,
-        skill_name,
-        expected_content_hash,
-        overlay_json,
-        opts \\ []
-      )
-
-  def replace_skill_overlay_cas(
-        agent_uid,
-        skill_name,
-        expected_content_hash,
-        overlay_json,
-        opts
-      )
-      when is_binary(expected_content_hash) and is_map(overlay_json) do
-    repo = Keyword.get(opts, :repo, Repo)
-
-    with {:ok, agent_uid, sources, opts} <- prepare_skill_overlay_write(agent_uid, opts) do
-      repo.transact(fn repo ->
-        with {:ok, _result} <-
-               sync_agent_skills_in_tx(repo, agent_uid, sources, DateTime.utc_now(:microsecond)),
-             {:ok, skill_name} <- SourceReader.normalize_skill_name(skill_name),
-             {:ok, _skill} <- enabled_skill(repo, agent_uid, skill_name, opts),
-             :ok <- lock_skill_overlay(repo, agent_uid, skill_name),
-             :ok <-
-               verify_overlay_hash(
-                 active_skill_overlay(repo, agent_uid, skill_name),
-                 expected_content_hash
-               ) do
-          replace_skill_overlay_in_tx(repo, agent_uid, skill_name, overlay_json)
-        end
-      end)
-      |> notify_skill_content_change(agent_uid, repo)
-    end
-  end
-
-  def replace_skill_overlay_cas(
-        _agent_uid,
-        _skill_name,
-        _expected_content_hash,
-        _overlay_json,
-        _opts
-      ),
-      do: {:error, :invalid_overlay}
-
-  @doc """
-  Worker `skill_append` tool entry: appends durable notes to the agent's DB overlay text.
-  """
-  @spec skill_append(String.t(), String.t(), String.t(), keyword()) ::
-          {:ok, AgentSkillOverlay.t()} | {:error, term()}
-  def skill_append(agent_uid, skill_name, content, opts \\ [])
-
-  def skill_append(agent_uid, skill_name, content, opts) when is_binary(content) do
-    repo = Keyword.get(opts, :repo, Repo)
-
-    with {:ok, agent_uid, sources, opts} <- prepare_skill_overlay_write(agent_uid, opts) do
-      repo.transact(fn repo ->
-        with {:ok, _result} <-
-               sync_agent_skills_in_tx(repo, agent_uid, sources, DateTime.utc_now(:microsecond)),
-             {:ok, skill_name} <- SourceReader.normalize_skill_name(skill_name),
-             {:ok, _skill} <- enabled_skill(repo, agent_uid, skill_name, opts),
-             :ok <- lock_skill_overlay(repo, agent_uid, skill_name) do
-          existing =
-            repo
-            |> active_skill_overlay(agent_uid, skill_name)
-            |> skill_overlay_text()
-
-          replace_skill_overlay_in_tx(repo, agent_uid, skill_name, %{
-            "text" => append_skill_overlay_text(existing, content)
-          })
-        end
-      end)
-      |> notify_skill_content_change(agent_uid, repo)
-    end
-  end
-
-  def skill_append(_agent_uid, _skill_name, _content, _opts), do: {:error, :invalid_content}
-
-  @doc """
-  Returns the active DB overlay for an enabled skill.
-  """
-  @spec skill_overlay(String.t(), String.t(), keyword()) :: {:ok, map() | nil} | {:error, term()}
-  def skill_overlay(agent_uid, skill_name, opts \\ []) do
-    with {:ok, overlays} <- skill_overlays(agent_uid, [skill_name], opts) do
-      [overlay] = Map.values(overlays)
-      {:ok, overlay}
-    end
-  end
-
-  @doc """
-  Returns active overlays for an enabled Skill set in one registry sync and two batch reads.
-
-  Validation is all-or-nothing: an invalid, missing, or disabled Skill rejects the
-  whole set instead of returning a partial materialization.
-  """
-  @spec skill_overlays(String.t(), [String.t()], keyword()) ::
-          {:ok, %{optional(String.t()) => AgentSkillOverlay.t() | nil}} | {:error, term()}
-  def skill_overlays(agent_uid, skill_names, opts \\ [])
-
-  def skill_overlays(agent_uid, skill_names, opts) when is_list(skill_names) do
+  def rendered_skill_lessons(agent_uid, skill_names, opts) when is_list(skill_names) do
     repo = Keyword.get(opts, :repo, Repo)
 
     with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
@@ -485,29 +341,147 @@ defmodule Ankole.AIAgent.Library do
          parent_enabled = Map.new(agent_plugins, &{&1["id"], &1["effective_enabled"]}),
          {:ok, _skills} <-
            enabled_skills(repo, agent_uid, skill_names, defaults, parent_enabled) do
-      overlays =
-        AgentSkillOverlay
-        |> where([overlay], overlay.agent_uid == ^agent_uid)
-        |> where([overlay], overlay.skill_name in ^skill_names)
-        |> where([overlay], is_nil(overlay.deleted_at))
-        |> repo.all()
-        |> Map.new(&{&1.skill_name, &1})
+      lessons =
+        if BrainConfig.skill_learning_enabled?() do
+          repo
+          |> delivered_skill_lessons(agent_uid, skill_names)
+          |> Enum.group_by(& &1.skill_name)
+        else
+          %{}
+        end
 
-      {:ok, Map.new(skill_names, &{&1, Map.get(overlays, &1)})}
+      {:ok,
+       Map.new(skill_names, fn skill_name ->
+         {skill_name, rendered_lesson_entry(Map.get(lessons, skill_name, []))}
+       end)}
     end
   end
 
-  def skill_overlays(_agent_uid, _skill_names, _opts), do: {:error, :invalid_skill_names}
+  def rendered_skill_lessons(_agent_uid, _skill_names, _opts), do: {:error, :invalid_skill_names}
 
   @doc """
-  Lists the active skill overlays of one agent, most recently changed first.
+  Applies reflection-produced lesson adds through the mechanical gates.
 
-  An overlay outlives its skill enablement, so a row is listed even when the
-  skill is disabled or no longer installed. An unlisted overlay would come back
-  silently the next time the skill is enabled.
+  `context` carries `:evidence_job_ids` (the evidence-bundle job id set),
+  `:human_input_job_ids` (its subset with mid-run human input), and
+  `:checked_release`. Rejected adds are reported with a reason; accepted adds
+  are inserted in one transaction.
   """
-  @spec list_skill_overlays(String.t(), keyword()) :: {:ok, [map()]} | {:error, term()}
-  def list_skill_overlays(agent_uid, opts \\ []) do
+  @spec apply_skill_lesson_adds(String.t(), [map()], map(), keyword()) ::
+          {:ok, %{accepted: [AgentSkillLesson.t()], rejected: [map()]}} | {:error, term()}
+  def apply_skill_lesson_adds(agent_uid, adds, context, opts \\ []) when is_list(adds) do
+    repo = Keyword.get(opts, :repo, Repo)
+    now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
+
+    with {:ok, agent_uid, sources, opts} <- prepare_skill_lesson_write(agent_uid, opts) do
+      repo.transact(fn repo ->
+        with {:ok, _result} <- sync_agent_skills_in_tx(repo, agent_uid, sources, now) do
+          state = %{
+            repo: repo,
+            opts: opts,
+            now: now,
+            context: context,
+            active: active_lesson_index(repo, agent_uid),
+            immunity: immunity_index(repo, agent_uid),
+            accepted: [],
+            rejected: [],
+            round_counts: %{}
+          }
+
+          state = Enum.reduce(adds, state, &apply_lesson_add(agent_uid, &1, &2))
+          {:ok, %{accepted: Enum.reverse(state.accepted), rejected: Enum.reverse(state.rejected)}}
+        end
+      end)
+    end
+  end
+
+  @doc """
+  Applies review verdicts to leased lessons.
+
+  `docket_ids` is the set of lesson ids due for review; `renew` and `lapse`
+  are valid only inside it, `obsolete` retires any active dreaming lesson.
+  `context` carries `:index_job_ids` (the review evidence index) and
+  `:checked_release`.
+  """
+  @spec apply_skill_lesson_reviews(String.t(), [map()], MapSet.t(), map(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def apply_skill_lesson_reviews(agent_uid, reviews, docket_ids, context, opts \\ [])
+      when is_list(reviews) do
+    repo = Keyword.get(opts, :repo, Repo)
+    now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
+
+    with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid) do
+      repo.transact(fn repo ->
+        state = %{
+          repo: repo,
+          now: now,
+          context: context,
+          docket_ids: docket_ids,
+          renewed: 0,
+          retired_skills: [],
+          lapsed: 0,
+          obsoleted: 0,
+          rejected: []
+        }
+
+        state = Enum.reduce(reviews, state, &apply_lesson_review(agent_uid, &1, &2))
+
+        {:ok,
+         %{
+           renewed: state.renewed,
+           obsoleted: state.obsoleted,
+           lapsed: state.lapsed,
+           rejected: Enum.reverse(state.rejected),
+           retired_skills: Enum.uniq(state.retired_skills)
+         }}
+      end)
+    end
+  end
+
+  @doc """
+  Returns the leased lessons due for review for one agent.
+
+  Due = lease expiring inside the horizon, or a fingerprint (release or skill
+  content hash) that no longer matches the current environment.
+  """
+  @spec skill_lesson_review_docket(String.t(), DateTime.t(), String.t(), keyword()) ::
+          {:ok, [AgentSkillLesson.t()]} | {:error, term()}
+  def skill_lesson_review_docket(agent_uid, horizon, current_release, opts \\ []) do
+    repo = Keyword.get(opts, :repo, Repo)
+
+    with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid) do
+      skill_hashes =
+        AgentSkill
+        |> where([skill], skill.agent_uid == ^agent_uid)
+        |> select([skill], {skill.skill_name, skill.content_hash})
+        |> repo.all()
+        |> Map.new()
+
+      docket =
+        AgentSkillLesson
+        |> where([lesson], lesson.agent_uid == ^agent_uid)
+        |> where([lesson], is_nil(lesson.retired_at))
+        |> where([lesson], lesson.author_kind == "dreaming")
+        |> order_by([lesson], asc: lesson.inserted_at)
+        |> repo.all()
+        |> Enum.filter(fn lesson ->
+          DateTime.compare(lesson.review_after, horizon) != :gt or
+            lesson.checked_release != current_release or
+            lesson.checked_skill_hash != Map.get(skill_hashes, lesson.skill_name)
+        end)
+
+      {:ok, docket}
+    end
+  end
+
+  @doc """
+  Lists all skill lessons of one agent for the Console, retired rows included.
+
+  A lesson outlives its skill enablement, so rows are listed even when the
+  skill is disabled or no longer installed.
+  """
+  @spec list_skill_lessons(String.t(), keyword()) :: {:ok, [map()]} | {:error, term()}
+  def list_skill_lessons(agent_uid, opts \\ []) do
     repo = Keyword.get(opts, :repo, Repo)
 
     with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
@@ -520,41 +494,116 @@ defmodule Ankole.AIAgent.Library do
         |> repo.all()
         |> Map.new(&{&1.skill_name, &1})
 
-      overlays =
-        AgentSkillOverlay
-        |> where([overlay], overlay.agent_uid == ^agent_uid)
-        |> where([overlay], is_nil(overlay.deleted_at))
-        |> order_by([overlay], desc: overlay.updated_at, asc: overlay.skill_name)
+      lessons =
+        AgentSkillLesson
+        |> where([lesson], lesson.agent_uid == ^agent_uid)
+        |> order_by([lesson], asc: lesson.skill_name, desc: lesson.inserted_at)
         |> repo.all()
         |> Enum.map(
-          &skill_overlay_summary(&1, Map.get(skills, &1.skill_name), defaults, parent_enabled)
+          &skill_lesson_summary(&1, Map.get(skills, &1.skill_name), defaults, parent_enabled)
         )
 
-      {:ok, overlays}
+      {:ok, lessons}
     end
   end
 
   @doc """
-  Soft-deletes the active skill overlay of one agent skill.
+  Creates one operator-authored lesson for an enabled skill.
 
-  Deletion does not require the skill to stay enabled, because a disabled skill
-  is exactly the case where an operator can no longer reach the overlay through
-  a write path.
+  Human lessons carry no lease and are never touched by Dreaming.
   """
-  @spec delete_skill_overlay(String.t(), String.t(), keyword()) ::
-          {:ok, AgentSkillOverlay.t()} | {:error, term()}
-  def delete_skill_overlay(agent_uid, skill_name, opts \\ []) do
+  @spec create_skill_lesson(String.t(), String.t(), String.t(), String.t(), keyword()) ::
+          {:ok, AgentSkillLesson.t()} | {:error, term()}
+  def create_skill_lesson(agent_uid, skill_name, content, author_uid, opts \\ []) do
+    repo = Keyword.get(opts, :repo, Repo)
+
+    with {:ok, agent_uid, sources, opts} <- prepare_skill_lesson_write(agent_uid, opts),
+         :ok <- validate_lesson_content(content, :human) do
+      repo.transact(fn repo ->
+        with {:ok, _result} <-
+               sync_agent_skills_in_tx(repo, agent_uid, sources, DateTime.utc_now(:microsecond)),
+             {:ok, skill_name} <- SourceReader.normalize_skill_name(skill_name),
+             {:ok, _skill} <- enabled_skill(repo, agent_uid, skill_name, opts) do
+          %AgentSkillLesson{}
+          |> AgentSkillLesson.changeset(%{
+            agent_uid: agent_uid,
+            skill_name: skill_name,
+            content: String.trim(content),
+            author_kind: "human",
+            author_uid: author_uid
+          })
+          |> repo.insert()
+        end
+      end)
+    end
+  end
+
+  @doc """
+  Retires one lesson on operator request.
+
+  A human retirement of a dreaming lesson is permanent: the row joins the
+  immunity list and Dreaming never re-adds equivalent content.
+  """
+  @spec retire_skill_lesson(String.t(), String.t(), keyword()) ::
+          {:ok, AgentSkillLesson.t()} | {:error, term()}
+  def retire_skill_lesson(agent_uid, lesson_id, opts \\ []) do
     repo = Keyword.get(opts, :repo, Repo)
 
     with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
-         :ok <- ensure_agent(repo, agent_uid),
-         {:ok, skill_name} <- SourceReader.normalize_skill_name(skill_name) do
+         :ok <- ensure_agent(repo, agent_uid) do
       repo.transact(fn repo ->
-        with :ok <- lock_skill_overlay(repo, agent_uid, skill_name) do
-          delete_skill_overlay_in_tx(repo, active_skill_overlay(repo, agent_uid, skill_name))
+        case repo.get_by(AgentSkillLesson, id: lesson_id, agent_uid: agent_uid) do
+          nil ->
+            {:error, :skill_lesson_not_found}
+
+          %AgentSkillLesson{retired_at: %DateTime{}} ->
+            {:error, :skill_lesson_already_retired}
+
+          %AgentSkillLesson{} = lesson ->
+            lesson
+            |> AgentSkillLesson.changeset(%{
+              retired_at: DateTime.utc_now(:microsecond),
+              retire_reason: "human_revoked"
+            })
+            |> repo.update()
         end
       end)
-      |> notify_skill_content_change(agent_uid, repo)
+    end
+  end
+
+  @doc """
+  Returns the active lessons of one agent for reflection prompt assembly.
+  """
+  @spec active_skill_lessons(String.t(), keyword()) ::
+          {:ok, [AgentSkillLesson.t()]} | {:error, term()}
+  def active_skill_lessons(agent_uid, opts \\ []) do
+    repo = Keyword.get(opts, :repo, Repo)
+
+    with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid) do
+      {:ok,
+       AgentSkillLesson
+       |> where([lesson], lesson.agent_uid == ^agent_uid)
+       |> where([lesson], is_nil(lesson.retired_at))
+       |> order_by([lesson], asc: lesson.skill_name, asc: lesson.inserted_at)
+       |> repo.all()}
+    end
+  end
+
+  @doc """
+  Returns the human-revoked lessons of one agent: the never-relearn list.
+  """
+  @spec revoked_skill_lessons(String.t(), keyword()) ::
+          {:ok, [AgentSkillLesson.t()]} | {:error, term()}
+  def revoked_skill_lessons(agent_uid, opts \\ []) do
+    repo = Keyword.get(opts, :repo, Repo)
+
+    with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid) do
+      {:ok,
+       AgentSkillLesson
+       |> where([lesson], lesson.agent_uid == ^agent_uid)
+       |> where([lesson], lesson.retire_reason == "human_revoked")
+       |> order_by([lesson], asc: lesson.skill_name, asc: lesson.inserted_at)
+       |> repo.all()}
     end
   end
 
@@ -580,7 +629,19 @@ defmodule Ankole.AIAgent.Library do
     do: get_agent_document_text(agent_uid, "design", opts)
 
   @doc """
-  Returns the operator-visible MISSION, SOUL, and DESIGN documents for one agent.
+  Returns the agent confidentiality policy, falling back to the bundled template.
+
+  Brain reads it when an Agent writes memory itself, so the model can choose
+  an audience scope; system learning paths do not read it.
+  """
+  @spec get_confidentiality_policy(String.t(), keyword()) ::
+          {:ok, String.t()} | {:error, term()}
+  def get_confidentiality_policy(agent_uid, opts \\ []),
+    do: get_agent_document_text(agent_uid, "confidentiality_policy", opts)
+
+  @doc """
+  Returns the operator-visible agent documents (MISSION, SOUL, DESIGN, and
+  the confidentiality policy) for one agent.
 
   Agents created before the writable rows existed still receive the bundled
   template and its content hash, so a subsequent compare-and-swap write can
@@ -602,7 +663,8 @@ defmodule Ankole.AIAgent.Library do
   end
 
   @doc """
-  Replaces one agent MISSION, SOUL, or DESIGN document when its current hash matches.
+  Replaces one agent document (MISSION, SOUL, DESIGN, or the
+  confidentiality policy) when its current hash matches.
 
   The advisory transaction lock serializes the missing-row case as well as
   ordinary updates, so two Console editors cannot both accept the same stale
@@ -649,48 +711,92 @@ defmodule Ankole.AIAgent.Library do
   def replace_agent_document(_agent_uid, _kind, _content, _expected_content_hash, _opts),
     do: {:error, :invalid_agent_document}
 
-  @doc """
-  Returns the compact skill index used by prompt builders.
-  """
-  @spec skills_for_system_prompt(String.t(), keyword()) :: {:ok, [map()]} | {:error, term()}
-  def skills_for_system_prompt(agent_uid, opts \\ []) do
-    with {:ok, skills} <- enabled_skills_for_agent(agent_uid, opts) do
+  @doc "Returns one coherent Agent Plugin and Skill catalog for an Agent runtime."
+  @spec runtime_catalog_for_agent(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def runtime_catalog_for_agent(agent_uid, opts \\ []) do
+    with {:ok, runtime_state} <- enabled_runtime_state(agent_uid, opts) do
       {:ok,
-       Enum.map(skills, fn skill ->
-         metadata = skill["metadata"] || %{}
-
-         %{
-           "skill_name" => skill["skill_name"],
-           "name" => skill["skill_name"],
-           "description" => skill["description"],
-           "category" => skill["category"],
-           "source_kind" => skill["source_kind"],
-           "agent_plugin_id" => skill["agent_plugin_id"],
-           "relative_path" => skill["relative_path"],
-           "skill_root" => metadata["skill_root"],
-           "skill_uri" => skill_uri(skill["skill_name"], @skill_file),
-           "metadata" => metadata,
-           "disable_model_invocation" => metadata["disable_model_invocation"] == true
-         }
-       end)}
+       %{
+         "agent_plugins" => AgentPlugins.enabled_catalog(runtime_state.agent_plugins),
+         "skills" => Enum.map(runtime_state.skills, &runtime_skill_summary/1)
+       }}
     end
   end
 
+  @doc """
+  Returns the compact effective Skill set sent to an Agent runtime.
+
+  The runtime keeps this complete set for `skill_view` and applies discovery
+  policy when it renders a model-visible Skill catalog.
+  """
+  @spec runtime_skills_for_agent(String.t(), keyword()) :: {:ok, [map()]} | {:error, term()}
+  def runtime_skills_for_agent(agent_uid, opts \\ []) do
+    with {:ok, runtime_catalog} <- runtime_catalog_for_agent(agent_uid, opts) do
+      {:ok, runtime_catalog["skills"]}
+    end
+  end
+
+  defp enabled_runtime_state(agent_uid, opts) do
+    repo = Keyword.get(opts, :repo, Repo)
+
+    with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
+         {:ok, defaults} <- library_defaults(opts),
+         runtime_opts = Keyword.put(opts, :agent_library_defaults, defaults),
+         {:ok, agent_plugins} <- AgentPlugins.capabilities_for_agent(agent_uid, runtime_opts) do
+      lesson_skills = delivered_lesson_skill_names(repo, agent_uid)
+
+      plugin_member_enabled =
+        Map.new(
+          for agent_plugin <- agent_plugins,
+              skill <- agent_plugin["skills"],
+              do: {skill["id"], skill["effective_enabled"]}
+        )
+
+      skills =
+        AgentSkill
+        |> where([skill], skill.agent_uid == ^agent_uid)
+        |> order_by([skill], asc: skill.skill_name)
+        |> repo.all()
+        |> Enum.map(fn skill ->
+          effective = runtime_skill_enabled?(skill, defaults, plugin_member_enabled)
+          {skill, effective}
+        end)
+        |> Enum.filter(&elem(&1, 1))
+        |> Enum.map(fn {skill, effective} ->
+          skill_summary(skill, lesson_skills, effective, defaults)
+        end)
+
+      {:ok, %{agent_plugins: agent_plugins, skills: skills}}
+    end
+  end
+
+  defp runtime_skill_summary(skill) do
+    metadata = skill["metadata"] || %{}
+
+    %{
+      "skill_name" => skill["skill_name"],
+      "description" => skill["description"],
+      "category" => skill["category"],
+      "source_kind" => skill["source_kind"],
+      "agent_plugin_id" => skill["agent_plugin_id"],
+      "relative_path" => skill["relative_path"],
+      "skill_root" => metadata["skill_root"],
+      "metadata" => metadata
+    }
+  end
+
   defp agent_skill_sources(_agent_uid, opts) do
-    with {:ok, builtin_sources} <- SourceReader.read_builtin_skill_sources(),
-         {:ok, agent_plugin_sources} <- AgentPlugins.skill_sources(opts),
-         {:ok, _all_sources} <-
-           reject_skill_source_conflicts(builtin_sources ++ agent_plugin_sources) do
+    with {:ok, shipped_sources} <- shipped_skill_sources(opts) do
       {:ok,
        %{
-         builtin: builtin_sources ++ agent_plugin_sources,
+         builtin: shipped_sources,
          installed: [],
          installed_authoritative?: false
        }}
     end
   end
 
-  defp prepare_skill_overlay_write(agent_uid, opts) do
+  defp prepare_skill_lesson_write(agent_uid, opts) do
     with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
          {:ok, sources} <- agent_skill_sources(agent_uid, opts),
          {:ok, defaults} <- library_defaults(opts) do
@@ -705,28 +811,45 @@ defmodule Ankole.AIAgent.Library do
 
     source_names = MapSet.new(source_rows, & &1.skill_name)
 
+    existing_rows =
+      AgentSkill
+      |> where([skill], skill.agent_uid == ^agent_uid)
+      |> repo.all()
+
     preserved_installed_rows =
-      if sources.installed_authoritative? do
-        []
-      else
-        AgentSkill
-        |> where([skill], skill.agent_uid == ^agent_uid and skill.source_kind == "installed")
-        |> repo.all()
-      end
+      if sources.installed_authoritative?,
+        do: [],
+        else: Enum.filter(existing_rows, &(&1.source_kind == "installed"))
+
+    existing_by_name = Map.new(existing_rows, &{&1.skill_name, &1})
+
+    changed_rows =
+      Enum.reject(source_rows, &source_row_current?(existing_by_name[&1.skill_name], &1))
 
     with :ok <- reject_skill_row_conflicts(source_rows ++ preserved_installed_rows),
-         :ok <- upsert_agent_skill_rows(repo, agent_uid, source_rows),
-         {_count, _rows} <-
+         :ok <- upsert_agent_skill_rows(repo, agent_uid, changed_rows, now),
+         {stale_count, _rows} <-
            stale_agent_skills_query(agent_uid, source_names, sources.installed_authoritative?)
            |> repo.delete_all() do
       {:ok,
        %{
-         changed: true,
+         changed: changed_rows != [] or stale_count > 0,
          content_hash: agent_skill_hash(source_rows),
          skills: length(source_rows),
          files: Enum.reduce(source_rows, 0, fn row, count -> count + row.file_count end)
        }}
     end
+  end
+
+  # This sync runs on every Worker context read and Job dispatch, so an
+  # unchanged catalog must produce zero row writes.
+  defp source_row_current?(nil, _row), do: false
+
+  defp source_row_current?(%AgentSkill{} = current, row) do
+    {current.source_kind, current.agent_plugin_id, current.relative_path, current.default_enabled,
+     current.description, current.metadata, current.content_hash} ==
+      {row.source_kind, row.agent_plugin_id, row.relative_path, row.default_enabled,
+       row.description, row.metadata, row.content_hash}
   end
 
   defp stale_agent_skills_query(agent_uid, source_names, true) do
@@ -761,8 +884,28 @@ defmodule Ankole.AIAgent.Library do
     }
   end
 
-  defp upsert_agent_skill_rows(repo, agent_uid, source_rows) do
-    Enum.reduce_while(source_rows, :ok, fn row, :ok ->
+  @agent_skill_conflict_replace [
+    :source_kind,
+    :agent_plugin_id,
+    :relative_path,
+    :default_enabled,
+    :description,
+    :metadata,
+    :content_hash,
+    :synced_at,
+    :updated_at
+  ]
+
+  # Creating an Agent seeds every builtin bundle, so a row-at-a-time upsert made
+  # Agent creation pay one database round trip per Skill. The changeset still
+  # runs on every row, so normalization and validation keep their owner; only
+  # the write is batched. `enabled_override` stays out of the replace list, so
+  # an operator's per-Skill choice survives a resync.
+  defp upsert_agent_skill_rows(_repo, _agent_uid, [], _now), do: :ok
+
+  defp upsert_agent_skill_rows(repo, agent_uid, source_rows, now) do
+    source_rows
+    |> Enum.reduce_while({:ok, []}, fn row, {:ok, entries} ->
       attrs =
         row
         |> Map.take([
@@ -781,27 +924,43 @@ defmodule Ankole.AIAgent.Library do
 
       %AgentSkill{}
       |> AgentSkill.changeset(attrs)
-      |> repo.insert(
-        on_conflict:
-          {:replace,
-           [
-             :source_kind,
-             :agent_plugin_id,
-             :relative_path,
-             :default_enabled,
-             :description,
-             :metadata,
-             :content_hash,
-             :synced_at,
-             :updated_at
-           ]},
-        conflict_target: [:agent_uid, :skill_name]
-      )
+      |> Ecto.Changeset.apply_action(:insert)
       |> case do
-        {:ok, _skill} -> {:cont, :ok}
-        {:error, _reason} = error -> {:halt, error}
+        {:ok, skill} -> {:cont, {:ok, [agent_skill_entry(skill, now) | entries]}}
+        {:error, _changeset} = error -> {:halt, error}
       end
     end)
+    |> case do
+      {:ok, entries} ->
+        repo.insert_all(AgentSkill, Enum.reverse(entries),
+          on_conflict: {:replace, @agent_skill_conflict_replace},
+          conflict_target: [:agent_uid, :skill_name]
+        )
+
+        :ok
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp agent_skill_entry(%AgentSkill{} = skill, now) do
+    %{
+      id: UUIDv7.autogenerate(),
+      agent_uid: skill.agent_uid,
+      skill_name: skill.skill_name,
+      source_kind: skill.source_kind,
+      agent_plugin_id: skill.agent_plugin_id,
+      relative_path: skill.relative_path,
+      enabled_override: skill.enabled_override,
+      default_enabled: skill.default_enabled,
+      description: skill.description,
+      metadata: skill.metadata,
+      content_hash: skill.content_hash,
+      synced_at: skill.synced_at,
+      inserted_at: now,
+      updated_at: now
+    }
   end
 
   defp agent_skill_hash(rows) do
@@ -915,6 +1074,15 @@ defmodule Ankole.AIAgent.Library do
        kind: "design",
        path: @design_file,
        fallback: SourceReader.load_default_design_template()
+     }}
+  end
+
+  defp agent_document_spec("confidentiality_policy") do
+    {:ok,
+     %{
+       kind: "confidentiality_policy",
+       path: @confidentiality_policy_file,
+       fallback: SourceReader.load_default_confidentiality_policy_template()
      }}
   end
 
@@ -1033,17 +1201,16 @@ defmodule Ankole.AIAgent.Library do
     case read_skill_file(skill, file_path, opts) do
       {:ok, raw_content} when file_path == @skill_file ->
         base_content = SourceReader.skill_body(raw_content)
-        overlay = active_skill_overlay(repo, agent_uid, skill.skill_name)
-        overlay_text = skill_overlay_text(overlay)
+        lessons_text = delivered_lessons_text(repo, agent_uid, skill.skill_name)
 
         content =
-          case overlay_text do
+          case lessons_text do
             nil ->
               base_content
 
-            append ->
+            text ->
               base_content <>
-                "\n\n---\nAgent-specific additions for #{agent_uid}:\n\n" <> String.trim(append)
+                "\n\n---\nAgent-specific additions for #{agent_uid}:\n\n" <> text
           end
 
         {:ok,
@@ -1054,8 +1221,7 @@ defmodule Ankole.AIAgent.Library do
            "skill_uri" => skill_uri(skill.skill_name, file_path),
            "content" => content,
            "base_content" => base_content,
-           "overlay_json" => overlay_json(overlay),
-           "has_agent_overlay" => is_binary(overlay_text)
+           "has_agent_overlay" => is_binary(lessons_text)
          }}
 
       {:ok, content} ->
@@ -1067,9 +1233,7 @@ defmodule Ankole.AIAgent.Library do
            "skill_uri" => skill_uri(skill.skill_name, file_path),
            "content" => content,
            "has_agent_overlay" =>
-             is_binary(
-               skill_overlay_text(active_skill_overlay(repo, agent_uid, skill.skill_name))
-             )
+             is_binary(delivered_lessons_text(repo, agent_uid, skill.skill_name))
          }}
 
       {:error, _reason} ->
@@ -1092,9 +1256,9 @@ defmodule Ankole.AIAgent.Library do
   defp installed_sources_from_observations(observations) do
     observations
     |> Enum.map(&installed_source_from_observation/1)
-    |> collect_results()
+    |> Ankole.Attrs.collect_results()
     |> case do
-      {:ok, sources} -> sources |> Enum.reverse() |> reject_duplicate_observations()
+      {:ok, sources} -> reject_duplicate_observations(sources)
       {:error, _reason} = error -> error
     end
   end
@@ -1105,15 +1269,10 @@ defmodule Ankole.AIAgent.Library do
          {:ok, default_enabled} <- observation_boolean(observation, :default_enabled, true),
          {:ok, tags} <- observation_tags(observation),
          {:ok, category} <- observation_optional_text(observation, :category),
-         {:ok, disable_model_invocation} <-
-           observation_boolean(observation, :disable_model_invocation, false),
          {:ok, ankole_runtime} <-
            SourceReader.normalize_ankole_runtime(map_text(observation, :ankole_runtime)) do
       metadata =
-        %{
-          "tags" => tags,
-          "disable_model_invocation" => disable_model_invocation
-        }
+        %{"tags" => tags}
         |> put_optional_metadata("category", category)
         |> put_optional_metadata("ankole-runtime", ankole_runtime)
 
@@ -1124,7 +1283,6 @@ defmodule Ankole.AIAgent.Library do
           default_enabled,
           tags,
           category,
-          disable_model_invocation,
           ankole_runtime
         )
 
@@ -1210,7 +1368,6 @@ defmodule Ankole.AIAgent.Library do
          default_enabled,
          tags,
          category,
-         disable_model_invocation,
          ankole_runtime
        ) do
     [
@@ -1218,7 +1375,6 @@ defmodule Ankole.AIAgent.Library do
       description,
       to_string(default_enabled),
       category || "",
-      to_string(disable_model_invocation),
       ankole_runtime || ""
       | tags
     ]
@@ -1289,13 +1445,6 @@ defmodule Ankole.AIAgent.Library do
   defp put_optional_metadata(metadata, _key, nil), do: metadata
   defp put_optional_metadata(metadata, key, value), do: Map.put(metadata, key, value)
 
-  defp collect_results(results) do
-    Enum.reduce_while(results, {:ok, []}, fn
-      {:ok, value}, {:ok, acc} -> {:cont, {:ok, [value | acc]}}
-      {:error, _reason} = error, _acc -> {:halt, error}
-    end)
-  end
-
   defp active_agent_entry(repo, agent_uid, path) do
     AgentLibraryContainerEntry
     |> where([entry], entry.agent_uid == ^agent_uid)
@@ -1304,116 +1453,364 @@ defmodule Ankole.AIAgent.Library do
     |> repo.one()
   end
 
-  defp active_skill_overlay(repo, agent_uid, skill_name) do
-    AgentSkillOverlay
-    |> where([overlay], overlay.agent_uid == ^agent_uid)
-    |> where([overlay], overlay.skill_name == ^skill_name)
-    |> where([overlay], is_nil(overlay.deleted_at))
-    |> repo.one()
+  @lesson_term_days 7
+  @lesson_delivery_grace_days 7
+  @lesson_adds_per_skill 2
+  @lesson_active_cap 10
+  @lesson_token_limit 100
+  @lesson_url_pattern ~r/https?:\/\//i
+  @lesson_render_header "Field notes (dated; verify against the current environment):"
+
+  defp delivered_skill_lessons(repo, agent_uid, skill_names) do
+    grace_floor =
+      DateTime.add(DateTime.utc_now(:microsecond), -@lesson_delivery_grace_days, :day)
+
+    AgentSkillLesson
+    |> where([lesson], lesson.agent_uid == ^agent_uid)
+    |> where([lesson], lesson.skill_name in ^skill_names)
+    |> where([lesson], is_nil(lesson.retired_at))
+    |> where([lesson], is_nil(lesson.review_after) or lesson.review_after > ^grace_floor)
+    |> order_by([lesson], asc: lesson.inserted_at)
+    |> repo.all()
   end
 
-  defp lock_skill_overlay(repo, agent_uid, skill_name) do
-    Ecto.Adapters.SQL.query!(
-      repo,
-      "SELECT pg_advisory_xact_lock(hashtext($1))",
-      ["skill-overlay:#{agent_uid}:#{skill_name}"]
-    )
+  defp delivered_lesson_skill_names(repo, agent_uid) do
+    if BrainConfig.skill_learning_enabled?() do
+      grace_floor =
+        DateTime.add(DateTime.utc_now(:microsecond), -@lesson_delivery_grace_days, :day)
 
-    :ok
+      AgentSkillLesson
+      |> where([lesson], lesson.agent_uid == ^agent_uid)
+      |> where([lesson], is_nil(lesson.retired_at))
+      |> where([lesson], is_nil(lesson.review_after) or lesson.review_after > ^grace_floor)
+      |> select([lesson], lesson.skill_name)
+      |> repo.all()
+      |> MapSet.new()
+    else
+      MapSet.new()
+    end
   end
 
-  defp verify_overlay_hash(nil, ""), do: :ok
+  defp delivered_lessons_text(repo, agent_uid, skill_name) do
+    if BrainConfig.skill_learning_enabled?() do
+      repo
+      |> delivered_skill_lessons(agent_uid, [skill_name])
+      |> render_skill_lessons()
+    else
+      nil
+    end
+  end
 
-  defp verify_overlay_hash(%AgentSkillOverlay{content_hash: content_hash}, content_hash),
-    do: :ok
+  defp rendered_lesson_entry(lessons) do
+    case render_skill_lessons(lessons) do
+      nil ->
+        %{"text" => "", "content_hash" => "", "has_lessons" => false}
 
-  defp verify_overlay_hash(_overlay, _expected), do: {:error, :skill_overlay_conflict}
+      text ->
+        %{"text" => text, "content_hash" => SourceReader.hash(text), "has_lessons" => true}
+    end
+  end
 
-  defp replace_skill_overlay_in_tx(repo, agent_uid, skill_name, overlay_json) do
-    attrs = %{
-      agent_uid: agent_uid,
-      skill_name: skill_name,
-      overlay_json: overlay_json,
-      content_hash: SourceReader.hash(Torque.encode!(overlay_json))
+  defp render_skill_lessons([]), do: nil
+
+  defp render_skill_lessons(lessons) do
+    {human, dreaming} = Enum.split_with(lessons, &(&1.author_kind == "human"))
+    bullets = Enum.map(human ++ dreaming, &lesson_bullet/1)
+    Enum.join([@lesson_render_header | bullets], "\n")
+  end
+
+  defp lesson_bullet(%AgentSkillLesson{} = lesson) do
+    date = lesson.inserted_at |> DateTime.to_date() |> Date.to_iso8601()
+    marker = if lesson.author_kind == "human", do: date <> ", human", else: date
+    "- [" <> marker <> "] " <> String.trim(lesson.content)
+  end
+
+  defp active_lesson_index(repo, agent_uid) do
+    AgentSkillLesson
+    |> where([lesson], lesson.agent_uid == ^agent_uid)
+    |> where([lesson], is_nil(lesson.retired_at))
+    |> repo.all()
+    |> Enum.reduce(%{}, &index_lesson(&2, &1))
+  end
+
+  defp index_lesson(index, %AgentSkillLesson{} = lesson) do
+    entry = Map.get(index, lesson.skill_name, %{count: 0, normalized: MapSet.new()})
+
+    Map.put(index, lesson.skill_name, %{
+      count: entry.count + 1,
+      normalized: MapSet.put(entry.normalized, normalize_lesson_text(lesson.content))
+    })
+  end
+
+  defp immunity_index(repo, agent_uid) do
+    AgentSkillLesson
+    |> where([lesson], lesson.agent_uid == ^agent_uid)
+    |> where([lesson], lesson.retire_reason == "human_revoked")
+    |> repo.all()
+    |> Enum.group_by(& &1.skill_name, &normalize_lesson_text(&1.content))
+    |> Map.new(fn {skill_name, normals} -> {skill_name, MapSet.new(normals)} end)
+  end
+
+  defp normalize_lesson_text(text) do
+    text
+    |> String.normalize(:nfkc)
+    |> String.downcase()
+    |> String.replace(~r/\s+/u, " ")
+    |> String.trim()
+  end
+
+  defp apply_lesson_add(agent_uid, add, state) do
+    case validate_lesson_add(agent_uid, add, state) do
+      {:ok, attrs} ->
+        case %AgentSkillLesson{} |> AgentSkillLesson.changeset(attrs) |> state.repo.insert() do
+          {:ok, lesson} ->
+            %{
+              state
+              | accepted: [lesson | state.accepted],
+                active: index_lesson(state.active, lesson),
+                round_counts: Map.update(state.round_counts, lesson.skill_name, 1, &(&1 + 1))
+            }
+
+          {:error, _changeset} ->
+            reject_add(state, add, :invalid_add)
+        end
+
+      {:error, reason} ->
+        reject_add(state, add, reason)
+    end
+  end
+
+  defp validate_lesson_add(
+         agent_uid,
+         %{"skill_name" => skill_name, "content" => content, "evidence_job_ids" => evidence},
+         state
+       )
+       when is_binary(skill_name) and is_binary(content) and is_list(evidence) do
+    with {:ok, skill_name} <- SourceReader.normalize_skill_name(skill_name),
+         {:ok, skill} <- enabled_skill(state.repo, agent_uid, skill_name, state.opts),
+         :ok <- validate_lesson_content(content, :dreaming),
+         normalized = normalize_lesson_text(content),
+         :ok <- reject_duplicate_lesson(state.active, skill_name, normalized),
+         :ok <- reject_revoked_lesson(state.immunity, skill_name, normalized),
+         {:ok, evidence_ids} <- validate_lesson_evidence(evidence, state.context),
+         :ok <- enforce_round_cap(state.round_counts, skill_name),
+         :ok <- enforce_active_cap(state.active, skill_name) do
+      {:ok,
+       %{
+         agent_uid: agent_uid,
+         skill_name: skill_name,
+         content: String.trim(content),
+         author_kind: "dreaming",
+         evidence_job_ids: evidence_ids,
+         checked_release: Map.fetch!(state.context, :checked_release),
+         checked_skill_hash: skill.content_hash,
+         review_after: DateTime.add(state.now, @lesson_term_days, :day)
+       }}
+    end
+  end
+
+  defp validate_lesson_add(_agent_uid, _add, _state), do: {:error, :invalid_add}
+
+  defp validate_lesson_content(content, author_kind) when is_binary(content) do
+    trimmed = String.trim(content)
+
+    cond do
+      trimmed == "" ->
+        {:error, :blank_content}
+
+      Regex.match?(@lesson_url_pattern, trimmed) ->
+        {:error, :content_contains_url}
+
+      author_kind == :human ->
+        :ok
+
+      NativeKernel.estimate_o200k_base_tokens(trimmed) > @lesson_token_limit ->
+        {:error, :content_too_long}
+
+      match?({_text, [_hit | _rest]}, Sanitize.sanitize(trimmed)) ->
+        {:error, :content_injection_suspect}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp validate_lesson_content(_content, _author_kind), do: {:error, :blank_content}
+
+  defp reject_duplicate_lesson(active, skill_name, normalized) do
+    case Map.get(active, skill_name) do
+      %{normalized: set} ->
+        if MapSet.member?(set, normalized), do: {:error, :duplicate_lesson}, else: :ok
+
+      nil ->
+        :ok
+    end
+  end
+
+  defp reject_revoked_lesson(immunity, skill_name, normalized) do
+    case Map.get(immunity, skill_name) do
+      nil -> :ok
+      set -> if MapSet.member?(set, normalized), do: {:error, :revoked_lesson}, else: :ok
+    end
+  end
+
+  defp validate_lesson_evidence(evidence, context) do
+    ids = Enum.uniq(evidence)
+    bundle = Map.fetch!(context, :evidence_job_ids)
+    human_input = Map.fetch!(context, :human_input_job_ids)
+
+    cond do
+      ids == [] or not Enum.all?(ids, &is_integer/1) ->
+        {:error, :insufficient_evidence}
+
+      not Enum.all?(ids, &MapSet.member?(bundle, &1)) ->
+        {:error, :evidence_outside_bundle}
+
+      length(ids) >= 2 ->
+        {:ok, ids}
+
+      MapSet.member?(human_input, hd(ids)) ->
+        {:ok, ids}
+
+      true ->
+        {:error, :insufficient_evidence}
+    end
+  end
+
+  defp enforce_round_cap(round_counts, skill_name) do
+    if Map.get(round_counts, skill_name, 0) < @lesson_adds_per_skill,
+      do: :ok,
+      else: {:error, :adds_limit_reached}
+  end
+
+  defp enforce_active_cap(active, skill_name) do
+    count = active |> Map.get(skill_name, %{count: 0}) |> Map.fetch!(:count)
+    if count < @lesson_active_cap, do: :ok, else: {:error, :active_cap_reached}
+  end
+
+  defp reject_add(state, add, reason),
+    do: %{state | rejected: [%{add: add, reason: reason} | state.rejected]}
+
+  defp apply_lesson_review(agent_uid, review, state) do
+    with {:ok, lesson_id, verdict, evidence, note} <- review_fields(review),
+         {:ok, lesson} <- reviewable_lesson(state.repo, agent_uid, lesson_id),
+         :ok <- validate_review_evidence(evidence, state.context) do
+      apply_lesson_verdict(verdict, lesson, note, state)
+    else
+      {:error, reason} ->
+        %{state | rejected: [%{review: review, reason: reason} | state.rejected]}
+    end
+  end
+
+  defp review_fields(%{"lesson_id" => lesson_id, "verdict" => verdict} = review)
+       when is_binary(lesson_id) and verdict in ["renew", "obsolete", "lapse"] do
+    {:ok, lesson_id, verdict, Map.get(review, "evidence_job_ids", []), Map.get(review, "note")}
+  end
+
+  defp review_fields(_review), do: {:error, :invalid_review}
+
+  defp reviewable_lesson(repo, agent_uid, lesson_id) do
+    with {:ok, _uuid} <- Ecto.UUID.cast(lesson_id) do
+      case repo.get_by(AgentSkillLesson, id: lesson_id, agent_uid: agent_uid) do
+        nil -> {:error, :not_reviewable}
+        %AgentSkillLesson{retired_at: %DateTime{}} -> {:error, :not_reviewable}
+        %AgentSkillLesson{author_kind: "human"} -> {:error, :not_reviewable}
+        %AgentSkillLesson{} = lesson -> {:ok, lesson}
+      end
+    else
+      :error -> {:error, :invalid_review}
+    end
+  end
+
+  defp validate_review_evidence(evidence, context) when is_list(evidence) do
+    index = Map.fetch!(context, :index_job_ids)
+
+    if Enum.all?(evidence, &(is_integer(&1) and MapSet.member?(index, &1))),
+      do: :ok,
+      else: {:error, :invalid_evidence}
+  end
+
+  defp validate_review_evidence(_evidence, _context), do: {:error, :invalid_evidence}
+
+  defp apply_lesson_verdict("renew", lesson, _note, state) do
+    if MapSet.member?(state.docket_ids, lesson.id) do
+      attrs = %{
+        review_after: DateTime.add(state.now, @lesson_term_days, :day),
+        checked_release: Map.fetch!(state.context, :checked_release),
+        checked_skill_hash: current_skill_hash(state.repo, lesson) || lesson.checked_skill_hash
+      }
+
+      case lesson |> AgentSkillLesson.changeset(attrs) |> state.repo.update() do
+        {:ok, _lesson} -> %{state | renewed: state.renewed + 1}
+        {:error, _changeset} -> reject_review(state, lesson, :invalid_review)
+      end
+    else
+      reject_review(state, lesson, :outside_docket)
+    end
+  end
+
+  defp apply_lesson_verdict("obsolete", lesson, note, state) do
+    if is_binary(note) and String.trim(note) != "" do
+      retire_lesson(lesson, "obsolete", state, &%{&1 | obsoleted: &1.obsoleted + 1})
+    else
+      reject_review(state, lesson, :missing_note)
+    end
+  end
+
+  defp apply_lesson_verdict("lapse", lesson, _note, state) do
+    if MapSet.member?(state.docket_ids, lesson.id) do
+      retire_lesson(lesson, "lapsed", state, &%{&1 | lapsed: &1.lapsed + 1})
+    else
+      reject_review(state, lesson, :outside_docket)
+    end
+  end
+
+  defp retire_lesson(lesson, reason, state, count) do
+    attrs = %{retired_at: state.now, retire_reason: reason}
+
+    case lesson |> AgentSkillLesson.changeset(attrs) |> state.repo.update() do
+      {:ok, retired} ->
+        count.(%{state | retired_skills: [retired.skill_name | state.retired_skills]})
+
+      {:error, _changeset} ->
+        reject_review(state, lesson, :invalid_review)
+    end
+  end
+
+  defp reject_review(state, lesson, reason),
+    do: %{
+      state
+      | rejected: [%{review: %{"lesson_id" => lesson.id}, reason: reason} | state.rejected]
     }
 
-    %AgentSkillOverlay{}
-    |> AgentSkillOverlay.changeset(attrs)
-    |> repo.insert(
-      on_conflict: [
-        set: [
-          overlay_json: attrs.overlay_json,
-          content_hash: attrs.content_hash,
-          deleted_at: nil,
-          updated_at: DateTime.utc_now(:microsecond)
-        ]
-      ],
-      conflict_target: {:unsafe_fragment, "(agent_uid, skill_name) WHERE deleted_at IS NULL"},
-      returning: true
-    )
+  defp current_skill_hash(repo, %AgentSkillLesson{} = lesson) do
+    case repo.get_by(AgentSkill, agent_uid: lesson.agent_uid, skill_name: lesson.skill_name) do
+      %AgentSkill{content_hash: content_hash} -> content_hash
+      nil -> nil
+    end
   end
 
-  defp delete_skill_overlay_in_tx(_repo, nil), do: {:error, :skill_overlay_not_found}
-
-  defp delete_skill_overlay_in_tx(repo, %AgentSkillOverlay{} = overlay) do
-    overlay
-    |> AgentSkillOverlay.changeset(%{deleted_at: DateTime.utc_now(:microsecond)})
-    |> repo.update()
-  end
-
-  defp skill_overlay_summary(%AgentSkillOverlay{} = overlay, skill, defaults, parent_enabled) do
+  defp skill_lesson_summary(%AgentSkillLesson{} = lesson, skill, defaults, parent_enabled) do
     %{
-      "skill_name" => overlay.skill_name,
-      "skill_id" => skill && skill_stable_id(skill),
+      "id" => lesson.id,
+      "skill_name" => lesson.skill_name,
       "agent_plugin_id" => skill && skill.agent_plugin_id,
       "description" => skill && skill.description,
       "effective_enabled" =>
         not is_nil(skill) and effective_skill_enabled?(skill, defaults, parent_enabled),
-      "text" => skill_overlay_text(overlay) || "",
-      "content_hash" => overlay.content_hash,
-      "updated_at" => DateTime.to_iso8601(overlay.updated_at)
+      "content" => lesson.content,
+      "author_kind" => lesson.author_kind,
+      "author_uid" => lesson.author_uid,
+      "evidence_job_ids" => lesson.evidence_job_ids,
+      "checked_release" => lesson.checked_release,
+      "review_after" => lesson.review_after && DateTime.to_iso8601(lesson.review_after),
+      "retired_at" => lesson.retired_at && DateTime.to_iso8601(lesson.retired_at),
+      "retire_reason" => lesson.retire_reason,
+      "created_at" => DateTime.to_iso8601(lesson.inserted_at)
     }
   end
 
-  defp skill_overlay_text(%AgentSkillOverlay{overlay_json: %{"text" => text}})
-       when is_binary(text) do
-    case String.trim(text) do
-      "" -> nil
-      text -> text
-    end
-  end
-
-  defp skill_overlay_text(_overlay), do: nil
-
-  defp append_skill_overlay_text(nil, addition), do: String.trim(addition)
-
-  defp append_skill_overlay_text(existing, addition) when is_binary(existing) do
-    note = String.trim(addition)
-
-    cond do
-      existing == "" -> note
-      note == "" -> existing
-      true -> existing <> "\n\n" <> note
-    end
-  end
-
-  defp notify_skill_content_change(
-         {:ok, %AgentSkillOverlay{skill_name: skill_name}} = result,
-         agent_uid,
-         repo
-       ) do
-    RuntimeCapabilityChanges.notify_skill_content(agent_uid, skill_name, repo: repo)
-    result
-  end
-
-  defp notify_skill_content_change(result, _agent_uid, _repo), do: result
-
-  defp overlay_json(%AgentSkillOverlay{overlay_json: overlay_json}) when is_map(overlay_json),
-    do: overlay_json
-
-  defp overlay_json(_overlay), do: %{}
-
-  defp skill_summary(%AgentSkill{} = skill, overlay_skills, effective, defaults) do
+  defp skill_summary(%AgentSkill{} = skill, lesson_skills, effective, defaults) do
     metadata = skill.metadata || %{}
     global_default = skill_global_default(skill, defaults)
 
@@ -1433,7 +1830,7 @@ defmodule Ankole.AIAgent.Library do
       "category" => metadata["category"],
       "tags" => metadata["tags"] || [],
       "skill_uri" => skill_uri(skill.skill_name, @skill_file),
-      "has_agent_overlay" => MapSet.member?(overlay_skills, skill.skill_name)
+      "has_agent_overlay" => MapSet.member?(lesson_skills, skill.skill_name)
     }
   end
 
@@ -1459,6 +1856,15 @@ defmodule Ankole.AIAgent.Library do
     if is_binary(skill.agent_plugin_id),
       do: enabled and Map.get(parent_enabled, skill.agent_plugin_id, false),
       else: enabled
+  end
+
+  defp runtime_skill_enabled?(%AgentSkill{agent_plugin_id: id} = skill, _defaults, enabled)
+       when is_binary(id) do
+    Map.get(enabled, skill_stable_id(skill), false)
+  end
+
+  defp runtime_skill_enabled?(%AgentSkill{} = skill, defaults, _enabled) do
+    effective_override(skill.enabled_override, skill_global_default(skill, defaults))
   end
 
   defp skill_global_default(%AgentSkill{source_kind: "installed"} = skill, _defaults),

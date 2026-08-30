@@ -3,10 +3,14 @@
     reason = "feature-gated host builds use different cache operations"
 )]
 
+use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::sync::Mutex;
 
+/// Stores derived values without making a cache hit part of correctness.
+/// Contended reads can miss, and eviction is arbitrary. This avoids wait time
+/// on cache reads and avoids recency bookkeeping.
 pub(crate) struct BoundedCache<K, V> {
     max_entries: usize,
     entries: Mutex<HashMap<K, V>>,
@@ -23,16 +27,14 @@ where
         }
     }
 
-    pub(crate) fn get_if<R>(
-        &self,
-        key: &K,
-        matches: impl FnOnce(&V) -> bool,
-        clone_value: impl FnOnce(&V) -> R,
-    ) -> Option<R> {
+    pub(crate) fn get_cloned<Q>(&self, key: &Q) -> Option<V>
+    where
+        K: Borrow<Q>,
+        Q: Eq + Hash + ?Sized,
+        V: Clone,
+    {
         let guard = self.entries.try_lock().ok()?;
-        let cached = guard.get(key)?;
-
-        matches(cached).then(|| clone_value(cached))
+        guard.get(key).cloned()
     }
 
     pub(crate) fn insert(&self, key: K, value: V) {

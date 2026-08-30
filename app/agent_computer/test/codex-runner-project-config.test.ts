@@ -3,7 +3,7 @@ import { describe, expect, it } from 'bun:test'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { materializeCodexJobProjectConfig } from '../src/core/codex-runner/project-config'
+import { materializeCodexJobProjectConfig } from '../src/core/codex-runner/job/project-config'
 
 describe('@ankole/agent-computer Codex job project config', () => {
   it('removes thread-owned settings from templates and applies runner safety', () => {

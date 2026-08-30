@@ -1,6 +1,7 @@
 import * as kernel from '../../../kernel'
 import { decodeEnvelope, encodeEnvelope, type Envelope } from './envelope_proto'
 import { Buffer } from 'node:buffer'
+import { errorMessage } from '../common/errors'
 
 export const runtimeFabricFileProtocol = Buffer.from('ANKOLE_FILE/1')
 
@@ -154,7 +155,7 @@ export function createRuntimeFabricHost(
           envelope: decodeEnvelope(frames[0])
         }
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
+        const message = errorMessage(error)
         throw new RuntimeFabricTransportError('decode_failed', `decode_failed: ${message}`, { cause: error })
       }
     },
@@ -180,7 +181,7 @@ export function isRuntimeFabricTransportError(
 function runtimeFabricTransportError(error: unknown): RuntimeFabricTransportError {
   if (error instanceof RuntimeFabricTransportError) return error
 
-  const message = error instanceof Error ? error.message : String(error)
+  const message = errorMessage(error)
   const candidate = message.split(':', 1)[0]?.trim() as RuntimeFabricErrorCode | undefined
   const code = candidate && nativeErrorCodes.has(candidate) ? candidate : 'native_error'
   return new RuntimeFabricTransportError(code, message, { cause: error })

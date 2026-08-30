@@ -60,6 +60,16 @@ defmodule Ankole.SignalsGateway.IngressFact do
   @type t :: %__MODULE__{}
 
   @doc """
+  Returns true when the entry unambiguously addresses the agent: every DM
+  qualifies, and a group entry qualifies when its mention or reply target
+  resolved to this agent.
+  """
+  @spec addressed_im_entry?(t()) :: boolean()
+  def addressed_im_entry?(%__MODULE__{channel_kind: :im_dm}), do: true
+  def addressed_im_entry?(%__MODULE__{channel_kind: :im_group, explicit?: true}), do: true
+  def addressed_im_entry?(%__MODULE__{}), do: false
+
+  @doc """
   Constructs a provider entry receive fact.
   """
   @spec entry(map()) :: {:ok, t()} | {:error, term()}
@@ -174,6 +184,6 @@ defmodule Ankole.SignalsGateway.IngressFact do
     end
   end
 
-  defp normalize_uid(uid) when is_binary(uid), do: uid |> String.trim() |> String.downcase()
+  defp normalize_uid(uid) when is_binary(uid), do: Ankole.PrincipalKey.canonicalize(uid)
   defp normalize_uid(uid), do: uid
 end

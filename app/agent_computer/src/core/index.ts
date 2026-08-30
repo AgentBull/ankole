@@ -1,8 +1,8 @@
-// Public surface for the Agent Computer core. Keep this intentionally small:
-// the control plane owns transcript persistence and durable commits, while this
-// package exposes the active provider/tool loop, worker turn handlers, and the
-// types needed to build tools.
+// Tool-authoring surface for the Agent Computer core: the types needed to
+// build tools plus `defineWorkerTool`. Keep this import-light — authoring a
+// tool must not pull in the runtime that runs it, so `runTurnHandlers`
+// (`./turns`) and the provider loop (`./agent-loop`) are imported from their
+// own modules by the worker entrypoint only.
 
-export { runAgentLoop } from './agent-loop'
-export { runTurnHandlers } from './turns'
 export * from './types'
+export { defineWorkerTool, type DefineWorkerToolSpec } from './worker-tool'

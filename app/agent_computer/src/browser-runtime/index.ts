@@ -16,7 +16,6 @@ export class BrowserRuntime {
   constructor(options: {
     runtimeRoot: string
     socketPath?: string
-    nodePath?: string
     daemonEntry?: string
     runnerPath?: string
     localChromiumExecutable?: string
@@ -27,13 +26,11 @@ export class BrowserRuntime {
     this.materializer = new BrowserRouteMaterializer({
       root,
       socketPath: options.socketPath,
-      nodePath: options.nodePath,
       runnerPath: options.runnerPath,
       localChromiumExecutable: options.localChromiumExecutable
     })
     this.supervisor = new BrowserDaemonSupervisor({
       socketPath: this.materializer.socketPath,
-      nodePath: options.nodePath,
       daemonEntry: options.daemonEntry,
       onEvent: options.onDaemonEvent
     })

@@ -8,6 +8,10 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
   conversationUpdate or message), and only those teams can be enumerated with
   the connector's channel-list call. Standard channel membership in Teams is
   team membership, which `pagedmembers` reports per conversation.
+
+  Mirrors are sharded by bot app: writes stamp `app_id` into the channel
+  metadata, and sync enumeration only visits mirrors stamped with the current
+  binding's app.
   """
 
   import Ecto.Query, warn: false
@@ -22,6 +26,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
     Binding,
     BindingMembership,
     Channel,
+    IMGroupMembers,
     Projection
   }
 
@@ -130,14 +135,14 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
         {:ok, %{status: :ignored_missing_conversation}}
 
       bot_added?(consumer, activity) ->
-        upsert_conversation_mirror(activity)
+        upsert_conversation_mirror(consumer.config, activity)
         enqueue_refresh_result(consumer, conversation_id, "bot_added")
 
       bot_removed?(consumer, activity) ->
         mark_participant_left(consumer.config, conversation_id, consumer.context)
 
       event_type in ["channelCreated", "channelRenamed"] ->
-        upsert_event_channel_mirror(activity)
+        upsert_event_channel_mirror(consumer.config, activity)
         {:ok, %{status: :channel_mirror_updated}}
 
       event_type == "channelDeleted" ->
@@ -147,7 +152,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
         mark_team_channels_left(consumer.config, team_id(activity))
 
       members_changed?(activity) ->
-        upsert_conversation_mirror(activity)
+        upsert_conversation_mirror(consumer.config, activity)
         enqueue_refresh_result(consumer, conversation_id, "members_changed")
 
       true ->
@@ -176,16 +181,25 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
       |> Enum.any?(&(MapHelpers.optional_text(&1, "id") == recipient_id))
   end
 
+  # One stale team mirror (for example a deleted team) must not park the whole
+  # full sync, so every team is attempted and failures are aggregated into one
+  # loud error return.
   defp sync_mirrored_teams(context, config) do
     client = Config.chat_client(config)
 
-    mirrored_teams()
-    |> Enum.reduce_while({:ok, 0}, fn {team_id, service_url}, {:ok, count} ->
-      case sync_team(context, config, client, team_id, service_url) do
-        {:ok, synced} -> {:cont, {:ok, count + synced}}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
+    {synced, failures} =
+      mirrored_teams(config)
+      |> Enum.reduce({0, []}, fn {team_id, service_url}, {synced, failures} ->
+        case sync_team(context, config, client, team_id, service_url) do
+          {:ok, count} -> {synced + count, failures}
+          {:error, reason} -> {synced, [%{team_id: team_id, reason: reason} | failures]}
+        end
+      end)
+
+    case failures do
+      [] -> {:ok, synced}
+      failures -> {:error, {:team_sync_failed, Enum.reverse(failures)}}
+    end
   end
 
   defp sync_team(context, config, client, team_id, service_url) do
@@ -200,6 +214,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
           conversation_type: "channel",
           service_url: service_url,
           team_id: team_id,
+          app_id: config["appID"],
           name: MapHelpers.optional_text(channel, "name")
         }
 
@@ -212,7 +227,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
   end
 
   defp sync_mirrored_group_chats(context, config) do
-    mirrored_group_chats()
+    mirrored_group_chats(config)
     |> Enum.reduce_while({:ok, 0}, fn mirror, {:ok, count} ->
       case sync_conversation(context, config, mirror) do
         {:ok, _result} -> {:cont, {:ok, count + 1}}
@@ -231,7 +246,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
       with {:ok, group} <- ensure_conversation_group(context, config, mirror),
            {:ok, members} <- list_members(client, mirror),
            {:ok, uids} <- member_principal_uids(config, members),
-           {:ok, replace} <- AuthZ.replace_static_group_members(group.id, :im_group, uids) do
+           {:ok, replace} <- IMGroupMembers.replace_members(group.id, uids) do
         {:ok,
          %{
            conversation_id: mirror.conversation_id,
@@ -288,7 +303,6 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
           %{
             provider: Config.namespace(config),
             external_id: external_id,
-            uid: external_id,
             display_name: MapHelpers.optional_text(member, "name"),
             email:
               MapHelpers.optional_text(member, "email") ||
@@ -368,7 +382,8 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
           "conversation_type" => mirror.conversation_type,
           "service_url" => mirror.service_url,
           "team_id" => mirror[:team_id],
-          "tenant_id" => mirror[:tenant_id]
+          "tenant_id" => mirror[:tenant_id],
+          "app_id" => mirror[:app_id]
         }),
       channel_raw_payload: mirror[:raw] || %{}
     }
@@ -378,7 +393,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
     end)
   end
 
-  defp upsert_conversation_mirror(activity) do
+  defp upsert_conversation_mirror(config, activity) do
     conversation_id = conversation_id(activity)
 
     mirror = %{
@@ -390,6 +405,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
       service_url: MapHelpers.optional_text(activity, "serviceUrl"),
       team_id: team_id(activity),
       tenant_id: get_in(activity, ["channelData", "tenant", "id"]),
+      app_id: config["appID"],
       name:
         activity |> MapHelpers.fetch_map("conversation", %{}) |> MapHelpers.optional_text("name"),
       raw: MapHelpers.fetch_map(activity, "conversation", %{})
@@ -410,7 +426,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
     end
   end
 
-  defp upsert_event_channel_mirror(activity) do
+  defp upsert_event_channel_mirror(config, activity) do
     channel = get_in(activity, ["channelData", "channel"]) || %{}
 
     case MapHelpers.optional_text(channel, "id") do
@@ -424,6 +440,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
           service_url: MapHelpers.optional_text(activity, "serviceUrl"),
           team_id: team_id(activity),
           tenant_id: get_in(activity, ["channelData", "tenant", "id"]),
+          app_id: config["appID"],
           name: MapHelpers.optional_text(channel, "name"),
           raw: channel
         }
@@ -466,7 +483,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
     end
   end
 
-  defp mirrored_teams do
+  defp mirrored_teams(config) do
     Channel
     |> where([channel], like(channel.id, "teams:%"))
     |> select([channel], channel.metadata)
@@ -476,12 +493,15 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
       team_id = MapHelpers.optional_text(metadata, "team_id")
       service_url = MapHelpers.optional_text(metadata, "service_url")
 
-      if is_binary(team_id) and is_binary(service_url), do: [{team_id, service_url}], else: []
+      if mirror_visible_to_app?(metadata, config) and is_binary(team_id) and
+           is_binary(service_url),
+         do: [{team_id, service_url}],
+         else: []
     end)
     |> Enum.uniq()
   end
 
-  defp mirrored_group_chats do
+  defp mirrored_group_chats(config) do
     Channel
     |> where([channel], like(channel.id, "teams:%"))
     |> select([channel], {channel.name, channel.metadata})
@@ -489,7 +509,8 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
     |> Enum.flat_map(fn {name, metadata} ->
       metadata = metadata || %{}
 
-      with "groupChat" <- MapHelpers.optional_text(metadata, "conversation_type"),
+      with true <- mirror_visible_to_app?(metadata, config),
+           "groupChat" <- MapHelpers.optional_text(metadata, "conversation_type"),
            conversation_id when is_binary(conversation_id) <-
              MapHelpers.optional_text(metadata, "conversation_id"),
            service_url when is_binary(service_url) <-
@@ -509,6 +530,9 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
     end)
   end
 
+  defp mirror_visible_to_app?(metadata, config),
+    do: MapHelpers.optional_text(metadata, "app_id") == config["appID"]
+
   defp mark_team_channels_left(_config, nil), do: {:ok, %{status: :ignored_missing_team}}
 
   defp mark_team_channels_left(config, team_id) do
@@ -516,7 +540,12 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
     |> where([channel], like(channel.id, "teams:%"))
     |> select([channel], channel.metadata)
     |> Repo.all()
-    |> Enum.filter(&(MapHelpers.optional_text(&1 || %{}, "team_id") == team_id))
+    |> Enum.filter(fn metadata ->
+      metadata = metadata || %{}
+
+      mirror_visible_to_app?(metadata, config) and
+        MapHelpers.optional_text(metadata, "team_id") == team_id
+    end)
     |> Enum.reduce_while({:ok, 0}, fn metadata, {:ok, count} ->
       case MapHelpers.optional_text(metadata, "conversation_id") do
         nil ->
@@ -546,7 +575,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
 
           with {:ok, group} <- AuthZ.update_principal_group(group, %{metadata: metadata}) do
             if BindingMembership.all_left?(metadata) do
-              with {:ok, result} <- AuthZ.replace_static_group_members(group.id, :im_group, []) do
+              with {:ok, result} <- IMGroupMembers.replace_members(group.id, []) do
                 {:ok,
                  %{
                    status: :all_participants_left,
@@ -555,7 +584,11 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
                  }}
               end
             else
-              {:ok, %{status: :participant_marked_left, group_id: group.id}}
+              # A leaving Agent loses its mirrored membership row at once,
+              # the same way a leaving human does.
+              with {:ok, _delta} <- IMGroupMembers.reconcile_agent_members(group.id) do
+                {:ok, %{status: :participant_marked_left, group_id: group.id}}
+              end
             end
           end
 
@@ -578,7 +611,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
           metadata = BindingMembership.mark_all_left(group.metadata)
 
           with {:ok, group} <- AuthZ.update_principal_group(group, %{metadata: metadata}),
-               {:ok, result} <- AuthZ.replace_static_group_members(group.id, :im_group, []) do
+               {:ok, result} <- IMGroupMembers.replace_members(group.id, []) do
             {:ok,
              %{
                status: :conversation_gone,

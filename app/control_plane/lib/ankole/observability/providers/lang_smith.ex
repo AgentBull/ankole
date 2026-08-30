@@ -3,13 +3,13 @@ defmodule Ankole.Observability.Providers.LangSmith do
 
   @behaviour Ankole.Observability.Provider
 
-  import Ankole.Observability.Trace, only: [maybe_put: 3]
+  import Ankole.Observability.Trace, only: [put_present: 3]
 
   @impl true
   def trace_attributes(context) do
     %{}
-    |> maybe_put("langsmith.metadata.user_id", context.user_id)
-    |> maybe_put("langsmith.trace.session_id", context.session_id)
+    |> put_present("langsmith.metadata.user_id", context.user_id)
+    |> put_present("langsmith.trace.session_id", context.session_id)
   end
 
   @impl true
@@ -34,7 +34,7 @@ defmodule Ankole.Observability.Providers.LangSmith do
       "langsmith.span.kind" => "llm",
       "gen_ai.prompt" => input
     }
-    |> maybe_put("gen_ai.system", provider_name)
+    |> put_present("gen_ai.system", provider_name)
   end
 
   @impl true

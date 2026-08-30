@@ -5,14 +5,14 @@ import {
   ankoleWebAgentControllerIndexOptions,
   ankoleWebAgentLibraryCapabilityControllerAgentIndexOptions,
   ankoleWebAgentLibraryCapabilityControllerGlobalIndexOptions,
-  ankoleWebAgentLibrarySkillOverlayControllerIndexOptions,
+  ankoleWebAgentSkillLessonControllerIndexOptions,
   ankoleWebAppConfigurationControllerIndexOptions,
   ankoleWebAuthZGroupControllerIndexOptions,
   ankoleWebAutomationJobControllerIndexOptions,
   ankoleWebBackgroundAgentJobControllerIndexOptions,
   ankoleWebBackgroundAgentJobControllerShowOptions,
-  ankoleWebBrainControllerIndexOptions,
   ankoleWebControlPlanePluginControllerIndexOptions,
+  ankoleWebIdentityMappingRequestControllerIndexOptions,
   ankoleWebIdentityProviderControllerIndexOptions,
   ankoleWebPrincipalControllerIndexOptions,
   ankoleWebScheduleControllerIndexCheckbacksOptions,
@@ -23,9 +23,10 @@ import {
   ankoleWebWebhookEndpointControllerIndexOptions,
   ankoleWebWorkerEnvControllerIndexOptions
 } from './api/generated/@tanstack/react-query.gen'
-import { localDateStartISO } from './pages/brain-shared'
+import { backgroundAgentJobListOptions } from './pages/background-agent-jobs'
+import { conversationListOptions } from './pages/conversations'
+import { resourceID } from './console-primitives'
 import { GLOBAL_LIBRARY_SCOPE } from './state/agent-library-capabilities'
-import { defaultBrainOwnerUID } from './state/brain-editor-model'
 
 /**
  * Critical route reads complete before React Router commits the destination.
@@ -62,11 +63,16 @@ export function createConsoleRouteLoaders(queryClient: QueryClient) {
         : all(
             agents,
             ensure(ankoleWebAgentLibraryCapabilityControllerAgentIndexOptions({ path: { agent_uid: scope } })),
-            ensure(ankoleWebAgentLibrarySkillOverlayControllerIndexOptions({ path: { agent_uid: scope } }))
+            ensure(ankoleWebAgentSkillLessonControllerIndexOptions({ path: { agent_uid: scope } }))
           )
     },
     providers: () => ensure(ankoleWebAIGatewayProviderControllerIndexOptions()).then(() => null),
     identity: () => ensure(ankoleWebIdentityProviderControllerIndexOptions()).then(() => null),
+    identityMappings: () =>
+      all(
+        ensure(ankoleWebIdentityMappingRequestControllerIndexOptions()),
+        ensure(ankoleWebPrincipalControllerIndexOptions())
+      ),
     principalGroups: () => ensure(ankoleWebAuthZGroupControllerIndexOptions()).then(() => null),
     principals: () => ensure(ankoleWebPrincipalControllerIndexOptions()).then(() => null),
     signals: ({ request }: LoaderFunctionArgs) =>
@@ -105,13 +111,7 @@ export function createConsoleRouteLoaders(queryClient: QueryClient) {
       const searchParams = new URL(request.url).searchParams
       const selectedID = resourceID(searchParams.get('job'), 1000)
       const list = ensure(
-        ankoleWebBackgroundAgentJobControllerIndexOptions({
-          query: {
-            agent: searchParams.get('agent')?.trim() || undefined,
-            q: searchParams.get('q')?.trim() || undefined,
-            limit: 100
-          }
-        })
+        backgroundAgentJobListOptions(searchParams.get('agent')?.trim() ?? '', searchParams.get('q') ?? '')
       )
 
       return selectedID
@@ -120,57 +120,16 @@ export function createConsoleRouteLoaders(queryClient: QueryClient) {
     },
     conversations: ({ request }: LoaderFunctionArgs) => {
       const searchParams = new URL(request.url).searchParams
-      const active = searchParams.get('active')
-      const showAll = searchParams.get('min_messages') === '0'
 
       return ensure(
-        ankoleWebAIGatewayConversationControllerIndexOptions({
-          query: {
-            q: searchParams.get('q')?.trim() || undefined,
-            subject: searchParams.get('agent')?.trim() || undefined,
-            active: active === 'true' ? true : active === 'false' ? false : undefined,
-            min_messages: showAll ? undefined : 2,
-            cursor: searchParams.get('cursor') || undefined,
-            limit: 50
-          }
+        conversationListOptions({
+          q: searchParams.get('q'),
+          subject: searchParams.get('agent'),
+          active: searchParams.get('active'),
+          showAll: searchParams.get('min_messages') === '0',
+          cursor: searchParams.get('cursor')
         })
       ).then(() => null)
-    },
-    brain: async ({ request }: LoaderFunctionArgs) => {
-      const searchParams = new URL(request.url).searchParams
-      const principals = await ensure(ankoleWebPrincipalControllerIndexOptions())
-      const ownerUID = searchParams.get('owner') || defaultBrainOwnerUID(principals.principals)
-      if (!ownerUID) return null
-
-      return all(
-        ensure(
-          ankoleWebBrainControllerIndexOptions({
-            query: {
-              owner_uid: ownerUID,
-              query: searchParams.get('q') || undefined,
-              type: searchParams.get('type') || undefined,
-              store: searchParams.get('store') || undefined,
-              author: searchParams.get('author') || undefined,
-              updated: localDateStartISO(searchParams.get('updated') || ''),
-              cursor: searchParams.get('cursor') || undefined,
-              limit: 50
-            }
-          })
-        ),
-        ensure(
-          ankoleWebBrainControllerIndexOptions({
-            query: { owner_uid: ownerUID, store: 'self', type: 'brain_curation_guide', limit: 1 }
-          })
-        )
-      )
     }
   }
-}
-
-/** Parses a decimal route identifier and applies the owning API's lower bound. */
-export function resourceID(value: string | null, minimum: number): number | undefined {
-  if (!value || !/^[1-9][0-9]*$/.test(value)) return undefined
-
-  const parsed = Number(value)
-  return Number.isSafeInteger(parsed) && parsed >= minimum ? parsed : undefined
 }

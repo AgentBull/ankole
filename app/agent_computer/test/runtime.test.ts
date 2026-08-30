@@ -10,14 +10,10 @@ import {
   rmSync,
   statSync,
   symlinkSync,
+  utimesSync,
   writeFileSync
 } from 'node:fs'
-import {
-  runtimeFabricProtocolVersion,
-  runtimeFabricSealEnvelope,
-  zstdCompressBlock,
-  zstdDecompressBlock
-} from '@ankole/kernel'
+import { runtimeFabricSealEnvelope, zstdCompressBlock, zstdDecompressBlock } from '@ankole/kernel'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createFileTransferLane } from '../src/lanes/file'
@@ -38,26 +34,17 @@ import {
   TurnStartSchema,
   type Envelope
 } from '../src/fabric/envelope_proto'
-import {
-  parseRuntimeFabricEndpoint,
-  workerCapacityEnvelope,
-  workerHeartbeatEnvelope,
-  workerReadyEnvelope
-} from '../src/worker/config'
+import { parseRuntimeFabricEndpoint } from '../src/worker/config'
+import { workerCapacityEnvelope, workerHeartbeatEnvelope, workerReadyEnvelope } from '../src/worker/lifecycle_messages'
 import { handleWorkerRPCRequest } from '../src/lanes/rpc_lane'
 import { controlShutdownEnvelope, workerProgressEnvelope } from '../src/fabric/envelopes'
 import type { WorkerConfig } from '../src/worker/config'
 import { prepareActorWorkspace, prepareTurnWorkspace } from '../src/worker/workspace'
 import { actorTurnRefToProto, mailboxUpdatedFromEnvelope, turnStartFromEnvelope } from '../src/lanes/actor_lane'
 import type { TurnStart } from '../src/lanes/actor_lane'
-import {
-  pushTurnSteering,
-  startTurnProgress,
-  turnFailureDetails,
-  waitForTurnSteering,
-  type ActiveTurn
-} from '../src/worker/active_turns'
-import { BackgroundAgentJobTurnPersistenceError } from '../src/core/codex-runner/turn-recorder'
+import { ActiveTurn, startTurnProgress } from '../src/worker/active_turns'
+import { turnFailureDetails } from '../src/worker/turn_failure'
+import { BackgroundAgentJobTurnPersistenceError } from '../src/core/codex-runner/job/turn-recorder'
 import { RPCRejectedError } from '../src/lanes/rpc_lane'
 import { agentHomePaths } from '../src/core/agent-home-paths'
 
@@ -84,8 +71,6 @@ describe('@ankole/agent-computer runtime', () => {
     expect(ready.body.case).toBe('workerReady')
     expect(heartbeat.body.case).toBe('workerHeartbeat')
     expect(capacity.body.case).toBe('workerCapacity')
-    expect(runtimeFabricProtocolVersion()).toBe(4)
-    expect(sealed(ready).protocolVersion).toBe(runtimeFabricProtocolVersion())
     expect(ready.body.value).toMatchObject({ incarnationId: 'incarnation-a' })
     expect(heartbeat.body.value).toMatchObject({ incarnationId: 'incarnation-a' })
     expect(capacity.body.value).toMatchObject({ incarnationId: 'incarnation-a' })
@@ -182,7 +167,6 @@ describe('@ankole/agent-computer runtime', () => {
     })
     expect(envelope.body.value.turn).toMatchObject({ actorEventId: turn.actor_event_id })
     expect(jsonObjectFromBytes(envelope.body.value.refsJson, 'refs_json')).toEqual({ stage: 'llm' })
-    expect(sealed(envelope).protocolVersion).toBe(runtimeFabricProtocolVersion())
   })
 
   it('encodes renderer-safe reply presentation progress for the control plane', () => {
@@ -196,7 +180,6 @@ describe('@ankole/agent-computer runtime', () => {
 
     expect(sealed(envelope).lane).toBe(Lane.PROGRESS)
     expect(sealed(envelope).durability).toBe(DurabilityClass.CONTROL_EPHEMERAL)
-    expect(sealed(envelope).protocolVersion).toBe(runtimeFabricProtocolVersion())
   })
 
   it('reports process drain as ephemeral control traffic', () => {
@@ -206,21 +189,11 @@ describe('@ankole/agent-computer runtime', () => {
     expect(sealed(envelope).durability).toBe(DurabilityClass.CONTROL_EPHEMERAL)
     if (envelope.body.case !== 'controlShutdown') throw new Error('expected controlShutdown body')
     expect(envelope.body.value.reason).toBe('sigterm')
-    expect(sealed(envelope).protocolVersion).toBe(runtimeFabricProtocolVersion())
   })
 
   it('renews a silent BackgroundAgentJob Turn independently of Codex notifications', async () => {
     const sent: unknown[] = []
-    const active = {
-      turnStart: { turn: actorTurnRef() } as TurnStart,
-      correlationID: 'turn-start-1',
-      steeringUpdates: [],
-      steeringWaiters: new Set(),
-      disabledSkillNames: [],
-      changedSkillNames: [],
-      abortController: new AbortController(),
-      controlledStopRequested: false
-    } satisfies ActiveTurn
+    const active = new ActiveTurn({ turn: actorTurnRef() } as TurnStart, 'turn-start-1')
     const reporter = startTurnProgress(
       async envelope => {
         sent.push(envelope)
@@ -239,19 +212,10 @@ describe('@ankole/agent-computer runtime', () => {
 
   it('wakes foreground observation without consuming the queued steer update', async () => {
     const turn = actorTurnRef()
-    const active = {
-      turnStart: { turn } as TurnStart,
-      correlationID: 'turn-start-steering',
-      steeringUpdates: [],
-      steeringWaiters: new Set(),
-      disabledSkillNames: [],
-      changedSkillNames: [],
-      abortController: new AbortController(),
-      controlledStopRequested: false
-    } satisfies ActiveTurn
+    const active = new ActiveTurn({ turn } as TurnStart, 'turn-start-steering')
 
-    const waiting = waitForTurnSteering(active)
-    pushTurnSteering(active, {
+    const waiting = active.waitForSteering()
+    active.pushSteering({
       turn: { ...turn, revision: turn.revision + 1 },
       actorEvent: {
         actor_event_id: '00000000-0000-0000-0000-000000000102',
@@ -262,9 +226,8 @@ describe('@ankole/agent-computer runtime', () => {
     })
 
     await waiting
-    expect(active.steeringUpdates).toHaveLength(1)
-    expect(active.steeringWaiters.size).toBe(0)
-    await expect(waitForTurnSteering(active)).resolves.toBeUndefined()
+    await expect(active.waitForSteering()).resolves.toBeUndefined()
+    expect(active.pollSteering()).toHaveLength(1)
   })
 
   it('prepares session workspace without projecting enabled skills', () => {
@@ -462,7 +425,6 @@ describe('@ankole/agent-computer runtime', () => {
       code: 'unknown_rpc_method'
     })
     expect(jsonObjectFromBytes(body.value.detailsJson, 'details_json')).toEqual({ method: 'test.probe' })
-    expect(sealed(sent[0]!).protocolVersion).toBe(runtimeFabricProtocolVersion())
   })
 
   it('returns RPC errors for unknown worker methods', async () => {
@@ -486,7 +448,6 @@ describe('@ankole/agent-computer runtime', () => {
       code: 'unknown_rpc_method'
     })
     expect(jsonObjectFromBytes(body.value.detailsJson, 'details_json')).toEqual({ method: 'worker.unknown' })
-    expect(sealed(sent[0]!).protocolVersion).toBe(runtimeFabricProtocolVersion())
   })
 
   it('handles worker file lane WRITE and READ through zstd DATA credit', async () => {
@@ -663,6 +624,69 @@ describe('@ankole/agent-computer runtime', () => {
       ).toBe(false)
       expect(JSON.stringify(sentFrames)).not.toContain('object_key')
       expect(JSON.stringify(sentFrames)).not.toContain('sha256')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('refuses a read whose path became another file with the same size and mtime', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ankole-file-lane-identity-'))
+    const config = workerConfigForRoot(root)
+    const sentFrames: Buffer[][] = []
+    const sender = {
+      async sendFileFrame(frames: Buffer[]) {
+        sentFrames.push(frames)
+      }
+    }
+
+    try {
+      const paths = agentHomePaths(config.agentsRoot, 'agent-1')
+      mkdirSync(paths.userFiles, { recursive: true })
+      const lane = createFileTransferLane(config, sender.sendFileFrame)
+
+      const swappedPath = join(paths.userFiles, 'swapped.txt')
+      const replacementPath = join(paths.userFiles, 'replacement.txt')
+      const sharedMtime = new Date(1_700_000_000_000)
+      writeFileSync(swappedPath, 'original bytes')
+      utimesSync(swappedPath, sharedMtime, sharedMtime)
+
+      const transferID = 'transfer-read-swapped'
+      await lane.handle([
+        runtimeFabricFileProtocol,
+        Buffer.from('READ_OPEN'),
+        Buffer.from(transferID),
+        Buffer.from('/user_files/agent-1/user-files/swapped.txt'),
+        Buffer.from('none')
+      ])
+      expect(frameFor(sentFrames, transferID, 'READ_READY')[3]?.toString('utf8')).toBe(
+        '/user_files/agent-1/user-files/swapped.txt'
+      )
+
+      // The replacement matches every observable property the old check
+      // compared, so only the file's identity distinguishes it. Sending the
+      // open descriptor's bytes and reporting success would hand the control
+      // plane one file's content under another file's name.
+      writeFileSync(replacementPath, 'replaced bytes')
+      utimesSync(replacementPath, sharedMtime, sharedMtime)
+      renameSync(replacementPath, swappedPath)
+      const swapped = statSync(swappedPath)
+      expect(swapped.size).toBe('original bytes'.length)
+      expect(swapped.mtimeMs).toBe(sharedMtime.getTime())
+
+      await lane.handle([
+        runtimeFabricFileProtocol,
+        Buffer.from('CREDIT'),
+        Buffer.from(transferID),
+        u64Frame(creditWindow)
+      ])
+
+      const error = await waitForFrame(sentFrames, transferID, 'ERROR')
+      expect(error[3]?.toString('utf8')).toBe('file_changed')
+      expect(
+        sentFrames.some(
+          frames => frames[1]?.toString('utf8') === 'READ_DONE' && frames[2]?.toString('utf8') === transferID
+        )
+      ).toBe(false)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

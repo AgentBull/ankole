@@ -67,9 +67,11 @@ AIGateway のクォータ枯渇に既知の将来のリカバリ時刻がある�
 
 ## ディスパッチと agent のプラグイン
 
-Job はオプションの workspace テンプレートを 1 つ保持しますが、各実行は agent の*現在*有効な Agent Plugins と互換性のある Skills を使います。spawn 時点で凍結されたスナップショットではありません。ディスパッチパス（`BackgroundAgentJobDispatch.process`）は actor イベントから Job を解決し、turn ランタイムに渡し、steer イベントを別々に扱うため、session へのライブ配信が Job への steer と誤認されません。すべてのモデル turn は、Job が作成時に保存した provider binding で AIGateway を通ります。その provider が複数の credential を持つ場合、その選択、affinity、refresh、retry は AIGateway が所有します。Job はアカウントフィールドもアカウント並行スロットも持ちません。
+Job はオプションの workspace テンプレートを 1 つ保持します。最初の実際の execution admission は、provider と model の binding、および Agent Plugin と Skill の選択を同じトランザクションで記録します。再試行と再開は、その固定された選択と agent の現在の有効セットとの積集合を使います。選択済みの capability を無効にすると削除され、再度有効にすると復元されますが、admission 時に選択されなかった capability を後から追加することはできません。credential と変更可能な Skill content は、引き続き現在の owner から読み取ります。ディスパッチパス（`BackgroundAgentJobDispatch.process`）は actor イベントから Job を解決し、turn ランタイムに渡し、steer イベントを別々に扱うため、session へのライブ配信が Job への steer と誤認されません。すべてのモデル turn は記録済みの binding で AIGateway を通ります。その provider が複数の credential を持つ場合、その選択、affinity、refresh、retry は AIGateway が所有します。Job はアカウントフィールドもアカウント並行スロットも持ちません。
 
-Job が初めて workspace を初期化するとき、ランナーはプロジェクトの `AGENTS.md` を組み立てます。オプションの workspace テンプレートが最初に来て、その後にレンダリングされた Job context（agent の SOUL と MISSION、永続的な Brain context、実行の事実）が続きます。共有の `app/library/templates/AGENT_JOB.md` は拡張ポイントのままですが、同梱のファイルは空なので、ランナーは Job Guidance セクションを省略します。Codex プロジェクト設定は、ネイティブ subagent の待ち最小時間を 1 分、デフォルトを 2 分に設定します。最大時間は設定しないため、Codex はデフォルトを維持します。これにより、空の待ち時間の後の繰り返しのモデル turn が減ります。これは [openai/codex#35259](https://github.com/openai/codex/issues/35259) で追跡されています。再開されたスレッドは既存の `AGENTS.md` を保持します。
+Background Agent Job は、メイン Agent と同じ Ankole `skill_view` loader を使用します。通常の互換 Skill は Job の Skill index に入ります。`brain-recall-only: true` を宣言した Skill は index に入らず、Brain から発見できます。`get_page` が対応する発見レコードに一致すると、`skill_view` に委譲します。loader は `SKILL.md` または reference file を読むたびに、現在の Agent Plugin と Skill の実効状態を control plane に確認します。そのため、実行中の Job も、無効化された Skill を読み続けることはできません。この経路は Codex native Skill discovery、`.agents/skills`、`skills/list` に依存しません。
+
+Job が初めて workspace を初期化するとき、ランナーはプロジェクトの `AGENTS.md` を組み立てます。オプションの workspace テンプレートが最初に来て、その後にレンダリングされた Job context（agent の SOUL と MISSION、実行の事実）が続きます。共有の `app/library/templates/AGENT_JOB.md` は拡張ポイントのままですが、同梱のファイルは空なので、ランナーは Job Guidance セクションを省略します。Codex プロジェクト設定は、ネイティブ subagent の待ち最小時間を 1 分、デフォルトを 2 分に設定します。最大時間は設定しないため、Codex はデフォルトを維持します。これにより、空の待ち時間の後の繰り返しのモデル turn が減ります。これは [openai/codex#35259](https://github.com/openai/codex/issues/35259) で追跡されています。再開されたスレッドは既存の `AGENTS.md` を保持します。
 
 ## 運用者向けの表面
 

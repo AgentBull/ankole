@@ -105,6 +105,23 @@
   width: min(100%, 520px);
 }
 
+.ak-login-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 18px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.ak-login-divider::before,
+.ak-login-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
 .ak-login-provider:disabled {
   cursor: default;
   opacity: 0.58;

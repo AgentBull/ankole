@@ -1,15 +1,8 @@
 import { join, normalize } from 'node:path'
-import { create } from '@bufbuild/protobuf'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import { jsonObjectFromBytes } from '../fabric/envelope_proto'
 import type { ActorTurnRef } from '../lanes/actor_lane'
-import {
-  rpcMethods,
-  RuntimeSkillSummarySchema,
-  type RPCRequester,
-  type RuntimeSkillSummary,
-  type SkillOverlayResponse
-} from '../lanes/rpc_lane'
+import { rpcMethods, type RPCRequester, type RuntimeSkillSummary, type SkillOverlayResponse } from '../lanes/rpc_lane'
 
 export interface SkillFileRoots {
   builtinSkillsRoot: string
@@ -22,24 +15,14 @@ export type AnkoleSkillExecutionRuntime = Exclude<AnkoleSkillRuntime, 'any'>
 
 export function enabledSkillByName(
   name: string,
-  enabledSkills: Array<RuntimeSkillSummary | string> | undefined
+  enabledSkills: RuntimeSkillSummary[] | undefined
 ): RuntimeSkillSummary {
   assertValidSkillName(name)
   if (!enabledSkills) throw new Error('skill tools require RuntimeFabric enabled skill metadata')
 
-  const skill = enabledSkills.map(normalizeEnabledSkill).find(candidate => candidate?.skillName === name)
+  const skill = enabledSkills.find(candidate => candidate.skillName === name)
   if (!skill) throw new Error(`skill is not enabled for this turn: ${name}`)
   return skill
-}
-
-export function normalizeEnabledSkill(skill: RuntimeSkillSummary | string): RuntimeSkillSummary | undefined {
-  if (typeof skill === 'string') {
-    return isValidSkillName(skill)
-      ? create(RuntimeSkillSummarySchema, { skillName: skill, sourceKind: 'builtin', relativePath: skill })
-      : undefined
-  }
-
-  return typeof skill.skillName === 'string' && isValidSkillName(skill.skillName) ? skill : undefined
 }
 
 /** Parses the free-form skill metadata document; empty bytes mean no metadata. */
@@ -62,10 +45,10 @@ export function skillAvailableInRuntime(skill: RuntimeSkillSummary, runtime: Ank
 }
 
 export function resolveSkillFilesystemRoot(skill: RuntimeSkillSummary, input: { skillRoots: SkillFileRoots }): string {
-  const relativePath = normalizeSkillRelativePath(skill.relativePath || skill.skillName)
-  const sourceKind = skill.sourceKind || 'builtin'
+  const relativePath = normalizeSkillRelativePath(skill.relativePath)
+  const sourceKind = skill.sourceKind
   if (sourceKind === 'builtin') {
-    const rootName = skillRootName(skill)
+    const rootName = skill.skillRoot || undefined
     if (rootName === 'internal') {
       if (!input.skillRoots.internalSkillsRoot) {
         throw new Error(`internal skill root is not configured for builtin skill: ${skill.skillName}`)
@@ -125,24 +108,9 @@ async function resolveSkillOverlayResponses(
   return overlays
 }
 
-export async function resolveSkillOverlay(
-  name: string,
-  input: { turn: ActorTurnRef; rpc: RPCRequester }
-): Promise<SkillOverlayResponse> {
-  return (await resolveSkillOverlayResponses([name], input)).get(name)!
-}
-
 function overlayText(response: SkillOverlayResponse): string {
   if (!response.hasOverlay) return ''
-  const overlay = jsonObjectFromBytes(response.overlayJson, 'skill_overlay.overlay_json')
-  const text = overlay?.text
-  return typeof text === 'string' ? text.trim() : ''
-}
-
-export function composeNativeSkillFile(baseContent: string, overlayContent: string): string {
-  const base = baseContent.trimEnd()
-  const overlay = overlayContent.trim()
-  return overlay ? `${base}\n\n---\nAgent-specific additions:\n\n${overlay}\n` : `${base}\n`
+  return response.text.trim()
 }
 
 export function stripSkillFrontmatter(content: string): string {
@@ -157,12 +125,6 @@ export function assertValidSkillName(name: string): void {
 
 export function isValidSkillName(name: string): boolean {
   return /^[a-z][a-z0-9_-]{0,63}$/.test(name)
-}
-
-function skillRootName(skill: RuntimeSkillSummary): string | undefined {
-  if (skill.skillRoot.length > 0) return skill.skillRoot
-  const metadataRoot = skillMetadata(skill)['skill_root']
-  return typeof metadataRoot === 'string' && metadataRoot.length > 0 ? metadataRoot : undefined
 }
 
 function normalizeSkillRelativePath(relativePath: string): string {

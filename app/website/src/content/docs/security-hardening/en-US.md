@@ -58,10 +58,9 @@ Ankole needs some ingress; it rarely needs all of it. Tighten to what each trans
 
 ## The audit posture
 
-Hardening is not a one-time pass; it is a posture. Three habits keep it:
+Hardening is not a one-time pass; it is a posture. Two habits keep it:
 
 - **Read the grants periodically.** `/permission-grants` and `/principals/:uid/grants` show what every Principal can do. Drift happens.
-- **Read the Brain audit log.** `GET /brain/audit-log` shows what the agent was told to believe and who changed it. Memory is a security surface for an agent that acts on it.
 - **Test the restore.** The [backup-and-restore](../backup-and-restore/) discipline is a security control — a backup you cannot restore is no recovery from a compromise.
 
 ## What this guide is not

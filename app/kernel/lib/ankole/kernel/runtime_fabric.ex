@@ -16,16 +16,6 @@ defmodule Ankole.Kernel.RuntimeFabric do
   @type router :: reference()
 
   @doc """
-  Returns the only RuntimeFabric protocol version this runtime admits.
-
-  The native kernel owns the constant and stamps it into every sealed
-  envelope. A wire-incompatible worker or control plane must fail before
-  worker scheduling; RuntimeFabric does not negotiate mixed protocol versions.
-  """
-  @spec protocol_version() :: pos_integer()
-  def protocol_version, do: Kernel.runtime_fabric_protocol_version()
-
-  @doc """
   Encodes a RuntimeFabric envelope struct as protobuf bytes.
   """
   @spec encode_envelope(Envelope.t()) :: binary()

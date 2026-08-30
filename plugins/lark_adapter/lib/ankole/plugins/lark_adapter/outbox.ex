@@ -16,6 +16,7 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.Channel
   alias Ankole.SignalsGateway.OutboxEntry
+  alias Ankole.SignalsGateway.ReplyPreviewAdapter
   alias Ankole.SignalsGateway.ReplyPreviewAdapter.Request
   alias Ankole.Repo
   alias Ankole.WorkerFiles
@@ -26,7 +27,7 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
       compact_map: 1,
       fetch_list: 2,
       fetch_value: 2,
-      maybe_put: 3,
+      put_present: 3,
       optional_text: 2
     ]
 
@@ -78,7 +79,7 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
       %ActorEvent{} = event ->
         checkpoint = event.reply_preview_checkpoint || %{}
 
-        CardKit.finalize(%Request{
+        ReplyPreviewAdapter.finalize_module(CardKit, %Request{
           actor_event: event,
           presentation: presentation,
           previous_presentation: checkpoint["presentation"],
@@ -187,11 +188,9 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
 
         :reaction_remove ->
           %{
-            method: :delete,
-            path: "im/v1/messages/:message_id/reactions/:reaction_id",
-            path_params: %{
+            reaction_remove: %{
               message_id: outbox.target_source_entry_id,
-              reaction_id: reaction_key
+              reaction_type: reaction_key
             }
           }
       end
@@ -253,6 +252,33 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
     end
   end
 
+  # Lark's reaction DELETE takes the reaction instance id from the add
+  # response, not the emoji key, and Ankole does not persist provider reaction
+  # ids. Resolve the app's own instance at send time; no matching instance
+  # means the reaction is already gone, which is the requested outcome.
+  defp perform(
+         %{reaction_remove: %{message_id: message_id, reaction_type: reaction_type}},
+         client
+       ) do
+    case find_own_reaction_id(client, message_id, reaction_type) do
+      {:ok, nil} ->
+        {:ok, %{raw_payload: %{"reaction_absent" => true}}}
+
+      {:ok, reaction_id} ->
+        perform(
+          %{
+            method: :delete,
+            path: "im/v1/messages/:message_id/reactions/:reaction_id",
+            path_params: %{message_id: message_id, reaction_id: reaction_id}
+          },
+          client
+        )
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
   defp perform(%{method: method, path: path} = request, client) do
     opts =
       request
@@ -262,6 +288,27 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
     client
     |> FeishuOpenAPI.request(method, path, opts)
     |> normalize_send_response()
+  end
+
+  defp find_own_reaction_id(client, message_id, reaction_type) do
+    FeishuOpenAPI.Pagination.stream(client, "im/v1/messages/:message_id/reactions",
+      path_params: %{message_id: message_id},
+      query: [reaction_type: reaction_type, page_size: 50]
+    )
+    |> Enum.reduce_while({:ok, nil}, fn
+      {:ok, item}, acc ->
+        operator = MapHelpers.fetch_map(item, "operator", %{})
+
+        if optional_text(operator, "operator_type") == "app" and
+             optional_text(operator, "operator_id") == client.app_id do
+          {:halt, {:ok, optional_text(item, "reaction_id")}}
+        else
+          {:cont, acc}
+        end
+
+      {:error, reason}, _acc ->
+        {:halt, {:error, reason}}
+    end)
   end
 
   defp maybe_reply_fallback({:error, %Error{} = error}, client, outbox, %{reply_to: reply_to})
@@ -359,9 +406,19 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
     })
   end
 
+  # App token and permission failures (the 999916xx family) need an operator
+  # and wake on a binding update; transport, throttle, and 5xx retry; any
+  # other provider rejection of a plain send is permanent.
   defp normalize_delivery_error({:error, %Error{} = error}) do
+    action =
+      cond do
+        retryable_provider_error?(error) -> :retryable
+        error.code in [999_916_63, 999_916_64, 999_916_68] -> :operator_action_required
+        true -> :permanent
+      end
+
     {:error,
-     {:provider_error,
+     {:reply_delivery, action,
       %{
         code: error.code,
         msg: error.msg,
@@ -431,6 +488,19 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
 
   defp normalize_delivery_error(result), do: result
 
+  defp retryable_provider_error?(%Error{code: code}) when code in [:transport, :rate_limited],
+    do: true
+
+  defp retryable_provider_error?(%Error{http_status: status})
+       when status in [408, 409, 425, 429],
+       do: true
+
+  defp retryable_provider_error?(%Error{http_status: status})
+       when is_integer(status) and status >= 500,
+       do: true
+
+  defp retryable_provider_error?(%Error{}), do: false
+
   defp operator_attachment_error(code, detail \\ %{}) do
     {:error, {:reply_delivery, :operator_action_required, Map.put(detail, "code", code)}}
   end
@@ -458,7 +528,7 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
       if is_binary(reply_to), do: Map.put(path_params, :message_id, reply_to), else: path_params
 
     idempotency_key = Keyword.get(opts, :idempotency_key, outbox.idempotency_key)
-    base_body = maybe_put(body, :uuid, provider_message_uuid(idempotency_key))
+    base_body = put_present(body, :uuid, provider_message_uuid(idempotency_key))
 
     # Replies and new messages use different Lark API shapes. Keeping the branch
     # here makes every outbox operation share one idempotency/body path.
@@ -478,7 +548,8 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
           path: path,
           path_params: path_params,
           query: [receive_id_type: "chat_id"],
-          body: maybe_put(base_body, :receive_id, chat_id_from_channel(outbox.signal_channel_id)),
+          body:
+            put_present(base_body, :receive_id, chat_id_from_channel(outbox.signal_channel_id)),
           reply_to: reply_to
         }
     end

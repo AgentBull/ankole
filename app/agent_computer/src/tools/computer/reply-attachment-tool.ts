@@ -1,6 +1,6 @@
 import { basename, relative, resolve } from 'node:path'
 import { z } from 'zod'
-import type { AgentTool, AgentToolResult } from '../../core'
+import { defineWorkerTool, type AgentToolResult, type WorkerAgentTool } from '../../core'
 import { jsonToolResult } from '../../core/tool-result'
 import { insideAgentHome, resolveAgentHomePath } from '../../core/agent-home-paths'
 import { compactActivityPath } from '../activity-summary'
@@ -34,8 +34,8 @@ interface ReplyAttachmentDetails {
  */
 export function createReplyAttachmentTool(
   context: ComputerToolContext
-): AgentTool<typeof ReplyAttachmentParams, ReplyAttachmentDetails> {
-  return {
+): WorkerAgentTool<typeof ReplyAttachmentParams, ReplyAttachmentDetails> {
+  return defineWorkerTool({
     name: 'reply_attachment',
     description: `Queue a file for native delivery with the final reply: place the deliverable under ${context.userFilesRoot} and call reply_attachment with that real path. Success confirms that Ankole recorded the file, not that the chat provider accepted it. In the final answer, say the file is prepared for delivery; do not claim that the provider already received it.`,
     schema: ReplyAttachmentParams,
@@ -49,24 +49,28 @@ export function createReplyAttachmentTool(
         : { key: 'signals_gateway.reply.activity.attachment_prepare' }
     },
     async execute(_toolCallId, params, signal): Promise<AgentToolResult<ReplyAttachmentDetails>> {
-      const computer = await context.getComputer(signal)
-      const buffer = await computer.readFileToBuffer({ path: params.path }, { signal })
-      if (!buffer) {
-        throw new Error(`reply_attachment file not found: ${params.path}`)
-      }
-
+      // Resolve the path before touching the file: the check is a pure function,
+      // and running it first keeps a path outside `user-files` from reaching the
+      // sandbox at all. Only the file's size is needed, so the file is never
+      // read — a huge or sparse file must not become worker memory.
       const relativePath = userFilesRelativePath(
         params.path,
         context.agentHome,
         context.workspaceRoot,
         context.userFilesRoot
       )
+      const computer = await context.getComputer(signal)
+      const size = await computer.fileSize({ path: params.path }, { signal })
+      if (size === null) {
+        throw new Error(`reply_attachment file not found: ${params.path}`)
+      }
+
       const attachment = {
         agent_computer_path: `${context.userFilesRoot}/${relativePath}`,
         user_files_relative_path: relativePath,
         name: params.name ?? basename(relativePath),
         ...(params.mimeType ? { mime_type: params.mimeType } : {}),
-        size: buffer.byteLength
+        size
       }
       const details: ReplyAttachmentDetails = {
         tool: 'reply_attachment',
@@ -77,7 +81,7 @@ export function createReplyAttachmentTool(
 
       return jsonToolResult(details)
     }
-  }
+  })
 }
 
 /**

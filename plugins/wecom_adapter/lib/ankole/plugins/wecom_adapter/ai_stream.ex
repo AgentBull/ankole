@@ -72,7 +72,7 @@ defmodule Ankole.Plugins.WeComAdapter.AIStream do
     request |> reconcile(final?, true) |> normalize_result()
   end
 
-  # --- core reconcile -------------------------------------------------------
+  # core reconcile
 
   defp reconcile(%Request{} = request, final?, repaint?) do
     with {:ok, event} <- fresh_event(request.actor_event),
@@ -148,7 +148,7 @@ defmodule Ankole.Plugins.WeComAdapter.AIStream do
     |> then(&Actors.put_reply_preview_checkpoint(event.id, &1))
   end
 
-  # --- stream path ----------------------------------------------------------
+  # stream path
 
   defp reconcile_stream(
          event,
@@ -343,7 +343,7 @@ defmodule Ankole.Plugins.WeComAdapter.AIStream do
     Markdown.fence_open?(if(open_before?, do: "```\n", else: "") <> source)
   end
 
-  # --- rendering ------------------------------------------------------------
+  # rendering
 
   # A rolled-past page holds a finished slice of a longer answer; a working
   # tail leads with the live status and the transient thought (a quote block
@@ -427,7 +427,6 @@ defmodule Ankole.Plugins.WeComAdapter.AIStream do
 
     [
       page_note(page),
-      count_note(meta["memory_source_count"], &"#{&1} 条记忆来源"),
       count_note(meta["attachment_count"], &"已附上 #{&1} 个文件"),
       elapsed_note(meta["elapsed_ms"])
     ]
@@ -463,7 +462,7 @@ defmodule Ankole.Plugins.WeComAdapter.AIStream do
   defp blank_to_space(text) when is_binary(text), do: text
   defp blank_to_space(_other), do: " "
 
-  # --- checkpoint -----------------------------------------------------------
+  # checkpoint
 
   defp current_checkpoint(%ActorEvent{reply_preview_checkpoint: checkpoint}, _request)
        when is_map(checkpoint),
@@ -520,12 +519,12 @@ defmodule Ankole.Plugins.WeComAdapter.AIStream do
          conversation_id: conversation_id
        }) do
     checkpoint
-    |> maybe_put("subject_uid", subject_uid)
-    |> maybe_put("conversation_id", conversation_id)
+    |> put_text("subject_uid", subject_uid)
+    |> put_text("conversation_id", conversation_id)
   end
 
-  defp maybe_put(map, _key, value) when not is_binary(value), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
+  defp put_text(map, _key, value) when not is_binary(value), do: map
+  defp put_text(map, key, value), do: Map.put(map, key, value)
 
   defp put_thought_lease(checkpoint, presentation, false) do
     case presentation["thought"] do
@@ -558,7 +557,7 @@ defmodule Ankole.Plugins.WeComAdapter.AIStream do
     }
   end
 
-  # --- degraded plain delivery ----------------------------------------------
+  # degraded plain delivery
 
   # Terminal-only fallback: the durable reply intent is still delivered, just
   # without a stream. Chunks ride the same Markdown split budget as Outbox
@@ -645,7 +644,7 @@ defmodule Ankole.Plugins.WeComAdapter.AIStream do
     |> Map.new(&{&1["index"], &1})
   end
 
-  # --- helpers --------------------------------------------------------------
+  # helpers
 
   defp page_stream_id(%ActorEvent{id: id}, index), do: "ankole:#{id}:#{index}"
 

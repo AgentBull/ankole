@@ -44,7 +44,8 @@ defmodule Ankole.Plugins.DingTalkAdapterInboundTest do
     assert input.explicit == true
     assert input.text == "hello there"
     assert input.author["id"] == "staff1"
-    assert input.author["principal_uid"] == "staff1"
+    assert input.author["platform_subject"] == "staff1"
+    refute Map.has_key?(input.author, "principal_uid")
     assert input.author["metadata"]["union_id"] == "union1"
     assert input.reply_to_source_entry_id == nil
     assert input.provider_thread_id == nil

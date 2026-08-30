@@ -3,6 +3,13 @@ defmodule Ankole.SignalsGateway.Utils do
 
   def signal_session_id(signal_channel_id), do: "signal-channel:#{signal_channel_id}"
 
+  @doc "Inverse of `signal_session_id/1`: the Channel id, or nil for other keys."
+  def signal_channel_id_from_session_id("signal-channel:" <> channel_id)
+      when channel_id != "",
+      do: channel_id
+
+  def signal_channel_id_from_session_id(_key), do: nil
+
   def maybe_put_result(result, _key, nil), do: result
   def maybe_put_result(result, key, value), do: Map.put(result, key, value)
 
@@ -45,16 +52,20 @@ defmodule Ankole.SignalsGateway.Utils do
     |> Base.url_encode64(padding: false)
   end
 
-  def collect_results(results) do
-    Enum.reduce_while(results, {:ok, []}, fn
-      {:ok, value}, {:ok, acc} -> {:cont, {:ok, [value | acc]}}
-      {:error, _reason} = error, _acc -> {:halt, error}
-    end)
-    |> case do
-      {:ok, values} -> {:ok, Enum.reverse(values)}
-      {:error, _reason} = error -> error
+  defdelegate collect_results(results), to: Ankole.Attrs
+
+  @doc """
+  Reads the `retry_after_seconds` hint from a `{:reply_delivery, _, detail}`
+  detail map, in whichever of the two provider key styles it arrived in.
+  """
+  def reply_delivery_retry_after_seconds(detail) when is_map(detail) do
+    case Map.get(detail, "retry_after_seconds") || Map.get(detail, :retry_after_seconds) do
+      seconds when is_integer(seconds) and seconds > 0 -> seconds
+      _missing_or_invalid -> 0
     end
   end
+
+  def reply_delivery_retry_after_seconds(_detail), do: 0
 
   def validate_module_callback(module, function, arity) do
     case function_exported?(module, function, arity) do
@@ -111,7 +122,7 @@ defmodule Ankole.SignalsGateway.Utils do
   def truthy?(value) when value in [true, "true", 1, "1"], do: true
   def truthy?(_value), do: false
 
-  def normalize_uid(uid) when is_binary(uid), do: uid |> String.trim() |> String.downcase()
+  def normalize_uid(uid) when is_binary(uid), do: Ankole.PrincipalKey.canonicalize(uid)
   def normalize_uid(uid), do: uid
 
   def structured_mention?(mention, agent_uid) when is_map(mention) do

@@ -33,13 +33,13 @@ A copilot reduces the effort needed to do work. The human still drives. Ankole c
 
 Autonomous work depends on current context. Ankole records rules, decisions, corrections, and outcomes with time and source, instead of treating every old message as equally true.
 
-Brain retires stale rules, merges related corrections, ranks conflicts, and compares predictions with later results. Each run starts from a more accurate operating picture.
+Brain retires stale facts, merges related corrections, surfaces conflicts, and compares predictions with later results. Each run starts from a more accurate operating picture.
 
 ## What Makes Autonomous Labor Possible
 
 - **Long jobs run in the background.** A Job can run for hours, return to the same channel, report a failed step, and retry without blocking the main Agent.
 - **Shared context becomes working memory.** Rules, preferences, and rejected options can enter memory even when nobody addressed the Agent.
-- **Memory models a changing world.** Brain curates knowledge, retires stale entries, reasons over evidence, and receives external changes directly.
+- **Memory models a changing world.** Brain curates instance-shared knowledge behind per-Principal boundaries, retires stale entries, reasons over evidence, and learns from registered sources directly.
 - **Deep Research becomes a playbook.** Fan-out retrieval, layered checks, and competing hypotheses produce a cited report. A successful method can guide the next run.
 - **A real browser does real work.** The Agent can read rendered pages, click, type, capture evidence, run Playwright scripts, and keep a signed-in session across steps.
 - **Skills improve under human control.** An Agent can propose a skill update. A person approves it before the change applies to later sessions.
@@ -94,7 +94,7 @@ flowchart TB
     Schedule["Schedule<br/>checkbacks · cron"]
     Runtime["Actor Runtime<br/>session lifecycle · admission · recovery"]
     Jobs["Durable work control<br/>Background Agent Jobs · Automation Jobs"]
-    Brain["Brain<br/>long-term memory · recall · dreaming"]
+    Brain["Brain<br/>shared knowledge · recall · dreaming"]
     AI["AIGateway<br/>model routing · conversations · credentials"]
   end
 
@@ -125,7 +125,7 @@ At a high level:
 - **Trigger owners stay separate.** SignalsGateway owns channel and webhook admission. Schedule owns checkbacks and cron. Each trigger wakes an Actor session by default or creates a durable Automation Job run when it has a binding.
 - **Workers provide replaceable execution.** A pool of one or more Agent Computer Workers runs Main Agent turns, Background Job/Codex turns, and Automation scripts. RuntimeFabric carries live actor traffic, bounded RPC, and worker-file operations; it is not a durable queue.
 - **AIGateway is the unified AI boundary.** Its OpenResponses-compatible HTTP, SSE, and WebSocket API supports stateless requests and Principal-scoped stateful conversations. It resolves models across LLM, embedding, rerank, web-search, and web-fetch providers while upstream credentials remain in the control plane.
-- **Brain is long-term memory.** It combines curated current knowledge, source-chat recall, dreaming, and human oversight. PostgreSQL rows are truth; Markdown and injected context are projections.
+- **Brain is the shared knowledge space.** Agents, humans, and background learning write one body of pages and claims; every read applies the querier's knowledge boundary. PostgreSQL rows are truth; rendered pages and injected context are projections.
 - **The two Job types make different promises.** A Background Agent Job is interactive, model-driven work that can resume and wait for input. An Automation Job is an Agent-owned deterministic script; each trigger consumption is a durable run that can emit an event to its owner session.
 - **Durability has two forms.** PostgreSQL owns semantic truth. Shared Agent Home storage holds workspaces, artifacts, and resumable files. RuntimeFabric and Worker process state are rebuildable.
 
@@ -135,9 +135,9 @@ Ankole is a complete, self-hostable AI Workforce OS in production. The control p
 
 - **Many model providers.** OpenAI, Azure OpenAI, Claude, Google AI Studio, OpenRouter, and other OpenAI-compatible endpoints are first-class, with compaction, stateful conversations, reasoning-effort control, and per-provider usage handling.
 - **Real IM integration.** Lark/Feishu and Slack are integrated as first-party providers with lifecycle, transport, main-flow, and real-LLM end-to-end coverage.
-- **Brain.** Curated knowledge, chat recall, dreaming (offline consolidation), human review, and recovery live in one subsystem backed by PostgreSQL full-text and vector search.
+- **Brain.** Instance-shared knowledge with scoped disclosure, conversation and source learning, dreaming (offline consolidation), and operator review, backed by PostgreSQL full-text and vector search.
 - **Long-running actor runtime.** Sessions wake, checkpoint, stream progress, hibernate, and recover with context; steering and cancellation are live-control operations, not request/response.
-- **Operator console.** Agents, Agent Library defaults and overrides, Control Plane Plugins, providers, model profiles, identity, signals, workers, worker environments, brain entries, and Background Agent Jobs are managed from a built-in web console.
+- **Operator console.** Agents, Agent Library defaults and overrides, Control Plane Plugins, providers, model profiles, identity, signals, workers, worker environments, Brain knowledge, and Background Agent Jobs are managed from a built-in web console.
 - **Tested for real conditions.** Unit suites plus dedicated end-to-end suites for Lark and Slack main flows, transport, lifecycle, real-LLM, scheduling, worker computer, chaos recovery, and concurrency/performance.
 
 Ankole's public APIs do not yet carry a compatibility contract; expect breaking changes between releases.
@@ -233,9 +233,6 @@ mix ankole.actor_runtime.worker_bootstrap --endpoint tcp://127.0.0.1:6010 --work
 
 Production bootstrap configuration uses standard infrastructure names such as `DATABASE_URL` and `SECRET_KEY_BASE`. Runtime application configuration belongs in Ankole's PostgreSQL-backed AppConfigure surface rather than process-local environment variables.
 
-Brain requires PostgreSQL 18 with `pg_search` preloaded and both `pg_search`
-and `vector` installed. Model profiles and the destructive-vs-incremental
-database procedure are documented in the
-[Brain operations guide](docs/operations/Brain.md). Its dedicated real-model
-acceptance path is `tools/e2e/run --brain-real-llm`; it is not part of the
-default test gate or `--all`.
+Brain requires PostgreSQL with `pg_search` preloaded and the `pg_search`,
+`vector`, and `pg_trgm` extensions available; the BrainV3 migration installs
+them. `tools/devkit/postgres-for-ankole` builds a matching image.

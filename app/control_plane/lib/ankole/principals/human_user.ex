@@ -16,6 +16,12 @@ defmodule Ankole.Principals.HumanUser do
 
   @email_format ~r/\A[^\s@]+@[^\s@]+\.[^\s@]+\z/
 
+  @doc """
+  Returns the email shape this schema's changeset validates against.
+  """
+  @spec email_format() :: Regex.t()
+  def email_format, do: @email_format
+
   schema "human_users" do
     belongs_to :principal, Principal,
       foreign_key: :principal_uid,
@@ -48,9 +54,11 @@ defmodule Ankole.Principals.HumanUser do
     |> unique_constraint(:mobile, name: :human_users_mobile_index)
   end
 
+  # A blank value stays as given so the format validation rejects it instead
+  # of silently clearing the field.
   defp normalize_email(changeset) do
     update_change(changeset, :email, fn
-      value when is_binary(value) -> String.downcase(value)
+      value when is_binary(value) -> Ankole.Principals.normalize_email(value) || value
       value -> value
     end)
   end

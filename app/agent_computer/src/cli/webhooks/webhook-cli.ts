@@ -1,6 +1,8 @@
-import { WEBHOOK_CLI_SOCKET_ENV } from '../../core/turns/turn_runtime_env'
+import { positiveInteger } from '../primitives'
+import { WEBHOOK_CLI_SOCKET_ENV } from '../../core/execution/turn_runtime_env'
 import { WebhookCLICommand, type WebhookCLICommand as WebhookCLICommandValue } from './webhook-cli-protocol'
 import { requestWebhookCLI } from './webhook-cli-client'
+import { errorMessage } from '../../common/errors'
 
 const usage = `Usage:
   create-webhook-cli --label <text> --mode <one_shot|standing> --expires-at <ISO-8601> [--automation-job-id <id>]
@@ -87,7 +89,7 @@ if (import.meta.main) {
       process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
     }
   } catch (error) {
-    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n${usage}\n`)
+    process.stderr.write(`${errorMessage(error)}\n${usage}\n`)
     process.exitCode = 1
   }
 }
@@ -158,10 +160,4 @@ function requiredOption(options: Map<string, string>, name: string): string {
   const value = options.get(name)?.trim()
   if (!value) throw new Error(`${name} is required`)
   return value
-}
-
-function positiveInteger(value: string, name: string): number {
-  const parsed = Number(value)
-  if (!Number.isSafeInteger(parsed) || parsed <= 0) throw new Error(`${name} must be a positive integer`)
-  return parsed
 }

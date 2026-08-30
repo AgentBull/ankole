@@ -1,8 +1,20 @@
 import { batch, createModel, signal } from '@preact/signals-react'
 
-export const AGENT_LIBRARY_DOCUMENT_KINDS = ['mission', 'soul', 'design'] as const
+export const AGENT_LIBRARY_DOCUMENT_KINDS = ['mission', 'soul', 'design', 'confidentiality_policy'] as const
 
 export type AgentLibraryDocumentKind = (typeof AGENT_LIBRARY_DOCUMENT_KINDS)[number]
+
+/** Library file names per kind; the policy file uses the backend's CamelCase name. */
+export const AGENT_LIBRARY_DOCUMENT_FILES: Record<AgentLibraryDocumentKind, string> = {
+  mission: 'MISSION.md',
+  soul: 'SOUL.md',
+  design: 'DESIGN.md',
+  confidentiality_policy: 'ConfidentialityPolicy.md'
+}
+
+export function agentLibraryDocumentTitle(kind: AgentLibraryDocumentKind): string {
+  return AGENT_LIBRARY_DOCUMENT_FILES[kind].replace(/\.md$/, '')
+}
 
 export type AgentLibraryDocumentSnapshot = {
   kind: AgentLibraryDocumentKind
@@ -47,7 +59,8 @@ export const AgentLibraryEditorModel = createModel(() => {
   const documents = {
     mission: createDocumentState(),
     soul: createDocumentState(),
-    design: createDocumentState()
+    design: createDocumentState(),
+    confidentiality_policy: createDocumentState()
   } satisfies Record<AgentLibraryDocumentKind, DocumentState>
 
   return {

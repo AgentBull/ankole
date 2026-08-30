@@ -97,7 +97,7 @@ function ComboboxContent({
           data-slot="combobox-content"
           data-chips={!!anchor}
           className={cn(
-            'group/combobox-content relative max-h-(--available-height) w-(--anchor-width) max-w-(--available-width) origin-(--transform-origin) overflow-hidden rounded-none bg-popover text-popover-foreground shadow-md ring-1 ring-border duration-100 data-[side=bottom]:slide-in-from-top-1 data-[side=inline-end]:slide-in-from-left-1 data-[side=inline-start]:slide-in-from-right-1 data-[side=left]:slide-in-from-right-1 data-[side=right]:slide-in-from-left-1 data-[side=top]:slide-in-from-bottom-1 *:data-[slot=input-group]:m-0 *:data-[slot=input-group]:h-10 *:data-[slot=input-group]:border-transparent *:data-[slot=input-group]:bg-field *:data-[slot=input-group]:focus-within:border-transparent data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0',
+            'group/combobox-content relative max-h-(--available-height) w-(--anchor-width) max-w-(--available-width) origin-(--transform-origin) overflow-hidden rounded-none bg-popover text-popover-foreground shadow-md ring-1 ring-border transition-opacity duration-(--duration-overlay) ease-out *:data-[slot=input-group]:m-0 *:data-[slot=input-group]:h-10 *:data-[slot=input-group]:border-transparent *:data-[slot=input-group]:bg-field *:data-[slot=input-group]:focus-within:border-transparent data-starting-style:opacity-0 data-ending-style:opacity-0',
             className
           )}
           {...props}

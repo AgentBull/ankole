@@ -16,7 +16,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerWebFetchConfigTest do
 
   setup do
     allow_cache_database_access()
-    :ok = WorkerWebFetchConfig.ensure_registered()
     definition = WorkerWebFetchConfig.definition()
     :ok = AppConfigure.delete_global(definition)
     {:ok, definition: definition}

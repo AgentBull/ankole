@@ -22,6 +22,7 @@
 }
 
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+@custom-variant fine-hover (@media (hover: hover) and (pointer: fine));
 
 @theme static {
   --color-white: #ffffff;
@@ -154,6 +155,16 @@
 
   --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.12);
   --shadow-md: 0 2px 6px rgb(0 0 0 / 0.18);
+
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-productive: cubic-bezier(0.2, 0, 0.38, 0.9);
+  --duration-feedback: 140ms;
+  --duration-tooltip: 150ms;
+  --duration-overlay: 180ms;
+  --duration-dialog: 200ms;
+  --duration-drawer: 240ms;
 }
 
 @theme inline {
@@ -548,5 +559,16 @@
 
   .animate-spin {
     animation-duration: 1.5s !important;
+  }
+}
+
+@keyframes theme-mark {
+  from {
+    opacity: 0;
+    transform: rotate(-35deg) scale(0.7);
+  }
+  to {
+    opacity: 1;
+    transform: none;
   }
 }

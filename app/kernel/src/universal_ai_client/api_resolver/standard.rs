@@ -361,7 +361,7 @@ pub(super) fn normalize_output_items(output: &Value) -> Value {
     }
 }
 
-pub(super) fn normalize_output_item(item: &Value) -> Value {
+pub(crate) fn normalize_output_item(item: &Value) -> Value {
     let Some(map) = item.as_object() else {
         return item.clone();
     };

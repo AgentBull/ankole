@@ -12,8 +12,9 @@ import {
   responseFrameRefreshesStaleDeadline
 } from '../../src/core/llm/session'
 import { buildResponseCreateParams, statefulToolResultsRecordParams, toResponseInput } from '../../src/core/llm/wire'
+import { defineWorkerTool } from '../../src/core'
 
-import { fakeResponseSocket } from '../support/llm'
+import { fakeResponseSocket, statefulTurnCall } from '../support/llm'
 
 describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire shape', () => {
   it('forwards frozen provider options on model calls and tool-result recording', () => {
@@ -466,7 +467,7 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
 
     expect(result.message.stopReason).toBe('error')
     expect(result.message.toolCalls).toBeUndefined()
-    expect(result.hasToolCalls).toBe(false)
+    expect(result.toolCalls).toHaveLength(0)
     expect(result.message.errorMessage).toBe('AIGateway response ended with an incomplete tool call')
   })
 
@@ -494,7 +495,7 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
 
     expect(result.message.stopReason).toBe('error')
     expect(result.message.toolCalls).toBeUndefined()
-    expect(result.hasToolCalls).toBe(false)
+    expect(result.toolCalls).toHaveLength(0)
     expect(result.message.errorMessage).toBe('AIGateway response ended with an incomplete tool call')
   })
 
@@ -530,7 +531,7 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
 
     expect(invalid.message.stopReason).toBe('error')
     expect(invalid.message.toolCalls).toBeUndefined()
-    expect(invalid.hasToolCalls).toBe(false)
+    expect(invalid.toolCalls).toHaveLength(0)
   })
 
   it('round-trips custom calls and outputs without a JSON wrapper', () => {
@@ -968,7 +969,7 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
       }
     })
 
-    const result = await callModel(model, {
+    const result = await statefulTurnCall(model, {
       instructions: 'system prompt',
       messages: [{ role: 'user', content: 'hi' }],
       stateful: {
@@ -1013,7 +1014,7 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
     })
 
     await expect(
-      callModel(model, {
+      statefulTurnCall(model, {
         messages: [{ role: 'user', content: 'wait for explicit cancellation' }],
         stateful: {
           actorEventID: '00000000-0000-0000-0000-000000000031',
@@ -1068,7 +1069,8 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
         conversationID: '18181818-1818-1818-1818-181818181818'
       },
       tools: [
-        {
+        defineWorkerTool({
+          executionMode: 'sequential',
           name: 'lookup',
           description: 'Read one value.',
           schema: z.object({ key: z.string() }),
@@ -1079,8 +1081,9 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
             content: [{ type: 'text', text: 'value' }],
             details: {}
           })
-        },
-        {
+        }),
+        defineWorkerTool({
+          executionMode: 'sequential',
           name: 'write',
           description: 'Write one value.',
           schema: z.object({ key: z.string() }),
@@ -1091,7 +1094,7 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
             content: [{ type: 'text', text: 'ok' }],
             details: {}
           })
-        }
+        })
       ]
     })
 
@@ -1137,7 +1140,7 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
       }
     })
 
-    await callModel(model, {
+    await statefulTurnCall(model, {
       messages: [
         {
           role: 'user',
@@ -1216,7 +1219,7 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
         }
       })
 
-      const result = await callModel(model, {
+      const result = await statefulTurnCall(model, {
         messages: [{ role: 'user', content: 'hi' }],
         stateful: {
           actorEventID: '00000000-0000-0000-0000-000000000012',
@@ -1267,7 +1270,7 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
       }
     })
 
-    const result = await callModel(model, {
+    const result = await statefulTurnCall(model, {
       messages: [{ role: 'user', content: 'hi' }],
       stateful: {
         actorEventID: '00000000-0000-0000-0000-000000000013',
@@ -1310,7 +1313,7 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
       }
     })
 
-    const result = await callModel(model, {
+    const result = await statefulTurnCall(model, {
       messages: [{ role: 'user', content: 'hi' }],
       stateful: {
         actorEventID: '00000000-0000-0000-0000-000000000014',
@@ -1357,7 +1360,7 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
       }
     })
 
-    const result = await callModel(model, {
+    const result = await statefulTurnCall(model, {
       messages: [{ role: 'user', content: 'write a report' }],
       stateful: {
         actorEventID: '00000000-0000-0000-0000-000000000020',
@@ -1367,16 +1370,14 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
 
     expect(result.message.stopReason).toBe('length')
     expect(result.message.toolCalls).toBeUndefined()
-    expect(result.hasToolCalls).toBe(false)
+    expect(result.toolCalls).toHaveLength(0)
     expect(result.message.errorMessage).toBeUndefined()
     expect(result.message.truncatedToolCalls).toEqual([
       {
+        id: 'call_partial_length',
+        type: 'function',
         name: 'patch',
-        argumentsComplete: false,
-        argumentChars: 19,
-        completedFields: [],
-        cutField: 'path',
-        cutFieldChars: 10
+        arguments: '{"path":"/tmp/repor'
       }
     ])
   })
@@ -1411,7 +1412,7 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
       }
     })
 
-    const result = await callModel(model, {
+    const result = await statefulTurnCall(model, {
       messages: [{ role: 'user', content: 'write a report' }],
       stateful: {
         actorEventID: '00000000-0000-0000-0000-000000000021',
@@ -1421,7 +1422,7 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
 
     expect(result.message.stopReason).toBe('error')
     expect(result.message.toolCalls).toBeUndefined()
-    expect(result.hasToolCalls).toBe(false)
+    expect(result.toolCalls).toHaveLength(0)
     expect(result.message.errorMessage).toBe('AIGateway response ended with an incomplete tool call')
   })
 
@@ -1457,7 +1458,7 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
       }
     })
 
-    const result = await callModel(model, {
+    const result = await statefulTurnCall(model, {
       messages: [{ role: 'user', content: 'look this up' }],
       stateful: {
         actorEventID: '00000000-0000-0000-0000-000000000022',
@@ -1467,7 +1468,7 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
 
     expect(result.message.stopReason).toBe('error')
     expect(result.message.toolCalls).toBeUndefined()
-    expect(result.hasToolCalls).toBe(false)
+    expect(result.toolCalls).toHaveLength(0)
     expect(result.message.errorMessage).toBe('AIGateway response ended with an incomplete tool call')
   })
 
@@ -1501,7 +1502,7 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
       }
     })
 
-    const result = await callModel(model, {
+    const result = await statefulTurnCall(model, {
       messages: [{ role: 'user', content: 'hi' }],
       stateful: {
         actorEventID: '00000000-0000-0000-0000-000000000016',

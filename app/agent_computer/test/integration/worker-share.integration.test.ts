@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { WORKER_SHARE_ROOT } from '../../src/core/agent-home-paths'
-import { bubblewrapArgv } from '../../src/tools/computer/bubblewrap'
+import { bubblewrapArgv } from '../../src/sandbox/bubblewrap'
 
 describe('Worker share across the real bubblewrap boundary', () => {
   let agentHome: string

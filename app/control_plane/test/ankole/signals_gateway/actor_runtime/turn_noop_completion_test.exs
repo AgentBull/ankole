@@ -40,9 +40,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnNoopCompletionTest do
                 deleted_deliveries: 1,
                 activation: %ActorSessionActivation{} = activation
               }} =
-               ActorRuntime.handle_turn_noop_completed(
-                 turn_noop_completed_payload(turn_ref, "ambient_silent")
-               )
+               complete_turn_noop(turn_ref, "ambient_silent")
 
       assert activation.status == "active"
       assert is_nil(activation.current_actor_event_id)
@@ -59,9 +57,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnNoopCompletionTest do
              )
 
       assert {:ok, %{status: :already_completed, deleted_deliveries: 0}} =
-               ActorRuntime.handle_turn_noop_completed(
-                 turn_noop_completed_payload(turn_ref, "ambient_silent")
-               )
+               complete_turn_noop(turn_ref, "ambient_silent")
     end
 
     test "marks active steer events complete when the accepted turn ends as noop" do
@@ -119,9 +115,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnNoopCompletionTest do
       assert steer_id == steer_event.id
 
       assert {:ok, %{status: :noop_completed, deleted_deliveries: 2, superseded_deliveries: 0}} =
-               ActorRuntime.handle_turn_noop_completed(
-                 turn_noop_completed_payload(mailbox.turn, "ambient_silent")
-               )
+               complete_turn_noop(mailbox.turn, "ambient_silent")
 
       assert %DateTime{} = Repo.get!(ActorEvent, input.id).completed_at
       assert %DateTime{} = Repo.get!(ActorEvent, steer_event.id).completed_at
@@ -183,9 +177,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnNoopCompletionTest do
       assert envelope_body_type(mailbox_envelope) == :mailbox_updated
 
       assert {:ok, %{status: :noop_completed, deleted_deliveries: 1, superseded_deliveries: 1}} =
-               ActorRuntime.handle_turn_noop_completed(
-                 turn_noop_completed_payload(turn_ref, "ambient_silent")
-               )
+               complete_turn_noop(turn_ref, "ambient_silent")
 
       assert %DateTime{} = Repo.get!(ActorEvent, input.id).completed_at
       assert is_nil(Repo.get!(ActorEvent, steer_event.id).completed_at)

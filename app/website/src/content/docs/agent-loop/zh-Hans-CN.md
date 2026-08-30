@@ -56,7 +56,7 @@ agent 循环模块文档明确：worker **不**拥有历史扩展、compaction�
 | 方向 | 什么越过边界 |
 |---|---|
 | 控制面 → worker | `TurnStart` 信封（actor 身份、turn ref、要处理的事件） |
-| Worker → 控制面 | 进度信封（检查点、活动摘要）、回合失败时的 `TurnError`、或回合的自然完成 |
+| Worker → 控制面 | 进度信封（检查点、活动摘要）、失败时的 `actor_turn.abort` RPC，以及完成时的 `actor_turn.complete` / `actor_turn.noop` RPC |
 | Worker → AIGateway | 模型调用、function-call 输出（这些不经控制面） |
 
 每条 worker 消息带 `ActorTurnRef`（`activation_uid`、`actor_epoch`、`actor_event_id`）。控制面拿去和当前 activation 核对；ref 不再匹配的消息被当作过期拒绝。这是从回合层看到的 [Actor Runtime](../actor-runtime/) 三重隔离栏。

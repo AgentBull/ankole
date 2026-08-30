@@ -739,4 +739,226 @@ defmodule Ankole.AIGateway.ImageStreamPersistenceTest do
     assert [%{"id" => ^prior_image_id, "result" => @png_base64}] = response["input"]
     assert [%{"id" => ^generated_image_id, "result" => @png_base64}] = response["output"]
   end
+
+  test "a native provider item id persists under a local primary key with the provider id kept" do
+    agent = agent_fixture()
+    provider_item_id = "ig_native#{System.unique_integer([:positive])}"
+    state = ImageStreamPersistence.new(agent.principal.uid)
+
+    completed = %{
+      "type" => "response.image_generation_call.completed",
+      "sequence_number" => 1,
+      "item_id" => provider_item_id,
+      "output_index" => 0
+    }
+
+    done = %{
+      "type" => "response.output_item.done",
+      "sequence_number" => 2,
+      "output_index" => 0,
+      "item" => %{
+        "id" => provider_item_id,
+        "type" => "image_generation_call",
+        "status" => "completed",
+        "result" => @png_base64
+      }
+    }
+
+    assert {:ok, state, []} = ImageStreamPersistence.observe(state, completed)
+    assert {:ok, _state, [^completed, ^done]} = ImageStreamPersistence.observe(state, done)
+
+    assert {:ok, artifact} =
+             Artifacts.get_generated_image(agent.principal.uid, provider_item_id, payload?: true)
+
+    assert artifact.provider_item_id == provider_item_id
+    assert {:ok, _uuid} = UUIDv7.cast(artifact.id)
+    assert Artifacts.public_id(artifact) != provider_item_id
+    assert artifact.payload == Base.decode64!(@png_base64)
+  end
+
+  test "non-stream native persistence keeps the provider item id in the public response" do
+    agent = agent_fixture()
+    provider_item_id = "ig_native#{System.unique_integer([:positive])}"
+
+    item = %{
+      "id" => provider_item_id,
+      "type" => "image_generation_call",
+      "status" => "completed",
+      "result" => @png_base64,
+      "mime_type" => "image/png"
+    }
+
+    assert {:ok, %{"output" => [persisted]}} =
+             ImageGeneration.persist_response(agent.principal.uid, %{"output" => [item]})
+
+    assert persisted["id"] == provider_item_id
+    assert persisted["result"] == @png_base64
+    refute Map.has_key?(persisted, "mime_type")
+
+    assert {:ok, artifact} = Artifacts.get_generated_image(agent.principal.uid, provider_item_id)
+    assert artifact.provider_item_id == provider_item_id
+  end
+
+  test "a kernel-minted ig_ UUID stays the Artifact primary key without a provider id" do
+    agent = agent_fixture()
+    uuid = UUIDv7.autogenerate()
+
+    assert {:ok, artifact} =
+             Artifacts.persist_generated_image(
+               agent.principal.uid,
+               "ig_#{uuid}",
+               @png_base64,
+               "image/png"
+             )
+
+    assert artifact.id == uuid
+    assert artifact.provider_item_id == nil
+    assert Artifacts.public_id(artifact) == "ig_#{uuid}"
+  end
+
+  test "a failing done event keeps its own output_index in the failure events" do
+    agent = agent_fixture()
+    image_id = "ig_#{UUIDv7.autogenerate()}"
+    state = ImageStreamPersistence.new(agent.principal.uid)
+
+    done = %{
+      "type" => "response.output_item.done",
+      "sequence_number" => 6,
+      "output_index" => 3,
+      "item" => %{
+        "id" => image_id,
+        "type" => "image_generation_call",
+        "status" => "completed",
+        "result" => "not-base64"
+      }
+    }
+
+    assert {:error, _state, [failed_item, failed_response], _error} =
+             ImageStreamPersistence.observe(state, done)
+
+    assert failed_item["output_index"] == 3
+    assert failed_item["item"]["status"] == "failed"
+    assert failed_response["type"] == "response.failed"
+  end
+
+  test "a native provider image id resolves through provider_item_id for reuse" do
+    owner = agent_fixture()
+    provider_item_id = "ig_native#{System.unique_integer([:positive])}"
+
+    assert {:ok, _artifact} =
+             Artifacts.persist_generated_image(
+               owner.principal.uid,
+               provider_item_id,
+               @png_base64,
+               "image/png"
+             )
+
+    stored = [
+      %{
+        "id" => provider_item_id,
+        "type" => "image_generation_call",
+        "status" => "completed",
+        "result" => nil
+      }
+    ]
+
+    assert {:ok, [%{"result" => @png_base64}]} =
+             Artifacts.hydrate_generated_images(owner.principal.uid, stored)
+
+    assert {:ok, [reference]} =
+             Artifacts.resolve_references(owner.principal.uid, %{"input" => stored})
+
+    assert reference["id"] == provider_item_id
+    assert reference["source"] == "artifact"
+    assert reference["image_url"] == "data:image/png;base64,#{@png_base64}"
+
+    other = agent_fixture()
+    assert {:error, error} = Artifacts.hydrate_generated_images(other.principal.uid, stored)
+    assert error.status == 404
+  end
+
+  test "resolve_native_input inlines local references and passes provider references through" do
+    agent = agent_fixture()
+
+    upload_path =
+      Path.join(
+        System.tmp_dir!(),
+        "ankole-native-input-#{System.unique_integer([:positive])}.png"
+      )
+
+    File.write!(upload_path, Base.decode64!(@png_base64))
+    on_exit(fn -> File.rm(upload_path) end)
+
+    assert {:ok, file} =
+             Artifacts.create_uploaded_file(
+               agent.principal.uid,
+               %Plug.Upload{path: upload_path, filename: "input.png", content_type: "image/png"},
+               %{"purpose" => "vision"}
+             )
+
+    file_id = Artifacts.public_id(file)
+
+    native_id = "ig_native#{System.unique_integer([:positive])}"
+
+    assert {:ok, _artifact} =
+             Artifacts.persist_generated_image(
+               agent.principal.uid,
+               native_id,
+               @png_base64,
+               "image/png"
+             )
+
+    request = %{
+      "input" => [
+        %{
+          "id" => native_id,
+          "type" => "image_generation_call",
+          "status" => "completed",
+          "result" => nil
+        },
+        %{
+          "type" => "message",
+          "role" => "user",
+          "content" => [
+            %{"type" => "input_text", "text" => "edit"},
+            %{"type" => "input_image", "file_id" => file_id},
+            %{"type" => "input_image", "file_id" => native_id},
+            %{"type" => "input_image", "file_id" => "file-provider-owned"},
+            %{"type" => "input_image", "file_id" => "ig_unknownprovider"},
+            %{"type" => "input_image", "image_url" => "https://example.test/kept.png"}
+          ]
+        }
+      ]
+    }
+
+    assert {:ok, resolved} = Artifacts.resolve_native_input(agent.principal.uid, request)
+
+    data_url = "data:image/png;base64,#{@png_base64}"
+    assert [hydrated, message] = resolved["input"]
+    assert hydrated["result"] == @png_base64
+
+    assert [_text, local_file, native_image, provider_file, unknown_native, external] =
+             message["content"]
+
+    assert local_file == %{"type" => "input_image", "image_url" => data_url}
+    assert native_image == %{"type" => "input_image", "image_url" => data_url}
+    assert provider_file == %{"type" => "input_image", "file_id" => "file-provider-owned"}
+    assert unknown_native == %{"type" => "input_image", "file_id" => "ig_unknownprovider"}
+    assert external == %{"type" => "input_image", "image_url" => "https://example.test/kept.png"}
+
+    dangling = %{
+      "input" => [
+        %{
+          "type" => "message",
+          "role" => "user",
+          "content" => [
+            %{"type" => "input_image", "file_id" => "file_#{UUIDv7.autogenerate()}"}
+          ]
+        }
+      ]
+    }
+
+    assert {:error, error} = Artifacts.resolve_native_input(agent.principal.uid, dangling)
+    assert error.status == 404
+  end
 end

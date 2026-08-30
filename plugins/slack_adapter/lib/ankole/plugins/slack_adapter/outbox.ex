@@ -8,6 +8,7 @@ defmodule Ankole.Plugins.SlackAdapter.Outbox do
   alias Ankole.Repo
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.{ActorEvent, OutboxEntry}
+  alias Ankole.SignalsGateway.ReplyPreviewAdapter
   alias Ankole.SignalsGateway.ReplyPreviewAdapter.Request
   alias Ankole.WorkerFiles
   alias SlackOpenAPI.Error
@@ -27,7 +28,7 @@ defmodule Ankole.Plugins.SlackAdapter.Outbox do
         %ActorEvent{} = event ->
           checkpoint = event.reply_preview_checkpoint || %{}
 
-          ReplyPreview.finalize(%Request{
+          ReplyPreviewAdapter.finalize_module(ReplyPreview, %Request{
             actor_event: event,
             presentation: presentation,
             checkpoint: checkpoint,
@@ -387,7 +388,7 @@ defmodule Ankole.Plugins.SlackAdapter.Outbox do
     end
   end
 
-  defp truncate(text, size), do: text |> String.graphemes() |> Enum.take(size) |> Enum.join()
+  defp truncate(text, size), do: String.slice(text, 0, size)
 
   defp config_for_outbox(outbox) do
     with {:ok, config_ref} <- SignalsGateway.outbox_binding_config_ref(outbox),

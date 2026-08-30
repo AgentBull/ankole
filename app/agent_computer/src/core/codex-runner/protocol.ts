@@ -1,48 +1,82 @@
+import { compareCodePointStrings } from '../../common/ordering'
 import { jsonObject, match } from '@agentbull/active-support'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
-import type { JSONRPCMessage } from './app-server-client'
-import type { BackgroundAgentJobStatus, BackgroundAgentJobTurnUsage } from '../../lanes/rpc_lane'
+import { sanitizeBinaryOutput, truncateUTF8Safe, utf8ByteLength } from '../../common/text-sanitize'
+import type { JSONRPCMessage } from './runtime/app-server-client'
+import type { BackgroundAgentJobStatus, BackgroundAgentJobTurnUsage } from '../background-agent-job-documents'
 import { boundedBackgroundAgentJobPaths, type BackgroundAgentJobPathHandoff } from '../background-agent-job-handoff'
+import { codexCredentialPoolExhaustion, type CodexCredentialPoolExhaustion } from './job/recovery-policy'
 
-export type CodexNotificationProjection =
-  | { type: 'stderr'; params: JSONObject }
+/** `threadID` is the notification's thread scope; the session resolves
+ * lead-versus-child against its own runtime thread. */
+export type CodexNotificationProjection = { threadID?: string } & (
+  | { type: 'stderr' }
   | { type: 'turn_started'; turnID?: string }
+  | { type: 'item_started'; item: JSONObject; turnID?: string }
   | { type: 'agent_completed'; text: string }
+  | { type: 'compaction_completed'; turnID?: string }
+  | { type: 'mcp_server_startup_failed'; server: string; failureReason?: string; error: string }
+  | { type: 'credential_pool_exhausted'; exhaustion: CodexCredentialPoolExhaustion }
   | { type: 'token_usage'; usage: BackgroundAgentJobTurnUsage }
   | { type: 'turn_diff'; filesChanged: BackgroundAgentJobPathHandoff }
   | {
       type: 'turn_completed'
+      turnID?: string
       codexTurnStatus: string
       terminalStatus: BackgroundAgentJobStatus
       error: JSONObject
     }
   | { type: 'ignored' }
+)
 
 export function projectCodexNotification(message: JSONRPCMessage): CodexNotificationProjection {
   const method = typeof message.method === 'string' ? message.method : ''
   const params = jsonObject(message.params)
+  const threadID = stringValue(params.threadId)
 
-  if (method === '$stderr') return { type: 'stderr', params }
+  if (method === '$stderr') return { type: 'stderr' }
 
   if (method === 'turn/started') {
     const turn = jsonObject(params.turn)
-    return { type: 'turn_started', turnID: stringValue(turn.id) }
+    return { type: 'turn_started', threadID, turnID: stringValue(turn.id) }
+  }
+
+  if (method === 'item/started') {
+    return { type: 'item_started', threadID, item: jsonObject(params.item), turnID: stringValue(params.turnId) }
   }
 
   if (method === 'item/completed') {
     const item = jsonObject(params.item)
     if (item.type === 'agentMessage' && typeof item.text === 'string') {
-      return { type: 'agent_completed', text: item.text }
+      return { type: 'agent_completed', threadID, text: item.text }
     }
+    if (item.type === 'contextCompaction') {
+      return { type: 'compaction_completed', threadID, turnID: stringValue(params.turnId) }
+    }
+  }
+
+  if (method === 'mcpServer/startupStatus/updated' && params.status === 'failed') {
+    return {
+      type: 'mcp_server_startup_failed',
+      threadID,
+      server: stringValue(params.name) ?? 'unknown',
+      failureReason: stringValue(params.failureReason),
+      error: boundedMCPStartupError(stringValue(params.error) ?? 'Codex MCP server failed to start')
+    }
+  }
+
+  if (method === 'error') {
+    const exhaustion = codexCredentialPoolExhaustion(jsonObject(params.error))
+    if (exhaustion) return { type: 'credential_pool_exhausted', threadID, exhaustion }
   }
 
   if (method === 'thread/tokenUsage/updated') {
     const usage = normalizeCodexThreadUsage(params.tokenUsage)
-    return usage ? { type: 'token_usage', usage } : { type: 'ignored' }
+    return usage ? { type: 'token_usage', threadID, usage } : { type: 'ignored' }
   }
 
   if (method === 'turn/diff/updated' && typeof params.diff === 'string') {
-    return { type: 'turn_diff', filesChanged: boundedFilesChangedFromCodexDiff(params.diff) }
+    return { type: 'turn_diff', threadID, filesChanged: boundedFilesChangedFromCodexDiff(params.diff) }
   }
 
   if (method === 'turn/completed') {
@@ -50,6 +84,8 @@ export function projectCodexNotification(message: JSONRPCMessage): CodexNotifica
     const codexTurnStatus = stringValue(turn.status) ?? 'unknown'
     return {
       type: 'turn_completed',
+      threadID,
+      turnID: stringValue(turn.id),
       codexTurnStatus,
       terminalStatus: terminalStatusFromCodexTurn(codexTurnStatus),
       error: jsonObject(turn.error)
@@ -57,6 +93,16 @@ export function projectCodexNotification(message: JSONRPCMessage): CodexNotifica
   }
 
   return { type: 'ignored' }
+}
+
+/** Maximum MCP startup diagnostic stored in a Worker log field. */
+const maxMCPStartupErrorBytes = 2_048
+
+function boundedMCPStartupError(value: string): string {
+  const sanitized = sanitizeBinaryOutput(value)
+  if (utf8ByteLength(sanitized) <= maxMCPStartupErrorBytes) return sanitized
+  const suffix = '...[truncated]'
+  return `${truncateUTF8Safe(sanitized, maxMCPStartupErrorBytes - utf8ByteLength(suffix))}${suffix}`
 }
 
 export function textInput(text: string): Array<JSONObject> {
@@ -68,20 +114,13 @@ export function stringValue(value: unknown): string | undefined {
 }
 
 export function normalizedCollaborationToolName(tool: string | undefined): string {
-  switch (tool) {
-    case 'spawnAgent':
-      return 'spawn_agent'
-    case 'sendInput':
-      return 'send_message'
-    case 'resumeAgent':
-      return 'followup_task'
-    case 'wait':
-      return 'wait_agent'
-    case 'closeAgent':
-      return 'interrupt_agent'
-    default:
-      return tool ?? 'agent_interaction'
-  }
+  return match(tool)
+    .with('spawnAgent', () => 'spawn_agent')
+    .with('sendInput', () => 'send_message')
+    .with('resumeAgent', () => 'followup_task')
+    .with('wait', () => 'wait_agent')
+    .with('closeAgent', () => 'interrupt_agent')
+    .otherwise(() => tool ?? 'agent_interaction')
 }
 
 export function normalizeCodexThreadUsage(value: unknown): BackgroundAgentJobTurnUsage | undefined {
@@ -99,7 +138,7 @@ export function normalizeCodexThreadUsage(value: unknown): BackgroundAgentJobTur
 
 export function boundedFilesChangedFromCodexDiff(diff: string): BackgroundAgentJobPathHandoff {
   const handoff = boundedBackgroundAgentJobPaths(codexChangedPaths(diff))
-  return { ...handoff, paths: [...handoff.paths].sort(compareCodePoints) }
+  return { ...handoff, paths: [...handoff.paths].sort(compareCodePointStrings) }
 }
 
 function* codexChangedPaths(diff: string): Generator<string> {
@@ -140,10 +179,6 @@ function usageBreakdown(value: unknown): BackgroundAgentJobTurnUsage['thread_tot
 
 function nonnegativeInteger(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : undefined
-}
-
-function compareCodePoints(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0
 }
 
 export function approvalRequestMethod(method: string): boolean {

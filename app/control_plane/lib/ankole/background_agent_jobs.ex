@@ -7,6 +7,9 @@ defmodule Ankole.BackgroundAgentJobs do
   control actions, queries, and turn persistence as separate responsibilities.
   """
 
+  @behaviour Ankole.SignalsGateway.ActorRuntime.AsyncWorkUnit
+
+  alias Ankole.I18n
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.BackgroundAgentJobs.Control
   alias Ankole.BackgroundAgentJobs.Schemas.Job
@@ -84,12 +87,52 @@ defmodule Ankole.BackgroundAgentJobs do
   def job_session_prefix, do: @job_session_prefix
 
   @doc false
+  @impl Ankole.SignalsGateway.ActorRuntime.AsyncWorkUnit
   @spec turn_error_retry_at(map(), pos_integer(), DateTime.t()) :: DateTime.t()
   def turn_error_retry_at(reason, delivery_attempt_no, %DateTime{} = now)
       when is_map(reason) and is_integer(delivery_attempt_no) and delivery_attempt_no > 0 do
     credential_pool_retry_at(reason, now) ||
       DateTime.add(now, ladder_seconds(turn_error_class(reason), delivery_attempt_no), :second)
   end
+
+  @doc false
+  @impl Ankole.SignalsGateway.ActorRuntime.AsyncWorkUnit
+  def dead_letter_after_turn_error?(%ActorEvent{}, _reason, recoverable?)
+      when is_boolean(recoverable?),
+      do: not recoverable?
+
+  @background_job_wakeup_notice_keys %{
+    "background_agent_job.completed" => "background_agent_job_dead_letter_succeeded",
+    "background_agent_job.failed" => "background_agent_job_dead_letter_failed",
+    "background_agent_job.waiting" => "background_agent_job_dead_letter_waiting"
+  }
+
+  @doc false
+  @impl Ankole.SignalsGateway.ActorRuntime.AsyncWorkUnit
+  def dead_letter_notice_text(%ActorEvent{type: type} = event)
+      when is_map_key(@background_job_wakeup_notice_keys, type) do
+    data = get_in(event.payload || %{}, ["data"]) || %{}
+
+    detail =
+      [
+        text_value(data["result_summary"]),
+        artifacts_notice_line(data["artifacts"]),
+        successor_notice_line(data["successor_job_id"])
+      ]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.join("\n")
+
+    I18n.t(
+      "signals_gateway.reply.#{Map.fetch!(@background_job_wakeup_notice_keys, type)}",
+      %{
+        "job_id" => data["job_id"] || 0,
+        "title" => text_value(data["title"]) || "",
+        "detail" => detail
+      }
+    )
+  end
+
+  def dead_letter_notice_text(%ActorEvent{}), do: nil
 
   defp ladder_seconds(:infrastructure, delivery_attempt_no) do
     Enum.at(
@@ -130,8 +173,15 @@ defmodule Ankole.BackgroundAgentJobs do
   defdelegate respawn_with_dispatch(source_job_id, attrs), to: Dispatch
 
   @doc false
-  defdelegate claim_attempt_in_tx(repo, job_id, agent_uid, expected_attempt, turn_start_spec),
-    to: Lifecycle
+  defdelegate claim_attempt_in_tx(
+                repo,
+                job_id,
+                agent_uid,
+                expected_attempt,
+                turn_start_spec,
+                max_running_per_agent
+              ),
+              to: Lifecycle
 
   @doc false
   defdelegate claim_continuation_in_tx(
@@ -139,7 +189,8 @@ defmodule Ankole.BackgroundAgentJobs do
                 job_id,
                 agent_uid,
                 expected_attempt,
-                turn_start_spec
+                turn_start_spec,
+                max_running_per_agent
               ),
               to: Lifecycle
 
@@ -200,6 +251,7 @@ defmodule Ankole.BackgroundAgentJobs do
   end
 
   @doc false
+  @impl Ankole.SignalsGateway.ActorRuntime.AsyncWorkUnit
   def compensate_turn_error_in_tx(
         repo,
         %ActorEvent{
@@ -314,6 +366,25 @@ defmodule Ankole.BackgroundAgentJobs do
   def compensate_turn_error_in_tx(_repo, %ActorEvent{}, _reason, %DateTime{}),
     do: {:ok, nil}
 
+  defp text_value(value) when is_binary(value) and value != "", do: value
+  defp text_value(_value), do: nil
+
+  defp artifacts_notice_line(%{"paths" => paths}) when is_list(paths) and paths != [] do
+    I18n.t("signals_gateway.reply.background_agent_job_dead_letter_artifacts", %{
+      "paths" => Enum.join(paths, ", ")
+    })
+  end
+
+  defp artifacts_notice_line(_artifacts), do: nil
+
+  defp successor_notice_line(successor_job_id) when is_integer(successor_job_id) do
+    I18n.t("signals_gateway.reply.background_agent_job_dead_letter_successor", %{
+      "successor_job_id" => successor_job_id
+    })
+  end
+
+  defp successor_notice_line(_successor), do: nil
+
   # Context overflow is an automatic compact-and-retry recovery, not the task
   # failing, so it consumes no execution-failure budget.
   defp charged_turn_error?(%{"code" => "context_overflow"}), do: false
@@ -406,14 +477,33 @@ defmodule Ankole.BackgroundAgentJobs do
   @doc false
   defdelegate worker_turn_projection(turn), to: Turns, as: :worker_projection
 
+  @doc "Projects complete runtime turns for Console."
+  defdelegate console_turn_projections(turns), to: Turns, as: :console_projections
+
   @doc "Durably requests cancellation without trusting worker-local state."
   defdelegate request_stop(job_id, attrs), to: Control
+
+  @doc """
+  Lists live Job ids whose owner session is one of the given sessions.
+
+  Workflow terminal cleanup uses this to stop the Jobs its task sessions
+  delegated. The owner session is the creation-time parent link, so no extra
+  binding storage exists.
+  """
+  defdelegate live_job_ids_for_owner_sessions(session_ids, agent_uid), to: Queries
 
   @doc "Commits an externally verified completion with the caller's result summary."
   defdelegate request_complete(job_id, attrs), to: Control
 
   @doc "Journals one message for a live Job."
   defdelegate send_message(job_id, attrs), to: Control
+
+  @doc false
+  defdelegate lock_ambient_handoff_target_in_tx(repo, agent_uid, job_id), to: Control
+
+  @doc false
+  defdelegate handoff_ambient_message_in_tx(repo, source_event, job, message, now),
+    to: Control
 
   @doc false
   defdelegate message_result(job, command_event_id, caller_session_id), to: Turns
@@ -427,9 +517,6 @@ defmodule Ankole.BackgroundAgentJobs do
 
   @doc "Pages the lead-thread turn items of one job's workspace lineage for thread replay."
   defdelegate replay_items_page(job, cursor), to: Turns
-
-  @doc "Projects one complete runtime turn for Console."
-  defdelegate console_turn_projection(turn), to: Turns, as: :console_projection
 
   @doc "Fetches one job for an agent."
   defdelegate get_job_for_agent(job_id, agent_uid), to: Queries, as: :get_for_agent

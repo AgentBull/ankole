@@ -3,7 +3,7 @@ defmodule Ankole.IdentityProviders.StartupSync do
   One-shot boot edge for identity-provider full directory sync.
   """
 
-  alias Ankole.IdentityProviders
+  alias Ankole.IdentityProviders.DirectorySync
   alias Ankole.Logging
 
   def child_spec(opts) do
@@ -24,7 +24,7 @@ defmodule Ankole.IdentityProviders.StartupSync do
     reason = Keyword.get(opts, :reason, "control_plane_started")
     source = Keyword.get(opts, :source, "startup")
 
-    case IdentityProviders.enqueue_directory_syncs(reason: reason, source: source) do
+    case DirectorySync.enqueue_directory_syncs(reason: reason, source: source) do
       {:ok, _result} = ok ->
         ok
 
