@@ -474,7 +474,11 @@ jobs:
     needs:
       - inspect_existing
       - verify_pair
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    # A manual dispatch on main publishes too: a changelog-only release
+    # promotion cannot arrive as a qualifying push because CHANGELOG.md is
+    # paths-ignored, and the immutable-version check still rejects any
+    # attempt to re-release an existing version.
+    if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' }}
     permissions:
       contents: write
       packages: write

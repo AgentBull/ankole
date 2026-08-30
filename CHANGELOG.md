@@ -3,6 +3,7 @@
 ## Version 1.0.0 (2026-08-31)
 
 - Promotes `1.0.0-rc.2` to the stable `1.0.0` release with no functional changes. Everything new since the `0.76` line is described in the `1.0.0-rc` and `1.0.0-alpha` sections below.
+- A manually dispatched image workflow run on `main` now also publishes the versioned release, so a changelog-only release promotion can ship; re-releasing an existing version is still rejected by the immutable-tag check.
 
 ## Version 1.0.0-rc.2 (2026-08-30)
 
