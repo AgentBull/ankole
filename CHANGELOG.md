@@ -1,5 +1,9 @@
 # Changelog
 
+## Version 1.0.0 (2026-08-31)
+
+- Promotes `1.0.0-rc.2` to the stable `1.0.0` release with no functional changes. Everything new since the `0.76` line is described in the `1.0.0-rc` and `1.0.0-alpha` sections below.
+
 ## Version 1.0.0-rc.2 (2026-08-30)
 
 - Console editors now stop an incomplete save in place: the page focuses the first missing or invalid field and shows a message in the app language next to that field, instead of a generic English "request failed" banner. Leaving a required field empty flags it as soon as you move on, with the same timing in every editor. Draft problems and real request failures now use separate banners.
